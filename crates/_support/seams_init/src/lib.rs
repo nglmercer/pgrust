@@ -275,6 +275,7 @@ pub fn init_all_with_transport(transport: Transport) {
     postgres_fdw::init_seams();
     ltree::init_seams();
     intarray::init_seams();
+    #[cfg(feature = "pgcrypto")]
     pgcrypto::init_seams();
     pg_stat_statements::init_seams();
     pg_buffercache::init_seams();
