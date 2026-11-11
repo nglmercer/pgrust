@@ -1,3 +1,4 @@
+#![cfg(feature = "wasmtime-oracle")]
 //! `IntBinOp::Umulh` (V4R-206) gives the same word on TPDE, the interpreter and wasm, and that word is the high half
 //! of the unsigned 128-bit product: over edge words (0, 1, all ones, single bits, the sign bit, the datetime divides'
 //! Granlund-Montgomery magics) crossed with each other and with random words, with a run-time operand and with a

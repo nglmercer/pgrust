@@ -16,6 +16,13 @@ gravity_program = { path = "../../program" }
 gravity_abi = { path = "../../abi" }
 wasm-encoder = "0.259"
 
+wasmtime = { version = "48", default-features = false, features = ["cranelift", "runtime", "std"], optional = true }
+
+# Oracle tests that run compiled code under wasmtime (cranelift). Off by default: the tests that need it
+# are compiled out, so a plain build or test run does not compile wasmtime. Run them with --features wasmtime-oracle.
+[features]
+wasmtime-oracle = ["dep:wasmtime"]
+
 [dev-dependencies]
 gravity_ir = { path = "../../ir", features = ["text-loader"] }
 wasm-encoder = "0.259"
@@ -44,7 +51,6 @@ mbutils = { path = "../../../backend/utils/mb/mbutils" }
 regex_core = { path = "../../../backend/regex/regex_core" }
 adt_regexp = { path = "../../../backend/utils/adt/regexp" }
 gravity_dict = { path = "../../dict" }
-wasmtime = { version = "48", default-features = false, features = ["cranelift", "runtime", "std"] }
 
 # The integration tests (tests/*.rs). The files that can share one process are modules of ONE test binary,
 # gravity_wasm_suite (tests/gravity_wasm_suite.rs: `#[path = "<stem>.rs"]` and `mod t_<stem>;` per file); ct runs it

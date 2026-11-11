@@ -66,12 +66,18 @@ typcache_seams = { path = "../../backend/utils/cache/typcache_seams" }
 # check_stack_depth at each level of the compiler's and tier 0's recursions (54001, never the thread's stack end)
 stack_depth_core = { path = "../../backend/utils/misc/stack_depth_core" }
 
+wasmtime = { version = "48", default-features = false, features = ["cranelift", "runtime", "std"], optional = true }
+
+# Oracle tests that run compiled code under wasmtime (cranelift). Off by default: the tests that need it
+# are compiled out, so a plain build or test run does not compile wasmtime. Run them with --features wasmtime-oracle.
+[features]
+wasmtime-oracle = ["dep:wasmtime"]
+
 [dev-dependencies]
 types_rel = { path = "../../_support/types/rel" }
 relation_seams = { path = "../../backend/access/common/relation_seams" }
 gravity_backend = { path = "../backend" }
 gravity_wasm = { path = "../backend/wasm" }
-wasmtime = { version = "48", default-features = false, features = ["cranelift", "runtime", "std"] }
 sequence_seams = { path = "../../backend/commands/sequence_seams" }
 gravity_lint = { path = "../lint" }
 heaptuple = { path = "../../backend/access/common/heaptuple" }

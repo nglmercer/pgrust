@@ -1,3 +1,4 @@
+#![cfg(feature = "wasmtime-oracle")]
 //! Diagnostic only (the bar for wasm speed is a later stage): the corpus
 //! loops under wasmtime against the interpreter, and the compiler's own
 //! latency per program; printed with `--nocapture`.

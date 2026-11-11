@@ -1,3 +1,4 @@
+#![cfg(feature = "wasmtime-oracle")]
 //! Irreducible control flow through the dispatch transform (agreement
 //! with the interpreter), and the typed refusal of a host whose address
 //! is not a table index.

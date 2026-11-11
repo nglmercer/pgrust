@@ -1,3 +1,4 @@
+#![cfg(feature = "wasmtime-oracle")]
 //! `gravity_interp/tests/programs.rs`'s text corpus (loops, parallel
 //! copies, memory, recursion, `switch`, narrow widths, f32, hosts with
 //! stack slots) through the wasm backend under wasmtime, against the

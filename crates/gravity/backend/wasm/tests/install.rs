@@ -1,3 +1,4 @@
+#![cfg(feature = "wasmtime-oracle")]
 //! The wasm32 server's install path, natively (lane wasmjit stage 2): `compile_entries` exports every entry as
 //! `entry<i>` from one module, the entries go into table slots and run through `call_indirect` (the server's direct call
 //! of a table-index function pointer), and the shadow stack floor (`StackGuard`) calls the overflow host before a frame

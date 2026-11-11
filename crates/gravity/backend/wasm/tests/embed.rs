@@ -1,3 +1,4 @@
+#![cfg(feature = "wasmtime-oracle")]
 //! The `Code` shape: `WasmCode` over an `Embedder` (wasmtime here) runs
 //! through `gravity_program::Code::call` with the `Ctx` argument as a
 //! guest offset (P-A's truncation).
