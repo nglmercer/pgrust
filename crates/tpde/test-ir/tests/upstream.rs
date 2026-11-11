@@ -3,6 +3,7 @@
 #![cfg(feature = "upstream-oracle")]
 
 mod cases;
+#[rustfmt::skip]
 #[path = "../../test-support/oracle.rs"]
 mod oracle;
 mod snapshot;

@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2024 Alexis Engelke
 // SPDX-License-Identifier: BSD-3-Clause
 
+#[rustfmt::skip]
 #[path = "../../test-support/oracle.rs"]
 mod oracle;
 

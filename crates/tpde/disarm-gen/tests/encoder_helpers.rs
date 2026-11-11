@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BSD-3-Clause
 #![cfg(feature = "upstream-oracle")]
 
+#[rustfmt::skip]
 #[path = "../../test-support/oracle.rs"]
 mod oracle;
 

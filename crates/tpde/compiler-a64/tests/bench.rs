@@ -12,9 +12,11 @@
 //! per-round ratios and verdicts use corpus totals of per-case medians.
 #![cfg(feature = "upstream-oracle")]
 #[allow(dead_code)]
+#[rustfmt::skip]
 #[path = "../../test-support/oracle.rs"]
 mod oracle;
 #[allow(dead_code)]
+#[rustfmt::skip]
 #[path = "../../test-support/perf.rs"]
 mod perf;
 mod raw_cases;

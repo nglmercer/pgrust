@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2025 Contributors to TPDE <https://tpde.org>
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
+#[rustfmt::skip]
 #[path = "../../../test-support/oracle.rs"]
 mod oracle;
 

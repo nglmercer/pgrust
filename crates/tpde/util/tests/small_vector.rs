@@ -13,6 +13,7 @@ mod memory;
 mod unit;
 
 #[cfg(feature = "upstream-oracle")]
+#[rustfmt::skip]
 #[path = "../../test-support/oracle.rs"]
 mod oracle;
 
