@@ -1,5 +1,6 @@
 //! Tier 0's compile pool stopped (backend promote.rs `stop`, its own test binary: a stop holds for the process): queued
 //! jobs are dropped, the threads end, and a later miss's promotion compiles inline as before the pool.
+#![cfg(feature = "native-code")]
 
 use std::sync::atomic::Ordering;
 

@@ -1,6 +1,7 @@
 //! Tier 0's asynchronous promotion (C03 / DR-21, backend promote.rs) and the code cache's in-flight marker (cache.rs
 //! `claim`): under `PGRUST_GRAVITY_TIER0=force` a miss interprets and its module is filed by the compile pool beside the run;
 //! one key compiles once however many callers miss it at once; a compile that fails or panics leaves the key unfiled.
+#![cfg(feature = "native-code")]
 
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Duration;

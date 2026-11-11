@@ -8,6 +8,11 @@ publish.workspace = true
 name = "postmaster"
 path = "src/lib.rs"
 
+[features]
+default = ["native-code"]
+# Native code (gravity_backend's TPDE compiler): on by default; off, programs run in tier 0's interpreter.
+native-code = ["launch_backend/native-code", "syslogger/native-code"]
+
 [dependencies]
 pagegive = { path = "../../../_support/pagegive" }
 aio_core = { path = "../../storage/aio/aio_core" }
@@ -45,7 +50,7 @@ ipci = { path = "../../storage/ipc/ipci" }
 bufmgr = { path = "../../storage/buffer/bufmgr" }
 varsup = { path = "../../access/transam/varsup" }
 transam_xlog = { path = "../../access/transam/transam_xlog" }
-launch_backend = { path = "../launch_backend" }
+launch_backend = { path = "../launch_backend", default-features = false }
 pgrc_maint = { path = "../../access/pgrcolumnar/pgrc_maint" }
 memruntime = { path = "../memruntime" }
 slotsync = { path = "../../replication/slotsync" }
@@ -68,7 +73,7 @@ pgsync = { path = "../../../_support/pgsync" }
 miscinit_seams = { path = "../../utils/init/miscinit_seams" }
 auth_seams = { path = "../../libpq/auth_seams" }
 autovacuum_seams = { path = "../autovacuum_seams" }
-syslogger = { path = "../syslogger" }
+syslogger = { path = "../syslogger", default-features = false }
 syslogger_seams = { path = "../syslogger_seams" }
 janitor_seams = { path = "../janitor_seams" }
 instaux = { path = "../instaux" }

@@ -9,7 +9,11 @@ use types_error::{PgError, PgResult, ERRCODE_INVALID_PARAMETER_VALUE};
 
 pub use gravity_interp;
 pub use gravity_ir;
+#[cfg(feature = "native-code")]
 pub use gravity_tpde;
+/// Without `native-code`, the same name is the stub that refuses every compile.
+#[cfg(not(feature = "native-code"))]
+pub extern crate gravity_tpde_off as gravity_tpde;
 
 pub mod cache;
 pub mod dump;
@@ -85,9 +89,9 @@ pub fn mapped_cached_keyed(program: &Program, entries: &[Func], key: Option<cach
             }
         }
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(any(target_os = "macos", not(feature = "native-code"))))]
     return compiled_keyed(key, program, entries);
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", not(feature = "native-code")))]
     return compiled_or_interpreted(key, program, entries);
 }
 
@@ -95,7 +99,7 @@ pub fn mapped_cached_keyed(program: &Program, entries: &[Func], key: Option<cach
 /// whose runtime forbids writable-then-executable memory) runs the program interpreted (tier 0's interpreter, the
 /// reference semantics, uncached: the next miss tries the compile again) instead of failing the statement. Every other
 /// error, and a program the interpreter refuses, stays the compile's error.
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", not(feature = "native-code")))]
 fn compiled_or_interpreted(key: cache::CodeKey, program: &Program, entries: &[Func]) -> PgResult<(Vec<Code>, Outcome)> {
     match compiled_keyed(key, program, entries) {
         Err(e) if e.message() == gravity_tpde::MAPPING_REFUSED && tier0_ok(program).is_ok() => {
@@ -112,7 +116,7 @@ fn compiled_or_interpreted(key: cache::CodeKey, program: &Program, entries: &[Fu
 }
 
 /// Misses whose compile the platform refused to map, run interpreted instead (`compiled_or_interpreted`, macOS only).
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", not(feature = "native-code")))]
 pub static MAPPING_REFUSED_INTERPRETED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 /// A TPDE compile's scratch context, owned at birth as the code's root is (`cache::birth_owner`: the compiling

@@ -691,7 +691,7 @@ pub fn reset() {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "native-code"))]
 #[allow(unsafe_code)]
 mod tests {
     use super::*;

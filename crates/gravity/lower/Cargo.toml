@@ -9,6 +9,11 @@ autotests = false
 name = "gravity_lower"
 path = "src/lib.rs"
 
+[features]
+default = ["native-code"]
+# Native code (gravity_backend's TPDE compiler): on by default; off, programs run in tier 0's interpreter.
+native-code = ["gravity_backend/native-code"]
+
 [dependencies]
 # C7 runtime half: its leader-class thread-locals are declared through leader_tls!
 leader_tls = { path = "../../_support/leader_tls" }
@@ -24,7 +29,7 @@ gravity_program = { path = "../program" }
 gravity_decompose = { path = "../decompose" }
 gravity_expr = { path = "../expr" }
 gravity_ir = { path = "../ir" }
-gravity_backend = { path = "../backend" }
+gravity_backend = { path = "../backend", default-features = false }
 datum = { path = "../../_support/types/datum" }
 mcx = { path = "../../_support/mcx" }
 types_core = { path = "../../_support/types/types_core" }

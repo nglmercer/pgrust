@@ -11,6 +11,9 @@ path = "src/lib.rs"
 # pgcrypto is a contrib extension and OFF by default (it pulls nine RustCrypto crates). main_main's `pgcrypto` and
 # `full` features turn it on; a server built without it answers CREATE EXTENSION pgcrypto as a C install without the module.
 [features]
+default = ["native-code"]
+# Native code (gravity_backend's TPDE compiler): on by default; off, programs run in tier 0's interpreter.
+native-code = ["gravity_exec/native-code", "launch_backend/native-code", "pmchild/native-code", "postmaster/native-code", "syslogger/native-code"]
 pgcrypto = ["dep:pgcrypto"]
 # One feature per optional contrib extension (named like the extension); `contrib` turns all of them on.
 postgres_fdw = ["dep:postgres_fdw"]
@@ -189,7 +192,7 @@ tableam_seams = { path = "../../backend/access/table/tableam_seams" }
 pgrc_front = { path = "../../backend/access/pgrcolumnar/pgrc_front" }
 pgrc_colcache = { path = "../../backend/access/pgrcolumnar/pgrc_colcache" }
 pgrc_wal = { path = "../../backend/access/pgrcolumnar/pgrc_wal" }
-gravity_exec = { path = "../../gravity/exec" }
+gravity_exec = { path = "../../gravity/exec", default-features = false }
 execscan = { path = "../../backend/executor/execscan" }
 tablesample = { path = "../../backend/access/tablesample/tablesample" }
 tuplesort = { path = "../../backend/utils/sort/tuplesort" }
@@ -218,9 +221,9 @@ parse_utilcmd = { path = "../../backend/parser/parse_utilcmd" }
 parser_analyze = { path = "../../backend/parser/parser_analyze" }
 scan_fgram = { path = "../../backend/parser/scan_fgram" }
 interrupt = { path = "../../backend/postmaster/interrupt" }
-launch_backend = { path = "../../backend/postmaster/launch_backend" }
-pmchild = { path = "../../backend/postmaster/pmchild" }
-postmaster = { path = "../../backend/postmaster/postmaster" }
+launch_backend = { path = "../../backend/postmaster/launch_backend", default-features = false }
+pmchild = { path = "../../backend/postmaster/pmchild", default-features = false }
+postmaster = { path = "../../backend/postmaster/postmaster", default-features = false }
 auxprocess = { path = "../../backend/postmaster/auxprocess" }
 checkpointer = { path = "../../backend/postmaster/checkpointer" }
 syncscan = { path = "../../backend/access/common/syncscan" }
@@ -374,7 +377,7 @@ twophase_config = { path = "../../backend/access/transam/twophase_config" }
 pg_sema = { path = "../../backend/port/pg_sema" }
 autovacuum = { path = "../../backend/postmaster/autovacuum" }
 janitor = { path = "../../backend/postmaster/janitor" }
-syslogger = { path = "../../backend/postmaster/syslogger" }
+syslogger = { path = "../../backend/postmaster/syslogger", default-features = false }
 launcher = { path = "../../backend/replication/launcher" }
 walsender_config = { path = "../../backend/replication/walsender_config" }
 walsender = { path = "../../backend/replication/walsender" }

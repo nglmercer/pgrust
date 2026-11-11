@@ -3,6 +3,7 @@
 //! entry's own blocks (its Arc block, its root's header, the compile's headers) and the session that later evicted the entry
 //! freed them: UNBOUND only rose, and that session's account fell by the same bytes. Door 1 counts every block on the
 //! calling thread here, as the server's allocator does.
+#![cfg(feature = "native-code")]
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::atomic::Ordering;
 

@@ -1,0 +1,18 @@
+[package]
+name = "gravity_tpde_off"
+version = "0.0.0"
+edition.workspace = true
+publish.workspace = true
+
+# gravity_tpde's public API with no code generator behind it: what gravity_backend links when its `native-code` feature
+# is off, so the TPDE compiler family (the tpde_* crates, ~50k lines) is not built. Every compile is refused with
+# MAPPING_REFUSED, the answer gravity_backend already turns into "run it interpreted" (tier 0).
+[lib]
+name = "gravity_tpde_off"
+path = "src/lib.rs"
+
+[dependencies]
+cancelpoll = { path = "../../../_support/cancelpoll" }
+gravity_ir = { path = "../../ir" }
+mcx = { path = "../../../_support/mcx" }
+types_error = { path = "../../../_support/types/types_error" }

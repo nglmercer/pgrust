@@ -313,6 +313,11 @@ Snappy or Brotli is refused with an error, and text search dictionaries only hav
 one back on; a single contrib extension is `--features seams_init/hstore` (the names are in `seams_init/Cargo.toml`). To keep
 only some stemmers, depend on `dict_snowball` with `default-features = false` and its `lang-<name>` features.
 
+`main_main/native-code` (on by default, so `full` and plain builds have it) is the TPDE machine-code compiler of the
+query executor (about 50k lines): `--no-default-features --features pagepool-global` leaves it out. That build compiles
+every program through tier 0's interpreter instead and fails a statement the interpreter refuses (`gravity_tpde: mapping
+refused on this platform`), so it is for platforms or checks that give up native code on purpose, not for general use.
+
 `select version()` names the build: a build in a git checkout prints its short
 commit (`PostgreSQL 18.6 (pgrust 0.4-beta, build 1a2b3c4) on ...`); set
 `PGRUST_BUILD_ID` at build time to choose the id, or build outside git for none.

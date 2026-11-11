@@ -1,6 +1,7 @@
 //! H16 (d) (main 09-24): under the tier-0 knob (`PGRUST_GRAVITY_TIER0=force` here, read once per process: this binary's
 //! one test sets it first) a code-cache miss hands back interpreted tier-0 code; its promotion compiles through the process
 //! cache, after which a miss of the same IR elsewhere is a hit; a program whose hosts the interpreter refuses compiles at once.
+#![cfg(feature = "native-code")]
 
 use std::sync::atomic::Ordering;
 

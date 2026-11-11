@@ -8,6 +8,11 @@ publish.workspace = true
 name = "pmchild"
 path = "src/lib.rs"
 
+[features]
+default = ["native-code"]
+# Native code (gravity_backend's TPDE compiler): on by default; off, programs run in tier 0's interpreter.
+native-code = ["launch_backend/native-code"]
+
 [dependencies]
 types_core = { path = "../../../_support/types/types_core" }
 types_error = { path = "../../../_support/types/types_error" }
@@ -18,7 +23,7 @@ miscinit = { path = "../../utils/init/miscinit" }
 guc_tables = { path = "../../utils/misc/guc_tables" }
 pmsignal = { path = "../../storage/ipc/pmsignal" }
 procsignal = { path = "../../storage/ipc/procsignal" }
-launch_backend = { path = "../launch_backend" }
+launch_backend = { path = "../launch_backend", default-features = false }
 pmchild_seams = { path = "../pmchild_seams" }
 
 [dev-dependencies]

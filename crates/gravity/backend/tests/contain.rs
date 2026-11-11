@@ -4,6 +4,7 @@
 //! not dominate. `gravity_ir::verify` refuses both since F2 (76bc6f92047, 3d92e2d62a1), so a lowering that runs it
 //! (lowerv4's every lowering) never reaches the backend with them; the backend itself does not verify, and this test hands
 //! it the modules directly, as a caller that skipped verify would: the containment is the second line behind the verifier.
+#![cfg(feature = "native-code")]
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
 use gravity_ir::builder::ProgramBuilder;

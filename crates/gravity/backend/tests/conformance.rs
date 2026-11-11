@@ -1,6 +1,7 @@
 //! Two-backend conformance (milestone-2.md §2a): one IR program through TPDE and the interpreter, as
 //! `Code`, run by the real driver on the fixture rig; the results are byte-identical to each other and
 //! to the hand kernel at every width.
+#![cfg(feature = "native-code")]
 #[path = "../../parallel/tests/common/mod.rs"]
 mod common;
 

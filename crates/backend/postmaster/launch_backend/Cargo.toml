@@ -14,6 +14,9 @@ path = "src/lib.rs"
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(pgrust_sim)'] }
 
 [features]
+default = ["native-code"]
+# Native code (gravity_backend's TPDE compiler): on by default; off, programs run in tier 0's interpreter.
+native-code = ["gravity_prewarm/native-code"]
 # B1 lifecycle crash primitive (src/crash_primitive.rs). Opt-in ONLY: never
 # enabled by a release build, so the crash entry points are compiled out of a
 # shipped server. Enabled by the lifecycle differential/invariant tests.
@@ -41,7 +44,7 @@ pgrc_am = { path = "../../access/pgrcolumnar/pgrc_am" }
 gravity_pool = { path = "../../../gravity/pool" }
 gravity_parallel = { path = "../../../gravity/parallel" }
 gravity_hosts = { path = "../../../gravity/hosts" }
-gravity_prewarm = { path = "../../../gravity/prewarm" }
+gravity_prewarm = { path = "../../../gravity/prewarm", default-features = false }
 bgjobs = { path = "../bgjobs" }
 stack_depth = { path = "../../utils/misc/stack_depth" }
 backend_startup = { path = "../../tcop/backend_startup" }

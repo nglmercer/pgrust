@@ -9,6 +9,14 @@ autotests = false
 name = "gravity_backend"
 path = "src/lib.rs"
 
+[features]
+default = ["native-code"]
+# Native code through TPDE (~50k lines of compiler). Off: every compile is refused with MAPPING_REFUSED and a program
+# runs in tier 0's interpreter (the macOS safety net, src/lib.rs), or the statement fails when the interpreter
+# refuses the program. Only a build that gives up native code on purpose turns it off; every dependent that wants
+# the default must keep default-features on.
+native-code = ["dep:gravity_tpde"]
+
 [dependencies]
 # C7 runtime half: its leader-class thread-locals are declared through leader_tls!
 leader_tls = { path = "../../_support/leader_tls" }
@@ -21,7 +29,9 @@ gravity_program = { path = "../program" }
 gravity_ir = { path = "../ir" }
 gravity_driver = { path = "../driver" }
 gravity_interp = { path = "interp" }
-gravity_tpde = { path = "tpde" }
+# The TPDE code generator (`native-code`, on by default) or, without it, the same API refusing every compile.
+gravity_tpde = { path = "tpde", optional = true }
+gravity_tpde_off = { path = "tpde_off" }
 fires = { path = "../../_support/fires" }
 # planprod P2: an entry's root context is owned by construction (SendRoot::new_owned, set_owner), mcx's std API (on in
 # every server build already, through init_small)
@@ -53,6 +63,10 @@ gravity_kernels = { path = "../kernels" }
 [[test]]
 name = "gravity_backend_suite"
 path = "tests/gravity_backend_suite.rs"
+
+[[test]]
+name = "interpreter_only"
+path = "tests/interpreter_only.rs"
 
 [[test]]
 name = "dump_knob"

@@ -7864,6 +7864,7 @@ dependencies = [
  "gravity_parallel",
  "gravity_program",
  "gravity_tpde",
+ "gravity_tpde_off",
  "gravity_wasm",
  "leader_tls",
  "mcx",
@@ -9089,6 +9090,16 @@ dependencies = [
  "tpde_function_writer_a64",
  "tpde_function_writer_x64",
  "tpde_util",
+ "types_error",
+]
+
+[[package]]
+name = "gravity_tpde_off"
+version = "0.0.0"
+dependencies = [
+ "cancelpoll",
+ "gravity_ir",
+ "mcx",
  "types_error",
 ]
 
