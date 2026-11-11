@@ -69,11 +69,10 @@ fn checkcondition_hl<'mcx>(
         }
         Some(data) => {
             for w in words {
-                if w.item == Some(item_idx) {
-                    if data.pos.is_empty() || *data.pos.last().unwrap() < w.pos {
+                if w.item == Some(item_idx)
+                    && (data.pos.is_empty() || *data.pos.last().unwrap() < w.pos) {
                         data.pos.push(w.pos);
                     }
-                }
             }
             if data.npos() > 0 {
                 Ternary::Yes

@@ -269,7 +269,7 @@ pub fn XLogFilePath(tli: TimeLineID, segno: XLogSegNo, wal_segsz: i32) -> String
 }
 
 pub const fn INSERT_FREESPACE(endptr: XLogRecPtr) -> usize {
-    if endptr % XLOG_BLCKSZ as u64 == 0 {
+    if endptr.is_multiple_of(XLOG_BLCKSZ as u64) {
         0
     } else {
         XLOG_BLCKSZ - (endptr % XLOG_BLCKSZ as u64) as usize

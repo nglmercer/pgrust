@@ -829,7 +829,7 @@ pub fn innerrel_is_unique_ext<'mcx>(
             extra_clauses: pgvec_clone_shallow(run.mcx, &outer_exprs),
         };
         run.root.rel_mut(innerrel).unique_for_rels.push(info);
-        if let Some(out) = extra_clauses.as_deref_mut() {
+        if let Some(out) = extra_clauses {
             *out = outer_exprs;
         }
         Ok(true)

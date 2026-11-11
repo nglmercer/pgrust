@@ -65,8 +65,8 @@ impl Opcode {
             ("M7.", 7),
             ("", 0),
         ] {
-            if let Some(suffix) = rest.strip_prefix(candidate) {
-                if let Some((opc, extended, modrm)) = parse_opcode_tail(suffix) {
+            if let Some(suffix) = rest.strip_prefix(candidate)
+                && let Some((opc, extended, modrm)) = parse_opcode_tail(suffix) {
                     return Ok(Self {
                         prefix,
                         escape,
@@ -78,7 +78,6 @@ impl Opcode {
                         rexw,
                     });
                 }
-            }
         }
         Err(invalid())
     }
@@ -297,11 +296,10 @@ pub fn verify_opcode_desc(opcode: &Opcode, desc: &InstrDesc) -> Result<()> {
         let operand = desc.operand(flags.modrm_idx ^ 3)?;
         for (length, tuple_size) in sizes.into_iter().enumerate() {
             let operand_size = operand.abssize(Some(0), Some(16 << length))?;
-            if let Some(tuple_size) = tuple_size {
-                if operand_size != tuple_size {
+            if let Some(tuple_size) = tuple_size
+                && operand_size != tuple_size {
                     return fail(&format!("memory size {operand_size} != {tuple_size}"));
                 }
-            }
         }
     }
     Ok(())

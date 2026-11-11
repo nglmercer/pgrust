@@ -95,7 +95,7 @@ fn parse_logical_rewrite_name(name: &str) -> Option<XLogRecPtr> {
         let start = i;
         let mut v: u32 = 0;
         while i < b.len() && b[i].is_ascii_hexdigit() {
-            v = v.wrapping_mul(16).wrapping_add((b[i] as char).to_digit(16)? as u32);
+            v = v.wrapping_mul(16).wrapping_add((b[i] as char).to_digit(16)?);
             i += 1;
         }
         if i == start {
@@ -440,7 +440,7 @@ fn checkpoint_fsync_mapping_file(file: &std::fs::File, path: &std::path::Path) -
         // lost mapping data.
         return ereport(fd::data_sync_elevel(ERROR))
             .errcode_for_file_access()
-            .errmsg(format!("could not fsync file \"{}\": {PCT_M}", mapping_relpath(&path)))
+            .errmsg(format!("could not fsync file \"{}\": {PCT_M}", mapping_relpath(path)))
             .finish(loc(1249, "CheckPointLogicalRewriteHeap"));
     }
     Ok(())

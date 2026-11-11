@@ -860,7 +860,7 @@ fn generate_base_implied_equalities_no_const(run: &mut PlannerRun<'_>, ec: EcId)
         else {
             continue;
         };
-        debug_assert!((relid as i32) < run.root.simple_rel_array_size);
+        debug_assert!(relid < run.root.simple_rel_array_size);
 
         if let Some(prev_em) = prev_ems[relid as usize] {
             let eq_op = select_equality_operator(

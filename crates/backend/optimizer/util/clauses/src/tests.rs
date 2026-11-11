@@ -643,22 +643,22 @@ fn eval_const_bool_and_or_not() {
 
     // true AND false -> false (forceFalse).
     let e = bool_expr(mcx, AND_EXPR, &[bool_c(mcx, Some(true)), bool_c(mcx, Some(false))]);
-    let c = eval_const_expressions(mcx, e).unwrap().as_const().unwrap().clone();
+    let c = *eval_const_expressions(mcx, e).unwrap().as_const().unwrap();
     assert!(!c.constvalue.as_bool() && !c.constisnull && c.consttype == 16);
 
     // true OR false -> true (forceTrue).
     let e = bool_expr(mcx, OR_EXPR, &[bool_c(mcx, Some(true)), bool_c(mcx, Some(false))]);
-    let c = eval_const_expressions(mcx, e).unwrap().as_const().unwrap().clone();
+    let c = *eval_const_expressions(mcx, e).unwrap().as_const().unwrap();
     assert!(c.constvalue.as_bool() && !c.constisnull);
 
     // NOT true -> false via negate_clause.
     let e = bool_expr(mcx, NOT_EXPR, &[bool_c(mcx, Some(true))]);
-    let c = eval_const_expressions(mcx, e).unwrap().as_const().unwrap().clone();
+    let c = *eval_const_expressions(mcx, e).unwrap().as_const().unwrap();
     assert!(!c.constvalue.as_bool() && !c.constisnull);
 
     // NULL AND true -> NULL bool (haveNull, all non-forcing consts dropped).
     let e = bool_expr(mcx, AND_EXPR, &[bool_c(mcx, None), bool_c(mcx, Some(true))]);
-    let c = eval_const_expressions(mcx, e).unwrap().as_const().unwrap().clone();
+    let c = *eval_const_expressions(mcx, e).unwrap().as_const().unwrap();
     assert!(c.constisnull && c.consttype == 16);
 
     // Nested OR flattens: (x OR false) OR false -> x.
@@ -671,7 +671,7 @@ fn eval_const_bool_and_or_not() {
     // x AND false -> false even with a non-const input.
     let var = Node::mk_var(mcx, 1, 1, 16, -1, 0, 0).unwrap();
     let e = bool_expr(mcx, AND_EXPR, &[var, bool_c(mcx, Some(false))]);
-    let c = eval_const_expressions(mcx, e).unwrap().as_const().unwrap().clone();
+    let c = *eval_const_expressions(mcx, e).unwrap().as_const().unwrap();
     assert!(!c.constvalue.as_bool() && !c.constisnull);
 }
 
@@ -715,7 +715,7 @@ fn eval_const_case_expr() {
         &[case_when(mcx, bool_c(mcx, Some(true)), int4_const(mcx, Some(1)))],
         int4_const(mcx, Some(2)),
     );
-    let c = eval_const_expressions(mcx, e).unwrap().as_const().unwrap().clone();
+    let c = *eval_const_expressions(mcx, e).unwrap().as_const().unwrap();
     assert_eq!(c.constvalue.as_i32(), 1);
 
     // CASE WHEN false THEN 1 ELSE 2 END -> 2 (all-FALSE reduces to ELSE).
@@ -725,7 +725,7 @@ fn eval_const_case_expr() {
         &[case_when(mcx, bool_c(mcx, Some(false)), int4_const(mcx, Some(1)))],
         int4_const(mcx, Some(2)),
     );
-    let c = eval_const_expressions(mcx, e).unwrap().as_const().unwrap().clone();
+    let c = *eval_const_expressions(mcx, e).unwrap().as_const().unwrap();
     assert_eq!(c.constvalue.as_i32(), 2);
 
     // NULL condition drops the alternative, like FALSE.
@@ -735,7 +735,7 @@ fn eval_const_case_expr() {
         &[case_when(mcx, bool_c(mcx, None), int4_const(mcx, Some(1)))],
         int4_const(mcx, Some(2)),
     );
-    let c = eval_const_expressions(mcx, e).unwrap().as_const().unwrap().clone();
+    let c = *eval_const_expressions(mcx, e).unwrap().as_const().unwrap();
     assert_eq!(c.constvalue.as_i32(), 2);
 
     // Non-const condition: WHEN kept, FALSE sibling dropped, TRUE tail folds
@@ -781,7 +781,7 @@ fn eval_const_case_arg_form() {
         &[case_when(mcx, case_test(), int4_const(mcx, Some(1)))],
         int4_const(mcx, Some(2)),
     );
-    let c = eval_const_expressions(mcx, e).unwrap().as_const().unwrap().clone();
+    let c = *eval_const_expressions(mcx, e).unwrap().as_const().unwrap();
     assert_eq!(c.constvalue.as_i32(), 1);
 
     // NULL const arg substitutes NULL: condition drops, ELSE remains.
@@ -791,7 +791,7 @@ fn eval_const_case_arg_form() {
         &[case_when(mcx, case_test(), int4_const(mcx, Some(1)))],
         int4_const(mcx, Some(2)),
     );
-    let c = eval_const_expressions(mcx, e).unwrap().as_const().unwrap().clone();
+    let c = *eval_const_expressions(mcx, e).unwrap().as_const().unwrap();
     assert_eq!(c.constvalue.as_i32(), 2);
 
     // Non-const arg: no substitution — arg kept, placeholder untouched.
@@ -831,13 +831,13 @@ fn eval_const_coalesce() {
 
     // COALESCE(NULL, 42) -> 42.
     let e = coalesce(mcx, &[int4_const(mcx, None), int4_const(mcx, Some(42))]);
-    let c = eval_const_expressions(mcx, e).unwrap().as_const().unwrap().clone();
+    let c = *eval_const_expressions(mcx, e).unwrap().as_const().unwrap();
     assert_eq!(c.constvalue.as_i32(), 42);
     assert!(!c.constisnull);
 
     // All-null -> typed NULL Const.
     let e = coalesce(mcx, &[int4_const(mcx, None), int4_const(mcx, None)]);
-    let c = eval_const_expressions(mcx, e).unwrap().as_const().unwrap().clone();
+    let c = *eval_const_expressions(mcx, e).unwrap().as_const().unwrap();
     assert!(c.constisnull && c.consttype == 23);
 
     // Var head: null dropped, first following non-null const kept, tail cut.

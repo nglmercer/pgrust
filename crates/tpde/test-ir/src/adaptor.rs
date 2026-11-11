@@ -204,7 +204,7 @@ impl HighestValueIndexProvider for TestIRAdaptor<'_, '_> {
 
 impl tpde_compiler::compiler_base::CompilerAdaptor for TestIRAdaptor<'_, '_> {
     fn compiler_insts(&self, block: Self::BlockRef) -> impl Iterator<Item = Self::InstRef> + Clone {
-        self.block_insts(block).into_iter()
+        self.block_insts(block)
     }
 }
 

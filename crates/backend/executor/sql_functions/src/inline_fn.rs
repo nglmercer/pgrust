@@ -83,13 +83,13 @@ pub(crate) fn read_inline_proc_row<'mcx>(
     })
 }
 
-fn inline_sql_function<'a, 'mcx>(
+fn inline_sql_function<'mcx>(
     mcx: Mcx<'mcx>,
     funcid: Oid,
     result_type: Oid,
     result_collid: Oid,
     input_collid: Oid,
-    args: &'a NodeList<'mcx>,
+    args: &NodeList<'mcx>,
 ) -> PgResult<Option<Node<'mcx>>> {
     let row = read_inline_proc_row(mcx, funcid)?;
     let _errctx = inline_error_frame(&row);
@@ -337,10 +337,10 @@ fn inline_body<'a, 'mcx>(
 
 // substitute_actual_parameters (clauses.c): PARAM_EXTERN Params become the
 // actual argument expressions (shared, as C pre-copyObject), counting uses.
-fn substitute_actual_parameters<'a, 'mcx>(
+fn substitute_actual_parameters<'mcx>(
     mcx: Mcx<'mcx>,
     node: Node<'mcx>,
-    args: &'a NodeList<'mcx>,
+    args: &NodeList<'mcx>,
     usecounts: &mut PgVec<'mcx, i32>,
 ) -> PgResult<Option<Node<'mcx>>> {
     if node.node_tag() == NodeTag::T_Param {

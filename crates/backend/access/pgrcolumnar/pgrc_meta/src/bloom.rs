@@ -113,7 +113,7 @@ pub fn bloom_part_choice(k: u32, cands: &[Option<BloomCandidate>]) -> Option<(u3
     let mut b = BLOOM_BYTES_MIN.min(max_own);
     loop {
         let total: f64 = cands.iter().flatten().map(|c| with(c, b).min(wasted(c))).sum();
-        if best.map_or(true, |(t, _)| total < t) {
+        if best.is_none_or(|(t, _)| total < t) {
             best = Some((total, b));
         }
         if b >= max_own {

@@ -31,7 +31,7 @@ pub(super) fn codes_of(e: &Arc<Entry>, entries: &[Func]) -> Vec<Code> {
         let f = e.compiled.fusions();
         for (i, name) in gravity_tpde::view::FUSION_NAMES.iter().enumerate() {
             if f & (1 << i) != 0 {
-                fires::fire_shared(*name);
+                fires::fire_shared(name);
             }
         }
     }

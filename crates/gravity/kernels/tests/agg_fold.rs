@@ -23,7 +23,7 @@ fn layouts(count: usize, seed: u64) -> Vec<RecordLayout> {
     let mut out = Vec::new();
     while out.len() < count {
         let nw = 1 + (lcg(&mut rng) % MAX_RECORD_KEYS as u64) as usize;
-        let validity = lcg(&mut rng) % 2 == 0;
+        let validity = lcg(&mut rng).is_multiple_of(2);
         let pool = if validity { VALID_KINDS } else { NN_KINDS };
         let ns = 1 + (lcg(&mut rng) % (MAX_RECORD_SLOTS as u64 - 1)) as usize;
         let mut slots: Vec<SlotKind> = (0..ns).map(|_| pool[(lcg(&mut rng) % pool.len() as u64) as usize]).collect();
@@ -41,7 +41,7 @@ fn layouts(count: usize, seed: u64) -> Vec<RecordLayout> {
             continue;
         }
         let l = RecordLayout::with_sentinel(&keys, &slots, validity, sentinel);
-        let pw = (lcg(&mut rng) % 3 == 0).then(|| 1 + (lcg(&mut rng) % nw as u64) as u8).unwrap_or(0);
+        let pw = if lcg(&mut rng).is_multiple_of(3) { 1 + (lcg(&mut rng) % nw as u64) as u8 } else { 0 };
         out.push(l.partitioned_by(pw));
     }
     out
@@ -52,7 +52,7 @@ fn make_record(buf: &mut [u8; 256], layout: &RecordLayout, keys: &[u64], v: u64,
     let r = unsafe { Rec::at(buf.as_mut_ptr(), layout) };
     r.open(keys);
     for j in 0..layout.nslots() {
-        if layout.has_validity() && layout.slot_off(j) != layout.sentinel_off() && (v >> (8 + j)) % 3 == 0 {
+        if layout.has_validity() && layout.slot_off(j) != layout.sentinel_off() && (v >> (8 + j)).is_multiple_of(3) {
             continue;
         }
         let s = v.rotate_left(7 * j as u32);
@@ -232,7 +232,7 @@ fn a_layout_whose_sentinel_is_not_its_first_count_keeps_every_group() {
             let r = unsafe { Rec::at(recs.as_mut_ptr().add(i * rec), &layout) };
             r.open(&[k]);
             r.add_count(1, 1);
-            if k % 3 != 0 {
+            if !k.is_multiple_of(3) {
                 r.add_count(0, 1);
             }
         }
@@ -389,7 +389,7 @@ fn dense_layouts() -> Vec<RecordLayout> {
     while out.len() < 24 {
         let ns = 1 + (lcg(&mut rng) % 4) as usize;
         let slots: Vec<SlotKind> = (0..ns).map(|_| pool[(lcg(&mut rng) % 4) as usize]).collect();
-        let sentinel = if lcg(&mut rng) % 2 == 0 { None } else { slots.iter().position(|&k| k == Count) };
+        let sentinel = if lcg(&mut rng).is_multiple_of(2) { None } else { slots.iter().position(|&k| k == Count) };
         let keys = [KeyKind::I64; 2];
         if fits_inline_at(&keys, &slots, false, sentinel) {
             out.push(RecordLayout::with_sentinel(&keys, &slots, false, sentinel));

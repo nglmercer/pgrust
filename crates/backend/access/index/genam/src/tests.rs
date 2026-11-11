@@ -193,7 +193,7 @@ fn relation_get_index_scan_matches_c_init() {
     assert!(scan.xs_snapshot.is_none());
     assert_eq!(scan.numberOfKeys, 2);
     assert_eq!(scan.numberOfOrderBys, 1);
-    assert_eq!(scan.keyData.capacity() >= 2, true);
+    assert!(scan.keyData.capacity() >= 2);
     assert!(!scan.xs_want_itup);
     assert!(!scan.kill_prior_tuple);
     assert!(!scan.xactStartedInRecovery);

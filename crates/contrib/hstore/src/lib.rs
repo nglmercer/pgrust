@@ -89,12 +89,12 @@ unsafe fn arg_hstore_in<'m>(fcinfo: &Fcinfo, i: usize, mcx: ::mcx::Mcx<'m>) -> P
     Ok(HstoreView::from_vardata(v.data()))
 }
 
-pub(crate) unsafe fn arg_text<'a>(fcinfo: &'a Fcinfo, i: usize) -> PgResult<&'a [u8]> {
+pub(crate) unsafe fn arg_text(fcinfo: &Fcinfo, i: usize) -> PgResult<&[u8]> {
     Ok(unsafe { fcinfo.arg_varlena_packed(i)? }.data())
 }
 
 // Full header-ful image of a varlena arg (arrays keep their dims header).
-pub(crate) unsafe fn arg_image<'a>(fcinfo: &'a Fcinfo, i: usize) -> PgResult<&'a [u8]> {
+pub(crate) unsafe fn arg_image(fcinfo: &Fcinfo, i: usize) -> PgResult<&[u8]> {
     let mcx = unsafe { fcinfo.result_mcx_detached() };
     crate::gist::detoasted_image(mcx, fcinfo.arg(i))
 }
@@ -191,7 +191,7 @@ fn build_text_array_1d<'m>(
 
 fn fc_hstore_in(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
     // SAFETY: catalog arg 0 is cstring (typlen -2).
-    let s = ::mcx::std_vec_from_slice("hstore", &unsafe { fcinfo.arg_cstring(0) }.to_bytes())?;
+    let s = ::mcx::std_vec_from_slice("hstore", unsafe { fcinfo.arg_cstring(0) }.to_bytes())?;
     match parse::parse_hstore(&s) {
         Ok(pairs) => {
             let pairs = unique_pairs(pairs);
@@ -347,13 +347,13 @@ fn fc_hstore_from_text(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResu
     }
     let b_null = b.isnull;
     // SAFETY: checked non-null above / below.
-    let key = ::mcx::std_vec_from_slice("hstore", &unsafe { arg_text(fcinfo, 0)? })?;
+    let key = ::mcx::std_vec_from_slice("hstore", unsafe { arg_text(fcinfo, 0)? })?;
     check_key_len(key.len())?;
     let val = if b_null {
         None
     } else {
         // SAFETY: checked non-null.
-        let v = ::mcx::std_vec_from_slice("hstore", &unsafe { arg_text(fcinfo, 1)? })?;
+        let v = ::mcx::std_vec_from_slice("hstore", unsafe { arg_text(fcinfo, 1)? })?;
         check_val_len(v.len())?;
         Some(v)
     };

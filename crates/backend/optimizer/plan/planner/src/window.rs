@@ -636,7 +636,7 @@ pub(crate) fn create_window_paths<'mcx>(
     let paths = crate::relnode::pgvec_clone_shallow(run.mcx, &run.root.rel(input_rel).pathlist);
     for &path_id in paths.iter() {
         let (is_sorted, presorted) = crate::pathkeys::pathkeys_count_contained_in(
-            &run.root.window_pathkeys,
+            run.root.window_pathkeys,
             &run.root.path(path_id).base().pathkeys,
         );
         if path_id == cheapest || is_sorted || presorted > 0 {

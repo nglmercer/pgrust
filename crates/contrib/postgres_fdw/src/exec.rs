@@ -990,8 +990,7 @@ fn produce_tuple_asynchronously<'mcx>(
         )
     };
     // Not to be called while our own request is in flight.
-    debug_assert!(!connection::pending_fetch(conn_key)?
-        .is_some_and(|p| p.cursor_number == cursor_number));
+    debug_assert!(connection::pending_fetch(conn_key)?.is_none_or(|p| p.cursor_number != cursor_number));
     if !have_tuple {
         return produce_out_of_tuples(node, estate, areq, fetch, eof, conn_key);
     }
@@ -1082,6 +1081,33 @@ fn fetch_more_data_begin<'mcx>(
     )
 }
 
+// postgresRecheckForeignScan (postgres_fdw.c:2356): execute the local join
+// execution plan for a foreign join and store its row in `slot`.
+pub(crate) fn recheck_foreign_scan<'mcx>(
+    node: &mut ForeignScanState<'mcx>,
+    estate: &mut EStateData<'mcx>,
+    slot: executils::ExecSlotId,
+    outer: Option<&mut OuterPlanDrive<'_, 'mcx>>,
+) -> PgResult<bool> {
+    // For base foreign relations, it suffices to set fdw_recheck_quals.
+    if node.plan.scan.scanrelid > 0 {
+        return Ok(true);
+    }
+    let outer = outer.expect("pushed-down foreign join has an outer (EPQ) plan");
+    // Execute a local join execution plan.
+    let Some(result) = outer(estate)? else {
+        return Ok(false);
+    };
+    // Store result in the given slot.
+    let mcx = estate.es_query_cxt;
+    let [dst, src] = estate
+        .es_tupleTable
+        .get_disjoint_mut([slot.0 as usize, result.0 as usize])
+        .expect("EPQ test slot and outer result slot are distinct");
+    exectuples::exec_copy_slot(dst, src, mcx, mcx)?;
+    Ok(true)
+}
+
 #[cfg(test)]
 mod query_param_tests {
     use super::*;
@@ -1130,31 +1156,4 @@ mod query_param_tests {
         });
         free_executor_state(estate);
     }
-}
-
-// postgresRecheckForeignScan (postgres_fdw.c:2356): execute the local join
-// execution plan for a foreign join and store its row in `slot`.
-pub(crate) fn recheck_foreign_scan<'mcx>(
-    node: &mut ForeignScanState<'mcx>,
-    estate: &mut EStateData<'mcx>,
-    slot: executils::ExecSlotId,
-    outer: Option<&mut OuterPlanDrive<'_, 'mcx>>,
-) -> PgResult<bool> {
-    // For base foreign relations, it suffices to set fdw_recheck_quals.
-    if node.plan.scan.scanrelid > 0 {
-        return Ok(true);
-    }
-    let outer = outer.expect("pushed-down foreign join has an outer (EPQ) plan");
-    // Execute a local join execution plan.
-    let Some(result) = outer(estate)? else {
-        return Ok(false);
-    };
-    // Store result in the given slot.
-    let mcx = estate.es_query_cxt;
-    let [dst, src] = estate
-        .es_tupleTable
-        .get_disjoint_mut([slot.0 as usize, result.0 as usize])
-        .expect("EPQ test slot and outer result slot are distinct");
-    exectuples::exec_copy_slot(dst, src, mcx, mcx)?;
-    Ok(true)
 }

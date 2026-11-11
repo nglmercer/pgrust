@@ -618,7 +618,7 @@ fn sort_arcids_by_key(
     for &a in arr.iter() {
         keyed.push((key(nfa, a)?, a));
     }
-    keyed.sort_unstable_by(|x, y| x.0.cmp(&y.0));
+    keyed.sort_unstable_by_key(|x| x.0);
     for (slot, &(_, a)) in arr.iter_mut().zip(keyed.iter()) {
         *slot = a;
     }

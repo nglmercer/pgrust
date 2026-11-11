@@ -452,13 +452,15 @@ mod imp {
     }
 
     /// `set_cache_alloc`'s realloc: a cache block of `new` bytes, in place at the same size. Null: left as it was.
+    // Kept safe on purpose: passed as a fn pointer to set_cache_alloc. Its callers guarantee `p` is a live block of the pool.
+    #[allow(clippy::not_unsafe_ptr_arg_deref)]
     pub fn cache_realloc(p: *mut u8, align: usize, new: usize) -> *mut u8 {
         if !crate::owns(p) || new == 0 {
             return core::ptr::null_mut();
         }
         let old = usable_size(p);
         let small_now = small::is_small(p);
-        if old == good_size(new, align) && p as usize % align == 0 {
+        if old == good_size(new, align) && (p as usize).is_multiple_of(align) {
             // SAFETY: a live block of the tier when `small_now`.
             let cache_now = if small_now { unsafe { small::is_cache_block(p) } } else { matches!(run::lookup(p), Some(i) if i.tag == Tag::CACHE) };
             if cache_now {
@@ -481,6 +483,8 @@ mod imp {
     }
 
     /// Whether a live block of this layout is the cache class's (the cache charge's free side).
+    // Kept safe on purpose: part of the allocator's C-facing surface with ~16 call sites. Its contract is the doc above.
+    #[allow(clippy::not_unsafe_ptr_arg_deref)]
     #[inline]
     pub fn is_cache(p: *const u8, size: usize, align: usize) -> bool {
         if !CACHE_USED.load(Relaxed) {
@@ -508,6 +512,8 @@ mod imp {
     }
 
     /// A live `PoolAlloc` block's usable size, by pointer (C free, `malloc_usable_size`); 0 for one the pool does not own.
+    // Kept safe on purpose: part of the allocator's C-facing surface with ~28 call sites. Its contract is the doc above.
+    #[allow(clippy::not_unsafe_ptr_arg_deref)]
     pub fn usable_size(p: *const u8) -> usize {
         if !crate::owns(p) {
             return 0;

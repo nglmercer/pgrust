@@ -224,7 +224,7 @@ pub const fn text_extremum_quiet(aggfnoid: u32, collid: u32) -> bool {
 /// are no raise a reading must keep in place). Any other collation (an explicit libc or ICU one, a nondeterministic
 /// one) keeps the call raising.
 pub const fn case_map_quiet(funcid: u32, collid: u32) -> bool {
-    matches!(funcid, 870 | 871 | 872) && matches!(collid, 100 | 950 | 951)
+    matches!(funcid, 870..=872) && matches!(collid, 100 | 950 | 951)
 }
 
 /// A plain aggregate whose transitions and final raise on no input (its arguments apart): `count(*)` / `count(any)`
@@ -531,7 +531,7 @@ pub fn epoch_ns_k_quiet(payload: &[u8]) -> bool {
         },
         _ => return false,
     };
-    if (payload.len() - at) % 2 != 0 {
+    if !(payload.len() - at).is_multiple_of(2) {
         return false;
     }
     let (mut int, mut frac) = (0i128, false);

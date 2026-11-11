@@ -38,7 +38,7 @@ pub fn bloom_false_positive_at(ndv: f64, k: u32, bytes: u32) -> f64 {
 /// because a probe of the tiled block reads bit `h % (bytes * 8)`, which sits in some copy at offset `h % (len * 8)`
 /// (the length divides `bytes`), the bit the insert set; a value the block lacks hits a set bit as often as it did.
 pub fn bloom_tile(block: &[u8], bytes: usize) -> Vec<u8> {
-    assert!(!block.is_empty() && block.len().is_power_of_two() && bytes.is_power_of_two() && bytes % block.len() == 0);
+    assert!(!block.is_empty() && block.len().is_power_of_two() && bytes.is_power_of_two() && bytes.is_multiple_of(block.len()));
     block.repeat(bytes / block.len())
 }
 
@@ -72,7 +72,7 @@ pub fn bloom_may_contain_packed(block: &[u8], k: u32, packed: i64) -> bool {
 /// position `h % (bytes * 8)` is the original position modulo the new
 /// size, which is exactly where the OR puts it.
 pub fn bloom_fold(block: &[u8], bytes: usize) -> Vec<u8> {
-    assert!(bytes > 0 && bytes.is_power_of_two() && block.len() % bytes == 0);
+    assert!(bytes > 0 && bytes.is_power_of_two() && block.len().is_multiple_of(bytes));
     let mut out = block[..bytes].to_vec();
     for piece in block[bytes..].chunks(bytes) {
         for (o, b) in out.iter_mut().zip(piece) {

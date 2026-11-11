@@ -436,7 +436,7 @@ fn set_var_from_non_decimal_integer_str(
             cp += 1;
         } else if b == b'_' {
             cp += 1;
-            if !s.get(cp).is_some_and(|b| digit_ok(*b).is_some()) {
+            if s.get(cp).is_none_or(|b| digit_ok(*b).is_none()) {
                 return Err(NumErr::InvalidSyntax);
             }
         } else {

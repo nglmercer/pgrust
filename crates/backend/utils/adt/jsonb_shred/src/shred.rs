@@ -280,7 +280,7 @@ pub fn shred_chunk<'mcx, 'r>(
 
         // Per-row, per-bucket, ID-ascending entries (explicit sort: late-
         // interned IDs are append-ordered, not canonical — manifest.rs note).
-        staged.sort_by(|a, b| (a.0, a.1).cmp(&(b.0, b.1)));
+        staged.sort_by_key(|a| (a.0, a.1));
         let mut cursor = 0usize;
         for (b, bucket) in buckets.iter_mut().enumerate() {
             let start = cursor;

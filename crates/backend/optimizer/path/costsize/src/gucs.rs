@@ -4,14 +4,14 @@
 use guc_tables::session_guc_cluster;
 
 session_guc_cluster!(CostsizeGucs, COSTSIZE_GUCS:
-    (cpu_tuple_cost_cell, f64, cpu_tuple_cost, set_cpu_tuple_cost, guc_tables::consts::DEFAULT_CPU_TUPLE_COST as f64),
-    (seq_page_cost_cell, f64, seq_page_cost, set_seq_page_cost, guc_tables::consts::DEFAULT_SEQ_PAGE_COST as f64),
-    (random_page_cost_cell, f64, random_page_cost, set_random_page_cost, guc_tables::consts::DEFAULT_RANDOM_PAGE_COST as f64),
-    (cpu_index_tuple_cost_cell, f64, cpu_index_tuple_cost, set_cpu_index_tuple_cost, guc_tables::consts::DEFAULT_CPU_INDEX_TUPLE_COST as f64),
-    (cpu_operator_cost_cell, f64, cpu_operator_cost, set_cpu_operator_cost, guc_tables::consts::DEFAULT_CPU_OPERATOR_COST as f64),
-    (recursive_worktable_factor_cell, f64, recursive_worktable_factor, set_recursive_worktable_factor, guc_tables::consts::DEFAULT_RECURSIVE_WORKTABLE_FACTOR as f64),
-    (parallel_tuple_cost_cell, f64, parallel_tuple_cost, set_parallel_tuple_cost, guc_tables::consts::DEFAULT_PARALLEL_TUPLE_COST as f64),
-    (parallel_setup_cost_cell, f64, parallel_setup_cost, set_parallel_setup_cost, guc_tables::consts::DEFAULT_PARALLEL_SETUP_COST as f64),
+    (cpu_tuple_cost_cell, f64, cpu_tuple_cost, set_cpu_tuple_cost, guc_tables::consts::DEFAULT_CPU_TUPLE_COST),
+    (seq_page_cost_cell, f64, seq_page_cost, set_seq_page_cost, guc_tables::consts::DEFAULT_SEQ_PAGE_COST),
+    (random_page_cost_cell, f64, random_page_cost, set_random_page_cost, guc_tables::consts::DEFAULT_RANDOM_PAGE_COST),
+    (cpu_index_tuple_cost_cell, f64, cpu_index_tuple_cost, set_cpu_index_tuple_cost, guc_tables::consts::DEFAULT_CPU_INDEX_TUPLE_COST),
+    (cpu_operator_cost_cell, f64, cpu_operator_cost, set_cpu_operator_cost, guc_tables::consts::DEFAULT_CPU_OPERATOR_COST),
+    (recursive_worktable_factor_cell, f64, recursive_worktable_factor, set_recursive_worktable_factor, guc_tables::consts::DEFAULT_RECURSIVE_WORKTABLE_FACTOR),
+    (parallel_tuple_cost_cell, f64, parallel_tuple_cost, set_parallel_tuple_cost, guc_tables::consts::DEFAULT_PARALLEL_TUPLE_COST),
+    (parallel_setup_cost_cell, f64, parallel_setup_cost, set_parallel_setup_cost, guc_tables::consts::DEFAULT_PARALLEL_SETUP_COST),
     (effective_cache_size_cell, i32, effective_cache_size, set_effective_cache_size, guc_tables::consts::DEFAULT_EFFECTIVE_CACHE_SIZE),
     (enable_seqscan_cell, bool, enable_seqscan, set_enable_seqscan, true),
     (enable_tidscan_cell, bool, enable_tidscan, set_enable_tidscan, true),

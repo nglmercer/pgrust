@@ -40,7 +40,7 @@ fn each_child<'p>(n: Node<'p>, prune: Option<&Initial>, mut f: impl FnMut(Node<'
     if let Some((arms, index)) = arms {
         let kept = prune.and_then(|p| p.valid.get(usize::try_from(index).ok()?).cloned().flatten());
         for (i, c) in arms.iter().enumerate() {
-            if kept.as_ref().map_or(true, |k| k.contains(&(i as i32))) {
+            if kept.as_ref().is_none_or(|k| k.contains(&(i as i32))) {
                 f(c);
             }
         }

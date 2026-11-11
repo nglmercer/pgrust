@@ -60,7 +60,7 @@ pub(super) fn run(entry: &mut Entry, exec: &mut Exec, b: &mut Binding<'_>, call:
                 Some(owner) => entry.skip_rerun(exec, owner)?,
                 // M8 (RT-2f, nest.cte CT-2): a pulled CTE's plan keeps its store edge, opened zeroed for its readers
                 None => match lives.iter().find_map(|l| l.pull_readers(p)) {
-                    Some(r) => entry.skip_pulled(exec, &r)?,
+                    Some(r) => entry.skip_pulled(exec, r)?,
                     None => entry.skip_deferred(exec),
                 },
             }
@@ -137,7 +137,7 @@ pub(super) fn drive(program: &std::sync::Arc<gravity_program::Program>, params: 
     }
     let parts = BindingParts { snapshot: Snapshot(0), command_id: CommandId(0), params, param_nulls: nulls, abort_flag: flag, pins: Pins(0), per_tuple: PerTuple(0), identity: Identity { proc_number: 0, resource_owner: 0, latch: 0 }, resolved: None };
     let mut b = Binding::new(parts, &mut sink);
-    let (mut entry, cap) = (Entry::new(1), if let Mode::Stop(n) = mode { n.max(1) } else { program.layout.out_rows as u32 });
+    let (mut entry, cap) = (Entry::new(1), if let Mode::Stop(n) = mode { n.max(1) } else { program.layout.out_rows });
     let lease = LEASE.with(|l| l.borrow().clone()).unwrap_or_else(|| std::rc::Rc::new(Reservation::unadmitted(Grant::of(64 << 20))));
     let r = match entry.start(None, program, &mut NoSources, &mut b, lease) {
         Err(e) => Err(e),

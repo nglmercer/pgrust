@@ -294,7 +294,7 @@ fn base_rows(parent: Oid) -> u64 {
 fn base_rows_of(parent: Oid, u: &Unsealed) -> u64 {
     let d = slot_value(&DENSITY, parent).filter(|d| *d > 0).unwrap_or_else(|| if u.blocks == 0 { 0 } else { (u.rows << 8) / u.blocks });
     let live = if u.blocks >= LIVE_MIN_BLOCKS { (u.rows << 8) / u.blocks } else { 0 };
-    d.max(live) * u64::from(ROTATE_BLOCKS) >> 8
+    (d.max(live) * u64::from(ROTATE_BLOCKS)) >> 8
 }
 
 struct Unsealed {
@@ -1102,7 +1102,7 @@ mod tests {
             });
             let ub = sealing_blocks(parent) + active_blocks(parent);
             let live = if ub >= LIVE_MIN_BLOCKS { ((sealing_rows(parent) + active_rows(parent)) << 8) / ub } else { 0 };
-            let base = d.max(live) * u64::from(ROTATE_BLOCKS) >> 8;
+            let base = (d.max(live) * u64::from(ROTATE_BLOCKS)) >> 8;
             let cap = 2 * rows_target(parent).max(base);
             sealing_rows(parent) + active_rows(parent) + pending_rows(parent) > cap || backlog(parent) > BACKSTOP_BLOCKS
         }

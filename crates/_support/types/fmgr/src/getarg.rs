@@ -272,6 +272,8 @@ impl FunctionCallInfoBaseData {
     /// C's `(StringInfo) PG_GETARG_POINTER(0)` (recv arg0).
     /// Safety: arg `i` is a live, unaliased `&mut StringInfo` pointer.
     #[inline]
+    // clippy::mut_from_ref is intended: the caller guarantees the arg is a live, unaliased StringInfo (see the Safety note above).
+    #[allow(clippy::mut_from_ref)]
     pub unsafe fn arg_stringinfo(&self, i: usize) -> &mut ::stringinfo::StringInfo<'_> {
         unsafe { &mut *(self.arg_ptr(i) as *mut ::stringinfo::StringInfo) }
     }

@@ -403,9 +403,9 @@ fn admit_either(b: &mut Backend, mcx: Mcx<'static>, pstmt: &'static PlannedStmt<
             Ok(a) if a.nkparams > words => Some(admit::Refused { stage: "words", what: format!("{} words over the crossing's {words}", a.nkparams) }), // alloc: Cold
             Ok(a) if a.graph.as_ref().is_some_and(|g| !g.merge().is_empty()) && (extended || a.is_parallel() || a.graph.as_ref().is_some_and(|g| g.arms.iter().any(|x| x.program.pipelines.len() > 1 || x.program.pipelines[0].is_eligible()))) => Some(admit::Refused { stage: "protocol", what: "a MergeAppend cut on the pull adapter or over a parallel arm (the cut runs serial arms into one buffer)".into() }), // alloc: Cold
             Ok(a) if extended && a.graph.as_ref().is_some_and(|g| g.arms.iter().any(|x| x.program.pipelines.len() > 1 || x.program.pipelines[0].is_eligible())) => Some(admit::Refused { stage: "protocol", what: "an Append arm that is a multi-pipeline or eligible program on the extended protocol (the pull adapter is serial over one pipeline)".into() }), // alloc: Cold
-            Ok(a) if counted && counted_pull(&a) => Some(admit::Refused { stage: "protocol", what: COUNTED_PULL.into() }), // alloc: Cold
-            Ok(a) if counted && seed_pull(&a) => Some(admit::Refused { stage: "protocol", what: LOUD_PULL.into() }), // alloc: Cold
-            Ok(a) if counted && set_pull(&a) => Some(admit::Refused { stage: "protocol", what: LOUD_SET_PULL.into() }), // alloc: Cold
+            Ok(a) if counted && counted_pull(a) => Some(admit::Refused { stage: "protocol", what: COUNTED_PULL.into() }), // alloc: Cold
+            Ok(a) if counted && seed_pull(a) => Some(admit::Refused { stage: "protocol", what: LOUD_PULL.into() }), // alloc: Cold
+            Ok(a) if counted && set_pull(a) => Some(admit::Refused { stage: "protocol", what: LOUD_SET_PULL.into() }), // alloc: Cold
             Ok(a) => match crate::admit::regen::check_build(a, mcx)? {
                 Some(r) => Some(r),
                 None => return Ok(true),

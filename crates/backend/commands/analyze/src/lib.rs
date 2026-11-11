@@ -1077,7 +1077,7 @@ fn do_analyze_rel<'mcx>(
         for ind in irel.iter() {
             let ivinfo = nbtree::IndexVacuumInfo {
                 index: ind,
-                heaprel: &**onerel,
+                heaprel: onerel,
                 analyze_only: true,
                 // C leaves report_progress uninitialized on this path (only
                 // nbtree's block scan reads it; analyze-only cleanup skips it).
@@ -1652,7 +1652,7 @@ impl<'mcx> statistics::ExprStatsCompute<'mcx> for ExtStatsExprCompute {
                 let nd = {
                     let mut slots =
                         execexpr::EvalSlots { scan: Some(&mut slot), inner: None, outer: None };
-                    execexpr::exec_eval_expr(&mut *state, &mut slots)?
+                    execexpr::exec_eval_expr(&mut state, &mut slots)?
                 };
                 if nd.isnull {
                     exprvals.push(Datum::null());
@@ -2919,7 +2919,7 @@ fn compute_distinct_stats<'mcx>(
         }
 
         if nmultiple == 0 {
-            stats.stadistinct = -1.0 * (1.0 - stats.stanullfrac);
+            stats.stadistinct = -(1.0 - stats.stanullfrac);
         } else if track_cnt < track_max as i32 && toowide_cnt == 0 && nmultiple == track_cnt {
             stats.stadistinct = track_cnt as f32;
         } else {
@@ -3181,7 +3181,7 @@ fn compute_scalar_stats<'mcx>(
         };
 
         if nmultiple == 0 {
-            stats.stadistinct = -1.0 * (1.0 - stats.stanullfrac);
+            stats.stadistinct = -(1.0 - stats.stanullfrac);
         } else if toowide_cnt == 0 && nmultiple == ndistinct {
             stats.stadistinct = ndistinct as f32;
         } else {
@@ -3343,7 +3343,7 @@ fn compute_scalar_stats<'mcx>(
         } else {
             stats.typlen as i32
         };
-        stats.stadistinct = -1.0 * (1.0 - stats.stanullfrac);
+        stats.stadistinct = -(1.0 - stats.stanullfrac);
     } else if null_cnt > 0 {
         stats.stats_valid = true;
         stats.stanullfrac = 1.0;
@@ -4065,7 +4065,7 @@ mod fma_parity_tests {
 
     #[test]
     fn mcv_keep_bound_fused() {
-        let got = mcv_keep_bound(0.0019531290178733587, 30000.0, 6.3626186842054722);
+        let got = mcv_keep_bound(0.0019531290178733587, 30000.0, 6.362_618_684_205_472);
         assert_eq!(got.to_bits(), want(0x4051_F46C_438F_8CF3, 0x4051_F46C_438F_8CF4).to_bits());
     }
 

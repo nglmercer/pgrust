@@ -163,7 +163,7 @@ fn expand_array_boxed(
     }
 
     let flat = copy_flat_source(&mut eah, arraydatum)?;
-    fill_from_flat(&mut eah, flat, metacache.as_deref_mut())?;
+    fill_from_flat(&mut eah, flat, metacache)?;
     Ok(eah)
 }
 

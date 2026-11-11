@@ -213,11 +213,10 @@ pub fn hashrescan(
 ) -> PgResult<()> {
     {
         let mut ctx = split_scan!(&mut *scan);
-        if HashScanPosIsValid(&ctx.so.currPos) {
-            if ctx.so.numKilled > 0 {
+        if HashScanPosIsValid(&ctx.so.currPos)
+            && ctx.so.numKilled > 0 {
                 search::_hash_kill_items(&mut ctx)?;
             }
-        }
         page::_hash_dropscanbuf(ctx.so)?;
         HashScanPosInvalidate(&mut ctx.so.currPos);
         ctx.so.hashso_buc_populated = false;
@@ -237,11 +236,10 @@ pub fn hashrescan(
 /// hashendscan. Storage is freed with the scan value (mcx lifetime).
 pub fn hashendscan(scan: &mut IndexScanDescData<'_>) -> PgResult<()> {
     let mut ctx = split_scan!(&mut *scan);
-    if HashScanPosIsValid(&ctx.so.currPos) {
-        if ctx.so.numKilled > 0 {
+    if HashScanPosIsValid(&ctx.so.currPos)
+        && ctx.so.numKilled > 0 {
             search::_hash_kill_items(&mut ctx)?;
         }
-    }
     page::_hash_dropscanbuf(ctx.so)?;
     Ok(())
 }
@@ -557,7 +555,7 @@ pub(crate) fn hashbucketcleanup(
             }
             bucket_dirty = true;
 
-            let removed_any = tuples_removed.as_deref().map_or(false, |t| *t > 0.0);
+            let removed_any = tuples_removed.as_deref().is_some_and(|t| *t > 0.0);
             if removed_any && H_HAS_DEAD_TUPLES(opaque.hasho_flag) {
                 // SAFETY: lock held on buf.
                 let mut page = unsafe { page_mut(buf) };

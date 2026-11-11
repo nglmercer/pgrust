@@ -18,7 +18,7 @@ const STAT: &str = "select wal_records, wal_bytes, wal_buffers_full from pg_cata
 fn oracle_bin() -> Option<PathBuf> {
     let mut cands: Vec<PathBuf> = ["PGRUST_C_ORACLE", "PGINSTALL", "PG_BINDIR"]
         .iter()
-        .filter_map(|k| std::env::var_os(k))
+        .filter_map(std::env::var_os)
         .map(PathBuf::from)
         .collect();
     if let Some(h) = std::env::var_os("HOME") {

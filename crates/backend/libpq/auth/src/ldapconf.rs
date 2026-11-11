@@ -160,7 +160,7 @@ fn b64_decode(s: &[u8]) -> Option<Vec<u8>> {
             acc &= (1 << bits) - 1;
         }
     }
-    if pad > 2 || (s.len() % 4 != 0) {
+    if pad > 2 || !s.len().is_multiple_of(4) {
         return None;
     }
     Some(out)

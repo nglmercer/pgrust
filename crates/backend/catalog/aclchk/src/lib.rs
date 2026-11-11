@@ -339,7 +339,7 @@ fn pg_type_aclmask_ext(
         tuple = match SearchSysCache1(TYPEOID, SysCacheKey::Value(Datum::from_oid(type_oid)))? {
             Some(t) => t,
             None => {
-                if let Some(m) = is_missing.as_deref_mut() {
+                if let Some(m) = is_missing {
                     *m = true;
                     return Ok(0);
                 }

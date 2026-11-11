@@ -127,12 +127,12 @@ impl Producers {
                         // setop_rec-0043: a CTE's plan the set re-arms, its store opened for the owner and the CTE's readers
                         Some(owner) => match self.plan.pull_readers(p) {
                             r if r.is_empty() => entry.skip_rerun(exec, owner).map_err(glue::pg_error)?,
-                            r => entry.skip_rearmed(exec, owner, &r).map_err(glue::pg_error)?,
+                            r => entry.skip_rearmed(exec, owner, r).map_err(glue::pg_error)?,
                         },
                         // M8 (RT-2f): a pulled CTE's plan: its store edge kept, opened zeroed for its readers
                         None => match self.plan.pull_readers(p) {
                             r if r.is_empty() => entry.skip_deferred(exec),
-                            r => entry.skip_pulled(exec, &r).map_err(glue::pg_error)?,
+                            r => entry.skip_pulled(exec, r).map_err(glue::pg_error)?,
                         },
                     }
                     continue;
@@ -534,7 +534,7 @@ pub(crate) fn rerun_producer(entry: &mut gravity_driver::Entry, exec: &mut Exec,
         // setop_rec-0043: a CTE's plan the set re-arms, its store opened for the owner and the CTE's readers
         return match plan.pull_readers(exec.next_pipeline()) {
             r if r.is_empty() => entry.skip_rerun(exec, owner),
-            r => entry.skip_rearmed(exec, owner, &r),
+            r => entry.skip_rearmed(exec, owner, r),
         };
     }
     // ACTION-CTE (lowerv4 marks.rs `act_ctes`): a pulled CTE's plan is stepped past as `Producers::run` steps it
@@ -545,7 +545,7 @@ pub(crate) fn rerun_producer(entry: &mut gravity_driver::Entry, exec: &mut Exec,
     if cte && plan.deferred(p) {
         let readers = plan.pull_readers(p);
         if !readers.is_empty() {
-            return entry.skip_pulled(exec, &readers);
+            return entry.skip_pulled(exec, readers);
         }
     }
     // D3918: a later arm of a run that ended at its first arm is stepped past unopened, as `run_producer` steps it

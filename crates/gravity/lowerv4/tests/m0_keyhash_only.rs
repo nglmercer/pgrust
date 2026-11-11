@@ -146,7 +146,7 @@ fn hash_literals() -> BTreeSet<u64> {
     for f in ["crates/gravity/abi/src/hash.rs", "crates/gravity/expr/src/emit/hash.rs"] {
         match std::fs::read_to_string(root().join(f)) {
             Ok(t) => t.lines().filter(|l| l.starts_with("const ") || l.starts_with("pub const ") || l.starts_with("pub(crate) const "))
-                .flat_map(|l| words(l)).filter_map(|(_, w)| big_literal(&w)).for_each(|v| drop(lits.insert(v))),
+                .flat_map(words).filter_map(|(_, w)| big_literal(&w)).for_each(|v| drop(lits.insert(v))),
             Err(_) => eprintln!("WARNING: {f} is not on this branch; its constants are not linted"),
         }
     }

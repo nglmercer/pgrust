@@ -806,12 +806,10 @@ fn gen_special(g: &mut Gen) -> Vec<StmtKind> {
         }
         _ => {
             // NaN ordering + special comparisons (bool, exact).
-            format!(
-                "SELECT ('NaN'::float8 = 'NaN'::float8), ('NaN'::float8 > 'Infinity'::float8), \
+            "SELECT ('NaN'::float8 = 'NaN'::float8), ('NaN'::float8 > 'Infinity'::float8), \
                  ('Infinity'::float8 > 1e308::float8), ('-0'::float8 = 0::float8), \
                  (5e-324::float8 > 0::float8), (least('NaN'::float8, 1::float8)), \
-                 (greatest('NaN'::float8, 1::float8));"
-            )
+                 (greatest('NaN'::float8, 1::float8));".to_string()
         }
     };
     vec![raw(sql)]

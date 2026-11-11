@@ -209,7 +209,7 @@ pub fn xpath_internal(
     // assertions); ignore decl-parse failure, letting xmlCtxtReadMemory report.
     let mut xmldecl_len: usize = 0;
     if ::mbutils::GetDatabaseEncoding() == PG_UTF8 {
-        let mut work = ::mcx::std_vec_from_slice("xml", &data)?;
+        let mut work = ::mcx::std_vec_from_slice("xml", data)?;
         work.push(0);
         let _ = parse_xml_decl(&work, Some(&mut xmldecl_len), None, None, None);
     }

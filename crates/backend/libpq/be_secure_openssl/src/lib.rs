@@ -199,7 +199,7 @@ fn ssl_errmessage(stack: Option<&ErrorStack>) -> String {
 }
 
 fn ssl_errmessage_ext(stack: Option<&ErrorStack>, replacement: &str) -> String {
-    if stack.map_or(true, |s| s.errors().is_empty()) {
+    if stack.is_none_or(|s| s.errors().is_empty()) {
         replacement.to_string()
     } else {
         ssl_errmessage(stack)
@@ -444,7 +444,7 @@ fn x509_name_to_cstring(name: &X509NameRef) -> PgResult<Vec<u8>> {
     // conversion scratch lives only for this call.
     let cx = mcx::MemoryContext::new("X509_NAME_to_cstring");
     let out = match mbutils::pg_any_to_server(cx.mcx(), &raw, PG_UTF8)? {
-        Some(converted) => ::mcx::std_vec_from_slice("be_secure_openssl", &converted.as_slice())?,
+        Some(converted) => ::mcx::std_vec_from_slice("be_secure_openssl", converted.as_slice())?,
         None => raw,
     };
     Ok(out)
@@ -1538,7 +1538,7 @@ pub fn be_tls_get_certificate_hash() -> PgResult<Option<Vec<u8>>> {
         };
 
         match server_cert.digest(algo_type) {
-            Ok(hash) => Ok(Some(::mcx::std_vec_from_slice("be_secure_openssl", &hash.as_ref())?)),
+            Ok(hash) => Ok(Some(::mcx::std_vec_from_slice("be_secure_openssl", hash.as_ref())?)),
             Err(_) => ereport(ERROR)
                 .errmsg_internal("could not generate server certificate hash")
                 .finish(loc("be_tls_get_certificate_hash"))

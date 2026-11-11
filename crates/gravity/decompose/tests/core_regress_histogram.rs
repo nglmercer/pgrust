@@ -220,7 +220,7 @@ fn regress_histogram() {
     stats.loaded = all.len();
     stats.check(&dir("golden").join("histogram.txt"), "regress-full/histogram.txt", &out);
     stats.finish();
-    for (state, _) in &by_state {
+    for state in by_state.keys() {
         assert!(*state == "excluded" || ledger::CURRENT.name() < *state, "a refusal at {state} is not past the current milestone");
     }
 }

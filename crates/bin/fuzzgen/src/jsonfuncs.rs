@@ -106,7 +106,7 @@ pub fn gen_jsonfuncs_module(g: &mut Gen) -> Vec<StmtKind> {
             "jsonfuncs:err",
         ],
     ) {
-        "jsonfuncs:sub" => return gen_sub(g),
+        "jsonfuncs:sub" => gen_sub(g),
         "jsonfuncs:jacc" => vec![StmtKind::Raw(gen_jacc(g))],
         "jsonfuncs:contain" => vec![StmtKind::Raw(gen_contain(g))],
         "jsonfuncs:exist" => vec![StmtKind::Raw(gen_exist(g))],

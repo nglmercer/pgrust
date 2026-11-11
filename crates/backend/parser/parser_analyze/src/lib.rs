@@ -182,7 +182,7 @@ pub fn parse_analyze_varparams<'a, 'mcx>(
     pstate.p_sourcetext = Some(source_text.as_bytes());
 
     let parstate = parser_small1::VarParamState {
-        param_types: std::rc::Rc::new(core::cell::RefCell::new(::mcx::std_vec_from_slice("parser", &param_types)?)),
+        param_types: std::rc::Rc::new(core::cell::RefCell::new(::mcx::std_vec_from_slice("parser", param_types)?)),
     };
     parser_small1::setup_parse_variable_parameters(&mut pstate, parstate.clone());
 
@@ -2097,7 +2097,7 @@ pub(crate) fn transformUpdateTargetList<'mcx>(
         .as_ref()
         .expect("transformUpdateTargetList with no target relation")
         .rd_att
-        .natts as i32;
+        .natts;
     if pstate.p_next_resno <= numattrs {
         pstate.p_next_resno = numattrs + 1;
     }

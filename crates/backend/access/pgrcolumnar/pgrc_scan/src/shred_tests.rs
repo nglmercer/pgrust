@@ -58,7 +58,7 @@ type Docs = Vec<Option<String>>;
 fn std_doc(i: u64) -> String {
     format!(
         r#"{{"flag":{},"name":"tok{:04}","score":{}.25}}"#,
-        i % 2 == 0,
+        i.is_multiple_of(2),
         i % 97,
         i % 1000
     )
@@ -265,7 +265,7 @@ fn bool_lane_scan_is_byte_identical_to_the_plain_column_twin() {
     let rows: Vec<Option<RawDatum<'_>>> = docs
         .iter()
         .enumerate()
-        .map(|(i, d)| d.as_ref().map(|_| RawDatum::Word((i as u64 % 2 == 0) as u64)))
+        .map(|(i, d)| d.as_ref().map(|_| RawDatum::Word((i as u64).is_multiple_of(2) as u64)))
         .collect();
     let plain = open_part_bytes(&seal_plain(bool_col(1), &rows, 44), 9104).expect("open");
     assert_same_geometry(&shredded, &plain);

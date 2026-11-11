@@ -127,7 +127,7 @@ fn handler_dispatch_is_the_closed_set() {
     // fmgr_info dispatches them by prosrc (fmgr.c:236-247 fmgr_lookupByName).
     syscache_seams::lookup_pg_proc_fmgr::set(|funcid| {
         Ok(match funcid {
-            5002 | 5003 | 5004 => Some(syscache_seams::PgProcFmgrShape {
+            5002..=5004 => Some(syscache_seams::PgProcFmgrShape {
                 prolang: 12,
                 prorettype: 325,
                 pronargs: 1,

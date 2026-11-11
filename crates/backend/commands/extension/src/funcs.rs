@@ -206,7 +206,7 @@ pub fn fc_pg_extension_config_dump(
 ) -> PgResult<Datum> {
     let tableoid = fcinfo.arg(0).as_oid();
     // SAFETY: catalog arg type text — non-null varlena (strict function).
-    let wherecond: Vec<u8> = ::mcx::std_vec_from_slice("extension", &unsafe { fcinfo.arg_varlena_packed(1)? }.data())?;
+    let wherecond: Vec<u8> = ::mcx::std_vec_from_slice("extension", unsafe { fcinfo.arg_varlena_packed(1)? }.data())?;
     // SAFETY: executor arms es_query_cxt pre-call; it outlives this frame.
     let mcx = unsafe { fcinfo.result_mcx_detached() };
     crate::contents::extension_config_dump(mcx, tableoid, &wherecond)?;

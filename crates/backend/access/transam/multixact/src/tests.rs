@@ -43,7 +43,7 @@ fn write_fixture_segments(dir: &std::path::Path) {
 
     // Group 0 layout: flags word at 0, xids at 8/12/16 for offsets 1/2/3.
     let mut members_page = vec![0u8; BLCKSZ];
-    let flags: u32 = (1 << 8) | (0 << 16) | (4 << 24);
+    let flags: u32 = ((1 << 8)) | (4 << 24);
     members_page[0..4].copy_from_slice(&flags.to_ne_bytes());
     members_page[8..12].copy_from_slice(&100u32.to_ne_bytes());
     members_page[12..16].copy_from_slice(&101u32.to_ne_bytes());
@@ -636,7 +636,7 @@ fn multixact_recdata_len_rejects_wrong_length() {
             continue;
         }
         let err = check_multixact_recdata_len(&vec![0u8; bad_len], "test")
-            .err().expect("wrong-length payload must be rejected");
+            .expect_err("wrong-length payload must be rejected");
         assert_eq!(err.sqlstate(), types_error::ERRCODE_DATA_CORRUPTED);
     }
 }
@@ -694,7 +694,7 @@ fn wraparound_warning_hints_carry_no_replication_slot_advice() {
     let warn_limit = wrap_limit.wrapping_sub(40_000_000);
     let per_page = MULTIXACT_OFFSETS_PER_PAGE;
     let mut next = warn_limit.wrapping_add(per_page) & !(per_page - 1);
-    if next % 65536 == 0 {
+    if next.is_multiple_of(65536) {
         next += per_page;
     }
     assert!(MultiXactIdPrecedes(warn_limit, next));
@@ -765,7 +765,7 @@ fn set_multixact_id_limit_in_aborted_block_uses_oid_not_syscache() {
     let warn_limit = wrap_limit.wrapping_sub(40_000_000);
     let per_page = MULTIXACT_OFFSETS_PER_PAGE;
     let mut next = warn_limit.wrapping_add(per_page) & !(per_page - 1);
-    if next % 65536 == 0 {
+    if next.is_multiple_of(65536) {
         next += per_page;
     }
     assert!(MultiXactIdPrecedes(warn_limit, next));
@@ -1047,7 +1047,7 @@ fn truncation_replay_debug_message_uses_lowercase_hex_segments_like_c() {
         "replaying multixact truncation: offsets [1, 1), offsets segments [0, 0), members [{memb}, {memb}), members segments [a, a)"
     );
     let msgs = MSGS.lock().unwrap();
-    assert!(msgs.iter().any(|m| *m == expected), "expected {expected:?}; got {msgs:?}");
+    assert!(msgs.contains(&expected), "expected {expected:?}; got {msgs:?}");
 }
 
 #[test]

@@ -329,7 +329,7 @@ impl EpochWriter<'_, '_> {
                 x.len += len;
             }
             last => {
-                assert!(last.map_or(true, |(p, _)| *p < part), "partitions must be written in ascending order");
+                assert!(last.is_none_or(|(p, _)| *p < part), "partitions must be written in ascending order");
                 self.staged.push((part, Extent { offset: at, len }));
             }
         }

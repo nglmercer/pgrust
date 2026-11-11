@@ -163,7 +163,7 @@ pub fn ParseFuncOrColumn<'mcx>(
         match arg.as_named_arg_expr() {
             Some(na) => {
                 let name = na.name.expect("NamedArgExpr has a name");
-                if argnames.iter().any(|&n| n == name) {
+                if argnames.contains(&name) {
                     return Err(named_arg_error(
                         pstate,
                         format!("argument name \"{name}\" used more than once"),
@@ -834,8 +834,8 @@ fn pack_variadic_args<'mcx>(
     mcx: Mcx<'mcx>,
     pstate: &ParseState<'_, 'mcx>,
     fargs: &NodeList<'mcx>,
-    actual_arg_types: &[Oid],
-    declared_arg_types: &[Oid],
+    _actual_arg_types: &[Oid],
+    _declared_arg_types: &[Oid],
     nvargs: i16,
     vatype: Oid,
 ) -> PgResult<Option<(NodeList<'mcx>, Oid)>> {
@@ -1325,8 +1325,8 @@ pub fn func_match_argtypes<'c, 'mcx, C: CandidateArgs>(
     Ok(out)
 }
 
-fn keep_best<'c, C: CandidateArgs>(
-    candidates: &mut PgVec<'_, &'c C>,
+fn keep_best<C: CandidateArgs>(
+    candidates: &mut PgVec<'_, &C>,
     nmatch: impl Fn(&C) -> PgResult<usize>,
 ) -> PgResult<()> {
     let mut best = 0usize;

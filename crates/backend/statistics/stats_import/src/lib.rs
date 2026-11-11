@@ -434,7 +434,7 @@ fn RangeVarCallbackForStats(
         let aclresult = aclchk::pg_class_aclcheck(
             table_oid,
             miscinit::GetUserId(),
-            types_nodes::parsenodes::ACL_MAINTAIN as u64,
+            types_nodes::parsenodes::ACL_MAINTAIN,
         )?;
         if aclresult != ACLCHECK_OK {
             aclchk::aclcheck_error(

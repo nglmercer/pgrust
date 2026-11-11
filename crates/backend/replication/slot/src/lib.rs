@@ -488,7 +488,7 @@ pub fn ReplicationSlotIndex(slot: &ReplicationSlot) -> i32 {
     let slots = ReplicationSlotCtl();
     let base = slots.as_ptr() as usize;
     let p = std::ptr::from_ref(slot) as usize;
-    assert!(p >= base && p < base + slots.len() * size_of::<ReplicationSlot>());
+    assert!(p >= base && p < base + std::mem::size_of_val(slots));
     ((p - base) / size_of::<ReplicationSlot>()) as i32
 }
 

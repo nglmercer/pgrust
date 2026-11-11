@@ -68,7 +68,7 @@ fn drain_propagates_interrupt_while_remote_busy() {
         CANCEL.store(true, Ordering::SeqCst);
         latch::SetLatch(latch);
     });
-    let err = conn.drain_interruptible().err().expect("drain must surface the interrupt");
+    let err = conn.drain_interruptible().expect_err("drain must surface the interrupt");
     assert_eq!(err.sqlstate, types_error::ERRCODE_QUERY_CANCELED);
     assert!(conn.is_busy());
 }

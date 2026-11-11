@@ -1003,7 +1003,7 @@ impl XLogReaderRoutine for PageSource {
                 // half read from a recycled local segment must retry another
                 // source here, or ReadRecord's whole-record retry loops
                 // forever (xlogrecovery.c:3498).
-                let invalid = if StandbyMode() && target_page_ptr % wal_segsz as u64 == 0 {
+                let invalid = if StandbyMode() && target_page_ptr.is_multiple_of(wal_segsz as u64) {
                     xlogreader::validate_view_page_header(
                         v,
                         self.system_identifier,

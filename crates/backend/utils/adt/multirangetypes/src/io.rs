@@ -34,11 +34,11 @@ fn no_binary_io(recv: bool, rngtypid: Oid) -> Box<PgError> {
     )
 }
 
-pub fn cached_multirange_io_data<'f>(
-    flinfo: &'f mut FmgrInfo,
+pub fn cached_multirange_io_data(
+    flinfo: &mut FmgrInfo,
     mltrngtypid: Oid,
     func: IOFuncSelector,
-) -> PgResult<&'f mut MultirangeIOData> {
+) -> PgResult<&mut MultirangeIOData> {
     let need = match flinfo.fn_extra_ref::<MultirangeIOData>() {
         Some(c) => c.mi.mltrngtypid != mltrngtypid,
         None => true,
@@ -206,7 +206,7 @@ pub fn multirange_in<'m>(
         pos += 1;
     }
     if pos != input.len() {
-        let ctx = esc.as_deref_mut().map(|n| &mut n.ctx);
+        let ctx = esc.map(|n| &mut n.ctx);
         return ereturn(ctx, None, malformed(input, "Junk after closing right brace."));
     }
 

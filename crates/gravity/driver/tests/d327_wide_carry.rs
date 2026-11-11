@@ -35,7 +35,7 @@ const WIDE: usize = 1008;
 
 /// `n` records of `rec` bytes, every byte its record's and its offset's.
 fn records(n: usize, rec: usize) -> Vec<u8> {
-    (0..n * rec).map(|i| ((i / rec) as u8).wrapping_mul(31) ^ (i % rec) as u8 ^ (i % rec >> 8) as u8).collect()
+    (0..n * rec).map(|i| ((i / rec) as u8).wrapping_mul(31) ^ (i % rec) as u8 ^ ((i % rec) >> 8) as u8).collect()
 }
 
 #[test]

@@ -30,10 +30,10 @@ struct StackState {
 }
 
 thread_local! {
-    static STACK: RefCell<StackState> = RefCell::new(StackState {
+    static STACK: RefCell<StackState> = const { RefCell::new(StackState {
         frames: Vec::new(),
         recursion_depth: 0,
-    });
+    }) };
 }
 
 // Scoped replacement for `error_context_stack` (divergence #10): the ERROR
@@ -422,12 +422,11 @@ pub fn errstart(elevel: ErrorLevel, domain: Option<&str>) -> bool {
         let mut st = s.borrow_mut();
 
         st.recursion_depth += 1;
-        if st.recursion_depth > 1 && elevel >= ERROR {
-            if st.recursion_depth > 2 {
+        if st.recursion_depth > 1 && elevel >= ERROR
+            && st.recursion_depth > 2 {
                 // in_error_recursion_trouble(): abandon statement logging.
                 STATEMENT_SUPPRESSED.with(|c| c.set(true));
             }
-        }
 
         if st.frames.len() >= ERRORDATA_STACK_SIZE {
             st.frames.clear();

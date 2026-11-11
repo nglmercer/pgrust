@@ -658,7 +658,7 @@ fn TransformPubWhereClauses<'mcx>(
     for pri in rels.iter_mut() {
         let Some(raw) = pri.whereClause else { continue };
 
-        if !pubviaroot && pri.relation.rd_rel.relkind as u8 == RELKIND_PARTITIONED_TABLE {
+        if !pubviaroot && pri.relation.rd_rel.relkind == RELKIND_PARTITIONED_TABLE {
             return Err(Box::new(
                 PgError::error(format!(
                     "cannot use publication WHERE clause for relation \"{}\"",
@@ -733,7 +733,7 @@ fn CheckPubRelationColumnList(
                 ),
             ));
         }
-        if !pubviaroot && pri.relation.rd_rel.relkind as u8 == RELKIND_PARTITIONED_TABLE {
+        if !pubviaroot && pri.relation.rd_rel.relkind == RELKIND_PARTITIONED_TABLE {
             return Err(Box::new(
                 PgError::error(format!(
                     "cannot use column list for relation \"{nspname}.{}\" in publication \"{pubname}\"",
@@ -781,7 +781,7 @@ fn PublicationAddTables<'mcx>(
         if !aclchk::object_ownercheck(RELATION_RELATION_ID, rel.rd_id, miscinit::GetUserId())? {
             aclchk::aclcheck_error(
                 aclchk::ACLCHECK_NOT_OWNER,
-                get_relkind_objtype(rel.rd_rel.relkind as u8),
+                get_relkind_objtype(rel.rd_rel.relkind),
                 rel.name(),
             )?;
         }

@@ -1076,7 +1076,7 @@ fn build_joinrel_restrictlist<'mcx>(
                     continue;
                 }
             }
-            if !result.iter().any(|&r| r == rid) {
+            if !result.contains(&rid) {
                 result.push(rid);
             }
         }
@@ -1102,7 +1102,7 @@ fn build_joinrel_joinlist(run: &mut PlannerRun<'_>, joinrel: RelId, outer_rel: R
             if relids_is_subset(&run.root.rinfo(rid).required_relids, &joinrelids) {
                 continue;
             }
-            if !result.iter().any(|&r| r == rid) {
+            if !result.contains(&rid) {
                 result.push(rid);
             }
         }
@@ -1341,8 +1341,8 @@ fn compute_partition_bounds<'mcx>(
             && run.root.rel(rel1).nparts == run.root.rel(rel2).nparts
             && partbounds::partition_bounds_equal(
                 partnatts,
-                &**run.root.rel(rel1).boundinfo.as_ref().unwrap(),
-                &**run.root.rel(rel2).boundinfo.as_ref().unwrap(),
+                run.root.rel(rel1).boundinfo.as_ref().unwrap(),
+                run.root.rel(rel2).boundinfo.as_ref().unwrap(),
             );
         if bounds_equal {
             let bcopy = (**run.root.rel(rel1).boundinfo.as_ref().unwrap()).clone();
@@ -1403,12 +1403,12 @@ fn compute_partition_bounds<'mcx>(
             let inner_dummy = dummy_flags(run, rel2)?;
             let outer = partbounds::MergeRel {
                 nparts: run.root.rel(rel1).nparts,
-                boundinfo: &**run.root.rel(rel1).boundinfo.as_ref().unwrap(),
+                boundinfo: run.root.rel(rel1).boundinfo.as_ref().unwrap(),
                 is_dummy: &outer_dummy,
             };
             let inner = partbounds::MergeRel {
                 nparts: run.root.rel(rel2).nparts,
-                boundinfo: &**run.root.rel(rel2).boundinfo.as_ref().unwrap(),
+                boundinfo: run.root.rel(rel2).boundinfo.as_ref().unwrap(),
                 is_dummy: &inner_dummy,
             };
             partbounds::partition_bounds_merge(

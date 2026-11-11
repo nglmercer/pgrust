@@ -1685,7 +1685,7 @@ mod image_cmp_tests {
         let cmp_lt = datum_image_cmp(mcx, lo, hi, true, 4).unwrap();
         let cmp_gt = datum_image_cmp(mcx, hi, lo, true, 4).unwrap();
         let cmp_eq = datum_image_cmp(mcx, lo, lo, true, 4).unwrap();
-        assert!(cmp_lt < 0 && !(cmp_lt <= 0 && cmp_lt >= 0));
+        assert!(cmp_lt < 0 && !cmp_lt == 0);
         assert!(cmp_gt > 0);
         assert_eq!(cmp_eq, 0);
         assert!(!datum_image_eq(mcx, lo, hi, true, 4).unwrap());

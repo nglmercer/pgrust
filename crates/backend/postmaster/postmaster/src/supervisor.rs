@@ -538,7 +538,7 @@ pub fn hand_off_listen_sockets(fds: &[i32], fields: &[&str; 3]) {
         msg.msg_iov = &mut iov;
         msg.msg_iovlen = 1;
         if !fds.is_empty() {
-            let bytes = (fds.len() * core::mem::size_of::<i32>()) as u32;
+            let bytes = std::mem::size_of_val(fds) as u32;
             msg.msg_control = cmsg.as_mut_ptr().cast();
             msg.msg_controllen = libc::CMSG_SPACE(bytes) as _;
             let c = libc::CMSG_FIRSTHDR(&msg);

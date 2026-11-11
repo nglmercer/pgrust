@@ -372,6 +372,8 @@ fn char2wchar_default(head: &[u8]) -> PgResult<Vec<u32>> {
     Ok(out.into_iter().map(|w| w as u32).collect())
 }
 
+// Kept safe on purpose: C's tparser_init takes the text pointer and length the caller owns for the parse's lifetime.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub fn tparser_init(mcx: Mcx<'_>, str_ptr: *const u8, len: usize) -> PgResult<TParser> {
     let charmaxlen = ::mbutils::pg_database_encoding_max_length();
     let mut prs = TParser {
@@ -403,7 +405,7 @@ pub fn tparser_init(mcx: Mcx<'_>, str_ptr: *const u8, len: usize) -> PgResult<TP
             // fewer wchars than input bytes (pg_mb2wchar_with_len truncates
             // its result to the converted count).
             let w = ::mbutils::pg_mb2wchar_with_len(mcx, head)?;
-            let mut v: Vec<u32> = w.iter().map(|&c| c as u32).collect();
+            let mut v: Vec<u32> = w.iter().copied().collect();
             v.resize(len + 1, 0);
             prs.wstr_len = v.len();
             prs.pgwstr_owned = Some(v);

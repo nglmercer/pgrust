@@ -392,7 +392,7 @@ fn add_with_check_options<'mcx>(
     force_using: bool,
     out: &mut RlsQuals<'mcx>,
 ) -> PgResult<()> {
-    fn qual_for_wco<'a>(policy: &'a RowSecurityPolicyMeta, force_using: bool) -> Option<&'a str> {
+    fn qual_for_wco(policy: &RowSecurityPolicyMeta, force_using: bool) -> Option<&str> {
         if !force_using {
             if let Some(wc) = policy.with_check_src.as_ref() {
                 return Some(wc.as_str());

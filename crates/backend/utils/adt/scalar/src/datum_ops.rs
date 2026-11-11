@@ -27,8 +27,6 @@ fn invalid_datum_pointer() -> Box<PgError> {
 #[track_caller]
 #[cold]
 #[inline(never)]
-#[cold]
-#[inline(never)]
 fn varsize_under_header(n: usize) -> Box<PgError> {
     Box::new(
         PgError::error(format!("invalid varlena size {n}: less than its {VARHDRSZ}-byte header"))

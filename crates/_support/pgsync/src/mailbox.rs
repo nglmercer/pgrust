@@ -130,7 +130,7 @@ impl<T> MailboxSender<T> {
                 if g.receivers == 0 {
                     return Err(value);
                 }
-                if core.cap.map_or(true, |c| g.queue.len() < c) {
+                if core.cap.is_none_or(|c| g.queue.len() < c) {
                     g.queue.push_back(value);
                     drop(g);
                     core.not_empty.wake_all();
@@ -175,7 +175,7 @@ impl<T> MailboxSender<T> {
                 if g.receivers == 0 {
                     break Ok(Err(value));
                 }
-                if core.cap.map_or(true, |c| g.queue.len() < c) {
+                if core.cap.is_none_or(|c| g.queue.len() < c) {
                     g.queue.push_back(value);
                     drop(g);
                     core.not_empty.wake_all();
@@ -205,7 +205,7 @@ impl<T> MailboxSender<T> {
         if g.receivers == 0 {
             return Err(TrySend::Disconnected(value));
         }
-        if core.cap.map_or(true, |c| g.queue.len() < c) {
+        if core.cap.is_none_or(|c| g.queue.len() < c) {
             g.queue.push_back(value);
             drop(g);
             core.not_empty.wake_all();

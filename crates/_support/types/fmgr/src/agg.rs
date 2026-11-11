@@ -302,7 +302,7 @@ mod tests {
         unsafe { node.register_shutdown_callback(bump, 10 as *mut ()) };
         node.select_set(None);
         // SAFETY: as above.
-        unsafe { node.register_shutdown_callback(bump, 1 as *mut ()) };
+        unsafe { node.register_shutdown_callback(bump, core::ptr::dangling_mut::<()>()) };
         assert_eq!(node.aggcontext().context() as *const MemoryContext, fc_base);
 
         FIRED.store(0, Relaxed);

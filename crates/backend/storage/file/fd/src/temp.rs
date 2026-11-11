@@ -371,7 +371,7 @@ pub fn SetTempTablespaces(table_spaces: &[Oid]) -> PgResult<()> {
     let mut owned: Vec<Oid> = Vec::new();
     owned
         .try_reserve_exact(num_spaces)
-        .map_err(|_| ::mcx::oom_named("TopMemoryContext", num_spaces * core::mem::size_of::<Oid>()))?;
+        .map_err(|_| ::mcx::oom_named("TopMemoryContext", std::mem::size_of_val(table_spaces)))?;
     owned.extend_from_slice(table_spaces);
     SetTempTablespacesShared(std::sync::Arc::new(owned));
     Ok(())

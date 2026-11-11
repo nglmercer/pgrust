@@ -426,7 +426,7 @@ pub fn jsonb_build_object_worker<'mcx>(
     absent_on_null: bool,
     unique_keys: bool,
 ) -> PgResult<PgVec<'mcx, u8>> {
-    if args.len() % 2 != 0 {
+    if !args.len().is_multiple_of(2) {
         return Err(odd_argument_list());
     }
     let mut ps = JsonbPush::new(mcx)?;

@@ -262,7 +262,7 @@ pub fn parse_compress_specification(
     loop {
         // Figure start, end, and length of next keyword and any value.
         let kwend = spec
-            .find(|c| c == ',' || c == '=')
+            .find([',', '='])
             .unwrap_or(spec.len());
         let keyword = &spec[..kwend];
         let has_value = spec.as_bytes().get(kwend) == Some(&b'=');

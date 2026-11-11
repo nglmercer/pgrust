@@ -3157,8 +3157,8 @@ fn replace_on_conflict_set_where<'mcx>(
     Ok(())
 }
 
-fn get_tle_by_resno<'a, 'mcx>(
-    tlist: &'a NodeList<'mcx>,
+fn get_tle_by_resno<'mcx>(
+    tlist: &NodeList<'mcx>,
     resno: i16,
 ) -> Option<&'mcx TargetEntry<'mcx>> {
     tlist
@@ -4021,7 +4021,7 @@ pub(crate) fn add_nulling_relids_expr<'mcx>(
                 NodeTag::T_Var => {
                     let v = node.as_var().expect("Var");
                     if v.varlevelsup == self.sublevels_up
-                        && self.target.map_or(true, |t| t.is_member(v.varno))
+                        && self.target.is_none_or(|t| t.is_member(v.varno))
                     {
                         let (mcx, added) = (self.mcx, self.added);
                         // SAFETY: exclusive tree (caller contract); the shared
@@ -4038,7 +4038,7 @@ pub(crate) fn add_nulling_relids_expr<'mcx>(
                     // assumed evaluated below the nulling join.
                     let phv = node.as_place_holder_var().expect("PlaceHolderVar");
                     if phv.phlevelsup == self.sublevels_up
-                        && self.target.map_or(true, |t| phv.phrels.overlap(t))
+                        && self.target.is_none_or(|t| phv.phrels.overlap(t))
                     {
                         let (mcx, added) = (self.mcx, self.added);
                         // SAFETY: exclusive tree (caller contract).

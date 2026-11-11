@@ -232,7 +232,7 @@ fn from_datum_roundtrip_and_rw_reuse() {
 #[test]
 fn from_exprecord_copies_rowtype_only() {
     let parent = MemoryContext::new("t");
-    let mcx = parent.mcx();
+    let _mcx = parent.mcx();
     let p = registered_record(&parent);
     let erh = unsafe { &mut *p };
     expanded_record_set_fields(erh, &[Datum::from_i32(9), Datum::null()], &[false, true], false)

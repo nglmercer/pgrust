@@ -287,11 +287,10 @@ impl<'mcx> IspellDict<'mcx> {
         };
 
         let mut flagflags = flagflags;
-        if (flagflags & FF_COMPOUNDONLY) != 0 || (flagflags & FF_COMPOUNDPERMITFLAG) != 0 {
-            if (flagflags & FF_COMPOUNDFLAG) == 0 {
+        if ((flagflags & FF_COMPOUNDONLY) != 0 || (flagflags & FF_COMPOUNDPERMITFLAG) != 0)
+            && (flagflags & FF_COMPOUNDFLAG) == 0 {
                 flagflags |= FF_COMPOUNDFLAG;
             }
-        }
 
         let affix = Affix {
             flag: new_bytes(mcx, flag)?,
@@ -1130,7 +1129,7 @@ impl<'mcx> IspellDict<'mcx> {
                 if is_new {
                     curaffix += 1;
                     debug_assert!(curaffix < naffix);
-                    let dup = new_bytes(mcx, &self.spell[i].flag.as_slice().to_vec())?;
+                    let dup = new_bytes(mcx, self.spell[i].flag.as_slice())?;
                     affix_data.push(dup);
                 }
                 let wordlen = self.spell[i].word.len() as i32;

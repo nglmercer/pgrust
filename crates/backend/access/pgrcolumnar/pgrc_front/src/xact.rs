@@ -251,7 +251,7 @@ mod tests {
         assert_eq!((r.len(), r.bytes()), (3, 72));
         let got: Vec<Vec<u8>> = r.images_mut().map(|i| i.to_vec()).collect();
         assert_eq!(got, vec![image(1, 23), image(2, 8), image(3, 41)]);
-        assert!(r.images_mut().all(|i| i.as_ptr() as usize % 8 == 0));
+        assert!(r.images_mut().all(|i| (i.as_ptr() as usize).is_multiple_of(8)));
         r.images_mut().next().unwrap()[0] = 0xff;
         assert_eq!(r.images_mut().next().unwrap()[0], 0xff, "images are written in place");
     }

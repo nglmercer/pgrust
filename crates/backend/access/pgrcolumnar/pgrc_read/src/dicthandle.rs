@@ -545,7 +545,7 @@ impl FrameLazyPayload {
             // failure must be a typed refusal, not `handle_alloc_error`'s
             // process abort (which the infallible `vec!` would take, bypassing
             // statement-thread panic containment).
-            let buf = ImageBuf::zeroed(total.div_ceil(8)).ok_or_else(|| {
+            let buf = ImageBuf::zeroed(total.div_ceil(8)).ok_or({
                 ReadError::Format(FormatError::Corrupt {
                     at: "dict region reservation",
                 })
@@ -1189,7 +1189,7 @@ impl BlockLazyPayload {
                     .try_into()
                     .expect("len 4"),
             ) as usize;
-            if first < 8 || first % 4 != 0 || first > payload_end - STREAM_SECTION_HDR_LEN {
+            if first < 8 || !first.is_multiple_of(4) || first > payload_end - STREAM_SECTION_HDR_LEN {
                 return Ok(None);
             }
             let wrapper = pgrc_format::enc::Wrapper::from_u8(hdr.wrapper)?;
@@ -1266,7 +1266,7 @@ impl BlockLazyPayload {
             // failure must be a typed refusal, not `handle_alloc_error`'s abort
             // (which the infallible `vec!` would take, bypassing statement-
             // thread panic containment).
-            let buf = ImageBuf::zeroed(unc_len.div_ceil(8)).ok_or_else(|| {
+            let buf = ImageBuf::zeroed(unc_len.div_ceil(8)).ok_or({
                 ReadError::Format(FormatError::Bounds {
                     at: "dict payload reservation",
                 })
@@ -3045,8 +3045,7 @@ mod idx251_tests {
             2,
             DictCharLenForm::Absolute,
         )
-        .err()
-        .expect("below-window entry must be refused");
+        .expect_err("below-window entry must be refused");
         assert!(
             matches!(err, ReadError::Format(FormatError::Bounds { at: "dict payload" })),
             "expected typed Bounds refusal, got {err:?}"

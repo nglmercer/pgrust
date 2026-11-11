@@ -750,7 +750,7 @@ fn map_sql_schema_to_xmlschema_types(
     )?;
 
     let mut result = String::new();
-    let _ = write!(result, "<xsd:complexType name=\"{schematypename}\">\n");
+    let _ = writeln!(result, "<xsd:complexType name=\"{schematypename}\">");
     result.push_str(if !tableforest { "  <xsd:all>\n" } else { "  <xsd:sequence>\n" });
 
     for relid in relid_list {
@@ -763,11 +763,11 @@ fn map_sql_schema_to_xmlschema_types(
             Some(&relname),
         )?;
         if !tableforest {
-            let _ = write!(result, "    <xsd:element name=\"{xmltn}\" type=\"{tabletypename}\"/>\n");
+            let _ = writeln!(result, "    <xsd:element name=\"{xmltn}\" type=\"{tabletypename}\"/>");
         } else {
-            let _ = write!(
+            let _ = writeln!(
                 result,
-                "    <xsd:element name=\"{xmltn}\" type=\"{tabletypename}\" minOccurs=\"0\" maxOccurs=\"unbounded\"/>\n"
+                "    <xsd:element name=\"{xmltn}\" type=\"{tabletypename}\" minOccurs=\"0\" maxOccurs=\"unbounded\"/>"
             );
         }
     }
@@ -785,7 +785,7 @@ fn map_sql_catalog_to_xmlschema_types(nspid_list: &[Oid], _targetns: &str) -> Pg
         map_multipart_sql_identifier_to_xml_name(Some("CatalogType"), Some(&dbname), None, None)?;
 
     let mut result = String::new();
-    let _ = write!(result, "<xsd:complexType name=\"{catalogtypename}\">\n");
+    let _ = writeln!(result, "<xsd:complexType name=\"{catalogtypename}\">");
     result.push_str("  <xsd:all>\n");
 
     for nspid in nspid_list {
@@ -797,7 +797,7 @@ fn map_sql_catalog_to_xmlschema_types(nspid_list: &[Oid], _targetns: &str) -> Pg
             Some(&nspname),
             None,
         )?;
-        let _ = write!(result, "    <xsd:element name=\"{xmlsn}\" type=\"{schematypename}\"/>\n");
+        let _ = writeln!(result, "    <xsd:element name=\"{xmlsn}\" type=\"{schematypename}\"/>");
     }
 
     result.push_str("  </xsd:all>\n");
@@ -920,7 +920,7 @@ fn map_sql_typecoll_to_xmlschema_types(tupdesc_list: &[&TupleDescData<'_>]) -> P
 
     let mut result = String::new();
     for typid in uniquetypes {
-        let _ = write!(result, "{}\n", map_sql_type_to_xmlschema_type(typid, -1)?);
+        let _ = writeln!(result, "{}", map_sql_type_to_xmlschema_type(typid, -1)?);
     }
     Ok(result)
 }
@@ -938,13 +938,13 @@ fn map_sql_type_to_xmlschema_type(typeoid: Oid, typmod: i32) -> PgResult<String>
         return Ok(result);
     }
 
-    let _ = write!(result, "<xsd:simpleType name=\"{typename}\">\n");
+    let _ = writeln!(result, "<xsd:simpleType name=\"{typename}\">");
 
     match typeoid {
         BPCHAROID | VARCHAROID | TEXTOID => {
             result.push_str("  <xsd:restriction base=\"xsd:string\">\n");
             if typmod != -1 {
-                let _ = write!(result, "    <xsd:maxLength value=\"{}\"/>\n", typmod - VARHDRSZ);
+                let _ = writeln!(result, "    <xsd:maxLength value=\"{}\"/>", typmod - VARHDRSZ);
             }
             result.push_str("  </xsd:restriction>\n");
         }
@@ -1073,9 +1073,9 @@ fn map_sql_type_to_xmlschema_type(typeoid: Oid, typmod: i32) -> PgResult<String>
             if lsyscache::typ::get_typtype(typeoid)? == TYPTYPE_DOMAIN {
                 let mut base_typmod: i32 = -1;
                 let base_typeoid = lsyscache::typ::getBaseTypeAndTypmod(typeoid, &mut base_typmod)?;
-                let _ = write!(
+                let _ = writeln!(
                     result,
-                    "  <xsd:restriction base=\"{}\"/>\n",
+                    "  <xsd:restriction base=\"{}\"/>",
                     map_sql_type_to_xml_name(base_typeoid, base_typmod)?
                 );
             }

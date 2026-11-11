@@ -681,14 +681,13 @@ fn _SPI_pquery(
     execmain_seams::executor_run::call(qd, ForwardScanDirection, tcount, dest)?;
     with_current(|c| c.processed = execmain_seams::query_desc_es_processed::call(qd));
 
-    if (res == SPI_OK_SELECT || stmt.hasReturning) && dest.mydest() == CommandDest::Spi {
-        if _SPI_checktuples() {
+    if (res == SPI_OK_SELECT || stmt.hasReturning) && dest.mydest() == CommandDest::Spi
+        && _SPI_checktuples() {
             return Err(ereport(ERROR)
                 .errmsg_internal("consistency check on SPI tuple count failed")
                 .into_error()
                 .into());
         }
-    }
 
     execmain_seams::executor_finish::call(qd)?;
     execmain_seams::executor_end::call(qd)?;

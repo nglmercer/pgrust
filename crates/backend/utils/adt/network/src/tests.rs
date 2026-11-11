@@ -266,7 +266,7 @@ fn recv_send_roundtrip_and_wire_image() {
 fn recv_error_arms() {
     let ctx = mcx::MemoryContext::new("network-test");
     let mcx = ctx.mcx();
-    let mut run = |bytes: &[u8], is_cidr: bool| -> PgResult<InetValue> {
+    let run = |bytes: &[u8], is_cidr: bool| -> PgResult<InetValue> {
         let mut si = stringinfo::StringInfo::with_capacity_in(mcx, bytes.len()).unwrap();
         si.append_bytes(bytes).unwrap();
         network_recv(&mut si, is_cidr)

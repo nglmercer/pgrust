@@ -14,7 +14,7 @@ fn run(st: &mut PsqlState, sql: &str) -> Result<QueryResult, String> {
     let Some(conn) = st.conn.as_mut() else {
         return Err("You are currently not connected to a database.".into());
     };
-    conn.send_query(sql).map_err(|e| e)?;
+    conn.send_query(sql)?;
     let mut last: Option<QueryResult> = None;
     let mut err: Option<String> = None;
     loop {

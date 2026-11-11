@@ -348,7 +348,7 @@ fn minmax_multi_get_procinfo(
     if proc == 0 {
         return Err(invalid_opclass(procnum, attno));
     }
-    let mut finfo = fmgr_core::fmgr_info(proc)?;
+    let finfo = fmgr_core::fmgr_info(proc)?;
     *cache.borrow_mut() = Some(finfo.clone());
     Ok(finfo)
 }
@@ -361,7 +361,7 @@ fn minmax_multi_get_strategy_procinfo(
     subtype: Oid,
     strategynum: u16,
 ) -> PgResult<FmgrInfo> {
-    debug_assert!(strategynum >= 1 && strategynum <= BTMaxStrategyNumber);
+    debug_assert!((1..=BTMaxStrategyNumber).contains(&strategynum));
     let opaque = &bdesc.bd_info[attno as usize - 1].minmax;
 
     if opaque.cached_subtype.get() != subtype {
@@ -384,7 +384,7 @@ fn minmax_multi_get_strategy_procinfo(
     }
     let proc = lsyscache::get_opcode(oprid)?;
     debug_assert!(proc != 0);
-    let mut finfo = fmgr_core::fmgr_info(proc)?;
+    let finfo = fmgr_core::fmgr_info(proc)?;
     opaque.strategy_procinfos.borrow_mut()[strategynum as usize - 1] = Some(finfo.clone());
     Ok(finfo)
 }

@@ -39,6 +39,12 @@ pub struct Glob<'mcx> {
     pub prunable_relids: Bitmapset<'mcx>,
 }
 
+impl Default for Glob<'_> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Glob<'_> {
     pub fn new() -> Self {
         Glob {

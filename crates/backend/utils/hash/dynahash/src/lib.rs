@@ -1,5 +1,7 @@
 #![allow(non_snake_case)]
 #![allow(clippy::missing_safety_doc)]
+// The hash table API takes raw entry/key pointers the way C's dynahash does; callers own their validity.
+#![allow(clippy::not_unsafe_ptr_arg_deref)]
 
 use core::alloc::Layout;
 use core::cell::UnsafeCell;

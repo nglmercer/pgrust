@@ -410,7 +410,7 @@ fn charinc_dispatch_and_generic() {
     SetDatabaseEncoding(PG_UTF8).unwrap();
     assert_eq!(
         pg_database_encoding_character_incrementer() as usize,
-        pg_utf8_increment as usize
+        pg_utf8_increment as *const () as usize
     );
     let mut c = *b"a";
     assert!(pg_generic_charinc(&mut c));

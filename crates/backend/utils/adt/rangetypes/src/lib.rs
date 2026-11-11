@@ -128,10 +128,10 @@ impl RangeInfo {
 }
 
 // range_get_typcache (rangetypes.c): fn_extra memo keyed by rngtypid.
-pub fn cached_range_info<'f>(
-    flinfo: &'f mut FmgrInfo,
+pub fn cached_range_info(
+    flinfo: &mut FmgrInfo,
     rngtypid: Oid,
-) -> PgResult<&'f mut RangeInfo> {
+) -> PgResult<&mut RangeInfo> {
     let need = match flinfo.fn_extra_ref::<RangeInfo>() {
         Some(ri) => ri.rngtypid != rngtypid,
         None => true,
@@ -400,6 +400,8 @@ fn varatt_is_4b_u(p: *const u8) -> bool {
 }
 
 #[inline]
+// Kept safe on purpose: C's VARSIZE_4B reads the header of a datum the caller owns (hot path, many call sites).
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub fn varsize_4b(p: *const u8) -> usize {
     // SAFETY: live 4-byte varlena header.
     let w = unsafe { u32::from_ne_bytes(core::slice::from_raw_parts(p, 4).try_into().unwrap()) };
@@ -419,7 +421,7 @@ const fn type_is_packable(typlen: i16, typstorage: u8) -> bool {
 
 #[inline]
 fn varatt_can_make_short(p: *const u8) -> bool {
-    varatt_is_4b_u(p) && varsize_4b(p) - 4 + 1 <= 0x7F
+    varatt_is_4b_u(p) && varsize_4b(p) - 4 < 0x7F
 }
 
 fn datum_compute_size(

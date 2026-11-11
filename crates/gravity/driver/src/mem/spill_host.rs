@@ -198,10 +198,7 @@ unsafe fn spill_op(n: &mut Inner, op: u32, arg: u64) -> Result<i64> {
                 return Err(Error::host(format!("gravity: spill: a slice of run {token:#x} of slot {slot}, put without fences"))); // alloc: Cold
             };
             let open = |f: usize| t.run_records(slot, token, Some(f))?.ok_or_else(|| Error::host("gravity: spill: a fenced run without its records"));
-            let reader = match crate::mem::fence::slice_of(fences, &open, lo, hi)? {
-                Some(r) => Some(Box::new(r) as Box<dyn crate::mem::spill::RunReader>), // alloc: Exec
-                None => None,
-            };
+            let reader = crate::mem::fence::slice_of(fences, &open, lo, hi)?.map(|r| Box::new(r) as Box<dyn crate::mem::spill::RunReader>);
             let handle = n.readers.iter().position(Option::is_none).unwrap_or_else(|| {
                 n.readers.push(None); // alloc: Exec
                 n.readers.len() - 1
@@ -526,7 +523,7 @@ unsafe fn arena_chunk(ctx: *mut Ctx, arg: u64) -> i64 {
         return 0;
     }
     let n = inner_of(ctx);
-    if let Some(i) = n.spills.iter().rposition(|c| c.as_ptr() == p as *const u8) {
+    if let Some(i) = n.spills.iter().rposition(|c| std::ptr::eq(c.as_ptr(), p)) {
         n.spills[i].own_by(owner);
     } else if let Some(i) = n.owner_maps.iter().rposition(|m| m.as_mut_ptr() == p) {
         n.owner_maps[i].own_by(owner);
@@ -816,7 +813,7 @@ pub mod v4 {
     /// # Safety — `ctx` is bound.
     pub unsafe fn taken(ctx: *mut Ctx, p: *const u8) -> bool {
         let n = inner_of(ctx);
-        n.spills.iter().any(|c| c.as_ptr() == p) || n.owner_maps.iter().any(|m| m.as_mut_ptr() as *const u8 == p)
+        n.spills.iter().any(|c| c.as_ptr() == p) || n.owner_maps.iter().any(|m| std::ptr::eq(m.as_mut_ptr(), p))
     }
 
     /// pagepool P3 witness: whether the region a `take` of this owner gave at `p` is the page pool's (`RegionBuf::is_pool`:

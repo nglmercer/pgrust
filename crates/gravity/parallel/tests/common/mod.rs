@@ -405,7 +405,7 @@ pub fn gen_kv(r: u64) -> Option<[i64; 2]> {
 }
 
 pub fn gen_inner(r: u64) -> Option<[i64; 2]> {
-    if r % 5 == 0 {
+    if r.is_multiple_of(5) {
         Some([(r % 37) as i64, (r * 10) as i64])
     } else {
         None

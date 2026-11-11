@@ -220,7 +220,7 @@ impl Server {
 /// exactly the frozen pair HEAP_XMIN_COMMITTED|HEAP_XMIN_INVALID).
 fn scan_heap_frozen(path: &Path) -> (usize, usize) {
     let data = std::fs::read(path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
-    assert!(data.len() % BLCKSZ == 0, "heap file not page-aligned: {}", path.display());
+    assert!(data.len().is_multiple_of(BLCKSZ), "heap file not page-aligned: {}", path.display());
     let (mut ntup, mut nfrozen) = (0usize, 0usize);
     for page in data.chunks_exact(BLCKSZ) {
         let pd_lower = u16::from_le_bytes([page[12], page[13]]) as usize;

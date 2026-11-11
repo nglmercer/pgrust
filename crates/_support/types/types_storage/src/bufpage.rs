@@ -253,7 +253,7 @@ impl<'a> PageRef<'a> {
 
     #[inline]
     fn read_u16(&self, off: usize) -> uint16 {
-        debug_assert!(off + 2 <= BLCKSZ && off % 2 == 0);
+        debug_assert!(off + 2 <= BLCKSZ && off.is_multiple_of(2));
         // SAFETY: in-bounds, 2-aligned (from_raw contract).
         unsafe { self.ptr.as_ptr().add(off).cast::<uint16>().read() }
     }
@@ -479,7 +479,7 @@ impl<'a> PageMut<'a> {
 
     #[inline]
     fn write_u16(&mut self, off: usize, v: uint16) {
-        debug_assert!(off + 2 <= BLCKSZ && off % 2 == 0);
+        debug_assert!(off + 2 <= BLCKSZ && off.is_multiple_of(2));
         // SAFETY: in-bounds, 2-aligned (from_raw contract).
         unsafe { self.ptr.as_ptr().add(off).cast::<uint16>().write(v) }
     }
@@ -1910,7 +1910,7 @@ mod tests {
             let mut t1 = temp_page();
             let mut pm1 = page_mut(&mut t1);
             fill_index_page(&mut pm1, 8);
-            pm1.index_multi_delete(&dels);
+            pm1.index_multi_delete(dels);
 
             let mut t2 = temp_page();
             let mut pm2 = page_mut(&mut t2);

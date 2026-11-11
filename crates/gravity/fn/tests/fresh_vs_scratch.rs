@@ -95,7 +95,7 @@ fn run_pad(func: PGFunction, oid: u32, args: &[Datum], mode: Mode, pad: usize) -
             black_box(rcx.mcx().alloc_bytes(pad).unwrap());
         }
         fc.set_arg(0, args[i % args.len()]);
-        let r = flinfo.invoke(&mut **fc).unwrap();
+        let r = flinfo.invoke(&mut fc).unwrap();
         // SAFETY: a NUL-terminated cstring result.
         acc += unsafe { std::ffi::CStr::from_ptr(r.as_usize() as *const core::ffi::c_char) }.to_bytes().len();
         black_box(acc);

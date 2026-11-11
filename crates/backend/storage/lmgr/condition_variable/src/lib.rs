@@ -131,6 +131,8 @@ fn proclist_pop_head(list: &mut proclist_head) -> ProcNumber {
     procno
 }
 
+// clippy::mut_from_ref is intended: the waiter list is mutated through its UnsafeCell under cv.mutex.
+#[allow(clippy::mut_from_ref)]
 fn wakeup_mut(cv: &ConditionVariable) -> &mut proclist_head {
     // SAFETY: caller holds cv.mutex; the borrow ends before unlock.
     unsafe { &mut *cv.wakeup.ptr() }

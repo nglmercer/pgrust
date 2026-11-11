@@ -227,7 +227,7 @@ impl Hist {
         self.entries[head as usize].prev = hn;
         self.start[hindex] = hn as i16;
         *hist_next += 1;
-        if *hist_next as usize >= PGLZ_HISTORY_SIZE + 1 {
+        if *hist_next as usize > PGLZ_HISTORY_SIZE {
             *hist_next = 1;
             *recycle = true;
         }

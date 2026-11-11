@@ -244,7 +244,7 @@ fn image_bytes(imgs: &[Vec<u64>], i: usize) -> &[u8] {
 fn source_row(r: u64, by_ref: bool) -> (Vec<u64>, Vec<u8>, Option<usize>) {
     let mut v = vec![(r as i64 * 3 - 7) as u64, r];
     let mut n = vec![0u8, (r & 3 == 0) as u8];
-    let img = by_ref.then(|| ((r >> 1) & 3) as usize);
+    let img = by_ref.then_some(((r >> 1) & 3) as usize);
     if by_ref {
         v.push(0);
         n.push((r & 7 == 0) as u8);

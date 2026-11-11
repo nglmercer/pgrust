@@ -216,6 +216,43 @@ pub(crate) fn ginPostingListDecodeAllSegmentsToTbm(
     Ok(items.len() as i64)
 }
 
+/// ginMergeItemPointers: merge two ordered TID arrays, dropping duplicates.
+pub(crate) fn ginMergeItemPointers<'mcx>(
+    mcx: Mcx<'mcx>,
+    a: &[ItemPointerData],
+    b: &[ItemPointerData],
+) -> PgResult<PgVec<'mcx, ItemPointerData>> {
+    let mut dst: PgVec<'mcx, ItemPointerData> =
+        mcx::vec_with_capacity_in(mcx, a.len() + b.len())?;
+
+    if a.is_empty() || b.is_empty() || ginCompareItemPointers(&a[a.len() - 1], &b[0]) < 0 {
+        vec_append(&mut dst, a)?;
+        vec_append(&mut dst, b)?;
+    } else if ginCompareItemPointers(&b[b.len() - 1], &a[0]) < 0 {
+        vec_append(&mut dst, b)?;
+        vec_append(&mut dst, a)?;
+    } else {
+        let (mut ai, mut bi) = (0usize, 0usize);
+        while ai < a.len() && bi < b.len() {
+            let cmp = ginCompareItemPointers(&a[ai], &b[bi]);
+            if cmp > 0 {
+                dst.push(b[bi]);
+                bi += 1;
+            } else if cmp == 0 {
+                dst.push(b[bi]);
+                bi += 1;
+                ai += 1;
+            } else {
+                dst.push(a[ai]);
+                ai += 1;
+            }
+        }
+        vec_append(&mut dst, &a[ai..])?;
+        vec_append(&mut dst, &b[bi..])?;
+    }
+    Ok(dst)
+}
+
 #[cfg(test)]
 mod validate_segments_tests {
     use super::*;
@@ -257,41 +294,4 @@ mod validate_segments_tests {
         let err = validate_posting_list_segments(&run).err().unwrap();
         assert_eq!(err.sqlstate(), ERRCODE_DATA_CORRUPTED);
     }
-}
-
-/// ginMergeItemPointers: merge two ordered TID arrays, dropping duplicates.
-pub(crate) fn ginMergeItemPointers<'mcx>(
-    mcx: Mcx<'mcx>,
-    a: &[ItemPointerData],
-    b: &[ItemPointerData],
-) -> PgResult<PgVec<'mcx, ItemPointerData>> {
-    let mut dst: PgVec<'mcx, ItemPointerData> =
-        mcx::vec_with_capacity_in(mcx, a.len() + b.len())?;
-
-    if a.is_empty() || b.is_empty() || ginCompareItemPointers(&a[a.len() - 1], &b[0]) < 0 {
-        vec_append(&mut dst, a)?;
-        vec_append(&mut dst, b)?;
-    } else if ginCompareItemPointers(&b[b.len() - 1], &a[0]) < 0 {
-        vec_append(&mut dst, b)?;
-        vec_append(&mut dst, a)?;
-    } else {
-        let (mut ai, mut bi) = (0usize, 0usize);
-        while ai < a.len() && bi < b.len() {
-            let cmp = ginCompareItemPointers(&a[ai], &b[bi]);
-            if cmp > 0 {
-                dst.push(b[bi]);
-                bi += 1;
-            } else if cmp == 0 {
-                dst.push(b[bi]);
-                bi += 1;
-                ai += 1;
-            } else {
-                dst.push(a[ai]);
-                ai += 1;
-            }
-        }
-        vec_append(&mut dst, &a[ai..])?;
-        vec_append(&mut dst, &b[bi..])?;
-    }
-    Ok(dst)
 }

@@ -706,7 +706,7 @@ fn stddev_from_sums(
         true,
     )?;
     if !variance {
-        let arg = core::mem::replace(&mut result, NumericVar::new());
+        let arg = std::mem::take(&mut result);
         sqrt_var(arg.view(), &mut result, rscale)?;
     }
 

@@ -670,7 +670,7 @@ unsafe fn cut(ctx: *mut Ctx, run: *mut SortRun, nkey: usize, cmp: &dyn Fn(*const
     if n > 0 && keep as u64 >= n {
         (*run).pad[2] |= RUN_CUT; // D508: row n-1 in place, the row walk's bound (exec v4/m3_sort.rs run_bound)
         let b = (base.add((n as usize - 1) * rb) as *const [u64; 2]).read_unaligned();
-        (out.write(b[0]), out.add(1).write(b[1]));
+        out.write(b[0]); out.add(1).write(b[1]);
     } else {
         (*run).pad[2] &= !RUN_CUT;
     }

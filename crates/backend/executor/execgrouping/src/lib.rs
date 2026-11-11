@@ -163,11 +163,10 @@ impl ProbeKernel {
                 (450, 65) => return ProbeKernel::Int4 { att },
                 (949, 467) => return ProbeKernel::Int8 { att },
                 (2039, 2052) | (2039, 1152) => return ProbeKernel::Int8 { att },
-                (400, 67) => {
-                    if ::varlena::text_collation_is_raw_bytes(*collid).unwrap_or(false) {
+                (400, 67)
+                    if ::varlena::text_collation_is_raw_bytes(*collid).unwrap_or(false) => {
                         return ProbeKernel::Text { att };
                     }
-                }
                 _ => {}
             }
         }
@@ -288,7 +287,7 @@ impl SimpleHashIndex {
                 startelem = i;
                 break;
             }
-            let optimal = entry_hash(old[i as usize]) & ((oldsize - 1) as u32);
+            let optimal = entry_hash(old[i as usize]) & (oldsize - 1);
             if optimal == i {
                 startelem = i;
                 break;

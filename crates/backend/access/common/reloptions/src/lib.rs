@@ -75,7 +75,7 @@ const fn maxalign(len: usize) -> usize {
     (len + 7) & !7
 }
 const fn maximum_bytes_per_tuple(tuples_per_page: usize) -> i32 {
-    ((BLCKSZ - maxalign(24 + tuples_per_page * 4)) / tuples_per_page & !7) as i32
+    (((BLCKSZ - maxalign(24 + tuples_per_page * 4)) / tuples_per_page) & !7) as i32
 }
 const TOAST_TUPLE_TARGET: i32 = maximum_bytes_per_tuple(4);
 const TOAST_TUPLE_TARGET_MAIN: i32 = maximum_bytes_per_tuple(1);
@@ -314,7 +314,7 @@ impl RelOptValue {
     }
 }
 
-fn text_payload<'a>(image: &'a [u8]) -> &'a [u8] {
+fn text_payload(image: &[u8]) -> &[u8] {
     // Array elements are never toasted; only 1B (packed) or 4B headers occur.
     if image[0] & 0x01 != 0 {
         &image[1..(image[0] >> 1) as usize]

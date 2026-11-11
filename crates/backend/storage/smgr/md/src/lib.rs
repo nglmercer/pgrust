@@ -1528,201 +1528,6 @@ pub fn file_sync_failed(file: File, wait_event: u32) -> PgResult<bool> {
     Ok(fd::FileSync(file, wait_event)? < 0)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    // do_truncate (md.c:348) goes through fd's pg_truncate (fd.c:739 EINTR
-    // retry loop), not a one-shot libc::truncate: the file is emptied and a
-    // missing path yields -1/ENOENT without a WARNING.
-    #[test]
-    fn do_truncate_uses_fd_pg_truncate() {
-        let path = format!("/tmp/md-do-truncate-{}.seg\0", std::process::id());
-        // SAFETY: NUL-terminated path; the descriptor is closed below.
-        let fd = unsafe {
-            libc::open(path.as_ptr().cast(), libc::O_CREAT | libc::O_WRONLY | libc::O_TRUNC, 0o600)
-        };
-        assert!(fd >= 0);
-        // SAFETY: fd is open for writing.
-        assert_eq!(unsafe { libc::write(fd, b"0123456789".as_ptr().cast(), 10) }, 10);
-        // SAFETY: fd is open.
-        unsafe { libc::close(fd) };
-        let p = &path[..path.len() - 1];
-        assert_eq!(do_truncate(p).unwrap(), 0);
-        let mut st: libc::stat = unsafe { std::mem::zeroed() };
-        // SAFETY: NUL-terminated path and a zeroed stat buffer.
-        assert_eq!(unsafe { libc::stat(path.as_ptr().cast(), &mut st) }, 0);
-        assert_eq!(st.st_size, 0);
-        // SAFETY: NUL-terminated path.
-        unsafe { libc::unlink(path.as_ptr().cast()) };
-        assert_eq!(do_truncate(p).unwrap(), -1);
-        assert_eq!(last_errno(), ENOENT);
-    }
-
-    fn rl(db: Oid) -> RelFileLocator {
-        RelFileLocator { spcOid: 1, dbOid: db, relNumber: 16384 }
-    }
-
-    #[test]
-    fn md_relpath_forwards_locator_backend_and_fork_to_relpathbackend() {
-        // Regression pin (GL-TESTFIX-1 F-R2-2 adjudication): the old
-        // hand-rolled mint dropped spcOid (shared catalogs printed as
-        // "base/0/NNNN") and stamped numeric fork suffixes. C parity =
-        // relpathbackend(rlocator, is_temp ? MyProcNumber : INVALID, fork);
-        // the stub renders all three inputs so forwarding is fully pinned.
-        // Seams are install-once per process: this is the ONLY md unit test
-        // that installs relpathbackend, so both arms are covered here.
-        relpath_seams::relpathbackend::set(|l, b, f| {
-            format!("{}|{}|{}|{}|{}", l.spcOid, l.dbOid, l.relNumber, b, f as i32)
-        });
-        let shared = types_storage::aio::PgAioTargetData {
-            smgr: types_storage::aio::PgAioTargetSmgr {
-                rlocator: RelFileLocator { spcOid: 1664, dbOid: 0, relNumber: 1260 },
-                blockNum: 0,
-                nblocks: 1,
-                forkNum: ForkNumber::MAIN_FORKNUM,
-                is_temp: false,
-                ..Default::default()
-            },
-        };
-        assert_eq!(md_relpath(&shared), format!("1664|0|1260|{INVALID_PROC_NUMBER}|0"));
-
-        let temp = types_storage::aio::PgAioTargetData {
-            smgr: types_storage::aio::PgAioTargetSmgr {
-                rlocator: RelFileLocator { spcOid: 1663, dbOid: 5, relNumber: 16384 },
-                blockNum: 0,
-                nblocks: 1,
-                forkNum: ForkNumber::FSM_FORKNUM,
-                is_temp: true,
-                ..Default::default()
-            },
-        };
-        let me = init_small::globals::MyProcNumber();
-        assert_eq!(
-            md_relpath(&temp),
-            format!("1663|5|16384|{me}|{}", ForkNumber::FSM_FORKNUM as i32)
-        );
-    }
-
-    // GL-MDWRAP-1. The bar sits on `cache_extent_after` and on `wrapping_add`,
-    // NOT on a call into mdzeroextend, and that placement is deliberate:
-    // mdzeroextend_inner asserts `nblocks > 0`, so any fixture that drove the
-    // out-of-contract input through it would be correct in the shipped profiles
-    // and RED at the test profile (which inherits dev, where assertions live).
-    // Everything asserted here means the same thing under `cargo test` and
-    // `cargo test --release`, so the bar can neither break the gate at one tier
-    // nor go inert at the other.
-    #[test]
-    fn zeroextend_cache_extent_is_checked_not_wrapping() {
-        // Well-formed extensions still publish the new block count.
-        assert_eq!(cache_extent_after(0, 1), Some(1));
-        assert_eq!(cache_extent_after(100, 64), Some(164));
-        assert_eq!(cache_extent_after(RELSEG_SIZE, 1), Some(RELSEG_SIZE + 1));
-
-        // Out of contract => no cached size is published at all, so the caller
-        // invalidates and the next read measures the real file.
-        for (b, n) in [(0u32, -1i32), (0, -64), (5, -10), (1000, -1), (0, 0), (7, 0)] {
-            assert_eq!(cache_extent_after(b, n), None, "blocknum={b} nblocks={n}");
-        }
-
-        // Representability ceiling (mdzeroextend_inner errors in this range, so
-        // the cache must not be handed a value from either arm).
-        assert_eq!(cache_extent_after(InvalidBlockNumber - 1, 1), None);
-        assert_eq!(cache_extent_after(InvalidBlockNumber - 2, 1), Some(InvalidBlockNumber - 1));
-
-        // What the shipped profiles computed BEFORE the fix, written with
-        // wrapping_add so it denotes the same value at every profile. Two of
-        // these exceed `blocknum` -- a relation size ABOVE the real file length,
-        // i.e. past-EOF blocks served as valid -- and the first is exactly the
-        // InvalidBlockNumber sentinel.
-        assert_eq!(0u32.wrapping_add(-1i32 as u32), InvalidBlockNumber);
-        assert!(0u32.wrapping_add(-64i32 as u32) > 0);
-        assert!(5u32.wrapping_add(-10i32 as u32) > 5);
-        // And the reason `overflow-checks` was never going to catch this: the
-        // dangerous cases stay inside u32, so a trapping build traps only the
-        // HARMLESS downward one.
-        assert_eq!(1000u32.wrapping_add(-1i32 as u32), 999);
-    }
-
-    #[test]
-    fn extension_flags_and_geometry_match_c() {
-        assert_eq!(EXTENSION_FAIL, 1);
-        assert_eq!(EXTENSION_RETURN_NULL, 2);
-        assert_eq!(EXTENSION_CREATE, 4);
-        assert_eq!(EXTENSION_CREATE_RECOVERY, 8);
-        assert_eq!(EXTENSION_DONT_OPEN, 32);
-        assert_eq!(RELSEG_SIZE, 131072);
-        assert_eq!(SMGR_NFORKS, 4);
-    }
-
-    #[test]
-    fn data_file_wait_events_match_wait_event_names() {
-        assert_eq!(WAIT_EVENT_DATA_FILE_EXTEND, 0x0A00_0011);
-        assert_eq!(WAIT_EVENT_DATA_FILE_WRITE, 0x0A00_0018);
-    }
-
-    #[test]
-    fn mdmaxcombine_is_blocks_to_segment_end() {
-        assert_eq!(mdmaxcombine(0), RELSEG_SIZE);
-        assert_eq!(mdmaxcombine(1), RELSEG_SIZE - 1);
-        assert_eq!(mdmaxcombine(RELSEG_SIZE - 1), 1);
-        assert_eq!(mdmaxcombine(RELSEG_SIZE), RELSEG_SIZE);
-    }
-
-    #[test]
-    fn fdvec_resize_keeps_highwater_capacity() {
-        let mut st = MdRelnState::default();
-        _fdvec_resize(&mut st, ForkNumber::MAIN_FORKNUM, 3).unwrap();
-        assert_eq!(st.md_num_open_segs[0], 3);
-        let cap = st.md_seg_fds[0].capacity();
-        _fdvec_resize(&mut st, ForkNumber::MAIN_FORKNUM, 1).unwrap();
-        assert_eq!(st.md_num_open_segs[0], 1);
-        assert_eq!(st.md_seg_fds[0].capacity(), cap);
-        _fdvec_resize(&mut st, ForkNumber::MAIN_FORKNUM, 0).unwrap();
-        assert_eq!(st.md_num_open_segs[0], 0);
-    }
-
-    #[test]
-    fn mdfiletagmatches_compares_dboid() {
-        let a = FileTag::new(SyncRequestHandler::SYNC_HANDLER_MD, ForkNumber::MAIN_FORKNUM, rl(10), 0);
-        let same = FileTag::new(SyncRequestHandler::SYNC_HANDLER_MD, ForkNumber::FSM_FORKNUM, rl(10), 7);
-        let diff = FileTag::new(SyncRequestHandler::SYNC_HANDLER_MD, ForkNumber::MAIN_FORKNUM, rl(11), 0);
-        assert!(mdfiletagmatches(a, same));
-        assert!(!mdfiletagmatches(a, diff));
-    }
-
-    #[test]
-    fn is_temp_follows_backend_field() {
-        assert!(!is_temp(RelFileLocatorBackend { locator: rl(1), backend: INVALID_PROC_NUMBER }));
-        assert!(is_temp(RelFileLocatorBackend { locator: rl(1), backend: 3 }));
-    }
-
-    #[test]
-    fn iov_builders_skip_partial_transfers() {
-        let mut a = [1u8; 4];
-        let mut b = [2u8; 4];
-        let mut bufs: [&mut [u8]; 2] = [&mut a, &mut b];
-        let n = with_iov_mut(&mut bufs, 6, |iov| {
-            assert_eq!(iov.len(), 1);
-            assert_eq!(iov[0].len(), 2);
-            iov.len()
-        });
-        assert_eq!(n, Some(1));
-        assert!(with_iov_mut(&mut bufs, 8, |_| ()).is_none());
-
-        let ra = [1u8; 4];
-        let rb = [2u8; 4];
-        let rbufs: [WriteChunk<'_>; 2] =
-            [WriteChunk::from_slice(&ra), WriteChunk::from_slice(&rb)];
-        let n = with_iov(&rbufs, 3, |iov| {
-            assert_eq!(iov.len(), 2);
-            assert_eq!(iov[0].len(), 1);
-            assert_eq!(iov[1].len(), 4);
-        });
-        assert!(n.is_some());
-    }
-}
-
 // ---------------------------------------------------------------------------
 // AIO arms (md.c): mdstartreadv + the PGAIO_HCB_MD_READV callbacks.
 // ---------------------------------------------------------------------------
@@ -1921,5 +1726,200 @@ pub fn md_readv_report(
                 td.smgr.nblocks as i64 * BLCKSZ_I64
             ))
             .finish(loc("md_readv_report"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // do_truncate (md.c:348) goes through fd's pg_truncate (fd.c:739 EINTR
+    // retry loop), not a one-shot libc::truncate: the file is emptied and a
+    // missing path yields -1/ENOENT without a WARNING.
+    #[test]
+    fn do_truncate_uses_fd_pg_truncate() {
+        let path = format!("/tmp/md-do-truncate-{}.seg\0", std::process::id());
+        // SAFETY: NUL-terminated path; the descriptor is closed below.
+        let fd = unsafe {
+            libc::open(path.as_ptr().cast(), libc::O_CREAT | libc::O_WRONLY | libc::O_TRUNC, 0o600)
+        };
+        assert!(fd >= 0);
+        // SAFETY: fd is open for writing.
+        assert_eq!(unsafe { libc::write(fd, b"0123456789".as_ptr().cast(), 10) }, 10);
+        // SAFETY: fd is open.
+        unsafe { libc::close(fd) };
+        let p = &path[..path.len() - 1];
+        assert_eq!(do_truncate(p).unwrap(), 0);
+        let mut st: libc::stat = unsafe { std::mem::zeroed() };
+        // SAFETY: NUL-terminated path and a zeroed stat buffer.
+        assert_eq!(unsafe { libc::stat(path.as_ptr().cast(), &mut st) }, 0);
+        assert_eq!(st.st_size, 0);
+        // SAFETY: NUL-terminated path.
+        unsafe { libc::unlink(path.as_ptr().cast()) };
+        assert_eq!(do_truncate(p).unwrap(), -1);
+        assert_eq!(last_errno(), ENOENT);
+    }
+
+    fn rl(db: Oid) -> RelFileLocator {
+        RelFileLocator { spcOid: 1, dbOid: db, relNumber: 16384 }
+    }
+
+    #[test]
+    fn md_relpath_forwards_locator_backend_and_fork_to_relpathbackend() {
+        // Regression pin (GL-TESTFIX-1 F-R2-2 adjudication): the old
+        // hand-rolled mint dropped spcOid (shared catalogs printed as
+        // "base/0/NNNN") and stamped numeric fork suffixes. C parity =
+        // relpathbackend(rlocator, is_temp ? MyProcNumber : INVALID, fork);
+        // the stub renders all three inputs so forwarding is fully pinned.
+        // Seams are install-once per process: this is the ONLY md unit test
+        // that installs relpathbackend, so both arms are covered here.
+        relpath_seams::relpathbackend::set(|l, b, f| {
+            format!("{}|{}|{}|{}|{}", l.spcOid, l.dbOid, l.relNumber, b, f as i32)
+        });
+        let shared = types_storage::aio::PgAioTargetData {
+            smgr: types_storage::aio::PgAioTargetSmgr {
+                rlocator: RelFileLocator { spcOid: 1664, dbOid: 0, relNumber: 1260 },
+                blockNum: 0,
+                nblocks: 1,
+                forkNum: ForkNumber::MAIN_FORKNUM,
+                is_temp: false,
+                ..Default::default()
+            },
+        };
+        assert_eq!(md_relpath(&shared), format!("1664|0|1260|{INVALID_PROC_NUMBER}|0"));
+
+        let temp = types_storage::aio::PgAioTargetData {
+            smgr: types_storage::aio::PgAioTargetSmgr {
+                rlocator: RelFileLocator { spcOid: 1663, dbOid: 5, relNumber: 16384 },
+                blockNum: 0,
+                nblocks: 1,
+                forkNum: ForkNumber::FSM_FORKNUM,
+                is_temp: true,
+                ..Default::default()
+            },
+        };
+        let me = init_small::globals::MyProcNumber();
+        assert_eq!(
+            md_relpath(&temp),
+            format!("1663|5|16384|{me}|{}", ForkNumber::FSM_FORKNUM as i32)
+        );
+    }
+
+    // GL-MDWRAP-1. The bar sits on `cache_extent_after` and on `wrapping_add`,
+    // NOT on a call into mdzeroextend, and that placement is deliberate:
+    // mdzeroextend_inner asserts `nblocks > 0`, so any fixture that drove the
+    // out-of-contract input through it would be correct in the shipped profiles
+    // and RED at the test profile (which inherits dev, where assertions live).
+    // Everything asserted here means the same thing under `cargo test` and
+    // `cargo test --release`, so the bar can neither break the gate at one tier
+    // nor go inert at the other.
+    #[test]
+    fn zeroextend_cache_extent_is_checked_not_wrapping() {
+        // Well-formed extensions still publish the new block count.
+        assert_eq!(cache_extent_after(0, 1), Some(1));
+        assert_eq!(cache_extent_after(100, 64), Some(164));
+        assert_eq!(cache_extent_after(RELSEG_SIZE, 1), Some(RELSEG_SIZE + 1));
+
+        // Out of contract => no cached size is published at all, so the caller
+        // invalidates and the next read measures the real file.
+        for (b, n) in [(0u32, -1i32), (0, -64), (5, -10), (1000, -1), (0, 0), (7, 0)] {
+            assert_eq!(cache_extent_after(b, n), None, "blocknum={b} nblocks={n}");
+        }
+
+        // Representability ceiling (mdzeroextend_inner errors in this range, so
+        // the cache must not be handed a value from either arm).
+        assert_eq!(cache_extent_after(InvalidBlockNumber - 1, 1), None);
+        assert_eq!(cache_extent_after(InvalidBlockNumber - 2, 1), Some(InvalidBlockNumber - 1));
+
+        // What the shipped profiles computed BEFORE the fix, written with
+        // wrapping_add so it denotes the same value at every profile. Two of
+        // these exceed `blocknum` -- a relation size ABOVE the real file length,
+        // i.e. past-EOF blocks served as valid -- and the first is exactly the
+        // InvalidBlockNumber sentinel.
+        assert_eq!(0u32.wrapping_add(-1i32 as u32), InvalidBlockNumber);
+        assert!(0u32.wrapping_add(-64i32 as u32) > 0);
+        assert!(5u32.wrapping_add(-10i32 as u32) > 5);
+        // And the reason `overflow-checks` was never going to catch this: the
+        // dangerous cases stay inside u32, so a trapping build traps only the
+        // HARMLESS downward one.
+        assert_eq!(1000u32.wrapping_add(-1i32 as u32), 999);
+    }
+
+    #[test]
+    fn extension_flags_and_geometry_match_c() {
+        assert_eq!(EXTENSION_FAIL, 1);
+        assert_eq!(EXTENSION_RETURN_NULL, 2);
+        assert_eq!(EXTENSION_CREATE, 4);
+        assert_eq!(EXTENSION_CREATE_RECOVERY, 8);
+        assert_eq!(EXTENSION_DONT_OPEN, 32);
+        assert_eq!(RELSEG_SIZE, 131072);
+        assert_eq!(SMGR_NFORKS, 4);
+    }
+
+    #[test]
+    fn data_file_wait_events_match_wait_event_names() {
+        assert_eq!(WAIT_EVENT_DATA_FILE_EXTEND, 0x0A00_0011);
+        assert_eq!(WAIT_EVENT_DATA_FILE_WRITE, 0x0A00_0018);
+    }
+
+    #[test]
+    fn mdmaxcombine_is_blocks_to_segment_end() {
+        assert_eq!(mdmaxcombine(0), RELSEG_SIZE);
+        assert_eq!(mdmaxcombine(1), RELSEG_SIZE - 1);
+        assert_eq!(mdmaxcombine(RELSEG_SIZE - 1), 1);
+        assert_eq!(mdmaxcombine(RELSEG_SIZE), RELSEG_SIZE);
+    }
+
+    #[test]
+    fn fdvec_resize_keeps_highwater_capacity() {
+        let mut st = MdRelnState::default();
+        _fdvec_resize(&mut st, ForkNumber::MAIN_FORKNUM, 3).unwrap();
+        assert_eq!(st.md_num_open_segs[0], 3);
+        let cap = st.md_seg_fds[0].capacity();
+        _fdvec_resize(&mut st, ForkNumber::MAIN_FORKNUM, 1).unwrap();
+        assert_eq!(st.md_num_open_segs[0], 1);
+        assert_eq!(st.md_seg_fds[0].capacity(), cap);
+        _fdvec_resize(&mut st, ForkNumber::MAIN_FORKNUM, 0).unwrap();
+        assert_eq!(st.md_num_open_segs[0], 0);
+    }
+
+    #[test]
+    fn mdfiletagmatches_compares_dboid() {
+        let a = FileTag::new(SyncRequestHandler::SYNC_HANDLER_MD, ForkNumber::MAIN_FORKNUM, rl(10), 0);
+        let same = FileTag::new(SyncRequestHandler::SYNC_HANDLER_MD, ForkNumber::FSM_FORKNUM, rl(10), 7);
+        let diff = FileTag::new(SyncRequestHandler::SYNC_HANDLER_MD, ForkNumber::MAIN_FORKNUM, rl(11), 0);
+        assert!(mdfiletagmatches(a, same));
+        assert!(!mdfiletagmatches(a, diff));
+    }
+
+    #[test]
+    fn is_temp_follows_backend_field() {
+        assert!(!is_temp(RelFileLocatorBackend { locator: rl(1), backend: INVALID_PROC_NUMBER }));
+        assert!(is_temp(RelFileLocatorBackend { locator: rl(1), backend: 3 }));
+    }
+
+    #[test]
+    fn iov_builders_skip_partial_transfers() {
+        let mut a = [1u8; 4];
+        let mut b = [2u8; 4];
+        let mut bufs: [&mut [u8]; 2] = [&mut a, &mut b];
+        let n = with_iov_mut(&mut bufs, 6, |iov| {
+            assert_eq!(iov.len(), 1);
+            assert_eq!(iov[0].len(), 2);
+            iov.len()
+        });
+        assert_eq!(n, Some(1));
+        assert!(with_iov_mut(&mut bufs, 8, |_| ()).is_none());
+
+        let ra = [1u8; 4];
+        let rb = [2u8; 4];
+        let rbufs: [WriteChunk<'_>; 2] =
+            [WriteChunk::from_slice(&ra), WriteChunk::from_slice(&rb)];
+        let n = with_iov(&rbufs, 3, |iov| {
+            assert_eq!(iov.len(), 2);
+            assert_eq!(iov[0].len(), 1);
+            assert_eq!(iov[1].len(), 4);
+        });
+        assert!(n.is_some());
     }
 }

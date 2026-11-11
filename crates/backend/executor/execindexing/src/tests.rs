@@ -1256,7 +1256,7 @@ fn index_info_rejects_invalid_attribute_counts_before_metadata_access() {
             assert_eq!(error.message(), format!("invalid indnatts {count} for index {IDX_OID}"));
         }
     }
-    for count in [1, types_core::INDEX_MAX_KEYS as i32] {
+    for count in [1, types_core::INDEX_MAX_KEYS] {
         crate::check_indnatts(count, IDX_OID).unwrap();
     }
 }

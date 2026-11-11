@@ -126,11 +126,10 @@ pub fn iterate_jsonb_values(
                         action(&numscratch)?;
                     }
                 }
-                JsonbItem::Bool(b) => {
-                    if flags & JTI_BOOL != 0 {
+                JsonbItem::Bool(b)
+                    if flags & JTI_BOOL != 0 => {
                         action(if b { b"true" } else { b"false" })?;
                     }
-                }
                 _ => {}
             },
             _ => {}

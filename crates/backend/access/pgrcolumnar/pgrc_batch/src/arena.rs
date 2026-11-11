@@ -45,7 +45,7 @@ impl Chunk {
     }
 
     fn new(cap: usize) -> Chunk {
-        debug_assert!(cap > 0 && cap % ARENA_ALIGN == 0);
+        debug_assert!(cap > 0 && cap.is_multiple_of(ARENA_ALIGN));
         if let Some(c) = Self::pooled(cap) {
             return c;
         }
@@ -126,7 +126,7 @@ impl ClaimArena {
             & !(ARENA_ALIGN - 1);
         loop {
             if let Some(chunk) = self.chunks.get(self.cur) {
-                debug_assert!(self.offset % ARENA_ALIGN == 0);
+                debug_assert!(self.offset.is_multiple_of(ARENA_ALIGN));
                 if advance <= chunk.cap - self.offset {
                     // SAFETY: offset + advance <= cap.
                     let p = unsafe { chunk.base.as_ptr().add(self.offset) };

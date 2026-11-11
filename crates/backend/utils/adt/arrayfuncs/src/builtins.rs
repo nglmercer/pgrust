@@ -53,12 +53,12 @@ fn build_meta(element_type: Oid, which: IOFuncSelector, binary: bool) -> PgResul
 }
 
 // Populate/refresh the fn_extra memo for element_type; returns a &mut to it.
-fn cached_meta<'f>(
-    flinfo: &'f mut FmgrInfo,
+fn cached_meta(
+    flinfo: &mut FmgrInfo,
     element_type: Oid,
     which: IOFuncSelector,
     binary: bool,
-) -> PgResult<&'f mut ArrayMetaState> {
+) -> PgResult<&mut ArrayMetaState> {
     let need = match flinfo.fn_extra_ref::<ArrayMetaState>() {
         Some(ams) => ams.meta.element_type != element_type,
         None => true,
@@ -215,7 +215,7 @@ pub fn fc_array_unnest(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> Pg
         let numelems = ::arrayutils::array_get_n_items(ndim, &dims)?;
         let pos = crate::foundation::arr_data_offset(&array);
         let state = ArrayUnnestFctx {
-            image: ::mcx::std_vec_from_slice("adt", &array.as_slice())?,
+            image: ::mcx::std_vec_from_slice("adt", array.as_slice())?,
             nextelem: 0,
             numelems,
             pos,
@@ -532,7 +532,7 @@ fn array_to_text_common(
     }
     let total = 4 + out.len();
     let mut img: ::mcx::PgVec<'_, u8> = vec_with_capacity_in(mcx, total)?;
-    ::mcx::vec_append_bytes(&mut img, &(((total as u32) << 2)).to_ne_bytes())?;
+    ::mcx::vec_append_bytes(&mut img, &((total as u32) << 2).to_ne_bytes())?;
     ::mcx::vec_append_bytes(&mut img, out.as_bytes())?;
     byref_result(mcx, &img)
 }
@@ -593,7 +593,7 @@ pub fn fc_array_cat(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgRe
     let element_type2 = f::arr_elemtype(&v2);
     if element_type1 != element_type2 {
         return Err(Box::new(
-            PgError::error(alloc::format!("cannot concatenate incompatible arrays"))
+            PgError::error("cannot concatenate incompatible arrays".to_string())
                 .with_detail(alloc::format!(
                     "Arrays with element types {} and {} are not compatible for concatenation.",
                     ::format_type::format_type_be(element_type1)?,
@@ -701,7 +701,7 @@ pub fn fc_array_cat(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgRe
 #[inline(never)]
 fn cat_incompatible(detail: &str) -> Box<PgError> {
     Box::new(
-        PgError::error(alloc::format!("cannot concatenate incompatible arrays"))
+        PgError::error("cannot concatenate incompatible arrays".to_string())
             .with_detail(detail)
             .with_sqlstate(::types_error::ERRCODE_ARRAY_SUBSCRIPT_ERROR),
     )
@@ -958,7 +958,7 @@ pub fn fc_oidvectorrecv(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> P
     let elemtype = u32::from_ne_bytes(img[12..16].try_into().unwrap());
     if ndim != 1
         || dataoffset != 0
-        || elemtype != ::types_core::catalog::OIDOID as u32
+        || elemtype != ::types_core::catalog::OIDOID
         || i32::from_ne_bytes(img[20..24].try_into().unwrap()) != 0
     {
         return Err(Box::new(
@@ -992,7 +992,7 @@ pub fn fc_int2vectorrecv(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> 
     let elemtype = u32::from_ne_bytes(img[12..16].try_into().unwrap());
     if ndim != 1
         || dataoffset != 0
-        || elemtype != ::types_core::catalog::INT2OID as u32
+        || elemtype != ::types_core::catalog::INT2OID
         || i32::from_ne_bytes(img[20..24].try_into().unwrap()) != 0
     {
         return Err(Box::new(

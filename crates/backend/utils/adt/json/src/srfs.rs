@@ -63,14 +63,9 @@ pub(crate) fn srf_drive(
         .expect("user_fctx is SrfRows");
     let mcx = fcinfo.result_mcx();
     let out: Option<Option<Datum>> = match rows {
-        SrfRows::Texts(v) => v.get(idx).map(|r| match r {
-            None => None,
-            Some(bytes) => Some(
-                varlena::cstring_to_text(mcx, bytes)
+        SrfRows::Texts(v) => v.get(idx).map(|r| r.as_ref().map(|bytes| varlena::cstring_to_text(mcx, bytes)
                     .map(varlena_result)
-                    .expect("text result"),
-            ),
-        }),
+                    .expect("text result"))),
         SrfRows::Tuples(v) => v
             .get(idx)
             .map(|img| Some(byref_result(mcx, img).expect("tuple result"))),

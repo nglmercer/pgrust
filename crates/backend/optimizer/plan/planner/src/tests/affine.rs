@@ -5,7 +5,7 @@ use super::*;
 use types_nodes::primnodes::Aggref;
 
 use super::plan_shapes::{
-    assert_chain, chain, count_star, int_op, max_of, plan_of, plus_one, query, setup, sgc, sum_of, sum_ordered, var,
+    assert_chain, count_star, int_op, max_of, plan_of, plus_one, query, setup, sgc, sum_of, sum_ordered, var,
     INT4MI_OP, INT4MI_PROC, INT4OID, INT4PL_OP, INT4PL_PROC, INT8OID, MAX_INT4, NUMERICOID, SUM_INT4,
 };
 

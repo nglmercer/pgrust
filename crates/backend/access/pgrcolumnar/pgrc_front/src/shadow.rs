@@ -82,7 +82,7 @@ pub fn idle(db: Oid, relid: Oid, parts: &[PartView], sorted_by: Option<bool>, p:
     if sorted_by.is_none() && r.key_share > 0.0 {
         cands = sc::skipped(parts, true, p);
     }
-    let add = [0, 1].map(|i| cands.iter().filter(|c| sc::would_run(c.kind, &c.inputs, &r, &cs[i])).count() as u64);
+    let add = [0, 1].map(|i| cands.iter().filter(|c| sc::would_run(c.kind, c.inputs, &r, &cs[i])).count() as u64);
     crate::ledger::shadow_idle(db, relid, cands.len() as u64, add);
     true
 }

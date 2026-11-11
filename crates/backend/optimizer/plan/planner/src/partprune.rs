@@ -209,10 +209,10 @@ fn get_matching_partitions_planner<'mcx>(
                 let op = step.as_partition_prune_step_op().unwrap();
                 let res = perform_pruning_base_step_planner(
                     mcx,
-                    &**boundinfo,
+                    boundinfo,
                     strategy,
                     partnatts,
-                    &**ps,
+                    ps,
                     op,
                 )?;
                 results[op.step_id as usize] = Some(res);
@@ -1586,7 +1586,7 @@ fn make_partitionedrel_pruneinfo<'mcx>(
     let mut pinfolist = NodeList::nil();
     let mut doruntimeprune = false;
     let mut targetpart: Option<RelId> = None;
-    let mut prunequal_tr: Vec<Node<'mcx>> = ::mcx::std_vec_from_slice("optimizer", &prunequal)?;
+    let mut prunequal_tr: Vec<Node<'mcx>> = ::mcx::std_vec_from_slice("optimizer", prunequal)?;
 
     let mut i = 1;
     let mut rti = partrelids.next_member(-1);

@@ -1173,7 +1173,7 @@ fn for_each_live_matches_plain_loop_on_set_bits() {
             })
             .collect();
         // Producer contract: bits at/past n are zero.
-        if n % 64 != 0 {
+        if !n.is_multiple_of(64) {
             words[nwords - 1] &= (1u64 << (n % 64)) - 1;
         }
         let expected: Vec<u32> = (pos..n)
@@ -1230,7 +1230,7 @@ fn for_each_live_onebody_matches_two_arm() {
         let pos: u32 = (rng() % (n as u64 + 1)) as u32;
         let nwords = (n as usize).div_ceil(64);
         let mut words: Vec<u64> = (0..nwords).map(|_| rng()).collect();
-        if n % 64 != 0 {
+        if !n.is_multiple_of(64) {
             words[nwords - 1] &= (1u64 << (n % 64)) - 1;
         }
         for live in [None, Some(&words[..])] {
@@ -1440,7 +1440,7 @@ fn k1_latemat_dense_cutover_matches_full_deform() {
     soa_deform_columns_set(&mut lm, &plan, &desc.compact_attrs, &[0], None);
     // Word 0: 58 set bits (>= the 48 cutover — dense row loop; 6 holes).
     // Word 1: 3 set bits (bit-walk control).
-    let dense_word: u64 = !0u64 & !(1 << 3) & !(1 << 21) & !(1 << 33) & !(1 << 40) & !(1 << 55) & !(1 << 63);
+    let dense_word: u64 = !(1 << 3) & !(1 << 21) & !(1 << 33) & !(1 << 40) & !(1 << 55) & !(1 << 63);
     assert!(dense_word.count_ones() >= 48 && dense_word != u64::MAX);
     let sel = [dense_word, (1u64 << 2) | (1u64 << 40) | (1u64 << 63)];
     soa_deform_columns_set(&mut lm, &plan, &desc.compact_attrs, &[1, 2], Some(&sel));

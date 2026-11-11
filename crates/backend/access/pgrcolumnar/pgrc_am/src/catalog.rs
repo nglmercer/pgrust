@@ -528,7 +528,7 @@ fn served_bytes(f: &FooterFacts) -> u64 {
 
 fn answers_bytes(a: &Answers) -> u64 {
     let cols = a.columns().unwrap_or(&[]);
-    (ARC + size_of::<Answers>() + cols.len() * size_of::<(u32, Vec<u8>)>() + cols.iter().map(|(_, p)| p.capacity()).sum::<usize>()) as u64
+    (ARC + size_of::<Answers>() + std::mem::size_of_val(cols) + cols.iter().map(|(_, p)| p.capacity()).sum::<usize>()) as u64
 }
 
 fn paths_bytes(parts: &[OpenedPart]) -> usize {
@@ -3755,7 +3755,7 @@ mod tests {
         })
         .join()
         .unwrap();
-        let c = pgsync::lock(&shared_charge_of(&keeper));
+        let c = pgsync::lock(shared_charge_of(&keeper));
         assert_eq!(c.owner(), OWNER, "reader B holds a view the part cache owns");
         assert!(c.committed() > 0);
         drop(c);

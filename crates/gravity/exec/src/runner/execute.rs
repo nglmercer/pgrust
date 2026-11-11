@@ -77,7 +77,7 @@ fn step_away(portal: &Portal<'static>, mut w: Away, k: usize, formats: &[i16], p
     let hosted = host_busy(&w.a);
     let r = crate::admit::reentry::enter(Some(crate::admit::reentry::built), Some(home), hosted, |b, depth| {
         let Away { slots, a, .. } = &mut w;
-        step_slot(b, At::Away(&mut slots[k].1, &mut **a), depth == home, portal, formats, params, owner, max_rows, receiver)
+        step_slot(b, At::Away(&mut slots[k].1, a), depth == home, portal, formats, params, owner, max_rows, receiver)
     });
     put_away(w);
     match r {
@@ -273,7 +273,7 @@ fn bounded_step(entry: &mut gravity_driver::Entry, a: &mut Admitted, slot: &mut 
     if rows_out && !remote {
         dctx = gravity_driver::mem::root::Root::new("GravityDestSink");
         let mcx: Mcx<'static> = super::raw::sink_mcx(&dctx);
-        dest_sink = Some(DestSink::new(mcx, desc_of(mcx, &a), receiver));
+        dest_sink = Some(DestSink::new(mcx, desc_of(mcx, a), receiver));
     }
     let wire = &mut slot.wire as *mut gravity_wire::WireNode;
     let sp: *mut ExecSlot = slot;
@@ -844,7 +844,7 @@ fn simple_at(pstmt: &PlannedStmt<'_>, dest: &mut DestReceiver<'_>, mut kept_snap
             dest.shutdown()?;
         }
         let pipes = runs.map_or_else(String::new, |(r, ns, _)| crate::admit::entry::instrument::served_pipes(&r, ns));
-        b.note_served_at(a.shape, ran.rows, ran.width, ran.sections, ran.claims, ran.opens, ran.granules, ran.first_touch, ran.cold, ran.p2, ran.io, ran.dict, ran.dictent, ran.elided, ran.node, via(&a), a.program.code_of(0).kind(), &pipes);
+        b.note_served_at(a.shape, ran.rows, ran.width, ran.sections, ran.claims, ran.opens, ran.granules, ran.first_touch, ran.cold, ran.p2, ran.io, ran.dict, ran.dictent, ran.elided, ran.node, via(a), a.program.code_of(0).kind(), &pipes);
         b.note_program(&a.program);
         b.note_mechs(a.program.key.0, a.program.used);
         if let Some(u) = &uncapped {

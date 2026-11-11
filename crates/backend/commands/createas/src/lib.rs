@@ -187,7 +187,7 @@ pub fn ExecCreateTableAs<'mcx>(
         &mut dest,
     )?;
 
-    if let Some(qc) = qc.as_deref_mut() {
+    if let Some(qc) = qc {
         qc.commandTag = CMDTAG_SELECT;
         qc.nprocessed = execmain_seams::query_desc_es_processed::call(qd);
     }

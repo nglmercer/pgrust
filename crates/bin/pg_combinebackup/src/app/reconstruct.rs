@@ -421,7 +421,7 @@ fn make_incremental_rfile(filename: &Path) -> Rfile {
      * Round header length to a multiple of BLCKSZ, so that block contents
      * are properly aligned. Only when the file actually has data blocks.
      */
-    if rf.num_blocks > 0 && rf.header_length % BLCKSZ != 0 {
+    if rf.num_blocks > 0 && !rf.header_length.is_multiple_of(BLCKSZ) {
         rf.header_length += BLCKSZ - (rf.header_length % BLCKSZ);
     }
 

@@ -1082,8 +1082,8 @@ fn batched_equals_pervalue_unsigned_bool() {
 
 /// D2950: `"char"` (UnsignedWordSmall) arrives sign-extended for a byte
 /// >= 0x80. Such a word has no key, so its granule keeps no zone (it used to
-/// key negative, against the type's uint8 order, and debug-asserted); an
-/// ASCII-only granule keeps its zone. Batched == per-value throughout.
+/// > key negative, against the type's uint8 order, and debug-asserted); an
+/// > ASCII-only granule keeps its zone. Batched == per-value throughout.
 #[test]
 fn char_high_bytes_poison_their_granule_only() {
     let class = StorageClass::ByvalWord { width: 1, signed: false };
@@ -1225,7 +1225,7 @@ fn batched_equals_pervalue_text_families() {
         MetaProfile::derive(class, CollationClass::C, TypeSemantics::TextCollated).unwrap();
     let mut rng = Rng::new(0xD57A_0007);
     let cyrillic = ["товар", "пример", "яблоко", "grüße", "naïve", "emoji-😀-tail"];
-    let long = vec![0xC2u8, 0xA9].repeat(200); // 400 B valid UTF-8, > MCV max
+    let long = [0xC2u8, 0xA9].repeat(200); // 400 B valid UTF-8, > MCV max
     let granules: Vec<TestColumn> = (0..3)
         .map(|g| {
             let rows = if g == 2 { 300 } else { 4000 };

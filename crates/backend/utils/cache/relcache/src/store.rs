@@ -150,15 +150,12 @@ pub(crate) fn enforce_cap_at(cap: usize) -> PgResult<()> {
         let mut eligible: Vec<(u64, Oid)> = st
             .id_cache
             .iter()
-            .filter_map(|(oid, ent)| {
-                (!ent.nailed
+            .filter(|&(_oid, ent)| !ent.nailed
                     && Rc::strong_count(&ent.rel) == 1
                     && ent.rel.rd_createSubid.get() == InvalidSubTransactionId
                     && ent.rel.rd_newRelfilelocatorSubid.get() == InvalidSubTransactionId
                     && ent.rel.rd_firstRelfilelocatorSubid.get() == InvalidSubTransactionId
-                    && ent.rel.rd_droppedSubid.get() == InvalidSubTransactionId)
-                    .then(|| (ent.last_used.get(), *oid))
-            })
+                    && ent.rel.rd_droppedSubid.get() == InvalidSubTransactionId ).map(|(oid, ent)| (ent.last_used.get(), *oid))
             .collect();
         if excess < eligible.len() {
             eligible.select_nth_unstable(excess);

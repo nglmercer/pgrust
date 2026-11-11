@@ -133,7 +133,7 @@ fn heap_xlog_logical_rewrite_reports_truncate_write_sync_wait_events() {
     init_small::globals::SetDataDir(dir.to_str().unwrap());
 
     // xl_heap_rewrite_mapping (40 bytes, C layout) + one mapping entry.
-    let mut md = vec![0u8; 40 + LOGICAL_REWRITE_MAPPING_SIZE];
+    let mut md = [0u8; 40 + LOGICAL_REWRITE_MAPPING_SIZE];
     md[0..4].copy_from_slice(&700u32.to_ne_bytes()); // mapped_xid
     md[4..8].copy_from_slice(&5u32.to_ne_bytes()); // mapped_db
     md[8..12].copy_from_slice(&16384u32.to_ne_bytes()); // mapped_rel

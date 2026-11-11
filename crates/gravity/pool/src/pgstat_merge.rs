@@ -101,11 +101,11 @@ impl SectionStats {
         if !d.is_empty() {
             fold_thread_deltas(&d);
         }
-        let b = core::mem::replace(&mut *self.blocks.lock().unwrap_or_else(|p| p.into_inner()), [0; 9]);
+        let b = std::mem::take(&mut *self.blocks.lock().unwrap_or_else(|p| p.into_inner()));
         if b.iter().any(|&n| n != 0) {
             bufmgr::counters::add(&b);
         }
-        let t = core::mem::replace(&mut *self.times.lock().unwrap_or_else(|p| p.into_inner()), [0; 4]);
+        let t = std::mem::take(&mut *self.times.lock().unwrap_or_else(|p| p.into_inner()));
         if t.iter().any(|&n| n != 0) {
             pgstat::io::add_block_times(&t);
         }
@@ -117,7 +117,7 @@ impl SectionStats {
         if end != 0 {
             transam_xlog::raise_xact_last_rec_end(end);
         }
-        let t = core::mem::replace(&mut *self.temp.lock().unwrap_or_else(|p| p.into_inner()), [0; 4]);
+        let t = std::mem::take(&mut *self.temp.lock().unwrap_or_else(|p| p.into_inner()));
         if t.iter().any(|&n| n != 0) {
             fd::buffile::temp_add(&t);
         }

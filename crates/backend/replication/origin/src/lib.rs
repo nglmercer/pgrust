@@ -212,7 +212,7 @@ fn text_datum_to_bytes(mcx: Mcx<'_>, d: Datum) -> PgResult<Vec<u8>> {
     // text_to_cstring(&full_image) call kept the 4-byte varlena header glued
     // to the front of every roname read back through this path.
     let payload = varlena::open_image(mcx, raw)?;
-    Ok(::mcx::std_vec_from_slice("replication", &payload.as_bytes())?)
+    ::mcx::std_vec_from_slice("replication", payload.as_bytes())
 }
 
 fn text_datum(mcx: Mcx<'_>, s: &[u8]) -> PgResult<Datum> {

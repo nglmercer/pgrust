@@ -276,7 +276,7 @@ mod init_sexpr_witness {
     }
 
     fn proc_shape(funcid: Oid) -> PgResult<Option<PgProcShape>> {
-        Ok((funcid == FID_RECORD).then(|| PgProcShape {
+        Ok((funcid == FID_RECORD).then_some(PgProcShape {
             pronamespace: 11,
             prorettype: RECORDOID,
             provariadic: types_core::InvalidOid,
@@ -740,7 +740,7 @@ fn null_composite_rows_do_not_grow_query_context() {
             elided_func_state: None,
         };
         let mut arg_mcx = MemoryContext::new("t-args");
-        let mut store = exec_make_table_function_result(
+        let store = exec_make_table_function_result(
             &mut setexpr,
             &desc,
             false,

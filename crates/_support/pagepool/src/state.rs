@@ -371,7 +371,7 @@ pub(crate) fn take_runs_at_locked(_g: &Guard, addr: usize, k: u32) -> bool {
     if !matches!(m.state(), State::Partial) {
         return false;
     }
-    let mask = ((((1u64 << k) - 1) as u32) << first) as u32;
+    let mask = (((1u64 << k) - 1) as u32) << first;
     if m.free_runs.get() & mask != mask || !regain_ok(m, mask) {
         return false;
     }
@@ -383,7 +383,7 @@ pub(crate) fn take_runs_at_locked(_g: &Guard, addr: usize, k: u32) -> bool {
 pub(crate) fn free_runs_locked(_g: &Guard, addr: usize, k: u32, _zero: u32) {
     let i = superpage::index_of(addr);
     let first = ((addr - superpage::addr_of(i)) / RUN) as u32;
-    let mask = ((((1u64 << k) - 1) as u32) << first) as u32;
+    let mask = (((1u64 << k) - 1) as u32) << first;
     let m = meta(i);
     let _r = runs();
     let once = give_free(&m.free_runs, mask);
@@ -522,7 +522,7 @@ pub(crate) fn release_free_runs_but(want: usize, fast: bool, skip: u32) -> usize
             while rest != 0 {
                 let lo = rest.trailing_zeros();
                 let len = (rest >> lo).trailing_ones();
-                let mask = ((((1u64 << len) - 1) as u32) << lo) as u32;
+                let mask = (((1u64 << len) - 1) as u32) << lo;
                 // SAFETY: free runs out of the bitmap, handed out by no one; a run stays in use, so never a whole superpage
                 if unsafe { crate::os::release(superpage::addr_of(i) + lo as usize * RUN, len as usize * RUN) } == 0 {
                     done[k] |= mask;

@@ -2195,7 +2195,7 @@ fn seen_slot(key: gravity_program::ContentKey) -> (&'static AtomicU64, u64) {
 pub fn arena_seen(key: gravity_program::ContentKey) -> Option<(u64, u64)> {
     let (slot, tag) = seen_slot(key);
     let w = slot.load(Ordering::Relaxed);
-    (w >> 48 == tag).then(|| ((w >> 24 & 0xFF_FFFF) << 10, (w & 0xFF_FFFF) << 10))
+    (w >> 48 == tag).then_some(((w >> 24 & 0xFF_FFFF) << 10, (w & 0xFF_FFFF) << 10))
 }
 
 /// DR-12: forget every program's seen arena draws (the priors stand again): a re-fit, and tests that pin the priors.
@@ -3746,7 +3746,7 @@ mod d3088 {
         assert_eq!(cut_share(share, GIB, 0).bytes as u64, GIB, "no floor charged: the room");
         assert_eq!(cut_share(share, GIB, 3 * GIB / 2).bytes as u64, 3 * GIB / 2, "the charged part beside a smaller room");
         assert_eq!(cut_share(share, 4 * GIB, 0), share, "never past the share");
-        assert_eq!(cut_share(share, 0, 0).bytes, SHARE_FLOOR as u32 & !7, "at least SHARE_FLOOR");
+        assert_eq!(cut_share(share, 0, 0).bytes, SHARE_FLOOR & !7, "at least SHARE_FLOOR");
         assert_eq!(cut_share(Share { bytes: 1 << 20 }, 0, 8 * GIB).bytes, 1 << 20, "a charge past the share keeps the share");
         assert_eq!(cut_share(share, GIB + 3, 0).bytes % 8, 0, "8-aligned");
     }

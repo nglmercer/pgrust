@@ -41,7 +41,7 @@ fn batch_reads_equal_bytes_with_fewer_reads_and_keeps_only_what_is_asked() {
     let n = part.sections().len();
     assert!(n >= 4, "the fixture lists {n} sections");
     let idxs: Vec<usize> = (0..n).collect();
-    let keep = |idx: usize| idx % 2 == 0;
+    let keep = |idx: usize| idx.is_multiple_of(2);
     let before = reads.load(Ordering::Relaxed);
     let got = part.section_bytes_batch(&idxs, 1 << 20, &keep).expect("batch");
     let issued = reads.load(Ordering::Relaxed) - before;

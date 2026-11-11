@@ -328,7 +328,7 @@ fn shared_two_iterators_partition_the_scan() {
     let mut b = TbmSharedIterator::attach(st);
     let mut merged: Drained = alloc::vec::Vec::new();
     loop {
-        let res = if merged.len() % 2 == 0 { a.next() } else { b.next() };
+        let res = if merged.len().is_multiple_of(2) { a.next() } else { b.next() };
         let Some(res) = res else { break };
         let mut offs = alloc::vec::Vec::new();
         if !res.lossy {

@@ -2248,7 +2248,7 @@ impl SiteRunner {
         let rig = self.rig(side);
         let stmts = probes::render(deck, ctx);
         let mut results: Vec<(String, Vec<WireMsg>)> = Vec::new();
-        let use_session = deck.session_bound().then(|| session).flatten().and_then(|s| rig.session_index(s));
+        let use_session = deck.session_bound().then_some(session).flatten().and_then(|s| rig.session_index(s));
         if use_session.is_none() && rig.ensure_monitor().is_err() {
             return Value::obj();
         }
@@ -2599,7 +2599,7 @@ fn track_txn(slot: &mut SessionSlot, sql: &str) {
 /// `SET name ...` / `SET LOCAL name ...` → the GUC name (for the
 /// `show_guc` deck).
 fn set_guc_name(sql: &str) -> Option<String> {
-    let mut words = sql.trim_start().split_whitespace();
+    let mut words = sql.split_whitespace();
     if !words.next()?.eq_ignore_ascii_case("SET") {
         return None;
     }

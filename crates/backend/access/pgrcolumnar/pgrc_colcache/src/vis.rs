@@ -91,5 +91,5 @@ pub fn tomb_visible(h: &Hdr, s: &dyn SnapView) -> PgResult<bool> {
         }
         return Ok(!s.did_commit(h.xmax)?);
     }
-    Ok(s.in_snapshot(h.xmax)?)
+    s.in_snapshot(h.xmax)
 }

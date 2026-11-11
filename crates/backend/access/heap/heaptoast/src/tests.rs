@@ -240,7 +240,7 @@ fn tupdesc<'mcx>(mcx: Mcx<'mcx>, atts: &[FormData_pg_attribute]) -> Rc<TupleDesc
     let mut compact = PgVec::new_in(mcx);
     for a in atts {
         compact.push(CompactAttribute::populate_from(a));
-        attrs.push(a.clone());
+        attrs.push(*a);
     }
     Rc::new(TupleDescData {
         natts: atts.len() as i32,
@@ -928,12 +928,11 @@ fn fetch_datum_refuses_non_ondisk_datum_with_c_error() {
     let mcx = ctx.mcx();
     let inline = text_value(mcx, b"not a toast pointer, just an inline text value");
 
-    let err = toast_fetch_datum(mcx, &inline).err().expect("non-ondisk datum is an ERROR");
+    let err = toast_fetch_datum(mcx, &inline).expect_err("non-ondisk datum is an ERROR");
     assert_eq!(err.message(), "toast_fetch_datum shouldn't be called for non-ondisk datums");
 
     let err = toast_fetch_datum_slice(mcx, &inline, 0, 10)
-        .err()
-        .expect("non-ondisk datum is an ERROR");
+        .expect_err("non-ondisk datum is an ERROR");
     assert_eq!(
         err.message(),
         "toast_fetch_datum_slice shouldn't be called for non-ondisk datums"

@@ -686,7 +686,7 @@ pub(crate) fn advance_tail() -> PgResult<()> {
     qlock.release()?;
 
     let newtailpage = min.page;
-    let boundary = newtailpage - (newtailpage % SLRU_PAGES_PER_SEGMENT as i64);
+    let boundary = newtailpage - (newtailpage % SLRU_PAGES_PER_SEGMENT);
     if async_queue_page_precedes(oldtailpage, boundary) {
         SimpleLruTruncate(notify_ctl(), newtailpage)?;
         let qlock = LwGuard::acquire(notify_queue_lock(), LW_EXCLUSIVE)?;

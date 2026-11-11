@@ -102,14 +102,14 @@ fn log_checkpoint_end(restartpoint: bool) {
     let total_msecs = timestamp_difference_milliseconds(CKPT_START_T.get(), CKPT_END_T.get());
     // Timing values in CheckpointStats are microseconds; ceiling-divide to
     // milliseconds for printing.
-    let longest_msecs = ((CKPT_LONGEST_SYNC.get() + 999) / 1000) as i64;
+    let longest_msecs = CKPT_LONGEST_SYNC.get().div_ceil(1000) as i64;
     let sync_rels = CKPT_SYNC_RELS.get();
     let average_sync_time: u64 = if sync_rels > 0 {
         CKPT_AGG_SYNC_TIME.get() / sync_rels as u64
     } else {
         0
     };
-    let average_msecs = ((average_sync_time + 999) / 1000) as i64;
+    let average_msecs = average_sync_time.div_ceil(1000) as i64;
 
     let bufs_written = CKPT_BUFS_WRITTEN.get();
     let cf = control_file();
@@ -563,8 +563,7 @@ pub fn StartupXLOG() -> PgResult<()> {
     if xlogutils::in_recovery()
         && (end_of_log < crate::write::LOCAL_MIN_RECOVERY_POINT.get()
             || !XLogRecPtrIsInvalid(control_file().backupStartPoint))
-    {
-        if xlogrecovery_seams::archive_recovery_requested::call() || control_file().backupEndRequired {
+        && (xlogrecovery_seams::archive_recovery_requested::call() || control_file().backupEndRequired) {
             // xlog.c:5936-5946: two FATALs, both ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE.
             if !XLogRecPtrIsInvalid(control_file().backupStartPoint) || control_file().backupEndRequired {
                 return ereport(FATAL)
@@ -578,7 +577,6 @@ pub fn StartupXLOG() -> PgResult<()> {
                 .errmsg("WAL ends before consistent recovery point")
                 .finish(loc("StartupXLOG"));
         }
-    }
 
     // Unlogged pgrcolumnar tables written without fsync under another boot are reset at every start, clean or not
     // (their files may have gone with the page cache after a clean shutdown).
@@ -777,7 +775,7 @@ fn CreateOverwriteContrecordRecord(
             .errmsg("can only be used at end of recovery")
             .finish(loc("CreateOverwriteContrecordRecord"))?;
     }
-    if page_ptr % XLOG_BLCKSZ as u64 != 0 {
+    if !page_ptr.is_multiple_of(XLOG_BLCKSZ as u64) {
         ereport(ERROR)
             .errmsg(format!(
                 "invalid position for missing continuation record {:X}/{:X}",

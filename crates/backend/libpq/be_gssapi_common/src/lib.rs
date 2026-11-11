@@ -88,6 +88,8 @@ pub fn gss_setenv(key: &std::ffi::CStr, val: &std::ffi::CStr) -> i32 {
     unsafe { libc::setenv(key.as_ptr(), val.as_ptr(), 1) }
 }
 
+// Kept safe on purpose: `cred` is a delegated credential the caller hands over; the SAFETY note at the call covers it.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub fn pg_store_delegated_credential(api: &GssApi, mut cred: gss_cred_id_t) -> PgResult<()> {
     let key = c"ccache";
     let value = CString::new(GSS_MEMORY_CACHE).expect("no interior NUL");

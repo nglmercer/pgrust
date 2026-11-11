@@ -523,7 +523,7 @@ fn validate(mech: &OAuthMech, ctx: &OauthCtx, port: &Port, auth: &[u8]) -> PgRes
         return Ok(true);
     }
 
-    if ret.authn_id.as_deref().map_or(true, str::is_empty) {
+    if ret.authn_id.as_deref().is_none_or(str::is_empty) {
         ereport(LOG)
             .errmsg(format!(
                 "OAuth bearer authentication failed for user \"{user_name}\""
@@ -568,7 +568,7 @@ impl OAuthValidator for TestValidator {
     ) -> PgResult<bool> {
         elog::elog(
             LOG,
-            &format!("oauth_test_validator: token=\"{token}\", role=\"{role}\""),
+            format!("oauth_test_validator: token=\"{token}\", role=\"{role}\""),
         )?;
 
         if token == "modulefail" {

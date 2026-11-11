@@ -436,7 +436,7 @@ mod pseudotype_alias_tests {
                 .find(|b| b.foid == oid)
                 .unwrap_or_else(|| panic!("oid {oid} not registered"))
         };
-        assert_eq!(by_oid(3505).func as usize, crate::builtins::fc_enum_out as usize);
+        assert_eq!(by_oid(3505).func as usize, crate::builtins::fc_enum_out as *const () as usize);
         assert_eq!(by_oid(3505).name, "anyenum_out");
     }
 }

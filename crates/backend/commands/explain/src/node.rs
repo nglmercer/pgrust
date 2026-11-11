@@ -3036,8 +3036,8 @@ fn get_window_frame_options<'mcx>(
     Ok(())
 }
 
-fn get_tle_by_resno<'a, 'mcx>(
-    tlist: &'a NodeList<'mcx>,
+fn get_tle_by_resno<'mcx>(
+    tlist: &NodeList<'mcx>,
     resno: i16,
 ) -> Option<&'mcx types_nodes::primnodes::TargetEntry<'mcx>> {
     tlist
@@ -3328,7 +3328,7 @@ fn show_storage_info(stats: types_core::instrument::TuplestoreInstrumentation, e
     let kb = (stats.max_space + 1023) / 1024;
     if es.format != EXPLAIN_FORMAT_TEXT {
         ExplainPropertyText("Storage", stats.space_type.name(), es)?;
-        ExplainPropertyInteger("Maximum Storage", Some("kB"), kb as i64, es)?;
+        ExplainPropertyInteger("Maximum Storage", Some("kB"), kb, es)?;
     } else {
         crate::format::ExplainIndentText(es)?;
         append!(es, "Storage: {}  Maximum Storage: {}kB\n", stats.space_type.name(), kb)?;
@@ -3387,7 +3387,7 @@ fn show_memoize_info<'mcx>(
         gravity_omits(es);
     }
     if let Some(si) = leader.filter(|si| si.cache_misses > 0) {
-        let mem_peak_kb = (si.mem_peak + 1023) / 1024;
+        let mem_peak_kb = si.mem_peak.div_ceil(1024);
         if es.format != EXPLAIN_FORMAT_TEXT {
             ExplainPropertyInteger("Cache Hits", None, si.cache_hits as i64, es)?;
             ExplainPropertyInteger("Cache Misses", None, si.cache_misses as i64, es)?;
@@ -3421,7 +3421,7 @@ fn show_memoize_info<'mcx>(
         if es.workers_state.is_some() {
             explain_open_worker(n as usize, es)?;
         }
-        let mem_peak_kb = (si.mem_peak + 1023) / 1024;
+        let mem_peak_kb = si.mem_peak.div_ceil(1024);
         if es.format == EXPLAIN_FORMAT_TEXT {
             crate::format::ExplainIndentText(es)?;
             append!(

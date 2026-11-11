@@ -36,7 +36,7 @@ fn id_of_tid(name: &str, block: u32, off: u16) -> PgResult<u64> {
 /// The row ID at `tid` of `rel`, without a [`locate`]: for a position the caller knows is valid (its row was
 /// located in this command, `pathcache::was_located`).
 pub(crate) fn id_at(rel: &Relation<'_>, tid: &ItemPointerData) -> PgResult<u64> {
-    id_of_tid(&rel.name(), ItemPointerGetBlockNumberNoCheck(tid), ItemPointerGetOffsetNumberNoCheck(tid))
+    id_of_tid(rel.name(), ItemPointerGetBlockNumberNoCheck(tid), ItemPointerGetOffsetNumberNoCheck(tid))
 }
 
 fn grain(rec: &PartRecord) -> u32 {
@@ -45,7 +45,7 @@ fn grain(rec: &PartRecord) -> u32 {
 
 /// A live statement holds the horizon, so a segment it saw has not been reclaimed and its slot reused since.
 pub fn locate<'g>(_mcx: Mcx<'_>, rel: &Relation<'_>, tid: &ItemPointerData, scratch: &'g mut ViewRef) -> PgResult<Located<'g>> {
-    let id = id_of_tid(&rel.name(), ItemPointerGetBlockNumberNoCheck(tid), ItemPointerGetOffsetNumberNoCheck(tid))?;
+    let id = id_of_tid(rel.name(), ItemPointerGetBlockNumberNoCheck(tid), ItemPointerGetOffsetNumberNoCheck(tid))?;
     let path = crate::pathcache::path(rel)?;
     let held = |g: Option<Arc<Generation>>| g.and_then(|g| home(&g, &path.ext, id).map(|h| (g, h)));
     let (gen, at) = match held(crate::ring::statement_view(rel)?) {
@@ -270,7 +270,7 @@ mod tests {
         let g = gen(9, vec![part(0, rows0), part(7, 5)], &[(0, vec![(291, 291 * 600)]), (7, vec![(b7, b7 + E)])], &[seg(2, 11, SegState::Active)]);
         let s11 = 291 * 20_000;
         let ext = Extents::new(vec![SegExtent { part_no: 11, idx: 0, base: s11 }]);
-        let maps = vec![Arc::new(RowMap::Implicit(291)), granules(&[3, 9, 700, 701, 90_000].map(|l| b7 + l))];
+        let maps = [Arc::new(RowMap::Implicit(291)), granules(&[3, 9, 700, 701, 90_000].map(|l| b7 + l))];
         let calls = std::cell::Cell::new(0);
         let map_of = |p: usize| {
             calls.set(calls.get() + 1);

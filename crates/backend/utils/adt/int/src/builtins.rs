@@ -20,7 +20,7 @@ fn out_cstring(fcinfo: &Fcinfo, cap: usize, render: impl FnOnce(&mut [u8]) -> us
 }
 
 // Raw server-encoding bytes: C quotes the cstring as-is in its messages.
-fn in_arg<'a>(fcinfo: &'a Fcinfo) -> &'a [u8] {
+fn in_arg(fcinfo: &Fcinfo) -> &[u8] {
     // SAFETY: catalog arg 0 of the in-functions is cstring (typlen -2).
     unsafe { fcinfo.arg_cstring(0) }.to_bytes()
 }

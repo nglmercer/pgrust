@@ -267,6 +267,12 @@ pub struct Kit {
     pub ext: NoExternalDetoast,
 }
 
+impl Default for Kit {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Kit {
     pub fn new() -> Kit {
         Kit {
@@ -512,8 +518,8 @@ pub fn logged_par_providers(shared: &SharedMemVfs, log: &Arc<Mutex<WalLog>>) -> 
 /// The standing mixed two-column corpus row (int8 with a null stripe + text
 /// with varied lengths — the determinism.rs shape).
 pub fn mixed_row(i: u64) -> (Option<i64>, Option<String>) {
-    let d1 = if i % 13 == 0 { None } else { Some(i as i64 - 5000) };
-    let d2 = if i % 17 == 0 {
+    let d1 = if i.is_multiple_of(13) { None } else { Some(i as i64 - 5000) };
+    let d2 = if i.is_multiple_of(17) {
         None
     } else {
         Some(format!("value-{}", i % 977))

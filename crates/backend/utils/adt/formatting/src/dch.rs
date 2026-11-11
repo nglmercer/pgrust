@@ -352,7 +352,7 @@ pub fn dch_to_char<'mcx>(
                     )
                     .as_bytes(),
                 );
-                if (tm.tm_gmtoff as i32).unsigned_abs() % SECS_PER_HOUR as u32 != 0 {
+                if !(tm.tm_gmtoff as i32).unsigned_abs().is_multiple_of(SECS_PER_HOUR as u32) {
                     out.push(b':');
                     let mins = ((tm.tm_gmtoff as i32).unsigned_abs() % SECS_PER_HOUR as u32)
                         / SECS_PER_MINUTE as u32;

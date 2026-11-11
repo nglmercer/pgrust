@@ -745,7 +745,7 @@ pub fn parse_datetime<'mcx>(
         }
     } else {
         ::types_error::ereturn(
-            escontext.as_deref_mut(),
+            escontext,
             (),
             PgError::error("datetime format is not dated and not timed")
                 .with_sqlstate(::types_error::ERRCODE_INVALID_DATETIME_FORMAT),

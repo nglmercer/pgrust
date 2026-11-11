@@ -416,11 +416,10 @@ impl<'m> LogicalTapeSet<'m> {
 
         let mut nread = 0usize;
         while nread < dst.len() {
-            if lt.pos >= lt.nbytes {
-                if !read_fill_buffer(core, lt)? {
+            if lt.pos >= lt.nbytes
+                && !read_fill_buffer(core, lt)? {
                     break;
                 }
-            }
             let nthistime = (lt.nbytes - lt.pos).min(dst.len() - nread);
             debug_assert!(nthistime > 0);
             dst[nread..nread + nthistime].copy_from_slice(&lt.buffer[lt.pos..lt.pos + nthistime]);

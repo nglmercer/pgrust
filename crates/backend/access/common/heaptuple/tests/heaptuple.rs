@@ -98,7 +98,7 @@ fn varlena_4b(payload: &[u8]) -> Vec<u8> {
 }
 
 fn varlena_short(payload: &[u8]) -> Vec<u8> {
-    assert!(payload.len() + 1 <= 0x7F);
+    assert!(payload.len() < 0x7F);
     let mut v = vec![0u8; 1 + payload.len()];
     v[0] = (((1 + payload.len()) as u8) << 1) | 1;
     v[1..].copy_from_slice(payload);

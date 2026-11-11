@@ -36,7 +36,7 @@ fn wait_event_type_decodes_classes() {
     use super::*;
     assert_eq!(pgstat_get_wait_event_type(0), None);
     assert_eq!(pgstat_get_wait_event_type(PG_WAIT_LWLOCK | 4), Some("LWLock"));
-    assert_eq!(pgstat_get_wait_event_type(PG_WAIT_LOCK | 0), Some("Lock"));
+    assert_eq!(pgstat_get_wait_event_type(PG_WAIT_LOCK), Some("Lock"));
     assert_eq!(pgstat_get_wait_event_type(PG_WAIT_BUFFERPIN), Some("BufferPin"));
     assert_eq!(pgstat_get_wait_event_type(PG_WAIT_ACTIVITY + 17), Some("Activity"));
     assert_eq!(pgstat_get_wait_event_type(PG_WAIT_CLIENT), Some("Client"));

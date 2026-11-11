@@ -266,7 +266,7 @@ fn datum_image_eq_forged_varlena_length_is_rejected() {
     // real image (and the `avail` bound) is tiny. Without the bound this drove
     // slice::from_raw_parts past the tuple/page; now it is a clean corruption
     // error before any byte is compared.
-    let mut buf = vec![0u8; 8];
+    let mut buf = [0u8; 8];
     let forged = types_tuple::varatt::set_varsize_4b_word(4096);
     buf[..4].copy_from_slice(&forged.to_ne_bytes());
     let good = mk_varlena(&[0u8; 4]); // total 8, honest header
@@ -307,7 +307,7 @@ fn fmgr_row_without_trigger_context_is_39p01() {
     // SAFETY: the scratch context outlives the call.
     unsafe { fcinfo.set_result_mcx(test_mcx()) };
     for row in RI_TRIGGERS_BUILTINS {
-        let err = (row.func)(None, &mut fcinfo).err().expect("no trigger context");
+        let err = (row.func)(None, &mut fcinfo).expect_err("no trigger context");
         assert_eq!(err.sqlstate(), ERRCODE_E_R_I_E_TRIGGER_PROTOCOL_VIOLATED);
         assert_eq!(
             err.message(),

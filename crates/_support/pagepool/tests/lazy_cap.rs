@@ -32,7 +32,7 @@ fn lazy_cap() {
     });
     let sw = swap_counts();
     let h = Hint::new(Class::Task, Tag::REGION);
-    let mut take = || {
+    let take = || {
         let mut s = span(64 * MIB, h).expect("a lazy span");
         // SAFETY: ours.
         unsafe { commit_to(&mut s, 32 * MIB) };

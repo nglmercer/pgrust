@@ -538,7 +538,7 @@ fn wal_failure_inside_entry_insert_keeps_critical_section_open() {
     set_wal_fail(true);
     let res = crate::insert::ginEntryInsert(mcx, &rel, &state, 1, Datum::from_i32(7), GIN_CAT_NORM_KEY, &[tid(1, 1)], None);
     set_wal_fail(false);
-    let err = res.err().expect("simulated WAL failure must surface");
+    let err = res.expect_err("simulated WAL failure must surface");
     assert_eq!(err.message(), "simulated WAL insert failure");
     let open = init_small::globals::CritSectionCount();
     init_small::globals::SetCritSectionCount(0);
@@ -716,8 +716,7 @@ fn step_right_onto_different_page_type_is_internal_error() {
 
     let buf = bm::read_buffer::call(&rel, 1).unwrap();
     let err = crate::btree::ginStepRight(buf, &rel, crate::GIN_SHARE)
-        .err()
-        .expect("mismatched sibling must be a catchable error");
+        .expect_err("mismatched sibling must be a catchable error");
     assert_eq!(err.message(), "right sibling of GIN page is of different type");
     assert_eq!(err.sqlstate(), ERRCODE_INTERNAL_ERROR);
 }
@@ -833,8 +832,7 @@ fn read_tuple_item_count_mismatch_is_internal_error() {
     let mut out = mcx::vec_new_in(mcx);
     // SAFETY: owned tuple image.
     let err = unsafe { crate::entrypage::ginReadTuple(mcx, t.as_ptr(), &mut out) }
-        .err()
-        .expect("count mismatch must be a catchable error");
+        .expect_err("count mismatch must be a catchable error");
     assert_eq!(
         err.message(),
         "number of items mismatch in GIN entry tuple, 2 in tuple header, 3 decoded"
@@ -864,8 +862,7 @@ fn fill_root_without_free_space_is_internal_error() {
     root.0[14..16].copy_from_slice(&lower);
 
     let err = crate::entrypage::gin_entry_fill_root(mcx, &mut root.0, 3, &lpage.0, 4, &rpage.0)
-        .err()
-        .expect("full root must be a catchable error");
+        .expect_err("full root must be a catchable error");
     assert_eq!(err.message(), "failed to add item to index root page");
     assert_eq!(err.sqlstate(), ERRCODE_INTERNAL_ERROR);
 }
@@ -892,8 +889,7 @@ fn exec_place_to_page_at_bad_offset_is_internal_error() {
     let start = rig::reports_len();
     let err = btree
         .exec_place_to_page(2, 3, InvalidBlockNumber)
-        .err()
-        .expect("PageAddItem failure must be a catchable error");
+        .expect_err("PageAddItem failure must be a catchable error");
     assert_eq!(err.message(), "failed to add item to index page in \"t_gin\"");
     assert_eq!(err.sqlstate(), ERRCODE_INTERNAL_ERROR);
     let reports = rig::reports_since(start);
@@ -938,7 +934,6 @@ fn leaf_search_over_corrupt_varlena_key_does_not_panic() {
     // (the unwind-policy gate forbids one outside a tests/ tree or tests.rs).
     let res = crate::insert::entry_locate_leaf_pub(&btree, 2);
     let err = res
-        .err()
-        .expect("corrupt key must raise ERRCODE_DATA_CORRUPTED as a catchable error, not succeed");
+        .expect_err("corrupt key must raise ERRCODE_DATA_CORRUPTED as a catchable error, not succeed");
     assert_eq!(err.sqlstate(), ::types_error::ERRCODE_DATA_CORRUPTED);
 }

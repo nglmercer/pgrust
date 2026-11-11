@@ -142,7 +142,7 @@ pub(crate) fn compute_tsvector_stats<'mcx>(
         stats.stats_valid = true;
         stats.stanullfrac = (null_cnt as f64 / samplerows as f64) as f32;
         stats.stawidth = (total_width / nonnull_cnt as f64) as i32;
-        stats.stadistinct = (-1.0 * (1.0 - stats.stanullfrac as f64)) as f32;
+        stats.stadistinct = -(1.0 - stats.stanullfrac as f64) as f32;
 
         let cutoff_freq = 9 * lexeme_no / bucket_width as i64;
 

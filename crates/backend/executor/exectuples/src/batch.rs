@@ -52,7 +52,7 @@ pub fn for_each_live<E>(
     // zero by the producer's contract (belt: mask the last word anyway).
     let mut bits = words[w] & (!0u64 << (pos % 64));
     loop {
-        if w == last && n % 64 != 0 {
+        if w == last && !n.is_multiple_of(64) {
             bits &= (1u64 << (n % 64)) - 1;
         }
         while bits != 0 {
@@ -100,7 +100,7 @@ pub fn for_each_live_onebody<E>(
     // stage zeros there by contract — the mask is their belt).
     let mut bits = word_at(live, w) & (!0u64 << (pos % 64));
     loop {
-        if w == last && n % 64 != 0 {
+        if w == last && !n.is_multiple_of(64) {
             bits &= (1u64 << (n % 64)) - 1;
         }
         while bits != 0 {
@@ -1132,7 +1132,7 @@ pub fn soa_deform_columns_set(
     let ncols = plan.ncols as usize;
     let dense = soa.kinds_or == 0;
     let nwords = n.div_ceil(64);
-    let tail_mask = if n % 64 == 0 { u64::MAX } else { (1u64 << (n % 64)) - 1 };
+    let tail_mask = if n.is_multiple_of(64) { u64::MAX } else { (1u64 << (n % 64)) - 1 };
     for &c in cols {
         let c = c as usize;
         debug_assert!(c < ncols && ncols <= atts.len());

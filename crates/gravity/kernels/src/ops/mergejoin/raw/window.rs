@@ -262,7 +262,7 @@ unsafe fn record_len(w: &Window, p: *const u8, have: usize) -> Option<usize> {
         return None;
     }
     let n = (p.add(o) as *const u32).read_unaligned() as usize;
-    (n >= w.rec as usize && n % 8 == 0).then_some(n)
+    (n >= w.rec as usize && n.is_multiple_of(8)).then_some(n)
 }
 
 /// Bytes from the run appended to `dst[blen..cap]` until it is full or the run ends (the reader opened at `boff` first

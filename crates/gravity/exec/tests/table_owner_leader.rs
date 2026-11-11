@@ -489,7 +489,7 @@ fn d438_keys() -> (i64, i64) {
 
 fn gen_d438(r: u64) -> Option<[i64; 2]> {
     let (a, b) = d438_keys();
-    Some([if r % 2 == 0 { a } else { b }, r as i64])
+    Some([if r.is_multiple_of(2) { a } else { b }, r as i64])
 }
 
 #[test]

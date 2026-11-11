@@ -240,7 +240,7 @@ fn out_equivalence_class(
 ) -> PgResult<()> {
     let ec: &EquivalenceClass<'_> = root.ec(root.ec_canonical(ec));
     w!(out, "{{EQUIVALENCECLASS :ec_opfamilies ");
-    out_oid_vec(out, &ec.ec_opfamilies);
+    out_oid_vec(out, ec.ec_opfamilies);
     w!(
         out,
         " :ec_collation {} :ec_childmembers_size {} :ec_members ",
@@ -364,7 +364,7 @@ fn out_restrict_info(
     w!(out, " :outer_selec ");
     out_double(out, r.outer_selec);
     w!(out, " :mergeopfamilies ");
-    out_oid_vec(out, &r.mergeopfamilies);
+    out_oid_vec(out, r.mergeopfamilies);
     w!(out, " :left_em ");
     match r.left_em {
         Some(em) => out_equivalence_member(out, root, em)?,

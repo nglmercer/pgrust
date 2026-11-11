@@ -48,16 +48,28 @@ const BYVAL: u32 = 0;
 /// Another valid image of the same type and length, or `None` for a type the rule does not perturb.
 fn perturb(ty: u32, v: &mut [u32]) -> Option<()> {
     let step = |b: &mut u32| match *b as u8 {
-        b'a'..=b'y' | b'A'..=b'Y' | b'0'..=b'8' => Some(*b += 1),
-        b'z' | b'Z' | b'9' => Some(*b -= 1),
+        b'a'..=b'y' | b'A'..=b'Y' | b'0'..=b'8' => {
+            let _: () = *b += 1;
+            Some(())
+        },
+        b'z' | b'Z' | b'9' => {
+            let _: () = *b -= 1;
+            Some(())
+        },
         _ => None,
     };
     match ty {
         _ if ARRAYS.contains(&ty) => perturb_array(ty, v),
-        BYVAL => Some(v[0] ^= 1),
+        BYVAL => {
+            let _: () = v[0] ^= 1;
+            Some(())
+        },
         25 | 1043 | 1042 if v.len() > 4 => v[4..].iter_mut().find_map(step),
         19 => v.iter_mut().find_map(step),
-        17 if v.len() > 4 => Some(v[4] ^= 1),
+        17 if v.len() > 4 => {
+            let _: () = v[4] ^= 1;
+            Some(())
+        },
         1700 if v.len() > 6 => {
             let h = v[4] | v[5] << 8;
             let first = match h & 0xC000 {
@@ -67,7 +79,7 @@ fn perturb(ty: u32, v: &mut [u32]) -> Option<()> {
             };
             let g = v[first] | v[first + 1] << 8;
             let mut s = 1;
-            while g % (s * 10) == 0 && s < 1000 {
+            while g.is_multiple_of(s * 10) && s < 1000 {
                 s *= 10;
             }
             let n = if g + s < 10000 { g + s } else { g - s };
@@ -90,13 +102,22 @@ fn perturb_array(ty: u32, v: &mut [u32]) -> Option<()> {
     }
     let data = 24;
     match ty {
-        1005 | 1007 | 1016 | 1028 => Some(*v.get_mut(data)? ^= 1),
+        1005 | 1007 | 1016 | 1028 => {
+            let _: () = *v.get_mut(data)? ^= 1;
+            Some(())
+        },
         _ => {
             // the first element's payload: after its 1-byte (short) or 4-byte header
             let (from, len) = if v.get(data)? & 1 == 1 { (data + 1, (v[data] >> 1) as usize - 1) } else { (data + 4, (at(data)? >> 2) as usize - 4) };
             v.get_mut(from..from + len)?.iter_mut().find_map(|b| match *b as u8 {
-                b'a'..=b'y' | b'A'..=b'Y' | b'0'..=b'8' => Some(*b += 1),
-                b'z' | b'Z' | b'9' => Some(*b -= 1),
+                b'a'..=b'y' | b'A'..=b'Y' | b'0'..=b'8' => {
+                    let _: () = *b += 1;
+                    Some(())
+                },
+                b'z' | b'Z' | b'9' => {
+                    let _: () = *b -= 1;
+                    Some(())
+                },
                 _ => None,
             })
         }

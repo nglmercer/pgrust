@@ -440,161 +440,6 @@ pub(crate) fn apply_fold<'mcx>(
     Ok(Some(sampled))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// analyze.c's histogram leaves the MCV members out (num_hist = ndistinct - num_mcv): a bound that is a served MCV
-    /// value goes; with no MCV slot served the bounds pass through.
-    #[test]
-    fn histogram_excludes_the_served_mcv_members() {
-        let hist: Vec<Vec<u8>> = [b"a", b"b", b"c", b"d"].iter().map(|b| b.to_vec()).collect();
-        let (b, d) = ((b"b".to_vec(), 0.5), (b"d".to_vec(), 0.25));
-        let tail = tail_histogram(&hist, &[&b, &d]).unwrap();
-        assert_eq!(tail, [b"a".as_slice(), b"c".as_slice()]);
-        assert_eq!(tail_histogram(&hist, &[]).unwrap().len(), 4);
-    }
-
-    /// The inverse of `datum_canonical_bytes`' byval arm: LE truncation
-    /// round-trips through sign/zero extension.
-    #[test]
-    fn word_round_trip() {
-        // int2 -3: datum word (sign-extended) → canonical 2 LE bytes → word.
-        let w = (-3i64) as u64;
-        let bytes = w.to_le_bytes();
-        assert_eq!(word_from_bytes(&bytes[..2], 2, true), Some(w));
-        // oid word zero-extends.
-        assert_eq!(word_from_bytes(&0xFFFFFFFFu32.to_le_bytes(), 4, false), Some(0xFFFF_FFFF));
-        // Width mismatch refuses.
-        assert_eq!(word_from_bytes(&bytes[..3], 2, true), None);
-    }
-
-    /// Resort order is PG btree order for the word families: signed ints by
-    /// value, floats with NaN greatest.
-    #[test]
-    fn resort_order_is_value_order() {
-        let mut v = vec![ResortKey::I(10), ResortKey::I(-5), ResortKey::I(0)];
-        v.sort_by(resort_cmp);
-        assert!(matches!(v[0], ResortKey::I(-5)));
-        assert!(matches!(v[2], ResortKey::I(10)));
-        let mut f = vec![
-            ResortKey::F(f64::NAN),
-            ResortKey::F(1.5),
-            ResortKey::F(-2.0),
-        ];
-        f.sort_by(resort_cmp);
-        assert!(matches!(f[0], ResortKey::F(x) if x == -2.0));
-        assert!(matches!(f[2], ResortKey::F(x) if x.is_nan()));
-    }
-
-    /// pg_statistic's negative-fraction convention (the footer-NDV override's
-    /// exact arithmetic).
-    #[test]
-    fn stadistinct_negative_fraction_convention() {
-        assert_eq!(stadistinct_convention(50.0, 1000.0), 50.0);
-        assert_eq!(stadistinct_convention(500.0, 1000.0), -0.5);
-        assert_eq!(stadistinct_convention(0.0, 1000.0), 0.0);
-        // Clamped to totalrows first: 2000 → 1000 → the -1.0 all-distinct form.
-        assert_eq!(stadistinct_convention(2000.0, 1000.0), -1.0);
-    }
-
-    /// The admission vocabulary is pinned: byte-eq==value-eq classes serve
-    /// MCVs; equality-normalizing types refuse.
-    #[test]
-    fn mcv_admission_gates() {
-        assert!(mcv_admissible(Sem::SignedInt, Coll::C));
-        assert!(mcv_admissible(Sem::MemcmpOrdered, Coll::OtherDeterministic));
-        assert!(mcv_admissible(Sem::TextCollated, Coll::OtherDeterministic));
-        assert!(!mcv_admissible(Sem::TextCollated, Coll::Nondeterministic));
-        assert!(!mcv_admissible(Sem::PackedNumeric { scale: 2 }, Coll::C));
-        assert!(!mcv_admissible(Sem::IntervalCmp, Coll::C));
-        assert!(!mcv_admissible(Sem::Opaque, Coll::C));
-    }
-
-    #[test]
-    fn analyze_mode_values() {
-        assert_eq!(parse_mode(""), Some(AnalyzeMode::SampleHll));
-        assert_eq!(parse_mode("  "), Some(AnalyzeMode::SampleHll));
-        assert_eq!(parse_mode("fold"), Some(AnalyzeMode::Fold));
-        assert_eq!(parse_mode(" Sample "), Some(AnalyzeMode::Sample));
-        assert_eq!(parse_mode("SAMPLE_HLL"), Some(AnalyzeMode::SampleHll));
-        assert_eq!(parse_mode("hll"), None);
-        assert_eq!(parse_mode("sample-hll"), None);
-    }
-
-    #[test]
-    fn thinned_bounds_respect_the_target() {
-        assert_eq!(thinned(33, 100).collect::<Vec<_>>(), (0..33).collect::<Vec<_>>());
-        assert_eq!(thinned(33, 10).collect::<Vec<_>>(), vec![0, 3, 6, 9, 12, 16, 19, 22, 25, 28, 32]);
-        assert_eq!(thinned(33, 1).collect::<Vec<_>>(), vec![0, 32]);
-        assert_eq!(thinned(2, 10).collect::<Vec<_>>(), vec![0, 1]);
-    }
-
-    #[test]
-    fn a_value_counted_once_is_not_repeated() {
-        assert!(!repeated(1.0 / 9000.0, 9000.0));
-        assert!(repeated(2.0 / 9000.0, 9000.0));
-        assert!(repeated(0.5, 10.0));
-    }
-
-    #[test]
-    fn null_only_width_keeps_a_fixed_typlen() {
-        assert_eq!(null_only_width(4), 4);
-        assert_eq!(null_only_width(16), 16);
-        assert_eq!(null_only_width(-1), 0);
-        assert_eq!(null_only_width(-2), 0);
-    }
-
-    #[test]
-    fn mcv_covering_every_nonnull_row_is_complete() {
-        // 3 values x 300 rows of 1000, 100 nulls.
-        assert!(mcv_covers_all([0.3, 0.3, 0.3].into_iter(), 900, 1000.0));
-        // One value outside the list.
-        assert!(!mcv_covers_all([0.3, 0.3, 0.299].into_iter(), 900, 1000.0));
-        assert!(!mcv_covers_all(std::iter::empty(), 0, 1000.0));
-    }
-
-    #[test]
-    fn varlena_width_counts_the_stored_header() {
-        assert_eq!(varlena_width(10.0), 11);
-        assert_eq!(varlena_width(27.6), 28);
-        assert_eq!(varlena_width(126.0), 127);
-        assert_eq!(varlena_width(200.0), 204);
-    }
-
-    #[test]
-    fn unestimated_columns_are_sampled() {
-        // No NDV (Opaque: bpchar, jsonb).
-        assert!(needs_sample(1000, false, false, false, &ComputeStats::Scalar));
-        assert!(needs_sample(1000, false, false, false, &ComputeStats::Distinct));
-        // An NDV but neither value list (numeric, interval).
-        assert!(needs_sample(1000, true, false, false, &ComputeStats::Scalar));
-        // The fold characterizes it.
-        assert!(!needs_sample(1000, true, true, false, &ComputeStats::Scalar));
-        assert!(!needs_sample(1000, true, false, true, &ComputeStats::Scalar));
-        // Null-only, or no equality operator: the fold's own values are C's.
-        assert!(!needs_sample(0, false, false, false, &ComputeStats::Scalar));
-        assert!(!needs_sample(1000, false, false, false, &ComputeStats::Trivial));
-    }
-
-    #[test]
-    fn hist_admission_gates() {
-        assert!(matches!(hist_mode(Sem::MemcmpOrdered, Coll::C), HistMode::ByteOrder));
-        assert!(matches!(hist_mode(Sem::TextCollated, Coll::C), HistMode::ByteOrder));
-        assert!(matches!(
-            hist_mode(Sem::TextCollated, Coll::OtherDeterministic),
-            HistMode::Refuse
-        ));
-        assert!(matches!(hist_mode(Sem::SignedInt, Coll::C), HistMode::Resort));
-        assert!(matches!(hist_mode(Sem::Float, Coll::C), HistMode::Resort));
-        assert!(matches!(
-            hist_mode(Sem::PackedNumeric { scale: 2 }, Coll::C),
-            HistMode::Refuse
-        ));
-        assert!(matches!(hist_mode(Sem::EnumEqOnly, Coll::C), HistMode::Refuse));
-    }
-}
-
 fn reset_stats<'mcx>(anl_mcx: Mcx<'mcx>, s: &mut VacAttrStats<'mcx>) {
     s.stats_valid = false;
     s.stanullfrac = 0.0;
@@ -757,4 +602,157 @@ fn fill_column<'mcx>(
     }
 
     Ok(Fill::Served)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// analyze.c's histogram leaves the MCV members out (num_hist = ndistinct - num_mcv): a bound that is a served MCV
+    /// value goes; with no MCV slot served the bounds pass through.
+    #[test]
+    fn histogram_excludes_the_served_mcv_members() {
+        let hist: Vec<Vec<u8>> = [b"a", b"b", b"c", b"d"].iter().map(|b| b.to_vec()).collect();
+        let (b, d) = ((b"b".to_vec(), 0.5), (b"d".to_vec(), 0.25));
+        let tail = tail_histogram(&hist, &[&b, &d]).unwrap();
+        assert_eq!(tail, [b"a".as_slice(), b"c".as_slice()]);
+        assert_eq!(tail_histogram(&hist, &[]).unwrap().len(), 4);
+    }
+
+    /// The inverse of `datum_canonical_bytes`' byval arm: LE truncation
+    /// round-trips through sign/zero extension.
+    #[test]
+    fn word_round_trip() {
+        // int2 -3: datum word (sign-extended) → canonical 2 LE bytes → word.
+        let w = (-3i64) as u64;
+        let bytes = w.to_le_bytes();
+        assert_eq!(word_from_bytes(&bytes[..2], 2, true), Some(w));
+        // oid word zero-extends.
+        assert_eq!(word_from_bytes(&0xFFFFFFFFu32.to_le_bytes(), 4, false), Some(0xFFFF_FFFF));
+        // Width mismatch refuses.
+        assert_eq!(word_from_bytes(&bytes[..3], 2, true), None);
+    }
+
+    /// Resort order is PG btree order for the word families: signed ints by
+    /// value, floats with NaN greatest.
+    #[test]
+    fn resort_order_is_value_order() {
+        let mut v = [ResortKey::I(10), ResortKey::I(-5), ResortKey::I(0)];
+        v.sort_by(resort_cmp);
+        assert!(matches!(v[0], ResortKey::I(-5)));
+        assert!(matches!(v[2], ResortKey::I(10)));
+        let mut f = [ResortKey::F(f64::NAN),
+            ResortKey::F(1.5),
+            ResortKey::F(-2.0)];
+        f.sort_by(resort_cmp);
+        assert!(matches!(f[0], ResortKey::F(x) if x == -2.0));
+        assert!(matches!(f[2], ResortKey::F(x) if x.is_nan()));
+    }
+
+    /// pg_statistic's negative-fraction convention (the footer-NDV override's
+    /// exact arithmetic).
+    #[test]
+    fn stadistinct_negative_fraction_convention() {
+        assert_eq!(stadistinct_convention(50.0, 1000.0), 50.0);
+        assert_eq!(stadistinct_convention(500.0, 1000.0), -0.5);
+        assert_eq!(stadistinct_convention(0.0, 1000.0), 0.0);
+        // Clamped to totalrows first: 2000 → 1000 → the -1.0 all-distinct form.
+        assert_eq!(stadistinct_convention(2000.0, 1000.0), -1.0);
+    }
+
+    /// The admission vocabulary is pinned: byte-eq==value-eq classes serve
+    /// MCVs; equality-normalizing types refuse.
+    #[test]
+    fn mcv_admission_gates() {
+        assert!(mcv_admissible(Sem::SignedInt, Coll::C));
+        assert!(mcv_admissible(Sem::MemcmpOrdered, Coll::OtherDeterministic));
+        assert!(mcv_admissible(Sem::TextCollated, Coll::OtherDeterministic));
+        assert!(!mcv_admissible(Sem::TextCollated, Coll::Nondeterministic));
+        assert!(!mcv_admissible(Sem::PackedNumeric { scale: 2 }, Coll::C));
+        assert!(!mcv_admissible(Sem::IntervalCmp, Coll::C));
+        assert!(!mcv_admissible(Sem::Opaque, Coll::C));
+    }
+
+    #[test]
+    fn analyze_mode_values() {
+        assert_eq!(parse_mode(""), Some(AnalyzeMode::SampleHll));
+        assert_eq!(parse_mode("  "), Some(AnalyzeMode::SampleHll));
+        assert_eq!(parse_mode("fold"), Some(AnalyzeMode::Fold));
+        assert_eq!(parse_mode(" Sample "), Some(AnalyzeMode::Sample));
+        assert_eq!(parse_mode("SAMPLE_HLL"), Some(AnalyzeMode::SampleHll));
+        assert_eq!(parse_mode("hll"), None);
+        assert_eq!(parse_mode("sample-hll"), None);
+    }
+
+    #[test]
+    fn thinned_bounds_respect_the_target() {
+        assert_eq!(thinned(33, 100).collect::<Vec<_>>(), (0..33).collect::<Vec<_>>());
+        assert_eq!(thinned(33, 10).collect::<Vec<_>>(), vec![0, 3, 6, 9, 12, 16, 19, 22, 25, 28, 32]);
+        assert_eq!(thinned(33, 1).collect::<Vec<_>>(), vec![0, 32]);
+        assert_eq!(thinned(2, 10).collect::<Vec<_>>(), vec![0, 1]);
+    }
+
+    #[test]
+    fn a_value_counted_once_is_not_repeated() {
+        assert!(!repeated(1.0 / 9000.0, 9000.0));
+        assert!(repeated(2.0 / 9000.0, 9000.0));
+        assert!(repeated(0.5, 10.0));
+    }
+
+    #[test]
+    fn null_only_width_keeps_a_fixed_typlen() {
+        assert_eq!(null_only_width(4), 4);
+        assert_eq!(null_only_width(16), 16);
+        assert_eq!(null_only_width(-1), 0);
+        assert_eq!(null_only_width(-2), 0);
+    }
+
+    #[test]
+    fn mcv_covering_every_nonnull_row_is_complete() {
+        // 3 values x 300 rows of 1000, 100 nulls.
+        assert!(mcv_covers_all([0.3, 0.3, 0.3].into_iter(), 900, 1000.0));
+        // One value outside the list.
+        assert!(!mcv_covers_all([0.3, 0.3, 0.299].into_iter(), 900, 1000.0));
+        assert!(!mcv_covers_all(std::iter::empty(), 0, 1000.0));
+    }
+
+    #[test]
+    fn varlena_width_counts_the_stored_header() {
+        assert_eq!(varlena_width(10.0), 11);
+        assert_eq!(varlena_width(27.6), 28);
+        assert_eq!(varlena_width(126.0), 127);
+        assert_eq!(varlena_width(200.0), 204);
+    }
+
+    #[test]
+    fn unestimated_columns_are_sampled() {
+        // No NDV (Opaque: bpchar, jsonb).
+        assert!(needs_sample(1000, false, false, false, &ComputeStats::Scalar));
+        assert!(needs_sample(1000, false, false, false, &ComputeStats::Distinct));
+        // An NDV but neither value list (numeric, interval).
+        assert!(needs_sample(1000, true, false, false, &ComputeStats::Scalar));
+        // The fold characterizes it.
+        assert!(!needs_sample(1000, true, true, false, &ComputeStats::Scalar));
+        assert!(!needs_sample(1000, true, false, true, &ComputeStats::Scalar));
+        // Null-only, or no equality operator: the fold's own values are C's.
+        assert!(!needs_sample(0, false, false, false, &ComputeStats::Scalar));
+        assert!(!needs_sample(1000, false, false, false, &ComputeStats::Trivial));
+    }
+
+    #[test]
+    fn hist_admission_gates() {
+        assert!(matches!(hist_mode(Sem::MemcmpOrdered, Coll::C), HistMode::ByteOrder));
+        assert!(matches!(hist_mode(Sem::TextCollated, Coll::C), HistMode::ByteOrder));
+        assert!(matches!(
+            hist_mode(Sem::TextCollated, Coll::OtherDeterministic),
+            HistMode::Refuse
+        ));
+        assert!(matches!(hist_mode(Sem::SignedInt, Coll::C), HistMode::Resort));
+        assert!(matches!(hist_mode(Sem::Float, Coll::C), HistMode::Resort));
+        assert!(matches!(
+            hist_mode(Sem::PackedNumeric { scale: 2 }, Coll::C),
+            HistMode::Refuse
+        ));
+        assert!(matches!(hist_mode(Sem::EnumEqOnly, Coll::C), HistMode::Refuse));
+    }
 }

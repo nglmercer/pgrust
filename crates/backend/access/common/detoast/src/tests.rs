@@ -155,7 +155,7 @@ fn lz4_slice_decodes_every_prefix_of_long_matches_and_literals() {
     let ctx = MemoryContext::new("t");
     let mut input = b"abcdefgh".repeat(5000);
     input.extend(sample(3000));
-    input.extend(std::iter::repeat(b'z').take(70000));
+    input.extend(std::iter::repeat_n(b'z', 70000));
     input.extend(sample(500));
     let image = lz4_image(&input);
     for len in [0, 1, 3, 7, 8, 9, 100, 40000, 40001, 43000, 100000, input.len() - 1] {

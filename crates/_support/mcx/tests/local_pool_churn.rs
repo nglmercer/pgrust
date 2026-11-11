@@ -102,7 +102,8 @@ fn churn_bench() {
             .map(|t| {
                 std::thread::spawn(move || {
                     for round in 0..ITERS {
-                        std::hint::black_box(churn_once(round ^ t));
+                        churn_once(round ^ t);
+                        std::hint::black_box(());
                     }
                 })
             })

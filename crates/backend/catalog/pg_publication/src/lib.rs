@@ -182,7 +182,7 @@ fn cannot_add_relation(relname: &str, detail: String) -> Box<PgError> {
 }
 
 fn check_publication_add_relation(targetrel: &Relation<'_>) -> PgResult<()> {
-    let relkind = targetrel.rd_rel.relkind as u8;
+    let relkind = targetrel.rd_rel.relkind;
     if relkind != RELKIND_RELATION && relkind != RELKIND_PARTITIONED_TABLE {
         return Err(cannot_add_relation(
             targetrel.name(),
@@ -248,12 +248,12 @@ fn publishable_kind(relid: Oid, relkind: u8, relpersistence: u8) -> bool {
 // pgrcolumnar's companions are relkind 'r' in pg_toast; their rows publish as the parent's.
 pub fn is_publishable_class(relid: Oid, relkind: u8, relpersistence: u8) -> bool {
     publishable_kind(relid, relkind, relpersistence)
-        && lsyscache::get_rel_namespace(relid).map_or(true, |n| n != types_core::PG_TOAST_NAMESPACE)
+        && (lsyscache::get_rel_namespace(relid) != Ok(types_core::PG_TOAST_NAMESPACE))
 }
 
 /// pgoutput asks per change: the open relation's namespace, no syscache lookup.
 pub fn is_publishable_relation(rel: &Relation<'_>) -> bool {
-    publishable_kind(rel.rd_id, rel.rd_rel.relkind as u8, rel.rd_rel.relpersistence)
+    publishable_kind(rel.rd_id, rel.rd_rel.relkind, rel.rd_rel.relpersistence)
         && rel.rd_rel.relnamespace != types_core::PG_TOAST_NAMESPACE
 }
 
@@ -1131,7 +1131,7 @@ fn publication_table_row<'mcx>(
             None => nulls[3] = true,
         }
         let tuple = heaptuple::heap_form_tuple(mcx, &desc, &values, &nulls)?;
-        Ok(Some(::mcx::std_vec_from_slice("catalog", &tuple.image())?))
+        Ok(Some(::mcx::std_vec_from_slice("catalog", tuple.image())?))
     }
 }
 

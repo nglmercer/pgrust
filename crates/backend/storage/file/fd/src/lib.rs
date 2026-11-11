@@ -88,7 +88,7 @@ pub fn init_seams() {
     });
     file_seams::close_transient_file::set(desc::CloseTransientFile);
     file_seams::pg_fsync::set(sync::pg_fsync);
-    file_seams::fsync_fname::set(|fname, isdir| sync::fsync_fname(fname, isdir));
+    file_seams::fsync_fname::set(sync::fsync_fname);
     file_seams::data_sync_elevel::set(sync::data_sync_elevel);
     file_seams::with_allocated_dir::set(desc::with_allocated_dir);
     file_seams::acquire_external_fd::set(vfd::AcquireExternalFD);

@@ -226,7 +226,7 @@ fn collect_lock_rows(mcx: Mcx<'_>) -> PgResult<LockRows> {
     let mut tuples = Vec::new();
     let mut put = |values: &[Datum], nulls: &[bool]| -> PgResult<()> {
         let tuple = heaptuple::heap_form_tuple(mcx, &desc, values, nulls)?;
-        tuples.push(::mcx::std_vec_from_slice("adt", &tuple.image())?);
+        tuples.push(::mcx::std_vec_from_slice("adt", tuple.image())?);
         Ok(())
     };
 

@@ -75,7 +75,7 @@ struct FileState {
 }
 
 thread_local! {
-    static STATE: RefCell<FileState> = RefCell::new(FileState {
+    static STATE: RefCell<FileState> = const { RefCell::new(FileState {
         recvFile: -1,
         recvFileTLI: 0,
         recvSegNo: 0,
@@ -85,7 +85,7 @@ thread_local! {
         reply_writePtr: 0,
         reply_flushPtr: 0,
         primary_has_standby_xmin: true,
-    });
+    }) };
     static CONN: RefCell<Option<PgConn>> = const { RefCell::new(None) };
     // on_shmem_exit(WalRcvDie, &startpointTLI): the pointer's read-latest
     // semantics, as a cell.

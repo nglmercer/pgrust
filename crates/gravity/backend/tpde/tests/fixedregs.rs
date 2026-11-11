@@ -27,7 +27,7 @@ fn ledger(p: &Program) -> (Vec<gravity_tpde::RegEvent>, String) {
     let ctx = MemoryContext::new("fixedregs");
     let c = gravity_tpde::compile_recording(ctx.mcx(), p).unwrap();
     let events = c.regalloc().to_vec();
-    let mut text = c.regalloc_report(Func(0));
+    let text = c.regalloc_report(Func(0));
     #[cfg(target_arch = "aarch64")]
     {
         let range = c.mapper().get_mapped_range().unwrap();

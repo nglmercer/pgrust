@@ -99,7 +99,7 @@ pub fn connect_extended(
     debug_assert!(replication || !logical);
     let opts = check_conninfo(conninfo)?;
 
-    if must_use_password && opt(&opts, "password").map_or(true, |p| p.is_empty()) {
+    if must_use_password && opt(&opts, "password").is_none_or(|p| p.is_empty()) {
         return throw(
             ereport(ERROR)
                 .errcode(types_error::ERRCODE_S_R_E_PROHIBITED_SQL_STATEMENT_ATTEMPTED)

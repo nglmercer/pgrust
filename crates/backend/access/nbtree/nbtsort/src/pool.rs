@@ -1051,9 +1051,7 @@ fn pool_leader_join(
             // the RG outcome.
             let final_drain = drain(bp, &mut consumed);
             cleanup(bp);
-            if let Err(e) = final_drain {
-                return Err(e);
-            }
+            final_drain?;
             if !traced {
                 btrace(&format!("engaged pooldb dop={}", entry.claimed()));
             }

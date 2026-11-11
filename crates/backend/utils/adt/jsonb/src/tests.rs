@@ -27,7 +27,7 @@ fn setup() {
 }
 
 fn unhex(s: &str) -> Vec<u8> {
-    assert!(s.len() % 2 == 0, "odd hex: {s}");
+    assert!(s.len().is_multiple_of(2), "odd hex: {s}");
     (0..s.len() / 2)
         .map(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap())
         .collect()

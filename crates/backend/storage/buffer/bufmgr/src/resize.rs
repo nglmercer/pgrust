@@ -887,10 +887,7 @@ fn background_drain(d: &mut Drain<'_>) -> PgResult<Option<u32>> {
         }
         d.later = 0;
         d.wal_later = 0;
-        let progressed = match pass_inflight(d, true)? {
-            Some(p) => p,
-            None => true,
-        };
+        let progressed = pass_inflight(d, true)?.unwrap_or(true);
         note_wal_wait(d.wal_later > 0);
         if progressed {
             BG_BACKOFF_MS.store(1, Ordering::Relaxed);

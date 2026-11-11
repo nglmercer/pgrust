@@ -1,3 +1,6 @@
+// The PI/E literals are the exact decimal inputs PostgreSQL's float tests use (text I/O round trips), not approximations.
+#![allow(clippy::approx_constant)]
+
 use super::*;
 use crate::aggregates::*;
 use crate::builtins::*;
@@ -884,7 +887,7 @@ fn float_agg_fmgr_frames() {
     assert_eq!(check_float8_array::<3>(&img, "t").unwrap(), [0.0; 3]);
 
     // Agg frame: in-place, avg/stddev finals match the kernel KATs.
-    let mut agg = AggStateNode::new(MemoryContext::new_bump("float-aggctx"));
+    let agg = AggStateNode::new(MemoryContext::new_bump("float-aggctx"));
     let mut trans = [0u8; float8_transarray_size(3)];
     write_float8_transarray(&[0.0; 3], &mut trans);
     let tp = trans.as_ptr() as usize;

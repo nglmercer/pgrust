@@ -77,7 +77,7 @@ fn corrupt_pd_lower(pd_lower: usize) -> Box<PgError> {
 #[inline]
 pub(crate) fn data_leaf_posting_list_checked(bytes: &[u8]) -> PgResult<&[u8]> {
     let pd_lower = u16::from_ne_bytes([bytes[12], bytes[13]]) as usize;
-    if pd_lower < GinDataPageDataOffset || pd_lower > GinDataPageDataOffset + GinDataPageMaxDataSize {
+    if !(GinDataPageDataOffset..=GinDataPageDataOffset + GinDataPageMaxDataSize).contains(&pd_lower) {
         return Err(corrupt_pd_lower(pd_lower));
     }
     let all = &bytes[GinDataPageDataOffset..pd_lower];
@@ -991,7 +991,7 @@ impl<'a, 'r, 's> DataBtree<'a, 'r, 's> {
                     let li = leaf.lastleft;
                     if leaf.segs[li].action != GIN_SEGMENT_DELETE {
                         let segsize = leaf.segs[li].seg.as_ref().unwrap().len();
-                        if (leaf.lsize - segsize) as i64 - (leaf.rsize + segsize) as i64 - 0 < 0 {
+                        if ((leaf.lsize - segsize) as i64 - (leaf.rsize + segsize) as i64) < 0 {
                             break;
                         }
                         if append && (leaf.lsize - segsize) < (BLCKSZ * 3) / 4 {

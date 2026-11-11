@@ -452,7 +452,7 @@ pub fn seq_search_localized(
 }
 
 pub fn from_char_seq_search<'mcx>(
-    mcx: Mcx<'mcx>,
+    _mcx: Mcx<'mcx>,
     dest: &mut i32,
     cur: &mut FromCharCursor,
     array: &[&str],
@@ -501,7 +501,7 @@ mod tests {
         ::pg_locale::set_default_locale_builtin_utf8_for_tests();
         ::mbutils::SetDatabaseEncoding(::wchar::PG_UTF8).unwrap();
         let ctx = ::mcx::MemoryContext::new("t");
-        let mcx = ctx.mcx();
+        let _mcx = ctx.mcx();
         let months: Vec<Vec<u8>> = vec![b"Ocak".to_vec(), "Aralık".as_bytes().to_vec()];
         let search = |name: &str| {
             seq_search_localized(

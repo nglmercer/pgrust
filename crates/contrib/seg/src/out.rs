@@ -47,7 +47,7 @@ pub fn c_format_g(val: f64) -> String {
     let e_form = c_sprintf_e(val, (PREC - 1) as usize);
     let (mant, exp_s) = e_form.split_once('e').unwrap();
     let exp: i32 = exp_s.parse().unwrap();
-    if exp < -4 || exp >= PREC {
+    if !(-4..PREC).contains(&exp) {
         // %e style with trailing zeros stripped from the fraction
         let mut m = mant.to_string();
         if m.contains('.') {
@@ -265,7 +265,7 @@ mod tests {
         assert_eq!(r(1.0, 6), "1.00000");
         assert_eq!(r(1.0, 7), "1.00000");
         // Rounding/truncation to 6 digits.
-        assert_eq!(r(12.34567890123456, 6), "12.3457");
+        assert_eq!(r(12.345_679, 6), "12.3457");
         // %e passthrough for small magnitudes.
         assert_eq!(r(1.2e-7, 3), "1.20e-07");
         assert_eq!(r(3.4e5, 4), "3.400e+05");

@@ -194,7 +194,7 @@ pub fn byteain<'mcx>(
     // Escaped style: C's two passes — count + validate, then decode.
     let bc = match byteain_escaped_count(input) {
         Some(bc) => bc,
-        None => return ereturn(escontext.as_deref_mut(), None, invalid_bytea_input()),
+        None => return ereturn(escontext, None, invalid_bytea_input()),
     };
 
     let mut image = image_with_header(mcx, bc)?;

@@ -332,7 +332,7 @@ fn derived_pool_cap_fits_ram_beside_shared_buffers_and_the_part_cache() {
     assert!(sb + pool + part_cache_cap(ram, pool) <= ram / 64 * 54, "{pool}");
     assert!(pool > 14 * gib && pool < 15 * gib, "{pool}");
     // a small shared_buffers keeps the old three quarters where it is the smaller
-    assert_eq!(derived_pool_cap(ram, ram / 2), 0.max((ram / 64 * 54).saturating_sub(ram / 2).saturating_sub(ram / 8)).min((ram - ram / 2) / 4 * 3));
+    assert_eq!(derived_pool_cap(ram, ram / 2), (ram / 64 * 54).saturating_sub(ram / 2).saturating_sub(ram / 8).min((ram - ram / 2) / 4 * 3));
     assert_eq!(derived_pool_cap(0, 0), 0);
 }
 

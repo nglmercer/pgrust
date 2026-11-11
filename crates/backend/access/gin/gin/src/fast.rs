@@ -865,7 +865,7 @@ mod rem_b006_tests {
         // The error escapes writeListPage's critical section (C: PANIC via
         // errstart); close it here so the thread is reusable.
         init_small::globals::SetCritSectionCount(0);
-        let err = res.err().expect("overflowing list page must be a catchable error");
+        let err = res.expect_err("overflowing list page must be a catchable error");
         assert_eq!(err.message(), "failed to add item to index page in \"t_gin\"");
         assert_eq!(err.sqlstate(), ERRCODE_INTERNAL_ERROR);
     }

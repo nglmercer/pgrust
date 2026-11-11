@@ -49,7 +49,7 @@ fn part_files(dir: &str) -> Vec<(u32, std::path::PathBuf)> {
 }
 
 fn pad8(v: &mut Vec<u8>) {
-    while v.len() % 8 != 0 {
+    while !v.len().is_multiple_of(8) {
         v.push(0);
     }
 }

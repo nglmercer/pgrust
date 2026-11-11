@@ -400,7 +400,7 @@ mod tests {
         let mut c = Counts { landing: 8 * MIB, cap: 512 * MIB, ..Counts::default() };
         assert_eq!(super::next_line(&mut l, &c, s), None, "nothing turned away: no line");
         c.cap_runs = 3;
-        c.cap_bytes = 3 * 512 << 10;
+        c.cap_bytes = (3 * 512) << 10;
         let line = super::next_line(&mut l, &c, 2 * s).expect("the first fallback: a line at once");
         assert!(line.contains("3 runs (1 MiB) given back on their freeing threads at the backlog cap (512 MiB)"), "{line}");
         c.dead_runs = 1;

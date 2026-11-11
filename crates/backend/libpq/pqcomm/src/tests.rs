@@ -105,7 +105,7 @@ fn ctx() -> MemoryContext {
 #[test]
 fn putmessage_buffers_until_flush() {
     setup();
-    assert_eq!(pq_putmessage(b'Z', &[b'I']).unwrap(), 0);
+    assert_eq!(pq_putmessage(b'Z', b"I").unwrap(), 0);
     assert!(wire().is_empty());
     assert!(pq_is_send_pending());
     assert_eq!(pq_flush().unwrap(), 0);
@@ -202,7 +202,7 @@ fn putmessage_noblock_grows_buffer_without_flush() {
 #[test]
 fn send_failure_drops_buffer_and_flags_interrupt() {
     setup();
-    assert_eq!(pq_putmessage(b'Z', &[b'I']).unwrap(), 0);
+    assert_eq!(pq_putmessage(b'Z', b"I").unwrap(), 0);
     WRITE_ERRNO.with(|c| c.set(libc::EPIPE));
     assert_eq!(pq_flush().unwrap(), EOF);
     assert!(!pq_is_send_pending());
@@ -214,7 +214,7 @@ fn send_failure_drops_buffer_and_flags_interrupt() {
 fn eintr_on_write_retries() {
     setup();
     WRITE_ERRNOS.with(|v| v.borrow_mut().push(libc::EINTR));
-    assert_eq!(pq_putmessage(b'Z', &[b'I']).unwrap(), 0);
+    assert_eq!(pq_putmessage(b'Z', b"I").unwrap(), 0);
     assert_eq!(pq_flush().unwrap(), 0);
     assert_eq!(wire(), vec![b'Z', 0, 0, 0, 5, b'I']);
 }
@@ -232,7 +232,7 @@ fn eintr_on_read_retries() {
 #[test]
 fn flush_if_writable_wouldblock_keeps_data() {
     setup();
-    assert_eq!(pq_putmessage(b'Z', &[b'I']).unwrap(), 0);
+    assert_eq!(pq_putmessage(b'Z', b"I").unwrap(), 0);
     WRITE_ERRNO.with(|c| c.set(libc::EAGAIN));
     assert_eq!(pq_flush_if_writable().unwrap(), 0);
     assert!(pq_is_send_pending());
@@ -246,7 +246,7 @@ fn flush_if_writable_wouldblock_keeps_data() {
 #[test]
 fn no_client_connection_errors() {
     setup();
-    assert_eq!(pq_putmessage(b'Z', &[b'I']).unwrap(), 0);
+    assert_eq!(pq_putmessage(b'Z', b"I").unwrap(), 0);
     HAVE_PORT.with(|c| c.set(false));
     assert!(pq_flush().is_err());
     // busy stays set (C longjmp semantics) until pq_comm_reset
@@ -499,7 +499,7 @@ fn a_second_session_on_the_thread_frees_its_send_buffer_at_its_end() {
     for session in 1..=2 {
         CLEANUPS.with(|c| c.borrow_mut().clear());
         setup();
-        assert_eq!(pq_putmessage(b'Z', &[b'I']).unwrap(), 0);
+        assert_eq!(pq_putmessage(b'Z', b"I").unwrap(), 0);
         for f in CLEANUPS.with(|c| core::mem::take(&mut *c.borrow_mut())) {
             f();
         }

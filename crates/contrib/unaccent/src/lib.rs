@@ -173,7 +173,7 @@ pub fn parse_rule_line(line: &[u8]) -> Result<Option<(&[u8], Vec<u8>)>, ParseRul
     if state == 4 {
         state = -2;
     }
-    if state <= 0 && state != 0 {
+    if state < 0 {
         return Err(ParseRuleError::Syntax(state));
     }
     if state == 0 {
@@ -311,7 +311,7 @@ fn arg_dict_ptr(fcinfo: &Fcinfo) -> usize {
     fcinfo.arg(0).as_usize()
 }
 
-fn arg_token<'a>(fcinfo: &'a Fcinfo) -> &'a [u8] {
+fn arg_token(fcinfo: &Fcinfo) -> &[u8] {
     let len = fcinfo.arg(2).as_i32().max(0) as usize;
     // SAFETY: dict_api lexize convention — arg1 points at `len` live bytes.
     unsafe { core::slice::from_raw_parts(fcinfo.arg(1).as_usize() as *const u8, len) }
@@ -362,7 +362,7 @@ fn fc_unaccent_dict(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgRes
     };
 
     // SAFETY: both SQL signatures are strict; the text arg is non-null.
-    let token = ::mcx::std_vec_from_slice("unaccent", &unsafe { fcinfo.arg_varlena_packed(str_arg)? }.data())?;
+    let token = ::mcx::std_vec_from_slice("unaccent", unsafe { fcinfo.arg_varlena_packed(str_arg)? }.data())?;
     // SAFETY: the arming context outlives this call.
     let mcx = unsafe { fcinfo.result_mcx_detached() };
 

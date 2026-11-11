@@ -67,7 +67,7 @@ fn assign_release_roundtrip_and_masks() {
 
     let slot = pmchild_seams::assign_postmaster_child_slot::call(BackendType::Backend)
         .expect("backend pool must not be empty");
-    assert!(slot >= 1 && slot <= 220);
+    assert!((1..=220).contains(&slot));
     pmchild_seams::set_child_pid::call(slot, 4242);
 
     assert_eq!(pmchild_seams::count_children::call(btmask(BackendType::Backend)), 1);

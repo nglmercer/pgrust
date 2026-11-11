@@ -796,7 +796,7 @@ fn bind_words(tpl: &[WordTpl], nodes: &[Node<'static>], mcx: Mcx<'static>, exprs
 fn late_owner(program: &Program, w: usize) -> Option<u16> {
     let reads = |s: &gravity_program::SiteDesc| s.param_slots.iter().any(|&x| x >= 0 && x as usize == w);
     let mut owner = None;
-    for (i, site) in program.sites.iter().enumerate().filter(|(_, s)| reads(s)) {
+    for (i, _site) in program.sites.iter().enumerate().filter(|(_, s)| reads(s)) {
         let p = program.pipelines.iter().position(|p| p.driving_site >= 0 && p.driving_site as usize == i)?;
         if owner.is_some_and(|o| o != p) {
             return None;
@@ -2110,7 +2110,7 @@ fn level_tier<R>(f: impl FnOnce(&mut LevelTier) -> R) -> R {
 }
 
 fn level_file(key: ContentKey, h: &Filed) {
-    if !crate::admit::reentry::current().is_some_and(|d| d < crate::admit::reentry::MAX_DEPTH) || !levels_share(h) {
+    if crate::admit::reentry::current().is_none_or(|d| d >= crate::admit::reentry::MAX_DEPTH) || !levels_share(h) {
         return;
     }
     level_tier(|t| {
@@ -2588,7 +2588,7 @@ pub fn graph(b: &mut Backend, mcx: Mcx<'static>, pstmt: &'static PlannedStmt<'st
         }
     }
     let r = r.map(|r| {
-        r.map(|t| {
+        r.inspect(|_t| {
             if let Some(g) = out.as_mut().and_then(|a| a.graph.as_mut()) {
                 if !bare {
                     g.folded = folded.into_boxed_slice();
@@ -2600,7 +2600,6 @@ pub fn graph(b: &mut Backend, mcx: Mcx<'static>, pstmt: &'static PlannedStmt<'st
                     g.reads = gravity_deps::Held::of(deps);
                 }
             }
-            t
         })
     });
     drop(scope);

@@ -453,7 +453,7 @@ fn grouping_planner_tail<'mcx>(
                     let is_top = this_rel == top_rel;
                     if parse.commandType == CmdType::CMD_UPDATE {
                         let src =
-                            crate::relnode::pgvec_clone_shallow(mcx, &run.root.update_colnos);
+                            crate::relnode::pgvec_clone_shallow(mcx, run.root.update_colnos);
                         let colnos = if is_top {
                             src
                         } else {
@@ -578,7 +578,7 @@ fn grouping_planner_tail<'mcx>(
                     if parse.commandType == CmdType::CMD_UPDATE {
                         update_colnos_lists.push(crate::relnode::pgvec_clone_shallow(
                             mcx,
-                            &run.root.update_colnos,
+                            run.root.update_colnos,
                         ));
                     }
                     if !parse.withCheckOptions.is_nil() {
@@ -615,7 +615,7 @@ fn grouping_planner_tail<'mcx>(
                 if parse.commandType == CmdType::CMD_UPDATE {
                     update_colnos_lists.push(crate::relnode::pgvec_clone_shallow(
                         mcx,
-                        &run.root.update_colnos,
+                        run.root.update_colnos,
                     ));
                 }
                 if !parse.withCheckOptions.is_nil() {
@@ -1380,7 +1380,7 @@ fn create_grouping_paths<'mcx>(
     }
 
     let can_sort = run.gset_data.as_ref().is_some_and(|gd| !gd.rollups.is_empty())
-        || grouping_is_sortable(run, &run.root.processed_groupClause);
+        || grouping_is_sortable(run, run.root.processed_groupClause);
     let ordered_aggs_block_hash = run.root.numOrderedAggs > 0
         && (run.root.numOrderByAggs > 0
             || !hashed_distinct_admitted(run)?
@@ -1391,7 +1391,7 @@ fn create_grouping_paths<'mcx>(
             Some(gd) => run.root.numOrderedAggs == 0 && gd.any_hashable,
             None => {
                 !ordered_aggs_block_hash
-                    && grouping_is_hashable(run, &run.root.processed_groupClause)
+                    && grouping_is_hashable(run, run.root.processed_groupClause)
             }
         };
     let mut extra = GroupPathExtra {
@@ -1884,7 +1884,7 @@ fn create_partial_grouping_paths<'mcx>(
     if extra.can_hash {
         if let Some(cheapest_total) = cheapest_total_path {
             let group_clause =
-                crate::relnode::pgvec_clone_shallow(run.mcx, &run.root.processed_groupClause);
+                crate::relnode::pgvec_clone_shallow(run.mcx, run.root.processed_groupClause);
             let agg_costs_partial = extra.agg_partial_costs;
             let agg_path = crate::pathnode::create_agg_path(
                 run,
@@ -1906,7 +1906,7 @@ fn create_partial_grouping_paths<'mcx>(
     if extra.can_hash {
         if let Some(cheapest_partial_path) = cheapest_partial_path {
             let group_clause =
-                crate::relnode::pgvec_clone_shallow(run.mcx, &run.root.processed_groupClause);
+                crate::relnode::pgvec_clone_shallow(run.mcx, run.root.processed_groupClause);
             let agg_costs_partial = extra.agg_partial_costs;
             let agg_path = crate::pathnode::create_agg_path(
                 run,
@@ -2179,7 +2179,7 @@ fn add_paths_to_grouping_rel<'mcx>(
             crate::pathnode::add_path(run, grouped_rel, agg_path);
         } else {
             let group_clause =
-                crate::relnode::pgvec_clone_shallow(run.mcx, &run.root.processed_groupClause);
+                crate::relnode::pgvec_clone_shallow(run.mcx, run.root.processed_groupClause);
             let agg_path = crate::pathnode::create_agg_path(
                 run,
                 grouped_rel,
@@ -2205,7 +2205,7 @@ fn add_paths_to_grouping_rel<'mcx>(
                     .cheapest_total_path
                     .expect("partially grouped rel has a cheapest path");
                 let group_clause =
-                    crate::relnode::pgvec_clone_shallow(run.mcx, &run.root.processed_groupClause);
+                    crate::relnode::pgvec_clone_shallow(run.mcx, run.root.processed_groupClause);
                 let final_costs = extra.agg_final_costs;
                 let agg_path = crate::pathnode::create_agg_path(
                     run,
@@ -2312,7 +2312,7 @@ pub(crate) fn gravity_hash_spill_credit(run: &PlannerRun<'_>, agg_path: types_pa
 /// such a query keeps the sorted path (when the keys sort). A full fetch, or an ORDER BY the groups do not give (a Sort above reads
 /// every group in both plans), keeps the form.
 fn sorted_groups_stop_early(run: &PlannerRun<'_>) -> bool {
-    run.root.tuple_fraction > 0.0 && types_pathnodes::pathkeys_contained_in(&run.root.sort_pathkeys, &run.root.group_pathkeys)
+    run.root.tuple_fraction > 0.0 && types_pathnodes::pathkeys_contained_in(run.root.sort_pathkeys, run.root.group_pathkeys)
 }
 
 /// EquivalenceClass processing proved every GROUP BY item redundant
@@ -2453,7 +2453,7 @@ pub(crate) fn rider_order(aggfnoid: types_core::Oid) -> RiderOrder {
 
 fn hashed_distinct_keys<'mcx>(run: &mut PlannerRun<'mcx>) -> PgResult<mcx::PgVec<'mcx, types_pathnodes::NodeId>> {
     if !hashed_distinct_regroups(run)? {
-        return Ok(crate::relnode::pgvec_clone_shallow(run.mcx, &run.root.processed_groupClause));
+        return Ok(crate::relnode::pgvec_clone_shallow(run.mcx, run.root.processed_groupClause));
     }
     let parse = run.parse();
     let mut ids = mcx::PgVec::new_in(run.mcx);
@@ -2720,7 +2720,7 @@ fn get_number_of_groups<'mcx>(
                 gd.dNumHashGroups = 0.0;
                 let clauses = crate::relnode::pgvec_clone_shallow(
                     run.mcx,
-                    &run.root.processed_groupClause,
+                    run.root.processed_groupClause,
                 );
                 let group_exprs = sortgrouplist_exprs(run, &clauses, tlist);
                 for (gset, gs) in gd.hash_sets_idx.iter().zip(gd.unsortable_sets.iter_mut()) {
@@ -2841,7 +2841,7 @@ fn create_partial_distinct_paths<'mcx>(
         n
     };
 
-    if grouping_is_sortable(run, &run.root.processed_distinctClause) {
+    if grouping_is_sortable(run, run.root.processed_distinctClause) {
         let distinct_pathkeys = run.root.distinct_pathkeys;
         let paths = crate::relnode::pgvec_clone_shallow(
             run.mcx,
@@ -2850,7 +2850,7 @@ fn create_partial_distinct_paths<'mcx>(
         for &input_path in paths.iter() {
             let useful_list = get_useful_pathkeys_for_distinct(
                 run,
-                &distinct_pathkeys,
+                distinct_pathkeys,
                 &crate::relnode::pgvec_clone_shallow(
                     run.mcx,
                     &run.root.path(input_path).base().pathkeys,
@@ -2891,10 +2891,10 @@ fn create_partial_distinct_paths<'mcx>(
     // Hash arm: enable_hashagg is a hard off-switch here (no must-hash
     // fallback; the final step still has its own alternatives).
     if crate::gucs::enable_hashagg()
-        && grouping_is_hashable(run, &run.root.processed_distinctClause)
+        && grouping_is_hashable(run, run.root.processed_distinctClause)
     {
         let distinct_clause =
-            crate::relnode::pgvec_clone_shallow(run.mcx, &run.root.processed_distinctClause);
+            crate::relnode::pgvec_clone_shallow(run.mcx, run.root.processed_distinctClause);
         let input_target = run
             .root
             .path(cheapest_partial)
@@ -2982,7 +2982,7 @@ fn create_final_distinct_paths<'mcx>(
         n
     };
 
-    if grouping_is_sortable(run, &run.root.processed_distinctClause) {
+    if grouping_is_sortable(run, run.root.processed_distinctClause) {
         let limittuples = if run.root.distinct_pathkeys.is_empty() { 1.0 } else { -1.0 };
         // DISTINCT ON sorts by the more rigorous of DISTINCT and ORDER BY
         // (the parser ensured one is a prefix of the other).
@@ -2998,7 +2998,7 @@ fn create_final_distinct_paths<'mcx>(
         for &input_path in paths.iter() {
             let useful_list = get_useful_pathkeys_for_distinct(
                 run,
-                &needed_pathkeys,
+                needed_pathkeys,
                 &crate::relnode::pgvec_clone_shallow(
                     run.mcx,
                     &run.root.path(input_path).base().pathkeys,
@@ -3042,9 +3042,9 @@ fn create_final_distinct_paths<'mcx>(
         // Hashing loses DISTINCT ON's row-choice semantics.
         !has_distinct_on && crate::gucs::enable_hashagg()
     };
-    if allow_hash && grouping_is_hashable(run, &run.root.processed_distinctClause) {
+    if allow_hash && grouping_is_hashable(run, run.root.processed_distinctClause) {
         let distinct_clause =
-            crate::relnode::pgvec_clone_shallow(run.mcx, &run.root.processed_distinctClause);
+            crate::relnode::pgvec_clone_shallow(run.mcx, run.root.processed_distinctClause);
         let input_target = run
             .root
             .path(cheapest)
@@ -3367,7 +3367,7 @@ fn create_ordered_paths<'mcx>(
     let paths = crate::relnode::pgvec_clone_shallow(run.mcx, &run.root.rel(input_rel).pathlist);
     for &input_path in paths.iter() {
         let (is_sorted, presorted_keys) = crate::pathkeys::pathkeys_count_contained_in(
-            &run.root.sort_pathkeys,
+            run.root.sort_pathkeys,
             &run.root.path(input_path).base().pathkeys,
         );
         let sorted_path = if is_sorted {
@@ -3379,7 +3379,7 @@ fn create_ordered_paths<'mcx>(
                 continue;
             }
             let sort_pathkeys =
-                crate::relnode::pgvec_clone_shallow(run.mcx, &run.root.sort_pathkeys);
+                crate::relnode::pgvec_clone_shallow(run.mcx, run.root.sort_pathkeys);
             if presorted_keys == 0 || !crate::gucs::enable_incremental_sort() {
                 crate::pathnode::create_sort_path(
                     run,
@@ -3429,7 +3429,7 @@ fn create_ordered_paths<'mcx>(
             crate::relnode::pgvec_clone_shallow(run.mcx, &run.root.rel(input_rel).partial_pathlist);
         for &input_path in partials.iter() {
             let (is_sorted, presorted_keys) = crate::pathkeys::pathkeys_count_contained_in(
-                &run.root.sort_pathkeys,
+                run.root.sort_pathkeys,
                 &run.root.path(input_path).base().pathkeys,
             );
             if is_sorted {
@@ -3441,7 +3441,7 @@ fn create_ordered_paths<'mcx>(
                 continue;
             }
             let sort_pathkeys =
-                crate::relnode::pgvec_clone_shallow(run.mcx, &run.root.sort_pathkeys);
+                crate::relnode::pgvec_clone_shallow(run.mcx, run.root.sort_pathkeys);
             let sorted_path = if presorted_keys == 0 || !crate::gucs::enable_incremental_sort() {
                 crate::pathnode::create_sort_path(
                     run,
@@ -3467,7 +3467,7 @@ fn create_ordered_paths<'mcx>(
                     sb.pathtarget_id,
                 )
             };
-            let gm_keys = crate::relnode::pgvec_clone_shallow(run.mcx, &run.root.sort_pathkeys);
+            let gm_keys = crate::relnode::pgvec_clone_shallow(run.mcx, run.root.sort_pathkeys);
             let sorted_path = crate::pathnode::create_gather_merge_path(
                 run,
                 ordered_rel,

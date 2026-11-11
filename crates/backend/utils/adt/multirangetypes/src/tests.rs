@@ -392,8 +392,8 @@ fn pseudotype_aliases_delegate_to_multirange_out() {
             .find(|b| b.foid == oid)
             .unwrap_or_else(|| panic!("oid {oid} not registered"))
     };
-    assert_eq!(by_oid(4230).func as usize, crate::builtins::fc_multirange_out as usize);
-    assert_eq!(by_oid(4227).func as usize, crate::builtins::fc_multirange_out as usize);
+    assert_eq!(by_oid(4230).func as usize, crate::builtins::fc_multirange_out as *const () as usize);
+    assert_eq!(by_oid(4227).func as usize, crate::builtins::fc_multirange_out as *const () as usize);
     assert_eq!(by_oid(4227).name, "anycompatiblemultirange_out");
 }
 

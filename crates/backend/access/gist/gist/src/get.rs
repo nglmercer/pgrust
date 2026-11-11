@@ -245,7 +245,7 @@ fn gist_scan_page(
             blkno: opaque.rightlink,
             parentlsn,
             heap: None,
-            distances: ::mcx::std_vec_from_slice("access", &my_distances)?,
+            distances: ::mcx::std_vec_from_slice("access", my_distances)?,
         });
     }
 
@@ -419,7 +419,7 @@ fn fetch_recontup(
         let off = so.fetch_buf.len() as u32;
         so.fetch_buf.extend_from_slice(formed.image());
         // 8-align the next tuple (heap deform requires it)
-        while so.fetch_buf.len() % 8 != 0 {
+        while !so.fetch_buf.len().is_multiple_of(8) {
             so.fetch_buf.push(0);
         }
         (off, formed.as_tuple().t_len)
@@ -666,7 +666,7 @@ pub fn gistgettuple(scan: &mut IndexScanDescData<'_>, dir: ScanDirection) -> PgR
                 let do_kill = so.curBlkno != InvalidBlockNumber && so.numKilled > 0;
                 (do_kill, ())
             };
-            let _ = item;
+            item;
             if do_kill {
                 gistkillitems(scan)?;
             }

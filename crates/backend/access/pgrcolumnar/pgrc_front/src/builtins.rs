@@ -316,7 +316,7 @@ pub fn fc_pgrc_compact(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> P
         true if kind == "run" => maint::lock_maint(rel.rd_id).and_then(|()| crate::compact::run_all(mcx, &rel)).map(|o| o.and_then(|o| o.members.first().copied()).map_or(0, |n| n as i32)),
         true if kind == "runpass" => maint::lock_maint(rel.rd_id).and_then(|()| crate::compact::run_pass(mcx, &rel, false)).map(|o| o.and_then(|r| r.out.members.first().copied()).map_or(0, |n| n as i32)),
         true if kind == "member" => maint::lock_maint(rel.rd_id).and_then(|()| crate::compact::member_pass_forced(mcx, &rel)).map(|o| o.and_then(|m| m.to.or(m.retired.first().copied())).map_or(0, |n| n as i32)),
-        true => compact_permitted(rel.rd_id, &rel.name()).and_then(|()| maint::lock_maint(rel.rd_id)).and_then(|()| crate::compact::run_one(mcx, &rel, force)).map(|o| o.and_then(|(_, o)| o.part_no).map_or(0, |n| n as i32)),
+        true => compact_permitted(rel.rd_id, rel.name()).and_then(|()| maint::lock_maint(rel.rd_id)).and_then(|()| crate::compact::run_one(mcx, &rel, force)).map(|o| o.and_then(|(_, o)| o.part_no).map_or(0, |n| n as i32)),
         false => Err(Box::new(PgError::error(format!("pgrc_compact: \"{}\" is not a pgrcolumnar table", rel.name())))),
     };
     rel.close(NoLock)?;

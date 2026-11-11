@@ -146,7 +146,7 @@ fn fetch_type_row<'mcx>(mcx: Mcx<'mcx>, typeoid: Oid) -> PgResult<TypeRow> {
         let p = acl_datum.as_usize() as *const u8;
         // SAFETY: live aclitem[] varlena image through its extent.
         let image = unsafe { core::slice::from_raw_parts(p, types_tuple::varatt::varsize_any(p)) };
-        Some(::mcx::std_vec_from_slice("typecmds", &varlena::open_image(mcx, image)?.as_bytes())?)
+        Some(::mcx::std_vec_from_slice("typecmds", varlena::open_image(mcx, image)?.as_bytes())?)
     };
     let mut bin_isnull = false;
     let bin_datum = get(Anum_pg_type_typdefaultbin, &mut bin_isnull);

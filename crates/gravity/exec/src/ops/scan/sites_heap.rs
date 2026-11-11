@@ -283,7 +283,7 @@ fn bind(t: &RecipeTpl, reg: &mut HostRegistry, cx: &BindCx<'_>, exprs: &mut shap
 fn rows_quals(cx: &BindCx<'_>, r: &AmRowsRecipe) -> Vec<tableam_vocab::ZoneQual> {
     let Some(pstmt) = cx.plan else { return Vec::new() }; // alloc: Exec
     let Some(ss) = plan_node(pstmt, r.node_id).and_then(|n| n.as_seq_scan()) else { return Vec::new() }; // alloc: Exec
-    if !shapes::rte(pstmt, ss.scan.scanrelid as u32).is_some_and(|e| e.relid == r.heap) {
+    if shapes::rte(pstmt, ss.scan.scanrelid).is_none_or(|e| e.relid != r.heap) {
         return Vec::new(); // alloc: Exec
     }
     pushed_quals(ss).into_iter().map(|(_, q)| q).collect() // alloc: Exec
@@ -346,7 +346,7 @@ pub(crate) fn rows_pushed(pstmt: &'static types_nodes::plannodes::PlannedStmt<'s
     let out = core::cell::RefCell::new(Vec::new()); // alloc: Cold
     plan_find(pstmt, &|n| {
         if let Some(ss) = n.as_seq_scan() {
-            if shapes::rte(pstmt, ss.scan.scanrelid as u32).is_some_and(|e| rels.contains(&e.relid)) {
+            if shapes::rte(pstmt, ss.scan.scanrelid).is_some_and(|e| rels.contains(&e.relid)) {
                 out.borrow_mut().extend(pushed_at(pstmt, ss).into_iter().map(|i| (ss.scan.plan.plan_node_id, i))); // alloc: Cold
             }
         }
@@ -400,7 +400,7 @@ fn recheck(cx: &BindCx<'_>, exprs: &mut shapes::KeyExprs, relid: u32, heap: (Opt
 /// the bitmap subtree at plan node `sub` (the same plan shape under the same front key); `None` when it does not.
 pub(crate) fn front_qual(pstmt: &'static types_nodes::plannodes::PlannedStmt<'static>, id: i32, relid: u32, sub: i32) -> Option<&'static NodeList<'static>> {
     let s = plan_node(pstmt, id)?.as_bitmap_heap_scan()?;
-    let shape = shapes::rte(pstmt, s.scan.scanrelid as u32).is_some_and(|r| r.relid == relid) && s.scan.plan.lefttree.and_then(|t| t.as_plan()).is_some_and(|t| t.plan_node_id == sub);
+    let shape = shapes::rte(pstmt, s.scan.scanrelid).is_some_and(|r| r.relid == relid) && s.scan.plan.lefttree.and_then(|t| t.as_plan()).is_some_and(|t| t.plan_node_id == sub);
     shape.then_some(&s.bitmapqualorig)
 }
 

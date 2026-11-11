@@ -347,7 +347,7 @@ impl<'e, 'b, 'mcx> Em<'e, 'b, 'mcx> {
             ExprNode::ScalarArrayOp(n) => site(n.site) || walked(self.p, n),
             ExprNode::NullTest(t) => t.row,
             ExprNode::MinMax(m) => site(m.cmp),
-            ExprNode::RowCompare(r) => (0..r.largs.len as u32).any(|i| site(SiteId(r.sites + i))),
+            ExprNode::RowCompare(r) => (0..r.largs.len).any(|i| site(SiteId(r.sites + i))),
             ExprNode::Subscripting(_) | ExprNode::FieldSelect(_) | ExprNode::Row(_) | ExprNode::ConvertRowtype(_) | ExprNode::Array(_) | ExprNode::FieldStore(_) | ExprNode::NextValue(_) => true,
             ExprNode::Json(_) | ExprNode::Xml(_) => true,
             ExprNode::CoerceViaIO(c) => self.shred_lane(c.arg).is_none(),
@@ -379,7 +379,7 @@ impl<'e, 'b, 'mcx> Em<'e, 'b, 'mcx> {
     /// D3233 (`CaseSelect`): a CASE arm that computes anything in its own block where `guard` holds, as `guarded` runs one
     /// that calls a host; a trivial arm is read and masked as before.
     fn arm(&mut self, guard: Value, id: NodeId) -> Result<Lowered, EmitError> {
-        if CaseSelect::on() && !trivial(self.p, id) && !matches!(self.b.const_of(guard), Some(_)) {
+        if CaseSelect::on() && !trivial(self.p, id) && self.b.const_of(guard).is_none() {
             return self.branch(guard, id);
         }
         self.guarded(guard, id)

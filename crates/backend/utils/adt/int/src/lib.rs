@@ -188,7 +188,7 @@ pub fn buildint2vector<'mcx>(mcx: Mcx<'mcx>, int2s: &[i16]) -> PgResult<PgVec<'m
         core::ptr::copy_nonoverlapping(
             int2s.as_ptr().cast::<u8>(),
             p.add(INT2VECTOR_HDRSZ),
-            n * core::mem::size_of::<i16>(),
+            std::mem::size_of_val(int2s),
         );
         v.set_len(size);
     }
@@ -366,7 +366,7 @@ pub fn i2toi4(arg1: i16) -> i32 {
 
 #[inline]
 pub fn i4toi2(arg1: i32) -> PgResult<i16> {
-    if arg1 < SHRT_MIN || arg1 > SHRT_MAX {
+    if !(SHRT_MIN..=SHRT_MAX).contains(&arg1) {
         return Err(smallint_out_of_range(384, "i4toi2"));
     }
     Ok(arg1 as i16)

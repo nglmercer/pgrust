@@ -555,7 +555,7 @@ pub fn int48(arg: i32) -> i64 {
 
 #[inline]
 pub fn int84(arg: i64) -> PgResult<i32> {
-    if arg < PG_INT32_MIN || arg > PG_INT32_MAX {
+    if !(PG_INT32_MIN..=PG_INT32_MAX).contains(&arg) {
         return Err(integer_out_of_range(1286, "int84"));
     }
     Ok(arg as i32)
@@ -568,7 +568,7 @@ pub fn int28(arg: i16) -> i64 {
 
 #[inline]
 pub fn int82(arg: i64) -> PgResult<i16> {
-    if arg < PG_INT16_MIN || arg > PG_INT16_MAX {
+    if !(PG_INT16_MIN..=PG_INT16_MAX).contains(&arg) {
         return Err(smallint_out_of_range(1307, "int82"));
     }
     Ok(arg as i16)
@@ -605,7 +605,7 @@ pub fn ftoi8(num: f32) -> PgResult<i64> {
 
 #[inline]
 pub fn i8tooid(arg: i64) -> PgResult<::types_core::Oid> {
-    if arg < 0 || arg > PG_UINT32_MAX {
+    if !(0..=PG_UINT32_MAX).contains(&arg) {
         return Err(oid_out_of_range(1390, "i8tooid"));
     }
     Ok(arg as ::types_core::Oid)

@@ -240,7 +240,7 @@ fn install_scan_fixtures() {
             178 | 181 => Some(shape(23, 2, b'f', true)),
             156 => Some(shape(23, 2, b'f', true)),
             212 | 319 => Some(shape(23, 1, b'f', true)),
-            1724 | 1725 | 1726 | 1727 => Some(shape(1700, 2, b'f', true)),
+            1724..=1727 => Some(shape(1700, 2, b'f', true)),
             1781 => Some(shape(1700, 1, b'f', true)),
             141 => Some(shape(23, 2, b'f', true)),
             2101 => Some(shape(1700, 1, b'a', false)),
@@ -688,7 +688,7 @@ fn install_scan_fixtures() {
             _ => None,
         })
     });
-    syscache_seams::syscache_hash_value_typeoid::set(|typid| Ok(typid));
+    syscache_seams::syscache_hash_value_typeoid::set(Ok);
     // int4's btree opclass (int4_ops → the int4 family above) is the one default opclass:
     // the decorrelation's correlation keys resolve their btree equality through typcache
     //; hash stays unresolved, so hasheqoperator is never set.
@@ -6541,7 +6541,7 @@ mod short_varlena {
     use super::*;
 
     fn short_text(payload: &[u8]) -> Vec<u8> {
-        assert!(payload.len() + 1 <= 0x7F);
+        assert!(payload.len() < 0x7F);
         let mut v = vec![(((payload.len() + 1) as u8) << 1) | 0x01];
         v.extend_from_slice(payload);
         v

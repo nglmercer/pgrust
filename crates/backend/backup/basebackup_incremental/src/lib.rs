@@ -712,7 +712,7 @@ pub fn GetIncrementalHeaderSize(num_blocks_required: u32) -> usize {
     // Round the header size to a multiple of BLCKSZ - when not a multiple of
     // BLCKSZ, add the missing fraction of a block. But do this only if the
     // file will store data for some blocks, otherwise keep it small.
-    if num_blocks_required > 0 && result % BLCKSZ != 0 {
+    if num_blocks_required > 0 && !result.is_multiple_of(BLCKSZ) {
         result += BLCKSZ - (result % BLCKSZ);
     }
 
@@ -775,7 +775,7 @@ impl IncrementalBackupInfo {
 
         // If the file size is too large or not a multiple of BLCKSZ, then
         // something weird is happening, so give up and send the whole file.
-        if size % BLCKSZ as u64 != 0 || size / BLCKSZ as u64 > RELSEG_SIZE as u64 {
+        if !size.is_multiple_of(BLCKSZ as u64) || size / BLCKSZ as u64 > RELSEG_SIZE as u64 {
             return Ok(FileBackupMethod::Fully);
         }
 

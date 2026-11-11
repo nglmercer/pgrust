@@ -274,10 +274,8 @@ fn secret_mpis(pk: &PubKey) -> Vec<&Mpi> {
     match &pk.material {
         KeyMaterial::Rsa { d, p, q, u, .. } => {
             let mut v = Vec::new();
-            for o in [d, p, q, u] {
-                if let Some(m) = o {
-                    v.push(m);
-                }
+            for m in [d, p, q, u].into_iter().flatten() {
+                v.push(m);
             }
             v
         }

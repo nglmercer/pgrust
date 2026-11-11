@@ -230,7 +230,7 @@ fn main() {
     let ctx = Box::leak(Box::new(mcx::MemoryContext::new("waldesc")));
     let mcx = ctx.mcx();
 
-    let mut src = WalDirSource { dir: format!("{dir}"), segsize, tli, file: -1, open_segno: 0 };
+    let mut src = WalDirSource { dir: dir.to_string(), segsize, tli, file: -1, open_segno: 0 };
     let mut reader = XLogReaderState::allocate(mcx, segsize as i32).expect("allocate reader");
 
     let start = reader

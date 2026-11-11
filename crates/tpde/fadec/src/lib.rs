@@ -117,6 +117,11 @@ pub fn fe64_NOP(output: &mut Output<'_>, flags: u32) -> Result<usize, EncodeErro
     Ok(length)
 }
 
+const _: () = {
+    assert!(core::mem::size_of::<Output<'static>>() <= 128);
+    assert!(!core::mem::needs_drop::<Output<'static>>());
+};
+
 #[cfg(feature = "upstream-oracle")]
 pub mod oracle {
     pub use crate::raw::*;
@@ -279,8 +284,3 @@ mod tests {
         assert_eq!(bytes, [0xa5, 0xeb, 0, 0xa5, 0xa5, 0xa5]);
     }
 }
-
-const _: () = {
-    assert!(core::mem::size_of::<Output<'static>>() <= 128);
-    assert!(!core::mem::needs_drop::<Output<'static>>());
-};

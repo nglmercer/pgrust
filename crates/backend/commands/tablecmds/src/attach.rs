@@ -1875,7 +1875,7 @@ pub(crate) fn ATExecAttachPartitionIdx<'mcx>(
         }
 
         let pd = partdesc::RelationGetPartitionDesc(&parent_tbl, true)?;
-        if !pd.oids.iter().any(|&o| o == state_partition_oid) {
+        if !pd.oids.contains(&state_partition_oid) {
             return Err(Box::new(
                 (*err(
                     format!(

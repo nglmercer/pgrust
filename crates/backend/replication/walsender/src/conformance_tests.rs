@@ -95,7 +95,7 @@ fn truncated_standby_reply_is_a_protocol_violation_error() {
         assert_eq!(err.message(), expected, "{what}");
     }
     // An empty CopyData has no message-type byte at all (pq_getmsgbyte).
-    let err = replies::ProcessStandbyMessage(b"").err().expect("empty reply must ERROR");
+    let err = replies::ProcessStandbyMessage(b"").expect_err("empty reply must ERROR");
     assert_eq!(err.sqlstate(), types_error::ERRCODE_PROTOCOL_VIOLATION);
     assert_eq!(err.message(), "no data left in message");
 }

@@ -166,7 +166,7 @@ fn fmgr_add_value(
 fn fmgr_consistent(
     p: &BrinFmgrProc,
     bdesc: &BrinDesc<'_>,
-    keyno: usize,
+    _keyno: usize,
     mcx: Mcx<'_>,
     bval: &BrinValues,
     keys: &[&ScanKeyData],
@@ -330,7 +330,7 @@ pub fn brin_build_desc<'mcx>(mcx: Mcx<'mcx>, rel: &Relation<'mcx>) -> PgResult<B
     let mut compact: PgVec<'mcx, CompactAttribute> = vec_with_capacity_in(mcx, totalstored)?;
     for keyno in 0..natts {
         for i in 0..info[keyno].oi_nstored as usize {
-            let mut att = tupdesc.attr(keyno).clone();
+            let mut att = *tupdesc.attr(keyno);
             att.attnum = (attrs.len() + 1) as i16;
             att.atttypmod = -1;
             att.attndims = 0;

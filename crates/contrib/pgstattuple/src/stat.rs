@@ -64,7 +64,7 @@ fn pgstat_relation(
     }
 
     if RELKIND_HAS_TABLE_AM(rel.rd_rel.relkind) || rel.rd_rel.relkind == RELKIND_SEQUENCE {
-        return pgstat_heap(rel, flinfo, fcinfo);
+        pgstat_heap(rel, flinfo, fcinfo)
     } else if rel.rd_rel.relkind == RELKIND_INDEX {
         // see pgstatindex_impl
         if !rel.rd_index.as_ref().is_some_and(|i| i.indisvalid) {

@@ -110,9 +110,9 @@ pub(crate) fn max_notify_queue_pages() -> i32 {
 
 fn notification_content_hash(n: &Notification, hasher: &rustc_hash::FxBuildHasher) -> u64 {
     // C hashes channel + NUL + payload (payload's trailing NUL excluded).
-    let mut h = hasher.build_hasher();
-    n.data[..n.channel_len as usize + n.payload_len as usize + 1].hash(&mut h);
-    h.finish()
+    
+    
+    hasher.hash_one(&n.data[..n.channel_len as usize + n.payload_len as usize + 1])
 }
 
 fn notification_equal(a: &Notification, b: &Notification) -> bool {

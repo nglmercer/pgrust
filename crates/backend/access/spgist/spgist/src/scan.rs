@@ -441,7 +441,7 @@ fn store_result(
                 )?;
                 let off = so.recon_buf.len() as u32;
                 so.recon_buf.extend_from_slice(formed.image());
-                while so.recon_buf.len() % 8 != 0 {
+                while !so.recon_buf.len().is_multiple_of(8) {
                     so.recon_buf.push(0);
                 }
                 so.recon_offs[so.nPtrs] = off;
@@ -536,7 +536,7 @@ fn spg_leaf_test(
                 Datum::null()
             };
             let leaf_copy = if so.want_itup && so.state.leafTupDesc.natts > 1 {
-                Some(::mcx::std_vec_from_slice("access", &leaf_tuple)?)
+                Some(::mcx::std_vec_from_slice("access", leaf_tuple)?)
             } else {
                 None
             };
@@ -665,7 +665,7 @@ fn spg_inner_test(
                     Vec::new()
                 } else {
                     // SAFETY: as above.
-                    ::mcx::std_vec_from_slice("spgist", &unsafe { core::slice::from_raw_parts(row, nn) })?
+                    ::mcx::std_vec_from_slice("spgist", unsafe { core::slice::from_raw_parts(row, nn) })?
                 });
             }
         }

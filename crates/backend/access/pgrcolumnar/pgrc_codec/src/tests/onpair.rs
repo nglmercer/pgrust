@@ -173,7 +173,7 @@ fn corrupt_tables_and_streams_refuse_typed() {
             z[i] = splitmix(&mut st) as u8;
         }
         let cut = (splitmix(&mut st) % (z.len() as u64 + 1)) as usize;
-        let z = if splitmix(&mut st) % 4 == 0 { &z[..cut] } else { &z[..] };
+        let z = if splitmix(&mut st).is_multiple_of(4) { &z[..cut] } else { &z[..] };
         if decode(&t, z, &mut out).is_ok() {
             let (_, len, _, _) = stream_header(z).expect("hdr");
             assert_eq!(len, out.len());

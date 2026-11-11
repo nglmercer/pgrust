@@ -167,7 +167,7 @@ fn count(g: &mut Gen) -> u64 {
         1 => 1,
         2 => 3,
         3 => 7,
-        _ => 2 + g.rng.below(20) as u64,
+        _ => 2 + g.rng.below(20),
     }
 }
 

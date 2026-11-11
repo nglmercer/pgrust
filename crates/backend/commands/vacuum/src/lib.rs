@@ -625,7 +625,7 @@ pub fn vacuum_is_permitted_for_relation(
         || aclchk::pg_class_aclcheck(
             relid,
             roleid,
-            types_nodes::parsenodes::ACL_MAINTAIN as u64,
+            types_nodes::parsenodes::ACL_MAINTAIN,
         )? == aclchk::ACLCHECK_OK
     {
         return Ok(true);

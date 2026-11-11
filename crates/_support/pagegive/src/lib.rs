@@ -133,7 +133,7 @@ pub fn note_pin_failure(errno: i32, memlock: Option<(u64, u64)>) -> bool {
 fn memlock_limits() -> Option<(u64, u64)> {
     let mut rl = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
     // SAFETY: a read of this process's limit into a local.
-    (unsafe { libc::getrlimit(libc::RLIMIT_MEMLOCK, &mut rl) } == 0).then_some((rl.rlim_cur as u64, rl.rlim_max as u64))
+    (unsafe { libc::getrlimit(libc::RLIMIT_MEMLOCK, &mut rl) } == 0).then_some((rl.rlim_cur, rl.rlim_max))
 }
 
 #[cfg(target_os = "linux")]

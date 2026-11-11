@@ -617,6 +617,8 @@ fn proclist_foreach_modify(head: ProcNumber, mut body: impl FnMut(ProcNumber) ->
 
 // SAFETY contract: caller holds LW_FLAG_LOCKED; the borrow must not
 // outlive that critical section.
+// clippy::mut_from_ref is intended: the lock's waiter list is mutated through its UnsafeCell under LW_FLAG_LOCKED.
+#[allow(clippy::mut_from_ref)]
 unsafe fn waiters_mut(lock: &LWLock) -> &mut proclist_head {
     unsafe { &mut *lock.waiters.get() }
 }

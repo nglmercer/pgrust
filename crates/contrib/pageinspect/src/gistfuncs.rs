@@ -144,7 +144,7 @@ fn output_fn_text(finfo: &mut FmgrInfo, mcx: Mcx<'_>, val: Datum) -> PgResult<Ve
     let d = types_fmgr::function_call1_coll_in(finfo, InvalidOid, mcx, val)?;
     // SAFETY: type output functions return a NUL-terminated cstring datum.
     let cs = unsafe { core::ffi::CStr::from_ptr(d.as_usize() as *const core::ffi::c_char) };
-    Ok(::mcx::std_vec_from_slice("contrib", &cs.to_bytes())?)
+    ::mcx::std_vec_from_slice("contrib", cs.to_bytes())
 }
 
 fn record_out_needs_quotes(ch: u8) -> bool {

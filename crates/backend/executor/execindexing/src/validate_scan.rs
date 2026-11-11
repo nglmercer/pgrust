@@ -156,7 +156,7 @@ pub fn table_index_validate_scan<'mcx>(
         }
 
         while !tuplesort_empty
-            && indexcursor.map_or(true, |c| ItemPointerCompare(&c, &root_tuple) < 0)
+            && indexcursor.is_none_or(|c| ItemPointerCompare(&c, &root_tuple) < 0)
         {
             if let Some(c) = indexcursor {
                 if ::types_tuple::itemptr::ItemPointerGetBlockNumberNoCheck(&c) == root_blkno {

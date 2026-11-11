@@ -134,7 +134,7 @@ fn broadcast_wakes_all_sleepers() {
     for i in 0..2 {
         let procno = 3 + i as ProcNumber;
         handles.push(std::thread::spawn(move || {
-            become_backend(procno, 7100 + i as i32);
+            become_backend(procno, 7100 + i);
             ConditionVariablePrepareToSleep(&CV);
             while WOKEN.load(std::sync::atomic::Ordering::SeqCst) == 0 {
                 ConditionVariableSleep(&CV, 0).unwrap();

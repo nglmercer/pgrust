@@ -1472,11 +1472,10 @@ fn sgc_mutate<'mcx>(
         }
         // A current-or-higher-level GroupingFunc's arguments are not
         // evaluated; not recursed into.
-        NodeTag::T_GroupingFunc => {
-            if node.as_grouping_func().unwrap().agglevelsup as i32 >= ctx.sublevels_up {
+        NodeTag::T_GroupingFunc
+            if node.as_grouping_func().unwrap().agglevelsup as i32 >= ctx.sublevels_up => {
                 return Ok(None);
             }
-        }
         _ => {}
     }
     if ctx.hnvg && ctx.sublevels_up == 0 {

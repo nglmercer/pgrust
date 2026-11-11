@@ -69,7 +69,7 @@ fn run(p: &Program, args: &[u64]) -> Result<Vec<u64>, Trap> {
 #[test]
 fn vector_shifts_at_every_count() {
     for ty in INT_VECS {
-        let w = ty.lane().bytes() as u32 * 8;
+        let w = ty.lane().bytes() * 8;
         for k in 0..w as u8 {
             for (name, op) in [("vshl", VecShiftOp::Shl), ("vushr", VecShiftOp::Ushr), ("vsshr", VecShiftOp::Sshr)] {
                 let p = vec_bin(ty, |b, x, _y| b.vshift(op, x, k));

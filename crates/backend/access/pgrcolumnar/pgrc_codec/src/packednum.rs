@@ -66,7 +66,7 @@ pub fn elect_scale(input: &EncodeInput<'_>) -> FormatResult<Option<i32>> {
             continue;
         }
         // SAFETY: EncodeInput pointer-class contract.
-        let payload = unsafe { varlena_payload(input.datums[r as usize])? };
+        let payload = unsafe { varlena_payload(input.datums[r])? };
         let num = Num::from_payload(payload);
         if num.is_special() {
             return Ok(None);

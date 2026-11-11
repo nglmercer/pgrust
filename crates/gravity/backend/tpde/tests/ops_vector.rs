@@ -281,7 +281,7 @@ fn vector_reductions_and_movmask_match_the_interpreter() {
 #[test]
 fn vector_min_max_match_scalar_references() {
     for ty in INT_VECS {
-        let w = ty.lane().bytes() as u32 * 8;
+        let w = ty.lane().bytes() * 8;
         for (name, op, signed, is_min) in [("vsmin", VecBinOp::Smin, true, true), ("vsmax", VecBinOp::Smax, true, false), ("vumin", VecBinOp::Umin, false, true), ("vumax", VecBinOp::Umax, false, false)] {
             let p = vec_bin(ty, |b, x, y| b.vbin(op, x, y));
             for a in lanes(ty) {

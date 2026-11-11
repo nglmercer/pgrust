@@ -1800,7 +1800,7 @@ pub fn transformIndexStmt<'mcx>(
             "WHERE",
         )?
         .expect("WHERE clause present");
-        parse_collate::assign_expr_collations(mcx, &mut pstate, qual)?;
+        parse_collate::assign_expr_collations(mcx, &pstate, qual)?;
         // SAFETY: analyze-owned parse tree; no derived refs live.
         unsafe { stmt_node.with_mut::<IndexStmt, _>(|s| s.whereClause = Some(qual)) }
             .expect("IndexStmt");
@@ -1816,7 +1816,7 @@ pub fn transformIndexStmt<'mcx>(
             raw,
             ParseExprKind::EXPR_KIND_INDEX_EXPRESSION,
         )?;
-        parse_collate::assign_expr_collations(mcx, &mut pstate, expr)?;
+        parse_collate::assign_expr_collations(mcx, &pstate, expr)?;
         // SAFETY: analyze-owned parse tree; no derived refs live.
         unsafe {
             node.with_mut::<IndexElem, _>(|e| {
@@ -1898,7 +1898,7 @@ pub fn transformStatsStmt<'mcx>(
             raw,
             ParseExprKind::EXPR_KIND_STATS_EXPRESSION,
         )?;
-        parse_collate::assign_expr_collations(mcx, &mut pstate, expr)?;
+        parse_collate::assign_expr_collations(mcx, &pstate, expr)?;
         // SAFETY: analyze-owned parse tree; no derived refs live.
         unsafe { node.with_mut::<StatsElem, _>(|e| e.expr = Some(expr)) }.expect("StatsElem");
     }
@@ -3181,8 +3181,8 @@ fn get_matching_location(
     unreachable!("get_matching_location: no matching sortgroupref");
 }
 
-fn findWindowClause<'a, 'mcx>(
-    wclist: &'a NodeList<'mcx>,
+fn findWindowClause<'mcx>(
+    wclist: &NodeList<'mcx>,
     name: &str,
 ) -> Option<&'mcx WindowClause<'mcx>> {
     let _ = wclist;

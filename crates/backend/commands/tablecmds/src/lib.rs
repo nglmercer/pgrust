@@ -453,7 +453,7 @@ pub fn DefineRelation<'mcx>(
     };
     if tablespace_id == InvalidOid {
         tablespace_id =
-            commands_tablespace::GetDefaultTablespace(mcx, relpersistence as u8, partitioned)?;
+            commands_tablespace::GetDefaultTablespace(mcx, relpersistence, partitioned)?;
     }
     if tablespace_id != InvalidOid && tablespace_id != init_small::globals::MyDatabaseTableSpace() {
         let aclresult = aclchk::object_aclcheck(
@@ -581,7 +581,7 @@ pub fn DefineRelation<'mcx>(
             mcx,
             &stmt.tableElts,
             &inherit_oids,
-            relpersistence as u8,
+            relpersistence,
         )?)
     } else {
         None
@@ -835,7 +835,7 @@ pub fn DefineRelation<'mcx>(
 
     if access_method_id != InvalidOid && access_method_id != 2 {
         let amname = syscache_seams::pg_am_amname::call(access_method_id)?;
-        check_table_am_column_types(amname.as_deref(), &relname, &descriptor.attrs)?;
+        check_table_am_column_types(amname.as_deref(), relname, &descriptor.attrs)?;
     }
 
     // MergeAttributes' is_partition saved_columns pass (tablecmds.c:3031):

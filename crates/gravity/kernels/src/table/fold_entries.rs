@@ -401,7 +401,7 @@ pub(crate) fn cmp_failed(what: &str) -> i64 {
 /// A host's own `ERROR` (no driver error behind it): the reason stashed so the statement's error names it.
 #[cold]
 pub(crate) fn bare(what: &str) -> i64 {
-    gravity_fn::stash_error(Box::new(gravity_fn::PgError::error(&format!("gravity: {what}")))); // alloc: Cold
+    gravity_fn::stash_error(Box::new(gravity_fn::PgError::error(format!("gravity: {what}")))); // alloc: Cold
     ERROR
 }
 

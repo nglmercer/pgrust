@@ -93,8 +93,8 @@ impl Trie {
     }
 
     fn register_kind(&mut self, kind: Kind) {
-        if !self.kinds.contains_key(&kind) {
-            self.kinds.insert(kind, Vec::new());
+        if let std::collections::btree_map::Entry::Vacant(e) = self.kinds.entry(kind) {
+            e.insert(Vec::new());
             self.kind_order.push(kind);
         }
     }
@@ -306,13 +306,11 @@ impl Trie {
             for index in self.kinds[&kind].clone() {
                 let table = self.table_mut(index);
                 for element in table.iter_mut() {
-                    if let Some(value) = *element {
-                        if value.kind.is_table() {
-                            if let Some(synonym) = synonyms.get(&value.value) {
+                    if let Some(value) = *element
+                        && value.kind.is_table()
+                            && let Some(synonym) = synonyms.get(&value.value) {
                                 *element = *synonym;
                             }
-                        }
-                    }
                 }
                 if table.iter().all(|element| *element == table[0]) {
                     synonyms.insert(index, table[0]);
@@ -337,14 +335,13 @@ impl Trie {
         let mut offsets = vec![None; self.tables.len()];
         let mut length = 0usize;
         for (index, entry) in self.tables.iter().enumerate().skip(1) {
-            if let Some(table) = entry {
-                if !table.is_empty() {
+            if let Some(table) = entry
+                && !table.is_empty() {
                     offsets[index] = Some(length);
                     length = length
                         .checked_add((table.len() + 3) & !3)
                         .ok_or_else(|| "table size overflow".to_string())?;
                 }
-            }
         }
         if length >= 0x8000 {
             return Err(format!("maximum table size exceeded: {length:#x}"));

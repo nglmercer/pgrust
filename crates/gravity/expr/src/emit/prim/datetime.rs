@@ -463,7 +463,7 @@ impl Dt<'_, '_> {
         let y = self.addk(year, 4799);
         let century = self.udiv(y, 100, self.jb(20));
         let y365 = self.mulk(y, 365);
-        let j = self.addk(y365, -32167 + (7834 * 14 >> 8) + 4);
+        let j = self.addk(y365, -32167 + ((7834 * 14) >> 8) + 4);
         let y4 = self.ushr(y, 2);
         let j = self.add(j, y4);
         let j = self.sub(j, century);

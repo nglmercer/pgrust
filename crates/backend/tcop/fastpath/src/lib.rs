@@ -26,7 +26,7 @@ struct FpInfo {
     flinfo: FmgrInfo,
     namespace: Oid,
     rettype: Oid,
-    argtypes: [Oid; FUNC_MAX_ARGS as usize],
+    argtypes: [Oid; FUNC_MAX_ARGS],
     fname: String,
 }
 
@@ -109,7 +109,7 @@ fn fetch_fp_info<'mcx>(mcx: Mcx<'mcx>, func_id: Oid) -> PgResult<FpInfo> {
             .into());
     }
 
-    let mut argtypes = [InvalidOid; FUNC_MAX_ARGS as usize];
+    let mut argtypes = [InvalidOid; FUNC_MAX_ARGS];
     let Some((_rettype, sig_argtypes)) =
         syscache_seams::lookup_pg_proc_signature::call(mcx, func_id)?
     else {
@@ -221,7 +221,7 @@ pub fn HandleFunctionRequest<'mcx>(
 
     // Note: collation = InvalidOid, so collation-sensitive functions can't be
     // called this way.
-    let mut fcinfo = LocalFcinfo::<{ FUNC_MAX_ARGS as usize }>::fresh(InvalidOid);
+    let mut fcinfo = LocalFcinfo::<{ FUNC_MAX_ARGS }>::fresh(InvalidOid);
     // SAFETY: the message context outlives this call.
     unsafe { fcinfo.set_result_mcx(mcx) };
 
@@ -256,7 +256,7 @@ fn parse_fcall_arguments<'mcx>(
     mcx: Mcx<'mcx>,
     msg_buf: &mut StringInfo<'mcx>,
     fip: &FpInfo,
-    fcinfo: &mut LocalFcinfo<{ FUNC_MAX_ARGS as usize }>,
+    fcinfo: &mut LocalFcinfo<{ FUNC_MAX_ARGS }>,
 ) -> PgResult<i16> {
     let numAFormats = pqformat::pq_getmsgint(msg_buf, 2)? as i32;
     let mut aformats: PgVec<'mcx, i16> = PgVec::new_in(mcx);
@@ -604,7 +604,7 @@ mod oat_hook_tests {
     }
 
     fn proc_shape(funcid: Oid) -> PgResult<Option<PgProcShape>> {
-        Ok((funcid == FID).then(|| PgProcShape {
+        Ok((funcid == FID).then_some(PgProcShape {
             pronamespace: NSP,
             prorettype: INT4OID,
             provariadic: InvalidOid,

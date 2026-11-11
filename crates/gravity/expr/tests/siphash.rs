@@ -40,7 +40,7 @@ fn ir() -> (gravity_ir::Program, Func) {
 fn image(bytes: &[u8], short: bool, flag: u8) -> Vec<u8> {
     let mut v = Vec::new();
     if short {
-        assert!(bytes.len() + 1 <= 127);
+        assert!(bytes.len() < 127);
         v.push((((bytes.len() + 1) as u8) << 1 | 1) | flag);
     } else {
         v.extend_from_slice(&((((bytes.len() + 4) as u32) << 2) | flag as u32).to_le_bytes());

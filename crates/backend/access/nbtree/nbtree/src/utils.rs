@@ -2111,7 +2111,7 @@ struct BTVacInfo {
 const _: () = assert!(core::mem::size_of::<BTVacInfo>() == 12);
 const _: () = assert!(core::mem::size_of::<BTOneVacInfo>() == 12);
 const _: () =
-    assert!(core::mem::size_of::<BTVacInfo>() % core::mem::align_of::<BTOneVacInfo>() == 0);
+    assert!(core::mem::size_of::<BTVacInfo>().is_multiple_of(core::mem::align_of::<BTOneVacInfo>()));
 
 // C: `static BTVacInfo *btvacinfo` — set once by BTreeShmemInit.
 static BTVACINFO: core::sync::atomic::AtomicPtr<BTVacInfo> =

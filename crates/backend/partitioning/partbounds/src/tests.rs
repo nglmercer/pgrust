@@ -383,8 +383,7 @@ fn support_function_error_surfaces_from_check_new_partition_bound() {
     let key = raising_key(PARTITION_STRATEGY_RANGE);
     let spec = range_spec(mcx, Some(1), Some(10));
     let e = check_new_partition_bound(mcx, "p_new", &key, None, &[], spec, None)
-        .err()
-        .expect("range bound check must surface the support function error");
+        .expect_err("range bound check must surface the support function error");
     assert_cmp_failed(&e);
 
     let key = raising_key(PARTITION_STRATEGY_LIST);
@@ -403,7 +402,6 @@ fn support_function_error_surfaces_from_check_new_partition_bound() {
         list_spec(mcx, &[Some(2)]),
         None,
     )
-    .err()
-    .expect("list bound bsearch must surface the support function error");
+    .expect_err("list bound bsearch must surface the support function error");
     assert_cmp_failed(&e);
 }

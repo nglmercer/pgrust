@@ -2679,7 +2679,7 @@ fn end_claim_release_drops_midclaim_pin_and_repositions() {
     register_table(
         oid,
         (0..3)
-            .map(|i| build_page(&[Item::Tuple(tuple_image(10, 0, i as i32))], true))
+            .map(|i| build_page(&[Item::Tuple(tuple_image(10, 0, i))], true))
             .collect(),
     );
     let rel = test_relation(mcx, oid);
@@ -3444,8 +3444,7 @@ fn lock_tuple_nowait_xid_passes_log_lock_failures_guc() {
             false,
             &mut tmfd,
         )
-        .err()
-        .expect("NOWAIT against a running updater is 55P03");
+        .expect_err("NOWAIT against a running updater is 55P03");
         assert_eq!(err.sqlstate(), ::types_error::ERRCODE_LOCK_NOT_AVAILABLE);
         assert_eq!(
             err.message(),
@@ -3497,8 +3496,7 @@ fn lock_tuple_nowait_multixact_passes_log_lock_failures_guc() {
             false,
             &mut tmfd,
         )
-        .err()
-        .expect("NOWAIT against a conflicting multixact member is 55P03");
+        .expect_err("NOWAIT against a conflicting multixact member is 55P03");
         assert_eq!(err.sqlstate(), ::types_error::ERRCODE_LOCK_NOT_AVAILABLE);
         assert_eq!(
             LAST_LOG_LOCK_FAILURE.load(Ordering::Relaxed),
@@ -3585,8 +3583,7 @@ fn freeze_multixact_two_updaters_reports_both_xids_in_detail() {
         &mut flags,
         &mut pagefrz,
     )
-    .err()
-    .expect("two updaters are data corruption");
+    .expect_err("two updaters are data corruption");
     IN_PROGRESS_XIDS.lock().unwrap().clear();
     MULTI_MEMBERS.lock().unwrap().clear();
 

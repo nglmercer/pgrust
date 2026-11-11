@@ -260,7 +260,7 @@ impl<'p> KidIter<'p> {
 
     /// The children as the program's own list, when they are one (a call's arguments, a BoolExpr's operands, none).
     pub fn slice(&self) -> Option<&'p [NodeId]> {
-        (self.head.is_none() && self.b.as_slice().is_empty() && self.tail.is_none() && !self.skip_none).then(|| self.a.as_slice())
+        (self.head.is_none() && self.b.as_slice().is_empty() && self.tail.is_none() && !self.skip_none).then_some(self.a.as_slice())
     }
 }
 
@@ -522,7 +522,7 @@ impl<'mcx> Compiled<'mcx> {
                 out.push(id); // alloc: Program
                 return;
             }
-            crate::percode::walk_kids(p, id).into_iter().for_each(|k| walk(p, k, param_ok, call_ok, memo, out));
+            crate::percode::walk_kids(p, id).for_each(|k| walk(p, k, param_ok, call_ok, memo, out));
         }
         let mut memo = mcx::vec_elem_in(scratch, 0u8, self.prog.nodes.len());
         let mut out = Vec::new(); // alloc: Program

@@ -29,7 +29,7 @@ type FxHashSet<K> = std::collections::HashSet<K, rustc_hash::FxBuildHasher>;
 use datum::{Datum, NullableDatum};
 use mcx::{Mcx, MemoryContext};
 use spi::{
-    SPI_cursor_close, SPI_cursor_fetch, SPI_cursor_open, SPI_cursor_open_with_paramlist,
+    SPI_cursor_close, SPI_cursor_fetch, SPI_cursor_open_with_paramlist,
     SpiCursor, SpiPlanPtr, TuptabHandle,
 };
 use types_core::{Oid, OidIsValid};
@@ -2526,11 +2526,10 @@ impl<'a> Estate<'a> {
             // type is what exec_eval_datum reports.
             td.tdtypeid = Self::rec_base_typeid(rectypeid)?;
             td.tdtypmod = -1;
-        } else if td.tdtypeid == RECORDOID {
-            if td.tdtypmod < 0 {
+        } else if td.tdtypeid == RECORDOID
+            && td.tdtypmod < 0 {
                 typcache::assign_record_type_typmod(&mut td)?;
             }
-        }
         // else: the source tupdesc already carries the value's real rowtype
         // (C exec_eval_datum REC arm, pl_exec.c:5364-5375: a RECORD-declared
         // rec reports erh->er_typeid/er_typmod, the named composite for a
@@ -3836,7 +3835,7 @@ fn simple_result_expr(
             let m = nodes_core::node_funcs::expr_typmod(expr);
             return Some((expr, t, m));
         }
-        if !expr.as_variant::<Var>().is_some_and(|v| v.varno == OUTER_VAR) {
+        if expr.as_variant::<Var>().is_none_or(|v| v.varno != OUTER_VAR) {
             return None;
         }
         plan = base.lefttree?;
@@ -5390,7 +5389,7 @@ impl<'a> Estate<'a> {
         let rectypeid = self.rec_typeid(recno);
         if rectypeid == RECORDOID {
             let natts = srcdesc.types.len();
-            let mut out_values = ::mcx::std_vec_from_slice("plpgsql", &values)?;
+            let mut out_values = ::mcx::std_vec_from_slice("plpgsql", values)?;
             for f in 0..natts {
                 if !srcdesc.dropped[f] {
                     out_values[f] = self.assign_copy_to_datum_ctx(
@@ -5409,7 +5408,7 @@ impl<'a> Estate<'a> {
                 Some(RecValue {
                     desc: srcdesc.clone(),
                     values: out_values,
-                    nulls: ::mcx::std_vec_from_slice("plpgsql", &nulls)?,
+                    nulls: ::mcx::std_vec_from_slice("plpgsql", nulls)?,
                     src_desc: Some(src_tupdesc),
                     empty: false,
                     fvalue_valid: sys.is_some(),
@@ -8209,7 +8208,7 @@ pub(crate) mod cfi_tests {
         let r = estate.exec_eval_simple_expr(&expr);
         EXPR_PLANS.with(|t| t.borrow_mut().remove(&expr.expr_id));
         crate::comp::release_expr_ids(&[expr.expr_id]);
-        let err = r.err().expect("no portal snapshot can be re-established here");
+        let err = r.expect_err("no portal snapshot can be re-established here");
         assert_eq!(err.message(), "cannot execute SQL without an outer snapshot or portal");
     }
 }

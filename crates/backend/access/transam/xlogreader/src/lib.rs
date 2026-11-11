@@ -804,7 +804,7 @@ impl<'mcx> XLogReaderState<'mcx> {
         if self.DecodeRecPtr != InvalidXLogRecPtr {
             // read the record after the one we just read
         } else {
-            debug_assert!(rec_ptr % XLOG_BLCKSZ as u64 == 0 || XRecOffIsValid(rec_ptr));
+            debug_assert!(rec_ptr.is_multiple_of(XLOG_BLCKSZ as u64) || XRecOffIsValid(rec_ptr));
             rand_access = true;
         }
 
@@ -1208,7 +1208,7 @@ impl<'mcx> XLogReaderState<'mcx> {
         pageptr: XLogRecPtr,
         req_len: i32,
     ) -> PgResult<i32> {
-        debug_assert!(pageptr % XLOG_BLCKSZ as u64 == 0);
+        debug_assert!(pageptr.is_multiple_of(XLOG_BLCKSZ as u64));
 
         let target_seg_no = XLByteToSeg(pageptr, self.v.segcxt.ws_segsize);
         let target_page_off = XLogSegmentOffset(pageptr, self.v.segcxt.ws_segsize);
@@ -1740,7 +1740,7 @@ fn validate_page_header(
     recptr: XLogRecPtr,
     phdr: &[u8],
 ) -> bool {
-    debug_assert!(recptr % XLOG_BLCKSZ as u64 == 0);
+    debug_assert!(recptr.is_multiple_of(XLOG_BLCKSZ as u64));
 
     let segno = XLByteToSeg(recptr, ws_segsize);
     let offset = XLogSegmentOffset(recptr, ws_segsize);

@@ -75,7 +75,7 @@ fn KnownAssignedXidsCompress(reason: KAXCompressReason, have_lock: bool) -> PgRe
     } else if reason == TransactionEnd {
         let counter = TRANSACTION_ENDS_COUNTER.get();
         TRANSACTION_ENDS_COUNTER.set(counter.wrapping_add(1));
-        if counter % KAX_COMPRESS_FREQUENCY != 0 {
+        if !counter.is_multiple_of(KAX_COMPRESS_FREQUENCY) {
             return Ok(());
         }
         if nelements < 2 * num {
@@ -666,7 +666,7 @@ pub fn ExpireAllKnownAssignedTransactionIds() -> PgResult<()> {
 
 pub fn ExpireOldKnownAssignedTransactionIds(xid: TransactionId) -> PgResult<()> {
     LWLockAcquire(ProcArrayLock(), LW_EXCLUSIVE, my_procno())?;
-    let locked = (|| -> PgResult<()> {
+    let locked = {
         let mut latest_xid = xid;
         TransactionIdRetreat(&mut latest_xid);
         MaintainLatestCompletedXidRecovery(latest_xid);
@@ -677,7 +677,7 @@ pub fn ExpireOldKnownAssignedTransactionIds(xid: TransactionId) -> PgResult<()> 
             unsafe { pa.lastOverflowedXid.set(InvalidTransactionId); }
         }
         KnownAssignedXidsRemovePreceding(xid)
-    })();
+    };
     LWLockRelease(ProcArrayLock())?;
     locked
 }

@@ -35,8 +35,8 @@ unsafe impl<'mcx, K: ForgetSafe, V: ForgetSafe> ForgetSafe
 {
 }
 // SAFETY (each): no drop glue at all.
-unsafe impl<'a, T: ?Sized> ForgetSafe for &'a T {}
-unsafe impl<'a, T: ?Sized> ForgetSafe for &'a mut T {}
+unsafe impl<T: ?Sized> ForgetSafe for &T {}
+unsafe impl<T: ?Sized> ForgetSafe for &mut T {}
 unsafe impl<T: ?Sized> ForgetSafe for *const T {}
 unsafe impl<T: ?Sized> ForgetSafe for *mut T {}
 unsafe impl<T: ?Sized> ForgetSafe for core::ptr::NonNull<T> {}

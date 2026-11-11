@@ -199,7 +199,7 @@ pub(in crate::ops::sort::topn) unsafe fn export_reduce(params: *const u64, owner
 
 /// A record's text representatives rendered in place (`(part, code)` → the datum resident with the part).
 pub unsafe fn render_reps(pl: &Plan, layout: &RecordLayout, site: *mut Site, r: *mut u8) -> i64 {
-    let mut one = |slot: usize, lane: usize| -> i64 {
+    let one = |slot: usize, lane: usize| -> i64 {
         let off = r.add(layout.slot_off[slot] as usize) as *mut u64;
         let raw = *off;
         let mut v = 0u64;
@@ -563,7 +563,7 @@ struct Top<'a> {
 
 unsafe fn text_less(a: u64, b: u64) -> core::cmp::Ordering {
     let bytes = |d: u64| core::slice::from_raw_parts((d as *const u8).add(4), (*(d as *const u32) >> 2) as usize - 4);
-    bytes(a).cmp(&bytes(b))
+    bytes(a).cmp(bytes(b))
 }
 
 impl Top<'_> {

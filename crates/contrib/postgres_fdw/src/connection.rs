@@ -113,7 +113,7 @@ impl ConnCacheEntry {
 type ConnMap = HashMap<Oid, ConnCacheEntry, FxBuildHasher>;
 
 thread_local! {
-    static CONNECTIONS: RefCell<ConnMap> = RefCell::new(HashMap::with_hasher(FxBuildHasher));
+    static CONNECTIONS: RefCell<ConnMap> = const { RefCell::new(HashMap::with_hasher(FxBuildHasher)) };
     static CALLBACKS_REGISTERED: Cell<bool> = const { Cell::new(false) };
     static EXIT_CLOSE_ARMED: Cell<bool> = const { Cell::new(false) };
     static XACT_GOT_CONNECTION: Cell<bool> = const { Cell::new(false) };

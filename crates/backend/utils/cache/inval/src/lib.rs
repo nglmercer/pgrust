@@ -365,7 +365,7 @@ pub fn init_seams() {
     // D3.2 overlay rule (coarse form): a session holding unbroadcast
     // invalidation messages modified a catalog this transaction; it must
     // build cache entries privately (no L2 read or publish) until commit.
-    l2cache::set_pending_invals_probe(|| TransactionHasPendingInvalidationMessages());
+    l2cache::set_pending_invals_probe(TransactionHasPendingInvalidationMessages);
     // C3 S4b: what a program read is checked against this transaction's own messages (gravity_deps `Deps::current`)
     l2cache::set_pending_touch_probe(PendingInvalidationsTouchParts);
 }

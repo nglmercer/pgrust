@@ -275,8 +275,8 @@ pub const DICT_FC_RESTART: u32 = 32;
 /// anchors, and `expand_packed_dict_index` reads that many raw offsets and restarts the prefix sum at each
 /// `i % DICT_INDEX_ANCHOR == 0`; a written index does not expand under another value.
 pub const DICT_INDEX_ANCHOR: u32 = 64;
-const _: () = assert!(DICT_FRAME_ENTRIES % DICT_FC_RESTART == 0);
-const _: () = assert!(DICT_FRAME_ENTRIES % DICT_INDEX_ANCHOR == 0);
+const _: () = assert!(DICT_FRAME_ENTRIES.is_multiple_of(DICT_FC_RESTART));
+const _: () = assert!(DICT_FRAME_ENTRIES.is_multiple_of(DICT_INDEX_ANCHOR));
 
 #[inline]
 fn rec_off(records: &[u8], i: usize) -> u32 {
@@ -292,7 +292,7 @@ fn rec_char(records: &[u8], i: usize) -> u32 {
 }
 
 fn record_count(records: &[u8], at: &'static str) -> FormatResult<usize> {
-    if records.len() % DICT_INDEX_ENTRY_LEN != 0 {
+    if !records.len().is_multiple_of(DICT_INDEX_ENTRY_LEN) {
         return Err(FormatError::Corrupt { at });
     }
     Ok(records.len() / DICT_INDEX_ENTRY_LEN)
@@ -387,7 +387,7 @@ pub fn front_code_frame(raw: &[u8], records: &[u8], out: &mut Vec<u8>) -> Format
         if bytes.len() != len {
             return Err(FormatError::Corrupt { at: "dict frame byte_len" });
         }
-        if i as u32 % DICT_FC_RESTART == 0 {
+        if (i as u32).is_multiple_of(DICT_FC_RESTART) {
             out.extend_from_slice(image); // alloc: Exec charged caller
         } else {
             let p = lcp(prev, bytes);
@@ -427,7 +427,7 @@ pub fn expand_front_coded_frame(fc: &[u8], records: &[u8], dst: &mut [u8]) -> Fo
         dst[end..off].fill(0);
         dst[off..off + 4].copy_from_slice(&varlena_header_4b_u(len as u32).to_le_bytes());
         let body = off + 4;
-        if i as u32 % DICT_FC_RESTART == 0 {
+        if (i as u32).is_multiple_of(DICT_FC_RESTART) {
             let src = fc.get(pos..pos + 4 + len).ok_or(FormatError::Truncated { at })?;
             if u32::from_le_bytes(src[..4].try_into().expect("len 4")) != varlena_header_4b_u(len as u32) {
                 return Err(FormatError::Corrupt { at });
@@ -526,7 +526,7 @@ pub fn pack_dict_index(records: &[u8], out: &mut Vec<u8>) -> FormatResult<()> {
         if off != expect || ch > len {
             return Err(bad);
         }
-        if i as u32 % DICT_INDEX_ANCHOR == 0 {
+        if (i as u32).is_multiple_of(DICT_INDEX_ANCHOR) {
             put_u32(out, off);
         }
         expect = off.checked_add(4 + len).ok_or(bad)?.next_multiple_of(8);
@@ -590,7 +590,7 @@ pub fn expand_packed_dict_index(packed: &[u8], out: &mut [u8]) -> FormatResult<(
         for i in f..f + m {
             let len = u32::from_le_bytes(out[i * 12 + 4..i * 12 + 8].try_into().expect("len 4"));
             let ch = len.checked_sub(r.get(wd, at)?).ok_or(FormatError::Corrupt { at })?;
-            if i as u32 % DICT_INDEX_ANCHOR == 0 {
+            if (i as u32).is_multiple_of(DICT_INDEX_ANCHOR) {
                 let a = (i / DICT_INDEX_ANCHOR as usize) * 4;
                 off = u32::from_le_bytes(anchors[a..a + 4].try_into().expect("len 4"));
             }
@@ -698,7 +698,7 @@ pub fn fc_resident_build(index: &[u8], inflate: &mut dyn FnMut(u32, &mut Vec<u8>
         for i in lo..hi {
             let len = rec_len(index, i) as usize;
             let k = (i - lo) as u32;
-            if k % DICT_FC_RESTART == 0 {
+            if k.is_multiple_of(DICT_FC_RESTART) {
                 let r = (k / DICT_FC_RESTART) as usize;
                 let slot = restart_tab + (f * FC_RESTARTS + r) * 4;
                 out[slot..slot + 4].copy_from_slice(&((fstart + pos) as u32).to_le_bytes());
@@ -811,7 +811,7 @@ impl<'a> FcWalk<'a> {
         if start > end || end > r.nentries || end as usize * DICT_INDEX_ENTRY_LEN > index.len() {
             return Err(FormatError::Bounds { at: "dict code" });
         }
-        let warm = (start < end && start % DICT_FC_RESTART != 0).then(|| start - start % DICT_FC_RESTART);
+        let warm = (start < end && !start.is_multiple_of(DICT_FC_RESTART)).then(|| start - start % DICT_FC_RESTART);
         Ok(FcWalk { r, index, code: start, end, pos: 0, prev_len: 0, warm })
     }
 
@@ -840,7 +840,7 @@ impl<'a> FcWalk<'a> {
             crate::try_resize(out, 4 + len, 0, "dict")?; // alloc: Cold
         }
         let k = code % DICT_FRAME_ENTRIES;
-        if k % DICT_FC_RESTART == 0 {
+        if k.is_multiple_of(DICT_FC_RESTART) {
             self.pos = self.r.restart_pos(code / DICT_FRAME_ENTRIES, k / DICT_FC_RESTART);
             let src = self.r.fc.get(self.pos..self.pos + 4 + len).ok_or(FormatError::Truncated { at })?;
             if u32::from_le_bytes(src[..4].try_into().expect("len 4")) != varlena_header_4b_u(len as u32) {

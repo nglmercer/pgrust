@@ -119,7 +119,7 @@ pub(crate) fn tri_consistent(
         // C twiddles key->entryRes in place and restores it; the probes here
         // run over a scratch copy of all nentries (ginlogic.c:159), the
         // consistent fn reading its first nuserentries as always.
-        let entry_res: Vec<GinTernaryValue> = ::mcx::std_vec_from_slice("access", &key.entryRes.as_slice())?;
+        let entry_res: Vec<GinTernaryValue> = ::mcx::std_vec_from_slice("access", key.entryRes.as_slice())?;
         let graph = std::cell::RefCell::new(key.trgmGraph.take());
         let call = |local: &[GinTernaryValue]| {
             let mut graph = graph.borrow_mut();

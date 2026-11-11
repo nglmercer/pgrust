@@ -44,7 +44,7 @@ pub const PGRUST_NAMESPACE_OID: Oid = 9006;
 fn text_arg0(fcinfo: &mut Fcinfo) -> PgResult<String> {
     // SAFETY: null-checked by strictness; arg 0 is a text datum.
     let v = unsafe { fcinfo.arg_varlena_packed(0)? };
-    let bytes = ::mcx::std_vec_from_slice("janitor", &v.data())?;
+    let bytes = ::mcx::std_vec_from_slice("janitor", v.data())?;
     String::from_utf8(bytes).map_err(|_| {
         Box::new(
             PgError::error("database name is not valid UTF-8".to_string())

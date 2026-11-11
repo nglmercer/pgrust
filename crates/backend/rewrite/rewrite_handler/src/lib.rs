@@ -858,9 +858,7 @@ fn get_assignment_input<'mcx>(node: Node<'mcx>) -> Option<Node<'mcx>> {
         return Some(fstore.arg);
     }
     if let Some(sbsref) = node.as_subscripting_ref() {
-        if sbsref.refassgnexpr.is_none() {
-            return None;
-        }
+        sbsref.refassgnexpr?;
         return sbsref.refexpr;
     }
     None

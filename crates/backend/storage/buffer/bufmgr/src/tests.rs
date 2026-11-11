@@ -1527,7 +1527,7 @@ fn local_release_and_read_buffer_fastpath() {
     let _g = setup();
     let rel = 9504;
     let b = read_local_blk(rel, 7);
-    assert!(crate::localbuf::StartLocalBufferIO(b, false) == false, "clean page: no write IO");
+    assert!(!crate::localbuf::StartLocalBufferIO(b, false), "clean page: no write IO");
     assert_eq!(crate::localbuf::local_ref_count(b), 1);
     assert!(ConditionalLockBuffer(b).unwrap());
     assert!(crate::ops::ConditionalLockBufferForCleanup(b).unwrap());
@@ -1991,7 +1991,7 @@ fn setup_b039_seams() {
         }
         // C relpath() (relpath.h): tablespace- and fork-aware rendering.
         if !relpath_seams::relpathbackend::is_installed() {
-            relpath_seams::relpathbackend::set(|l, b, f| relpath::GetRelationPath(l, b, f));
+            relpath_seams::relpathbackend::set(relpath::GetRelationPath);
         }
     });
 }

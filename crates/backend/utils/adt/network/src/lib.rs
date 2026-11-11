@@ -687,7 +687,7 @@ pub fn internal_inetpl(ip: InetRef<'_>, mut addend: i64) -> PgResult<InetValue> 
     let mut nb = ip.addrsize();
     while nb > 0 {
         nb -= 1;
-        carry = ip.addr[nb] as i32 + (addend & 0xFF) as i32 + carry;
+        carry += ip.addr[nb] as i32 + (addend & 0xFF) as i32;
         dst.ipaddr[nb] = (carry & 0xFF) as u8;
         carry >>= 8;
         addend &= !0xFFi64;
@@ -709,7 +709,7 @@ pub fn inetmi(ip: InetRef<'_>, ip2: InetRef<'_>) -> PgResult<i64> {
     let mut carry: i32 = 1;
     while nb > 0 {
         nb -= 1;
-        carry = ip.addr[nb] as i32 + (!ip2.addr[nb] as i32 & 0xFF) + carry;
+        carry += ip.addr[nb] as i32 + (!ip2.addr[nb] as i32 & 0xFF);
         let lobyte = carry & 0xFF;
         if byte < 8 {
             res |= (lobyte as i64) << (byte * 8);

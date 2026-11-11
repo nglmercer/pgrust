@@ -171,7 +171,7 @@ pub fn statext_ndistinct_serialize<'mcx>(
         len += 8 + 4 + item.attributes.len() * 2;
     }
     let mut out: PgVec<'mcx, u8> = mcx::vec_with_capacity_in(mcx, len)?;
-    out.extend_from_slice(&(((len as u32) << 2)).to_ne_bytes());
+    out.extend_from_slice(&((len as u32) << 2).to_ne_bytes());
     out.extend_from_slice(&STATS_NDISTINCT_MAGIC.to_ne_bytes());
     out.extend_from_slice(&STATS_NDISTINCT_TYPE_BASIC.to_ne_bytes());
     out.extend_from_slice(&(nd.items.len() as u32).to_ne_bytes());

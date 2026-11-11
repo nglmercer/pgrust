@@ -26,7 +26,7 @@ pub(super) fn dict_sections(entries: &[Vec<u8>]) -> (Vec<u8>, Vec<u8>) {
     {
         let mut w = StreamSectionWriter::begin(&mut payload, enc, 0, Wrapper::None).expect("begin");
         for (code, e) in entries.iter().enumerate() {
-            if code as u32 % DICT_FRAME_ENTRIES == 0 {
+            if (code as u32).is_multiple_of(DICT_FRAME_ENTRIES) {
                 w.align_payload(8);
                 w.begin_frame();
             }

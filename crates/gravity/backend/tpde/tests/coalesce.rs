@@ -217,9 +217,9 @@ fn switch_into_block_with_params() {
     for (k, v) in [(0i64, 5i64), (1, 5), (2, 5), (3, 5), (-1, 9)] {
         let w = v + 1;
         let want = match k {
-            0 => v * 1,
+            0 => v,
             1 => w * 2,
-            2 => 1 * w,
+            2 => w,
             _ => w * w,
         };
         assert_eq!(run(&p, "sw", &[k as u64, v as u64]), vec![want as u64]);

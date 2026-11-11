@@ -713,7 +713,7 @@ fn leader_deferred_block(
         ..
     } = &mut *vacrel;
     let env = ScanEnv {
-        rel: *rel,
+        rel,
         cutoffs: &*cutoffs,
         vistest: *vistest,
         aggressive: *aggressive,

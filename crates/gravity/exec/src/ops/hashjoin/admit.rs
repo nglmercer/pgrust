@@ -72,7 +72,7 @@ pub(crate) fn v4_build_refused(rows: u64, row_bytes: u32) -> Option<Refused> {
     let need = v4_build_need(rows, row_bytes);
     let pool = gravity_driver::POOL.capacity();
     let most = gravity_driver::mem::grow::MAX_REGION.min(if pool == 0 { u64::MAX } else { pool });
-    (need > most).then(|| Refused { stage: "join", what: format!("a build of {rows} estimated rows ({need} bytes) past what its region can grow to ({most} bytes: one region, the grant pool; D272)").into() }) // alloc: Cold
+    (need > most).then(|| Refused { stage: "join", what: format!("a build of {rows} estimated rows ({need} bytes) past what its region can grow to ({most} bytes: one region, the grant pool; D272)") }) // alloc: Cold
 }
 
 /// exactsize B1e, D3380: build slot `slot` of pipelines `ps` spills its own partitions (the lowering gave it spill bits,

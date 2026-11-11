@@ -1397,7 +1397,7 @@ fn reset_store_to_process_base_evicts_no_reset_all_session_values() {
     assert_eq!(state(), (true, PGC_S_SESSION));
 
     crate::store::reset_all_options();
-    assert_eq!(state().0, true, "RESET ALL keeps GUC_NO_RESET_ALL values (C parity)");
+    assert!(state().0, "RESET ALL keeps GUC_NO_RESET_ALL values (C parity)");
 
     scrub_to_boot();
     assert_eq!(state(), (false, PGC_S_DEFAULT), "scrub must not skip GUC_NO_RESET_ALL");

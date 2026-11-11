@@ -140,7 +140,7 @@ fn set_tags(at: usize, len: usize, tag: Tag) {
 fn valid(at: usize, len: usize) -> bool {
     let z = zones();
     let page = os::page_size();
-    len > 0 && at % page == 0 && len % page == 0 && z.frame.has(at) && at.checked_add(len).is_some_and(|end| end <= z.frame.lo + z.frame.len)
+    len > 0 && at.is_multiple_of(page) && len.is_multiple_of(page) && z.frame.has(at) && at.checked_add(len).is_some_and(|end| end <= z.frame.lo + z.frame.len)
 }
 
 /// Open `[at, at + len)` of the frame zone with RAM: with `Move`, its whole 2 MiB pieces take warm pool superpages

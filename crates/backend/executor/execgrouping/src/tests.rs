@@ -316,7 +316,7 @@ fn probe_cost_insert_order() {
         shuffled.swap(i, j);
     }
 
-    let mut run = |label: &str, order: &[i64]| {
+    let run = |label: &str, order: &[i64]| {
         let ctx = MemoryContext::new("probe-cost");
         let mcx = ctx.mcx();
         let table_ctx = MemoryContext::new("probe-entries");

@@ -295,7 +295,7 @@ fn opt_arg_bytes(fcinfo: &Fcinfo, i: usize) -> PgResult<Option<Vec<u8>>> {
     }
     // SAFETY: arg present and non-null per the guard above.
     let img = unsafe { fcinfo.arg_varlena_packed(i)? };
-    Ok(Some(::mcx::std_vec_from_slice("pgcrypto", &img.data())?))
+    Ok(Some(::mcx::std_vec_from_slice("pgcrypto", img.data())?))
 }
 
 // pgp-pgsql.c:76 convert_from_utf8 / :92 convert_to_utf8.
@@ -367,7 +367,7 @@ fn decrypt_output(fcinfo: &mut Fcinfo, out: pgp::DecryptOutput, need_text: bool)
 fn pgp_sym_encrypt(fcinfo: &mut Fcinfo, is_text: bool) -> PgResult<Datum> {
     // SAFETY: strict on arg0/arg1 (data, key); arg2 (args) optional/nullable.
     let (data, key) = unsafe { (fcinfo.arg_varlena_packed(0)?, fcinfo.arg_varlena_packed(1)?) };
-    let (data, key) = (::mcx::std_vec_from_slice("pgcrypto", &data.data())?, key.data().to_vec());
+    let (data, key) = (::mcx::std_vec_from_slice("pgcrypto", data.data())?, key.data().to_vec());
     let args = opt_arg_bytes(fcinfo, 2)?;
     let (data, cap) = encrypt_setup(data, args.as_deref(), is_text)?;
     let out = pgp::sym_encrypt(&data, &key, args.as_deref(), is_text).map_err(|e| px_msg(&e))?;
@@ -378,7 +378,7 @@ fn pgp_sym_encrypt(fcinfo: &mut Fcinfo, is_text: bool) -> PgResult<Datum> {
 fn pgp_sym_decrypt(fcinfo: &mut Fcinfo, need_text: bool) -> PgResult<Datum> {
     // SAFETY: strict on arg0/arg1 (data, key); arg2 (args) optional/nullable.
     let (data, key) = unsafe { (fcinfo.arg_varlena_packed(0)?, fcinfo.arg_varlena_packed(1)?) };
-    let (data, key) = (::mcx::std_vec_from_slice("pgcrypto", &data.data())?, key.data().to_vec());
+    let (data, key) = (::mcx::std_vec_from_slice("pgcrypto", data.data())?, key.data().to_vec());
     let args = opt_arg_bytes(fcinfo, 2)?;
     pgp::validate_args(args.as_deref()).map_err(|e| px_msg(&e))?;
     mbuf_create(data.len(), 2048)?;
@@ -396,7 +396,7 @@ fn pgp_sym_decrypt(fcinfo: &mut Fcinfo, need_text: bool) -> PgResult<Datum> {
 fn pgp_pub_encrypt(fcinfo: &mut Fcinfo, is_text: bool) -> PgResult<Datum> {
     // SAFETY: strict on arg0/arg1 (data, key); arg2 (args) optional/nullable.
     let (data, key) = unsafe { (fcinfo.arg_varlena_packed(0)?, fcinfo.arg_varlena_packed(1)?) };
-    let (data, key) = (::mcx::std_vec_from_slice("pgcrypto", &data.data())?, key.data().to_vec());
+    let (data, key) = (::mcx::std_vec_from_slice("pgcrypto", data.data())?, key.data().to_vec());
     let args = opt_arg_bytes(fcinfo, 2)?;
     let (data, cap) = encrypt_setup(data, args.as_deref(), is_text)?;
     let out = pgp::pub_encrypt(&data, &key, args.as_deref(), is_text).map_err(|e| {
@@ -412,7 +412,7 @@ fn pgp_pub_encrypt(fcinfo: &mut Fcinfo, is_text: bool) -> PgResult<Datum> {
 fn pgp_pub_decrypt(fcinfo: &mut Fcinfo, need_text: bool) -> PgResult<Datum> {
     // SAFETY: strict on arg0/arg1 (msg, seckey); arg2 psw, arg3 args optional.
     let (data, key) = unsafe { (fcinfo.arg_varlena_packed(0)?, fcinfo.arg_varlena_packed(1)?) };
-    let (data, key) = (::mcx::std_vec_from_slice("pgcrypto", &data.data())?, key.data().to_vec());
+    let (data, key) = (::mcx::std_vec_from_slice("pgcrypto", data.data())?, key.data().to_vec());
     let psw = opt_arg_bytes(fcinfo, 2)?;
     let args = opt_arg_bytes(fcinfo, 3)?;
     pgp::validate_args(args.as_deref()).map_err(|e| px_msg(&e))?;
@@ -463,7 +463,7 @@ fn fc_pgp_key_id_w(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<D
 
 fn fc_pg_armor(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
     // SAFETY: strict fn — arg0 bytea; arg1/arg2 text[] when present.
-    let data = ::mcx::std_vec_from_slice("pgcrypto", &unsafe { fcinfo.arg_varlena_packed(0)? }.data())?;
+    let data = ::mcx::std_vec_from_slice("pgcrypto", unsafe { fcinfo.arg_varlena_packed(0)? }.data())?;
     let (keys, values) = if fcinfo.nargs() == 3 {
         let scratch = mcx::MemoryContext::new("pgp_armor headers");
         // SAFETY: strict fn — args non-null.
@@ -490,7 +490,7 @@ fn fc_pg_dearmor(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Dat
 
 fn fc_pgp_armor_headers(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
     // SAFETY: strict fn — arg0 text.
-    let data = ::mcx::std_vec_from_slice("pgcrypto", &unsafe { fcinfo.arg_varlena_packed(0)? }.data())?;
+    let data = ::mcx::std_vec_from_slice("pgcrypto", unsafe { fcinfo.arg_varlena_packed(0)? }.data())?;
     let headers = pgp::armor::extract_armor_headers(&data).map_err(|e| match e {
         pgp::armor::ArmorError::Corrupt => px_msg(pgp::armor::CORRUPT_ARMOR),
         pgp::armor::ArmorError::Pg(e) => e,
@@ -529,7 +529,7 @@ unsafe fn array_image(fcinfo: &Fcinfo, i: usize) -> PgResult<Vec<u8>> {
         buf.extend_from_slice(d);
         Ok(buf)
     } else {
-        Ok(::mcx::std_vec_from_slice("pgcrypto", &v.image())?)
+        Ok(::mcx::std_vec_from_slice("pgcrypto", v.image())?)
     }
 }
 

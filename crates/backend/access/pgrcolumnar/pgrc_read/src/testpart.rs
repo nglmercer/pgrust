@@ -570,7 +570,7 @@ fn build_column(
         let mut index_bytes: Vec<u8> = Vec::new();
         let mut frame_marks: Vec<usize> = Vec::new();
         for (i, e) in d.entries.iter().enumerate() {
-            if i as u32 % DICT_FRAME_ENTRIES == 0 {
+            if (i as u32).is_multiple_of(DICT_FRAME_ENTRIES) {
                 frame_marks.push(payload_region.len());
             }
             let off = put_varlena_entry(&mut payload_region, e);

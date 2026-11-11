@@ -314,7 +314,7 @@ fn with_arena<R>(f: impl FnOnce(&mut Arena) -> R) -> R {
         };
         // SAFETY: one backend = one thread (TLS), and the single-entry
         // invariant above excludes aliasing &mut.
-        f(unsafe { &mut **cell.get() })
+        f(unsafe { &mut *cell.get() })
     })
 }
 
@@ -671,7 +671,7 @@ pub fn ResourceOwnerRelease(
 fn reassign_or_release_owner_locks(owner: ResourceOwner, is_commit: bool) -> PgResult<()> {
     let cached = with_arena(|a| {
         let d = a.data(owner);
-        (d.nlocks <= MAX_RESOWNER_LOCKS).then(|| (d.locks, d.nlocks as usize))
+        (d.nlocks <= MAX_RESOWNER_LOCKS).then_some((d.locks, d.nlocks as usize))
     });
     let locallocks = cached.as_ref().map(|(locks, n)| &locks[..*n]);
     if is_commit {

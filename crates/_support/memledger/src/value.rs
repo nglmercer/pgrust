@@ -155,7 +155,7 @@ pub fn tally(c: Consumer, hits: u64, misses: u64) {
 /// on this thread, which `key`'s [`fill`] ends.
 #[inline]
 pub fn miss(c: Consumer, key: u64) {
-    let priced = door(c).misses.fetch_add(1, Ordering::Relaxed) % SAMPLE == 0;
+    let priced = door(c).misses.fetch_add(1, Ordering::Relaxed).is_multiple_of(SAMPLE);
     if priced || track_miss(c, key) {
         open(c, key, priced);
     }
@@ -179,7 +179,7 @@ pub fn fill(c: Consumer, key: u64, bytes: u64) {
 /// open `key`'s timer on this thread, which `key`'s fill ends.
 #[inline]
 pub fn arm(c: Consumer, key: u64) {
-    let priced = door(c).arms.fetch_add(1, Ordering::Relaxed) % SAMPLE == 0;
+    let priced = door(c).arms.fetch_add(1, Ordering::Relaxed).is_multiple_of(SAMPLE);
     if priced || track_miss(c, key) {
         open(c, key, priced);
     }
@@ -382,7 +382,7 @@ impl TailFeed<'_> {
     /// An entry at `order` in its cache's eviction order (ascending: the lowest goes first) holding `bytes`.
     #[inline]
     pub fn push(&mut self, order: u64, bytes: u64) {
-        if self.seen % self.stride == 0 && self.len < self.buf.len() {
+        if self.seen.is_multiple_of(self.stride) && self.len < self.buf.len() {
             self.buf[self.len] = (order, bytes);
             self.len += 1;
         }

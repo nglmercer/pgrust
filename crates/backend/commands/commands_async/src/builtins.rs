@@ -2,7 +2,7 @@ use datum::Datum;
 use types_error::PgResult;
 use types_fmgr::{FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo};
 
-fn text_arg_or_empty<'a>(fcinfo: &'a Fcinfo, i: usize) -> PgResult<&'a [u8]> {
+fn text_arg_or_empty(fcinfo: &Fcinfo, i: usize) -> PgResult<&[u8]> {
     if fcinfo.argisnull(i) {
         Ok(b"")
     } else {

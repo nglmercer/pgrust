@@ -129,8 +129,7 @@ pub fn toast_compress_datum<'mcx>(
 // toast_compression.c pglz_compress_datum: header word patched by the caller.
 fn pglz_compress_datum<'mcx>(mcx: Mcx<'mcx>, data: &[u8]) -> PgResult<Option<PgVec<'mcx, u8>>> {
     let valsize = data.len() as i32;
-    if valsize < pglz::PGLZ_STRATEGY_DEFAULT.min_input_size
-        || valsize > pglz::PGLZ_STRATEGY_DEFAULT.max_input_size
+    if !(pglz::PGLZ_STRATEGY_DEFAULT.min_input_size..=pglz::PGLZ_STRATEGY_DEFAULT.max_input_size).contains(&valsize)
     {
         return Ok(None);
     }

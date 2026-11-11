@@ -804,8 +804,7 @@ pub fn exec_bind_message<'mcx>(
                                         ))
                                         .into_error()
                                         .with_funcname("exec_bind_message"),
-                                ))
-                                .into());
+                                )));
                             }
                             copy_param_datum(pmcx, pval, is_null, ptype).map_err(pctx)?
                         }
@@ -817,8 +816,7 @@ pub fn exec_bind_message<'mcx>(
                             .errcode(ERRCODE_INVALID_PARAMETER_VALUE)
                             .errmsg(format!("unsupported format code: {other}"))
                             .into_error(),
-                    ))
-                    .into());
+                    )));
                 }
             };
 
@@ -996,8 +994,7 @@ pub(crate) fn owned_msg_string<'mcx>(
     // these bytes, so the honest report is 0A000, not a protocol violation.
     let text =
         core::str::from_utf8(s.as_bytes()).map_err(|_| crate::non_utf8_query_error())?;
-    PgString::from_str_in(text, mcx).map_err(Into::into)
-}
+    PgString::from_str_in(text, mcx)}
 
 // pg_client_to_server + the trailing NUL C scribbles onto the message buffer.
 fn client_to_server_cstring<'mcx>(

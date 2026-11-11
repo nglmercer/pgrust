@@ -459,7 +459,7 @@ mod tests {
     fn ignore_cipher_failure_is_accepted_without_weakening_decryption() {
         let armored = "\n-----BEGIN PGP MESSAGE-----\n\nww0EBAMC8wIKbtvzJtxi0jABUleCwFJWGCkYKcsNdABqdtXaU2VjcmV0LtMUlnPH3A2QBmZrcucm\n1GPb/s2Bkdg=\n=6aqD\n-----END PGP MESSAGE-----\n";
         let bin = armor::armor_decode(armored.as_bytes()).expect("dearmor");
-        let err = |r: Result<DecryptOutput, DecryptError>| r.err().expect("must fail").message;
+        let err = |r: Result<DecryptOutput, DecryptError>| r.expect_err("must fail").message;
         assert_eq!(err(sym_decrypt(&bin, b"wrong key", None, true)), "Wrong key or corrupt data");
         assert_eq!(
             err(sym_decrypt(&bin, b"wrong key", Some(b"ignore-cipher-failure=1"), true)),

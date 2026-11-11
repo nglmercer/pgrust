@@ -71,7 +71,7 @@ fn a_sources_cursors_over_parts_its_last_binds_did_not_read_close_and_reopen_whe
     consts::set(K::KeptDecay, 2);
     memledger::bind_backend(4554, 94554);
     let mut src = GranuleRangeSource::new(recipe.clone());
-    let mut run = |src: &mut GranuleRangeSource, claims: &GranuleRange| {
+    let run = |src: &mut GranuleRangeSource, claims: &GranuleRange| {
         memledger::statement_begin();
         let resolved = Resolved::for_recipe(&recipe, list.clone());
         src.bind(&binding_ref(&resolved)).unwrap();

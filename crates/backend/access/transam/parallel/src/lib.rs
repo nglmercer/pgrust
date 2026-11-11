@@ -613,12 +613,7 @@ pub fn statement_task_shared(
         None
     };
 
-    let encoded = QUERY_TASK_INSTALLED
-        | u8::from(policy.has_params) * QUERY_TASK_PARAMS
-        | u8::from(policy.temp_state) * QUERY_TASK_TEMP
-        | u8::from(policy.serializable) * QUERY_TASK_SERIALIZABLE
-        | u8::from(policy.pending_invalidations) * QUERY_TASK_PENDING_INVALS
-        | u8::from(policy.invals_flush) * QUERY_TASK_INVALS_FLUSH;
+    let encoded = QUERY_TASK_INSTALLED | (u8::from(policy.has_params) * QUERY_TASK_PARAMS) | (u8::from(policy.temp_state) * QUERY_TASK_TEMP) | (u8::from(policy.serializable) * QUERY_TASK_SERIALIZABLE) | (u8::from(policy.pending_invalidations) * QUERY_TASK_PENDING_INVALS) | (u8::from(policy.invals_flush) * QUERY_TASK_INVALS_FLUSH);
 
     Ok(Some(Arc::new(ParallelShared {
         database_id: g::MyDatabaseId(),
@@ -726,12 +721,7 @@ pub fn InstallQueryTaskBinding(
     policy: QueryTaskBindingPolicy,
 ) -> PgResult<()> {
     let shared = shared_for(id);
-    let encoded = QUERY_TASK_INSTALLED
-        | u8::from(policy.has_params) * QUERY_TASK_PARAMS
-        | u8::from(policy.temp_state) * QUERY_TASK_TEMP
-        | u8::from(policy.serializable) * QUERY_TASK_SERIALIZABLE
-        | u8::from(policy.pending_invalidations) * QUERY_TASK_PENDING_INVALS
-        | u8::from(policy.invals_flush) * QUERY_TASK_INVALS_FLUSH;
+    let encoded = QUERY_TASK_INSTALLED | (u8::from(policy.has_params) * QUERY_TASK_PARAMS) | (u8::from(policy.temp_state) * QUERY_TASK_TEMP) | (u8::from(policy.serializable) * QUERY_TASK_SERIALIZABLE) | (u8::from(policy.pending_invalidations) * QUERY_TASK_PENDING_INVALS) | (u8::from(policy.invals_flush) * QUERY_TASK_INVALS_FLUSH);
     shared
         .query_task_binding
         .compare_exchange(0, encoded, SeqCst, SeqCst)
@@ -1079,7 +1069,7 @@ fn wait_on_my_latch(wait_event: u32) -> PgResult<()> {
     // log evidence.
     let mut clock = PARK_STALL
         .with(|c| c.borrow_mut().take())
-        .unwrap_or_else(shm_mq::stall::ParkStallClock::new);
+        .unwrap_or_default();
     clock.enter(shm_mq::stall::park_now_ms());
     let waited = shm_mq::stall::wait_latch_reporting(
         latch,
@@ -1171,14 +1161,11 @@ pub fn WaitForParallelWorkersToFinish(id: ParallelContextId) -> PgResult<()> {
 // interrupts, which re-enter pcxt_list via ProcessParallelMessages.
 fn wait_for_workers_to_exit(handles: Vec<bgworker::BackgroundWorkerHandle>) -> PgResult<()> {
     for handle in handles {
-        match bgworker::WaitForBackgroundWorkerShutdown(&handle)? {
-            bgworker::BgwHandleStatus::BGWH_POSTMASTER_DIED => {
-                return ereport(FATAL)
-                    .errcode(ERRCODE_ADMIN_SHUTDOWN)
-                    .errmsg("postmaster exited during a parallel transaction")
-                    .finish(loc(939, "WaitForParallelWorkersToExit"));
-            }
-            _ => {}
+        if bgworker::WaitForBackgroundWorkerShutdown(&handle)? == bgworker::BgwHandleStatus::BGWH_POSTMASTER_DIED {
+            return ereport(FATAL)
+                .errcode(ERRCODE_ADMIN_SHUTDOWN)
+                .errmsg("postmaster exited during a parallel transaction")
+                .finish(loc(939, "WaitForParallelWorkersToExit"));
         }
     }
     Ok(())
@@ -1465,7 +1452,7 @@ pub fn ParallelWorkerReportLastRecEnd(last_rec_end: XLogRecPtr) -> PgResult<()> 
         let shared = shared
             .as_ref()
             .unwrap_or_else(|| panic!("ParallelWorkerReportLastRecEnd outside a parallel worker"));
-        shared.last_xlog_end.fetch_max(last_rec_end as u64, SeqCst);
+        shared.last_xlog_end.fetch_max(last_rec_end, SeqCst);
     });
     Ok(())
 }

@@ -323,7 +323,7 @@ mod topk_codes {
     fn ties_runs_merge_and_the_leader_orders_them_by_the_rendered_bytes() {
         let (n, cap, natts) = (3u32, 8u32, 2u32);
         let bytes = TopK::bytes_cap(cap, natts) as usize;
-        let mut mk = |rows: &[(i64, u32, u32)]| {
+        let mk = |rows: &[(i64, u32, u32)]| {
             let mut buf = vec![0u8; bytes];
             let t = unsafe { TopK::at_cap(buf.as_mut_ptr(), n, cap, natts, TOPK_TIES) };
             for &(k, part, code) in rows {

@@ -450,7 +450,7 @@ mod tests {
             assert!(in_cache_scope(), "the outer scope is still open");
         }
         assert!(!in_cache_scope());
-        let t = std::thread::spawn(|| in_cache_scope());
+        let t = std::thread::spawn(in_cache_scope);
         let _c = scope();
         assert!(!t.join().unwrap(), "a scope is the thread's own");
     }

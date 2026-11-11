@@ -981,7 +981,7 @@ pub fn num_processor_from_char(
                     let numlen = digits.len();
                     let npp = np.number_p;
                     if npp + numlen > np.number.len() {
-                        ::mcx::std_vec_resize("adt", &mut np.number, npp + numlen, 0)?;
+                        ::mcx::std_vec_resize("adt", np.number, npp + numlen, 0)?;
                     }
                     np.number[npp..npp + numlen].copy_from_slice(digits.as_bytes());
                     np.number_p += numlen;

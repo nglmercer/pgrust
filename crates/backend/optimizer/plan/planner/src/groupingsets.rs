@@ -410,7 +410,7 @@ fn estimate_hashagg_tablesize(
     let hashentrysize = ::costsize::exec_sizing::hash_agg_entry_size(
         run.root.aggtransinfos.len(),
         width.max(0) as usize,
-        agg_costs.transitionSpace as usize,
+        agg_costs.transitionSpace,
     );
     hashentrysize * d_num_groups
 }
@@ -504,7 +504,7 @@ pub fn consider_groupingsets_paths<'mcx>(
             // rollup of only empty sets (group_pathkeys comes from rollup 0).
             if !gd.rollups.is_empty()
                 && crate::pathkeys::pathkeys_contained_in(
-                    &run.root.group_pathkeys,
+                    run.root.group_pathkeys,
                     &run.root.path(path).base().pathkeys,
                 )
             {

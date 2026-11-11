@@ -749,45 +749,6 @@ mod global {
         slot(current_slot()).lock()
     }
 
-    #[cfg(test)]
-    mod slab_tests {
-        use super::*;
-
-        /// D4511: the boot slab lies in .bss (an anonymous writable mapping: no file bytes), as every fresh slot is
-        /// all zero. Born red on trunk: the -1 wake fds of each slot kept the 320 KiB slab in .data.
-        #[cfg(target_os = "linux")]
-        #[test]
-        fn the_boot_slab_is_in_bss() {
-            let last = core::ptr::addr_of!(SLOTS[WAITER_CAP - 1]) as usize + core::mem::size_of::<Slot>() - 1;
-            let maps = std::fs::read_to_string("/proc/self/maps").unwrap();
-            let line = maps
-                .lines()
-                .find(|l| {
-                    let (a, z) = l.split(' ').next().unwrap().split_once('-').unwrap();
-                    (usize::from_str_radix(a, 16).unwrap()..usize::from_str_radix(z, 16).unwrap()).contains(&last)
-                })
-                .unwrap_or_else(|| panic!("no mapping holds {last:#x}"));
-            let f: Vec<&str> = line.split_whitespace().collect();
-            assert!(f[1].starts_with("rw") && (f.len() == 5 || f[5] == "[heap]"), "the waiter slab is mapped from the binary (.data), not .bss: {line}");
-        }
-
-        /// D4511: a slot no thread ever took reads "no wake pipe" (-1) on every route, and the fd + 1 codec keeps fd 0.
-        #[test]
-        fn a_fresh_slot_reads_no_wake_fds() {
-            let s = &SLOTS[WAITER_CAP - 1];
-            assert_eq!(s.wake_wfd_mirror(), -1);
-            {
-                let g = s.lock();
-                assert_eq!((g.wake_rfd(), g.wake_wfd()), (-1, -1));
-            }
-            let mut i = SlotInner { token: 0, mode: Mode::Free, wake_rfd1: 0, wake_wfd1: 0 };
-            for (r, w) in [(0, 1), (7, 8), (i32::MAX - 1, 3), (-1, -1)] {
-                i.set_wake_fds(r, w);
-                assert_eq!((i.wake_rfd(), i.wake_wfd()), (r, w));
-            }
-        }
-    }
-
     // -- park -----------------------------------------------------------------
 
     /// Park until unparked. With the recheck cadence enabled the sleep is
@@ -908,7 +869,7 @@ mod global {
             }
             // A signal-route wake that found the mutex held is a latched
             // notification too (see `unpark_token_from_signal`).
-            Mode::Idle if slot_signal_wake(&*g, s) => false,
+            Mode::Idle if slot_signal_wake(&g, s) => false,
             Mode::Idle => {
                 g.mode = Mode::ParkedFd;
                 true
@@ -984,6 +945,45 @@ mod global {
             Mode::ParkedFd => "parked-fd",
         };
         format!("waiter:slot={idx} tok={token} state={mode}")
+    }
+
+    #[cfg(test)]
+    mod slab_tests {
+        use super::*;
+
+        /// D4511: the boot slab lies in .bss (an anonymous writable mapping: no file bytes), as every fresh slot is
+        /// all zero. Born red on trunk: the -1 wake fds of each slot kept the 320 KiB slab in .data.
+        #[cfg(target_os = "linux")]
+        #[test]
+        fn the_boot_slab_is_in_bss() {
+            let last = core::ptr::addr_of!(SLOTS[WAITER_CAP - 1]) as usize + core::mem::size_of::<Slot>() - 1;
+            let maps = std::fs::read_to_string("/proc/self/maps").unwrap();
+            let line = maps
+                .lines()
+                .find(|l| {
+                    let (a, z) = l.split(' ').next().unwrap().split_once('-').unwrap();
+                    (usize::from_str_radix(a, 16).unwrap()..usize::from_str_radix(z, 16).unwrap()).contains(&last)
+                })
+                .unwrap_or_else(|| panic!("no mapping holds {last:#x}"));
+            let f: Vec<&str> = line.split_whitespace().collect();
+            assert!(f[1].starts_with("rw") && (f.len() == 5 || f[5] == "[heap]"), "the waiter slab is mapped from the binary (.data), not .bss: {line}");
+        }
+
+        /// D4511: a slot no thread ever took reads "no wake pipe" (-1) on every route, and the fd + 1 codec keeps fd 0.
+        #[test]
+        fn a_fresh_slot_reads_no_wake_fds() {
+            let s = &SLOTS[WAITER_CAP - 1];
+            assert_eq!(s.wake_wfd_mirror(), -1);
+            {
+                let g = s.lock();
+                assert_eq!((g.wake_rfd(), g.wake_wfd()), (-1, -1));
+            }
+            let mut i = SlotInner { token: 0, mode: Mode::Free, wake_rfd1: 0, wake_wfd1: 0 };
+            for (r, w) in [(0, 1), (7, 8), (i32::MAX - 1, 3), (-1, -1)] {
+                i.set_wake_fds(r, w);
+                assert_eq!((i.wake_rfd(), i.wake_wfd()), (r, w));
+            }
+        }
     }
 }
 

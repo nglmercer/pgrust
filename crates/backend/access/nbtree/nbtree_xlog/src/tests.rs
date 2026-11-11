@@ -1,7 +1,7 @@
 use super::*;
 
 fn itup(size: usize, key: u8) -> Vec<u8> {
-    assert!(size >= 8 && size % 8 == 0);
+    assert!(size >= 8 && size.is_multiple_of(8));
     let mut t = vec![key; size];
     t[6..8].copy_from_slice(&(size as u16).to_ne_bytes());
     t
@@ -122,7 +122,7 @@ fn posting_tuple(keysize: usize, norig: u16) -> Vec<u8> {
     let total = keysize + norig as usize * 6;
     let mut t = vec![0u8; total];
     // posting offset (posting_base) split across ip_blkid hi/lo.
-    t[0..2].copy_from_slice(&(((keysize >> 16) as u16)).to_ne_bytes());
+    t[0..2].copy_from_slice(&((keysize >> 16) as u16).to_ne_bytes());
     t[2..4].copy_from_slice(&((keysize & 0xffff) as u16).to_ne_bytes());
     // ip_posid: BT_IS_POSTING | nposting.
     t[4..6].copy_from_slice(&(types_nbtree::BT_IS_POSTING | norig).to_ne_bytes());

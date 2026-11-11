@@ -276,7 +276,7 @@ fn text_image(s: &[u8]) -> Vec<u8> {
 
 fn rust_string_agg(rows: &[Option<&str>], delim: Option<&str>) -> Option<String> {
     let agg_ctx = MemoryContext::new_bump("aggcontext");
-    let mut node = AggStateNode::new(agg_ctx);
+    let node = AggStateNode::new(agg_ctx);
     let result_ctx = MemoryContext::new_bump("per-tuple");
     let delim_img = delim.map(|d| text_image(d.as_bytes()));
     let mut state = Datum::null();

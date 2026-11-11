@@ -53,7 +53,7 @@ pub fn list_order(op: Oid) -> PgResult<Option<ListOrder>> {
 /// COMPARE_EQ): an index key by it is an equality key (a btree column keyed by none takes a skip array, nbtree's
 /// `_bt_preprocess_array_keys`).
 pub fn index_equality(op: Oid) -> PgResult<bool> {
-    let mut cx = mcx::MemoryContext::new_bump("typesem index equality"); // alloc: Exec
+    let cx = mcx::MemoryContext::new_bump("typesem index equality"); // alloc: Exec
     let equal = lsyscache::get_op_index_interpretation(cx.mcx(), op)?.iter().any(|i| i.cmptype == lsyscache::COMPARE_EQ);
     Ok(equal)
 }

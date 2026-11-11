@@ -235,7 +235,7 @@ fn entry(img: &'static TypcacheImage) -> PgResult<TypeCacheEntry> {
         *e.rngtype.borrow_mut() = Some(lookup_type_cache(range, 0)?);
     }
     if let Some((base, words, items)) = &img.enum_data {
-        *e.enum_data.borrow_mut() = Some(EnumData::armed(*base, &**words, &**items));
+        *e.enum_data.borrow_mut() = Some(EnumData::armed(*base, words, items));
     }
     e.flags.set(img.flags);
     e.ready.set(img.ready);

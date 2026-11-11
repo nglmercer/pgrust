@@ -216,10 +216,8 @@ fn scans(g: &mut Gen) -> Vec<StmtKind> {
             "EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, SUMMARY OFF, BUFFERS OFF) \
              SELECT * FROM {n} WHERE pk < 100 AND b = 5 ORDER BY pk;"
         )),
-        raw(format!(
-            "EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, SUMMARY OFF, BUFFERS OFF) \
-             SELECT i FROM generate_series(1,20) g(i) WHERE i % 3 = 0;"
-        )),
+        raw("EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, SUMMARY OFF, BUFFERS OFF) \
+             SELECT i FROM generate_series(1,20) g(i) WHERE i % 3 = 0;".to_string()),
         raw(format!(
             "EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, SUMMARY OFF, BUFFERS OFF) \
              SELECT pk FROM {n} WHERE pk < 100 AND pk % 3 = 0;"
@@ -621,10 +619,8 @@ fn utility(g: &mut Gen) -> Vec<StmtKind> {
         )),
         raw("EXPLAIN (ANALYZE, SERIALIZE OFF, COSTS OFF, TIMING OFF, SUMMARY OFF, \
              BUFFERS OFF) SELECT 1;"),
-        raw(format!(
-            "EXPLAIN (ANALYZE, SERIALIZE TEXT, COSTS OFF, TIMING OFF, SUMMARY OFF, \
-             BUFFERS OFF) SELECT 1;"
-        )),
+        raw("EXPLAIN (ANALYZE, SERIALIZE TEXT, COSTS OFF, TIMING OFF, SUMMARY OFF, \
+             BUFFERS OFF) SELECT 1;".to_string()),
         raw("EXPLAIN (COSTS OFF, FORMAT TEXT) SELECT 1;"),
         // ExplainOneUtility long tail: matview IF NOT EXISTS
         // short-circuit, REFRESH ("Utility Statement" fallback arm),
@@ -689,10 +685,10 @@ fn formats(g: &mut Gen) -> Vec<StmtKind> {
             "EXPLAIN (COSTS OFF, FORMAT XML) SELECT a FROM {n} GROUP BY a ORDER BY a;"
         )),
         raw("RESET enable_hashagg;"),
-        raw(format!("EXPLAIN (COSTS OFF, FORMAT XML) CREATE TABLE fz_xd_fx AS SELECT 1;")),
+        raw("EXPLAIN (COSTS OFF, FORMAT XML) CREATE TABLE fz_xd_fx AS SELECT 1;".to_string()),
         raw(format!("EXPLAIN (COSTS OFF, VERBOSE, FORMAT XML) SELECT pk, a FROM {n} LIMIT 1;")),
-        raw(format!("EXPLAIN (COSTS OFF, FORMAT YAML) CREATE TABLE fz_xd_fx AS SELECT 1;")),
-        raw(format!("EXPLAIN (COSTS OFF, FORMAT JSON) CREATE TABLE fz_xd_fx AS SELECT 1;")),
+        raw("EXPLAIN (COSTS OFF, FORMAT YAML) CREATE TABLE fz_xd_fx AS SELECT 1;".to_string()),
+        raw("EXPLAIN (COSTS OFF, FORMAT JSON) CREATE TABLE fz_xd_fx AS SELECT 1;".to_string()),
         raw(format!(
             "EXPLAIN (ANALYZE, BUFFERS, COSTS OFF, TIMING OFF, SUMMARY OFF, FORMAT {afmt}) \
              SELECT count(*) FROM {n};"
@@ -823,12 +819,10 @@ fn namedts(_g: &mut Gen) -> Vec<StmtKind> {
         raw(format!(
             "INSERT INTO {n} SELECT i, i FROM generate_series(1,20) i;"
         )),
-        raw(format!(
-            "CREATE FUNCTION fz_xd_ntf() RETURNS trigger LANGUAGE plpgsql AS $fzxd$ \
+        raw("CREATE FUNCTION fz_xd_ntf() RETURNS trigger LANGUAGE plpgsql AS $fzxd$ \
              DECLARE r record; c int := 0; BEGIN \
              FOR r IN EXECUTE 'EXPLAIN (COSTS OFF) SELECT count(*) FROM nt' LOOP \
-             c := c + 1; END LOOP; RETURN NULL; END $fzxd$;"
-        )),
+             c := c + 1; END LOOP; RETURN NULL; END $fzxd$;".to_string()),
         raw(format!(
             "CREATE TRIGGER fz_xd_ntt AFTER UPDATE ON {n} \
              REFERENCING NEW TABLE AS nt FOR EACH STATEMENT \
@@ -1005,7 +999,7 @@ mod tests {
                 } else if up.starts_with("EXPLAIN") && up.contains("ANALYZE") {
                     let dml = ["INSERT ", "UPDATE ", "DELETE ", "MERGE "]
                         .iter()
-                        .any(|k| up.split_once(") ").map_or(false, |(_, t)| t.starts_with(k)));
+                        .any(|k| up.split_once(") ").is_some_and(|(_, t)| t.starts_with(k)));
                     if dml {
                         assert!(depth > 0, "unbracketed ANALYZE DML: {s}");
                     }

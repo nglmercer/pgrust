@@ -259,6 +259,12 @@ struct Flight<K> {
     hi: u64,
 }
 
+impl<K: Copy + PartialEq> Default for Flights<K> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<K: Copy + PartialEq> Flights<K> {
     pub const fn new() -> Flights<K> {
         Flights { all: Vec::new(), charge: memledger::Charge::NONE }
@@ -431,7 +437,7 @@ impl Counters {
     /// durable `high` stays. Whether it went back (else it is burned).
     pub fn give_back(&mut self, dir: &str, from: u64, to: u64) -> bool {
         match self.by_dir.get_mut(dir) {
-            Some(st) if st.next == to && ROWID_FIRST <= from && from < to && from % IDS_PER_BLOCK == 0 => {
+            Some(st) if st.next == to && ROWID_FIRST <= from && from < to && from.is_multiple_of(IDS_PER_BLOCK) => {
                 st.next = from;
                 true
             }

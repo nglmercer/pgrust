@@ -130,7 +130,7 @@ pub fn arr_overhead_nonulls(ndims: i32) -> usize {
 
 #[inline]
 pub fn arr_overhead_withnulls(ndims: i32, nitems: i32) -> usize {
-    maxalign(ARRAYTYPE_HDRSZ + 2 * 4 * ndims as usize + (nitems as usize + 7) / 8)
+    maxalign(ARRAYTYPE_HDRSZ + 2 * 4 * ndims as usize + (nitems as usize).div_ceil(8))
 }
 
 #[inline]
@@ -154,6 +154,8 @@ pub fn arr_nullbitmap_off(a: &[u8]) -> Option<usize> {
 
 // VARSIZE_ANY over a possibly-short varlena pointed to by p.
 #[inline]
+// Kept safe on purpose: C's VARSIZE_ANY takes a datum pointer the caller owns (hot path, many call sites).
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub fn varsize_any(p: *const u8) -> usize {
     // SAFETY: p addresses a live varlena header.
     unsafe {

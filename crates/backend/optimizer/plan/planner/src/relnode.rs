@@ -18,7 +18,7 @@ pub fn setup_simple_rel_arrays<'mcx>(root: &mut PlannerInfo<'mcx>, nrtable: usiz
     // UPPERREL_FINAL): a RelOptInfo is large, and growing the arena one doubling at a time copies them all (the final rel's
     // push grew it on every statement: a realloc copy of ~0.5k instructions)
     ::mcx::pgvec_reserve(&mut root.rel_arena, nrtable + 1)?;
-    root.simple_rel_array.extend(core::iter::repeat(None).take(size));
+    root.simple_rel_array.extend(std::iter::repeat_n(None, size));
     root.simple_rte_array.push(RangeTblEntryId::Invalid);
     for i in 0..nrtable {
         root.simple_rte_array
@@ -398,7 +398,7 @@ fn have_partkey_equi_join<'mcx>(
             if hashop == 0 || !lsyscache::op_in_opfamily(hashop, partopfamily)? {
                 continue;
             }
-        } else if !run.root.rinfo(rid).mergeopfamilies.iter().any(|&f| f == partopfamily) {
+        } else if !run.root.rinfo(rid).mergeopfamilies.contains(&partopfamily) {
             continue;
         }
         pk_known_equal[ipk1] = true;

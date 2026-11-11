@@ -274,7 +274,7 @@ pub fn bbsink_begin_backup<'mcx>(
     dispatch(sink, state, |ops, sink, state| ops.begin_backup(sink, state))?;
     assert!(sink.has_buffer(), "begin_backup must set the buffer");
     assert!(
-        sink.buffer_length() % BLCKSZ == 0,
+        sink.buffer_length().is_multiple_of(BLCKSZ),
         "buffer length must be a multiple of BLCKSZ"
     );
     Ok(())

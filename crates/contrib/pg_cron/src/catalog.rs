@@ -179,7 +179,7 @@ fn ensure_connect_privilege(mcx: Mcx<'_>, role: Oid, database: &str) -> PgResult
         types_core::DATABASE_RELATION_ID,
         dboid,
         role,
-        types_nodes::parsenodes::ACL_CONNECT as u64,
+        types_nodes::parsenodes::ACL_CONNECT,
     )?;
     if acl != aclchk::ACLCHECK_OK {
         return Err(err(format!(
@@ -380,7 +380,7 @@ fn ensure_delete_permission(mcx: Mcx<'_>, owner_name: &str) -> PgResult<()> {
         return Ok(());
     }
     let relid = cron_job_relation_id()?;
-    let acl = aclchk::pg_class_aclcheck(relid, miscinit::GetUserId(), types_nodes::parsenodes::ACL_DELETE as u64)?;
+    let acl = aclchk::pg_class_aclcheck(relid, miscinit::GetUserId(), types_nodes::parsenodes::ACL_DELETE)?;
     if acl != aclchk::ACLCHECK_OK {
         let name = lsyscache::get_rel_name(mcx, relid)?.map(|s| s.as_str().to_owned()).unwrap_or_default();
         aclchk::aclcheck_error(acl, types_nodes::parsenodes::ObjectType::OBJECT_TABLE, &name)?;

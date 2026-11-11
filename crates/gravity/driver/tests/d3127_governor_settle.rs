@@ -48,7 +48,7 @@ fn armed(sampled: usize, now: usize, fall: usize, falls: u32) -> std::sync::Mute
     REGIONS.trim();
     assert_eq!(POOL.held(), 0, "a previous test left bytes held");
     POOL.arm(1 << 30);
-    (NOW.store(now, Relaxed), FALL.store(fall, Relaxed), FALLS.store(falls, Relaxed), READS.store(0, Relaxed), ANSWERS.store(1, Relaxed));
+    NOW.store(now, Relaxed); FALL.store(fall, Relaxed); FALLS.store(falls, Relaxed); READS.store(0, Relaxed); ANSWERS.store(1, Relaxed);
     set_settle_clock_for_test(Some(0));
     mcx::governor::set_resident_probe(resident_now);
     mcx::governor::publish(BAR, sampled, mcx::global_footprint::bytes());
@@ -147,8 +147,8 @@ fn a_release_too_slow_to_cover_the_deficit_halves_at_once() {
     POOL.gate(0);
     REGIONS.trim();
     POOL.arm(64 << 30);
-    let resident = (63usize << 30) as usize;
-    (NOW.store(resident, Relaxed), FALL.store(17 << 20, Relaxed), FALLS.store(1000, Relaxed), READS.store(0, Relaxed), ANSWERS.store(1, Relaxed));
+    let resident = (63usize << 30);
+    NOW.store(resident, Relaxed); FALL.store(17 << 20, Relaxed); FALLS.store(1000, Relaxed); READS.store(0, Relaxed); ANSWERS.store(1, Relaxed);
     set_settle_clock_for_test(Some(0));
     mcx::governor::set_resident_probe(resident_now);
     mcx::governor::publish(64 << 30, resident, mcx::global_footprint::bytes());

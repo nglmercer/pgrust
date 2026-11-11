@@ -398,11 +398,10 @@ pub fn RemoveNonParentXlogFiles(
         if !IsXLogFileName(fname) {
             continue;
         }
-        if fname[..8] < switchseg[..8] && fname[8..] > switchseg[8..] {
-            if !xlogarchive_seams::xlog_archive_is_ready::call(fname) {
+        if fname[..8] < switchseg[..8] && fname[8..] > switchseg[8..]
+            && !xlogarchive_seams::xlog_archive_is_ready::call(fname) {
                 RemoveXlogFile(fname, recycle_seg_no, &mut endlog_seg_no, new_tli)?;
             }
-        }
     }
     fd::FreeDir(xldir)?;
     Ok(())

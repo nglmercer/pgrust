@@ -653,7 +653,7 @@ fn install_syscache_fixture_overrides() {
     // pg_statistic seams (incl. stawidth) install via
     // init_seams_pg_statistic_only below; set-once seams forbid a second set.
     syscache_seams::pg_type_typanalyze::set(|_| Ok(0));
-    syscache_seams::syscache_hash_value_typeoid::set(|typid| Ok(typid));
+    syscache_seams::syscache_hash_value_typeoid::set(Ok);
     syscache_seams::lookup_pg_type_typcache_shape::set(|typid| {
         let mut typname = NameData::default();
         typname.namestrcpy("int4");
@@ -1118,11 +1118,11 @@ fn analyze_end_to_end_matches_live_postgres() {
     assert_eq!(mcv.valuetype().unwrap(), INT4OID);
     let mcv_vals: Vec<i32> = mcv.values().unwrap().iter().map(|d| d.as_i32()).collect();
     assert_eq!(mcv_vals, [1, 2, 3]);
-    let freqs: Vec<f32> = mcv.numbers().unwrap().iter().copied().collect();
+    let freqs: Vec<f32> = mcv.numbers().unwrap().to_vec();
     assert_eq!(freqs, [0.5, 0.3, 0.2]);
     let corr = &b.slots[1];
     assert_eq!(corr.kind, 3);
-    assert_eq!(corr.numbers().unwrap().iter().copied().collect::<Vec<_>>(), [1.0]);
+    assert_eq!(corr.numbers().unwrap().to_vec(), [1.0]);
 
     // Column u: stadistinct -1, histogram of 101 values 1..10000, correlation 1.
     let b = syscache_seams::lookup_pg_statistic_bundle::call(mcx, T_OID, 2, false)
@@ -1138,7 +1138,7 @@ fn analyze_end_to_end_matches_live_postgres() {
     assert_eq!(hist.values().unwrap()[100].as_i32(), 10000);
     let corr = &b.slots[1];
     assert_eq!(corr.kind, 3);
-    assert_eq!(corr.numbers().unwrap().iter().copied().collect::<Vec<_>>(), [1.0]);
+    assert_eq!(corr.numbers().unwrap().to_vec(), [1.0]);
     xact::CommitTransactionCommand().unwrap();
 
     assert_eq!(count_pg_statistic_rows(), 2);

@@ -162,7 +162,7 @@ pub fn pg_get_encoding_from_locale(ctype: Option<&str>, write_message: bool) -> 
     };
 
     if ctype.eq_ignore_ascii_case("C") || ctype.eq_ignore_ascii_case("POSIX") {
-        return Ok(PG_SQL_ASCII as i32);
+        return Ok(PG_SQL_ASCII);
     }
 
     let loc = crate::setup::newlocale_backend_env(crate::lc::LC_CTYPE_MASK, ctype, core::ptr::null_mut());
@@ -184,7 +184,7 @@ pub fn pg_get_encoding_from_locale(ctype: Option<&str>, write_message: bool) -> 
 
     for (enc, name) in ENCODING_MATCH_LIST {
         if sys.eq_ignore_ascii_case(name) {
-            return Ok(*enc as i32);
+            return Ok(*enc);
         }
     }
 

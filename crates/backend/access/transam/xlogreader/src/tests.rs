@@ -34,7 +34,7 @@ impl WalSim {
     }
 
     fn page_init(&mut self, pageaddr: u64, rem_len: u32) {
-        let long = pageaddr % SEGSZ as u64 == 0;
+        let long = pageaddr.is_multiple_of(SEGSZ as u64);
         let mut info: u16 = 0;
         if long {
             info |= XLP_LONG_HEADER;
@@ -56,9 +56,9 @@ impl WalSim {
     }
 
     fn append(&mut self, rmid: u8, info: u8, xid: u32, body: &[u8]) -> u64 {
-        if self.insert % PG == 0 {
+        if self.insert.is_multiple_of(PG) {
             self.page_init(self.insert, 0);
-            self.insert += XLogPageHeaderSize(if self.insert % SEGSZ as u64 == 0 {
+            self.insert += XLogPageHeaderSize(if self.insert.is_multiple_of(SEGSZ as u64) {
                 XLP_LONG_HEADER
             } else {
                 0
@@ -82,9 +82,9 @@ impl WalSim {
         let mut pos = start;
         let mut written = 0usize;
         while written < rec.len() {
-            if pos % PG == 0 {
+            if pos.is_multiple_of(PG) {
                 self.page_init(pos, (rec.len() - written) as u32);
-                pos += XLogPageHeaderSize(if pos % SEGSZ as u64 == 0 {
+                pos += XLogPageHeaderSize(if pos.is_multiple_of(SEGSZ as u64) {
                     XLP_LONG_HEADER
                 } else {
                     0

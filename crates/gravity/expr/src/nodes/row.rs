@@ -177,7 +177,7 @@ fn wide_call(e: *mut ErrSlot, region: *mut Region, a: &[Arg], image: bool) -> Re
 
 /// Never called (the emitted code only stores into a continuation site's cell): a call is the emitter's bug, an error.
 fn more_shim(e: *mut ErrSlot, _region: *mut Region, _coll: u32, _ty: &[u32], _a: &[Arg]) -> Ret {
-    ret_of(e, Err(Box::new(types_error::PgError::error("gravity: a continuation site was called".to_string())).into())) // alloc: Cold
+    ret_of(e, Err(Box::new(types_error::PgError::error("gravity: a continuation site was called".to_string())))) // alloc: Cold
 }
 
 /// `form_row` over a wide row's words: word `w / 64` of the mask says value `w` is NULL; value `i` is word `mask_words(n) + i`.

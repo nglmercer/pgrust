@@ -170,7 +170,7 @@ impl Open<'_> {
                 step.tick()?;
                 if let Err(e) = merge.merge_partition(leader, part, plan, &partials[..n]) {
                     let h = raw::head_words(leader);
-                    self.exec.node().counters.p2_fail.set([part, h[0], (h[3] & 0xff) as u32, h[1]]);
+                    self.exec.node().counters.p2_fail.set([part, h[0], (h[3] & 0xff), h[1]]);
                     return Err(e);
                 }
             }
@@ -666,7 +666,7 @@ fn own_all_lent(step: &mut cancelpoll::Step, merge: &dyn Merge, ctx: *mut gravit
     // one partition's table (twice its records' bytes): at the shape's floor alone a spilled partition overfilled the table,
     // fold_sub re-read it at every split depth and D533 re-ran round 1 at each doubling (a 2 M-row count(DISTINCT) per group
     // spilled at work_mem: 12 s against PG's 1 s)
-    let part = 2 * (gravity_abi::breaker::HASHAGG_HDR + (4 * held >> pbits).max(64 * rec));
+    let part = 2 * (gravity_abi::breaker::HASHAGG_HDR + ((4 * held) >> pbits).max(64 * rec));
     // D4078: the spare is the statement's already (the leader region, or the owners' chunk an overflowed owner phase left
     // idle): a round 1 laid in it pins nothing, so the statement's wall bounds only a fresh pin (lifetime_d3437's union at
     // W8: a 128 MiB cut of a 200 MB owners' chunk overflowed and split into a second ~200 MB pin)
@@ -685,7 +685,7 @@ fn own_all_lent(step: &mut cancelpoll::Step, merge: &dyn Merge, ctx: *mut gravit
         bufs.parts.resize(1 << pbits, 0); // alloc: Cold
         merge.part_record_bytes(partials, files, pbits, &mut bufs.parts)
     };
-    let table = if counted { 4 * bufs.parts.iter().copied().max().unwrap_or(0) as usize } else { 4 * held >> pbits };
+    let table = if counted { 4 * bufs.parts.iter().copied().max().unwrap_or(0) as usize } else { (4 * held) >> pbits };
     let bytes = match kept {
         Some(k) => k.region(table.max(64 * rec).max(KEPT_TABLE_MIN)).min(wall).min(owner_first_at()).next_multiple_of(8),
         None => bytes,
@@ -1303,7 +1303,7 @@ pub fn one_owner_whole_bytes(held: usize, rec: usize) -> usize {
 pub(crate) fn owner_share_bytes(held: usize, rec: usize, width: u16, pbits: u8, two_round: bool, fits: impl Fn(usize) -> bool) -> Option<usize> {
     let share = held.div_ceil(width.max(1) as usize);
     let ask = one_owner_bytes(share + share / 4, rec);
-    let ask = if two_round { ask.max(2 * (gravity_abi::breaker::HASHAGG_HDR + (4 * held >> pbits).max(64 * rec))) } else { ask };
+    let ask = if two_round { ask.max(2 * (gravity_abi::breaker::HASHAGG_HDR + ((4 * held) >> pbits).max(64 * rec))) } else { ask };
     let top = owner_region_bytes(ask, share, |b| fits(b as usize)).ok()?;
     Some(least_fit(top, ask, fits))
 }
@@ -1765,13 +1765,13 @@ impl Entry {
                     let ptr = slot.state_ptr;
                     // the worker's own partial region (`ptr`), idle after the section; a T1 header names its shape
                     if let Some(t) = shape.is_none().then(|| gravity_abi::breaker::T1::of(partial.bytes)).flatten() {
-                        shape = Some((t.layout, t.pbits, t.cap.saturating_mul(t.layout.size() as u32)));
+                        shape = Some((t.layout, t.pbits, t.cap.saturating_mul(t.layout.size())));
                     }
                     if let Err(e) = node.spill_partial(pipeline, ptr) {
                         r = Err(e);
                         break;
                     }
-                } else if let (false, true, Some(t1)) = (merged, hands, gravity_abi::breaker::T1::of(partial.bytes).map(|t| (t.layout, t.pbits, t.cap.saturating_mul(t.layout.size() as u32)))) {
+                } else if let (false, true, Some(t1)) = (merged, hands, gravity_abi::breaker::T1::of(partial.bytes).map(|t| (t.layout, t.pbits, t.cap.saturating_mul(t.layout.size())))) {
                     let ptr = slot.state_ptr;
                     // NEW-53: a phase-1 table, as the word form's above; the leader's table is laid in the shape once a record went
                     // on (a RIGHT SEMI / ANTI probe's tables stay empty: nothing handed, the leader left as before)
@@ -2062,7 +2062,7 @@ mod owner_region_tests {
     fn the_owner_cut_stays_inside_a_leader_region_the_pool_opened_smaller() {
         use crate::mem::grant::Grant;
         let split = Grant::of(15780 << 20).split(1, 8);
-        assert_eq!(split.breaker.bytes, u32::MAX & !7, "the leader's share at the u32 cap");
+        assert_eq!(split.breaker.bytes, !7, "the leader's share at the u32 cap");
         assert_eq!(crate::park::region_bytes(split.breaker.bytes as usize), 1 << 32, "its region: the 4294967296 B draw");
         assert_eq!(split.owner.bytes, 0x1FFF_FFF0, "the grant's owner cut at W8");
         let held = OWNER_CUT_HELD.load(Ordering::Relaxed);

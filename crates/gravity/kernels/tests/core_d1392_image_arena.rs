@@ -88,7 +88,7 @@ unsafe fn claim_with(b: &mut Bound, text: &[u8], sized: bool) -> usize {
 }
 
 fn text(i: usize) -> &'static [u8] {
-    if i % 2 == 0 { b"MAIL" } else { b"SHIP" }
+    if i.is_multiple_of(2) { b"MAIL" } else { b"SHIP" }
 }
 
 #[test]

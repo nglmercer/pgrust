@@ -1332,6 +1332,8 @@ pub const PIV_IGNORE_CHECKSUM_FAILURE: u32 = 1 << 2;
 /// when the cluster has data checksums. `checksum_failure_p` reports checksum
 /// failures even when the page is accepted (PIV_IGNORE_CHECKSUM_FAILURE), so
 /// callers can count them.
+// Kept safe on purpose: C's PageIsVerified takes the block's page pointer, valid for the buffer's pin.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub fn page_is_verified(
     page: *const u8,
     blkno: BlockNumber,
@@ -1368,7 +1370,7 @@ pub fn page_is_verified(
             checksum = unsafe { crate::write::checksum::page_checksum_raw(page, blkno) };
             if checksum != pd_checksum {
                 checksum_failure = true;
-                if let Some(p) = checksum_failure_p.as_deref_mut() {
+                if let Some(p) = checksum_failure_p {
                     *p = true;
                 }
             }

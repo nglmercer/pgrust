@@ -692,8 +692,8 @@ pub fn LaunchMissingBackgroundProcesses() {
         with_pm(|pm| pm.slotsync_worker = c);
     }
 
-    if with_pm(|pm| pm.wal_receiver_requested) {
-        if with_pm(|pm| {
+    if with_pm(|pm| pm.wal_receiver_requested)
+        && with_pm(|pm| {
             pm.walreceiver.is_none()
                 && matches!(
                     pm.pm_state,
@@ -709,7 +709,6 @@ pub fn LaunchMissingBackgroundProcesses() {
                 }
             });
         }
-    }
 
     if guc_tables::vars::summarize_wal.read()
         && with_pm(|pm| {

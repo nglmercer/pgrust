@@ -537,7 +537,7 @@ fn ivarith_stmt(g: &mut Gen) -> String {
 /// early-return in overlaps_timestamp/overlaps_time is a line region).
 fn overlaps_stmt(g: &mut Gen) -> String {
     let time_side = g.rng.chance(1, 3);
-    let mut pick_operand = |g: &mut Gen| -> String {
+    let pick_operand = |g: &mut Gen| -> String {
         if g.rng.chance(1, 6) {
             return "NULL".to_string();
         }

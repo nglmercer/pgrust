@@ -113,7 +113,7 @@ pub fn index_getprocid(index: &Relation<'_>, attno_0based: usize, procnum: u16) 
 /// index has INCLUDE columns).
 pub fn initGISTstate<'mcx>(mcx: Mcx<'mcx>, index: &Relation<'mcx>) -> PgResult<GistState<'mcx>> {
     let natts = index.rd_att.natts;
-    if natts > INDEX_MAX_KEYS as i32 {
+    if natts > INDEX_MAX_KEYS {
         // gist.c:1546 elog(ERROR): a catchable XX000, not a panic.
         return Err(Box::new(
             ::types_error::PgError::error(format!(

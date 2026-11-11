@@ -610,7 +610,7 @@ pub fn int8_fixture(
 }
 
 fn text_payload(i: u64) -> Vec<u8> {
-    if i % 50 == 0 {
+    if i.is_multiple_of(50) {
         // ≥ OVERSIZE_THRESHOLD (32 KiB) — routes through the overflow
         // region.
         let mut v = vec![0u8; 33_000];
@@ -618,7 +618,7 @@ fn text_payload(i: u64) -> Vec<u8> {
             *b = (mix(i).wrapping_add(k as u64) & 0xFF) as u8;
         }
         v
-    } else if i % 7 == 0 {
+    } else if i.is_multiple_of(7) {
         Vec::new()
     } else {
         let len = 5 + (mix(i) % 120) as usize;

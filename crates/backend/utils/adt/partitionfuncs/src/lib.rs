@@ -84,7 +84,7 @@ fn collect_tree_rows(flinfo: &FmgrInfo, fcinfo: &mut Fcinfo, rootrelid: Oid) -> 
         values[3] = Datum::from_i32(level);
 
         let tuple = heaptuple::heap_form_tuple(mcx, &desc, &values, &nulls)?;
-        tuples.push(::mcx::std_vec_from_slice("adt", &tuple.image())?);
+        tuples.push(::mcx::std_vec_from_slice("adt", tuple.image())?);
     }
     Ok(TreeRows { tuples })
 }

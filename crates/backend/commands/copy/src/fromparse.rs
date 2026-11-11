@@ -1061,11 +1061,7 @@ impl<'mcx, 's> CopyFromState<'mcx, 's> {
                 // SAFETY: the read_attributes arms NUL-terminate each field.
                 Some(unsafe { CStr::from_ptr(bytes.as_ptr() as *const core::ffi::c_char) })
             };
-            if cstr.is_some() {
-                nulls[m] = false;
-            } else {
-                nulls[m] = true;
-            }
+            nulls[m] = cstr.is_none();
             if self.defaults[m] {
                 let state = self.defexprs[m].as_mut().expect("DEFAULT marker sans defexpr");
                 let mut slots = execexpr::EvalSlots { scan: None, inner: None, outer: None };

@@ -159,7 +159,7 @@ fn make_old_new_rte<'mcx>(
     rte.rtekind = RTEKind::RTE_RELATION;
     rte.relid = relid;
     rte.relkind = relkind;
-    rte.rellockmode = AccessShareLock as i32;
+    rte.rellockmode = AccessShareLock;
     rte.alias = Some(alias);
     rte.eref = Some(alias);
     rte.inFromCl = true;

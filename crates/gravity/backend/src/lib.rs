@@ -64,7 +64,7 @@ pub fn mapped_cached_all(program: &Program, entries: &[Func]) -> PgResult<(Vec<C
 /// knobs/tier0.rs `site_rows`: a projection's entries and its node's planned rows); the derived cap weighs them (`sited_cap`).
 pub fn mapped_cached_keyed(program: &Program, entries: &[Func], key: Option<cache::CodeKey>, sites: &[(u32, u64)]) -> PgResult<(Vec<Code>, Outcome)> {
     check_entries(program, entries)?;
-    debug_assert!(key.map_or(true, |k| k == cache::key_of(program)), "gravity backend: a code key that is not the program's");
+    debug_assert!(key.is_none_or(|k| k == cache::key_of(program)), "gravity backend: a code key that is not the program's");
     let key = key.unwrap_or_else(|| cache::key_of(program));
     let (cap, derived) = tier0_rows(program);
     let (rows, bound) = if cap != 0 { rows_read() } else { (u64::MAX, u64::MAX) };
@@ -235,27 +235,6 @@ fn sited_rows(lines: u64, rows: u64, sites: &[(u32, u64)]) -> Option<u64> {
     }
     let saved: f64 = sites.iter().map(|&(l, r)| l as f64 * (1.0 - r.min(rows) as f64 / rows as f64)).sum();
     Some(gravity_program::cost::compile::tier0_rows_running(lines, lines as f64 - saved.min(lines as f64)))
-}
-
-#[cfg(test)]
-mod sited {
-    use super::sited_rows;
-    use gravity_program::cost::compile::tier0_rows;
-
-    #[test]
-    fn a_projection_over_few_rows_raises_the_cap() {
-        // 50,000 of 55,000 lines project the 2 rows a filter keeps of 1,000 read: the cap clears the 1,000
-        let cap = sited_rows(55_000, 1_000, &[(50_000, 2)]).unwrap();
-        assert!(cap > 1_000 && tier0_rows(55_000) < 1_000, "{cap} against the plain {}", tier0_rows(55_000));
-        // a site on every row the statement reads (or more, or unknown) saves nothing
-        assert_eq!(sited_rows(55_000, 1_000, &[(50_000, 1_000)]), Some(tier0_rows(55_000)));
-        assert_eq!(sited_rows(55_000, 1_000, &[(50_000, u64::MAX)]), Some(tier0_rows(55_000)));
-        // no site, or no bound on the statement's rows: the plain cap
-        assert_eq!(sited_rows(55_000, 1_000, &[]), None);
-        assert_eq!(sited_rows(55_000, u64::MAX, &[(50_000, 2)]), None);
-        // tagged lines past the program's (dead blocks emptied after the lowering) are held to its lines
-        assert_eq!(sited_rows(1_000, 1_000, &[(5_000, 0)]), sited_rows(1_000, 1_000, &[(1_000, 0)]));
-    }
 }
 
 /// Misses tier 0 could not take (a host the interpreter refuses), compiled at once.
@@ -452,4 +431,25 @@ pub fn interp(program: Program, entry: Func) -> Result<Code, String> {
 fn interp_shared(program: std::sync::Arc<Program>, entry: Func, key: u128) -> Result<Code, String> {
     check_entry(&program, entry)?;
     Ok(Code::interp(interp_run, Box::new(InterpState { program, entry })).with_identity(key ^ entry.0 as u128)) // alloc: Program
+}
+
+#[cfg(test)]
+mod sited {
+    use super::sited_rows;
+    use gravity_program::cost::compile::tier0_rows;
+
+    #[test]
+    fn a_projection_over_few_rows_raises_the_cap() {
+        // 50,000 of 55,000 lines project the 2 rows a filter keeps of 1,000 read: the cap clears the 1,000
+        let cap = sited_rows(55_000, 1_000, &[(50_000, 2)]).unwrap();
+        assert!(cap > 1_000 && tier0_rows(55_000) < 1_000, "{cap} against the plain {}", tier0_rows(55_000));
+        // a site on every row the statement reads (or more, or unknown) saves nothing
+        assert_eq!(sited_rows(55_000, 1_000, &[(50_000, 1_000)]), Some(tier0_rows(55_000)));
+        assert_eq!(sited_rows(55_000, 1_000, &[(50_000, u64::MAX)]), Some(tier0_rows(55_000)));
+        // no site, or no bound on the statement's rows: the plain cap
+        assert_eq!(sited_rows(55_000, 1_000, &[]), None);
+        assert_eq!(sited_rows(55_000, u64::MAX, &[(50_000, 2)]), None);
+        // tagged lines past the program's (dead blocks emptied after the lowering) are held to its lines
+        assert_eq!(sited_rows(1_000, 1_000, &[(5_000, 0)]), sited_rows(1_000, 1_000, &[(1_000, 0)]));
+    }
 }

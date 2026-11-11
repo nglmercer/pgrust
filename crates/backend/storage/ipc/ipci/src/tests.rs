@@ -186,7 +186,7 @@ fn create_shared_memory_and_semaphores_end_to_end() {
 
     assert_eq!(STARTUP_HOOK_RUNS.load(Ordering::Relaxed), 1);
     assert_eq!(BE_STATUS_INITS.load(Ordering::Relaxed), 1);
-    assert_eq!(lmgr_proc::ProcGlobal().allProcs.len() > 0, true);
+    assert!(!lmgr_proc::ProcGlobal().allProcs.is_empty());
     pmsignal::MarkPostmasterChildSlotAssigned(1).unwrap();
     assert!(pmsignal::MarkPostmasterChildSlotUnassigned(1));
 

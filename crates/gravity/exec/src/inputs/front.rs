@@ -1944,7 +1944,7 @@ fn file(f: &Front<'_>, key: ContentKey, nodes: &[Node<'_>], needs: (bool, bool),
         + synth.len() * core::mem::size_of::<u32>()
         + built.len() * core::mem::size_of::<Built>()
         + images.iter().map(|(_, b): &(u32, Box<[u8]>)| core::mem::size_of::<(u32, Box<[u8]>)>() + b.len()).sum::<usize>()
-        + est.map_or(0, |e| e.len() * core::mem::size_of::<PipeEst>())
+        + est.map_or(0, std::mem::size_of_val)
         + f.morsel.len() * core::mem::size_of::<(i32, u64)>()
         + sites.as_ref().map_or(0, |t| t.pipes.len() * core::mem::size_of::<u16>() + t.rates.iter().map(|(_, r)| core::mem::size_of::<(u16, Box<[i32]>)>() + r.len() * core::mem::size_of::<i32>()).sum::<usize>());
     let charge = memledger::Charge::open(memledger::Owner::Session(memledger::current()), memledger::Release::Session, memledger::Kind::Region, memledger::charge::Door::Heap, heap as u64);

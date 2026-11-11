@@ -10,7 +10,7 @@ type Oid = u32;
 /// for the default's).
 pub fn index_family(opfamily: Oid, opcintype: Oid, atttypid: Option<Oid>) -> u32 {
     let default = |t: Oid| default_family(t) == Some(opfamily);
-    if default(opcintype) || atttypid.is_some_and(default) { 0 } else { opfamily as u32 }
+    if default(opcintype) || atttypid.is_some_and(default) { 0 } else { opfamily }
 }
 
 /// OID-07: whether operator `opno` is a btree equality of any family (`get_mergejoin_opfamilies`: strategy 3 in some btree

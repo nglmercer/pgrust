@@ -402,7 +402,7 @@ fn split_identifier_string(raw: &str, separator: char) -> Result<Vec<String>, St
                     }
                     Some((_, '"')) => break,
                     Some((_, ch)) => identifier.push(ch),
-                    None => return Err(syntax_error().into()),
+                    None => return Err(syntax_error()),
                 }
             }
             identifier
@@ -416,7 +416,7 @@ fn split_identifier_string(raw: &str, separator: char) -> Result<Vec<String>, St
                 identifier.push(ch.to_ascii_lowercase());
             }
             if identifier.is_empty() {
-                return Err(syntax_error().into());
+                return Err(syntax_error());
             }
             identifier
         };
@@ -433,10 +433,10 @@ fn split_identifier_string(raw: &str, separator: char) -> Result<Vec<String>, St
                 }
                 identifiers.push(identifier);
                 if chars.peek().is_none() {
-                    return Err(syntax_error().into());
+                    return Err(syntax_error());
                 }
             }
-            Some(_) => return Err(syntax_error().into()),
+            Some(_) => return Err(syntax_error()),
             None => {
                 identifiers.push(identifier);
                 break;

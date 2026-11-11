@@ -272,7 +272,7 @@ impl Segmentator {
         self.last_was_esc = false;
         self.line_start_at = self.bytes_total + pos as u64;
         let g = self.o.grain;
-        if self.chunk_rows > 0 && self.chunk_rows % g == 0 {
+        if self.chunk_rows > 0 && self.chunk_rows.is_multiple_of(g) {
             let held = self.seg_bytes + (pos - self.seg_start) as u64;
             if self.chunk_rows >= g * self.o.grains || held >= self.o.target_bytes {
                 self.cut(buf, pos, out);

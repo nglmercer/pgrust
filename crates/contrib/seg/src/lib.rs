@@ -43,7 +43,7 @@ fn ret_null(fcinfo: &mut Fcinfo) -> Datum {
 
 fn fc_seg_in(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
     // SAFETY: catalog arg 0 is cstring.
-    let s = ::mcx::std_vec_from_slice("seg", &unsafe { fcinfo.arg_cstring(0) }.to_bytes())?;
+    let s = ::mcx::std_vec_from_slice("seg", unsafe { fcinfo.arg_cstring(0) }.to_bytes())?;
     match parse::parse_seg(&s) {
         Ok(seg) => ret_seg(fcinfo, &seg),
         Err(e) => {

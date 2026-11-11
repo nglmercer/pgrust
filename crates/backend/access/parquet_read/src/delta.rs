@@ -83,14 +83,14 @@ pub(crate) fn delta_binary_packed(
     let block_size = uleb(buf, end, pos)? as usize;
     let miniblocks = uleb(buf, end, pos)? as usize;
     let total = uleb(buf, end, pos)? as usize;
-    if block_size == 0 || miniblocks == 0 || block_size % 128 != 0 || block_size % miniblocks != 0 {
+    if block_size == 0 || miniblocks == 0 || !block_size.is_multiple_of(128) || !block_size.is_multiple_of(miniblocks) {
         return Err(Box::new(types_error::PgError::error(format!( // alloc: Cold
             "corrupt parquet page: invalid delta block shape (block size {block_size}, {miniblocks} miniblocks, {total} values)"
         ))
         .with_sqlstate(types_error::ERRCODE_BAD_COPY_FILE_FORMAT)));
     }
     let per_mini = block_size / miniblocks;
-    if per_mini % 32 != 0 {
+    if !per_mini.is_multiple_of(32) {
         return Err(corrupt_page("delta miniblock size is not a multiple of 32"));
     }
     if total != expected {

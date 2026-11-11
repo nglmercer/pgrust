@@ -2019,6 +2019,17 @@ fn name_arg<'mcx>(mcx: Mcx<'mcx>, name: &[u8]) -> PgResult<PgVec<'mcx, u8>> {
     Ok(buf)
 }
 
+fn eq_key(attno: AttrNumber, func: RegProcedure, arg: Datum) -> ScanKeyData {
+    let mut key = ScanKeyData::empty();
+    key.sk_attno = attno;
+    key.sk_strategy = BTEqualStrategyNumber;
+    key.sk_collation = types_core::C_COLLATION_OID;
+    key.sk_func = fmgr_seams::fmgr_info::call(func)
+        .unwrap_or_else(|e| panic!("fmgr_info({func}) failed: {e:?}"));
+    key.sk_argument = arg;
+    key
+}
+
 #[cfg(test)]
 mod tests {
     use types_relscan::IndexAmKind::*;
@@ -2186,15 +2197,4 @@ mod tests {
             "index definitions without an access method are not supported yet"
         );
     }
-}
-
-fn eq_key(attno: AttrNumber, func: RegProcedure, arg: Datum) -> ScanKeyData {
-    let mut key = ScanKeyData::empty();
-    key.sk_attno = attno;
-    key.sk_strategy = BTEqualStrategyNumber;
-    key.sk_collation = types_core::C_COLLATION_OID;
-    key.sk_func = fmgr_seams::fmgr_info::call(func)
-        .unwrap_or_else(|e| panic!("fmgr_info({func}) failed: {e:?}"));
-    key.sk_argument = arg;
-    key
 }

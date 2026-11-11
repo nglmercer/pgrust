@@ -51,7 +51,7 @@ impl Bitmap {
         debug_assert!(i <= self.nbits);
         let full = (i / 64) as usize;
         let mut n: u32 = self.words[..full].iter().map(|w| w.count_ones()).sum();
-        if i % 64 != 0 {
+        if !i.is_multiple_of(64) {
             n += (self.words[full] & ((1u64 << (i % 64)) - 1)).count_ones();
         }
         n

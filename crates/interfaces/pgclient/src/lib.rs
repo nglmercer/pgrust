@@ -3281,7 +3281,7 @@ fn parse_body(stmt_name: &str, query: &str, param_types: &[Oid], nparams: usize)
     b.push(0);
     b.extend_from_slice(&(nparams as u16).to_be_bytes());
     for i in 0..nparams {
-        let oid = param_types.get(i).copied().map(u32::from).unwrap_or(0);
+        let oid = param_types.get(i).copied().unwrap_or(0);
         b.extend_from_slice(&oid.to_be_bytes());
     }
     b

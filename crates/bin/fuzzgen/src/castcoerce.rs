@@ -306,7 +306,7 @@ fn gen_unknown(g: &mut Gen) -> String {
     g.fire("castcoerce:unknown");
     match g.rng.below(7) {
         // Bare literal -> text (the default resolution).
-        0 => format!("{}", g.rng.pick(&["'hello'", "'42'", "' '", "''"])),
+        0 => g.rng.pick(&["'hello'", "'42'", "' '", "''"]).to_string(),
         // Operator forces the unknown to the other operand's type.
         1 => {
             let n = *g.rng.pick(&["1", "2", "100"]);

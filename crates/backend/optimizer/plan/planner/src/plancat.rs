@@ -1989,7 +1989,7 @@ pub(crate) fn check_relation_has_table_am(relkind: u8, relname: &str) -> PgResul
 // panic.
 pub(crate) fn check_selectivity_range(result: f64, kind: &str) -> PgResult<f64> {
     // C tests `result < 0.0 || result > 1.0`, so a NaN estimate passes.
-    if !(result < 0.0 || result > 1.0) {
+    if !!(0.0..=1.0).contains(&result) {
         return Ok(result);
     }
     Err(Box::new(types_error::PgError::error(format!(

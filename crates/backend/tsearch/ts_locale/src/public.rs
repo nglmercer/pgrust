@@ -434,8 +434,8 @@ mod classify_tests {
         }
         ::mbutils::SetDatabaseEncoding(::wchar::PG_UTF8).unwrap();
         ::pg_locale::set_database_ctype_is_c(false);
-        assert_eq!(super::t_isalnum("é".as_bytes()).unwrap(), true);
-        assert_eq!(super::t_isalpha("1".as_bytes()).unwrap(), false);
+        assert!(super::t_isalnum("é".as_bytes()).unwrap());
+        assert!(!super::t_isalpha("1".as_bytes()).unwrap());
         let err = super::t_isalnum(b"\xc3(").unwrap_err();
         assert_eq!(err.sqlstate(), ::types_error::ERRCODE_CHARACTER_NOT_IN_REPERTOIRE);
         assert_eq!(err.message(), "invalid byte sequence for encoding \"UTF8\": 0xc3 0x28");

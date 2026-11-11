@@ -164,8 +164,8 @@ pub fn create_index_paths<'mcx>(run: &mut PlannerRun<'mcx>, rel: RelId) -> PgRes
             continue;
         }
         let mut rclauseset = IndexClauseSet::new(mcx, index.nkeycolumns as usize);
-        match_restriction_clauses_to_index(run, &index, &mut rclauseset)?;
-        get_index_paths(run, rel, &index, &rclauseset, &mut bitindexpaths)?;
+        match_restriction_clauses_to_index(run, index, &mut rclauseset)?;
+        get_index_paths(run, rel, index, &rclauseset, &mut bitindexpaths)?;
 
         // Without join or EC-join clauses both match passes are no-ops; skip
         // their clause-set builds (strictly less work than C's stack MemSets).
@@ -175,16 +175,16 @@ pub fn create_index_paths<'mcx>(run: &mut PlannerRun<'mcx>, rel: RelId) -> PgRes
 
         // "Loose" join clauses not absorbed into ECs.
         let mut jclauseset = IndexClauseSet::new(mcx, index.nkeycolumns as usize);
-        match_join_clauses_to_index(run, rel, &index, &mut jclauseset, &mut joinorclauses)?;
+        match_join_clauses_to_index(run, rel, index, &mut jclauseset, &mut joinorclauses)?;
 
         let mut eclauseset = IndexClauseSet::new(mcx, index.nkeycolumns as usize);
-        match_eclass_clauses_to_index(run, &index, &mut eclauseset)?;
+        match_eclass_clauses_to_index(run, index, &mut eclauseset)?;
 
         if jclauseset.nonempty || eclauseset.nonempty {
             consider_index_join_clauses(
                 run,
                 rel,
-                &index,
+                index,
                 &rclauseset,
                 &jclauseset,
                 &eclauseset,
@@ -591,7 +591,7 @@ fn match_join_clauses_to_index<'mcx>(
             continue;
         }
         if clauses::is_orclause(*run.root.expr_node(run.root.rinfo(rid).clause))
-            && !joinorclauses.iter().any(|&x| x == rid)
+            && !joinorclauses.contains(&rid)
         {
             joinorclauses.push(rid);
         }
@@ -2415,8 +2415,8 @@ fn build_paths_for_or<'mcx>(
             continue;
         }
         let mut useful_predicate = false;
-        if !index.indpred.is_empty() {
-            if !index.predOK.get() {
+        if !index.indpred.is_empty()
+            && !index.predOK.get() {
                 if all_clause_nodes.is_none() {
                     let mut v: PgVec<'mcx, Node<'mcx>> = PgVec::new_in(mcx);
                     for &r in clauses.iter().chain(other_clauses.iter()) {
@@ -2444,7 +2444,6 @@ fn build_paths_for_or<'mcx>(
                     useful_predicate = true;
                 }
             }
-        }
         let mut clauseset = IndexClauseSet::new(mcx, index.nkeycolumns as usize);
         for &r in clauses {
             match_clause_to_index(run, r, index, &mut clauseset)?;

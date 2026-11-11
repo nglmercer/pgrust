@@ -357,7 +357,7 @@ pub fn xlog_redo(record: &mut XLogReaderState) -> PgResult<()> {
                 lwlock::LW_EXCLUSIVE,
                 init_small::globals::MyProcNumber(),
             )?;
-            let update = (|| -> PgResult<()> {
+            let update = {
                 control_file_update(|cf| {
                     cf.MaxConnections = max_connections;
                     cf.max_worker_processes = max_worker_processes;
@@ -384,7 +384,7 @@ pub fn xlog_redo(record: &mut XLogReaderState) -> PgResult<()> {
                     });
                 }
                 UpdateControlFile()
-            })();
+            };
             let release = lwlock::LWLockRelease(ControlFileLock());
             update?;
             release?;

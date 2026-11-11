@@ -153,7 +153,7 @@ impl StrCell {
     /// live). Inline cells borrow from the cell itself. The returned slice
     /// must not outlive the claim.
     #[inline]
-    pub unsafe fn content<'a>(&'a self) -> &'a [u8] {
+    pub unsafe fn content(&self) -> &[u8] {
         if self.is_inline() {
             // SAFETY: in-bounds view of the cell's own 12 content bytes.
             unsafe { core::slice::from_raw_parts(self.prefix.as_ptr(), self.len as usize) }

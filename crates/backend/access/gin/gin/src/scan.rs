@@ -252,7 +252,7 @@ pub(crate) fn ginNewScanKey(
 ) -> PgResult<()> {
     let state = so.ginstate.expect("ginstate initialized at beginscan");
     let mut owner = GinScanWork::new();
-    owner.with(|mut work| {
+    owner.with(|work| {
     so.isVoidRes = false;
 
     let mut has_null_query = false;
@@ -310,7 +310,7 @@ pub(crate) fn ginNewScanKey(
             .collect();
         fill_scan_key(
             &state,
-            &mut work,
+            work,
             skey.sk_attno as OffsetNumber,
             skey.sk_strategy,
             search_mode,
@@ -338,7 +338,7 @@ pub(crate) fn ginNewScanKey(
         let a = work.keys[i].attnum as usize - 1;
         if !attr_has_normal_scan[a] {
             work.keys[i].excludeOnly = false;
-            add_hidden_entry(&state, &mut work, i, GIN_CAT_EMPTY_QUERY)?;
+            add_hidden_entry(&state, work, i, GIN_CAT_EMPTY_QUERY)?;
             attr_has_normal_scan[a] = true;
         } else {
             num_exclude_only += 1;
@@ -358,7 +358,7 @@ pub(crate) fn ginNewScanKey(
         let empty_map = mcx::vec_new_in(kcx2);
         fill_scan_key(
             &state,
-            &mut work,
+            work,
             FirstOffsetNumber,
             InvalidStrategy,
             GIN_SEARCH_MODE_EVERYTHING,

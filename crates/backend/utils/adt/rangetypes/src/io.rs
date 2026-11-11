@@ -39,11 +39,11 @@ fn no_binary_io(recv: bool, elem_typid: Oid) -> Box<PgError> {
     )
 }
 
-pub fn cached_range_io_data<'f>(
-    flinfo: &'f mut FmgrInfo,
+pub fn cached_range_io_data(
+    flinfo: &mut FmgrInfo,
     rngtypid: Oid,
     func: IOFuncSelector,
-) -> PgResult<&'f mut RangeIOData> {
+) -> PgResult<&mut RangeIOData> {
     let need = match flinfo.fn_extra_ref::<RangeIOData>() {
         Some(c) => c.ri.rngtypid != rngtypid,
         None => true,
@@ -385,7 +385,7 @@ pub fn range_in<'m>(
         lower: false,
     };
 
-    let ctx = soft.as_deref_mut().map(|n| &mut n.ctx);
+    let ctx = soft.map(|n| &mut n.ctx);
     make_range(mcx, &mut cache.ri, &mut lower, &mut upper, flags & RANGE_EMPTY != 0, ctx)
 }
 

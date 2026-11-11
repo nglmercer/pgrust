@@ -24,7 +24,7 @@ const LIBRARY: &str = "ltree";
 
 // Full 4B-header image of a by-ref varlena arg; short/toasted forms are
 // canonicalized because the repr walkers read VARSIZE = word >> 2.
-unsafe fn arg_image<'a>(fcinfo: &'a Fcinfo, i: usize) -> PgResult<Vec<u8>> {
+unsafe fn arg_image(fcinfo: &Fcinfo, i: usize) -> PgResult<Vec<u8>> {
     // PG_FREE_IF_COPY parity (ltree_op.c:121): the detoasted copy dies here
     // instead of accumulating in a sort's context.
     let scratch = mcx::MemoryContext::new_wholesale("ltree arg detoast");
@@ -38,7 +38,7 @@ unsafe fn arg_image<'a>(fcinfo: &'a Fcinfo, i: usize) -> PgResult<Vec<u8>> {
     Ok(img)
 }
 
-unsafe fn arg_payload<'a>(fcinfo: &'a Fcinfo, i: usize) -> PgResult<&'a [u8]> {
+unsafe fn arg_payload(fcinfo: &Fcinfo, i: usize) -> PgResult<&[u8]> {
     // SAFETY: forwarded caller contract — non-null varlena arg (strict fn).
     Ok(unsafe { fcinfo.arg_varlena_packed(i)? }.data())
 }
@@ -266,13 +266,13 @@ fn fc_ltree_addltree(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult
 
 fn fc_ltree_addtext(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
     let a = unsafe { arg_image(fcinfo, 0)? };
-    let b = ::mcx::std_vec_from_slice("ltree", &cstring_prefix(unsafe { arg_payload(fcinfo, 1)? }))?;
+    let b = ::mcx::std_vec_from_slice("ltree", cstring_prefix(unsafe { arg_payload(fcinfo, 1)? }))?;
     let tmp = io::parse_ltree(&b)?;
     ret_image(fcinfo, &op::ltree_concat(&a, &tmp)?)
 }
 
 fn fc_ltree_textadd(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
-    let b = ::mcx::std_vec_from_slice("ltree", &cstring_prefix(unsafe { arg_payload(fcinfo, 0)? }))?;
+    let b = ::mcx::std_vec_from_slice("ltree", cstring_prefix(unsafe { arg_payload(fcinfo, 0)? }))?;
     let a = unsafe { arg_image(fcinfo, 1)? };
     let tmp = io::parse_ltree(&b)?;
     ret_image(fcinfo, &op::ltree_concat(&tmp, &a)?)
@@ -296,7 +296,7 @@ fn fc_lca(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
 }
 
 fn fc_text2ltree(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
-    let s = ::mcx::std_vec_from_slice("ltree", &cstring_prefix(unsafe { arg_payload(fcinfo, 0)? }))?;
+    let s = ::mcx::std_vec_from_slice("ltree", cstring_prefix(unsafe { arg_payload(fcinfo, 0)? }))?;
     ret_image(fcinfo, &io::parse_ltree(&s)?)
 }
 
@@ -364,7 +364,7 @@ fn array_iter_isparent(la: &[u8], query: &[u8], risparent: bool) -> PgResult<Opt
             op::inner_isparent(query, item)
         };
         if matched {
-            return Ok(Some(::mcx::std_vec_from_slice("ltree", &item)?));
+            return Ok(Some(::mcx::std_vec_from_slice("ltree", item)?));
         }
     }
     Ok(None)
@@ -375,7 +375,7 @@ fn array_iter_ltq(la: &[u8], query: &[u8]) -> PgResult<Option<Vec<u8>>> {
     arr.check_1d_no_nulls()?;
     for item in arr.elements() {
         if op::ltq_regex(item, query)? {
-            return Ok(Some(::mcx::std_vec_from_slice("ltree", &item)?));
+            return Ok(Some(::mcx::std_vec_from_slice("ltree", item)?));
         }
     }
     Ok(None)
@@ -386,7 +386,7 @@ fn array_iter_ltxtq(la: &[u8], query: &[u8]) -> PgResult<Option<Vec<u8>>> {
     arr.check_1d_no_nulls()?;
     for item in arr.elements() {
         if op::ltxtq_exec(item, query)? {
-            return Ok(Some(::mcx::std_vec_from_slice("ltree", &item)?));
+            return Ok(Some(::mcx::std_vec_from_slice("ltree", item)?));
         }
     }
     Ok(None)
@@ -619,7 +619,7 @@ fn picksplit_common(
     let mut entries: Vec<(Vec<u8>, bool)> = ::mcx::std_vec_with_capacity("ltree", n)?;
     entries.push((Vec::new(), false));
     for e in &entryvec.vector[1..n] {
-        entries.push((::mcx::std_vec_from_slice("ltree", &key_image(e.key))?, false));
+        entries.push((::mcx::std_vec_from_slice("ltree", key_image(e.key))?, false));
     }
     let (spl_left, spl_right, ldatum, rdatum) = split(&entries)?;
     v.spl_left = spl_left;
@@ -637,7 +637,7 @@ fn fc_ltree_picksplit(f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult
 fn gist_query_image(fcinfo: &Fcinfo) -> PgResult<Vec<u8>> {
     // SAFETY: the armed result mcx outlives this call.
     let mcx = unsafe { fcinfo.result_mcx_detached() };
-    Ok(::mcx::std_vec_from_slice("ltree", &detoasted_image(mcx, fcinfo.arg(1))?)?)
+    ::mcx::std_vec_from_slice("ltree", detoasted_image(mcx, fcinfo.arg(1))?)
 }
 
 fn fc_ltree_consistent(f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
@@ -967,8 +967,8 @@ mod tests {
             .to_vec()
     }
 
-    fn fcinfo_with_arg<'a>(
-        ctx: &'a mcx::MemoryContext,
+    fn fcinfo_with_arg(
+        ctx: &mcx::MemoryContext,
         arg: Datum,
     ) -> types_fmgr::LocalFcinfo<1> {
         // pq_sendtext consults the client-encoding seams; identity here.
@@ -1289,9 +1289,9 @@ mod tests {
         if let Ok(d) = std::env::var("LTREE_STACK_PROBE") {
             let depth: usize = d.parse().unwrap();
             let mut s = Vec::new();
-            s.extend(std::iter::repeat(b'(').take(depth));
+            s.extend(std::iter::repeat_n(b'(', depth));
             s.push(b'a');
-            s.extend(std::iter::repeat(b')').take(depth));
+            s.extend(std::iter::repeat_n(b')', depth));
             let h = std::thread::Builder::new()
                 // The production pairing: child_thread_stack_size() hands a
                 // backend thread RLIMIT_STACK (8 MiB typical) while PG's boot

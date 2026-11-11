@@ -8,7 +8,7 @@ use ::types_nodes::list::NodeList;
 use ::types_nodes::node_tree::Node;
 use ::types_nodes::nodes_enums::CmdType;
 use ::types_nodes::parsenodes::{
-    ClosePortalStmt, DeclareCursorStmt, FetchDirection::*, FetchStmt, Query,
+    DeclareCursorStmt, FetchStmt, Query,
 };
 use ::types_nodes::plannodes::PlannedStmt;
 use ::types_portal::{

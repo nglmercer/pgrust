@@ -593,7 +593,7 @@ pub fn PortalRun<'mcx>(
     count: i64,
     is_top_level: bool,
     dest: &mut DestReceiver<'mcx>,
-    mut altdest: Option<&mut DestReceiver<'mcx>>,
+    altdest: Option<&mut DestReceiver<'mcx>>,
     mut qc: Option<&mut QueryCompletion>,
 ) -> PgResult<bool> {
     if let Some(qc) = qc.as_deref_mut() {
@@ -637,8 +637,8 @@ pub fn PortalRun<'mcx>(
                     is_top_level,
                     false,
                     dest,
-                    altdest.as_deref_mut(),
-                    qc.as_deref_mut(),
+                    altdest,
+                    qc,
                 )?;
 
                 portalmem::MarkPortalDone(portal)?;

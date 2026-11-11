@@ -1272,7 +1272,7 @@ fn dst_p1_spill_crates_have_zero_raw_fs_sites() {
 // C sizes max_safe_fds for one backend process; in pgrust all sessions share a single descriptor table, so compute_max_safe_fds divides the limit.
 #[test]
 fn generous_limit_reproduces_c_arithmetic() {
-    let c_answer = 1000i32.min(1000) - ::types_storage::NUM_RESERVED_FDS;
+    let c_answer = 1000 - ::types_storage::NUM_RESERVED_FDS;
     assert_eq!(
         vfd::compute_max_safe_fds(1000, 1000, Some(1_048_576), 300, 120),
         c_answer
@@ -2307,7 +2307,7 @@ fn rmtree_warns_on_unopenable_directory() {
     let lines = take_log_lines();
     elog::set_emit_log_hook(prev);
     std::fs::set_permissions(&sub, std::fs::Permissions::from_mode(0o700)).unwrap();
-    assert_eq!(ok.unwrap(), false);
+    assert!(!ok.unwrap());
     let want = format!("could not open directory \"{sub}\": Permission denied");
     assert!(
         lines.iter().any(|(lvl, m)| *lvl == types_error::WARNING && *m == want),

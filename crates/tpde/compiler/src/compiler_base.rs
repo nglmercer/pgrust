@@ -340,7 +340,7 @@ impl<'m, 'id, A: CompilerAdaptor, T: CompilerTarget<A, N>, const N: usize>
                     &self.allocator,
                     self.analyzer.liveness.len(),
                     |slots| {
-                        let info;
+                        
                         let session = FunctionSession {
                             adaptor: &self.adaptor,
                             analyzer: &self.analyzer,
@@ -375,7 +375,7 @@ impl<'m, 'id, A: CompilerAdaptor, T: CompilerTarget<A, N>, const N: usize>
                             failure: RefCell::new(None),
                         };
                         session.begin_function(index as u32)?;
-                        info = self.target.borrow().cc_info(&self.adaptor);
+                        let info = self.target.borrow().cc_info(&self.adaptor);
                         let policy = self.target.borrow().new_cc_policy(&self.adaptor);
                         *session.assigner.borrow_mut() = Some(CCAssigner::new(&info, policy));
                         session.compile_function(index as u32, &mut self.dynamic_allocas)
@@ -485,7 +485,7 @@ impl<
         let mut best: Option<(Reg, ValLocalIdx, u32, u32)> = None;
         let candidates = registers.used.get() & RegisterFile::<N, 32>::bank_regs(bank);
         for index in BitSetIterator::<false>::new(candidates) {
-            let reg = Reg::new(index as u64);
+            let reg = Reg::new(index);
             if registers.reg_lock_count(reg) != 1 {
                 continue;
             }
@@ -918,7 +918,7 @@ impl<
         if tpde_util::CHECKED {
             self.with_registers(|r| {
                 for index in r.used_regs() {
-                    tpde_assert_ne!(r.reg_local_idx(Reg::new(index as u64)), local)
+                    tpde_assert_ne!(r.reg_local_idx(Reg::new(index)), local)
                 }
             });
         }
@@ -1094,7 +1094,10 @@ impl<
             // A constant is rematerialized at its reload (`reload_to_reg`):
             // no slot, no store.
             if self.adaptor.local_const(local).is_some() {
-                return Ok(self.with_part(local, part, |ap| ap.set_stack_valid()));
+                return {
+                    let _: () = self.with_part(local, part, |ap| ap.set_stack_valid());
+                    Ok(())
+                };
             }
             self.allocate_spill_part(local, part)?;
             let (reg, offset, size) = self.with_part(local, part, |ap| {
@@ -1204,7 +1207,7 @@ impl<
         let cands = self.registers.used.get() & self.registers.allocatable.get() & RegisterFile::<N, 32>::bank_regs(bank) & !busy;
         let mut pick = None;
         for index in BitSetIterator::<false>::new(cands) {
-            let reg = Reg::new(index as u64);
+            let reg = Reg::new(index);
             if self.registers.reg_lock_count(reg) != 1 {
                 continue;
             }
@@ -1393,7 +1396,7 @@ impl<
         if tpde_util::CHECKED {
             self.with_registers(|registers| {
                 for index in registers.used_regs() {
-                    let reg = Reg::new(index as u64);
+                    let reg = Reg::new(index);
                     let local = registers.reg_local_idx(reg);
                     tpde_assert_ne!(local, INVALID_VALUE);
                     self.with_part(local, registers.reg_part(reg), |ap| {
@@ -1577,7 +1580,7 @@ impl<
             let liveness = self.analyzer.liveness_table();
             let candidates = registers.used.get() & RegisterFile::<N, 32>::bank_regs(bank);
             for index in BitSetIterator::<false>::new(candidates) {
-                let reg = Reg::new(index as u64);
+                let reg = Reg::new(index);
                 if registers.is_fixed(reg) {
                     continue;
                 }
@@ -1609,11 +1612,7 @@ impl<
                         .min(0xffff) as u32;
                 }
                 let score = (u32::from(spilled) << 31)
-                    | ((if distance < 0x8000 {
-                        0x8000 - distance
-                    } else {
-                        0
-                    }) << 16)
+                    | (0x8000_u32.saturating_sub(distance) << 16)
                     | if refs < 0xffff { 0x10000 - refs } else { 1 };
                 tpde_assert_ne!(score, 0);
                 if score > maximum {
@@ -1939,7 +1938,10 @@ impl<
         assert!(self.with_part(local, part, |ap| ap.register_valid()));
         if self.adaptor.local_const(local).is_some() {
             // Rematerialized after the call (`reload_to_reg`).
-            return Ok(self.with_part(local, part, |ap| ap.set_stack_valid()));
+            return {
+                let _: () = self.with_part(local, part, |ap| ap.set_stack_valid());
+                Ok(())
+            };
         }
         self.allocate_spill_part(local, part)?;
         let (reg, offset, size) = self.with_part(local, part, |ap| {

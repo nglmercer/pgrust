@@ -244,7 +244,7 @@ pub fn decode(body: &[u8]) -> FormatResult<Vec<SortRun>> {
         let r = SortRun { run_id, level, rev, rank, rows, rev_len, rev_crc, members, ranges };
         let shape = match r.rev {
             RunRevForm::None => r.ranges.is_empty() && r.rev_len == 0 && r.rev_crc == 0 && r.rank == RankForm::Dense,
-            _ => !r.ranges.is_empty() && r.rev_len >= crate::runrev::PAGE as u64 && r.rev_len % crate::runrev::PAGE as u64 == 0 && (r.rank == RankForm::Set || r.rows <= r.span()),
+            _ => !r.ranges.is_empty() && r.rev_len >= crate::runrev::PAGE as u64 && r.rev_len.is_multiple_of(crate::runrev::PAGE as u64) && (r.rank == RankForm::Set || r.rows <= r.span()),
         };
         if !shape || r.live().next().is_none() {
             return Err(corrupt());

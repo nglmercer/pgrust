@@ -449,7 +449,7 @@ fn dict_codes_roundtrip_codes_and_materialization() {
             .map(|&rows| {
                 let validity = validity_pattern(shape, rows, &mut seed);
                 // Cluster codes so per-granule ranges stay narrow sometimes.
-                let base = (splitmix(&mut seed) % 2000) as u64;
+                let base = (splitmix(&mut seed) % 2000);
                 let datums = (0..rows)
                     .map(|_| base + splitmix(&mut seed) % ((shape as u64 % 4) * 250 + 1))
                     .collect();
@@ -530,7 +530,7 @@ fn dict_codes_byte_align_same_codes() {
             .iter()
             .map(|&rows| {
                 let validity = validity_pattern(shape, rows, &mut seed);
-                let base = (splitmix(&mut seed) % 2000) as u64;
+                let base = (splitmix(&mut seed) % 2000);
                 // Range dial: per-shape spread hits widths on both sides of
                 // a byte boundary (0, <8, 8..16, wide).
                 let spread = [1u64, 3, 200, 5000, 70000, 300000][shape as usize];

@@ -74,7 +74,7 @@ fn shelf_spills_half_to_central() {
     let v = take_n(40, 1024, Class::Task);
     let before = central::bytes(key);
     give_all(v, 1024);
-    let cap = (SHELF / 8 / 1024) as usize;
+    let cap = (SHELF / 8 / 1024);
     assert!(shelf::mine() <= SHELF, "shelf past its max: {}", shelf::mine());
     assert!(central::bytes(key) >= before + (40 - cap) * 1024 / 2, "half lists went to central");
     flush_shelf();

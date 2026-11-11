@@ -566,7 +566,7 @@ fn btree_split_wal_roundtrip() {
     let right_ref =
         unsafe { PageRef::from_raw(NonNull::new(right.0.as_ptr().cast_mut()).unwrap()) };
     let last_lsn = right_ref.lsn().max(
-        root.0.as_ptr() as u64 * 0 + {
+        {
             let r = unsafe { PageRef::from_raw(NonNull::new(root.0.as_ptr().cast_mut()).unwrap()) };
             r.lsn()
         },

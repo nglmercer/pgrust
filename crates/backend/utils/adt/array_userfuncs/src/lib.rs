@@ -460,7 +460,7 @@ pub fn accum_array_result_arr<'m>(
         match st.nullbitmap.as_mut() {
             None => {
                 st.aitems = pg_nextpower2_32(core::cmp::max(256, newnitems + 1) as u32) as i32;
-                let need = (st.aitems as usize + 7) / 8;
+                let need = (st.aitems as usize).div_ceil(8);
                 let mut bm: PgVec<u8> = vec_with_capacity_in(mcx, need)?;
                 bm.resize(need, 0);
                 array_bitmap_copy(&mut bm, 0, 0, None, 0, st.nitems);
@@ -469,7 +469,7 @@ pub fn accum_array_result_arr<'m>(
             Some(bm) => {
                 if newnitems > st.aitems {
                     st.aitems = core::cmp::max(st.aitems * 2, newnitems);
-                    let want = (st.aitems as usize + 7) / 8;
+                    let want = (st.aitems as usize).div_ceil(8);
                     let bmcx = *bm.allocator();
                     bm.try_reserve(want.saturating_sub(bm.len())).map_err(|_| bmcx.oom(want))?;
                     bm.resize(want, 0);
@@ -510,7 +510,7 @@ pub fn make_array_result_arr<'m>(
     out[0..4].copy_from_slice(&set_varsize_4b(nbytes));
     out[4..8].copy_from_slice(&st.ndims.to_ne_bytes());
     out[8..12].copy_from_slice(&dataoffset.to_ne_bytes());
-    out[12..16].copy_from_slice(&(st.element_type as u32).to_ne_bytes());
+    out[12..16].copy_from_slice(&st.element_type.to_ne_bytes());
     write_dims_lbs(&mut out, st.ndims, &st.dims, &st.lbs);
     let dst = arr_data_offset(&out);
     out[dst..dst + st.nbytes as usize].copy_from_slice(&st.data[..st.nbytes as usize]);
@@ -546,7 +546,7 @@ pub fn clone_array_build_state_arr<'m>(
     vec_append_bytes(&mut data, &s2.data[..s2.nbytes as usize])?;
     s1.data = data;
     if let Some(bm2) = s2.nullbitmap.as_deref() {
-        let size = (s2.aitems as usize + 7) / 8;
+        let size = (s2.aitems as usize).div_ceil(8);
         let mut bm: PgVec<'m, u8> = vec_with_capacity_in(mcx, size)?;
         vec_append_bytes(&mut bm, &bm2[..size])?;
         s1.nullbitmap = Some(bm);
@@ -597,7 +597,7 @@ pub fn combine_array_build_state_arr(
                 // First input with nulls: retrospectively mark all previous
                 // items non-null.
                 s1.aitems = pg_nextpower2_32(core::cmp::max(256, newnitems) as u32) as i32;
-                let need = (s1.aitems as usize + 7) / 8;
+                let need = (s1.aitems as usize).div_ceil(8);
                 let mut bm: PgVec<u8> = vec_with_capacity_in(s1.mcx, need)?;
                 bm.resize(need, 0);
                 array_bitmap_copy(&mut bm, 0, 0, None, 0, s1.nitems);
@@ -606,7 +606,7 @@ pub fn combine_array_build_state_arr(
             Some(bm) => {
                 if newnitems > s1.aitems {
                     s1.aitems = pg_nextpower2_32(newnitems as u32) as i32;
-                    let want = (s1.aitems as usize + 7) / 8;
+                    let want = (s1.aitems as usize).div_ceil(8);
                     let bmcx = *bm.allocator();
                     bm.try_reserve(want.saturating_sub(bm.len())).map_err(|_| bmcx.oom(want))?;
                     bm.resize(want, 0);
@@ -630,15 +630,15 @@ pub fn serialize_array_build_state_arr<'m>(
     st: &ArrayBuildStateArr<'_>,
 ) -> PgResult<::datum::Bytea<'m>> {
     let mut buf = ::pqformat::pq_begintypsend(mcx)?;
-    ::pqformat::pq_sendint32(&mut buf, st.element_type as u32)?;
-    ::pqformat::pq_sendint32(&mut buf, st.array_type as u32)?;
+    ::pqformat::pq_sendint32(&mut buf, st.element_type)?;
+    ::pqformat::pq_sendint32(&mut buf, st.array_type)?;
     ::pqformat::pq_sendint32(&mut buf, st.nbytes as u32)?;
     ::pqformat::pq_sendbytes(&mut buf, &st.data[..st.nbytes as usize])?;
     ::pqformat::pq_sendint32(&mut buf, st.abytes as u32)?;
     ::pqformat::pq_sendint32(&mut buf, st.aitems as u32)?;
     if let Some(bm) = st.nullbitmap.as_deref() {
         debug_assert!(st.aitems > 0);
-        ::pqformat::pq_sendbytes(&mut buf, &bm[..(st.aitems as usize + 7) / 8])?;
+        ::pqformat::pq_sendbytes(&mut buf, &bm[..(st.aitems as usize).div_ceil(8)])?;
     }
     ::pqformat::pq_sendint32(&mut buf, st.nitems as u32)?;
     ::pqformat::pq_sendint32(&mut buf, st.ndims as u32)?;
@@ -674,7 +674,7 @@ pub fn deserialize_array_build_state_arr<'m>(
     result.abytes = ::pqformat::pq_getmsgint(&mut buf, 4)? as i32;
     result.aitems = ::pqformat::pq_getmsgint(&mut buf, 4)? as i32;
     if result.aitems > 0 {
-        let size = (result.aitems as usize + 7) / 8;
+        let size = (result.aitems as usize).div_ceil(8);
         let mut bm: PgVec<'m, u8> = vec_with_capacity_in(mcx, size)?;
         vec_append_bytes(&mut bm, ::pqformat::pq_getmsgbytes(&mut buf, size)?)?;
         result.nullbitmap = Some(bm);

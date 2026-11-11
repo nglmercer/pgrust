@@ -128,7 +128,7 @@ pub fn fc_hstore_from_record(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo)
         if att.attisdropped {
             continue;
         }
-        let key = ::mcx::std_vec_from_slice("contrib", &att.attname.name_str())?;
+        let key = ::mcx::std_vec_from_slice("contrib", att.attname.name_str())?;
         check_key_len(key.len())?;
         let val = if nulls[i] {
             None
@@ -149,7 +149,7 @@ pub fn fc_hstore_from_record(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo)
                 .unwrap()
                 .proc;
             let d = function_call1_coll_in(proc, InvalidOid, mcx, values[i])?;
-            let v = ::mcx::std_vec_from_slice("hstore", &cstring_bytes(d))?;
+            let v = ::mcx::std_vec_from_slice("hstore", cstring_bytes(d))?;
             check_val_len(v.len())?;
             Some(v)
         };

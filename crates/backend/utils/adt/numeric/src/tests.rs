@@ -1747,7 +1747,7 @@ fn fixed_kernels_agree_randomized_wide() {
         let v1 = VarView {
             ndigits: n1 as i32,
             weight: (rng.next() % 31) as i32 - 15,
-            sign: if rng.next() % 2 == 0 {
+            sign: if rng.next().is_multiple_of(2) {
                 NUMERIC_POS
             } else {
                 NUMERIC_NEG
@@ -1758,7 +1758,7 @@ fn fixed_kernels_agree_randomized_wide() {
         let v2 = VarView {
             ndigits: n2 as i32,
             weight: (rng.next() % 31) as i32 - 15,
-            sign: if rng.next() % 2 == 0 {
+            sign: if rng.next().is_multiple_of(2) {
                 NUMERIC_POS
             } else {
                 NUMERIC_NEG
@@ -1958,7 +1958,7 @@ mod wrap_parity {
 
     #[test]
     fn int4_avg_combine_wraps() {
-        let mut agg = AggStateNode::new(MemoryContext::new_bump("num-aggctx"));
+        let agg = AggStateNode::new(MemoryContext::new_bump("num-aggctx"));
         let arr1 = transarray(1, i64::MAX);
         let arr2 = transarray(i64::MAX, 1);
         let mut fci = LocalFcinfo::<2>::fresh(0);
@@ -1988,7 +1988,7 @@ mod wrap_parity {
 
     #[test]
     fn poly_combine_wraps() {
-        let mut agg = AggStateNode::new(MemoryContext::new_bump("num-aggctx"));
+        let agg = AggStateNode::new(MemoryContext::new_bump("num-aggctx"));
         let mut s1 = Int128AggState::new(true);
         s1.n = 1;
         s1.sum_x = i128::MAX;

@@ -1059,7 +1059,7 @@ pub fn GetLeaderApplyWorkerPid(pid: i32) -> i32 {
             ctx.workers
                 .iter()
                 .find(|w| w.is_parallel_apply() && w.proc_pid == pid && pid != 0)
-                .map(|w| w.leader_pid as i32)
+                .map(|w| w.leader_pid)
         })
         .unwrap_or(-1)
 }
@@ -1159,7 +1159,7 @@ pub fn ApplyLauncherMain(_main_arg: u64) -> PgResult<()> {
             WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
             // WaitLatch takes i64, not c_long: c_long is i32 on wasm32
             // (ILP32) — identical on LP64 native.
-            wait_time as i64,
+            wait_time,
             WAIT_EVENT_LOGICAL_LAUNCHER_MAIN,
         )?;
         if rc & WL_LATCH_SET != 0 {

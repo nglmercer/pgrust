@@ -48,7 +48,7 @@ enum SrfRows {
 fn detoast_owned(fcinfo: &Fcinfo) -> PgResult<Vec<u8>> {
     let mcx = fcinfo.result_mcx();
     let jb = super::builtins::arg_jsonb(fcinfo, 0, mcx)?;
-    Ok(::mcx::std_vec_from_slice("adt", &jb.as_bytes())?)
+    ::mcx::std_vec_from_slice("adt", jb.as_bytes())
 }
 
 fn srf_drive(
@@ -73,14 +73,9 @@ fn srf_drive(
         .expect("user_fctx is SrfRows");
     let mcx = fcinfo.result_mcx();
     let out: Option<Option<Datum>> = match rows {
-        SrfRows::Texts(v) => v.get(idx).map(|r| match r {
-            None => None,
-            Some(bytes) => Some(
-                varlena::cstring_to_text(mcx, bytes)
+        SrfRows::Texts(v) => v.get(idx).map(|r| r.as_ref().map(|bytes| varlena::cstring_to_text(mcx, bytes)
                     .map(varlena_result)
-                    .expect("text result"),
-            ),
-        }),
+                    .expect("text result"))),
     };
     match out {
         Some(Some(d)) => Ok(funcapi::srf_return_next(flinfo, fcinfo, d)),

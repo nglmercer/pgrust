@@ -2474,7 +2474,7 @@ impl Scheduler {
         // an unwind through the morsel body below (H-74). Nothing between here
         // and the old decrement site reads `active_workers`, so the normal
         // path is behavior-identical.
-        let _active = ActiveWorkerGuard { ts: &**ts };
+        let _active = ActiveWorkerGuard { ts };
         // Per-task observability counts, folded into the slot's StatAcc
         // after the task (declared here so both match arms share the fold).
         let mut t_morsels = 0u64;

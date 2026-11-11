@@ -772,9 +772,9 @@ pub fn skip_in_wait(entry: &mut Entry, exec: &mut Exec, plan: &dyn Plan, p: usiz
     let readers = plan.pull_readers(p);
     match owner {
         Some(o) if readers.is_empty() => entry.skip_rerun(exec, o)?,
-        Some(o) => entry.skip_rearmed(exec, o, &readers)?,
+        Some(o) => entry.skip_rearmed(exec, o, readers)?,
         None if readers.is_empty() => return Ok(false),
-        None => entry.skip_pulled(exec, &readers)?,
+        None => entry.skip_pulled(exec, readers)?,
     }
     Ok(true)
 }
@@ -844,12 +844,12 @@ fn run_slotted<D: AsDerive + ?Sized>(entry: &mut Entry, exec: &mut Exec, binding
                 // setop_rec-0043: a CTE's plan the set re-arms, its store opened for the owner and the CTE's readers
                 Some(owner) => match plan.pull_readers(p) {
                     r if r.is_empty() => entry.skip_rerun(exec, owner)?,
-                    r => entry.skip_rearmed(exec, owner, &r)?,
+                    r => entry.skip_rearmed(exec, owner, r)?,
                 },
                 // M8 (RT-2f): a pulled CTE's plan: its store edge kept, opened zeroed for its readers
                 None => match plan.pull_readers(p) {
                     r if r.is_empty() => entry.skip_deferred(exec),
-                    r => entry.skip_pulled(exec, &r)?,
+                    r => entry.skip_pulled(exec, r)?,
                 },
             }
             barrier.done(p);

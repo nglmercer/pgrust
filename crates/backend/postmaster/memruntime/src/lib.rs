@@ -224,7 +224,7 @@ fn soft_limit_in(root: &std::path::Path, self_cgroup: &str) -> Option<SoftLimit>
     let rel = v2_rel(self_cgroup)?;
     let (dir, high) = min_limit(root, rel, "memory.high")?;
     let max = min_limit(root, rel, "memory.max").map(|(_, m)| m);
-    max.map_or(true, |m| high < m).then_some(SoftLimit { high, dir, max })
+    max.is_none_or(|m| high < m).then_some(SoftLimit { high, dir, max })
 }
 
 /// The unified hierarchy's path of this process's cgroup (`0::` line), when no v1 hierarchy carries the memory controller.
@@ -289,7 +289,7 @@ fn min_limit(base: &std::path::Path, rel: &str, file: &str) -> Option<(std::path
     let mut dir = if rel.is_empty() { base.to_path_buf() } else { base.join(rel) };
     loop {
         if let Some(lim) = read_u64(&dir.join(file)).filter(|&l| l < 1 << 60) {
-            if best.as_ref().map_or(true, |(_, b)| lim < *b) {
+            if best.as_ref().is_none_or(|(_, b)| lim < *b) {
                 best = Some((dir.clone(), lim));
             }
         }
@@ -727,7 +727,7 @@ impl HighWatch {
             _ => self.pending = 0,
         }
         self.seen = Some((dir.to_path_buf(), count));
-        let due = self.warned_ms.map_or(true, |w| now_ms.saturating_sub(w) >= mempolicy::watchdog::HIGH_WARN_EVERY_MS);
+        let due = self.warned_ms.is_none_or(|w| now_ms.saturating_sub(w) >= mempolicy::watchdog::HIGH_WARN_EVERY_MS);
         if self.pending == 0 || !due {
             return None;
         }
@@ -905,7 +905,7 @@ fn present_in(maps: &str, named: impl Fn(&str) -> bool) -> Option<usize> {
 
 /// The address ranges of the /proc/<pid>/maps lines whose name (the sixth field) `named` accepts.
 fn named_ranges<'a>(maps: &'a str, named: &'a impl Fn(&str) -> bool) -> impl Iterator<Item = (usize, usize)> + 'a {
-    maps.lines().filter(move |l| l.split_whitespace().nth(5).is_some_and(|n| named(n))).filter_map(|l| {
+    maps.lines().filter(move |l| l.split_whitespace().nth(5).is_some_and(named)).filter_map(|l| {
         let (lo, hi) = l.split_once(' ')?.0.split_once('-')?;
         Some((usize::from_str_radix(lo, 16).ok()?, usize::from_str_radix(hi, 16).ok()?))
     })
@@ -2847,7 +2847,7 @@ pub fn start(thread_init: impl FnOnce() + Send + 'static) {
     // D4812: the drainer of the memory threads' log writes, before the first of them; mcx's own lines (the victim pick's
     // ledger2 shadow line, revoke's settled-ask line) through elog's stderr writer, so they are deferred there too
     let _ = memlog::start();
-    mcx::set_line_sink(|line| elog::write_stderr(line));
+    mcx::set_line_sink(elog::write_stderr);
     // D4812 (2): the block gate's inline rungs write their lines through the same ring, on the allocating thread
     mcx::set_gate_log_defer(memlog::gate_defer_begin, memlog::gate_defer_end);
     // C3: the cache purger beside the watchdog (PGRUST_CACHE_PURGE_NOW=1; off: not started)

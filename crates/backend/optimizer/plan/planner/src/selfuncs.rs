@@ -87,7 +87,7 @@ pub(crate) fn get_att_stats<'mcx>(
     let fetched = match syscache_seams::lookup_pg_statistic_bundle::call(
         run.mcx, relid, attnum, inh,
     )? {
-        Some(b) => Some(&*leak_bundle(run.mcx, b)?),
+        Some(b) => Some(leak_bundle(run.mcx, b)?),
         None => None,
     };
     run.att_stats_memo
@@ -468,7 +468,7 @@ fn get_actual_variable_range<'mcx>(
             || index.hypothetical
             || !index.canreturn[0]
             || collation != index.indexcollations[0]
-            || !crate::indxpath::match_index_to_operand(run, var_node, 0, &index)?
+            || !crate::indxpath::match_index_to_operand(run, var_node, 0, index)?
         {
             continue;
         }
@@ -2016,7 +2016,7 @@ pub fn get_variable_numdistinct(
         };
     }
     if vardata.isunique {
-        stadistinct = -1.0 * (1.0 - stanullfrac);
+        stadistinct = -(1.0 - stanullfrac);
     }
     if stadistinct > 0.0 {
         return (crate::costsize::clamp_row_est(stadistinct), false);
@@ -2633,7 +2633,7 @@ fn brincostestimate(
         let index = ip.indexinfo.as_ref().expect("indexinfo set");
         let mut attnums: Vec<(i16, i16)> = Vec::new();
         for ic in ip.indexclauses.iter() {
-            attnums.push((ic.indexcol as i16, index.indexkeys[ic.indexcol as usize] as i16));
+            attnums.push((ic.indexcol, index.indexkeys[ic.indexcol as usize] as i16));
         }
         (
             get_quals_from_indexclauses(run, path_id),
@@ -2673,7 +2673,7 @@ fn brincostestimate(
         let (stat_relid, stat_attnum, stat_inh) = if attnum != 0 {
             (rte_relid, attnum, rte_inh)
         } else {
-            (indexoid, (indexcol + 1) as i16, false)
+            (indexoid, (indexcol + 1), false)
         };
         if let Some(bundle) = get_att_stats(run, stat_relid, stat_attnum, stat_inh)? {
             if let Some(slot) =
@@ -2730,7 +2730,7 @@ fn brincostestimate(
         index_startup_cost,
         index_total_cost,
         index_selectivity: selec,
-        index_correlation: index_correlation,
+        index_correlation,
         index_pages: num_pages,
     })
 }
@@ -3390,11 +3390,11 @@ pub fn extract_time_field_domain(field: &str) -> Option<f64> {
 /// follows `x`).
 pub fn int_mod_domain(n: i64, nonneg: bool) -> Option<f64> {
     let m = (n as f64).abs();
-    (n != 0).then(|| if nonneg { m } else { 2.0 * m - 1.0 })
+    (n != 0).then_some(if nonneg { m } else { 2.0 * m - 1.0 })
 }
 
 pub fn width_bucket_domain(count: i64) -> Option<f64> {
-    (count > 0).then(|| count as f64 + 2.0)
+    (count > 0).then_some(count as f64 + 2.0)
 }
 
 fn bound_mul(a: Option<f64>, b: Option<f64>) -> Option<f64> {

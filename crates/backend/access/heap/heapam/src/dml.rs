@@ -543,34 +543,6 @@ fn heap_multi_insert_pages(
     npages
 }
 
-#[cfg(test)]
-mod multi_insert_pages_tests {
-    use super::*;
-
-    #[test]
-    fn a_tuple_wider_than_a_fresh_page_wraps_like_c() {
-        // fillfactor 10: saveFreeSpace = 90 % of the block, a fresh page holds
-        // 796 bytes, and each 1000-byte tuple is wider than that.
-        let save = ::types_core::BLCKSZ * 90 / 100;
-        let image = vec![0u64; 1000 / 8];
-        // SAFETY: image is 8-aligned and readable for t_len bytes; only t_len is read.
-        let tup = || unsafe {
-            HeapTupleData::from_raw_parts(
-                image.as_ptr().cast(),
-                1000,
-                ItemPointerData::default(),
-                ::types_core::InvalidOid,
-            )
-        };
-        let tuples = [tup(), tup(), tup()];
-        // C: the first tuple bumps npages and wraps page_avail; the rest fit.
-        assert_eq!(heap_multi_insert_pages(&tuples, 0, save), 2);
-        assert_eq!(heap_multi_insert_pages(&tuples, 2, save), 2);
-        // A tuple that fits a fresh page keeps the plain count.
-        assert_eq!(heap_multi_insert_pages(&tuples, 0, 0), 1);
-    }
-}
-
 /// `heap_multi_insert`: slots are materialized in place; `tts_tid` and the
 /// slot tuples' `t_self` receive the TIDs.
 pub fn heap_multi_insert<'mcx>(
@@ -589,7 +561,7 @@ pub fn heap_multi_insert<'mcx>(
     let xid = xact_seams::get_current_transaction_id::call()?;
     let needwal = relation_needs_wal(relation);
     let save_free_space =
-        relation.get_target_page_free_space(crate::hio::HEAP_DEFAULT_FILLFACTOR) as usize;
+        relation.get_target_page_free_space(crate::hio::HEAP_DEFAULT_FILLFACTOR);
     let ntuples = slots.len();
 
     // std Vecs: droppy owners (contexts) and per-call scratch views — neither
@@ -3995,5 +3967,33 @@ fn heap_lock_updated_tuple_rec(
             pin.release();
             continue 'chain;
         }
+    }
+}
+
+#[cfg(test)]
+mod multi_insert_pages_tests {
+    use super::*;
+
+    #[test]
+    fn a_tuple_wider_than_a_fresh_page_wraps_like_c() {
+        // fillfactor 10: saveFreeSpace = 90 % of the block, a fresh page holds
+        // 796 bytes, and each 1000-byte tuple is wider than that.
+        let save = ::types_core::BLCKSZ * 90 / 100;
+        let image = vec![0u64; 1000 / 8];
+        // SAFETY: image is 8-aligned and readable for t_len bytes; only t_len is read.
+        let tup = || unsafe {
+            HeapTupleData::from_raw_parts(
+                image.as_ptr().cast(),
+                1000,
+                ItemPointerData::default(),
+                ::types_core::InvalidOid,
+            )
+        };
+        let tuples = [tup(), tup(), tup()];
+        // C: the first tuple bumps npages and wraps page_avail; the rest fit.
+        assert_eq!(heap_multi_insert_pages(&tuples, 0, save), 2);
+        assert_eq!(heap_multi_insert_pages(&tuples, 2, save), 2);
+        // A tuple that fits a fresh page keeps the plain count.
+        assert_eq!(heap_multi_insert_pages(&tuples, 0, 0), 1);
     }
 }

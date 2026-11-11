@@ -372,7 +372,7 @@ unsafe fn walk(ctx: *mut Ctx, k: usize, mark: u64, mut memo: Option<*mut u64>) -
 }
 
 /// `side_tables`' refusal (a pin the pool refused): no table is ever at address 1.
-const ERROR_TABLES: *mut u32 = 1 as *mut u32;
+const ERROR_TABLES: *mut u32 = std::ptr::dangling_mut::<u32>();
 
 /// Whether one row in eight or more repeats the row before it: past that, a single table's increments chain on each
 /// other's stores (D3027: a skewed text column's parts 51 -> 39 ms on four tables); below it the side tables' zeroing

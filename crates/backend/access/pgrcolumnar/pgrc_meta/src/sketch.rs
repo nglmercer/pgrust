@@ -1127,7 +1127,7 @@ fn radix_sort_keys(v: &mut ChargedVec<(u64, u32)>, on: On) {
         return;
     }
     for (d, h) in hist.iter().enumerate() {
-        if h.iter().any(|&c| c == n) {
+        if h.contains(&n) {
             continue;
         }
         let mut at = [0usize; 256];
@@ -1341,7 +1341,7 @@ pub fn sort_bytes_prefixed_for<T>(v: &mut [T], bytes: impl Fn(&T) -> &[u8], on: 
                 e.0 = key_at(bytes(&v[e.1]), off);
             }
         }
-        run.sort_unstable_by(|a, b| a.0.cmp(&b.0));
+        run.sort_unstable_by_key(|a| a.0);
         let mut i = 0;
         while i < run.len() {
             let mut j = i + 1;

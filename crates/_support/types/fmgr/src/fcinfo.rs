@@ -642,7 +642,7 @@ impl Clone for FmgrInfo {
             fn_kind: self.fn_kind,
             fn_body: self.fn_body,
             fn_extra: None,
-            fn_expr: self.fn_expr.clone(),
+            fn_expr: self.fn_expr,
         }
     }
 }

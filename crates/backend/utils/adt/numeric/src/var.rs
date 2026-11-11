@@ -454,7 +454,7 @@ impl NumericImage {
     // Retained capacity is reused (rule 7) — the engine's fc layer holds one
     // image per resolved call site, C pallocs per call.
     fn reset_payload_len(&mut self, payload: usize) {
-        debug_assert!(payload % 2 == 0);
+        debug_assert!(payload.is_multiple_of(2));
         let total = VARHDRSZ + payload;
         let n = total / 2;
         self.words.clear();

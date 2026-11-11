@@ -159,7 +159,7 @@ fn textarray_to_strvaluelist<'mcx>(mcx: Mcx<'mcx>, d: Datum) -> PgResult<Vec<Nod
     let mut out = ::mcx::std_vec_with_capacity("catalog", elems.len())?;
     for elem in elems {
         let Some(s) = elem else {
-            return Err(null_element_err().into());
+            return Err(null_element_err());
         };
         out.push(Node::mk(mcx, types_nodes::String { sval: s })?);
     }
@@ -399,7 +399,7 @@ fn fc_pg_get_object_address(
             return Err(param_err("name list length must be exactly 1".to_string()));
         }
         let Some(s) = elems[0] else {
-            return Err(null_element_err().into());
+            return Err(null_element_err());
         };
         typename = Some(parse_utilcmd::typeStringToTypeName(mcx, s)?);
     } else if objtype == OBJECT_LARGEOBJECT {
@@ -433,7 +433,7 @@ fn fc_pg_get_object_address(
         let mut out = ::mcx::std_vec_with_capacity("catalog", elems.len())?;
         for elem in elems {
             let Some(s) = elem else {
-                return Err(null_element_err().into());
+                return Err(null_element_err());
             };
             let tn = parse_utilcmd::typeStringToTypeName(mcx, s)?;
             out.push(mk_type_name_node(mcx, tn)?);
@@ -471,11 +471,10 @@ fn fc_pg_get_object_address(
                 return Err(param_err("argument list length must be exactly 2".to_string()));
             }
         }
-        OBJECT_OPERATOR => {
-            if args.len() != 2 {
+        OBJECT_OPERATOR
+            if args.len() != 2 => {
                 return Err(param_err("argument list length must be exactly 2".to_string()));
             }
-        }
         _ => {}
     }
 

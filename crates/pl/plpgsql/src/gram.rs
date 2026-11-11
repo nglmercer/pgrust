@@ -2834,7 +2834,7 @@ impl<'a, 'mcx> Parser<'a, 'mcx> {
 
         let mut text = if have_into {
             let mut s = self.source_span(location, into_start_loc);
-            s.extend(std::iter::repeat(' ').take((into_end_loc - into_start_loc).max(0) as usize));
+            s.extend(std::iter::repeat_n(' ', (into_end_loc - into_start_loc).max(0) as usize));
             s.push_str(&self.source_span(into_end_loc, end_loc));
             s
         } else {

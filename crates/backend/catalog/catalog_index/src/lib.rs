@@ -553,7 +553,7 @@ pub fn relation_get_index_att_options(
     let natts = rel.indnkeyatts() as usize;
     let mut opts: Vec<Option<Box<[u8]>>> = ::mcx::std_vec_with_capacity("catalog_index", natts)?;
     for attnum in 1..=natts as AttrNumber {
-        let Some(tuple) = cache_syscache::SearchSysCacheAttNum(rel.rd_id, attnum as i16)? else {
+        let Some(tuple) = cache_syscache::SearchSysCacheAttNum(rel.rd_id, attnum)? else {
             return Err(PgError::error(format!(
                 "cache lookup failed for attribute {attnum} of relation {}",
                 rel.rd_id
@@ -642,7 +642,7 @@ pub fn index_create<'mcx>(
     }
     for i in 0..indexInfo.ii_NumIndexKeyAttrs as usize {
         if collationIds[i] != InvalidOid
-            && matches!(opclassIds[i], 4217 | 4218 | 4219)
+            && matches!(opclassIds[i], 4217..=4219)
             && !lsyscache::get_collation_isdeterministic(collationIds[i])?
         {
             let Some((opcname, _, _)) =
@@ -738,7 +738,7 @@ pub fn index_create<'mcx>(
         let oid = take_next_index_pg_class_oid().ok_or_else(|| {
             binary_upgrade_err("pg_class index OID value not set when in binary upgrade mode")
         })?;
-        relFileNumber = take_next_index_pg_class_relfilenumber().unwrap_or_else(|| {
+        relFileNumber = take_next_index_pg_class_relfilenumber().unwrap_or({
             types_core::InvalidRelFileNumber
         });
         if relkind == RELKIND_INDEX && relFileNumber == types_core::InvalidRelFileNumber {

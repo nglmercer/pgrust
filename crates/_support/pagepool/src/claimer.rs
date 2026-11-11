@@ -219,7 +219,7 @@ fn run() {
         crate::affinity::follow(&mut pinned);
         PENDING.store(false, Relaxed);
         crate::warmres::tick(crate::purger::tick());
-        while !STOP.load(Relaxed) && !HOLD.load(Relaxed) && crate::state::warm_gap() > 0 && fill_one() {}
+        while !STOP.load(Relaxed) && !HOLD.load(Relaxed) && crate::state::warm_gap() > 0 && fill_one() { std::hint::spin_loop() }
         if !HOLD.load(Relaxed) && crate::state::warm_gap() <= 0 {
             MET.store(true, Relaxed);
             crate::warmres::refilled();

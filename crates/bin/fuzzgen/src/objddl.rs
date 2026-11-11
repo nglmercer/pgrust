@@ -1961,11 +1961,7 @@ mod tests {
                     Some(n)
                 } else if let Some(r) = sql.strip_prefix("CREATE TYPE ") {
                     Some(r.split([' ', ';']).next().unwrap().to_string())
-                } else if let Some(r) = sql.strip_prefix("CREATE STATISTICS ") {
-                    Some(r.split([' ', ';']).next().unwrap().to_string())
-                } else {
-                    None
-                };
+                } else { sql.strip_prefix("CREATE STATISTICS ").map(|r| r.split([' ', ';']).next().unwrap().to_string()) };
                 if let Some(n) = name {
                     assert!(!created.contains(&n), "name reused: {n}");
                     created.push(n);

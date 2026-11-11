@@ -306,7 +306,7 @@ impl<'mcx> Parser<'mcx> {
                         yytranslate(yychar)
                     };
                     let idx = pact + yytoken;
-                    if idx < 0 || idx > YYLAST || YYCHECK[idx as usize] as i32 != yytoken {
+                    if !(0..=YYLAST).contains(&idx) || YYCHECK[idx as usize] as i32 != yytoken {
                         break 'decide;
                     }
                     let act = YYTABLE[idx as usize] as i32;

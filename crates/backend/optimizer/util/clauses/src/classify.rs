@@ -591,7 +591,7 @@ pub fn is_pseudo_constant_clause_relids(
     clause: Node<'_>,
     relids: Option<&Bitmapset<'_>>,
 ) -> PgResult<bool> {
-    let relids_empty = relids.map_or(true, |b| b.is_empty());
+    let relids_empty = relids.is_none_or(|b| b.is_empty());
     Ok(relids_empty && !contain_volatile_functions(clause)?)
 }
 
@@ -861,7 +861,7 @@ fn saop_const_array_nitems(value: datum::Datum) -> PgResult<i64> {
             let tag = *p.add(1);
             let body = match tag {
                 18 => 16,
-                1 | 2 | 3 => core::mem::size_of::<usize>(),
+                1..=3 => core::mem::size_of::<usize>(),
                 other => panic!("saop_const_array_nitems: unknown vartag {other}"),
             };
             core::slice::from_raw_parts(p, 2 + body)
@@ -913,7 +913,7 @@ fn jsonpath_const_is_mutable(value: datum::Datum, vars: &[(&[u8], Oid)]) -> PgRe
         if b0 == 0x01 {
             let body = match *p.add(1) {
                 18 => 16,
-                1 | 2 | 3 => core::mem::size_of::<usize>(),
+                1..=3 => core::mem::size_of::<usize>(),
                 other => panic!("jsonpath_const_is_mutable: unknown vartag {other}"),
             };
             core::slice::from_raw_parts(p, 2 + body)

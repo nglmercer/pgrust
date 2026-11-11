@@ -762,7 +762,7 @@ pub fn log_newpages(
                 rlocator: *rlocator,
                 forknum,
                 block: blknos[i + j],
-                page: &pages[i + j],
+                page: pages[i + j],
                 flags,
                 bufdata: &[],
             });

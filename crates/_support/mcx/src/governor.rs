@@ -1447,7 +1447,7 @@ fn flush_pending() {
 fn own_pending(l: &StmtMem) -> isize {
     #[cfg(any(feature = "std", test))]
     {
-        if LEDGER.try_with(|c| c.get()).unwrap_or(core::ptr::null()) == l as *const StmtMem {
+        if core::ptr::eq(LEDGER.try_with(|c| c.get()).unwrap_or(core::ptr::null()), l) {
             return PENDING.try_with(|c| c.get()).unwrap_or(0);
         }
     }
@@ -2229,7 +2229,7 @@ fn ledger_row(l: &StmtMem) -> Option<(u32, u64, i64, i64)> {
         let r = memledger::account_row(a);
         // below its start by more than the fold's lag
         let net = r.statement_net.saturating_add(r.fold_slack as i64);
-        r.running.then(|| (a.0, r.statement_bytes, r.not_resident_bytes, net))
+        r.running.then_some((a.0, r.statement_bytes, r.not_resident_bytes, net))
     }
     #[cfg(not(feature = "std"))]
     {

@@ -188,7 +188,7 @@ fn fc_pgrowlocks(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult
     // Must have SELECT on the table or be in pg_stat_scan_tables.
     let user = miscinit::GetUserId();
     let mut aclresult =
-        aclchk::pg_class_aclcheck(rel.rd_id, user, types_nodes::parsenodes::ACL_SELECT as u64)?;
+        aclchk::pg_class_aclcheck(rel.rd_id, user, types_nodes::parsenodes::ACL_SELECT)?;
     if aclresult != aclchk::ACLCHECK_OK {
         aclresult = if adt_acl::has_privs_of_role(user, ROLE_PG_STAT_SCAN_TABLES)? {
             aclchk::ACLCHECK_OK

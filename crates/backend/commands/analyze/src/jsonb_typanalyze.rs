@@ -374,7 +374,7 @@ pub(crate) fn compute_jsonb_path_slot<'mcx>(
             continue;
         }
         doc_no += 1;
-        if (doc_no - 1) % stride != 0 {
+        if !(doc_no - 1).is_multiple_of(stride) {
             continue;
         }
         {
@@ -459,7 +459,7 @@ pub(crate) fn compute_jsonb_path_slot<'mcx>(
             continue;
         }
         doc_no += 1;
-        if (doc_no - 1) % stride != 0 {
+        if !(doc_no - 1).is_multiple_of(stride) {
             continue;
         }
         {

@@ -380,12 +380,9 @@ pub fn dt2time(jd: TimeOffset, hour: &mut i32, min: &mut i32, sec: &mut i32, fse
 
 /// `time_overflows` (date.c core; in-unit).
 pub fn time_overflows(hour: i32, min: i32, sec: i32, fsec: fsec_t) -> bool {
-    if hour < 0
-        || hour > HOURS_PER_DAY
-        || min < 0
-        || min >= MINS_PER_HOUR
-        || sec < 0
-        || sec > SECS_PER_MINUTE
+    if !(0..=HOURS_PER_DAY).contains(&hour)
+        || !(0..MINS_PER_HOUR).contains(&min)
+        || !(0..=SECS_PER_MINUTE).contains(&sec)
         || fsec < 0
         || fsec as i64 > USECS_PER_SEC
     {
@@ -398,7 +395,7 @@ pub fn time_overflows(hour: i32, min: i32, sec: i32, fsec: fsec_t) -> bool {
 
 /// `float_time_overflows` (date.c core; timestamp.c's make_* need it too).
 pub fn float_time_overflows(hour: i32, min: i32, sec: f64) -> bool {
-    if hour < 0 || hour > HOURS_PER_DAY || min < 0 || min >= MINS_PER_HOUR {
+    if !(0..=HOURS_PER_DAY).contains(&hour) || !(0..MINS_PER_HOUR).contains(&min) {
         return true;
     }
     if sec.is_nan() {
@@ -1080,13 +1077,13 @@ pub fn DecodeTimezone(str_: &[u8], tzp: &mut i32) -> i32 {
         // we could, but don't, support a run-together hhmmss format
     }
 
-    if hr < 0 || hr > MAX_TZDISP_HOUR {
+    if !(0..=MAX_TZDISP_HOUR).contains(&hr) {
         return DTERR_TZDISP_OVERFLOW;
     }
-    if min < 0 || min >= MINS_PER_HOUR {
+    if !(0..MINS_PER_HOUR).contains(&min) {
         return DTERR_TZDISP_OVERFLOW;
     }
-    if sec < 0 || sec >= SECS_PER_MINUTE {
+    if !(0..SECS_PER_MINUTE).contains(&sec) {
         return DTERR_TZDISP_OVERFLOW;
     }
 
@@ -2284,7 +2281,7 @@ pub fn DecodeInterval(
                 // SQL "years-months" syntax
                 let r2 = strtoint(&field[i][cp + 1..]);
                 let mut val2 = r2.val;
-                if r2.erange || val2 < 0 || val2 >= MONTHS_PER_YEAR {
+                if r2.erange || !(0..MONTHS_PER_YEAR).contains(&val2) {
                     return DTERR_FIELD_OVERFLOW;
                 }
                 cp = cp + 1 + r2.end;

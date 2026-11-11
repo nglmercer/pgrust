@@ -544,7 +544,7 @@ mod tests {
             for sql in &group {
                 if let Some(rest) = sql.strip_prefix("PREPARE ") {
                     let name = rest
-                        .split(|c| c == '(' || c == ' ')
+                        .split(['(', ' '])
                         .next()
                         .unwrap()
                         .to_string();
@@ -644,7 +644,7 @@ mod tests {
             for sql in &group {
                 if let Some(rest) = sql.strip_prefix("PREPARE ") {
                     let name =
-                        rest.split(|c| c == '(' || c == ' ').next().unwrap().to_string();
+                        rest.split(['(', ' ']).next().unwrap().to_string();
                     assert!(seen.insert(name.clone()), "duplicate prepared name {name}");
                 }
             }

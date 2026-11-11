@@ -803,7 +803,7 @@ pub fn select_neighbors(
     support: &mut HnswSupport,
     closer_set: &mut bool,
     new_candidate: Option<usize>,
-    mut pruned: Option<&mut Option<Candidate>>,
+    pruned: Option<&mut Option<Candidate>>,
     sort_candidates: bool,
     out: &mut Vec<Candidate>,
 ) -> PgResult<()> {
@@ -813,7 +813,7 @@ pub fn select_neighbors(
         return Ok(());
     }
 
-    let mut w: Vec<Candidate> = ::mcx::std_vec_from_slice("pgvector_hnsw", &c)?;
+    let mut w: Vec<Candidate> = ::mcx::std_vec_from_slice("pgvector_hnsw", c)?;
     let mut w_is_new: Vec<bool> = ::mcx::std_vec_from_elem("pgvector_hnsw", false, w.len())?;
     if let Some(nc) = new_candidate {
         w_is_new[nc] = true;
@@ -879,7 +879,7 @@ pub fn select_neighbors(
         wdoff += 1;
     }
 
-    if let Some(p) = pruned.as_deref_mut() {
+    if let Some(p) = pruned {
         if wdoff < wd.len() {
             *p = Some(wd[wdoff]);
         } else {
@@ -1040,7 +1040,7 @@ pub fn find_element_neighbors<'t>(
     ep.push(SearchCandidate { element: entry_point, distance: ep_dist });
 
     let mut lc = entry_level;
-    while lc >= level + 1 {
+    while lc > level {
         let mut visited: Visited<'_> = PgFxHashMap::with_capacity_and_hasher_in(
             64,
             Default::default(),

@@ -1131,8 +1131,7 @@ fn empty_array_without_cast_errors() {
     )
     .unwrap();
     let err = transformExpr(mcx, &mut pstate, a, ParseExprKind::EXPR_KIND_SELECT_TARGET)
-        .err()
-        .expect("empty ARRAY[] must error");
+        .expect_err("empty ARRAY[] must error");
     assert_eq!(err.message(), "cannot determine type of empty array");
     assert_eq!(err.sqlstate(), types_error::ERRCODE_INDETERMINATE_DATATYPE);
 }
@@ -1177,8 +1176,7 @@ fn xmlelement_maps_name_then_transforms_args_default_is_42601() {
     .unwrap();
 
     let err = transformExpr(mcx, &mut pstate, x, ParseExprKind::EXPR_KIND_SELECT_TARGET)
-        .err()
-        .expect("DEFAULT inside xmlelement args must error");
+        .expect_err("DEFAULT inside xmlelement args must error");
     assert_eq!(err.sqlstate(), types_error::ERRCODE_SYNTAX_ERROR);
     assert_eq!(err.message(), "DEFAULT is not allowed in this context");
 }

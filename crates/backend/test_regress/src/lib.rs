@@ -40,13 +40,13 @@ fn out_text(fcinfo: &Fcinfo, payload: &[u8]) -> PgResult<Datum> {
 }
 
 // SAFETY contract of callers: the declared arg is a non-null live varlena.
-unsafe fn arg_text<'a>(fcinfo: &'a Fcinfo, i: usize) -> PgResult<&'a [u8]> {
+unsafe fn arg_text(fcinfo: &Fcinfo, i: usize) -> PgResult<&[u8]> {
     Ok(unsafe { fcinfo.arg_varlena_packed(i) }?.data())
 }
 
 // text_to_cstring hands C a NUL-terminated copy: bytes past an embedded NUL
 // are invisible to the C string consumers below.
-unsafe fn arg_text_cstr<'a>(fcinfo: &'a Fcinfo, i: usize) -> PgResult<&'a [u8]> {
+unsafe fn arg_text_cstr(fcinfo: &Fcinfo, i: usize) -> PgResult<&[u8]> {
     let b = unsafe { arg_text(fcinfo, i) }?;
     Ok(&b[..b.iter().position(|&c| c == 0).unwrap_or(b.len())])
 }
@@ -168,7 +168,7 @@ fn fmt_g(x: f64) -> String {
     let s = format!("{x:.5e}");
     let (m, e) = s.split_once('e').expect("{:e} always has an exponent");
     let exp: i32 = e.parse().expect("exponent is an integer");
-    if exp < -4 || exp >= 6 {
+    if !(-4..6).contains(&exp) {
         let m = m.trim_end_matches('0').trim_end_matches('.');
         let sign = if exp < 0 { '-' } else { '+' };
         format!("{m}e{sign}{:02}", exp.abs())
@@ -1864,7 +1864,7 @@ mod tests {
         );
 
         let mut name = b"UTF8".to_vec();
-        name.extend(std::iter::repeat(b' ').take(58));
+        name.extend(std::iter::repeat_n(b' ', 58));
         name.push(0xff);
         assert_eq!(name.len(), 63);
         assert!(mbutils::pg_char_to_encoding_bytes(&name) >= 0);

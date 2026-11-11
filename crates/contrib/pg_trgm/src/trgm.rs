@@ -582,7 +582,7 @@ fn iterate_word_similarity(
 // make_positional_trgm: palloc(sizeof(pos_trgm) * len) under MaxAllocSize.
 fn positional_trgm_array(len: usize) -> PgResult<Vec<PosTrgm>> {
     ::mcx::check_alloc_size(len.saturating_mul(core::mem::size_of::<PosTrgm>()))?;
-    Ok(::mcx::std_vec_with_capacity("pg_trgm", len)?)
+    ::mcx::std_vec_with_capacity("pg_trgm", len)
 }
 
 pub fn calc_word_similarity(

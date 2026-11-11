@@ -925,7 +925,7 @@ fn install_func() {
             })
         });
         syscache_seams::lookup_pg_type_shape::set(|typid| {
-            Ok((typid == INT4OID).then(|| types_tuple::PgTypeShape {
+            Ok((typid == INT4OID).then_some(types_tuple::PgTypeShape {
                 typlen: 4,
                 typbyval: true,
                 typalign: types_tuple::TYPALIGN_INT,

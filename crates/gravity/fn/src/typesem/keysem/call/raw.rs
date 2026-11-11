@@ -44,7 +44,7 @@ impl Slot {
     /// The binding, when no call of it runs.
     pub(super) fn idle(&self) -> Option<&Bound> {
         // SAFETY: an idle binding is referenced by no running call.
-        (!self.busy()).then(|| unsafe { self.0.as_ref() })
+        (!self.busy()).then_some(unsafe { self.0.as_ref() })
     }
 
     pub(super) fn idle_mut(&mut self) -> Option<&mut Bound> {

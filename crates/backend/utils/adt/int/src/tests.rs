@@ -289,7 +289,7 @@ fn int2vectorout_rejects_dim1_out_of_bounds() {
         let mut v = Vec::from(::datum::varlena::set_varsize_4b(varsize));
         v.extend_from_slice(&ndim.to_ne_bytes());
         v.extend_from_slice(&0i32.to_ne_bytes()); // dataoffset
-        v.extend_from_slice(&(INT2OID as u32).to_ne_bytes()); // elemtype
+        v.extend_from_slice(&INT2OID.to_ne_bytes()); // elemtype
         v.extend_from_slice(&dim1.to_ne_bytes());
         v.extend_from_slice(&0i32.to_ne_bytes()); // lbound1
         for &x in vals {

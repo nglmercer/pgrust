@@ -111,6 +111,23 @@ fn invalid_option_error(mcx: mcx::Mcx<'_>, name: &str, context: Oid) -> PgResult
     Ok(Box::new(e))
 }
 
+pub fn fc_dblink_fdw_validator(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
+    let mcx = fcinfo.result_mcx();
+    let options = foreigncmds::options::untransform_options(mcx, Some(fcinfo.arg(0)))?;
+    let context = fcinfo.arg(1).as_oid();
+
+    for opt in options.iter() {
+        if !is_valid_dblink_fdw_option(opt.name, context) {
+            return Err(invalid_option_error(mcx, opt.name, context)?);
+        }
+        // upstream e5d019fbdc12 (18.6): postgres_fdw, dblink: Validate use_scram_passthrough values
+        if opt.name == "use_scram_passthrough" {
+            commands_define::defGetBoolean(&mk_def_elem(mcx, opt.name, opt.value)?)?;
+        }
+    }
+    Ok(Datum::null())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -152,31 +169,14 @@ mod tests {
         let check = |v: Option<&'static str>| {
             commands_define::defGetBoolean(&mk_def_elem(mcx, "use_scram_passthrough", v).unwrap())
         };
-        assert_eq!(check(Some("true")).unwrap(), true);
-        assert_eq!(check(Some("Off")).unwrap(), false);
-        assert_eq!(check(Some("ON")).unwrap(), true);
-        assert_eq!(check(None).unwrap(), true);
+        assert!(check(Some("true")).unwrap());
+        assert!(!check(Some("Off")).unwrap());
+        assert!(check(Some("ON")).unwrap());
+        assert!(check(None).unwrap());
         for bad in ["invalid", "1", "", "yes"] {
             let e = check(Some(bad)).unwrap_err();
             assert_eq!(e.message(), "use_scram_passthrough requires a Boolean value");
             assert_eq!(e.sqlstate(), types_error::ERRCODE_SYNTAX_ERROR);
         }
     }
-}
-
-pub fn fc_dblink_fdw_validator(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
-    let mcx = fcinfo.result_mcx();
-    let options = foreigncmds::options::untransform_options(mcx, Some(fcinfo.arg(0)))?;
-    let context = fcinfo.arg(1).as_oid();
-
-    for opt in options.iter() {
-        if !is_valid_dblink_fdw_option(opt.name, context) {
-            return Err(invalid_option_error(mcx, opt.name, context)?);
-        }
-        // upstream e5d019fbdc12 (18.6): postgres_fdw, dblink: Validate use_scram_passthrough values
-        if opt.name == "use_scram_passthrough" {
-            commands_define::defGetBoolean(&mk_def_elem(mcx, opt.name, opt.value)?)?;
-        }
-    }
-    Ok(Datum::null())
 }

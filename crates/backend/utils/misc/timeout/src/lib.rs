@@ -198,7 +198,7 @@ fn timer_thread(shared: &'static TimerShared) -> ! {
                 if dl.expired() {
                     post_abort(slot);
                     fired = true;
-                } else if nearest.map_or(true, |n| dl < n) {
+                } else if nearest.is_none_or(|n| dl < n) {
                     nearest = Some(dl);
                 }
             }
@@ -211,7 +211,7 @@ fn timer_thread(shared: &'static TimerShared) -> ! {
                     // disabled timeout can never raise the abort byte.
                     let _ = post(slot);
                     fired = true;
-                } else if nearest.map_or(true, |n| dl < n) {
+                } else if nearest.is_none_or(|n| dl < n) {
                     nearest = Some(dl);
                 }
             }

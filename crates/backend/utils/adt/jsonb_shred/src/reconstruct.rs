@@ -142,7 +142,7 @@ fn build_row<'mcx>(
         let Leaf::ResidualImage(image) = leaf else {
             unreachable!("root entries are residual by construction")
         };
-        return Ok(::mcx::std_vec_from_slice("adt", &image)?);
+        return ::mcx::std_vec_from_slice("adt", image);
     }
 
     // Canonical path order; per-row paths are prefix-free, so sibling
@@ -155,7 +155,7 @@ fn build_row<'mcx>(
     let root = state
         .end_object()?
         .expect("balanced begin/end yields the finished tree");
-    Ok(::mcx::std_vec_from_slice("adt", &convert_to_jsonb(mcx, &root)?[..])?)
+    ::mcx::std_vec_from_slice("adt", &convert_to_jsonb(mcx, &root)?[..])
 }
 
 /// Emit one object level: `entries` all share their first `depth` segments

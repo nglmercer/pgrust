@@ -109,7 +109,7 @@ pub fn heapam_index_fetch_tuple<'mcx>(
     snapshot: &Snapshot<'mcx>,
     slot: &mut SlotData<'mcx>,
     call_again: &mut bool,
-    mut all_dead: Option<&mut bool>,
+    all_dead: Option<&mut bool>,
 ) -> PgResult<bool> {
     if !matches!(slot, SlotData::BufferHeap(_)) {
         wrong_slot();
@@ -162,7 +162,7 @@ pub fn heapam_index_fetch_tuple<'mcx>(
             all_dead.is_some(),
             !*call_again,
         )?;
-        if let (Some(dst), Some(v)) = (all_dead.as_deref_mut(), res.all_dead) {
+        if let (Some(dst), Some(v)) = (all_dead, res.all_dead) {
             *dst = v;
         }
         found = if res.found {

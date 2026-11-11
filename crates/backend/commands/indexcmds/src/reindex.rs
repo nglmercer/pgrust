@@ -136,7 +136,7 @@ fn check_tablespace_create_acl(tablespace_oid: Oid, name: &str) -> PgResult<()> 
     Ok(())
 }
 
-fn stmt_range_var<'a, 'mcx>(stmt: &'a ReindexStmt<'mcx>) -> rel_vocab::RangeVar<'mcx> {
+fn stmt_range_var<'mcx>(stmt: &ReindexStmt<'mcx>) -> rel_vocab::RangeVar<'mcx> {
     let rv = stmt
         .relation
         .and_then(|n| n.as_range_var())

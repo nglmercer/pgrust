@@ -167,7 +167,7 @@ fn cond_run(rel: u32, list: &Arc<gravity_hosts::ops::scan::pgrc::granule_source:
     let (attnos, filter_only) = lanes;
     let mut recipe = GranuleRecipe::for_test(rel, attnos, registry.clone()).with_verdict_cell().with_verdict_lane(2);
     for k in 0..attnos.len() {
-        recipe = recipe.with_profile(k, profile.clone());
+        recipe = recipe.with_profile(k, *profile);
     }
     recipe.verdicts.set(1, fp);
     recipe.verdicts.set(2, 9);
@@ -213,7 +213,7 @@ fn int8_profile() -> pgrc_meta::profile::MetaProfile {
 
 /// The oracle: every row of every granule of `list` (lane 0 = attno 1), no zone, no cache, keyed (part, granule).
 fn granule_values(rel: u32, list: &Arc<gravity_hosts::ops::scan::pgrc::granule_source::PartList>, registry: &Arc<PartRegistry>, profile: &pgrc_meta::profile::MetaProfile) -> std::collections::BTreeMap<(u32, u32), Vec<i64>> {
-    let recipe = GranuleRecipe::for_test(rel, &[1], registry.clone()).with_profile(0, profile.clone());
+    let recipe = GranuleRecipe::for_test(rel, &[1], registry.clone()).with_profile(0, *profile);
     let resolved = Resolved::for_recipe(&recipe, list.clone());
     let mut src = GranuleRangeSource::new(recipe);
     src.bind(&binding_ref(&resolved)).unwrap();
@@ -331,7 +331,7 @@ fn the_cached_words_are_the_quals_verdict_whether_a_psma_window_or_the_whole_gra
     let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
     let f = |i: u64| if i % 10 == 5 { 200_000 + 2 * i as i64 } else { 2 * i as i64 };
     let policy = pgrc_write::writer::PartCutPolicy { max_rows: 20_000, ..Default::default() };
-    let bf = pgrc_qa::corpus::build_fixture(pgrc_qa::corpus::int8_fixture("gravity_cond_superset", 7322, ROWS, vec![], policy, move |i| Some(f(i as u64))));
+    let bf = pgrc_qa::corpus::build_fixture(pgrc_qa::corpus::int8_fixture("gravity_cond_superset", 7322, ROWS, vec![], policy, move |i| Some(f(i))));
     let list = part_list(&bf);
     let profile = int8_profile();
     let r = Arc::new(PartRegistry::new(64 << 20));
@@ -489,7 +489,7 @@ fn an_elide_hit_site_elides_only_in_a_hit_and_answers_no_zone_allmatch_window() 
     let walk = |enables: u64| {
         let mut recipe = GranuleRecipe::for_test(4256, lanes.0, r.clone()).with_verdict_cell();
         for k in 0..lanes.0.len() {
-            recipe = recipe.with_profile(k, profile.clone());
+            recipe = recipe.with_profile(k, profile);
         }
         recipe.verdicts.set(0, enables);
         let resolved = Resolved::for_recipe(&recipe, list.clone());
@@ -612,7 +612,7 @@ fn a_parallel_scans_census_deltas_are_its_sources_counts_after_unbind() {
 
 /// V4R-19 (A): per presented window `(part, granule, lane 0's aux, lane 0's element 0)` under `enables` (slot 3 `late`).
 fn const_run(list: &Arc<gravity_hosts::ops::scan::pgrc::granule_source::PartList>, registry: &Arc<PartRegistry>, profile: &pgrc_meta::profile::MetaProfile, enables: u64, late: u64) -> Vec<(u32, u32, u32, i64)> {
-    let recipe = GranuleRecipe::for_test(4256, &[1], registry.clone()).with_profile(0, profile.clone()).with_verdict_cell();
+    let recipe = GranuleRecipe::for_test(4256, &[1], registry.clone()).with_profile(0, *profile).with_verdict_cell();
     recipe.verdicts.set(3, late);
     recipe.verdicts.set(0, enables);
     let resolved = Resolved::for_recipe(&recipe, list.clone());
@@ -673,10 +673,10 @@ fn a_constant_key_window_marks_its_key_lane_and_publishes_the_key() {
         let (mut ranges, mut at) = (Vec::new(), 0u64);
         for rec in &bf.manifest.parts {
             for g in 0..rec.granule_count as u64 {
-                let ks: Vec<i64> = (at + g * GRANULE..at + ((g + 1) * GRANULE).min(rec.rows as u64)).filter_map(key).collect();
+                let ks: Vec<i64> = (at + g * GRANULE..at + ((g + 1) * GRANULE).min(rec.rows)).filter_map(key).collect();
                 ranges.push(ks.iter().min().zip(ks.iter().max()).map_or((1, 0), |(a, b)| (*a, *b)));
             }
-            at += rec.rows as u64;
+            at += rec.rows;
         }
         l.set_zone_columns(vec![ZoneFacts::new(1, pgrc_format::zonemap::ZoneMap::encode(&ranges).unwrap()).unwrap()]);
         l
@@ -810,7 +810,7 @@ fn a_count_only_site_counts_live_rows_per_part_and_decodes_no_lane() {
     let total: u64 = bf.manifest.parts.iter().map(|p| p.rows).sum();
     // (windows as (part, granule, rows), undecoded windows) over granules [from, all)
     let run = |list: &Arc<PartList>, enables: u64, from: u64| -> (Vec<(u32, u32, u32)>, usize) {
-        let mut recipe = GranuleRecipe::for_test(4257, &[1], r.clone()).with_verdict_cell().with_profile(0, profile.clone());
+        let recipe = GranuleRecipe::for_test(4257, &[1], r.clone()).with_verdict_cell().with_profile(0, profile);
         recipe.verdicts.set(0, enables);
         let resolved = Resolved::for_recipe(&recipe, list.clone());
         let mut src = GranuleRangeSource::new(recipe);

@@ -42,7 +42,7 @@ fn a_grant_splits_across_live_breakers_then_width_with_floor_and_cap() {
     let tiny = Grant::of(1000).split(4, 16);
     assert_eq!((tiny.breaker.bytes, tiny.worker.bytes), (SHARE_FLOOR, SHARE_FLOOR));
     let huge = Grant::of(1 << 40).split(1, 1);
-    assert_eq!(huge.breaker.bytes, u32::MAX & !7, "a share fits a u32 region (a multiple of 8)");
+    assert_eq!(huge.breaker.bytes, !7, "a share fits a u32 region (a multiple of 8)");
     assert_eq!(Grant::from_gucs(4096, 2.0), Grant::of(8 << 20), "PostgreSQL's defaults: 4 MB × 2");
     assert_eq!(Grant::from_gucs(65536, 1.0).bytes, 64 * MIB);
     assert_eq!(Grant::from_gucs(-5, 0.5).bytes, 64 * 1024, "work_mem floors at 64 kB, the multiplier at 1");
@@ -100,10 +100,10 @@ fn d2587_a_breaker_share_is_at_least_its_nodes_postgres_budget() {
 fn d651_past_8_gib_the_workers_split_what_the_leader_leaves() {
     const GIB: u64 = 1 << 30;
     let s = Grant::of(16 * GIB).split(1, 16);
-    assert_eq!(s.breaker.bytes, u32::MAX & !7, "the leader region stays one u32 region");
+    assert_eq!(s.breaker.bytes, !7, "the leader region stays one u32 region");
     assert_eq!(s.worker.bytes as u64, 768 * MIB, "16 GiB less the 4 GiB leader, 16 ways");
     assert_eq!(Grant::of(32 * GIB).split(2, 16).worker.bytes as u64, 768 * MIB, "per live breaker");
-    assert_eq!(Grant::of(64 * GIB).split(1, 8).worker.bytes, u32::MAX & !7, "a worker's own region is capped");
+    assert_eq!(Grant::of(64 * GIB).split(1, 8).worker.bytes, !7, "a worker's own region is capped");
     for grant in [8 * GIB + 8, 9 * GIB, 12 * GIB, 16 * GIB, 64 * GIB, 1 << 40] {
         for width in 2..=17u16 {
             let fp = gravity_driver::regions_of(Grant::of(grant), 1, width);

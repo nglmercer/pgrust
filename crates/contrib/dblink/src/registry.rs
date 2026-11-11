@@ -195,13 +195,13 @@ pub fn init() -> PgResult<()> {
 // partial multibyte tail, and distinct tails must stay distinct keys.
 fn conn_key(name: &str, warn: bool) -> PgResult<Vec<u8>> {
     if name.len() < NAMEDATALEN as usize {
-        return Ok(::mcx::std_vec_from_slice("dblink", &name.as_bytes())?);
+        return ::mcx::std_vec_from_slice("dblink", name.as_bytes());
     }
     let scratch = mcx::MemoryContext::new("dblink conn key");
     let mut buf: mcx::PgVec<'_, u8> = mcx::vec_with_capacity_in(scratch.mcx(), name.len())?;
     mcx::vec_append_bytes(&mut buf, name.as_bytes())?;
     parser_small1::truncate_identifier(&mut buf, warn, mbutils::GetDatabaseEncoding())?;
-    Ok(::mcx::std_vec_from_slice("dblink", &buf)?)
+    ::mcx::std_vec_from_slice("dblink", &buf)
 }
 
 // --- unnamed connection (pconn) ---

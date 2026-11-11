@@ -13,7 +13,7 @@ pub const MAX_STATIC_ALLOCA_SIZE: u32 = 256;
 
 impl tpde_compiler::compiler_base::CompilerAdaptor for Adaptor<'_, '_> {
     fn compiler_insts(&self, block: Self::BlockRef) -> impl Iterator<Item = Self::InstRef> + Clone {
-        self.block_insts(block).into_iter()
+        self.block_insts(block)
     }
 }
 
@@ -321,7 +321,7 @@ impl CCAssignmentPolicy for Policy {
             assignment.reg = Reg::new(3);
             self.next[0] = 4;
         } else if !assignment.byval()
-            && self.next[bank] + u32::from(assignment.consecutive) + 1 <= 4
+            && self.next[bank] + u32::from(assignment.consecutive) < 4
         {
             assignment.reg = Reg::new(bank as u64 * 32 + u64::from(self.next[bank]));
             self.next[bank] += 1;

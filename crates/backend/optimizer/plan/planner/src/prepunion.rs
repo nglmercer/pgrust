@@ -226,7 +226,7 @@ fn build_setop_child_paths<'mcx>(
                 continue;
             }
             let (is_sorted, presorted_keys) = crate::pathkeys::pathkeys_count_contained_in(
-                &setop_pathkeys,
+                setop_pathkeys,
                 &run.root.path(subpath).base().pathkeys,
             );
             let mut sp = subpath;
@@ -236,7 +236,7 @@ fn build_setop_child_paths<'mcx>(
                 {
                     continue;
                 }
-                let keys = crate::relnode::pgvec_clone_shallow(run.mcx, &setop_pathkeys);
+                let keys = crate::relnode::pgvec_clone_shallow(run.mcx, setop_pathkeys);
                 if presorted_keys == 0 || !crate::gucs::enable_incremental_sort() {
                     sp = crate::pathnode::create_sort_path(run, final_rel, sp, keys, limittuples);
                 } else {
@@ -380,7 +380,7 @@ fn generate_union_paths<'mcx>(
 
     for &(rel, ref child_tlist, trivial) in rellist.iter() {
         if run.root.rel(rel).rtekind == RTEKind::RTE_SUBQUERY as u32 {
-            build_setop_child_paths(run, rel, trivial, child_tlist, &union_pathkeys, false)?;
+            build_setop_child_paths(run, rel, trivial, child_tlist, union_pathkeys, false)?;
         }
     }
 
@@ -399,7 +399,7 @@ fn generate_union_paths<'mcx>(
             match crate::pathkeys::get_cheapest_path_for_pathkeys(
                 run,
                 &paths,
-                &union_pathkeys,
+                union_pathkeys,
                 &crate::relnode::RELIDS_UNSET,
                 crate::pathnode::CostSelector::Total,
                 false,
@@ -528,7 +528,7 @@ fn generate_union_paths<'mcx>(
                 run,
                 result_rel,
                 ordered_pathlist,
-                crate::relnode::pgvec_clone_shallow(mcx, &union_pathkeys),
+                crate::relnode::pgvec_clone_shallow(mcx, union_pathkeys),
             )?;
             let unique = crate::pathnode::create_upper_unique_path(
                 run,
@@ -693,13 +693,13 @@ fn generate_nonunion_paths<'mcx>(
 
     let mut d_left_groups =
         match run.root.rel(lrel).rtekind == RTEKind::RTE_SUBQUERY as u32 {
-            true => build_setop_child_paths(run, lrel, ltrivial, &lpath_tlist, &nonunion_pathkeys, true)?
+            true => build_setop_child_paths(run, lrel, ltrivial, &lpath_tlist, nonunion_pathkeys, true)?
                 .expect("num groups requested"),
             false => run.root.rel(lrel).rows,
         };
     let mut d_right_groups =
         match run.root.rel(rrel).rtekind == RTEKind::RTE_SUBQUERY as u32 {
-            true => build_setop_child_paths(run, rrel, rtrivial, &rpath_tlist, &nonunion_pathkeys, true)?
+            true => build_setop_child_paths(run, rrel, rtrivial, &rpath_tlist, nonunion_pathkeys, true)?
                 .expect("num groups requested"),
             false => run.root.rel(rrel).rows,
         };
@@ -768,7 +768,7 @@ fn generate_nonunion_paths<'mcx>(
             lpath,
             &group_list,
             &lpath_tlist,
-            &nonunion_pathkeys,
+            nonunion_pathkeys,
         )?;
         let srpath = sorted_nonunion_input(
             run,
@@ -776,7 +776,7 @@ fn generate_nonunion_paths<'mcx>(
             rpath,
             &group_list,
             &rpath_tlist,
-            &nonunion_pathkeys,
+            nonunion_pathkeys,
         )?;
         let group_ids = intern_clause_list(run, &group_list);
         let path = crate::pathnode::create_setop_path(
@@ -970,7 +970,7 @@ fn generate_append_tlist<'mcx>(
     let mcx = run.mcx;
     let ncols = col_types.len();
     let mut col_typmods: PgVec<'mcx, i32> = PgVec::new_in(mcx);
-    col_typmods.extend(core::iter::repeat(-1).take(ncols));
+    col_typmods.extend(std::iter::repeat_n(-1, ncols));
 
     for (tlist_no, subtlist) in input_tlists.iter().enumerate() {
         for (colindex, subtle_node) in subtlist.iter().enumerate() {

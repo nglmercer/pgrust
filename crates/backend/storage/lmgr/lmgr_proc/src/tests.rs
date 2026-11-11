@@ -220,7 +220,7 @@ fn init_process_zeroes_fast_path_use_counts() {
     let procno = MyProc().unwrap();
     let proc = GetPGProcByNumber(procno);
     let groups = ProcGlobal().fpLockGroupsPerBackend as usize;
-    unsafe { proc.fp_use_counts(groups)[0].set(FP_LOCK_SLOTS_PER_GROUP as i32) };
+    unsafe { proc.fp_use_counts(groups)[0].set(FP_LOCK_SLOTS_PER_GROUP) };
     ProcKill(0, 0);
 
     // Cycle the freelist until the poisoned slot comes back to a new backend.

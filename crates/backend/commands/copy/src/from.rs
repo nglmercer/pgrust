@@ -29,7 +29,7 @@ use types_tuple::NameData;
 
 use crate::fromparse::{EolType, INPUT_BUF_SIZE, RAW_BUF_SIZE};
 use crate::{
-    force_flags, CopyFormatOptions, CopyGetAttnums, ProcessCopyOptions, RELKIND_RELATION,
+    force_flags, CopyFormatOptions, CopyGetAttnums, RELKIND_RELATION,
 };
 
 pub(crate) enum CopySrc<'mcx, 's> {
@@ -972,7 +972,7 @@ fn copy_from_body<'mcx>(
                 mcx,
                 input_row_cx.mcx(),
                 rel,
-                &**t.td,
+                t.td,
                 t.fmgr,
                 &mut when,
                 slot,
@@ -991,7 +991,7 @@ fn copy_from_body<'mcx>(
                 mcx,
                 input_row_cx.mcx(),
                 rel,
-                &**t.td,
+                t.td,
                 t.fmgr,
                 &mut when,
                 slot,
@@ -1165,12 +1165,12 @@ fn copy_from_body<'mcx>(
             ti_options,
             &mut bistate,
             index_state,
-            trig.as_deref_mut(),
+            trig,
         )?;
         flushed += nused as i64;
         pgstat_progress_update_param(PROGRESS_COPY_TUPLES_PROCESSED, flushed);
     }
-    if let Some(f) = foreign.as_deref_mut() {
+    if let Some(f) = foreign {
         processed += flush_copy_foreign(cstate, f)?;
     }
 

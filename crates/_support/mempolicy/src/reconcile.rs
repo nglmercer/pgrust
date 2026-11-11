@@ -480,13 +480,13 @@ pub struct Outcome {
 #[inline]
 fn over(x: u64, cap: u64, tol: u64) -> u64 {
     let lim = cap.saturating_add(tol);
-    if x > lim { x - lim } else { 0 }
+    x.saturating_sub(lim)
 }
 
 #[inline]
 fn apart(x: u64, y: u64, tol: u64) -> u64 {
     let d = x.abs_diff(y);
-    if d > tol { d - tol } else { 0 }
+    d.saturating_sub(tol)
 }
 
 /// The check over the terms `v` (`Term as usize`; `NONE` = not set) and the split `s`.

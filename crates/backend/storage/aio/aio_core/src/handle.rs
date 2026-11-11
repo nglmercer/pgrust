@@ -47,6 +47,8 @@ pub fn pgaio_io_acquire(
     }
 }
 
+// Kept safe on purpose: a C-shaped entry point (pgaio_io_acquire_nb); its owner/handle contract is the caller's.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub fn pgaio_io_acquire_nb(
     resowner: Option<types_resowner::ResourceOwner>,
     ret: *mut PgAioReturn,
@@ -316,7 +318,7 @@ pub(crate) fn pgaio_io_needs_synchronous_execution(index: u32) -> bool {
 }
 
 pub(crate) fn pgaio_io_prepare_submit(index: u32) {
-    let h = ioh(index);
+    let _h = ioh(index);
     update_state(index, PGAIO_HS_SUBMITTED);
     // SAFETY: owner-thread slot access.
     unsafe {

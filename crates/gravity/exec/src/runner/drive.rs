@@ -75,7 +75,7 @@ pub fn drive(mcx: Mcx<'static>, entry: &mut gravity_driver::Entry, scratch: &mut
             } else {
                 dctx = gravity_driver::mem::root::Root::new("GravityDestSink");
                 let mcx: Mcx<'static> = super::raw::sink_mcx(&dctx);
-                Receiver::Dest(DestSink::new(mcx, desc_of(mcx, &a), dest))
+                Receiver::Dest(DestSink::new(mcx, desc_of(mcx, a), dest))
             };
             byref = a.program.out.iter().map(|c| !c.typbyval).collect(); // alloc: Exec
             keys = g.merge().to_vec(); // alloc: Exec
@@ -110,7 +110,7 @@ pub fn drive(mcx: Mcx<'static>, entry: &mut gravity_driver::Entry, scratch: &mut
         Ok(ran)
     });
     // D4474: the wire node keeps at most FRAME_KEEP of its framing buffer past the run (printtup's shutdown frees its row buffer)
-    if let Some(w) = wire.as_deref_mut() {
+    if let Some(w) = wire {
         w.end_run();
     }
     snapmgr::PopActiveSnapshot()?;
@@ -216,12 +216,12 @@ fn run_parallel(mcx: Mcx<'static>, entry: &mut gravity_driver::Entry, scratch: &
     } else {
         dctx = gravity_driver::mem::root::Root::new("GravityDestSink");
         let mcx: Mcx<'static> = super::raw::sink_mcx(&dctx);
-        let desc = desc_of(mcx, &a);
+        let desc = desc_of(mcx, a);
         Receiver::Dest(DestSink::new(mcx, desc, dest))
     };
     let natts = a.program.out.len();
     // KEY-PREDICTED-ROWS road (b): this statement's estimates (exec admit `bound_all`), not the ones the program was lowered with
-    let predicted = crate::admit::bound_all(&a).iter().filter(|p| p.ends_in == End::Sink).map(|p| p.predicted_rows).max().unwrap_or(0);
+    let predicted = crate::admit::bound_all(a).iter().filter(|p| p.ends_in == End::Sink).map(|p| p.predicted_rows).max().unwrap_or(0);
     // rows a parallel pipeline emits (a Sink pipeline over a source, or the join's phases) must be ordered by the drain
     let hold = a.nsort > 0 && a.program.pipelines.iter().any(|p| p.driving_site >= 0 && p.is_eligible() && (p.ends_in == End::Sink || matches!(p.ends_in, End::Breaker(Breaker { kind: BreakerKind::Materialize, .. }))));
     // per column its typlen when by reference, 0 by value: a leg copies an image pushed outside its block's region (D470)
@@ -884,7 +884,7 @@ fn run_once(mcx: Mcx<'static>, entry: &mut gravity_driver::Entry, a: &mut Admitt
     } else {
         dctx = gravity_driver::mem::root::Root::new("GravityDestSink");
         let mcx: Mcx<'static> = super::raw::sink_mcx(&dctx);
-        let desc = desc_of(mcx, &a);
+        let desc = desc_of(mcx, a);
         Receiver::Dest(DestSink::new(mcx, desc, dest))
     };
     let mut binding = Binding::new(parts, &mut sink);

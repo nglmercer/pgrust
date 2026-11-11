@@ -588,8 +588,8 @@ impl TableScan {
                 shared.drop_state(st);
             }
         }
-        if !cache.states.contains_key(&pidx) {
-            cache.states.insert(pidx, self.enter_part(pidx, shared)?);
+        if let std::collections::hash_map::Entry::Vacant(e) = cache.states.entry(pidx) {
+            e.insert(self.enter_part(pidx, shared)?);
         }
         let st = cache.states.get_mut(&pidx).expect("entered");
         // The claim pin (PC-2.4): taken per claim, attached to the guard,
@@ -853,7 +853,7 @@ impl TableScan {
                 // them; a window with no nulls is exactly the old form.
                 let win_has_null = cs.dict_nullable
                     && matches!(cs.verdict, ValidityVerdict::Mixed { .. })
-                    && codes.iter().any(|&c| c == pgrc_batch::ESCAPE_CODE_U32);
+                    && codes.contains(&pgrc_batch::ESCAPE_CODE_U32);
                 let bound_demote = if win_has_null {
                     codes
                         .iter()

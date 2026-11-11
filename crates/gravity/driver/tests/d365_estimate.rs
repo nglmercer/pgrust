@@ -22,7 +22,7 @@ fn program(rows: u64, groups: u64, layout: RecordLayout) -> (Program, u8) {
     let mut p = common::p_group_spill(16);
     let b = p.pipelines[0].breaker().expect("the fixture's breaker");
     assert!(matches!(b, Breaker { kind: BreakerKind::HashAgg, budget: Budget::Share, spill: Spill::Partitioned { .. }, .. }), "{b:?}");
-    let bits = spill_bits(groups, layout.size() as u32);
+    let bits = spill_bits(groups, layout.size());
     p.pipelines[0].ends_in = End::Breaker(Breaker { spill: Spill::Partitioned { bits }, ..b });
     p.pipelines[0].predicted_rows = rows;
     p.pipelines[0].owner = Some(OwnerDesc::generic(layout, 0, 0));

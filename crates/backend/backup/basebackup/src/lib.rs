@@ -289,7 +289,7 @@ fn tar_checksum(header: &[u8; TAR_BLOCK_SIZE]) -> u64 {
     // Sum all bytes, treating the checksum field [148,156) as 8 spaces.
     let mut sum: u64 = 8 * b' ' as u64;
     for (i, &b) in header.iter().enumerate() {
-        if i < 148 || i >= 156 {
+        if !(148..156).contains(&i) {
             sum += b as u64;
         }
     }
@@ -547,7 +547,7 @@ fn parse_basebackup_options(options: &[ReplOption]) -> PgResult<BasebackupOption
             "max_rate" => {
                 if o_maxrate { dup_err(name)?; }
                 let mr = opt_int(o)?;
-                if mr < MAX_RATE_LOWER || mr > MAX_RATE_UPPER {
+                if !(MAX_RATE_LOWER..=MAX_RATE_UPPER).contains(&mr) {
                     ereport(ERROR).errcode(ERRCODE_NUMERIC_VALUE_OUT_OF_RANGE)
                         .errmsg(format!(
                             "{} is outside the valid range for parameter \"MAX_RATE\" ({MAX_RATE_LOWER} .. {MAX_RATE_UPPER})",
@@ -1704,7 +1704,7 @@ fn read_file_data_into_buffer(
     };
 
     // Can't verify checksums if read length is not a multiple of BLCKSZ.
-    if !verify_checksum || cnt <= 0 || (cnt as usize % BLCKSZ) != 0 {
+    if !verify_checksum || cnt <= 0 || !(cnt as usize).is_multiple_of(BLCKSZ) {
         return Ok(cnt);
     }
 
@@ -1832,7 +1832,7 @@ fn push_to_sink(
         // If the buffer is full, we need to push the contents to the sink
         // and then flush the checksum over what we pushed.
         if *bytes_done == buffer_len {
-            let chunk = ::mcx::std_vec_from_slice("basebackup", &sink.buffer_slice(buffer_len))?;
+            let chunk = ::mcx::std_vec_from_slice("basebackup", sink.buffer_slice(buffer_len))?;
             checksum_update(ctx, &chunk)?;
             bbsink_archive_contents(sink, state, buffer_len)?;
             *bytes_done = 0;
@@ -1932,7 +1932,7 @@ fn sendFile(
         // file unnecessarily large, as that might make some filesystem
         // optimizations impossible. (The buffer length is a BLCKSZ multiple,
         // so the in-buffer offset is congruent to the total mod BLCKSZ.)
-        if num_incremental_blocks > 0 && header_bytes_done % BLCKSZ != 0 {
+        if num_incremental_blocks > 0 && !header_bytes_done.is_multiple_of(BLCKSZ) {
             let paddinglen = BLCKSZ - (header_bytes_done % BLCKSZ);
             let padding = vec![0u8; paddinglen];
             bytes_done += paddinglen as i64;
@@ -1941,7 +1941,7 @@ fn sendFile(
 
         // Flush out any data still in the buffer so it's again empty.
         if header_bytes_done > 0 {
-            let chunk = ::mcx::std_vec_from_slice("basebackup", &sink.buffer_slice(header_bytes_done))?;
+            let chunk = ::mcx::std_vec_from_slice("basebackup", sink.buffer_slice(header_bytes_done))?;
             checksum_update(&mut ctx, &chunk)?;
             bbsink_archive_contents(sink, state, header_bytes_done)?;
         }
@@ -2004,7 +2004,7 @@ fn sendFile(
         }
 
         // Block-level checksums can't be verified on a partial read.
-        if verify_checksum && cnt > 0 && (cnt as usize % BLCKSZ) != 0 {
+        if verify_checksum && cnt > 0 && !(cnt as usize).is_multiple_of(BLCKSZ) {
             let _ = ereport(WARNING)
                 .errmsg(format!(
                     "could not verify checksum in file \"{readfilename_display}\", block {blkno}: read buffer size {cnt} and page size {BLCKSZ} differ"
@@ -2033,7 +2033,7 @@ fn sendFile(
 
         // Archive the data we just read; also feed it to the checksum
         // machinery.
-        let chunk = ::mcx::std_vec_from_slice("basebackup", &sink.buffer_slice(cnt as usize))?;
+        let chunk = ::mcx::std_vec_from_slice("basebackup", sink.buffer_slice(cnt as usize))?;
         checksum_update(&mut ctx, &chunk)?;
         bbsink_archive_contents(sink, state, cnt as usize)?;
     }
@@ -2042,7 +2042,7 @@ fn sendFile(
     while bytes_done < statbuf.size {
         let nbytes = sink.buffer_length().min((statbuf.size - bytes_done) as usize);
         zero_buffer(sink, nbytes);
-        let chunk = ::mcx::std_vec_from_slice("basebackup", &sink.buffer_slice(nbytes))?;
+        let chunk = ::mcx::std_vec_from_slice("basebackup", sink.buffer_slice(nbytes))?;
         checksum_update(&mut ctx, &chunk)?;
         bbsink_archive_contents(sink, state, nbytes)?;
         bytes_done += nbytes as i64;
@@ -2137,7 +2137,7 @@ fn _tarWritePadding(sink: &mut Bbsink<'_>, state: &mut BbsinkState, len: usize) 
 }
 
 fn tar_padding_bytes_required(len: usize) -> usize {
-    (len + (TAR_BLOCK_SIZE - 1)) / TAR_BLOCK_SIZE * TAR_BLOCK_SIZE - len
+    len.div_ceil(TAR_BLOCK_SIZE) * TAR_BLOCK_SIZE - len
 }
 
 fn convert_link_to_directory(statbuf: &mut LstatInfo) {
@@ -2234,7 +2234,7 @@ pub fn init_seams() {
     walsender_seams::base_backup::set(send_base_backup_entry);
     // manifest needs C's GetSystemIdentifier; backup_copy needs a flush + the
     // DestRemoteSimple result-set router (SendXlogRecPtrResult/SendTablespaceList).
-    manifest::seams::get_system_identifier::set(|| transam_xlog::GetSystemIdentifier());
+    manifest::seams::get_system_identifier::set(transam_xlog::GetSystemIdentifier);
     backup_copy_seams::pq_flush_if_writable::set(archive_end_flush);
     bcs_bridge::install();
 }

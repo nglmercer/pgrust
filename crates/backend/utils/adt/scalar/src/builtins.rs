@@ -507,7 +507,7 @@ pub fn fc_oidvectorin(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> Pg
     img[0..4].copy_from_slice(&::datum::varlena::set_varsize_4b(total));
     img[4..8].copy_from_slice(&1i32.to_ne_bytes());
     img[8..12].copy_from_slice(&0i32.to_ne_bytes());
-    img[12..16].copy_from_slice(&(::types_core::catalog::OIDOID as u32).to_ne_bytes());
+    img[12..16].copy_from_slice(&::types_core::catalog::OIDOID.to_ne_bytes());
     img[16..20].copy_from_slice(&n.to_ne_bytes());
     img[20..24].copy_from_slice(&0i32.to_ne_bytes());
     Ok(Datum::from_usize(img.leak().as_ptr() as usize))

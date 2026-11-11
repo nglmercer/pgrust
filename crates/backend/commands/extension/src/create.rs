@@ -272,7 +272,7 @@ pub(crate) fn get_required_extension(
         .errmsg(format!("installing required extension \"{req_extension_name}\""))
         .finish(here("get_required_extension"))?;
 
-    let mut cascade_parents: Vec<&str> = ::mcx::std_vec_from_slice("commands", &parents)?;
+    let mut cascade_parents: Vec<&str> = ::mcx::std_vec_from_slice("commands", parents)?;
     cascade_parents.push(extension_name);
 
     let addr = CreateExtensionInternal(

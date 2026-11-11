@@ -192,6 +192,22 @@ pub fn nested_kept_keeps(held: u64, more: u64) -> bool {
     held.saturating_add(more) <= crate::consts::get(crate::consts::K::NestedKeptBytes)
 }
 
+/// D4679: the most one backend thread's growth shelf keeps (mcx aset: a dropped context's blocks after its first, kept for
+/// the thread's next context block of the same size; Memory Accounting's cap, 10-16). CHOSEN, not measured: the Speedtest
+/// scripts' per-statement planner contexts churn 8 + 16 (+ 32) KiB a statement.
+pub const GROWTH_SHELF_BYTES: usize = 64 << 10;
+
+/// D4679: the growth shelf's cap now: `GROWTH_SHELF_BYTES` under `keep_growth` = 1, else 0 (off: a dropped context frees its
+/// blocks, today's road).
+#[inline]
+pub fn growth_shelf_bytes() -> usize {
+    if crate::consts::get(crate::consts::K::KeepGrowth) == 0 {
+        0
+    } else {
+        GROWTH_SHELF_BYTES
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -256,21 +272,5 @@ mod tests {
         let mib = 1u64 << 20;
         assert!(idle_in_xact(1, 0, 64 * mib) && idle_in_xact(0, 64 * mib, 64 * mib));
         assert!(!idle_in_xact(0, 64 * mib - 1, 64 * mib) && !idle_in_xact(0, u64::MAX, 0) && !idle_in_xact(-5, 0, 64 * mib));
-    }
-}
-
-/// D4679: the most one backend thread's growth shelf keeps (mcx aset: a dropped context's blocks after its first, kept for
-/// the thread's next context block of the same size; Memory Accounting's cap, 10-16). CHOSEN, not measured: the Speedtest
-/// scripts' per-statement planner contexts churn 8 + 16 (+ 32) KiB a statement.
-pub const GROWTH_SHELF_BYTES: usize = 64 << 10;
-
-/// D4679: the growth shelf's cap now: `GROWTH_SHELF_BYTES` under `keep_growth` = 1, else 0 (off: a dropped context frees its
-/// blocks, today's road).
-#[inline]
-pub fn growth_shelf_bytes() -> usize {
-    if crate::consts::get(crate::consts::K::KeepGrowth) == 0 {
-        0
-    } else {
-        GROWTH_SHELF_BYTES
     }
 }

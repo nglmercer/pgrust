@@ -438,12 +438,12 @@ fn fractional_product(value: i32, factor: f64, whole: i32) -> f64 {
 #[inline]
 fn float8_fits_in_int32(num: f64) -> bool {
     // exclusive upper bound per C FLOAT8_FITS_IN_INT32
-    num >= -2147483648.0 && num < 2147483648.0
+    (-2147483648.0..2147483648.0).contains(&num)
 }
 
 #[inline]
 fn float8_fits_in_int64(num: f64) -> bool {
-    num >= -9223372036854775808.0 && num < 9223372036854775808.0
+    (-9223372036854775808.0..9223372036854775808.0).contains(&num)
 }
 
 pub fn interval_mul(span: &Interval, factor: f64) -> PgResult<Interval> {

@@ -158,7 +158,7 @@ fn present_leaves_out_zero_pages() {
                 purge_now(usize::MAX, None);
             }
             // bursts of 4, then a gap a bracketed read fits in (root's pagemap read takes tens of ms)
-            if n % 4 == 0 {
+            if n.is_multiple_of(4) {
                 std::thread::sleep(std::time::Duration::from_millis(250));
             }
         }

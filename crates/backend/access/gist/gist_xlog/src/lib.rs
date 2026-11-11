@@ -21,14 +21,14 @@ use xlogutils::{XLogInitBufferForRedo, XLogReadBufferForRedo, BLK_NEEDS_REDO, BL
 const XLR_INFO_MASK: u8 = 0x0F;
 const FirstOffsetNumber: OffsetNumber = 1;
 
-fn main_data<'a>(record: &'a XLogReaderState) -> &'a [u8] {
+fn main_data(record: &XLogReaderState) -> &[u8] {
     let rec = record.record.as_ref().expect("gist redo with no decoded record");
     // SAFETY: points into the reader's decode buffer, valid for the redo
     // callback's duration.
     unsafe { rec.main_data_bytes() }
 }
 
-fn block_data<'a>(record: &'a XLogReaderState, block_id: u8) -> &'a [u8] {
+fn block_data(record: &XLogReaderState, block_id: u8) -> &[u8] {
     // SAFETY: same decode-buffer lifetime as main_data.
     unsafe { record.block(block_id).data_bytes() }
 }

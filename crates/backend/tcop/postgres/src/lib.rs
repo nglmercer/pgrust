@@ -975,7 +975,7 @@ pub fn install_thread_signal_handlers() {
     {
         procsignal::pqsignal_thread(
             SIGUSR2,
-            Simple(|| walsender_seams::wal_snd_last_cycle_handler::call()),
+            Simple(walsender_seams::wal_snd_last_cycle_handler::call),
         );
     } else {
         procsignal::pqsignal_thread(SIGUSR2, Ignore);

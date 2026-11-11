@@ -335,6 +335,12 @@ pub struct FakeSink {
     pub fail_after: Cell<Option<usize>>,
 }
 
+impl Default for FakeSink {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FakeSink {
     pub fn new() -> FakeSink {
         FakeSink { rows: Cell::new(0), batches: Cell::new(0), last: Cell::new([0; MAXC]), stop_after: Cell::new(None), fail_after: Cell::new(None) }
@@ -678,6 +684,12 @@ pub struct LegSink {
     pub stop_after: Option<usize>,
     pub leg_pushes: AtomicU64,
     pub legs: bool,
+}
+
+impl Default for LegSink {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl LegSink {

@@ -37,7 +37,7 @@ fn string_literal(out: &mut String, val: &str) {
     out.push('\'');
 }
 
-fn col<'a>(row: &'a [Option<Vec<u8>>], i: usize) -> PgResult<Option<&'a str>> {
+fn col(row: &[Option<Vec<u8>>], i: usize) -> PgResult<Option<&str>> {
     // Remote text-format values are supposed to arrive in the local (database)
     // encoding, but the bytes come straight off the wire from a foreign server
     // that may be hostile, compromised, or MITM'd (the transport has no TLS),

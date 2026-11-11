@@ -1768,7 +1768,7 @@ mod rowid_tests {
     fn rebuild_ranges_drops_retired_adds_installed_and_raises_the_floor() {
         let base = with(&[(1, vec![(291, 582)]), (3, vec![(582, 873)])], 873, &[]);
         let mut parts = base.parts.clone();
-        let mut out = parts[0].clone();
+        let mut out = parts[0];
         out.part_no = 5;
         parts.retain(|p| p.part_no != 1);
         parts.push(out);

@@ -415,11 +415,10 @@ fn inet_spg_consistent_bitmap(prefix: InetRef<'_>, scankeys: &[ScanKeyData], lea
                     bitmap = 0;
                 }
             }
-            RTGreaterEqualStrategyNumber | RTGreaterStrategyNumber => {
-                if commonbits < argbits {
+            RTGreaterEqualStrategyNumber | RTGreaterStrategyNumber
+                if commonbits < argbits => {
                     bitmap &= (1 << 2) | (1 << 3);
                 }
-            }
             _ => {}
         }
         if bitmap == 0 {
@@ -489,11 +488,10 @@ fn inet_spg_consistent_bitmap(prefix: InetRef<'_>, scankeys: &[ScanKeyData], lea
                         bitmap = 0;
                     }
                 }
-                RTNotEqualStrategyNumber => {
-                    if order == 0 {
+                RTNotEqualStrategyNumber
+                    if order == 0 => {
                         bitmap = 0;
                     }
-                }
                 _ => {}
             }
             if bitmap == 0 {

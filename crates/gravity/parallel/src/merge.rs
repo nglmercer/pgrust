@@ -60,7 +60,7 @@ fn partial_shape(bytes: &[u8]) -> Option<(RecordLayout, u64, u8)> {
             }
             TABLE_AGG => {
                 let t = HashAgg::view(bytes.as_ptr());
-                (t.cap != 0).then(|| (t.layout, t.len as u64, 0))
+                (t.cap != 0).then_some((t.layout, t.len as u64, 0))
             }
             _ => None,
         }

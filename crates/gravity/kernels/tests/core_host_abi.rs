@@ -498,7 +498,7 @@ fn observe_bypass_moves_the_miss_once(layout: &'static RecordLayout, count_slot:
         // a thrashing window already observed: the next eviction's observe() answers bypass
         ((*t).inserts, (*t).win_at, (*t).evictions, (*t).win_ev) = (adapt_win((*t).cap as u64), 0, adapt_win((*t).cap as u64), 0);
         let (mut n, mut switched_at) = (0u64, None);
-        while n < 20_000 && switched_at.map_or(true, |s| n < s + 50) {
+        while n < 20_000 && switched_at.is_none_or(|s| n < s + 50) {
             img.fill(0);
             let src = Rec::at(img.as_mut_ptr(), layout);
             src.open(&[n]);

@@ -172,7 +172,7 @@ pub fn gistrescan(
             skey.sk_func.fn_nargs = src.fn_nargs;
             skey.sk_func.fn_strict = src.fn_strict;
             skey.sk_func.fn_retset = src.fn_retset;
-            skey.sk_func.fn_expr = src.fn_expr.clone();
+            skey.sk_func.fn_expr = src.fn_expr;
         }
     }
 

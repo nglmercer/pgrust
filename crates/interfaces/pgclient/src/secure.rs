@@ -423,9 +423,9 @@ pub(crate) fn initialize(opts: &[(String, String)], host: &str) -> Result<Pendin
     // SAFETY: ssl is a live SSL object.
     unsafe {
         if opt(opts, "sslcompression").unwrap_or("0").starts_with('0') {
-            SSL_set_options(ssl.as_ptr(), openssl_sys::SSL_OP_NO_COMPRESSION as u64);
+            SSL_set_options(ssl.as_ptr(), openssl_sys::SSL_OP_NO_COMPRESSION);
         } else {
-            SSL_clear_options(ssl.as_ptr(), openssl_sys::SSL_OP_NO_COMPRESSION as u64);
+            SSL_clear_options(ssl.as_ptr(), openssl_sys::SSL_OP_NO_COMPRESSION);
         }
     }
     Ok(Pending { ssl, flags })

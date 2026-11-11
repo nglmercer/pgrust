@@ -382,7 +382,7 @@ fn a_second_row_op_refuses_as_nest_cte() {
     let decl = || RowOpDecl { op: WRITE_INSERT, relid: REL, natts: 1, plan: WritePlan::write(a, Cmd::Insert, REL, &[]), loc: LocFrom::None, conflict: false };
     let _first = (maker().0)(&mut px, 0, decl());
     let r = catch(3, || drop((maker().0)(&mut px, 0, decl())));
-    let e = r.err().expect("a second row op refuses");
+    let e = r.expect_err("a second row op refuses");
     assert!(matches!(e.reason, Reason::NotBuilt { variant: Variant::Kind(KindId::NestCte), .. }), "{e:?}");
 }
 

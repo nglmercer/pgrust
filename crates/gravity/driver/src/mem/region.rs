@@ -1214,12 +1214,12 @@ pub(crate) fn road_held_now(bytes: usize, w: Option<&mut u64>, stmt: Option<&cra
 /// else charged to the pool directly, waiting for its room (F3, `take_wait`), within the statement's part of the pool
 /// (`past_cap`, asked once: no retry follows a refusal). `None`: past that part, or the pool stayed short through its
 /// wait; the caller takes the kind's road (the owner phase as before: its owners' mapped temp file), never an error.
-pub(crate) fn road_held_exact(bytes: usize, mut w: Option<&mut u64>, stmt: Option<&crate::mem::grant::Reservation>) -> Option<crate::mem::grant::Held> {
+pub(crate) fn road_held_exact(bytes: usize, w: Option<&mut u64>, stmt: Option<&crate::mem::grant::Reservation>) -> Option<crate::mem::grant::Held> {
     let w_fits = w.as_deref().is_some_and(|c| *c >= bytes as u64);
     let g_fits = stmt.is_some_and(|s| s.left() >= bytes as u64);
     match mempolicy::admit::road(stmt.is_some_and(crate::mem::grant::Reservation::admitted), w_fits, g_fits) {
         Road::W => {
-            if let Some(c) = w.as_deref_mut() {
+            if let Some(c) = w {
                 *c -= bytes as u64;
             }
             return Some(crate::mem::grant::Held::pool(bytes as u64));
@@ -1442,7 +1442,7 @@ fn road_region(bytes: usize, mut w: Option<&mut u64>, stmt: Option<&crate::mem::
     }
     let w_fits = w.as_deref().is_some_and(|c| *c >= bytes as u64);
     if mempolicy::admit::road(admitted, w_fits, fits_g(bytes as u64)) != Road::PastG {
-        match held_from(bytes, w.as_deref_mut(), stmt) {
+        match held_from(bytes, w, stmt) {
             Some(h) => {
                 return held_region(bytes, h, zeroed).or_else(|| {
                     if !now {
@@ -2047,7 +2047,7 @@ mod reserved_tests {
         crate::park::REGIONS.put(r);
         for ask in [start, start + 4096, 4usize << 20] {
             let plain = crate::park::REGIONS.take_parked(ask, None, None);
-            assert!(plain.as_ref().is_none_or(|b| b.as_ptr() != p as *const u8), "a plain take never gets the full laid region");
+            assert!(plain.as_ref().is_none_or(|b| !std::ptr::eq(b.as_ptr(), p)), "a plain take never gets the full laid region");
         }
         let again = crate::park::REGIONS.take_laid(start, reserve).expect("the parked laid region");
         assert_eq!((again.as_ptr(), again.len(), again.is_reserved(), again.is_laid()), (p as *const u8, res, true, true));
@@ -2068,7 +2068,7 @@ mod reserved_tests {
         crate::park::REGIONS.put(r);
         let again = super::laid_region(start, small, start, None, None).expect("a laid region");
         assert!(again.is_laid());
-        if again.as_ptr() == p as *const u8 {
+        if std::ptr::eq(again.as_ptr(), p) {
             assert_eq!((again.reserve(), again.lay_reserve()), (big, small), "the parked mapping, laid at the ask");
         }
         assert_eq!(again.lay_reserve(), small);
@@ -2096,7 +2096,7 @@ mod reserved_tests {
         assert!(grown > share, "grown past its share");
         crate::park::REGIONS.put(r);
         let short = crate::park::REGIONS.take_laid(start, grown - (1 << 20));
-        assert!(short.as_ref().is_none_or(|b| b.as_ptr() != p as *const u8), "an ask whose reservation it passes never takes it");
+        assert!(short.as_ref().is_none_or(|b| !std::ptr::eq(b.as_ptr(), p)), "an ask whose reservation it passes never takes it");
         drop(short);
         let again = super::laid_region(start, reserve, share, None, None).expect("a laid region");
         assert_eq!((again.as_ptr(), again.len(), again.is_laid(), again.lay_reserve(), again.lay_share()), (p as *const u8, grown, true, reserve, share), "taken back warm, whole, cut by its taker's share");
@@ -2136,7 +2136,7 @@ mod reserved_tests {
         crate::park::REGIONS.put(r);
         let faulted = crate::mem::grant::Reservation::unadmitted(crate::mem::grant::Grant::of(64 << 20).with_spill_every(1));
         let cold = super::laid_region(start, reserve, share, None, Some(&faulted)).expect("a laid region");
-        assert!(cold.as_ptr() != p as *const u8 && cold.len() < grown, "under the fault: a fresh reservation at its start");
+        assert!(!std::ptr::eq(cold.as_ptr(), p) && cold.len() < grown, "under the fault: a fresh reservation at its start");
         assert!(cold.is_laid());
         drop(cold);
         let warm = crate::park::REGIONS.take_laid(start, reserve).expect("the warm region, still parked");
@@ -2189,7 +2189,7 @@ mod reserved_tests {
         if rw0 < end {
             match super::open_step() {
                 0 => assert_eq!(r.rw, end.next_multiple_of(page)),
-                s => assert!((p + r.rw) % s == 0 && r.rw >= end && r.rw - end < s, "opened to the next step boundary"),
+                s => assert!((p + r.rw).is_multiple_of(s) && r.rw >= end && r.rw - end < s, "opened to the next step boundary"),
             }
         }
         assert!(r.rw >= end && r.rw <= super::mapped_len(reserve), "the committed bytes writable, within the mapping");
@@ -2217,7 +2217,7 @@ mod reserved_tests {
             assert_eq!((*p, *p.add(share + more - 1)), (0x11, 0x22));
         }
         #[cfg(target_os = "linux")]
-        assert!(r.rw >= share + more && r.rw % super::page_sizes().0 == 0 && r.rw < reserve, "only the committed pages are writable");
+        assert!(r.rw >= share + more && r.rw.is_multiple_of(super::page_sizes().0) && r.rw < reserve, "only the committed pages are writable");
         crate::park::REGIONS.put(r);
     }
 

@@ -63,8 +63,8 @@ pub fn any_element(p: &[u8]) -> bool {
     }
     let at = 12 + 8 * ndim as usize;
     let full = (n / 8) as usize;
-    let Some(bits) = p.get(at..at + full + usize::from(n % 8 != 0)) else { return true };
-    bits[..full].iter().any(|&b| b != 0) || (n % 8 != 0 && bits[full] & ((1u8 << (n % 8)) - 1) != 0)
+    let Some(bits) = p.get(at..at + full + usize::from(!n.is_multiple_of(8))) else { return true };
+    bits[..full].iter().any(|&b| b != 0) || (!n.is_multiple_of(8) && bits[full] & ((1u8 << (n % 8)) - 1) != 0)
 }
 
 #[cold]

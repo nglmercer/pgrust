@@ -496,8 +496,8 @@ fn create_tablespace_directories_path(location: &fd::PgPath, tablespaceoid: Oid)
     let linkloc = format!("{PG_TBLSPC_DIR}/{tablespaceoid}");
     let in_place = location.is_empty();
 
-    if in_place {
-        if fd::MakePGDirectory(&linkloc) < 0 {
+    if in_place
+        && fd::MakePGDirectory(&linkloc) < 0 {
             let e = std::io::Error::last_os_error();
             if e.kind() != std::io::ErrorKind::AlreadyExists {
                 return Err(ereport(ERROR)
@@ -508,7 +508,6 @@ fn create_tablespace_directories_path(location: &fd::PgPath, tablespaceoid: Oid)
                     .into());
             }
         }
-    }
 
     let location_with_version_dir = if in_place {
         fd::PgPath::from(linkloc.as_str())

@@ -84,6 +84,8 @@ fn elect(col: &ColBuffer, cands: &CodecCandidates) -> FullElection {
 /// The shared fixture: two overlapping source dictionaries (both carrying
 /// UNREFERENCED entries), a code stream alternating sources, and a plain
 /// hybrid tail whose values partly duplicate dict entries.
+// The `block << 32 | slot` rows are written out in full on purpose (block, then slot), so clippy::eq_op is off here.
+#[allow(clippy::eq_op)]
 fn fixture() -> (Vec<Arc<dyn DictEntries>>, Vec<(u64, Vec<u8>)>) {
     let d0 = Arc::new(TestDict(vec![
         b"amber".to_vec(),

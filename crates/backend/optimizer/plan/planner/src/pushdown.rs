@@ -124,7 +124,7 @@ pub(crate) fn cte_clause_safe<'mcx>(
             return Ok(false);
         }
     }
-    if body.hasWindowFuncs || !body.distinctClause.is_nil() || body.setOperations.map_or(false, setop_has_grouping) {
+    if body.hasWindowFuncs || !body.distinctClause.is_nil() || body.setOperations.is_some_and(setop_has_grouping) {
         let conflict = clauses::expression_has_grouping_conflict(clause, &mut |var| {
             if var.varlevelsup != 0 {
                 return Ok(types_core::InvalidOid);
@@ -447,7 +447,7 @@ fn qual_is_pushdown_safe<'mcx>(
     if matches!(safe, PushdownSafe::Safe)
         && (subquery.hasWindowFuncs
             || !subquery.distinctClause.is_nil()
-            || subquery.setOperations.map_or(false, setop_has_grouping))
+            || subquery.setOperations.is_some_and(setop_has_grouping))
     {
         let conflict = clauses::expression_has_grouping_conflict(clause, &mut |var| {
             if var.varlevelsup != 0 {
@@ -546,8 +546,8 @@ fn setop_has_grouping(setop: Node<'_>) -> bool {
         return false;
     };
     !op.groupClauses.is_nil()
-        || op.larg.map_or(false, setop_has_grouping)
-        || op.rarg.map_or(false, setop_has_grouping)
+        || op.larg.is_some_and(setop_has_grouping)
+        || op.rarg.is_some_and(setop_has_grouping)
 }
 
 // contain_volatile_functions((Node *) rinfo): the walker's RestrictInfo arm

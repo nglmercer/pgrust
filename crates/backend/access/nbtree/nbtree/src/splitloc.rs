@@ -83,7 +83,7 @@ pub(crate) unsafe fn bt_findsplitloc<'mcx>(
     }
 
     let olddataitemstotal = rightspace - page.exact_free_space() as i32;
-    let leaffillfactor = rel.get_fillfactor(::types_nbtree::BTREE_DEFAULT_FILLFACTOR as i32);
+    let leaffillfactor = rel.get_fillfactor(::types_nbtree::BTREE_DEFAULT_FILLFACTOR);
 
     let newitemsz = newitemsz + core::mem::size_of::<ItemIdData>();
     debug_assert!(!bt_tuple_is_posting(newitem));

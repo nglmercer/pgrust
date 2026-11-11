@@ -1,5 +1,8 @@
 //! Advanced math: sqrt/exp/ln/log/power kernels, mod/gcd family, factorial,
 //! scientific-notation output, width_bucket.
+// The decimal literals below are numeric.c's exact constants. std's LOG10_E etc. are different doubles, so
+// they would change results in the last bit: clippy::approx_constant is off for this module on purpose.
+#![allow(clippy::approx_constant)]
 
 use core::mem::swap;
 

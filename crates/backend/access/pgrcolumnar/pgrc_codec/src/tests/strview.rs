@@ -17,7 +17,7 @@ use pgrc_format::wire::varlena_4b_u_payload_len;
 
 /// The §7b shape check: pointer is 8-aligned and heads a valid 4B-U image.
 fn varlena_shaped(datum: u64) -> Result<(), &'static str> {
-    if datum % 8 != 0 {
+    if !datum.is_multiple_of(8) {
         return Err("not 8-aligned");
     }
     // SAFETY: test datums point at live arena/backing images.

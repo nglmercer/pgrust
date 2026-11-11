@@ -1868,7 +1868,7 @@ fn sql_value_function_datetime_ops() {
     adt_datetime::tz::pg_timezone_initialize().unwrap();
 
     with_mcx(|mcx| {
-        let mut eval = |node| {
+        let eval = |node| {
             let mut state = exec_init_expr(mcx, Some(node), ParamBind::NONE)
                 .unwrap()
                 .unwrap();
@@ -5086,8 +5086,7 @@ mod rem_b028 {
             let mut slot = virtual_slot(mcx, &[Some(1)]);
             let mut slots = scan_slots(&mut slot);
             let err = exec_eval_expr(&mut state, &mut slots)
-                .err()
-                .expect("CheckVarSlotCompatibility must reject an int4 column read as int8");
+                .expect_err("CheckVarSlotCompatibility must reject an int4 column read as int8");
             assert!(
                 err.message().contains("has wrong type"),
                 "got: {}",
@@ -5128,8 +5127,7 @@ mod rem_b028 {
                 outer: Some(&mut outer),
             };
             let err = exec_qual(Some(&mut *state), &mut slots)
-                .err()
-                .expect("CheckVarSlotCompatibility must reject the int4 outer column read as int8");
+                .expect_err("CheckVarSlotCompatibility must reject the int4 outer column read as int8");
             assert!(
                 err.message().contains("has wrong type"),
                 "got: {}",
@@ -5164,8 +5162,7 @@ mod rem_b028 {
                     .unwrap();
             let mut slots = scan_slots(&mut slot);
             let err = exec_eval_expr(&mut state, &mut slots)
-                .err()
-                .expect("a Var over a virtual generated column must be an ERROR");
+                .expect_err("a Var over a virtual generated column must be an ERROR");
             assert_eq!(err.message(), "unexpected virtual generated column reference");
             assert_eq!(err.sqlstate, ::types_error::ERRCODE_INTERNAL_ERROR);
         });
@@ -5184,8 +5181,7 @@ mod rem_b028 {
             let mut slot = virtual_slot(mcx, &[Some(1)]);
             let mut slots = scan_slots(&mut slot);
             let err = exec_eval_expr(&mut state, &mut slots)
-                .err()
-                .expect("attnum past the descriptor must be an ERROR");
+                .expect_err("attnum past the descriptor must be an ERROR");
             assert_eq!(err.message(), "attribute number 3 exceeds number of columns 1");
             assert_eq!(err.sqlstate, ::types_error::ERRCODE_INTERNAL_ERROR);
         });
@@ -5213,8 +5209,7 @@ mod rem_b028 {
                 .unwrap();
             let mut slots = EvalSlots::default();
             let err = exec_eval_expr(&mut state, &mut slots)
-                .err()
-                .expect("mismatched parameter type must be an ERROR");
+                .expect_err("mismatched parameter type must be an ERROR");
             assert!(
                 err.message().starts_with("type of parameter 1 (")
                     && err
@@ -5492,8 +5487,7 @@ mod rem_b028 {
             let mut state = field_select(mcx, rec, typmod, 1, INT8OID);
             let mut slots = EvalSlots::default();
             let err = exec_eval_expr(&mut state, &mut slots)
-                .err()
-                .expect("FieldSelect over a mismatched attribute type must be an ERROR");
+                .expect_err("FieldSelect over a mismatched attribute type must be an ERROR");
             assert_eq!(err.message(), "attribute 1 has wrong type");
             assert_eq!(err.sqlstate, ERRCODE_DATATYPE_MISMATCH);
             assert!(
@@ -5515,8 +5509,7 @@ mod rem_b028 {
             let mut state = field_select(mcx, rec, typmod, -1, INT4OID);
             let mut slots = EvalSlots::default();
             let err = exec_eval_expr(&mut state, &mut slots)
-                .err()
-                .expect("FieldSelect of a system column must be an ERROR");
+                .expect_err("FieldSelect of a system column must be an ERROR");
             assert_eq!(
                 err.message(),
                 "unsupported reference to system column -1 in FieldSelect"

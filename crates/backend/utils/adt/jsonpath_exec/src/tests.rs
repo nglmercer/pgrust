@@ -689,8 +689,8 @@ mod passing_text_detoast {
             .unwrap_or_else(|e| panic!("$x: {}", e.message()));
         assert_eq!(rows.len(), 1);
         let img = rows.image(mcx, 0).unwrap().unwrap();
-        let s = out(mcx, &img[4..]);
-        s
+        
+        out(mcx, &img[4..])
     }
 
     #[test]

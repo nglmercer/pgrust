@@ -95,7 +95,7 @@ fn registry_serves_the_hot_verbatim_kernels_and_the_oracle_is_distinct() {
 // naive per-value readers (the pre-fix kernel shape; frozen layouts)
 // ---------------------------------------------------------------------------
 
-fn open_naive<'a>(built: &'a Built, g: u32, encoding: EncodingId) -> (&'a [u8], u32, u32) {
+fn open_naive(built: &Built, g: u32, encoding: EncodingId) -> (&[u8], u32, u32) {
     let section = built.section();
     let hdr = StreamSectionHdr::decode(section).expect("hdr");
     assert_eq!(hdr.encoding, encoding.as_u16(), "witnessed encoding");
@@ -761,7 +761,7 @@ fn verbatim_varlena_lengths_match_hot_and_oracle_payloads() {
         let (o, _oa) = dec_full_via(oracle, &built, g);
         let bits = built.granules[g as usize].1.as_deref();
         for r in 0..n as usize {
-            let live = bits.map_or(true, |b| (b[r / 8] >> (r % 8)) & 1 != 0);
+            let live = bits.is_none_or(|b| (b[r / 8] >> (r % 8)) & 1 != 0);
             if !live {
                 checked_null = true;
                 continue;

@@ -346,14 +346,9 @@ fn walk_statement(g: &mut Gen) -> String {
                 // and literals flowing without a full grammar-cost model.
                 let leaf_names: Vec<&str> = cands
                     .iter()
-                    .filter_map(|&c| {
-                        (gr.rhs[c].len() == 1 && gr.rhs[c][0] < gt::YYNTOKENS as usize)
-                            .then(|| {
-                                class_weight_name(
+                    .filter(|&&c| gr.rhs[c].len() == 1 && gr.rhs[c][0] < gt::YYNTOKENS as usize).map(|&c| class_weight_name(
                                     gr.defs[gr.def_of_internal[gr.rhs[c][0]].unwrap()].class,
-                                )
-                            })
-                    })
+                                ))
                     .collect();
                 if leaf_names.len() == cands.len() && leaf_names.len() > 1 {
                     let want = g.weights.pick(g.rng, &leaf_names);
@@ -649,7 +644,7 @@ pub fn sanitize_alter_system_guc_names(sql: &str) -> String {
     let mut i = 0usize;
     // Lex one unquoted word starting at/after whitespace; returns
     // (start, end) or None if the next non-space char is not a word start.
-    let mut next_word = |i: &mut usize| -> Option<(usize, usize)> {
+    let next_word = |i: &mut usize| -> Option<(usize, usize)> {
         while *i < b.len() && b[*i].is_ascii_whitespace() {
             *i += 1;
         }

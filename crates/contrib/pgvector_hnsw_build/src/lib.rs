@@ -353,7 +353,7 @@ fn find_element_neighbors_mem(
     let mut ep: Vec<(u32, f64)> = vec![(entry_point, ep_dist)];
 
     let mut lc = entry_level;
-    while lc >= level + 1 {
+    while lc > level {
         ep = search_layer_mem(&bs.graph, &mut support, q, ep, 1, lc, bs.m)?;
         lc -= 1;
     }

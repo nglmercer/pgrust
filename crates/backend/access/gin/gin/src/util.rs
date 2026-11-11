@@ -467,7 +467,7 @@ pub(crate) fn gin_page_is_recyclable(buf: Buffer) -> PgResult<bool> {
 /// GinNewBuffer: recycle via FSM or extend; returned pinned + exclusive.
 pub fn GinNewBuffer(rel: &Relation<'_>) -> PgResult<Buffer> {
     loop {
-        let blkno = freespace_seams::get_page_with_free_space::call(rel, (BLCKSZ / 2) as usize)?;
+        let blkno = freespace_seams::get_page_with_free_space::call(rel, BLCKSZ / 2)?;
         if blkno == InvalidBlockNumber {
             break;
         }
@@ -599,7 +599,7 @@ pub(crate) fn try_sort_by<T: Copy>(
     if n < 2 {
         return Ok(());
     }
-    let mut buf: Vec<T> = ::mcx::std_vec_from_slice("access", &items)?;
+    let mut buf: Vec<T> = ::mcx::std_vec_from_slice("access", items)?;
     let mut width = 1;
     while width < n {
         let mut lo = 0;

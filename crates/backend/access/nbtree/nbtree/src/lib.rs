@@ -348,11 +348,10 @@ fn getbitmap_loop<R: BtReadRel + ?Sized>(
 
             loop {
                 ctx.so.currPos.itemIndex += 1;
-                if ctx.so.currPos.itemIndex > ctx.so.currPos.lastItem {
-                    if !search::bt_next(ctx, ::types_scan::sdir::ForwardScanDirection)? {
+                if ctx.so.currPos.itemIndex > ctx.so.currPos.lastItem
+                    && !search::bt_next(ctx, ::types_scan::sdir::ForwardScanDirection)? {
                         break;
                     }
-                }
                 // SAFETY: itemIndex in [firstItem, lastItem], written by bt_readpage.
                 let item = unsafe { ctx.so.currPos.item(ctx.so.currPos.itemIndex as usize) };
                 tbm.add_tuples(core::slice::from_ref(&item.heapTid), false)?;

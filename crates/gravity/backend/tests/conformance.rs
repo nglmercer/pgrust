@@ -41,9 +41,9 @@ unsafe extern "C" fn h_add_count(ctx: u64, n: u64) -> u64 {
 /// once per window (seek, advance, add_count: abi-v2 §3); the row loop is IR loads and branches.
 fn count_ir() -> (gravity_ir::Program, Func) {
     let mut pb = ProgramBuilder::new();
-    let seek = pb.declare_host("seek", &[Type::Ptr], Some(Type::I64), h_seek as usize, HostFlags::default());
-    let adv = pb.declare_host("advance", &[Type::Ptr], Some(Type::I64), h_advance as usize, HostFlags::default());
-    let add = pb.declare_host("add_count", &[Type::Ptr, Type::I64], Some(Type::I64), h_add_count as usize, HostFlags::default());
+    let seek = pb.declare_host("seek", &[Type::Ptr], Some(Type::I64), h_seek as *const () as usize, HostFlags::default());
+    let adv = pb.declare_host("advance", &[Type::Ptr], Some(Type::I64), h_advance as *const () as usize, HostFlags::default());
+    let add = pb.declare_host("add_count", &[Type::Ptr, Type::I64], Some(Type::I64), h_add_count as *const () as usize, HostFlags::default());
     let f = pb.declare_func("count_lt", &[Type::Ptr], &[Type::I64]);
     let mut b = pb.define(f);
     let ctx = b.params()[0];
@@ -335,6 +335,6 @@ fn the_entry_contract_is_checked_and_interpreter_code_has_an_identity_entry() {
     let (ir, f) = count_ir();
     let code = gravity_backend::interp(ir, f).unwrap();
     assert!(code.is_interp() && !code.is_hand() && code.bytes() == 0);
-    assert_ne!(code.entry() as usize, par_scan_count::par_scan_count as usize);
+    assert_ne!(code.entry() as usize, par_scan_count::par_scan_count as *const () as usize);
     assert_eq!(format!("{code:?}").split(',').next(), Some("Code(interp"));
 }

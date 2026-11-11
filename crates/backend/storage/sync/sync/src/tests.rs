@@ -284,7 +284,7 @@ fn fsync_failure_abort_child() {
     // (fsyncgate); elog PANIC unwinds PanicExitThread under the thread model
     // (notes/crash-restart-design.md) and the postmaster maps it to
     // WTERMSIG(SIGABRT).
-    let r = std::panic::catch_unwind(|| ProcessSyncRequests());
+    let r = std::panic::catch_unwind(ProcessSyncRequests);
     match r {
         Err(payload) if payload.is::<types_error::PanicExitThread>() => std::process::exit(42),
         _ => std::process::exit(0),

@@ -220,7 +220,7 @@ fn c1_a_1gib_ask_beside_a_full_cache_is_served_after_an_inline_eviction() {
     gravity_driver::REGIONS.trim();
     let _ = budget::snapshot();
     let part = gravity_driver::mem::reclaim::cache_floors_view().into_iter().find(|v| v.0 == Consumer::PartCache).expect("part cache");
-    (HELD.store(part.1, Relaxed), COND.store(0, Relaxed));
+    HELD.store(part.1, Relaxed); COND.store(0, Relaxed);
     mcx::ladder::publish(mcx::ladder::ON, 7 * GIB);
     set(K::CacheInlineSkip, 1);
     let r0 = counters();

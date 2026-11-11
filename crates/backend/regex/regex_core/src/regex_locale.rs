@@ -12,7 +12,7 @@ use mbutils_seams as mb_seams;
 // Builtin provider ctype: unicode_category.c pg_u_is* over the codepoint,
 // posix-restricted per regc_pg_locale.c's `!casemap_full` convention.
 fn regex_wc_isclass_builtin(class: WcClass, c: PgWChar, posix: bool) -> bool {
-    let code = c as u32;
+    let code = c;
     match class {
         WcClass::Digit => unicode_category::pg_u_isdigit(code, posix),
         WcClass::Alpha => unicode_category::pg_u_isalpha(code),
@@ -306,7 +306,7 @@ pub fn pg_wc_toupper(c: PgWChar) -> PgWChar {
                 st.locale.unwrap().wc_toupper_1byte(c)
             }
         }
-        PgLocaleStrategy::Builtin => unicode_case::unicode_uppercase_simple(c as u32) as PgWChar,
+        PgLocaleStrategy::Builtin => unicode_case::unicode_uppercase_simple(c) as PgWChar,
         PgLocaleStrategy::Icu => ::pg_locale::icu_wc_toupper(c) as PgWChar,
     }
 }
@@ -335,7 +335,7 @@ pub fn pg_wc_tolower(c: PgWChar) -> PgWChar {
                 st.locale.unwrap().wc_tolower_1byte(c)
             }
         }
-        PgLocaleStrategy::Builtin => unicode_case::unicode_lowercase_simple(c as u32) as PgWChar,
+        PgLocaleStrategy::Builtin => unicode_case::unicode_lowercase_simple(c) as PgWChar,
         PgLocaleStrategy::Icu => ::pg_locale::icu_wc_tolower(c) as PgWChar,
     }
 }

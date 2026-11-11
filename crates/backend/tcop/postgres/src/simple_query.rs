@@ -1065,10 +1065,7 @@ pub fn exec_simple_query<'mcx>(mcx: Mcx<'mcx>, query_string: &'mcx str) -> PgRes
         tcop_dest::NullCommand(dest)?;
     }
 
-    match check_log_duration(was_logged) {
-        (kind @ (1 | 2), msec_str) => log_duration_line(kind, &msec_str, &parsetree_list, query_string)?,
-        _ => {}
-    }
+    if let (kind @ (1 | 2), msec_str) = check_log_duration(was_logged) { log_duration_line(kind, &msec_str, &parsetree_list, query_string)? }
 
     if save_log_statement_stats {
         ShowUsage("QUERY STATISTICS")?;
@@ -1234,7 +1231,7 @@ pub(crate) fn check_log_duration_impl(
     // TimestampDifference (timestamp.c:1697): a nonpositive difference is 0/0.
     let diff_us = diff_us.max(0);
     let secs = diff_us / 1_000_000;
-    let usecs = (diff_us % 1_000_000) as i64;
+    let usecs = diff_us % 1_000_000;
     let msecs = usecs / 1000;
 
     let exceeded_duration = g.log_min == 0

@@ -181,7 +181,7 @@ impl ReorderBuffer {
         let header = tuple.t_data();
         let t_hoff = header.t_hoff as usize;
         let null_bitmap_len =
-            if tuple.has_nulls() { (header.natts() as usize + 7) / 8 } else { 0 };
+            if tuple.has_nulls() { (header.natts() as usize).div_ceil(8) } else { 0 };
         let min_hoff = SizeofHeapTupleHeader + null_bitmap_len;
         if t_hoff < min_hoff || t_hoff > t_len {
             return Err(PgError::error(format!(
@@ -196,7 +196,7 @@ impl ReorderBuffer {
 
     pub(crate) fn largest_txn(&self) -> Option<TxnId> {
         let largest = self.txn_heap.first().map(|&(_, id)| id);
-        debug_assert!(largest.map_or(true, |id| self.txn(id).size <= self.size));
+        debug_assert!(largest.is_none_or(|id| self.txn(id).size <= self.size));
         largest
     }
 

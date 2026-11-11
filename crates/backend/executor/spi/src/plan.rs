@@ -293,7 +293,7 @@ pub(crate) fn prepare_oneshot_args(
         oneshot: true,
         saved: false,
         cursor_options,
-        argtypes: ::mcx::std_vec_from_slice("spi", &argtypes)?,
+        argtypes: ::mcx::std_vec_from_slice("spi", argtypes)?,
         parse_mode: RawParseMode::RAW_PARSE_DEFAULT,
     })
 }
@@ -327,7 +327,7 @@ pub fn SPI_prepare_cursor(src: &str, argtypes: &[Oid], cursor_options: i32) -> P
         oneshot: false,
         saved: false,
         cursor_options,
-        argtypes: ::mcx::std_vec_from_slice("spi", &argtypes)?,
+        argtypes: ::mcx::std_vec_from_slice("spi", argtypes)?,
         parse_mode: RawParseMode::RAW_PARSE_DEFAULT,
     };
 

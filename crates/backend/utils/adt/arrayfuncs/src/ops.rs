@@ -89,11 +89,11 @@ enum TcWant {
 
 const F_HASH_RECORD: Oid = 6192;
 
-fn cached_typentry<'f>(
-    flinfo: &'f mut FmgrInfo,
+fn cached_typentry(
+    flinfo: &mut FmgrInfo,
     element_type: Oid,
     want: TcWant,
-) -> PgResult<&'f mut TcMemo> {
+) -> PgResult<&mut TcMemo> {
     let need = match flinfo.fn_extra_ref::<TcMemo>() {
         Some(m) => m.entry.type_id != element_type,
         None => true,
@@ -946,7 +946,7 @@ fn write_envelope(
     out[0..4].copy_from_slice(&::datum::varlena::set_varsize_4b(nbytes));
     out[4..8].copy_from_slice(&ndims.to_ne_bytes());
     out[8..12].copy_from_slice(&dataoffset.to_ne_bytes());
-    out[12..16].copy_from_slice(&(elmtype as u32).to_ne_bytes());
+    out[12..16].copy_from_slice(&elmtype.to_ne_bytes());
     let mut off = 16usize;
     for d in dimv.iter().take(ndims as usize) {
         out[off..off + 4].copy_from_slice(&d.to_ne_bytes());

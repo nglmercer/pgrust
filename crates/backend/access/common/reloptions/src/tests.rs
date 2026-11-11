@@ -103,7 +103,7 @@ fn transform_expands_short_header_old_image() {
     )
     .unwrap();
     let old = transformRelOptions(mcx, None, &list, None, &[], false, false).unwrap().unwrap();
-    assert!(old.len() - 4 + 1 <= 0x7F, "test image must be short-able");
+    assert!(old.len() - 4 < 0x7F, "test image must be short-able");
     let mut short: Vec<u8> = Vec::new();
     short.push((((old.len() - 4 + 1) as u8) << 1) | 0x01);
     short.extend_from_slice(&old[4..]);

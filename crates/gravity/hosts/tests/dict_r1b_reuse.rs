@@ -32,7 +32,7 @@ fn tables(d: &Words) -> (Vec<[u64; 2]>, Vec<i64>) {
         let mut i = 0u32;
         Ok(gravity_dict::Fp128::build(d, region, &mut |v| {
             i += 1;
-            if i % 4 == 0 { Err(gravity_dict::Fault(0)) } else { Ok(v) }
+            if i.is_multiple_of(4) { Err(gravity_dict::Fault(0)) } else { Ok(v) }
         })?
         .header())
     })

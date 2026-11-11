@@ -353,7 +353,7 @@ pub(crate) fn write_header(out: &mut [u8], total_size: usize, ndim: i32, dataoff
     out[0..4].copy_from_slice(&set_varsize_4b(total_size));
     out[4..8].copy_from_slice(&ndim.to_ne_bytes());
     out[8..12].copy_from_slice(&dataoffset.to_ne_bytes());
-    out[12..16].copy_from_slice(&(elemtype as u32).to_ne_bytes());
+    out[12..16].copy_from_slice(&elemtype.to_ne_bytes());
 }
 
 pub(crate) fn write_dims_lbounds(out: &mut [u8], ndim: i32, dims: &[i32], lbs: &[i32]) {

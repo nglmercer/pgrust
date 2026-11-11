@@ -180,7 +180,7 @@ fn a_run_table_holds_the_interval_or_its_complement() {
             let mut r = buf.region();
             let t = Bits::of_run(&dict, lo, hi, false, &mut r).unwrap();
             for (c, e) in SORTED.iter().enumerate() {
-                assert_eq!(unsafe { t.get(c as u32) }, e >= &from && to.map_or(true, |t| e < t), "[{from:?}, {to:?}): entry {e:?}");
+                assert_eq!(unsafe { t.get(c as u32) }, e >= &from && to.is_none_or(|t| e < t), "[{from:?}, {to:?}): entry {e:?}");
             }
         }
     }

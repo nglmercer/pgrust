@@ -334,7 +334,7 @@ mod tests {
         assert_eq!(TypeNameToString(mcx, &tn).unwrap().as_str(), "c%TYPE");
     }
 
-    fn defel_with<'m>(mcx: Mcx<'m>, name: &'m str, arg: Option<Node<'m>>) -> DefElem<'m> {
+    fn defel_with<'m>(_mcx: Mcx<'m>, name: &'m str, arg: Option<Node<'m>>) -> DefElem<'m> {
         DefElem {
             defnamespace: None,
             defname: Some(name),

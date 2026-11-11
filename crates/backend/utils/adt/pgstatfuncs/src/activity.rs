@@ -258,7 +258,7 @@ pub fn fc_pg_stat_get_activity(
                     // C:525-556 — inet datum of the numeric remote host,
                     // st_clienthostname only when log_hostname captured one,
                     // client_port = atoi(remote_port).
-                    f if f == AF_INET as i32 || f == AF_INET6 as i32 => {
+                    f if f == AF_INET || f == AF_INET6 => {
                         match client_addr_port(&be.st_clientaddr) {
                             Some((remote_host, remote_port)) => {
                                 values[12] = inet_datum(fcinfo, &remote_host)?;
@@ -280,7 +280,7 @@ pub fn fc_pg_stat_get_activity(
                     }
                     // C:558-569 — unix sockets report NULL host and -1 port,
                     // distinguishable from no-permission / error rows.
-                    f if f == AF_UNIX as i32 => {
+                    f if f == AF_UNIX => {
                         nulls[12] = true;
                         nulls[13] = true;
                         values[14] = Datum::from_i32(-1);

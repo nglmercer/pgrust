@@ -1873,15 +1873,13 @@ mod tests {
         let img = int2_array_image(1, -1, &[1]);
         let mut out = [0i16; super::INDEX_MAX_KEYS];
         let e = super::fk_i16_array(&img, "conkey is not a 1-D smallint array", &mut out)
-            .err()
-            .expect("negative dims[0] must be an error, not a count");
+            .expect_err("negative dims[0] must be an error, not a count");
         assert_eq!(e.message(), "conkey is not a 1-D smallint array");
         assert_eq!(e.sqlstate(), types_error::ERRCODE_INTERNAL_ERROR);
         assert_eq!(e.level(), types_error::ERROR);
         let msg = "conkey is not a 1-D smallint array";
         let e = super::fk_i16_array(&int2_array_image(2, 1, &[1]), msg, &mut out)
-            .err()
-            .expect("2-D image must be an error");
+            .expect_err("2-D image must be an error");
         assert_eq!(e.message(), "conkey is not a 1-D smallint array");
     }
 

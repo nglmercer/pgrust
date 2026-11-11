@@ -81,7 +81,7 @@ impl Node {
                 continue;
             }
             let w = match j {
-                0 => self.inner.writer.as_mut().map(|w| &mut **w),
+                0 => self.inner.writer.as_deref_mut(),
                 _ => self.inner.writers.get_mut(j - 1).map(|w| &mut *w.1),
             };
             let Some(w) = w else { continue };

@@ -68,7 +68,7 @@ fn split(payload: &[u8], starts: &[u32], meta: &mut impl Sink, text: &mut impl S
         let fe = starts.get(j + 1).map_or(payload.len(), |&s| s as usize);
         let fr = payload.get(fs..fe)?;
         let eb = u32_at(fr, 0)? as usize;
-        if eb < 8 || eb % 8 != 0 {
+        if eb < 8 || !eb.is_multiple_of(8) {
             return None;
         }
         let vif = if u32_at(fr, eb - 4)? == 0 { eb / 4 - 2 } else { eb / 4 - 1 };

@@ -43,14 +43,14 @@ pub mod sim_red {
     }
 }
 
-fn main_data<'a>(record: &'a XLogReaderState) -> &'a [u8] {
+fn main_data(record: &XLogReaderState) -> &[u8] {
     let rec = record.record.as_ref().expect("btree redo with no decoded record");
     // SAFETY: points into the reader's decode buffer, valid for the redo
     // callback's duration.
     unsafe { rec.main_data_bytes() }
 }
 
-fn block_data<'a>(record: &'a XLogReaderState, block_id: u8) -> &'a [u8] {
+fn block_data(record: &XLogReaderState, block_id: u8) -> &[u8] {
     // SAFETY: same decode-buffer lifetime as main_data.
     unsafe { record.block(block_id).data_bytes() }
 }
@@ -610,11 +610,10 @@ fn btree_xlog_split(newitemonleft: bool, record: &mut XLogReaderState) -> PgResu
             off += 1;
         }
 
-        if newitemonleft && off == newitemoff {
-            if leftpage.add_item(newitem, leftoff, 0).is_none() {
+        if newitemonleft && off == newitemoff
+            && leftpage.add_item(newitem, leftoff, 0).is_none() {
                 return Err(error_err("failed to add new item to left page after split".into()));
             }
-        }
 
         // PageRestoreTempPage.
         // SAFETY: whole-page overwrite under the exclusive lock; the read
@@ -860,9 +859,7 @@ fn xlog_update_posting(orig: &[u8], deletetids: &[u8], out: &mut [u8]) -> PgResu
 
     let keysize = tup_posting_offset(orig);
     // Every original TID (posting_base + i*6) must lie within `orig`.
-    let orig_need = keysize
-        .checked_add(norig.checked_mul(6).unwrap_or(usize::MAX))
-        .unwrap_or(usize::MAX);
+    let orig_need = keysize.saturating_add(norig.saturating_mul(6));
     if keysize > orig.len() || orig_need > orig.len() {
         return Err(corrupt_err(format!(
             "_bt_update_posting: posting list ({keysize} key + {norig} TIDs) overruns {}-byte tuple",
