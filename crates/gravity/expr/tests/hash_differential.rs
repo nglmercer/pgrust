@@ -77,6 +77,7 @@ fn program(n: usize) -> (Program, Func) {
         b.store(fr, OUT + 8 * i as i32, v);
     }
     b.ret(&[zero]);
+    #[allow(clippy::drop_non_drop)]
     drop(b);
     (pb.finish(), f)
 }
@@ -228,6 +229,7 @@ fn a_nullable_image_past_64_keys_takes_one_flags_word_per_64_keys() {
     let h = emit_key_hash(&mut b, &img);
     b.store(fr, out + 8 * (N + 3) as i32, h);
     b.ret(&[zero]);
+    #[allow(clippy::drop_non_drop)]
     drop(b);
     let p = pb.finish();
     gravity_ir::verify::verify(&p).unwrap_or_else(|e| panic!("verify: {e:?}"));

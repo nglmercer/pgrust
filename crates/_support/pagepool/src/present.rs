@@ -334,6 +334,7 @@ pub(crate) fn residency_of(_at: usize, _len: usize) -> Option<(usize, usize)> {
 /// pppress card 10: whether a page of `[at, at + len)` is mapped by a huge page (a PMD-mapped THP, PAGEMAP_SCAN's
 /// PAGE_IS_HUGE), so a give-back of part of it splits its folio first (D4760). `None`: no PAGEMAP_SCAN reading.
 #[cfg(all(target_os = "linux", not(miri)))]
+#[allow(dead_code)]
 pub(crate) fn huge_in(at: usize, len: usize) -> Option<bool> {
     imp::huge(at, len)
 }
@@ -672,11 +673,13 @@ mod imp {
     const PAGE_IS_PRESENT: u64 = 1 << 3;
     const PAGE_IS_SWAPPED: u64 = 1 << 4;
     const PAGE_IS_PFNZERO: u64 = 1 << 5;
+    #[allow(dead_code)]
     const PAGE_IS_HUGE: u64 = 1 << 6;
     const REGIONS: usize = 256;
     const _: () = assert!(core::mem::size_of::<ScanArg>() == 96 && core::mem::size_of::<Region>() == 24);
 
     /// pppress card 10: whether a page of `[at, at + len)` is present and PMD-mapped (one region at most: the first).
+    #[allow(dead_code)]
     pub(super) fn huge(at: usize, len: usize) -> Option<bool> {
         let fd = fd()?;
         let mut v = [Region { start: 0, end: 0, categories: 0, }; 1];
