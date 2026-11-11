@@ -152,12 +152,7 @@ fn store_uri_val<'mcx>(
     let (keyword, value) = if keyword == "requiressl" {
         (
             "sslmode",
-            if value_encoded.starts_with('1') {
-                "require"
-            } else {
-                "prefer"
-            }
-            .to_string(),
+            if value_encoded.starts_with('1') { "require" } else { "prefer" }.to_string(),
         )
     } else {
         (keyword, conninfo_uri_decode(value_encoded)?)
@@ -221,12 +216,7 @@ fn conninfo_uri_parse_params<'mcx>(
         let (keyword, value) = if keyword == "requiressl" {
             (
                 "sslmode".to_string(),
-                if value.starts_with('1') {
-                    "require"
-                } else {
-                    "prefer"
-                }
-                .to_string(),
+                if value.starts_with('1') { "require" } else { "prefer" }.to_string(),
             )
         } else {
             (keyword, value)
@@ -310,9 +300,7 @@ fn conninfo_uri_parse<'mcx>(
                 ));
             }
             if p == host_start {
-                return Err(format!(
-                    "IPv6 host address may not be empty in URI: \"{uri}\"\n"
-                ));
+                return Err(format!("IPv6 host address may not be empty in URI: \"{uri}\"\n"));
             }
             host_end = p;
             p += 1; // cut off the bracket and advance
@@ -475,15 +463,7 @@ pub(crate) fn conninfo_parse<'mcx>(
         }
         let val = String::from_utf8(val).expect("conninfo input is UTF-8");
         let (pname, val) = if pname == "requiressl" {
-            (
-                "sslmode",
-                if val.starts_with('1') {
-                    "require"
-                } else {
-                    "prefer"
-                }
-                .to_string(),
-            )
+            ("sslmode", if val.starts_with('1') { "require" } else { "prefer" }.to_string(),)
         } else {
             (pname, val)
         };
@@ -518,16 +498,13 @@ pub(crate) fn walrcv_check_conninfo(
 
     if must_use_password {
         let password_idx = KNOWN_OPTIONS.iter().position(|k| *k == "password").unwrap();
-        let uses_password = opts
-            .iter()
-            .any(|(i, v)| *i == password_idx && !v.as_str().is_empty());
+        let uses_password =
+            opts.iter().any(|(i, v)| *i == password_idx && !v.as_str().is_empty());
         if !uses_password {
             return Err(Box::new(
                 PgError::error("password is required")
                     .with_sqlstate(ERRCODE_S_R_E_PROHIBITED_SQL_STATEMENT_ATTEMPTED)
-                    .with_detail(
-                        "Non-superusers must provide a password in the connection string.",
-                    ),
+                    .with_detail("Non-superusers must provide a password in the connection string.",),
             ));
         }
     }
@@ -596,10 +573,7 @@ mod tests {
         let e = parse(mcx, "postgresql://host/db?application_name=a%zzb").unwrap_err();
         assert_eq!(e, "invalid percent-encoded token: \"a%zzb\"\n");
         let e = parse(mcx, "postgresql://host/db?application_name=a%00b").unwrap_err();
-        assert_eq!(
-            e,
-            "forbidden value %00 in percent-encoded value: \"a%00b\"\n"
-        );
+        assert_eq!(e, "forbidden value %00 in percent-encoded value: \"a%00b\"\n");
     }
 
     // Bracketed IPv6 netlocs and comma-separated multi-host lists build the
@@ -647,15 +621,9 @@ mod tests {
         let e = parse(mcx, "postgresql://host/db?bogus=x").unwrap_err();
         assert_eq!(e, "invalid URI query parameter: \"bogus\"\n");
         let e = parse(mcx, "postgresql://host/db?foo").unwrap_err();
-        assert_eq!(
-            e,
-            "missing key/value separator \"=\" in URI query parameter: \"foo\"\n"
-        );
+        assert_eq!(e, "missing key/value separator \"=\" in URI query parameter: \"foo\"\n");
         let e = parse(mcx, "postgresql://host/db?foo=a=b").unwrap_err();
-        assert_eq!(
-            e,
-            "extra key/value separator \"=\" in URI query parameter: \"foo\"\n"
-        );
+        assert_eq!(e, "extra key/value separator \"=\" in URI query parameter: \"foo\"\n");
     }
 
     // The keyword=value lane is untouched: still parses and still rejects

@@ -27,14 +27,12 @@ fn seal_and_publish(n: u64, cluster: bool) -> (MemVfs, u64) {
         },
     );
     if cluster {
-        w.set_structural(
-            StructuralPolicy::new().with_cluster_key(vec![ClusterKeyDecl {
-                attno: 1,
-                dir: SortDir::Asc,
-                nulls: NullsOrder::Last,
-                path: Vec::new(),
-            }]),
-        );
+        w.set_structural(StructuralPolicy::new().with_cluster_key(vec![ClusterKeyDecl {
+            attno: 1,
+            dir: SortDir::Asc,
+            nulls: NullsOrder::Last,
+            path: Vec::new(),
+        }]),);
     }
     for i in 0..n {
         let sources: [&dyn crate::elect::CandidateSource; 1] = [&kit.cands];
@@ -45,8 +43,7 @@ fn seal_and_publish(n: u64, cluster: bool) -> (MemVfs, u64) {
             shred: &mut kit.shred,
             shred_opts: &kit.opts,
         };
-        with_mixed_row(i, |row| {
-            w.append_row(row, &mut kit.ext, &mut env).expect("append")
+        with_mixed_row(i, |row| { w.append_row(row, &mut kit.ext, &mut env).expect("append")
         });
     }
     let probe = Probe::new(TxnVerdict::Committed);
@@ -104,10 +101,7 @@ fn published_part_carries_the_stats_sidecar() {
     let text_nonnull = (0..n).filter(|i| i % 17 != 0).count() as u64;
     assert_eq!(int8.nonnull, int8_nonnull);
     assert_eq!(text.nonnull, text_nonnull);
-    assert_eq!(
-        int8.ndv_eligible, int8_nonnull,
-        "unique int8 keys: NDV exact"
-    );
+    assert_eq!(int8.ndv_eligible, int8_nonnull, "unique int8 keys: NDV exact");
     assert_eq!(int8.long_values, 0);
     // MCV counts are EXACT: every int8 value occurs once.
     assert!(int8.mcv.iter().all(|(_, c)| *c == 1));
@@ -157,15 +151,8 @@ fn fold_produces_pg_statistic_shaped_output() {
     // FOLDSTATS: a unique column has no MCV list (compute_scalar_stats keeps a value only if it repeats) and its
     // histogram is in value order
     assert!(out.sta_mcv.is_empty(), "unique int8 keys: no MCVs");
-    let words: Vec<i64> = out
-        .sta_histogram
-        .iter()
-        .map(|b| i64::from_le_bytes(b.as_slice().try_into().expect("int8 bound")))
-        .collect();
-    assert!(
-        words.len() >= 2 && words.windows(2).all(|w| w[0] < w[1]),
-        "value-ordered bounds: {words:?}"
-    );
+    let words: Vec<i64> = out.sta_histogram.iter().map(|b| i64::from_le_bytes(b.as_slice().try_into().expect("int8 bound"))).collect();
+    assert!(words.len() >= 2 && words.windows(2).all(|w| w[0] < w[1]), "value-ordered bounds: {words:?}");
     assert_eq!(
         out.stacorrelation, 1.0,
         "P-8: the declared-and-verified cluster key folds to +1.0, never default-0"

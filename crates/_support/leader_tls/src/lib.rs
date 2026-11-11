@@ -73,8 +73,7 @@ pub fn touch(file: &'static str, name: &'static str) {
 #[inline(never)]
 fn touched_on_pool_thread(file: &str, name: &str) -> ! {
     let path = file.strip_prefix("crates/").unwrap_or(file);
-    let e =
-        types_error::PgError::error(format!("leader_tls: {path} {name} touched in a pool claim")); // alloc: Cold
+    let e = types_error::PgError::error(format!("leader_tls: {path} {name} touched in a pool claim")); // alloc: Cold
     std::panic::panic_any(e)
 }
 
@@ -151,25 +150,12 @@ mod tests {
             (|| SEEN.with_borrow_mut(Vec::clear), "SEEN"),
         ];
         for (touch, name) in touches {
-            let payload = std::thread::Builder::new()
-                .name(POOL.into())
-                .spawn(touch)
-                .unwrap()
-                .join()
-                .expect_err(name);
-            let e = types_error::pg_error_from_panic(payload)
-                .unwrap_or_else(|_| panic!("{name}: not a PgError payload"));
+            let payload = std::thread::Builder::new().name(POOL.into()).spawn(touch).unwrap().join().expect_err(name);
+            let e = types_error::pg_error_from_panic(payload).unwrap_or_else(|_| panic!("{name}: not a PgError payload"));
             assert_eq!(e.sqlstate(), types_error::ERRCODE_INTERNAL_ERROR, "{name}");
-            assert_eq!(
-                e.message(),
-                format!(
-                    "leader_tls: _support/leader_tls/src/lib.rs {name} touched in a pool claim"
-                )
-            );
+            assert_eq!(e.message(), format!("leader_tls: _support/leader_tls/src/lib.rs {name} touched in a pool claim"));
         }
-        std::thread::spawn(|| assert_eq!((DEPTH.get(), SEEN.take()), (7, vec![1])))
-            .join()
-            .unwrap();
+        std::thread::spawn(|| assert_eq!((DEPTH.get(), SEEN.take()), (7, vec![1]))).join().unwrap();
         assert_eq!((DEPTH.get(), SEEN.take()), (8, vec![1, 2]));
     }
 }

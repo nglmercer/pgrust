@@ -27,6 +27,7 @@ pub(crate) const GIN_ITUP_COMPRESSED: u32 = 1 << 31;
 
 pub type ITup = *const u8;
 
+
 #[inline]
 #[allow(clippy::missing_safety_doc)]
 pub unsafe fn gin_get_nposting(itup: ITup) -> OffsetNumber {
@@ -91,11 +92,7 @@ pub(crate) unsafe fn gin_set_posting_tree(itup: *mut u8, root: BlockNumber) {
 #[inline]
 pub(crate) unsafe fn gin_get_null_category(state: &GinState, itup: ITup) -> GinNullCategory {
     let off = index_info_find_data_offset(itup::t_info(itup))
-        + if state.one_col {
-            0
-        } else {
-            core::mem::size_of::<i16>()
-        };
+        + if state.one_col { 0 } else { core::mem::size_of::<i16>() };
     *itup.add(off).cast::<GinNullCategory>()
 }
 
@@ -252,7 +249,8 @@ unsafe fn validate_varlena_key(itup: ITup, key: Datum, relname: &str) -> PgResul
     } else {
         // 4-byte header: the whole header must be inside the tuple before we
         // dereference it to read the declared length.
-        avail >= ::types_tuple::varatt::VARHDRSZ && ::types_tuple::varatt::varsize_4b(ptr) <= avail
+        avail >= ::types_tuple::varatt::VARHDRSZ
+            && ::types_tuple::varatt::varsize_4b(ptr) <= avail
     };
     if !ok {
         return Err(gin_corrupt_key(relname));
@@ -316,9 +314,7 @@ mod validate_varlena_key_tests {
         let itup = b.0.as_mut_ptr() as ITup;
         let key = Datum::from_usize(unsafe { itup.add(key_off) } as usize);
         // SAFETY: as above.
-        let err = unsafe { validate_varlena_key(itup, key, "t") }
-            .err()
-            .unwrap();
+        let err = unsafe { validate_varlena_key(itup, key, "t") }.err().unwrap();
         assert_eq!(err.sqlstate(), ERRCODE_DATA_CORRUPTED);
     }
 
@@ -388,11 +384,7 @@ pub(crate) fn GinFormTuple<'mcx>(
         // GinCategoryOffset + sizeof(GinNullCategory).
         // SAFETY: as above.
         let minsize = index_info_find_data_offset(unsafe { itup::t_info(itup.as_ptr()) })
-            + if state.one_col {
-                0
-            } else {
-                core::mem::size_of::<i16>()
-            }
+            + if state.one_col { 0 } else { core::mem::size_of::<i16>() }
             + 1;
         newsize = newsize.max(minsize);
     }
@@ -435,11 +427,7 @@ pub(crate) fn GinFormTuple<'mcx>(
         if category != GIN_CAT_NORM_KEY {
             debug_assert!(itup::index_tuple_has_nulls(out.as_ptr()));
             let off = index_info_find_data_offset(itup::t_info(out.as_ptr()))
-                + if state.one_col {
-                    0
-                } else {
-                    core::mem::size_of::<i16>()
-                };
+                + if state.one_col { 0 } else { core::mem::size_of::<i16>() };
             *out.as_mut_ptr().add(off).cast::<GinNullCategory>() = category;
         }
     }
@@ -501,7 +489,7 @@ pub(crate) unsafe fn ginReadTuple<'mcx>(
         // Uncompressed posting list: nipd item pointers of 6 bytes each.
         if nipd
             .checked_mul(core::mem::size_of::<ItemPointerData>())
-            .is_none_or(|need| need > avail)
+            .is_none_or( |need| need > avail)
         {
             return Err(gin_corrupt_posting(posting_offset, nipd, tup_size));
         }
@@ -541,11 +529,7 @@ mod gin_read_tuple_tests {
     fn make_tuple(offset: u32, nipd: OffsetNumber, compressed: bool, tuple_size: u16) -> Buf {
         let mut b = Buf([0u8; 64]);
         let itup = b.0.as_mut_ptr();
-        let blk = if compressed {
-            offset | GIN_ITUP_COMPRESSED
-        } else {
-            offset
-        };
+        let blk = if compressed { offset | GIN_ITUP_COMPRESSED } else { offset };
         // SAFETY: itup is a live, 8-aligned image large enough for the header.
         unsafe {
             set_t_tid_parts(itup, Some(blk), Some(nipd));
@@ -733,26 +717,20 @@ impl<'a, 'r, 's> EntryBtree<'a, 'r, 's> {
 
         {
             // SAFETY: owned temp image.
-            let mut lmut = unsafe {
-                PageMut::from_raw(
-                    core::ptr::NonNull::new(lpage.as_mut_bytes().as_mut_ptr()).unwrap(),
-                )
-            };
+            let mut lmut =
+                unsafe { PageMut::from_raw(core::ptr::NonNull::new(lpage.as_mut_bytes().as_mut_ptr()).unwrap(),) };
             self.prepare_page(&mut lmut, off, update_blkno);
         }
 
         // Append existing tuples and the new tuple in key order to a
         // workspace, then redistribute.
-        let mut tupstore: ::mcx::PgVec<'_, u8> =
-            mcx::vec_with_capacity_in(self.scratch, 2 * BLCKSZ)?;
+        let mut tupstore: ::mcx::PgVec<'_, u8> = mcx::vec_with_capacity_in(self.scratch, 2 * BLCKSZ)?;
         let mut totalsize = 0usize;
         let flags;
         {
             // SAFETY: owned temp image.
             let lref = unsafe {
-                PageRef::from_raw(
-                    core::ptr::NonNull::new(lpage.as_mut_bytes().as_mut_ptr()).unwrap(),
-                )
+                PageRef::from_raw(core::ptr::NonNull::new(lpage.as_mut_bytes().as_mut_ptr()).unwrap(),)
             };
             flags = page_opaque(&lref).flags;
             let maxoff = lref.max_offset_number();
@@ -804,9 +782,7 @@ impl<'a, 'r, 's> EntryBtree<'a, 'r, 's> {
             let target = if on_left { &mut lpage } else { &mut rpage };
             // SAFETY: owned temp image.
             let mut pm = unsafe {
-                PageMut::from_raw(
-                    core::ptr::NonNull::new(target.as_mut_bytes().as_mut_ptr()).unwrap(),
-                )
+                PageMut::from_raw(core::ptr::NonNull::new(target.as_mut_bytes().as_mut_ptr()).unwrap(),)
             };
             if pm.add_item(&itup[..size], InvalidOffsetNumber, 0).is_none() {
                 // ginentrypage.c:688 elog(ERROR): XX000, catchable.
@@ -971,11 +947,11 @@ impl<'r> GinBt<'r> for EntryBtree<'_, 'r, '_> {
         bm::mark_buffer_dirty::call(buf)?;
 
         #[allow(clippy::vec_init_then_push)]
+
         let mut out = Vec::with_capacity(2);
-        out.push(::mcx::std_vec_from_slice(
-            "gin",
-            &crate::wal::ginxlog_insert_entry_header(off, payload.is_delete),
-        )?);
+        out.push(
+            ::mcx::std_vec_from_slice("gin", &crate::wal::ginxlog_insert_entry_header(off, payload.is_delete),)?
+        );
         out.push(::mcx::std_vec_from_slice("access", &entry_bytes[..tuplen])?);
         Ok(out)
     }
@@ -1035,20 +1011,16 @@ pub(crate) fn gin_entry_fill_root(
         let is_leaf = crate::GinPageIsLeaf(&page_opaque(&cref));
         let interior = gin_form_interior_tuple(mcx, itup, is_leaf, blkno)?;
         // SAFETY: root is an owned temp image.
-        let mut pm =
-            unsafe { PageMut::from_raw(core::ptr::NonNull::new(root.as_mut_ptr()).unwrap()) };
+        let mut pm = unsafe {
+            PageMut::from_raw(core::ptr::NonNull::new(root.as_mut_ptr()).unwrap())
+        };
         // SAFETY: interior tuple image live for the call.
         let bytes = unsafe {
-            core::slice::from_raw_parts(
-                interior.as_ptr(),
-                itup::index_tuple_size(interior.as_ptr()),
-            )
+            core::slice::from_raw_parts(interior.as_ptr(), itup::index_tuple_size(interior.as_ptr()),)
         };
         if pm.add_item(bytes, InvalidOffsetNumber, 0).is_none() {
             // ginentrypage.c:731 elog(ERROR): XX000, catchable.
-            return Err(Box::new(PgError::error(
-                "failed to add item to index root page",
-            )));
+            return Err(Box::new(PgError::error("failed to add item to index root page",)));
         }
     }
     Ok(())

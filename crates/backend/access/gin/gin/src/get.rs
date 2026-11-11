@@ -12,22 +12,23 @@ use ::types_error::{PgError, PgResult};
 use ::types_rel::Relation;
 use ::types_relscan::{IndexScanDescData, IndexScanOpaque};
 use ::types_tuple::itemptr::{
-    FirstOffsetNumber, InvalidOffsetNumber, ItemPointerData, ItemPointerEquals, OffsetNumberNext,
-    OffsetNumberPrev,
+    FirstOffsetNumber, InvalidOffsetNumber, ItemPointerData, ItemPointerEquals,
+    OffsetNumberNext, OffsetNumberPrev,
 };
 
 use crate::btree::{free_stack, ginFindLeafPage, ginStepRight, GinStack};
 use crate::datapage::{gin_data_leaf_page_get_items, gin_data_leaf_page_get_items_to_tbm};
 use crate::entrypage::{
-    ginReadTuple, gin_get_nposting, gin_get_posting_tree, gin_is_posting_tree, gintuple_get_key,
+    ginReadTuple,
+    gin_get_nposting, gin_get_posting_tree, gin_is_posting_tree, gintuple_get_key,
     EntryBtree, ITup,
 };
 use crate::logic::{bool_consistent, tri_consistent};
 use crate::scan::{ginFreeScanKeys, ginNewScanKey, non_gin_opaque};
 use crate::util::ginCompareEntries;
 use crate::{
-    check_for_interrupts, meta_of, page_bytes, page_opaque, page_ref, GinPageIsLeaf,
-    GinPageRightMost, GIN_SHARE, GIN_UNLOCK,
+    check_for_interrupts, meta_of, page_bytes, page_opaque, page_ref,
+    GinPageIsLeaf, GinPageRightMost, GIN_SHARE, GIN_UNLOCK,
 };
 
 fn predicate_lock_page(
@@ -119,11 +120,7 @@ fn collect_match_bitmap<'scan>(
     ));
 
     let attnum = entry.attnum;
-    predicate_lock_page(
-        rel,
-        bm::buffer_get_block_number::call(stack.top().buffer),
-        snapshot,
-    )?;
+    predicate_lock_page(rel, bm::buffer_get_block_number::call(stack.top().buffer), snapshot,)?;
 
     // C's per-entry temporaries are pfree'd or live in a per-call context;
     // the scan key context frees nothing, so per-tuple work is reset here.
@@ -315,13 +312,8 @@ fn start_scan_entry<'scan>(
             }
             let empty = entry.matchBitmap.as_ref().is_none_or(|b| b.is_empty());
             if !empty {
-                entry.matchIterator = Some(
-                    entry
-                        .matchBitmap
-                        .as_mut()
-                        .unwrap()
-                        .begin_private_iterate()?,
-                );
+                entry.matchIterator =
+                    Some(entry.matchBitmap.as_mut().unwrap().begin_private_iterate()?,);
                 entry.isFinished = false;
             }
         } else {
@@ -502,7 +494,10 @@ fn entry_load_more_items(
         entry.buffer = InvalidBuffer;
 
         let target = if item_pointer_is_lossy_page(advance_past) {
-            ItemPointerData::new(gin_item_pointer_block(advance_past) + 1, FirstOffsetNumber)
+            ItemPointerData::new(
+                gin_item_pointer_block(advance_past) + 1,
+                FirstOffsetNumber
+            )
         } else {
             ItemPointerData::new(
                 gin_item_pointer_block(advance_past),
@@ -558,8 +553,10 @@ fn entry_load_more_items(
         // SAFETY: pin + share lock held.
         let bytes = page_bytes(&unsafe { page_ref(entry.buffer) });
         if !GinPageRightMost(&opaque)
-            && ginCompareItemPointers(advance_past, &crate::datapage::data_page_right_bound(bytes))
-                >= 0
+            && ginCompareItemPointers(
+                advance_past,
+                &crate::datapage::data_page_right_bound(bytes)
+            ) >= 0
         {
             continue;
         }
@@ -940,6 +937,7 @@ fn scan_get_item(
     Ok(Some(recheck))
 }
 
+
 struct PendingPosition {
     pending_buffer: Buffer,
     first_offset: OffsetNumber,
@@ -1090,6 +1088,7 @@ fn collect_matches_for_heap_row(
         };
 
         #[allow(clippy::needless_range_loop)]
+
         for ki in 0..work.keys.len() {
             let nentries = work.keys[ki].nentries as usize;
             for j in 0..nentries {
@@ -1113,7 +1112,8 @@ fn collect_matches_for_heap_row(
                     };
                     // Pending tuples are ordered by (attnum, datum).
                     // SAFETY: live tuple under the lock.
-                    let tup_attnum = unsafe { crate::entrypage::gintuple_get_attrnum(state, itup) };
+                    let tup_attnum =
+                        unsafe { crate::entrypage::gintuple_get_attrnum(state, itup) };
                     if key_attnum < tup_attnum {
                         stop_high = stop_middle;
                         continue;
@@ -1128,7 +1128,8 @@ fn collect_matches_for_heap_row(
                         // SAFETY: live tuple under the lock; kcx is the
                         // scan-lifetime key context (transient tupdesc only).
                         let kcx2 = work.kcx();
-                        datum[mi] = unsafe { gintuple_get_key(kcx2, rel, state, itup, &mut cat)? };
+                        datum[mi] =
+                            unsafe { gintuple_get_key(kcx2, rel, state, itup, &mut cat)? };
                         category[mi] = cat;
                         extracted[mi] = true;
                     }
@@ -1292,7 +1293,10 @@ fn scan_pending_insert(
 }
 
 /// gingetbitmap.
-pub fn gingetbitmap(scan: &mut IndexScanDescData<'_>, tbm: &mut TIDBitmap<'_>) -> PgResult<i64> {
+pub fn gingetbitmap(
+    scan: &mut IndexScanDescData<'_>,
+    tbm: &mut TIDBitmap<'_>
+) -> PgResult<i64> {
     let IndexScanDescData {
         indexRelation,
         xs_snapshot,
@@ -1302,9 +1306,7 @@ pub fn gingetbitmap(scan: &mut IndexScanDescData<'_>, tbm: &mut TIDBitmap<'_>) -
         opaque,
         ..
     } = scan;
-    let rel: &Relation<'_> = indexRelation
-        .as_ref()
-        .expect("index scan parked (skeleton)");
+    let rel: &Relation<'_> = indexRelation.as_ref().expect("index scan parked (skeleton)");
     let snapshot = xs_snapshot.as_deref();
     let IndexScanOpaque::Gin(so) = opaque else {
         non_gin_opaque()
@@ -1321,27 +1323,28 @@ pub fn gingetbitmap(scan: &mut IndexScanDescData<'_>, tbm: &mut TIDBitmap<'_>) -
     }
     let state = so.ginstate.expect("ginstate");
     so.work.as_mut().expect("scan work").with(|work| {
-        let mut ntids = scan_pending_insert(rel, &state, work, tbm, snapshot)?;
 
-        start_scan(rel, &state, work, snapshot)?;
+    let mut ntids = scan_pending_insert(rel, &state, work, tbm, snapshot)?;
 
-        let mut iptr = ItemPointerData::invalid();
-        item_pointer_set_min(&mut iptr);
+    start_scan(rel, &state, work, snapshot)?;
 
-        loop {
-            let mut item = iptr;
-            let Some(recheck) = scan_get_item(rel, &state, work, &iptr, &mut item)? else {
-                break;
-            };
-            iptr = item;
-            if item_pointer_is_lossy_page(&iptr) {
-                tbm.add_page(gin_item_pointer_block(&iptr))?;
-            } else {
-                tbm.add_tuples(core::slice::from_ref(&iptr), recheck)?;
-            }
-            ntids += 1;
+    let mut iptr = ItemPointerData::invalid();
+    item_pointer_set_min(&mut iptr);
+
+    loop {
+        let mut item = iptr;
+        let Some(recheck) = scan_get_item(rel, &state, work, &iptr, &mut item)? else {
+            break;
+        };
+        iptr = item;
+        if item_pointer_is_lossy_page(&iptr) {
+            tbm.add_page(gin_item_pointer_block(&iptr))?;
+        } else {
+            tbm.add_tuples(core::slice::from_ref(&iptr), recheck)?;
         }
+        ntids += 1;
+    }
 
-        Ok(ntids)
+    Ok(ntids)
     })
 }

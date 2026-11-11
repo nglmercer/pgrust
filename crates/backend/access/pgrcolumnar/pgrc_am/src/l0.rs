@@ -34,15 +34,8 @@ pgsync::process_global! {
 fn ledger_bytes(map: &BTreeMap<RelSlot, Vec<Entry>>) -> usize {
     const NODE: usize = 2 * size_of::<usize>();
     map.len() * (size_of::<(RelSlot, Vec<Entry>)>() + NODE)
-        + map
-            .values()
-            .map(|v| {
-                v.capacity() * size_of::<Entry>()
-                    + v.iter()
-                        .map(|e| e.full.capacity() * size_of::<u32>())
-                        .sum::<usize>()
-            })
-            .sum::<usize>()
+        + map.values().map(|v| { v.capacity() * size_of::<Entry>() + v.iter().map(|e| e.full.capacity() * size_of::<u32>()).sum::<usize>()
+            }).sum::<usize>()
 }
 
 fn refit(map: &BTreeMap<RelSlot, Vec<Entry>>) {
@@ -58,8 +51,7 @@ pub fn of(slot: RelSlot, g: &Generation) -> Option<u32> {
         if let Some(hit) = e.and_then(|v| v.iter().find(|x| x.gen == g.gen)) {
             return Some(hit.l0);
         }
-        e.and_then(|v| v.iter().find(|x| x.gen == g.prev_gen))
-            .cloned()
+        e.and_then(|v| v.iter().find(|x| x.gen == g.prev_gen)).cloned()
     };
     let entry = count(g, base.as_ref())?;
     let l0 = entry.l0;
@@ -83,10 +75,7 @@ fn keep(slot: RelSlot, entry: Entry) {
 
 /// The L0 count of the newest generation `slot` has an entry for (the head after this process's last publish).
 pub fn newest(slot: RelSlot) -> Option<u32> {
-    pgsync::lock(&LEDGER)
-        .get(&slot)
-        .and_then(|v| v.last())
-        .map(|e| e.l0)
+    pgsync::lock(&LEDGER).get(&slot).and_then(|v| v.last()).map(|e| e.l0)
 }
 
 /// The table's directory went (DROP, TRUNCATE, a rewrite).
@@ -108,11 +97,7 @@ fn count(g: &Generation, base: Option<&Entry>) -> Option<Entry> {
     let stats = g.stats.as_ref()?;
     let test = g.full_test();
     // a whole count takes the manifest walk's index once; a merge locates its few new parts
-    let index = if base.is_none() && !m.parts.is_empty() {
-        Some(stats.try_index(m).ok()?)
-    } else {
-        None
-    };
+    let index = if base.is_none() && !m.parts.is_empty() { Some(stats.try_index(m).ok()?) } else { None };
     let (mut l0, mut full) = (0u32, Vec::new());
     for (k, rec) in m.parts.iter().enumerate() {
         if rec.flags & PART_FLAG_COMPACTED != 0 {
@@ -135,12 +120,7 @@ fn count(g: &Generation, base: Option<&Entry>) -> Option<Entry> {
         }
     }
     full.sort_unstable();
-    Some(Entry {
-        gen: g.gen,
-        next_part_no: m.header.next_part_no,
-        l0,
-        full,
-    })
+    Some(Entry { gen: g.gen, next_part_no: m.header.next_part_no, l0, full, })
 }
 
 #[cfg(test)]
@@ -151,37 +131,17 @@ mod tests {
     /// (read under the ledger's lock, where the refit runs, so parallel tests cannot move it between the two reads).
     #[test]
     fn the_l0_ledger_is_on_the_part_cache() {
-        const OWNER: memledger::Owner =
-            memledger::Owner::Cache(memledger::Holder::Of(memledger::Consumer::PartCache));
-        let slot: RelSlot = (
-            4_282_000_011,
-            1,
-            9_940_000_000 + u64::from(std::process::id()),
-        );
-        keep(
-            slot,
-            Entry {
-                gen: 1,
-                next_part_no: 3,
-                l0: 1,
-                full: (0..2048).collect(),
-            },
-        );
+        const OWNER: memledger::Owner = memledger::Owner::Cache(memledger::Holder::Of(memledger::Consumer::PartCache));
+        let slot: RelSlot = (4_282_000_011, 1, 9_940_000_000 + u64::from(std::process::id()),);
+        keep(slot, Entry { gen: 1, next_part_no: 3, l0: 1, full: (0..2048).collect(), },);
         {
             let l = pgsync::lock(&LEDGER);
             let c = pgsync::lock(&LEDGER_CHARGE);
             assert_eq!((c.owner(), c.committed()), (OWNER, ledger_bytes(&l) as u64));
-            assert!(
-                c.committed() >= 2048 * size_of::<u32>() as u64,
-                "the entry's full list is counted"
-            );
+            assert!(c.committed() >= 2048 * size_of::<u32>() as u64, "the entry's full list is counted");
         }
         forget(slot);
         let l = pgsync::lock(&LEDGER);
-        assert_eq!(
-            pgsync::lock(&LEDGER_CHARGE).committed(),
-            ledger_bytes(&l) as u64,
-            "the forgotten table's bytes went"
-        );
+        assert_eq!(pgsync::lock(&LEDGER_CHARGE).committed(), ledger_bytes(&l) as u64, "the forgotten table's bytes went");
     }
 }

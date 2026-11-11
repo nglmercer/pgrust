@@ -101,7 +101,7 @@ unsafe fn build(d: &Desc, h: &Hashed, a: u64, region: &mut Region) -> types_erro
     let at = 16 + cap * 16;
     let mut buf = gravity_driver::in_list_set_region(at + img.len as usize).map_err(|e| region_err("the IN list's set", e))?;
     let base = buf.as_mut_ptr();
-    if !(base as usize).is_multiple_of(8) {
+    if !( base as usize).is_multiple_of( 8) {
         return Err(err("the IN list's set region is not 8-aligned"));
     }
     core::ptr::copy_nonoverlapping(img.ptr, base.add(at), img.len as usize);
@@ -217,6 +217,6 @@ mod tests {
     #[test]
     fn a_zero_hash_is_occupied() {
         assert_ne!(mix(0) as u64 | OCC, 0);
-        assert_ne!(OCC, 0);
+        assert_ne!( OCC, 0);
     }
 }

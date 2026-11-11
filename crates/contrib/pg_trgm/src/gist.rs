@@ -55,7 +55,7 @@ pub fn decode_key(image: &[u8]) -> PgResult<TrgmKey> {
     let flag = image[4];
     let data = &image[TRGMHDRSIZE..end];
     if flag & ARRKEY != 0 {
-        if !data.len().is_multiple_of(3) {
+        if ! data.len().is_multiple_of( 3) {
             return Err(
                 PgError::error("corrupt gtrgm GiST ARRKEY (length not a multiple of 3)").into(),
             );
@@ -64,7 +64,7 @@ pub fn decode_key(image: &[u8]) -> PgResult<TrgmKey> {
     } else if flag & ALLISTRUE != 0 {
         Ok(TrgmKey::AllTrue)
     } else {
-        Ok(TrgmKey::Sign(::mcx::std_vec_from_slice("pg_trgm", data)?))
+        Ok(TrgmKey::Sign(::mcx::std_vec_from_slice("pg_trgm",data)?))
     }
 }
 

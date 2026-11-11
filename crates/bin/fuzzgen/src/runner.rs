@@ -2248,7 +2248,7 @@ impl SiteRunner {
         let rig = self.rig(side);
         let stmts = probes::render(deck, ctx);
         let mut results: Vec<(String, Vec<WireMsg>)> = Vec::new();
-        let use_session = deck.session_bound().then_some(session).flatten().and_then(|s| rig.session_index(s));
+        let use_session = deck.session_bound().then_some( session).flatten().and_then(|s| rig.session_index(s));
         if use_session.is_none() && rig.ensure_monitor().is_err() {
             return Value::obj();
         }

@@ -80,7 +80,9 @@ use types_error::{PgError, PgResult};
 use types_rel::Relation;
 
 use backend_progress::pgstat_progress_update_param;
-use backend_progress::progress::{PROGRESS_COPY_BYTES_PROCESSED, PROGRESS_COPY_TUPLES_PROCESSED};
+use backend_progress::progress::{
+    PROGRESS_COPY_BYTES_PROCESSED, PROGRESS_COPY_TUPLES_PROCESSED
+};
 
 use pgrc_ingest_par::ParSession;
 use pgrc_write::held::{cap_bytes, HeldCharge};
@@ -90,9 +92,7 @@ use pgrc_write::WriteError;
 
 use crate::from::{copy_from_error_context, CopyFromState, CopySrc};
 use crate::fromparquet::{images_lane, raw_cell, words_lane, ParquetPlan, RawCell};
-use crate::parallel::{
-    dop, file_floor, parquet_budget_bytes_auto, pgrc_parquet_parallel_enabled, ptrace, LoadCharge,
-};
+use crate::parallel::{dop, file_floor, parquet_budget_bytes_auto, pgrc_parquet_parallel_enabled, ptrace, LoadCharge,};
 use crate::CopyOnErrorChoice;
 
 macro_rules! refuse {
@@ -116,15 +116,8 @@ const STASHED: WriteError = WriteError::Contract {
 /// One decoded column lane, indexed by attidx. `nulls` is row-indexed;
 /// cells at null rows carry a zero word / empty span.
 pub(crate) enum Lane {
-    Words {
-        words: Vec<u64>,
-        nulls: Vec<bool>,
-    },
-    Blobs {
-        arena: Vec<u8>,
-        spans: Vec<(u32, u32)>,
-        nulls: Vec<bool>,
-    },
+    Words { words: Vec<u64>, nulls: Vec<bool>, },
+    Blobs { arena: Vec<u8>, spans: Vec<(u32, u32)>, nulls: Vec<bool>, },
 }
 
 /// A ragged (sub-grain) run of decoded rows, lane-indexed — the leader
@@ -144,11 +137,7 @@ pub(crate) fn lanes_held(lanes: &[Lane]) -> u64 {
         .iter()
         .map(|l| match l {
             Lane::Words { words, nulls } => (words.capacity() * 8 + nulls.capacity()) as u64,
-            Lane::Blobs {
-                arena,
-                spans,
-                nulls,
-            } => (arena.capacity() + spans.capacity() * 8 + nulls.capacity()) as u64,
+            Lane::Blobs { arena, spans, nulls, } => (arena.capacity() + spans.capacity() * 8 + nulls.capacity()) as u64,
         })
         .sum::<u64>()
         + std::mem::size_of_val(lanes) as u64
@@ -161,11 +150,8 @@ impl Fragment {
             .iter()
             .map(|l| match l {
                 Lane::Words { words, nulls } => (words.capacity() * 8 + nulls.capacity()) as u64,
-                Lane::Blobs {
-                    arena,
-                    spans,
-                    nulls,
-                } => (arena.capacity() + spans.capacity() * 8 + nulls.capacity()) as u64,
+                Lane::Blobs { arena, spans, nulls, } =>
+                    (arena.capacity() + spans.capacity() * 8 + nulls.capacity()) as u64,
             })
             .sum()
     }
@@ -179,11 +165,7 @@ impl Fragment {
                     words.shrink_to_fit(); // alloc: Exec charged self.charge
                     nulls.shrink_to_fit(); // alloc: Exec charged self.charge
                 }
-                Lane::Blobs {
-                    arena,
-                    spans,
-                    nulls,
-                } => {
+                Lane::Blobs { arena, spans, nulls, } => {
                     arena.shrink_to_fit(); // alloc: Exec charged self.charge
                     spans.shrink_to_fit(); // alloc: Exec charged self.charge
                     nulls.shrink_to_fit(); // alloc: Exec charged self.charge
@@ -201,12 +183,7 @@ impl Fragment {
     }
 
     /// `owner`: the loading statement's (`DecodeShared::owner`), charged from the first lane; `None`: uncharged.
-    pub(crate) fn empty(
-        natts: usize,
-        byval: &[bool],
-        cap: usize,
-        owner: Option<memledger::Owner>,
-    ) -> PgResult<Fragment> {
+    pub(crate) fn empty(natts: usize, byval: &[bool], cap: usize, owner: Option<memledger::Owner>,) -> PgResult<Fragment> {
         let mut lanes = ::mcx::stdvec::try_vec(natts, "parquet_pgrc")?;
         #[allow(clippy::needless_range_loop)]
         for i in 0..natts {
@@ -223,11 +200,7 @@ impl Fragment {
                 }
             });
         }
-        let mut f = Fragment {
-            charge: HeldCharge::new(owner),
-            rows: 0,
-            lanes,
-        };
+        let mut f = Fragment { charge: HeldCharge::new(owner), rows: 0, lanes, };
         f.sync_charge();
         Ok(f)
     }
@@ -339,10 +312,7 @@ impl DecodeShared {
             byval,
             notnull,
             grain: DEFAULT_CHUNK_ROWS as u64,
-            ready: Mutex::new(ReadyBoard {
-                done: BTreeMap::new(),
-                wakers: Vec::new(),
-            }),
+            ready: Mutex::new(ReadyBoard { done: BTreeMap::new(), wakers: Vec::new(), }),
             cancelled: AtomicBool::new(false),
             bytes_read: AtomicU64::new(0),
             acct: memledger::current(),
@@ -376,24 +346,10 @@ impl DecodeShared {
             let batch = &batches[b.batch];
             let notnull = self.notnull[b.attidx];
             match &mut frag.lanes[b.attidx] {
-                Lane::Words { words, nulls } => {
-                    words_lane(b.conv, batch, k0, k1, notnull, words, nulls)?
+                Lane::Words { words, nulls } => { words_lane(b.conv, batch, k0, k1, notnull, words, nulls)?
                 }
-                Lane::Blobs {
-                    arena,
-                    spans,
-                    nulls,
-                } => images_lane(
-                    b.conv,
-                    batch,
-                    k0,
-                    k1,
-                    notnull,
-                    self.plan.vutf8[b.batch],
-                    arena,
-                    spans,
-                    nulls,
-                )?,
+                Lane::Blobs { arena, spans, nulls, } =>
+                    images_lane(b.conv, batch, k0, k1, notnull, self.plan.vutf8[b.batch], arena, spans, nulls,)?,
             }
         }
         frag.rows += (k1 - k0) as u32;
@@ -418,10 +374,7 @@ impl DecodeShared {
         k0: usize,
         k1: usize,
     ) -> PgResult<()> {
-        const NULL_SENTINEL: RawCell = RawCell::Bytes {
-            off: u32::MAX,
-            len: 0,
-        };
+        const NULL_SENTINEL: RawCell = RawCell::Bytes { off: u32::MAX, len: 0, };
         let natts = self.byval.len();
         let grain = self.grain as u32;
         for k in k0..k1 {
@@ -432,8 +385,7 @@ impl DecodeShared {
                 let batch = &batches[b.batch];
                 if batch.is_null(k) {
                     if self.notnull[b.attidx] {
-                        return Err(Box::new(PgError::error(
-                            // alloc: Cold
+                        return Err(Box::new(PgError::error( // alloc: Cold
                             "not-null violation (serial replay owns the message)".to_string(), // alloc: Cold
                         )));
                     }
@@ -441,8 +393,7 @@ impl DecodeShared {
                 } else {
                     let cell = raw_cell(b.conv, batch, k, scratch)?;
                     if self.byval[b.attidx] != matches!(cell, RawCell::Word(_)) {
-                        return Err(Box::new(PgError::error(
-                            // alloc: Cold
+                        return Err(Box::new(PgError::error( // alloc: Cold
                             "parquet lane shape does not match column byval".to_string(), // alloc: Cold
                         )));
                     }
@@ -462,7 +413,8 @@ impl DecodeShared {
                             // `push_row` copies the bytes into the chunk
                             // arena before this loop iteration ends, and
                             // `row` is cleared before `scratch` mutates.
-                            let s: &[u8] = &scratch[off as usize..(off + len) as usize];
+                            let s: &[u8] =
+                                &scratch[off as usize..(off + len) as usize];
                             RawDatum::Bytes(unsafe {
                                 core::mem::transmute::<&[u8], &'static [u8]>(s)
                             })
@@ -471,8 +423,7 @@ impl DecodeShared {
                 });
             }
             cur.push_row(row).map_err(|we| {
-                Box::new(PgError::error(format!(
-                    // alloc: Cold
+                Box::new(PgError::error(format!( // alloc: Cold
                     "parquet parallel chunk build failed: {we}"
                 )))
             })?;
@@ -499,8 +450,7 @@ impl DecodeShared {
             &self.plan.vutf8,
             self.owner,
         )?;
-        self.bytes_read
-            .fetch_add(rgr.compressed_bytes, Ordering::Relaxed);
+        self.bytes_read.fetch_add(rgr.compressed_bytes, Ordering::Relaxed);
         let rows_total = rgr.rows_remaining();
         let natts = self.byval.len();
         let mut frag = Fragment::empty(natts, &self.byval, rows_total as usize, self.owner)?;
@@ -537,35 +487,19 @@ impl DecodeShared {
         bindings: &[usize],
         charge: &mut HeldCharge,
     ) -> PgResult<Vec<(Vec<u64>, Vec<bool>)>> {
-        let cols: Vec<usize> = bindings
-            .iter()
-            .map(|&b| self.plan.cols[self.plan.bindings[b].batch])
-            .collect();
-        let vutf8: Vec<bool> = bindings
-            .iter()
-            .map(|&b| self.plan.vutf8[self.plan.bindings[b].batch])
-            .collect();
+        let cols: Vec<usize> = bindings.iter().map(|&b| self.plan.cols[self.plan.bindings[b].batch]).collect();
+        let vutf8: Vec<bool> = bindings.iter().map(|&b| self.plan.vutf8[self.plan.bindings[b].batch]).collect();
         let mut rgr = parquet_read::RowGroupReader::open_on(
             &self.file, &self.path, &self.meta, rg_idx, &cols, &vutf8, self.owner,
         )?;
         let rows_total = rgr.rows_remaining() as usize;
-        let mut out: Vec<(Vec<u64>, Vec<bool>)> =
-            ::mcx::stdvec::try_vec(bindings.len(), "parquet_pgrc")?;
+        let mut out: Vec<(Vec<u64>, Vec<bool>)> = ::mcx::stdvec::try_vec(bindings.len(), "parquet_pgrc")?;
         for _ in bindings.iter() {
-            out.push((
-                ::mcx::stdvec::try_vec(rows_total, "parquet_pgrc")?,
-                ::mcx::stdvec::try_vec(rows_total, "parquet_pgrc")?,
-            )); // alloc: Exec charged charge (the caller's)
+            out.push((::mcx::stdvec::try_vec(rows_total, "parquet_pgrc")?, ::mcx::stdvec::try_vec(rows_total, "parquet_pgrc")?,)); // alloc: Exec charged charge (the caller's)
         }
-        charge.sync(
-            out.iter()
-                .map(|(w, n)| cap_bytes(w.capacity(), w) + cap_bytes(n.capacity(), n))
-                .sum(),
-        );
-        let mut batches: Vec<parquet_read::ColumnBatch> = cols
-            .iter()
-            .map(|&c| parquet_read::ColumnBatch::new_for(self.meta.columns[c].phys))
-            .collect();
+        charge.sync(out.iter().map(|(w, n)| cap_bytes(w.capacity(), w) + cap_bytes(n.capacity(), n)).sum(),);
+        let mut batches: Vec<parquet_read::ColumnBatch> =
+            cols.iter().map(|&c| parquet_read::ColumnBatch::new_for(self.meta.columns[c].phys)).collect();
         // CONVERT wave 3 (cvwrite job 3): the batches' buffers on the load's owner, brought to them after each fill on
         // this (the decoding) thread; declared after them, so it drops first
         let mut batch_charge = HeldCharge::new(self.owner);
@@ -582,15 +516,7 @@ impl DecodeShared {
             for (j, &b) in bindings.iter().enumerate() {
                 let bind = &self.plan.bindings[b];
                 let (words, nulls) = &mut out[j];
-                words_lane(
-                    bind.conv,
-                    &batches[j],
-                    0,
-                    n,
-                    self.notnull[bind.attidx],
-                    words,
-                    nulls,
-                )?;
+                words_lane(bind.conv, &batches[j], 0, n, self.notnull[bind.attidx], words, nulls,)?;
             }
         }
         Ok(out)
@@ -610,8 +536,7 @@ impl DecodeShared {
             &self.plan.vutf8,
             self.owner,
         )?;
-        self.bytes_read
-            .fetch_add(rgr.compressed_bytes, Ordering::Relaxed);
+        self.bytes_read.fetch_add(rgr.compressed_bytes, Ordering::Relaxed);
         let rows_total = rgr.rows_remaining();
         let natts = self.byval.len();
         let grain = self.grain;
@@ -621,7 +546,8 @@ impl DecodeShared {
         let end = base + rows_total;
         let head_end = end.min(base.div_ceil(grain) * grain);
         let full_end = head_end + (end - head_end) / grain * grain;
-        let mut head = Fragment::empty(natts, &self.byval, (head_end - base) as usize, self.owner)?;
+        let mut head =
+            Fragment::empty(natts, &self.byval, (head_end - base) as usize, self.owner)?;
         let mut tail = Fragment::empty(natts, &self.byval, (end - full_end) as usize, self.owner)?;
         let mut chunks: Vec<RowChunk> =
             ::mcx::stdvec::try_vec(((full_end - head_end) / grain) as usize, "parquet_pgrc")?;
@@ -657,14 +583,8 @@ impl DecodeShared {
                 let k0 = (head_end.max(cursor) - cursor) as usize;
                 let k1 = (full_end.min(bend) - cursor) as usize;
                 self.chunk_append(
-                    &mut cur,
-                    &mut chunks,
-                    &mut scratch,
-                    &mut staged,
-                    &mut row,
-                    &batches,
-                    k0,
-                    k1,
+                    &mut cur, &mut chunks, &mut scratch, &mut staged, &mut row,
+                    &batches, k0, k1,
                 )?;
             }
             // Tail segment (ragged, lane-major).
@@ -676,7 +596,9 @@ impl DecodeShared {
         }
         debug_assert_eq!(cur.rows(), 0, "aligned carve left a partial chunk");
         debug_assert_eq!(
-            u64::from(head.rows) + chunks.len() as u64 * grain + u64::from(tail.rows),
+            u64::from(head.rows)
+                + chunks.len() as u64 * grain
+                + u64::from(tail.rows),
             rows_total,
         );
         Ok(DecodedRg { head, chunks, tail })
@@ -701,10 +623,7 @@ impl runtime::TaskSetWork for DecodeWork {
             let out = match catch_unwind(AssertUnwindSafe(|| match self.shared.decode_fast(seq) {
                 Ok(d) => Ok(d),
                 Err(e) => {
-                    ptrace(&format!(
-                        "pgrc-parquet fastdec fallback seq={seq}: {}",
-                        e.message()
-                    )); // alloc: Cold
+                    ptrace(&format!("pgrc-parquet fastdec fallback seq={seq}: {}", e.message())); // alloc: Cold
                     self.shared.decode(seq)
                 }
             })) {
@@ -757,9 +676,7 @@ fn admit<'mcx>(
     if pgrc_front::logical::active(rel) {
         refuse!("wal_level=logical: bulk rows are logged by the serial path");
     }
-    let Some(rt) = runtime::global() else {
-        refuse!("no runtime pool")
-    };
+    let Some(rt) = runtime::global() else { refuse!("no runtime pool") };
     if parallel::IsParallelWorker() || !init_small::globals::IsUnderPostmaster() {
         refuse!("not a postmaster session leader");
     }
@@ -816,10 +733,7 @@ fn admit<'mcx>(
     };
     let reader = psrc.reader();
     if reader.file_len() < file_floor() {
-        refuse!(format!(
-            "parquet file smaller than the {}B floor",
-            file_floor()
-        )); // alloc: Cold
+        refuse!(format!("parquet file smaller than the {}B floor", file_floor())); // alloc: Cold
     }
     let meta = reader.meta_arc();
     let plan = psrc.plan_arc();
@@ -995,13 +909,7 @@ pub(crate) fn copy_from_parquet_pgrc<'mcx>(
     let Some(adm) = admit(cstate, rel, has_triggers)? else {
         return Ok(None);
     };
-    let Admitted {
-        rt,
-        shared,
-        window,
-        total_rows,
-        resident,
-    } = adm;
+    let Admitted { rt, shared, window, total_rows, resident, } = adm;
     // A declared `sorted_by` routes to the cluster merge (global key order
     // across parts, parquet_cluster.rs); its own admission may hand the
     // statement back to the file-order path below.
@@ -1039,26 +947,23 @@ pub(crate) fn copy_from_parquet_pgrc<'mcx>(
     // The stashed user-facing error (feed tunnels WriteError::Contract).
     let mut stash: Option<Box<PgError>> = None;
 
-    let fed: PgResult<u64> =
-        pgrc_am::ingest::with_parallel_copy_writer(rel, |writer, providers| {
-            let r = pgrc_ingest_par::parallel_ingest(
-                writer,
-                rt,
-                providers,
-                ParIngestOpts::auto(),
-                |sess| {
-                    let fed = feed_rows(
-                        mcx, cstate, rel, &shared, &stream, rt, n_rgs, sess, &mut stash,
-                    );
-                    let (peak, waits, ms) = sess.memory_report();
-                    ptrace(&format!(
-                        "pgrc-parquet memory peak_held={peak} gate_waits={waits} gate_ms={ms}"
-                    )); // alloc: Cold
-                    fed
-                },
-            );
-            r.map_err(|we| stash.take().unwrap_or_else(|| pgrc_am::write_error(we)))
-        });
+    let fed: PgResult<u64> = pgrc_am::ingest::with_parallel_copy_writer(rel, |writer, providers| {
+        let r = pgrc_ingest_par::parallel_ingest(
+            writer,
+            rt,
+            providers,
+            ParIngestOpts::auto(),
+            |sess| {
+                let fed = feed_rows(
+                    mcx, cstate, rel, &shared, &stream, rt, n_rgs, sess, &mut stash,
+                );
+                let (peak, waits, ms) = sess.memory_report();
+                ptrace(&format!("pgrc-parquet memory peak_held={peak} gate_waits={waits} gate_ms={ms}")); // alloc: Cold
+                fed
+            },
+        );
+        r.map_err(|we| stash.take().unwrap_or_else(|| pgrc_am::write_error(we)))
+    });
     // Drain the decode task set BEFORE publish/return on every path.
     drain.waiter.take().map(|w| {
         shared.cancelled.store(true, Ordering::SeqCst);
@@ -1098,11 +1003,7 @@ fn pump_fragment(
                         RawDatum::Word(words[k])
                     }
                 }
-                Lane::Blobs {
-                    arena,
-                    spans,
-                    nulls,
-                } => {
+                Lane::Blobs { arena, spans, nulls, } => {
                     if nulls[k] {
                         RawDatum::Null
                     } else {
@@ -1119,7 +1020,10 @@ fn pump_fragment(
                 *stash = Some(e);
                 return Err(STASHED);
             }
-            pgstat_progress_update_param(PROGRESS_COPY_TUPLES_PROCESSED, *processed as i64);
+            pgstat_progress_update_param(
+                PROGRESS_COPY_TUPLES_PROCESSED,
+                *processed as i64
+            );
         }
     }
     Ok(())
@@ -1206,8 +1110,7 @@ fn feed_rows<'mcx>(
                 let rows = shared.meta.row_groups[rg_raw].num_rows as u64;
                 let e = match replay_rg_serial(mcx, cstate, rel, rg_raw, base, rows) {
                     Err(e) => e,
-                    Ok(()) => Box::new(PgError::error(format!(
-                        // alloc: Cold
+                    Ok(()) => Box::new(PgError::error(format!( // alloc: Cold
                         "parquet parallel worker failed but the serial replay \
                          found no error: {detail}"
                     ))),
@@ -1231,7 +1134,10 @@ fn feed_rows<'mcx>(
                         *stash = Some(e);
                         return Err(STASHED);
                     }
-                    pgstat_progress_update_param(PROGRESS_COPY_TUPLES_PROCESSED, processed as i64);
+                    pgstat_progress_update_param(
+                        PROGRESS_COPY_TUPLES_PROCESSED,
+                        processed as i64
+                    );
                 }
                 pump_fragment(&decoded.tail, natts, sess, &mut processed, stash)?;
                 // COPY byte progress = compressed bytes decoded so far
@@ -1239,7 +1145,10 @@ fn feed_rows<'mcx>(
                 let bytes = shared.bytes_read.load(Ordering::Relaxed);
                 if bytes != cstate.bytes_processed {
                     cstate.bytes_processed = bytes;
-                    pgstat_progress_update_param(PROGRESS_COPY_BYTES_PROCESSED, bytes as i64);
+                    pgstat_progress_update_param(
+                        PROGRESS_COPY_BYTES_PROCESSED,
+                        bytes as i64
+                    );
                 }
             }
         }
@@ -1258,12 +1167,7 @@ mod lanes_tests {
 
     /// The per-value lanes build `lanes_append` replaced (`raw_cell` per
     /// cell, row by row within a column).
-    fn lanes_by_cell(
-        sh: &DecodeShared,
-        frag: &mut Fragment,
-        batches: &[parquet_read::ColumnBatch],
-        n: usize,
-    ) -> PgResult<()> {
+    fn lanes_by_cell(sh: &DecodeShared, frag: &mut Fragment, batches: &[parquet_read::ColumnBatch], n: usize,) -> PgResult<()> {
         let shape = || Box::new(PgError::error("shape".to_string()));
         for b in sh.plan.bindings.iter() {
             let batch = &batches[b.batch];
@@ -1284,11 +1188,7 @@ mod lanes_tests {
                             }
                         });
                     }
-                    Lane::Blobs {
-                        arena,
-                        spans,
-                        nulls,
-                    } => {
+                    Lane::Blobs { arena, spans, nulls, } => {
                         nulls.push(null);
                         spans.push(if null {
                             (0, 0)
@@ -1316,11 +1216,7 @@ mod lanes_tests {
                     .zip(nulls)
                     .map(|(w, &n)| (!n).then(|| w.to_le_bytes().to_vec()))
                     .collect(),
-                Lane::Blobs {
-                    arena,
-                    spans,
-                    nulls,
-                } => spans
+                Lane::Blobs { arena, spans, nulls, } => spans
                     .iter()
                     .zip(nulls)
                     .map(|(&(o, l), &n)| (!n).then(|| arena[o as usize..(o + l) as usize].to_vec()))
@@ -1329,38 +1225,17 @@ mod lanes_tests {
             .collect()
     }
 
-    fn walk(
-        path: &str,
-        atts: &[(&str, Oid, i32, bool)],
-        coerce: bool,
-        notnull: bool,
-    ) -> Option<Result<usize, ()>> {
+    fn walk(path: &str, atts: &[(&str, Oid, i32, bool)], coerce: bool, notnull: bool,) -> Option<Result<usize, ()>> {
         let reader = parquet_read::FileReader::open(path).ok()?;
         let meta = reader.meta_arc();
-        let list: Vec<(String, Oid, i32)> =
-            atts.iter().map(|a| (a.0.to_string(), a.1, a.2)).collect();
+        let list: Vec<(String, Oid, i32)> = atts.iter().map(|a| (a.0.to_string(), a.1, a.2)).collect();
         let plan = Arc::new(resolve_plan_types(&meta, &list, coerce).ok()?);
         let file = reader.try_clone_file().ok()?;
         let byval: Vec<bool> = atts.iter().map(|a| a.3).collect();
-        let sh = DecodeShared::standalone(
-            file,
-            path.to_string(),
-            meta,
-            plan,
-            byval.clone(),
-            vec![notnull; atts.len()],
-        );
+        let sh = DecodeShared::standalone(file, path.to_string(), meta, plan, byval.clone(), vec![notnull; atts.len()],);
         let mut rows = 0usize;
         for &rg in sh.rg_order.iter() {
-            let mut rgr = parquet_read::RowGroupReader::open(
-                &sh.file,
-                &sh.path,
-                &sh.meta,
-                rg,
-                &sh.plan.cols,
-                &sh.plan.vutf8,
-            )
-            .ok()?;
+            let mut rgr = parquet_read::RowGroupReader::open(&sh.file, &sh.path, &sh.meta, rg, &sh.plan.cols, &sh.plan.vutf8,).ok()?;
             let mut batches = sh.plan.make_batches(&sh.meta);
             let mut a = Fragment::empty(atts.len(), &byval, 0, None).ok()?;
             let mut b = Fragment::empty(atts.len(), &byval, 0, None).ok()?;
@@ -1380,9 +1255,7 @@ mod lanes_tests {
             let keys: Vec<usize> = (0..atts.len()).filter(|&i| atts[i].3).collect();
             if let Ok(w) = sh.decode_words(rg, &keys, &mut HeldCharge::none()) {
                 for (j, &i) in keys.iter().enumerate() {
-                    let Lane::Words { words, nulls } = &b.lanes[i] else {
-                        unreachable!()
-                    };
+                    let Lane::Words { words, nulls } = &b.lanes[i] else { unreachable!() };
                     assert_eq!((&w[j].0, &w[j].1), (words, nulls), "{path} rg {rg} key {i}");
                 }
             }
@@ -1394,28 +1267,10 @@ mod lanes_tests {
     /// nulls, image bytes) on the fixtures, and fail where it fails.
     #[test]
     fn typed_lanes_equal_per_cell_lanes() {
-        let dir = concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../access/parquet_read/testdata/"
-        );
-        let par = [
-            ("id", 20, -1, true),
-            ("v16", 21, -1, true),
-            ("cat", 25, -1, false),
-            ("payload", 25, -1, false),
-        ];
-        let par_vc = [
-            ("id", 20, -1, true),
-            ("v16", 21, -1, true),
-            ("cat", 1042, 4 + 9, false),
-            ("payload", 1043, 4 + 40, false),
-        ];
-        let par_cut = [
-            ("id", 20, -1, true),
-            ("v16", 23, -1, true),
-            ("cat", 1042, 4 + 4, false),
-            ("payload", 1043, 4 + 30, false),
-        ];
+        let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../access/parquet_read/testdata/");
+        let par = [("id", 20, -1, true), ("v16", 21, -1, true), ("cat", 25, -1, false), ("payload", 25, -1, false),];
+        let par_vc = [("id", 20, -1, true), ("v16", 21, -1, true), ("cat", 1042, 4 + 9, false), ("payload", 1043, 4 + 40, false),];
+        let par_cut = [("id", 20, -1, true), ("v16", 23, -1, true), ("cat", 1042, 4 + 4, false), ("payload", 1043, 4 + 30, false),];
         let basic = [
             ("id", 20, -1, true),
             ("i32req", 23, -1, true),
@@ -1441,12 +1296,7 @@ mod lanes_tests {
             ("g", 1082, -1, true),
             ("h", 1082, -1, true),
         ];
-        let uints = [
-            ("u8", 21, -1, true),
-            ("u16", 23, -1, true),
-            ("u32", 20, -1, true),
-            ("u64", 20, -1, true),
-        ];
+        let uints = [("u8", 21, -1, true), ("u16", 23, -1, true), ("u32", 20, -1, true), ("u64", 20, -1, true),];
         let cases: [(&str, &[(&str, Oid, i32, bool)], bool, bool, bool); 9] = [
             ("pgrcpar.parquet", &par, false, true, true),
             ("pgrcpar.parquet", &par_vc, false, true, true),

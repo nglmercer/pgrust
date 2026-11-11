@@ -66,7 +66,8 @@ pub(crate) fn vacuum_delay_point() -> PgResult<()> {
 
 // RELATION_IS_LOCAL (rel.h:659).
 fn relation_is_local(rel: &::types_rel::RelationData<'_>) -> bool {
-    rel.rd_islocaltemp || rel.rd_createSubid.get() != ::types_core::InvalidSubTransactionId
+    rel.rd_islocaltemp
+        || rel.rd_createSubid.get() != ::types_core::InvalidSubTransactionId
 }
 
 // spgvacuum.c:851-854: the relation length is read under the extension lock
@@ -136,8 +137,7 @@ fn vacuum_leaf_page(
     for_pending: bool,
 ) -> PgResult<()> {
     let max = buf_page_mut(buffer).as_ref().max_offset_number();
-    let mut predecessor =
-        ::mcx::std_vec_from_elem("access", InvalidOffsetNumber, max as usize + 1)?;
+    let mut predecessor = ::mcx::std_vec_from_elem("access", InvalidOffsetNumber, max as usize + 1)?;
     let mut deletable = ::mcx::std_vec_from_elem("access", false, max as usize + 1)?;
     let mut n_deletable = 0usize;
 
@@ -215,11 +215,7 @@ fn vacuum_leaf_page(
             }
 
             let mut intervening_deletable = false;
-            let mut prev_live = if deletable[i as usize] {
-                InvalidOffsetNumber
-            } else {
-                i
-            };
+            let mut prev_live = if deletable[i as usize] { InvalidOffsetNumber } else { i };
 
             let mut j = SpGistLeafTupleHeader::decode(head).nextOffset();
             while j != InvalidOffsetNumber {
@@ -261,9 +257,7 @@ fn vacuum_leaf_page(
 
     if n_deletable != to_dead.len() + to_placeholder.len() + move_src.len() {
         // C (spgvacuum.c:326): elog(ERROR) — catchable XX000.
-        return Err(Box::new(PgError::error(
-            "inconsistent counts of deletable tuples",
-        )));
+        return Err(Box::new(PgError::error("inconsistent counts of deletable tuples",)));
     }
     debug_assert!(n_deletable <= MaxIndexTuplesPerPage);
 
@@ -326,10 +320,7 @@ fn vacuum_leaf_page(
             nPlaceholder: to_placeholder.len() as u16,
             nMove: move_src.len() as u16,
             nChain: chain_src.len() as u16,
-            stateSrc: spgxlogState {
-                redirectXid: state.redirect_xid,
-                isBuild: false,
-            },
+            stateSrc: spgxlogState { redirectXid: state.redirect_xid, isBuild: false, },
         };
         let xl = xlrec.encode();
         let recptr = xloginsert_seams::xlog_insert_record::call(
@@ -345,12 +336,7 @@ fn vacuum_leaf_page(
                 offnum_bytes(&chain_src),
                 offnum_bytes(&chain_dest),
             ],
-            &[XLogRegBuf {
-                block_id: 0,
-                buffer,
-                flags: REGBUF_STANDARD,
-                bufdata: &[],
-            }],
+            &[XLogRegBuf { block_id: 0, buffer, flags: REGBUF_STANDARD, bufdata: &[], }],
         )?;
         buf_page_mut(buffer).set_lsn(recptr);
     }
@@ -402,10 +388,7 @@ fn vacuum_leaf_root(
     if relation_needs_wal(index) {
         let xlrec = spgxlogVacuumRoot {
             nDelete: to_delete.len() as u16,
-            stateSrc: spgxlogState {
-                redirectXid: state.redirect_xid,
-                isBuild: false,
-            },
+            stateSrc: spgxlogState { redirectXid: state.redirect_xid, isBuild: false, },
         };
         let xl = xlrec.encode();
         let recptr = xloginsert_seams::xlog_insert_record::call(
@@ -413,12 +396,7 @@ fn vacuum_leaf_root(
             XLOG_SPGIST_VACUUM_ROOT,
             0,
             &[&xl, offnum_bytes(&to_delete)],
-            &[XLogRegBuf {
-                block_id: 0,
-                buffer,
-                flags: REGBUF_STANDARD,
-                bufdata: &[],
-            }],
+            &[XLogRegBuf { block_id: 0, buffer, flags: REGBUF_STANDARD, bufdata: &[], }],
         )?;
         buf_page_mut(buffer).set_lsn(recptr);
     }
@@ -468,7 +446,9 @@ fn vacuum_redirect_and_placeholder(
             // (REINDEX CONCURRENTLY).
             if dt.tupstate == SPGIST_REDIRECT
                 && (dt.xid == 0
-                    || procarray_seams::global_vis_test_is_removable_xid::call(vistest, dt.xid)?)
+                    || procarray_seams::global_vis_test_is_removable_xid::call(
+                        vistest, dt.xid
+                    )?)
             {
                 debug_assert!(n_redirection > 0);
                 n_redirection -= 1;
@@ -534,12 +514,7 @@ fn vacuum_redirect_and_placeholder(
             XLOG_SPGIST_VACUUM_REDIRECT,
             0,
             &[&xl, offnum_bytes(&item_to_placeholder)],
-            &[XLogRegBuf {
-                block_id: 0,
-                buffer,
-                flags: REGBUF_STANDARD,
-                bufdata: &[],
-            }],
+            &[XLogRegBuf { block_id: 0, buffer, flags: REGBUF_STANDARD, bufdata: &[], }],
         )?;
         buf_page_mut(buffer).set_lsn(recptr);
     }
@@ -560,11 +535,7 @@ fn spgvacuumpage(state: &mut SpgVacState<'_, '_, '_>, buffer: Buffer) -> PgResul
     let (is_new, is_empty, is_leaf) = {
         let pm = buf_page_mut(buffer);
         let page = pm.as_ref();
-        (
-            page.is_new(),
-            page.max_offset_number() == 0,
-            !page.is_new() && SpGistPageIsLeaf(&page),
-        )
+        (page.is_new(), page.max_offset_number() == 0, !page.is_new() && SpGistPageIsLeaf(&page),)
     };
 
     if is_new {
@@ -897,13 +868,7 @@ mod scan_length_tests {
             });
             lock_seams::lock_acquire_extended::set(|tag, mode, _, _, _, _| {
                 assert_eq!(mode, ::types_rel::ExclusiveLock);
-                assert_eq!(
-                    tag,
-                    ::types_storage::lock::LOCKTAG::relation_extend(
-                        tag.locktag_field1,
-                        tag.locktag_field2
-                    )
-                );
+                assert_eq!(tag, ::types_storage::lock::LOCKTAG::relation_extend(tag.locktag_field1, tag.locktag_field2));
                 EXT_LOCKS.fetch_add(1, SeqCst);
                 Ok(::types_storage::lock::LOCKACQUIRE_OK)
             });
@@ -937,16 +902,10 @@ mod scan_length_tests {
         let index = crate::tests::index_rel(cx.mcx());
         let (l0, u0) = (EXT_LOCKS.load(SeqCst), EXT_UNLOCKS.load(SeqCst));
         assert_eq!(relation_length_for_scan(&index).unwrap(), 7);
-        assert_eq!(
-            (EXT_LOCKS.load(SeqCst), EXT_UNLOCKS.load(SeqCst)),
-            (l0 + 1, u0 + 1)
-        );
+        assert_eq!((EXT_LOCKS.load(SeqCst), EXT_UNLOCKS.load(SeqCst)), (l0 + 1, u0 + 1));
         index.rd_createSubid.set(1);
         assert_eq!(relation_length_for_scan(&index).unwrap(), 7);
-        assert_eq!(
-            (EXT_LOCKS.load(SeqCst), EXT_UNLOCKS.load(SeqCst)),
-            (l0 + 1, u0 + 1)
-        );
+        assert_eq!((EXT_LOCKS.load(SeqCst), EXT_UNLOCKS.load(SeqCst)), (l0 + 1, u0 + 1));
     }
 
     // spgvacuum.c:830: the physical scan streams [first, nblocks), so the
@@ -980,8 +939,8 @@ mod scan_length_tests {
             num_heap_tuples: 0.0,
             strategy: None,
         };
-        let err =
-            spgvacuumscan(&info, &mut IndexBulkDeleteResult::default(), None, None).unwrap_err();
+        let err = spgvacuumscan(&info, &mut IndexBulkDeleteResult::default(), None, None)
+            .unwrap_err();
         assert_eq!(err.message, "batch read failed");
     }
 }
@@ -1000,10 +959,7 @@ mod crit_section_tests {
         let mut pm = buf_page_mut(buffer);
         ::types_spgist::SpGistInitPage(&mut pm, ::types_spgist::SPGIST_LEAF);
         let lt = leaf_tuple(ItemPointerData::new(10, 1));
-        assert_eq!(
-            pm.add_item(&lt, InvalidOffsetNumber, 0),
-            Some(FirstOffsetNumber)
-        );
+        assert_eq!(pm.add_item(&lt, InvalidOffsetNumber, 0), Some(FirstOffsetNumber));
         buffer
     }
 
@@ -1094,11 +1050,7 @@ mod crit_section_tests {
         set_wal_fail(false);
         vacuum_leaf_root(&mut state, &index, buffer)
             .unwrap_or_else(|e| panic!("vacuumLeafRoot on the fake pool: {e:?}"));
-        assert_eq!(
-            take_crit_section_count(),
-            0,
-            "END_CRIT_SECTION after the WAL record"
-        );
+        assert_eq!(take_crit_section_count(), 0, "END_CRIT_SECTION after the WAL record");
         assert_eq!(stats.tuples_removed, 1.0);
         assert_eq!(buf_page_mut(buffer).as_ref().max_offset_number(), 0);
     }
@@ -1110,8 +1062,7 @@ mod crit_section_tests {
         let _serial = lock();
         install();
         if !procarray_seams::global_vis_test_for::is_installed() {
-            procarray_seams::global_vis_test_for::set(|_rel| {
-                ::types_core::GlobalVisStateHandle::new(3)
+            procarray_seams::global_vis_test_for::set(|_rel| { ::types_core::GlobalVisStateHandle::new(3)
             });
         }
         if !::transam_xlog_seams::xlog_logical_info_active::is_installed() {
@@ -1122,10 +1073,7 @@ mod crit_section_tests {
             let mut pm = buf_page_mut(buffer);
             ::types_spgist::SpGistInitPage(&mut pm, ::types_spgist::SPGIST_LEAF);
             let dead = ::types_spgist::spgFormDeadTuple(0, SPGIST_REDIRECT, 5, 2);
-            assert_eq!(
-                pm.add_item(&dead, InvalidOffsetNumber, 0),
-                Some(FirstOffsetNumber)
-            );
+            assert_eq!(pm.add_item(&dead, InvalidOffsetNumber, 0), Some(FirstOffsetNumber));
             let lt = leaf_tuple(ItemPointerData::new(10, 1));
             assert_eq!(pm.add_item(&lt, InvalidOffsetNumber, 0), Some(2));
             page_opaque_update(&mut pm, |op| op.nRedirection = 1);

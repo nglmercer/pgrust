@@ -104,8 +104,7 @@ pub mod table_fn {
     }
 
     /// The cells `put_cells` wrote; `None` for an argument it did not write.
-    pub fn cells(arg: &[u8]) -> Option<Vec<u16>> {
-        arg.len().is_multiple_of(2).then(|| arg.chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect()) // alloc: Program
+    pub fn cells(arg: &[u8]) -> Option<Vec<u16>> {arg.len().is_multiple_of( 2).then(|| arg.chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect()) // alloc: Program
     }
 
     /// `EQ`'s and `RANGE`'s argument: each value as its 4-byte little-endian length, then its bytes, handed to `out` in pieces
@@ -132,7 +131,7 @@ pub mod table_fn {
     /// `put_values`' argument `arg` holds at least one value, each of byte length 0: an equality with them is a function
     /// of the byte length alone (exec sites.rs `lens_only`).
     pub fn values_all_empty(arg: &[u8]) -> bool {
-        !arg.is_empty() && arg.len().is_multiple_of(4) && arg.iter().all(|&b| b == 0)
+        !arg.is_empty() && arg.len().is_multiple_of( 4) && arg.iter().all(|&b| b == 0)
     }
 
     /// `DERIVED_CALL`'s call, evaluated once per entry: builtin `funcid` over `args`, where `None` is the entry and

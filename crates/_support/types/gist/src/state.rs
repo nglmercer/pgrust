@@ -65,12 +65,7 @@ impl<'mcx> GistState<'mcx> {
 
     // FunctionCall1Coll(&compressFn[attno], …, PointerGetDatum(&entry)); the
     // result GISTENTRY* may be the input or a temp-allocated replacement.
-    pub fn call_compress(
-        &mut self,
-        mcx: Mcx<'_>,
-        attno: usize,
-        entry: &GISTENTRY,
-    ) -> PgResult<GISTENTRY> {
+    pub fn call_compress(&mut self, mcx: Mcx<'_>, attno: usize, entry: &GISTENTRY,) -> PgResult<GISTENTRY> {
         self.frame1.rearm(self.supportCollation[attno]);
         // SAFETY: caller's temp context outlives the call (its reset point
         // is after consuming the results).
@@ -86,12 +81,7 @@ impl<'mcx> GistState<'mcx> {
         Ok(unsafe { *(r.as_usize() as *const GISTENTRY) })
     }
 
-    pub fn call_decompress(
-        &mut self,
-        mcx: Mcx<'_>,
-        attno: usize,
-        entry: &GISTENTRY,
-    ) -> PgResult<GISTENTRY> {
+    pub fn call_decompress(&mut self, mcx: Mcx<'_>, attno: usize, entry: &GISTENTRY,) -> PgResult<GISTENTRY> {
         self.frame1.rearm(self.supportCollation[attno]);
         // SAFETY: as call_compress.
         unsafe { self.frame1.set_result_mcx(mcx) };
@@ -105,12 +95,7 @@ impl<'mcx> GistState<'mcx> {
         Ok(unsafe { *(r.as_usize() as *const GISTENTRY) })
     }
 
-    pub fn call_fetch(
-        &mut self,
-        mcx: Mcx<'_>,
-        attno: usize,
-        entry: &GISTENTRY,
-    ) -> PgResult<GISTENTRY> {
+    pub fn call_fetch(&mut self, mcx: Mcx<'_>, attno: usize, entry: &GISTENTRY,) -> PgResult<GISTENTRY> {
         self.frame1.rearm(self.supportCollation[attno]);
         // SAFETY: as call_compress.
         unsafe { self.frame1.set_result_mcx(mcx) };
@@ -125,20 +110,13 @@ impl<'mcx> GistState<'mcx> {
     }
 
     // FunctionCall2Coll(&unionFn[attno], …, evec, &size) -> new key Datum.
-    pub fn call_union(
-        &mut self,
-        mcx: Mcx<'_>,
-        attno: usize,
-        evec: &GistEntryVector,
-    ) -> PgResult<Datum> {
+    pub fn call_union(&mut self, mcx: Mcx<'_>, attno: usize, evec: &GistEntryVector,) -> PgResult<Datum> {
         let mut size: i32 = 0;
         self.frame2.rearm(self.supportCollation[attno]);
         // SAFETY: as call_compress.
         unsafe { self.frame2.set_result_mcx(mcx) };
-        self.frame2.set_arg(
-            0,
-            Datum::from_usize(evec as *const GistEntryVector as usize),
-        );
+        self.frame2
+            .set_arg(0, Datum::from_usize(evec as *const GistEntryVector as usize),);
         self.frame2
             .set_arg(1, Datum::from_usize(&mut size as *mut i32 as usize));
         let r = self.unionFn[attno].invoke(&mut self.frame2)?;
@@ -160,14 +138,8 @@ impl<'mcx> GistState<'mcx> {
         // C's entry->rel is live inside penalty procs (btree_gist reads
         // rd_att->natts); stamp the stand-in on local copies.
         let natts = self.leafTupdesc.natts as u16;
-        let orig = GISTENTRY {
-            rel_natts: natts,
-            ..*orig
-        };
-        let add = GISTENTRY {
-            rel_natts: natts,
-            ..*add
-        };
+        let orig = GISTENTRY { rel_natts: natts, ..*orig };
+        let add = GISTENTRY { rel_natts: natts, ..*add };
         self.frame3.rearm(self.supportCollation[attno]);
         // SAFETY: as call_compress.
         unsafe { self.frame3.set_result_mcx(mcx) };
@@ -194,10 +166,8 @@ impl<'mcx> GistState<'mcx> {
         self.frame2.rearm(self.supportCollation[attno]);
         // SAFETY: as call_compress.
         unsafe { self.frame2.set_result_mcx(mcx) };
-        self.frame2.set_arg(
-            0,
-            Datum::from_usize(evec as *const GistEntryVector as usize),
-        );
+        self.frame2
+            .set_arg(0, Datum::from_usize(evec as *const GistEntryVector as usize),);
         self.frame2
             .set_arg(1, Datum::from_usize(sv as *mut GistSplitVec as usize));
         self.picksplitFn[attno].invoke(&mut self.frame2)?;
@@ -319,10 +289,7 @@ impl ReconTup {
         unsafe {
             core::ptr::copy_nonoverlapping(b.as_ptr(), v.as_mut_ptr().cast::<u8>(), b.len());
         }
-        ReconTup {
-            buf: v.into_boxed_slice(),
-            len: b.len() as u32,
-        }
+        ReconTup { buf: v.into_boxed_slice(), len: b.len() as u32, }
     }
     pub fn as_ptr(&self) -> *const u8 {
         self.buf.as_ptr().cast()
@@ -356,12 +323,7 @@ pub struct GISTSearchItem {
 
 impl GISTSearchItem {
     pub fn page(blkno: BlockNumber, parentlsn: XLogRecPtr) -> Self {
-        GISTSearchItem {
-            blkno,
-            parentlsn,
-            heap: None,
-            distances: Vec::new(),
-        }
+        GISTSearchItem { blkno, parentlsn, heap: None, distances: Vec::new(), }
     }
     #[inline]
     pub fn is_heap(&self) -> bool {
@@ -372,11 +334,7 @@ impl GISTSearchItem {
 // float8_cmp_internal (float.h): NaN sorts greater than all non-NaNs.
 fn float8_cmp(a: f64, b: f64) -> i32 {
     if a.is_nan() {
-        if b.is_nan() {
-            0
-        } else {
-            1
-        }
+        if b.is_nan() { 0 } else { 1 }
     } else if b.is_nan() {
         -1
     } else if a > b {
@@ -443,10 +401,7 @@ pub struct GISTScanOpaqueData<'mcx> {
     pub page_data_cxt: Option<MemoryContext>,
     // C so->queue != NULL: a rescan already ran.
     pub queue_allocated: bool,
-    pub queue: crate::pairingheap::PairingHeap<
-        GISTSearchItem,
-        fn(&GISTSearchItem, &GISTSearchItem) -> i32,
-    >,
+    pub queue: crate::pairingheap::PairingHeap<GISTSearchItem, fn(&GISTSearchItem, &GISTSearchItem) -> i32,>,
     pub qual_ok: bool,
     pub firstCall: bool,
 

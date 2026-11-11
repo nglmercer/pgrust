@@ -233,9 +233,7 @@ fn test_relation<'mcx>(mcx: Mcx<'mcx>, oid: Oid) -> RelationData<'mcx> {
     });
     let mut relname = NameData::default();
     relname.namestrcpy("t");
-    RelationData {
-        rd_locator: Default::default(),
-        rd_smgr: Default::default(),
+    RelationData { rd_locator: Default::default(), rd_smgr: Default::default(),
         rd_id: oid,
         rd_backend: INVALID_PROC_NUMBER,
         rd_islocaltemp: false,
@@ -244,12 +242,7 @@ fn test_relation<'mcx>(mcx: Mcx<'mcx>, oid: Oid) -> RelationData<'mcx> {
         rd_newRelfilelocatorSubid: std::cell::Cell::new(0),
         rd_firstRelfilelocatorSubid: std::cell::Cell::new(0),
         rd_droppedSubid: std::cell::Cell::new(0),
-        rd_lockInfo: LockInfoData {
-            lockRelId: LockRelId {
-                relId: oid,
-                dbId: 5,
-            },
-        },
+        rd_lockInfo: LockInfoData { lockRelId: LockRelId { relId: oid, dbId: 5, }, },
         rd_rel: FormData_pg_class {
             relname,
             relnamespace: 2200,
@@ -284,17 +277,13 @@ fn test_relation<'mcx>(mcx: Mcx<'mcx>, oid: Oid) -> RelationData<'mcx> {
         pgstat_enabled: std::cell::Cell::new(true),
         pgstat_link: core::cell::Cell::new((0, core::ptr::null_mut())),
         rd_amcache: Default::default(),
-        rd_amcache_hash: Default::default(),
-        rd_amcache_gin: Default::default(),
-        rd_amcache_spgist: Default::default(),
-        rd_amcache_bloom: Default::default(),
+        rd_amcache_hash: Default::default(), rd_amcache_gin: Default::default(), rd_amcache_spgist: Default::default(), rd_amcache_bloom: Default::default(),
         rd_support: PgVec::new_in(mcx),
         rd_supportinfo: Default::default(),
         rd_opcoptions: Default::default(),
         rd_indexlist: Default::default(),
-        rd_trigdesc: Default::default(),
-        rd_hastriggers: false,
-        rd_hasrules: false,
+            rd_trigdesc: Default::default(),
+            rd_hastriggers: false, rd_hasrules: false,
     }
 }
 
@@ -318,10 +307,7 @@ fn get_status_bit_math() {
     assert_eq!(visibilitymap_get_status(&rel, 3, &mut vmbuf).unwrap(), 0b11);
     assert_eq!(visibilitymap_get_status(&rel, 4, &mut vmbuf).unwrap(), 0b01);
     let last = HEAPBLOCKS_PER_PAGE - 1;
-    assert_eq!(
-        visibilitymap_get_status(&rel, last, &mut vmbuf).unwrap(),
-        0b11
-    );
+    assert_eq!(visibilitymap_get_status(&rel, last, &mut vmbuf).unwrap(), 0b11);
 
     assert!(vm_all_visible(&rel, 3, &mut vmbuf).unwrap());
     assert!(vm_all_frozen(&rel, 3, &mut vmbuf).unwrap());
@@ -422,13 +408,10 @@ fn pin_past_eof_reaches_extend_panic() {
     setup(vec![], true);
 
     let mut vmbuf = VmBuffer::new();
-    let err =
-        catch_unwind(AssertUnwindSafe(|| visibilitymap_pin(&rel, 0, &mut vmbuf))).unwrap_err();
+    let err = catch_unwind(AssertUnwindSafe(|| visibilitymap_pin(&rel, 0, &mut vmbuf)))
+        .unwrap_err();
     let msg = err.downcast_ref::<&str>().copied().unwrap_or("");
-    assert!(
-        msg.contains("ExtendBufferedRelTo"),
-        "unexpected panic: {msg}"
-    );
+    assert!(msg.contains("ExtendBufferedRelTo"), "unexpected panic: {msg}");
 }
 
 #[test]
@@ -437,7 +420,10 @@ fn count_popcounts_masked() {
     let ctx = MemoryContext::new("test");
     let rel = test_relation(ctx.mcx(), 4242);
     setup(
-        vec![vm_page(&[(0, 0xff), (10, 0x55)]), vm_page(&[(3, 0xaa)])],
+        vec![
+            vm_page(&[(0, 0xff), (10, 0x55)]),
+            vm_page(&[(3, 0xaa)])
+        ],
         true,
     );
 
@@ -460,8 +446,9 @@ fn new_page_initialized_under_lock() {
         assert_eq!(f.lock_calls, 2); // exclusive + unlock around PageInit
         assert_eq!(f.locks[0], 0);
         // SAFETY: the fake page is live for the fake's lifetime.
-        let page =
-            unsafe { PageRef::from_raw(core::ptr::NonNull::new(f.pages[0].as_mut_ptr()).unwrap()) };
+        let page = unsafe {
+            PageRef::from_raw(core::ptr::NonNull::new(f.pages[0].as_mut_ptr()).unwrap())
+        };
         assert!(!page.is_new());
     });
 
@@ -480,7 +467,8 @@ fn heap_pages() -> (Box<AlignedPage>, Box<AlignedPage>) {
     let vm = vm_page(&[]);
     let mut heap = Box::new(AlignedPage([0u8; BLCKSZ]));
     // SAFETY: local BLCKSZ buffer, exclusively owned.
-    let mut pm = unsafe { PageMut::from_raw(core::ptr::NonNull::new(heap.as_mut_ptr()).unwrap()) };
+    let mut pm =
+        unsafe { PageMut::from_raw(core::ptr::NonNull::new(heap.as_mut_ptr()).unwrap()) };
     pm.init(0);
     pm.set_all_visible();
     (vm, heap)
@@ -500,13 +488,7 @@ fn set_bits_wal_record_and_lsns() {
     visibilitymap_pin(&rel, heap_blk, &mut vmbuf).unwrap();
 
     let prev = visibilitymap_set(
-        &rel,
-        heap_blk,
-        heap_buf,
-        0,
-        &vmbuf,
-        57,
-        VISIBILITYMAP_ALL_VISIBLE,
+        &rel, heap_blk, heap_buf, 0, &vmbuf, 57, VISIBILITYMAP_ALL_VISIBLE,
     )
     .unwrap();
     assert_eq!(prev, 0);
@@ -517,7 +499,7 @@ fn set_bits_wal_record_and_lsns() {
         let rec = &f.wal[0];
         assert_eq!(rec.rmid, 9); // RM_HEAP2_ID
         assert_eq!(rec.info, 0x40); // XLOG_HEAP2_VISIBLE
-                                    // xl_heap_visible { snapshotConflictHorizon; flags }
+        // xl_heap_visible { snapshotConflictHorizon; flags }
         assert_eq!(rec.main.len(), 5);
         assert_eq!(u32::from_ne_bytes(rec.main[0..4].try_into().unwrap()), 57);
         assert_eq!(rec.main[4], VISIBILITYMAP_ALL_VISIBLE);
@@ -525,31 +507,23 @@ fn set_bits_wal_record_and_lsns() {
         assert_eq!(rec.bufs[0], (0, 1, 0));
         assert_eq!(
             rec.bufs[1],
-            (
-                1,
-                heap_buf,
-                xloginsert_seams::REGBUF_STANDARD | xloginsert_seams::REGBUF_NO_IMAGE
-            )
+            (1, heap_buf, xloginsert_seams::REGBUF_STANDARD | xloginsert_seams::REGBUF_NO_IMAGE)
         );
-        let vm_lsn =
-            unsafe { PageRef::from_raw(core::ptr::NonNull::new(f.pages[0].as_mut_ptr()).unwrap()) }
-                .lsn();
+        let vm_lsn = unsafe {
+            PageRef::from_raw(core::ptr::NonNull::new(f.pages[0].as_mut_ptr()).unwrap())
+        }
+        .lsn();
         assert_eq!(vm_lsn, f.next_lsn);
-        let heap_lsn =
-            unsafe { PageRef::from_raw(core::ptr::NonNull::new(f.pages[1].as_mut_ptr()).unwrap()) }
-                .lsn();
+        let heap_lsn = unsafe {
+            PageRef::from_raw(core::ptr::NonNull::new(f.pages[1].as_mut_ptr()).unwrap())
+        }
+        .lsn();
         assert_eq!(heap_lsn, 0);
         assert_eq!(f.locks[0], 0);
     });
 
     let prev = visibilitymap_set(
-        &rel,
-        heap_blk,
-        heap_buf,
-        0,
-        &vmbuf,
-        57,
-        VISIBILITYMAP_ALL_VISIBLE,
+        &rel, heap_blk, heap_buf, 0, &vmbuf, 57, VISIBILITYMAP_ALL_VISIBLE,
     )
     .unwrap();
     assert_eq!(prev, VISIBILITYMAP_ALL_VISIBLE);
@@ -560,26 +534,18 @@ fn set_bits_wal_record_and_lsns() {
 
     with_fake(|f| f.checksums = true);
     let prev = visibilitymap_set(
-        &rel,
-        heap_blk,
-        heap_buf,
-        0,
-        &vmbuf,
-        0,
-        VISIBILITYMAP_VALID_BITS,
+        &rel, heap_blk, heap_buf, 0, &vmbuf, 0, VISIBILITYMAP_VALID_BITS,
     )
     .unwrap();
     assert_eq!(prev, VISIBILITYMAP_ALL_VISIBLE);
     assert_eq!(map_byte(0), 0b1100);
     with_fake(|f| {
         assert_eq!(f.wal.len(), 2);
-        assert_eq!(
-            f.wal[1].bufs[1],
-            (1, heap_buf, xloginsert_seams::REGBUF_STANDARD)
-        );
-        let heap_lsn =
-            unsafe { PageRef::from_raw(core::ptr::NonNull::new(f.pages[1].as_mut_ptr()).unwrap()) }
-                .lsn();
+        assert_eq!(f.wal[1].bufs[1], (1, heap_buf, xloginsert_seams::REGBUF_STANDARD));
+        let heap_lsn = unsafe {
+            PageRef::from_raw(core::ptr::NonNull::new(f.pages[1].as_mut_ptr()).unwrap())
+        }
+        .lsn();
         assert_eq!(heap_lsn, f.next_lsn);
     });
 
@@ -597,18 +563,19 @@ fn set_rejects_wrong_buffers() {
     let mut vmbuf = VmBuffer::new();
     visibilitymap_pin(&rel, 1, &mut vmbuf).unwrap();
 
-    let err = visibilitymap_set(&rel, 3, 2, 0, &vmbuf, 0, VISIBILITYMAP_ALL_VISIBLE).unwrap_err();
+    let err = visibilitymap_set(&rel, 3, 2, 0, &vmbuf, 0, VISIBILITYMAP_ALL_VISIBLE)
+        .unwrap_err();
     assert!(err.message.contains("wrong heap buffer"), "{}", err.message);
 
     // Unpinned VmBuffer.
     let empty = VmBuffer::new();
-    let err = visibilitymap_set(&rel, 1, 2, 0, &empty, 0, VISIBILITYMAP_ALL_VISIBLE).unwrap_err();
+    let err = visibilitymap_set(&rel, 1, 2, 0, &empty, 0, VISIBILITYMAP_ALL_VISIBLE)
+        .unwrap_err();
     assert!(err.message.contains("wrong VM buffer"), "{}", err.message);
 
     let err = visibilitymap_clear(&rel, 1, &empty, VISIBILITYMAP_VALID_BITS).unwrap_err();
     assert!(
-        err.message
-            .contains("wrong buffer passed to visibilitymap_clear"),
+        err.message.contains("wrong buffer passed to visibilitymap_clear"),
         "{}",
         err.message
     );
@@ -649,21 +616,10 @@ fn prepare_truncate_clears_tail() {
     let rel = test_relation(ctx.mcx(), 4242);
 
     setup(vec![], false);
-    assert_eq!(
-        visibilitymap_prepare_truncate(&rel, 5).unwrap(),
-        InvalidBlockNumber
-    );
+    assert_eq!(visibilitymap_prepare_truncate(&rel, 5).unwrap(), InvalidBlockNumber);
 
     setup(
-        vec![
-            vm_page(&[
-                (0, 0xff),
-                (1, 0xff),
-                (2, 0xff),
-                (MAPSIZE as usize - 1, 0xff),
-            ]),
-            vm_page(&[]),
-        ],
+        vec![vm_page(&[(0, 0xff), (1, 0xff), (2, 0xff), (MAPSIZE as usize - 1, 0xff),]), vm_page(&[]),],
         true,
     );
     assert_eq!(visibilitymap_prepare_truncate(&rel, 5).unwrap(), 1);
@@ -722,13 +678,7 @@ fn truncation_length_matches_prepare_truncate() {
     let _s = serial();
     let ctx = MemoryContext::new("test");
     let rel = test_relation(ctx.mcx(), 4243);
-    for n in [
-        1,
-        5,
-        HEAPBLOCKS_PER_PAGE,
-        HEAPBLOCKS_PER_PAGE + 5,
-        2 * HEAPBLOCKS_PER_PAGE,
-    ] {
+    for n in [1, 5, HEAPBLOCKS_PER_PAGE, HEAPBLOCKS_PER_PAGE + 5, 2 * HEAPBLOCKS_PER_PAGE,] {
         setup(vec![vm_page(&[]), vm_page(&[]), vm_page(&[])], true);
         assert_eq!(
             visibilitymap_prepare_truncate(&rel, n).unwrap(),
@@ -768,16 +718,8 @@ fn set_bits_catalog_rel_flags_wal_record() {
     let heap_blk: BlockNumber = 1;
     let mut vmbuf = VmBuffer::new();
     visibilitymap_pin(&rel, heap_blk, &mut vmbuf).unwrap();
-    visibilitymap_set(
-        &rel,
-        heap_blk,
-        heap_buf,
-        0,
-        &vmbuf,
-        57,
-        VISIBILITYMAP_ALL_VISIBLE,
-    )
-    .unwrap();
+    visibilitymap_set(&rel, heap_blk, heap_buf, 0, &vmbuf, 57, VISIBILITYMAP_ALL_VISIBLE,)
+        .unwrap();
     LOGICAL_ACTIVE.with(|c| c.set(false));
     IS_CATALOG_REL.with(|c| c.set(false));
 
@@ -810,10 +752,7 @@ fn clear_locked_leaves_lock_to_caller_and_reports_cleared() {
     assert!(visibilitymap_clear_locked(&rel, 0, &vmbuf, VISIBILITYMAP_ALL_FROZEN).unwrap());
     assert_eq!(map_byte(0), 0x01, "only the all-frozen bit went");
     with_fake(|f| {
-        assert_eq!(
-            f.lock_calls, locks_before,
-            "no lock traffic inside clear_locked"
-        );
+        assert_eq!(f.lock_calls, locks_before, "no lock traffic inside clear_locked");
         assert_eq!(f.locks[0], -1, "still exclusively locked by the caller");
         assert_eq!(f.dirty[0], 1);
     });

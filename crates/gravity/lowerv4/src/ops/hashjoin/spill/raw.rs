@@ -61,10 +61,9 @@ impl Split {
         Split { sub: rd::<u64>(m, M_SUB), sbits: rd::<u64>(m, M_SBITS) as u8, grp: ptr(M_GRP), bnd: ptr(M_BND), koff: ptr(M_KOFF), kbnd: ptr(M_KBND), dp: ptr(M_DP), dcap, dlen }
     }
 
-    unsafe fn store(&self, m: *mut u8) {
-        wr::<u64>(m, M_SUB, self.sub); wr::<u64>(m, M_SBITS, self.sbits as u64); wr::<u64>(m, M_GRP, self.grp as u64); wr::<u64>(m, M_BND, self.bnd as u64);
-        wr::<u64>(m, M_KOFF, self.koff as u64); wr::<u64>(m, M_KBND, self.kbnd as u64);
-        wr::<u64>(m, M_DP, self.dp as u64); wr::<u64>(m, M_DCAP, self.dcap as u64); wr::<u64>(m, M_DLEN, self.dlen as u64);
+    unsafe fn store(&self, m: *mut u8) {wr::<u64>(m, M_SUB, self.sub); wr::<u64>(m, M_SBITS, self.sbits as u64); wr::<u64>(m, M_GRP, self.grp as u64); wr::<u64>(m, M_BND, self.bnd as u64);
+wr::<u64>(m, M_KOFF, self.koff as u64); wr::<u64>(m, M_KBND, self.kbnd as u64);
+wr::<u64>(m, M_DP, self.dp as u64); wr::<u64>(m, M_DCAP, self.dcap as u64); wr::<u64>(m, M_DLEN, self.dlen as u64);
     }
 
     /// Room for `more` bytes past the drain records, their buffer doubling (`v4::take_reload`).
@@ -103,9 +102,8 @@ impl Split {
 /// on at `offs`), the partition `p` of the claim's `..end`, D2715's split (`Split`); then the probe's build `i` and the
 /// owner's `more` table (a copy of the original's) point at `d`.
 #[allow(clippy::type_complexity)]
-pub(crate) unsafe fn install(pp: *mut Partials, i: usize, ncons: usize, (m, d): (*mut u8, *mut u8), orig: *const u8, (kept, offs, rows): (*mut u8, *mut u8, usize), (p, end): (u32, u64), split: Split) {
-    wr::<u64>(m, 0, MAGIC); wr::<u64>(m, M_ORIG, orig as u64); wr::<u64>(m, M_KEPT, kept as u64); wr::<u64>(m, M_OFFS, offs as u64);
-    wr::<u64>(m, M_NKEPT, rows as u64); wr::<u64>(m, M_MORE, (*pp).more.ptr() as usize as u64); wr::<u64>(m, M_PART, p as u64); wr::<u64>(m, M_HI, end);
+pub(crate) unsafe fn install(pp: *mut Partials, i: usize, ncons: usize, (m, d): (*mut u8, *mut u8), orig: *const u8, (kept, offs, rows): (*mut u8, *mut u8, usize), (p, end): (u32, u64), split: Split) {wr::<u64>(m, 0, MAGIC); wr::<u64>(m, M_ORIG, orig as u64); wr::<u64>(m, M_KEPT, kept as u64); wr::<u64>(m, M_OFFS, offs as u64);
+wr::<u64>(m, M_NKEPT, rows as u64); wr::<u64>(m, M_MORE, (*pp).more.ptr() as usize as u64); wr::<u64>(m, M_PART, p as u64); wr::<u64>(m, M_HI, end);
     split.store(m);
     let table = m.add(M_TABLE) as *mut Word<*mut u8>;
     if !(*pp).more.ptr().is_null() {
@@ -476,9 +474,8 @@ mod tests {
         let mut buf = vec![0u64; HDR / 8 + 1];
         let d = buf.as_mut_ptr() as *mut u8;
         // SAFETY: `buf` covers the header.
-        unsafe {
-            wr::<u8>(d, PHASE, 1); wr::<u8>(d, WORDS, 1); wr::<u32>(d, REC, 24); crate::ops::hashjoin::layout::set_pay(d, 1); wr::<u8>(d, ALLOW, A_TAGS); wr::<u8>(d, FLAGS, F_RANGE);
-            wr::<u64>(d, N, 99); wr::<u64>(d, KEPT, 7); wr::<u64>(d, MARKS, 4096); wr::<u64>(d, DIR, 4096);
+        unsafe {wr::<u8>(d, PHASE, 1); wr::<u8>(d, WORDS, 1); wr::<u32>(d, REC, 24); crate::ops::hashjoin::layout::set_pay(d, 1); wr::<u8>(d, ALLOW, A_TAGS); wr::<u8>(d, FLAGS, F_RANGE);
+wr::<u64>(d, N, 99); wr::<u64>(d, KEPT, 7); wr::<u64>(d, MARKS, 4096); wr::<u64>(d, DIR, 4096);
         }
         buf
     }
@@ -562,7 +559,7 @@ mod tests {
             let (mut from, mut chunks) = (0, 0);
             while from < r.len() {
                 let to = chunk_of(op, &r, from, cap).unwrap();
-                assert!(to > from && (to - from).is_multiple_of(24), "{from}..{to}");
+                assert!(to > from && (to - from).is_multiple_of( 24), "{from}..{to}");
                 assert!((to - from) / 24 > 1 && part_len(op, (to - from) / 24, 0, HDR) <= cap / 2, "{from}..{to}");
                 (from, chunks) = (to, chunks + 1);
             }

@@ -671,6 +671,7 @@ pub(crate) fn ExtendBufferedRelLocal(
     }
 
     #[allow(clippy::needless_range_loop)]
+
     for i in 0..extend_by as usize {
         let victim = buffers[i];
         let tag = init_buffer_tag(smgr.locator, fork, first_block + i as u32);

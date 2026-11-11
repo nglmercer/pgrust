@@ -101,7 +101,7 @@ fn datum_sort_matches_oracle_all_orderings() {
     let mut input: Vec<Option<i32>> = (0..5000)
         .map(|_| {
             let r = lcg(&mut seed);
-            if r.is_multiple_of(17) { None } else { Some((r % 1000) as i32 - 500) }
+            if r.is_multiple_of( 17) { None } else { Some((r % 1000) as i32 - 500) }
         })
         .collect();
     input.push(Some(i32::MAX));
@@ -163,11 +163,11 @@ fn batched_putdatum_matches_oracle_across_grow_and_bounds() {
     let input: Vec<Option<i32>> = (0..20_000)
         .map(|_| {
             let r = lcg(&mut seed);
-            if r.is_multiple_of(13) { None } else { Some(r as i32) }
+            if r.is_multiple_of( 13) { None } else { Some(r as i32) }
         })
         .collect();
     let mut expected: Vec<Option<i32>> = input.clone();
-    expected.extend(std::iter::repeat_n(Some(-1), input.chunks(777).count()));
+    expected.extend(std::iter::repeat_n(Some(-1),input.chunks(777).count()));
     let oracle = datum_sort_oracle(expected.clone(), false, false);
 
     let (_ts, got) = run_datum_sort_batched(&input, TUPLESORT_NONE, None);
@@ -235,7 +235,7 @@ fn batched_bounded_boundary_tie_marks_tie_dirty() {
 fn bounded_top_n_heapsort_used_and_correct() {
     let mut seed = 99u64;
     let input: Vec<Option<i32>> = (0..10_000)
-        .map(|_| if lcg(&mut seed).is_multiple_of(31) { None } else { Some(lcg(&mut seed) as i32) })
+        .map(|_| if lcg(&mut seed).is_multiple_of( 31) { None } else { Some(lcg(&mut seed) as i32) })
         .collect();
     for (nulls_first, reverse) in [(false, false), (true, true)] {
         let (ts, got) =
@@ -371,7 +371,7 @@ fn heap_sort_two_keys_with_tiebreak() {
         .map(|_| {
             let a = lcg(&mut seed) % 20;
             let b = lcg(&mut seed);
-            (Some(a as i32), if b.is_multiple_of(13) { None } else { Some((b % 50) as i32) })
+            (Some(a as i32), if b.is_multiple_of( 13) { None } else { Some((b % 50) as i32) })
         })
         .collect();
     for (a, b) in &rows {
@@ -485,7 +485,7 @@ fn miri_scale_unsafe_paths() {
     let input: Vec<Option<i32>> = (0..120)
         .map(|_| {
             let r = lcg(&mut seed);
-            if r.is_multiple_of(11) { None } else { Some((r % 8) as i32) }
+            if r.is_multiple_of( 11) { None } else { Some((r % 8) as i32) }
         })
         .collect();
     let (_ts, got) = run_datum_sort(&input, false, false, TUPLESORT_NONE, None);
@@ -498,7 +498,7 @@ fn miri_scale_unsafe_paths() {
     let (ts, got) = run_datum_sort_batched(&input, TUPLESORT_ALLOWBOUNDED, Some(15));
     assert!(ts.used_bound());
     let mut expected = input.clone();
-    expected.extend(std::iter::repeat_n(Some(-1), input.chunks(777).count()));
+    expected.extend(std::iter::repeat_n(Some(-1),input.chunks(777).count()));
     assert_eq!(got, datum_sort_oracle(expected, false, false)[..15]);
 
     let mcx = leaked_mcx();
@@ -516,7 +516,7 @@ fn miri_scale_unsafe_paths() {
         store_row(
             &mut in_slot,
             mcx,
-            &[Some(a), if b.is_multiple_of(5) { None } else { Some((b % 9) as i32) }],
+            &[Some(a), if b.is_multiple_of( 5) { None } else { Some((b % 9) as i32) }],
         );
         ts.puttupleslot(&mut in_slot, mcx).unwrap();
     }
@@ -646,7 +646,7 @@ fn index_sort_int4_key_then_tid_with_nulls() {
     let mut oracle: Vec<(Option<i64>, (u32, u16))> = Vec::new();
     for i in 0..400u32 {
         let r = lcg(&mut seed);
-        let key = if r.is_multiple_of(19) { None } else { Some((r % 40) as i32) };
+        let key = if r.is_multiple_of( 19) { None } else { Some((r % 40) as i32) };
         let t = tid(i / 100, (i % 100 + 1) as u16);
         ts.putindextuplevalues(
             t,
@@ -912,7 +912,7 @@ fn random_texts(n: usize, seed: u64, shared_prefix: &[u8]) -> Vec<Option<Vec<u8>
     let mut s = seed;
     (0..n)
         .map(|_| {
-            if lcg(&mut s).is_multiple_of(17) {
+            if lcg(&mut s).is_multiple_of( 17) {
                 return None;
             }
             let len = (lcg(&mut s) % 24) as usize;
@@ -1432,7 +1432,7 @@ fn numeric_corpus(n: usize, seed: u64) -> Vec<Option<String>> {
                 // decides (exceeds the 4 packed digit words).
                 8 => format!("123456789012345678901234567890.{:04}", lcg(&mut s) % 10000),
                 _ => {
-                    let sign = if lcg(&mut s).is_multiple_of(2) { "" } else { "-" };
+                    let sign = if lcg(&mut s).is_multiple_of( 2) { "" } else { "-" };
                     let int = lcg(&mut s) % 1_000_000_000;
                     let frac = lcg(&mut s) % 100_000;
                     format!("{sign}{int}.{frac}")
@@ -1768,7 +1768,7 @@ fn radix_heap_two_key_matches_pgqsort() {
     let mut s = 41u64;
     let rows: Vec<(Option<Vec<u8>>, i32)> = (0..3000)
         .map(|i| {
-            let t = if lcg(&mut s).is_multiple_of(19) {
+            let t = if lcg(&mut s).is_multiple_of( 19) {
                 None
             } else {
                 // dup texts; (text, i2) pairs include full duplicates
@@ -2243,7 +2243,7 @@ mod spill {
             .map(|_| {
                 let a = lcg(&mut seed) % 1000;
                 let b = lcg(&mut seed);
-                (Some(a as i32), if b.is_multiple_of(17) { None } else { Some((b % 100) as i32) })
+                (Some(a as i32), if b.is_multiple_of( 17) { None } else { Some((b % 100) as i32) })
             })
             .collect();
         for (a, b) in &rows {

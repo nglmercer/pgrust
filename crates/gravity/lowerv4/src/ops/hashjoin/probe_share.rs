@@ -31,7 +31,7 @@ use crate::ops::hashjoin::walk::Rec;
 use crate::table::keyimg::ImageWords;
 
 fn n_of(n: usize, v: Value) -> impl Iterator<Item = Value> {
-    std::iter::repeat_n(v, n)
+    std::iter::repeat_n(v,n)
 }
 
 impl Probe<'_> {
@@ -163,7 +163,7 @@ impl Probe<'_> {
         // the rest's parameters: the payload words, their NULL flags, the miss tag, the next record, the matches, the carry
         let nk = self.sh.kept.borrow().len();
         let mut ktypes = mcx::pg_vec![in mcx; Type::I64; nk];
-        ktypes.extend_in(std::iter::repeat_n(Type::Bool, nk + 1));
+        ktypes.extend_in(std::iter::repeat_n(Type::Bool,nk + 1));
         ktypes.extend_in([Type::I64, Type::I64]);
         ktypes.extend_from_slice_in(&ctypes[..]);
         let l_cont = b.create_block(&ktypes[..]);

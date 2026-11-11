@@ -26,11 +26,7 @@ impl Rng {
         self.0
     }
     fn below(&mut self, n: u64) -> u64 {
-        if n == 0 {
-            0
-        } else {
-            self.next() % n
-        }
+        if n == 0 { 0 } else { self.next() % n }
     }
     fn chance(&mut self, pct: u64) -> bool {
         self.below(100) < pct
@@ -123,18 +119,7 @@ fn rd16(b: &[u8], at: usize) -> u16 {
 
 impl World {
     fn new(tomb: bool) -> World {
-        World {
-            tomb,
-            pages: Vec::new(),
-            xids: HashMap::new(),
-            next_xid: 100,
-            own: None,
-            own_cid: 0,
-            held: Vec::new(),
-            oldest_clog: 3,
-            next_val: 1,
-            added: 0,
-        }
+        World { tomb, pages: Vec::new(), xids: HashMap::new(), next_xid: 100, own: None, own_cid: 0, held: Vec::new(), oldest_clog: 3, next_val: 1, added: 0, }
     }
 
     fn begin(&mut self) -> u32 {
@@ -145,35 +130,16 @@ impl World {
     }
 
     fn running(&self) -> Vec<u32> {
-        let mut v: Vec<u32> = self
-            .xids
-            .iter()
-            .filter(|(_, s)| **s == XSt::Running)
-            .map(|(x, _)| *x)
-            .collect();
+        let mut v: Vec<u32> = self.xids.iter().filter(|(_, s)| **s == XSt::Running).map(|(x, _)| *x).collect();
         v.sort_unstable();
         v
     }
 
     fn snapshot(&self) -> Snap {
-        let xip: Vec<u32> = self
-            .running()
-            .into_iter()
-            .filter(|x| Some(*x) != self.own)
-            .collect();
+        let xip: Vec<u32> = self.running().into_iter().filter(|x| Some(*x) != self.own).collect();
         let xmax = self.next_xid;
-        let xmin = xip
-            .first()
-            .copied()
-            .unwrap_or(xmax)
-            .min(self.own.unwrap_or(u32::MAX));
-        Snap {
-            xmin,
-            xmax,
-            xip,
-            own: self.own,
-            curcid: self.own_cid,
-        }
+        let xmin = xip.first().copied().unwrap_or(xmax).min(self.own.unwrap_or(u32::MAX));
+        Snap { xmin, xmax, xip, own: self.own, curcid: self.own_cid, }
     }
 
     fn horizon(&self) -> u32 {
@@ -238,12 +204,7 @@ impl World {
         for (blk, p) in self.pages.iter().enumerate() {
             let b = bytes(p);
             for (off, at) in items(p) {
-                let (xmin, xmax, cid, im) = (
-                    rd32(b, at),
-                    rd32(b, at + 4),
-                    rd32(b, at + 8),
-                    rd16(b, at + 20),
-                );
+                let (xmin, xmax, cid, im) = (rd32(b, at), rd32(b, at + 4), rd32(b, at + 8), rd16(b, at + 20),);
                 let val = i64::from_ne_bytes(b[at + 24..at + 32].try_into().unwrap());
                 let frozen = im & FROZEN == FROZEN;
                 let ins = if frozen {
@@ -302,10 +263,7 @@ impl TxnOracle for Txn<'_> {
     fn committed(&self, xid: TransactionId) -> PgResult<bool> {
         let w = self.0.borrow();
         if xid >= 3 && xid < w.oldest_clog {
-            return Err(Box::new(PgError::error(format!(
-                "could not access status of transaction {xid} (clog truncated below {})",
-                w.oldest_clog
-            ))));
+            return Err(Box::new(PgError::error(format!("could not access status of transaction {xid} (clog truncated below {})", w.oldest_clog))));
         }
         Ok(w.state(xid) == XSt::Committed)
     }
@@ -358,14 +316,7 @@ impl Harness {
             imgs: Images::with_window(window),
             cache: WriterCache::new(),
             rng: Rng(seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1),
-            kind: if tomb {
-                Kind::Tomb
-            } else {
-                Kind::Segment {
-                    slot: 0,
-                    part_no: 1,
-                }
-            },
+            kind: if tomb { Kind::Tomb } else { Kind::Segment { slot: 0, part_no: 1, } },
             skip_mark_at: None,
             writes: 0,
             stats: [0; 7],
@@ -398,12 +349,7 @@ impl Harness {
 
     fn writer(&mut self) -> Option<(u32, u32)> {
         let w = self.w.borrow();
-        let mut cands: Vec<(u32, u32)> = w
-            .running()
-            .into_iter()
-            .filter(|x| Some(*x) != w.own)
-            .map(|x| (x, 0))
-            .collect();
+        let mut cands: Vec<(u32, u32)> = w.running().into_iter().filter(|x| Some(*x) != w.own).map(|x| (x, 0)).collect();
         if let Some(o) = w.own {
             cands.push((o, w.own_cid));
         }
@@ -467,20 +413,10 @@ impl Harness {
                 }
             }
             44..=53 => {
-                let r: Vec<u32> = {
-                    let w = self.w.borrow();
-                    w.running()
-                        .into_iter()
-                        .filter(|x| Some(*x) != w.own)
-                        .collect()
-                };
+                let r: Vec<u32> = { let w = self.w.borrow(); w.running().into_iter().filter(|x| Some(*x) != w.own).collect() };
                 if !r.is_empty() {
                     let x = r[self.rng.below(r.len() as u64) as usize];
-                    let st = if self.rng.chance(70) {
-                        XSt::Committed
-                    } else {
-                        XSt::Aborted
-                    };
+                    let st = if self.rng.chance(70) { XSt::Committed } else { XSt::Aborted };
                     self.w.borrow_mut().xids.insert(x, st);
                 }
             }
@@ -552,24 +488,13 @@ impl Harness {
                 let b = self.target();
                 let off = self.w.borrow_mut().add(b, x, cid);
                 self.mark(b);
-                let at = items(&self.w.borrow().pages[b])
-                    .into_iter()
-                    .find(|(o, _)| *o == off)
-                    .unwrap()
-                    .1;
-                bytes_mut(&mut self.w.borrow_mut().pages[b])[at..at + 4]
-                    .copy_from_slice(&0u32.to_ne_bytes());
+                let at = items(&self.w.borrow().pages[b]).into_iter().find(|(o, _)| *o == off).unwrap().1;
+                bytes_mut(&mut self.w.borrow_mut().pages[b])[at..at + 4].copy_from_slice(&0u32.to_ne_bytes());
                 self.mark(b);
             }
         } else {
             let horizon = self.w.borrow().horizon();
-            let r: Vec<u32> = {
-                let w = self.w.borrow();
-                w.running()
-                    .into_iter()
-                    .filter(|x| Some(*x) != w.own)
-                    .collect()
-            };
+            let r: Vec<u32> = { let w = self.w.borrow(); w.running().into_iter().filter(|x| Some(*x) != w.own).collect() };
             let Some(&deleter) = r.first() else { return };
             let n = self.w.borrow().pages.len();
             if n == 0 {
@@ -583,10 +508,7 @@ impl Harness {
                     .into_iter()
                     .filter(|&(_, at)| {
                         let (xmin, xmax, im) = (rd32(p, at), rd32(p, at + 4), rd16(p, at + 20));
-                        xmax == 0
-                            && xmin != 0
-                            && (im & FROZEN == FROZEN
-                                || (w.state(xmin) == XSt::Committed && xmin < horizon))
+                        xmax == 0 && xmin != 0 && (im & FROZEN == FROZEN || (w.state(xmin) == XSt::Committed && xmin < horizon))
                     })
                     .map(|(_, at)| at)
                     .collect()
@@ -596,8 +518,7 @@ impl Harness {
                     let mut w = self.w.borrow_mut();
                     let im = w.infomask(b, at) & !XMAX_INVALID;
                     w.set_infomask(b, at, im);
-                    bytes_mut(&mut w.pages[b])[at + 4..at + 8]
-                        .copy_from_slice(&deleter.to_ne_bytes());
+                    bytes_mut(&mut w.pages[b])[at + 4..at + 8].copy_from_slice(&deleter.to_ne_bytes());
                 }
                 self.mark(b);
             }
@@ -671,11 +592,7 @@ impl Harness {
             for (_, at) in items(&w.pages[b]) {
                 let p = bytes(&w.pages[b]);
                 let (xmin, xmax, im) = (rd32(p, at), rd32(p, at + 4), rd16(p, at + 20));
-                if im & FROZEN != FROZEN
-                    && xmin != 0
-                    && w.state(xmin) == XSt::Committed
-                    && xmin < horizon
-                {
+                if im & FROZEN != FROZEN && xmin != 0 && w.state(xmin) == XSt::Committed && xmin < horizon {
                     w.set_infomask(b, at, im | FROZEN);
                 } else if im & FROZEN != FROZEN && xmin != 0 {
                     oldest = oldest.min(xmin);
@@ -703,10 +620,7 @@ impl Harness {
     fn check(&mut self) -> Result<(), String> {
         let src = Src(&self.w);
         let txn = Txn(&self.w);
-        let img = match self
-            .imgs
-            .current(&self.reg, LOC, 16384, self.kind, &src, &txn)
-        {
+        let img = match self.imgs.current(&self.reg, LOC, 16384, self.kind, &src, &txn) {
             Ok(Ok(img)) => img,
             Ok(Err(e)) => return Err(format!("no image: {e:?}")),
             Err(e) => return Err(format!("current() failed: {}", e.message())),
@@ -737,23 +651,15 @@ impl Harness {
         }
         snaps.truncate(8);
         for s in snaps {
-            let sv = SV {
-                w: &self.w,
-                s: s.clone(),
-            };
+            let sv = SV { w: &self.w, s: s.clone(), };
             let mut rows = Vec::new();
-            img.visible(&sv, &mut rows)
-                .map_err(|e| format!("visible: {}", e.message()))?;
+            img.visible(&sv, &mut rows).map_err(|e| format!("visible: {}", e.message()))?;
             let got: Vec<(u32, u16, i64)> = rows
                 .iter()
                 .map(|&(b, i)| {
                     let c = img.chunk(b).unwrap();
                     let t = c.tuple_bytes(i as usize);
-                    (
-                        b,
-                        c.hdr[i as usize].off,
-                        i64::from_ne_bytes(t[24..32].try_into().unwrap()),
-                    )
+                    (b, c.hdr[i as usize].off, i64::from_ne_bytes(t[24..32].try_into().unwrap()),)
                 })
                 .collect();
             let want = self.w.borrow().naive(&s);
@@ -763,11 +669,7 @@ impl Harness {
                 let ws: std::collections::BTreeSet<_> = want.iter().collect();
                 let extra: Vec<_> = gs.difference(&ws).take(5).collect();
                 let missing: Vec<_> = ws.difference(&gs).take(5).collect();
-                return Err(format!(
-                    "snapshot {s:?}: image {} rows, naive {}; extra {extra:?} missing {missing:?}",
-                    got.len(),
-                    want.len()
-                ));
+                return Err(format!("snapshot {s:?}: image {} rows, naive {}; extra {extra:?} missing {missing:?}", got.len(), want.len()));
             }
         }
         Ok(())
@@ -777,13 +679,7 @@ impl Harness {
 /// The model runs sweep the process ring as at cap 0 on one step in four; the seeded run excludes them (an eviction's full rebuild would hide its missing mark).
 static SWEEPS: std::sync::RwLock<()> = std::sync::RwLock::new(());
 
-fn run(
-    seed: u64,
-    steps: usize,
-    tomb: bool,
-    window: u32,
-    skip_mark_at: Option<u64>,
-) -> Result<(), String> {
+fn run(seed: u64, steps: usize, tomb: bool, window: u32, skip_mark_at: Option<u64>,) -> Result<(), String> {
     let mut h = Harness::new(seed, tomb, window);
     h.skip_mark_at = skip_mark_at;
     for i in 0..steps {
@@ -791,8 +687,7 @@ fn run(
         if skip_mark_at.is_none() && i % 4 == 3 {
             pgrc_read::mem::sweep_all_for_tests();
         }
-        h.check()
-            .map_err(|e| format!("seed {seed} step {i}: {e}"))?;
+        h.check().map_err(|e| format!("seed {seed} step {i}: {e}"))?;
     }
     if skip_mark_at.is_none() {
         let s = h.stats;
@@ -803,23 +698,14 @@ fn run(
 
 fn steps() -> usize {
     // PGRC_COLCACHE_MODEL_STEPS overrides the gate's 10,000 (quick local runs).
-    option_env!("PGRC_COLCACHE_MODEL_STEPS")
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(10_000)
+    option_env!("PGRC_COLCACHE_MODEL_STEPS").and_then(|s| s.parse().ok()).unwrap_or(10_000)
 }
 
 #[test]
 fn model_segments_20_seeds() {
     let _g = SWEEPS.read().unwrap_or_else(|e| e.into_inner());
     for seed in 1..=20u64 {
-        run(
-            seed,
-            steps(),
-            false,
-            if seed % 2 == 0 { 4 } else { pgrc_marks::WINDOW },
-            None,
-        )
-        .unwrap();
+        run(seed, steps(), false, if seed % 2 == 0 { 4 } else { pgrc_marks::WINDOW }, None,).unwrap();
     }
 }
 
@@ -827,14 +713,7 @@ fn model_segments_20_seeds() {
 fn model_tombstones_20_seeds() {
     let _g = SWEEPS.read().unwrap_or_else(|e| e.into_inner());
     for seed in 101..=120u64 {
-        run(
-            seed,
-            steps(),
-            true,
-            if seed % 2 == 0 { 4 } else { pgrc_marks::WINDOW },
-            None,
-        )
-        .unwrap();
+        run(seed, steps(), true, if seed % 2 == 0 { 4 } else { pgrc_marks::WINDOW }, None,).unwrap();
     }
 }
 
@@ -850,8 +729,5 @@ fn seeded_missing_mark_is_caught() {
             }
         }
     }
-    assert!(
-        caught >= 20,
-        "only {caught}/30 seeded missing marks were caught"
-    );
+    assert!(caught >= 20, "only {caught}/30 seeded missing marks were caught");
 }

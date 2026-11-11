@@ -8,7 +8,7 @@
 // OpernameGetCandidates/Type/visibility family).
 // C divergences: the active*/base* variable pairs always alias after PG16,
 // so one set is kept.
-#![allow(non_snake_case, non_upper_case_globals)]
+#![allow(non_snake_case,non_upper_case_globals)]
 
 use std::cell::{Cell, RefCell};
 use std::mem::ManuallyDrop;
@@ -29,26 +29,27 @@ mod visibility;
 
 pub use temp::{
     check_temp_table_namespace_access, defer_temp_namespace_creation, AccessTempTableNamespace,
-    DeferredTempNamespace, GetTempTableNamespace, QualifiedNameGetCreationNamespace,
+    DeferredTempNamespace, GetTempTableNamespace,
+    QualifiedNameGetCreationNamespace,
     RangeVarAdjustRelationPersistence, RangeVarGetAndCheckCreationNamespace,
     RangeVarGetCreationNamespace, ResetTempTableNamespace,
 };
 
 pub use lookup::{
     get_collation_oid, get_collation_oid_list, get_conversion_oid, get_namespace_oid,
-    get_ts_config_oid, get_ts_dict_oid, get_ts_parser_oid, get_ts_template_oid,
-    improper_qualified_name_joined, is_encoding_supported_by_icu, CheckSetNamespace,
-    DeconstructQualifiedName, FuncCandidate, FuncnameGetCandidates, FuncnameGetCandidatesExtended,
-    LookupCreationNamespace, LookupExplicitNamespace, LookupNamespaceNoError, OpclassnameGetOpcid,
-    OperCandidate, OpernameGetCandidates, OpernameGetOprid, OpfamilynameGetOpfid, RangeVarGetRelid,
+    get_ts_config_oid, get_ts_dict_oid, get_ts_parser_oid,
+    get_ts_template_oid, improper_qualified_name_joined, is_encoding_supported_by_icu,
+    CheckSetNamespace, DeconstructQualifiedName, FuncCandidate,
+    FuncnameGetCandidates, FuncnameGetCandidatesExtended, LookupCreationNamespace,
+    LookupExplicitNamespace, LookupNamespaceNoError, OpclassnameGetOpcid, OperCandidate,
+    OpernameGetCandidates, OpernameGetOprid, OpfamilynameGetOpfid, RangeVarGetRelid,
     RangeVarGetRelidExtended, RangeVarGetRelidFromNameBytes, RelnameGetRelid,
     TypenameGetTypidExtended, RVR_MISSING_OK, RVR_NOWAIT, RVR_SKIP_LOCKED,
 };
 pub use path::{
-    active_path_generation, active_search_path, assign_search_path, check_search_path,
-    fetch_search_path, fetch_search_path_array, ActiveSearchPathGeneration, CopySearchPathMatcher,
-    GetSearchPathMatcher, InitializeSearchPath, SearchPathMatcher,
-    SearchPathMatchesCurrentEnvironment,
+    active_path_generation, active_search_path, assign_search_path, check_search_path, fetch_search_path,
+    fetch_search_path_array, ActiveSearchPathGeneration, CopySearchPathMatcher, GetSearchPathMatcher, InitializeSearchPath,
+    SearchPathMatcher, SearchPathMatchesCurrentEnvironment,
 };
 pub use visibility::{
     CollationIsVisible, CollationIsVisibleExt, ConversionIsVisible, ConversionIsVisibleExt,
@@ -126,11 +127,7 @@ pub(crate) fn with_path_state_mut<R>(
         if slot.is_none() {
             let owner = mcx::McxOwned::try_new(
                 mcx::MemoryContext::new("namespace base search path"),
-                |mcx| {
-                    Ok(PathState {
-                        mcx,
-                        base_search_path: PgVec::new_in(mcx),
-                    })
+                |mcx| { Ok(PathState { mcx, base_search_path: PgVec::new_in(mcx), })
                 },
             )?;
             *slot = Some(ManuallyDrop::new(owner));

@@ -20,11 +20,7 @@ static INSTALL: Once = Once::new();
 // plays that defect by handing the query back twice.
 fn rewrite_twice<'mcx>(mcx: Mcx<'mcx>, query: Query<'mcx>) -> PgResult<PgVec<'mcx, Query<'mcx>>> {
     let mut v = PgVec::new_in(mcx);
-    v.push(Query {
-        commandType: CmdType::CMD_SELECT,
-        canSetTag: true,
-        ..Default::default()
-    });
+    v.push(Query { commandType: CmdType::CMD_SELECT, canSetTag: true, ..Default::default() });
     v.push(query);
     Ok(v)
 }
@@ -50,21 +46,10 @@ fn ctas_stmt<'mcx>(mcx: Mcx<'mcx>) -> CreateTableAsStmt<'mcx> {
         },
     )
     .unwrap();
-    let into = Node::mk(
-        mcx,
-        IntoClause {
-            rel: Some(rel),
-            ..Default::default()
-        },
-    )
-    .unwrap();
+    let into = Node::mk(mcx, IntoClause { rel: Some(rel), ..Default::default() },).unwrap();
     let query = Node::mk(
         mcx,
-        Query {
-            commandType: CmdType::CMD_SELECT,
-            canSetTag: true,
-            ..Default::default()
-        },
+        Query { commandType: CmdType::CMD_SELECT, canSetTag: true, ..Default::default() },
     )
     .unwrap();
     CreateTableAsStmt {
@@ -95,8 +80,5 @@ fn ctas_rewrite_result_not_single_query_is_internal_error() {
     .expect_err("createas.c:318 raises elog(ERROR) on a non-single rewrite result");
     assert_eq!(err.level(), ERROR);
     assert_eq!(err.sqlstate(), ERRCODE_INTERNAL_ERROR);
-    assert_eq!(
-        err.message(),
-        "unexpected rewrite result for CREATE TABLE AS SELECT"
-    );
+    assert_eq!(err.message(), "unexpected rewrite result for CREATE TABLE AS SELECT");
 }

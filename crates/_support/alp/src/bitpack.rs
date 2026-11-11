@@ -132,11 +132,7 @@ pub fn get_le(packed: &[u8], bit_width: u32, i: usize) -> u64 {
             let (w, shift) = (bit / 64, (bit % 64) as u32);
             let lane = i % LANES;
             let low = word(w * LANES + lane) >> shift;
-            let v = if shift + bw <= 64 {
-                low
-            } else {
-                low | (word((w + 1) * LANES + lane) << (64 - shift))
-            };
+            let v = if shift + bw <= 64 { low } else { low | (word((w + 1) * LANES + lane) << (64 - shift)) };
             v & ((1u64 << bw) - 1)
         }
     }

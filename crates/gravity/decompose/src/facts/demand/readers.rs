@@ -273,8 +273,8 @@ pub fn uniq_params<'p>(b: &Builder<'p, '_>, nl: &'p NestLoop<'p>, inner: &mut Op
     let Some(u) = b.parents.as_ref().and_then(|p| p.uniq.iter().find(|u| u.at == at)) else { return Ok(&nl.nestParams) };
     let sub = u.how.as_ref().map_err(|why| Refusal::shape(k, id, why))?;
     let fail = || Refusal::shape(k, id, UNIQ_APPLY);
-    let mcx = b.alloc.ok_or_else(&fail)?;
-    uniq_apply(mcx, nl, sub, inner).map_err(|_| fail())?.ok_or_else(fail)
+    let mcx = b.alloc.ok_or_else(& fail)?;
+    uniq_apply(mcx, nl, sub, inner).map_err(|_| fail())?.ok_or_else( fail)
 }
 
 fn uniq_apply<'p>(mcx: mcx::Mcx<'p>, nl: &'p NestLoop<'p>, u: &UniqSub<'p>, inner: &mut Open<'p>) -> types_error::PgResult<Option<&'p NodeList<'p>>> {

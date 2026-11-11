@@ -59,5 +59,5 @@ pub(crate) fn dup_nest<'p>(op: &Op<'p>, dup: fn(&Op<'p>) -> Option<Op<'p>>) -> O
     }
     let copy = PipelineNode { node_id: inner.node_id, source: Source::Breaker { slot }, ops, desc: inner.desc, union: None, node_ops: inner.node_ops.clone(), mark: inner.mark };
     #[allow(clippy::redundant_field_names)]
-    Some(Op::Join(JoinDesc::Nest { jointype: *jointype, params: params, inner: ArenaBox::new_in(copy, arena), qual: qual, unique: *unique, inner_node: *inner_node, facts: *facts }))
+    Some(Op::Join(JoinDesc::Nest { jointype: *jointype, params:params, inner: ArenaBox::new_in(copy, arena), qual:qual, unique: *unique, inner_node: *inner_node, facts: *facts }))
 }

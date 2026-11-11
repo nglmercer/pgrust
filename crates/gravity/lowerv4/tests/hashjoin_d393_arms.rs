@@ -3,7 +3,7 @@
 //! the first arm and folds the later arms on into it (node.rs `arms_of`): the slot is neither re-zeroed nor freed between
 //! the arms. Without the protocol a later producer of the slot opens it afresh (the last arm's rows only: the bug the
 //! lowerer's guard stood for).
-#[allow(unused_imports, unused_variables)]
+#[allow( unused_imports, unused_variables)]
 #[path = "../../driver/tests/common/mod.rs"]
 mod common;
 

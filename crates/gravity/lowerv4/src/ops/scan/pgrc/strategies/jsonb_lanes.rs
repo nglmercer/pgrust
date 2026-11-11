@@ -140,7 +140,7 @@ fn reads_doc(gx: &Gx<'_, '_>, k: usize, scanrelid: i32, relid: u32, attno: i16, 
             hit |= x.as_var().is_some_and(|v| {
                 v.varlevelsup == 0
                     && (v.varno == scanrelid && (v.varattno == attno || v.varattno == 0)
-                        || v.varno == types_nodes::primnodes::OUTER_VAR && fed.is_none_or(|l| l.iter().nth(v.varattno.max(1) as usize - 1).is_none_or(|e| v.varattno <= 0 || scan_read(e) && !super::jsonb_fwd::lane_only(gx, k, v.varattno))))
+                        || v.varno == types_nodes::primnodes::OUTER_VAR && fed.is_none_or( |l| l.iter().nth(v.varattno.max(1) as usize - 1).is_none_or( |e| v.varattno <= 0 || scan_read(e) && !super::jsonb_fwd::lane_only(gx, k, v.varattno))))
             });
             !hit
         });

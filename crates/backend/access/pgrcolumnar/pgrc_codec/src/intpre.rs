@@ -37,8 +37,7 @@ pub fn on() -> bool {
         2 => true,
         _ => {
             static ON: pgsync::OnceLock<bool> = pgsync::OnceLock::new();
-            *ON.get_or_init(|| {
-                std::env::var("PGRUST_PGRC_INTPRE").map_or(true, |v| v.trim() != "0")
+            *ON.get_or_init(|| { std::env::var("PGRUST_PGRC_INTPRE").map_or(true, |v| v.trim() != "0")
             })
         }
     }
@@ -213,9 +212,7 @@ fn append_words(vals: &[u64], base: u64, b: usize, out: &mut Vec<u8>) -> FormatR
 }
 
 fn push_u32(out: &mut Vec<u8>, v: usize) -> FormatResult<()> {
-    let v = u32::try_from(v).map_err(|_| FormatError::EncodeContract {
-        detail: "intpre count past u32",
-    })?;
+    let v = u32::try_from(v).map_err(|_| FormatError::EncodeContract { detail: "intpre count past u32", })?;
     out.extend_from_slice(&v.to_le_bytes());
     Ok(())
 }
@@ -296,11 +293,7 @@ fn e_get(rd: &mut Rd<'_>, out: &mut [u64], depth: u32) -> FormatResult<()> {
         let mut p = 0usize;
         for (i, (&g, &h)) in gaps.iter().zip(&highs).enumerate() {
             let g = usize::try_from(g).map_err(|_| corrupt("intpre exception gap"))?;
-            p = if i == 0 {
-                g
-            } else {
-                p.checked_add(g).ok_or(corrupt("intpre exception gap"))?
-            };
+            p = if i == 0 { g } else { p.checked_add(g).ok_or(corrupt("intpre exception gap"))? };
             let slot = out.get_mut(p).ok_or(corrupt("intpre exception position"))?;
             *slot = slot.wrapping_add(h.wrapping_shl(sh));
         }
@@ -313,7 +306,7 @@ fn delta_scale(vals: &[u64]) -> u64 {
     let mut g = 0u64;
     for w in vals.windows(2) {
         let a = (w[1].wrapping_sub(w[0]) as i64).unsigned_abs();
-        if g == 0 || !a.is_multiple_of(g) {
+        if g == 0 || ! a.is_multiple_of( g) {
             g = gcd(g, a);
             if g == 1 {
                 break;
@@ -329,10 +322,7 @@ fn delta_put(vals: &[u64], out: &mut Vec<u8>) -> FormatResult<bool> {
     }
     let scale = delta_scale(vals);
     let mut zz = try_vec::<u64>(vals.len() - 1, "intpre deltas")?;
-    zz.extend(
-        vals.windows(2)
-            .map(|w| zigzag((w[1].wrapping_sub(w[0]) as i64) / scale as i64)),
-    );
+    zz.extend(vals.windows(2).map(|w| zigzag((w[1].wrapping_sub(w[0]) as i64) / scale as i64)),);
     out.push(DELTA);
     out.extend_from_slice(&vals[0].to_le_bytes());
     out.extend_from_slice(&scale.to_le_bytes());
@@ -373,11 +363,7 @@ fn linear_put(vals: &[u64], out: &mut Vec<u8>) -> FormatResult<bool> {
     let (mut lens, mut starts, mut strides) = (Vec::new(), Vec::new(), Vec::new());
     let mut i = 0;
     while i < n {
-        let stride = if i + 1 < n {
-            vals[i + 1].wrapping_sub(vals[i])
-        } else {
-            0
-        };
+        let stride = if i + 1 < n { vals[i + 1].wrapping_sub(vals[i]) } else { 0 };
         let mut j = (i + 2).min(n);
         while j < n && vals[j].wrapping_sub(vals[j - 1]) == stride {
             j += 1;
@@ -484,9 +470,7 @@ fn seq_get(rd: &mut Rd<'_>, out: &mut [u64], w: usize) -> FormatResult<()> {
         PLAIN => get_words(rd.take(n * w)?, 0, w, out),
         PFOR => e_get(rd, out, 0)?,
         DELTA => {
-            let (first, rest) = out
-                .split_first_mut()
-                .ok_or(corrupt("intpre delta of nothing"))?;
+            let (first, rest) = out.split_first_mut().ok_or(corrupt("intpre delta of nothing"))?;
             *first = rd.u64()?;
             let scale = rd.u64()? as i64;
             e_get(rd, rest, 0)?;
@@ -507,10 +491,7 @@ fn seq_get(rd: &mut Rd<'_>, out: &mut [u64], w: usize) -> FormatResult<()> {
             e_get(rd, &mut vs, 0)?;
             let mut p = 0usize;
             for (&l, &v) in lens.iter().zip(&vs) {
-                let end = usize::try_from(l)
-                    .ok()
-                    .and_then(|l| p.checked_add(l)?.checked_add(1))
-                    .filter(|&e| e <= n);
+                let end = usize::try_from(l).ok().and_then(|l| p.checked_add(l)?.checked_add(1)).filter(|&e| e <= n);
                 let end = end.ok_or(corrupt("intpre run length"))?;
                 out[p..end].fill(v);
                 p = end;
@@ -532,10 +513,7 @@ fn seq_get(rd: &mut Rd<'_>, out: &mut [u64], w: usize) -> FormatResult<()> {
             e_get(rd, &mut strides, 0)?;
             let mut p = 0usize;
             for ((&l, &s), &z) in lens.iter().zip(&starts).zip(&strides) {
-                let end = usize::try_from(l)
-                    .ok()
-                    .and_then(|l| p.checked_add(l)?.checked_add(1))
-                    .filter(|&e| e <= n);
+                let end = usize::try_from(l).ok().and_then(|l| p.checked_add(l)?.checked_add(1)).filter(|&e| e <= n);
                 let end = end.ok_or(corrupt("intpre run length"))?;
                 let stride = unzigzag(z) as u64;
                 let mut v = s;
@@ -605,7 +583,7 @@ fn prepass_encode(view: View, raw: &[u8], f100: u32, pre: &mut Vec<u8>) -> Forma
     match view {
         View::Words(w) => {
             let wu = w as usize;
-            if !(1..=8).contains(&wu) || len == 0 || !len.is_multiple_of(wu) {
+            if !(1..=8).contains(&wu) || len == 0 || ! len.is_multiple_of( wu) {
                 return Ok(false);
             }
             let mut vals = try_filled(len / wu, 0u64, "intpre values")?;
@@ -615,11 +593,7 @@ fn prepass_encode(view: View, raw: &[u8], f100: u32, pre: &mut Vec<u8>) -> Forma
         }
         View::Frames(w) => {
             let wu = w as usize;
-            let Some((nf, n)) = (1..=8)
-                .contains(&wu)
-                .then(|| frames_geometry(len, wu))
-                .flatten()
-            else {
+            let Some((nf, n)) = (1..=8).contains(&wu).then(|| frames_geometry(len, wu)).flatten() else {
                 return Ok(false);
             };
             if n == 0 {
@@ -631,12 +605,7 @@ fn prepass_encode(view: View, raw: &[u8], f100: u32, pre: &mut Vec<u8>) -> Forma
             for r in refs.iter_mut() {
                 *r = load8(raw, pos);
                 let cnt = (n - v0).min(FV);
-                get_words(
-                    &raw[pos + 8..pos + 8 + cnt * wu],
-                    0,
-                    wu,
-                    &mut vals[v0..v0 + cnt],
-                );
+                get_words(&raw[pos + 8..pos + 8 + cnt * wu], 0, wu, &mut vals[v0..v0 + cnt],);
                 pos += 8 + cnt * wu;
                 v0 += cnt;
             }
@@ -659,7 +628,7 @@ fn prepass_encode(view: View, raw: &[u8], f100: u32, pre: &mut Vec<u8>) -> Forma
                 let rest = len - pos - 16;
                 let cnt = if rest == FV * wf || rest >= FV * wf + 16 {
                     FV
-                } else if rest > 0 && rest < FV * wf && rest.is_multiple_of(wf) {
+                } else if rest > 0 && rest < FV * wf && rest.is_multiple_of( wf) {
                     rest / wf
                 } else {
                     return Ok(false);
@@ -725,7 +694,7 @@ pub fn prepass_decode(pre: &[u8], dst: &mut [u8]) -> FormatResult<()> {
     let len = dst.len();
     match view {
         0 => {
-            if !(1..=8).contains(&w) || !len.is_multiple_of(w) {
+            if !(1..=8).contains(&w) || ! len.is_multiple_of( w) {
                 return Err(corrupt("intpre words geometry"));
             }
             let mut vals = try_filled(len / w, 0u64, "intpre values")?;
@@ -746,12 +715,7 @@ pub fn prepass_decode(pre: &[u8], dst: &mut [u8]) -> FormatResult<()> {
             for &r in &refs {
                 let cnt = (n - v0).min(FV);
                 dst[pos..pos + 8].copy_from_slice(&r.to_le_bytes());
-                put_words(
-                    &vals[v0..v0 + cnt],
-                    0,
-                    w,
-                    &mut dst[pos + 8..pos + 8 + cnt * w],
-                );
+                put_words(&vals[v0..v0 + cnt], 0, w, &mut dst[pos + 8..pos + 8 + cnt * w],);
                 pos += 8 + cnt * w;
                 v0 += cnt;
             }
@@ -790,10 +754,7 @@ pub fn prepass_decode(pre: &[u8], dst: &mut [u8]) -> FormatResult<()> {
             let hdr = rd.take(8)?;
             let width = hdr[4] as usize;
             let n = rd.u32()? as usize;
-            if len < 8
-                || !(1..=32).contains(&width)
-                || n.checked_mul(width).is_none_or(|b| b > (len - 8) * 8)
-            {
+            if len < 8 || !(1..=32).contains(&width) || n.checked_mul(width).is_none_or(|b| b > (len - 8) * 8) {
                 return Err(corrupt("intpre codes geometry"));
             }
             let mut codes = try_filled(n, 0u64, "intpre codes")?;
@@ -890,13 +851,7 @@ impl Trial {
 /// One wrapped block of `raw` appended to `out` (at most `1 + zstd_bound(raw.len())` bytes): the pre-pass block when
 /// the view engages and it is smaller under zstd than the plain block, else the plain block. True when pre-passed.
 /// Both frames are zstd at `level`, the level the plain Zstd arm takes for this section.
-pub(crate) fn wrap_block(
-    view: Option<View>,
-    raw: &[u8],
-    out: &mut Vec<u8>,
-    trial: &mut Trial,
-    level: i32,
-) -> FormatResult<bool> {
+pub(crate) fn wrap_block(view: Option<View>, raw: &[u8], out: &mut Vec<u8>, trial: &mut Trial, level: i32,) -> FormatResult<bool> {
     let start = out.len();
     let plain = |out: &mut Vec<u8>| -> FormatResult<bool> {
         out.truncate(start);
@@ -905,12 +860,9 @@ pub(crate) fn wrap_block(
         Ok(false)
     };
     let verdict = trial.verdict();
-    let Some(view) = view.filter(|_| verdict != Some(false)) else {
-        return plain(out);
-    };
+    let Some(view) = view.filter(|_| verdict != Some(false)) else { return plain(out); };
     let mut pre = Vec::new();
-    let mut rebuilt =
-        prepass_encode(view, raw, factor_x100(), &mut pre)? && pre.len() <= raw.len() + 64;
+    let mut rebuilt = prepass_encode(view, raw, factor_x100(), &mut pre)? && pre.len() <= raw.len() + 64;
     if rebuilt {
         let mut check = try_filled(raw.len(), 0u8, "intpre check")?;
         rebuilt = prepass_decode(&pre, &mut check).is_ok() && check == raw;
@@ -924,9 +876,7 @@ pub(crate) fn wrap_block(
     let mut z = Vec::new();
     zstd_compress_block_at(&pre, &mut z, level)?;
     let frames = matches!(view, View::Frames(_) | View::DeltaFrames);
-    if verdict == Some(true)
-        || (frames && raw.len() >= SURE_MIN && pre.len() * SURE_FACTOR <= raw.len())
-    {
+    if verdict == Some(true) || (frames && raw.len() >= SURE_MIN && pre.len() * SURE_FACTOR <= raw.len()) {
         if 9 + z.len() > crate::wrapper::zstd_bound(raw.len()) {
             return plain(out);
         }
@@ -949,9 +899,7 @@ pub(crate) fn wrap_block(
 
 /// Decode one wrapped block into the front of `dst` (the image span left); returns the bytes written.
 pub(crate) fn unwrap_block(src: &[u8], dst: &mut [u8]) -> FormatResult<usize> {
-    let (&mode, body) = src.split_first().ok_or(FormatError::Truncated {
-        at: "intpre block mode",
-    })?;
+    let (&mode, body) = src.split_first().ok_or(FormatError::Truncated { at: "intpre block mode", })?;
     match mode {
         0 => zstd_decompress_block(body, dst),
         1 => {
@@ -982,18 +930,14 @@ fn block_table(image: &[u8]) -> FormatResult<(StreamSectionHdr, usize, Vec<usize
     };
     let p0 = STREAM_SECTION_HDR_LEN;
     if end < p0 + 4 || end > image.len() {
-        return Err(FormatError::Bounds {
-            at: "payload region",
-        });
+        return Err(FormatError::Bounds { at: "payload region", });
     }
     let first = u32::from_le_bytes(image[p0..p0 + 4].try_into().expect("len 4")) as usize;
-    if first < 4 || !first.is_multiple_of(4) || p0 + first > end {
+    if first < 4 || ! first.is_multiple_of( 4) || p0 + first > end {
         return Err(corrupt("wrapper block table"));
     }
     let offs: Vec<usize> = (0..first / 4)
-        .map(|i| {
-            u32::from_le_bytes(image[p0 + i * 4..p0 + i * 4 + 4].try_into().expect("len 4"))
-                as usize
+        .map(|i| { u32::from_le_bytes(image[p0 + i * 4..p0 + i * 4 + 4].try_into().expect("len 4")) as usize
         })
         .collect();
     if offs.windows(2).any(|w| w[0] >= w[1]) || p0 + *offs.last().expect("nonempty") > end {
@@ -1005,9 +949,7 @@ fn block_table(image: &[u8]) -> FormatResult<(StreamSectionHdr, usize, Vec<usize
 /// Whether every block of the IntPre `image` is a plain (mode 0) block.
 fn plain_only(image: &[u8]) -> FormatResult<bool> {
     let (_, _, offs) = block_table(image)?;
-    Ok(offs[..offs.len() - 1]
-        .iter()
-        .all(|&o| image[STREAM_SECTION_HDR_LEN + o] == 0))
+    Ok(offs[..offs.len() - 1].iter().all(|&o| image[STREAM_SECTION_HDR_LEN + o] == 0))
 }
 
 /// Rewrite a plain-only IntPre `image` in place as the Zstd image of the same section (drops each block's mode byte).
@@ -1019,8 +961,7 @@ fn to_zstd(image: &mut Vec<u8>) -> FormatResult<()> {
     for b in 0..nb {
         let n = offs[b + 1] - offs[b] - 1;
         image.copy_within(p0 + offs[b] + 1..p0 + offs[b + 1], p0 + at);
-        image[p0 + (b + 1) * 4..p0 + (b + 1) * 4 + 4]
-            .copy_from_slice(&((at + n) as u32).to_le_bytes());
+        image[p0 + (b + 1) * 4..p0 + (b + 1) * 4 + 4].copy_from_slice(&((at + n) as u32).to_le_bytes());
         at += n;
     }
     let tail = image.len() - end;

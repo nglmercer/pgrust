@@ -20,9 +20,9 @@ use types_trigger::{
     Trigger, TriggerDesc, AFTER_TRIGGER_DEFERRABLE, AFTER_TRIGGER_INITDEFERRED, RI_TRIGGER_FK,
     RI_TRIGGER_NONE, RI_TRIGGER_PK, TRIGGER_EVENT_DELETE, TRIGGER_EVENT_INSERT,
     TRIGGER_EVENT_OPMASK, TRIGGER_EVENT_ROW, TRIGGER_EVENT_TRUNCATE, TRIGGER_EVENT_UPDATE,
-    TRIGGER_TYPE_AFTER, TRIGGER_TYPE_DELETE, TRIGGER_TYPE_INSERT, TRIGGER_TYPE_LEVEL_MASK,
-    TRIGGER_TYPE_ROW, TRIGGER_TYPE_STATEMENT, TRIGGER_TYPE_TIMING_MASK, TRIGGER_TYPE_TRUNCATE,
-    TRIGGER_TYPE_UPDATE,
+    TRIGGER_TYPE_AFTER, TRIGGER_TYPE_DELETE, TRIGGER_TYPE_INSERT,
+    TRIGGER_TYPE_LEVEL_MASK, TRIGGER_TYPE_ROW, TRIGGER_TYPE_STATEMENT, TRIGGER_TYPE_TIMING_MASK,
+    TRIGGER_TYPE_TRUNCATE, TRIGGER_TYPE_UPDATE,
 };
 use types_tuple::{HeapTupleData, ItemPointerData, TupleDescData};
 
@@ -171,12 +171,7 @@ impl EventList {
 
     fn push(&mut self, flags: u32, ctid1: ItemPointerData, ctid2: ItemPointerData, sh: EvShared) {
         let shared = self.intern(sh);
-        self.push_row(AfterTriggerEvent {
-            flags,
-            shared,
-            ctid1,
-            ctid2,
-        });
+        self.push_row(AfterTriggerEvent { flags, shared, ctid1, ctid2, });
     }
 
     fn push_row(&mut self, ev: AfterTriggerEvent) {
@@ -480,11 +475,7 @@ pub(crate) struct SetConstraintState {
 
 impl SetConstraintState {
     pub(crate) fn create() -> Self {
-        SetConstraintState {
-            all_isset: false,
-            all_isdeferred: false,
-            trigstates: Vec::new(),
-        }
+        SetConstraintState { all_isset: false, all_isdeferred: false, trigstates: Vec::new(), }
     }
     fn copy(&self) -> Self {
         SetConstraintState {
@@ -543,11 +534,7 @@ impl FdwImage {
         unsafe {
             core::ptr::copy_nonoverlapping(t.header_ptr(), words.as_mut_ptr().cast::<u8>(), len)
         };
-        FdwImage {
-            words,
-            t_len: t.t_len,
-            tableoid: t.t_tableOid,
-        }
+        FdwImage { words, t_len: t.t_len, tableoid: t.t_tableOid, }
     }
 
     fn tuple(&self) -> HeapTupleData<'_> {
@@ -597,8 +584,7 @@ fn fdw_event_tuples<'m>(
 ) -> PgResult<(FdwImage, Option<FdwImage>)> {
     if fdw == 1 {
         let d = QUERY_DEPTH.with(|c| c.get()).max(0) as usize;
-        let store = FDW_TUPLES
-            .with(|t| t.borrow().get(d).copied())
+        let store = FDW_TUPLES.with(|t| t.borrow().get(d).copied())
             .filter(|h| !h.is_null())
             .ok_or_else(|| fetch_failed(1))?;
         let pair = tuplestore::hold::with_store(store, |store| -> PgResult<_> {
@@ -623,16 +609,12 @@ fn fdw_event_tuples<'m>(
         FDW_LAST.with(|l| *l.borrow_mut() = Some(pair.clone()));
         return Ok(pair);
     }
-    FDW_LAST
-        .with(|l| l.borrow().clone())
-        .ok_or_else(|| fetch_failed(1))
+    FDW_LAST.with(|l| l.borrow().clone()).ok_or_else(|| fetch_failed(1))
 }
 
 fn free_fdw_tuples(d: usize, is_commit: bool) -> PgResult<()> {
     let store = FDW_TUPLES.with(|t| {
-        t.borrow_mut()
-            .get_mut(d)
-            .map(|h| core::mem::replace(h, TuplestoreHandle::NULL))
+        t.borrow_mut().get_mut(d).map(|h| core::mem::replace(h, TuplestoreHandle::NULL))
     });
     if let Some(store) = store.and_then(tuplestore::hold::take) {
         if is_commit {
@@ -648,10 +630,7 @@ fn free_fdw_tuples(d: usize, is_commit: bool) -> PgResult<()> {
 fn event_idents(flags: u32) -> Option<[u64; 2]> {
     match flags & AFTER_TRIGGER_IDENTS {
         0 => None,
-        _ => IDENTS.with(|v| {
-            v.borrow()
-                .get((flags & AFTER_TRIGGER_IDENTS_IX) as usize)
-                .copied()
+        _ => IDENTS.with(|v| { v.borrow().get((flags & AFTER_TRIGGER_IDENTS_IX) as usize).copied()
         }),
     }
 }
@@ -697,8 +676,7 @@ pub(crate) fn firing_counter() -> CommandId {
 // rolled back by subxact abort rolls the TRUNCATE/etc back too.
 pub fn AfterTriggerPendingOnRel(relid: Oid) -> bool {
     let pending = |evs: &EventList| {
-        evs.iter()
-            .any(|ev| ev.flags & AFTER_TRIGGER_DONE == 0 && evs.sh(ev).relid == relid)
+        evs.iter().any(|ev| ev.flags & AFTER_TRIGGER_DONE == 0 && evs.sh(ev).relid == relid)
     };
     let hit = XACT_EVENTS.with(|s| pending(&s.borrow()));
     if hit {
@@ -708,7 +686,11 @@ pub fn AfterTriggerPendingOnRel(relid: Oid) -> bool {
     if depth < 0 {
         return false;
     }
-    QUERY_STACK.with(|s| s.borrow().iter().take(depth as usize + 1).any(pending))
+    QUERY_STACK.with(|s|
+        s.borrow()
+            .iter()
+            .take(depth as usize + 1)
+            .any(pending))
 }
 
 // RI_FKey_trigger_type (ri_triggers.c).
@@ -811,11 +793,7 @@ fn mark_events(sel: EvList, immediate_only: bool, move_deferred: bool) -> PgResu
     // shared record they use (src index -> position in moved_shared).
     let mut moved: Vec<(AfterTriggerEvent, usize)> = Vec::new();
     let mut moved_shared: Vec<EvShared> = Vec::new();
-    let nshared = if move_deferred {
-        with_list(sel, |evs| evs.shared.len())
-    } else {
-        0
-    };
+    let nshared = if move_deferred { with_list(sel, |evs| evs.shared.len()) } else { 0 };
     let mut moved_pos = ::mcx::std_vec_from_elem("trigger", u32::MAX, nshared)?;
     let found = with_list(sel, |evs| {
         let mut found = false;
@@ -885,17 +863,12 @@ fn mark_events(sel: EvList, immediate_only: bool, move_deferred: bool) -> PgResu
 pub type TrigTargetDesc = (Oid, Option<Rc<TriggerDesc<'static>>>);
 
 // C ExecGetTriggerResultRel(estate, relid, NULL) for the firing loop: the
-fn trig_target_desc(
-    targets: &mut Vec<TrigTargetDesc>,
-    relid: Oid,
-) -> PgResult<Option<Rc<TriggerDesc<'static>>>> {
+fn trig_target_desc(targets: &mut Vec<TrigTargetDesc>, relid: Oid,) -> PgResult<Option<Rc<TriggerDesc<'static>>>> {
     if let Some((_, d)) = targets.iter().find(|(r, _)| *r == relid) {
         return Ok(d.clone());
     }
     let d = relcache::RelationGetTriggerDesc(relid)?;
-    targets
-        .try_reserve(1)
-        .map_err(|_| mcx::oom_named("trig_target_desc", core::mem::size_of::<TrigTargetDesc>()))?;
+    targets.try_reserve(1).map_err(|_| mcx::oom_named("trig_target_desc", core::mem::size_of::<TrigTargetDesc>()))?;
     targets.push((relid, d.clone()));
     Ok(d)
 }
@@ -945,16 +918,8 @@ fn invoke_events_body(
                 let sh = evs.sh(ev);
                 if ev.flags & AFTER_TRIGGER_IN_PROGRESS != 0 && sh.firing_id == firing_id {
                     return Some((
-                        ev.ctid1,
-                        ev.ctid2,
-                        ev.fdw(),
-                        sh.event,
-                        sh.tgoid,
-                        sh.relid,
-                        sh.table_idx,
-                        sh.src_part,
-                        sh.dst_part,
-                        sh.rolid,
+                        ev.ctid1, ev.ctid2, ev.fdw(), sh.event, sh.tgoid, sh.relid, sh.table_idx,
+                        sh.src_part, sh.dst_part, sh.rolid,
                         sh.modifiedcols.clone(),
                         ev.flags,
                     ));
@@ -964,18 +929,8 @@ fn invoke_events_body(
             None
         });
         let Some((
-            ctid1,
-            ctid2,
-            fdw,
-            event,
-            tgoid,
-            relid,
-            table_idx,
-            src_part,
-            dst_part,
-            rolid,
-            modifiedcols,
-            flags,
+            ctid1, ctid2, fdw, event, tgoid, relid, table_idx, src_part, dst_part, rolid,
+            modifiedcols, flags,
         )) = next
         else {
             break;
@@ -987,21 +942,8 @@ fn invoke_events_body(
         // set live only for one firing. Nothing AfterTriggerExecute returns
         // points into the scratch, so the reset follows the call.
         AfterTriggerExecute(
-            scratch.mcx(),
-            ctid1,
-            ctid2,
-            fdw,
-            event,
-            tgoid,
-            relid,
-            table_idx,
-            src_part,
-            dst_part,
-            rolid,
-            modifiedcols.as_deref(),
-            desc.as_ref(),
-            idents,
-            instr.as_deref_mut(),
+            scratch.mcx(), ctid1, ctid2, fdw, event, tgoid, relid, table_idx, src_part, dst_part,
+            rolid, modifiedcols.as_deref(), desc.as_ref(), idents, instr.as_deref_mut(),
             finfos.entry(relid).or_default(),
         )?;
         scratch.reset();
@@ -1012,8 +954,8 @@ fn invoke_events_body(
         });
         i += 1;
     }
-    let all_fired = with_list(sel, |evs| {
-        evs.iter().all(|ev| ev.flags & AFTER_TRIGGER_DONE != 0)
+    let all_fired =
+        with_list(sel, |evs| { evs.iter().all(|ev| ev.flags & AFTER_TRIGGER_DONE != 0)
     });
     if delete_ok && all_fired {
         with_list(sel, EventList::clear);
@@ -1092,14 +1034,7 @@ pub fn AfterTriggerEndQuery(
             c.set(id + 1);
             id
         });
-        if invoke_events(
-            EvList::Query(d),
-            firing_id,
-            false,
-            instr.as_deref_mut(),
-            &mut finfos,
-            &mut targets,
-        )? {
+        if invoke_events(EvList::Query(d), firing_id, false, instr.as_deref_mut(), &mut finfos, &mut targets,)? {
             break;
         }
     }
@@ -1115,10 +1050,7 @@ pub fn AfterTriggerEndQuery(
 pub fn AfterTriggerQueryHasEvents() -> bool {
     let depth = QUERY_DEPTH.with(|c| c.get());
     depth >= 0
-        && QUERY_STACK.with(|s| {
-            s.borrow()
-                .get(depth as usize)
-                .is_some_and(|l| !l.is_empty())
+        && QUERY_STACK.with(|s| { s.borrow().get(depth as usize).is_some_and(|l| !l.is_empty())
         })
 }
 
@@ -1141,14 +1073,7 @@ pub fn AfterTriggerFireDeferred() -> PgResult<()> {
             c.set(id + 1);
             id
         });
-        if invoke_events(
-            EvList::Xact,
-            firing_id,
-            true,
-            None,
-            &mut TrigFmgrCaches::new(),
-            &mut Vec::new(),
-        )? {
+        if invoke_events(EvList::Xact, firing_id, true, None, &mut TrigFmgrCaches::new(), &mut Vec::new(),)? {
             break;
         }
     }
@@ -1215,8 +1140,8 @@ pub fn AfterTriggerEndSubXact(is_commit: bool) -> PgResult<()> {
         });
         return Ok(());
     }
-    let saved_query_depth =
-        TRANS_STACK.with(|s| s.borrow().get(my_level).map(|saved| saved.query_depth));
+    let saved_query_depth = TRANS_STACK.with(|s|
+        s.borrow().get(my_level).map(|saved| saved.query_depth));
     let Some(saved_query_depth) = saved_query_depth else {
         return Ok(());
     };
@@ -1226,8 +1151,7 @@ pub fn AfterTriggerEndSubXact(is_commit: bool) -> PgResult<()> {
     });
     QUERY_DEPTH.with(|c| c.set(saved_query_depth));
     crate::instr::at_subxact_abort(saved_query_depth);
-    let ndepths = TRANS_TABLES
-        .with(|t| t.borrow().len())
+    let ndepths = TRANS_TABLES.with(|t| t.borrow().len())
         .max(FDW_TUPLES.with(|t| t.borrow().len()));
     let keep = (saved_query_depth + 1).max(0) as usize;
     for d in keep..ndepths {
@@ -1379,7 +1303,8 @@ fn AfterTriggerExecute<'mcx>(
     if event & TRIGGER_EVENT_ROW == 0 {
         let tg_event = event & TRIGGER_EVENT_OPMASK;
         let finfo = finfos.get(tgindx, trigger.tgfoid)?;
-        let mut tdata = types_trigger_call::TriggerData::new(tg_event, &rel, None, None, trigger);
+        let mut tdata =
+            types_trigger_call::TriggerData::new(tg_event, &rel, None, None, trigger);
         tdata.tg_oldtable = tg_oldtable.0;
         tdata.tg_newtable = tg_newtable.0;
         // trigger.c:4544-4545: an UPDATE event's ats_modifiedcols becomes
@@ -1403,10 +1328,7 @@ fn AfterTriggerExecute<'mcx>(
     // vetted the leaves as attno-identical to the root, so the tuples are
     // already in the root's format (C converts via ExecGetChildToRootMap).
     let cp_rels = if src_part != Oid::default() {
-        Some((
-            table::table_open(mcx, src_part, NoLock)?,
-            table::table_open(mcx, dst_part, NoLock)?,
-        ))
+        Some((table::table_open(mcx, src_part, NoLock)?, table::table_open(mcx, dst_part, NoLock)?,))
     } else {
         None
     };
@@ -1438,11 +1360,7 @@ fn AfterTriggerExecute<'mcx>(
         };
         (Some(r1), r2, None)
     } else {
-        (
-            None,
-            None,
-            Some(fdw_event_tuples(mcx, rel.rd_att.clone(), fdw, is_update)?),
-        )
+        (None, None, Some(fdw_event_tuples(mcx, rel.rd_att.clone(), fdw, is_update)?),)
     };
     let mut t1 = match (&r1, &fdw_imgs) {
         (Some(r), _) => r.tuple().expect("found fetch has a tuple"),
@@ -1470,24 +1388,15 @@ fn AfterTriggerExecute<'mcx>(
         if let Some(map) =
             tupdesc::build_attrmap_by_name_if_req(mcx, &s.rd_att, &rel.rd_att, false)?
         {
-            t1_conv = Some(heaptuple::execute_attr_map_tuple(
-                mcx,
-                &t1,
-                &s.rd_att,
-                &rel.rd_att,
-                &map,
-            )?);
+            t1_conv =
+                Some(heaptuple::execute_attr_map_tuple(mcx, &t1, &s.rd_att, &rel.rd_att, &map,)?);
         }
         if let Some(t2v) = &t2 {
             if let Some(map) =
                 tupdesc::build_attrmap_by_name_if_req(mcx, &d.rd_att, &rel.rd_att, false)?
             {
                 t2_conv = Some(heaptuple::execute_attr_map_tuple(
-                    mcx,
-                    t2v,
-                    &d.rd_att,
-                    &rel.rd_att,
-                    &map,
+                    mcx, t2v, &d.rd_att, &rel.rd_att, &map,
                 )?);
             }
         }
@@ -1654,16 +1563,8 @@ fn after_trigger_save_event<'mcx>(
         }
         let ats_event = (event & TRIGGER_EVENT_OPMASK)
             | TRIGGER_EVENT_ROW
-            | if trigger.tgdeferrable {
-                AFTER_TRIGGER_DEFERRABLE
-            } else {
-                0
-            }
-            | if trigger.tginitdeferred {
-                AFTER_TRIGGER_INITDEFERRED
-            } else {
-                0
-            };
+            | if trigger.tgdeferrable { AFTER_TRIGGER_DEFERRABLE } else { 0 }
+            | if trigger.tginitdeferred { AFTER_TRIGGER_INITDEFERRED } else { 0 };
         let table_idx = if trigger.tgoldtable.is_some() || trigger.tgnewtable.is_some() {
             transition_capture
                 .map(|tc| tc.table_for(event & TRIGGER_EVENT_OPMASK))
@@ -1843,7 +1744,8 @@ fn save_stmt_event<'mcx>(
         cancel_prior_stmt_triggers(rel.rd_id, event & TRIGGER_EVENT_OPMASK);
     }
     for (tgindx, trigger) in trigdesc.triggers.iter().enumerate() {
-        if trigger.tgtype & (TRIGGER_TYPE_LEVEL_MASK | TRIGGER_TYPE_TIMING_MASK | tgtype_event)
+        if trigger.tgtype
+            & (TRIGGER_TYPE_LEVEL_MASK | TRIGGER_TYPE_TIMING_MASK | tgtype_event)
             != TRIGGER_TYPE_STATEMENT | TRIGGER_TYPE_AFTER | tgtype_event
         {
             continue;
@@ -1885,16 +1787,8 @@ fn save_stmt_event<'mcx>(
             continue;
         }
         let ats_event = (event & TRIGGER_EVENT_OPMASK)
-            | if trigger.tgdeferrable {
-                AFTER_TRIGGER_DEFERRABLE
-            } else {
-                0
-            }
-            | if trigger.tginitdeferred {
-                AFTER_TRIGGER_INITDEFERRED
-            } else {
-                0
-            };
+            | if trigger.tgdeferrable { AFTER_TRIGGER_DEFERRABLE } else { 0 }
+            | if trigger.tginitdeferred { AFTER_TRIGGER_INITDEFERRED } else { 0 };
         let table_idx = if trigger.tgoldtable.is_some() || trigger.tgnewtable.is_some() {
             transition_capture
                 .map(|tc| tc.table_for(event & TRIGGER_EVENT_OPMASK))
@@ -1934,13 +1828,7 @@ pub fn ExecASInsertTriggers<'mcx>(
         return Ok(());
     }
     save_stmt_event(
-        rel,
-        trigdesc,
-        TRIGGER_EVENT_INSERT,
-        TRIGGER_TYPE_INSERT,
-        transition_capture,
-        when,
-        None,
+        rel, trigdesc, TRIGGER_EVENT_INSERT, TRIGGER_TYPE_INSERT, transition_capture, when, None,
     )
 }
 
@@ -1954,13 +1842,7 @@ pub fn ExecASDeleteTriggers<'mcx>(
         return Ok(());
     }
     save_stmt_event(
-        rel,
-        trigdesc,
-        TRIGGER_EVENT_DELETE,
-        TRIGGER_TYPE_DELETE,
-        transition_capture,
-        when,
-        None,
+        rel, trigdesc, TRIGGER_EVENT_DELETE, TRIGGER_TYPE_DELETE, transition_capture, when, None,
     )
 }
 
@@ -1996,15 +1878,7 @@ pub fn ExecASTruncateTriggers<'mcx>(
     if !trigdesc.trig_truncate_after_statement {
         return Ok(());
     }
-    save_stmt_event(
-        rel,
-        trigdesc,
-        TRIGGER_EVENT_TRUNCATE,
-        TRIGGER_TYPE_TRUNCATE,
-        None,
-        when,
-        None,
-    )
+    save_stmt_event(rel, trigdesc, TRIGGER_EVENT_TRUNCATE, TRIGGER_TYPE_TRUNCATE, None, when, None,)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2055,9 +1929,7 @@ pub fn ExecARInsertTriggers<'mcx>(
         }
         r_new = Some(r);
     }
-    let new_t = r_new
-        .as_ref()
-        .map(|r| r.tuple().expect("found fetch has a tuple"));
+    let new_t = r_new.as_ref().map(|r| r.tuple().expect("found fetch has a tuple"));
     if let Some(tc) = capture {
         capture_transition_tuples(
             mcx,
@@ -2126,9 +1998,7 @@ pub fn ExecARDeleteTriggers<'mcx>(
         }
         r_old = Some(r);
     }
-    let old_t = r_old
-        .as_ref()
-        .map(|r| r.tuple().expect("found fetch has a tuple"));
+    let old_t = r_old.as_ref().map(|r| r.tuple().expect("found fetch has a tuple"));
     if let Some(tc) = capture {
         capture_transition_tuples(
             mcx,
@@ -2190,8 +2060,8 @@ pub fn ExecARUpdateTriggers<'mcx>(
     modified_cols: Option<&types_nodes::Bitmapset<'mcx>>,
 ) -> PgResult<()> {
     let after_row = trigdesc.is_some_and(|td| td.trig_update_after_row);
-    let capture =
-        transition_capture.filter(|tc| tc.tcs_update_old_table || tc.tcs_update_new_table);
+    let capture = transition_capture
+        .filter(|tc| tc.tcs_update_old_table || tc.tcs_update_new_table);
     check_foreign_transition_capture(rel, capture.is_some())?;
     if !after_row && capture.is_none() {
         return Ok(());
@@ -2218,21 +2088,11 @@ pub fn ExecARUpdateTriggers<'mcx>(
         }
         None => None,
     };
-    let old_t = r_old
-        .as_ref()
-        .map(|r| r.tuple().expect("found fetch has a tuple"));
-    let new_t = r_new
-        .as_ref()
-        .map(|r| r.tuple().expect("found fetch has a tuple"));
+    let old_t = r_old.as_ref().map(|r| r.tuple().expect("found fetch has a tuple"));
+    let new_t = r_new.as_ref().map(|r| r.tuple().expect("found fetch has a tuple"));
     if let Some(tc) = capture {
         capture_transition_tuples(
-            mcx,
-            tc,
-            TRIGGER_EVENT_UPDATE,
-            old_t.as_ref(),
-            new_t.as_ref(),
-            src_conv,
-            dst_conv,
+            mcx, tc, TRIGGER_EVENT_UPDATE, old_t.as_ref(), new_t.as_ref(), src_conv, dst_conv,
         )?;
     }
     if !after_row || old_t.is_some() != new_t.is_some() {
@@ -2327,9 +2187,7 @@ impl Refetched<'_> {
                 let h = t.as_tuple();
                 // SAFETY: the image is owned by `t`, which the returned borrow
                 // of `self` keeps alive.
-                unsafe {
-                    HeapTupleData::from_raw_parts(h.header_ptr(), h.t_len, h.t_self, h.t_tableOid)
-                }
+                unsafe { HeapTupleData::from_raw_parts(h.header_ptr(), h.t_len, h.t_self, h.t_tableOid) }
             }),
         }
     }
@@ -2370,17 +2228,8 @@ fn stable_idents<'mcx>(
     if tableam_vocab::TableAm::of(rel) != Some(tableam_vocab::TableAm::Pgrcolumnar) {
         return Ok(None);
     }
-    let ident = |tid: ItemPointerData| -> PgResult<u64> {
-        Ok(tableam::table_tuple_stable_ident(mcx, rel, &tid)?.unwrap_or(u64::MAX))
-    };
-    Ok(Some([
-        ident(ctid1)?,
-        if op == TRIGGER_EVENT_UPDATE {
-            ident(ctid2)?
-        } else {
-            u64::MAX
-        },
-    ]))
+    let ident = |tid: ItemPointerData| -> PgResult<u64> { Ok(tableam::table_tuple_stable_ident(mcx, rel, &tid)?.unwrap_or(u64::MAX)) };
+    Ok(Some([ident(ctid1)?, if op == TRIGGER_EVENT_UPDATE { ident(ctid2)? } else { u64::MAX },]))
 }
 
 /// The formed tuple's t_self is the row's position in the firing statement.
@@ -2443,10 +2292,7 @@ mod tests {
         assert_eq!(reused.0.words, old.words);
         assert_eq!(reused.1.unwrap().words, new.unwrap().words);
         assert_eq!(
-            fdw_event_tuples(mcx, desc.clone(), 1, false)
-                .err()
-                .unwrap()
-                .message(),
+            fdw_event_tuples(mcx, desc.clone(), 1, false).err().unwrap().message(),
             "failed to fetch tuple1 for AFTER trigger",
         );
         AfterTriggerEndXact(false).unwrap();
@@ -2578,11 +2424,7 @@ mod tests {
         AfterTriggerEndQuery(None, &[]).unwrap();
         let carried = XACT_EVENTS.with(|s| {
             let xs = s.borrow();
-            let found = xs
-                .iter()
-                .map(|e| xs.sh(e))
-                .find(|sh| sh.tgoid == TGOID)
-                .map(|sh| sh.modifiedcols.clone());
+            let found = xs.iter().map(|e| xs.sh(e)).find(|sh| sh.tgoid == TGOID).map(|sh| sh.modifiedcols.clone());
             found
         });
         assert_eq!(carried, Some(Some(vec![9, 11].into_boxed_slice())));
@@ -2608,18 +2450,8 @@ mod tests {
         };
         let mut evs = EventList::default();
         for i in 0..(EV_CHUNK * 2 + 5) {
-            evs.push(
-                0,
-                ItemPointerData::default(),
-                ItemPointerData::default(),
-                sh(7),
-            );
-            evs.push(
-                fdw_flags(if i == 0 { 1 } else { 2 }),
-                ItemPointerData::default(),
-                ItemPointerData::default(),
-                sh(8),
-            );
+            evs.push(0, ItemPointerData::default(), ItemPointerData::default(), sh(7),);
+            evs.push(fdw_flags(if i == 0 { 1 } else { 2 }), ItemPointerData::default(), ItemPointerData::default(), sh(8),);
         }
         assert_eq!(evs.len(), EV_CHUNK * 4 + 10);
         assert_eq!(evs.shared.len(), 2 * evs.chunks.len());
@@ -2631,12 +2463,7 @@ mod tests {
         assert_eq!(last, 7);
         let i = evs.ev(evs.len() - 2).shared as usize;
         evs.shared[i].firing_id = 5;
-        evs.push(
-            0,
-            ItemPointerData::default(),
-            ItemPointerData::default(),
-            sh(7),
-        );
+        evs.push(0, ItemPointerData::default(), ItemPointerData::default(), sh(7),);
         assert_eq!(evs.shared.len(), n + 1);
         evs.truncate(EV_CHUNK + 1);
         assert_eq!(evs.len(), EV_CHUNK + 1);
@@ -2663,12 +2490,7 @@ mod tests {
         };
         let mut evs = EventList::default();
         for i in 0..(EV_CHUNK * 3) {
-            evs.push(
-                0,
-                ItemPointerData::default(),
-                ItemPointerData::default(),
-                sh(100 + (i % 64) as Oid),
-            );
+            evs.push(0, ItemPointerData::default(), ItemPointerData::default(), sh(100 + (i % 64) as Oid),);
         }
         assert_eq!(evs.chunks.len(), 3);
         assert_eq!(evs.shared.len(), 64 * 3);
@@ -2690,12 +2512,7 @@ mod tests {
         mcx::global_footprint::thread_freed_since_peak_rebase();
         let mut evs = EventList::default();
         for _ in 0..(EV_CHUNK * 3 + 1) {
-            evs.push(
-                0,
-                ItemPointerData::default(),
-                ItemPointerData::default(),
-                sh(),
-            );
+            evs.push(0, ItemPointerData::default(), ItemPointerData::default(), sh(),);
         }
         assert_eq!(evs.charged, 3 * EV_CHUNK_BYTES);
         evs.truncate(EV_CHUNK + 1);
@@ -2705,12 +2522,7 @@ mod tests {
         assert!(mcx::global_footprint::thread_freed_since_peak_rebase() >= 3 * EV_CHUNK_BYTES);
         let mut st = vec![EventList::default(), EventList::default()];
         for _ in 0..(EV_CHUNK + 1) {
-            st[1].push(
-                0,
-                ItemPointerData::default(),
-                ItemPointerData::default(),
-                sh(),
-            );
+            st[1].push(0, ItemPointerData::default(), ItemPointerData::default(), sh(),);
         }
         assert_eq!(st[1].charged, EV_CHUNK_BYTES);
         truncate_query_levels(&mut st, 1);
@@ -2736,10 +2548,7 @@ mod tests {
                     ItemPointerData::default(),
                     ItemPointerData::default(),
                     EvShared {
-                        event: TRIGGER_EVENT_DELETE
-                            | TRIGGER_EVENT_ROW
-                            | AFTER_TRIGGER_DEFERRABLE
-                            | AFTER_TRIGGER_INITDEFERRED,
+                        event: TRIGGER_EVENT_DELETE | TRIGGER_EVENT_ROW | AFTER_TRIGGER_DEFERRABLE | AFTER_TRIGGER_INITDEFERRED,
                         tgoid: TGOID + k,
                         relid: 424_251,
                         firing_id: 0,
@@ -2756,12 +2565,7 @@ mod tests {
         let got = |tgoid: Oid| {
             XACT_EVENTS.with(|s| {
                 let evs = s.borrow();
-                let got = evs.iter().find(|e| evs.sh(e).tgoid == tgoid).map(|e| {
-                    (
-                        event_idents(e.flags),
-                        evs.sh(e).src_part,
-                        evs.sh(e).dst_part,
-                    )
+                let got = evs.iter().find(|e| evs.sh(e).tgoid == tgoid).map(|e| { (event_idents(e.flags), evs.sh(e).src_part, evs.sh(e).dst_part,)
                 });
                 got
             })
@@ -2769,10 +2573,7 @@ mod tests {
         assert_eq!(got(TGOID), Some((Some([7, u64::MAX]), 0, 98)));
         assert_eq!(got(TGOID + 1), Some((None, 99, 98)));
         AfterTriggerEndXact(false).unwrap();
-        assert!(
-            IDENTS.with(|v| v.borrow().is_empty()),
-            "the side store ends with the transaction"
-        );
+        assert!(IDENTS.with(|v| v.borrow().is_empty()), "the side store ends with the transaction");
     }
 }
 
@@ -2835,10 +2636,7 @@ mod save_event_tests {
         let e = MakeTransitionCaptureState(&td, 4242, CmdType::CMD_INSERT)
             .err()
             .expect("query_depth is -1");
-        assert_eq!(
-            e.message(),
-            "MakeTransitionCaptureState() called outside of query"
-        );
+        assert_eq!(e.message(), "MakeTransitionCaptureState() called outside of query");
         assert_eq!(e.sqlstate(), ERRCODE_INTERNAL_ERROR);
     }
 
@@ -2864,13 +2662,8 @@ mod save_event_tests {
     #[test]
     fn before_stmt_triggers_fired_outside_query_is_an_error() {
         assert_eq!(QUERY_DEPTH.with(|c| c.get()), -1);
-        let e = before_stmt_triggers_fired(4242, TRIGGER_EVENT_INSERT)
-            .verdict()
-            .unwrap_err();
-        assert_eq!(
-            e.message(),
-            "before_stmt_triggers_fired() called outside of query"
-        );
+        let e = before_stmt_triggers_fired(4242, TRIGGER_EVENT_INSERT).verdict().unwrap_err();
+        assert_eq!(e.message(), "before_stmt_triggers_fired() called outside of query");
         assert_eq!(e.sqlstate(), ERRCODE_INTERNAL_ERROR);
     }
 
@@ -2881,11 +2674,7 @@ mod save_event_tests {
     fn unique_key_recheck_skip_matches_c() {
         assert!(skip_unique_key_recheck(F_UNIQUE_KEY_RECHECK, 4242, &[]));
         assert!(skip_unique_key_recheck(F_UNIQUE_KEY_RECHECK, 4242, &[4243]));
-        assert!(!skip_unique_key_recheck(
-            F_UNIQUE_KEY_RECHECK,
-            4242,
-            &[4242]
-        ));
+        assert!(!skip_unique_key_recheck(F_UNIQUE_KEY_RECHECK, 4242, &[4242]));
         assert!(!skip_unique_key_recheck(4444, 4242, &[]));
     }
 }

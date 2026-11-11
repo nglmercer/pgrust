@@ -112,18 +112,17 @@ pub fn ginbuild<'mcx>(
                     let attnum = (i + 1) as ::types_core::OffsetNumber;
                     let (entries, categories) =
                         ginExtractEntries(fmcx, &state, attnum, values[i], isnull[i])?;
-                    accum
-                        .as_mut()
-                        .expect("gin build accumulator")
-                        .insert_entries(tid, attnum, entries.as_slice(), categories.as_slice())?;
+                    accum.as_mut().expect("gin build accumulator").insert_entries(
+                        tid,
+                        attnum,
+                        entries.as_slice(),
+                        categories.as_slice()
+                    )?;
                     indtuples += entries.len() as f64;
                 }
             }
 
-            if accum
-                .as_ref()
-                .expect("gin build accumulator")
-                .allocated_memory
+            if accum.as_ref().expect("gin build accumulator").allocated_memory
                 >= init_small::globals::maintenance_work_mem() as usize * 1024
             {
                 // gininsert.c:474-494 ginBuildCallback: dump the accumulated
@@ -202,3 +201,5 @@ pub fn ginbuild<'mcx>(
         index_tuples: indtuples,
     })
 }
+
+

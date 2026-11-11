@@ -1614,7 +1614,7 @@ impl<'mcx> Parser<'mcx> {
             }
             567 | 568 => *yyval = YYSTYPE::Ival(FKCONSTR_MATCH_SIMPLE as i32),
             // key_actions: key_update | key_delete | both orders | /*EMPTY*/
-            575..=579 => {
+            575..= 579 => {
                 let noaction = || KeyAction {
                     action: FKCONSTR_ACTION_NOACTION,
                     cols: NodeList::nil(),
@@ -1660,7 +1660,7 @@ impl<'mcx> Parser<'mcx> {
                 *yyval = YYSTYPE::KeyActionV(ka);
             }
             // key_action: NO ACTION | RESTRICT | CASCADE | SET NULL | SET DEFAULT
-            582..=586 => {
+            582..= 586 => {
                 let (action, cols) = match rule {
                     582 => (FKCONSTR_ACTION_NOACTION, NodeList::nil()),
                     583 => (FKCONSTR_ACTION_RESTRICT, NodeList::nil()),
@@ -2308,7 +2308,7 @@ impl<'mcx> Parser<'mcx> {
                 *yyval = YYSTYPE::Node(Some(stmt));
             }
             // simple_select: select_clause {UNION|INTERSECT|EXCEPT} set_quantifier select_clause
-            1723..=1725 => {
+            1723..= 1725 => {
                 let mut n = Node::build::<SelectStmt>(mcx)?;
                 n.op = match rule {
                     1723 => SetOperation::SETOP_UNION,
@@ -2331,7 +2331,7 @@ impl<'mcx> Parser<'mcx> {
                 *yyval = YYSTYPE::Node(Some(n.seal()));
             }
             // with_clause: WITH cte_list | WITH_LA cte_list | WITH RECURSIVE cte_list
-            1726..=1728 => {
+            1726..= 1728 => {
                 let recursive = rule == 1728;
                 let mut n = Node::build::<WithClause>(mcx)?;
                 n.ctes = view.v(if recursive { 3 } else { 2 }).list();
@@ -2887,7 +2887,7 @@ impl<'mcx> Parser<'mcx> {
             }
             // merge_when_clause: the merge_update/merge_delete/merge_insert
             // sub-rule built the MergeWhenClause node.
-            1675..=1677 => {
+            1675..= 1677 => {
                 let m = view.v(4).node().expect("merge action");
                 let kind = merge_match_kind(view.v(1).ival());
                 let cond = view.v(2).node();
@@ -2933,7 +2933,7 @@ impl<'mcx> Parser<'mcx> {
                 *yyval = YYSTYPE::Node(Some(n.seal()));
             }
             // merge_insert: values / OVERRIDING / column-list / DEFAULT VALUES
-            1688..=1692 => {
+            1688..= 1692 => {
                 let mut n = Node::build::<types_nodes::MergeWhenClause>(mcx)?;
                 n.commandType = types_nodes::CmdType::CMD_INSERT;
                 match rule {
@@ -2996,7 +2996,7 @@ impl<'mcx> Parser<'mcx> {
             //            | OVERRIDING override_kind VALUE_P SelectStmt
             //            | '(' insert_column_list ')' OVERRIDING override_kind
             //              VALUE_P SelectStmt | DEFAULT VALUES
-            1620..=1624 => {
+            1620..= 1624 => {
                 let mut n = Node::build::<InsertStmt>(mcx)?;
                 if rule == 1622 || rule == 1623 {
                     n.cols = view.v(2).list();
@@ -3649,7 +3649,7 @@ impl<'mcx> Parser<'mcx> {
                 }
                 *yyval = YYSTYPE::Node(Some(t));
             }
-            1969..=1971 => {
+            1969..= 1971 => {
                 let typmods = view.v(2).list();
                 *yyval = YYSTYPE::Node(Some(system_type_name(mcx, "numeric", typmods, view.l(1))?));
             }
@@ -4885,7 +4885,7 @@ impl<'mcx> Parser<'mcx> {
                 n.params = view.v(3).list();
                 *yyval = YYSTYPE::Node(Some(n.seal()));
             }
-            1551..=1553 => {
+            1551..= 1553 => {
                 let mut params = NodeList::nil();
                 if view.v(2).boolean() {
                     let d = def_elem(mcx, "verbose", None, view.l(2))?.node().unwrap();
@@ -5165,7 +5165,7 @@ impl<'mcx> Parser<'mcx> {
                 *yyval = YYSTYPE::Node(Some(n.seal()));
             }
             // VariableSetStmt: SET set_rest / SET LOCAL set_rest / SET SESSION set_rest.
-            201..=203 => {
+            201..= 203 => {
                 let n = view
                     .v(if rule == 201 { 2 } else { 3 })
                     .node()
@@ -5659,7 +5659,7 @@ impl<'mcx> Parser<'mcx> {
             // [Function]SetResetClause: VariableResetStmt (node -> vsetstmt cast in C).
             256 | 258 => *yyval = view.v(1),
             // reset_rest: TIME ZONE / TRANSACTION ISOLATION LEVEL / SESSION AUTHORIZATION.
-            250..=252 => {
+            250..= 252 => {
                 let mut n = Node::build::<VariableSetStmt>(mcx)?;
                 n.kind = VariableSetKind::VAR_RESET;
                 n.name = Some(match rule {
@@ -5693,7 +5693,7 @@ impl<'mcx> Parser<'mcx> {
                 )?;
                 *yyval = YYSTYPE::Node(Some(n));
             }
-            260..=263 => {
+            260..= 263 => {
                 let name = match rule {
                     260 => "timezone",
                     261 => "transaction_isolation",
@@ -5738,7 +5738,7 @@ impl<'mcx> Parser<'mcx> {
             1659 => *yyval = YYSTYPE::Ival(1),
             1660 => *yyval = YYSTYPE::Ival(0),
             // DiscardStmt: DISCARD ALL/TEMP/TEMPORARY/PLANS/SEQUENCES.
-            270..=274 => {
+            270..= 274 => {
                 let target = match rule {
                     270 => DiscardMode::DISCARD_ALL,
                     271 | 272 => DiscardMode::DISCARD_TEMP,
@@ -5802,7 +5802,7 @@ impl<'mcx> Parser<'mcx> {
                 n.location = -1;
                 *yyval = YYSTYPE::Node(Some(n.seal()));
             }
-            1462..=1466 => {
+            1462..= 1466 => {
                 let (kind, i) = match rule {
                     1462 => (TransactionStmtKind::TRANS_STMT_SAVEPOINT, 2),
                     1463 => (TransactionStmtKind::TRANS_STMT_RELEASE, 3),
@@ -5818,7 +5818,7 @@ impl<'mcx> Parser<'mcx> {
             }
             // TransactionStmt: PREPARE TRANSACTION / COMMIT PREPARED /
             // ROLLBACK PREPARED, all over Sconst gids.
-            1467..=1469 => {
+            1467..= 1469 => {
                 let kind = match rule {
                     1467 => TransactionStmtKind::TRANS_STMT_PREPARE,
                     1468 => TransactionStmtKind::TRANS_STMT_COMMIT_PREPARED,
@@ -6024,7 +6024,7 @@ impl<'mcx> Parser<'mcx> {
             }
             // joined_table: CROSS JOIN | join_type JOIN ... join_qual |
             // JOIN ... join_qual | NATURAL join_type JOIN | NATURAL JOIN.
-            1845..=1849 => {
+            1845..= 1849 => {
                 let (jointype, is_natural, rarg_at, qual_at) = match rule {
                     1845 => (JoinType::JOIN_INNER, false, 4, 0),
                     1846 => (join_type_from_ival(view.v(2).ival()), false, 4, 5),
@@ -6190,7 +6190,7 @@ impl<'mcx> Parser<'mcx> {
             }
             // opt_frame_clause: RANGE|ROWS|GROUPS frame_extent
             // opt_window_exclusion_clause
-            2241..=2243 => {
+            2241..= 2243 => {
                 let n = view.v(2).node().expect("frame_extent");
                 let mode = match rule {
                     2241 => FRAMEOPTION_RANGE,
@@ -6505,7 +6505,7 @@ impl<'mcx> Parser<'mcx> {
             }
             // alter_table_cmd: ADD_P [COLUMN] [IF_P NOT EXISTS] columnDef
             // (other alter_table_cmd forms stay unimplemented-rule loud).
-            302..=305 => {
+            302..= 305 => {
                 let def = match rule {
                     302 => view.v(2),
                     303 => view.v(5),
@@ -7168,7 +7168,7 @@ impl<'mcx> Parser<'mcx> {
                 *yyval = YYSTYPE::Node(Some(n.seal()));
             }
             // AlterForeignServerStmt: name [foreign_server_version] [options].
-            743..=745 => {
+            743..= 745 => {
                 let mut n = Node::build::<types_nodes::rawnodes::AlterForeignServerStmt>(mcx)?;
                 n.servername = Some(view.v(3).str_val());
                 if rule != 745 {
@@ -8433,7 +8433,7 @@ impl<'mcx> Parser<'mcx> {
             }
             // AlterObjectDependsStmt: ALTER {FUNCTION|PROCEDURE|ROUTINE}
             // function_with_argtypes opt_no DEPENDS ON EXTENSION name
-            1333..=1335 => {
+            1333..= 1335 => {
                 let mut n = Node::build::<parsenodes::AlterObjectDependsStmt>(mcx)?;
                 n.objectType = match rule {
                     1333 => ObjectType::OBJECT_FUNCTION,
@@ -8921,7 +8921,7 @@ impl<'mcx> Parser<'mcx> {
                 *yyval = YYSTYPE::Node(Some(n.seal()));
             }
             // privilege_target: [TABLE] qualified_name_list | SEQUENCE ...
-            1046..=1048 => {
+            1046..= 1048 => {
                 let mut n = Node::build::<GrantStmt>(mcx)?;
                 n.targtype = GrantTargetType::ACL_TARGET_OBJECT;
                 n.objtype = if rule == 1048 {
@@ -9247,7 +9247,7 @@ impl<'mcx> Parser<'mcx> {
                 *yyval = YYSTYPE::Node(Some(n));
             }
             179..=184 => {
-                let missing_ok = rule.is_multiple_of(2);
+                let missing_ok = rule.is_multiple_of( 2);
                 let mut n = Node::build::<DropRoleStmt>(mcx)?;
                 n.missing_ok = missing_ok;
                 n.roles = view.v(if missing_ok { 5 } else { 3 }).list();
@@ -9611,7 +9611,7 @@ impl<'mcx> Parser<'mcx> {
             }
             // DropOpClassStmt / DropOpFamilyStmt: DROP OPERATOR CLASS|FAMILY
             // [IF_P EXISTS] any_name USING name opt_drop_behavior
-            912..=915 => {
+            912..= 915 => {
                 let (an, nm, bh) = if rule == 912 || rule == 914 {
                     (4, 6, 7)
                 } else {
@@ -9798,7 +9798,7 @@ impl<'mcx> Parser<'mcx> {
             }
             // DefineStmt: CREATE COLLATION [IF NOT EXISTS] any_name definition
             //           | CREATE COLLATION [IF NOT EXISTS] any_name FROM any_name
-            860..=863 => {
+            860..= 863 => {
                 let ine = rule == 861 || rule == 863;
                 let off = if ine { 3 } else { 0 };
                 let mut n = Node::build::<DefineStmt>(mcx)?;
@@ -9837,7 +9837,7 @@ impl<'mcx> Parser<'mcx> {
             }
             // AlterEnumStmt: ALTER TYPE_P any_name ADD_P VALUE_P opt_if_not_exists Sconst
             //   [ BEFORE Sconst | AFTER Sconst ] / RENAME VALUE_P / DROP VALUE_P
-            883..=885 => {
+            883..= 885 => {
                 let mut n = Node::build::<AlterEnumStmt>(mcx)?;
                 n.typeName = view.v(3).list();
                 n.newVal = Some(view.v(7).str_val());
@@ -10266,7 +10266,7 @@ impl<'mcx> Parser<'mcx> {
                 };
                 *yyval = YYSTYPE::Node(Some(Node::mk(mcx, n)?));
             }
-            1417..=1419 => {
+            1417..= 1419 => {
                 let pubobjects = view.v(5).list();
                 self.preprocess_pubobj_list(&pubobjects)?;
                 let n = AlterPublicationStmt {
@@ -10323,7 +10323,7 @@ impl<'mcx> Parser<'mcx> {
                 *yyval = YYSTYPE::Node(Some(Node::mk(mcx, n)?));
             }
             // AlterSubscriptionStmt: ADD_P/DROP/SET PUBLICATION name_list opt_definition
-            1424..=1426 => {
+            1424..= 1426 => {
                 let n = AlterSubscriptionStmt {
                     kind: match rule {
                         1424 => AlterSubscriptionType::ALTER_SUBSCRIPTION_ADD_PUBLICATION,
@@ -10780,7 +10780,7 @@ impl<'mcx> Parser<'mcx> {
             2398 => *yyval = YYSTYPE::Ival(JsonValueType::JS_TYPE_SCALAR as i32),
             // json_key_uniqueness_constraint_opt
             2399 | 2400 => *yyval = YYSTYPE::Boolean(true),
-            2401..=2403 => *yyval = YYSTYPE::Boolean(false),
+            2401..= 2403 => *yyval = YYSTYPE::Boolean(false),
             // json_name_and_value_list
             2404 => {
                 let n = view.v(1).node().expect("json_name_and_value");

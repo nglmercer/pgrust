@@ -241,7 +241,7 @@ fn order(px: &mut Px<'_, '_>, k: usize, j: usize, d: &gravity_decompose::ops::sh
                 // it: step.limit's feeder stops this pipeline before its first row then, or refuses (result/gate.rs
                 // `SPOOL_ZERO`)
                 let mut sets = (k + 1..ps.len()).filter(|&q| matches!(ps[q].source, Source::Breaker { slot: x } if x == slot) && gx.life_of(q, slot) == Some(gravity_program::LifeId(k as u16))).filter_map(|q| gx.group_at(q)).peekable();
-                whole = !ps.iter().any(|p| p.ops.iter().any(|o| matches!(o, Op::Gate(_)))) && sets.peek().is_some() && sets.all(|g| g.set.is_none_or(|s| s.whole));
+                whole = !ps.iter().any(|p| p.ops.iter().any(|o| matches!(o, Op::Gate(_)))) && sets.peek().is_some() && sets.all(|g| g.set.is_none_or( |s| s.whole));
                 arm(slot)
             }
             (None, None, None) => None,

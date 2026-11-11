@@ -580,9 +580,10 @@ fn iterate_word_similarity(
 }
 
 // make_positional_trgm: palloc(sizeof(pos_trgm) * len) under MaxAllocSize.
+#[allow(clippy::needless_question_mark)]
 fn positional_trgm_array(len: usize) -> PgResult<Vec<PosTrgm>> {
     ::mcx::check_alloc_size(len.saturating_mul(core::mem::size_of::<PosTrgm>()))?;
-    ::mcx::std_vec_with_capacity("pg_trgm", len)
+    Ok(::mcx::std_vec_with_capacity("pg_trgm", len)?)
 }
 
 pub fn calc_word_similarity(

@@ -25,7 +25,7 @@
 use crate::class::{StorageClass, CLASS_BOOL, CLASS_BYVAL, CLASS_F32, CLASS_F64};
 use crate::dict::{DictLayout, DictSections};
 use crate::enc::EncodingId;
-use crate::meta::{MetaProbe, ProbeAnswer, StatsRecord};
+use crate::meta::{ MetaProbe, ProbeAnswer, StatsRecord};
 use crate::part::{OverflowSink, SectionKind, StreamSectionWriter};
 use crate::wire::varlena_4b_u_payload_len;
 use crate::{FormatError, FormatResult};
@@ -92,7 +92,8 @@ pub struct ByteArena<'a> {
 impl<'a> ByteArena<'a> {
     pub fn new(buf: &'a mut [u8]) -> ByteArena<'a> {
         debug_assert!(
-            (buf.as_ptr() as usize).is_multiple_of(8),
+            (
+            buf.as_ptr() as usize).is_multiple_of( 8),
             "arena buffers are 8-aligned"
         );
         ByteArena { buf, used: 0 }
@@ -622,8 +623,8 @@ pub trait ColumnMetaBuilder {
 pub unsafe fn datum_canonical_bytes(
     class: StorageClass,
     datum: u64,
-    scratch: &mut [u8; 8],
-) -> FormatResult<&[u8]> {
+    scratch: & mut [u8; 8],
+) -> FormatResult<& [u8]> {
     match class {
         StorageClass::ByvalWord { width, .. } => {
             scratch.copy_from_slice(&datum.to_le_bytes());
@@ -689,11 +690,8 @@ pub fn verify_roundtrip(
     // as masked words (the image IS the low `width` LE bytes; Bool the 0/1
     // truth) — the same predicate without a per-value slice compare.
     let word_mask = match input.class {
-        StorageClass::ByvalWord { width, .. } => Some(if width >= 8 {
-            u64::MAX
-        } else {
-            (1u64 << (8 * width)) - 1
-        }),
+        StorageClass::ByvalWord { width, .. } =>
+            Some(if width >= 8 { u64::MAX } else { (1u64 << (8 * width)) - 1 }),
         StorageClass::F32 => Some(0xFFFF_FFFF),
         StorageClass::F64 => Some(u64::MAX),
         _ => None,
@@ -707,11 +705,7 @@ pub fn verify_roundtrip(
                 continue;
             }
             let (a, b) = (input.datums[r as usize], out.datums[r as usize]);
-            bad |= if is_bool {
-                (a != 0) != (b != 0)
-            } else {
-                (a ^ b) & mask != 0
-            };
+            bad |= if is_bool { (a != 0) != (b != 0) } else { (a ^ b) & mask != 0 };
         }
         if bad {
             return Err(FormatError::EncodeContract {

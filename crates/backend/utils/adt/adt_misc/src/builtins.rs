@@ -46,7 +46,7 @@ fn invalid_ident_err(qualname: &[u8], detail: Option<&str>) -> Box<PgError> {
 pub fn fc_parse_ident(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
     let mcx = fcinfo.result_mcx();
     // SAFETY: arg 0 is a non-null text datum (strict function).
-    let qualname: Vec<u8> = ::mcx::std_vec_from_slice("adt", cstring_prefix(unsafe { fcinfo.arg_varlena_packed(0)? }.data()))?;
+    let qualname: Vec<u8> = ::mcx::std_vec_from_slice("adt",cstring_prefix(unsafe { fcinfo.arg_varlena_packed(0)? }.data()))?;
     let strict = fcinfo.arg_bool(1);
     let encoding = mbutils::GetDatabaseEncoding();
 
@@ -989,7 +989,7 @@ pub fn fc_pg_current_logfile_1arg(
     }
     // SAFETY: null-checked text arg of a non-strict fn.
     let fmt = unsafe { fcinfo.arg_varlena_packed(0)? };
-    let fmt: Vec<u8> = ::mcx::std_vec_from_slice("adt", cstring_prefix(fmt.data()))?;
+    let fmt: Vec<u8> = ::mcx::std_vec_from_slice("adt",cstring_prefix(fmt.data()))?;
     current_logfile(fcinfo, Some(&fmt))
 }
 
@@ -1228,7 +1228,7 @@ fn collect_keyword_rows(flinfo: &FmgrInfo, fcinfo: &mut Fcinfo) -> PgResult<Keyw
         let cstrings = [Some(word), Some(catcode), Some(barelabel), Some(catdesc), Some(baredesc)];
         let (values, isnull) = attinmeta.build(mcx, &cstrings[..natts])?;
         let tuple = heaptuple::heap_form_tuple(mcx, &desc, &values, &isnull)?;
-        tuples.push(::mcx::std_vec_from_slice("adt", tuple.image())?);
+        tuples.push(::mcx::std_vec_from_slice("adt",tuple.image())?);
     }
     Ok(KeywordRows { tuples })
 }
@@ -1329,7 +1329,7 @@ fn collect_catalog_fk_rows(flinfo: &FmgrInfo, fcinfo: &mut Fcinfo) -> PgResult<C
         ];
         let tuple =
             heaptuple::heap_form_tuple(mcx, &desc, &values[..natts], &[false; 6][..natts])?;
-        tuples.push(::mcx::std_vec_from_slice("adt", tuple.image())?);
+        tuples.push(::mcx::std_vec_from_slice("adt",tuple.image())?);
     }
     Ok(CatalogFkRows { tuples })
 }

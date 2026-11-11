@@ -75,14 +75,7 @@ fn detoast_attr_slice_on_inline_compressed() {
     let ctx = MemoryContext::new("t");
     let input = sample(4000);
     let image = compress_image(&input, TOAST_PGLZ_COMPRESSION_ID);
-    for (off, len) in [
-        (0i32, 10i32),
-        (100, 250),
-        (3990, 100),
-        (0, -1),
-        (777, -1),
-        (5000, 33),
-    ] {
+    for (off, len) in [(0i32, 10i32), (100, 250), (3990, 100), (0, -1), (777, -1), (5000, 33),] {
         let out = detoast_attr_slice(ctx.mcx(), &image, off, len).unwrap();
         let expect: &[u8] = if off as usize >= input.len() {
             &[]
@@ -162,23 +155,10 @@ fn lz4_slice_decodes_every_prefix_of_long_matches_and_literals() {
     let ctx = MemoryContext::new("t");
     let mut input = b"abcdefgh".repeat(5000);
     input.extend(sample(3000));
-    input.extend(std::iter::repeat_n(b'z', 70000));
+    input.extend(std::iter::repeat_n(b'z',70000));
     input.extend(sample(500));
     let image = lz4_image(&input);
-    for len in [
-        0,
-        1,
-        3,
-        7,
-        8,
-        9,
-        100,
-        40000,
-        40001,
-        43000,
-        100000,
-        input.len() - 1,
-    ] {
+    for len in [0, 1, 3, 7, 8, 9, 100, 40000, 40001, 43000, 100000, input.len() - 1,] {
         let out = toast_decompress_datum_slice(ctx.mcx(), &image, len as i32).unwrap();
         assert_eq!(&out[VARHDRSZ..], &input[..len], "slice {len}");
         assert_eq!(varsize_4b(&out), len + VARHDRSZ);
@@ -277,7 +257,8 @@ fn seam_install_and_external_fetch_arm() {
             let phrase = b"toast toast toast and more toast, buttered ";
             (0..300).map(|i| phrase[i % phrase.len()]).collect()
         };
-        let mut dest = vec![MaybeUninit::<u8>::uninit(); pglz::pglz_max_output(input.len())];
+        let mut dest =
+            vec![MaybeUninit::<u8>::uninit(); pglz::pglz_max_output(input.len())];
         let n = pglz::pglz_compress_into(&input, &mut dest, &pglz::PGLZ_STRATEGY_ALWAYS).unwrap();
         let total = VARHDRSZ_COMPRESSED + n;
         let mut v = mcx::vec_with_capacity_in(mcx, total)?;
@@ -307,11 +288,7 @@ fn pointer_form_image(tag: u8) -> Vec<u8> {
 #[test]
 fn reject_in_memory_pointer_form_gates_only_indirect_and_expanded() {
     // In-memory-only pointer forms are rejected with a catchable error.
-    for tag in [
-        VARTAG_INDIRECT,
-        2, /* EXPANDED_RO */
-        3, /* EXPANDED_RW */
-    ] {
+    for tag in [VARTAG_INDIRECT, 2, /* EXPANDED_RO */ 3, /* EXPANDED_RW */] {
         let image = pointer_form_image(tag);
         let err = reject_in_memory_pointer_form(&image).unwrap_err();
         assert_eq!(err.sqlstate(), ERRCODE_DATA_CORRUPTED, "tag={tag}");
@@ -319,14 +296,8 @@ fn reject_in_memory_pointer_form_gates_only_indirect_and_expanded() {
     // Every trustworthy form passes the gate untouched.
     assert!(reject_in_memory_pointer_form(&plain_image(b"plain")).is_ok());
     assert!(reject_in_memory_pointer_form(&short_image(b"short")).is_ok());
-    assert!(reject_in_memory_pointer_form(&compress_image(
-        &sample(200),
-        TOAST_PGLZ_COMPRESSION_ID
-    ))
-    .is_ok());
-    assert!(
-        reject_in_memory_pointer_form(&ondisk_image(304, 250, TOAST_PGLZ_COMPRESSION_ID)).is_ok()
-    );
+    assert!(reject_in_memory_pointer_form(&compress_image(&sample(200), TOAST_PGLZ_COMPRESSION_ID)).is_ok());
+    assert!(reject_in_memory_pointer_form(&ondisk_image(304, 250, TOAST_PGLZ_COMPRESSION_ID)).is_ok());
 }
 
 #[test]
@@ -335,19 +306,11 @@ fn checked_detoast_rejects_pointer_forms_without_dereferencing() {
     // points must return a catchable error rather than dereference it. If any
     // arm dereferenced the pointer this test would fault instead of asserting.
     let ctx = MemoryContext::new("t");
-    for tag in [
-        VARTAG_INDIRECT,
-        2, /* EXPANDED_RO */
-        3, /* EXPANDED_RW */
-    ] {
+    for tag in [VARTAG_INDIRECT, 2, /* EXPANDED_RO */ 3, /* EXPANDED_RW */] {
         let image = pointer_form_image(tag);
 
         let err = detoast_attr_checked(ctx.mcx(), &image).unwrap_err();
-        assert_eq!(
-            err.sqlstate(),
-            ERRCODE_DATA_CORRUPTED,
-            "detoast_attr_checked tag={tag}"
-        );
+        assert_eq!(err.sqlstate(), ERRCODE_DATA_CORRUPTED, "detoast_attr_checked tag={tag}");
 
         let err = detoast_external_attr_checked(ctx.mcx(), &image).unwrap_err();
         assert_eq!(err.sqlstate(), ERRCODE_DATA_CORRUPTED, "external tag={tag}");
@@ -361,10 +324,7 @@ fn checked_detoast_rejects_pointer_forms_without_dereferencing() {
 fn checked_detoast_passes_through_trustworthy_forms() {
     let ctx = MemoryContext::new("t");
     let plain = plain_image(b"plain value");
-    assert_eq!(
-        &detoast_attr_checked(ctx.mcx(), &plain).unwrap()[..],
-        &plain[..]
-    );
+    assert_eq!(&detoast_attr_checked(ctx.mcx(), &plain).unwrap()[..], &plain[..]);
 
     let input = sample(1500);
     let compressed = compress_image(&input, TOAST_PGLZ_COMPRESSION_ID);
@@ -444,30 +404,16 @@ fn varsize_under_its_4_byte_header_is_xx001_before_any_copy() {
         for bits in [0x00u32, 0x02] {
             let image = ((n << 2) | bits).to_ne_bytes();
             let err = detoast_attr(ctx.mcx(), &image).unwrap_err();
-            assert_eq!(
-                err.sqlstate(),
-                ERRCODE_DATA_CORRUPTED,
-                "detoast_attr VARSIZE {n} bits {bits}"
-            );
+            assert_eq!(err.sqlstate(), ERRCODE_DATA_CORRUPTED, "detoast_attr VARSIZE {n} bits {bits}");
             let err = detoast_external_attr(ctx.mcx(), &image).unwrap_err();
-            assert_eq!(
-                err.sqlstate(),
-                ERRCODE_DATA_CORRUPTED,
-                "detoast_external_attr VARSIZE {n} bits {bits}"
-            );
+            assert_eq!(err.sqlstate(), ERRCODE_DATA_CORRUPTED, "detoast_external_attr VARSIZE {n} bits {bits}");
         }
     }
     let err = detoast_attr(ctx.mcx(), &[0x08, 0x00, 0x00, 0x00]).unwrap_err();
-    assert_eq!(
-        err.message(),
-        "invalid varlena size 2: less than its 4-byte header"
-    );
+    assert_eq!(err.message(), "invalid varlena size 2: less than its 4-byte header");
     let empty = plain_image(b"");
     assert_eq!(&detoast_attr(ctx.mcx(), &empty).unwrap()[..], &empty[..]);
-    assert_eq!(
-        &detoast_external_attr(ctx.mcx(), &empty).unwrap()[..],
-        &empty[..]
-    );
+    assert_eq!(&detoast_external_attr(ctx.mcx(), &empty).unwrap()[..], &empty[..]);
 }
 
 // D4901 S5: an external header (first byte 0x01) whose tag is none of INDIRECT / EXPANDED_RO / EXPANDED_RW / ONDISK fell
@@ -479,16 +425,8 @@ fn unknown_external_tag_is_xx001_not_a_panic() {
     for tag in [0u8, 4, 5, 17, 19, 255] {
         let image = [0x01, tag, 0, 0, 0, 0, 0, 0, 0, 0];
         let err = detoast_attr(ctx.mcx(), &image).unwrap_err();
-        assert_eq!(
-            err.sqlstate(),
-            ERRCODE_DATA_CORRUPTED,
-            "detoast_attr tag {tag}"
-        );
+        assert_eq!(err.sqlstate(), ERRCODE_DATA_CORRUPTED, "detoast_attr tag {tag}");
         let err = detoast_attr_slice(ctx.mcx(), &image, 0, -1).unwrap_err();
-        assert_eq!(
-            err.sqlstate(),
-            ERRCODE_DATA_CORRUPTED,
-            "detoast_attr_slice tag {tag}"
-        );
+        assert_eq!(err.sqlstate(), ERRCODE_DATA_CORRUPTED, "detoast_attr_slice tag {tag}");
     }
 }

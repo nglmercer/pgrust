@@ -21,22 +21,12 @@ fn an_idle_pool_does_not_prefault_again_what_age_release_gave_back() {
     while stats().warm_zero < 8 * MIB && t0.elapsed() < Duration::from_secs(5) {
         std::thread::sleep(Duration::from_millis(10));
     }
-    assert!(
-        stats().warm_zero >= 8 * MIB,
-        "the claimer met its target: {:?}",
-        stats()
-    );
+    assert!(stats().warm_zero >= 8 * MIB, "the claimer met its target: {:?}", stats());
     let p0 = stats().prefaulted;
     // past a hundred decays and two of the claimer's own wakes
     std::thread::sleep(Duration::from_millis(2500));
     let s = stats();
-    assert_eq!(
-        s.prefaulted, p0,
-        "an idle pool prefaults nothing again: {s:?}"
-    );
-    assert!(
-        s.warm_zero >= 8 * MIB,
-        "and keeps its warm-zero target: {s:?}"
-    );
+    assert_eq!(s.prefaulted, p0, "an idle pool prefaults nothing again: {s:?}");
+    assert!(s.warm_zero >= 8 * MIB, "and keeps its warm-zero target: {s:?}");
     stop();
 }

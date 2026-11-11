@@ -227,7 +227,7 @@ fn stat_rows(fcinfo: &Fcinfo, stats: StatRows) -> PgResult<Vec<Vec<u8>>> {
             &[w, Datum::from_i32(ndoc), Datum::from_i32(nentry)],
             &[false, false, false],
         )?;
-        rows.push(::mcx::std_vec_from_slice("adt", tuple.image())?);
+        rows.push(::mcx::std_vec_from_slice("adt",tuple.image())?);
     }
     Ok(rows)
 }

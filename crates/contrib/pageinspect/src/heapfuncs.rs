@@ -65,7 +65,7 @@ pub(crate) fn fc_heap_page_items(
         // SAFETY: the arming context outlives this call.
         let mcx = unsafe { fcinfo.result_mcx_detached() };
         // SAFETY: STRICT bytea arg.
-        let page = ::mcx::std_vec_from_slice("pageinspect", unsafe { fcinfo.arg_varlena_packed(0)? }.data())?;
+        let page = ::mcx::std_vec_from_slice("pageinspect",unsafe { fcinfo.arg_varlena_packed(0)? }.data())?;
         let b = page.as_slice();
         if b.len() < SizeOfPageHeaderData {
             return Err(param_err(format!("input page too small ({} bytes)", b.len())));

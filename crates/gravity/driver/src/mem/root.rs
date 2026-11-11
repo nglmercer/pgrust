@@ -118,7 +118,7 @@ mod tests {
     fn a_held_handle_is_the_roots_context_and_stays_put_when_the_root_moves() {
         let root = Root::new("GravityRootTest");
         let before = root.mcx().context() as *const _;
-        let moved = [root]; // alloc: Cold
+        let moved =[root]; // alloc: Cold
         // SAFETY: `h` is used only while `moved` is alive.
         let h = unsafe { moved[0].held() };
         assert_eq!(h.context() as *const _, before);

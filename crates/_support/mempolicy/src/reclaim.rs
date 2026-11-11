@@ -12,19 +12,10 @@ pub enum Rung {
 pub const RUNGS: [Rung; 3] = [Rung::Regions, Rung::Slots, Rung::Caches];
 
 /// Cheapest refill first, but the part cache before the condition cache and fp tables (after `over_goal`'s pass).
-pub const ORDER: [Consumer; 5] = [
-    Consumer::BuildPool,
-    Consumer::ZoneStore,
-    Consumer::PartCache,
-    Consumer::CondCache,
-    Consumer::FpTables,
-];
+pub const ORDER: [Consumer; 5] = [Consumer::BuildPool, Consumer::ZoneStore, Consumer::PartCache, Consumer::CondCache, Consumer::FpTables,];
 
 /// Broker (b): those with a published loss re-ranked lowest first in their own places; the rest (all, cold) keep theirs.
-pub fn by_loss<const N: usize>(
-    order: [Consumer; N],
-    loss: impl Fn(Consumer) -> Option<u64>,
-) -> [Consumer; N] {
+pub fn by_loss<const N: usize>(order: [Consumer; N], loss: impl Fn(Consumer) -> Option<u64>,) -> [Consumer; N] {
     let mut out = order;
     let (mut at, mut ranked, mut n) = ([0usize; N], [(0u64, 0usize, order[0]); N], 0);
     for (i, &c) in order.iter().enumerate() {
@@ -39,13 +30,7 @@ pub fn by_loss<const N: usize>(
     out
 }
 
-pub const CACHES: [Consumer; 5] = [
-    Consumer::FpTables,
-    Consumer::BuildPool,
-    Consumer::ZoneStore,
-    Consumer::CondCache,
-    Consumer::PartCache,
-];
+pub const CACHES: [Consumer; 5] = [Consumer::FpTables, Consumer::BuildPool, Consumer::ZoneStore, Consumer::CondCache, Consumer::PartCache,];
 
 /// D3992: the walk frees managed caches, and under the watchdog's backstop every cache, in every broker mode.
 #[inline]
@@ -62,18 +47,8 @@ pub fn over_goal(cur: u64, floor: u64, cap: u64, left: u64) -> Option<u64> {
 
 /// Never under its keep (floor with `burst`, else max(target, floor); no target: what it holds); `None`: frees nothing.
 #[inline]
-pub fn cache_goal(
-    cur: u64,
-    floor: u64,
-    target: Option<u64>,
-    burst: bool,
-    left: u64,
-) -> Option<u64> {
-    let keep = if burst {
-        floor
-    } else {
-        target.unwrap_or(cur).max(floor)
-    };
+pub fn cache_goal(cur: u64, floor: u64, target: Option<u64>, burst: bool, left: u64,) -> Option<u64> {
+    let keep = if burst { floor } else { target.unwrap_or(cur).max(floor) };
     let goal = cur.saturating_sub(left).max(keep);
     (goal < cur).then_some(goal)
 }
@@ -176,25 +151,12 @@ fn before(a: &RevokeCand, b: &RevokeCand, share: u64) -> bool {
 /// C5: who spills how much so `short` bytes come back, in `out` (the count returned): the `revocable` candidates in
 /// `before`'s order, each min(its spillable / `revoke_frac_div` from `revoke_min` on, else all of it, what is short).
 /// The caller leaves out the requester.
-pub fn revoke_asks(
-    short: u64,
-    share: u64,
-    now_ms: u64,
-    cands: &[RevokeCand],
-    out: &mut [RevokeAsk],
-) -> usize {
+pub fn revoke_asks(short: u64, share: u64, now_ms: u64, cands: &[RevokeCand], out: &mut [RevokeAsk],) -> usize {
     revoke_asks_after(short, share, now_ms, cands, out, 0)
 }
 
 /// `revoke_asks` with `out[..n0]` asked already: those candidates are left out and the asks follow them.
-fn revoke_asks_after(
-    short: u64,
-    share: u64,
-    now_ms: u64,
-    cands: &[RevokeCand],
-    out: &mut [RevokeAsk],
-    n0: usize,
-) -> usize {
+fn revoke_asks_after(short: u64, share: u64, now_ms: u64, cands: &[RevokeCand], out: &mut [RevokeAsk], n0: usize,) -> usize {
     use crate::consts::{get, K};
     let (div, min) = (get(K::RevokeFracDiv).max(1), get(K::RevokeMin));
     let (mut left, mut n) = (short, n0);
@@ -207,16 +169,8 @@ fn revoke_asks_after(
             }
         }
         let Some(c) = best else { break };
-        let bytes = (if c.spillable >= min {
-            (c.spillable / div).max(1)
-        } else {
-            c.spillable
-        })
-        .min(left);
-        out[n] = RevokeAsk {
-            slot: c.slot,
-            bytes,
-        };
+        let bytes = (if c.spillable >= min { (c.spillable / div).max(1) } else { c.spillable }).min(left);
+        out[n] = RevokeAsk { slot: c.slot, bytes, };
         left -= bytes;
         n += 1;
     }
@@ -251,34 +205,21 @@ pub fn fair_share(level: u64, floor: u64) -> u64 {
 /// the queries over their own fair share (`RevokeCand::share`), `revocable` as today, furthest over first; each asked for
 /// what is still short, never more than its part over its share nor than its spillable bytes ("give back N"; a query
 /// within its share is never asked so another can run). The caller leaves out the requester.
-pub fn revoke_asks_fair(
-    short: u64,
-    now_ms: u64,
-    cands: &[RevokeCand],
-    out: &mut [RevokeAsk],
-) -> usize {
+pub fn revoke_asks_fair(short: u64, now_ms: u64, cands: &[RevokeCand], out: &mut [RevokeAsk],) -> usize {
     let over = |c: &RevokeCand| c.held.saturating_sub(c.share);
     let (mut left, mut n) = (short, 0);
     while left != 0 && n < out.len() {
         let asked = |c: &RevokeCand| out[..n].iter().any(|a| a.slot == c.slot);
         let mut best: Option<&RevokeCand> = None;
-        for c in cands
-            .iter()
-            .filter(|c| c.share != 0 && over(c) != 0 && revocable(c, now_ms) && !asked(c))
-        {
-            if best.is_none_or(|b| {
-                (over(b), b.spillable, c.progress, c.slot)
-                    < (over(c), c.spillable, b.progress, b.slot)
+        for c in cands.iter().filter(|c| c.share != 0 && over(c) != 0 && revocable(c, now_ms) && !asked(c)) {
+            if best.is_none_or(|b| { (over(b), b.spillable, c.progress, c.slot) < (over(c), c.spillable, b.progress, b.slot)
             }) {
                 best = Some(c);
             }
         }
         let Some(c) = best else { break };
         let bytes = over(c).min(c.spillable).min(left);
-        out[n] = RevokeAsk {
-            slot: c.slot,
-            bytes,
-        };
+        out[n] = RevokeAsk { slot: c.slot, bytes, };
         left -= bytes;
         n += 1;
     }
@@ -289,13 +230,7 @@ pub fn revoke_asks_fair(
 /// to avoid a kernel kill): `revoke_asks_fair`'s asks first, then, for what is still short, today's rule (`revoke_asks`)
 /// over the queries not asked yet, within their share too. The callers are the ones that cancel next (the backstop past
 /// its share of the limit, the projection's act); the ladder's own revoke rung uses `revoke_asks_fair` alone.
-pub fn revoke_asks_fair_or_kill(
-    short: u64,
-    share: u64,
-    now_ms: u64,
-    cands: &[RevokeCand],
-    out: &mut [RevokeAsk],
-) -> usize {
+pub fn revoke_asks_fair_or_kill(short: u64, share: u64, now_ms: u64, cands: &[RevokeCand], out: &mut [RevokeAsk],) -> usize {
     let k = revoke_asks_fair(short, now_ms, cands, out);
     let asked = out[..k].iter().fold(0u64, |s, a| s.saturating_add(a.bytes));
     revoke_asks_after(short.saturating_sub(asked), share, now_ms, cands, out, k)
@@ -303,62 +238,28 @@ pub fn revoke_asks_fair_or_kill(
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        below_low, burst_want, by_loss, cache_goal, fair_level, fair_share, inline_burst_want,
-        inline_want, low_want, over_goal, revoke_asks, revoke_asks_fair, revoke_asks_fair_or_kill,
-        RevokeAsk, RevokeCand, ORDER,
-    };
+    use super::{below_low, burst_want, by_loss, cache_goal, fair_level, fair_share, inline_burst_want, inline_want, low_want, over_goal, revoke_asks, revoke_asks_fair, revoke_asks_fair_or_kill, RevokeAsk, RevokeCand, ORDER,};
     use memledger::Consumer;
 
     #[test]
     fn b2_the_walk_takes_the_lowest_published_loss_first_and_a_cold_start_keeps_order() {
-        assert_eq!(
-            by_loss(ORDER, |_| None),
-            ORDER,
-            "nothing published: the fixed order"
-        );
+        assert_eq!(by_loss(ORDER, |_| None), ORDER, "nothing published: the fixed order");
         let loss = |c| match c {
             Consumer::PartCache => Some(900),
             Consumer::CondCache => Some(5),
             Consumer::FpTables => Some(40),
             _ => None,
         };
-        let want = [
-            Consumer::BuildPool,
-            Consumer::ZoneStore,
-            Consumer::CondCache,
-            Consumer::FpTables,
-            Consumer::PartCache,
-        ];
-        assert_eq!(
-            by_loss(ORDER, loss),
-            want,
-            "the measured three re-ranked in their own places; the build pool and zone store stay"
-        );
+        let want = [Consumer::BuildPool, Consumer::ZoneStore, Consumer::CondCache, Consumer::FpTables, Consumer::PartCache,];
+        assert_eq!(by_loss(ORDER, loss), want, "the measured three re-ranked in their own places; the build pool and zone store stay");
     }
 
     #[test]
     fn a_cache_past_its_setting_goes_first() {
-        assert_eq!(
-            over_goal(3000, 100, 1290, 1500),
-            Some(1500),
-            "what is asked, of its excess"
-        );
-        assert_eq!(
-            over_goal(3000, 100, 1290, 9000),
-            Some(1290),
-            "never under its setting in this pass"
-        );
-        assert_eq!(
-            over_goal(3000, 2000, 1290, 9000),
-            Some(2000),
-            "nor its floor"
-        );
-        assert_eq!(
-            (over_goal(1024, 0, 1024, 500), over_goal(5, 0, 9, 5)),
-            (None, None),
-            "at or under its setting: none"
-        );
+        assert_eq!(over_goal(3000, 100, 1290, 1500), Some(1500), "what is asked, of its excess");
+        assert_eq!(over_goal(3000, 100, 1290, 9000), Some(1290), "never under its setting in this pass");
+        assert_eq!(over_goal(3000, 2000, 1290, 9000), Some(2000), "nor its floor");
+        assert_eq!((over_goal(1024, 0, 1024, 500), over_goal(5, 0, 9, 5)), (None, None), "at or under its setting: none");
         let pos = |c| super::ORDER.iter().position(|o| *o == c);
         assert!(pos(memledger::Consumer::PartCache) < pos(memledger::Consumer::CondCache));
         assert!(pos(memledger::Consumer::PartCache) < pos(memledger::Consumer::FpTables));
@@ -366,57 +267,22 @@ mod tests {
 
     #[test]
     fn the_reclaimer_asks_as_before() {
-        assert_eq!(
-            cache_goal(100, 10, Some(40), false, 1000),
-            Some(40),
-            "down to its target"
-        );
-        assert_eq!(
-            cache_goal(100, 50, Some(40), false, 1000),
-            Some(50),
-            "never under its floor"
-        );
-        assert_eq!(
-            cache_goal(100, 10, Some(40), true, 1000),
-            Some(10),
-            "burst: down to its floor"
-        );
-        assert_eq!(
-            cache_goal(100, 10, None, false, 1000),
-            None,
-            "no target yet: it keeps what it holds"
-        );
-        assert_eq!(
-            cache_goal(100, 10, Some(40), false, 30),
-            Some(70),
-            "only what is still wanted"
-        );
+        assert_eq!(cache_goal(100, 10, Some(40), false, 1000), Some(40), "down to its target");
+        assert_eq!(cache_goal(100, 50, Some(40), false, 1000), Some(50), "never under its floor");
+        assert_eq!(cache_goal(100, 10, Some(40), true, 1000), Some(10), "burst: down to its floor");
+        assert_eq!(cache_goal(100, 10, None, false, 1000), None, "no target yet: it keeps what it holds");
+        assert_eq!(cache_goal(100, 10, Some(40), false, 30), Some(70), "only what is still wanted");
         assert!(below_low(9, 10) && !below_low(10, 10));
         assert_eq!((low_want(3, 10), low_want(30, 10)), (7, 0));
         assert_eq!((burst_want(10, 11), burst_want(10, 10)), (Some(1), None));
-        assert_eq!(
-            (inline_want(5, 10, 100), inline_want(95, 10, 100)),
-            (15, 100)
-        );
-        assert_eq!(
-            (
-                inline_burst_want(10, 4, 3),
-                inline_burst_want(10, 10, 3),
-                inline_burst_want(10, 4, 0)
-            ),
-            (Some(3), None, None)
-        );
+        assert_eq!((inline_want(5, 10, 100), inline_want(95, 10, 100)), (15, 100));
+        assert_eq!((inline_burst_want(10, 4, 3), inline_burst_want(10, 10, 3), inline_burst_want(10, 4, 0)), (Some(3), None, None));
     }
 
     const MIB: u64 = 1 << 20;
 
     fn cand(slot: usize, spillable: u64, held: u64) -> RevokeCand {
-        RevokeCand {
-            slot,
-            spillable,
-            held,
-            ..RevokeCand::default()
-        }
+        RevokeCand { slot, spillable, held, ..RevokeCand::default() }
     }
 
     #[test]
@@ -425,91 +291,27 @@ mod tests {
         crate::consts::reset();
         let mut out = [RevokeAsk::default(); 4];
         let share = 1024 * MIB;
-        let cands = [
-            cand(1, 400 * MIB, 1500 * MIB),
-            cand(2, 800 * MIB, 3000 * MIB),
-            cand(3, 600 * MIB, 900 * MIB),
-        ];
+        let cands = [cand(1, 400 * MIB, 1500 * MIB), cand(2, 800 * MIB, 3000 * MIB), cand(3, 600 * MIB, 900 * MIB),];
         let n = revoke_asks(500 * MIB, share, 10_000, &cands, &mut out);
-        assert_eq!(
-            &out[..n],
-            &[
-                RevokeAsk {
-                    slot: 2,
-                    bytes: 400 * MIB
-                },
-                RevokeAsk {
-                    slot: 1,
-                    bytes: 100 * MIB
-                }
-            ],
-            "furthest over its share first, half its spillable, then only the rest"
-        );
+        assert_eq!(&out[..n], &[RevokeAsk { slot: 2, bytes: 400 * MIB }, RevokeAsk { slot: 1, bytes: 100 * MIB }], "furthest over its share first, half its spillable, then only the rest");
         let n = revoke_asks(10_000 * MIB, share, 10_000, &cands, &mut out);
         assert_eq!(n, 3, "every candidate once");
-        assert_eq!(
-            out[2],
-            RevokeAsk {
-                slot: 3,
-                bytes: 300 * MIB
-            },
-            "under its share: last"
-        );
-        assert_eq!(
-            revoke_asks(0, share, 10_000, &cands, &mut out),
-            0,
-            "nothing short: no ask"
-        );
-        assert_eq!(
-            revoke_asks(MIB, share, 10_000, &cands, &mut []),
-            0,
-            "no room for an ask"
-        );
+        assert_eq!(out[2], RevokeAsk { slot: 3, bytes: 300 * MIB }, "under its share: last");
+        assert_eq!(revoke_asks(0, share, 10_000, &cands, &mut out), 0, "nothing short: no ask");
+        assert_eq!(revoke_asks(MIB, share, 10_000, &cands, &mut []), 0, "no room for an ask");
         let never = [
             cand(4, 4 * MIB - 1, 4000 * MIB),
-            RevokeCand {
-                waiting: true,
-                ..cand(5, 900 * MIB, 4000 * MIB)
-            },
-            RevokeCand {
-                revoked_ms: 9_000,
-                revokes: 1,
-                ..cand(6, 900 * MIB, 4000 * MIB)
-            },
-            RevokeCand {
-                revoked_ms: 1,
-                revokes: 3,
-                ..cand(7, 900 * MIB, 4000 * MIB)
-            },
-            RevokeCand {
-                progress: 900,
-                ..cand(8, 900 * MIB, 4000 * MIB)
-            },
+            RevokeCand { waiting: true, ..cand(5, 900 * MIB, 4000 * MIB) },
+            RevokeCand { revoked_ms: 9_000, revokes: 1, ..cand(6, 900 * MIB, 4000 * MIB) },
+            RevokeCand { revoked_ms: 1, revokes: 3, ..cand(7, 900 * MIB, 4000 * MIB) },
+            RevokeCand { progress: 900, ..cand(8, 900 * MIB, 4000 * MIB) },
         ];
-        assert_eq!(
-            revoke_asks(10_000 * MIB, share, 10_000, &never, &mut out),
-            0,
-            "under revoke_floor, waiting, quiet, past revoke_max, nearly done"
-        );
-        let quiet_over = [RevokeCand {
-            revoked_ms: 7_000,
-            revokes: 1,
-            ..cand(6, 900 * MIB, 4000 * MIB)
-        }];
-        assert_eq!(
-            revoke_asks(MIB, share, 10_000, &quiet_over, &mut out),
-            1,
-            "asked again once revoke_quiet_ms passed"
-        );
-        let tie = [
-            cand(9, 200 * MIB, 2000 * MIB),
-            cand(10, 600 * MIB, 2000 * MIB),
-        ];
+        assert_eq!(revoke_asks(10_000 * MIB, share, 10_000, &never, &mut out), 0, "under revoke_floor, waiting, quiet, past revoke_max, nearly done");
+        let quiet_over = [RevokeCand { revoked_ms: 7_000, revokes: 1, ..cand(6, 900 * MIB, 4000 * MIB) }];
+        assert_eq!(revoke_asks(MIB, share, 10_000, &quiet_over, &mut out), 1, "asked again once revoke_quiet_ms passed");
+        let tie = [cand(9, 200 * MIB, 2000 * MIB), cand(10, 600 * MIB, 2000 * MIB),];
         assert_eq!(revoke_asks(MIB, share, 10_000, &tie, &mut out), 1);
-        assert_eq!(
-            out[0].slot, 10,
-            "equally over: the larger spillable (cheaper per byte)"
-        );
+        assert_eq!(out[0].slot, 10, "equally over: the larger spillable (cheaper per byte)");
     }
 
     /// D4314 (b): only a kind whose cut gives pages back is a revoke candidate: the phase-1 hash aggregate and (D4265) the
@@ -517,25 +319,13 @@ mod tests {
     #[test]
     fn d4314_only_a_breaker_whose_cut_gives_pages_back_is_asked() {
         use super::{cut_gives_back, CutKind::*};
-        assert!(
-            cut_gives_back(HashAggT1),
-            "the phase-1 hash aggregate gives its pool's growth back at its scatter"
-        );
-        assert!(
-            cut_gives_back(HashBuild),
-            "D4265: a cut kind-7 build spills down to its opened length and gives the rest back"
-        );
-        assert!(
-            !cut_gives_back(Sort),
-            "a cut sort keeps its region's pages: not asked"
-        );
+        assert!(cut_gives_back(HashAggT1), "the phase-1 hash aggregate gives its pool's growth back at its scatter");
+        assert!(cut_gives_back(HashBuild), "D4265: a cut kind-7 build spills down to its opened length and gives the rest back");
+        assert!(!cut_gives_back(Sort), "a cut sort keeps its region's pages: not asked");
         // D4314 (b), narrowed after D4265: the kinds that still keep their pages when cut offer nothing, nor does a region
         // whose table is not laid out yet (Other: its bytes are noted once its kind is known)
         for k in [HashAgg, Owned, Other] {
-            assert!(
-                !cut_gives_back(k),
-                "{k:?}: its cut gives nothing back: not asked"
-            );
+            assert!(!cut_gives_back(k), "{k:?}: its cut gives nothing back: not asked");
         }
     }
 
@@ -549,88 +339,28 @@ mod tests {
         let at = |slot, mib: u64| cand(slot, mib * MIB, mib * MIB);
         let cands = [at(1, 32), at(2, 32), at(3, 12), at(4, 2)];
         let n = revoke_asks(100 * MIB, 0, 10_000, &cands, &mut out);
-        let want = [
-            RevokeAsk {
-                slot: 1,
-                bytes: 32 * MIB,
-            },
-            RevokeAsk {
-                slot: 2,
-                bytes: 32 * MIB,
-            },
-            RevokeAsk {
-                slot: 3,
-                bytes: 12 * MIB,
-            },
-        ];
-        assert_eq!(
-            &out[..n],
-            &want,
-            "largest first, each its whole spillable; the 2 MiB one is under revoke_floor"
-        );
+        let want = [RevokeAsk { slot: 1, bytes: 32 * MIB, }, RevokeAsk { slot: 2, bytes: 32 * MIB, }, RevokeAsk { slot: 3, bytes: 12 * MIB, },];
+        assert_eq!(&out[..n], &want, "largest first, each its whole spillable; the 2 MiB one is under revoke_floor");
         assert_eq!(out[..n].iter().map(|a| a.bytes).sum::<u64>(), 76 * MIB);
         let n = revoke_asks(40 * MIB, 0, 10_000, &cands, &mut out);
-        assert_eq!(
-            &out[..n],
-            &[
-                RevokeAsk {
-                    slot: 1,
-                    bytes: 32 * MIB
-                },
-                RevokeAsk {
-                    slot: 2,
-                    bytes: 8 * MIB
-                }
-            ],
-            "only what is still short"
-        );
+        assert_eq!(&out[..n], &[RevokeAsk { slot: 1, bytes: 32 * MIB }, RevokeAsk { slot: 2, bytes: 8 * MIB }], "only what is still short");
         let n = revoke_asks(1000 * MIB, 0, 10_000, &[at(5, 200)], &mut out);
-        assert_eq!(
-            &out[..n],
-            &[RevokeAsk {
-                slot: 5,
-                bytes: 100 * MIB
-            }],
-            "from revoke_min on: spillable / revoke_frac_div"
-        );
+        assert_eq!(&out[..n], &[RevokeAsk { slot: 5, bytes: 100 * MIB }], "from revoke_min on: spillable / revoke_frac_div");
         let floor = [cand(6, 4 * MIB, 4 * MIB), cand(7, 4 * MIB - 1, 4 * MIB)];
         let n = revoke_asks(100 * MIB, 0, 10_000, &floor, &mut out);
-        assert_eq!(
-            &out[..n],
-            &[RevokeAsk {
-                slot: 6,
-                bytes: 4 * MIB
-            }],
-            "revoke_floor is asked, a byte under it is not"
-        );
+        assert_eq!(&out[..n], &[RevokeAsk { slot: 6, bytes: 4 * MIB }], "revoke_floor is asked, a byte under it is not");
     }
 
     /// Ladder 1.3: the max-min level: the small queries keep what they hold, the big ones split the rest evenly; all fit,
     /// no level; the work_mem floor.
     #[test]
     fn ladder13_the_max_min_level_keeps_the_small_and_splits_the_rest() {
-        assert_eq!(
-            fair_level(&mut [100, 200, 300], 600),
-            u64::MAX,
-            "all fit: no level"
-        );
+        assert_eq!(fair_level(&mut [100, 200, 300], 600), u64::MAX, "all fit: no level");
         assert_eq!(fair_level(&mut [], 600), u64::MAX);
-        assert_eq!(
-            fair_level(&mut [900, 100, 2000], 1000),
-            450,
-            "100 keeps its 100; 900 and 2000 split the 900 left"
-        );
-        assert_eq!(
-            fair_level(&mut [500, 500, 500], 900),
-            300,
-            "equal: an equal split"
-        );
+        assert_eq!(fair_level(&mut [900, 100, 2000], 1000), 450, "100 keeps its 100; 900 and 2000 split the 900 left");
+        assert_eq!(fair_level(&mut [500, 500, 500], 900), 300, "equal: an equal split");
         assert_eq!(fair_level(&mut [10, 20, 5000, 6000], 1030), 500);
-        assert_eq!(
-            (fair_share(450, 64), fair_share(10, 64)),
-            (450, 64),
-            "never under work_mem"
-        );
+        assert_eq!((fair_share(450, 64), fair_share(10, 64)), (450, 64), "never under work_mem");
     }
 
     /// Ladder 1.3-1.4: only the queries over their own share are asked, furthest over first, each for what is short and
@@ -640,85 +370,32 @@ mod tests {
         let _one = pgsync::lock(&crate::consts::TEST_LOCK);
         crate::consts::reset();
         let mut out = [RevokeAsk::default(); 16];
-        let fair = |slot, spill: u64, held: u64, share: u64| RevokeCand {
-            share: share * MIB,
-            ..cand(slot, spill * MIB, held * MIB)
-        };
+        let fair = |slot, spill: u64, held: u64, share: u64| RevokeCand { share: share * MIB, ..cand(slot, spill * MIB, held * MIB) };
         let cands = [
             fair(1, 500, 900, 400),
             fair(2, 800, 1200, 400),
             fair(3, 300, 300, 400),
-            RevokeCand {
-                waiting: true,
-                ..fair(4, 2000, 3000, 400)
-            },
+            RevokeCand { waiting: true, ..fair(4, 2000, 3000, 400) },
             fair(5, 100, 700, 400),
         ];
         let n = revoke_asks_fair(2000 * MIB, 10_000, &cands, &mut out);
-        let want = [
-            RevokeAsk {
-                slot: 2,
-                bytes: 800 * MIB,
-            },
-            RevokeAsk {
-                slot: 1,
-                bytes: 500 * MIB,
-            },
-            RevokeAsk {
-                slot: 5,
-                bytes: 100 * MIB,
-            },
-        ];
-        assert_eq!(
-            &out[..n],
-            &want,
-            "over share only, furthest first; each its part over its share, at most its spillable"
-        );
+        let want = [RevokeAsk { slot: 2, bytes: 800 * MIB, }, RevokeAsk { slot: 1, bytes: 500 * MIB, }, RevokeAsk { slot: 5, bytes: 100 * MIB, },];
+        assert_eq!(&out[..n], &want, "over share only, furthest first; each its part over its share, at most its spillable");
         let n = revoke_asks_fair(600 * MIB, 10_000, &cands, &mut out);
-        assert_eq!(
-            &out[..n],
-            &[RevokeAsk {
-                slot: 2,
-                bytes: 600 * MIB
-            }],
-            "only what is still short"
-        );
+        assert_eq!(&out[..n], &[RevokeAsk { slot: 2, bytes: 600 * MIB }], "only what is still short");
         let n = revoke_asks_fair(600 * MIB, 10_000, &[fair(6, 900, 900, 0)], &mut out);
         assert_eq!(n, 0, "no share set: none");
         // kill-avoidance: the over-share asks, then today's rule for the rest over the others, within their share too
         // (3: 300 spillable, half of it; never the waiter); the over-share ones are not asked twice
         let n = revoke_asks_fair_or_kill(1600 * MIB, 0, 10_000, &cands, &mut out);
         let want = [
-            RevokeAsk {
-                slot: 2,
-                bytes: 800 * MIB,
-            },
-            RevokeAsk {
-                slot: 1,
-                bytes: 500 * MIB,
-            },
-            RevokeAsk {
-                slot: 5,
-                bytes: 100 * MIB,
-            },
-            RevokeAsk {
-                slot: 3,
-                bytes: 150 * MIB,
-            },
+            RevokeAsk { slot: 2, bytes: 800 * MIB, },
+            RevokeAsk { slot: 1, bytes: 500 * MIB, },
+            RevokeAsk { slot: 5, bytes: 100 * MIB, },
+            RevokeAsk { slot: 3, bytes: 150 * MIB, },
         ];
-        assert_eq!(
-            &out[..n],
-            &want,
-            "over share first, then within its share for what is short"
-        );
+        assert_eq!(&out[..n], &want, "over share first, then within its share for what is short");
         let n = revoke_asks_fair_or_kill(600 * MIB, 0, 10_000, &cands, &mut out);
-        assert_eq!(
-            &out[..n],
-            &[RevokeAsk {
-                slot: 2,
-                bytes: 600 * MIB
-            }],
-            "the over-share asks cover it: no one within its share"
-        );
+        assert_eq!(&out[..n], &[RevokeAsk { slot: 2, bytes: 600 * MIB }], "the over-share asks cover it: no one within its share");
     }
 }

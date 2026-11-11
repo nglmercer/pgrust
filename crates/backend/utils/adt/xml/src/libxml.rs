@@ -1,5 +1,4 @@
-#![allow(clippy::missing_transmute_annotations)]
-//! dlopen/dlsym binding to the system libxml2, resolved once (ICU-lane
+#![allow(clippy::missing_transmute_annotations)]//! dlopen/dlsym binding to the system libxml2, resolved once (ICU-lane
 //! precedent: no build-time dep; pods only guarantee the runtime .so).
 //! Unloadable/missing symbol = loud panic, never a no-libxml fallback.
 

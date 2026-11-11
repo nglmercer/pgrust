@@ -259,11 +259,7 @@ impl TsmState {
 
     /// `NextSampleBlock`; `donetuples` = scan's returned count. Bernoulli
     /// has none.
-    pub fn next_sample_block(
-        &mut self,
-        nblocks: BlockNumber,
-        donetuples: i64,
-    ) -> PgResult<BlockNumber> {
+    pub fn next_sample_block(&mut self, nblocks: BlockNumber, donetuples: i64,) -> PgResult<BlockNumber> {
         Ok(match self {
             TsmState::Bernoulli(_) => {
                 panic!("NextSampleBlock called on a TSM without one (tsmapi.h)")
@@ -299,11 +295,8 @@ impl TsmState {
     ) -> OffsetNumber {
         match self {
             TsmState::Bernoulli(s) => {
-                let mut tupoffset = if s.lt == InvalidOffsetNumber {
-                    FirstOffsetNumber
-                } else {
-                    s.lt + 1
-                };
+                let mut tupoffset =
+                    if s.lt == InvalidOffsetNumber { FirstOffsetNumber } else { s.lt + 1 };
                 while tupoffset <= maxoffset {
                     let hash = hash_u32s(&[blockno, tupoffset as u32, s.seed]);
                     if (hash as u64) < s.cutoff {
@@ -318,11 +311,8 @@ impl TsmState {
                 tupoffset
             }
             TsmState::System(s) => {
-                let mut tupoffset = if s.lt == InvalidOffsetNumber {
-                    FirstOffsetNumber
-                } else {
-                    s.lt + 1
-                };
+                let mut tupoffset =
+                    if s.lt == InvalidOffsetNumber { FirstOffsetNumber } else { s.lt + 1 };
                 if tupoffset > maxoffset {
                     tupoffset = InvalidOffsetNumber;
                 }
@@ -338,8 +328,7 @@ impl TsmState {
 impl TsmState {
     pub fn picks(&self, blockno: BlockNumber, offset: OffsetNumber) -> Option<bool> {
         match self {
-            TsmState::Bernoulli(s) => {
-                Some((hash_u32s(&[blockno, offset as u32, s.seed]) as u64) < s.cutoff)
+            TsmState::Bernoulli(s) => { Some((hash_u32s(&[blockno, offset as u32, s.seed]) as u64) < s.cutoff)
             }
             TsmState::System(s) => Some((hash_u32s(&[blockno, s.seed]) as u64) < s.cutoff),
             _ => None,
@@ -361,11 +350,7 @@ impl tableam_vocab::SampleScanDriver for TsmState {
     fn has_next_sample_block(&self) -> bool {
         TsmState::has_next_sample_block(self)
     }
-    fn next_sample_block(
-        &mut self,
-        nblocks: BlockNumber,
-        donetuples: i64,
-    ) -> PgResult<BlockNumber> {
+    fn next_sample_block(&mut self, nblocks: BlockNumber, donetuples: i64,) -> PgResult<BlockNumber> {
         TsmState::next_sample_block(self, nblocks, donetuples)
     }
     fn next_sample_tuple(
@@ -411,12 +396,7 @@ fn not_a_tsm_routine(tsmhandler: Oid) -> Box<PgError> {
 mcx::forget_safe_nodrop!(Tsm);
 mcx::forget_safe_struct!(
     BernoulliSampler { cutoff, seed, lt },
-    SystemSampler {
-        cutoff,
-        seed,
-        nextblock,
-        lt
-    },
+    SystemSampler { cutoff, seed, nextblock, lt },
 );
 mcx::forget_safe_nodrop!(TsmState);
 
@@ -430,3 +410,4 @@ mod builtin_tests {
         fmgr_core::assert_rows_match_canonical(crate::TABLESAMPLE_BUILTINS);
     }
 }
+

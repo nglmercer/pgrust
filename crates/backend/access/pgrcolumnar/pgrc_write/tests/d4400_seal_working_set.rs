@@ -90,46 +90,19 @@ fn a_seal_holds_at_most_one_columns_distinct_set() {
         }
     }
     let cols_bytes: u64 = roots.iter().map(|c| c.held_bytes()).sum();
-    let mut builders: Vec<Box<dyn ColumnMetaBuilder>> =
-        pgrc_write::meta_wire::builders_for_streams(&roots, &[], &[]);
+    let mut builders: Vec<Box<dyn ColumnMetaBuilder>> = pgrc_write::meta_wire::builders_for_streams(&roots, &[], &[]);
     let mut vfs = mem_with_dir();
-    let spec = PartSpec {
-        spc: SPC,
-        db: DB,
-        relfilenumber: RELFILENUMBER,
-        schema_fingerprint: 0x4400,
-    };
+    let spec = PartSpec { spc: SPC, db: DB, relfilenumber: RELFILENUMBER, schema_fingerprint: 0x4400, };
     // the codec election and resolver a COPY's seal runs (pgrc_am ingest: CodecCandidates, CodecResolver)
-    let cands = CodecCandidates::new(ColumnPosture {
-        fused: false,
-        cold: true,
-        numeric: false,
-        dict: None,
-    });
+    let cands = CodecCandidates::new(ColumnPosture { fused: false, cold: true, numeric: false, dict: None, });
     let sources: [&dyn CandidateSource; 1] = [&cands];
     let base = LIVE.with(|l| l.get());
     PEAK.with(|p| p.set(base));
-    let (sealed, _) = seal_part(
-        &mut vfs,
-        DIR,
-        &spec,
-        &roots,
-        &[],
-        &[],
-        &mut builders,
-        &sources,
-        &CodecResolver,
-        &StructuralPolicy::default(),
-        4400,
-        0,
-    )
-    .expect("seal");
+    let (sealed, _) = seal_part(&mut vfs, DIR, &spec, &roots, &[], &[], &mut builders, &sources, &CodecResolver, &StructuralPolicy::default(), 4400, 0,)
+        .expect("seal");
     let above = (PEAK.with(|p| p.get()) - base).max(0) as u64;
     let room = cols_bytes * (pgrc_write::par::SEAL_X_LADDER - 1);
-    eprintln!(
-        "d4400: past the inputs {above} B, room {room} B, columns {cols_bytes} B, part file {} B",
-        sealed.file_len
-    );
+    eprintln!("d4400: past the inputs {above} B, room {room} B, columns {cols_bytes} B, part file {} B", sealed.file_len);
     assert!(sealed.rows == ROWS && sealed.file_len != 0);
     assert!(
         above <= room,
@@ -154,15 +127,8 @@ fn mix(x: u64) -> u64 {
 fn real_dir(real: &mut RealVfs) -> String {
     let base = std::env::temp_dir().join(format!("pgrc_d4409_{}", std::process::id()));
     let mut path = String::new();
-    for part in [
-        base.to_str().expect("utf8 temp dir").to_string(),
-        "pgrc_777".to_string(),
-    ] {
-        path = if path.is_empty() {
-            part
-        } else {
-            format!("{path}/{part}")
-        };
+    for part in [base.to_str().expect("utf8 temp dir").to_string(), "pgrc_777".to_string(),] {
+        path = if path.is_empty() { part } else { format!("{path}/{part}") };
         if !real.exists_path(&path).expect("exists") {
             real.mkdir_path(&path).expect("mkdir");
         }
@@ -184,47 +150,20 @@ fn an_incompressible_parts_image_stays_within_the_seal_charge() {
         }
     }
     let cols_bytes: u64 = roots.iter().map(|c| c.held_bytes()).sum();
-    let mut builders: Vec<Box<dyn ColumnMetaBuilder>> =
-        pgrc_write::meta_wire::builders_for_streams(&roots, &[], &[]);
+    let mut builders: Vec<Box<dyn ColumnMetaBuilder>> = pgrc_write::meta_wire::builders_for_streams(&roots, &[], &[]);
     let mut vfs = RealVfs;
     let dir = real_dir(&mut vfs);
-    let spec = PartSpec {
-        spc: SPC,
-        db: DB,
-        relfilenumber: RELFILENUMBER,
-        schema_fingerprint: 0x4409,
-    };
+    let spec = PartSpec { spc: SPC, db: DB, relfilenumber: RELFILENUMBER, schema_fingerprint: 0x4409, };
     // the codec election and resolver a COPY's seal runs (pgrc_am ingest: CodecCandidates, CodecResolver)
-    let cands = CodecCandidates::new(ColumnPosture {
-        fused: false,
-        cold: true,
-        numeric: false,
-        dict: None,
-    });
+    let cands = CodecCandidates::new(ColumnPosture { fused: false, cold: true, numeric: false, dict: None, });
     let sources: [&dyn CandidateSource; 1] = [&cands];
     let base = LIVE.with(|l| l.get());
     PEAK.with(|p| p.set(base));
-    let (sealed, _) = seal_part(
-        &mut vfs,
-        &dir,
-        &spec,
-        &roots,
-        &[],
-        &[],
-        &mut builders,
-        &sources,
-        &CodecResolver,
-        &StructuralPolicy::default(),
-        4400,
-        0,
-    )
-    .expect("seal");
+    let (sealed, _) = seal_part(&mut vfs, &dir, &spec, &roots, &[], &[], &mut builders, &sources, &CodecResolver, &StructuralPolicy::default(), 4400, 0,)
+        .expect("seal");
     let above = (PEAK.with(|p| p.get()) - base).max(0) as u64;
     let room = cols_bytes * (pgrc_write::par::SEAL_X_LADDER - 1);
-    eprintln!(
-        "d4400: past the inputs {above} B, room {room} B, columns {cols_bytes} B, part file {} B",
-        sealed.file_len
-    );
+    eprintln!("d4400: past the inputs {above} B, room {room} B, columns {cols_bytes} B, part file {} B", sealed.file_len);
     assert!(sealed.rows == ROWS && sealed.file_len != 0);
     assert!(
         above <= room,
@@ -248,47 +187,22 @@ fn a_wide_text_columns_seal_holds_one_band_of_its_sections() {
     const TEXT_ROWS: u64 = 8 * pgrc_format::geom::BAND_ROWS as u64;
     let mut col = ColBuffer::new(text_col(1));
     for i in 0..TEXT_ROWS {
-        col.append_varlena_payload(format!("{}{}", "p".repeat(110), i % 1000).as_bytes())
-            .expect("text");
+        col.append_varlena_payload(format!("{}{}", "p".repeat(110), i % 1000).as_bytes()).expect("text");
     }
     let roots = vec![col];
     // the charge's base: the part's normalized bytes (the writer's buffered_bytes, approx_bytes), not the column's
     // capacity, which a text heap's doubling leaves up to twice its length
     let cols_bytes: u64 = roots.iter().map(|c| c.approx_bytes()).sum();
-    let mut builders: Vec<Box<dyn ColumnMetaBuilder>> =
-        pgrc_write::meta_wire::builders_for_streams(&roots, &[], &[]);
+    let mut builders: Vec<Box<dyn ColumnMetaBuilder>> = pgrc_write::meta_wire::builders_for_streams(&roots, &[], &[]);
     let mut vfs = RealVfs;
     let dir = real_dir(&mut vfs);
-    let spec = PartSpec {
-        spc: SPC,
-        db: DB,
-        relfilenumber: RELFILENUMBER,
-        schema_fingerprint: 0x4409,
-    };
-    let cands = CodecCandidates::new(ColumnPosture {
-        fused: false,
-        cold: true,
-        numeric: false,
-        dict: None,
-    });
+    let spec = PartSpec { spc: SPC, db: DB, relfilenumber: RELFILENUMBER, schema_fingerprint: 0x4409, };
+    let cands = CodecCandidates::new(ColumnPosture { fused: false, cold: true, numeric: false, dict: None, });
     let sources: [&dyn CandidateSource; 1] = [&cands];
     let base = LIVE.with(|l| l.get());
     PEAK.with(|p| p.set(base));
-    let (sealed, _) = seal_part(
-        &mut vfs,
-        &dir,
-        &spec,
-        &roots,
-        &[],
-        &[],
-        &mut builders,
-        &sources,
-        &CodecResolver,
-        &StructuralPolicy::default(),
-        4409,
-        1,
-    )
-    .expect("seal");
+    let (sealed, _) = seal_part(&mut vfs, &dir, &spec, &roots, &[], &[], &mut builders, &sources, &CodecResolver, &StructuralPolicy::default(), 4409, 1,)
+        .expect("seal");
     let above = (PEAK.with(|p| p.get()) - base).max(0) as u64;
     let room = cols_bytes * (pgrc_write::par::SEAL_X_LADDER - 2) + sealed.file_len;
     eprintln!("d4400: past the inputs {above} B, transients' room {room} B, columns {cols_bytes} B, part file {} B", sealed.file_len);

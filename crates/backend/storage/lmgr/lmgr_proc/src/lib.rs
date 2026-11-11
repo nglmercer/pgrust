@@ -1,5 +1,4 @@
-#![allow(non_snake_case)]
-#![allow(non_upper_case_globals)]
+#![allow(non_snake_case, non_upper_case_globals)]
 
 pub mod connqueue;
 pub mod globals;
@@ -345,7 +344,7 @@ pub fn InitProcGlobal(cfg: &ProcGlobalConfig) {
             + NUM_SPECIAL_WORKER_PROCS
     );
     let groups = cfg.fastpath_lock_groups_per_backend;
-    assert!((1..=FP_LOCK_GROUPS_PER_BACKEND_MAX).contains(&groups));
+    assert!(( 1..= FP_LOCK_GROUPS_PER_BACKEND_MAX).contains(&groups));
 
     let total = max_backends + g::NumAuxiliaryProcs() + cfg.max_prepared_xacts;
     let slots_per_backend = groups * FP_LOCK_SLOTS_PER_GROUP;
@@ -1807,8 +1806,8 @@ pub fn init_seams() {
             })
         }
     });
-    s::pg_semaphore_lock::set(pg_sema_seams::pg_semaphore_lock::call);
-    s::pg_semaphore_unlock::set(pg_sema_seams::pg_semaphore_unlock::call);
+    s::pg_semaphore_lock::set( pg_sema_seams::pg_semaphore_lock::call);
+    s::pg_semaphore_unlock::set( pg_sema_seams::pg_semaphore_unlock::call);
 
     use guc_tables::{vars, GucVarAccessors};
     macro_rules! install_var {

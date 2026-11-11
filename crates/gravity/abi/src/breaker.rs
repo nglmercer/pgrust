@@ -569,7 +569,7 @@ impl WideLayout {
 /// The validity region's bytes for `nslots` slots: the valid bits (bit `j` at byte `j / 8`), the `null_seen`
 /// byte after them, rounded to a word — 8 bytes through 8 slots (the 8-key tier's word), 16 through 56, …
 pub const fn validity_bytes(nslots: usize) -> u32 {
-    ((nslots.div_ceil(8) + 1).div_ceil(8) * 8) as u32
+    ((nslots.div_ceil( 8) + 1).div_ceil( 8) * 8) as u32
 }
 
 /// The first `Count` slot: `new` / `new_nn`'s sentinel rule.
@@ -962,7 +962,7 @@ impl RecordLayout {
     /// The `null_seen` byte: after the valid bits (byte 1 of the 8-key tier's word).
     #[inline(always)]
     pub const fn null_seen_off(&self) -> usize {
-        self.valid_off() as usize + self.nslots().div_ceil(8)
+        self.valid_off() as usize +self.nslots().div_ceil( 8)
     }
 }
 
@@ -2444,7 +2444,7 @@ impl HashAgg {
     pub fn sort_dense_by_words(&mut self, g: usize) {
         let rec = self.layout.size() as usize;
         debug_assert!(8 * g <= rec, "the order's words lie in the record");
-        if !rec.is_multiple_of(8) || rec > 128 || !(self.base() as usize).is_multiple_of(8) {
+        if ! rec.is_multiple_of( 8) || rec > 128 || !( self.base() as usize).is_multiple_of( 8) {
             // SAFETY (the closure): each pointer is a live record of `rec >= 8 * g` bytes.
             let words = |p: *const u8| unsafe { core::slice::from_raw_parts(p as *const u64, g) };
             return self.sort_dense_by(&mut |a, b| words(a) < words(b));
@@ -2769,8 +2769,8 @@ pub unsafe fn img_lay(p: *mut u8, size: usize) -> [u64; 3] {
 /// 8-aligned bytes that live as long as the cursor's images.
 #[inline]
 pub unsafe fn img_bump(w: *mut u64, need: usize, pin: impl FnOnce(u64) -> *mut u8) -> *mut u8 {
-    debug_assert!(need.is_multiple_of(8), "an image's bytes are whole words");
-    if (*w == 0 || *w.add(1) - *w < need as u64)
+    debug_assert!(need.is_multiple_of( 8), "an image's bytes are whole words");
+    if ( *w == 0 || *w.add(1) - *w < need as u64)
         && !img_next_chunk(w, need, pin) {
             return core::ptr::null_mut();
         }
@@ -3567,7 +3567,7 @@ impl T1 {
     /// `this` is a live table, no appender open.
     pub unsafe fn shrink_pool(this: *mut T1, bytes: u64) -> bool {
         let bb = (*this).block_bytes as u64;
-        if (*this).flags & T1_RESERVED == 0 || bb == 0 || bytes == 0 || !bytes.is_multiple_of(bb) || (*this).buffered != 0 || (*this).next_block != 0 || (*this).len != 0 {
+        if (*this).flags & T1_RESERVED == 0 || bb == 0 || bytes == 0 || ! bytes.is_multiple_of( bb) || (*this).buffered != 0 || (*this).next_block != 0 || (*this).len != 0 {
             return false;
         }
         let less = bytes / bb;

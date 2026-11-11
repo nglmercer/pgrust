@@ -17,12 +17,8 @@ pub(crate) fn TwoPhaseStateLock() -> &'static lwlock::LWLock {
 }
 
 pub(crate) fn lock_twophase_state(mode: lwlock::LWLockMode) {
-    lwlock::LWLockAcquire(
-        TwoPhaseStateLock(),
-        mode,
-        init_small::globals::MyProcNumber(),
-    )
-    .expect("TwoPhaseStateLock acquire");
+    lwlock::LWLockAcquire(TwoPhaseStateLock(), mode, init_small::globals::MyProcNumber(),)
+        .expect("TwoPhaseStateLock acquire");
 }
 
 pub(crate) fn unlock_twophase_state() {
@@ -37,10 +33,7 @@ pub(crate) struct GidBuf {
 
 impl GidBuf {
     const fn empty() -> Self {
-        GidBuf {
-            len: 0,
-            buf: [0; GIDSIZE],
-        }
+        GidBuf { len: 0, buf: [0; GIDSIZE], }
     }
 
     pub fn set(&mut self, gid: &str) {

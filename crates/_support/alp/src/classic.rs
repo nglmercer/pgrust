@@ -34,11 +34,7 @@ pub(crate) fn encode_value(n: f64, exponent: u8, factor: u8) -> i64 {
     // fast_round is computed unconditionally (pure fp ops, no side
     // effects) and selected against the sentinel: csel, not a branch.
     let rounded = fast_round(scaled) as i64;
-    if is_impossible_to_encode(scaled) {
-        ENCODING_UPPER_LIMIT as i64
-    } else {
-        rounded
-    }
+    if is_impossible_to_encode(scaled) { ENCODING_UPPER_LIMIT as i64 } else { rounded }
 }
 
 #[inline]
@@ -125,10 +121,7 @@ pub(crate) fn find_top_k_combinations(sampled_vectors: &[Vec<f64>]) -> RowgroupC
         best_overall = best_overall.min(best_size);
     }
     let mut ranked: Vec<((u8, u8), u32)> = votes.into_iter().collect();
-    ranked.sort_by(|a, b| {
-        b.1.cmp(&a.1)
-            .then(b.0 .0.cmp(&a.0 .0))
-            .then(b.0 .1.cmp(&a.0 .1))
+    ranked.sort_by(|a, b| { b.1.cmp(&a.1).then(b.0 .0.cmp(&a.0 .0)).then(b.0 .1.cmp(&a.0 .1))
     });
     ranked.truncate(MAX_K_COMBINATIONS);
     RowgroupCombinations {
@@ -295,14 +288,7 @@ pub(crate) fn decode_packed_into(
 
 pub(crate) fn decode_vector(v: &AlpVector, out: &mut Vec<f64>) {
     let mut buf = [0.0f64; VECTOR_SIZE];
-    decode_packed_into(
-        &v.packed,
-        v.bit_width as u32,
-        v.exponent,
-        v.factor,
-        v.for_base,
-        &mut buf,
-    );
+    decode_packed_into(&v.packed, v.bit_width as u32, v.exponent, v.factor, v.for_base, &mut buf,);
     for (&pos, &bits) in v.exc_positions.iter().zip(v.exc_values.iter()) {
         buf[pos as usize] = f64::from_bits(bits);
     }

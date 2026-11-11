@@ -5,7 +5,7 @@
 //! and the C no-op arms (TRUNCATE, HEAP2_NEW_CID). Everything else is a loud
 //! panic naming its op.
 
-#![allow(non_snake_case, non_upper_case_globals)]
+#![allow(non_snake_case,non_upper_case_globals)]
 
 use elog::PCT_M;
 use types_core::{Buffer, InvalidBuffer, OffsetNumber, TransactionId, BLCKSZ};
@@ -107,22 +107,15 @@ const XLR_INFO_MASK: u8 = 0x0F;
 const SizeOfHeapHeader: usize = 5;
 const FirstCommandId: u32 = 0;
 
-fn main_data(record: &XLogReaderState) -> &[u8] {
-    let rec = record
-        .record
-        .as_ref()
-        .expect("heap redo with no decoded record");
+fn main_data(record: & XLogReaderState) -> & [u8] {
+    let rec = record.record.as_ref().expect("heap redo with no decoded record");
     // SAFETY: points into the reader's decode buffer, valid for the redo
     // callback's duration.
     unsafe { rec.main_data_bytes() }
 }
 
 fn record_xid(record: &XLogReaderState) -> TransactionId {
-    record
-        .record
-        .as_ref()
-        .expect("heap redo with no decoded record")
-        .xl_xid
+    record.record.as_ref().expect("heap redo with no decoded record").xl_xid
 }
 
 fn panic_err(msg: String) -> Box<PgError> {
@@ -137,9 +130,7 @@ fn panic_err(msg: String) -> Box<PgError> {
 // below keep valid records behaving identically while turning the malformed
 // path into ERRCODE_DATA_CORRUPTED.
 fn corrupt_err(msg: String) -> Box<PgError> {
-    Box::new(
-        PgError::new(types_error::ERROR, msg).with_sqlstate(types_error::ERRCODE_DATA_CORRUPTED),
-    )
+    Box::new(PgError::new(types_error::ERROR, msg).with_sqlstate(types_error::ERRCODE_DATA_CORRUPTED),)
 }
 
 // Bounds-checked little-endian u16/u32 reads from a record payload; never
@@ -221,8 +212,7 @@ fn unlock_release(buffer: Buffer) -> PgResult<()> {
 }
 
 fn fix_infomask_from_infobits(infobits: u8, infomask: &mut u16, infomask2: &mut u16) {
-    *infomask &=
-        !(HEAP_XMAX_IS_MULTI | HEAP_XMAX_LOCK_ONLY | HEAP_XMAX_KEYSHR_LOCK | HEAP_XMAX_EXCL_LOCK);
+    *infomask &= !(HEAP_XMAX_IS_MULTI | HEAP_XMAX_LOCK_ONLY | HEAP_XMAX_KEYSHR_LOCK | HEAP_XMAX_EXCL_LOCK);
     *infomask2 &= !HEAP_KEYS_UPDATED;
     if infobits & XLHL_XMAX_IS_MULTI != 0 {
         *infomask |= HEAP_XMAX_IS_MULTI;
@@ -403,8 +393,9 @@ fn heap_xlog_insert(record: &mut XLogReaderState) -> PgResult<()> {
     let xlrec = main_data(record);
     // xl_heap_insert { OffsetNumber offnum; uint8 flags } == 3 bytes.
     let offnum = read_u16(xlrec, 0, "heap_xlog_insert")?;
-    let flags = *xlrec.get(2).ok_or_else(|| {
-        corrupt_err("heap_xlog_insert: main data too short for xl_heap_insert".into())
+    let flags = *xlrec
+        .get(2)
+        .ok_or_else(|| { corrupt_err("heap_xlog_insert: main data too short for xl_heap_insert".into())
     })?;
 
     let (target_locator, _fork, blkno) = record.block_tag(0)?;
@@ -566,11 +557,7 @@ fn heap_xlog_multi_insert(record: &mut XLogReaderState) -> PgResult<()> {
                 i as u16 + 1
             } else {
                 // offsets[] follows the fixed header; validated read.
-                read_u16(
-                    &xlrec,
-                    SizeOfHeapMultiInsert + 2 * i,
-                    "heap_xlog_multi_insert",
-                )?
+                read_u16(&xlrec, SizeOfHeapMultiInsert + 2 * i, "heap_xlog_multi_insert",)?
             };
             if pm.as_ref().max_offset_number() + 1 < offnum {
                 return Err(panic_err("invalid max offset number".into()));
@@ -825,7 +812,8 @@ fn heap_xlog_update(record: &mut XLogReaderState, hot_update: bool) -> PgResult<
     // avoid deadlocks against updates going the other way; during replay no
     // other update runs, so neither that nor the VM buffer order above
     // matters.
-    let (oldaction, obuffer) = XLogReadBufferForRedo(record, if oldblk == newblk { 0 } else { 1 })?;
+    let (oldaction, obuffer) =
+        XLogReadBufferForRedo(record, if oldblk == newblk { 0 } else { 1 })?;
     let mut old_item: Option<(*const u8, u32)> = None;
     if oldaction == BLK_NEEDS_REDO {
         // SAFETY: pin + exclusive lock per the redo protocol (module contract).
@@ -927,14 +915,16 @@ fn heap_xlog_update(record: &mut XLogReaderState, hot_update: bool) -> PgResult<
             // SAFETY: old tuple image under obuffer's pin + lock, still held.
             let old = unsafe { core::slice::from_raw_parts(optr, olen as usize) };
             // SAFETY: header-sized normal item under the same pin + lock.
-            let old_hoff = unsafe { (*(optr.cast::<HeapTupleHeaderData>())).t_hoff } as usize;
+            let old_hoff =
+                unsafe { (*(optr.cast::<HeapTupleHeaderData>())).t_hoff } as usize;
 
             let len = xl_hoff as usize - SizeofHeapTupleHeader;
             tbuf.0[newp..newp + len].copy_from_slice(&data[rec..rec + len]);
             rec += len;
             newp += len;
 
-            tbuf.0[newp..newp + prefixlen].copy_from_slice(&old[old_hoff..old_hoff + prefixlen]);
+            tbuf.0[newp..newp + prefixlen]
+                .copy_from_slice(&old[old_hoff..old_hoff + prefixlen]);
             newp += prefixlen;
 
             let len = tuplen - (xl_hoff as usize - SizeofHeapTupleHeader);
@@ -952,7 +942,8 @@ fn heap_xlog_update(record: &mut XLogReaderState, hot_update: bool) -> PgResult<
             let (optr, olen) = old_item.expect("suffix decode without old tuple");
             // SAFETY: old tuple image under obuffer's pin + lock, still held.
             let old = unsafe { core::slice::from_raw_parts(optr, olen as usize) };
-            tbuf.0[newp..newp + suffixlen].copy_from_slice(&old[olen as usize - suffixlen..]);
+            tbuf.0[newp..newp + suffixlen]
+                .copy_from_slice(&old[olen as usize - suffixlen..]);
         }
 
         let newlen = SizeofHeapTupleHeader + tuplen + prefixlen + suffixlen;
@@ -1024,8 +1015,10 @@ fn heap_xlog_confirm(record: &mut XLogReaderState) -> PgResult<()> {
         // exclusive for this arm.
         let htup = unsafe { &mut *checked_item_header_ptr(ptr, len, "heap_xlog_confirm")? };
 
-        htup.t_ctid =
-            ItemPointerData::new(bufmgr_seams::buffer_get_block_number::call(buffer), offnum);
+        htup.t_ctid = ItemPointerData::new(
+            bufmgr_seams::buffer_get_block_number::call(buffer),
+            offnum
+        );
 
         pm.set_lsn(lsn);
         bufmgr_seams::mark_buffer_dirty::call(buffer)?;
@@ -1133,8 +1126,9 @@ fn heap_xlog_prune_freeze(record: &mut XLogReaderState) -> PgResult<()> {
     // xl_heap_prune { uint8 reason; uint8 flags }; the conflict horizon
     // follows unaligned when XLHP_HAS_CONFLICT_HORIZON is set (its only
     // consumer is the Hot Standby conflict arm, gated below).
-    let flags = *main_data(record).get(1).ok_or_else(|| {
-        corrupt_err("heap_xlog_prune_freeze: main data too short for xl_heap_prune".into())
+    let flags = *main_data(record)
+        .get(1)
+        .ok_or_else(|| { corrupt_err("heap_xlog_prune_freeze: main data too short for xl_heap_prune".into())
     })?;
 
     let (rlocator, _fork, blkno) = record.block_tag(0)?;
@@ -1180,15 +1174,12 @@ fn heap_xlog_prune_freeze(record: &mut XLogReaderState) -> PgResult<()> {
             cur += 4;
             plans_off = cur;
             // Validate the whole plan array fits before we advance past it.
-            cur = cur
-                .checked_add(12 * nplans)
-                .filter(|&e| e <= data.len())
-                .ok_or_else(|| {
-                    corrupt_err(format!(
+            cur = cur.checked_add(12 * nplans).filter(|&e| e <= data.len()).ok_or_else(|| {
+                corrupt_err(format!(
                     "heap_xlog_prune_freeze: {nplans} freeze plans overrun block data ({} bytes)",
                     data.len()
                 ))
-                })?;
+            })?;
         } else {
             plans_off = 0;
         }
@@ -1201,24 +1192,23 @@ fn heap_xlog_prune_freeze(record: &mut XLogReaderState) -> PgResult<()> {
         let mut nunused = 0usize;
         // `out` is a fixed [OffsetNumber; MaxHeapTuplesPerPage]; a declared
         // count above what the page can hold is corruption, not a valid record.
-        let read_items =
-            |cur: &mut usize, out: &mut [OffsetNumber], pairs: bool| -> PgResult<usize> {
-                let n = rd(*cur)? as usize;
-                debug_assert!(n > 0);
+        let read_items = |cur: &mut usize, out: &mut [OffsetNumber], pairs: bool| -> PgResult<usize> {
+            let n = rd(*cur)? as usize;
+            debug_assert!(n > 0);
+            *cur += 2;
+            let count = if pairs { 2 * n } else { n };
+            if count > out.len() {
+                return Err(corrupt_err(format!(
+                    "heap_xlog_prune_freeze: item count {n} exceeds MaxHeapTuplesPerPage {}",
+                    out.len() / if pairs { 2 } else { 1 }
+                )));
+            }
+            for slot in out[..count].iter_mut() {
+                *slot = rd(*cur)?;
                 *cur += 2;
-                let count = if pairs { 2 * n } else { n };
-                if count > out.len() {
-                    return Err(corrupt_err(format!(
-                        "heap_xlog_prune_freeze: item count {n} exceeds MaxHeapTuplesPerPage {}",
-                        out.len() / if pairs { 2 } else { 1 }
-                    )));
-                }
-                for slot in out[..count].iter_mut() {
-                    *slot = rd(*cur)?;
-                    *cur += 2;
-                }
-                Ok(n)
-            };
+            }
+            Ok(n)
+        };
         if flags & XLHP_HAS_REDIRECTIONS != 0 {
             nredirected = read_items(&mut cur, &mut redirected, true)?;
         }
@@ -1271,7 +1261,8 @@ fn heap_xlog_prune_freeze(record: &mut XLogReaderState) -> PgResult<()> {
     }
 
     if buffer != InvalidBuffer {
-        if flags & (XLHP_HAS_REDIRECTIONS | XLHP_HAS_DEAD_ITEMS | XLHP_HAS_NOW_UNUSED_ITEMS) != 0 {
+        if flags & (XLHP_HAS_REDIRECTIONS | XLHP_HAS_DEAD_ITEMS | XLHP_HAS_NOW_UNUSED_ITEMS) != 0
+        {
             // SAFETY: pin + lock still held until the unlock below.
             let freespace = unsafe { page_mut(buffer) }.as_ref().heap_free_space();
             unlock_release(buffer)?;
@@ -1291,7 +1282,8 @@ fn heap_xlog_visible(record: &mut XLogReaderState) -> PgResult<()> {
         (u32::from_ne_bytes(x[0..4].try_into().unwrap()), x[4])
     };
     debug_assert!(
-        flags & (visibilitymap::VISIBILITYMAP_VALID_BITS | VISIBILITYMAP_XLOG_CATALOG_REL) == flags
+        flags & (visibilitymap::VISIBILITYMAP_VALID_BITS | VISIBILITYMAP_XLOG_CATALOG_REL)
+            == flags
     );
 
     let (rlocator, _fork, blkno) = record.block_tag(1)?;
@@ -1383,9 +1375,7 @@ fn redo_block_hook(record: &XLogReaderState) {
         return;
     }
     // SAFETY: only ever stored from a `fn(RelFileLocator, BlockNumber)` in set_redo_block_hook.
-    let f = unsafe {
-        std::mem::transmute::<usize, fn(types_storage::RelFileLocator, types_core::BlockNumber)>(p)
-    };
+    let f = unsafe { std::mem::transmute::<usize, fn(types_storage::RelFileLocator, types_core::BlockNumber)>(p) };
     let max = record.record.as_ref().map_or(-1, |r| r.max_block_id as i32);
     for id in 0..=max {
         if let Some((loc, fork, blk, _)) = record.block_tag_extended(id as u8) {
@@ -1397,11 +1387,7 @@ fn redo_block_hook(record: &XLogReaderState) {
 }
 
 pub fn heap_redo(record: &mut XLogReaderState) -> PgResult<()> {
-    let info = record
-        .record
-        .as_ref()
-        .expect("heap_redo with no decoded record")
-        .xl_info
+    let info = record.record.as_ref().expect("heap_redo with no decoded record").xl_info
         & !XLR_INFO_MASK;
     let out = match info & XLOG_HEAP_OPMASK {
         XLOG_HEAP_INSERT => heap_xlog_insert(record),
@@ -1422,15 +1408,10 @@ pub fn heap_redo(record: &mut XLogReaderState) -> PgResult<()> {
 }
 
 pub fn heap2_redo(record: &mut XLogReaderState) -> PgResult<()> {
-    let info = record
-        .record
-        .as_ref()
-        .expect("heap2_redo with no decoded record")
-        .xl_info
+    let info = record.record.as_ref().expect("heap2_redo with no decoded record").xl_info
         & !XLR_INFO_MASK;
     let out = match info & XLOG_HEAP_OPMASK {
-        XLOG_HEAP2_PRUNE_ON_ACCESS
-        | XLOG_HEAP2_PRUNE_VACUUM_SCAN
+        XLOG_HEAP2_PRUNE_ON_ACCESS | XLOG_HEAP2_PRUNE_VACUUM_SCAN
         | XLOG_HEAP2_PRUNE_VACUUM_CLEANUP => heap_xlog_prune_freeze(record),
         XLOG_HEAP2_VISIBLE => heap_xlog_visible(record),
         XLOG_HEAP2_MULTI_INSERT => heap_xlog_multi_insert(record),
@@ -1511,11 +1492,8 @@ fn heap_xlog_logical_rewrite(record: &mut XLogReaderState) -> PgResult<()> {
     };
 
     #[allow(clippy::suspicious_open_options)]
-    let file = match std::fs::OpenOptions::new()
-        .create(true)
-        .write(true)
-        .open(&path)
-    {
+
+    let file = match std::fs::OpenOptions::new().create(true).write(true).open(&path) {
         Ok(f) => f,
         Err(e) => return file_err(format!("create file \"{relpath}\""), e),
     };
@@ -1641,7 +1619,7 @@ pub fn heap_mask(pagedata: &mut [u8], blkno: types_core::BlockNumber) -> PgResul
         // dereference for normal items, plus the MAXALIGN padding fill for
         // items with storage) falls outside the page. `item_raw` applies the
         // same rule for the normal read path.
-        if !(SizeOfPageHeaderData..=BLCKSZ).contains(&lp_off) {
+        if !( SizeOfPageHeaderData..= BLCKSZ).contains(&lp_off) {
             return Err(corrupt_err(format!(
                 "heap_mask: line pointer {off} offset {lp_off} out of range"
             )));
@@ -1725,16 +1703,10 @@ mod block_tag_tests {
         let mut rec = xlogreader_seams::DecodedXLogRecord::default();
         rec.main_data = xlrec.as_ptr();
         rec.main_data_len = xlrec.len() as u32;
-        let mut record = XLogReaderState {
-            record: Some(rec),
-            ..Default::default()
-        };
-        let err =
-            heap_xlog_delete(&mut record).expect_err("absent block 0 must be a catchable error");
-        assert_eq!(
-            err.message(),
-            "could not locate backup block with ID 0 in WAL record"
-        );
+        let mut record = XLogReaderState { record: Some(rec), ..Default::default() };
+        let err = heap_xlog_delete(&mut record)
+            .expect_err("absent block 0 must be a catchable error");
+        assert_eq!(err.message(), "could not locate backup block with ID 0 in WAL record");
         assert_eq!(err.level(), types_error::ERROR);
     }
 }

@@ -4,7 +4,7 @@
 // pg_rewrite rules); the DROP RESTRICT 2BP01 report, the NOTICE/DEBUG2
 // cascade reports and the auto-cascade DEBUG2 lines are live, every other
 // object class or report arm is loud with its C symbol.
-#![allow(non_snake_case, non_upper_case_globals)]
+#![allow(non_snake_case,non_upper_case_globals)]
 
 mod description;
 mod find_expr;
@@ -26,10 +26,7 @@ use types_core::{AttrNumber, InvalidOid, Oid, RELATION_RELATION_ID, TYPE_RELATIO
 use types_error::{
     ErrorLocation, PgError, PgResult, DEBUG2, ERRCODE_DEPENDENT_OBJECTS_STILL_EXIST, NOTICE,
 };
-use types_rel::{
-    AccessExclusiveLock, Relation, RowExclusiveLock, RELKIND_INDEX, RELKIND_RELATION,
-    RELKIND_SEQUENCE, RELKIND_TOASTVALUE, RELKIND_VIEW,
-};
+use types_rel::{AccessExclusiveLock, Relation, RowExclusiveLock, RELKIND_INDEX, RELKIND_RELATION, RELKIND_SEQUENCE, RELKIND_TOASTVALUE, RELKIND_VIEW,};
 use types_scan::scankey::{BTEqualStrategyNumber, ScanKeyData};
 use types_tuple::{HeapTupleData, TupleDescData};
 
@@ -86,10 +83,7 @@ struct ObjectAddressExtra {
 
 impl Default for ObjectAddressExtra {
     fn default() -> Self {
-        ObjectAddressExtra {
-            flags: 0,
-            dependee: ObjectAddress::set(InvalidOid, InvalidOid),
-        }
+        ObjectAddressExtra { flags: 0, dependee: ObjectAddress::set(InvalidOid, InvalidOid), }
     }
 }
 
@@ -100,10 +94,7 @@ pub struct ObjectAddresses {
 
 impl ObjectAddresses {
     pub fn new() -> Self {
-        ObjectAddresses {
-            refs: Vec::new(),
-            extras: Vec::new(),
-        }
+        ObjectAddresses { refs: Vec::new(), extras: Vec::new(), }
     }
 
     pub fn add_exact_object_address(&mut self, obj: ObjectAddress) {
@@ -246,11 +237,7 @@ pub fn performDeletion<'mcx>(
     behavior: DropBehavior,
     flags: i32,
 ) -> PgResult<()> {
-    let mut depRel = Some(table::table_open(
-        mcx,
-        pg_depend::DependRelationId,
-        RowExclusiveLock,
-    )?);
+    let mut depRel = Some(table::table_open(mcx, pg_depend::DependRelationId, RowExclusiveLock,)?);
     AcquireDeletionLock(object, 0)?;
     let mut targetObjects = ObjectAddresses::new();
     let mut stack: Vec<StackEntry> = Vec::new();
@@ -266,10 +253,7 @@ pub fn performDeletion<'mcx>(
     )?;
     reportDependentObjects(mcx, &targetObjects, behavior, flags, Some(object))?;
     deleteObjectsInList(mcx, &targetObjects, &mut depRel, flags)?;
-    depRel
-        .take()
-        .expect("pg_depend open")
-        .close(RowExclusiveLock)
+    depRel.take().expect("pg_depend open").close(RowExclusiveLock)
 }
 
 pub fn performMultipleDeletions<'mcx>(
@@ -281,11 +265,7 @@ pub fn performMultipleDeletions<'mcx>(
     if objects.is_empty() {
         return Ok(());
     }
-    let mut depRel = Some(table::table_open(
-        mcx,
-        pg_depend::DependRelationId,
-        RowExclusiveLock,
-    )?);
+    let mut depRel = Some(table::table_open(mcx, pg_depend::DependRelationId, RowExclusiveLock,)?);
     let mut targetObjects = ObjectAddresses::new();
     for thisobj in objects.refs.iter() {
         AcquireDeletionLock(thisobj, flags)?;
@@ -301,17 +281,10 @@ pub fn performMultipleDeletions<'mcx>(
             depRel.as_ref().expect("pg_depend open"),
         )?;
     }
-    let origObject = if objects.refs.len() == 1 {
-        Some(&objects.refs[0])
-    } else {
-        None
-    };
+    let origObject = if objects.refs.len() == 1 { Some(&objects.refs[0]) } else { None };
     reportDependentObjects(mcx, &targetObjects, behavior, flags, origObject)?;
     deleteObjectsInList(mcx, &targetObjects, &mut depRel, flags)?;
-    depRel
-        .take()
-        .expect("pg_depend open")
-        .close(RowExclusiveLock)
+    depRel.take().expect("pg_depend open").close(RowExclusiveLock)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -367,17 +340,10 @@ fn findDependentObjects<'mcx>(
         let desc = depRel.descr();
         #[allow(clippy::while_let_loop)]
         loop {
-            let Some(tup) = genam::systable_getnext(mcx, &mut scan)? else {
-                break;
-            };
+            let Some(tup) = genam::systable_getnext(mcx, &mut scan)? else { break; };
             // SAFETY: aliases the slot-held image for the recheck call below.
             let view = unsafe {
-                HeapTupleData::from_raw_parts(
-                    tup.header_ptr(),
-                    tup.t_len,
-                    tup.t_self,
-                    tup.t_tableOid,
-                )
+                HeapTupleData::from_raw_parts(tup.header_ptr(), tup.t_len, tup.t_self, tup.t_tableOid,)
             };
             let tup = &view;
             let otherObject = ObjectAddress::sub_set(
@@ -474,9 +440,10 @@ fn findDependentObjects<'mcx>(
         } else {
             &owningObject
         };
-        let otherObjDesc =
-            getObjectDescription(mcx, other)?.expect("owning object was just read from pg_depend");
-        let objDesc = getObjectDescription(mcx, object)?.expect("drop target exists");
+        let otherObjDesc = getObjectDescription(mcx, other)?
+            .expect("owning object was just read from pg_depend");
+        let objDesc = getObjectDescription(mcx, object)?
+            .expect("drop target exists");
         return Err(cannot_drop_required(&objDesc, &otherObjDesc));
     }
 
@@ -501,17 +468,10 @@ fn findDependentObjects<'mcx>(
         let desc = depRel.descr();
         #[allow(clippy::while_let_loop)]
         loop {
-            let Some(tup) = genam::systable_getnext(mcx, &mut scan)? else {
-                break;
-            };
+            let Some(tup) = genam::systable_getnext(mcx, &mut scan)? else { break; };
             // SAFETY: aliases the slot-held image for the recheck call below.
             let view = unsafe {
-                HeapTupleData::from_raw_parts(
-                    tup.header_ptr(),
-                    tup.t_len,
-                    tup.t_self,
-                    tup.t_tableOid,
-                )
+                HeapTupleData::from_raw_parts(tup.header_ptr(), tup.t_len, tup.t_self, tup.t_tableOid,)
             };
             let tup = &view;
             let otherObject = ObjectAddress::sub_set(
@@ -549,10 +509,7 @@ fn findDependentObjects<'mcx>(
 
     dependentObjects.sort_by(|a, b| object_address_comparator(&a.0, &b.0));
 
-    stack.push(StackEntry {
-        object: *object,
-        flags: objflags,
-    });
+    stack.push(StackEntry { object: *object, flags: objflags, });
     for (depObj, subflags) in dependentObjects.iter() {
         findDependentObjects(
             mcx,
@@ -590,9 +547,7 @@ fn findDependentObjects<'mcx>(
 #[cold]
 #[inline(never)]
 fn cache_lookup_failed(class_descr: &str, oid: types_core::Oid) -> Box<PgError> {
-    Box::new(PgError::error(format!(
-        "cache lookup failed for {class_descr} {oid}"
-    )))
+    Box::new(PgError::error(format!("cache lookup failed for {class_descr} {oid}")))
 }
 
 #[track_caller]
@@ -665,9 +620,7 @@ fn could_not_find_tuple(relation_id: Oid, oid: Oid) -> Box<PgError> {
     if get_object_catcache_oid(relation_id) >= 0 {
         cache_lookup_failed(descr, oid)
     } else {
-        Box::new(PgError::error(format!(
-            "could not find tuple for {descr} {oid}"
-        )))
+        Box::new(PgError::error(format!("could not find tuple for {descr} {oid}")))
     }
 }
 
@@ -675,11 +628,9 @@ fn could_not_find_tuple(relation_id: Oid, oid: Oid) -> Box<PgError> {
 #[inline(never)]
 fn cannot_drop_required(obj_desc: &str, other_desc: &str) -> Box<PgError> {
     Box::new(
-        PgError::error(format!(
-            "cannot drop {obj_desc} because {other_desc} requires it"
-        ))
-        .with_sqlstate(ERRCODE_DEPENDENT_OBJECTS_STILL_EXIST)
-        .with_hint(format!("You can drop {other_desc} instead.")),
+        PgError::error(format!("cannot drop {obj_desc} because {other_desc} requires it"))
+            .with_sqlstate(ERRCODE_DEPENDENT_OBJECTS_STILL_EXIST)
+            .with_hint(format!("You can drop {other_desc} instead.")),
     )
 }
 
@@ -715,11 +666,7 @@ fn reportDependentObjects<'mcx>(
     origObject: Option<&ObjectAddress>,
 ) -> PgResult<()> {
     // dependency.c:985: QUIETLY (ON COMMIT DROP) reports at DEBUG2, not NOTICE.
-    let msglevel = if flags & PERFORM_DELETION_QUIETLY != 0 {
-        DEBUG2
-    } else {
-        NOTICE
-    };
+    let msglevel = if flags & PERFORM_DELETION_QUIETLY != 0 { DEBUG2 } else { NOTICE };
 
     // A partition-dependent object may be deleted only alongside one of its
     // partition dependencies (i.e. it was reached via a PARTITION dep).
@@ -728,8 +675,8 @@ fn reportDependentObjects<'mcx>(
         if extra.flags & DEPFLAG_IS_PART != 0 && extra.flags & DEPFLAG_PARTITION == 0 {
             let otherDesc = getObjectDescription(mcx, &extra.dependee)?
                 .expect("partition dependee was just read from pg_depend");
-            let objDesc =
-                getObjectDescription(mcx, &targetObjects.refs[i])?.expect("drop target exists");
+            let objDesc = getObjectDescription(mcx, &targetObjects.refs[i])?
+                .expect("drop target exists");
             return Err(cannot_drop_required(&objDesc, &otherDesc));
         }
     }
@@ -766,17 +713,13 @@ fn reportDependentObjects<'mcx>(
             // so a class this port cannot yet describe does not fail a drop
             // that C reports only in the debug log.
             if elog::message_level_is_interesting(DEBUG2) {
-                let Some(objDesc) = getObjectDescription(mcx, obj)? else {
-                    continue;
-                };
+                let Some(objDesc) = getObjectDescription(mcx, obj)? else { continue; };
                 ereport(DEBUG2)
                     .errmsg_internal(format!("drop auto-cascades to {objDesc}"))
                     .finish(loc("reportDependentObjects"))?;
             }
         } else if behavior == DropBehavior::DROP_RESTRICT {
-            let Some(objDesc) = getObjectDescription(mcx, obj)? else {
-                continue;
-            };
+            let Some(objDesc) = getObjectDescription(mcx, obj)? else { continue; };
             if let Some(otherDesc) = getObjectDescription(mcx, &extra.dependee)? {
                 if numReportedClient < MAX_REPORTED_DEPS {
                     if !clientdetail.is_empty() {
@@ -796,9 +739,7 @@ fn reportDependentObjects<'mcx>(
             }
             ok = false;
         } else {
-            let Some(objDesc) = getObjectDescription(mcx, obj)? else {
-                continue;
-            };
+            let Some(objDesc) = getObjectDescription(mcx, obj)? else { continue; };
             if numReportedClient < MAX_REPORTED_DEPS {
                 if !clientdetail.is_empty() {
                     clientdetail.push('\n');
@@ -816,11 +757,7 @@ fn reportDependentObjects<'mcx>(
     }
 
     if numNotReportedClient > 0 {
-        let noun = if numNotReportedClient == 1 {
-            "object"
-        } else {
-            "objects"
-        };
+        let noun = if numNotReportedClient == 1 { "object" } else { "objects" };
         clientdetail.push_str(&format!(
             "\nand {numNotReportedClient} other {noun} (see server log for list)"
         ));
@@ -885,7 +822,8 @@ fn deleteObjectsInList<'mcx>(
             let thisobj = &targetObjects.refs[i];
             let extra = &targetObjects.extras[i];
             let original = extra.flags & DEPFLAG_ORIGINAL != 0;
-            let normal = extra.flags & DEPFLAG_NORMAL != 0 || extra.flags & DEPFLAG_REVERSE != 0;
+            let normal =
+                extra.flags & DEPFLAG_NORMAL != 0 || extra.flags & DEPFLAG_REVERSE != 0;
             if event_trigger_seams::event_trigger_supports_object::call(thisobj) {
                 event_trigger_seams::event_trigger_sql_drop_add_object::call(
                     mcx, thisobj, original, normal,
@@ -922,20 +860,13 @@ fn deleteOneObject<'mcx>(
     // doDeletion commits the transaction in the concurrent case; pg_depend
     // cannot stay open across it.
     if flags & PERFORM_DELETION_CONCURRENTLY != 0 {
-        depRel
-            .take()
-            .expect("pg_depend open")
-            .close(RowExclusiveLock)?;
+        depRel.take().expect("pg_depend open").close(RowExclusiveLock)?;
     }
 
     doDeletion(mcx, object, flags)?;
 
     if flags & PERFORM_DELETION_CONCURRENTLY != 0 {
-        *depRel = Some(table::table_open(
-            mcx,
-            pg_depend::DependRelationId,
-            RowExclusiveLock,
-        )?);
+        *depRel = Some(table::table_open(mcx, pg_depend::DependRelationId, RowExclusiveLock,)?);
     }
     let depRel = depRel.as_ref().expect("pg_depend open");
 
@@ -1036,12 +967,14 @@ fn doDeletion<'mcx>(mcx: Mcx<'mcx>, object: &ObjectAddress, flags: i32) -> PgRes
         types_core::PROCEDURE_RELATION_ID => {
             functioncmds::RemoveFunctionById(mcx, object.objectId)?
         }
-        types_core::EXTENSION_RELATION_ID => extension::RemoveExtensionById(mcx, object.objectId)?,
+        types_core::EXTENSION_RELATION_ID =>
+            extension::RemoveExtensionById(mcx, object.objectId)?,
         AttrDefaultRelationId => pg_attrdef::RemoveAttrDefaultById(mcx, object.objectId)?,
         ConstraintRelationId => pg_constraint::RemoveConstraintById(mcx, object.objectId)?,
         TriggerRelationId => trigger::RemoveTriggerById(mcx, object.objectId)?,
         statscmds::StatisticExtRelationId => statscmds::RemoveStatisticsById(mcx, object.objectId)?,
-        types_core::NAMESPACE_RELATION_ID => pg_namespace::RemoveSchemaById(mcx, object.objectId)?,
+        types_core::NAMESPACE_RELATION_ID =>
+            pg_namespace::RemoveSchemaById(mcx, object.objectId)?,
         RewriteRelationId => {
             rewrite_define_seams::remove_rewrite_rule_by_id::call(mcx, object.objectId)?
         }
@@ -1075,19 +1008,11 @@ fn doDeletion<'mcx>(mcx: Mcx<'mcx>, object: &ObjectAddress, flags: i32) -> PgRes
         // C routes pg_ts_dict through generic DropObjectById and pg_ts_config
         // through RemoveTSConfigurationById (tsearchcmds.c) — hosted here
         // because dependency deletion cannot call back into tsearchcmds.
-        TSDictionaryRelationId => drop_row_by_oid(
-            mcx,
-            TSDictionaryRelationId,
-            TSDictionaryOidIndexId,
-            object.objectId,
-        )?,
+        TSDictionaryRelationId =>
+            drop_row_by_oid(mcx, TSDictionaryRelationId, TSDictionaryOidIndexId, object.objectId,)?,
         // RemoveCollationById (pg_collation.c): plain row delete.
-        CollationRelationId_dep => drop_row_by_oid(
-            mcx,
-            CollationRelationId_dep,
-            CollationOidIndexId_dep,
-            object.objectId,
-        )?,
+        CollationRelationId_dep =>
+            drop_row_by_oid(mcx, CollationRelationId_dep, CollationOidIndexId_dep, object.objectId,)?,
         TSConfigRelationId => {
             drop_row_by_oid(mcx, TSConfigRelationId, TSConfigOidIndexId, object.objectId)?;
             let rel = table::table_open(mcx, TSConfigMapRelationId, RowExclusiveLock)?;
@@ -1101,40 +1026,24 @@ fn doDeletion<'mcx>(mcx: Mcx<'mcx>, object: &ObjectAddress, flags: i32) -> PgRes
             genam::systable_endscan(mcx, scan)?;
             rel.close(RowExclusiveLock)?;
         }
-        DefaultAclRelationId => drop_row_by_oid(
-            mcx,
-            DefaultAclRelationId,
-            DefaultAclOidIndexId,
-            object.objectId,
-        )?,
+        DefaultAclRelationId =>
+            drop_row_by_oid(mcx, DefaultAclRelationId, DefaultAclOidIndexId, object.objectId,)?,
         AccessMethodRelationId => {
             drop_row_by_oid(mcx, AccessMethodRelationId, AmOidIndexId, object.objectId)?
         }
         CastRelationId => drop_row_by_oid(mcx, CastRelationId, CastOidIndexId, object.objectId)?,
-        ConversionRelationId => drop_row_by_oid(
-            mcx,
-            ConversionRelationId,
-            ConversionOidIndexId,
-            object.objectId,
-        )?,
+        ConversionRelationId =>
+            drop_row_by_oid(mcx, ConversionRelationId, ConversionOidIndexId, object.objectId,)?,
         LanguageRelationId => {
             drop_row_by_oid(mcx, LanguageRelationId, LanguageOidIndexId, object.objectId)?
         }
-        TransformRelationId => drop_row_by_oid(
-            mcx,
-            TransformRelationId,
-            TransformOidIndexId,
-            object.objectId,
-        )?,
+        TransformRelationId =>
+            drop_row_by_oid(mcx, TransformRelationId, TransformOidIndexId, object.objectId,)?,
         TSParserRelationId => {
             drop_row_by_oid(mcx, TSParserRelationId, TSParserOidIndexId, object.objectId)?
         }
-        TSTemplateRelationId => drop_row_by_oid(
-            mcx,
-            TSTemplateRelationId,
-            TSTemplateOidIndexId,
-            object.objectId,
-        )?,
+        TSTemplateRelationId =>
+            drop_row_by_oid(mcx, TSTemplateRelationId, TSTemplateOidIndexId, object.objectId,)?,
         AuthMemRelationId => {
             drop_row_by_oid(mcx, AuthMemRelationId, AuthMemOidIndexId, object.objectId)?
         }
@@ -1143,8 +1052,14 @@ fn doDeletion<'mcx>(mcx: Mcx<'mcx>, object: &ObjectAddress, flags: i32) -> PgRes
         EventTriggerRelationId => {
             let rel = table::table_open(mcx, EventTriggerRelationId, RowExclusiveLock)?;
             let keys = [oid_key(1, object.objectId)];
-            let mut scan =
-                genam::systable_beginscan(mcx, &rel, EventTriggerOidIndexId, true, None, &keys)?;
+            let mut scan = genam::systable_beginscan(
+                mcx,
+                &rel,
+                EventTriggerOidIndexId,
+                true,
+                None,
+                &keys
+            )?;
             let Some(tup) = genam::systable_getnext(mcx, &mut scan)? else {
                 return Err(cache_lookup_failed("event trigger", object.objectId));
             };
@@ -1188,9 +1103,8 @@ fn doDeletion_unsupported(class_id: Oid) -> Box<PgError> {
         | types_core::DATABASE_RELATION_ID
         | types_core::TABLE_SPACE_RELATION_ID
         | SubscriptionRelationId_dep
-        | ParameterAclRelationId_dep => Box::new(PgError::error(
-            "global objects cannot be deleted by doDeletion".to_string(),
-        )),
+        | ParameterAclRelationId_dep =>
+            Box::new(PgError::error("global objects cannot be deleted by doDeletion".to_string(),)),
         other => Box::new(PgError::error(format!("unsupported object class: {other}"))),
     }
 }
@@ -1296,7 +1210,9 @@ pub fn deleteDependencyRecordsFor<'mcx>(
         let view = unsafe {
             HeapTupleData::from_raw_parts(tup.header_ptr(), tup.t_len, tup.t_self, tup.t_tableOid)
         };
-        if skipExtensionDeps && getattr(&view, Anum_pg_depend_deptype, desc).as_i8() as u8 == b'e' {
+        if skipExtensionDeps
+            && getattr(&view, Anum_pg_depend_deptype, desc).as_i8() as u8 == b'e'
+        {
             continue;
         }
         let tid = tup.t_self;
@@ -1315,7 +1231,8 @@ fn DeleteComments<'mcx>(mcx: Mcx<'mcx>, oid: Oid, classoid: Oid, subid: i32) -> 
     if subid != 0 {
         keys.push(int4_key(3, subid));
     }
-    let mut scan = genam::systable_beginscan(mcx, &rel, DescriptionObjIndexId, true, None, &keys)?;
+    let mut scan =
+        genam::systable_beginscan(mcx, &rel, DescriptionObjIndexId, true, None, &keys)?;
     while let Some(tup) = genam::systable_getnext(mcx, &mut scan)? {
         let tid = tup.t_self;
         catalog_indexing::CatalogTupleDelete(&rel, &tid)?;
@@ -1329,11 +1246,13 @@ fn DeleteInitPrivs<'mcx>(mcx: Mcx<'mcx>, object: &ObjectAddress) -> PgResult<()>
     let rel = table::table_open(mcx, InitPrivsRelationId, RowExclusiveLock)?;
     // aclchk.c:2902-2911: the objsubid key only for a sub-object; a whole
     // object (objsubid 0) takes its column-level rows with it.
-    let mut keys: Vec<ScanKeyData> = vec![oid_key(1, object.objectId), oid_key(2, object.classId)];
+    let mut keys: Vec<ScanKeyData> =
+        vec![oid_key(1, object.objectId), oid_key(2, object.classId)];
     if object.objectSubId != 0 {
         keys.push(int4_key(3, object.objectSubId));
     }
-    let mut scan = genam::systable_beginscan(mcx, &rel, InitPrivsObjIndexId, true, None, &keys)?;
+    let mut scan =
+        genam::systable_beginscan(mcx, &rel, InitPrivsObjIndexId, true, None, &keys)?;
     while let Some(tup) = genam::systable_getnext(mcx, &mut scan)? {
         let tid = tup.t_self;
         catalog_indexing::CatalogTupleDelete(&rel, &tid)?;
@@ -1371,7 +1290,11 @@ fn seam_perform_multiple_deletions(
 ) -> PgResult<()> {
     let mut addrs = ObjectAddresses::new();
     for &(class_id, object_id, object_sub_id) in objects {
-        addrs.add_exact_object_address(ObjectAddress::sub_set(class_id, object_id, object_sub_id));
+        addrs.add_exact_object_address(ObjectAddress::sub_set(
+            class_id,
+            object_id,
+            object_sub_id
+        ));
     }
     addrs.refs.sort_by(object_address_comparator);
     performMultipleDeletions(mcx, &addrs, behavior, flags)
@@ -1440,15 +1363,9 @@ mod cache_lookup_tests {
     #[test]
     fn dodeletion_fallthrough_messages_match_c() {
         let e = super::doDeletion_unsupported(types_core::DATABASE_RELATION_ID);
-        assert_eq!(
-            e.message(),
-            "global objects cannot be deleted by doDeletion"
-        );
+        assert_eq!(e.message(), "global objects cannot be deleted by doDeletion");
         let e = super::doDeletion_unsupported(super::SubscriptionRelationId_dep);
-        assert_eq!(
-            e.message(),
-            "global objects cannot be deleted by doDeletion"
-        );
+        assert_eq!(e.message(), "global objects cannot be deleted by doDeletion");
         let e = super::doDeletion_unsupported(9999);
         assert_eq!(e.message(), "unsupported object class: 9999");
         assert_eq!(e.level(), types_error::ERROR);

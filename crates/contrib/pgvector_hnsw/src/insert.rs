@@ -667,7 +667,7 @@ fn find_duplicate_on_disk(
         .iter()
         .copied()
         .collect();
-    let value: Vec<u8> = ::mcx::std_vec_from_slice("pgvector_hnsw", pool.get(element).value.as_ref().expect("value"))?;
+    let value: Vec<u8> = ::mcx::std_vec_from_slice("pgvector_hnsw",pool.get(element).value.as_ref().expect("value"))?;
     for neighbor in items {
         let nvalue = pool
             .get(neighbor.element)

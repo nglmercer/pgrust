@@ -90,7 +90,7 @@ pub(crate) struct Replay {
 
 /// The state's words.
 pub(crate) const WORDS: usize = core::mem::size_of::<Replay>() / 8;
-const _: () = assert!(core::mem::size_of::<Replay>().is_multiple_of(8) && WORDS < 256);
+const _: () = assert!(core::mem::size_of::<Replay>().is_multiple_of( 8) && WORDS < 256);
 /// The words the top's finish adds into its cells: `agg`, then `need` and `bad`.
 pub(crate) const AGG_WORD: usize = core::mem::offset_of!(Replay, agg) / 8;
 pub(crate) const STAT_WORDS: usize = 10;

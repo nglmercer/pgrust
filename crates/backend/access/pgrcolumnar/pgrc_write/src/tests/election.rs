@@ -20,7 +20,7 @@ fn ten_pct_gate_is_integer_exact() {
     assert!(wins_ten_pct(9, 10));
     assert!(!wins_ten_pct(10, 10)); // 0% win is not a win
     assert!(wins_ten_pct(0, 0)); // degenerate: both empty
-                                 // Sweep: the gate must agree with exact rational arithmetic.
+    // Sweep: the gate must agree with exact rational arithmetic.
     for base in 0u64..500 {
         for cand in 0..=base {
             let exact = (base - cand) as u128 * 10 >= base as u128;
@@ -104,7 +104,7 @@ fn incompressible_guard_demotes_to_verbatim_at_the_boundary() {
         frame_count: 1,
     };
     let baseline = crate::elect::verbatim_baseline_len(&stats, &shape); // 32 + 8000
-                                                                        // Exactly at the win threshold: elected.
+    // Exactly at the win threshold: elected.
     let winning = ScriptedSource {
         encoding: 999,
         len: baseline * 9 / 10,

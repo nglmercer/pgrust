@@ -49,11 +49,11 @@ const BYVAL: u32 = 0;
 fn perturb(ty: u32, v: &mut [u32]) -> Option<()> {
     let step = |b: &mut u32| match *b as u8 {
         b'a'..=b'y' | b'A'..=b'Y' | b'0'..=b'8' => {
-            let _: () = *b += 1;
+            let _:() =*b += 1;
             Some(())
         },
         b'z' | b'Z' | b'9' => {
-            let _: () = *b -= 1;
+            let _:() =*b -= 1;
             Some(())
         },
         _ => None,
@@ -61,13 +61,13 @@ fn perturb(ty: u32, v: &mut [u32]) -> Option<()> {
     match ty {
         _ if ARRAYS.contains(&ty) => perturb_array(ty, v),
         BYVAL => {
-            let _: () = v[0] ^= 1;
+            let _:() =v[0] ^= 1;
             Some(())
         },
         25 | 1043 | 1042 if v.len() > 4 => v[4..].iter_mut().find_map(step),
         19 => v.iter_mut().find_map(step),
         17 if v.len() > 4 => {
-            let _: () = v[4] ^= 1;
+            let _:() =v[4] ^= 1;
             Some(())
         },
         1700 if v.len() > 6 => {
@@ -79,7 +79,7 @@ fn perturb(ty: u32, v: &mut [u32]) -> Option<()> {
             };
             let g = v[first] | v[first + 1] << 8;
             let mut s = 1;
-            while g.is_multiple_of(s * 10) && s < 1000 {
+            while g.is_multiple_of (s * 10) && s < 1000 {
                 s *= 10;
             }
             let n = if g + s < 10000 { g + s } else { g - s };
@@ -103,7 +103,7 @@ fn perturb_array(ty: u32, v: &mut [u32]) -> Option<()> {
     let data = 24;
     match ty {
         1005 | 1007 | 1016 | 1028 => {
-            let _: () = *v.get_mut(data)? ^= 1;
+            let _:() =*v.get_mut(data)? ^= 1;
             Some(())
         },
         _ => {
@@ -111,11 +111,11 @@ fn perturb_array(ty: u32, v: &mut [u32]) -> Option<()> {
             let (from, len) = if v.get(data)? & 1 == 1 { (data + 1, (v[data] >> 1) as usize - 1) } else { (data + 4, (at(data)? >> 2) as usize - 4) };
             v.get_mut(from..from + len)?.iter_mut().find_map(|b| match *b as u8 {
                 b'a'..=b'y' | b'A'..=b'Y' | b'0'..=b'8' => {
-                    let _: () = *b += 1;
+                    let _:() =*b += 1;
                     Some(())
                 },
                 b'z' | b'Z' | b'9' => {
-                    let _: () = *b -= 1;
+                    let _:() =*b -= 1;
                     Some(())
                 },
                 _ => None,

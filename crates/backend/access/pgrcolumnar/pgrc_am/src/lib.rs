@@ -106,8 +106,7 @@ mod tests;
 /// every block counts on its thread's memory ledger account (`memledger::door_heap`) as it does in the server.
 #[cfg(test)]
 #[global_allocator]
-static TEST_ALLOC: init_small::oom::Rescue<std::alloc::System> =
-    init_small::oom::Rescue(std::alloc::System);
+static TEST_ALLOC: init_small::oom::Rescue<std::alloc::System> = init_small::oom::Rescue(std::alloc::System);
 
 use types_error::{PgError, PgResult};
 
@@ -118,8 +117,7 @@ pub const AM_NAME: &str = "pgrcolumnar";
 /// (exactness-sweep C12 posture: clean 0A000, never an invalid TID, never a
 /// panic on a reachable path). Message shape: `pgrcolumnar does not support {what}`.
 pub fn unsupported(what: &str) -> Box<PgError> {
-    Box::<PgError>::new(
-        // alloc: Cold
+    Box::<PgError>::new( // alloc: Cold
         PgError::error(format!("pgrcolumnar does not support {what}")) // alloc: Cold
             .with_sqlstate(types_error::ERRCODE_FEATURE_NOT_SUPPORTED),
     )
@@ -142,8 +140,7 @@ pub fn no_row_ids(name: &str) -> Box<PgError> {
 /// [`write_error`]/[`read_error`] `ERRCODE_DATA_CORRUPTED` mapping so a
 /// crafted heap page is refused loudly, never over-read.
 pub fn corrupt(what: &str) -> Box<PgError> {
-    Box::<PgError>::new(
-        // alloc: Cold
+    Box::<PgError>::new( // alloc: Cold
         PgError::error(format!("pgrcolumnar: {what}")) // alloc: Cold
             .with_sqlstate(types_error::ERRCODE_DATA_CORRUPTED),
     )
@@ -153,9 +150,7 @@ pub fn corrupt(what: &str) -> Box<PgError> {
 /// empty; DROP TABLE still works.
 pub fn refuse_v1_format(rel: &types_rel::Relation<'_>) -> PgResult<()> {
     let (locator, backend) = (rel.rd_locator.get(), rel.rd_backend);
-    if dirpath::dir_exists(&dirpath::table_dir_path(locator, backend))?
-        || !dirpath::v1_segment(locator, backend)
-    {
+    if dirpath::dir_exists(&dirpath::table_dir_path(locator, backend))? || !dirpath::v1_segment(locator, backend) {
         return Ok(());
     }
     Err(Box::<PgError>::new( // alloc: Cold
@@ -201,27 +196,17 @@ pub fn write_error(e: pgrc_write::WriteError) -> Box<PgError> {
         // limit refuses it (then that error, as below, and no line)
         if *what == pgrc_write::par::LOAD_PAST_LINE {
             return Box::new(mcx::governor::refusal(what).unwrap_or_else(|| {
-                let _ = elog::elog(
-                    types_error::LOG_SERVER_ONLY,
-                    format!(
-                        "gravity: memory: SPILL-DEBT LoadSealPastLine: {}",
-                        pgrc_write::par::LOAD_SEAL_PAST_LINE
-                    ),
-                ); // alloc: Cold
+                let _ = elog::elog(types_error::LOG_SERVER_ONLY, format!("gravity: memory: SPILL-DEBT LoadSealPastLine: {}", pgrc_write::par::LOAD_SEAL_PAST_LINE),); // alloc: Cold
                 PgError::error("out of memory")
                     .with_sqlstate(types_error::ERRCODE_OUT_OF_MEMORY)
-                    .with_detail(format!(
-                        "The memory governor refused a {}.",
-                        pgrc_write::par::MEMORY_REFUSED
-                    )) // alloc: Cold
+                    .with_detail(format!("The memory governor refused a {}.", pgrc_write::par::MEMORY_REFUSED)) // alloc: Cold
             }));
         }
         if *what == pgrc_write::par::MEMORY_REFUSED {
             return Box::new(mcx::governor::refusal(what).unwrap_or_else(|| {
                 PgError::error("out of memory")
                     .with_sqlstate(types_error::ERRCODE_OUT_OF_MEMORY)
-                    .with_detail(format!("The memory governor refused a {what}."))
-                // alloc: Cold
+                    .with_detail(format!("The memory governor refused a {what}.")) // alloc: Cold
             }));
         }
     }
@@ -239,8 +224,7 @@ pub fn write_error(e: pgrc_write::WriteError) -> Box<PgError> {
         W::PublishBusy { .. } => types_error::ERRCODE_LOCK_NOT_AVAILABLE,
     };
     if let W::Io { errno, .. } = &e {
-        return Box::new(PgError::error(io_message(&e, *errno)).with_sqlstate(sqlstate));
-        // alloc: Cold
+        return Box::new(PgError::error(io_message(&e, *errno)).with_sqlstate(sqlstate)); // alloc: Cold
     }
     Box::new(PgError::error(format!("{e}")).with_sqlstate(sqlstate)) // alloc: Cold
 }
@@ -249,18 +233,13 @@ pub fn write_error(e: pgrc_write::WriteError) -> Box<PgError> {
 /// also counts as a checksum failure).
 pub fn format_error(e: pgrc_format::FormatError) -> Box<PgError> {
     match e {
-        pgrc_format::FormatError::OutOfMemory { bytes } => {
-            Box::new(mcx::oom_named("pgrcolumnar", bytes))
+        pgrc_format::FormatError::OutOfMemory { bytes } => { Box::new(mcx::oom_named("pgrcolumnar", bytes))
         }
         pgrc_format::FormatError::CrcMismatch { .. } => {
             note_crc_mismatch();
-            Box::new(
-                PgError::error(format!("{e}")).with_sqlstate(types_error::ERRCODE_DATA_CORRUPTED),
-            ) // alloc: Cold
+            Box::new(PgError::error(format!("{e}")).with_sqlstate(types_error::ERRCODE_DATA_CORRUPTED),) // alloc: Cold
         }
-        other => Box::new(
-            PgError::error(format!("{other}")).with_sqlstate(types_error::ERRCODE_DATA_CORRUPTED),
-        ), // alloc: Cold
+        other => Box::new(PgError::error(format!("{other}")).with_sqlstate(types_error::ERRCODE_DATA_CORRUPTED),), // alloc: Cold
     }
 }
 
@@ -327,8 +306,7 @@ pub fn read_error(e: pgrc_read::ReadError) -> Box<PgError> {
         _ => types_error::ERRCODE_DATA_CORRUPTED,
     };
     if let R::Io { errno, .. } = &e {
-        return Box::new(PgError::error(io_message(&e, *errno)).with_sqlstate(sqlstate));
-        // alloc: Cold
+        return Box::new(PgError::error(io_message(&e, *errno)).with_sqlstate(sqlstate)); // alloc: Cold
     }
     Box::new(PgError::error(format!("{e}")).with_sqlstate(sqlstate)) // alloc: Cold
 }

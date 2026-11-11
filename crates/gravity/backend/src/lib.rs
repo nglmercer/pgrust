@@ -66,7 +66,7 @@ pub fn mapped_cached_all(program: &Program, entries: &[Func]) -> PgResult<(Vec<C
 /// knobs/tier0.rs `site_rows`: a projection's entries and its node's planned rows); the derived cap weighs them (`sited_cap`).
 pub fn mapped_cached_keyed(program: &Program, entries: &[Func], key: Option<cache::CodeKey>, sites: &[(u32, u64)]) -> PgResult<(Vec<Code>, Outcome)> {
     check_entries(program, entries)?;
-    debug_assert!(key.is_none_or(|k| k == cache::key_of(program)), "gravity backend: a code key that is not the program's");
+    debug_assert!(key.is_none_or( |k| k == cache::key_of(program)), "gravity backend: a code key that is not the program's");
     let key = key.unwrap_or_else(|| cache::key_of(program));
     let (cap, derived) = tier0_rows(program);
     let (rows, bound) = if cap != 0 { rows_read() } else { (u64::MAX, u64::MAX) };

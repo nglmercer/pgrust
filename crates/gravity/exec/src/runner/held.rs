@@ -263,7 +263,7 @@ pub fn take(mcx: Mcx<'static>, pstmt: &'static PlannedStmt<'static>, plan: &Held
     // D978: ExecInitModifyTable's CheckValidResultRel publication check over the result relations initial pruning keeps
     // (the first one when it keeps none), before any expression, trigger or row of the statement
     for group in plan.results.iter() {
-        let kept = |r: &&ResultCheck| unpruned.as_ref().is_none_or(|u| u.contains(&r.rti));
+        let kept = |r: &&ResultCheck| unpruned.as_ref().is_none_or( |u| u.contains(&r.rti));
         let first = if group.iter().any(|r| kept(&r)) { None } else { group.first() };
         for r in group.iter().filter(kept).chain(first).filter(|r| explain.is_some() || !r.cmds.is_empty()) {
             let rel = table::table_open(mcx, r.oid, r.lock)?;

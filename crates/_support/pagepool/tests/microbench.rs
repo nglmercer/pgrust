@@ -89,20 +89,11 @@ fn microbench() {
     setup();
     let n = if big() { 20_000_000 } else { 200_000 };
     let h = Hint::new(Class::Task, Tag::MCX);
-    let only: Option<usize> = std::env::var("PAGEPOOL_BENCH_KIB")
-        .ok()
-        .and_then(|v| v.parse().ok());
-    for size in [1 << 10, 8 << 10, 64 << 10, 256 << 10]
-        .into_iter()
-        .filter(|s| only.is_none_or(|k| k << 10 == *s))
-    {
+    let only: Option<usize> = std::env::var("PAGEPOOL_BENCH_KIB").ok().and_then(|v| v.parse().ok());
+    for size in [1 << 10, 8 << 10, 64 << 10, 256 << 10].into_iter().filter(|s| only.is_none_or(|k| k << 10 == *s)) {
         pool_batch(DEPTH * 16, size, h);
         mi_batch(DEPTH * 16, size);
-        let (p1, ph, m1) = (
-            pool_one(n, size, h),
-            pool_one_hinted(n, size, h),
-            mi_one(n, size),
-        );
+        let (p1, ph, m1) = (pool_one(n, size, h), pool_one_hinted(n, size, h), mi_one(n, size),);
         let (pb, mb) = (pool_batch(n, size, h), mi_batch(n, size));
         eprintln!(
             "MEASURED take+give {:>3} KiB: pool {p1:.1} ns, give_hinted {ph:.1} ns, mimalloc {m1:.1} ns ({:.2}x / {:.2}x) one at a time; pool {pb:.1} vs {mb:.1} ns ({:.2}x) {DEPTH} deep",

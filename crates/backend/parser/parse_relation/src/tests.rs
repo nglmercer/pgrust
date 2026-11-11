@@ -925,7 +925,7 @@ fn install_func() {
             })
         });
         syscache_seams::lookup_pg_type_shape::set(|typid| {
-            Ok((typid == INT4OID).then_some(types_tuple::PgTypeShape {
+            Ok((typid == INT4OID).then_some( types_tuple::PgTypeShape {
                 typlen: 4,
                 typbyval: true,
                 typalign: types_tuple::TYPALIGN_INT,
@@ -1298,30 +1298,18 @@ fn enr_rte_carries_no_alias() {
     pstate.p_queryEnv = Some(&env);
 
     let colnames = NodeList::make1(mcx, Node::mk_string(mcx, "a").unwrap()).unwrap();
-    let alias = Node::mk_mut(
-        mcx,
-        Alias {
-            aliasname: Some("o"),
-            colnames,
-        },
-    )
-    .unwrap()
-    .seal_ref();
+    let alias = Node::mk_mut(mcx, Alias { aliasname: Some("o"), colnames, },)
+        .unwrap()
+        .seal_ref();
     let nsitem =
-        addRangeTableEntryForENR(mcx, &mut pstate, rv(mcx, "oldrows", Some(alias)), true).unwrap();
-    let rte = nsitem
-        .p_rte
-        .as_range_tbl_entry()
-        .expect("nsitem carries its RTE");
+        addRangeTableEntryForENR(mcx, &mut pstate, rv(mcx, "oldrows", Some(alias)), true)
+            .unwrap();
+    let rte = nsitem.p_rte.as_range_tbl_entry().expect("nsitem carries its RTE");
     assert_eq!(rte.rtekind, RTEKind::RTE_NAMEDTUPLESTORE);
     assert!(rte.alias.is_none(), "ENR RTE must not carry rte->alias");
     let eref = rte.eref.expect("eref");
     assert_eq!(eref.aliasname, Some("o"));
-    let names: Vec<&str> = eref
-        .colnames
-        .iter()
-        .map(|n| n.as_string().unwrap().sval)
-        .collect();
+    let names: Vec<&str> = eref.colnames.iter().map(|n| n.as_string().unwrap().sval).collect();
     assert_eq!(names, ["a"]);
 }
 

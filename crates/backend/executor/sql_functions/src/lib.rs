@@ -69,14 +69,7 @@ pub fn init_seams() {
 }
 
 const fn vb(foid: Oid, name: &'static str, func: fmgr::PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin {
-        foid,
-        name,
-        nargs: 1,
-        strict: true,
-        retset: false,
-        func,
-    }
+    FmgrBuiltin { foid, name, nargs: 1, strict: true, retset: false, func, }
 }
 
 static FUNCTIONS_BUILTINS: &[FmgrBuiltin] = &[
@@ -91,9 +84,7 @@ pub(crate) fn efn(code: SqlState, msg: String) -> Box<PgError> {
 
 #[cold]
 pub(crate) fn lookup_failed(fn_oid: Oid) -> Box<PgError> {
-    Box::new(PgError::error(format!(
-        "cache lookup failed for function {fn_oid}"
-    )))
+    Box::new(PgError::error(format!("cache lookup failed for function {fn_oid}")))
 }
 
 pub(crate) fn name_str<'mcx>(mcx: Mcx<'mcx>, d: Datum) -> PgResult<PgString<'mcx>> {
@@ -150,9 +141,9 @@ pub(crate) fn read_oidvector_attr<'mcx>(mcx: Mcx<'mcx>, d: Datum) -> PgResult<Pg
 // fmgr_sql argument-count assertion (SQB-F2 / FTSRANK-X1).
 pub(crate) fn is_polymorphic(typid: Oid) -> bool {
     use types_core::catalog::{
-        ANYARRAYOID, ANYCOMPATIBLEARRAYOID, ANYCOMPATIBLEMULTIRANGEOID, ANYCOMPATIBLENONARRAYOID,
-        ANYCOMPATIBLEOID, ANYCOMPATIBLERANGEOID, ANYELEMENTOID, ANYENUMOID, ANYMULTIRANGEOID,
-        ANYNONARRAYOID, ANYRANGEOID,
+        ANYARRAYOID, ANYCOMPATIBLEARRAYOID, ANYCOMPATIBLEMULTIRANGEOID,
+        ANYCOMPATIBLENONARRAYOID, ANYCOMPATIBLEOID, ANYCOMPATIBLERANGEOID, ANYELEMENTOID,
+        ANYENUMOID, ANYMULTIRANGEOID, ANYNONARRAYOID, ANYRANGEOID,
     };
     matches!(
         typid,
@@ -195,12 +186,7 @@ fn planned_command_tag(stmt: &types_nodes::plannodes::PlannedStmt<'_>) -> types_
     if stmt.commandType != CmdType::CMD_SELECT {
         return query_command_tag(stmt.commandType);
     }
-    let strength = stmt
-        .rowMarks
-        .iter()
-        .next()
-        .and_then(|n| n.as_plan_row_mark())
-        .map(|r| r.strength);
+    let strength = stmt.rowMarks.iter().next().and_then(|n| n.as_plan_row_mark()).map(|r| r.strength);
     match strength {
         Some(LCS_FORKEYSHARE) => utility::consts::CMDTAG_SELECT_FOR_KEY_SHARE,
         Some(LCS_FORSHARE) => utility::consts::CMDTAG_SELECT_FOR_SHARE,
@@ -416,13 +402,13 @@ struct SqlFcacheGuard(McxOwned<SqlFcacheTy>);
 
 impl Drop for SqlFcacheGuard {
     fn drop(&mut self) {
-        self.0.with_mut(release_execution_state);
+        self.0.with_mut( release_execution_state);
     }
 }
 
 pub fn shutdown_sql_srf(flinfo: &mut FmgrInfo) -> PgResult<()> {
     match flinfo.fn_extra_mut::<SqlFcacheGuard>() {
-        Some(guard) => guard.0.with_mut(shutdown_sql_function),
+        Some(guard) => guard.0.with_mut( shutdown_sql_function),
         None => Ok(()),
     }
 }
@@ -430,20 +416,15 @@ pub fn shutdown_sql_srf(flinfo: &mut FmgrInfo) -> PgResult<()> {
 // ShutdownSQLFunction (functions.c:1967): clean teardown of a suspended
 // lazy-eval execution. Drop stays the abort path (release_query_desc).
 fn shutdown_sql_function(s: &mut SqlFcacheState<'_>) -> PgResult<()> {
-    let readonly = s
-        .entry
-        .as_ref()
-        .is_none_or(|e| e.owned.with(|es| es.readonly_func));
+    let readonly =
+        s.entry.as_ref().is_none_or( |e| e.owned.with(|es| es.readonly_func));
     for i in 0..s.eslist.len() {
         if s.eslist[i].status != ExecStatus::Run {
             continue;
         }
         let mut pushed = false;
         if !readonly {
-            let snap = s.eslist[i]
-                .snapshot
-                .clone()
-                .expect("running es has a snapshot");
+            let snap = s.eslist[i].snapshot.clone().expect("running es has a snapshot");
             snapmgr::PushActiveSnapshot(&snap)?;
             pushed = true;
         }
@@ -520,12 +501,7 @@ fn sqlfunction_receive<'mcx>(
             state.isnull.push(b.tts_isnull[(src - 1) as usize]);
         }
     }
-    tuplestore::hold::putvalues(
-        state.tstore,
-        &state.clean_desc,
-        &state.values,
-        &state.isnull,
-    )?;
+    tuplestore::hold::putvalues(state.tstore, &state.clean_desc, &state.values, &state.isnull,)?;
     Ok(true)
 }
 
@@ -556,10 +532,7 @@ pub fn fmgr_sql(
     if flinfo.fn_extra_ref::<SqlFcacheGuard>().is_none() {
         new_fcache(flinfo)?;
     }
-    assert!(
-        fcinfo.nargs() <= cache::MAX_SQL_FN_ARGS,
-        "fmgr_sql: >FUNC_MAX_ARGS arguments"
-    );
+    assert!(fcinfo.nargs() <= cache::MAX_SQL_FN_ARGS, "fmgr_sql: >FUNC_MAX_ARGS arguments");
 
     // init_sql_fcache (functions.c:535): reset error debris, resume a
     // suspended set-returning execution, or (re)bind entry and params.
@@ -578,10 +551,7 @@ pub fn fmgr_sql(
     }
 
     let guard = flinfo.fn_extra_ref::<SqlFcacheGuard>().expect("set above");
-    let entry = guard
-        .0
-        .with(|s| s.entry.clone())
-        .expect("entry bound above");
+    let entry = guard.0.with(|s| s.entry.clone()).expect("entry bound above");
     let facts = entry.owned.with(|es| EntryFacts {
         rettype: es.rettype,
         typlen: es.typlen,
@@ -666,9 +636,8 @@ pub fn fmgr_sql(
 
 #[inline(never)]
 fn new_fcache(flinfo: &mut FmgrInfo) -> PgResult<()> {
-    let owned = McxOwned::<SqlFcacheTy>::try_new(
-        MemoryContext::new_start_small("SQL function cache"),
-        |mcx| {
+    let owned =
+        McxOwned::<SqlFcacheTy>::try_new(MemoryContext::new_start_small("SQL function cache"), |mcx| {
             Ok(SqlFcacheState {
                 entry: None,
                 params_buf: PgVec::new_in(mcx),
@@ -685,8 +654,7 @@ fn new_fcache(flinfo: &mut FmgrInfo) -> PgResult<()> {
                 random_access: false,
                 active: false,
             })
-        },
-    )?;
+        },)?;
     flinfo.set_fn_extra(SqlFcacheGuard(owned));
     Ok(())
 }
@@ -706,9 +674,7 @@ fn bind_call(
             unsafe { p.cast::<TupleDescData<'_>>().as_ref() }
         })
     });
-    let held = flinfo
-        .fn_extra_ref::<SqlFcacheGuard>()
-        .and_then(|g| g.0.with(|s| s.entry.clone()));
+    let held = flinfo.fn_extra_ref::<SqlFcacheGuard>().and_then(|g| g.0.with(|s| s.entry.clone()));
     let e = match held {
         Some(old) if old.unchanged(flinfo.fn_oid)? => old,
         _ => cache::cached_sql_function(flinfo, fncollation, expected_desc)?,
@@ -743,9 +709,7 @@ fn bind_call(
                     s.params_h = ParamListHandle::NULL;
                 }
                 s.params_buf.clear();
-                s.params_buf
-                    .try_reserve_exact(nargs.max(1))
-                    .map_err(|_| mcx.oom(nargs))?;
+                s.params_buf.try_reserve_exact(nargs.max(1)).map_err(|_| mcx.oom(nargs))?;
                 for i in 0..nargs {
                     let (ptype, typlen) = declared(i);
                     s.params_buf.push(ParamExternData {
@@ -806,11 +770,7 @@ fn execute_function<'mcx>(
 ) -> PgResult<FnOutcome> {
     let mut es_idx: Option<usize> = None;
     loop {
-        if let Some(i) = state
-            .eslist
-            .iter()
-            .position(|e| e.status != ExecStatus::Done)
-        {
+        if let Some(i) = state.eslist.iter().position(|e| e.status != ExecStatus::Done) {
             es_idx = Some(i);
             break;
         }
@@ -820,10 +780,7 @@ fn execute_function<'mcx>(
     }
     // returnsTuple settles once the last query is prepared.
     let returns_tuple = entry.owned.with(|s| s.returns_tuple.get());
-    let facts = EntryFacts {
-        returns_tuple,
-        ..facts
-    };
+    let facts = EntryFacts { returns_tuple, ..facts };
 
     let mut pushed_snapshot = false;
     let run = (|| -> PgResult<Option<usize>> {
@@ -842,10 +799,7 @@ fn execute_function<'mcx>(
                 }
                 postquel_start(mcx, state, i, facts)?;
             } else if !facts.readonly_func && !pushed_snapshot {
-                let snap = state.eslist[i]
-                    .snapshot
-                    .clone()
-                    .expect("running es has a snapshot");
+                let snap = state.eslist[i].snapshot.clone().expect("running es has a snapshot");
                 snapmgr::PushActiveSnapshot(&snap)?;
                 pushed_snapshot = true;
             }
@@ -897,10 +851,7 @@ fn execute_function<'mcx>(
     // pre-loop snapshot can be stale (record result took the scalar
     // copy-out path and dereferenced a by-value datum).
     let returns_tuple = entry.owned.with(|s| s.returns_tuple.get());
-    let facts = EntryFacts {
-        returns_tuple,
-        ..facts
-    };
+    let facts = EntryFacts { returns_tuple, ..facts };
 
     if facts.returns_set {
         if let Some(i) = suspended {
@@ -950,18 +901,12 @@ fn take_single_result<'mcx>(
     result_mcx: Mcx<'_>,
 ) -> PgResult<(Datum, bool)> {
     // functions.c postquel_get_single_result: the row the receiver kept in the junkfilter's result slot, if any.
-    let junk = state
-        .junk
-        .as_mut()
-        .expect("result extraction requires a junkfilter");
+    let junk = state.junk.as_mut().expect("result extraction requires a junkfilter");
     if junk.slot.base().is_empty() {
         return Ok((Datum::null(), true));
     }
     let result = if facts.returns_tuple {
-        (
-            exectuples::exec_fetch_slot_heap_tuple_datum(&mut junk.slot, mcx, result_mcx)?,
-            false,
-        )
+        (exectuples::exec_fetch_slot_heap_tuple_datum(&mut junk.slot, mcx, result_mcx)?, false,)
     } else {
         let mut isnull = false;
         let v = exectuples::slot_getattr(&mut junk.slot, 1, &mut isnull);
@@ -997,16 +942,10 @@ fn init_execution_state<'mcx>(
         if state.next_query_index >= facts.num_queries {
             return Ok(false);
         }
-        state
-            .frame
-            .error_query_index
-            .set(state.frame.error_query_index.get() + 1);
+        state.frame.error_query_index.set(state.frame.error_query_index.get() + 1);
         cache::prepare_next_query(entry)?;
     } else {
-        state
-            .frame
-            .error_query_index
-            .set(state.frame.error_query_index.get() + 1);
+        state.frame.error_query_index.set(state.frame.error_query_index.get() + 1);
     }
     let psrc = cache::query_plansource(entry, state.next_query_index);
     state.next_query_index += 1;
@@ -1016,10 +955,7 @@ fn init_execution_state<'mcx>(
 
     let mut lasttages: Option<usize> = None;
     let n = stmt_list.len();
-    state
-        .eslist
-        .try_reserve_exact(n)
-        .map_err(|_| mcx.oom(n * core::mem::size_of::<ExecState<'_>>()))?;
+    state.eslist.try_reserve_exact(n).map_err(|_| mcx.oom(n * core::mem::size_of::<ExecState<'_>>()))?;
     for (idx, stmt) in stmt_list.iter().enumerate() {
         if let Some(u) = stmt.utilityStmt {
             check_body_utility_node(u)?;
@@ -1135,11 +1071,9 @@ fn build_junk_state<'mcx>(
             #[allow(clippy::unnecessary_unwrap)]
             let rd = rettupdesc.expect("checked");
             let mut map: PgVec<'mcx, i16> = PgVec::new_in(mcx);
-            map.try_reserve_exact(rd.natts as usize)
-                .map_err(|_| mcx.oom(rd.natts as usize))?;
-            let mut nonjunk = tlist
-                .iter()
-                .filter(|n| n.as_target_entry().is_some_and(|t| !t.resjunk));
+            map.try_reserve_exact(rd.natts as usize).map_err(|_| mcx.oom(rd.natts as usize))?;
+            let mut nonjunk =
+                tlist.iter().filter(|n| n.as_target_entry().is_some_and(|t| !t.resjunk));
             for a in rd.attrs.iter() {
                 if a.attisdropped {
                     map.push(0);
@@ -1162,9 +1096,7 @@ fn build_junk_state<'mcx>(
             let n = src_desc.natts as usize;
             map.try_reserve_exact(n).map_err(|_| mcx.oom(n))?;
             for tle_node in tlist.iter() {
-                let tle = tle_node
-                    .as_target_entry()
-                    .expect("tlist holds TargetEntries");
+                let tle = tle_node.as_target_entry().expect("tlist holds TargetEntries");
                 if !tle.resjunk {
                     map.push(tle.resno);
                 }
@@ -1185,24 +1117,16 @@ fn build_junk_state<'mcx>(
             (desc, map)
         };
 
-    let slot = exectuples::make_tuple_table_slot(
-        mcx,
-        TupleSlotKind::MinimalTuple,
-        Some(clean_desc.clone()),
-    );
-    state.junk = Some(JunkState {
-        clean_desc,
-        clean_map: mcx::vec_borrow_in(mcx, clean_map)?,
-        slot,
-    });
+    let slot =
+        exectuples::make_tuple_table_slot(mcx, TupleSlotKind::MinimalTuple, Some(clean_desc.clone()),);
+    state.junk =
+        Some(JunkState { clean_desc, clean_map: mcx::vec_borrow_in(mcx, clean_map)?, slot, });
     Ok(())
 }
 
 fn current_query_string(state: &SqlFcacheState<'_>) -> &'static str {
     let e = state.entry.as_ref().expect("bound");
-    let psrc = e
-        .owned
-        .with(|s| s.plansources.borrow()[state.next_query_index - 1]);
+    let psrc = e.owned.with(|s| s.plansources.borrow()[state.next_query_index - 1]);
     plancache::CachedPlanQueryString(psrc)
 }
 
@@ -1236,19 +1160,11 @@ fn postquel_start<'mcx>(
         let junk = state.junk.as_mut().expect("setsResult requires junkfilter");
         let (row_slot, values, isnull) = if materialize {
             let n = junk.clean_map.len();
-            (
-                None,
-                mcx::vec_with_capacity_in(mcx, n)?,
-                mcx::vec_with_capacity_in(mcx, n)?,
-            )
+            (None, mcx::vec_with_capacity_in(mcx, n)?, mcx::vec_with_capacity_in(mcx, n)?,)
         } else {
             // functions.c:1359: the receiver keeps the first row in the emptied junk slot.
             exectuples::exec_clear_tuple(&mut junk.slot, mcx);
-            (
-                Some((NonNull::from(&mut junk.slot), mcx)),
-                PgVec::new_in(mcx),
-                PgVec::new_in(mcx),
-            )
+            (Some((NonNull::from(&mut junk.slot), mcx)), PgVec::new_in(mcx), PgVec::new_in(mcx),)
         };
         tcop_dest::DestReceiver::SqlFunction(sql_functions_seams::SqlFunctionDestState {
             tstore: target,
@@ -1292,7 +1208,10 @@ fn postquel_start<'mcx>(
 }
 
 // postquel_getnext (functions.c:1399).
-fn postquel_getnext<'mcx>(state: &mut SqlFcacheState<'mcx>, i: usize) -> PgResult<bool> {
+fn postquel_getnext<'mcx>(
+    state: &mut SqlFcacheState<'mcx>,
+    i: usize
+) -> PgResult<bool> {
     let stmt_list = plancache::CachedPlanStmtList(state.cplan);
     let stmt = &stmt_list[state.eslist[i].stmt_idx];
     if stmt.commandType == CmdType::CMD_UTILITY {
@@ -1397,10 +1316,7 @@ fn fc_fmgr_internal_validator(
     if foid == types_core::InvalidOid || !builtin_row_is_internal(foid)? {
         return Err(efn(
             ERRCODE_UNDEFINED_FUNCTION,
-            format!(
-                "there is no built-in function named \"{}\"",
-                prosrc.as_str()
-            ),
+            format!("there is no built-in function named \"{}\"", prosrc.as_str()),
         ));
     }
     Ok(Datum::null())
@@ -1435,23 +1351,13 @@ fn fc_fmgr_sql_validator(
     let (prosrc_d, prosrc_null) = SysCacheGetAttr(PROCOID, &tup, ANUM_PG_PROC_PROSRC)?;
     assert!(!prosrc_null, "null prosrc for function {funcoid}");
     let prosrc = varlena_str(mcx, prosrc_d)?;
-    let prosqlbody = if sqlbody_null {
-        None
-    } else {
-        Some(varlena_str(mcx, sqlbody_d)?)
-    };
+    let prosqlbody = if sqlbody_null { None } else { Some(varlena_str(mcx, sqlbody_d)?) };
     let (proname_d, _) = SysCacheGetAttr(PROCOID, &tup, ANUM_PG_PROC_PRONAME)?;
     let proname = name_str(mcx, proname_d)?;
     let (names_d, names_null) = SysCacheGetAttr(PROCOID, &tup, ANUM_PG_PROC_PROARGNAMES)?;
     let (modes_d, modes_null) = SysCacheGetAttr(PROCOID, &tup, ANUM_PG_PROC_PROARGMODES)?;
-    let argnames = cache::read_input_argnames(
-        mcx,
-        names_d,
-        names_null,
-        modes_d,
-        modes_null,
-        argtypes.len(),
-    )?;
+    let argnames =
+        cache::read_input_argnames(mcx, names_d, names_null, modes_d, modes_null, argtypes.len(),)?;
     ReleaseSysCache(tup);
 
     if lsyscache::typ::get_typtype(rettype)? == b'p' as i8
@@ -1461,10 +1367,7 @@ fn fc_fmgr_sql_validator(
     {
         return Err(efn(
             ERRCODE_INVALID_FUNCTION_DEFINITION,
-            format!(
-                "SQL functions cannot return type {}",
-                format_type::format_type_be(rettype)?
-            ),
+            format!("SQL functions cannot return type {}", format_type::format_type_be(rettype)?),
         ));
     }
     let mut haspolyarg = false;
@@ -1531,14 +1434,11 @@ fn fc_fmgr_sql_validator(
                 return Ok(());
             }
             let mut name_refs: PgVec<'_, &str> = PgVec::new_in(mcx);
-            name_refs
-                .try_reserve_exact(argnames.len())
-                .map_err(|_| mcx.oom(argnames.len()))?;
+            name_refs.try_reserve_exact(argnames.len()).map_err(|_| mcx.oom(argnames.len()))?;
             for n in argnames.iter() {
                 name_refs.push(n.as_str());
             }
-            let mut lists: Vec<PgVec<'_, Query<'_>>> =
-                ::mcx::std_vec_with_capacity("ExecutorState", raw_list.len())?;
+            let mut lists: Vec<PgVec<'_, Query<'_>>> = ::mcx::std_vec_with_capacity("ExecutorState", raw_list.len())?;
             for raw in raw_list.iter() {
                 cache::usage_reset();
                 let query = analyze_seams::parse_analyze_sql_fn::call(
@@ -1590,9 +1490,9 @@ mod is_polymorphic_tests {
     use super::is_polymorphic;
     use mcx::MemoryContext;
     use types_core::catalog::{
-        ANYARRAYOID, ANYCOMPATIBLEARRAYOID, ANYCOMPATIBLEMULTIRANGEOID, ANYCOMPATIBLENONARRAYOID,
-        ANYCOMPATIBLEOID, ANYCOMPATIBLERANGEOID, ANYELEMENTOID, ANYENUMOID, ANYMULTIRANGEOID,
-        ANYNONARRAYOID, ANYOID, ANYRANGEOID, INT4OID,
+        ANYARRAYOID, ANYCOMPATIBLEARRAYOID, ANYCOMPATIBLEMULTIRANGEOID,
+        ANYCOMPATIBLENONARRAYOID, ANYCOMPATIBLEOID, ANYCOMPATIBLERANGEOID, ANYELEMENTOID,
+        ANYENUMOID, ANYMULTIRANGEOID, ANYNONARRAYOID, ANYOID, ANYRANGEOID, INT4OID,
     };
 
     // Pinning regression for SQB-F2 / FTSRANK-X1. `is_polymorphic` mirrors C's
@@ -1605,10 +1505,7 @@ mod is_polymorphic_tests {
     // release-effective and fails against the pre-fix behavior.
     #[test]
     fn any_is_not_polymorphic() {
-        assert!(
-            !is_polymorphic(ANYOID),
-            "\"any\" (ANYOID) must NOT be polymorphic (C parity)"
-        );
+        assert!(!is_polymorphic(ANYOID), "\"any\" (ANYOID) must NOT be polymorphic (C parity)");
     }
 
     #[test]
@@ -1630,10 +1527,7 @@ mod is_polymorphic_tests {
         ] {
             assert!(is_polymorphic(t), "type {t} should be polymorphic");
         }
-        assert!(
-            !is_polymorphic(INT4OID),
-            "int4 is a concrete type, not polymorphic"
-        );
+        assert!(!is_polymorphic(INT4OID), "int4 is a concrete type, not polymorphic");
     }
 
     #[test]
@@ -1657,21 +1551,15 @@ mod is_polymorphic_tests {
             core::ptr::copy_nonoverlapping(word.as_ptr(), dst, 4);
             core::ptr::copy_nonoverlapping((*obj).payload.as_ptr(), dst.add(4), 8);
         }
-        static METHODS: ExpandedObjectMethods = ExpandedObjectMethods {
-            get_flat_size: flat_size,
-            flatten_into: flatten,
-        };
+        static METHODS: ExpandedObjectMethods =
+            ExpandedObjectMethods { get_flat_size: flat_size, flatten_into: flatten, };
         let obj = Box::into_raw(Box::new(Fake {
             hdr: ExpandedObjectHeader::empty(),
             payload: *b"abcdefgh",
         }));
         let ctx = MemoryContext::new("sqlfn datum_copy_out");
         unsafe {
-            eoh_init_header(
-                core::ptr::addr_of_mut!((*obj).hdr),
-                &METHODS,
-                core::ptr::null(),
-            );
+            eoh_init_header(core::ptr::addr_of_mut!((*obj).hdr), &METHODS, core::ptr::null(),);
             let rw = eohp_get_rw_datum(core::ptr::addr_of_mut!((*obj).hdr));
             assert!(datum_is_external_expanded(rw));
             let flat = datum_copy_out(ctx.mcx(), rw, -1).expect("flatten");

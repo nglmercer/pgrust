@@ -796,7 +796,7 @@ impl<'p> InitCharge<'p> {
     /// to the node it hangs on. The one home of the charge for decompose's `init_costs` (ops/subplan) and a front hit's
     /// (exec inputs/front.rs), so both weigh one statement alike.
     pub fn of(s: &'p SubPlan<'p>) -> Self {
-        let cost = (s.subLinkType != SubLinkType::CTE_SUBLINK).then_some(s.startup_cost + s.per_call_cost);
+        let cost = (s.subLinkType != SubLinkType::CTE_SUBLINK).then_some( s.startup_cost + s.per_call_cost);
         InitCharge { plan_id: s.plan_id, sets: &s.setParam, cost }
     }
 }

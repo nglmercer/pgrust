@@ -42,7 +42,7 @@ fn statement(entry: &mut Entry, program: &Arc<Program>, derive: &mut FakeDerive,
     let mut b = binding(&[100], &NULLS, &mut sink, flag);
     let mut exec = entry.start(None, program, derive, &mut b, lease(Grant::of(8 << 20))).unwrap();
     exec.set_slot_salt(Some(0x3254));
-    let open = entry.open_section(&mut exec, &b, derive, 0, WIDTH).unwrap();
+    let open = entry.open_section(&mut exec, & b, derive, 0, WIDTH).unwrap();
     let cursor = AtomicU64::new(0);
     for o in 0..WIDTH {
         drain(&open, &cursor, o).unwrap();

@@ -1,4 +1,4 @@
-#![allow(non_snake_case, non_upper_case_globals)]
+#![allow(non_snake_case,non_upper_case_globals)]
 
 use core::cell::Cell;
 use std::rc::Rc;
@@ -13,9 +13,9 @@ use ::types_error::{PgError, PgResult};
 use ::types_tuple::varatt::varsize_any;
 use ::types_tuple::{
     AttrDefault, AttrMissing, CompactAttribute, ConstrCheck, FormData_pg_attribute,
-    InvalidCompressionMethod, NameData, PgTypeShape, TupleConstr, TupleDescData, ATTNULLABLE_VALID,
-    MAXIMUM_ALIGNOF, TYPALIGN_CHAR, TYPALIGN_DOUBLE, TYPALIGN_INT, TYPSTORAGE_EXTENDED,
-    TYPSTORAGE_PLAIN,
+    InvalidCompressionMethod, NameData, PgTypeShape, TupleConstr, TupleDescData,
+    ATTNULLABLE_VALID, MAXIMUM_ALIGNOF, TYPALIGN_CHAR, TYPALIGN_DOUBLE, TYPALIGN_INT,
+    TYPSTORAGE_EXTENDED, TYPSTORAGE_PLAIN,
 };
 
 #[cfg(test)]
@@ -129,8 +129,7 @@ pub fn CreateTupleDescCopyConstr<'mcx>(
             });
         }
 
-        let mut values: Vec<(usize, MissingValue<'_>)> =
-            ::mcx::std_vec_with_capacity("access", constr.missing.len())?;
+        let mut values: Vec<(usize, MissingValue<'_>)> = ::mcx::std_vec_with_capacity("access", constr.missing.len())?;
         for (i, m) in constr.missing.iter().enumerate() {
             if !m.am_present {
                 continue;
@@ -292,12 +291,8 @@ pub fn equalTupleDescs(tupdesc1: &TupleDescData<'_>, tupdesc2: &TupleDescData<'_
                         }
                         if m1.am_present {
                             let cattr = tupdesc1.compact_attr(i);
-                            if !datum_is_equal(
-                                m1.am_value,
-                                m2.am_value,
-                                cattr.attbyval,
-                                cattr.attlen,
-                            ) {
+                            if !datum_is_equal(m1.am_value, m2.am_value, cattr.attbyval, cattr.attlen,)
+                            {
                                 return false;
                             }
                         }
@@ -367,15 +362,7 @@ pub fn TupleDescInitEntry(
     // is never observed, so lookup-first is equivalent.
     let shape = syscache_seams::lookup_pg_type_shape::call(oidtypeid)?
         .ok_or_else(|| type_lookup_failed(oidtypeid))?;
-    init_entry(
-        desc,
-        attributeNumber,
-        attributeName,
-        oidtypeid,
-        typmod,
-        attdim,
-        shape,
-    );
+    init_entry(desc, attributeNumber, attributeName, oidtypeid, typmod, attdim, shape,);
     populate_compact_attribute(desc, attributeNumber as usize - 1);
     Ok(())
 }
@@ -389,15 +376,7 @@ pub fn TupleDescInitBuiltinEntry(
     attdim: i32,
 ) -> PgResult<()> {
     let shape = builtin_type_shape(oidtypeid)?;
-    init_entry(
-        desc,
-        attributeNumber,
-        Some(attributeName),
-        oidtypeid,
-        typmod,
-        attdim,
-        shape,
-    );
+    init_entry(desc, attributeNumber, Some(attributeName), oidtypeid, typmod, attdim, shape,);
     populate_compact_attribute(desc, attributeNumber as usize - 1);
     Ok(())
 }
@@ -603,29 +582,20 @@ pub fn build_missing<'mcx>(
 ) -> PgResult<(PgVec<'mcx, AttrMissing>, PgVec<'mcx, PgVec<'mcx, u8>>)> {
     let mut store = vec_droppy_with_capacity(mcx, values.len())?;
     let mut missing: PgVec<'mcx, AttrMissing> = vec_with_capacity_in(mcx, natts)?;
-    missing.resize(
-        natts,
-        AttrMissing {
-            am_present: false,
-            am_value: Datum::null(),
-        },
-    );
+    missing.resize(natts, AttrMissing { am_present: false, am_value: Datum::null(), },);
     for (i, v) in values {
         let am_value = match v {
             MissingValue::ByVal(d) => *d,
             MissingValue::ByRef(b) => {
                 let mut image = vec_with_capacity_in(mcx, b.len())?;
                 ::mcx::vec_append_bytes(&mut image, b)?;
-                debug_assert!((image.as_ptr() as usize).is_multiple_of(MAXIMUM_ALIGNOF));
+                debug_assert!((image.as_ptr() as usize).is_multiple_of( MAXIMUM_ALIGNOF));
                 let datum = Datum::from_usize(image.as_ptr() as usize);
                 store.push(image);
                 datum
             }
         };
-        missing[*i] = AttrMissing {
-            am_present: true,
-            am_value,
-        };
+        missing[*i] = AttrMissing { am_present: true, am_value, };
     }
     Ok((missing, store))
 }
@@ -650,9 +620,7 @@ fn datum_is_equal(v1: Datum, v2: Datum, attbyval: bool, attlen: i16) -> bool {
 #[cold]
 #[inline(never)]
 fn type_lookup_failed(oidtypeid: Oid) -> Box<PgError> {
-    Box::new(PgError::error(format!(
-        "cache lookup failed for type {oidtypeid}"
-    )))
+    Box::new(PgError::error(format!("cache lookup failed for type {oidtypeid}")))
 }
 
 #[track_caller]
@@ -753,11 +721,7 @@ pub fn build_attrmap_by_name_missing_ok<'mcx>(
 
 // check_attrmap_match (attmap.c): true when the map is a one-to-one identity,
 // so the caller can skip runtime tuple conversion entirely.
-fn check_attrmap_match(
-    indesc: &TupleDescData<'_>,
-    outdesc: &TupleDescData<'_>,
-    attmap: &[i16],
-) -> bool {
+fn check_attrmap_match(indesc: &TupleDescData<'_>, outdesc: &TupleDescData<'_>, attmap: &[i16],) -> bool {
     if indesc.natts != outdesc.natts {
         return false;
     }

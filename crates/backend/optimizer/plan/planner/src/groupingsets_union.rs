@@ -41,18 +41,11 @@ pub(crate) const MAX_ARMS: usize = 64;
 const INT4OID: u32 = 23;
 const OUTER_ALIAS: &str = "gravity_groupingsets";
 
-pub(crate) fn alternative<'mcx>(
-    mcx: Mcx<'mcx>,
-    parse: &Query<'mcx>,
-) -> PgResult<Option<&'mcx mut Query<'mcx>>> {
-    if crate::gucs::gravity_groupingsets_rewrite() == guc_tables::consts::GRAVITY_GS_REWRITE_OFF
-        || !any_grouping_sets(parse)
-    {
+pub(crate) fn alternative<'mcx>(mcx: Mcx<'mcx>, parse: &Query<'mcx>,) -> PgResult<Option<&'mcx mut Query<'mcx>>> {
+    if crate::gucs::gravity_groupingsets_rewrite() == guc_tables::consts::GRAVITY_GS_REWRITE_OFF || !any_grouping_sets(parse) {
         return Ok(None);
     }
-    let Some(q) = transform_level(mcx, parse)? else {
-        return Ok(None);
-    };
+    let Some(q) = transform_level(mcx, parse)? else { return Ok(None); };
     let copy = copyfuncs::copy_query(mcx, &q)?;
     Ok(Some(mcx::leak_in(mcx::alloc_in(mcx, copy)?)))
 }
@@ -61,15 +54,9 @@ fn any_grouping_sets(q: &Query<'_>) -> bool {
     if !q.groupingSets.is_nil() {
         return true;
     }
-    q.rtable.iter().any(|n| {
-        n.as_range_tbl_entry()
-            .and_then(|r| r.subquery)
-            .is_some_and(any_grouping_sets)
-    }) || q.cteList.iter().any(|n| {
-        n.as_common_table_expr()
-            .and_then(|c| c.ctequery)
-            .and_then(|n| n.as_query())
-            .is_some_and(any_grouping_sets)
+    q.rtable.iter().any(|n| { n.as_range_tbl_entry().and_then(|r| r.subquery).is_some_and(any_grouping_sets)
+    })
+        || q.cteList.iter().any(|n| { n.as_common_table_expr().and_then(|c| c.ctequery).and_then(|n| n.as_query()).is_some_and(any_grouping_sets)
     })
 }
 
@@ -81,11 +68,7 @@ fn transform_level<'mcx>(mcx: Mcx<'mcx>, q: &Query<'mcx>) -> PgResult<Option<Que
         match rte.subquery {
             Some(sub) if rte.rtekind == RTEKind::RTE_SUBQUERY => match transform_level(mcx, sub)? {
                 Some(new) => {
-                    let copy = crate::prepjointree::rte_copy_with_perminfoindex(
-                        mcx,
-                        rte,
-                        rte.perminfoindex,
-                    )?;
+                    let copy = crate::prepjointree::rte_copy_with_perminfoindex(mcx, rte, rte.perminfoindex,)?;
                     let new = mcx::alloc_leak_in(mcx, new)?;
                     // SAFETY: the copy is exclusively ours until it enters the list.
                     unsafe { copy.with_mut::<RangeTblEntry, _>(|r| r.subquery = Some(new)) };
@@ -100,22 +83,13 @@ fn transform_level<'mcx>(mcx: Mcx<'mcx>, q: &Query<'mcx>) -> PgResult<Option<Que
     let mut ctes = NodeList::with_capacity(mcx, q.cteList.len())?;
     for n in q.cteList.iter() {
         let cte = n.as_common_table_expr().expect("cteList cell");
-        match cte
-            .ctequery
-            .and_then(|c| c.as_query())
-            .map(|sub| transform_level(mcx, sub))
-            .transpose()?
-            .flatten()
-        {
+        match cte.ctequery.and_then(|c| c.as_query()).map(|sub| transform_level(mcx, sub)).transpose()?.flatten() {
             Some(new) => {
                 let copy = rewrite_manip::copy_node(mcx, n)?;
                 let new = Node::mk(mcx, new)?;
                 // SAFETY: as above.
-                unsafe {
-                    copy.with_mut::<types_nodes::parsenodes::CommonTableExpr, _>(|c| {
-                        c.ctequery = Some(new)
-                    })
-                };
+                unsafe { copy.with_mut::<types_nodes::parsenodes::CommonTableExpr, _>(|c| { c.ctequery = Some(new)
+                    }) };
                 ctes.lappend(mcx, copy)?;
                 changed = true;
             }
@@ -140,45 +114,24 @@ struct Col<'mcx> {
 }
 
 fn rewrite_level<'mcx>(mcx: Mcx<'mcx>, q: &Query<'mcx>) -> PgResult<Option<Query<'mcx>>> {
-    if q.commandType != CmdType::CMD_SELECT
-        || q.resultRelation != 0
-        || q.setOperations.is_some()
-        || !q.rowMarks.is_nil()
-        || q.hasForUpdate
-    {
+    if q.commandType != CmdType::CMD_SELECT || q.resultRelation != 0 || q.setOperations.is_some() || !q.rowMarks.is_nil() || q.hasForUpdate {
         return Ok(None);
     }
-    let Some(sets) =
-        parse_agg::expand_grouping_sets(mcx, &q.groupingSets, q.groupDistinct, MAX_ARMS as i32)?
-    else {
-        return Ok(None);
-    };
+    let Some(sets) = parse_agg::expand_grouping_sets(mcx, &q.groupingSets, q.groupDistinct, MAX_ARMS as i32)? else { return Ok(None); };
     let n = sets.len();
     if n == 0 || n > MAX_ARMS {
         return Ok(None);
     }
-    let group_rti = q
-        .rtable
-        .iter()
-        .position(|n| n.as_range_tbl_entry().expect("rtable cell").rtekind == RTEKind::RTE_GROUP)
-        .map_or(0, |i| i as i32 + 1);
+    let group_rti = q.rtable.iter().position(|n| n.as_range_tbl_entry().expect("rtable cell").rtekind == RTEKind::RTE_GROUP).map_or(0, |i| i as i32 + 1);
     let mut refs: Vec<u32> = ::mcx::stdvec::try_vec(q.groupClause.len(), "groupingsets_union")?;
     for gc in q.groupClause.iter() {
-        refs.push(
-            gc.as_sort_group_clause()
-                .expect("groupClause cell")
-                .tleSortGroupRef,
-        );
+        refs.push(gc.as_sort_group_clause().expect("groupClause cell").tleSortGroupRef,);
     }
     if (group_rti == 0) != q.groupClause.is_nil() || !q.hasGroupRTE && group_rti != 0 {
         return Ok(None);
     }
     if group_rti != 0 {
-        let group = q
-            .rtable
-            .nth(group_rti as usize - 1)
-            .as_range_tbl_entry()
-            .expect("rtable cell");
+        let group = q.rtable.nth(group_rti as usize - 1).as_range_tbl_entry().expect("rtable cell");
         if group.groupexprs.len() != refs.len() {
             return Ok(None);
         }
@@ -186,18 +139,13 @@ fn rewrite_level<'mcx>(mcx: Mcx<'mcx>, q: &Query<'mcx>) -> PgResult<Option<Query
             return Ok(None);
         }
     }
-    if clauses::contain_volatile_functions(Node::mk(mcx, rewrite_manip::flat_copy_query(mcx, q)?)?)?
-    {
+    if clauses::contain_volatile_functions(Node::mk(mcx, rewrite_manip::flat_copy_query(mcx, q)?)?)? {
         return Ok(None);
     }
 
     let mut cols: Vec<Col<'mcx>> = Vec::new();
     let outer_tlist = split_tlist(mcx, &q.targetList, &refs, &mut |src, name, groupref| {
-        cols.push(Col {
-            src,
-            name,
-            groupref,
-        });
+        cols.push(Col { src, name, groupref, });
         Ok(cols.len() as i16)
     })?;
     let ncols = cols.len();
@@ -221,8 +169,7 @@ fn rewrite_level<'mcx>(mcx: Mcx<'mcx>, q: &Query<'mcx>) -> PgResult<Option<Query
             Ok(pushed.len() as i16)
         })?;
         debug_assert_eq!(pushed.len(), ncols);
-        let mut newattno: Vec<i16> =
-            ::mcx::stdvec::try_filled(refs.len(), 0, "groupingsets_union")?;
+        let mut newattno: Vec<i16> = ::mcx::stdvec::try_filled(refs.len(), 0, "groupingsets_union")?;
         let mut kept = 0i16;
         for (i, r) in refs.iter().enumerate() {
             if members.contains(&(*r as i32)) {
@@ -243,13 +190,7 @@ fn rewrite_level<'mcx>(mcx: Mcx<'mcx>, q: &Query<'mcx>) -> PgResult<Option<Query
                     }
                 }
             }
-            let eref = mcx::alloc_leak_in(
-                mcx,
-                Alias {
-                    aliasname: rte.eref.and_then(|a| a.aliasname),
-                    colnames,
-                },
-            )?;
+            let eref = mcx::alloc_leak_in(mcx, Alias { aliasname: rte.eref.and_then(|a| a.aliasname), colnames, },)?;
             // SAFETY: the arm is a fresh deep copy, exclusively ours.
             unsafe {
                 rte_node.with_mut::<RangeTblEntry, _>(|r| {
@@ -259,13 +200,7 @@ fn rewrite_level<'mcx>(mcx: Mcx<'mcx>, q: &Query<'mcx>) -> PgResult<Option<Query
             }
             .expect("RangeTblEntry");
         }
-        let mut ctx = Subst {
-            group_rti,
-            refs: &refs,
-            set: &members,
-            newattno: &newattno,
-            sublevels_up: 0,
-        };
+        let mut ctx = Subst { group_rti, refs: &refs, set: &members, newattno: &newattno, sublevels_up: 0, };
         let mut tlist = NodeList::with_capacity(mcx, ncols)?;
         for (k, (src, col)) in pushed.iter().zip(cols.iter()).enumerate() {
             // An entry that defines a grouping expression is that grouping column (PostgreSQL
@@ -286,27 +221,12 @@ fn rewrite_level<'mcx>(mcx: Mcx<'mcx>, q: &Query<'mcx>) -> PgResult<Option<Query
             let in_set = col.groupref != 0 && members.contains(&(col.groupref as i32));
             tlist.lappend(
                 mcx,
-                Node::mk(
-                    mcx,
-                    TargetEntry {
-                        expr,
-                        resno: k as i16 + 1,
-                        resname: Some(col.name),
-                        ressortgroupref: if in_set { col.groupref } else { 0 },
-                        resorigtbl: 0,
-                        resorigcol: 0,
-                        resjunk: false,
-                    },
-                )?,
+                Node::mk(mcx, TargetEntry { expr, resno: k as i16 + 1, resname: Some(col.name), ressortgroupref: if in_set { col.groupref } else { 0 }, resorigtbl: 0, resorigcol: 0, resjunk: false, },)?,
             )?;
         }
         let mut group = NodeList::nil();
         for gc in arm.groupClause.iter() {
-            if members.contains(
-                &(gc.as_sort_group_clause()
-                    .expect("groupClause cell")
-                    .tleSortGroupRef as i32),
-            ) {
+            if members.contains(&(gc.as_sort_group_clause().expect("groupClause cell").tleSortGroupRef as i32),) {
                 group.lappend(mcx, gc)?;
             }
         }
@@ -315,15 +235,7 @@ fn rewrite_level<'mcx>(mcx: Mcx<'mcx>, q: &Query<'mcx>) -> PgResult<Option<Query
             None => None,
         };
         let sets = if members.is_empty() && !arm.hasAggs {
-            NodeList::make1(
-                mcx,
-                Node::mk_grouping_set(
-                    mcx,
-                    types_nodes::parsenodes::GroupingSetKind::GROUPING_SET_EMPTY,
-                    NodeList::nil(),
-                    -1,
-                )?,
-            )?
+            NodeList::make1(mcx, Node::mk_grouping_set(mcx, types_nodes::parsenodes::GroupingSetKind::GROUPING_SET_EMPTY, NodeList::nil(), -1,)?,)?
         } else {
             NodeList::nil()
         };
@@ -354,39 +266,15 @@ fn rewrite_level<'mcx>(mcx: Mcx<'mcx>, q: &Query<'mcx>) -> PgResult<Option<Query
             colnames.lappend(mcx, Node::mk_string(mcx, c.name)?)?;
         }
         arms.push(arm);
-        let alias = mcx::alloc_leak_in(
-            mcx,
-            Alias {
-                aliasname: Some(arm_name),
-                colnames: NodeList::nil(),
-            },
-        )?;
-        let eref = mcx::alloc_leak_in(
-            mcx,
-            Alias {
-                aliasname: Some(arm_name),
-                colnames,
-            },
-        )?;
+        let alias = mcx::alloc_leak_in(mcx, Alias { aliasname: Some(arm_name), colnames: NodeList::nil(), },)?;
+        let eref = mcx::alloc_leak_in(mcx, Alias { aliasname: Some(arm_name), colnames, },)?;
         arm_rtable.lappend(
             mcx,
-            Node::mk(
-                mcx,
-                RangeTblEntry {
-                    rtekind: RTEKind::RTE_SUBQUERY,
-                    subquery: Some(arm),
-                    alias: Some(alias),
-                    eref: Some(eref),
-                    lateral: false,
-                    inFromCl: true,
-                    ..Default::default()
-                },
-            )?,
+            Node::mk(mcx, RangeTblEntry { rtekind: RTEKind::RTE_SUBQUERY, subquery: Some(arm), alias: Some(alias), eref: Some(eref), lateral: false, inFromCl: true, ..Default::default() },)?,
         )?;
     }
 
-    let (mut col_types, mut col_typmods, mut col_colls) =
-        (OidList::nil(), IntList::nil(), OidList::nil());
+    let (mut col_types, mut col_typmods, mut col_colls) = (OidList::nil(), IntList::nil(), OidList::nil());
     for &(ty, tm, coll) in coltypes.iter() {
         col_types.lappend(mcx, ty)?;
         col_typmods.lappend(mcx, tm)?;
@@ -413,10 +301,7 @@ fn rewrite_level<'mcx>(mcx: Mcx<'mcx>, q: &Query<'mcx>) -> PgResult<Option<Query
     for (k, c) in cols.iter().enumerate() {
         let (ty, tm, coll) = coltypes[k];
         let var = Node::mk_var(mcx, 1, k as i16 + 1, ty, tm, coll, 0)?;
-        union_tlist.lappend(
-            mcx,
-            Node::mk_target_entry(mcx, var, k as i16 + 1, Some(c.name), false)?,
-        )?;
+        union_tlist.lappend(mcx, Node::mk_target_entry(mcx, var, k as i16 + 1, Some(c.name), false)?,)?;
         colnames.lappend(mcx, Node::mk_string(mcx, c.name)?)?;
     }
     let union = Query {
@@ -426,61 +311,22 @@ fn rewrite_level<'mcx>(mcx: Mcx<'mcx>, q: &Query<'mcx>) -> PgResult<Option<Query
         hasAggs: false,
         hasSubLinks: false,
         rtable: arm_rtable,
-        jointree: Some(mcx::alloc_leak_in(
-            mcx,
-            FromExpr {
-                fromlist: NodeList::nil(),
-                quals: None,
-            },
-        )?),
+        jointree: Some(mcx::alloc_leak_in(mcx, FromExpr { fromlist: NodeList::nil(), quals: None, },)?),
         targetList: union_tlist,
         setOperations: Some(setop),
         stmt_location: q.stmt_location,
         stmt_len: q.stmt_len,
         ..Default::default()
     };
-    let inner: &'mcx Query<'mcx> = if n == 1 {
-        arms[0]
-    } else {
-        mcx::alloc_leak_in(mcx, union)?
-    };
+    let inner: &'mcx Query<'mcx> = if n == 1 { arms[0] } else { mcx::alloc_leak_in(mcx, union)? };
 
-    let alias = mcx::alloc_leak_in(
-        mcx,
-        Alias {
-            aliasname: Some(OUTER_ALIAS),
-            colnames: NodeList::nil(),
-        },
-    )?;
-    let eref = mcx::alloc_leak_in(
-        mcx,
-        Alias {
-            aliasname: Some(OUTER_ALIAS),
-            colnames,
-        },
-    )?;
-    let outer_rte = Node::mk(
-        mcx,
-        RangeTblEntry {
-            rtekind: RTEKind::RTE_SUBQUERY,
-            subquery: Some(inner),
-            alias: Some(alias),
-            eref: Some(eref),
-            lateral: false,
-            inFromCl: true,
-            ..Default::default()
-        },
-    )?;
+    let alias = mcx::alloc_leak_in(mcx, Alias { aliasname: Some(OUTER_ALIAS), colnames: NodeList::nil(), },)?;
+    let eref = mcx::alloc_leak_in(mcx, Alias { aliasname: Some(OUTER_ALIAS), colnames, },)?;
+    let outer_rte = Node::mk(mcx, RangeTblEntry { rtekind: RTEKind::RTE_SUBQUERY, subquery: Some(inner), alias: Some(alias), eref: Some(eref), lateral: false, inFromCl: true, ..Default::default() },)?;
     let mut outer = rewrite_manip::flat_copy_query(mcx, q)?;
     outer.rtable = NodeList::make1(mcx, outer_rte)?;
     outer.rteperminfos = NodeList::nil();
-    outer.jointree = Some(mcx::alloc_leak_in(
-        mcx,
-        FromExpr {
-            fromlist: NodeList::make1(mcx, Node::mk_range_tbl_ref(mcx, 1)?)?,
-            quals: None,
-        },
-    )?);
+    outer.jointree = Some(mcx::alloc_leak_in(mcx, FromExpr { fromlist: NodeList::make1(mcx, Node::mk_range_tbl_ref(mcx, 1)?)?, quals: None, },)?);
     outer.targetList = fix_outer_typmods(mcx, &outer_tlist, &coltypes)?;
     outer.groupClause = NodeList::nil();
     outer.groupDistinct = false;
@@ -489,8 +335,7 @@ fn rewrite_level<'mcx>(mcx: Mcx<'mcx>, q: &Query<'mcx>) -> PgResult<Option<Query
     outer.hasAggs = false;
     outer.hasGroupRTE = false;
     outer.hasTargetSRFs = false;
-    outer.hasSubLinks = rewrite_manip::checkExprHasSubLink_opt(q.limitOffset)?
-        || rewrite_manip::checkExprHasSubLink_opt(q.limitCount)?;
+    outer.hasSubLinks = rewrite_manip::checkExprHasSubLink_opt(q.limitOffset)? || rewrite_manip::checkExprHasSubLink_opt(q.limitCount)?;
     Ok(Some(outer))
 }
 
@@ -507,11 +352,7 @@ fn split_tlist<'mcx>(
         let expr = if clauses::contain_window_function(te.expr)? {
             split_expr(mcx, te.expr, name, push)?
         } else {
-            let groupref = if group_refs.contains(&te.ressortgroupref) {
-                te.ressortgroupref
-            } else {
-                0
-            };
+            let groupref = if group_refs.contains(&te.ressortgroupref) { te.ressortgroupref } else { 0 };
             let k = push(te.expr, name, groupref)?;
             column_var(mcx, te.expr, k)?
         };
@@ -520,12 +361,7 @@ fn split_tlist<'mcx>(
     Ok(out)
 }
 
-fn split_expr<'mcx>(
-    mcx: Mcx<'mcx>,
-    node: Node<'mcx>,
-    name: &'mcx str,
-    push: &mut dyn FnMut(Node<'mcx>, &'mcx str, u32) -> PgResult<i16>,
-) -> PgResult<Node<'mcx>> {
+fn split_expr<'mcx>(mcx: Mcx<'mcx>, node: Node<'mcx>, name: &'mcx str, push: &mut dyn FnMut(Node<'mcx>, &'mcx str, u32) -> PgResult<i16>,) -> PgResult<Node<'mcx>> {
     if !clauses::contain_window_function(node)? {
         let k = push(node, name, 0)?;
         return column_var(mcx, node, k);
@@ -540,11 +376,7 @@ fn column_var<'mcx>(mcx: Mcx<'mcx>, src: Node<'mcx>, k: i16) -> PgResult<Node<'m
 }
 
 /// The skeleton's column Vars carry the union's agreed typmod (-1 where the arms differ).
-fn fix_outer_typmods<'mcx>(
-    mcx: Mcx<'mcx>,
-    tlist: &NodeList<'mcx>,
-    coltypes: &[(u32, i32, u32)],
-) -> PgResult<NodeList<'mcx>> {
+fn fix_outer_typmods<'mcx>(mcx: Mcx<'mcx>, tlist: &NodeList<'mcx>, coltypes: &[(u32, i32, u32)],) -> PgResult<NodeList<'mcx>> {
     let mut out = NodeList::with_capacity(mcx, tlist.len())?;
     for n in tlist.iter() {
         let te = n.as_target_entry().expect("tlist cell");
@@ -556,11 +388,7 @@ fn fix_outer_typmods<'mcx>(
     Ok(out)
 }
 
-fn fix_var<'mcx>(
-    mcx: Mcx<'mcx>,
-    n: Node<'mcx>,
-    coltypes: &[(u32, i32, u32)],
-) -> PgResult<Option<Node<'mcx>>> {
+fn fix_var<'mcx>(mcx: Mcx<'mcx>, n: Node<'mcx>, coltypes: &[(u32, i32, u32)],) -> PgResult<Option<Node<'mcx>>> {
     match n.as_var() {
         Some(v) if v.varlevelsup == 0 && v.varno == 1 => {
             let (ty, tm, coll) = coltypes[v.varattno as usize - 1];
@@ -583,23 +411,10 @@ struct Subst<'a> {
 
 fn null_const<'mcx>(mcx: Mcx<'mcx>, ty: u32, typmod: i32, coll: u32) -> PgResult<Node<'mcx>> {
     let (len, byval) = lsyscache::get_typlenbyval(ty)?;
-    Node::mk_const(
-        mcx,
-        ty,
-        typmod,
-        coll,
-        len as i32,
-        datum::Datum::from_i32(0),
-        true,
-        byval,
-    )
+    Node::mk_const(mcx, ty, typmod, coll, len as i32, datum::Datum::from_i32(0), true, byval,)
 }
 
-fn subst<'mcx>(
-    ctx: &mut Subst<'_>,
-    mcx: Mcx<'mcx>,
-    node: Node<'mcx>,
-) -> PgResult<Option<Node<'mcx>>> {
+fn subst<'mcx>(ctx: &mut Subst<'_>, mcx: Mcx<'mcx>, node: Node<'mcx>,) -> PgResult<Option<Node<'mcx>>> {
     match node.node_tag() {
         NodeTag::T_Var => {
             let v = node.as_var().expect("Var");
@@ -611,15 +426,7 @@ fn subst<'mcx>(
                 if v.varnullingrels.is_empty() && v.varattno == ctx.newattno[i] {
                     return Ok(None);
                 }
-                return Ok(Some(Node::mk(
-                    mcx,
-                    Var {
-                        varattno: ctx.newattno[i],
-                        varattnosyn: ctx.newattno[i],
-                        varnullingrels: types_nodes::Bitmapset::empty(),
-                        ..*v
-                    },
-                )?));
+                return Ok(Some(Node::mk(mcx, Var { varattno: ctx.newattno[i], varattnosyn: ctx.newattno[i], varnullingrels: types_nodes::Bitmapset::empty(), ..*v },)?));
             }
             null_const(mcx, v.vartype, v.vartypmod, v.varcollid).map(Some)
         }
@@ -632,16 +439,7 @@ fn subst<'mcx>(
             for r in g.refs.iter() {
                 v = (v << 1) | i32::from(!ctx.set.contains(&r));
             }
-            Ok(Some(Node::mk_const(
-                mcx,
-                INT4OID,
-                -1,
-                0,
-                4,
-                datum::Datum::from_i32(v),
-                false,
-                true,
-            )?))
+            Ok(Some(Node::mk_const(mcx, INT4OID, -1, 0, 4, datum::Datum::from_i32(v), false, true,)?))
         }
         NodeTag::T_SubLink => {
             let sl = node.as_sub_link().expect("SubLink");
@@ -658,12 +456,7 @@ fn subst<'mcx>(
 
 fn subst_query<'mcx>(ctx: &mut Subst<'_>, mcx: Mcx<'mcx>, qnode: Node<'mcx>) -> PgResult<()> {
     ctx.sublevels_up += 1;
-    nodes_core::query_tree_mutator(
-        mcx,
-        qnode,
-        &mut |n| subst(ctx, mcx, n),
-        nodes_core::QTW_DONT_COPY_QUERY,
-    )?;
+    nodes_core::query_tree_mutator(mcx, qnode, &mut |n| subst(ctx, mcx, n), nodes_core::QTW_DONT_COPY_QUERY,)?;
     ctx.sublevels_up -= 1;
     Ok(())
 }
@@ -706,11 +499,7 @@ fn bump_own_cte_refs<'mcx>(arm: Node<'mcx>) -> PgResult<()> {
         }
     }
     let mut w = Bump { depth: 0 };
-    nodes_core::query_tree_walker(
-        arm.as_query().expect("Query"),
-        &mut w,
-        nodes_core::QTW_EXAMINE_RTES_BEFORE,
-    )?;
+    nodes_core::query_tree_walker(arm.as_query().expect("Query"), &mut w, nodes_core::QTW_EXAMINE_RTES_BEFORE,)?;
     Ok(())
 }
 
@@ -737,176 +526,50 @@ mod tests {
     }
 
     fn sgc(mcx: Mcx<'_>, r: u32) -> Node<'_> {
-        Node::mk(
-            mcx,
-            SortGroupClause {
-                tleSortGroupRef: r,
-                eqop: INT4EQ,
-                sortop: INT4LT,
-                reverse_sort: false,
-                nulls_first: false,
-                hashable: true,
-            },
-        )
-        .unwrap()
+        Node::mk(mcx, SortGroupClause { tleSortGroupRef: r, eqop: INT4EQ, sortop: INT4LT, reverse_sort: false, nulls_first: false, hashable: true, },).unwrap()
     }
 
     fn group_var<'m>(mcx: Mcx<'m>, attno: i16, nullable: bool) -> Node<'m> {
-        let varnullingrels = if nullable {
-            types_nodes::Bitmapset::make_singleton(mcx, 2).unwrap()
-        } else {
-            types_nodes::Bitmapset::empty()
-        };
-        Node::mk(
-            mcx,
-            Var {
-                varno: 2,
-                varattno: attno,
-                vartype: INT4,
-                vartypmod: -1,
-                varcollid: 0,
-                varnullingrels,
-                varlevelsup: 0,
-                varnosyn: 2,
-                varattnosyn: attno,
-                location: -1,
-                ..Default::default()
-            },
-        )
-        .unwrap()
+        let varnullingrels = if nullable { types_nodes::Bitmapset::make_singleton(mcx, 2).unwrap() } else { types_nodes::Bitmapset::empty() };
+        Node::mk(mcx, Var { varno: 2, varattno: attno, vartype: INT4, vartypmod: -1, varcollid: 0, varnullingrels, varlevelsup: 0, varnosyn: 2, varattnosyn: attno, location: -1, ..Default::default() },).unwrap()
     }
 
     fn te<'m>(mcx: Mcx<'m>, expr: Node<'m>, resno: i16, name: &'m str, r: u32) -> Node<'m> {
-        Node::mk(
-            mcx,
-            TargetEntry {
-                expr,
-                resno,
-                resname: Some(name),
-                ressortgroupref: r,
-                resorigtbl: 0,
-                resorigcol: 0,
-                resjunk: false,
-            },
-        )
-        .unwrap()
+        Node::mk(mcx, TargetEntry { expr, resno, resname: Some(name), ressortgroupref: r, resorigtbl: 0, resorigcol: 0, resjunk: false, },).unwrap()
     }
 
     fn simple<'m>(mcx: Mcx<'m>, r: i32) -> Node<'m> {
-        Node::mk_grouping_set(
-            mcx,
-            GroupingSetKind::GROUPING_SET_SIMPLE,
-            NodeList::make1(mcx, Node::mk_integer(mcx, r).unwrap()).unwrap(),
-            -1,
-        )
-        .unwrap()
+        Node::mk_grouping_set(mcx, GroupingSetKind::GROUPING_SET_SIMPLE, NodeList::make1(mcx, Node::mk_integer(mcx, r).unwrap()).unwrap(), -1,).unwrap()
     }
 
     fn rollup(mcx: Mcx<'_>) -> Query<'_> {
-        let rel = Node::mk(
-            mcx,
-            RangeTblEntry {
-                rtekind: RTEKind::RTE_RELATION,
-                relid: TBL,
-                relkind: b'r',
-                rellockmode: 1,
-                inFromCl: true,
-                ..Default::default()
-            },
-        )
-        .unwrap();
+        let rel = Node::mk(mcx, RangeTblEntry { rtekind: RTEKind::RTE_RELATION, relid: TBL, relkind: b'r', rellockmode: 1, inFromCl: true, ..Default::default() },).unwrap();
         let mut groupexprs = NodeList::nil();
-        groupexprs
-            .lappend(mcx, Node::mk_var(mcx, 1, 1, INT4, -1, 0, 0).unwrap())
-            .unwrap();
-        groupexprs
-            .lappend(mcx, Node::mk_var(mcx, 1, 2, INT4, -1, 0, 0).unwrap())
-            .unwrap();
+        groupexprs.lappend(mcx, Node::mk_var(mcx, 1, 1, INT4, -1, 0, 0).unwrap()).unwrap();
+        groupexprs.lappend(mcx, Node::mk_var(mcx, 1, 2, INT4, -1, 0, 0).unwrap()).unwrap();
         let mut colnames = NodeList::nil();
-        colnames
-            .lappend(mcx, Node::mk_string(mcx, "a").unwrap())
-            .unwrap();
-        colnames
-            .lappend(mcx, Node::mk_string(mcx, "b").unwrap())
-            .unwrap();
-        let eref = mcx::alloc_leak_in(
-            mcx,
-            Alias {
-                aliasname: Some("*GROUP*"),
-                colnames,
-            },
-        )
-        .unwrap();
-        let group = Node::mk(
-            mcx,
-            RangeTblEntry {
-                rtekind: RTEKind::RTE_GROUP,
-                groupexprs,
-                eref: Some(eref),
-                ..Default::default()
-            },
-        )
-        .unwrap();
+        colnames.lappend(mcx, Node::mk_string(mcx, "a").unwrap()).unwrap();
+        colnames.lappend(mcx, Node::mk_string(mcx, "b").unwrap()).unwrap();
+        let eref = mcx::alloc_leak_in(mcx, Alias { aliasname: Some("*GROUP*"), colnames, },).unwrap();
+        let group = Node::mk(mcx, RangeTblEntry { rtekind: RTEKind::RTE_GROUP, groupexprs, eref: Some(eref), ..Default::default() },).unwrap();
         let mut refs = IntList::nil();
         refs.lappend(mcx, 1).unwrap();
         refs.lappend(mcx, 2).unwrap();
-        let grouping = Node::mk(
-            mcx,
-            GroupingFunc {
-                args: NodeList::make2(mcx, group_var(mcx, 1, false), group_var(mcx, 2, true))
-                    .unwrap(),
-                refs,
-                cols: IntList::nil(),
-                agglevelsup: 0,
-                location: -1,
-            },
-        )
-        .unwrap();
-        let count = Node::mk(
-            mcx,
-            Aggref {
-                aggfnoid: COUNT_STAR,
-                aggtype: INT8,
-                aggstar: true,
-                ..Aggref::default()
-            },
-        )
-        .unwrap();
+        let grouping = Node::mk(mcx, GroupingFunc { args: NodeList::make2(mcx, group_var(mcx, 1, false), group_var(mcx, 2, true)).unwrap(), refs, cols: IntList::nil(), agglevelsup: 0, location: -1, },).unwrap();
+        let count = Node::mk(mcx, Aggref { aggfnoid: COUNT_STAR, aggtype: INT8, aggstar: true, ..Aggref::default() },).unwrap();
         let mut tlist = NodeList::nil();
-        tlist
-            .lappend(mcx, te(mcx, group_var(mcx, 1, false), 1, "a", 1))
-            .unwrap();
-        tlist
-            .lappend(mcx, te(mcx, group_var(mcx, 2, true), 2, "b", 2))
-            .unwrap();
-        tlist
-            .lappend(mcx, te(mcx, grouping, 3, "grouping", 0))
-            .unwrap();
+        tlist.lappend(mcx, te(mcx, group_var(mcx, 1, false), 1, "a", 1)).unwrap();
+        tlist.lappend(mcx, te(mcx, group_var(mcx, 2, true), 2, "b", 2)).unwrap();
+        tlist.lappend(mcx, te(mcx, grouping, 3, "grouping", 0)).unwrap();
         tlist.lappend(mcx, te(mcx, count, 4, "count", 0)).unwrap();
-        let rollup = Node::mk_grouping_set(
-            mcx,
-            GroupingSetKind::GROUPING_SET_ROLLUP,
-            NodeList::make2(mcx, simple(mcx, 1), simple(mcx, 2)).unwrap(),
-            -1,
-        )
-        .unwrap();
+        let rollup = Node::mk_grouping_set(mcx, GroupingSetKind::GROUPING_SET_ROLLUP, NodeList::make2(mcx, simple(mcx, 1), simple(mcx, 2)).unwrap(), -1,).unwrap();
         Query {
             commandType: CmdType::CMD_SELECT,
             canSetTag: true,
             hasAggs: true,
             hasGroupRTE: true,
             rtable: NodeList::make2(mcx, rel, group).unwrap(),
-            jointree: Some(
-                mcx::alloc_leak_in(
-                    mcx,
-                    FromExpr {
-                        fromlist: NodeList::make1(mcx, Node::mk_range_tbl_ref(mcx, 1).unwrap())
-                            .unwrap(),
-                        quals: None,
-                    },
-                )
-                .unwrap(),
-            ),
+            jointree: Some(mcx::alloc_leak_in(mcx, FromExpr { fromlist: NodeList::make1(mcx, Node::mk_range_tbl_ref(mcx, 1).unwrap()).unwrap(), quals: None, },).unwrap(),),
             targetList: tlist,
             groupClause: NodeList::make2(mcx, sgc(mcx, 1), sgc(mcx, 2)).unwrap(),
             groupingSets: NodeList::make1(mcx, rollup).unwrap(),
@@ -936,84 +599,40 @@ mod tests {
         let q = rollup(mcx);
         let outer = alternative(mcx, &q).unwrap().expect("rewritten");
         assert_eq!(outer.rtable.len(), 1);
-        assert!(
-            outer.groupingSets.is_nil()
-                && outer.groupClause.is_nil()
-                && !outer.hasAggs
-                && !outer.hasGroupRTE
-        );
-        assert_eq!(
-            outer.sortClause.len(),
-            1,
-            "the level's ORDER BY stays above the union"
-        );
+        assert!(outer.groupingSets.is_nil() && outer.groupClause.is_nil() && !outer.hasAggs && !outer.hasGroupRTE);
+        assert_eq!(outer.sortClause.len(), 1, "the level's ORDER BY stays above the union");
         assert_eq!(outer.targetList.len(), 4);
         for (k, n) in outer.targetList.iter().enumerate() {
             let te = n.as_target_entry().unwrap();
             let v = te.expr.as_var().expect("a column of the union");
             assert_eq!((v.varno, v.varattno as usize), (1, k + 1));
         }
-        let union = outer
-            .rtable
-            .nth(0)
-            .as_range_tbl_entry()
-            .unwrap()
-            .subquery
-            .unwrap();
+        let union = outer.rtable.nth(0).as_range_tbl_entry().unwrap().subquery.unwrap();
         assert!(union.setOperations.is_some());
         assert_eq!(union.rtable.len(), 3);
         assert_eq!(union.targetList.len(), 4);
 
         let both = arm_by_keys(union, 2);
         assert!(both.groupingSets.is_nil());
-        assert_eq!(
-            const_of(both.targetList.nth(2).as_target_entry().unwrap().expr),
-            (false, 0)
-        );
+        assert_eq!(const_of(both.targetList.nth(2).as_target_entry().unwrap().expr), (false, 0));
         let b = both.targetList.nth(1).as_target_entry().unwrap();
         assert_eq!(b.ressortgroupref, 2);
         let bv = b.expr.as_var().unwrap();
-        assert!(
-            bv.varnullingrels.is_empty() && bv.varno == 2 && bv.varattno == 2,
-            "in the set: the GROUP Var, no longer nullable"
-        );
+        assert!(bv.varnullingrels.is_empty() && bv.varno == 2 && bv.varattno == 2, "in the set: the GROUP Var, no longer nullable");
 
         let a_only = arm_by_keys(union, 1);
-        assert_eq!(
-            const_of(a_only.targetList.nth(2).as_target_entry().unwrap().expr),
-            (false, 1)
-        );
+        assert_eq!(const_of(a_only.targetList.nth(2).as_target_entry().unwrap().expr), (false, 1));
         let b = a_only.targetList.nth(1).as_target_entry().unwrap();
         assert_eq!(b.ressortgroupref, 0);
         assert_eq!(const_of(b.expr), (true, 0), "outside the set: NULL");
         let group = a_only.rtable.nth(1).as_range_tbl_entry().unwrap();
-        assert_eq!(
-            group.groupexprs.len(),
-            1,
-            "the arm's GROUP RTE is parallel to its GROUP BY"
-        );
+        assert_eq!(group.groupexprs.len(), 1, "the arm's GROUP RTE is parallel to its GROUP BY");
 
         let none = arm_by_keys(union, 0);
-        assert!(
-            none.groupingSets.is_nil() && none.groupClause.is_nil(),
-            "the empty set over aggregates is the plain aggregate"
-        );
-        assert_eq!(
-            const_of(none.targetList.nth(2).as_target_entry().unwrap().expr),
-            (false, 3)
-        );
-        assert_eq!(
-            const_of(none.targetList.nth(0).as_target_entry().unwrap().expr),
-            (true, 0)
-        );
-        assert!(none
-            .targetList
-            .nth(3)
-            .as_target_entry()
-            .unwrap()
-            .expr
-            .as_aggref()
-            .is_some());
+        assert!(none.groupingSets.is_nil() && none.groupClause.is_nil(), "the empty set over aggregates is the plain aggregate");
+        assert_eq!(const_of(none.targetList.nth(2).as_target_entry().unwrap().expr), (false, 3));
+        assert_eq!(const_of(none.targetList.nth(0).as_target_entry().unwrap().expr), (true, 0));
+        assert!(none.targetList.nth(3).as_target_entry().unwrap().expr.as_aggref().is_some());
     }
 
     #[test]
@@ -1024,24 +643,10 @@ mod tests {
         q.targetList = NodeList::make2(mcx, q.targetList.nth(0), q.targetList.nth(1)).unwrap();
         q.hasAggs = false;
         let outer = alternative(mcx, &q).unwrap().expect("rewritten");
-        let union = outer
-            .rtable
-            .nth(0)
-            .as_range_tbl_entry()
-            .unwrap()
-            .subquery
-            .unwrap();
+        let union = outer.rtable.nth(0).as_range_tbl_entry().unwrap().subquery.unwrap();
         let none = arm_by_keys(union, 0);
-        assert_eq!(
-            none.groupingSets.len(),
-            1,
-            "GROUP BY (): one group over an empty input too"
-        );
-        assert!(none
-            .groupingSets
-            .nth(0)
-            .as_grouping_set()
-            .is_some_and(|g| g.kind == GroupingSetKind::GROUPING_SET_EMPTY));
+        assert_eq!(none.groupingSets.len(), 1, "GROUP BY (): one group over an empty input too");
+        assert!(none.groupingSets.nth(0).as_grouping_set().is_some_and(|g| g.kind == GroupingSetKind::GROUPING_SET_EMPTY));
     }
 
     #[test]
@@ -1049,27 +654,11 @@ mod tests {
         let ctx = cx();
         let mcx = ctx.mcx();
         let q = rollup(mcx);
-        let srf = Node::mk(
-            mcx,
-            types_nodes::primnodes::FuncExpr {
-                funcid: 1067,
-                funcresulttype: INT4,
-                funcretset: true,
-                funcvariadic: false,
-                funcformat: types_nodes::primnodes::CoercionForm::COERCE_EXPLICIT_CALL,
-                funccollid: 0,
-                inputcollid: 0,
-                args: NodeList::make2(mcx, int4(mcx, 1), int4(mcx, 2)).unwrap(),
-                location: -1,
-            },
-        )
-        .unwrap();
+        let srf = Node::mk(mcx, types_nodes::primnodes::FuncExpr { funcid: 1067, funcresulttype: INT4, funcretset: true, funcvariadic: false, funcformat: types_nodes::primnodes::CoercionForm::COERCE_EXPLICIT_CALL, funccollid: 0, inputcollid: 0, args: NodeList::make2(mcx, int4(mcx, 1), int4(mcx, 2)).unwrap(), location: -1, },).unwrap();
         let group = q.rtable.nth(1);
         let mut groupexprs = NodeList::nil();
         groupexprs.lappend(mcx, srf).unwrap();
-        groupexprs
-            .lappend(mcx, Node::mk_var(mcx, 1, 2, INT4, -1, 0, 0).unwrap())
-            .unwrap();
+        groupexprs.lappend(mcx, Node::mk_var(mcx, 1, 2, INT4, -1, 0, 0).unwrap()).unwrap();
         // SAFETY: the test's own tree.
         unsafe { group.with_mut::<RangeTblEntry, _>(|r| r.groupexprs = groupexprs) }.unwrap();
         assert!(alternative(mcx, &q).unwrap().is_none());

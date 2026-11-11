@@ -175,8 +175,8 @@ mod tests {
     #[test]
     fn set_pending_is_not_reentrant() {
         set_reindex_pending(&[7, 8], 1, false).unwrap();
-        let err =
-            set_reindex_pending(&[9], 1, false).expect_err("second SetReindexPending must fail");
+        let err = set_reindex_pending(&[9], 1, false)
+            .expect_err("second SetReindexPending must fail");
         assert_eq!(err.level(), ERROR);
         assert_eq!(err.message(), "cannot reindex while reindexing");
         assert_eq!(err.sqlstate(), types_error::ERRCODE_INTERNAL_ERROR);
@@ -209,15 +209,15 @@ mod tests {
     #[test]
     fn pending_state_refuses_parallel_mode() {
         let msg = "cannot modify reindex state during a parallel operation";
-        let err =
-            set_reindex_pending(&[7], 1, true).expect_err("SetReindexPending in parallel mode");
+        let err = set_reindex_pending(&[7], 1, true)
+            .expect_err("SetReindexPending in parallel mode");
         assert_eq!(err.level(), ERROR);
         assert_eq!(err.message(), msg);
         assert!(!ReindexIsProcessingIndex(7));
 
         set_reindex_pending(&[7, 8], 1, false).unwrap();
-        let err =
-            remove_reindex_pending(7, true).expect_err("RemoveReindexPending in parallel mode");
+        let err = remove_reindex_pending(7, true)
+            .expect_err("RemoveReindexPending in parallel mode");
         assert_eq!(err.message(), msg);
         assert!(ReindexIsProcessingIndex(7));
 

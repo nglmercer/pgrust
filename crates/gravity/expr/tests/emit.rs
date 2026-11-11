@@ -2688,7 +2688,7 @@ fn rec_run(c: &RecCase, rows: &[RecRow]) -> (Vec<Outcome>, Vec<Outcome>, Vec<Out
     compiled.emit_check().unwrap_or_else(|e| panic!("{}: emit_check: {e:?}", c.name));
     let (ir, f) = rec_build(&compiled, needs.len()).unwrap_or_else(|e| panic!("{}: emit: {e:?}", c.name));
     gravity_ir::verify::verify(&ir).unwrap_or_else(|e| panic!("{}: verify: {e:?}", c.name));
-    let bytes: Vec<u8> = rows.iter().flat_map(rec_bytes).collect();
+    let bytes: Vec<u8> = rows.iter().flat_map( rec_bytes).collect();
     let n = rows.len();
     let run = |code: gravity_program::Code| -> Vec<Outcome> {
         let mut out_val = vec![0u64; n];

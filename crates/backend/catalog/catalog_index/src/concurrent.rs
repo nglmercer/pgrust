@@ -6,8 +6,8 @@ use types_rel::{NoLock, Relation, RowExclusiveLock, ShareUpdateExclusiveLock};
 use types_tuple::{HeapTupleData, TupleDescData};
 
 use crate::{
-    err, index_create, oid_scankey, IndexCreateExtra, IndexRelidIndexId, INDEX_CREATE_CONCURRENT,
-    INDEX_CREATE_DEFERRABLE, INDEX_CREATE_SKIP_BUILD,
+    err, index_create, oid_scankey, IndexCreateExtra, IndexRelidIndexId,
+    INDEX_CREATE_CONCURRENT, INDEX_CREATE_DEFERRABLE, INDEX_CREATE_SKIP_BUILD,
 };
 
 const Anum_pg_class_relname: usize = 2;
@@ -51,7 +51,11 @@ pub enum IndexStateFlagsAction {
     PgrcClearValidReady,
 }
 
-fn getattr_null(tup: &HeapTupleData<'_>, attnum: i32, desc: &TupleDescData<'_>) -> (Datum, bool) {
+fn getattr_null(
+    tup: &HeapTupleData<'_>,
+    attnum: i32,
+    desc: &TupleDescData<'_>
+) -> (Datum, bool) {
     let mut isnull = false;
     // SAFETY: catalog column under its relation's descriptor.
     let d = unsafe { types_tuple::heap_getattr(tup, attnum, desc, &mut isnull) };
@@ -81,8 +85,7 @@ fn int2_scankey(attno: usize, v: i16) -> types_scan::scankey::ScanKeyData {
 }
 
 fn name_datum<'mcx>(mcx: Mcx<'mcx>, s: &[u8]) -> PgResult<mcx::PgVec<'mcx, u8>> {
-    let mut buf: mcx::PgVec<'mcx, u8> =
-        mcx::vec_with_capacity_in(mcx, types_core::NAMEDATALEN as usize)?;
+    let mut buf: mcx::PgVec<'mcx, u8> = mcx::vec_with_capacity_in(mcx, types_core::NAMEDATALEN as usize)?;
     buf.extend_from_slice(s);
     buf.resize(types_core::NAMEDATALEN as usize, 0);
     Ok(buf)
@@ -109,10 +112,7 @@ pub fn index_set_state_flags<'mcx>(
     values.resize(natts, Datum::null());
     nulls.resize(natts, false);
     replace.resize(natts, false);
-    let set = |anum: i32,
-               v: bool,
-               values: &mut mcx::PgVec<'_, Datum>,
-               replace: &mut mcx::PgVec<'_, bool>| {
+    let set = |anum: i32, v: bool, values: &mut mcx::PgVec<'_, Datum>, replace: &mut mcx::PgVec<'_, bool>| {
         values[anum as usize - 1] = Datum::from_bool(v);
         replace[anum as usize - 1] = true;
     };
@@ -131,18 +131,8 @@ pub fn index_set_state_flags<'mcx>(
         }
         IndexStateFlagsAction::DropClearValid => {
             set(Anum_pg_index_indisvalid, false, &mut values, &mut replace);
-            set(
-                Anum_pg_index_indisclustered,
-                false,
-                &mut values,
-                &mut replace,
-            );
-            set(
-                Anum_pg_index_indisreplident,
-                false,
-                &mut values,
-                &mut replace,
-            );
+            set(Anum_pg_index_indisclustered, false, &mut values, &mut replace,);
+            set(Anum_pg_index_indisreplident, false, &mut values, &mut replace,);
         }
         IndexStateFlagsAction::DropSetDead => {
             debug_assert!(!get(Anum_pg_index_indisvalid));
@@ -235,8 +225,9 @@ pub fn index_concurrently_create_copy<'mcx>(
         if !isnull {
             let p = d.as_usize() as *const u8;
             // SAFETY: detoasted in-line varlena image of the scan tuple.
-            let bytes =
-                unsafe { core::slice::from_raw_parts(p, types_tuple::varatt::varsize_any(p)) };
+            let bytes = unsafe {
+                core::slice::from_raw_parts(p, types_tuple::varatt::varsize_any(p))
+            };
             let mut img: mcx::PgVec<'mcx, u8> = mcx::vec_with_capacity_in(mcx, bytes.len())?;
             img.extend_from_slice(bytes);
             reloptions_img = Some(img);
@@ -411,11 +402,7 @@ pub fn validate_index<'mcx>(
         indexam::index_bulk_delete_collect(mcx, &ivinfo, &mut cb)?;
     }
     backend_progress::pgstat_progress_update_multi_param(
-        &[
-            PROGRESS_CREATEIDX_PHASE,
-            PROGRESS_SCAN_BLOCKS_DONE,
-            PROGRESS_SCAN_BLOCKS_TOTAL,
-        ],
+        &[PROGRESS_CREATEIDX_PHASE, PROGRESS_SCAN_BLOCKS_DONE, PROGRESS_SCAN_BLOCKS_TOTAL,],
         &[PROGRESS_CREATEIDX_PHASE_VALIDATE_SORT, 0, 0],
     );
     state.tuplesort.performsort()?;
@@ -482,7 +469,8 @@ pub fn index_concurrently_swap<'mcx>(
             let (nd, _) = getattr_null(tup, Anum_pg_class_relname as i32, desc);
             let p = nd.as_usize() as *const u8;
             // SAFETY: name column: fixed 64-byte in-place image.
-            let bytes = unsafe { core::slice::from_raw_parts(p, types_core::NAMEDATALEN as usize) };
+            let bytes =
+                unsafe { core::slice::from_raw_parts(p, types_core::NAMEDATALEN as usize) };
             let mut name: mcx::PgVec<'mcx, u8> =
                 mcx::vec_with_capacity_in(mcx, types_core::NAMEDATALEN as usize)?;
             name.extend_from_slice(bytes);
@@ -516,8 +504,7 @@ pub fn index_concurrently_swap<'mcx>(
             values[Anum_pg_class_relispartition - 1] = Datum::from_bool(ispart);
             replace[Anum_pg_class_relispartition - 1] = true;
             let otid = tup.t_self;
-            let mut newtup =
-                heaptuple::heap_modify_tuple(mcx, tup, desc, &values, &nulls, &replace)?;
+            let mut newtup = heaptuple::heap_modify_tuple(mcx, tup, desc, &values, &nulls, &replace)?;
             genam::systable_endscan(mcx, scan)?;
             catalog_indexing::CatalogTupleUpdate(mcx, &pg_class, &otid, &mut newtup)
         };
@@ -567,8 +554,7 @@ pub fn index_concurrently_swap<'mcx>(
                 replace[a as usize - 1] = true;
             }
             let otid = tup.t_self;
-            let mut newtup =
-                heaptuple::heap_modify_tuple(mcx, tup, desc, &values, &nulls, &replace)?;
+            let mut newtup = heaptuple::heap_modify_tuple(mcx, tup, desc, &values, &nulls, &replace)?;
             genam::systable_endscan(mcx, scan)?;
             catalog_indexing::CatalogTupleUpdate(mcx, &pg_index, &otid, &mut newtup)
         };
@@ -625,12 +611,17 @@ pub fn index_concurrently_swap<'mcx>(
                 let tup = genam::systable_getnext(mcx, &mut scan)?.unwrap_or_else(|| {
                     panic!("could not find tuple for constraint {constraintOid}")
                 });
-                let (conindid, _) =
-                    getattr_null(tup, pg_constraint::Anum_pg_constraint_conindid as i32, desc);
+                let (conindid, _) = getattr_null(
+                    tup,
+                    pg_constraint::Anum_pg_constraint_conindid as i32,
+                    desc
+                );
                 if conindid.as_oid() == oldIndexId {
-                    let mut values: mcx::PgVec<'_, Datum> = mcx::vec_with_capacity_in(mcx, natts)?;
+                    let mut values: mcx::PgVec<'_, Datum> =
+                        mcx::vec_with_capacity_in(mcx, natts)?;
                     let mut nulls: mcx::PgVec<'_, bool> = mcx::vec_with_capacity_in(mcx, natts)?;
-                    let mut replace: mcx::PgVec<'_, bool> = mcx::vec_with_capacity_in(mcx, natts)?;
+                    let mut replace: mcx::PgVec<'_, bool> =
+                        mcx::vec_with_capacity_in(mcx, natts)?;
                     ::mcx::pgvec_resize(&mut values, natts, Datum::null())?;
                     nulls.resize(natts, false);
                     ::mcx::pgvec_resize(&mut replace, natts, false)?;
@@ -649,10 +640,7 @@ pub fn index_concurrently_swap<'mcx>(
             {
                 let desc = pg_trigger.descr();
                 let natts = desc.natts as usize;
-                let key = [oid_scankey(
-                    Anum_pg_trigger_tgconstraint as usize,
-                    constraintOid,
-                )];
+                let key = [oid_scankey(Anum_pg_trigger_tgconstraint as usize, constraintOid,)];
                 let mut scan = genam::systable_beginscan(
                     mcx,
                     &pg_trigger,
@@ -671,10 +659,7 @@ pub fn index_concurrently_swap<'mcx>(
                 }
                 genam::systable_endscan(mcx, scan)?;
                 for otid in updates.iter() {
-                    let key = [oid_scankey(
-                        Anum_pg_trigger_tgconstraint as usize,
-                        constraintOid,
-                    )];
+                    let key = [oid_scankey(Anum_pg_trigger_tgconstraint as usize, constraintOid,)];
                     let mut scan = genam::systable_beginscan(
                         mcx,
                         &pg_trigger,
@@ -736,8 +721,7 @@ pub fn index_concurrently_swap<'mcx>(
             values[Anum_pg_description_objoid - 1] = Datum::from_oid(newIndexId);
             replace[Anum_pg_description_objoid - 1] = true;
             let otid = tup.t_self;
-            let mut newtup =
-                heaptuple::heap_modify_tuple(mcx, tup, desc, &values, &nulls, &replace)?;
+            let mut newtup = heaptuple::heap_modify_tuple(mcx, tup, desc, &values, &nulls, &replace)?;
             genam::systable_endscan(mcx, scan)?;
             catalog_indexing::CatalogTupleUpdate(mcx, &description, &otid, &mut newtup)?;
         } else {
@@ -771,11 +755,7 @@ pub fn index_concurrently_swap<'mcx>(
     indexam::index_close(newClassRel, NoLock)
 }
 
-pub fn index_concurrently_set_dead<'mcx>(
-    mcx: Mcx<'mcx>,
-    heapId: Oid,
-    indexId: Oid,
-) -> PgResult<()> {
+pub fn index_concurrently_set_dead<'mcx>(mcx: Mcx<'mcx>, heapId: Oid, indexId: Oid,) -> PgResult<()> {
     let userHeapRelation = table::table_open(mcx, heapId, ShareUpdateExclusiveLock)?;
     let userIndexRelation = indexam::index_open(mcx, indexId, ShareUpdateExclusiveLock)?;
 

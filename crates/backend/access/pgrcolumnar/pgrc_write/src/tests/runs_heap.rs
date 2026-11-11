@@ -3,9 +3,7 @@
 use crate::runs::Heap;
 
 fn lcg(state: &mut u64) -> u64 {
-    *state = state
-        .wrapping_mul(6364136223846793005)
-        .wrapping_add(1442695040888963407);
+    *state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
     *state >> 33
 }
 
@@ -15,9 +13,7 @@ fn sources(k: usize, max_rows: u64, span: u64, seed: u64) -> Vec<Vec<(u64, u64)>
     (0..k)
         .map(|s| {
             let n = lcg(&mut st) % (max_rows + 1);
-            let mut v: Vec<(u64, u64)> = (0..n)
-                .map(|i| (lcg(&mut st) % span, (s as u64) << 32 | i))
-                .collect();
+            let mut v: Vec<(u64, u64)> = (0..n).map(|i| (lcg(&mut st) % span, (s as u64) << 32 | i)).collect();
             v.sort_by_key(|r| r.0);
             v
         })
@@ -27,16 +23,12 @@ fn sources(k: usize, max_rows: u64, span: u64, seed: u64) -> Vec<Vec<(u64, u64)>
 /// Merge `srcs` through the heap (stopping and resuming it every `pause` rows when non-zero): the rows in merge order.
 fn merge(srcs: &[Vec<(u64, u64)>], pause: usize) -> Vec<(u64, u64)> {
     let mut pos = vec![0usize; srcs.len()];
-    let mut slots: Vec<u32> = (0..srcs.len() as u32)
-        .filter(|&s| !srcs[s as usize].is_empty())
-        .collect();
+    let mut slots: Vec<u32> = (0..srcs.len() as u32).filter(|&s| !srcs[s as usize].is_empty()).collect();
     let live = slots.len();
     let key = |pos: &[usize], s: u32| srcs[s as usize][pos[s as usize]].0;
     let mut out = Vec::new();
-    let mut len = Heap::new(&mut slots, live, &mut |a, b| {
-        (key(&pos, a), a) < (key(&pos, b), b)
-    })
-    .len();
+    let mut len = Heap::new(&mut slots, live, &mut |a, b| { (key(&pos, a), a) < (key(&pos, b), b)
+    }).len();
     loop {
         let mut h = Heap::resume(&mut slots, len);
         let mut taken = 0usize;
@@ -71,21 +63,10 @@ fn oracle(srcs: &[Vec<(u64, u64)>]) -> Vec<(u64, u64)> {
 
 #[test]
 fn heap_merges_sorted_sources_in_order() {
-    let srcs: Vec<Vec<(u64, u64)>> = vec![
-        vec![(1, 5), (3, 1), (3, 9)],
-        vec![],
-        vec![(0, 7), (3, 2), (9, 0)],
-        vec![(2, 2)],
-    ];
+    let srcs: Vec<Vec<(u64, u64)>> = vec![vec![(1, 5), (3, 1), (3, 9)], vec![], vec![(0, 7), (3, 2), (9, 0)], vec![(2, 2)],];
     let out: Vec<u64> = merge(&srcs, 0).iter().map(|r| r.0).collect();
     assert_eq!(out, vec![0, 1, 2, 3, 3, 3, 9]);
-    for (k, rows, span, seed) in [
-        (1, 50, 10, 1u64),
-        (2, 300, 40, 2),
-        (17, 200, 1000, 3),
-        (64, 40, 5, 4),
-        (200, 30, 1 << 20, 5),
-    ] {
+    for (k, rows, span, seed) in [(1, 50, 10, 1u64), (2, 300, 40, 2), (17, 200, 1000, 3), (64, 40, 5, 4), (200, 30, 1 << 20, 5),] {
         let srcs = sources(k, rows, span, seed);
         assert_eq!(merge(&srcs, 0), oracle(&srcs), "k {k}");
     }
@@ -93,9 +74,7 @@ fn heap_merges_sorted_sources_in_order() {
 
 #[test]
 fn heap_ties_go_to_the_lower_source_in_row_order() {
-    let srcs: Vec<Vec<(u64, u64)>> = (0..9u64)
-        .map(|s| (0..4).map(|i| (7, s << 32 | i)).collect())
-        .collect();
+    let srcs: Vec<Vec<(u64, u64)>> = (0..9u64).map(|s| (0..4).map(|i| (7, s << 32 | i)).collect()).collect();
     assert_eq!(merge(&srcs, 0), oracle(&srcs));
 }
 
@@ -125,15 +104,9 @@ fn heap_runner_up_is_the_least_source_below_the_top() {
 #[test]
 fn heap_takes_more_than_u16_sources() {
     let k = 70_001usize;
-    let srcs: Vec<Vec<(u64, u64)>> = (0..k as u64)
-        .map(|s| vec![((s * 7919) % 70_001, s << 32)])
-        .collect();
+    let srcs: Vec<Vec<(u64, u64)>> = (0..k as u64).map(|s| vec![((s * 7919) % 70_001, s << 32)]).collect();
     let keys: Vec<u64> = merge(&srcs, 0).iter().map(|r| r.0).collect();
-    assert_eq!(
-        keys,
-        (0..k as u64).collect::<Vec<u64>>(),
-        "7919 is a unit mod 70,001: each key once"
-    );
+    assert_eq!(keys, (0..k as u64).collect::<Vec<u64>>(), "7919 is a unit mod 70,001: each key once");
 }
 
 #[test]

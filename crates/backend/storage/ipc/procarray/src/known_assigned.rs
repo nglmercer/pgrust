@@ -75,7 +75,7 @@ fn KnownAssignedXidsCompress(reason: KAXCompressReason, have_lock: bool) -> PgRe
     } else if reason == TransactionEnd {
         let counter = TRANSACTION_ENDS_COUNTER.get();
         TRANSACTION_ENDS_COUNTER.set(counter.wrapping_add(1));
-        if !counter.is_multiple_of(KAX_COMPRESS_FREQUENCY) {
+        if ! counter.is_multiple_of( KAX_COMPRESS_FREQUENCY) {
             return Ok(());
         }
         if nelements < 2 * num {

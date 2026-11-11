@@ -40,12 +40,7 @@ pub(crate) struct ChunkCursor {
 impl ChunkCursor {
     pub(crate) fn new(segs: Vec<ChunkSeg>, tail_err: Option<Box<PgError>>) -> ChunkCursor {
         let off = segs.first().map(|s| s.start).unwrap_or(0);
-        ChunkCursor {
-            segs,
-            seg: 0,
-            off,
-            tail_err,
-        }
+        ChunkCursor { segs, seg: 0, off, tail_err, }
     }
 
     pub(crate) fn read(&mut self, dst: &mut [u8]) -> Result<usize, Box<PgError>> {
@@ -130,11 +125,7 @@ pub(crate) struct Segmentator {
 
 impl Segmentator {
     pub(crate) fn new(o: SegOpts) -> Segmentator {
-        let escapec = if o.csv && o.escape != o.quote {
-            o.escape
-        } else {
-            0
-        };
+        let escapec = if o.csv && o.escape != o.quote { o.escape } else { 0 };
         let mut class = [CLASS_PLAIN; 256];
         class[b'\r' as usize] = 1;
         class[b'\n' as usize] = 1;
@@ -179,11 +170,7 @@ impl Segmentator {
         self.eoc && self.eoc_need == 0
     }
 
-    pub(crate) fn feed(
-        &mut self,
-        buf: &Arc<SegBlock>,
-        out: &mut Vec<ChunkDesc>,
-    ) -> Result<(), Box<PgError>> {
+    pub(crate) fn feed(&mut self, buf: &Arc<SegBlock>, out: &mut Vec<ChunkDesc>,) -> Result<(), Box<PgError>> {
         let n = buf.len();
         self.seg_start = 0;
         if n == 0 || self.input_complete() {
@@ -212,19 +199,12 @@ impl Segmentator {
             }
         };
         if self.seg_start < end {
-            self.segs.push(ChunkSeg {
-                buf: Arc::clone(buf),
-                start: self.seg_start,
-                end,
-            });
+            self.segs.push(ChunkSeg { buf: Arc::clone(buf), start: self.seg_start, end, });
             self.seg_bytes += (end - self.seg_start) as u64;
         }
         self.seg_start = end;
         self.bytes_total += n as u64;
-        if self.in_line
-            && !self.eoc
-            && self.bytes_total - self.line_start_at > self.o.max_line_bytes
-        {
+        if self.in_line && !self.eoc && self.bytes_total - self.line_start_at > self.o.max_line_bytes {
             return Err(Box::new(
                 PgError::error(format!(
                     "parallel COPY: a line exceeds {} bytes",
@@ -292,7 +272,7 @@ impl Segmentator {
         self.last_was_esc = false;
         self.line_start_at = self.bytes_total + pos as u64;
         let g = self.o.grain;
-        if self.chunk_rows > 0 && self.chunk_rows.is_multiple_of(g) {
+        if self.chunk_rows > 0 && self.chunk_rows.is_multiple_of( g) {
             let held = self.seg_bytes + (pos - self.seg_start) as u64;
             if self.chunk_rows >= g * self.o.grains || held >= self.o.target_bytes {
                 self.cut(buf, pos, out);
@@ -302,11 +282,7 @@ impl Segmentator {
 
     fn cut(&mut self, buf: &Arc<SegBlock>, pos: usize, out: &mut Vec<ChunkDesc>) {
         if pos > self.seg_start {
-            self.segs.push(ChunkSeg {
-                buf: Arc::clone(buf),
-                start: self.seg_start,
-                end: pos,
-            });
+            self.segs.push(ChunkSeg { buf: Arc::clone(buf), start: self.seg_start, end: pos, });
             self.seg_bytes += (pos - self.seg_start) as u64;
         }
         let segs = std::mem::take(&mut self.segs);
@@ -325,13 +301,7 @@ impl Segmentator {
         self.chunk_eol = self.eol;
     }
 
-    fn resolve_cr(
-        &mut self,
-        c2: u8,
-        buf: &Arc<SegBlock>,
-        at: usize,
-        out: &mut Vec<ChunkDesc>,
-    ) -> usize {
+    fn resolve_cr(&mut self, c2: u8, buf: &Arc<SegBlock>, at: usize, out: &mut Vec<ChunkDesc>,) -> usize {
         if c2 == b'\n' {
             self.eol = EolType::Crnl;
             self.end_line(buf, at + 1, out);
@@ -407,13 +377,7 @@ impl Segmentator {
             if c != escapec {
                 self.last_was_esc = false;
             }
-            if self.in_quote
-                && c == if self.eol == EolType::Nl {
-                    b'\n'
-                } else {
-                    b'\r'
-                }
-            {
+            if self.in_quote && c == if self.eol == EolType::Nl { b'\n' } else { b'\r' } {
                 self.cur += 1;
             }
             if c == b'\r' && !self.in_quote {
@@ -534,13 +498,8 @@ mod tests {
         for bs in 1..=input.len().max(1) {
             let r = run(o, input, bs);
             assert_eq!(
-                r.iter()
-                    .map(|c| (c.0.clone(), c.1, c.2, c.4))
-                    .collect::<Vec<_>>(),
-                first
-                    .iter()
-                    .map(|c| (c.0.clone(), c.1, c.2, c.4))
-                    .collect::<Vec<_>>(),
+                r.iter().map(|c| (c.0.clone(), c.1, c.2, c.4)).collect::<Vec<_>>(),
+                first.iter().map(|c| (c.0.clone(), c.1, c.2, c.4)).collect::<Vec<_>>(),
                 "block size {bs} changed the cut"
             );
         }
@@ -660,18 +619,7 @@ mod tests {
     #[test]
     fn cursor_reports_tail_error_after_bytes() {
         let b = Arc::new(seg_block(b"abcdef"));
-        let segs = vec![
-            ChunkSeg {
-                buf: Arc::clone(&b),
-                start: 1,
-                end: 3,
-            },
-            ChunkSeg {
-                buf: b,
-                start: 4,
-                end: 6,
-            },
-        ];
+        let segs = vec![ChunkSeg { buf: Arc::clone(&b), start: 1, end: 3, }, ChunkSeg { buf: b, start: 4, end: 6, },];
         let mut c = ChunkCursor::new(segs, Some(Box::new(PgError::error("boom".to_string()))));
         let mut dst = [0u8; 3];
         assert_eq!(c.read(&mut dst).unwrap(), 3);

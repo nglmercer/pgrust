@@ -9,9 +9,7 @@ use pgrc_format::part::StreamSectionWriter;
 /// An unwrapped one-granule section of `n` packing bytes, its writer's CRC and its granule payload ends.
 fn section(n: usize) -> (Vec<u8>, u32, Vec<u32>) {
     let mut sec: Vec<u8> = Vec::new();
-    let mut w =
-        StreamSectionWriter::begin(&mut sec, EncodingId::Verbatim.as_u16(), 0, Wrapper::None)
-            .expect("begin");
+    let mut w = StreamSectionWriter::begin(&mut sec, EncodingId::Verbatim.as_u16(), 0, Wrapper::None).expect("begin");
     w.payload().extend((0..n).map(|i| b'p' + (i % 7) as u8));
     let end = w.payload_off();
     w.end_granule(1);

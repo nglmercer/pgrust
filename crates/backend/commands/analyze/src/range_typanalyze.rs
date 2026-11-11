@@ -32,27 +32,19 @@ struct RangeCtx {
 
 fn range_ctx(base_typid: Oid, is_multirange: bool) -> PgResult<RangeCtx> {
     let e = if is_multirange {
-        let e = typcache::lookup_type_cache(base_typid, typcache::TYPECACHE_MULTIRANGE_INFO)?;
+        let e =
+            typcache::lookup_type_cache(base_typid, typcache::TYPECACHE_MULTIRANGE_INFO)?;
         e.rngtype().ok_or_else(|| {
-            Box::new(PgError::error(format!(
-                "type {base_typid} is not a multirange type"
-            )))
+            Box::new(PgError::error(format!("type {base_typid} is not a multirange type")))
         })?
     } else {
         typcache::lookup_type_cache(base_typid, typcache::TYPECACHE_RANGE_INFO)?
     };
     let subdiff = {
         let f = e.rng_subdiff_finfo();
-        if f.fn_oid != 0 {
-            Some(f.clone())
-        } else {
-            None
-        }
+        if f.fn_oid != 0 { Some(f.clone()) } else { None }
     };
-    Ok(RangeCtx {
-        ri: RangeInfo::from_entry(e)?,
-        subdiff,
-    })
+    Ok(RangeCtx { ri: RangeInfo::from_entry(e)?, subdiff, })
 }
 
 // DatumGetRangeTypeP/DatumGetMultirangeTypeP: 4-byte-header image.
@@ -60,7 +52,9 @@ fn detoasted_image<'m>(mcx: Mcx<'m>, value: Datum) -> PgResult<&'m [u8]> {
     let p = value.as_usize() as *const u8;
     // SAFETY: live varlena datum; varsize_any covers 1B/4B headers, toast
     // pointers are rejected below by detoast_attr's caller contract.
-    let raw = unsafe { core::slice::from_raw_parts(p, types_tuple::varatt::varsize_any(p)) };
+    let raw = unsafe {
+        core::slice::from_raw_parts(p, types_tuple::varatt::varsize_any(p))
+    };
     if raw[0] & 0x03 == 0 {
         let copy = mcx::slice_borrow_in(mcx, raw)?;
         Ok(copy)
@@ -97,7 +91,8 @@ pub(crate) fn compute_range_stats<'mcx>(
         mcx::vec_with_capacity_in(col_mcx, samplerows as usize)?;
     let mut uppers: PgVec<'_, RangeBound> =
         mcx::vec_with_capacity_in(col_mcx, samplerows as usize)?;
-    let mut lengths: PgVec<'_, f64> = mcx::vec_with_capacity_in(col_mcx, samplerows as usize)?;
+    let mut lengths: PgVec<'_, f64> =
+        mcx::vec_with_capacity_in(col_mcx, samplerows as usize)?;
 
     for rowno in 0..samplerows as usize {
         // rangetypes_typanalyze.c:170: vacuum_delay_point(true) per sample row.
@@ -113,7 +108,8 @@ pub(crate) fn compute_range_stats<'mcx>(
         let (lower, upper, empty) = if is_multirange {
             let count = adt_multirangetypes::multirange_count(img) as usize;
             if count > 0 {
-                let (lower, _) = adt_multirangetypes::multirange_get_bounds(&ctx.ri, img, 0);
+                let (lower, _) =
+                    adt_multirangetypes::multirange_get_bounds(&ctx.ri, img, 0);
                 let (_, upper) =
                     adt_multirangetypes::multirange_get_bounds(&ctx.ri, img, count - 1);
                 (lower, upper, false)
@@ -160,7 +156,7 @@ pub(crate) fn compute_range_stats<'mcx>(
         stats.stats_valid = true;
         stats.stanullfrac = null_cnt as f32 / samplerows as f32;
         stats.stawidth = (total_width / non_null_cnt as f64) as i32;
-        stats.stadistinct = -(1.0 - stats.stanullfrac as f64) as f32;
+        stats.stadistinct =- (1.0 - stats.stanullfrac as f64) as f32;
 
         if non_empty_cnt >= 2 {
             // rangetypes_typanalyze.c:112 range_bound_qsort_cmp -> range_cmp_bounds:
@@ -195,17 +191,12 @@ pub(crate) fn compute_range_stats<'mcx>(
                 let mut lo = lowers[pos as usize];
                 let mut up = uppers[pos as usize];
                 let img = adt_rangetypes::range_serialize(
-                    anl_mcx,
-                    &mut ctx.ri,
-                    &mut lo,
-                    &mut up,
-                    false,
-                    None,
+                    anl_mcx, &mut ctx.ri, &mut lo, &mut up, false, None,
                 )?
                 .expect("histogram range never soft-fails");
-                bound_hist_values.push(Datum::from_usize(
-                    adt_multirangetypes::leak_image(img).as_ptr() as usize,
-                ));
+                bound_hist_values
+                    .push(Datum::from_usize(adt_multirangetypes::leak_image(img).as_ptr()
+                        as usize,));
                 pos += delta;
                 posfrac += deltafrac;
                 if posfrac >= num_hist - 1 {

@@ -328,8 +328,8 @@ pub(crate) fn token_type_rows(fcinfo: &Fcinfo, prsid: ::types_core::Oid) -> PgRe
             &mut rows,
             vec![
                 format!("{}", d.lexid).into_bytes(),
-                ::mcx::std_vec_from_slice("tsearch", d.alias.as_bytes())?,
-                ::mcx::std_vec_from_slice("tsearch", d.descr.as_bytes())?,
+                ::mcx::std_vec_from_slice("tsearch",d.alias.as_bytes())?,
+                ::mcx::std_vec_from_slice("tsearch",d.descr.as_bytes())?,
             ],
             mcx,
         )?;
@@ -450,7 +450,7 @@ pub(crate) fn parse_rows(fcinfo: &Fcinfo, prsid: ::types_core::Oid) -> PgResult<
     let mut push_row = |type_: i32, token_bytes: &[u8]| -> PgResult<()> {
         push_cstrings(
             &mut rows,
-            vec![format!("{type_}").into_bytes(), ::mcx::std_vec_from_slice("wparser_def", token_bytes)?],
+            vec![format!("{type_}").into_bytes(), ::mcx::std_vec_from_slice("wparser_def",token_bytes)?],
             mcx,
         )
     };

@@ -5,9 +5,7 @@ use std::sync::Arc;
 use mcx::Mcx;
 use pgrc_am::catalog::{self, Generation, Lookup, RelSlot};
 use pgrc_am::probe::SnapshotCommitCheck;
-use pgrc_format::manifest::{
-    encode_segments, ext_records, put_ext_record, segments, SegState, SegmentRecord, EXT_SEGMENTS,
-};
+use pgrc_format::manifest::{encode_segments, ext_records, put_ext_record, segments, SegState, SegmentRecord, EXT_SEGMENTS,};
 use types_core::{ForkNumber, Oid, BLCKSZ};
 use types_error::PgResult;
 use types_rel::{AccessShareLock, NoLock, Relation, RowExclusiveLock};
@@ -40,13 +38,7 @@ pub fn records(gen: &Generation) -> &[SegmentRecord] {
 }
 
 fn active_of(recs: &[SegmentRecord]) -> Option<ActiveSeg> {
-    recs.iter()
-        .find(|r| r.state == SegState::Active)
-        .map(|r| ActiveSeg {
-            slot: r.slot,
-            part_no: r.part_no,
-            relid: r.relid,
-        })
+    recs.iter().find(|r| r.state == SegState::Active).map(|r| ActiveSeg { slot: r.slot, part_no: r.part_no, relid: r.relid, })
 }
 
 pub fn find_active(rel: &Relation<'_>) -> PgResult<Option<ActiveSeg>> {
@@ -60,13 +52,8 @@ pub fn find_active(rel: &Relation<'_>) -> PgResult<Option<ActiveSeg>> {
 /// other row was inserted after the switch committed, so after the snapshot (the price of reading them is heap's: a
 /// heap scan reads the rows inserted after its snapshot too). No lock test picks the transaction's own segments: a
 /// parallel worker holds none of its leader's locks.
-pub fn newer_segments(
-    rel: &Relation<'_>,
-    view: Option<&Generation>,
-) -> PgResult<Vec<SegmentRecord>> {
-    let Some(newest) = newest(rel)? else {
-        return Ok(Vec::new());
-    };
+pub fn newer_segments(rel: &Relation<'_>, view: Option<&Generation>,) -> PgResult<Vec<SegmentRecord>> {
+    let Some(newest) = newest(rel)? else { return Ok(Vec::new()); };
     // a composed own view has the newest own generation's number, not its segments
     if view.is_some_and(|v| v.gen == newest.gen && !v.composed()) {
         return Ok(Vec::new());
@@ -79,31 +66,17 @@ pub(crate) fn head_is(rel: &Relation<'_>, gen: u64) -> bool {
 }
 
 fn unlisted(view: &[SegmentRecord], newest: &[SegmentRecord]) -> Vec<SegmentRecord> {
-    let listed = |r: &SegmentRecord| {
-        view.iter()
-            .any(|v| v.state != SegState::Sealed && v.relid == r.relid && v.part_no == r.part_no)
+    let listed = |r: &SegmentRecord| { view.iter().any(|v| v.state != SegState::Sealed && v.relid == r.relid && v.part_no == r.part_no)
     };
-    newest
-        .iter()
-        .filter(|r| r.state != SegState::Sealed && !listed(r))
-        .copied()
-        .collect()
+    newest.iter().filter(|r| r.state != SegState::Sealed && !listed(r)).copied().collect()
 }
 
 /// Lock-then-recheck: a stale inserter wrote nothing under its lock, so it releases it and retries.
 pub fn active(rel: &Relation<'_>) -> PgResult<Option<ActiveSeg>> {
-    lock_active(
-        &mut || find_active(rel),
-        &mut |r| lmgr::LockRelationOid(r, RowExclusiveLock),
-        &mut |r| lmgr::UnlockRelationOid(r, RowExclusiveLock),
-    )
+    lock_active(&mut || find_active(rel), &mut |r| lmgr::LockRelationOid(r, RowExclusiveLock), &mut |r| lmgr::UnlockRelationOid(r, RowExclusiveLock),)
 }
 
-fn lock_active(
-    find: &mut dyn FnMut() -> PgResult<Option<ActiveSeg>>,
-    lock: &mut dyn FnMut(Oid) -> PgResult<()>,
-    unlock: &mut dyn FnMut(Oid) -> PgResult<()>,
-) -> PgResult<Option<ActiveSeg>> {
+fn lock_active(find: &mut dyn FnMut() -> PgResult<Option<ActiveSeg>>, lock: &mut dyn FnMut(Oid) -> PgResult<()>, unlock: &mut dyn FnMut(Oid) -> PgResult<()>,) -> PgResult<Option<ActiveSeg>> {
     loop {
         let Some(a) = find()? else { return Ok(None) };
         lock(a.relid)?;
@@ -120,13 +93,7 @@ fn pre_extend_fsm(seg: &Relation<'_>, pages: u32) -> PgResult<()> {
     let first = bufmgr::RelationGetNumberOfBlocksInFork(seg, ForkNumber::MAIN_FORKNUM)?;
     let mut added = 0;
     while added < pages {
-        let (buffer, n) = bufmgr_seams::extend_buffered_rel_by::call(
-            seg,
-            ForkNumber::MAIN_FORKNUM,
-            None,
-            0,
-            (pages - added).min(64),
-        )?;
+        let (buffer, n) = bufmgr_seams::extend_buffered_rel_by::call(seg, ForkNumber::MAIN_FORKNUM, None, 0, (pages - added).min(64),)?;
         bufmgr_seams::release_buffer::call(buffer)?;
         added += n;
     }
@@ -153,13 +120,7 @@ pub fn activation_slot(recs: &[SegmentRecord]) -> Option<u16> {
     (0..pgrc_format::rowid::SEG_SLOTS).find(|s| recs.iter().all(|r| r.slot != *s))
 }
 
-pub fn activate<'mcx>(
-    mcx: Mcx<'mcx>,
-    rel: &Relation<'mcx>,
-    slot: u16,
-    pre_extend: u32,
-    maint: bool,
-) -> PgResult<()> {
+pub fn activate<'mcx>(mcx: Mcx<'mcx>, rel: &Relation<'mcx>, slot: u16, pre_extend: u32, maint: bool,) -> PgResult<()> {
     let relid = match pgrc_front_seams::segment_relid::call(rel.rd_id, slot)? {
         Some(r) => {
             pgrc_front_seams::reset_segment::call(mcx, r)?;
@@ -173,38 +134,22 @@ pub fn activate<'mcx>(
         seg.close(NoLock)?;
         out?;
     }
-    let publish = if maint {
-        pgrc_am::ingest::publish_ext_maint
-    } else {
-        pgrc_am::ingest::publish_ext
-    };
+    let publish = if maint { pgrc_am::ingest::publish_ext_maint } else { pgrc_am::ingest::publish_ext };
     let mut id_err: Option<Box<types_error::PgError>> = None;
     let published = publish(rel, &mut |base, b| {
         let mut recs = base.map(segments).transpose()?.unwrap_or_default();
         recs.retain(|r| r.slot != slot);
-        recs.iter_mut()
-            .filter(|r| r.state == SegState::Active)
-            .for_each(|r| r.state = SegState::Sealing);
+        recs.iter_mut().filter(|r| r.state == SegState::Active).for_each(|r| r.state = SegState::Sealing);
         let part_no = pgrc_write::plan::PlanBuilder::reserve(b);
         // before the publish and not transactional: the slot's previous segment's extents go (no reader sees it any
         // more: its slot was reclaimed past the horizon), with any no ring record names (an aborted or retried
         // activation's), and the new segment's first extent is reserved
         let keep: Vec<u32> = recs.iter().map(|r| r.part_no).chain([part_no]).collect();
-        if let Err(e) = pgrc_am::rowid_alloc::prune(rel, &|p| keep.contains(&p))
-            .and_then(|_| pgrc_am::rowid_alloc::extend(rel, part_no, 0))
-        {
+        if let Err(e) = pgrc_am::rowid_alloc::prune(rel, &|p| keep.contains(&p)).and_then(|_| pgrc_am::rowid_alloc::extend(rel, part_no, 0)) {
             id_err = Some(e);
-            return Err(pgrc_write::WriteError::Contract {
-                detail: "segment extent reservation failed (see raised error)",
-            });
+            return Err(pgrc_write::WriteError::Contract { detail: "segment extent reservation failed (see raised error)", });
         }
-        recs.push(SegmentRecord {
-            slot,
-            part_no,
-            relid,
-            state: SegState::Active,
-            fxid: b.fxid(),
-        });
+        recs.push(SegmentRecord { slot, part_no, relid, state: SegState::Active, fxid: b.fxid(), });
         recs.sort_by_key(|r| r.slot);
         b.ext(with_segments(base.map_or(&[][..], |m| &m.ext), &recs)?);
         Ok(())
@@ -234,24 +179,11 @@ enum Composed {
 }
 
 fn bearing<'mcx>(mcx: Mcx<'mcx>, rel: &Relation<'mcx>, composed: Composed) -> PgResult<bool> {
-    let Some(g) = newest(rel)? else {
-        return Ok(false);
-    };
+    let Some(g) = newest(rel)? else { return Ok(false); };
     let view = statement_view(rel)?;
-    if let Some(v) = view
-        .as_ref()
-        .filter(|v| composed != Composed::Ignored && v.composed())
-    {
+    if let Some(v) = view.as_ref().filter(|v| composed != Composed::Ignored && v.composed()) {
         if v.stacked() > 0 {
-            elog::elog(
-                types_error::DEBUG1,
-                format!(
-                    "pgrcolumnar: stacked view of \"{}\" gen {}: {} parts hidden or unsettled",
-                    rel.name(),
-                    v.gen,
-                    v.stacked()
-                ),
-            )?;
+            elog::elog(types_error::DEBUG1, format!("pgrcolumnar: stacked view of \"{}\" gen {}: {} parts hidden or unsettled", rel.name(), v.gen, v.stacked()),)?;
         }
         if composed == Composed::Bears {
             return Ok(true);
@@ -269,12 +201,7 @@ fn bearing<'mcx>(mcx: Mcx<'mcx>, rel: &Relation<'mcx>, composed: Composed) -> Pg
 }
 
 fn unsealed_relids(newest: &[SegmentRecord], view: &[SegmentRecord]) -> Vec<Oid> {
-    let mut relids: Vec<Oid> = newest
-        .iter()
-        .chain(view)
-        .filter(|r| r.state != SegState::Sealed)
-        .map(|r| r.relid)
-        .collect();
+    let mut relids: Vec<Oid> = newest.iter().chain(view).filter(|r| r.state != SegState::Sealed).map(|r| r.relid).collect();
     relids.sort_unstable();
     relids.dedup();
     relids
@@ -294,10 +221,7 @@ pub fn statement_view(rel: &Relation<'_>) -> PgResult<Option<Arc<Generation>>> {
     view_under(rel, &snap)
 }
 
-pub(crate) fn view_under(
-    rel: &Relation<'_>,
-    snap: &types_snapshot::SnapshotData<'_>,
-) -> PgResult<Option<Arc<Generation>>> {
+pub(crate) fn view_under(rel: &Relation<'_>, snap: &types_snapshot::SnapshotData<'_>,) -> PgResult<Option<Arc<Generation>>> {
     let slot = rel_slot(rel);
     let compute = || -> PgResult<(Option<Arc<Generation>>, Option<u64>)> {
         let check = SnapshotCommitCheck::new(Some(snap));
@@ -312,10 +236,7 @@ pub(crate) fn view_under(
     if snap.snapshot_type != types_snapshot::SnapshotType::SNAPSHOT_MVCC {
         return compute().map(|(v, _)| v);
     }
-    let at = crate::pathcache::ViewAt {
-        cid: ::xact::GetCurrentCommandId(false)?,
-        subid: ::xact::GetCurrentSubTransactionId(),
-    };
+    let at = crate::pathcache::ViewAt { cid: ::xact::GetCurrentCommandId(false)?, subid: ::xact::GetCurrentSubTransactionId(), };
     crate::pathcache::statement_view(rel, at, snap, || catalog::head(slot), compute)
 }
 
@@ -324,18 +245,11 @@ pub fn unsealed_blocks<'mcx>(mcx: Mcx<'mcx>, rel: &Relation<'mcx>) -> PgResult<u
     blocks(mcx, records(&g), &|s| s != SegState::Sealed)
 }
 
-pub fn unsealed_shapes<'mcx>(
-    mcx: Mcx<'mcx>,
-    rel: &Relation<'mcx>,
-) -> PgResult<Vec<(u64, i32, f64)>> {
-    let Some(g) = newest(rel)? else {
-        return Ok(Vec::new());
-    };
+pub fn unsealed_shapes<'mcx>(mcx: Mcx<'mcx>, rel: &Relation<'mcx>,) -> PgResult<Vec<(u64, i32, f64)>> {
+    let Some(g) = newest(rel)? else { return Ok(Vec::new()); };
     let mut out = Vec::new();
     for r in records(&g).iter().filter(|r| r.state != SegState::Sealed) {
-        let Some(seg) = table::try_table_open(mcx, r.relid, AccessShareLock)? else {
-            continue;
-        };
+        let Some(seg) = table::try_table_open(mcx, r.relid, AccessShareLock)? else { continue; };
         let b = bufmgr::RelationGetNumberOfBlocksInFork(&seg, ForkNumber::MAIN_FORKNUM);
         let (relpages, reltuples) = (seg.rd_rel.relpages, f64::from(seg.rd_rel.reltuples));
         seg.close(NoLock)?;
@@ -354,21 +268,8 @@ pub fn unsealed_rows<'mcx>(mcx: Mcx<'mcx>, rel: &Relation<'mcx>) -> PgResult<u64
         let seg = table::table_open(mcx, r.relid, AccessShareLock)?;
         let counted = (|| {
             let flags = tableam_vocab::SO_TYPE_SEQSCAN | tableam_vocab::SO_ALLOW_PAGEMODE;
-            let mut scan = heapam::heap_beginscan(
-                mcx,
-                &seg,
-                Some(snap.clone()),
-                0,
-                mcx::PgVec::new_in(mcx),
-                None,
-                flags,
-            )?;
-            while heapam::heap_getnext(
-                &mut scan,
-                types_scan::sdir::ScanDirection::ForwardScanDirection,
-            )?
-            .is_some()
-            {
+            let mut scan = heapam::heap_beginscan(mcx, &seg, Some(snap.clone()), 0, mcx::PgVec::new_in(mcx), None, flags,)?;
+            while heapam::heap_getnext(&mut scan, types_scan::sdir::ScanDirection::ForwardScanDirection,)?.is_some() {
                 n += 1;
             }
             heapam::heap_endscan(scan)
@@ -383,11 +284,7 @@ pub fn unsealed_rows<'mcx>(mcx: Mcx<'mcx>, rel: &Relation<'mcx>) -> PgResult<u64
     out.map(|()| n)
 }
 
-pub fn blocks<'mcx>(
-    mcx: Mcx<'mcx>,
-    recs: &[SegmentRecord],
-    keep: &dyn Fn(SegState) -> bool,
-) -> PgResult<u64> {
+pub fn blocks<'mcx>(mcx: Mcx<'mcx>, recs: &[SegmentRecord], keep: &dyn Fn(SegState) -> bool,) -> PgResult<u64> {
     let mut n = 0u64;
     for r in recs.iter().filter(|r| keep(r.state)) {
         let seg = table::table_open(mcx, r.relid, AccessShareLock)?;
@@ -403,34 +300,15 @@ mod tests {
     use super::*;
 
     fn seg(slot: u16, state: SegState) -> SegmentRecord {
-        SegmentRecord {
-            slot,
-            part_no: 10 + slot as u32,
-            relid: 500 + slot as u32,
-            state,
-            fxid: 7,
-        }
+        SegmentRecord { slot, part_no: 10 + slot as u32, relid: 500 + slot as u32, state, fxid: 7, }
     }
 
     #[test]
     fn activation_takes_the_lowest_slot_no_record_names() {
         assert_eq!(activation_slot(&[]), Some(0));
-        assert_eq!(
-            activation_slot(&[seg(0, SegState::Sealed)]),
-            Some(1),
-            "slot 0's sealed segment is kept"
-        );
-        assert_eq!(
-            activation_slot(&[
-                seg(0, SegState::Sealed),
-                seg(1, SegState::Sealing),
-                seg(3, SegState::Sealed)
-            ]),
-            Some(2)
-        );
-        let full: Vec<SegmentRecord> = (0..pgrc_format::rowid::SEG_SLOTS)
-            .map(|s| seg(s, SegState::Sealed))
-            .collect();
+        assert_eq!(activation_slot(&[seg(0, SegState::Sealed)]), Some(1), "slot 0's sealed segment is kept");
+        assert_eq!(activation_slot(&[seg(0, SegState::Sealed), seg(1, SegState::Sealing), seg(3, SegState::Sealed)]), Some(2));
+        let full: Vec<SegmentRecord> = (0..pgrc_format::rowid::SEG_SLOTS).map(|s| seg(s, SegState::Sealed)).collect();
         assert_eq!(activation_slot(&full), None);
     }
 
@@ -464,19 +342,10 @@ mod tests {
         let view = [seg(0, SegState::Active), seg(2, SegState::Sealed)];
         let mut reused = seg(2, SegState::Active);
         reused.part_no = 40;
-        let newest = [
-            seg(0, SegState::Sealing),
-            seg(1, SegState::Active),
-            reused,
-            seg(3, SegState::Sealed),
-        ];
+        let newest = [seg(0, SegState::Sealing), seg(1, SegState::Active), reused, seg(3, SegState::Sealed),];
         let slots = |v: Vec<SegmentRecord>| v.iter().map(|r| r.slot).collect::<Vec<_>>();
         assert_eq!(slots(unlisted(&view, &newest)), vec![1, 2], "a listed segment is read already; a sealed one is a part; a reused slot is a new segment");
-        assert_eq!(
-            slots(unlisted(&[], &newest)),
-            vec![0, 1, 2],
-            "a snapshot that sees no generation"
-        );
+        assert_eq!(slots(unlisted(&[], &newest)), vec![0, 1, 2], "a snapshot that sees no generation");
         assert!(unlisted(&newest, &newest).is_empty());
     }
 
@@ -485,34 +354,19 @@ mod tests {
         let view = [seg(0, SegState::Active)];
         let newest = [seg(0, SegState::Sealed), seg(1, SegState::Active)];
         assert_eq!(unsealed_relids(&newest, &view), vec![500, 501]);
-        assert_eq!(
-            unsealed_relids(&newest, &[]),
-            vec![501],
-            "no snapshot: the newest generation's alone"
-        );
+        assert_eq!(unsealed_relids(&newest, &[]), vec![501], "no snapshot: the newest generation's alone");
         assert_eq!(unsealed_relids(&view, &view), vec![500], "each relid once");
-        assert!(
-            unsealed_relids(&[seg(2, SegState::Sealed)], &[seg(2, SegState::Sealed)]).is_empty()
-        );
+        assert!(unsealed_relids(&[seg(2, SegState::Sealed)], &[seg(2, SegState::Sealed)]).is_empty());
     }
 
     #[test]
     fn an_empty_ring_has_no_active_segment_and_segments_replace_in_place() {
-        assert_eq!(
-            lock_active(
-                &mut || Ok(None),
-                &mut |_| unreachable!(),
-                &mut |_| unreachable!()
-            )
-            .unwrap(),
-            None
-        );
+        assert_eq!(lock_active(&mut || Ok(None), &mut |_| unreachable!(), &mut |_| unreachable!()).unwrap(), None);
         assert_eq!(active_of(&[seg(0, SegState::Sealing)]), None);
         let mut ext = Vec::new();
         put_ext_record(&mut ext, 0x7ff0, b"kept");
         let one = with_segments(&ext, &[seg(0, SegState::Active)]).unwrap();
-        let two =
-            with_segments(&one, &[seg(0, SegState::Sealing), seg(1, SegState::Active)]).unwrap();
+        let two = with_segments(&one, &[seg(0, SegState::Sealing), seg(1, SegState::Active)]).unwrap();
         let recs = ext_records(&two).unwrap();
         assert_eq!(recs.len(), 2);
         assert_eq!(recs[0], (0x7ff0, &b"kept"[..]));

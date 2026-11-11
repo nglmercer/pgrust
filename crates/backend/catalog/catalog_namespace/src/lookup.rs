@@ -301,9 +301,7 @@ pub fn RangeVarGetRelidFromNameBytes(
         if !dbname_matches(c)? {
             return Err(Box::new(
                 PgError::error_raw_message(raw_name_message(
-                    b"cross-database references are not implemented: \"",
-                    names,
-                    b"\"",
+                    b"cross-database references are not implemented: \"", names, b"\"",
                 ))
                 .with_sqlstate(ERRCODE_FEATURE_NOT_SUPPORTED),
             ));
@@ -316,9 +314,7 @@ pub fn RangeVarGetRelidFromNameBytes(
             }
             return Err(Box::new(
                 PgError::error_raw_message(raw_name_message(
-                    b"schema \"",
-                    &[s],
-                    b"\" does not exist",
+                    b"schema \"", &[s], b"\" does not exist",
                 ))
                 .with_sqlstate(ERRCODE_UNDEFINED_SCHEMA),
             ));
@@ -334,9 +330,7 @@ pub fn RangeVarGetRelidFromNameBytes(
     let parts = &names[usize::from(catalogname.is_some())..];
     Err(Box::new(
         PgError::error_raw_message(raw_name_message(
-            b"relation \"",
-            parts,
-            b"\" does not exist",
+            b"relation \"", parts, b"\" does not exist",
         ))
         .with_sqlstate(ERRCODE_UNDEFINED_TABLE),
     ))

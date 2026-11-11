@@ -2203,6 +2203,7 @@ fn pop_var_stack(
         let mut restore_masked = false;
 
         #[allow(clippy::if_same_then_else)]
+
         if !is_commit {
             restore_prior = true;
         } else if stack.state == GUC_SAVE {

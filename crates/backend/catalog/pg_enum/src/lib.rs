@@ -77,14 +77,9 @@ fn with_uncommitted<R>(f: impl for<'mcx> FnOnce(&mut Uncommitted<'mcx>) -> R) ->
     UNCOMMITTED.with(|cell| {
         let mut slot = cell.borrow_mut();
         if slot.owner.is_none() {
-            let owner =
-                mcx::McxOwned::try_new(mcx::MemoryContext::new("UncommittedEnums"), |mcx| {
-                    Ok(Uncommitted {
-                        mcx,
-                        types: None,
-                        values: None,
-                    })
-                })?;
+            let owner = mcx::McxOwned::try_new(mcx::MemoryContext::new("UncommittedEnums"), |mcx| {
+                Ok(Uncommitted { mcx, types: None, values: None, })
+            })?;
             slot.owner = Some(core::mem::ManuallyDrop::new(owner));
             if !slot.cleanup_registered {
                 mcx::register_session_cleanup(Box::new(clear_uncommitted));
@@ -100,11 +95,10 @@ pub fn EnumUncommitted(enum_id: Oid) -> bool {
 }
 
 pub fn HasUncommittedEnums() -> bool {
-    read_uncommitted(|u| {
-        u.is_some_and(|u| {
-            u.types.as_ref().is_some_and(|v| !v.is_empty())
-                || u.values.as_ref().is_some_and(|v| !v.is_empty())
-        })
+    read_uncommitted(|u| { u.is_some_and(|u| {
+        u.types.as_ref().is_some_and(|v| !v.is_empty())
+            || u.values.as_ref().is_some_and(|v| !v.is_empty())
+    })
     })
 }
 
@@ -137,15 +131,11 @@ pub fn RestoreUncommittedEnums(types: &[Oid], values: &[Oid]) -> PgResult<()> {
         debug_assert!(u.types.is_none() && u.values.is_none());
         if !types.is_empty() {
             let t = u.types.get_or_insert_with(|| PgVec::new_in(u.mcx));
-            for &oid in types {
-                t.push(oid);
-            }
+            for &oid in types { t.push(oid); }
         }
         if !values.is_empty() {
             let v = u.values.get_or_insert_with(|| PgVec::new_in(u.mcx));
-            for &oid in values {
-                v.push(oid);
-            }
+            for &oid in values { v.push(oid); }
         }
     })
 }
@@ -219,8 +209,7 @@ pub fn EnumValuesCreate<'mcx>(mcx: Mcx<'mcx>, enumTypeOid: Oid, vals: &[&str]) -
 
     // pg_enum.c:156-198: every label of a batch is validated before the
     // batch goes through one multi-insert.
-    let nslots =
-        num_elems.min(catalog_indexing::MAX_CATALOG_MULTI_INSERT_BYTES / FORMDATA_PG_ENUM_SIZE);
+    let nslots = num_elems.min(catalog_indexing::MAX_CATALOG_MULTI_INSERT_BYTES / FORMDATA_PG_ENUM_SIZE);
     let mut indstate = catalog_indexing::CatalogOpenIndexes(mcx, &pg_enum)?;
     let mut batch = ::mcx::std_vec_with_capacity("catalog", nslots)?;
     for (elemno, lab) in vals.iter().enumerate() {
@@ -230,14 +219,7 @@ pub fn EnumValuesCreate<'mcx>(mcx: Mcx<'mcx>, enumTypeOid: Oid, vals: &[&str]) -
         let mut label = NameData::default();
         label.namestrcpy(lab);
         let order = (elemno + 1) as f32;
-        batch.push(form_enum_tuple(
-            mcx,
-            &pg_enum,
-            oids[elemno],
-            enumTypeOid,
-            order,
-            &label,
-        )?);
+        batch.push(form_enum_tuple(mcx, &pg_enum, oids[elemno], enumTypeOid, order, &label,)?);
         if batch.len() == nslots {
             catalog_indexing::CatalogTuplesMultiInsertWithInfo(
                 mcx,
@@ -305,10 +287,8 @@ fn list_enum_members<'mcx>(
     pg_enum: &Relation<'mcx>,
     enumTypeOid: Oid,
 ) -> PgResult<PgVec<'mcx, EnumMember>> {
-    let list = SearchSysCacheList1(
-        ENUMTYPOIDNAME,
-        SysCacheKey::Value(Datum::from_oid(enumTypeOid)),
-    )?;
+    let list =
+        SearchSysCacheList1(ENUMTYPOIDNAME, SysCacheKey::Value(Datum::from_oid(enumTypeOid)),)?;
     let n = list.n_members() as usize;
     let mut out: PgVec<'mcx, EnumMember> = PgVec::with_capacity_in(n, mcx);
     for i in 0..n {
@@ -343,11 +323,8 @@ pub fn AddEnumLabel<'mcx>(
         ReleaseSysCache(tup);
         if skipIfExists {
             elog_seams::ereport::call(
-                PgError::new(
-                    NOTICE,
-                    format!("enum label \"{newVal}\" already exists, skipping"),
-                )
-                .with_sqlstate(ERRCODE_DUPLICATE_OBJECT),
+                PgError::new(NOTICE, format!("enum label \"{newVal}\" already exists, skipping"),)
+                    .with_sqlstate(ERRCODE_DUPLICATE_OBJECT),
             )?;
             return Ok(());
         }
@@ -359,9 +336,7 @@ pub fn AddEnumLabel<'mcx>(
     let (newOid, newelemorder) = 'restart: loop {
         let mut existing = list_enum_members(mcx, &pg_enum, enumTypeOid)?;
         existing.sort_by(|a, b| {
-            a.enumsortorder
-                .partial_cmp(&b.enumsortorder)
-                .unwrap_or(core::cmp::Ordering::Equal)
+            a.enumsortorder.partial_cmp(&b.enumsortorder).unwrap_or(core::cmp::Ordering::Equal)
         });
         let nelems = existing.len();
 
@@ -374,18 +349,14 @@ pub fn AddEnumLabel<'mcx>(
                 }
             }
             Some(neighbor) => {
-                let Some(nbr_index) = existing
-                    .iter()
-                    .position(|m| label_str(&m.enumlabel) == neighbor)
+                let Some(nbr_index) =
+                    existing.iter().position(|m| label_str(&m.enumlabel) == neighbor)
                 else {
                     return Err(not_existing_label(neighbor));
                 };
                 let nbr_order = existing[nbr_index].enumsortorder;
-                let other_nbr_index = if newValIsAfter {
-                    nbr_index as i64 + 1
-                } else {
-                    nbr_index as i64 - 1
-                };
+                let other_nbr_index =
+                    if newValIsAfter { nbr_index as i64 + 1 } else { nbr_index as i64 - 1 };
                 if other_nbr_index < 0 {
                     nbr_order - 1.0
                 } else if other_nbr_index >= nelems as i64 {
@@ -543,11 +514,8 @@ pub fn scan_enum_typid_sorted<'mcx>(
     backward: bool,
     limit_one: bool,
 ) -> PgResult<PgVec<'mcx, pg_enum_seams::EnumSortedRow>> {
-    let direction = if backward {
-        ScanDirection::BackwardScanDirection
-    } else {
-        ScanDirection::ForwardScanDirection
-    };
+    let direction =
+        if backward { ScanDirection::BackwardScanDirection } else { ScanDirection::ForwardScanDirection };
     let key = [oid_key(Anum_pg_enum_enumtypid, enumtypoid)];
     let enum_rel = table::table_open(mcx, EnumRelationId, AccessShareLock)?;
     let enum_idx = indexam::index_open(mcx, EnumTypIdSortOrderIndexId, AccessShareLock)?;
@@ -629,11 +597,8 @@ fn binary_upgrade_enum_oid(has_neighbor: bool) -> PgResult<Oid> {
 
 fn oid_not_set() -> Box<PgError> {
     Box::new(
-        PgError::new(
-            ERROR,
-            "pg_enum OID value not set when in binary upgrade mode".to_string(),
-        )
-        .with_sqlstate(ERRCODE_INVALID_PARAMETER_VALUE),
+        PgError::new(ERROR, "pg_enum OID value not set when in binary upgrade mode".to_string(),)
+            .with_sqlstate(ERRCODE_INVALID_PARAMETER_VALUE),
     )
 }
 
@@ -678,7 +643,7 @@ pub fn init_seams() {
 mod tests {
     use super::*;
     use types_core::{FLOAT4OID, NAMEOID, OIDOID};
-    use types_tuple::{CompactAttribute, FormData_pg_attribute, TupleDescData};
+    use types_tuple::{ CompactAttribute, FormData_pg_attribute, TupleDescData};
     use types_tuple::{TYPALIGN_CHAR, TYPALIGN_INT};
 
     fn attr(num: i16, typid: Oid, len: i16, byval: bool, align: i8) -> FormData_pg_attribute {
@@ -779,17 +744,11 @@ mod tests {
     #[test]
     fn next_pg_enum_oid_survives_rejected_neighbor_and_is_taken_once() {
         let e = binary_upgrade_enum_oid(false).unwrap_err();
-        assert_eq!(
-            e.message(),
-            "pg_enum OID value not set when in binary upgrade mode"
-        );
+        assert_eq!(e.message(), "pg_enum OID value not set when in binary upgrade mode");
         assert_eq!(e.sqlstate(), ERRCODE_INVALID_PARAMETER_VALUE);
         SetNextPgEnumOid(123456);
         let e = binary_upgrade_enum_oid(true).unwrap_err();
-        assert_eq!(
-            e.message(),
-            "ALTER TYPE ADD BEFORE/AFTER is incompatible with binary upgrade"
-        );
+        assert_eq!(e.message(), "ALTER TYPE ADD BEFORE/AFTER is incompatible with binary upgrade");
         assert_eq!(binary_upgrade_enum_oid(false).unwrap(), 123456);
         assert!(binary_upgrade_enum_oid(false).is_err());
     }
@@ -824,9 +783,7 @@ mod tests {
             assert!(EnumUncommitted(4600));
             clear_uncommitted();
             assert!(!HasUncommittedEnums());
-        })
-        .join()
-        .unwrap();
+        }).join().unwrap();
         assert!(!HasUncommittedEnums());
     }
 
@@ -837,8 +794,7 @@ mod tests {
             let value = mcx::alloc_leak_in(u.mcx, [7u8; 16384]).unwrap();
             assert!(std::panic::catch_unwind(clear_uncommitted).is_err());
             assert_eq!(value[16383], 7);
-        })
-        .unwrap();
+        }).unwrap();
         clear_uncommitted();
         UNCOMMITTED.with(|cell| assert!(cell.borrow().owner.is_none()));
     }
@@ -852,10 +808,10 @@ mod tests {
             RestoreUncommittedEnums(&[3500], &[3600]).unwrap();
             with_uncommitted(|u| {
                 let _value = mcx::alloc_leak_in(u.mcx, [7u8; 32768]).unwrap();
-            })
-            .unwrap();
+            }).unwrap();
             clear_uncommitted();
             assert_eq!(mcx::global_footprint::bytes(), before);
         }
     }
+
 }

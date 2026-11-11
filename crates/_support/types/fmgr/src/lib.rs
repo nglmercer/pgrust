@@ -1,5 +1,6 @@
 #![no_std]
-#![allow(non_camel_case_types, non_snake_case, non_upper_case_globals)]
+#![allow(non_camel_case_types,non_snake_case,non_upper_case_globals)]
+
 // A function's address is not an identity: builtin / wrapper identity reads
 // the resolution record (FmgrInfo::fn_kind / fn_body), never a pointer compare.
 #![deny(unpredictable_function_pointer_comparisons)]

@@ -80,10 +80,10 @@ pub fn ExecCreateTableAs<'mcx>(
     let mut query: Query<'mcx> = unsafe { query_node.with_mut::<Query, _>(core::mem::take) }
         .expect("CreateTableAsStmt.query is an analyzed Query");
 
-    if parser_analyze::tap_post_parse_analyze::is_installed() && queryjumble::IsQueryIdEnabled() {
+    if parser_analyze::tap_post_parse_analyze::is_installed() && queryjumble::IsQueryIdEnabled()
+    {
         let js = queryjumble::JumbleQuery(mcx, &mut query)?;
-        parser_analyze::tap_post_parse_analyze::call_if_or(Ok(()), |f| {
-            f(&mut query, &js, source_text)
+        parser_analyze::tap_post_parse_analyze::call_if_or(Ok(()), |f| { f(&mut query, &js, source_text)
         })?;
     } else if queryjumble::IsQueryIdEnabled() {
         queryjumble::JumbleQueryDiscard(mcx, &mut query)?;
@@ -150,8 +150,8 @@ pub fn ExecCreateTableAs<'mcx>(
     let query_node = Node::mk(mcx, query)?;
     let volatile = clauses::contain_volatile_functions(query_node)?;
     // SAFETY: fresh node; this call holds its only live access.
-    let query: Query<'mcx> =
-        unsafe { query_node.with_mut::<Query, _>(core::mem::take) }.expect("rewritten CTAS query");
+    let query: Query<'mcx> = unsafe { query_node.with_mut::<Query, _>(core::mem::take) }
+        .expect("rewritten CTAS query");
     if let tcop_dest::DestReceiver::IntoRel(st) = &mut dest {
         st.multi_insert_ok = !volatile;
     }
@@ -269,14 +269,14 @@ fn create_ctas_internal<'mcx>(
     let into = into_node.as_variant::<IntoClause>().expect("IntoClause");
     let is_matview = view_query.is_some();
     debug_assert!(is_matview == into.viewQuery.is_some());
-    let relkind = if is_matview {
-        types_rel::RELKIND_MATVIEW
-    } else {
-        types_rel::RELKIND_RELATION
-    };
+    let relkind =
+        if is_matview { types_rel::RELKIND_MATVIEW } else { types_rel::RELKIND_RELATION };
 
     let create = CreateStmt {
-        relation: into.rel.expect("IntoClause.rel").as_range_var(),
+        relation: into
+            .rel
+            .expect("IntoClause.rel")
+            .as_range_var(),
         tableElts: attr_list,
         options: into.options.clone_in(mcx)?,
         oncommit: into.onCommit,
@@ -322,9 +322,7 @@ fn create_ctas_nodata<'mcx>(
     let mut attr_list = NodeList::nil();
     let mut colnames = into.colNames.iter();
     for t in query.targetList.iter() {
-        let tle = t
-            .as_target_entry()
-            .expect("targetlist entry is a TargetEntry");
+        let tle = t.as_target_entry().expect("targetlist entry is a TargetEntry");
         if tle.resjunk {
             continue;
         }
@@ -392,6 +390,8 @@ fn too_many_column_names() -> Box<types_error::PgError> {
     )
 }
 
+
+
 fn intorel_startup<'mcx>(
     state: &mut IntoRelState<'mcx>,
     _operation: i32,
@@ -455,11 +455,7 @@ fn intorel_startup<'mcx>(
     state.reladdr = relid;
     state.output_cid = xact::GetCurrentCommandId(true)?;
     state.ti_options = tableam_vocab::TABLE_INSERT_SKIP_FSM;
-    state.bistate = if !into.skipData {
-        Some(heapam::GetBulkInsertState())
-    } else {
-        None
-    };
+    state.bistate = if !into.skipData { Some(heapam::GetBulkInsertState()) } else { None };
     // W1 multi-insert buffering (PGRUST_CTAS_MULTIINSERT, default OFF).
     state.mibuf = if !into.skipData && state.multi_insert_ok {
         tableam::write_buffer::write_buffer_begin(&rel)

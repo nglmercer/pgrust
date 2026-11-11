@@ -4,16 +4,10 @@ use core::sync::atomic::{AtomicU8, Ordering};
 #[test]
 fn a_host_loop_sees_the_abort_bit_of_the_call_it_runs_in_and_nothing_outside_one() {
     let byte = AtomicU8::new(cancelpoll::ABORT_BIT);
-    assert!(
-        !cancelpoll::canceled() && !cancelpoll::seen(),
-        "outside a kernel call there is no byte to read"
-    );
+    assert!(!cancelpoll::canceled() && !cancelpoll::seen(), "outside a kernel call there is no byte to read");
     let quiet = AtomicU8::new(cancelpoll::PROBE_BIT | 2);
     cancelpoll::scoped(&quiet, || {
-        assert!(
-            !cancelpoll::canceled(),
-            "the probe and the service bits are no cancel"
-        );
+        assert!(!cancelpoll::canceled(), "the probe and the service bits are no cancel");
         assert!(!cancelpoll::seen());
     });
     cancelpoll::scoped(&byte, || {
@@ -21,10 +15,7 @@ fn a_host_loop_sees_the_abort_bit_of_the_call_it_runs_in_and_nothing_outside_one
         assert!(cancelpoll::canceled());
         assert!(cancelpoll::seen(), "the stop is the rest of the call's");
         byte.store(0, Ordering::Relaxed);
-        assert!(
-            !cancelpoll::canceled() && cancelpoll::seen(),
-            "the stop stays seen once a loop stopped"
-        );
+        assert!(!cancelpoll::canceled() && cancelpoll::seen(), "the stop stays seen once a loop stopped");
     });
     assert!(!cancelpoll::seen(), "the call's end ends its stop");
 }
@@ -35,14 +26,10 @@ fn a_nested_kernel_call_lends_its_own_byte_and_hands_its_stop_back() {
     let inner = AtomicU8::new(cancelpoll::ABORT_BIT);
     cancelpoll::scoped(&outer, || {
         assert!(!cancelpoll::canceled());
-        cancelpoll::scoped(&inner, || {
-            assert!(cancelpoll::canceled() && cancelpoll::seen())
+        cancelpoll::scoped(&inner, || { assert!(cancelpoll::canceled() && cancelpoll::seen())
         });
         assert!(!cancelpoll::canceled(), "the outer call's byte is back");
-        assert!(
-            cancelpoll::seen(),
-            "the nested call's stop is the outer call's error too"
-        );
+        assert!(cancelpoll::seen(), "the nested call's stop is the outer call's error too");
     });
     assert!(!cancelpoll::seen());
 }

@@ -1,5 +1,4 @@
-#![allow(clippy::duplicate_mod)]
-//! gravity_tpde's integration tests (tests/<stem>.rs) that can share one process, as ONE test binary: one module
+#![allow(clippy::duplicate_mod)]//! gravity_tpde's integration tests (tests/<stem>.rs) that can share one process, as ONE test binary: one module
 //! `t_<stem>` per file, as lowerv4_suite does for lowerv4's tests. As one binary per file, every edit under the package
 //! or a crate it uses compiled and linked each of them again on its own. Now these are one link.
 //! ct (scripts/gravity-v5/ct_par.py) runs this binary once per module, in its own process, with that module's exact

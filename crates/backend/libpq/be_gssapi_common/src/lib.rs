@@ -45,8 +45,9 @@ fn pg_gss_error_int(api: &GssApi, stat: u32, status_type: i32) -> String {
         }
         if !gmsg.value.is_null() {
             // SAFETY: gss_display_status returned length valid bytes.
-            let bytes =
-                unsafe { core::slice::from_raw_parts(gmsg.value as *const u8, gmsg.length) };
+            let bytes = unsafe {
+                core::slice::from_raw_parts(gmsg.value as *const u8, gmsg.length)
+            };
             s.push_str(&String::from_utf8_lossy(bytes));
         }
         // SAFETY: gmsg came from gss_display_status.
@@ -92,14 +93,8 @@ pub fn gss_setenv(key: &std::ffi::CStr, val: &std::ffi::CStr) -> i32 {
 pub fn pg_store_delegated_credential(api: &GssApi, mut cred: gss_cred_id_t) -> PgResult<()> {
     let key = c"ccache";
     let value = CString::new(GSS_MEMORY_CACHE).expect("no interior NUL");
-    let mut cc = gss_key_value_element_desc {
-        key: key.as_ptr(),
-        value: value.as_ptr(),
-    };
-    let ccset = gss_key_value_set_desc {
-        count: 1,
-        elements: &mut cc,
-    };
+    let mut cc = gss_key_value_element_desc { key: key.as_ptr(), value: value.as_ptr(), };
+    let ccset = gss_key_value_set_desc { count: 1, elements: &mut cc, };
 
     let Some(store_cred_into) = api.gss_store_cred_into else {
         pg_GSS_error("gss_store_cred", GSS_S_COMPLETE, 0)?;
@@ -146,14 +141,8 @@ pub fn acquire_keytab_cred(
         .expect("acquire_keytab_cred: caller checked gss_acquire_cred_from");
 
     let key = c"keytab";
-    let mut kt = gss_key_value_element_desc {
-        key: key.as_ptr(),
-        value: keyfile.as_ptr(),
-    };
-    let ktset = gss_key_value_set_desc {
-        count: 1,
-        elements: &mut kt,
-    };
+    let mut kt = gss_key_value_element_desc { key: key.as_ptr(), value: keyfile.as_ptr(), };
+    let ktset = gss_key_value_set_desc { count: 1, elements: &mut kt, };
 
     let mut minor: u32 = 0;
     let mut cred: gss_cred_id_t = core::ptr::null_mut();
@@ -176,3 +165,4 @@ pub fn acquire_keytab_cred(
     }
     Ok(cred)
 }
+

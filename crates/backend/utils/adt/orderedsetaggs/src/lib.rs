@@ -46,7 +46,7 @@ unsafe fn agg_get_aggref<'a>(fcinfo: &Fcinfo) -> Option<&'a Aggref<'a>> {
 unsafe fn agg_state_is_shared(fcinfo: &Fcinfo) -> bool {
     // SAFETY: caller contract.
     match unsafe { fcinfo.agg_state_node() } {
-        Some(node) => node.current_agg().is_none_or(|(_, shared)| shared),
+        Some(node) => node.current_agg().is_none_or( |(_, shared)| shared),
         None => true,
     }
 }
@@ -1054,7 +1054,7 @@ fn hypothetical_rank_common(
     // SAFETY: final-arg contract (group_state).
     let st = unsafe { group_state(fcinfo) };
     let number_of_rows = st.number_of_rows;
-    if !nargs.is_multiple_of(2) {
+    if ! nargs.is_multiple_of( 2) {
         return Err(elog_error("wrong number of arguments in hypothetical-set function"));
     }
     let nargs = nargs / 2;
@@ -1133,7 +1133,7 @@ pub fn fc_hypothetical_dense_rank_final(
     }
     // SAFETY: final-arg contract (group_state).
     let st = unsafe { group_state(fcinfo) };
-    if !nargs.is_multiple_of(2) {
+    if ! nargs.is_multiple_of( 2) {
         return Err(elog_error("wrong number of arguments in hypothetical-set function"));
     }
     let nargs = nargs / 2;

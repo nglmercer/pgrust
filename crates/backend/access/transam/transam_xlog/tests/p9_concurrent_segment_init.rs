@@ -42,10 +42,7 @@ fn concurrent_segment_creation_never_collides() {
     test_boot::boot_wal(TAG);
     let dir = test_boot::data_dir().clone();
     let segsz = transam_xlog::wal_segment_size() as u64;
-    assert!(
-        guc_tables::vars::wal_init_zero.read(),
-        "the zero-fill is the collision window"
-    );
+    assert!(guc_tables::vars::wal_init_zero.read(), "the zero-fill is the collision window");
 
     let barrier = Arc::new(Barrier::new(THREADS + 1));
     let workers: Vec<_> = (0..THREADS as u64)
@@ -60,8 +57,7 @@ fn concurrent_segment_creation_never_collides() {
                     // A panic (e.g. a debug assertion on a stolen temp file)
                     // is a failure of this creation, not a lost thread: every
                     // thread must reach the next barrier.
-                    let r =
-                        std::panic::catch_unwind(|| transam_xlog::write::XLogFileInit(segno, 1));
+                    let r = std::panic::catch_unwind(|| transam_xlog::write::XLogFileInit(segno, 1));
                     let r = match r {
                         Ok(Ok(fd)) => {
                             // SAFETY: XLogFileInit hands back an open fd we own.
@@ -71,10 +67,7 @@ fn concurrent_segment_creation_never_collides() {
                         Ok(Err(e)) => Err(e.message().to_string()),
                         Err(p) => Err(format!(
                             "panic: {}",
-                            p.downcast_ref::<String>()
-                                .map(String::as_str)
-                                .or(p.downcast_ref::<&str>().copied())
-                                .unwrap_or("?")
+                            p.downcast_ref::<String>().map(String::as_str).or(p.downcast_ref::<&str>().copied()).unwrap_or("?")
                         )),
                     };
                     out.push((segno, r));
@@ -97,24 +90,12 @@ fn concurrent_segment_creation_never_collides() {
             let path = dir.join(transam_xlog::XLogFilePath(1, segno, segsz as i32));
             match (r, std::fs::metadata(&path)) {
                 (Ok(()), Ok(m)) if m.len() == segsz => {}
-                (r, m) => failures.push(format!(
-                    "segment {segno}: {r:?}, file {:?}",
-                    m.map(|m| m.len())
-                )),
+                (r, m) => failures.push(format!("segment {segno}: {r:?}, file {:?}", m.map(|m| m.len()))),
             }
         }
     }
-    assert!(
-        failures.is_empty(),
-        "{} of {} creations failed:\n{}",
-        failures.len(),
-        THREADS as u64 * ROUNDS,
-        failures.join("\n")
-    );
-    assert!(
-        leftovers.is_empty(),
-        "temp files left behind: {leftovers:?}"
-    );
+    assert!(failures.is_empty(), "{} of {} creations failed:\n{}", failures.len(), THREADS as u64 * ROUNDS, failures.join("\n"));
+    assert!(leftovers.is_empty(), "temp files left behind: {leftovers:?}");
 
     let _ = std::fs::remove_dir_all(&dir);
 }

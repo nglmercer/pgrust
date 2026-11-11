@@ -162,7 +162,7 @@ impl Entry {
         }
         let mut filled = 0u64;
         let n = rows.div_ceil(64);
-        let tail = if rows.is_multiple_of(64) { !0u64 } else { (1u64 << (rows % 64)) - 1 };
+        let tail = if rows.is_multiple_of( 64) { !0u64 } else { (1u64 << (rows % 64)) - 1 };
         let last = |i: usize, w: u64| if i + 1 == n { w & tail } else { w };
         let any = words[..n].iter().enumerate().any(|(i, &w)| last(i, w) != 0);
         if self.mode == ConditionCacheMode::Granule && any {
@@ -940,7 +940,7 @@ mod tests {
             let e = entry_for([7, case], [8, 9], &o, 2, 8192);
             e.put(0, &words, rows, list_max);
             let mut masked = words.clone();
-            if !rows.is_multiple_of(64) {
+            if ! rows.is_multiple_of( 64) {
                 masked[n - 1] &= (1u64 << (rows % 64)) - 1;
             }
             let count = crate::ops::scan::pgrc::granule_source::words_to_sel(&masked, &mut sel, &mut sel16);
@@ -1074,7 +1074,7 @@ mod tests {
             let _ = entry_for([70, i], [0, 0], &o, 8, 64);
         }
         let g = value::ext_stats(CondCache).ghost_hits - e1.ghost_hits;
-        assert!(g > 0 && g.is_multiple_of(GHOST_SAMPLE), "the sampled ghosts taken, each counting the sample ({g})");
+        assert!(g > 0 && g.is_multiple_of( GHOST_SAMPLE), "the sampled ghosts taken, each counting the sample ({g})");
 
         drop_all();
         set_capacity(100 << 20);

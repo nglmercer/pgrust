@@ -1730,7 +1730,7 @@ fn extract_query_deps(
                 if rte.relid != InvalidOid => {
                     out.try_reserve(1).map_err(|_| mcx_oom(out))?;
                     out.push(rte.relid);
-                }
+            }
             _ => {}
         }
     }

@@ -14,28 +14,12 @@ pub const C6A: Ratios = Ratios([1.25, 0.875, 2.25, 0.75, 0.75, 1.0]);
 pub const C7G: Ratios = Ratios([1.0, 1.25, 1.25, 1.125, 1.125, 1.125]);
 
 /// c6a's cache facts (sysfs): 32 KiB L1d and 512 KiB L2 a core, two threads a core.
-pub const C6A_MACHINE: Machine = Machine {
-    l1d: 32 << 10,
-    l2: 512 << 10,
-    line: 64,
-    smt: 2,
-    prefetch: crate::machine::SMT_PREFETCH,
-};
+pub const C6A_MACHINE: Machine = Machine { l1d: 32 << 10, l2: 512 << 10, line: 64, smt: 2, prefetch: crate::machine::SMT_PREFETCH, };
 /// c7g's cache facts (sysfs): 64 KiB L1d and 1 MiB L2 a core, one thread a core.
-pub const C7G_MACHINE: Machine = Machine {
-    l1d: 64 << 10,
-    l2: 1 << 20,
-    line: 64,
-    smt: 1,
-    prefetch: Machine::REFERENCE.prefetch,
-};
+pub const C7G_MACHINE: Machine = Machine { l1d: 64 << 10, l2: 1 << 20, line: 64, smt: 1, prefetch: Machine::REFERENCE.prefetch, };
 
 /// The census's hosts, the reference first: their ratios and their cache facts.
-pub const HOSTS: [(&str, Ratios, Machine); 3] = [
-    ("reference", Ratios::ONE, Machine::REFERENCE),
-    ("c6a", C6A, C6A_MACHINE),
-    ("c7g", C7G, C7G_MACHINE),
-];
+pub const HOSTS: [(&str, Ratios, Machine); 3] = [("reference", Ratios::ONE, Machine::REFERENCE), ("c6a", C6A, C6A_MACHINE), ("c7g", C7G, C7G_MACHINE),];
 
 #[cfg(test)]
 mod tests {
@@ -50,28 +34,13 @@ mod tests {
     fn the_front_and_sparse_decisions_on_each_host() {
         let got: Vec<[u64; 6]> = HOSTS
             .iter()
-            .map(|(_, r, m)| {
-                [
-                    light_dense_on(r),
-                    light_way_rows_a_code_on(r),
-                    light_ways_max_codes_on(m),
-                    dense_pct_on(r),
-                    m.l1_span(8, 1, 2),
-                    m.l2_share(),
-                ]
+            .map(|(_, r, m)| { [light_dense_on(r), light_way_rows_a_code_on(r), light_ways_max_codes_on(m), dense_pct_on(r), m.l1_span(8, 1, 2), m.l2_share(),]
             })
             .collect();
         for ((name, ..), g) in HOSTS.iter().zip(&got) {
             println!("census\t{name}\tLIGHT_DENSE {}\tLIGHT_WAY_ROWS_A_CODE {}\tLIGHT_WAYS_MAX_CODES {}\tsparse DENSE_PCT {}\tSUM chunk {}\tL2 share {}", g[0], g[1], g[2], g[3], g[4], g[5]);
         }
-        assert_eq!(
-            got,
-            [
-                [3, 4, 4096, 70, 4096, 2 << 20],
-                [2, 6, 1024, 70, 1024, 256 << 10],
-                [3, 3, 4096, 70, 4096, 1 << 20]
-            ]
-        );
+        assert_eq!(got, [[3, 4, 4096, 70, 4096, 2 << 20], [2, 6, 1024, 70, 1024, 256 << 10], [3, 3, 4096, 70, 4096, 1 << 20]]);
     }
 
     /// The measured walk's shares (walk over plain: under 1 walks) at the walk tests' cells, on each host.
@@ -89,15 +58,8 @@ mod tests {
         };
         let reference = cells(&Walk::MEASURED);
         for (name, r, _) in HOSTS {
-            let at = cells(&Walk {
-                ratios: r,
-                ..Walk::MEASURED
-            });
-            let flips: Vec<bool> = at
-                .iter()
-                .zip(&reference)
-                .map(|(a, b)| (*a < 1.0) != (*b < 1.0))
-                .collect();
+            let at = cells(&Walk { ratios: r, ..Walk::MEASURED });
+            let flips: Vec<bool> = at.iter().zip(&reference).map(|(a, b)| (*a < 1.0) != (*b < 1.0)).collect();
             println!("census\t{name}\twalk shares {at:.3?}\tflips {flips:?}");
         }
     }

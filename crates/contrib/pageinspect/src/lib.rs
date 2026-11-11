@@ -304,7 +304,7 @@ pub(crate) fn tuple_image(
 ) -> PgResult<Vec<u8>> {
     check_declared_width(tupdesc, values)?;
     let tup = heaptuple::heap_form_tuple(mcx, tupdesc, values, nulls)?;
-    ::mcx::std_vec_from_slice("contrib", tup.image())
+    ::mcx::std_vec_from_slice("contrib",tup.image())
 }
 
 pub(crate) fn composite_result(

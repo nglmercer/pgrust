@@ -36,18 +36,10 @@ fn reclaim() {
     let task = Hint::new(Class::Task, Tag::OP);
     let t = fill(task, 64 << 10);
     let s0 = stats();
-    assert!(
-        s0.claimed >= 14 * MIB && s0.warm_zero + s0.warm_dirty == 0,
-        "Task blocks hold the pool: {s0:?}"
-    );
-    std::thread::spawn(move || give_all(t, 64 << 10))
-        .join()
-        .unwrap();
+    assert!(s0.claimed >= 14 * MIB && s0.warm_zero + s0.warm_dirty == 0, "Task blocks hold the pool: {s0:?}");
+    std::thread::spawn(move || give_all(t, 64 << 10)).join().unwrap();
     let s1 = stats();
-    assert!(
-        s1.central >= 12 * MIB,
-        "the freed Task blocks sit in the central lists: {s1:?}"
-    );
+    assert!(s1.central >= 12 * MIB, "the freed Task blocks sit in the central lists: {s1:?}");
 
     let s = Hint::new(Class::Session, Tag::MCX);
     let b = take(8 << 10, 16, s).expect("a Session block once Task's are free");
@@ -67,10 +59,7 @@ fn reclaim() {
 
     assert!(start());
     let live = fill(s, 64 << 10);
-    assert!(
-        take(64 << 10, 16, Hint::new(Class::Process, Tag::REGION)).is_none(),
-        "a pool of live blocks refuses"
-    );
+    assert!(take(64 << 10, 16, Hint::new(Class::Process, Tag::REGION)).is_none(), "a pool of live blocks refuses");
     assert!(low_warm(), "a refusal asks the shelves home");
     let t0 = std::time::Instant::now();
     while hooks::return_pending() && t0.elapsed() < std::time::Duration::from_secs(5) {
@@ -78,16 +67,11 @@ fn reclaim() {
     }
     assert!(!hooks::return_pending(), "the purger ran the return pass");
     give_all(live, 64 << 10);
-    let p = take(64 << 10, 16, Hint::new(Class::Process, Tag::REGION))
-        .expect("a Process block once Session's are given");
+    let p = take(64 << 10, 16, Hint::new(Class::Process, Tag::REGION)).expect("a Process block once Session's are given");
     // SAFETY: ours, not used again.
     unsafe { give(p.cast(), 64 << 10) };
     flush_shelf();
-    assert_eq!(
-        stats().releases,
-        0,
-        "the return pass homes, it never releases"
-    );
+    assert_eq!(stats().releases, 0, "the return pass homes, it never releases");
     stop();
     balanced();
 }

@@ -2,7 +2,7 @@
 //! oracle, so format strings are C-exact. timestamptz_to_str mirrors C's
 //! backend/frontend link seam (waldesc installs the compat.c flavor).
 
-#![allow(non_camel_case_types, non_snake_case, non_upper_case_globals)]
+#![allow(non_camel_case_types,non_snake_case,non_upper_case_globals)]
 
 use core::cell::Cell;
 use stringinfo::StringInfo;
@@ -74,9 +74,7 @@ pub(crate) use appendf;
 
 #[cold]
 pub(crate) fn record_truncated(what: &'static str) -> Box<PgError> {
-    Box::new(PgError::error(format!(
-        "WAL record payload too short for {what}"
-    )))
+    Box::new(PgError::error(format!("WAL record payload too short for {what}")))
 }
 
 // Bounds-checked native-endian view of a record payload (the C struct cast).
@@ -85,10 +83,7 @@ pub(crate) struct Rec<'a>(pub &'a [u8]);
 
 impl Rec<'_> {
     pub fn u8(&self, off: usize, what: &'static str) -> PgResult<u8> {
-        self.0
-            .get(off)
-            .copied()
-            .ok_or_else(|| record_truncated(what))
+        self.0.get(off).copied().ok_or_else(|| record_truncated(what))
     }
     pub fn u16(&self, off: usize, what: &'static str) -> PgResult<u16> {
         Ok(u16::from_ne_bytes(self.arr::<2>(off, what)?))
@@ -115,7 +110,7 @@ impl Rec<'_> {
 
 // XLogRecGetData: main_data points into the reader's decode buffer, valid for
 // the desc callback's duration (same contract as rmgr::xact_redo).
-pub(crate) fn rec_data(record: &XLogReaderState) -> &[u8] {
+pub(crate) fn rec_data(record: & XLogReaderState) -> & [u8] {
     match record.record.as_ref() {
         // SAFETY: see above.
         Some(r) => unsafe { r.main_data_bytes() },
@@ -131,7 +126,7 @@ pub(crate) fn has_block_data(record: &XLogReaderState, block_id: u8) -> bool {
     record.has_block_ref(block_id) && record.block(block_id).has_data
 }
 
-pub(crate) fn block_data(record: &XLogReaderState, block_id: u8) -> &[u8] {
+pub(crate) fn block_data(record: & XLogReaderState, block_id: u8) -> & [u8] {
     if !has_block_data(record, block_id) {
         return &[];
     }

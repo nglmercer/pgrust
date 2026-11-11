@@ -16,11 +16,7 @@ pub use ::execmain_seams::{
 pub use execami::{plan_implicit_scroll_ok, plan_supports_backward_scan};
 pub use perms::exec_check_one_rel_perms;
 pub use typefromtl::{exec_clean_type_from_tl, exec_type_from_tl, expr_collation, expr_typmod};
-
-pub fn with_hook_qd<R>(
-    h: ::types_portal::QueryDescHandle,
-    f: impl FnOnce(&mut ::execmain_seams::HookQd<'_>) -> R,
-) -> R {
+pub fn with_hook_qd<R>(h: ::types_portal::QueryDescHandle, f: impl FnOnce(&mut ::execmain_seams::HookQd<'_>) -> R,) -> R {
     let mut f = Some(f);
     let mut ret: Option<R> = None;
     ::execmain_seams::with_hook_qd::call(h, &mut |v| {

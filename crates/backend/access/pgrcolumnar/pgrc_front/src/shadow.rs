@@ -18,20 +18,8 @@ pub fn costs() -> [Costs; 2] {
     let f = |name: &str, d: f64| crate::maint::setting_f64(name).unwrap_or(d);
     let h_s = s("pgrust.pgrc_shadow_h_s", H_S);
     [
-        Costs {
-            k: s("pgrust.pgrc_shadow_k", K_GRAVITY),
-            r: s("pgrust.pgrc_shadow_r", R_GRAVITY),
-            h_s,
-            dv_factor: f("pgrust.pgrc_shadow_dv_factor", DV_FACTOR_GRAVITY),
-            kappa: 0.0,
-        },
-        Costs {
-            k: s("pgrust.pgrc_shadow_k_rowexec", K_ROWEXEC),
-            r: s("pgrust.pgrc_shadow_r_rowexec", R_ROWEXEC),
-            h_s,
-            dv_factor: 1.0,
-            kappa: f("pgrust.pgrc_shadow_kappa_rowexec", KAPPA_ROWEXEC),
-        },
+        Costs { k: s("pgrust.pgrc_shadow_k", K_GRAVITY), r: s("pgrust.pgrc_shadow_r", R_GRAVITY), h_s, dv_factor: f("pgrust.pgrc_shadow_dv_factor", DV_FACTOR_GRAVITY), kappa: 0.0, },
+        Costs { k: s("pgrust.pgrc_shadow_k_rowexec", K_ROWEXEC), r: s("pgrust.pgrc_shadow_r_rowexec", R_ROWEXEC), h_s, dv_factor: 1.0, kappa: f("pgrust.pgrc_shadow_kappa_rowexec", KAPPA_ROWEXEC), },
     ]
 }
 
@@ -49,11 +37,7 @@ fn reads(db: Oid, relid: Oid) -> Tel {
             let g = r.granules_read + r.granules_pruned + r.granules_answered;
             Tel::Reads(Reads {
                 scans_per_s: r.scans,
-                key_share: if r.scans > 0.0 {
-                    (r.key_scans / r.scans).min(1.0)
-                } else {
-                    0.0
-                },
+                key_share: if r.scans > 0.0 { (r.key_scans / r.scans).min(1.0) } else { 0.0 },
                 read_share: if g > 0.0 { r.granules_read / g } else { 1.0 },
             })
         }
@@ -70,35 +54,18 @@ pub fn job(db: Oid, relid: Oid, job: &Job, parts: &[PartView], first: bool) {
         Tel::Reads(r) => r,
     };
     if job.reason != Reason::Aged {
-        return crate::ledger::shadow_job(
-            db,
-            relid,
-            false,
-            [false, false],
-            first.then_some([0.0, 0.0]),
-        );
+        return crate::ledger::shadow_job(db, relid, false, [false, false], first.then_some([0.0, 0.0]),);
     }
     let mut ins = job.inputs.clone();
     ins.sort_unstable();
-    let inputs: Vec<PartView> = parts
-        .iter()
-        .filter(|v| ins.binary_search(&v.part_no).is_ok())
-        .copied()
-        .collect();
+    let inputs: Vec<PartView> = parts.iter().filter(|v| ins.binary_search(&v.part_no).is_ok()).copied().collect();
     let cs = costs();
     let payback = cs.map(|c| sc::payback_s(job.kind, &inputs, &r, &c));
     let skip = [0, 1].map(|i| payback[i] > cs[i].h_s);
     crate::ledger::shadow_job(db, relid, true, skip, first.then_some(payback));
 }
 
-pub fn idle(
-    db: Oid,
-    relid: Oid,
-    parts: &[PartView],
-    sorted_by: Option<bool>,
-    p: &Policy,
-    cs: &[Costs; 2],
-) -> bool {
+pub fn idle(db: Oid, relid: Oid, parts: &[PartView], sorted_by: Option<bool>, p: &Policy, cs: &[Costs; 2],) -> bool {
     let mut cands = sc::skipped(parts, sorted_by.unwrap_or(false), p);
     if cands.is_empty() {
         crate::ledger::shadow_idle(db, relid, 0, [0, 0]);
@@ -115,26 +82,14 @@ pub fn idle(
     if sorted_by.is_none() && r.key_share > 0.0 {
         cands = sc::skipped(parts, true, p);
     }
-    let add = [0, 1].map(|i| {
-        cands
-            .iter()
-            .filter(|c| sc::would_run(c.kind, c.inputs, &r, &cs[i]))
-            .count() as u64
+    let add = [0, 1].map(|i| { cands.iter().filter(|c| sc::would_run(c.kind,c.inputs, &r, &cs[i])).count() as u64
     });
     crate::ledger::shadow_idle(db, relid, cands.len() as u64, add);
     true
 }
 
-pub fn sweep_due(
-    slot: pgrc_am::catalog::RelSlot,
-    relids: &[(pgrc_am::catalog::RelSlot, Oid)],
-    cs: &[Costs; 2],
-    budget: &mut u32,
-    spent_ns: &mut u64,
-) -> bool {
-    let Some(v) = crate::compact::head_views(slot) else {
-        return false;
-    };
+pub fn sweep_due(slot: pgrc_am::catalog::RelSlot, relids: &[(pgrc_am::catalog::RelSlot, Oid)], cs: &[Costs; 2], budget: &mut u32, spent_ns: &mut u64,) -> bool {
+    let Some(v) = crate::compact::head_views(slot) else { return false; };
     let p = Policy::default();
     if pgrc_compact::policy::next_job(&v, false, &p).is_some() {
         return true;

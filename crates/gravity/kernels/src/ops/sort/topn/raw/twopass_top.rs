@@ -163,10 +163,10 @@ pub(in crate::ops::sort::topn) unsafe fn owner_reduce(params: *const u64, owner:
             h.groups += 1;
             singles.offer(r.as_ptr());
             let full = sp.n > 0 && singles.len == sp.n as usize;
-            if (!full || ext_ranks(&sp, r.as_ptr()).1 <= rank(&sp, singles.at(0)))
+            if ( !full || ext_ranks(&sp, r.as_ptr()).1 <= rank(&sp, singles.at(0)))
                 && !keep(&sp, h, owner, r.as_ptr()) {
                     return unsupported(UNSUPPORTED_SCRATCH);
-                }
+            }
         }
         h.resume = singles.len as u32;
         return 0;

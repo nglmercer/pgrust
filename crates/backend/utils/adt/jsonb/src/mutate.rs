@@ -341,7 +341,7 @@ pub fn delete_keys<'mcx>(
         skip_nested = true;
         if matches!(r, WjbToken::Elem | WjbToken::Key) {
             if let JsonbItem::String(s) = v {
-                if keys.contains(&s) {
+                if keys.contains(& s) {
                     if r == WjbToken::Key {
                         it.next(true);
                     }

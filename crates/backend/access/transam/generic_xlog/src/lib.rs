@@ -2,7 +2,7 @@
 //! C divergences: the Start/Register/Finish protocol keeps C's shape but the
 //! record is emitted through the one-call xloginsert form.
 
-#![allow(non_snake_case, non_upper_case_globals)]
+#![allow(non_snake_case,non_upper_case_globals)]
 
 use mcx::{alloc_in, Mcx, PgBox};
 use types_core::{BlockNumber, Buffer, InvalidBuffer, OffsetNumber, XLogRecPtr, BLCKSZ};
@@ -101,9 +101,7 @@ impl GenericXLogState {
                 pd.buffer = buffer;
                 pd.flags = flags;
                 // SAFETY: contract at buffer_page.
-                self.images[block_id]
-                    .0
-                    .copy_from_slice(unsafe { buffer_page(buffer) });
+                self.images[block_id].0.copy_from_slice(unsafe { buffer_page(buffer) });
                 return Ok(&mut self.images[block_id].0);
             } else if pd.buffer == buffer {
                 return Ok(&mut self.images[block_id].0);
@@ -125,10 +123,10 @@ impl GenericXLogState {
 }
 
 pub fn GenericXLogRegisterBuffer(
-    state: &mut GenericXLogState,
+    state: & mut GenericXLogState,
     buffer: Buffer,
     flags: i32,
-) -> PgResult<&mut [u8; BLCKSZ]> {
+) -> PgResult<& mut [u8; BLCKSZ]> {
     state.register_buffer(buffer, flags)
 }
 

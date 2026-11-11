@@ -58,7 +58,7 @@ type Docs = Vec<Option<String>>;
 fn std_doc(i: u64) -> String {
     format!(
         r#"{{"flag":{},"name":"tok{:04}","score":{}.25}}"#,
-        i.is_multiple_of(2),
+        i.is_multiple_of( 2),
         i % 97,
         i % 1000
     )
@@ -66,7 +66,12 @@ fn std_doc(i: u64) -> String {
 
 fn std_docs(rows: u64) -> Docs {
     (0..rows)
-        .map(|i| if i % 13 == 5 { None } else { Some(std_doc(i)) })
+        .map(|i|
+            if i % 13 == 5 {
+                None
+            } else {
+                Some(std_doc(i))
+            })
         .collect()
 }
 
@@ -74,12 +79,7 @@ fn std_docs(rows: u64) -> Docs {
 /// shred source (`with_shred` = the two-arm election's shred arm; false =
 /// NoShred — the lanes-free twin of the very same documents). Optional
 /// extra candidate source (the dict-lane arm registers postures here).
-fn seal_jsonb(
-    docs: &Docs,
-    fxid: u64,
-    with_shred: bool,
-    extra: Option<&CodecCandidates>,
-) -> Vec<u8> {
+fn seal_jsonb(docs: &Docs, fxid: u64, with_shred: bool, extra: Option<&CodecCandidates>,) -> Vec<u8> {
     setup();
     let ctx = MemoryContext::new("scan-shred-test");
     let mcx = ctx.mcx();
@@ -108,11 +108,7 @@ fn seal_jsonb(
             vfs: &mut vfs,
             sources: &sources,
             resolver: &QaResolver,
-            shred: if with_shred {
-                &mut jshred
-            } else {
-                &mut unshredded
-            },
+            shred: if with_shred { &mut jshred } else { &mut unshredded },
             shred_opts: &kit.opts,
         };
         let d = match img {
@@ -129,11 +125,7 @@ fn seal_jsonb(
         vfs: &mut vfs,
         sources: &sources,
         resolver: &QaResolver,
-        shred: if with_shred {
-            &mut jshred
-        } else {
-            &mut unshredded
-        },
+        shred: if with_shred { &mut jshred } else { &mut unshredded },
         shred_opts: &kit.opts,
     };
     w.finish(&mut env).expect("finish");
@@ -255,10 +247,7 @@ fn text_lane_scan_is_byte_identical_to_the_plain_column_twin() {
         vec![Arc::clone(&shredded)],
         vec![ScanColumn::shred_lane(1, "name", ShredLaneKind::Text)],
     );
-    let twin = scan_of(
-        vec![Arc::clone(&plain)],
-        vec![ScanColumn::root(text_col(1), true)],
-    );
+    let twin = scan_of(vec![Arc::clone(&plain)], vec![ScanColumn::root(text_col(1), true)],);
     let a = lane.run(1, None).expect("lane scan");
     let b = twin.run(1, None).expect("twin scan");
     assert_eq!(a.canon, b.canon, "lane vs normal-path byte identity");
@@ -275,9 +264,7 @@ fn bool_lane_scan_is_byte_identical_to_the_plain_column_twin() {
     let rows: Vec<Option<RawDatum<'_>>> = docs
         .iter()
         .enumerate()
-        .map(|(i, d)| {
-            d.as_ref()
-                .map(|_| RawDatum::Word((i as u64).is_multiple_of(2) as u64))
+        .map(|(i, d)| { d.as_ref().map(|_| RawDatum::Word((i as u64).is_multiple_of( 2) as u64))
         })
         .collect();
     let plain = open_part_bytes(&seal_plain(bool_col(1), &rows, 44), 9104).expect("open");
@@ -287,10 +274,7 @@ fn bool_lane_scan_is_byte_identical_to_the_plain_column_twin() {
         vec![Arc::clone(&shredded)],
         vec![ScanColumn::shred_lane(1, "flag", ShredLaneKind::Bool)],
     );
-    let twin = scan_of(
-        vec![Arc::clone(&plain)],
-        vec![ScanColumn::root(bool_col(1), true)],
-    );
+    let twin = scan_of(vec![Arc::clone(&plain)], vec![ScanColumn::root(bool_col(1), true)],);
     let a = lane.run(1, None).expect("lane scan");
     let b = twin.run(1, None).expect("twin scan");
     assert_eq!(a.canon, b.canon, "bool lane vs normal-path byte identity");
@@ -434,10 +418,7 @@ fn serial_eq_dop4_lane_scan_across_parts_with_skewed_elections() {
     );
     let serial = scan.run(1, None).expect("serial");
     let par = scan.run(4, Some(1)).expect("dop4 skew");
-    assert_eq!(
-        serial.canon, par.canon,
-        "serial vs DOP-4-skew byte identity"
-    );
+    assert_eq!(serial.canon, par.canon, "serial vs DOP-4-skew byte identity");
     assert_eq!(serial.census, par.census, "folded census identity (PC-6.3)");
     assert_eq!(par.pins.pins_taken, par.pins.pins_released, "pin balance");
     assert_eq!(serial.census.rows_emitted, 700);
@@ -559,11 +540,9 @@ fn scale_zero_numeric_lane_serves_as_int_words() {
                 .map(|_| RawDatum::Word(((i as i64 * 13) % 5000 - 300) as u64))
         })
         .collect();
-    let plain = open_part_bytes(
-        &seal_plain(pgrc_write::testkit::int8_col(1), &rows, 58),
-        9118,
-    )
-    .expect("open");
+    let plain =
+        open_part_bytes(&seal_plain(pgrc_write::testkit::int8_col(1), &rows, 58), 9118,)
+            .expect("open");
     assert_same_geometry(&shredded, &plain);
     let lane = scan_of(
         vec![Arc::clone(&shredded)],
@@ -575,10 +554,7 @@ fn scale_zero_numeric_lane_serves_as_int_words() {
     );
     let a = lane.run(1, None).expect("int lane scan");
     let b = twin.run(1, None).expect("twin scan");
-    assert_eq!(
-        a.canon, b.canon,
-        "scale-0 lane vs plain int twin byte identity"
-    );
+    assert_eq!(a.canon, b.canon, "scale-0 lane vs plain int twin byte identity");
     let par = lane.run(4, Some(1)).expect("dop4");
     assert_eq!(a.canon, par.canon, "serial vs DOP-4-skew identity");
 }
@@ -728,19 +704,11 @@ use crate::spans::GranuleSpans;
 /// The production lane posture (`pgrc_am` ingest `codec_candidates`, its [json-rung1] arm): every shred lane of jsonb
 /// column 1 carries the dict posture with `exec_ok` (a Text lane is C-collated by construction), `BytesOnly`.
 fn lane_dict_cands(ndv_cap: u64, exec_ok: bool) -> CodecCandidates {
-    CodecCandidates::new(ColumnPosture {
-        cold: true,
-        ..Default::default()
-    })
-    .with_lane_default(
+    CodecCandidates::new(ColumnPosture { cold: true, ..Default::default() }).with_lane_default(
         1,
         ColumnPosture {
             cold: true,
-            dict: Some(DictPolicy {
-                ndv_cap,
-                exec_ok,
-                sem: TextSemantics::BytesOnly,
-            }),
+            dict: Some(DictPolicy { ndv_cap, exec_ok, sem: TextSemantics::BytesOnly, }),
             ..Default::default()
         },
     )
@@ -757,11 +725,7 @@ fn nullable_name_docs(rows: u64) -> Docs {
             } else if i % 17 == 5 {
                 Some(r#"{"flag":true}"#.to_string())
             } else {
-                Some(format!(
-                    r#"{{"flag":{},"name":"cat{:02}"}}"#,
-                    i % 2 == 0,
-                    i % 8
-                ))
+                Some(format!(r#"{{"flag":{},"name":"cat{:02}"}}"#, i % 2 == 0, i % 8))
             }
         })
         .collect()
@@ -769,35 +733,18 @@ fn nullable_name_docs(rows: u64) -> Docs {
 
 /// Lane `path` of column 1 in `part`: (path_ord, Values encoding, Values flags, Validity stream present).
 fn lane_stream(part: &Arc<OpenPart>, path: &str) -> (u32, u16, u16, bool) {
-    let paths = pgrc_read::read_path_table(part)
-        .expect("path table")
-        .expect("a shredded part");
-    let ord = paths
-        .iter()
-        .position(|p| p == path)
-        .expect("the path is elected") as u32
-        + 1;
+    let paths = pgrc_read::read_path_table(part).expect("path table").expect("a shredded part");
+    let ord = paths.iter().position(|p| p == path).expect("the path is elected") as u32 + 1;
     let dir = part.stream_directory().expect("dir");
     let v = dir.lookup(1, ord, StreamRole::Values).expect("values");
-    (
-        ord,
-        v.entry.encoding,
-        v.entry.flags,
-        dir.lookup(1, ord, StreamRole::Validity).is_some(),
-    )
+    (ord, v.entry.encoding, v.entry.flags, dir.lookup(1, ord, StreamRole::Validity).is_some(),)
 }
 
 /// The plain text twin of lane `name`: a root text column holding exactly the values `->>` gives (NULL where it gives NULL).
 fn name_twin(docs: &Docs, fxid: u64, ino: u64) -> Arc<OpenPart> {
     let expect = expected_name(docs);
-    let imgs: Vec<Option<Vec<u8>>> = expect
-        .iter()
-        .map(|v| v.as_ref().map(|s| img_4b_u(s.as_bytes())))
-        .collect();
-    let rows: Vec<Option<RawDatum<'_>>> = imgs
-        .iter()
-        .map(|o| o.as_deref().map(RawDatum::Bytes))
-        .collect();
+    let imgs: Vec<Option<Vec<u8>>> = expect.iter().map(|v| v.as_ref().map(|s| img_4b_u(s.as_bytes()))).collect();
+    let rows: Vec<Option<RawDatum<'_>>> = imgs.iter().map(|o| o.as_deref().map(RawDatum::Bytes)).collect();
     open_part_bytes(&seal_plain(text_col(1), &rows, fxid), ino).expect("open")
 }
 
@@ -822,11 +769,7 @@ fn unmark(m: &BTreeMap<u64, Vec<u8>>) -> BTreeMap<u64, Vec<u8>> {
 /// escape sentinel and an invalid validity bit, a valid row a code inside the dictionary (a code never stands for NULL,
 /// and the sentinel is never a value). Returns (code-lane windows, NULL rows, valid rows).
 fn code_lane_null_law(scan: &TableScan) -> (u64, u64, u64) {
-    let counts: Vec<u32> = scan
-        .parts
-        .iter()
-        .map(|p| p.footer().granule_count)
-        .collect();
+    let counts: Vec<u32> = scan.parts.iter().map(|p| p.footer().granule_count).collect();
     let spans = GranuleSpans::new(&counts);
     let cursor = ClaimCursor::new();
     let shared = SharedCounters::new();
@@ -848,25 +791,17 @@ fn code_lane_null_law(scan: &TableScan) -> (u64, u64, u64) {
                 let ncodes = unsafe { lane.dict().space() }.ncodes();
                 for (r, &c) in codes.iter().enumerate() {
                     if col.validity.is_valid(r) {
-                        assert!(
-                            c < ncodes,
-                            "a valid row carries a dictionary code ({c} of {ncodes})"
-                        );
+                        assert!(c < ncodes, "a valid row carries a dictionary code ({c} of {ncodes})");
                         valids += 1;
                     } else {
-                        assert_eq!(
-                            c, ESCAPE_CODE_U32,
-                            "a NULL row carries the escape sentinel, never a code"
-                        );
+                        assert_eq!(c, ESCAPE_CODE_U32, "a NULL row carries the escape sentinel, never a code");
                         nulls += 1;
                     }
                 }
             }
             Ok(())
         };
-        worker
-            .drive_claim(&mut guard, &spans, &shared, &mut visit)
-            .expect("drive_claim");
+        worker.drive_claim(&mut guard, &spans, &shared, &mut visit).expect("drive_claim");
     }
     let _ = worker.finish(&shared);
     (windows, nulls, valids)
@@ -882,41 +817,18 @@ fn nullable_text_lane_seals_nullable_flag_and_serves_codes() {
     let docs = nullable_name_docs(3000);
     let expect = expected_name(&docs);
     let want_nulls = expect.iter().filter(|v| v.is_none()).count() as u64;
-    assert!(
-        docs.iter().any(|d| d.is_none())
-            && want_nulls > docs.iter().filter(|d| d.is_none()).count() as u64
-    );
-    let part = open_part_bytes(
-        &seal_jsonb(&docs, 71, true, Some(&lane_dict_cands(1_000_000, true))),
-        9141,
-    )
-    .expect("open");
+    assert!(docs.iter().any(|d| d.is_none()) && want_nulls > docs.iter().filter(|d| d.is_none()).count() as u64);
+    let part = open_part_bytes(&seal_jsonb(&docs, 71, true, Some(&lane_dict_cands(1_000_000, true))), 9141,).expect("open");
     let (_, enc, flags, validity) = lane_stream(&part, "name");
-    assert_eq!(
-        enc,
-        EncodingId::DictCodes.as_u16(),
-        "the NULL-bearing text lane dict-elects"
-    );
-    assert_eq!(
-        flags & STREAMF_DICT_EXEC,
-        0,
-        "the zero-null flag stays null-free only"
-    );
-    assert_ne!(
-        flags & STREAMF_DICT_EXEC_NULLABLE,
-        0,
-        "the nullable twin is sealed"
-    );
+    assert_eq!(enc, EncodingId::DictCodes.as_u16(), "the NULL-bearing text lane dict-elects");
+    assert_eq!(flags & STREAMF_DICT_EXEC, 0, "the zero-null flag stays null-free only");
+    assert_ne!(flags & STREAMF_DICT_EXEC_NULLABLE, 0, "the nullable twin is sealed");
     assert!(validity, "its Validity plane pairs with the flag");
 
     let cols = || vec![ScanColumn::shred_lane(1, "name", ShredLaneKind::Text)];
     let lane = scan_of(vec![Arc::clone(&part)], cols());
     let a = lane.run(1, None).expect("serial");
-    assert!(
-        a.census.dict_lanes_published > 0,
-        "the nullable lane publishes codes: {:?}",
-        a.census
-    );
+    assert!(a.census.dict_lanes_published > 0, "the nullable lane publishes codes: {:?}", a.census);
     assert_eq!(a.census.rows_emitted, 3000);
     let par = lane.run(4, Some(1)).expect("dop4");
     assert_eq!(a.canon, par.canon, "serial vs DOP-4-skew byte identity");
@@ -924,30 +836,17 @@ fn nullable_text_lane_seals_nullable_flag_and_serves_codes() {
     off.opts.publish_dict_lanes = false;
     let h = off.run(1, None).expect("hydrated arm");
     assert_eq!(h.census.dict_lanes_published, 0);
-    assert_eq!(
-        unmark(&a.canon),
-        unmark(&h.canon),
-        "published vs hydrated value / NULL identity"
-    );
+    assert_eq!(unmark(&a.canon), unmark(&h.canon), "published vs hydrated value / NULL identity");
     let twin_part = name_twin(&docs, 72, 9142);
     assert_same_geometry(&part, &twin_part);
-    let t = scan_of(vec![twin_part], vec![ScanColumn::root(text_col(1), true)])
-        .run(1, None)
-        .expect("twin");
-    assert_eq!(
-        unmark(&a.canon),
-        unmark(&t.canon),
-        "codes vs the plain twin of j->>'name'"
-    );
+    let t = scan_of(vec![twin_part], vec![ScanColumn::root(text_col(1), true)]).run(1, None).expect("twin");
+    assert_eq!(unmark(&a.canon), unmark(&t.canon), "codes vs the plain twin of j->>'name'");
 
     let mut codes_only = scan_of(vec![part], cols());
     codes_only.opts.build_strviews = false;
     let (windows, nulls, valids) = code_lane_null_law(&codes_only);
     assert!(windows > 0, "non-vacuous: the lane crossed as codes");
-    assert_eq!(
-        nulls, want_nulls,
-        "every NULL row (SQL-NULL root, absent path) is the sentinel + invalid"
-    );
+    assert_eq!(nulls, want_nulls, "every NULL row (SQL-NULL root, absent path) is the sentinel + invalid");
     assert_eq!(nulls + valids, 3000);
 }
 
@@ -960,51 +859,18 @@ fn jsonb_null_at_the_path_keeps_the_lane() {
     let mut docs = nullable_name_docs(600);
     docs[7] = Some(r#"{"flag":true,"name":null}"#.to_string());
     docs[8] = Some(r#"{"flag":false,"name":null}"#.to_string());
-    let part = open_part_bytes(
-        &seal_jsonb(&docs, 73, true, Some(&lane_dict_cands(1_000_000, true))),
-        9143,
-    )
-    .expect("open");
-    let paths = pgrc_read::read_path_table(&part)
-        .expect("path table")
-        .expect("a shredded part");
-    assert!(
-        paths.iter().any(|p| p == "name"),
-        "a jsonb null at the path keeps its lane: {paths:?}"
-    );
-    assert!(
-        paths.iter().any(|p| p == "flag"),
-        "the sibling keeps its lane: {paths:?}"
-    );
-    let a = scan_of(
-        vec![Arc::clone(&part)],
-        vec![ScanColumn::shred_lane(1, "name", ShredLaneKind::Text)],
-    )
-    .run(1, None)
-    .expect("lane");
+    let part = open_part_bytes(&seal_jsonb(&docs, 73, true, Some(&lane_dict_cands(1_000_000, true))), 9143,).expect("open");
+    let paths = pgrc_read::read_path_table(&part).expect("path table").expect("a shredded part");
+    assert!(paths.iter().any(|p| p == "name"), "a jsonb null at the path keeps its lane: {paths:?}");
+    assert!(paths.iter().any(|p| p == "flag"), "the sibling keeps its lane: {paths:?}");
+    let a = scan_of(vec![Arc::clone(&part)], vec![ScanColumn::shred_lane(1, "name", ShredLaneKind::Text)],).run(1, None).expect("lane");
     assert_eq!(a.census.rows_emitted, 600);
     let twin_part = name_twin(&docs, 74, 9144);
     assert_same_geometry(&part, &twin_part);
-    let t = scan_of(vec![twin_part], vec![ScanColumn::root(text_col(1), true)])
-        .run(1, None)
-        .expect("twin");
-    assert_eq!(
-        unmark(&a.canon),
-        unmark(&t.canon),
-        "the lane vs the plain twin of j->>'name' (jsonb nulls NULL)"
-    );
-    let sibling = scan_of(
-        vec![part],
-        vec![ScanColumn::shred_lane(1, "flag", ShredLaneKind::Bool)],
-    );
-    assert_eq!(
-        sibling
-            .run(1, None)
-            .expect("sibling serves")
-            .census
-            .rows_emitted,
-        600
-    );
+    let t = scan_of(vec![twin_part], vec![ScanColumn::root(text_col(1), true)]).run(1, None).expect("twin");
+    assert_eq!(unmark(&a.canon), unmark(&t.canon), "the lane vs the plain twin of j->>'name' (jsonb nulls NULL)");
+    let sibling = scan_of(vec![part], vec![ScanColumn::shred_lane(1, "flag", ShredLaneKind::Bool)],);
+    assert_eq!(sibling.run(1, None).expect("sibling serves").census.rows_emitted, 600);
 }
 
 /// The bench `gc` shape (bench.sql: `j` = {"k": one of 7 strings, "n": i}, `k` never NULL): the production lane posture
@@ -1013,34 +879,15 @@ fn jsonb_null_at_the_path_keeps_the_lane() {
 #[test]
 fn gc_shape_text_lane_keeps_the_zero_null_dict_exec_form() {
     const K: [&str; 7] = ["alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta"];
-    let docs: Docs = (1..=4000u64)
-        .map(|i| Some(format!(r#"{{"k":"{}","n":{}}}"#, K[(i % 7) as usize], i)))
-        .collect();
-    let part = open_part_bytes(
-        &seal_jsonb(&docs, 74, true, Some(&lane_dict_cands(1_000_000, true))),
-        9144,
-    )
-    .expect("open");
+    let docs: Docs = (1..=4000u64).map(|i| Some(format!(r#"{{"k":"{}","n":{}}}"#, K[(i % 7) as usize], i))).collect();
+    let part = open_part_bytes(&seal_jsonb(&docs, 74, true, Some(&lane_dict_cands(1_000_000, true))), 9144,).expect("open");
     let (_, enc, flags, validity) = lane_stream(&part, "k");
     assert_eq!(enc, EncodingId::DictCodes.as_u16(), "k dict-elects");
     assert_ne!(flags & STREAMF_DICT_EXEC, 0, "the zero-null flag");
-    assert_eq!(
-        flags & STREAMF_DICT_EXEC_NULLABLE,
-        0,
-        "never the nullable twin on a null-free lane"
-    );
+    assert_eq!(flags & STREAMF_DICT_EXEC_NULLABLE, 0, "never the nullable twin on a null-free lane");
     assert!(!validity, "no Validity stream: the zero-null proof");
-    let r = scan_of(
-        vec![part],
-        vec![ScanColumn::shred_lane(1, "k", ShredLaneKind::Text)],
-    )
-    .run(1, None)
-    .expect("scan");
-    assert!(
-        r.census.dict_lanes_published > 0,
-        "the k lane serves as codes: {:?}",
-        r.census
-    );
+    let r = scan_of(vec![part], vec![ScanColumn::shred_lane(1, "k", ShredLaneKind::Text)],).run(1, None).expect("scan");
+    assert!(r.census.dict_lanes_published > 0, "the k lane serves as codes: {:?}", r.census);
 }
 
 /// Old parts read exactly as before: a NULL-bearing dict lane sealed with neither exec flag (what every seal before P-a
@@ -1049,37 +896,18 @@ fn gc_shape_text_lane_keeps_the_zero_null_dict_exec_form() {
 #[test]
 fn pre_flag_nullable_dict_lane_reads_unchanged() {
     let docs = nullable_name_docs(3000);
-    let old = open_part_bytes(
-        &seal_jsonb(&docs, 75, true, Some(&lane_dict_cands(1_000_000, false))),
-        9145,
-    )
-    .expect("open");
+    let old = open_part_bytes(&seal_jsonb(&docs, 75, true, Some(&lane_dict_cands(1_000_000, false))), 9145,).expect("open");
     let (_, enc, flags, validity) = lane_stream(&old, "name");
     assert_eq!(enc, EncodingId::DictCodes.as_u16());
-    assert_eq!(
-        flags & (STREAMF_DICT_EXEC | STREAMF_DICT_EXEC_NULLABLE),
-        0,
-        "the pre-flag form: no exec flag"
-    );
+    assert_eq!(flags & (STREAMF_DICT_EXEC | STREAMF_DICT_EXEC_NULLABLE), 0, "the pre-flag form: no exec flag");
     assert!(validity);
     let cols = || vec![ScanColumn::shred_lane(1, "name", ShredLaneKind::Text)];
     let a = scan_of(vec![old], cols()).run(1, None).expect("old part");
-    assert_eq!(
-        a.census.dict_lanes_published, 0,
-        "a pre-flag NULL-bearing stream never executes as codes"
-    );
-    let new = open_part_bytes(
-        &seal_jsonb(&docs, 76, true, Some(&lane_dict_cands(1_000_000, true))),
-        9146,
-    )
-    .expect("open");
+    assert_eq!(a.census.dict_lanes_published, 0, "a pre-flag NULL-bearing stream never executes as codes");
+    let new = open_part_bytes(&seal_jsonb(&docs, 76, true, Some(&lane_dict_cands(1_000_000, true))), 9146,).expect("open");
     let b = scan_of(vec![new], cols()).run(1, None).expect("new part");
     assert!(b.census.dict_lanes_published > 0);
-    assert_eq!(
-        unmark(&a.canon),
-        unmark(&b.canon),
-        "old part values / NULLs == the new part's codes"
-    );
+    assert_eq!(unmark(&a.canon), unmark(&b.canon), "old part values / NULLs == the new part's codes");
 }
 
 /// A lane whose values do not fit the dictionary budget (NDV over `ndv_cap`) falls back as today: no DictCodes, no
@@ -1087,32 +915,13 @@ fn pre_flag_nullable_dict_lane_reads_unchanged() {
 #[test]
 fn over_budget_text_lane_stays_off_the_dictionary() {
     let docs = nullable_name_docs(3000);
-    let part = open_part_bytes(
-        &seal_jsonb(&docs, 77, true, Some(&lane_dict_cands(4, true))),
-        9147,
-    )
-    .expect("open");
+    let part = open_part_bytes(&seal_jsonb(&docs, 77, true, Some(&lane_dict_cands(4, true))), 9147,).expect("open");
     let (_, enc, flags, _) = lane_stream(&part, "name");
-    assert_ne!(
-        enc,
-        EncodingId::DictCodes.as_u16(),
-        "8 distinct values over a cap of 4: no dictionary"
-    );
+    assert_ne!(enc, EncodingId::DictCodes.as_u16(), "8 distinct values over a cap of 4: no dictionary");
     assert_eq!(flags & (STREAMF_DICT_EXEC | STREAMF_DICT_EXEC_NULLABLE), 0);
     let twin_part = name_twin(&docs, 78, 9148);
-    let a = scan_of(
-        vec![part],
-        vec![ScanColumn::shred_lane(1, "name", ShredLaneKind::Text)],
-    )
-    .run(1, None)
-    .expect("lane");
+    let a = scan_of(vec![part], vec![ScanColumn::shred_lane(1, "name", ShredLaneKind::Text)],).run(1, None).expect("lane");
     assert_eq!(a.census.dict_lanes_published, 0);
-    let t = scan_of(vec![twin_part], vec![ScanColumn::root(text_col(1), true)])
-        .run(1, None)
-        .expect("twin");
-    assert_eq!(
-        unmark(&a.canon),
-        unmark(&t.canon),
-        "over-budget lane == twin"
-    );
+    let t = scan_of(vec![twin_part], vec![ScanColumn::root(text_col(1), true)]).run(1, None).expect("twin");
+    assert_eq!(unmark(&a.canon), unmark(&t.canon), "over-budget lane == twin");
 }

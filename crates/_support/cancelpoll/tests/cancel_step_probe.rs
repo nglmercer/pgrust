@@ -24,11 +24,7 @@ fn a_ticking_step_ends_every_stretch_and_a_silent_one_holds_a_gap() {
             assert!(s.tick().is_ok());
         }
     });
-    assert_eq!(
-        cancelpoll::probe_max().1,
-        0,
-        "a tick every ms is a poll every ms"
-    );
+    assert_eq!(cancelpoll::probe_max().1, 0, "a tick every ms is a poll every ms");
     cancelpoll::scoped(&byte, || {
         let mut s = cancelpoll::step("a silent step");
         busy(LONG);
@@ -41,10 +37,7 @@ fn a_ticking_step_ends_every_stretch_and_a_silent_one_holds_a_gap() {
         let mut s = cancelpoll::step("a canceled step");
         assert!(s.tick().is_ok());
         byte.fetch_or(cancelpoll::ABORT_BIT, Ordering::Release);
-        assert!(
-            s.tick().is_err() && cancelpoll::seen(),
-            "the probe's path still reads the abort bit"
-        );
+        assert!(s.tick().is_err() && cancelpoll::seen(), "the probe's path still reads the abort bit");
     });
     cancelpoll::set_probe_ms(0);
 }

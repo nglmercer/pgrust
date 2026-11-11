@@ -49,7 +49,8 @@ pub(crate) fn int_matchsel<'mcx>(
     varrelid: i32,
     estimator_procid: Oid,
 ) -> PgResult<f64> {
-    let Some((vardata, other, _varonleft)) = get_restriction_variable(run, args, varrelid)? else {
+    let Some((vardata, other, _varonleft)) = get_restriction_variable(run, args, varrelid)?
+    else {
         return Ok(DEFAULT_EQ_SEL);
     };
     // Variable must be int[]; query_int-side variables are unsupported.
@@ -139,7 +140,8 @@ fn int_query_opr_selec(
                 // _int_selfuncs.c:316 (D400).
                 crate::fma_sites::or_sel(s1, s2)
             }
-            other => return Err(PgError::error(format!("unrecognized operator: {other}")).into()),
+            other =>
+                return Err(PgError::error(format!("unrecognized operator: {other}")).into()),
         }
     } else {
         return Err(PgError::error(format!(
@@ -163,30 +165,14 @@ mod d400_tests {
     // x86-64 rounds the product first.
     #[test]
     fn or_selectivity_fmsub() {
-        let v = |val| QItem {
-            typ: ITEM_VAL,
-            left: 0,
-            val,
-        };
-        let or = QItem {
-            typ: ITEM_OPR,
-            left: -2,
-            val: '|' as i32,
-        };
-        let or2 = QItem {
-            typ: ITEM_OPR,
-            left: -2,
-            val: '|' as i32,
-        };
+        let v = |val| QItem { typ: ITEM_VAL, left: 0, val, };
+        let or = QItem { typ: ITEM_OPR, left: -2, val: '|' as i32, };
+        let or2 = QItem { typ: ITEM_OPR, left: -2, val: '|' as i32, };
         let items = [v(1), v(2), or, v(3), or2];
         let elems = [Datum::from_i32(1), Datum::from_i32(2), Datum::from_i32(3)];
         let freqs = [0.064f32, 0.758, 0.591];
         let sel = int_query_opr_selec(&items, 4, Some((&elems, &freqs, 0.064))).unwrap();
-        let want = if cfg!(target_arch = "aarch64") {
-            0.9073566031517982
-        } else {
-            0.9073566031517983
-        };
+        let want = if cfg!(target_arch = "aarch64") { 0.9073566031517982 } else { 0.9073566031517983 };
         assert_eq!(sel, want);
     }
 }

@@ -62,7 +62,12 @@ fn name_str(name: &NameData) -> String {
 // TYPENAMENSP, typname, nsp) shadow probes: GetSysCacheOid2 on the raw
 // NameData bytes, so a SQL_ASCII name that is not UTF-8 still finds the
 // same-named earlier-in-path object exactly as C does.
-fn name_shadows(cache_id: i32, oidcol: i32, name: &NameData, namespace_id: Oid) -> PgResult<bool> {
+fn name_shadows(
+    cache_id: i32,
+    oidcol: i32,
+    name: &NameData,
+    namespace_id: Oid
+) -> PgResult<bool> {
     Ok(OidIsValid(GetSysCacheOid(
         cache_id,
         oidcol,
@@ -81,9 +86,7 @@ fn path_contains(nsp: Oid) -> bool {
 #[cold]
 #[inline(never)]
 fn lookup_failed(kind: &str, oid: Oid) -> Box<PgError> {
-    Box::new(PgError::error(format!(
-        "cache lookup failed for {kind} {oid}"
-    )))
+    Box::new(PgError::error(format!("cache lookup failed for {kind} {oid}")))
 }
 
 pub fn RelationIsVisible(relid: Oid) -> PgResult<bool> {
@@ -96,11 +99,7 @@ pub fn RelationIsVisibleExt(relid: Oid) -> PgResult<Option<bool>> {
         return Ok(None);
     };
     let relnamespace = SysCacheGetAttrNotNull(RELOID, &tuple, ANUM_PG_CLASS_RELNAMESPACE)?.as_oid();
-    let relname = name_of(SysCacheGetAttrNotNull(
-        RELOID,
-        &tuple,
-        ANUM_PG_CLASS_RELNAME,
-    )?);
+    let relname = name_of(SysCacheGetAttrNotNull(RELOID, &tuple, ANUM_PG_CLASS_RELNAME,)?);
     ReleaseSysCache(tuple);
 
     recomputeNamespacePath()?;
@@ -133,11 +132,7 @@ pub fn TypeIsVisibleExt(typid: Oid) -> PgResult<Option<bool>> {
         return Ok(None);
     };
     let typnamespace = SysCacheGetAttrNotNull(TYPEOID, &tuple, ANUM_PG_TYPE_TYPNAMESPACE)?.as_oid();
-    let typname = name_of(SysCacheGetAttrNotNull(
-        TYPEOID,
-        &tuple,
-        ANUM_PG_TYPE_TYPNAME,
-    )?);
+    let typname = name_of(SysCacheGetAttrNotNull(TYPEOID, &tuple, ANUM_PG_TYPE_TYPNAME,)?);
     ReleaseSysCache(tuple);
 
     recomputeNamespacePath()?;
@@ -170,11 +165,7 @@ pub fn FunctionIsVisibleExt(funcid: Oid) -> PgResult<Option<bool>> {
     };
     let scratch = MemoryContext::new("FunctionIsVisible");
     let pronamespace = SysCacheGetAttrNotNull(PROCOID, &tuple, ANUM_PG_PROC_PRONAMESPACE)?.as_oid();
-    let proname = name_of(SysCacheGetAttrNotNull(
-        PROCOID,
-        &tuple,
-        ANUM_PG_PROC_PRONAME,
-    )?);
+    let proname = name_of(SysCacheGetAttrNotNull(PROCOID, &tuple, ANUM_PG_PROC_PRONAME,)?);
     let pronargs = SysCacheGetAttrNotNull(PROCOID, &tuple, ANUM_PG_PROC_PRONARGS)?.as_i16();
     let argv = SysCacheGetAttrNotNull(PROCOID, &tuple, ANUM_PG_PROC_PROARGTYPES)?;
     // SAFETY: proargtypes is a not-null plain-storage oidvector; values tail
@@ -193,17 +184,18 @@ pub fn FunctionIsVisibleExt(funcid: Oid) -> PgResult<Option<bool>> {
     }
     // Visible iff FuncnameGetCandidates resolves the unqualified name +
     // signature to this exact proc.
-    let clist = {
-        let proname_s = name_str(&proname);
-        FuncnameGetCandidates(
-            scratch.mcx(),
-            &[proname_s.as_str()],
-            pronargs,
-            &[],
-            false,
-            false,
-        )?
-    };
+    let clist =
+        {
+            let proname_s = name_str(&proname);
+            FuncnameGetCandidates(
+                scratch.mcx(),
+                &[proname_s.as_str()],
+                pronargs,
+                &[],
+                false,
+                false,
+            )?
+        };
     let mut visible = false;
     for cand in clist.iter() {
         if cand.args.as_slice() == proargtypes.as_slice() {
@@ -225,11 +217,7 @@ pub fn OperatorIsVisibleExt(oprid: Oid) -> PgResult<Option<bool>> {
     };
     let oprnamespace =
         SysCacheGetAttrNotNull(OPEROID, &tuple, ANUM_PG_OPERATOR_OPRNAMESPACE)?.as_oid();
-    let oprname = name_of(SysCacheGetAttrNotNull(
-        OPEROID,
-        &tuple,
-        ANUM_PG_OPERATOR_OPRNAME,
-    )?);
+    let oprname = name_of(SysCacheGetAttrNotNull(OPEROID, &tuple, ANUM_PG_OPERATOR_OPRNAME,)?);
     let oprleft = SysCacheGetAttrNotNull(OPEROID, &tuple, ANUM_PG_OPERATOR_OPRLEFT)?.as_oid();
     let oprright = SysCacheGetAttrNotNull(OPEROID, &tuple, ANUM_PG_OPERATOR_OPRRIGHT)?.as_oid();
     ReleaseSysCache(tuple);
@@ -242,9 +230,7 @@ pub fn OperatorIsVisibleExt(oprid: Oid) -> PgResult<Option<bool>> {
     // In-path items can still be shadowed by an earlier same-name/same-args
     // operator; visible iff OpernameGetOprid resolves back to this one.
     let oprname_s = name_str(&oprname);
-    Ok(Some(
-        OpernameGetOprid(&[oprname_s.as_str()], oprleft, oprright)? == oprid,
-    ))
+    Ok(Some(OpernameGetOprid(&[oprname_s.as_str()], oprleft, oprright)? == oprid,))
 }
 
 pub fn OpclassIsVisible(opcid: Oid) -> PgResult<bool> {
@@ -258,11 +244,7 @@ pub fn OpclassIsVisibleExt(opcid: Oid) -> PgResult<Option<bool>> {
     };
     let opcnamespace =
         SysCacheGetAttrNotNull(CLAOID, &tuple, ANUM_PG_OPCLASS_OPCNAMESPACE)?.as_oid();
-    let opcname = name_of(SysCacheGetAttrNotNull(
-        CLAOID,
-        &tuple,
-        ANUM_PG_OPCLASS_OPCNAME,
-    )?);
+    let opcname = name_of(SysCacheGetAttrNotNull(CLAOID, &tuple, ANUM_PG_OPCLASS_OPCNAME,)?);
     let opcmethod = SysCacheGetAttrNotNull(CLAOID, &tuple, ANUM_PG_OPCLASS_OPCMETHOD)?.as_oid();
     ReleaseSysCache(tuple);
 
@@ -271,10 +253,9 @@ pub fn OpclassIsVisibleExt(opcid: Oid) -> PgResult<Option<bool>> {
     if opcnamespace != PG_CATALOG_NAMESPACE && !path_contains(opcnamespace) {
         return Ok(Some(false));
     }
-    Ok(Some(
-        OpclassnameGetOpcid(opcmethod, &name_str(&opcname))? == opcid,
-    ))
+    Ok(Some(OpclassnameGetOpcid(opcmethod, &name_str(&opcname))? == opcid,))
 }
+
 
 // C StatisticsObjIsVisible; callers (ruleutils/objectaddress arms) not yet ported
 // (unported-census 2026-08-05 lane 3).
@@ -291,11 +272,8 @@ pub fn StatisticsObjIsVisibleExt(stxid: Oid) -> PgResult<Option<bool>> {
     };
     let stxnamespace =
         SysCacheGetAttrNotNull(STATEXTOID, &tuple, ANUM_PG_STATISTIC_EXT_STXNAMESPACE)?.as_oid();
-    let stxname = name_of(SysCacheGetAttrNotNull(
-        STATEXTOID,
-        &tuple,
-        ANUM_PG_STATISTIC_EXT_STXNAME,
-    )?);
+    let stxname =
+        name_of(SysCacheGetAttrNotNull(STATEXTOID, &tuple, ANUM_PG_STATISTIC_EXT_STXNAME,)?);
     ReleaseSysCache(tuple);
 
     recomputeNamespacePath()?;
@@ -314,12 +292,10 @@ pub fn StatisticsObjIsVisibleExt(stxid: Oid) -> PgResult<Option<bool>> {
         if namespace_id == stxnamespace {
             return Ok(Some(true));
         }
-        if OidIsValid(
-            syscache_seams::lookup_pg_statistic_ext_oid_by_name_nsp::call(
-                &name_str(&stxname),
-                namespace_id,
-            )?,
-        ) {
+        if OidIsValid(syscache_seams::lookup_pg_statistic_ext_oid_by_name_nsp::call(
+            &name_str(&stxname),
+            namespace_id,
+        )?,) {
             return Ok(Some(false));
         }
     }
@@ -338,11 +314,7 @@ pub fn OpfamilyIsVisibleExt(opfid: Oid) -> PgResult<Option<bool>> {
     };
     let opfnamespace =
         SysCacheGetAttrNotNull(OPFAMILYOID, &tuple, ANUM_PG_OPFAMILY_OPFNAMESPACE)?.as_oid();
-    let opfname = name_of(SysCacheGetAttrNotNull(
-        OPFAMILYOID,
-        &tuple,
-        ANUM_PG_OPFAMILY_OPFNAME,
-    )?);
+    let opfname = name_of(SysCacheGetAttrNotNull(OPFAMILYOID, &tuple, ANUM_PG_OPFAMILY_OPFNAME,)?);
     let opfmethod =
         SysCacheGetAttrNotNull(OPFAMILYOID, &tuple, ANUM_PG_OPFAMILY_OPFMETHOD)?.as_oid();
     ReleaseSysCache(tuple);
@@ -352,9 +324,7 @@ pub fn OpfamilyIsVisibleExt(opfid: Oid) -> PgResult<Option<bool>> {
     if opfnamespace != PG_CATALOG_NAMESPACE && !path_contains(opfnamespace) {
         return Ok(Some(false));
     }
-    Ok(Some(
-        OpfamilynameGetOpfid(opfmethod, &name_str(&opfname))? == opfid,
-    ))
+    Ok(Some(OpfamilynameGetOpfid(opfmethod, &name_str(&opfname))? == opfid,))
 }
 
 const ANUM_PG_COLLATION_COLLNAME: i32 = 2;
@@ -403,11 +373,7 @@ pub fn CollationIsVisibleExt(collid: Oid) -> PgResult<Option<bool>> {
     };
     let collnamespace =
         SysCacheGetAttrNotNull(COLLOID, &tuple, ANUM_PG_COLLATION_COLLNAMESPACE)?.as_oid();
-    let collname = name_of(SysCacheGetAttrNotNull(
-        COLLOID,
-        &tuple,
-        ANUM_PG_COLLATION_COLLNAME,
-    )?);
+    let collname = name_of(SysCacheGetAttrNotNull(COLLOID, &tuple, ANUM_PG_COLLATION_COLLNAME,)?);
     ReleaseSysCache(tuple);
 
     recomputeNamespacePath()?;
@@ -428,11 +394,7 @@ pub fn ConversionIsVisibleExt(conid: Oid) -> PgResult<Option<bool>> {
     };
     let connamespace =
         SysCacheGetAttrNotNull(CONVOID, &tuple, ANUM_PG_CONVERSION_CONNAMESPACE)?.as_oid();
-    let conname = name_of(SysCacheGetAttrNotNull(
-        CONVOID,
-        &tuple,
-        ANUM_PG_CONVERSION_CONNAME,
-    )?);
+    let conname = name_of(SysCacheGetAttrNotNull(CONVOID, &tuple, ANUM_PG_CONVERSION_CONNAME,)?);
     ReleaseSysCache(tuple);
 
     recomputeNamespacePath()?;
@@ -454,11 +416,7 @@ pub fn TSParserIsVisibleExt(prs_id: Oid) -> PgResult<Option<bool>> {
     };
     let prsnamespace =
         SysCacheGetAttrNotNull(TSPARSEROID, &tuple, ANUM_PG_TS_PARSER_PRSNAMESPACE)?.as_oid();
-    let prsname = name_of(SysCacheGetAttrNotNull(
-        TSPARSEROID,
-        &tuple,
-        ANUM_PG_TS_PARSER_PRSNAME,
-    )?);
+    let prsname = name_of(SysCacheGetAttrNotNull(TSPARSEROID, &tuple, ANUM_PG_TS_PARSER_PRSNAME,)?);
     ReleaseSysCache(tuple);
 
     recomputeNamespacePath()?;
@@ -474,8 +432,7 @@ pub fn TSParserIsVisibleExt(prs_id: Oid) -> PgResult<Option<bool>> {
 }
 
 pub fn TSDictionaryIsVisible(dict_id: Oid) -> PgResult<bool> {
-    TSDictionaryIsVisibleExt(dict_id)?
-        .ok_or_else(|| lookup_failed("text search dictionary", dict_id))
+    TSDictionaryIsVisibleExt(dict_id)?.ok_or_else(|| lookup_failed("text search dictionary", dict_id))
 }
 
 pub fn TSDictionaryIsVisibleExt(dict_id: Oid) -> PgResult<Option<bool>> {
@@ -485,11 +442,7 @@ pub fn TSDictionaryIsVisibleExt(dict_id: Oid) -> PgResult<Option<bool>> {
     };
     let dictnamespace =
         SysCacheGetAttrNotNull(TSDICTOID, &tuple, ANUM_PG_TS_DICT_DICTNAMESPACE)?.as_oid();
-    let dictname = name_of(SysCacheGetAttrNotNull(
-        TSDICTOID,
-        &tuple,
-        ANUM_PG_TS_DICT_DICTNAME,
-    )?);
+    let dictname = name_of(SysCacheGetAttrNotNull(TSDICTOID, &tuple, ANUM_PG_TS_DICT_DICTNAME,)?);
     ReleaseSysCache(tuple);
 
     recomputeNamespacePath()?;
@@ -515,11 +468,8 @@ pub fn TSTemplateIsVisibleExt(tmpl_id: Oid) -> PgResult<Option<bool>> {
     };
     let tmplnamespace =
         SysCacheGetAttrNotNull(TSTEMPLATEOID, &tuple, ANUM_PG_TS_TEMPLATE_TMPLNAMESPACE)?.as_oid();
-    let tmplname = name_of(SysCacheGetAttrNotNull(
-        TSTEMPLATEOID,
-        &tuple,
-        ANUM_PG_TS_TEMPLATE_TMPLNAME,
-    )?);
+    let tmplname =
+        name_of(SysCacheGetAttrNotNull(TSTEMPLATEOID, &tuple, ANUM_PG_TS_TEMPLATE_TMPLNAME,)?);
     ReleaseSysCache(tuple);
 
     recomputeNamespacePath()?;
@@ -545,11 +495,7 @@ pub fn TSConfigIsVisibleExt(cfgid: Oid) -> PgResult<Option<bool>> {
     };
     let cfgnamespace =
         SysCacheGetAttrNotNull(TSCONFIGOID, &tuple, ANUM_PG_TS_CONFIG_CFGNAMESPACE)?.as_oid();
-    let cfgname = name_of(SysCacheGetAttrNotNull(
-        TSCONFIGOID,
-        &tuple,
-        ANUM_PG_TS_CONFIG_CFGNAME,
-    )?);
+    let cfgname = name_of(SysCacheGetAttrNotNull(TSCONFIGOID, &tuple, ANUM_PG_TS_CONFIG_CFGNAME,)?);
     ReleaseSysCache(tuple);
 
     recomputeNamespacePath()?;

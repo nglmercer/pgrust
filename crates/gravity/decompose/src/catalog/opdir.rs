@@ -78,7 +78,7 @@ mod tests {
         assert_eq!((key(96), key(70_000)), (None, None));
         for opno in 1..5000 {
             assert_eq!(key(opno).and_then(KeyOrder::dir), super::builtin_dir(opno), "operator {opno}");
-            assert!(key(opno).is_none_or(|o| o.cmp == 0 && !o.no_proc), "operator {opno}");
+            assert!(key(opno).is_none_or( |o| o.cmp == 0 && !o.no_proc), "operator {opno}");
         }
     }
 

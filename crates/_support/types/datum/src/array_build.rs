@@ -18,10 +18,8 @@ fn varlena_1b(b: u8) -> bool {
 #[inline(never)]
 fn varsize_under_header(n: usize) -> Box<PgError> {
     Box::new(
-        PgError::error(alloc::format!(
-            "invalid varlena size {n}: less than its {VARHDRSZ}-byte header"
-        ))
-        .with_sqlstate(ERRCODE_DATA_CORRUPTED),
+        PgError::error(alloc::format!("invalid varlena size {n}: less than its {VARHDRSZ}-byte header"))
+            .with_sqlstate(ERRCODE_DATA_CORRUPTED),
     )
 }
 
@@ -89,10 +87,7 @@ impl<'mcx> ArrayBuildState<'mcx> {
     // C: datumCopy into astate->mcontext; stable chunk addresses outlive the call. A varlena element under its own
     // 4-byte header is refused (D4728's class: the short copy's next reader took the header word past its end).
     pub fn copy_byref(&self, bytes: &[u8]) -> PgResult<Datum> {
-        if self.typlen == -1
-            && bytes.len() < VARHDRSZ
-            && !bytes.first().is_some_and(|&b| varlena_1b(b))
-        {
+        if self.typlen == -1 && bytes.len() < VARHDRSZ && !bytes.first().is_some_and(|&b| varlena_1b(b)) {
             return Err(varsize_under_header(bytes.len()));
         }
         let copy = slice_borrow_in(self.mcx, bytes)?;
@@ -155,10 +150,7 @@ fn varsize_any(p: *const u8) -> usize {
     unsafe {
         let b0 = *p;
         if b0 & 0x01 != 0 {
-            assert!(
-                b0 != 0x01,
-                "array varlena is an external toast pointer — detoast lane"
-            );
+            assert!(b0 != 0x01, "array varlena is an external toast pointer — detoast lane");
             (b0 as usize >> 1) & 0x7F
         } else {
             let w = u32::from_ne_bytes(core::slice::from_raw_parts(p, 4).try_into().unwrap());
@@ -263,11 +255,7 @@ pub fn construct_array_image<'mcx>(
             let p = v.as_usize() as *const u8;
             let raw = varsize_any(p);
             // SAFETY: v is a live varlena datum.
-            if unsafe { *p } & 0x01 != 0 {
-                raw - 1 + crate::VARHDRSZ
-            } else {
-                raw
-            }
+            if unsafe { *p } & 0x01 != 0 { raw - 1 + crate::VARHDRSZ } else { raw }
         } else if elmlen == -2 {
             // SAFETY: v is a live NUL-terminated cstring datum.
             unsafe { cstring_len(v.as_usize() as *const u8) + 1 }
@@ -426,10 +414,7 @@ fn deconstruct_1d_image<'mcx>(
     // on-disk catalog page, so every read below is bounded against the slice
     // and a violation returns rather than reading out of bounds.
     let corrupt = || -> Box<PgError> {
-        Box::new(
-            PgError::error("deconstruct_array_image: malformed array image")
-                .with_sqlstate(ERRCODE_DATA_CORRUPTED),
-        )
+        Box::new(PgError::error("deconstruct_array_image: malformed array image").with_sqlstate(ERRCODE_DATA_CORRUPTED),)
     };
     // Bounds-checked 4-byte header read.
     let rd = |off: usize| -> PgResult<i32> {
@@ -476,7 +461,7 @@ fn deconstruct_1d_image<'mcx>(
     let mut off = hdrsz;
     let mut bitmap: Option<&[u8]> = None;
     if dataoffset != 0 {
-        let bitmap_bytes = nelems.div_ceil(8);
+        let bitmap_bytes =nelems.div_ceil( 8);
         let expected = (hdrsz + bitmap_bytes + 7) & !7;
         if !allow_nulls
             || dataoffset < 0
@@ -502,10 +487,7 @@ fn deconstruct_1d_image<'mcx>(
         if let Some(bm) = bitmap {
             // A set bit marks a present value (arrayfuncs.c bitmask walk).
             let is_null = bm[i / 8] & (1 << (i % 8)) == 0;
-            nulls
-                .as_mut()
-                .expect("nulls tracks the bitmap")
-                .push(is_null);
+            nulls.as_mut().expect("nulls tracks the bitmap").push(is_null);
             if is_null {
                 out.push(Datum::null());
                 continue;
@@ -579,11 +561,7 @@ mod tests {
     fn array_image_roundtrip_int4() {
         let ctx = MemoryContext::new_bump("arr-int4");
         let mcx = ctx.mcx();
-        let vals: [Datum; 3] = [
-            Datum::from_i32(1),
-            Datum::from_i32(-7),
-            Datum::from_i32(500),
-        ];
+        let vals: [Datum; 3] = [Datum::from_i32(1), Datum::from_i32(-7), Datum::from_i32(500),];
         let img = construct_array_image(mcx, &vals, 23, 4, true, b'i').unwrap();
         assert_eq!(img.len(), 24 + 12);
         assert_eq!(array_image_elemtype(&img), 23);
@@ -592,14 +570,7 @@ mod tests {
         let got: [i32; 3] = [out[0].as_i32(), out[1].as_i32(), out[2].as_i32()];
         assert_eq!(got, [1, -7, 500]);
         assert_eq!(out[1].as_u64(), Datum::from_i32(-7).as_u64());
-        let out2 = deconstruct_array_image(
-            mcx,
-            &construct_array_image(mcx, &[Datum::from_i16(-3)], 21, 2, true, b's').unwrap(),
-            2,
-            true,
-            b's',
-        )
-        .unwrap();
+        let out2 = deconstruct_array_image(mcx, &construct_array_image(mcx, &[Datum::from_i16(-3)], 21, 2, true, b's').unwrap(), 2, true, b's',).unwrap();
         assert_eq!(out2[0].as_u64(), Datum::from_i16(-3).as_u64());
     }
 
@@ -610,43 +581,19 @@ mod tests {
     fn deconstruct_sign_extends_short_byval_elements() {
         let ctx = MemoryContext::new_bump("arr-sign");
         let mcx = ctx.mcx();
-        let img4 = construct_array_image(
-            mcx,
-            &[Datum::from_i32(-7), Datum::from_i32(3)],
-            23,
-            4,
-            true,
-            b'i',
-        )
-        .unwrap();
+        let img4 = construct_array_image(mcx, &[Datum::from_i32(-7), Datum::from_i32(3)], 23, 4, true, b'i',).unwrap();
         let out4 = deconstruct_array_image(mcx, &img4, 4, true, b'i').unwrap();
         assert_eq!(out4[0].as_u64(), Datum::from_i32(-7).as_u64());
         assert_eq!(out4[1].as_u64(), Datum::from_i32(3).as_u64());
-        let img2 = construct_array_image(
-            mcx,
-            &[Datum::from_i16(-3), Datum::from_i16(5)],
-            21,
-            2,
-            true,
-            b's',
-        )
-        .unwrap();
+        let img2 = construct_array_image(mcx, &[Datum::from_i16(-3), Datum::from_i16(5)], 21, 2, true, b's',).unwrap();
         let out2 = deconstruct_array_image(mcx, &img2, 2, true, b's').unwrap();
         assert_eq!(out2[0].as_u64(), Datum::from_i16(-3).as_u64());
         assert_eq!(out2[1].as_u64(), Datum::from_i16(5).as_u64());
         for inline_fetch in [true, false] {
             let w4 = fetch_byval_datum(&(-7i32).to_ne_bytes(), 0, 4, inline_fetch);
-            assert_eq!(
-                w4.as_u64(),
-                Datum::from_i32(-7).as_u64(),
-                "4-byte, inline_fetch {inline_fetch}"
-            );
+            assert_eq!(w4.as_u64(), Datum::from_i32(-7).as_u64(), "4-byte, inline_fetch {inline_fetch}");
             let w2 = fetch_byval_datum(&(-3i16).to_ne_bytes(), 0, 2, inline_fetch);
-            assert_eq!(
-                w2.as_u64(),
-                Datum::from_i16(-3).as_u64(),
-                "2-byte, inline_fetch {inline_fetch}"
-            );
+            assert_eq!(w2.as_u64(), Datum::from_i16(-3).as_u64(), "2-byte, inline_fetch {inline_fetch}");
         }
     }
 
@@ -697,10 +644,7 @@ mod tests {
         let nulls = nulls.expect("bitmap present");
         let nulls: alloc::vec::Vec<bool> = nulls.iter().copied().collect();
         assert_eq!(nulls, [false, false, true, false]);
-        assert_eq!(
-            [out[0].as_i32(), out[1].as_i32(), out[3].as_i32()],
-            [10, 20, 40]
-        );
+        assert_eq!([out[0].as_i32(), out[1].as_i32(), out[3].as_i32()], [10, 20, 40]);
         // The no-nulls entry point refuses the bitmap shape.
         assert!(deconstruct_array_image(mcx, &nimg, 4, true, b'i').is_err());
     }
@@ -793,11 +737,8 @@ mod tests {
         let ctx = MemoryContext::new_bump("arr-widths");
         let mcx = ctx.mcx();
         // width 2 (int2, align 's')
-        let v2: [Datum; 3] = [
-            Datum::from_i16(-1),
-            Datum::from_i16(0x7F0F),
-            Datum::from_i16(i16::MIN),
-        ];
+        let v2: [Datum; 3] =
+            [Datum::from_i16(-1), Datum::from_i16(0x7F0F), Datum::from_i16(i16::MIN),];
         let img = construct_array_image(mcx, &v2, 21, 2, true, b's').unwrap();
         let out = deconstruct_array_image(mcx, &img, 2, true, b's').unwrap();
         assert_eq!(
@@ -850,15 +791,11 @@ mod tests {
 
         // (b) Negative nelems must not become a huge usize.
         let h = header(1, 0, -1);
-        let _ = deconstruct_array_image(mcx, &h, 4, true, b'i')
-            .err()
-            .unwrap();
+        let _ = deconstruct_array_image(mcx, &h, 4, true, b'i').err().unwrap();
 
         // (c) nelems beyond MaxArraySize.
         let h = header(1, 0, i32::MAX);
-        let _ = deconstruct_array_image(mcx, &h, 4, true, b'i')
-            .err()
-            .unwrap();
+        let _ = deconstruct_array_image(mcx, &h, 4, true, b'i').err().unwrap();
 
         // (d) Byval element count that walks off the end (nelems=2 but only one
         // int4 of payload present).
@@ -885,9 +822,7 @@ mod tests {
 
         // (g) Null bitmap present (dataoffset != 0): unsupported, not trusted.
         let h = header(1, 32, 1);
-        let _ = deconstruct_array_image(mcx, &h, 4, true, b'i')
-            .err()
-            .unwrap();
+        let _ = deconstruct_array_image(mcx, &h, 4, true, b'i').err().unwrap();
 
         // Valid empty (zero-dim) image still deconstructs to no elements.
         let empty = construct_empty_array_image(mcx, 23).unwrap();

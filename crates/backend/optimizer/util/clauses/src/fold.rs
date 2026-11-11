@@ -102,7 +102,10 @@ pub fn eval_const_expressions_planner<'mcx>(
     Ok(r)
 }
 
-pub fn estimate_expression_value<'mcx>(mcx: Mcx<'mcx>, node: Node<'mcx>) -> PgResult<Node<'mcx>> {
+pub fn estimate_expression_value<'mcx>(
+    mcx: Mcx<'mcx>,
+    node: Node<'mcx>
+) -> PgResult<Node<'mcx>> {
     estimate_expression_value_with_params(mcx, node, ParamListHandle::NULL)
 }
 
@@ -130,7 +133,8 @@ fn substitute_bound_param<'mcx>(
     {
         return Ok(None);
     }
-    let prm: ParamExternData = params::with(cx.bound_params, |p| p[(param.paramid - 1) as usize]);
+    let prm: ParamExternData =
+        params::with(cx.bound_params, |p| p[(param.paramid - 1) as usize]);
     if !OidIsValid(prm.ptype) || prm.ptype != param.paramtype {
         return Ok(None);
     }
@@ -186,7 +190,7 @@ fn datum_copy_in<'mcx>(mcx: Mcx<'mcx>, value: Datum, typlen: i16) -> PgResult<Da
                     // VARHDRSZ_EXTERNAL + VARTAG_SIZE (postgres.h).
                     let body = match *p.add(1) {
                         18 => 16,
-                        1..=3 => 8,
+                        1..= 3 => 8,
                         tag => panic!("datum_copy_in: unknown vartag {tag}"),
                     };
                     let img = core::slice::from_raw_parts(p, 2 + body);
@@ -338,20 +342,14 @@ fn ece_mutator<'mcx>(node: Node<'mcx>, cx: &EceContext<'mcx>) -> PgResult<Option
             let sa = node.as_scalar_array_op_expr().unwrap();
             let new_args = mutate_list(cx.mcx, &sa.args, &mut |n| ece_mutator(n, cx))?;
             // set_sa_opfuncid (nodeFuncs.c).
-            let opfuncid = if sa.opfuncid == 0 {
-                lsyscache::get_opcode(sa.opno)?
-            } else {
-                sa.opfuncid
-            };
-            let all_const = new_args
-                .as_ref()
-                .unwrap_or(&sa.args)
-                .iter()
-                .all(|a| a.as_const().is_some());
+            let opfuncid =
+                if sa.opfuncid == 0 { lsyscache::get_opcode(sa.opno)? } else { sa.opfuncid };
+            let all_const =
+                new_args.as_ref().unwrap_or(&sa.args).iter().all(|a| a.as_const().is_some());
             let changed = new_args.is_some() || opfuncid != sa.opfuncid;
-            if (!all_const || !ece_function_is_safe(cx, opfuncid)?) && !changed {
-                return Ok(None);
-            }
+            if ( !all_const || !ece_function_is_safe(cx, opfuncid)?) && !changed {
+                    return Ok(None);
+                }
             let args = match new_args {
                 Some(a) => a,
                 None => sa.args.clone_in(cx.mcx)?,
@@ -378,11 +376,8 @@ fn ece_mutator<'mcx>(node: Node<'mcx>, cx: &EceContext<'mcx>) -> PgResult<Option
         NodeTag::T_RowExpr => {
             let r = node.as_row_expr().unwrap();
             let new_args = mutate_list(cx.mcx, &r.args, &mut |n| ece_mutator(n, cx))?;
-            let all_const = new_args
-                .as_ref()
-                .unwrap_or(&r.args)
-                .iter()
-                .all(|e| e.as_const().is_some());
+            let all_const =
+                new_args.as_ref().unwrap_or(&r.args).iter().all(|e| e.as_const().is_some());
             if !all_const && new_args.is_none() {
                 return Ok(None);
             }
@@ -409,12 +404,10 @@ fn ece_mutator<'mcx>(node: Node<'mcx>, cx: &EceContext<'mcx>) -> PgResult<Option
         NodeTag::T_ArrayExpr => {
             use types_nodes::primnodes::ArrayExpr;
             let a = node.as_array_expr().unwrap();
-            let new_elements = mutate_list(cx.mcx, &a.elements, &mut |n| ece_mutator(n, cx))?;
-            let all_const = new_elements
-                .as_ref()
-                .unwrap_or(&a.elements)
-                .iter()
-                .all(|e| e.as_const().is_some());
+            let new_elements =
+                mutate_list(cx.mcx, &a.elements, &mut |n| ece_mutator(n, cx))?;
+            let all_const =
+                new_elements.as_ref().unwrap_or(&a.elements).iter().all(|e| e.as_const().is_some());
             if !all_const && new_elements.is_none() {
                 return Ok(None);
             }
@@ -456,7 +449,8 @@ fn ece_mutator<'mcx>(node: Node<'mcx>, cx: &EceContext<'mcx>) -> PgResult<Option
                     let is_or = b.boolop == BoolExprType::OR_EXPR;
                     let mut newargs = NodeList::nil();
                     let mut have_null = false;
-                    if simplify_bool_arguments(cx, &b.args, is_or, &mut newargs, &mut have_null)? {
+                    if simplify_bool_arguments(cx, &b.args, is_or, &mut newargs, &mut have_null)?
+                    {
                         return Ok(Some(make_bool_const(cx.mcx, is_or, false)?));
                     }
                     if have_null {
@@ -470,11 +464,7 @@ fn ece_mutator<'mcx>(node: Node<'mcx>, cx: &EceContext<'mcx>) -> PgResult<Option
                     }
                     Ok(Some(Node::mk(
                         cx.mcx,
-                        BoolExpr {
-                            boolop: b.boolop,
-                            args: newargs,
-                            location: -1,
-                        },
+                        BoolExpr { boolop: b.boolop, args: newargs, location: -1, },
                     )?))
                 }
                 BoolExprType::NOT_EXPR => {
@@ -507,7 +497,16 @@ fn ece_mutator<'mcx>(node: Node<'mcx>, cx: &EceContext<'mcx>) -> PgResult<Option
             let (infunc, intypioparam) = lsyscache::getTypeInputInfo(e.resulttype)?;
 
             let (simple, new_args) = simplify_function(
-                cx, outfunc, CSTRINGOID, -1, InvalidOid, InvalidOid, &args, false, true, true,
+                cx,
+                outfunc,
+                CSTRINGOID,
+                -1,
+                InvalidOid,
+                InvalidOid,
+                &args,
+                false,
+                true,
+                true,
             )?;
             if let Some(a) = new_args {
                 args = a;
@@ -612,7 +611,8 @@ fn ece_mutator<'mcx>(node: Node<'mcx>, cx: &EceContext<'mcx>) -> PgResult<Option
             )?;
             // A CoerceToDomain elemexpr keeps the domain's runtime checks.
             if arg.node_tag() == NodeTag::T_Const
-                && elemexpr.is_some_and(|e| e.node_tag() != NodeTag::T_CoerceToDomain)
+                && elemexpr
+                    .is_some_and(|e| e.node_tag() != NodeTag::T_CoerceToDomain)
                 && !crate::classify::contain_mutable_functions(elemexpr.unwrap())?
             {
                 return clauses_seams::evaluate_expr::call(
@@ -819,7 +819,8 @@ fn ece_mutator<'mcx>(node: Node<'mcx>, cx: &EceContext<'mcx>) -> PgResult<Option
         }
         // C has no dedicated FieldStore arm: it falls to the default
         // ece_generic_processing (recurse into arg/newvals, never fold).
-        NodeTag::T_FieldStore => expression_tree_mutator(cx.mcx, node, &mut |n| ece_mutator(n, cx)),
+        NodeTag::T_FieldStore =>
+            expression_tree_mutator(cx.mcx, node, &mut |n| ece_mutator(n, cx)),
         NodeTag::T_NullTest => {
             use types_nodes::primnodes::{NullTest, NullTestType};
             let nt = node.as_null_test().unwrap();
@@ -862,11 +863,7 @@ fn ece_mutator<'mcx>(node: Node<'mcx>, cx: &EceContext<'mcx>) -> PgResult<Option
                 }
                 return Ok(Some(Node::mk(
                     cx.mcx,
-                    BoolExpr {
-                        boolop: BoolExprType::AND_EXPR,
-                        args: newargs,
-                        location: -1,
-                    },
+                    BoolExpr { boolop: BoolExprType::AND_EXPR, args: newargs, location: -1, },
                 )?));
             }
             if !nt.argisrow {
@@ -1000,9 +997,7 @@ fn ece_mutator<'mcx>(node: Node<'mcx>, cx: &EceContext<'mcx>) -> PgResult<Option
                     false,
                 )?;
                 if let Some(simple) = simple {
-                    let c = simple
-                        .as_const()
-                        .expect("simplify_function returns a Const");
+                    let c = simple.as_const().expect("simplify_function returns a Const");
                     // Underlying operator is "="; negate its result.
                     return Ok(Some(make_bool_const(
                         cx.mcx,
@@ -1050,11 +1045,8 @@ fn ece_mutator<'mcx>(node: Node<'mcx>, cx: &EceContext<'mcx>) -> PgResult<Option
                 }
             }
             // set_opfuncid (nodeFuncs.c).
-            let opfuncid = if e.opfuncid == 0 {
-                lsyscache::get_opcode(e.opno)?
-            } else {
-                e.opfuncid
-            };
+            let opfuncid =
+                if e.opfuncid == 0 { lsyscache::get_opcode(e.opno)? } else { e.opfuncid };
             // ece_evaluate_expr: exprTypmod(NullIfExpr) is the first arg's.
             let first_typmod = nodes_core::node_funcs::expr_typmod(eff_args.nth(0));
             if !has_nonconst_input && ece_function_is_safe(cx, opfuncid)? {
@@ -1117,7 +1109,11 @@ fn ece_mutator<'mcx>(node: Node<'mcx>, cx: &EceContext<'mcx>) -> PgResult<Option
             }
             let svf = node.as_sql_value_function().unwrap();
             Ok(Some(clauses_seams::evaluate_expr::call(
-                cx.mcx, node, svf.r#type, svf.typmod, InvalidOid,
+                cx.mcx,
+                node,
+                svf.r#type,
+                svf.typmod,
+                InvalidOid,
             )?))
         }
         NodeTag::T_Var
@@ -1169,7 +1165,8 @@ fn ece_mutator<'mcx>(node: Node<'mcx>, cx: &EceContext<'mcx>) -> PgResult<Option
         | NodeTag::T_WindowFuncRunCondition
         | NodeTag::T_TableSampleClause
         | NodeTag::T_ReturningExpr
-        | NodeTag::T_List => expression_tree_mutator(cx.mcx, node, &mut |n| ece_mutator(n, cx)),
+        | NodeTag::T_List =>
+            expression_tree_mutator(cx.mcx, node, &mut |n| ece_mutator(n, cx)),
         // C's generic arm again (GroupingFunc lives outside the nodes_core
         // mutator vocabulary): fold inside args; refs/cols never change.
         NodeTag::T_GroupingFunc => {
@@ -1282,8 +1279,7 @@ fn ece_mutator<'mcx>(node: Node<'mcx>, cx: &EceContext<'mcx>) -> PgResult<Option
                         newvar
                             .with_mut::<types_nodes::Var, _>(|nv| {
                                 nv.varreturningtype = v.varreturningtype;
-                                nv.varnullingrels =
-                                    v.varnullingrels.clone_in(cx.mcx).expect("bms clone");
+                                nv.varnullingrels = v.varnullingrels.clone_in(cx.mcx).expect("bms clone");
                             })
                             .unwrap();
                     }
@@ -1389,9 +1385,7 @@ fn func_expr_typmod(f: &FuncExpr<'_>) -> i32 {
 
 #[cold]
 pub(crate) fn func_lookup_failed(funcid: Oid) -> Box<PgError> {
-    Box::new(PgError::error(format!(
-        "cache lookup failed for function {funcid}"
-    )))
+    Box::new(PgError::error(format!("cache lookup failed for function {funcid}")))
 }
 
 /// Returns (simplified-expression,
@@ -1455,19 +1449,13 @@ fn simplify_function<'mcx>(
         let mut req =
             types_nodes::supportnodes::SupportRequestSimplify::new(Some(fcall), Some(cx.mcx));
         let addr = core::ptr::from_mut(&mut req) as usize;
-        let result = fmgr_core::oid_function_call1_coll_in(
-            shape.prosupport,
-            0,
-            cx.mcx,
-            Datum::from_usize(addr),
-        )?;
+        let result =
+            fmgr_core::oid_function_call1_coll_in(shape.prosupport, 0, cx.mcx, Datum::from_usize(addr),)?;
         if result.as_usize() != 0 {
             // SAFETY: prosupport simplify contract — the rewrite is a sealed
             // node the callee allocated in the request's mcx.
             let node = unsafe {
-                Node::from_raw(core::ptr::NonNull::new_unchecked(
-                    result.as_usize() as *mut ()
-                ))
+                Node::from_raw(core::ptr::NonNull::new_unchecked(result.as_usize() as *mut ()))
             };
             newexpr = Some(ece_mutator(node, cx)?.unwrap_or(node));
         }
@@ -1574,7 +1562,11 @@ fn inline_function<'mcx>(
 
 #[track_caller]
 #[cold]
-fn sql_inline_recursion_error<'mcx>(mcx: Mcx<'mcx>, funcid: Oid, e: Box<PgError>) -> Box<PgError> {
+fn sql_inline_recursion_error<'mcx>(
+    mcx: Mcx<'mcx>,
+    funcid: Oid,
+    e: Box<PgError>
+) -> Box<PgError> {
     let mut err = *e;
     err.add_context_line(inline_context_line(mcx, funcid));
     Box::new(err)
@@ -1664,9 +1656,7 @@ fn reorder_function_arguments<'mcx>(
     let nargsprovided = args.len();
     debug_assert!(nargsprovided <= pronargs);
     if pronargs > FUNC_MAX_ARGS {
-        return Err(Box::new(PgError::error(
-            "too many function arguments".to_string(),
-        )));
+        return Err(Box::new(PgError::error("too many function arguments".to_string(),)));
     }
     let mut argarray: mcx::PgVec<'mcx, Option<Node<'mcx>>> =
         mcx::vec_with_capacity_in(mcx, pronargs)?;
@@ -1702,10 +1692,7 @@ fn reorder_function_arguments<'mcx>(
     }
     let mut out = NodeList::nil();
     for slot in argarray.iter() {
-        out.lappend(
-            mcx,
-            slot.expect("reorder_function_arguments: unfilled argument slot"),
-        )?;
+        out.lappend(mcx, slot.expect("reorder_function_arguments: unfilled argument slot"),)?;
     }
     Ok(out)
 }
@@ -1717,9 +1704,8 @@ fn add_function_defaults<'mcx>(
     funcid: Oid,
 ) -> PgResult<NodeList<'mcx>> {
     let defaults = fetch_function_defaults(mcx, funcid)?;
-    let ndelete = (args.len() + defaults.len())
-        .checked_sub(pronargs)
-        .ok_or_else(|| Box::new(PgError::error("not enough default arguments".to_string())))?;
+    let ndelete = (args.len() + defaults.len()).checked_sub(pronargs).ok_or_else(||
+        Box::new(PgError::error("not enough default arguments".to_string())))?;
     let mut out = NodeList::nil();
     for a in args {
         out.lappend(mcx, a)?;
@@ -1766,16 +1752,15 @@ fn recheck_cast_function_args<'mcx>(
     prorettype: Oid,
 ) -> PgResult<NodeList<'mcx>> {
     if args.len() > FUNC_MAX_ARGS {
-        return Err(Box::new(PgError::error(
-            "too many function arguments".to_string(),
-        )));
+        return Err(Box::new(PgError::error("too many function arguments".to_string(),)));
     }
     let mut actual_arg_types: mcx::PgVec<'mcx, Oid> = mcx::vec_with_capacity_in(mcx, args.len())?;
     for a in &args {
         actual_arg_types.push(nodes_core::node_funcs::expr_type(a));
     }
     debug_assert_eq!(proargtypes.len(), args.len());
-    let mut declared_arg_types: mcx::PgVec<'mcx, Oid> = mcx::vec_with_capacity_in(mcx, args.len())?;
+    let mut declared_arg_types: mcx::PgVec<'mcx, Oid> =
+        mcx::vec_with_capacity_in(mcx, args.len())?;
     for &t in proargtypes {
         declared_arg_types.push(t);
     }
@@ -1831,12 +1816,7 @@ fn evaluate_function<'mcx>(
         }
     }
     if shape.proisstrict && has_null_input {
-        return Ok(Some(make_null_const(
-            cx.mcx,
-            result_type,
-            result_typmod,
-            result_collid,
-        )?));
+        return Ok(Some(make_null_const(cx.mcx, result_type, result_typmod, result_collid,)?));
     }
     if has_nonconst_input {
         return Ok(None);
@@ -1901,11 +1881,7 @@ fn simplify_bool_arguments<'mcx>(
     let same_op = |n: Node<'mcx>| {
         n.as_bool_expr().filter(|b| {
             b.boolop
-                == if is_or {
-                    BoolExprType::OR_EXPR
-                } else {
-                    BoolExprType::AND_EXPR
-                }
+                == if is_or { BoolExprType::OR_EXPR } else { BoolExprType::AND_EXPR }
         })
     };
     for arg in args {
@@ -2090,9 +2066,9 @@ fn coerce_arg_type(node: Node<'_>) -> Oid {
 
 pub fn is_polymorphic_type(t: Oid) -> bool {
     use types_core::catalog::{
-        ANYARRAYOID, ANYCOMPATIBLEARRAYOID, ANYCOMPATIBLEMULTIRANGEOID, ANYCOMPATIBLENONARRAYOID,
-        ANYCOMPATIBLEOID, ANYCOMPATIBLERANGEOID, ANYELEMENTOID, ANYENUMOID, ANYMULTIRANGEOID,
-        ANYNONARRAYOID, ANYRANGEOID,
+        ANYARRAYOID, ANYCOMPATIBLEARRAYOID, ANYCOMPATIBLEMULTIRANGEOID,
+        ANYCOMPATIBLENONARRAYOID, ANYCOMPATIBLEOID, ANYCOMPATIBLERANGEOID, ANYELEMENTOID,
+        ANYENUMOID, ANYMULTIRANGEOID, ANYNONARRAYOID, ANYRANGEOID,
     };
     matches!(
         t,

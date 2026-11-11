@@ -78,10 +78,7 @@ impl World {
         let (s, n, copies) = img.as_ref().expect("an image was published");
         if m.seq() == *s {
             for &(b, v) in want {
-                assert!(
-                    b < *n && copies[b as usize] >= v,
-                    "stale-and-clean at end: block {b}"
-                );
+                assert!(b < *n && copies[b as usize] >= v, "stale-and-clean at end: block {b}");
             }
         }
     }
@@ -207,11 +204,7 @@ fn two_refreshes_one_writer_gate() {
             w2.write(&mut c, 0, 1);
             w2.check_own(0, 1);
         });
-        let t1 = thread::spawn(refresher(
-            Arc::clone(&w),
-            Arc::clone(&m),
-            Arc::clone(&owners),
-        ));
+        let t1 = thread::spawn(refresher(Arc::clone(&w), Arc::clone(&m), Arc::clone(&owners),));
         refresher(Arc::clone(&w), Arc::clone(&m), Arc::clone(&owners))();
         t1.join().unwrap();
         tw.join().unwrap();

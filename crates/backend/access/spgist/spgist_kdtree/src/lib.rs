@@ -1,7 +1,7 @@
 //! spgkdtreeproc.c: k-d tree over points — the kd_point_ops opclass.
 //! leaf_consistent is spg_quad_leaf_consistent (oid 4022), registered by
 //! spgist_quadtree; pg_amproc points the kd opclass there, as in C.
-#![allow(non_snake_case, non_upper_case_globals)]
+#![allow(non_snake_case,non_upper_case_globals)]
 
 use ::adt_geo::{FPgt, FPlt};
 use ::datum::Datum;
@@ -98,11 +98,7 @@ fn fc_spg_kd_choose(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<
     let coord = input.prefixDatum.as_f64();
 
     *out = spgChooseOut::MatchNode {
-        nodeN: if getSide(coord, input.level % 2 != 0, &in_point) > 0 {
-            0
-        } else {
-            1
-        },
+        nodeN: if getSide(coord, input.level % 2 != 0, &in_point) > 0 { 0 } else { 1 },
         levelAdd: 1,
         // restDatum = PointPGetDatum(inPoint): the input pointer, as in C.
         restDatum: input.datum,
@@ -129,11 +125,7 @@ fn fc_spg_kd_picksplit(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResu
     let by_x = input.level % 2 != 0;
     kd_split_sort(&mut sorted, by_x);
     let middle = n >> 1;
-    let coord = if by_x {
-        sorted[middle].0.x
-    } else {
-        sorted[middle].0.y
-    };
+    let coord = if by_x { sorted[middle].0.x } else { sorted[middle].0.y };
 
     out.hasPrefix = true;
     out.prefixDatum = Datum::from_f64(coord);
@@ -277,14 +269,8 @@ fn fc_spg_kd_inner_consistent(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) ->
             // SAFETY: the parent stored a box in traversalValue on this path.
             unsafe { box_at(Datum::from_usize(input.traversalValue)) }
         };
-        let mut b0 = BOX {
-            high: area.high,
-            low: area.low,
-        };
-        let mut b1 = BOX {
-            high: area.high,
-            low: area.low,
-        };
+        let mut b0 = BOX { high: area.high, low: area.low, };
+        let mut b1 = BOX { high: area.high, low: area.low, };
         if by_x {
             b0.high.x = coord;
             b1.low.x = coord;
@@ -315,10 +301,14 @@ fn fc_spg_kd_inner_consistent(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) ->
                 core::mem::forget(buf);
                 // SAFETY: norderbys orderby scankeys per protocol.
                 let orderbys = unsafe {
-                    core::slice::from_raw_parts(input.orderbys, input.norderbys.max(0) as usize)
+                    core::slice::from_raw_parts(
+                        input.orderbys,
+                        input.norderbys.max(0) as usize
+                    )
                 };
-                let row =
-                    ::spgist_proc::spg_key_orderbys_distances(mcx, box_datum, false, orderbys)?;
+                let row = ::spgist_proc::spg_key_orderbys_distances(
+                    mcx, box_datum, false, orderbys
+                )?;
                 tvals.push(box_datum.as_usize());
                 rows.push(row.as_ptr());
                 core::mem::forget(row);
@@ -342,32 +332,15 @@ fn fc_spg_kd_inner_consistent(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) ->
     Ok(Datum::null())
 }
 
-const fn b(
-    foid: Oid,
-    name: &'static str,
-    nargs: i16,
-    func: ::types_fmgr::PGFunction,
-) -> FmgrBuiltin {
-    FmgrBuiltin {
-        foid,
-        name,
-        nargs,
-        strict: true,
-        retset: false,
-        func,
-    }
+const fn b(foid: Oid, name: &'static str, nargs: i16, func: ::types_fmgr::PGFunction,) -> FmgrBuiltin {
+    FmgrBuiltin { foid, name, nargs, strict: true, retset: false, func, }
 }
 
 pub const SPGIST_KD_BUILTINS: &[FmgrBuiltin] = &[
     b(4023, "spg_kd_config", 2, fc_spg_kd_config),
     b(4024, "spg_kd_choose", 2, fc_spg_kd_choose),
     b(4025, "spg_kd_picksplit", 2, fc_spg_kd_picksplit),
-    b(
-        4026,
-        "spg_kd_inner_consistent",
-        2,
-        fc_spg_kd_inner_consistent,
-    ),
+    b(4026, "spg_kd_inner_consistent", 2, fc_spg_kd_inner_consistent,),
 ];
 
 #[cfg(test)]
@@ -418,14 +391,8 @@ mod tests {
         let mut s = 0x5eed1234u64;
         let mut xs = [0f64; 64];
         for (i, slot) in xs.iter_mut().enumerate() {
-            s = s
-                .wrapping_mul(6364136223846793005)
-                .wrapping_add(1442695040888963407);
-            *slot = if i % 5 == 4 {
-                f64::NAN
-            } else {
-                ((s >> 33) % 1000) as f64
-            };
+            s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            *slot = if i % 5 == 4 { f64::NAN } else { ((s >> 33) % 1000) as f64 };
         }
         xs
     }
@@ -471,9 +438,10 @@ mod tests {
         assert_eq!(
             perm(&big),
             vec![
-                44, 24, 59, 29, 4, 19, 34, 39, 54, 9, 49, 14, 21, 31, 55, 63, 45, 58, 41, 0, 6, 5,
-                16, 23, 40, 20, 43, 37, 53, 33, 18, 30, 13, 62, 12, 32, 52, 28, 36, 17, 46, 7, 60,
-                10, 2, 27, 26, 38, 42, 57, 22, 47, 25, 61, 35, 48, 15, 8, 1, 51, 3, 56, 11, 50
+                44, 24, 59, 29, 4, 19, 34, 39, 54, 9, 49, 14, 21, 31, 55, 63, 45, 58, 41, 0, 6,
+                5, 16, 23, 40, 20, 43, 37, 53, 33, 18, 30, 13, 62, 12, 32, 52, 28, 36, 17, 46,
+                7, 60, 10, 2, 27, 26, 38, 42, 57, 22, 47, 25, 61, 35, 48, 15, 8, 1, 51, 3, 56,
+                11, 50
             ]
         );
 

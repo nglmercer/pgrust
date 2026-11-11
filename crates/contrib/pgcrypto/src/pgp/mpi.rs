@@ -51,7 +51,7 @@ pub fn read_mpi(data: &[u8], pos: &mut usize, ctx: &mut PgpContext) -> Result<Mp
 pub fn read_mpi_pull(src: &mut dyn Pull, cx: &mut Dcx) -> PRes<Mpi> {
     let hdr = read_fixed(src, cx, 2)?;
     let bits = ((hdr[0] as usize) << 8) | hdr[1] as usize;
-    let value = read_fixed(src, cx, bits.div_ceil(8))?;
+    let value = read_fixed(src, cx,bits.div_ceil( 8))?;
     Ok(Mpi::from_bytes(value, bits))
 }
 
@@ -82,7 +82,7 @@ fn rand_bits(bits: usize) -> Result<BigUint, MathError> {
     if bits == 0 {
         return Ok(BigUint::zero());
     }
-    let nbytes = bits.div_ceil(8);
+    let nbytes =bits.div_ceil( 8);
     let mut buf = vec![0u8; nbytes];
     // pgp-mpi-openssl.c:123: a BN_rand failure leaves res = PXE_PGP_MATH_FAILED.
     if !pg_strong_random(&mut buf) {

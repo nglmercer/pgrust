@@ -1062,9 +1062,7 @@ fn parked_reuse_replays_function_execute_acl() {
         // REVOKE EXECUTE (or SET ROLE to a user without it) between executions:
         // the next reuse's recheck must now deny, matching C.
         ACL_DENY.with(|d| d.borrow_mut().push(65));
-        let err = crate::compile::recheck_execute_acls(mcx, &funcids)
-            .err()
-            .unwrap();
+        let err = crate::compile::recheck_execute_acls(mcx, &funcids).err().unwrap();
         assert!(
             err.message().contains("permission denied"),
             "revoked reuse must be denied, got: {}",
@@ -1095,10 +1093,7 @@ fn function_execute_hook_recorder(
     assert_eq!(access, ::objectaccess::OAT_FUNCTION_EXECUTE);
     assert_eq!(sub_id, 0);
     assert!(matches!(arg, ::objectaccess::ObjectAccessArg::None));
-    FUNCTION_EXECUTE_HOOK_LOG
-        .lock()
-        .unwrap()
-        .push((class_id, object_id));
+    FUNCTION_EXECUTE_HOOK_LOG.lock().unwrap().push((class_id, object_id));
     Ok(())
 }
 
@@ -1138,9 +1133,7 @@ fn exec_init_func_fires_function_execute_hook_and_reuse_replays_it() {
         // Denied on reuse: C errors in aclcheck_error BEFORE the hook — no
         // third invocation.
         ACL_DENY.with(|d| d.borrow_mut().push(65));
-        crate::compile::recheck_execute_acls(mcx, &funcids)
-            .err()
-            .unwrap();
+        crate::compile::recheck_execute_acls(mcx, &funcids).err().unwrap();
         assert_eq!(FUNCTION_EXECUTE_HOOK_LOG.lock().unwrap().len(), 2);
         ACL_DENY.with(|d| d.borrow_mut().clear());
     });
@@ -1607,50 +1600,26 @@ fn param_extern_missing_slot_fetches_through_the_hook_when_reached() {
         let (calls, ptype) = unsafe { &mut *arg.cast::<(u32, ::types_core::Oid)>() };
         *calls += 1;
         assert_eq!(paramid, 1);
-        Ok(ParamExternData {
-            value: Datum::from_bool(true),
-            isnull: false,
-            pflags: 0,
-            ptype: *ptype,
-        })
+        Ok(ParamExternData { value: Datum::from_bool(true), isnull: false, pflags: 0, ptype: *ptype, })
     }
     with_mcx(|mcx| {
-        let list = [ParamExternData {
-            value: Datum::null(),
-            isnull: true,
-            pflags: 0,
-            ptype: 0,
-        }];
+        let list = [ParamExternData { value: Datum::null(), isnull: true, pflags: 0, ptype: 0, }];
         let mut cell = (0u32, 16);
         let bind = ParamBind {
             #[allow(unused_attributes)]
             extern_params: Some(&list),
             extern_fetch: Some(ParamFetchHook {
-                #[allow(unused_assignments)]
-                func: fetch,
-                arg: (&mut cell as *mut (u32, u32)).cast(),
-            }),
+                #[allow(unused_assignments)] func: fetch, arg: (&mut cell as *mut (u32, u32)).cast(), }),
             ..ParamBind::NONE
         };
         let and = |first: bool| {
             let mut args = NodeList::nil();
             args.lappend(mcx, mk_bool_const(mcx, Some(first))).unwrap();
-            args.lappend(mcx, mk_param(mcx, ParamKind::PARAM_EXTERN, 1, 16))
-                .unwrap();
-            Node::mk(
-                mcx,
-                BoolExpr {
-                    boolop: AND_EXPR,
-                    args,
-                    location: -1,
-                },
-            )
-            .unwrap()
+            args.lappend(mcx, mk_param(mcx, ParamKind::PARAM_EXTERN, 1, 16)).unwrap();
+            Node::mk(mcx, BoolExpr { boolop: AND_EXPR, args, location: -1, },).unwrap()
         };
         let mut slots = EvalSlots::default();
-        let mut skipped = exec_init_expr(mcx, Some(and(false)), bind)
-            .unwrap()
-            .unwrap();
+        let mut skipped = exec_init_expr(mcx, Some(and(false)), bind).unwrap().unwrap();
         let r = exec_eval_expr(&mut skipped, &mut slots).unwrap();
         assert_eq!((r.isnull, r.value.as_bool(), cell.0), (false, false, 0));
         let mut reached = exec_init_expr(mcx, Some(and(true)), bind).unwrap().unwrap();
@@ -2200,12 +2169,9 @@ fn domain_check_input_engine_matches() {
     install_seams();
     assert!(crate::domain::domain_check_input(Datum::from_i32(7), false, DOMAIN_OID, None).is_ok());
     let e = crate::domain::domain_check_input(Datum::from_i32(-1), false, DOMAIN_OID, None)
-        .err()
-        .unwrap();
+        .err().unwrap();
     assert_eq!(e.sqlstate(), ::types_error::ERRCODE_CHECK_VIOLATION);
-    let e = crate::domain::domain_check_input(Datum::null(), true, DOMAIN_OID, None)
-        .err()
-        .unwrap();
+    let e = crate::domain::domain_check_input(Datum::null(), true, DOMAIN_OID, None).err().unwrap();
     assert_eq!(e.sqlstate(), ::types_error::ERRCODE_NOT_NULL_VIOLATION);
 }
 // C ReScanExprContext releases a check's by-ref leftovers wholesale after
@@ -4954,18 +4920,12 @@ fn hash32_expr_strict_null_key_aborts_to_null() {
             eval3(mcx, &mut s3, [Some(2), None, Some(2)]),
             "fresh middle-key abort: NULL"
         );
-        assert!(
-            !eval3(mcx, &mut s3, [Some(1), Some(1), Some(1)]),
-            "non-null row"
-        );
+        assert!(!eval3(mcx, &mut s3, [Some(1), Some(1), Some(1)]), "non-null row");
         assert!(
             eval3(mcx, &mut s3, [Some(3), None, Some(3)]),
             "middle-key abort after a non-null row: NULL"
         );
-        assert!(
-            eval3(mcx, &mut s3, [Some(4), Some(4), None]),
-            "last-key abort: NULL"
-        );
+        assert!(eval3(mcx, &mut s3, [Some(4), Some(4), None]), "last-key abort: NULL");
         assert!(
             eval3(mcx, &mut s3, [Some(5), None, Some(5)]),
             "middle-key abort after a null: NULL"
@@ -5109,8 +5069,8 @@ mod rem_b028 {
     #[test]
     fn still_valid_check_covers_thin_fused_scan_var() {
         with_mcx(|mcx| {
-            let c8 =
-                Node::mk_const(mcx, INT8OID, -1, 0, 8, Datum::from_i64(1), false, true).unwrap();
+            let c8 = Node::mk_const(mcx, INT8OID, -1, 0, 8, Datum::from_i64(1), false, true)
+                .unwrap();
             let args = NodeList::make2(mcx, mk_scan_var(mcx, 1, INT8OID), c8).unwrap();
             let mut state = exec_init_expr(
                 mcx,
@@ -5170,9 +5130,8 @@ mod rem_b028 {
                 inner: Some(&mut inner),
                 outer: Some(&mut outer),
             };
-            let err = exec_qual(Some(&mut *state), &mut slots).expect_err(
-                "CheckVarSlotCompatibility must reject the int4 outer column read as int8",
-            );
+            let err = exec_qual(Some(&mut *state), &mut slots)
+                .expect_err("CheckVarSlotCompatibility must reject the int4 outer column read as int8",);
             assert!(
                 err.message().contains("has wrong type"),
                 "got: {}",
@@ -5208,10 +5167,7 @@ mod rem_b028 {
             let mut slots = scan_slots(&mut slot);
             let err = exec_eval_expr(&mut state, &mut slots)
                 .expect_err("a Var over a virtual generated column must be an ERROR");
-            assert_eq!(
-                err.message(),
-                "unexpected virtual generated column reference"
-            );
+            assert_eq!(err.message(), "unexpected virtual generated column reference");
             assert_eq!(err.sqlstate, ::types_error::ERRCODE_INTERNAL_ERROR);
         });
     }
@@ -5230,10 +5186,7 @@ mod rem_b028 {
             let mut slots = scan_slots(&mut slot);
             let err = exec_eval_expr(&mut state, &mut slots)
                 .expect_err("attnum past the descriptor must be an ERROR");
-            assert_eq!(
-                err.message(),
-                "attribute number 3 exceeds number of columns 1"
-            );
+            assert_eq!(err.message(), "attribute number 3 exceeds number of columns 1");
             assert_eq!(err.sqlstate, ::types_error::ERRCODE_INTERNAL_ERROR);
         });
     }
@@ -5503,10 +5456,7 @@ mod rem_b028 {
             let q = out.value.as_usize() as *const u8;
             // SAFETY: the field datum is a live 4B text image per the contract.
             let got = unsafe {
-                assert!(
-                    varatt::varatt_is_4b_u(q),
-                    "field datum header was scribbled"
-                );
+                assert!(varatt::varatt_is_4b_u(q), "field datum header was scribbled");
                 core::slice::from_raw_parts(q.add(4), varatt::varsize_any(q) - 4)
             };
             assert_eq!(got, payload);
@@ -5545,10 +5495,9 @@ mod rem_b028 {
             assert_eq!(err.message(), "attribute 1 has wrong type");
             assert_eq!(err.sqlstate, ERRCODE_DATATYPE_MISMATCH);
             assert!(
-                err.detail()
-                    .is_some_and(|d| d.starts_with("Table has type ")
-                        && d.contains(", but query expects ")
-                        && d.ends_with('.')),
+                err.detail().is_some_and(|d| d.starts_with("Table has type ")
+                    && d.contains(", but query expects ")
+                    && d.ends_with('.')),
                 "got detail: {:?}",
                 err.detail()
             );
@@ -5643,24 +5592,11 @@ mod rem_w2_011_param_set_equal {
             .unwrap();
             assert_eq!(
                 var_fetch_order(&state),
-                alloc::vec![
-                    (0, true),
-                    (0, false),
-                    (1, true),
-                    (1, false),
-                    (2, true),
-                    (2, false)
-                ],
+                alloc::vec![(0, true), (0, false), (1, true), (1, false), (2, true), (2, false)],
                 "execExpr.c:4682 walks attno 0..maxatt in forward order"
             );
-            assert!(matches!(
-                state.steps()[0],
-                Step::InnerFetchSome { last_var: 3 }
-            ));
-            assert!(matches!(
-                state.steps()[1],
-                Step::OuterFetchSome { last_var: 3 }
-            ));
+            assert!(matches!(state.steps()[0], Step::InnerFetchSome { last_var: 3 }));
+            assert!(matches!(state.steps()[1], Step::OuterFetchSome { last_var: 3 }));
             let done = state.steps().len() as u32 - 1;
             for s in state.steps() {
                 if let Step::Qual { jumpdone } = s {
@@ -5689,14 +5625,7 @@ mod rem_w2_011_param_set_equal {
             .unwrap();
             assert_eq!(
                 var_fetch_order(&state),
-                alloc::vec![
-                    (2, true),
-                    (2, false),
-                    (1, true),
-                    (1, false),
-                    (0, true),
-                    (0, false)
-                ]
+                alloc::vec![(2, true), (2, false), (1, true), (1, false), (0, true), (0, false)]
             );
         });
     }
@@ -5740,16 +5669,11 @@ mod rem_w2_011_param_set_equal {
     fn param_set_equal_with_no_parameters_is_fetches_and_done() {
         with_mcx(|mcx| {
             let desc = desc_int4(mcx, 0);
-            let state = crate::compile::exec_build_param_set_equal(mcx, &desc, &[], &[]).unwrap();
+            let state =
+                crate::compile::exec_build_param_set_equal(mcx, &desc, &[], &[]).unwrap();
             assert_eq!(state.steps().len(), 3);
-            assert!(matches!(
-                state.steps()[0],
-                Step::InnerFetchSome { last_var: 0 }
-            ));
-            assert!(matches!(
-                state.steps()[1],
-                Step::OuterFetchSome { last_var: 0 }
-            ));
+            assert!(matches!(state.steps()[0], Step::InnerFetchSome { last_var: 0 }));
+            assert!(matches!(state.steps()[1], Step::OuterFetchSome { last_var: 0 }));
             assert!(matches!(state.steps()[2], Step::DoneReturn));
         });
     }
@@ -5759,22 +5683,11 @@ mod rem_w2_011_param_set_equal {
 fn copy_default_result_context_rearms_after_row_reset() {
     with_mcx(|mcx| {
         let value = varlena::cstring_to_text(mcx, b"payload").unwrap();
-        let constant = Node::mk_const(
-            mcx,
-            25,
-            -1,
-            0,
-            -1,
-            ::types_fmgr::varlena_result(value),
-            false,
-            false,
-        )
-        .unwrap();
+        let constant = Node::mk_const(mcx, 25, -1, 0, -1,
+            ::types_fmgr::varlena_result(value), false, false,).unwrap();
         let args = NodeList::make2(mcx, constant, constant).unwrap();
         let expr = mk_opexpr(mcx, 1258, 25, args);
-        let mut state = exec_init_expr(mcx, Some(expr), ParamBind::NONE)
-            .unwrap()
-            .unwrap();
+        let mut state = exec_init_expr(mcx, Some(expr), ParamBind::NONE).unwrap().unwrap();
         let mut row = MemoryContext::new_bump("copy-default-row-test");
         for _ in 0..8 {
             // SAFETY: row is stable through evaluation and the state is restored before reset.
@@ -5784,9 +5697,7 @@ fn copy_default_result_context_rearms_after_row_reset() {
             let result = result.unwrap();
             assert!(!result.isnull);
             // SAFETY: the result belongs to the still-live row arena.
-            let bytes = unsafe {
-                core::slice::from_raw_parts((result.value.as_usize() as *const u8).add(4), 14)
-            };
+            let bytes = unsafe { core::slice::from_raw_parts((result.value.as_usize() as *const u8).add(4), 14) };
             assert_eq!(bytes, b"payloadpayload");
             row.reset();
         }
@@ -5799,39 +5710,18 @@ fn copy_default_result_context_rearms_after_row_reset() {
 fn copy_where_result_context_rearms_after_row_reset() {
     with_mcx(|mcx| {
         let value = varlena::cstring_to_text(mcx, b"payload").unwrap();
-        let constant = Node::mk_const(
-            mcx,
-            25,
-            -1,
-            0,
-            -1,
-            ::types_fmgr::varlena_result(value),
-            false,
-            false,
-        )
-        .unwrap();
+        let constant = Node::mk_const(mcx, 25, -1, 0, -1,
+            ::types_fmgr::varlena_result(value), false, false,).unwrap();
         let args = NodeList::make2(mcx, constant, constant).unwrap();
         let concatenated = mk_opexpr(mcx, 1258, 25, args);
         let args = NodeList::make2(mcx, concatenated, constant).unwrap();
-        let predicate = Node::mk(
-            mcx,
-            OpExpr {
-                opno: 0,
-                opfuncid: 67,
-                opresulttype: 16,
-                opretset: false,
-                opcollid: 0,
-                inputcollid: 950,
-                args,
-                location: -1,
-            },
-        )
-        .unwrap();
+        let predicate = Node::mk(mcx, OpExpr {
+            opno: 0, opfuncid: 67, opresulttype: 16, opretset: false,
+            opcollid: 0, inputcollid: 950, args, location: -1,
+        },).unwrap();
         let mut predicates = NodeList::nil();
         predicates.lappend(mcx, predicate).unwrap();
-        let mut state = exec_init_qual(mcx, &predicates, ParamBind::NONE)
-            .unwrap()
-            .unwrap();
+        let mut state = exec_init_qual(mcx, &predicates, ParamBind::NONE).unwrap().unwrap();
         let mut row = MemoryContext::new_bump("copy-where-row-test");
         for _ in 0..8 {
             // SAFETY: row is stable through evaluation; restore before resetting.
@@ -5853,17 +5743,8 @@ fn evaluate_expr_leaves_only_the_const_in_the_caller_context() {
     with_mcx(|mcx| {
         let payload = vec![b'x'; 64 * 1024];
         let value = varlena::cstring_to_text(mcx, &payload).unwrap();
-        let constant = Node::mk_const(
-            mcx,
-            25,
-            -1,
-            0,
-            -1,
-            ::types_fmgr::varlena_result(value),
-            false,
-            false,
-        )
-        .unwrap();
+        let constant = Node::mk_const(mcx, 25, -1, 0, -1,
+            ::types_fmgr::varlena_result(value), false, false,).unwrap();
         let args = NodeList::make2(mcx, constant, constant).unwrap();
         let expr = mk_opexpr(mcx, 1258, 25, args);
         let args = NodeList::make2(mcx, constant, constant).unwrap();
@@ -5967,16 +5848,9 @@ mod agg_copy_expanded_trans_value {
                 crate::interp::agg_copy_trans_value(agg.mcx(), own, false, flat, false, -1, false)
                     .unwrap();
             assert_eq!(kept.as_usize(), own.as_usize());
-            let copied = crate::interp::agg_copy_trans_value(
-                agg.mcx(),
-                foreign,
-                false,
-                own,
-                false,
-                -1,
-                true,
-            )
-            .unwrap();
+            let copied =
+                crate::interp::agg_copy_trans_value(agg.mcx(), foreign, false, own, false, -1, true,)
+                    .unwrap();
             assert_ne!(copied.as_usize(), foreign.as_usize());
             assert!(!datum_is_external_expanded(copied));
             assert_eq!(

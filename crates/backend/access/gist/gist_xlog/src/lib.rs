@@ -1,15 +1,15 @@
 //! gistxlog.c — gist rmgr redo. Live arms: PAGE_UPDATE, DELETE, PAGE_SPLIT,
 //! PAGE_DELETE, PAGE_REUSE (nop outside hot standby), ASSIGN_LSN (nop).
 
-#![allow(non_snake_case, non_upper_case_globals)]
+#![allow(non_snake_case,non_upper_case_globals)]
 
 use types_core::{BlockNumber, Buffer, InvalidBlockNumber, OffsetNumber};
 use types_error::{PgError, PgResult, ERRCODE_DATA_CORRUPTED, PANIC};
 use types_gist::{
-    page_opaque_set, page_opaque_update, GISTPageOpaqueData, GistPageSetDeleted, GistxlogDelete,
-    GistxlogPageDelete, GistxlogPageSplit, GistxlogPageUpdate, SizeOfGistxlogDelete,
-    SizeOfGistxlogPageReuse, F_FOLLOW_RIGHT, F_HAS_GARBAGE, F_LEAF, F_TUPLES_DELETED, GIST_PAGE_ID,
-    GIST_ROOT_BLKNO, XLOG_GIST_ASSIGN_LSN, XLOG_GIST_DELETE, XLOG_GIST_PAGE_DELETE,
+    page_opaque_set, page_opaque_update, GISTPageOpaqueData, GistPageSetDeleted,
+    GistxlogDelete, GistxlogPageDelete, GistxlogPageSplit, GistxlogPageUpdate, SizeOfGistxlogDelete,
+    SizeOfGistxlogPageReuse, F_FOLLOW_RIGHT,
+    F_HAS_GARBAGE, F_LEAF, F_TUPLES_DELETED, GIST_PAGE_ID, GIST_ROOT_BLKNO, XLOG_GIST_ASSIGN_LSN, XLOG_GIST_DELETE, XLOG_GIST_PAGE_DELETE,
     XLOG_GIST_PAGE_REUSE, XLOG_GIST_PAGE_SPLIT, XLOG_GIST_PAGE_UPDATE,
 };
 use types_storage::bufpage::{PageMut, PageRef, SizeOfPageHeaderData};
@@ -20,17 +20,14 @@ use xlogutils::{XLogInitBufferForRedo, XLogReadBufferForRedo, BLK_NEEDS_REDO, BL
 const XLR_INFO_MASK: u8 = 0x0F;
 const FirstOffsetNumber: OffsetNumber = 1;
 
-fn main_data(record: &XLogReaderState) -> &[u8] {
-    let rec = record
-        .record
-        .as_ref()
-        .expect("gist redo with no decoded record");
+fn main_data(record: & XLogReaderState) -> & [u8] {
+    let rec = record.record.as_ref().expect("gist redo with no decoded record");
     // SAFETY: points into the reader's decode buffer, valid for the redo
     // callback's duration.
     unsafe { rec.main_data_bytes() }
 }
 
-fn block_data(record: &XLogReaderState, block_id: u8) -> &[u8] {
+fn block_data(record: & XLogReaderState, block_id: u8) -> & [u8] {
     // SAFETY: same decode-buffer lifetime as main_data.
     unsafe { record.block(block_id).data_bytes() }
 }
@@ -87,12 +84,7 @@ fn panic_err(msg: String) -> Box<PgError> {
 fn block_tag(
     record: &XLogReaderState,
     block_id: u8,
-) -> PgResult<(
-    types_storage::RelFileLocator,
-    types_core::ForkNumber,
-    BlockNumber,
-    Buffer,
-)> {
+) -> PgResult<(types_storage::RelFileLocator, types_core::ForkNumber, BlockNumber, Buffer,)> {
     let (rlocator, forknum, blkno) = record.block_tag(block_id)?;
     Ok((rlocator, forknum, blkno, types_core::InvalidBuffer))
 }
@@ -201,7 +193,10 @@ fn gistRedoPageUpdateRecord(record: &XLogReaderState) -> PgResult<()> {
             })?;
             let mut todelete: Vec<OffsetNumber> = ::mcx::std_vec_with_capacity("gist", n)?;
             for i in 0..n {
-                todelete.push(OffsetNumber::from_ne_bytes([data[i * 2], data[i * 2 + 1]]));
+                todelete.push(OffsetNumber::from_ne_bytes([
+                    data[i * 2],
+                    data[i * 2 + 1]
+                ]));
             }
             off += 2 * n;
             pm.index_multi_delete(&todelete);

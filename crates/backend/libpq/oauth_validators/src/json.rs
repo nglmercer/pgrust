@@ -27,8 +27,7 @@ impl Json {
     }
     pub fn as_i64(&self) -> Option<i64> {
         match self {
-            Json::Num(n) if n.is_finite() && n.fract() == 0.0 && n.abs() < 9.0e15 => {
-                Some(*n as i64)
+            Json::Num(n) if n.is_finite() && n.fract() == 0.0 && n.abs() < 9.0e15 => { Some(*n as i64)
             }
             _ => None,
         }
@@ -51,11 +50,7 @@ impl Json {
 }
 
 pub fn parse(text: &str) -> Result<Json, String> {
-    let mut p = Parser {
-        s: text.as_bytes(),
-        i: 0,
-        depth: 0,
-    };
+    let mut p = Parser { s: text.as_bytes(), i: 0, depth: 0, };
     p.ws();
     let v = p.value()?;
     p.ws();
@@ -178,23 +173,14 @@ impl<'a> Parser<'a> {
         if self.peek() == Some(b'-') {
             self.i += 1;
         }
-        while matches!(
-            self.peek(),
-            Some(b'0'..=b'9' | b'.' | b'e' | b'E' | b'+' | b'-')
-        ) {
+        while matches!(self.peek(), Some(b'0'..=b'9' | b'.' | b'e' | b'E' | b'+' | b'-')) {
             self.i += 1;
         }
-        let text =
-            std::str::from_utf8(&self.s[start..self.i]).map_err(|_| self.err("bad number"))?;
-        text.parse::<f64>()
-            .map(Json::Num)
-            .map_err(|_| self.err("bad number"))
+        let text = std::str::from_utf8(&self.s[start..self.i]).map_err(|_| self.err("bad number"))?;
+        text.parse::<f64>().map(Json::Num).map_err(|_| self.err("bad number"))
     }
     fn hex4(&mut self) -> Result<u32, String> {
-        let h = self
-            .s
-            .get(self.i..self.i + 4)
-            .ok_or_else(|| self.err("truncated \\u escape"))?;
+        let h = self.s.get(self.i..self.i + 4).ok_or_else(|| self.err("truncated \\u escape"))?;
         let h = std::str::from_utf8(h).map_err(|_| self.err("bad \\u escape"))?;
         let v = u32::from_str_radix(h, 16).map_err(|_| self.err("bad \\u escape"))?;
         self.i += 4;
@@ -234,8 +220,7 @@ impl<'a> Parser<'a> {
                             } else if (0xDC00..0xE000).contains(&cp) {
                                 return Err(self.err("lone low surrogate"));
                             }
-                            let ch =
-                                char::from_u32(cp).ok_or_else(|| self.err("bad code point"))?;
+                            let ch = char::from_u32(cp).ok_or_else(|| self.err("bad code point"))?;
                             let mut buf = [0u8; 4];
                             out.extend_from_slice(ch.encode_utf8(&mut buf).as_bytes());
                         }
@@ -253,8 +238,7 @@ impl<'a> Parser<'a> {
 pub fn b64url_decode(s: &str) -> Result<Vec<u8>, String> {
     let bytes = s.as_bytes();
     let mut out = Vec::new();
-    out.try_reserve(bytes.len() * 3 / 4 + 3)
-        .map_err(|_| "out of memory")?;
+    out.try_reserve(bytes.len() * 3 / 4 + 3).map_err(|_| "out of memory")?;
     let mut acc: u32 = 0;
     let mut nbits = 0;
     let mut n = 0;
@@ -288,11 +272,7 @@ pub fn b64url_encode(data: &[u8]) -> String {
     let mut out = String::new();
     let _ = out.try_reserve(data.len().div_ceil(3) * 4);
     for chunk in data.chunks(3) {
-        let b = [
-            chunk[0],
-            *chunk.get(1).unwrap_or(&0),
-            *chunk.get(2).unwrap_or(&0),
-        ];
+        let b = [chunk[0], *chunk.get(1).unwrap_or(&0), *chunk.get(2).unwrap_or(&0),];
         let v = (u32::from(b[0]) << 16) | (u32::from(b[1]) << 8) | u32::from(b[2]);
         out.push(T[(v >> 18) as usize & 63] as char);
         out.push(T[(v >> 12) as usize & 63] as char);
@@ -308,7 +288,7 @@ pub fn b64url_encode(data: &[u8]) -> String {
 
 pub fn b64_std_encode(data: &[u8]) -> String {
     let mut s = b64url_encode(data).replace('-', "+").replace('_', "/");
-    while !s.len().is_multiple_of(4) {
+    while ! s.len().is_multiple_of( 4) {
         s.push('=');
     }
     s

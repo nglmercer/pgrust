@@ -76,14 +76,8 @@ fn setup() {
             Ok(Box::leak(vec![0u8; size].into_boxed_slice()).as_mut_ptr())
         });
         shmem_seams::shmem_init_struct::set(|name, size| {
-            SHMEM_INDEX_NAMES
-                .lock()
-                .unwrap()
-                .push((name.to_owned(), size));
-            Ok((
-                Box::leak(vec![0u8; size.max(1)].into_boxed_slice()).as_mut_ptr(),
-                false,
-            ))
+            SHMEM_INDEX_NAMES.lock().unwrap().push((name.to_owned(), size));
+            Ok((Box::leak(vec![0u8; size.max(1)].into_boxed_slice()).as_mut_ptr(), false,))
         });
         xact_seams::transaction_id_is_current_transaction_id::set(|_| false);
         xact_seams::get_current_sub_transaction_id::set(|| 1);
@@ -144,11 +138,7 @@ fn header_and_record_codecs_roundtrip() {
     let bytes = hdr.to_bytes();
     assert_eq!(TwoPhaseFileHeader::from_bytes(&bytes), Some(hdr));
 
-    let rec = TwoPhaseRecordOnDisk {
-        len: 20,
-        rmid: 1,
-        info: 0,
-    };
+    let rec = TwoPhaseRecordOnDisk { len: 20, rmid: 1, info: 0, };
     assert_eq!(TwoPhaseRecordOnDisk::from_bytes(&rec.to_bytes()), Some(rec));
 
     // A buffer at least as large as the computed layout validates cleanly.
@@ -235,9 +225,9 @@ fn gxact_state_machine() {
 
     let long_gid = "x".repeat(crate::GIDSIZE);
     let err = crate::MarkAsPreparing(700, &long_gid, 1, 10, 5).unwrap_err();
-    assert!(err.message().contains(&format!(
-        "transaction identifier \"{long_gid}\" is too long"
-    )));
+    assert!(err
+        .message()
+        .contains(&format!("transaction identifier \"{long_gid}\" is too long")));
 
     let slot = crate::MarkAsPreparing(701, "gid_a", 111, 10, 5).expect("reserve gid_a");
 
@@ -257,10 +247,7 @@ fn gxact_state_machine() {
     let _slot_b = crate::MarkAsPreparing(703, "gid_b", 113, 10, 5).expect("reserve gid_b");
     // Table full (max_prepared_transactions = 2).
     let err = crate::MarkAsPreparing(704, "gid_c", 114, 10, 5).unwrap_err();
-    assert_eq!(
-        err.message(),
-        "maximum number of prepared transactions reached"
-    );
+    assert_eq!(err.message(), "maximum number of prepared transactions reached");
     assert_eq!(
         err.hint(),
         Some("Increase \"max_prepared_transactions\" (currently 2).")
@@ -304,21 +291,16 @@ fn gxact_state_machine() {
 
     // Wrong owner (721 != 10) and not superuser.
     let err = crate::FinishPreparedTransaction("gid_vis", true).unwrap_err();
-    assert_eq!(
-        err.message(),
-        "permission denied to finish prepared transaction"
-    );
+    assert_eq!(err.message(), "permission denied to finish prepared transaction");
 
     // Cleanup: drop the entry and its procarray membership.
     procarray::ProcArrayRemove(unsafe { TwoPhaseState().gxact(slot).pgprocno.get() }, 801)
         .expect("ProcArrayRemove");
     crate::state::lock_twophase_state(lwlock::LW_EXCLUSIVE);
-    unsafe {
-        TwoPhaseState()
-            .gxact(slot)
-            .locking_backend
-            .set(types_core::INVALID_PROC_NUMBER)
-    };
+    unsafe { TwoPhaseState()
+        .gxact(slot)
+        .locking_backend
+        .set(types_core::INVALID_PROC_NUMBER) };
     crate::core::remove_gxact(slot);
     crate::state::unlock_twophase_state();
 }
@@ -349,14 +331,7 @@ fn state_file_roundtrip_and_corruption() {
     let mut content = Vec::new();
     content.extend_from_slice(&hdr.to_bytes());
     content.extend_from_slice(b"g\0\0\0\0\0\0\0"); // gid, maxaligned
-    content.extend_from_slice(
-        &TwoPhaseRecordOnDisk {
-            len: 0,
-            rmid: 0,
-            info: 0,
-        }
-        .to_bytes(),
-    );
+    content.extend_from_slice(&TwoPhaseRecordOnDisk { len: 0, rmid: 0, info: 0, }.to_bytes(),);
     let total = (content.len() + 4) as u32;
     content[4..8].copy_from_slice(&total.to_ne_bytes());
 
@@ -376,9 +351,7 @@ fn state_file_roundtrip_and_corruption() {
     bytes[16] ^= 1;
     std::fs::write(&path, &bytes).unwrap();
     let err = crate::files::read_twophase_file(900, false).unwrap_err();
-    assert!(err
-        .message()
-        .contains("calculated CRC checksum does not match"));
+    assert!(err.message().contains("calculated CRC checksum does not match"));
 
     crate::files::remove_two_phase_file(900, true).expect("remove");
     assert!(!crate::files::twophase_file_exists(900).unwrap());
@@ -430,14 +403,7 @@ fn state_file_size_error_and_wait_events_match_c() {
     let mut content = Vec::new();
     content.extend_from_slice(&hdr.to_bytes());
     content.extend_from_slice(b"g\0\0\0\0\0\0\0");
-    content.extend_from_slice(
-        &TwoPhaseRecordOnDisk {
-            len: 0,
-            rmid: 0,
-            info: 0,
-        }
-        .to_bytes(),
-    );
+    content.extend_from_slice(&TwoPhaseRecordOnDisk { len: 0, rmid: 0, info: 0, }.to_bytes(),);
     let total = (content.len() + 4) as u32;
     content[4..8].copy_from_slice(&total.to_ne_bytes());
 
@@ -450,9 +416,7 @@ fn state_file_size_error_and_wait_events_match_c() {
         "RecreateTwoPhaseFile must report TwophaseFileWrite + TwophaseFileSync, got {after_write:?}"
     );
     WAIT_EVENTS.lock().unwrap().clear();
-    crate::files::read_twophase_file(902, false)
-        .expect("read ok")
-        .expect("present");
+    crate::files::read_twophase_file(902, false).expect("read ok").expect("present");
     let after_read = WAIT_EVENTS.lock().unwrap().clone();
     assert!(
         after_read.contains(&WAIT_EVENT_TWOPHASE_FILE_READ),
@@ -531,21 +495,13 @@ fn process_records_rejects_malformed_stream() {
         [None; twophase_rmgr::NUM_TWOPHASE_RM];
 
     // (1) rmid past the callback table => corruption error, not an OOB index.
-    let rec = TwoPhaseRecordOnDisk {
-        len: 0,
-        rmid: 200,
-        info: 0,
-    };
-    let err =
-        process_records(&rec.to_bytes(), 0, 42, &callbacks).expect_err("rmid 200 must be rejected");
+    let rec = TwoPhaseRecordOnDisk { len: 0, rmid: 200, info: 0, };
+    let err = process_records(&rec.to_bytes(), 0, 42, &callbacks)
+        .expect_err("rmid 200 must be rejected");
     assert_eq!(err.sqlstate(), ERRCODE_DATA_CORRUPTED);
 
     // (2) Oversized len => corruption error, not an OOB slice.
-    let rec = TwoPhaseRecordOnDisk {
-        len: 0xFFFF_FFFF,
-        rmid: 1,
-        info: 0,
-    };
+    let rec = TwoPhaseRecordOnDisk { len: 0xFFFF_FFFF, rmid: 1, info: 0, };
     let err = process_records(&rec.to_bytes(), 0, 42, &callbacks)
         .expect_err("oversized len must be rejected");
     assert_eq!(err.sqlstate(), ERRCODE_DATA_CORRUPTED);
@@ -556,11 +512,7 @@ fn process_records_rejects_malformed_stream() {
     assert_eq!(err.sqlstate(), ERRCODE_DATA_CORRUPTED);
 
     // (4) A well-formed END sentinel still terminates cleanly.
-    let rec = TwoPhaseRecordOnDisk {
-        len: 0,
-        rmid: twophase_rmgr::TWOPHASE_RM_END_ID,
-        info: 0,
-    };
+    let rec = TwoPhaseRecordOnDisk { len: 0, rmid: twophase_rmgr::TWOPHASE_RM_END_ID, info: 0, };
     process_records(&rec.to_bytes(), 0, 42, &callbacks).expect("END sentinel terminates");
 }
 
@@ -589,9 +541,7 @@ fn shmem_init_registers_prepared_transaction_table_in_shmem_index() {
 // Audit a186-candidate-fp-transam-twophase-f9bd389cf1a5396b9731-1.
 #[test]
 fn finish_callback_error_leaves_gxact_for_at_abort() {
-    use twophase_rmgr::{
-        TwoPhaseCallback, NUM_TWOPHASE_RM, TWOPHASE_RM_END_ID, TWOPHASE_RM_LOCK_ID,
-    };
+    use twophase_rmgr::{TwoPhaseCallback, NUM_TWOPHASE_RM, TWOPHASE_RM_END_ID, TWOPHASE_RM_LOCK_ID,};
 
     let _l = test_lock();
     setup();
@@ -606,27 +556,16 @@ fn finish_callback_error_leaves_gxact_for_at_abort() {
         _info: u16,
         _data: &[u8],
     ) -> types_error::PgResult<()> {
-        Err(Box::new(types_error::PgError::error(
-            "twophase test callback failure",
-        )))
+        Err(Box::new(types_error::PgError::error("twophase test callback failure",)))
     }
     let mut callbacks: [Option<TwoPhaseCallback>; NUM_TWOPHASE_RM] = [None; NUM_TWOPHASE_RM];
     callbacks[TWOPHASE_RM_LOCK_ID as usize] = Some(failing_callback);
     // One zero-length lock record, then the END sentinel.
-    let mut buf = TwoPhaseRecordOnDisk {
-        len: 0,
-        rmid: TWOPHASE_RM_LOCK_ID,
-        info: 0,
-    }
-    .to_bytes()
-    .to_vec();
+    let mut buf = TwoPhaseRecordOnDisk { len: 0, rmid: TWOPHASE_RM_LOCK_ID, info: 0, }
+        .to_bytes()
+        .to_vec();
     buf.extend_from_slice(
-        &TwoPhaseRecordOnDisk {
-            len: 0,
-            rmid: TWOPHASE_RM_END_ID,
-            info: 0,
-        }
-        .to_bytes(),
+        &TwoPhaseRecordOnDisk { len: 0, rmid: TWOPHASE_RM_END_ID, info: 0, }.to_bytes(),
     );
 
     // The finish-time shape: the gxact is in the array, locked by this
@@ -687,25 +626,19 @@ fn gid_for_subid_saturates_like_sscanf() {
 // errno spliced in; the pre-fix port left a literal "%m". Detail bug_8b0f8979.
 #[test]
 fn close_failure_message_carries_the_os_error() {
-    let err =
-        crate::files::close_two_phase_file(1 << 20, "pg_twophase/000000AC", "ReadTwoPhaseFile")
-            .unwrap_err();
+    let err = crate::files::close_two_phase_file(1 << 20, "pg_twophase/000000AC", "ReadTwoPhaseFile")
+        .unwrap_err();
     // elog.c errcode_for_file_access: EBADF is the default (internal error) arm.
     assert_eq!(err.sqlstate(), types_error::ERRCODE_INTERNAL_ERROR);
     assert_eq!(
         err.message(),
-        format!(
-            "could not close file \"pg_twophase/000000AC\": {}",
-            errno_str(libc::EBADF)
-        )
+        format!("could not close file \"pg_twophase/000000AC\": {}", errno_str(libc::EBADF))
     );
 }
 
 fn errno_str(en: i32) -> String {
     // SAFETY: strerror returns a static NUL-terminated string for a known errno.
-    unsafe { std::ffi::CStr::from_ptr(libc::strerror(en)) }
-        .to_string_lossy()
-        .into_owned()
+    unsafe { std::ffi::CStr::from_ptr(libc::strerror(en)) }.to_string_lossy().into_owned()
 }
 
 // audit fp-transam-twophase#1: abort between StartPrepare/EndPrepare frees the records buffer.

@@ -366,7 +366,7 @@ fn keys<'p>(q: Node<'p>, e: Edge) -> impl Iterator<Item = i16> + 'p {
 /// X: each expression parent `q` names besides its target list.
 fn each_expr<'p>(q: Node<'p>, f: &mut dyn FnMut(Node<'p>)) {
     let Some(p) = q.as_plan() else { return };
-    let list = |l: &types_nodes::list::NodeList<'p>, f: &mut dyn FnMut(Node<'p>)| l.iter().for_each(&mut *f);
+    let list = |l: &types_nodes::list::NodeList<'p>, f: &mut dyn FnMut(Node<'p>)| l.iter().for_each(&mut * f);
     list(&p.qual, f);
     if let Some(j) = q.as_nest_loop() {
         list(&j.join.joinqual, f);
@@ -381,11 +381,11 @@ fn each_expr<'p>(q: Node<'p>, f: &mut dyn FnMut(Node<'p>)) {
     } else if let Some(h) = q.as_hash() {
         list(&h.hashkeys, f);
     } else if let Some(r) = q.as_result() {
-        r.resconstantqual.into_iter().for_each(&mut *f);
+        r.resconstantqual.into_iter().for_each(&mut * f);
     } else if let Some(l) = q.as_limit() {
-        l.limitOffset.into_iter().chain(l.limitCount).for_each(&mut *f);
+        l.limitOffset.into_iter().chain(l.limitCount).for_each(&mut * f);
     } else if let Some(w) = q.as_window_agg() {
-        w.startOffset.into_iter().chain(w.endOffset).for_each(&mut *f);
+        w.startOffset.into_iter().chain(w.endOffset).for_each(&mut * f);
         list(&w.runCondition, f);
     } else if let Some(m) = q.as_memoize() {
         list(&m.param_exprs, f);

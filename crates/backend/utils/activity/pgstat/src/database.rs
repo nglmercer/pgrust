@@ -293,9 +293,9 @@ pub fn pgstat_fetch_stat_dbentry(dboid: Oid) -> Option<PgStat_StatDBEntry> {
 }
 
 pub(crate) fn pgstat_prep_database_pending_in(
-    st: &mut PgStatState,
+    st: & mut PgStatState,
     dboid: Oid,
-) -> &mut PgStat_StatDBEntry {
+) -> & mut PgStat_StatDBEntry {
     debug_assert!(dboid == InvalidOid || MyDatabaseId() != InvalidOid);
     let key = PgStat_HashKey {
         kind: PGSTAT_KIND_DATABASE,
@@ -303,7 +303,7 @@ pub(crate) fn pgstat_prep_database_pending_in(
         objid: 0,
     };
     match st.prep_pending_entry(key) {
-        PendingData::Database(db) => db,
+        PendingData::Database(db) =>db,
         _ => unreachable!("database key holds non-database pending data"),
     }
 }

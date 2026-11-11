@@ -106,10 +106,7 @@ fn test_relation<'mcx>(mcx: mcx::Mcx<'mcx>) -> RelationData<'mcx> {
         rd_firstRelfilelocatorSubid: Cell::new(0),
         rd_droppedSubid: Cell::new(0),
         rd_lockInfo: LockInfoData {
-            lockRelId: LockRelId {
-                relId: 1000,
-                dbId: 5,
-            },
+            lockRelId: LockRelId { relId: 1000, dbId: 5, },
         },
         rd_rel,
         rd_att,
@@ -122,17 +119,13 @@ fn test_relation<'mcx>(mcx: mcx::Mcx<'mcx>) -> RelationData<'mcx> {
         pgstat_enabled: Cell::new(false),
         pgstat_link: core::cell::Cell::new((0, core::ptr::null_mut())),
         rd_amcache: Default::default(),
-        rd_amcache_hash: Default::default(),
-        rd_amcache_gin: Default::default(),
-        rd_amcache_spgist: Default::default(),
-        rd_amcache_bloom: Default::default(),
+        rd_amcache_hash: Default::default(), rd_amcache_gin: Default::default(), rd_amcache_spgist: Default::default(), rd_amcache_bloom: Default::default(),
         rd_support: mcx::PgVec::new_in(mcx),
         rd_supportinfo: Default::default(),
         rd_opcoptions: Default::default(),
         rd_indexlist: Default::default(),
-        rd_trigdesc: Default::default(),
-        rd_hastriggers: false,
-        rd_hasrules: false,
+            rd_trigdesc: Default::default(),
+            rd_hastriggers: false, rd_hasrules: false,
     }
 }
 
@@ -207,9 +200,12 @@ fn unexpected_dead_htsv_is_ereport_not_panic() {
 
     let mut prstate = empty_prstate();
     prstate.htsv[super::FirstOffsetNumber as usize] = super::HTSV_Result::HEAPTUPLE_DEAD as i8;
-    let err =
-        super::heap_prune_record_unchanged_lp_normal(page, &mut prstate, super::FirstOffsetNumber)
-            .expect_err("C elog(ERROR) on DEAD in unchanged");
+    let err = super::heap_prune_record_unchanged_lp_normal(
+        page,
+        &mut prstate,
+        super::FirstOffsetNumber
+    )
+    .expect_err("C elog(ERROR) on DEAD in unchanged");
     assert_eq!(err.level, types_error::ERROR);
     assert_eq!(err.sqlstate, types_error::ERRCODE_INTERNAL_ERROR);
     assert_eq!(err.message, "unexpected HeapTupleSatisfiesVacuum result 0");

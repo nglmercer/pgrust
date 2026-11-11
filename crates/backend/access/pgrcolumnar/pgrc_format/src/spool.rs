@@ -29,9 +29,7 @@ const PENDING_PREFIX: &str = "pending-";
 const ARCHIVE_SUFFIX: &str = ".pgrc";
 
 fn is_upper_hex(s: &str, len: usize) -> bool {
-    s.len() == len
-        && s.bytes()
-            .all(|b| b.is_ascii_digit() || (b'A'..=b'F').contains(&b))
+    s.len() == len && s.bytes().all(|b| b.is_ascii_digit() || (b'A'..=b'F').contains(&b))
 }
 
 /// The spool entry of the reference whose record starts at `lsn`: 16 upper-case hex digits (WAL file name style).
@@ -48,10 +46,7 @@ pub fn parse_spool_name(n: &str) -> Option<u64> {
 
 /// The spool link made before a reference is logged: unique per table file, so a crash leaves at most one per file.
 pub fn pending_name(dir: DirLoc, file: &str) -> String {
-    format!(
-        "{PENDING_PREFIX}{}-{}-{}-{file}",
-        dir.spc, dir.db, dir.relnumber
-    )
+    format!("{PENDING_PREFIX}{}-{}-{}-{file}", dir.spc, dir.db, dir.relnumber)
 }
 
 fn canonical_u32(s: &str) -> Option<u32> {
@@ -97,11 +92,7 @@ pub struct MaskedCrc {
 
 impl MaskedCrc {
     pub fn new(masks: SmallMasks) -> Self {
-        MaskedCrc {
-            masks,
-            crc: ::crc32c::CRC32C_INIT,
-            pos: 0,
-        }
+        MaskedCrc { masks, crc: ::crc32c::CRC32C_INIT, pos: 0, }
     }
 
     /// The bytes at `off`, which must be where the previous update ended (sequential writes only).
@@ -187,11 +178,7 @@ mod tests {
     use crate::dirlayout::temp_file_name;
     use crate::wal::NO_MASKS;
 
-    const D: DirLoc = DirLoc {
-        spc: 1663,
-        db: 5,
-        relnumber: 16384,
-    };
+    const D: DirLoc = DirLoc { spc: 1663, db: 5, relnumber: 16384, };
 
     #[test]
     fn unsynced_markers_round_trip() {
@@ -209,13 +196,7 @@ mod tests {
             assert_eq!(n.len(), 16);
             assert_eq!(parse_spool_name(&n), Some(lsn));
         }
-        for bad in [
-            "",
-            "0000000123456789a",
-            "000000012345678g",
-            "00000001234567890",
-            "000000012345678a",
-        ] {
+        for bad in ["", "0000000123456789a", "000000012345678g", "00000001234567890", "000000012345678a",] {
             assert_eq!(parse_spool_name(bad), None, "{bad}");
         }
         assert_eq!(parse_spool_name(&pending_name(D, "part-1.pgrc")), None);
@@ -223,29 +204,8 @@ mod tests {
 
     #[test]
     fn pending_names_round_trip_and_never_collide() {
-        let files = [
-            temp_file_name(744, 0),
-            temp_file_name(744, 12),
-            "part-3.pgrc".to_string(),
-        ];
-        let dirs = [
-            D,
-            DirLoc {
-                spc: 1663,
-                db: 51,
-                relnumber: 6384,
-            },
-            DirLoc {
-                spc: 16631,
-                db: 5,
-                relnumber: 16384,
-            },
-            DirLoc {
-                spc: 0,
-                db: 0,
-                relnumber: 0,
-            },
-        ];
+        let files = [temp_file_name(744, 0), temp_file_name(744, 12), "part-3.pgrc".to_string(),];
+        let dirs = [D, DirLoc { spc: 1663, db: 51, relnumber: 6384, }, DirLoc { spc: 16631, db: 5, relnumber: 16384, }, DirLoc { spc: 0, db: 0, relnumber: 0, },];
         let mut seen = std::collections::HashSet::new();
         for d in dirs {
             for f in &files {
@@ -254,13 +214,7 @@ mod tests {
                 assert!(seen.insert(n));
             }
         }
-        for bad in [
-            "pending-1663-5-16384-",
-            "pending-1663-5-16384-../x",
-            "pending-01663-5-16384-part-1.pgrc",
-            "pending-1663-5-part-1.pgrc",
-            "part-1.pgrc",
-        ] {
+        for bad in ["pending-1663-5-16384-", "pending-1663-5-16384-../x", "pending-01663-5-16384-part-1.pgrc", "pending-1663-5-part-1.pgrc", "part-1.pgrc",] {
             assert_eq!(parse_pending_name(bad), None, "{bad}");
         }
     }
@@ -273,20 +227,13 @@ mod tests {
         assert_eq!(parse_archive_name(&n), Some((seg, 0x1234)));
         let n = archive_name(seg, 0x2_03FF_FFF8, 16 << 20);
         assert_eq!(parse_archive_name(&n), Some((seg, 0xFF_FFF8)));
-        for bad in [
-            seg,
-            "000000010000000200000003.partial",
-            "00000001000000020000003.00001234.pgrc",
-            "000000010000000200000003.0001234.pgrc",
-        ] {
+        for bad in [seg, "000000010000000200000003.partial", "00000001000000020000003.00001234.pgrc", "000000010000000200000003.0001234.pgrc",] {
             assert_eq!(parse_archive_name(bad), None, "{bad}");
         }
     }
 
     fn image(len: usize) -> Vec<u8> {
-        (0..len)
-            .map(|i| (i.wrapping_mul(2_654_435_761) >> 7) as u8)
-            .collect()
+        (0..len).map(|i| (i.wrapping_mul(2_654_435_761) >> 7) as u8).collect()
     }
 
     #[test]

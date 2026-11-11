@@ -13,7 +13,7 @@ use std::rc::Rc;
 use std::sync::atomic::Ordering::Relaxed;
 use std::sync::Mutex;
 
-use mcx::{Mcx, MemoryContext, PgVec};
+use mcx::{ Mcx, MemoryContext, PgVec};
 use transam_xlog::control_file::{
     FirstNormalUnloggedLSN, FLOATFORMAT_VALUE, PG_CONTROL_FILE_SIZE, PG_CONTROL_VERSION,
     TOAST_MAX_CHUNK_SIZE,
@@ -66,22 +66,10 @@ struct Fake {
 
 static FAKE: Mutex<Fake> = Mutex::new(Fake {
     forks: [
-        ForkPages {
-            pages: Vec::new(),
-            pins: Vec::new(),
-        },
-        ForkPages {
-            pages: Vec::new(),
-            pins: Vec::new(),
-        },
-        ForkPages {
-            pages: Vec::new(),
-            pins: Vec::new(),
-        },
-        ForkPages {
-            pages: Vec::new(),
-            pins: Vec::new(),
-        },
+        ForkPages { pages: Vec::new(), pins: Vec::new(), },
+        ForkPages { pages: Vec::new(), pins: Vec::new(), },
+        ForkPages { pages: Vec::new(), pins: Vec::new(), },
+        ForkPages { pages: Vec::new(), pins: Vec::new(), },
     ],
 });
 
@@ -98,10 +86,7 @@ fn buf_of(fork: ForkNumber, block: BlockNumber) -> Buffer {
 }
 
 fn decode(buf: Buffer) -> (usize, usize) {
-    (
-        ((buf - 1) / FORK_STRIDE) as usize,
-        ((buf - 1) % FORK_STRIDE) as usize,
-    )
+    (((buf - 1) / FORK_STRIDE) as usize, ((buf - 1) % FORK_STRIDE) as usize,)
 }
 
 fn pin_read(fork: usize, block: usize) -> Buffer {
@@ -186,8 +171,7 @@ fn install_seams() {
         }))
     });
     bufmgr_seams::relation_get_number_of_blocks_in_fork::set(|_rel, fork| {
-        Ok(with_fake(|f| {
-            f.forks[fork as usize].pages.len() as BlockNumber
+        Ok(with_fake(|f| { f.forks[fork as usize].pages.len() as BlockNumber
         }))
     });
     bufmgr_seams::relation_smgr_locator::set(|_rel| ::types_storage::RelFileLocatorBackend {
@@ -241,8 +225,7 @@ fn install_seams() {
     // Replay lane: XLogReadBufferExtended over the same fake registry.
     smgr_seams::smgr_create::set(|_, _, _| Ok(()));
     smgr_seams::smgr_nblocks::set(|_, fork| {
-        Ok(with_fake(|f| {
-            f.forks[fork as usize].pages.len() as BlockNumber
+        Ok(with_fake(|f| { f.forks[fork as usize].pages.len() as BlockNumber
         }))
     });
     bufmgr_seams::read_recent_buffer::set(|_, _, _, _| Ok(false));
@@ -289,10 +272,7 @@ fn install_seams() {
         unsafe { core::ptr::copy_nonoverlapping(page.as_ptr(), addr as *mut u8, page.len()) };
     });
     relpath_seams::relpathperm::set(|rlocator, forknum| {
-        format!(
-            "base/{}/{}#{:?}",
-            rlocator.dbOid, rlocator.relNumber, forknum
-        )
+        format!("base/{}/{}#{:?}", rlocator.dbOid, rlocator.relNumber, forknum)
     });
     xlogrecovery_seams::reached_consistency::set(|| false);
 }
@@ -393,10 +373,7 @@ fn index_rel(mcx: Mcx<'_>) -> Relation<'_> {
         rd_firstRelfilelocatorSubid: Cell::new(0),
         rd_droppedSubid: Cell::new(0),
         rd_lockInfo: LockInfoData {
-            lockRelId: LockRelId {
-                relId: REL_OID,
-                dbId: 5,
-            },
+            lockRelId: LockRelId { relId: REL_OID, dbId: 5, },
         },
         rd_rel: FormData_pg_class {
             relname,
@@ -439,8 +416,8 @@ fn index_rel(mcx: Mcx<'_>) -> Relation<'_> {
             indxmin: 0,
             indkey,
             has_indpred: false,
-            indexprs_src: None,
-            indpred_src: None,
+        indexprs_src: None,
+        indpred_src: None,
         }),
         rd_opcintype: one(23),
         rd_opfamily: one(1976),
@@ -451,12 +428,8 @@ fn index_rel(mcx: Mcx<'_>) -> Relation<'_> {
         pgstat_link: core::cell::Cell::new((0, core::ptr::null_mut())),
         rd_amcache: Default::default(),
         rd_trigdesc: Default::default(),
-        rd_hastriggers: false,
-        rd_hasrules: false,
-        rd_amcache_hash: Default::default(),
-        rd_amcache_gin: Default::default(),
-        rd_amcache_spgist: Default::default(),
-        rd_amcache_bloom: Default::default(),
+        rd_hastriggers: false, rd_hasrules: false,
+        rd_amcache_hash: Default::default(), rd_amcache_gin: Default::default(), rd_amcache_spgist: Default::default(), rd_amcache_bloom: Default::default(),
         rd_support: PgVec::new_in(mcx),
         rd_supportinfo: Default::default(),
         rd_opcoptions: Default::default(),
@@ -603,10 +576,7 @@ fn plant_posting_tuple(leaf_blk: usize, key: i32) {
     let opaque_off = BLCKSZ - core::mem::size_of::<BTPageOpaqueData>();
     // SAFETY: special-space read of a live btree page.
     let opaque = unsafe {
-        (addr as *const u8)
-            .add(opaque_off)
-            .cast::<BTPageOpaqueData>()
-            .read()
+        (addr as *const u8).add(opaque_off).cast::<BTPageOpaqueData>().read()
     };
     let first_data = if opaque.btpo_next != P_NONE || opaque.btpo_prev != P_NONE {
         2 // has a high key at offset 1 unless rightmost+leftmost
@@ -621,7 +591,8 @@ fn plant_posting_tuple(leaf_blk: usize, key: i32) {
 
 #[test]
 fn btree_vacuum_redo_rebuilds_pages_byte_exact() {
-    let dir = std::env::temp_dir().join(format!("pgrust_nbtxlog_vacredo_{}", std::process::id()));
+    let dir =
+        std::env::temp_dir().join(format!("pgrust_nbtxlog_vacredo_{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     for sub in ["global", "pg_wal"] {
         std::fs::create_dir_all(dir.join(sub)).unwrap();
@@ -668,12 +639,8 @@ fn btree_vacuum_redo_rebuilds_pages_byte_exact() {
     let ctl = transam_xlog::ctl::XLogCtl();
     ctl.InsertTimeLineID.store(1, Relaxed);
     ctl.PrevTimeLineID.store(1, Relaxed);
-    ctl.Insert
-        .CurrBytePos
-        .store(XLogRecPtrToBytePos(end_of_log), Relaxed);
-    ctl.Insert
-        .PrevBytePos
-        .store(XLogRecPtrToBytePos(prev_rec), Relaxed);
+    ctl.Insert.CurrBytePos.store(XLogRecPtrToBytePos(end_of_log), Relaxed);
+    ctl.Insert.PrevBytePos.store(XLogRecPtrToBytePos(prev_rec), Relaxed);
     ctl.Insert.fullPageWrites.store(true, Relaxed);
     ctl.Insert.RedoRecPtr.store(prev_rec, Relaxed);
     ctl.RedoRecPtr.store(prev_rec, Relaxed);
@@ -689,9 +656,7 @@ fn btree_vacuum_redo_rebuilds_pages_byte_exact() {
     assert!(transam_xlog::XLogInsertAllowed());
 
     with_fake(|f| {
-        f.forks[0]
-            .pages
-            .push(Box::leak(empty_meta_page()).0.as_mut_ptr() as usize);
+        f.forks[0].pages.push(Box::leak(empty_meta_page()).0.as_mut_ptr() as usize);
         f.forks[0].pins.push(0);
     });
 
@@ -733,11 +698,7 @@ fn btree_vacuum_redo_rebuilds_pages_byte_exact() {
             let addr = with_fake(|f| f.forks[0].pages[blk]);
             // SAFETY: special-space read of a live btree page.
             let next = unsafe {
-                (addr as *const u8)
-                    .add(opaque_off)
-                    .cast::<BTPageOpaqueData>()
-                    .read()
-                    .btpo_next
+                (addr as *const u8).add(opaque_off).cast::<BTPageOpaqueData>().read().btpo_next
             };
             if next == P_NONE {
                 break blk;
@@ -789,7 +750,8 @@ fn btree_vacuum_redo_rebuilds_pages_byte_exact() {
         k += 2;
     }
     dead.push(ItemPointerData::new(9001, 1));
-    dead.sort_by(|a, b| types_tuple::itemptr::ItemPointerCompare(a, b).cmp(&0));
+    dead.sort_by(|a, b|
+        types_tuple::itemptr::ItemPointerCompare(a, b).cmp(&0));
 
     let info = nbtree::IndexVacuumInfo {
         index: &rel,
@@ -805,16 +767,10 @@ fn btree_vacuum_redo_rebuilds_pages_byte_exact() {
     let stats = nbtree::btbulkdelete(vcx.mcx(), &info, None, &dead).unwrap();
     assert!(stats.tuples_removed > 0.0, "bulkdelete removed TIDs");
     assert!(stats.pages_newly_deleted > 0, "page deletion ran");
-    let stats = nbtree::btvacuumcleanup(vcx.mcx(), &info, Some(stats))
-        .unwrap()
-        .unwrap();
+    let stats = nbtree::btvacuumcleanup(vcx.mcx(), &info, Some(stats)).unwrap().unwrap();
     assert!(stats.pages_deleted >= stats.pages_free);
 
-    with_fake(|f| {
-        assert!(
-            f.forks[0].pins.iter().all(|p| *p == 0),
-            "leaked pins post-vacuum"
-        )
+    with_fake(|f| { assert!(f.forks[0].pins.iter().all(|p| *p == 0), "leaked pins post-vacuum")
     });
 
     let nblocks = with_fake(|f| f.forks[0].pages.len());
@@ -839,9 +795,7 @@ fn btree_vacuum_redo_rebuilds_pages_byte_exact() {
     let reader_ctx: &'static MemoryContext = Box::leak(Box::new(MemoryContext::new("reader")));
     let mut reader = xlogreader::XLogReaderState::allocate(reader_ctx.mcx(), SEG).unwrap();
     reader.system_identifier = SYS_ID;
-    let mut routine = SegFileRead {
-        wal_dir: dir.join("pg_wal"),
-    };
+    let mut routine = SegFileRead { wal_dir: dir.join("pg_wal"), };
     reader.XLogBeginRead(end_of_log + 40);
 
     let mut seen = [0u32; 16];
@@ -856,10 +810,7 @@ fn btree_vacuum_redo_rebuilds_pages_byte_exact() {
     }
     assert_eq!(reader.v.EndRecPtr, last_lsn);
 
-    assert!(
-        seen[(XLOG_BTREE_VACUUM >> 4) as usize] > 0,
-        "VACUUM replayed"
-    );
+    assert!(seen[(XLOG_BTREE_VACUUM >> 4) as usize] > 0, "VACUUM replayed");
     assert!(
         seen[(XLOG_BTREE_MARK_PAGE_HALFDEAD >> 4) as usize] > 0,
         "MARK_PAGE_HALFDEAD replayed"
@@ -877,11 +828,7 @@ fn btree_vacuum_redo_rebuilds_pages_byte_exact() {
         "META_CLEANUP replayed"
     );
 
-    with_fake(|f| {
-        assert!(
-            f.forks[0].pins.iter().all(|p| *p == 0),
-            "replay leaked pins"
-        )
+    with_fake(|f| { assert!(f.forks[0].pins.iter().all(|p| *p == 0), "replay leaked pins")
     });
     assert_eq!(with_fake(|f| f.forks[0].pages.len()), nblocks);
 
@@ -904,15 +851,12 @@ fn btree_vacuum_redo_rebuilds_pages_byte_exact() {
     };
 
     #[allow(clippy::needless_range_loop)]
+
     for blk in 0..nblocks {
         let got = mask(page_bytes(blk));
         let expected_blk = mask(expected[blk]);
         if got[..] != expected_blk[..] {
-            let first = got
-                .iter()
-                .zip(&expected_blk)
-                .position(|(a, b)| a != b)
-                .unwrap();
+            let first = got.iter().zip(&expected_blk).position(|(a, b)| a != b).unwrap();
             panic!(
                 "replayed block {blk} differs at byte {first}: got {:02x?} want {:02x?}",
                 &got[first..(first + 16).min(BLCKSZ)],

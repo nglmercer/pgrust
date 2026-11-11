@@ -137,13 +137,11 @@ mod tests {
         let mut buf = vec![0u64; len / 8];
         let d = buf.as_mut_ptr() as *mut u8;
         // SAFETY: `buf` is the region; records of 24 bytes (the key word, the link word, the payload word) from HDR.
-        unsafe {
-            wr::<u8>(d, PHASE, 1); wr::<u8>(d, WORDS, 1); wr::<u32>(d, REC, 24); wr::<u8>(d, ALLOW, allow); wr::<u8>(d, FLAGS, flags); wr::<u8>(d, PAY, 1);
-            wr::<u64>(d, N, recs.len() as u64); wr::<u64>(d, TOP, len as u64);
-            wr::<i64>(d, LO, recs.iter().map(|r| r.0).min().unwrap()); wr::<i64>(d, HI, recs.iter().map(|r| r.0).max().unwrap());
+        unsafe {wr::<u8>(d, PHASE, 1); wr::<u8>(d, WORDS, 1); wr::<u32>(d, REC, 24); wr::<u8>(d, ALLOW, allow); wr::<u8>(d, FLAGS, flags); wr::<u8>(d, PAY, 1);
+wr::<u64>(d, N, recs.len() as u64); wr::<u64>(d, TOP, len as u64);
+wr::<i64>(d, LO, recs.iter().map(|r| r.0).min().unwrap()); wr::<i64>(d, HI, recs.iter().map(|r| r.0).max().unwrap());
             let rec = |i: usize| d.add(HDR + 24 * i);
-            for (i, &(k, null, v)) in recs.iter().enumerate() {
-                wr::<i64>(rec(i), 0, k); wr::<u64>(rec(i), 8, if null { 1 << 32 } else { 0 }); wr::<i64>(rec(i), 16, v);
+            for (i, &(k, null, v)) in recs.iter().enumerate() {wr::<i64>(rec(i), 0, k); wr::<u64>(rec(i), 8, if null { 1 << 32 } else { 0 }); wr::<i64>(rec(i), 16, v);
             }
             lay_out(d, len).unwrap();
             let (form, lo) = (rd::<u8>(d, FORM), rd::<i64>(d, LO));
@@ -215,9 +213,8 @@ mod tests {
             let mut buf = vec![0u64; len / 8];
             let d = buf.as_mut_ptr() as *mut u8;
             // SAFETY: `buf` is the region; records of `rec` bytes (the image words, the link word) from HDR, no payload.
-            unsafe {
-                wr::<u8>(d, PHASE, 1); wr::<u8>(d, WORDS, words as u8); wr::<u32>(d, REC, rec as u32); wr::<u8>(d, FLAGS, flags); wr::<u8>(d, PAY, 0);
-                wr::<u64>(d, N, keys.len() as u64); wr::<u64>(d, TOP, len as u64);
+            unsafe {wr::<u8>(d, PHASE, 1); wr::<u8>(d, WORDS, words as u8); wr::<u32>(d, REC, rec as u32); wr::<u8>(d, FLAGS, flags); wr::<u8>(d, PAY, 0);
+wr::<u64>(d, N, keys.len() as u64); wr::<u64>(d, TOP, len as u64);
                 for (i, k) in keys.iter().enumerate() {
                     for (w, &v) in k.iter().enumerate() {
                         wr::<i64>(d.add(HDR + rec * i), 8 * w, v);

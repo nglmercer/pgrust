@@ -122,7 +122,7 @@ fn index_strategy_get_limit(strategy: u16) -> PgResult<f64> {
 // Scalar functions (trgm_op.c).
 // ===========================================================================
 
-fn text_args(fcinfo: &Fcinfo) -> PgResult<(&[u8], &[u8])> {
+fn text_args(fcinfo: & Fcinfo) -> PgResult<(& [u8], & [u8])> {
     // SAFETY: catalog args are non-null text varlenas (strict fns).
     let (a, b) = unsafe { (fcinfo.arg_varlena_packed(0)?, fcinfo.arg_varlena_packed(1)?) };
     Ok((a.data(), b.data()))
@@ -632,7 +632,7 @@ fn gtrgm_cached<'f>(
         };
         flinfo.fn_extra = Some(FnExtra::new(GtrgmCache {
             strategy,
-            query: ::mcx::std_vec_from_slice("pg_trgm", payload)?,
+            query: ::mcx::std_vec_from_slice("pg_trgm",payload)?,
             trigrams,
             graph,
         }));

@@ -3464,7 +3464,7 @@ fn regress_operator_def_arg_sconst_is_make_string() {
 fn regress_stack_exhaustion_error_shape() {
     let depth = crate::tables::YYMAXDEPTH + 64;
     let mut sql = String::from("SELECT ");
-    sql.extend(std::iter::repeat_n('(', depth));
+    sql.extend(std::iter::repeat_n('(',depth));
     sql.push('1');
     let e = parse_err(&sql);
     assert_eq!(e.message(), "memory exhausted at or near \"(\"");

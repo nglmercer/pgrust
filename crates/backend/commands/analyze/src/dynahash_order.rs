@@ -113,10 +113,7 @@ pub(crate) struct EntrySlab<'m, T> {
 
 impl<'m, T> EntrySlab<'m, T> {
     pub(crate) fn new(mcx: Mcx<'m>) -> Self {
-        EntrySlab {
-            items: PgVec::new_in(mcx),
-            free: PgVec::new_in(mcx),
-        }
+        EntrySlab { items: PgVec::new_in(mcx), free: PgVec::new_in(mcx), }
     }
 
     pub(crate) fn alloc(&mut self, item: T) -> u32 {

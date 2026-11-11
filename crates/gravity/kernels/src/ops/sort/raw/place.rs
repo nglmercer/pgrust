@@ -179,7 +179,7 @@ mod tests {
     fn value(i: usize) -> Option<Vec<u8>> {
         match i {
             _ if i % 5 == 1 => None,
-            _ if i.is_multiple_of(7) => Some(format!("{i:0>3000}").into_bytes()), // alloc: Cold
+            _ if i.is_multiple_of( 7) => Some(format!("{i:0>3000}").into_bytes()), // alloc: Cold
             _ => Some(format!("v{i}").into_bytes()), // alloc: Cold
         }
     }

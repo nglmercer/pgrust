@@ -1,4 +1,4 @@
-#![allow(non_snake_case, non_upper_case_globals)]
+#![allow(non_snake_case,non_upper_case_globals)]
 
 use datum::Datum;
 use elog::{elog, ereport};

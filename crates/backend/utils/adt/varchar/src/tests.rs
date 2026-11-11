@@ -276,7 +276,7 @@ fn cstring_array_1d(elems: &[&[u8]]) -> Vec<u8> {
     v.extend_from_slice(&types_core::CSTRINGOID.to_ne_bytes());
     v.extend_from_slice(&(elems.len() as i32).to_ne_bytes());
     v.extend_from_slice(&1i32.to_ne_bytes());
-    while !v.len().is_multiple_of(8) {
+    while ! v.len().is_multiple_of( 8) {
         v.push(0);
     }
     for e in elems {

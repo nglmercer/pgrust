@@ -1,7 +1,7 @@
 // gravity_driver_rig's root: a native integration-test rig that reads the program ABI's words as raw pointers. The
 // site's wasm gate checks every workspace member for wasm32, where the rig is empty.
 #![cfg(not(target_family = "wasm"))]
-#![allow(clippy::duplicate_mod, dead_code)]
+#![allow(clippy::duplicate_mod,dead_code)]
 
 use std::cell::Cell;
 use std::rc::Rc;

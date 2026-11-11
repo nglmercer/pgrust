@@ -23,7 +23,7 @@ pub fn make_numeric_typmod_safe(
 ) -> PgResult<i32> {
     use ::types_error::ERRCODE_INVALID_PARAMETER_VALUE;
 
-    if !(1..=crate::NUMERIC_MAX_PRECISION).contains(&precision) {
+    if !( 1..= crate::NUMERIC_MAX_PRECISION).contains(&precision) {
         return ereturn(
             escontext,
             -1,
@@ -35,7 +35,7 @@ pub fn make_numeric_typmod_safe(
             .with_sqlstate(ERRCODE_INVALID_PARAMETER_VALUE),
         );
     }
-    if !(crate::NUMERIC_MIN_SCALE..=crate::NUMERIC_MAX_SCALE).contains(&scale) {
+    if !( crate::NUMERIC_MIN_SCALE..= crate::NUMERIC_MAX_SCALE).contains(&scale) {
         return ereturn(
             escontext,
             -1,
@@ -545,6 +545,7 @@ pub fn numeric_round_common(num: Num<'_>, scale: i32) -> PgResult<NumericImage> 
     }
 
     #[allow(clippy::manual_clamp)]
+
     let scale = scale
         .max(-(NUMERIC_WEIGHT_MAX + 1) * DEC_DIGITS - 1)
         .min(NUMERIC_DSCALE_MAX);
@@ -563,6 +564,7 @@ pub fn numeric_trunc_common(num: Num<'_>, scale: i32) -> PgResult<NumericImage> 
     }
 
     #[allow(clippy::manual_clamp)]
+
     let scale = scale
         .max(-(NUMERIC_WEIGHT_MAX + 1) * DEC_DIGITS)
         .min(NUMERIC_DSCALE_MAX);
@@ -809,7 +811,7 @@ pub fn numeric_float8_no_overflow(num: Num<'_>) -> f64 {
 // viewing (C: DatumGetNumeric's unpacking copy).
 pub fn numeric_float8_no_overflow_any(payload: &[u8]) -> f64 {
     let num = Num::from_payload(payload);
-    if num.is_special() || (payload.as_ptr() as usize + num.header_size()).is_multiple_of(2) {
+    if num.is_special() || (payload.as_ptr() as usize + num.header_size()).is_multiple_of( 2) {
         return numeric_float8_no_overflow(num);
     }
     let nwords = payload.len().div_ceil(2);

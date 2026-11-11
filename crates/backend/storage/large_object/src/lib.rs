@@ -400,7 +400,7 @@ pub fn inv_seek<'mcx>(
         }
     };
 
-    if !(0..=MAX_LARGE_OBJECT_SIZE).contains(&newoffset) {
+    if !( 0..= MAX_LARGE_OBJECT_SIZE).contains(&newoffset) {
         return Err(ereport(ERROR)
             .errcode(ERRCODE_INVALID_PARAMETER_VALUE)
             .errmsg_internal(format!("invalid large object seek target: {newoffset}"))
@@ -653,7 +653,7 @@ pub fn inv_truncate<'mcx>(
         return Err(permission_denied(obj_desc.id));
     }
 
-    if !(0..=MAX_LARGE_OBJECT_SIZE).contains(&len) {
+    if !( 0..= MAX_LARGE_OBJECT_SIZE).contains(&len) {
         return Err(ereport(ERROR)
             .errcode(ERRCODE_INVALID_PARAMETER_VALUE)
             .errmsg_internal(format!("invalid large object truncation target: {len}"))

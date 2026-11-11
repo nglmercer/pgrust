@@ -80,11 +80,7 @@ pub fn meta_hash128_and_digests(bytes: &[u8], bank: (u64, u64)) -> (u64, u64, u6
 #[inline]
 pub fn meta_hash128_word(w: u64, width: u32) -> (u64, u64) {
     debug_assert!((1..=8).contains(&width));
-    let wm = if width >= 8 {
-        w
-    } else {
-        w & ((1u64 << (8 * width)) - 1)
-    };
+    let wm = if width >= 8 { w } else { w & ((1u64 << (8 * width)) - 1) };
     let (k1, k2) = word_seeds(width);
     (mix64(fold64(k1, wm)), mix64(fold64(k2, wm)))
 }
@@ -185,13 +181,8 @@ mod tests {
     fn fused_and_word_forms_equal_the_per_lane_walks() {
         let mut x: u64 = 0x1234_5678_9abc_def1;
         for len in 0..80usize {
-            let b: Vec<u8> = (0..len)
-                .map(|i| (x.rotate_left(i as u32) >> 7) as u8)
-                .collect();
-            let want = (
-                super::lane(super::LANE1_SEED, &b),
-                super::lane(super::LANE2_SEED, &b),
-            );
+            let b: Vec<u8> = (0..len).map(|i| (x.rotate_left(i as u32) >> 7) as u8).collect();
+            let want = (super::lane(super::LANE1_SEED, &b), super::lane(super::LANE2_SEED, &b),);
             assert_eq!(meta_hash128(&b), want, "len {len}");
             let (h1, h2, _, _) = meta_hash128_and_digests(&b, (x, !x));
             assert_eq!((h1, h2), want, "len {len}");
@@ -201,10 +192,7 @@ mod tests {
             for _ in 0..200 {
                 x = super::mix64(x);
                 let img = x.to_le_bytes();
-                assert_eq!(
-                    meta_hash128_word(x, width),
-                    meta_hash128(&img[..width as usize])
-                );
+                assert_eq!(meta_hash128_word(x, width), meta_hash128(&img[..width as usize]));
             }
         }
     }
@@ -212,11 +200,7 @@ mod tests {
     #[test]
     fn writer_fast_forms_golden_vectors() {
         for &(w, width, want) in WORD_GOLDEN.iter() {
-            assert_eq!(
-                meta_hash128_word(w, width),
-                want,
-                "word {w:#x} width {width}"
-            );
+            assert_eq!(meta_hash128_word(w, width), want, "word {w:#x} width {width}");
         }
         for &(img, want) in BYTES_GOLDEN.iter() {
             assert_eq!(meta_hash128(img), want, "{img:?}");
@@ -226,59 +210,21 @@ mod tests {
     }
 
     const WORD_GOLDEN: [(u64, u32, (u64, u64)); 8] = [
-        (
-            0x0000_0000_0000_0000,
-            1,
-            (0xb69c_9127_5573_441b, 0x86c7_899e_136f_0bae),
-        ),
-        (
-            0x0000_0000_0000_00ff,
-            1,
-            (0xaab8_48c4_2d40_f3fb, 0x5c0c_d652_b17f_2e2f),
-        ),
-        (
-            0x0000_0000_0000_1234,
-            2,
-            (0x21a3_768c_e5b1_9784, 0x0a22_b41b_d4d1_b7a3),
-        ),
-        (
-            0x0000_0000_dead_beef,
-            4,
-            (0x2317_1862_17b7_f54c, 0x1bba_32ab_30e9_d8ba),
-        ),
-        (
-            0x8000_0000_0000_0001,
-            3,
-            (0x9373_a9ab_e833_6a5b, 0x17d0_9a33_d3ff_5f52),
-        ),
-        (
-            0x0123_4567_89ab_cdef,
-            8,
-            (0xe89c_c696_a153_f785, 0x84c3_25f1_026f_cbba),
-        ),
-        (
-            0xffff_ffff_ffff_ffff,
-            8,
-            (0x65cb_604c_dd12_2b5c, 0xe48e_7180_c322_bf35),
-        ),
-        (
-            0x3ff8_0000_0000_0000,
-            8,
-            (0x5c9d_a2a8_09f5_9484, 0x0de5_f8c4_4cae_8f1a),
-        ),
+        (0x0000_0000_0000_0000, 1, (0xb69c_9127_5573_441b, 0x86c7_899e_136f_0bae),),
+        (0x0000_0000_0000_00ff, 1, (0xaab8_48c4_2d40_f3fb, 0x5c0c_d652_b17f_2e2f),),
+        (0x0000_0000_0000_1234, 2, (0x21a3_768c_e5b1_9784, 0x0a22_b41b_d4d1_b7a3),),
+        (0x0000_0000_dead_beef, 4, (0x2317_1862_17b7_f54c, 0x1bba_32ab_30e9_d8ba),),
+        (0x8000_0000_0000_0001, 3, (0x9373_a9ab_e833_6a5b, 0x17d0_9a33_d3ff_5f52),),
+        (0x0123_4567_89ab_cdef, 8, (0xe89c_c696_a153_f785, 0x84c3_25f1_026f_cbba),),
+        (0xffff_ffff_ffff_ffff, 8, (0x65cb_604c_dd12_2b5c, 0xe48e_7180_c322_bf35),),
+        (0x3ff8_0000_0000_0000, 8, (0x5c9d_a2a8_09f5_9484, 0x0de5_f8c4_4cae_8f1a),),
     ];
     const BYTES_GOLDEN: [(&[u8], (u64, u64)); 5] = [
         (b"abcdefg", (0x7e6d_cd56_50b4_67eb, 0x5dfd_cacc_214e_273c)),
         (b"abcdefgh", (0x1ed8_e3cd_4ce3_01d5, 0xd499_eeea_901f_a3af)),
         (b"abcdefghi", (0x16a9_0c7f_e15d_67f5, 0xf5b2_5ede_5eee_2590)),
-        (
-            b"0123456789abcdefg",
-            (0x5bc2_d4e0_e432_c723, 0x7992_66a7_469d_5a2d),
-        ),
-        (
-            b"sample.bin row 42 of 999",
-            (0xd6bc_fbbf_b704_59dd, 0x4bfc_2f4f_77bd_85db),
-        ),
+        (b"0123456789abcdefg", (0x5bc2_d4e0_e432_c723, 0x7992_66a7_469d_5a2d),),
+        (b"sample.bin row 42 of 999", (0xd6bc_fbbf_b704_59dd, 0x4bfc_2f4f_77bd_85db),),
     ];
 
     #[test]

@@ -11,9 +11,7 @@ use std::alloc::Layout;
 
 use mcx::heap::{Heap, MMAP_THRESHOLD};
 use mcx::Allocator;
-use memledger::charge::{
-    enter_portal, new_owner_id, owner_row, portal_begin, portal_end, OwnerClass,
-};
+use memledger::charge::{enter_portal, new_owner_id, owner_row, portal_begin, portal_end, OwnerClass,};
 use memledger::owner_end::{for_each_recent, Source};
 use memledger::{Acct, Owner};
 
@@ -49,10 +47,7 @@ fn in_statement(procno: u32, pid: u32, f: impl FnOnce(Acct, Owner) + Send + 'sta
         assert!(a.is_backend());
         memledger::bind_backend(procno, pid);
         memledger::statement_begin();
-        let x = Owner::Statement {
-            acct: a,
-            stmt: memledger::running_statement(a),
-        };
+        let x = Owner::Statement { acct: a, stmt: memledger::running_statement(a), };
         f(a, x);
         memledger::unbind_backend();
     })
@@ -65,11 +60,7 @@ fn a_mapped_block_is_its_statements_until_the_free() {
     in_statement(4040, 9040, |a, x| {
         let c0 = owner_row(x).committed;
         let p = Heap.allocate(block()).expect("a mapping");
-        assert_eq!(
-            owner_row(x).committed - c0,
-            BYTES as i64,
-            "the block is on its statement's cell"
-        );
+        assert_eq!(owner_row(x).committed - c0, BYTES as i64, "the block is on its statement's cell");
         // SAFETY: `p` is the block `allocate` just mapped for this layout.
         unsafe { Heap.deallocate(p.cast(), block()) };
         assert_eq!(owner_row(x).committed, c0, "the free takes it off");
@@ -88,40 +79,20 @@ fn a_mapped_block_is_its_statements_until_the_free() {
 fn a_mapped_block_that_outlives_its_statement_is_its_residue() {
     in_statement(4041, 9041, |a, x| {
         let p = Heap.allocate(block()).expect("a mapping");
-        assert_eq!(
-            owner_row(x).committed,
-            BYTES as i64,
-            "on its statement's cell"
-        );
+        assert_eq!(owner_row(x).committed, BYTES as i64, "on its statement's cell");
         let _ = memledger::statement_end();
         let mut seen = None;
         for_each_recent(|r| {
-            if seen.is_none()
-                && r.pid == 9041
-                && r.source == Source::Owner
-                && r.class == OwnerClass::Statement
-            {
+            if seen.is_none() && r.pid == 9041 && r.source == Source::Owner && r.class == OwnerClass::Statement {
                 seen = Some(r.committed);
             }
         });
-        assert_eq!(
-            seen,
-            Some(BYTES as i64),
-            "the statement's end read the block that outlived it"
-        );
+        assert_eq!(seen, Some(BYTES as i64), "the statement's end read the block that outlived it");
         let s = Owner::Session(a);
-        assert_eq!(
-            owner_row(s).committed,
-            BYTES as i64,
-            "handed on to its session"
-        );
+        assert_eq!(owner_row(s).committed, BYTES as i64, "handed on to its session");
         // SAFETY: as above; freed between statements, under the session
         unsafe { Heap.deallocate(p.cast(), block()) };
-        assert_eq!(
-            owner_row(s).committed,
-            0,
-            "the free under the session takes it off"
-        );
+        assert_eq!(owner_row(s).committed, 0, "the free under the session takes it off");
     });
 }
 
@@ -138,41 +109,19 @@ fn a_cursors_block_freed_at_the_close_statement_leaves_no_residue() {
             let _run = enter_portal(token);
             Heap.allocate(block()).expect("a mapping")
         };
-        let portal = Owner::Portal {
-            acct: a,
-            portal: token,
-        };
-        assert_eq!(
-            owner_row(portal).committed,
-            BYTES as i64,
-            "the block is the cursor's portal's"
-        );
+        let portal = Owner::Portal { acct: a, portal: token, };
+        assert_eq!(owner_row(portal).committed, BYTES as i64, "the block is the cursor's portal's");
         let _ = memledger::statement_end();
         // the CLOSE statement: PortalDrop's ExecutorEnd frees the block outside the portal's run, then the portal ends
         memledger::statement_begin();
-        let close = Owner::Statement {
-            acct: a,
-            stmt: memledger::running_statement(a),
-        };
+        let close = Owner::Statement { acct: a, stmt: memledger::running_statement(a), };
         // SAFETY: `p` is the block `allocate` mapped for this layout
         unsafe { Heap.deallocate(p.cast(), block()) };
-        assert_eq!(
-            owner_row(close).committed,
-            0,
-            "the CLOSE statement does not pay for the cursor's block"
-        );
-        assert_eq!(
-            owner_row(portal).committed,
-            0,
-            "the free takes it off the portal that owns it"
-        );
+        assert_eq!(owner_row(close).committed, 0, "the CLOSE statement does not pay for the cursor's block");
+        assert_eq!(owner_row(portal).committed, 0, "the free takes it off the portal that owns it");
         assert_eq!(portal_end(a, token), None, "the portal ends owning nothing");
         let _ = memledger::statement_end();
-        assert_eq!(
-            residues(9042),
-            vec![],
-            "no owner of this backend ended with a residue"
-        );
+        assert_eq!(residues(9042), vec![], "no owner of this backend ended with a residue");
         memledger::unbind_backend();
     })
     .join()
@@ -186,31 +135,13 @@ fn a_mapped_block_grown_under_another_statement_stays_its_owners() {
         // the statement that mapped it ends: the block (its residue) is its session's
         let _ = memledger::statement_end();
         memledger::statement_begin();
-        let (y, s) = (
-            Owner::Statement {
-                acct: a,
-                stmt: memledger::running_statement(a),
-            },
-            Owner::Session(a),
-        );
+        let (y, s) = (Owner::Statement { acct: a, stmt: memledger::running_statement(a), }, Owner::Session(a),);
         // SAFETY: `p` is the block `allocate` mapped for `block()`; `grown()` keeps its alignment
         let q = unsafe { Heap.grow(p.cast(), block(), grown()) }.expect("a remap");
-        assert_eq!(
-            owner_row(y).committed,
-            0,
-            "the statement that grows it does not take it"
-        );
-        assert_eq!(
-            owner_row(s).committed,
-            GROWN as i64,
-            "grown, it is still its owner's (the session, after its statement)"
-        );
+        assert_eq!(owner_row(y).committed, 0, "the statement that grows it does not take it");
+        assert_eq!(owner_row(s).committed, GROWN as i64, "grown, it is still its owner's (the session, after its statement)");
         // SAFETY: `q` is the grown block
         unsafe { Heap.deallocate(q.cast(), grown()) };
-        assert_eq!(
-            (owner_row(y).committed, owner_row(s).committed),
-            (0, 0),
-            "the free takes it off its owner"
-        );
+        assert_eq!((owner_row(y).committed, owner_row(s).committed), (0, 0), "the free takes it off its owner");
     });
 }

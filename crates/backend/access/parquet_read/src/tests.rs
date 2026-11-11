@@ -16,12 +16,8 @@ fn read_all(path: &str) -> (FileReader, usize) {
     let ncols = r.meta.columns.len();
     let cols: Vec<usize> = (0..ncols).collect();
     let vutf8: Vec<bool> = vec![false; ncols];
-    let mut batches: Vec<ColumnBatch> = r
-        .meta
-        .columns
-        .iter()
-        .map(|c| ColumnBatch::new_for(c.phys))
-        .collect();
+    let mut batches: Vec<ColumnBatch> =
+        r.meta.columns.iter().map(|c| ColumnBatch::new_for(c.phys)).collect();
     let mut rows = 0usize;
     for rg in 0..r.meta.row_groups.len() {
         let mut rgr = r.row_group(rg, &cols, &vutf8).expect("row group");
@@ -36,11 +32,14 @@ fn read_all(path: &str) -> (FileReader, usize) {
 
 // The generator writes rows with these exact generation rules; assertions
 // recompute them independently (see scripts/gen-parquet-fixtures.py).
+#[cfg(all(feature = "snappy", feature = "brotli"))]
 fn expect_i64(i: usize) -> i64 {
     (i as i64).wrapping_mul(2654435761) % 1_000_003
 }
 
 #[test]
+// These fixtures use Snappy/Brotli pages, so they need the `snappy` and `brotli` features.
+#[cfg(all(feature = "snappy", feature = "brotli"))]
 fn basic_fixture_decodes_exactly() {
     let path = fixture("basic.parquet");
     if !std::path::Path::new(&path).exists() {
@@ -61,12 +60,8 @@ fn basic_fixture_decodes_exactly() {
         .iter()
         .map(|c| c.phys == crate::Phys::ByteArray)
         .collect();
-    let mut batches: Vec<ColumnBatch> = fr
-        .meta
-        .columns
-        .iter()
-        .map(|c| ColumnBatch::new_for(c.phys))
-        .collect();
+    let mut batches: Vec<ColumnBatch> =
+        fr.meta.columns.iter().map(|c| ColumnBatch::new_for(c.phys)).collect();
     let mut row = 0usize;
     for rg in 0..fr.meta.row_groups.len() {
         let mut rgr = fr.row_group(rg, &cols, &vutf8).unwrap();
@@ -84,6 +79,7 @@ fn basic_fixture_decodes_exactly() {
     }
 }
 
+#[cfg(all(feature = "snappy", feature = "brotli"))]
 fn check_cell(name: &str, b: &ColumnBatch, k: usize, i: usize) {
     use crate::BatchData::*;
     match name {
@@ -93,16 +89,12 @@ fn check_cell(name: &str, b: &ColumnBatch, k: usize, i: usize) {
             assert_eq!(v[k], i as i64);
         }
         "i32req" => {
-            let I32(v) = &b.data else {
-                panic!("i32req type")
-            };
+            let I32(v) = &b.data else { panic!("i32req type") };
             assert_eq!(v[k] as i64, expect_i64(i) % 100_000);
         }
         "i32opt" => {
-            let I32(v) = &b.data else {
-                panic!("i32opt type")
-            };
-            if i.is_multiple_of(7) {
+            let I32(v) = &b.data else { panic!("i32opt type") };
+            if i.is_multiple_of( 7) {
                 assert!(b.is_null(k), "row {i}");
             } else {
                 assert!(!b.is_null(k), "row {i}");
@@ -110,45 +102,35 @@ fn check_cell(name: &str, b: &ColumnBatch, k: usize, i: usize) {
             }
         }
         "i64opt" => {
-            let I64(v) = &b.data else {
-                panic!("i64opt type")
-            };
-            if i.is_multiple_of(11) {
+            let I64(v) = &b.data else { panic!("i64opt type") };
+            if i.is_multiple_of( 11) {
                 assert!(b.is_null(k));
             } else {
                 assert_eq!(v[k], expect_i64(i));
             }
         }
         "f32req" => {
-            let F32(v) = &b.data else {
-                panic!("f32req type")
-            };
+            let F32(v) = &b.data else { panic!("f32req type") };
             assert_eq!(v[k], (i % 1000) as f32 * 0.5);
         }
         "f64opt" => {
-            let F64(v) = &b.data else {
-                panic!("f64opt type")
-            };
-            if i.is_multiple_of(13) {
+            let F64(v) = &b.data else { panic!("f64opt type") };
+            if i.is_multiple_of( 13) {
                 assert!(b.is_null(k));
             } else {
                 assert_eq!(v[k], (i % 10_000) as f64 * 0.25);
             }
         }
         "breq" => {
-            let Bool(v) = &b.data else {
-                panic!("breq type")
-            };
-            assert_eq!(v[k], i.is_multiple_of(3));
+            let Bool(v) = &b.data else { panic!("breq type") };
+            assert_eq!(v[k], i.is_multiple_of( 3));
         }
         "bopt" => {
-            let Bool(v) = &b.data else {
-                panic!("bopt type")
-            };
-            if i.is_multiple_of(5) {
+            let Bool(v) = &b.data else { panic!("bopt type") };
+            if i.is_multiple_of( 5) {
                 assert!(b.is_null(k));
             } else {
-                assert_eq!(v[k], i.is_multiple_of(2));
+                assert_eq!(v[k], i.is_multiple_of( 2));
             }
         }
         "dict" => {
@@ -159,7 +141,7 @@ fn check_cell(name: &str, b: &ColumnBatch, k: usize, i: usize) {
             assert_eq!(b.bytes_at(k), format!("uniq-{i:09}").as_bytes());
         }
         "sopt" => {
-            if i.is_multiple_of(3) {
+            if i.is_multiple_of( 3) {
                 assert!(b.is_null(k));
                 assert_eq!(b.bytes_at(k), b"");
             } else {
@@ -179,6 +161,8 @@ fn check_cell(name: &str, b: &ColumnBatch, k: usize, i: usize) {
 }
 
 #[test]
+// These fixtures use Snappy/Brotli pages, so they need the `snappy` and `brotli` features.
+#[cfg(all(feature = "snappy", feature = "brotli"))]
 fn empty_and_allnull_fixtures() {
     let (r, rows) = read_all(&fixture("empty.parquet"));
     assert_eq!(rows, 0);
@@ -199,6 +183,8 @@ fn codec_fixtures_roundtrip() {
 }
 
 #[test]
+// These fixtures use Snappy/Brotli pages, so they need the `snappy` and `brotli` features.
+#[cfg(all(feature = "snappy", feature = "brotli"))]
 fn dict_plain_fallback_fixture() {
     // Written with a tiny dictionary-size cap: the wide column flips from
     // dictionary pages to PLAIN mid-chunk; values must still be exact.
@@ -207,12 +193,8 @@ fn dict_plain_fallback_fixture() {
     let ncols = fr.meta.columns.len();
     let cols: Vec<usize> = (0..ncols).collect();
     let vutf8 = vec![true; ncols];
-    let mut batches: Vec<ColumnBatch> = fr
-        .meta
-        .columns
-        .iter()
-        .map(|c| ColumnBatch::new_for(c.phys))
-        .collect();
+    let mut batches: Vec<ColumnBatch> =
+        fr.meta.columns.iter().map(|c| ColumnBatch::new_for(c.phys)).collect();
     let mut row = 0usize;
     for rg in 0..fr.meta.row_groups.len() {
         let mut rgr = fr.row_group(rg, &cols, &vutf8).unwrap();
@@ -233,6 +215,8 @@ fn dict_plain_fallback_fixture() {
 }
 
 #[test]
+// These fixtures use Snappy/Brotli pages, so they need the `snappy` and `brotli` features.
+#[cfg(all(feature = "snappy", feature = "brotli"))]
 fn v2_pages_gzip_delta_int96_decode() {
     // Formerly the refused set; each now decodes to the generator's rows.
     let (r, rows) = read_all(&fixture("v2pages.parquet"));
@@ -245,9 +229,7 @@ fn v2_pages_gzip_delta_int96_decode() {
     let mut rgr = fr.row_group(0, &[0], &[false]).unwrap();
     let n = rgr.rows_remaining() as usize;
     rgr.read_batches(&mut b, n).unwrap();
-    let crate::BatchData::I64(v) = &b[0].data else {
-        panic!("delta type")
-    };
+    let crate::BatchData::I64(v) = &b[0].data else { panic!("delta type") };
     assert_eq!(v.len(), 1000);
     assert!(v.iter().enumerate().all(|(i, &x)| x == i as i64));
 
@@ -257,9 +239,7 @@ fn v2_pages_gzip_delta_int96_decode() {
     let mut rgr = fr.row_group(0, &[0], &[false]).unwrap();
     let n = rgr.rows_remaining() as usize;
     rgr.read_batches(&mut b, n).unwrap();
-    let crate::BatchData::I96(v) = &b[0].data else {
-        panic!("int96 type")
-    };
+    let crate::BatchData::I96(v) = &b[0].data else { panic!("int96 type") };
     assert_eq!(v.len(), 30);
     for (i, w) in v.iter().enumerate() {
         assert_eq!(w[2], 2_458_850, "row {i}");
@@ -269,6 +249,8 @@ fn v2_pages_gzip_delta_int96_decode() {
 }
 
 #[test]
+// These fixtures use Snappy/Brotli pages, so they need the `snappy` and `brotli` features.
+#[cfg(all(feature = "snappy", feature = "brotli"))]
 fn nested_list_levels() {
     // xs: [[1, 2], [3], []] as a 3-level LIST<INT32>: five slots.
     let mut fr = FileReader::open(&fixture("nested.parquet")).unwrap();
@@ -282,9 +264,7 @@ fn nested_list_levels() {
     // Two records, then one.
     let mut rgr = fr.row_group(0, &[0], &[false]).unwrap();
     rgr.read_batches(&mut b, 2).unwrap();
-    let crate::BatchData::I32(v) = &b[0].data else {
-        panic!("type")
-    };
+    let crate::BatchData::I32(v) = &b[0].data else { panic!("type") };
     assert_eq!(v, &[1, 2, 3]);
     assert_eq!(rgr.levels(0).rep, [0, 1, 0]);
     assert_eq!(rgr.levels(0).def, [3, 3, 3]);
@@ -296,18 +276,15 @@ fn nested_list_levels() {
     assert_eq!(rgr.rows_remaining(), 0);
 }
 
+#[cfg(all(feature = "snappy", feature = "brotli"))]
 fn check_basic_rows(path: &str) {
     let mut fr = FileReader::open(path).unwrap();
     let ncols = fr.meta.columns.len();
     let names: Vec<String> = fr.meta.columns.iter().map(|c| c.name.clone()).collect();
     let cols: Vec<usize> = (0..ncols).collect();
     let vutf8 = vec![false; ncols];
-    let mut batches: Vec<ColumnBatch> = fr
-        .meta
-        .columns
-        .iter()
-        .map(|c| ColumnBatch::new_for(c.phys))
-        .collect();
+    let mut batches: Vec<ColumnBatch> =
+        fr.meta.columns.iter().map(|c| ColumnBatch::new_for(c.phys)).collect();
     let mut row = 0usize;
     for rg in 0..fr.meta.row_groups.len() {
         let mut rgr = fr.row_group(rg, &cols, &vutf8).unwrap();
@@ -326,6 +303,8 @@ fn check_basic_rows(path: &str) {
 }
 
 #[test]
+// These fixtures use Snappy/Brotli pages, so they need the `snappy` and `brotli` features.
+#[cfg(all(feature = "snappy", feature = "brotli"))]
 fn invalid_utf8_detected_in_binary_column() {
     // badutf8.parquet stores invalid UTF-8 in a BYTE_ARRAY (binary) column;
     // reading with validate_utf8 must error, without it must succeed.
@@ -366,16 +345,10 @@ fn truncations_never_panic() {
             let ncols = fr.meta.columns.len();
             let cols: Vec<usize> = (0..ncols).collect();
             let vutf8 = vec![false; ncols];
-            let mut batches: Vec<ColumnBatch> = fr
-                .meta
-                .columns
-                .iter()
-                .map(|c| ColumnBatch::new_for(c.phys))
-                .collect();
+            let mut batches: Vec<ColumnBatch> =
+                fr.meta.columns.iter().map(|c| ColumnBatch::new_for(c.phys)).collect();
             for rg in 0..fr.meta.row_groups.len() {
-                let Ok(mut rgr) = fr.row_group(rg, &cols, &vutf8) else {
-                    break;
-                };
+                let Ok(mut rgr) = fr.row_group(rg, &cols, &vutf8) else { break; };
                 while rgr.rows_remaining() > 0 {
                     let n = rgr.rows_remaining().min(512) as usize;
                     if rgr.read_batches(&mut batches, n).is_err() {
@@ -417,16 +390,10 @@ fn footer_byte_flips_never_panic() {
             let ncols = fr.meta.columns.len();
             let cols: Vec<usize> = (0..ncols).collect();
             let vutf8 = vec![false; ncols];
-            let mut batches: Vec<ColumnBatch> = fr
-                .meta
-                .columns
-                .iter()
-                .map(|c| ColumnBatch::new_for(c.phys))
-                .collect();
+            let mut batches: Vec<ColumnBatch> =
+                fr.meta.columns.iter().map(|c| ColumnBatch::new_for(c.phys)).collect();
             for rg in 0..fr.meta.row_groups.len() {
-                let Ok(mut rgr) = fr.row_group(rg, &cols, &vutf8) else {
-                    break;
-                };
+                let Ok(mut rgr) = fr.row_group(rg, &cols, &vutf8) else { break; };
                 while rgr.rows_remaining() > 0 {
                     let n = rgr.rows_remaining().min(512) as usize;
                     if rgr.read_batches(&mut batches, n).is_err() {
@@ -442,14 +409,7 @@ fn footer_byte_flips_never_panic() {
 
 #[test]
 fn page_byte_flips_never_panic() {
-    for f in [
-        "uncompressed.parquet",
-        "v2pages.parquet",
-        "delta.parquet",
-        "nested.parquet",
-        "gzip.parquet",
-        "int96.parquet",
-    ] {
+    for f in ["uncompressed.parquet", "v2pages.parquet", "delta.parquet", "nested.parquet", "gzip.parquet", "int96.parquet",] {
         page_flips(f);
     }
 }
@@ -482,16 +442,10 @@ fn page_flips(f: &str) {
             let ncols = fr.meta.columns.len();
             let cols: Vec<usize> = (0..ncols).collect();
             let vutf8 = vec![false; ncols];
-            let mut batches: Vec<ColumnBatch> = fr
-                .meta
-                .columns
-                .iter()
-                .map(|c| ColumnBatch::new_for(c.phys))
-                .collect();
+            let mut batches: Vec<ColumnBatch> =
+                fr.meta.columns.iter().map(|c| ColumnBatch::new_for(c.phys)).collect();
             for rg in 0..fr.meta.row_groups.len() {
-                let Ok(mut rgr) = fr.row_group(rg, &cols, &vutf8) else {
-                    break;
-                };
+                let Ok(mut rgr) = fr.row_group(rg, &cols, &vutf8) else { break; };
                 while rgr.rows_remaining() > 0 {
                     let k = rgr.rows_remaining().min(512) as usize;
                     if rgr.read_batches(&mut batches, k).is_err() {
@@ -518,9 +472,7 @@ fn corpus_never_panics() {
     let mut files: Vec<std::path::PathBuf> = Vec::new();
     for sub in ["data", "bad_data"] {
         let dir = std::path::Path::new(&root).join(sub);
-        let Ok(rd) = std::fs::read_dir(&dir) else {
-            continue;
-        };
+        let Ok(rd) = std::fs::read_dir(&dir) else { continue; };
         for e in rd.flatten() {
             let p = e.path();
             if p.extension().is_some_and(|x| x == "parquet") {
@@ -543,12 +495,8 @@ fn corpus_never_panics() {
                 let ncols = fr.meta.columns.len();
                 let cols: Vec<usize> = (0..ncols).collect();
                 let vutf8 = vec![false; ncols];
-                let mut batches: Vec<ColumnBatch> = fr
-                    .meta
-                    .columns
-                    .iter()
-                    .map(|c| ColumnBatch::new_for(c.phys))
-                    .collect();
+                let mut batches: Vec<ColumnBatch> =
+                    fr.meta.columns.iter().map(|c| ColumnBatch::new_for(c.phys)).collect();
                 let mut failed = None;
                 'rgs: for rg in 0..fr.meta.row_groups.len() {
                     let mut rgr = match fr.row_group(rg, &cols, &vutf8) {
@@ -605,13 +553,7 @@ fn dump_footer_schema() {
         meta.created_by
     );
     for (i, c) in meta.columns.iter().enumerate() {
-        println!(
-            "{i:3} {} {} maxdef={} {:?}",
-            c.name,
-            c.phys.name(),
-            c.max_def,
-            c.logical
-        );
+        println!("{i:3} {} {} maxdef={} {:?}", c.name, c.phys.name(), c.max_def, c.logical);
     }
     let mut codecs = std::collections::BTreeMap::new();
     for rg in &meta.row_groups {
@@ -628,11 +570,7 @@ fn dump_footer_schema() {
 fn zero_value_data_page_is_skipped() {
     let path = fixture("uncompressed.parquet");
     let mut bytes = std::fs::read(&path).expect("read fixture");
-    assert_eq!(
-        &bytes[5630..5633],
-        &[0x15, 0xF8, 0x0A],
-        "fixture layout drifted"
-    );
+    assert_eq!(&bytes[5630..5633], &[0x15, 0xF8, 0x0A], "fixture layout drifted");
     bytes[5631] = 0x80;
     bytes[5632] = 0x00;
     let dir = std::env::temp_dir().join(format!("pqread-zvp-{}", std::process::id()));
@@ -643,17 +581,11 @@ fn zero_value_data_page_is_skipped() {
     let ncols = fr.meta.columns.len();
     let cols: Vec<usize> = (0..ncols).collect();
     let vutf8 = vec![false; ncols];
-    let mut batches: Vec<ColumnBatch> = fr
-        .meta
-        .columns
-        .iter()
-        .map(|c| ColumnBatch::new_for(c.phys))
-        .collect();
+    let mut batches: Vec<ColumnBatch> =
+        fr.meta.columns.iter().map(|c| ColumnBatch::new_for(c.phys)).collect();
     let mut first_err = None;
     'rgs: for rg in 0..fr.meta.row_groups.len() {
-        let Ok(mut rgr) = fr.row_group(rg, &cols, &vutf8) else {
-            break;
-        };
+        let Ok(mut rgr) = fr.row_group(rg, &cols, &vutf8) else { break; };
         while rgr.rows_remaining() > 0 {
             let n = rgr.rows_remaining().min(521) as usize;
             if let Err(e) = rgr.read_batches(&mut batches, n) {
@@ -663,9 +595,6 @@ fn zero_value_data_page_is_skipped() {
         }
     }
     let err = first_err.expect("the emptied page leaves the chunk short of its value count");
-    assert!(
-        err.contains("column chunk ends before the declared"),
-        "{err}"
-    );
+    assert!(err.contains("column chunk ends before the declared"), "{err}");
     std::fs::remove_dir_all(&dir).ok();
 }

@@ -8,14 +8,14 @@ use types_core::TransactionId;
 use types_core::XLogRecPtr;
 use types_error::{
     ErrorLocation, PgError, PgResult, DEBUG1, DEBUG2, ERRCODE_DATA_CORRUPTED,
-    ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE, ERROR, FATAL, LOG, NOTICE, PANIC,
+    ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE, ERROR, FATAL, LOG,
+    NOTICE, PANIC,
 };
-
 use crate::control_file::{control_file, control_file_update};
 use crate::ctl::{ControlFileLock, XLogCtl, XLogRecPtrToBufIdx};
 use crate::insert::{
-    LocalSetXLogInsertAllowed, RecoveryInProgress, WALInsertLockAcquireExclusive,
-    WALInsertLockRelease,
+    LocalSetXLogInsertAllowed, RecoveryInProgress,
+    WALInsertLockAcquireExclusive, WALInsertLockRelease,
 };
 use crate::write::{PreallocXlogFiles, XLogFlush};
 use crate::*;
@@ -101,14 +101,14 @@ fn log_checkpoint_end(restartpoint: bool) {
     let total_msecs = timestamp_difference_milliseconds(CKPT_START_T.get(), CKPT_END_T.get());
     // Timing values in CheckpointStats are microseconds; ceiling-divide to
     // milliseconds for printing.
-    let longest_msecs = CKPT_LONGEST_SYNC.get().div_ceil(1000) as i64;
+    let longest_msecs =CKPT_LONGEST_SYNC.get().div_ceil( 1000) as i64;
     let sync_rels = CKPT_SYNC_RELS.get();
     let average_sync_time: u64 = if sync_rels > 0 {
         CKPT_AGG_SYNC_TIME.get() / sync_rels as u64
     } else {
         0
     };
-    let average_msecs = average_sync_time.div_ceil(1000) as i64;
+    let average_msecs =average_sync_time.div_ceil( 1000) as i64;
 
     let bufs_written = CKPT_BUFS_WRITTEN.get();
     let cf = control_file();
@@ -183,8 +183,7 @@ fn data_path(rel: &str) -> String {
 // PostmasterMain / the standalone InitPostgres path), so loud here too.
 fn str_time(tnow: i64) -> String {
     let tz = pgtz::log_timezone().expect("log_timezone not initialized");
-    let tm =
-        localtime::pg_localtime(tnow, &tz).expect("pg_localtime failed for the control file time");
+    let tm = localtime::pg_localtime(tnow, &tz).expect("pg_localtime failed for the control file time");
     let mut buf = [0u8; 128];
     let len = strftime::pg_strftime(&mut buf, b"%Y-%m-%d %H:%M:%S %Z", &tm).unwrap_or(0);
     String::from_utf8_lossy(&buf[..len]).into_owned()
@@ -200,9 +199,7 @@ pub(crate) fn ValidateXLOGDirectoryStructure() -> PgResult<()> {
         return ereport(FATAL)
             .with_saved_errno(fd::get_errno())
             .errcode_for_file_access()
-            .errmsg(format!(
-                "required WAL directory \"{XLOGDIR}\" does not exist"
-            ))
+            .errmsg(format!("required WAL directory \"{XLOGDIR}\" does not exist"))
             .finish(loc("ValidateXLOGDirectoryStructure"));
     }
     for sub in ["archive_status", "summaries"] {
@@ -213,23 +210,16 @@ pub(crate) fn ValidateXLOGDirectoryStructure() -> PgResult<()> {
                 return ereport(FATAL)
                     .with_saved_errno(fd::get_errno())
                     .errcode_for_file_access()
-                    .errmsg(format!(
-                        "required WAL directory \"{XLOGDIR}/{sub}\" does not exist"
-                    ))
+                    .errmsg(format!("required WAL directory \"{XLOGDIR}/{sub}\" does not exist"))
                     .finish(loc("ValidateXLOGDirectoryStructure"));
             }
         } else {
-            let _ = elog(
-                LOG,
-                format!("creating missing WAL directory \"{XLOGDIR}/{sub}\""),
-            );
+            let _ = elog(LOG, format!("creating missing WAL directory \"{XLOGDIR}/{sub}\""),);
             if fd::MakePGDirectory(&path) < 0 {
                 return ereport(FATAL)
                     .with_saved_errno(fd::get_errno())
                     .errcode_for_file_access()
-                    .errmsg(format!(
-                        "could not create missing directory \"{XLOGDIR}/{sub}\": {PCT_M}"
-                    ))
+                    .errmsg(format!("could not create missing directory \"{XLOGDIR}/{sub}\": {PCT_M}"))
                     .finish(loc("ValidateXLOGDirectoryStructure"));
             }
         }
@@ -256,9 +246,7 @@ fn RemoveTempXlogFiles() -> PgResult<()> {
 
 fn dir_is_empty(rel: &str) -> bool {
     let dir = data_path(rel);
-    let Ok(d) = fd::AllocateDir(&dir) else {
-        return true;
-    };
+    let Ok(d) = fd::AllocateDir(&dir) else { return true; };
     if d.is_none() {
         return true;
     }
@@ -299,18 +287,11 @@ pub fn StartupXLOG() -> PgResult<()> {
     let cf_time = str_time(cf.time);
     match state {
         DB_SHUTDOWNED => {
-            let level = if init_small::globals::IsPostmasterEnvironment() {
-                LOG
-            } else {
-                NOTICE
-            };
+            let level = if init_small::globals::IsPostmasterEnvironment() { LOG } else { NOTICE };
             let _ = elog(level, format!("database system was shut down at {cf_time}"));
         }
         DB_SHUTDOWNED_IN_RECOVERY => {
-            let _ = elog(
-                LOG,
-                format!("database system was shut down in recovery at {cf_time}"),
-            );
+            let _ = elog(LOG, format!("database system was shut down in recovery at {cf_time}"),);
         }
         DB_SHUTDOWNING => {
             let _ = elog(
@@ -338,10 +319,7 @@ pub fn StartupXLOG() -> PgResult<()> {
                 .finish(loc("StartupXLOG"));
         }
         DB_IN_PRODUCTION => {
-            let _ = elog(
-                LOG,
-                format!("database system was interrupted; last known up at {cf_time}"),
-            );
+            let _ = elog(LOG, format!("database system was interrupted; last known up at {cf_time}"),);
         }
         _ => {
             return ereport(FATAL)
@@ -371,18 +349,12 @@ pub fn StartupXLOG() -> PgResult<()> {
     let was_shutdown = init.was_shutdown;
     let check_point = control_file().checkPointCopy;
 
-    procarray::TransamVariables()
-        .nextXid
-        .store(check_point.nextXid.value, Relaxed);
+    procarray::TransamVariables().nextXid.store(check_point.nextXid.value, Relaxed);
     // varsup.c:58 memset 0: C's latestCompletedXid is still invalid here, so
     // recovery adopts its first horizon unconditionally; the FirstNormal
     // harness seed compares "newer" than any horizon past 2^31.
-    procarray::TransamVariables()
-        .latestCompletedXid
-        .store(0, Relaxed);
-    varsup::TransamVariables()
-        .nextOid
-        .store(check_point.nextOid, Relaxed);
+    procarray::TransamVariables().latestCompletedXid.store(0, Relaxed);
+    varsup::TransamVariables().nextOid.store(check_point.nextOid, Relaxed);
     varsup::TransamVariables().oidCount.store(0, Relaxed);
     if multixact_seams::multixact_set_next_mxact::is_installed() {
         multixact_seams::multixact_set_next_mxact::call(
@@ -405,8 +377,7 @@ pub fn StartupXLOG() -> PgResult<()> {
             check_point.newestCommitTsXid,
         )?;
     }
-    ctl.info_lck
-        .with(|| ctl.ckptFullXid.store(check_point.nextXid.value, Relaxed));
+    ctl.info_lck.with(|| ctl.ckptFullXid.store(check_point.nextXid.value, Relaxed));
 
     relcache_seams::relation_cache_init_file_remove::call();
 
@@ -438,8 +409,7 @@ pub fn StartupXLOG() -> PgResult<()> {
     if control_file().state == DB_SHUTDOWNED {
         ctl.unloggedLSN.store(control_file().unloggedLSN, SeqCst);
     } else {
-        ctl.unloggedLSN
-            .store(control_file::FirstNormalUnloggedLSN, SeqCst);
+        ctl.unloggedLSN.store(control_file::FirstNormalUnloggedLSN, SeqCst);
     }
 
     if timeline_seams::restore_timeline_history_files::is_installed() {
@@ -485,11 +455,7 @@ pub fn StartupXLOG() -> PgResult<()> {
 
         if init.have_backup_label {
             let _ = std::fs::remove_file(data_path("backup_label.old"));
-            let _ = fd::durable_rename(
-                &data_path("backup_label"),
-                &data_path("backup_label.old"),
-                FATAL,
-            )?;
+            let _ = fd::durable_rename(&data_path("backup_label"), &data_path("backup_label.old"), FATAL,)?;
         }
         if init.have_tblspc_map {
             let _ = std::fs::remove_file(data_path("tablespace_map.old"));
@@ -596,23 +562,20 @@ pub fn StartupXLOG() -> PgResult<()> {
     if xlogutils::in_recovery()
         && (end_of_log < crate::write::LOCAL_MIN_RECOVERY_POINT.get()
             || !XLogRecPtrIsInvalid(control_file().backupStartPoint))
-        && (xlogrecovery_seams::archive_recovery_requested::call()
-            || control_file().backupEndRequired)
-    {
-        // xlog.c:5936-5946: two FATALs, both ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE.
-        if !XLogRecPtrIsInvalid(control_file().backupStartPoint) || control_file().backupEndRequired
-        {
-            return ereport(FATAL)
+        && ( xlogrecovery_seams::archive_recovery_requested::call() || control_file().backupEndRequired) {
+            // xlog.c:5936-5946: two FATALs, both ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE.
+            if !XLogRecPtrIsInvalid(control_file().backupStartPoint) || control_file().backupEndRequired {
+                return ereport(FATAL)
                     .errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE)
                     .errmsg("WAL ends before end of online backup")
                     .errhint("All WAL generated while online backup was taken must be available at recovery.".to_string())
                     .finish(loc("StartupXLOG"));
+            }
+            return ereport(FATAL)
+                .errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE)
+                .errmsg("WAL ends before consistent recovery point")
+                .finish(loc("StartupXLOG"));
         }
-        return ereport(FATAL)
-            .errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE)
-            .errmsg("WAL ends before consistent recovery point")
-            .finish(loc("StartupXLOG"));
-    }
 
     // Unlogged pgrcolumnar tables written without fsync under another boot are reset at every start, clean or not
     // (their files may have gone with the page cache after a clean shutdown).
@@ -666,8 +629,7 @@ pub fn StartupXLOG() -> PgResult<()> {
 
     ctl.info_lck.with(|| {
         ctl.InsertTimeLineID.store(new_tli, Relaxed);
-        ctl.PrevTimeLineID
-            .store(end_of_recovery_info.lastRecTLI, Relaxed);
+        ctl.PrevTimeLineID.store(end_of_recovery_info.lastRecTLI, Relaxed);
     });
 
     if !XLogRecPtrIsInvalid(end_of_recovery_info.missingContrecPtr) {
@@ -676,12 +638,8 @@ pub fn StartupXLOG() -> PgResult<()> {
     }
 
     let insert = &ctl.Insert;
-    insert
-        .PrevBytePos
-        .store(XLogRecPtrToBytePos(end_of_recovery_info.lastRec), Relaxed);
-    insert
-        .CurrBytePos
-        .store(XLogRecPtrToBytePos(end_of_log), Relaxed);
+    insert.PrevBytePos.store(XLogRecPtrToBytePos(end_of_recovery_info.lastRec), Relaxed);
+    insert.CurrBytePos.store(XLogRecPtrToBytePos(end_of_log), Relaxed);
 
     if end_of_log % XLOG_BLCKSZ as u64 != 0 {
         let first_idx = XLogRecPtrToBufIdx(end_of_log) as usize;
@@ -694,14 +652,10 @@ pub fn StartupXLOG() -> PgResult<()> {
             std::ptr::copy_nonoverlapping(end_of_recovery_info.lastPage.as_ptr(), page, len);
             std::ptr::write_bytes(page.add(len), 0, XLOG_BLCKSZ - len);
         }
-        ctl.xlblocks[first_idx].store(
-            end_of_recovery_info.lastPageBeginPtr + XLOG_BLCKSZ as u64,
-            Release,
-        );
-        ctl.InitializedUpTo.store(
-            end_of_recovery_info.lastPageBeginPtr + XLOG_BLCKSZ as u64,
-            Relaxed,
-        );
+        ctl.xlblocks[first_idx]
+            .store(end_of_recovery_info.lastPageBeginPtr + XLOG_BLCKSZ as u64, Release,);
+        ctl.InitializedUpTo
+            .store(end_of_recovery_info.lastPageBeginPtr + XLOG_BLCKSZ as u64, Relaxed,);
     } else {
         ctl.InitializedUpTo.store(end_of_log, Relaxed);
     }
@@ -731,9 +685,7 @@ pub fn StartupXLOG() -> PgResult<()> {
                 latest -= 1;
             }
         }
-        procarray::TransamVariables()
-            .latestCompletedXid
-            .store(latest, Relaxed);
+        procarray::TransamVariables().latestCompletedXid.store(latest, Relaxed);
     }
 
     // Hot standby already ran StartupSUBTRANS in the redo phase.
@@ -764,9 +716,7 @@ pub fn StartupXLOG() -> PgResult<()> {
         )?;
     }
 
-    insert
-        .fullPageWrites
-        .store(LAST_FULL_PAGE_WRITES.get(), Relaxed);
+    insert.fullPageWrites.store(LAST_FULL_PAGE_WRITES.get(), Relaxed);
     UpdateFullPageWrites()?;
 
     let promoted = if performed_wal_recovery {
@@ -788,14 +738,9 @@ pub fn StartupXLOG() -> PgResult<()> {
         commit_ts_seams::complete_commit_ts_initialization::call()?;
     }
 
-    LWLockAcquire(
-        ControlFileLock(),
-        LW_EXCLUSIVE,
-        init_small::globals::MyProcNumber(),
-    )?;
+    LWLockAcquire(ControlFileLock(), LW_EXCLUSIVE, init_small::globals::MyProcNumber(),)?;
     control_file_update(|cf| cf.state = DB_IN_PRODUCTION);
-    ctl.info_lck
-        .with(|| ctl.SharedRecoveryState.store(RECOVERY_STATE_DONE, Relaxed));
+    ctl.info_lck.with(|| ctl.SharedRecoveryState.store(RECOVERY_STATE_DONE, Relaxed));
     UpdateControlFile()?;
     LWLockRelease(ControlFileLock())?;
 
@@ -829,7 +774,7 @@ fn CreateOverwriteContrecordRecord(
             .errmsg("can only be used at end of recovery")
             .finish(loc("CreateOverwriteContrecordRecord"))?;
     }
-    if !page_ptr.is_multiple_of(XLOG_BLCKSZ as u64) {
+    if ! page_ptr.is_multiple_of( XLOG_BLCKSZ as u64) {
         ereport(ERROR)
             .errmsg(format!(
                 "invalid position for missing continuation record {:X}/{:X}",
@@ -875,9 +820,9 @@ fn CreateOverwriteContrecordRecord(
     // xl_overwrite_contrecord: overwritten_lsn 0..8, overwrite_time 8..16.
     let mut body = [0u8; 16];
     body[0..8].copy_from_slice(&aborted_lsn.to_ne_bytes());
-    body[8..16].copy_from_slice(&timestamp_seams::get_current_timestamp::call().to_ne_bytes());
-    let recptr =
-        xloginsert_seams::xlog_insert::call(RM_XLOG_ID, XLOG_OVERWRITE_CONTRECORD, &[&body])?;
+    body[8..16]
+        .copy_from_slice(&timestamp_seams::get_current_timestamp::call().to_ne_bytes());
+    let recptr = xloginsert_seams::xlog_insert::call(RM_XLOG_ID, XLOG_OVERWRITE_CONTRECORD, &[&body])?;
 
     if ProcLastRecPtr() != start_pos {
         let last = ProcLastRecPtr();
@@ -946,11 +891,7 @@ fn CreateEndOfRecoveryRecord() -> PgResult<()> {
 
     XLogFlush(recptr)?;
 
-    LWLockAcquire(
-        ControlFileLock(),
-        LW_EXCLUSIVE,
-        init_small::globals::MyProcNumber(),
-    )?;
+    LWLockAcquire(ControlFileLock(), LW_EXCLUSIVE, init_small::globals::MyProcNumber(),)?;
     control_file_update(|cf| {
         cf.minRecoveryPoint = recptr;
         cf.minRecoveryPointTLI = this_tli;
@@ -1031,7 +972,8 @@ fn CleanupAfterArchiveRecovery(
         let origfname = XLogFileName(end_of_log_tli, end_log_seg_no, wal_segsz);
 
         if !xlogarchive_seams::xlog_archive_is_ready_or_done::call(&origfname) {
-            if guc_tables::vars::summarize_wal.installed() && guc_tables::vars::summarize_wal.read()
+            if guc_tables::vars::summarize_wal.installed()
+                && guc_tables::vars::summarize_wal.read()
             {
                 walsummarizer_seams::wait_for_wal_summarization::call(end_of_log)?;
             }
@@ -1050,11 +992,7 @@ fn CleanupAfterArchiveRecovery(
 }
 
 pub fn SetInstallXLogFileSegmentActive() -> PgResult<()> {
-    LWLockAcquire(
-        ControlFileLock(),
-        LW_EXCLUSIVE,
-        init_small::globals::MyProcNumber(),
-    )?;
+    LWLockAcquire(ControlFileLock(), LW_EXCLUSIVE, init_small::globals::MyProcNumber(),)?;
     XLogCtl().InstallXLogFileSegmentActive.store(true, Relaxed);
     LWLockRelease(ControlFileLock())?;
     Ok(())
@@ -1063,11 +1001,7 @@ pub fn SetInstallXLogFileSegmentActive() -> PgResult<()> {
 // xlog.c:9556-9561: serialized against InstallXLogFileSegment /
 // IsInstallXLogFileSegmentActive by ControlFileLock, like the Set side.
 pub fn ResetInstallXLogFileSegmentActive() -> PgResult<()> {
-    LWLockAcquire(
-        ControlFileLock(),
-        LW_EXCLUSIVE,
-        init_small::globals::MyProcNumber(),
-    )?;
+    LWLockAcquire(ControlFileLock(), LW_EXCLUSIVE, init_small::globals::MyProcNumber(),)?;
     XLogCtl().InstallXLogFileSegmentActive.store(false, Relaxed);
     LWLockRelease(ControlFileLock())?;
     Ok(())
@@ -1112,11 +1046,7 @@ pub fn XLogReportParameters() -> PgResult<()> {
             XLogFlush(recptr)?;
         }
 
-        LWLockAcquire(
-            ControlFileLock(),
-            LW_EXCLUSIVE,
-            init_small::globals::MyProcNumber(),
-        )?;
+        LWLockAcquire(ControlFileLock(), LW_EXCLUSIVE, init_small::globals::MyProcNumber(),)?;
         control_file_update(|cf| {
             cf.MaxConnections = max_conns;
             cf.max_worker_processes = max_workers;
@@ -1325,10 +1255,7 @@ pub fn CreateCheckPoint(flags: i32) -> PgResult<bool> {
     let shutdown = flags & (CHECKPOINT_IS_SHUTDOWN | CHECKPOINT_END_OF_RECOVERY) != 0;
 
     if RecoveryInProgress() && flags & CHECKPOINT_END_OF_RECOVERY == 0 {
-        return Err(Box::new(PgError::new(
-            ERROR,
-            "can't create a checkpoint during recovery",
-        )));
+        return Err(Box::new(PgError::new(ERROR, "can't create a checkpoint during recovery",)));
     }
 
     // xlog.c:6963-6964
@@ -1339,11 +1266,7 @@ pub fn CreateCheckPoint(flags: i32) -> PgResult<bool> {
     init_small::globals::StartCriticalSection();
 
     if shutdown {
-        LWLockAcquire(
-            ControlFileLock(),
-            LW_EXCLUSIVE,
-            init_small::globals::MyProcNumber(),
-        )?;
+        LWLockAcquire(ControlFileLock(), LW_EXCLUSIVE, init_small::globals::MyProcNumber(),)?;
         control_file_update(|cf| cf.state = DB_SHUTDOWNING);
         UpdateControlFile()?;
         LWLockRelease(ControlFileLock())?;
@@ -1353,7 +1276,8 @@ pub fn CreateCheckPoint(flags: i32) -> PgResult<bool> {
     check_point.time = crate::now_pg_time();
 
     if !shutdown && XLogStandbyInfoActive() {
-        check_point.oldestActiveXid = procarray_seams::get_oldest_active_transaction_id::call();
+        check_point.oldestActiveXid =
+            procarray_seams::get_oldest_active_transaction_id::call();
     } else {
         check_point.oldestActiveXid = types_core::InvalidTransactionId;
     }
@@ -1409,14 +1333,10 @@ pub fn CreateCheckPoint(flags: i32) -> PgResult<bool> {
         check_point.redo = crate::insert::local_redo_rec_ptr();
     }
 
-    ctl.info_lck
-        .with(|| ctl.RedoRecPtr.store(check_point.redo, Relaxed));
+    ctl.info_lck.with(|| ctl.RedoRecPtr.store(check_point.redo, Relaxed));
 
     if guc_tables::vars::log_checkpoints.read() {
-        let _ = elog(
-            LOG,
-            format!("checkpoint starting:{}", checkpoint_flag_words(flags)),
-        );
+        let _ = elog(LOG, format!("checkpoint starting:{}", checkpoint_flag_words(flags)),);
     }
 
     // Update the process title (xlog.c:7125).
@@ -1425,25 +1345,16 @@ pub fn CreateCheckPoint(flags: i32) -> PgResult<bool> {
     {
         let tv = procarray::TransamVariables();
         let xid_gen_lock = lwlock::main_lock(varsup::XID_GEN_LOCK);
-        LWLockAcquire(
-            xid_gen_lock,
-            lwlock::LW_SHARED,
-            init_small::globals::MyProcNumber(),
-        )?;
-        check_point.nextXid = types_core::FullTransactionId {
-            value: tv.nextXid.load(Relaxed),
-        };
+        LWLockAcquire(xid_gen_lock, lwlock::LW_SHARED, init_small::globals::MyProcNumber(),)?;
+        check_point.nextXid = types_core::FullTransactionId { value: tv.nextXid.load(Relaxed), };
         check_point.oldestXid = tv.oldestXid.load(Relaxed);
         check_point.oldestXidDB = tv.oldestXidDB.load(Relaxed);
         LWLockRelease(xid_gen_lock)?;
 
         // xlog.c CreateCheckPoint reads these under CommitTsLock, LW_SHARED.
-        let commit_ts_lock = lwlock::main_lock(types_storage::storage::COMMIT_TS_LOCK);
-        LWLockAcquire(
-            commit_ts_lock,
-            lwlock::LW_SHARED,
-            init_small::globals::MyProcNumber(),
-        )?;
+        let commit_ts_lock =
+            lwlock::main_lock(types_storage::storage::COMMIT_TS_LOCK);
+        LWLockAcquire(commit_ts_lock, lwlock::LW_SHARED, init_small::globals::MyProcNumber(),)?;
         check_point.oldestCommitTsXid = tv.oldestCommitTsXid.load(Relaxed);
         check_point.newestCommitTsXid = tv.newestCommitTsXid.load(Relaxed);
         LWLockRelease(commit_ts_lock)?;
@@ -1452,11 +1363,7 @@ pub fn CreateCheckPoint(flags: i32) -> PgResult<bool> {
         // range so crash replay never hands out an OID below what the
         // pre-crash backend may already have used (xlog.c CreateCheckPoint).
         let oid_gen_lock = lwlock::main_lock(varsup::OID_GEN_LOCK);
-        LWLockAcquire(
-            oid_gen_lock,
-            lwlock::LW_SHARED,
-            init_small::globals::MyProcNumber(),
-        )?;
+        LWLockAcquire(oid_gen_lock, lwlock::LW_SHARED, init_small::globals::MyProcNumber(),)?;
         check_point.nextOid = tv.nextOid.load(Relaxed);
         if !shutdown {
             check_point.nextOid = check_point.nextOid.wrapping_add(tv.oidCount.load(Relaxed));
@@ -1490,15 +1397,12 @@ pub fn CreateCheckPoint(flags: i32) -> PgResult<bool> {
 
     init_small::globals::StartCriticalSection();
 
-    let recptr = xloginsert_seams::xlog_insert::call(
-        RM_XLOG_ID,
-        if shutdown {
-            XLOG_CHECKPOINT_SHUTDOWN
-        } else {
-            XLOG_CHECKPOINT_ONLINE
-        },
-        &[&check_point.to_bytes()],
-    )?;
+    let recptr =
+        xloginsert_seams::xlog_insert::call(
+            RM_XLOG_ID,
+            if shutdown { XLOG_CHECKPOINT_SHUTDOWN } else { XLOG_CHECKPOINT_ONLINE },
+            &[&check_point.to_bytes()],
+        )?;
     XLogFlush(recptr)?;
 
     if shutdown {
@@ -1520,11 +1424,7 @@ pub fn CreateCheckPoint(flags: i32) -> PgResult<bool> {
     // checkpoint overwrites checkPointCopy — feeds the recycling estimate.
     let prior_redo_ptr = control_file().checkPointCopy.redo;
 
-    LWLockAcquire(
-        ControlFileLock(),
-        LW_EXCLUSIVE,
-        init_small::globals::MyProcNumber(),
-    )?;
+    LWLockAcquire(ControlFileLock(), LW_EXCLUSIVE, init_small::globals::MyProcNumber(),)?;
     let unlogged = ctl.unloggedLSN.load(SeqCst);
     control_file_update(|cf| {
         if shutdown {
@@ -1539,8 +1439,7 @@ pub fn CreateCheckPoint(flags: i32) -> PgResult<bool> {
     UpdateControlFile()?;
     LWLockRelease(ControlFileLock())?;
 
-    ctl.info_lck
-        .with(|| ctl.ckptFullXid.store(check_point.nextXid.value, Relaxed));
+    ctl.info_lck.with(|| ctl.ckptFullXid.store(check_point.nextXid.value, Relaxed));
 
     init_small::globals::EndCriticalSection();
 
@@ -1635,11 +1534,7 @@ pub fn CreateRestartPoint(flags: i32) -> PgResult<bool> {
         );
         crate::write::UpdateMinRecoveryPoint(InvalidXLogRecPtr, true)?;
         if flags & CHECKPOINT_IS_SHUTDOWN != 0 {
-            LWLockAcquire(
-                ControlFileLock(),
-                LW_EXCLUSIVE,
-                init_small::globals::MyProcNumber(),
-            )?;
+            LWLockAcquire(ControlFileLock(), LW_EXCLUSIVE, init_small::globals::MyProcNumber(),)?;
             control_file_update(|cf| cf.state = DB_SHUTDOWNED_IN_RECOVERY);
             UpdateControlFile()?;
             LWLockRelease(ControlFileLock())?;
@@ -1651,17 +1546,13 @@ pub fn CreateRestartPoint(flags: i32) -> PgResult<bool> {
     crate::insert::set_local_redo_rec_ptr(last_ckpt.redo);
     ctl.Insert.RedoRecPtr.store(last_ckpt.redo, Relaxed);
     WALInsertLockRelease();
-    ctl.info_lck
-        .with(|| ctl.RedoRecPtr.store(last_ckpt.redo, Relaxed));
+    ctl.info_lck.with(|| ctl.RedoRecPtr.store(last_ckpt.redo, Relaxed));
 
     // xlog.c:7724-7725
     reset_checkpoint_stats();
 
     if guc_tables::vars::log_checkpoints.read() {
-        let _ = elog(
-            LOG,
-            format!("restartpoint starting:{}", checkpoint_flag_words(flags)),
-        );
+        let _ = elog(LOG, format!("restartpoint starting:{}", checkpoint_flag_words(flags)),);
     }
 
     // Update the process title (xlog.c:7731).
@@ -1677,11 +1568,7 @@ pub fn CreateRestartPoint(flags: i32) -> PgResult<bool> {
 
     // Skip pg_control unless it still shows an older checkpoint (racing
     // end-of-recovery checkpoint).
-    LWLockAcquire(
-        ControlFileLock(),
-        LW_EXCLUSIVE,
-        init_small::globals::MyProcNumber(),
-    )?;
+    LWLockAcquire(ControlFileLock(), LW_EXCLUSIVE, init_small::globals::MyProcNumber(),)?;
     if control_file().checkPointCopy.redo < last_ckpt.redo {
         control_file_update(|cf| {
             cf.checkPoint = last_ckpt_rec_ptr;
@@ -1719,11 +1606,7 @@ pub fn CreateRestartPoint(flags: i32) -> PgResult<bool> {
         InvalidXLogRecPtr
     };
     let (replay_ptr, mut replay_tli) = xlogrecovery_seams::get_xlog_replay_rec_ptr::call();
-    let endptr = if receive_ptr < replay_ptr {
-        replay_ptr
-    } else {
-        receive_ptr
-    };
+    let endptr = if receive_ptr < replay_ptr { replay_ptr } else { receive_ptr };
     let _ = crate::removal::KeepLogSeg(endptr, &mut log_seg_no)?;
     injection_point::injection_point("restartpoint-before-slot-invalidation")?;
     // xlog.c:7841 (CreateRestartPoint): same sweep + horizon recompute.
@@ -1768,11 +1651,7 @@ pub fn CreateRestartPoint(flags: i32) -> PgResult<bool> {
     // Reset the process title (xlog.c:7869).
     update_checkpoint_display(flags, true, true);
 
-    let level = if guc_tables::vars::log_checkpoints.read() {
-        LOG
-    } else {
-        DEBUG2
-    };
+    let level = if guc_tables::vars::log_checkpoints.read() { LOG } else { DEBUG2 };
     let mut report = ereport(level).errmsg(format!(
         "recovery restart point at {:X}/{:X}",
         last_ckpt.redo >> 32,
@@ -1808,11 +1687,7 @@ pub fn CreateRestartPoint(flags: i32) -> PgResult<bool> {
 // PerformWalRecovery callback: crash recovery crossed into archive recovery.
 pub fn SwitchIntoArchiveRecovery(end_rec_ptr: XLogRecPtr, replay_tli: TimeLineID) -> PgResult<()> {
     let ctl = XLogCtl();
-    LWLockAcquire(
-        ControlFileLock(),
-        LW_EXCLUSIVE,
-        init_small::globals::MyProcNumber(),
-    )?;
+    LWLockAcquire(ControlFileLock(), LW_EXCLUSIVE, init_small::globals::MyProcNumber(),)?;
     control_file_update(|cf| {
         cf.state = DB_IN_ARCHIVE_RECOVERY;
         if cf.minRecoveryPoint < end_rec_ptr {
@@ -1825,9 +1700,8 @@ pub fn SwitchIntoArchiveRecovery(end_rec_ptr: XLogRecPtr, replay_tli: TimeLineID
     crate::write::LOCAL_MIN_RECOVERY_POINT_TLI.set(cf.minRecoveryPointTLI);
     crate::write::set_update_min_recovery_point(true);
     UpdateControlFile()?;
-    ctl.info_lck.with(|| {
-        ctl.SharedRecoveryState
-            .store(RECOVERY_STATE_ARCHIVE, Relaxed)
+    ctl.info_lck
+        .with(|| { ctl.SharedRecoveryState.store(RECOVERY_STATE_ARCHIVE, Relaxed)
     });
     LWLockRelease(ControlFileLock())?;
     Ok(())
@@ -1835,11 +1709,7 @@ pub fn SwitchIntoArchiveRecovery(end_rec_ptr: XLogRecPtr, replay_tli: TimeLineID
 
 // PerformWalRecovery callback: end of base backup, on-disk state consistent.
 pub fn ReachedEndOfBackup(end_rec_ptr: XLogRecPtr, tli: TimeLineID) -> PgResult<()> {
-    LWLockAcquire(
-        ControlFileLock(),
-        LW_EXCLUSIVE,
-        init_small::globals::MyProcNumber(),
-    )?;
+    LWLockAcquire(ControlFileLock(), LW_EXCLUSIVE, init_small::globals::MyProcNumber(),)?;
     control_file_update(|cf| {
         if cf.minRecoveryPoint < end_rec_ptr {
             cf.minRecoveryPoint = end_rec_ptr;
@@ -1855,11 +1725,7 @@ pub fn ReachedEndOfBackup(end_rec_ptr: XLogRecPtr, tli: TimeLineID) -> PgResult<
 }
 
 pub fn ShutdownXLOG() -> PgResult<()> {
-    let level = if init_small::globals::IsPostmasterEnvironment() {
-        LOG
-    } else {
-        NOTICE
-    };
+    let level = if init_small::globals::IsPostmasterEnvironment() { LOG } else { NOTICE };
     let _ = elog(level, "shutting down");
 
     // Signal walsenders to move to stopping state, and wait: prevents

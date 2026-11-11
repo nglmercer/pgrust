@@ -9,7 +9,7 @@ use std::sync::Arc;
 // (bounded 64). Leader-detach turns worker sends into drop-and-continue
 // structurally: dropping the receiver closes the mailbox and send returns
 // Err — C's detached-mq send failure, with no bespoke flag to maintain.
-use pgsync::{MailboxReceiver, MailboxSender, Mutex, TryRecv};
+use pgsync::{ MailboxReceiver, MailboxSender, Mutex, TryRecv};
 
 use elog::ereport;
 use init_small::globals as g;
@@ -33,7 +33,9 @@ pub use query_task_guard::{
 };
 
 #[cfg(debug_assertions)]
-pub use query_task_guard::{set_query_task_fault, QueryTaskFaultAction, QueryTaskFaultPoint};
+pub use query_task_guard::{
+    set_query_task_fault, QueryTaskFaultAction, QueryTaskFaultPoint
+};
 
 #[cfg(test)]
 mod tests;
@@ -117,17 +119,11 @@ pub fn register_parallel_private_shutdown(f: fn(&(dyn Any + Send + Sync))) {
 }
 
 fn post_task_park_hooks() -> Vec<fn(&ParallelShared)> {
-    POST_TASK_PARK
-        .lock()
-        .unwrap_or_else(|p| p.into_inner())
-        .clone()
+    POST_TASK_PARK.lock().unwrap_or_else(|p| p.into_inner()).clone()
 }
 
 fn private_shutdown_hooks() -> Vec<fn(&(dyn Any + Send + Sync))> {
-    PRIVATE_SHUTDOWN
-        .lock()
-        .unwrap_or_else(|p| p.into_inner())
-        .clone()
+    PRIVATE_SHUTDOWN.lock().unwrap_or_else(|p| p.into_inner()).clone()
 }
 
 pub enum WorkerMessage {
@@ -214,10 +210,7 @@ const _: fn() = || {
 
 impl ParallelShared {
     pub fn private(&self) -> Option<Arc<dyn Any + Send + Sync>> {
-        self.private
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .clone()
+        self.private.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
     /// This engagement's standing-gang driver (M2 inc-1 per-arm dispatch).
@@ -332,18 +325,13 @@ pub fn InitializingParallelWorker() -> bool {
 }
 
 pub fn register_parallel_worker_entrypoint(name: &'static str, f: ParallelWorkerEntry) {
-    let mut table = REGISTERED_ENTRYPOINTS
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
+    let mut table = REGISTERED_ENTRYPOINTS.lock().unwrap_or_else(|e| e.into_inner());
     if !table.iter().any(|(n, _)| *n == name) {
         table.push((name, f));
     }
 }
 
-fn LookupParallelWorkerFunction(
-    library_name: &str,
-    function_name: &str,
-) -> PgResult<ParallelWorkerEntry> {
+fn LookupParallelWorkerFunction(library_name: &str, function_name: &str,) -> PgResult<ParallelWorkerEntry> {
     if library_name != "postgres" {
         // parallel.c:1667 load_external_function: pgrust has no dynamic
         // loader, so an entrypoint outside "postgres" is a typed refusal the
@@ -375,9 +363,7 @@ fn LookupParallelWorkerFunction(
         // panic.
         return Err(ereport(ERROR)
             .errcode(ERRCODE_FEATURE_NOT_SUPPORTED)
-            .errmsg(format!(
-                "parallel worker function \"{function_name}\" is not supported"
-            ))
+            .errmsg(format!("parallel worker function \"{function_name}\" is not supported"))
             .into_error()
             .with_error_location(loc(1660, "LookupParallelWorkerFunction"))
             .into());
@@ -416,24 +402,21 @@ pub fn CreateParallelContext(
     // C dlist_push_head: the head is the newest context, so AtEOSubXact's
     // front-of-list subid scan sees inner-subxact contexts first.
     PCXT_LIST.with(|l| {
-        l.borrow_mut().insert(
-            0,
-            ParallelContext {
-                id,
-                subid: xact::GetCurrentSubTransactionId(),
-                nworkers,
-                nworkers_to_launch: nworkers,
-                nworkers_launched: 0,
-                library_name: library_name.to_string(),
-                function_name: function_name.to_string(),
-                workers: Vec::new(),
-                known_attached_workers: Vec::new(),
-                nknown_attached_workers: 0,
-                shared: None,
-                shared_key: None,
-                error_context_mark: elog::context_stack_mark(),
-            },
-        )
+        l.borrow_mut().insert(0, ParallelContext {
+            id,
+            subid: xact::GetCurrentSubTransactionId(),
+            nworkers,
+            nworkers_to_launch: nworkers,
+            nworkers_launched: 0,
+            library_name: library_name.to_string(),
+            function_name: function_name.to_string(),
+            workers: Vec::new(),
+            known_attached_workers: Vec::new(),
+            nknown_attached_workers: 0,
+            shared: None,
+            shared_key: None,
+            error_context_mark: elog::context_stack_mark(),
+        },)
     });
     PCXT_COUNT.with(|c| c.set(c.get() + 1));
     Ok(ParallelContextId(id))
@@ -465,21 +448,13 @@ pub fn InitializeParallelDSM(id: ParallelContextId) -> PgResult<()> {
     let (temp_ns, temp_toast_ns) = catalog_namespace::GetTempNamespaceState();
 
     let tstate = {
-        let mut buf = ::mcx::std_vec_from_elem(
-            "ParallelContext",
-            0u8,
-            xact::EstimateTransactionStateSpace(),
-        )?;
+        let mut buf = ::mcx::std_vec_from_elem("ParallelContext", 0u8, xact::EstimateTransactionStateSpace(),)?;
         let n = xact::SerializeTransactionState(&mut buf)?;
         buf.truncate(n);
         buf
     };
     let clientconninfo = {
-        let mut buf = ::mcx::std_vec_from_elem(
-            "ParallelContext",
-            0u8,
-            miscinit::EstimateClientConnectionInfoSpace(),
-        )?;
+        let mut buf = ::mcx::std_vec_from_elem("ParallelContext", 0u8, miscinit::EstimateClientConnectionInfoSpace(),)?;
         miscinit::SerializeClientConnectionInfo(&mut buf);
         buf
     };
@@ -490,11 +465,9 @@ pub fn InitializeParallelDSM(id: ParallelContextId) -> PgResult<()> {
         None
     };
 
-    let mut error_senders =
-        ::mcx::std_vec_with_capacity("ParallelContext", nworkers.max(0) as usize)?;
+    let mut error_senders = ::mcx::std_vec_with_capacity("ParallelContext", nworkers.max(0) as usize)?;
     let mut receivers = ::mcx::std_vec_with_capacity("ParallelContext", nworkers.max(0) as usize)?;
-    let mut worker_attached =
-        ::mcx::std_vec_with_capacity("ParallelContext", nworkers.max(0) as usize)?;
+    let mut worker_attached = ::mcx::std_vec_with_capacity("ParallelContext", nworkers.max(0) as usize)?;
     for _ in 0..nworkers {
         let (tx, rx) = pgsync::mailbox(Some(PARALLEL_ERROR_QUEUE_MSGS));
         error_senders.push(Mutex::new(Some(tx)));
@@ -564,10 +537,7 @@ pub fn InitializeParallelDSM(id: ParallelContextId) -> PgResult<()> {
         p.nworkers_to_launch = nworkers;
         p.workers = receivers
             .into_iter()
-            .map(|rx| ParallelWorkerInfo {
-                bgwhandle: None,
-                error_receiver: Some(rx),
-            })
+            .map(|rx| ParallelWorkerInfo { bgwhandle: None, error_receiver: Some(rx), })
             .collect();
         p.shared = Some(shared);
     });
@@ -580,8 +550,7 @@ fn xact_get_transaction_snapshot() -> PgResult<snapmgr::Snapshot> {
 }
 
 pub fn shared_for(id: ParallelContextId) -> Arc<ParallelShared> {
-    with_pcxt(id, |p| {
-        p.shared.clone().expect("InitializeParallelDSM not run")
+    with_pcxt(id, |p| { p.shared.clone().expect("InitializeParallelDSM not run")
     })
 }
 
@@ -628,21 +597,13 @@ pub fn statement_task_shared(
     let (temp_ns, temp_toast_ns) = catalog_namespace::GetTempNamespaceState();
 
     let tstate = {
-        let mut buf = ::mcx::std_vec_from_elem(
-            "ParallelContext",
-            0u8,
-            xact::EstimateTransactionStateSpace(),
-        )?;
+        let mut buf = ::mcx::std_vec_from_elem("ParallelContext", 0u8, xact::EstimateTransactionStateSpace(),)?;
         let n = xact::SerializeTransactionState(&mut buf)?;
         buf.truncate(n);
         buf
     };
     let clientconninfo = {
-        let mut buf = ::mcx::std_vec_from_elem(
-            "ParallelContext",
-            0u8,
-            miscinit::EstimateClientConnectionInfoSpace(),
-        )?;
+        let mut buf = ::mcx::std_vec_from_elem("ParallelContext", 0u8, miscinit::EstimateClientConnectionInfoSpace(),)?;
         miscinit::SerializeClientConnectionInfo(&mut buf);
         buf
     };
@@ -654,11 +615,11 @@ pub fn statement_task_shared(
     };
 
     let encoded = QUERY_TASK_INSTALLED
-        | (u8::from(policy.has_params) * QUERY_TASK_PARAMS)
-        | (u8::from(policy.temp_state) * QUERY_TASK_TEMP)
-        | (u8::from(policy.serializable) * QUERY_TASK_SERIALIZABLE)
-        | (u8::from(policy.pending_invalidations) * QUERY_TASK_PENDING_INVALS)
-        | (u8::from(policy.invals_flush) * QUERY_TASK_INVALS_FLUSH);
+        | ( u8::from(policy.has_params) * QUERY_TASK_PARAMS)
+        | ( u8::from(policy.temp_state) * QUERY_TASK_TEMP)
+        | ( u8::from(policy.serializable) * QUERY_TASK_SERIALIZABLE)
+        | ( u8::from(policy.pending_invalidations) * QUERY_TASK_PENDING_INVALS)
+        | ( u8::from(policy.invals_flush) * QUERY_TASK_INVALS_FLUSH);
 
     Ok(Some(Arc::new(ParallelShared {
         database_id: g::MyDatabaseId(),
@@ -767,11 +728,11 @@ pub fn InstallQueryTaskBinding(
 ) -> PgResult<()> {
     let shared = shared_for(id);
     let encoded = QUERY_TASK_INSTALLED
-        | (u8::from(policy.has_params) * QUERY_TASK_PARAMS)
-        | (u8::from(policy.temp_state) * QUERY_TASK_TEMP)
-        | (u8::from(policy.serializable) * QUERY_TASK_SERIALIZABLE)
-        | (u8::from(policy.pending_invalidations) * QUERY_TASK_PENDING_INVALS)
-        | (u8::from(policy.invals_flush) * QUERY_TASK_INVALS_FLUSH);
+        | ( u8::from(policy.has_params) * QUERY_TASK_PARAMS)
+        | ( u8::from(policy.temp_state) * QUERY_TASK_TEMP)
+        | ( u8::from(policy.serializable) * QUERY_TASK_SERIALIZABLE)
+        | ( u8::from(policy.pending_invalidations) * QUERY_TASK_PENDING_INVALS)
+        | ( u8::from(policy.invals_flush) * QUERY_TASK_INVALS_FLUSH);
     shared
         .query_task_binding
         .compare_exchange(0, encoded, SeqCst, SeqCst)
@@ -885,10 +846,7 @@ pub fn ReinitializeParallelDSM(id: ParallelContextId) -> PgResult<()> {
     // interrupts, and ProcessParallelMessages walks pcxt_list — C's
     // WaitForParallelWorkersToExit holds no lock here (parallel.c:904).
     let handles: Vec<_> = with_pcxt(id, |p| {
-        p.workers
-            .iter_mut()
-            .filter_map(|w| w.bgwhandle.take())
-            .collect()
+        p.workers.iter_mut().filter_map(|w| w.bgwhandle.take()).collect()
     });
     wait_for_workers_to_exit(handles)?;
 
@@ -900,9 +858,7 @@ pub fn ReinitializeParallelDSM(id: ParallelContextId) -> PgResult<()> {
         p.nknown_attached_workers = 0;
         for (i, w) in p.workers.iter_mut().enumerate() {
             let (tx, rx) = pgsync::mailbox(Some(PARALLEL_ERROR_QUEUE_MSGS));
-            *shared.error_senders[i]
-                .lock()
-                .unwrap_or_else(|e| e.into_inner()) = Some(tx);
+            *shared.error_senders[i].lock().unwrap_or_else(|e| e.into_inner()) = Some(tx);
             shared.worker_attached[i].store(false, SeqCst);
             w.bgwhandle = None;
             w.error_receiver = Some(rx);
@@ -919,7 +875,8 @@ pub fn ReinitializeParallelWorkers(id: ParallelContextId, nworkers_to_launch: i3
 }
 
 pub fn LaunchParallelWorkers(id: ParallelContextId) -> PgResult<i32> {
-    let (nworkers_to_launch, shared) = with_pcxt(id, |p| (p.nworkers_to_launch, p.shared.clone()));
+    let (nworkers_to_launch, shared) =
+        with_pcxt(id, |p| (p.nworkers_to_launch, p.shared.clone()));
     if nworkers_to_launch == 0 {
         return Ok(0);
     }
@@ -928,7 +885,7 @@ pub fn LaunchParallelWorkers(id: ParallelContextId) -> PgResult<i32> {
 
     lmgr_proc::BecomeLockGroupLeader()?;
 
-    let key = with_pcxt(id, |p| p.shared_key).unwrap_or_else(|| {
+    let key = with_pcxt(id, |p| p.shared_key) .unwrap_or_else(|| {
         let key = NEXT_SHARED_KEY.fetch_add(1, SeqCst);
         SHARED_REGISTRY
             .lock()
@@ -976,8 +933,11 @@ pub fn LaunchParallelWorkers(id: ParallelContextId) -> PgResult<i32> {
     }
     with_pcxt(id, |p| -> PgResult<()> {
         p.nworkers_launched = launched;
-        p.known_attached_workers =
-            ::mcx::std_vec_from_elem("ParallelContext", false, p.nworkers_to_launch as usize)?;
+        p.known_attached_workers = ::mcx::std_vec_from_elem(
+            "ParallelContext",
+            false,
+            p.nworkers_to_launch as usize
+        )?;
         p.nknown_attached_workers = 0;
         Ok(())
     })?;
@@ -1022,9 +982,7 @@ pub fn WaitForParallelWorkersToAttach(id: ParallelContextId) -> PgResult<()> {
             // init-failure (C reads shm_mq_get_sender after BGWH_STOPPED).
             let status = bgworker::GetBackgroundWorkerPid(&handle).0;
             let attached = with_pcxt(id, |p| {
-                p.shared
-                    .as_ref()
-                    .is_some_and(|s| s.worker_attached[i].load(SeqCst))
+                p.shared.as_ref().is_some_and(|s| s.worker_attached[i].load(SeqCst))
             });
             match status {
                 bgworker::BgwHandleStatus::BGWH_STARTED if attached => {
@@ -1062,11 +1020,7 @@ fn report_park_stall(wait_event: u32, waited_ms: i64) {
     let mut msg = format!(
         "parallel leader park stall self-report: wait_event={} waited_ms={waited_ms} \
          my_pid={} my_procno={}",
-        if wait_event == WAIT_EVENT_PARALLEL_FINISH {
-            "ParallelFinish"
-        } else {
-            "BgworkerStartup"
-        },
+        if wait_event == WAIT_EVENT_PARALLEL_FINISH { "ParallelFinish" } else { "BgworkerStartup" },
         g::MyProcPid(),
         g::MyProcNumber(),
     );
@@ -1186,9 +1140,7 @@ pub fn WaitForParallelWorkersToFinish(id: ParallelContextId) -> PgResult<()> {
                 // Status first (see WaitForParallelWorkersToAttach).
                 let status = bgworker::GetBackgroundWorkerPid(&handle).0;
                 let attached = with_pcxt(id, |p| {
-                    p.shared
-                        .as_ref()
-                        .is_some_and(|s| s.worker_attached[i].load(SeqCst))
+                    p.shared.as_ref().is_some_and(|s| s.worker_attached[i].load(SeqCst))
                 });
                 if matches!(
                     status,
@@ -1221,13 +1173,13 @@ pub fn WaitForParallelWorkersToFinish(id: ParallelContextId) -> PgResult<()> {
 fn wait_for_workers_to_exit(handles: Vec<bgworker::BackgroundWorkerHandle>) -> PgResult<()> {
     for handle in handles {
         if bgworker::WaitForBackgroundWorkerShutdown(&handle)?
-            == bgworker::BgwHandleStatus::BGWH_POSTMASTER_DIED
-        {
-            return ereport(FATAL)
-                .errcode(ERRCODE_ADMIN_SHUTDOWN)
-                .errmsg("postmaster exited during a parallel transaction")
-                .finish(loc(939, "WaitForParallelWorkersToExit"));
-        }
+            ==
+            bgworker::BgwHandleStatus::BGWH_POSTMASTER_DIED {
+                return ereport(FATAL)
+                    .errcode(ERRCODE_ADMIN_SHUTDOWN)
+                    .errmsg("postmaster exited during a parallel transaction")
+                    .finish(loc(939, "WaitForParallelWorkersToExit"));
+            }
     }
     Ok(())
 }
@@ -1267,11 +1219,7 @@ pub fn DestroyParallelContext(id: ParallelContextId) -> PgResult<()> {
             .retain(|(k, _)| *k != key);
     }
 
-    let handles: Vec<_> = pcxt
-        .workers
-        .iter_mut()
-        .filter_map(|w| w.bgwhandle.take())
-        .collect();
+    let handles: Vec<_> = pcxt.workers.iter_mut().filter_map(|w| w.bgwhandle.take()).collect();
     g::HoldInterrupts();
     let result = wait_for_workers_to_exit(handles);
     g::ResumeInterrupts();
@@ -1352,11 +1300,7 @@ fn process_parallel_messages_guts() -> PgResult<()> {
         PCXT_LIST.with(|l| l.borrow().iter().map(|p| ParallelContextId(p.id)).collect());
     for id in ids {
         let n = PCXT_LIST.with(|l| {
-            l.borrow()
-                .iter()
-                .find(|p| p.id == id.0)
-                .map(|p| p.workers.len())
-                .unwrap_or(0)
+            l.borrow().iter().find(|p| p.id == id.0).map(|p| p.workers.len()).unwrap_or(0)
         });
         for i in 0..n {
             loop {
@@ -1387,7 +1331,10 @@ fn process_parallel_messages_guts() -> PgResult<()> {
                                 with_pcxt(id, |p| p.error_context_mark),
                             ),
                             WorkerMessage::Progress { index, incr } => {
-                                backend_progress::pgstat_progress_incr_param(index as usize, incr);
+                                backend_progress::pgstat_progress_incr_param(
+                                    index as usize,
+                                    incr
+                                );
                             }
                             WorkerMessage::Terminate => {
                                 with_pcxt(id, |p| p.workers[i].error_receiver = None);
@@ -1414,11 +1361,7 @@ const DEBUG_PARALLEL_REGRESS: i32 = 2;
 // pqmq.c:242-250: the wire form carries only "DEBUG", so every relayed
 // DEBUG report reaches the leader's thresholds as DEBUG1.
 fn relayed_notice_level(level: ErrorLevel) -> ErrorLevel {
-    if level <= DEBUG1 {
-        DEBUG1
-    } else {
-        level
-    }
+    if level <= DEBUG1 { DEBUG1 } else { level }
 }
 
 /// parallel.c:1180-1200: re-thrown under the context stack saved when the
@@ -1461,15 +1404,10 @@ impl PoolNoticeRelay {
         elog::config::set_where_to_send_output(types_dest::CommandDest::Remote);
         let prev_redirect = elog::set_frontend_redirect(Some(Box::new(move |e: &PgError| {
             if e.level < ERROR {
-                q.lock()
-                    .unwrap_or_else(|p| p.into_inner())
-                    .push(Box::new(e.clone()));
+                q.lock().unwrap_or_else(|p| p.into_inner()).push(Box::new(e.clone()));
             }
         })));
-        let _scope = RelayScope {
-            prev_dest,
-            prev_redirect,
-        };
+        let _scope = RelayScope { prev_dest, prev_redirect, };
         f()
     }
 
@@ -1550,9 +1488,8 @@ pub fn parallel_worker_report_progress(index: i32, incr: i64) {
         };
         send_to_leader(sender, WorkerMessage::Progress { index, incr });
         MY_WORKER_SHARED.with(|s| {
-            s.borrow()
-                .as_ref()
-                .map(|sh| (sh.parallel_leader_pid, sh.parallel_leader_proc_number))
+            s.borrow().as_ref().map(|sh|
+                (sh.parallel_leader_pid, sh.parallel_leader_proc_number))
         })
     });
     let Some((leader_pid, leader_proc)) = sent else {
@@ -1570,29 +1507,19 @@ pub fn parallel_worker_report_progress(index: i32, incr: i64) {
 // so the wait probes what ProcessInterrupts would act on, drops the message
 // (C's longjmp loses it too) and leaves the bits for the next CFI to raise.
 fn send_to_leader(sender: &MailboxSender<WorkerMessage>, msg: WorkerMessage) {
-    let _ =
-        latch::mailbox_send_on_my_latch(sender, msg, WAIT_EVENT_MESSAGE_QUEUE_PUT_MESSAGE, || {
-            if g::InterruptPending()
-                && g::InterruptHoldoffCount() == 0
-                && g::CritSectionCount() == 0
-            {
-                return Err(Box::new(PgError::error(
-                    "interrupt pending during parallel message send",
-                )));
-            }
-            Ok(())
-        });
+    let _ = latch::mailbox_send_on_my_latch(sender, msg, WAIT_EVENT_MESSAGE_QUEUE_PUT_MESSAGE, || {
+        if g::InterruptPending() && g::InterruptHoldoffCount() == 0 && g::CritSectionCount() == 0 {
+            return Err(Box::new(PgError::error("interrupt pending during parallel message send",)));
+        }
+        Ok(())
+    });
 }
 
-fn take_my_error_sender(
-    shared: &ParallelShared,
-    worker_number: i32,
-) -> MailboxSender<WorkerMessage> {
+fn take_my_error_sender(shared: &ParallelShared, worker_number: i32,) -> MailboxSender<WorkerMessage> {
     let mut slot = shared.error_senders[worker_number as usize]
         .lock()
         .unwrap_or_else(|e| e.into_inner());
-    slot.take()
-        .expect("parallel worker error sender already taken")
+    slot.take().expect("parallel worker error sender already taken")
 }
 
 fn parallel_worker_main_thunk(main_arg: u64) -> PgResult<()> {
@@ -1673,10 +1600,8 @@ pub fn ParallelWorkerMain(main_arg: u64) -> PgResult<()> {
     // ProcessParallelMessages downgrades it to ERROR (C
     // HandleParallelMessages parity).
     let notice_sender = sender.clone();
-    let (leader_pid, leader_proc) = (
-        shared.parallel_leader_pid,
-        shared.parallel_leader_proc_number,
-    );
+    let (leader_pid, leader_proc) =
+        (shared.parallel_leader_pid, shared.parallel_leader_proc_number,);
     let prev_redirect = elog::set_frontend_redirect(Some(Box::new(move |e: &PgError| {
         if e.level == ERROR {
             return;
@@ -1757,9 +1682,8 @@ pub fn ParallelWorkerMain(main_arg: u64) -> PgResult<()> {
     if outcome.is_ok() {
         for f in post_task_park_hooks() {
             // unwind-ok: worker-containment
-            if let Err(payload) =
-                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(&shared)))
-            {
+            if let Err(payload) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(||
+                f(&shared))) {
                 // Exit-committed unwinds (proc_exit / PANIC / crash-
                 // injected SIGKILL) keep unwinding — a park hook must not
                 // leave a dying thread alive in the pool. D2933: a plain
@@ -1886,10 +1810,7 @@ fn parallel_worker_body(shared: &Arc<ParallelShared>, _worker_number: i32) -> Pg
     }
 
     let asnapshot = snapmgr::RestoreSnapshot(&shared.active_snapshot);
-    let tsource = shared
-        .transaction_snapshot
-        .as_ref()
-        .unwrap_or(&shared.active_snapshot);
+    let tsource = shared.transaction_snapshot.as_ref().unwrap_or(&shared.active_snapshot);
     snapmgr::RestoreTransactionSnapshot(tsource, shared.parallel_leader_proc_number)?;
     snapmgr::PushActiveSnapshot(&asnapshot)?;
 

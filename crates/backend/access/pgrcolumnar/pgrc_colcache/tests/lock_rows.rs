@@ -56,71 +56,29 @@ fn tuple(xmin: u32, xmax: u32, infomask: u16, r: u64, succ: u64) -> [u8; 40] {
 fn lock_rows_never_reach_the_tombstone_image() {
     let mut buf = vec![0u64; BLCKSZ / 8].into_boxed_slice();
     // SAFETY: an 8-aligned BLCKSZ buffer this test owns.
-    let mut page =
-        unsafe { PageMut::from_raw(std::ptr::NonNull::new(buf.as_mut_ptr() as *mut u8).unwrap()) };
+    let mut page = unsafe { PageMut::from_raw(std::ptr::NonNull::new(buf.as_mut_ptr() as *mut u8).unwrap()) };
     page.init(0);
     let rows = [
         // a settled delete
         tuple(5, 0, XMIN_FROZEN | XMAX_INVALID, rowident(7, 1), SUCC_NONE),
         // a lock-only LOCK row, frozen, two KEY SHARE lockers (a multixact)
-        tuple(
-            900,
-            77,
-            XMIN_FROZEN | XMAX_IS_MULTI | XMAX_LOCK_ONLY | XMAX_KEYSHR,
-            rowident(7, 2),
-            SUCC_LOCK,
-        ),
+        tuple(900, 77, XMIN_FROZEN | XMAX_IS_MULTI | XMAX_LOCK_ONLY | XMAX_KEYSHR, rowident(7, 2), SUCC_LOCK,),
         // a LOCK row a writer is updating while a KEY SHARE holder stays (a multixact holding an update)
-        tuple(
-            900,
-            78,
-            XMIN_FROZEN | XMAX_IS_MULTI | XMAX_KEYSHR,
-            rowident(7, 3),
-            SUCC_LOCK,
-        ),
+        tuple(900, 78, XMIN_FROZEN | XMAX_IS_MULTI | XMAX_KEYSHR, rowident(7, 3), SUCC_LOCK,),
         // a LOCK row an exclusive locker holds
-        tuple(
-            900,
-            900,
-            XMIN_FROZEN | XMAX_LOCK_ONLY | XMAX_EXCL,
-            rowident(7, 4),
-            SUCC_LOCK,
-        ),
+        tuple(900, 900, XMIN_FROZEN | XMAX_LOCK_ONLY | XMAX_EXCL, rowident(7, 4), SUCC_LOCK,),
         // the tombstone that update made: its KEY SHARE holder carried as a locked-only multixact xmax
-        tuple(
-            900,
-            79,
-            UPDATED | XMAX_IS_MULTI | XMAX_LOCK_ONLY | XMAX_KEYSHR,
-            rowident(7, 3),
-            rowident(9, 1 << 9 | 4),
-        ),
+        tuple(900, 79, UPDATED | XMAX_IS_MULTI | XMAX_LOCK_ONLY | XMAX_KEYSHR, rowident(7, 3), rowident(9, 1 << 9 | 4),),
     ];
     for t in &rows {
         page.add_item(t, 0, PAI_IS_HEAP).expect("room");
     }
     // SAFETY: BLCKSZ bytes of an 8-aligned buffer.
     let bytes = unsafe { std::slice::from_raw_parts(buf.as_ptr() as *const u8, BLCKSZ) };
-    let img = BlockImage::decode(0, bytes, Kind::Tomb, &Ctx::new(&Committed))
-        .expect("decode")
-        .expect("imageable with LOCK rows");
-    let got: Vec<(u64, u64)> = (0..img.rows())
-        .map(|i| {
-            pgrc_colcache::tomb::tombstone(&img, i)
-                .map(|t| (t.rowident, t.succ))
-                .unwrap()
-        })
-        .collect();
-    assert_eq!(
-        got,
-        vec![
-            (rowident(7, 1), SUCC_NONE),
-            (rowident(7, 3), rowident(9, 1 << 9 | 4))
-        ],
-        "the two tombstones, no LOCK row"
-    );
+    let img = BlockImage::decode(0, bytes, Kind::Tomb, &Ctx::new(&Committed)).expect("decode").expect("imageable with LOCK rows");
+    let got: Vec<(u64, u64)> = (0..img.rows()).map(|i| { pgrc_colcache::tomb::tombstone(&img, i).map(|t| (t.rowident, t.succ)).unwrap()
+        }).collect();
+    assert_eq!(got, vec![(rowident(7, 1), SUCC_NONE), (rowident(7, 3), rowident(9, 1 << 9 | 4))], "the two tombstones, no LOCK row");
     assert!(img.is_settled(0), "the frozen delete is settled");
-    assert!(
-        !img.is_settled(1),
-        "the in-progress updater's tombstone is recent"
-    );
+    assert!(!img.is_settled(1), "the in-progress updater's tombstone is recent");
 }

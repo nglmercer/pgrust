@@ -21,8 +21,7 @@ const DEAD_AT: usize = RUN;
 const DEAD_LEN: usize = 4 * RUN;
 
 fn thp_host() -> bool {
-    std::fs::read_to_string("/sys/kernel/mm/transparent_hugepage/enabled")
-        .is_ok_and(|s| !s.contains("[never]"))
+    std::fs::read_to_string("/sys/kernel/mm/transparent_hugepage/enabled").is_ok_and(|s| !s.contains("[never]"))
 }
 
 /// Blocks of 9 runs, the first per superpage kept and written, the rest freed: superpages in use, with free runs.
@@ -35,11 +34,7 @@ fn used_superpages(h: Hint) -> Vec<NonNull<u8>> {
         let p = b.as_ptr() as usize;
         // SAFETY: ours.
         unsafe { core::ptr::write_bytes(p as *mut u8, 0x5a, BLOCK) };
-        if seen.insert(p / SUPER) {
-            kept.push(b)
-        } else {
-            freed.push(b)
-        }
+        if seen.insert(p / SUPER) { kept.push(b) } else { freed.push(b) }
     }
     for b in freed {
         // SAFETY: ours, freed once.
@@ -95,33 +90,13 @@ fn a_pressure_ask_in_mode_3_releases_hot_superpages_dead_runs() {
     assert!(kept.len() >= 2, "blocks in at least two superpages");
     let (d0, r0, s0) = (stats().dead, stats().released_bytes, thp_hot_skips());
     let dead = hot_dead(&kept);
-    assert_eq!(
-        stats().dead,
-        d0 + dead,
-        "the hot superpages' dead runs counted"
-    );
-    assert!(
-        releasable() >= dead,
-        "R1 sizes its ask with them: releasable {} < dead {dead}",
-        releasable()
-    );
+    assert_eq!(stats().dead, d0 + dead, "the hot superpages' dead runs counted");
+    assert!(releasable() >= dead, "R1 sizes its ask with them: releasable {} < dead {dead}", releasable());
     hooks::clear();
     let got = return_warm_now(usize::MAX);
-    assert!(
-        got >= dead,
-        "R1 released {got} B, under the hot dead runs' {dead} B"
-    );
-    assert!(
-        stats().dead <= d0,
-        "no dead run left held: {} > {d0}",
-        stats().dead
-    );
-    assert!(
-        stats().released_bytes >= r0 + dead as u64,
-        "released: {} -> {}",
-        r0,
-        stats().released_bytes
-    );
+    assert!(got >= dead, "R1 released {got} B, under the hot dead runs' {dead} B");
+    assert!(stats().dead <= d0, "no dead run left held: {} > {d0}", stats().dead);
+    assert!(stats().released_bytes >= r0 + dead as u64, "released: {} -> {}", r0, stats().released_bytes);
     assert!(cold_splits() > 0, "split first, as mode 2");
     assert_eq!(thp_hot_skips(), s0, "a pressure ask skips nothing hot");
     give_all(kept);
@@ -133,15 +108,8 @@ fn a_pressure_ask_in_mode_3_releases_hot_superpages_dead_runs() {
     let dead = hot_dead(&kept);
     hooks::clear();
     let got = purge_now(usize::MAX, None);
-    assert!(
-        got >= dead,
-        "the purge released {got} B, under the hot dead runs' {dead} B"
-    );
-    assert!(
-        stats().dead <= d1,
-        "no dead run left held: {} > {d1}",
-        stats().dead
-    );
+    assert!(got >= dead, "the purge released {got} B, under the hot dead runs' {dead} B");
+    assert!(stats().dead <= d1, "no dead run left held: {} > {d1}", stats().dead);
     assert!(cold_splits() > 0, "split first, as mode 2");
     assert_eq!(thp_hot_skips(), s1, "a pressure ask skips nothing hot");
     give_all(kept);

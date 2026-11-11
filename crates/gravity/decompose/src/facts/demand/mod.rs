@@ -167,18 +167,18 @@ impl Demand {
                     _ => self.all(kp, Read::Value),
                 };
             }
-            NodeTag::T_Sort => idx[0] = n.as_sort().map_or(&[][..], |s| s.sortColIdx),
-            NodeTag::T_IncrementalSort => idx[0] = n.as_incremental_sort().map_or(&[][..], |s| s.sort.sortColIdx),
-            NodeTag::T_Unique => idx[0] = n.as_unique().map_or(&[][..], |u| u.uniqColIdx),
-            NodeTag::T_GatherMerge => idx[0] = n.as_gather_merge().map_or(&[][..], |g| g.sortColIdx),
+            NodeTag::T_Sort => idx[0] = n.as_sort().map_or(&[][..], |s|s.sortColIdx),
+            NodeTag::T_IncrementalSort => idx[0] = n.as_incremental_sort().map_or(&[][..], |s|s.sort.sortColIdx),
+            NodeTag::T_Unique => idx[0] = n.as_unique().map_or(&[][..], |u|u.uniqColIdx),
+            NodeTag::T_GatherMerge => idx[0] = n.as_gather_merge().map_or(&[][..], |g|g.sortColIdx),
             NodeTag::T_Limit => {
                 let Some(l) = n.as_limit() else { return self.all(kp, Read::Value) };
-                idx[0] = l.uniqColIdx;
+                idx[0] =l.uniqColIdx;
                 exprs = [l.limitOffset, l.limitCount];
             }
             NodeTag::T_WindowAgg => {
                 let Some(w) = n.as_window_agg() else { return self.all(kp, Read::Value) };
-                idx = [w.partColIdx, w.ordColIdx];
+                idx = [w.partColIdx,w.ordColIdx];
                 exprs = [w.startOffset, w.endOffset];
                 cond = Some(&w.runCondition);
             }

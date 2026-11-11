@@ -1,7 +1,7 @@
 // pg_depend.c recording slice; the deletion half rides in catalog_dependency
 // (deleteOneObject's scans); the pg_shdepend.c wrappers delegate to the
 // pg_shdepend crate.
-#![allow(non_snake_case, non_upper_case_globals)]
+#![allow(non_snake_case,non_upper_case_globals)]
 
 use datum::Datum;
 use mcx::Mcx;
@@ -24,19 +24,11 @@ pub struct ObjectAddress {
 
 impl ObjectAddress {
     pub const fn set(classId: Oid, objectId: Oid) -> Self {
-        Self {
-            classId,
-            objectId,
-            objectSubId: 0,
-        }
+        Self { classId, objectId, objectSubId: 0, }
     }
 
     pub const fn sub_set(classId: Oid, objectId: Oid, objectSubId: i32) -> Self {
-        Self {
-            classId,
-            objectId,
-            objectSubId,
-        }
+        Self { classId, objectId, objectSubId, }
     }
 }
 
@@ -110,12 +102,7 @@ pub fn recordMultipleDependencies<'mcx>(
             Datum::from_char(behavior.as_char()),
         ];
         let nulls = [false; Natts_pg_depend];
-        tuples.push(heaptuple::heap_form_tuple(
-            mcx,
-            rel.descr(),
-            &values,
-            &nulls,
-        )?);
+        tuples.push(heaptuple::heap_form_tuple(mcx, rel.descr(), &values, &nulls,)?);
         if tuples.len() == max_slots {
             if indstate.is_none() {
                 indstate = Some(catalog_indexing::CatalogOpenIndexes(mcx, &rel)?);
@@ -171,7 +158,11 @@ fn isObjectPinned(object: &ObjectAddress) -> bool {
 // about to reference and verify it was not dropped meanwhile; a no-op when the
 // caller already holds a lock that conflicts with DROP.
 // upstream c8cd3d6976f7 (18.6): Avoid orphaned objects dependencies
-fn dependencyLockAndCheckObject<'mcx>(mcx: Mcx<'mcx>, classId: Oid, objectId: Oid) -> PgResult<()> {
+fn dependencyLockAndCheckObject<'mcx>(
+    mcx: Mcx<'mcx>,
+    classId: Oid,
+    objectId: Oid
+) -> PgResult<()> {
     debug_assert!(!catalog::IsPinnedObject(classId, objectId));
 
     if classId != RELATION_CLASS {
@@ -275,11 +266,7 @@ impl<'mcx> nodes_core::NodeWalker<'mcx> for FindExprRefs<'_, 'mcx> {
                      single-rel rtable; unported lane"
                 );
                 if v.varattno != 0 {
-                    addrs.push(ObjectAddress::sub_set(
-                        RELATION_CLASS,
-                        rel_id,
-                        v.varattno as i32,
-                    ));
+                    addrs.push(ObjectAddress::sub_set(RELATION_CLASS, rel_id, v.varattno as i32,));
                 }
                 return Ok(false);
             }
@@ -352,7 +339,8 @@ impl<'mcx> nodes_core::NodeWalker<'mcx> for FindExprRefs<'_, 'mcx> {
                             return Err(Box::new(
                                 types_error::PgError::new(
                                     types_error::ERROR,
-                                    "constant of the type regrole cannot be used here".to_string(),
+                                    "constant of the type regrole cannot be used here"
+                                        .to_string(),
                                 )
                                 .with_sqlstate(types_error::ERRCODE_FEATURE_NOT_SUPPORTED),
                             ));
@@ -363,9 +351,7 @@ impl<'mcx> nodes_core::NodeWalker<'mcx> for FindExprRefs<'_, 'mcx> {
                 return Ok(false);
             }
             T_Param => {
-                let p = node
-                    .as_variant::<types_nodes::primnodes::Param>()
-                    .expect("Param");
+                let p = node.as_variant::<types_nodes::primnodes::Param>().expect("Param");
                 addrs.push(ObjectAddress::set(TYPE_CLASS, p.paramtype));
                 if p.paramcollid != 0 && p.paramcollid != DEFAULT_COLLATION_OID {
                     addrs.push(ObjectAddress::set(COLL_CLASS, p.paramcollid));
@@ -414,9 +400,7 @@ impl<'mcx> nodes_core::NodeWalker<'mcx> for FindExprRefs<'_, 'mcx> {
             T_CoerceToDomain => {
                 addrs.push(ObjectAddress::set(
                     TYPE_CLASS,
-                    node.as_coerce_to_domain()
-                        .expect("CoerceToDomain")
-                        .resulttype,
+                    node.as_coerce_to_domain().expect("CoerceToDomain").resulttype,
                 ));
             }
             T_CollateExpr => {
@@ -433,9 +417,8 @@ impl<'mcx> nodes_core::NodeWalker<'mcx> for FindExprRefs<'_, 'mcx> {
                 }
             }
             T_FieldSelect => {
-                let fselect = node
-                    .as_variant::<types_nodes::primnodes::FieldSelect>()
-                    .expect("FieldSelect");
+                let fselect =
+                    node.as_variant::<types_nodes::primnodes::FieldSelect>().expect("FieldSelect");
                 let argtype = lsyscache::getBaseType(nodes_core::expr_type(fselect.arg))?;
                 let reltype = lsyscache::get_typ_typrelid(argtype)?;
                 if reltype != 0 {
@@ -511,26 +494,14 @@ impl<'mcx> nodes_core::NodeWalker<'mcx> for FindExprRefs<'_, 'mcx> {
             // dependency.c case: default recursion, no dependency recorded.
             // NamedArgExpr (f(x => 1) in a stored default) likewise has no
             // dependency.c case: default recursion reaches the argument.
-            T_BoolExpr
-            | T_NullTest
-            | T_BooleanTest
-            | T_CaseExpr
-            | T_CaseWhen
-            | T_CaseTestExpr
-            | T_CoalesceExpr
-            | T_MinMaxExpr
-            | T_ArrayExpr
-            | T_List
-            | T_SQLValueFunction
-            | T_XmlExpr
-            | T_JsonExpr
-            | T_JsonValueExpr
-            | T_JsonConstructorExpr
-            | T_JsonIsPredicate
-            | T_JsonBehavior
-            | T_CoerceToDomainValue
-            | T_NamedArgExpr => {}
-            other => panic!("find_expr_references_walker (dependency.c): {other:?}; unported lane"),
+            T_BoolExpr | T_NullTest | T_BooleanTest | T_CaseExpr | T_CaseWhen
+            | T_CaseTestExpr | T_CoalesceExpr | T_MinMaxExpr | T_ArrayExpr | T_List
+            | T_SQLValueFunction | T_XmlExpr | T_JsonExpr | T_JsonValueExpr
+            | T_JsonConstructorExpr | T_JsonIsPredicate | T_JsonBehavior
+            | T_CoerceToDomainValue | T_NamedArgExpr => {}
+            other => panic!(
+                "find_expr_references_walker (dependency.c): {other:?}; unported lane"
+            ),
         }
         nodes_core::expression_tree_walker(node, self)
     }
@@ -548,14 +519,7 @@ pub fn recordDependencyOnSingleRelExpr<'mcx>(
     reverse_self: bool,
 ) -> PgResult<()> {
     let mut addrs: mcx::PgVec<'mcx, ObjectAddress> = mcx::PgVec::new_in(mcx);
-    nodes_core::NodeWalker::visit(
-        &mut FindExprRefs {
-            mcx,
-            rel_id,
-            addrs: &mut addrs,
-        },
-        expr,
-    )?;
+    nodes_core::NodeWalker::visit(&mut FindExprRefs { mcx, rel_id, addrs: &mut addrs, }, expr,)?;
     eliminate_duplicate_dependencies(&mut addrs);
 
     if (behavior != self_behavior || reverse_self) && !addrs.is_empty() {
@@ -616,11 +580,7 @@ pub fn check_usage_on_types(addrs: &[ObjectAddress], roleid: Oid) -> PgResult<()
 #[inline(never)]
 fn aclcheck_error_type(aclerr: i32, type_oid: Oid) -> PgResult<()> {
     let element_type = lsyscache::get_element_type(type_oid)?;
-    let type_oid = if element_type != types_core::InvalidOid {
-        element_type
-    } else {
-        type_oid
-    };
+    let type_oid = if element_type != types_core::InvalidOid { element_type } else { type_oid };
     aclchk_seams::aclcheck_error::call(
         aclerr,
         types_nodes::parsenodes::ObjectType::OBJECT_TYPE as i32,
@@ -638,14 +598,7 @@ pub fn CheckUsageOnTypesInSingleRelExpr<'mcx>(
     roleid: Oid,
 ) -> PgResult<()> {
     let mut addrs: mcx::PgVec<'mcx, ObjectAddress> = mcx::PgVec::new_in(mcx);
-    nodes_core::NodeWalker::visit(
-        &mut FindExprRefs {
-            mcx,
-            rel_id,
-            addrs: &mut addrs,
-        },
-        expr,
-    )?;
+    nodes_core::NodeWalker::visit(&mut FindExprRefs { mcx, rel_id, addrs: &mut addrs, }, expr,)?;
     eliminate_duplicate_dependencies(&mut addrs);
     check_usage_on_types(&addrs, roleid)
 }
@@ -706,10 +659,7 @@ pub fn deleteDependencyRecordsFor<'mcx>(
         k.sk_argument = Datum::from_oid(oid);
         k
     };
-    let keys = [
-        key(Anum_pg_depend_classid, classId),
-        key(Anum_pg_depend_objid, objectId),
-    ];
+    let keys = [key(Anum_pg_depend_classid, classId), key(Anum_pg_depend_objid, objectId),];
     let mut scan = genam::systable_beginscan(mcx, &rel, DependDependerIndexId, true, None, &keys)?;
     while let Some(tup) = genam::systable_getnext(mcx, &mut scan)? {
         if skipExtensionDeps {
@@ -761,10 +711,7 @@ pub fn changeDependencyFor<'mcx>(
     }
     let mut count = 0i64;
     let rel = table::table_open(mcx, DependRelationId, RowExclusiveLock)?;
-    let keys = [
-        oid_key(Anum_pg_depend_classid, classId),
-        oid_key(Anum_pg_depend_objid, objectId),
-    ];
+    let keys = [oid_key(Anum_pg_depend_classid, classId), oid_key(Anum_pg_depend_objid, objectId),];
     let mut scan = genam::systable_beginscan(mcx, &rel, DependDependerIndexId, true, None, &keys)?;
     let desc = rel.descr();
     let natts = desc.natts as usize;
@@ -815,10 +762,8 @@ pub fn changeDependenciesOf<'mcx>(
 ) -> PgResult<i64> {
     let mut count = 0i64;
     let rel = table::table_open(mcx, DependRelationId, RowExclusiveLock)?;
-    let keys = [
-        oid_key(Anum_pg_depend_classid, classId),
-        oid_key(Anum_pg_depend_objid, oldObjectId),
-    ];
+    let keys =
+        [oid_key(Anum_pg_depend_classid, classId), oid_key(Anum_pg_depend_objid, oldObjectId),];
     let mut scan = genam::systable_beginscan(mcx, &rel, DependDependerIndexId, true, None, &keys)?;
     let desc = rel.descr();
     let natts = desc.natts as usize;
@@ -966,10 +911,7 @@ pub fn set_current_extension_object(oid: Oid) {
 
 pub fn getExtensionOfObject<'mcx>(mcx: Mcx<'mcx>, classId: Oid, objectId: Oid) -> PgResult<Oid> {
     let rel = table::table_open(mcx, DependRelationId, types_rel::AccessShareLock)?;
-    let keys = [
-        oid_key(Anum_pg_depend_classid, classId),
-        oid_key(Anum_pg_depend_objid, objectId),
-    ];
+    let keys = [oid_key(Anum_pg_depend_classid, classId), oid_key(Anum_pg_depend_objid, objectId),];
     let mut scan = genam::systable_beginscan(mcx, &rel, DependDependerIndexId, true, None, &keys)?;
     let mut result = types_core::InvalidOid;
     let desc = rel.descr();
@@ -1035,7 +977,9 @@ pub fn recordDependencyOnCurrentExtension<'mcx>(
                     extension_name_or_lookup_fail(CurrentExtensionObject())?
                 ),
             )
-            .with_detail("An extension is not allowed to replace an object that it does not own.")
+            .with_detail(
+                "An extension is not allowed to replace an object that it does not own."
+            )
             .with_sqlstate(types_error::ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
         ));
     }
@@ -1110,9 +1054,7 @@ pub fn deleteDependencyRecordsForSpecific<'mcx>(
 ) -> PgResult<i64> {
     let mut count = 0i64;
     let rel = table::table_open(mcx, DependRelationId, RowExclusiveLock)?;
-    let keys = [
-        oid_key(Anum_pg_depend_classid, classId),
-        oid_key(Anum_pg_depend_objid, objectId),
+    let keys = [oid_key(Anum_pg_depend_classid, classId), oid_key(Anum_pg_depend_objid, objectId),
     ];
     let mut scan = genam::systable_beginscan(mcx, &rel, DependDependerIndexId, true, None, &keys)?;
     let desc = rel.descr();
@@ -1149,8 +1091,7 @@ pub fn getAutoExtensionsOfObject<'mcx>(
     let rel = table::table_open(mcx, DependRelationId, types_rel::AccessShareLock)?;
     let keys = [
         oid_key(Anum_pg_depend_classid, classId),
-        oid_key(Anum_pg_depend_objid, objectId),
-    ];
+        oid_key(Anum_pg_depend_objid, objectId),];
     let mut scan = genam::systable_beginscan(mcx, &rel, DependDependerIndexId, true, None, &keys)?;
     let desc = rel.descr();
     while let Some(tup) = genam::systable_getnext(mcx, &mut scan)? {
@@ -1377,11 +1318,10 @@ fn getOwnedSequences_internal<'mcx>(
             && (dep_deptype == DependencyType::Auto.as_char()
                 || dep_deptype == DependencyType::Internal.as_char())
             && lsyscache::relation::get_rel_relkind(objid)? == RELKIND_SEQUENCE
-            && deptype.is_none_or(|d| d.as_char() == dep_deptype)
-        {
-            result.push(objid);
+            && deptype.is_none_or(|d| d.as_char() == dep_deptype) {
+                result.push(objid);
+            }
         }
-    }
     genam::systable_endscan(mcx, scan)?;
     rel.close(types_rel::AccessShareLock)?;
     Ok(result)
@@ -1486,18 +1426,13 @@ pub fn deleteDependencyRecordsForClass<'mcx>(
     deptype: DependencyType,
 ) -> PgResult<i64> {
     let rel = table::table_open(mcx, DependRelationId, RowExclusiveLock)?;
-    let keys = [
-        oid_key(Anum_pg_depend_classid, classId),
-        oid_key(Anum_pg_depend_objid, objectId),
-    ];
+    let keys = [oid_key(Anum_pg_depend_classid, classId), oid_key(Anum_pg_depend_objid, objectId),];
     let mut scan = genam::systable_beginscan(mcx, &rel, DependDependerIndexId, true, None, &keys)?;
     let mut count = 0i64;
     let desc = rel.descr();
     #[allow(clippy::while_let_loop)]
     loop {
-        let Some(tup) = genam::systable_getnext(mcx, &mut scan)? else {
-            break;
-        };
+        let Some(tup) = genam::systable_getnext(mcx, &mut scan)? else { break; };
         let tid = tup.t_self;
         // SAFETY: aliases the slot-held image for this iteration's reads only.
         let view = unsafe {
@@ -1603,20 +1538,16 @@ mod tests {
         static ONCE: Once = Once::new();
         ONCE.call_once(|| {
             syscache_seams::lookup_pg_ts_config_row::set(|oid| {
-                Ok(
-                    (oid == EXISTING_TS_OBJECT).then(|| syscache_seams::PgTsObjectRow {
-                        name: types_tuple::NameData::default(),
-                        namespace_oid: 11,
-                    }),
-                )
+                Ok((oid == EXISTING_TS_OBJECT).then(|| syscache_seams::PgTsObjectRow {
+                    name: types_tuple::NameData::default(),
+                    namespace_oid: 11,
+                }),)
             });
             syscache_seams::lookup_pg_ts_dict_row::set(|oid| {
-                Ok(
-                    (oid == EXISTING_TS_OBJECT).then(|| syscache_seams::PgTsObjectRow {
-                        name: types_tuple::NameData::default(),
-                        namespace_oid: 11,
-                    }),
-                )
+                Ok((oid == EXISTING_TS_OBJECT).then(|| syscache_seams::PgTsObjectRow {
+                    name: types_tuple::NameData::default(),
+                    namespace_oid: 11,
+                }),)
             });
             syscache_seams::pg_type_typrelid::set(|typid| {
                 Ok((typid == COMPOSITE_TYPE).then_some(COMPOSITE_RELTYPE))
@@ -1633,10 +1564,7 @@ mod tests {
                 Ok(if roleid == ROLE_WITHOUT_USAGE { 1 } else { 0 })
             });
             aclchk_seams::aclcheck_error::set(|_aclresult, objtype, name| {
-                assert_eq!(
-                    objtype,
-                    types_nodes::parsenodes::ObjectType::OBJECT_TYPE as i32
-                );
+                assert_eq!(objtype, types_nodes::parsenodes::ObjectType::OBJECT_TYPE as i32);
                 Err(Box::new(
                     types_error::PgError::new(
                         types_error::ERROR,
@@ -1692,13 +1620,8 @@ mod tests {
         install_seams();
         let ctx = MemoryContext::new_bump("t");
         let mcx = ctx.mcx();
-        let e = changeDependenciesOn(
-            mcx,
-            types_core::RELATION_RELATION_ID,
-            PINNED_PG_CLASS,
-            70020,
-        )
-        .unwrap_err();
+        let e = changeDependenciesOn(mcx, types_core::RELATION_RELATION_ID, PINNED_PG_CLASS, 70020,)
+            .unwrap_err();
         assert_eq!(
             e.message(),
             "cannot remove dependency on table pg_class because it is a system object"
@@ -1728,11 +1651,8 @@ mod tests {
     #[test]
     fn check_usage_on_types_requires_usage_on_unpinned_types() {
         install_seams();
-        let e = check_usage_on_types(
-            &[ObjectAddress::set(TYPE_CLASS, UNPINNED_TYPE)],
-            ROLE_WITHOUT_USAGE,
-        )
-        .unwrap_err();
+        let e = check_usage_on_types(&[ObjectAddress::set(TYPE_CLASS, UNPINNED_TYPE)], ROLE_WITHOUT_USAGE,)
+            .unwrap_err();
         assert_eq!(e.message(), "permission denied for type usage_t");
         assert_eq!(e.sqlstate(), types_error::ERRCODE_INSUFFICIENT_PRIVILEGE);
     }
@@ -1742,17 +1662,8 @@ mod tests {
         install_seams();
         let ctx = MemoryContext::new_bump("t");
         let mcx = ctx.mcx();
-        let expr = Node::mk_const(
-            mcx,
-            UNPINNED_TYPE,
-            -1,
-            0,
-            4,
-            Datum::from_i32(1),
-            false,
-            true,
-        )
-        .unwrap();
+        let expr =
+            Node::mk_const(mcx, UNPINNED_TYPE, -1, 0, 4, Datum::from_i32(1), false, true,).unwrap();
         CheckUsageOnTypesInSingleRelExpr(mcx, expr, 50001, ROLE_WITH_USAGE).unwrap();
         let e = CheckUsageOnTypesInSingleRelExpr(mcx, expr, 50001, ROLE_WITHOUT_USAGE).unwrap_err();
         assert_eq!(e.message(), "permission denied for type usage_t");
@@ -1761,11 +1672,7 @@ mod tests {
     fn walk_expr<'mcx>(mcx: Mcx<'mcx>, expr: Node<'mcx>) -> Vec<ObjectAddress> {
         let mut addrs: mcx::PgVec<'mcx, ObjectAddress> = mcx::PgVec::new_in(mcx);
         nodes_core::NodeWalker::visit(
-            &mut FindExprRefs {
-                mcx,
-                rel_id: 50001,
-                addrs: &mut addrs,
-            },
+            &mut FindExprRefs { mcx, rel_id: 50001, addrs: &mut addrs, },
             expr,
         )
         .unwrap();
@@ -1773,17 +1680,7 @@ mod tests {
     }
 
     fn oid_const<'mcx>(mcx: Mcx<'mcx>, consttype: Oid, value: Oid) -> Node<'mcx> {
-        Node::mk_const(
-            mcx,
-            consttype,
-            -1,
-            0,
-            4,
-            Datum::from_oid(value),
-            false,
-            true,
-        )
-        .unwrap()
+        Node::mk_const(mcx, consttype, -1, 0, 4, Datum::from_oid(value), false, true,).unwrap()
     }
 
     #[test]
@@ -1825,16 +1722,10 @@ mod tests {
         let mcx = ctx.mcx();
         let nve = Node::mk(
             mcx,
-            types_nodes::primnodes::NextValueExpr {
-                seqid: 424242,
-                typeId: 20,
-            },
+            types_nodes::primnodes::NextValueExpr { seqid: 424242, typeId: 20, },
         )
         .unwrap();
-        assert_eq!(
-            walk_expr(mcx, nve),
-            vec![ObjectAddress::set(RELATION_CLASS, 424242)]
-        );
+        assert_eq!(walk_expr(mcx, nve), vec![ObjectAddress::set(RELATION_CLASS, 424242)]);
     }
 
     #[test]
@@ -1853,10 +1744,7 @@ mod tests {
             },
         )
         .unwrap();
-        assert_eq!(
-            walk_expr(mcx, nae),
-            vec![ObjectAddress::set(TYPE_CLASS, INT4OID)]
-        );
+        assert_eq!(walk_expr(mcx, nae), vec![ObjectAddress::set(TYPE_CLASS, INT4OID)]);
     }
 
     #[test]
@@ -1864,8 +1752,8 @@ mod tests {
         install_seams();
         let ctx = MemoryContext::new_bump("t");
         let mcx = ctx.mcx();
-        let arg =
-            Node::mk_const(mcx, COMPOSITE_TYPE, -1, 0, -1, Datum::null(), true, false).unwrap();
+        let arg = Node::mk_const(mcx, COMPOSITE_TYPE, -1, 0, -1, Datum::null(), true, false)
+            .unwrap();
         let newval =
             Node::mk_const(mcx, INT4OID, -1, 0, 4, Datum::from_i32(7), false, true).unwrap();
         let fstore = Node::mk(
@@ -1880,11 +1768,7 @@ mod tests {
         .unwrap();
         let addrs = walk_expr(mcx, fstore);
         // The stored-to column, plus the recursed Const datatypes.
-        assert!(addrs.contains(&ObjectAddress::sub_set(
-            RELATION_CLASS,
-            COMPOSITE_RELTYPE,
-            2
-        )));
+        assert!(addrs.contains(&ObjectAddress::sub_set(RELATION_CLASS, COMPOSITE_RELTYPE, 2)));
         assert!(addrs.contains(&ObjectAddress::set(TYPE_CLASS, INT4OID)));
     }
 }

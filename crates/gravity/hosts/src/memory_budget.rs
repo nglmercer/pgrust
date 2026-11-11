@@ -107,7 +107,7 @@ fn part_cache_trimmable() -> u64 {
 /// D3999 / C8 (D4087): the in-use parts the running owners of one account alone use (its statement and the portal it
 /// executes), what its cancel frees.
 fn part_pins_alone(f: &mut dyn FnMut(u32, u64)) {
-    pgrc_am::inval::registry().in_use_by_running(f);
+    pgrc_am::inval::registry().in_use_by_running( f);
 }
 
 /// The shared catalog L2's census: its live entries' approximate bytes (l2cache `stats`).

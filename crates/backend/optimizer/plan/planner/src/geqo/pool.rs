@@ -17,21 +17,14 @@ const DBL_MAX: Cost = f64::MAX;
 pub(super) fn alloc_pool(pool_size: i32, string_length: i32) -> PgResult<Pool> {
     let (n, genes, bytes) = pool_requests(pool_size, string_length)?;
     let mut data = Vec::new();
-    data.try_reserve_exact(n)
-        .map_err(|_| ::mcx::oom_named("GEQO pool", bytes))?;
+    data.try_reserve_exact(n).map_err(|_| ::mcx::oom_named("GEQO pool", bytes))?;
     for _ in 0..n {
         let mut string = Vec::new();
-        string
-            .try_reserve_exact(genes)
-            .map_err(|_| ::mcx::oom_named("GEQO pool", genes))?;
+        string.try_reserve_exact(genes).map_err(|_| ::mcx::oom_named("GEQO pool", genes))?;
         string.resize(genes, 0 as super::Gene);
         data.push(Chromosome { string, worth: 0.0 });
     }
-    Ok(Pool {
-        data,
-        size: pool_size,
-        string_length,
-    })
+    Ok(Pool { data, size: pool_size, string_length, })
 }
 
 // geqo_pool.c alloc_pool: palloc(pool_size * sizeof(Chromosome)) then one

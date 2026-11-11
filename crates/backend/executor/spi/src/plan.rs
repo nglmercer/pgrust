@@ -9,7 +9,8 @@ use types_nodes::nodes_enums::CmdType;
 use types_nodes::parsenodes::Query;
 
 use crate::{
-    _SPI_begin_call, _SPI_end_call, current_exec_mcx, set_spi_result, with_current,
+    _SPI_begin_call, _SPI_end_call,
+    current_exec_mcx, set_spi_result, with_current,
     SPI_ERROR_ARGUMENT,
 };
 
@@ -48,11 +49,7 @@ fn with_plan<R>(ptr: SpiPlanPtr, f: impl FnOnce(&mut SpiPlanState) -> R) -> Opti
     if ptr.is_null() {
         return None;
     }
-    PLANS.with(|p| {
-        p.borrow_mut()
-            .get_mut(ptr.0 as usize - 1)
-            .and_then(|s| s.as_mut())
-            .map(f)
+    PLANS.with(|p| { p.borrow_mut().get_mut(ptr.0 as usize - 1).and_then(|s| s.as_mut()).map(f)
     })
 }
 
@@ -64,8 +61,13 @@ fn analyze_and_rewrite(
     query_env: types_portal::QueryEnvHandle,
 ) -> PgResult<PgVec<'static, Query<'static>>> {
     usage_reset();
-    let query =
-        analyze_seams::parse_analyze_fixedparams::call(qmcx, raw, src, argtypes, query_env)?;
+    let query = analyze_seams::parse_analyze_fixedparams::call(
+        qmcx,
+        raw,
+        src,
+        argtypes,
+        query_env
+    )?;
     usage_show("PARSE ANALYSIS STATISTICS")?;
     pg_rewrite_query(qmcx, query)
 }
@@ -103,11 +105,7 @@ fn pg_rewrite_query(
     query: Query<'static>,
 ) -> PgResult<PgVec<'static, Query<'static>>> {
     if guc_tables::backing::Debug_print_parse() {
-        debug_print_tree(
-            qmcx,
-            "parse tree",
-            outfuncs::queryToStringWithLocations(qmcx, &query),
-        )?;
+        debug_print_tree(qmcx, "parse tree", outfuncs::queryToStringWithLocations(qmcx, &query),)?;
     }
     usage_reset();
     let querytree_list = if query.commandType == CmdType::CMD_UTILITY {
@@ -140,11 +138,7 @@ pub(crate) fn complete_source(
     oneshot: bool,
 ) -> PgResult<()> {
     let src = plancache::CachedPlanQueryString(psrc);
-    let amcx = if oneshot {
-        plancache::SourceQueryMcx(psrc)
-    } else {
-        current_exec_mcx()
-    };
+    let amcx = if oneshot { plancache::SourceQueryMcx(psrc) } else { current_exec_mcx() };
     let raw = plancache::CachedPlanRawParseTreeCopy(amcx, psrc)?.expect("created with a raw tree");
     // Errors ride the enclosing SPI level's _SPI_error_callback frame
     // (_SPI_prepare_plan or, for a one-shot plan, _SPI_execute_plan).
@@ -173,6 +167,7 @@ fn reanalyze_spi_source(
 ) -> PgResult<PgVec<'static, Query<'static>>> {
     analyze_and_rewrite(qmcx, raw, query_string, param_types, query_env)
 }
+
 
 // _SPI_error_callback (spi.c:2960): a syntax error position converts to an
 // internal error against the SPI query text; otherwise the query is a
@@ -224,11 +219,7 @@ impl SpiErrorContext {
                 }
             }))
         };
-        SpiErrorContext {
-            query,
-            mode,
-            callback,
-        }
+        SpiErrorContext { query, mode, callback, }
     }
 
     pub(crate) fn set_query(&self, query: &str) {
@@ -304,7 +295,7 @@ pub(crate) fn prepare_oneshot_args(
         oneshot: true,
         saved: false,
         cursor_options,
-        argtypes: ::mcx::std_vec_from_slice("spi", argtypes)?,
+        argtypes: ::mcx::std_vec_from_slice("spi",argtypes)?,
         parse_mode: RawParseMode::RAW_PARSE_DEFAULT,
     })
 }
@@ -319,11 +310,7 @@ pub fn SPI_prepare(src: &str, argtypes: &[Oid]) -> PgResult<SpiPlanPtr> {
     SPI_prepare_cursor(src, argtypes, 0)
 }
 
-pub fn SPI_prepare_cursor(
-    src: &str,
-    argtypes: &[Oid],
-    cursor_options: i32,
-) -> PgResult<SpiPlanPtr> {
+pub fn SPI_prepare_cursor(src: &str, argtypes: &[Oid], cursor_options: i32,) -> PgResult<SpiPlanPtr> {
     // C rejects only src == NULL; an empty string is a legal empty plan.
     let res = _SPI_begin_call(true);
     if res < 0 {
@@ -342,7 +329,7 @@ pub fn SPI_prepare_cursor(
         oneshot: false,
         saved: false,
         cursor_options,
-        argtypes: ::mcx::std_vec_from_slice("spi", argtypes)?,
+        argtypes: ::mcx::std_vec_from_slice("spi",argtypes)?,
         parse_mode: RawParseMode::RAW_PARSE_DEFAULT,
     };
 
@@ -384,8 +371,7 @@ pub fn SPI_prepare_plpgsql(
         return Ok(SpiPlanPtr::NULL);
     }
 
-    let mut argtypes: Vec<Oid> =
-        ::mcx::std_vec_with_capacity("ExecutorState", hooks.params_by_dno.len())?;
+    let mut argtypes: Vec<Oid> = ::mcx::std_vec_with_capacity("ExecutorState", hooks.params_by_dno.len())?;
     for slot in hooks.params_by_dno {
         argtypes.push(match slot {
             Some((t, _, _)) => *t,
@@ -530,9 +516,7 @@ pub fn SPI_freeplan(ptr: SpiPlanPtr) -> i32 {
         return SPI_ERROR_ARGUMENT;
     }
     let taken = PLANS.with(|p| {
-        p.borrow_mut()
-            .get_mut(ptr.0 as usize - 1)
-            .and_then(Option::take)
+        p.borrow_mut().get_mut(ptr.0 as usize - 1).and_then(Option::take)
     });
     match taken {
         Some(mut state) => {
@@ -547,9 +531,7 @@ pub fn SPI_freeplan(ptr: SpiPlanPtr) -> i32 {
 pub(crate) fn free_connection_plans(plans: &[SpiPlanPtr]) {
     for &ptr in plans {
         let taken = PLANS.with(|p| {
-            p.borrow_mut()
-                .get_mut(ptr.0 as usize - 1)
-                .and_then(Option::take)
+            p.borrow_mut().get_mut(ptr.0 as usize - 1).and_then(Option::take)
         });
         if let Some(mut state) = taken {
             debug_assert!(!state.saved, "saved plan still on a connection plan list");
@@ -561,10 +543,7 @@ pub(crate) fn free_connection_plans(plans: &[SpiPlanPtr]) {
 /// Command tags of the plan's sources (plpgsql mod_stmt detection).
 pub fn SPI_plan_command_tags(ptr: SpiPlanPtr) -> Vec<types_core::CommandTag> {
     with_plan(ptr, |p| {
-        p.sources
-            .iter()
-            .map(|&(s, _)| plancache::CachedPlanCommandTag(s))
-            .collect()
+        p.sources.iter().map(|&(s, _)| plancache::CachedPlanCommandTag(s)).collect()
     })
     .unwrap_or_default()
 }
@@ -591,12 +570,9 @@ pub fn SPI_getargtypeid(ptr: SpiPlanPtr, arg_index: i32) -> Oid {
 }
 
 pub fn SPI_plan_is_valid(ptr: SpiPlanPtr) -> bool {
-    with_plan(ptr, |p| {
-        p.sources
-            .iter()
-            .all(|&(s, _)| plancache::CachedPlanIsValid(s))
+    with_plan(ptr, |p| { p.sources.iter().all(|&(s, _)| plancache::CachedPlanIsValid(s))
     })
-    .unwrap_or(false)
+        .unwrap_or(false)
 }
 
 pub(crate) fn debug_live_plans() -> usize {

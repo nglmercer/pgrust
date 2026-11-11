@@ -256,7 +256,7 @@ fn synthetic_tzif_v1(charcnt: usize) -> Vec<u8> {
     buf.extend_from_slice(&0i32.to_be_bytes());
     buf.push(0);
     buf.push(0);
-    buf.extend(std::iter::repeat_n(b'A', charcnt));
+    buf.extend(std::iter::repeat_n(b'A',charcnt));
     buf
 }
 

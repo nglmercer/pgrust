@@ -1,4 +1,4 @@
-#![allow(clippy::result_large_err, clippy::too_many_arguments, non_camel_case_types, non_snake_case, non_upper_case_globals)]
+#![allow(clippy::result_large_err,clippy::too_many_arguments, non_camel_case_types, non_snake_case, non_upper_case_globals)]
 
 mod guard;
 mod path;
@@ -11,7 +11,9 @@ use ::elog::{ereport, PCT_M};
 use core::fmt::Write as _;
 use core::sync::atomic::{AtomicI32, AtomicU64, Ordering};
 use init_small::globals;
-use lwlock::{LWLock, LWLockInitialize, LWLockPadded, LWLOCK_PADDED_SIZE, LW_EXCLUSIVE, LW_SHARED};
+use lwlock::{
+    LWLock, LWLockInitialize, LWLockPadded, LWLOCK_PADDED_SIZE, LW_EXCLUSIVE, LW_SHARED
+};
 use shmem::{shared_slice, ShmemPages, ShmemVals};
 use types_core::{
     InvalidTransactionId, InvalidXLogRecPtr, Size, TransactionId, TransactionIdIsNormal,
@@ -120,9 +122,7 @@ impl SlruCtlData {
 
     // C consumers write latest_page_number with pg_atomic_write_u64 (StartupCLOG).
     pub fn set_latest_page_number(&self, pageno: i64) {
-        self.shared
-            .latest_page_number
-            .store(pageno as u64, Ordering::Relaxed);
+        self.shared.latest_page_number.store(pageno as u64, Ordering::Relaxed);
     }
 
     pub fn latest_page_number(&self) -> i64 {
@@ -265,7 +265,7 @@ pub fn SimpleLruInit(
 
     let shmem_size = SimpleLruShmemSize(nslots, nlsns);
     let (base, found) = shmem_seams::shmem_init_struct::call(name, shmem_size)?;
-    assert!((base as usize).is_multiple_of(LWLOCK_PADDED_SIZE));
+    assert!((base as usize).is_multiple_of( LWLOCK_PADDED_SIZE));
 
     // C casts 8-aligned offsets to LWLockPadded*; Rust's align(128) slices
     // reject that, so the lock arrays lead the image from the 128-aligned
@@ -350,7 +350,10 @@ pub fn SimpleLruInit(
                 base.add(page_lru_count_off).cast::<AtomicI32>(),
                 nslots_u,
             ),
-            buffer_locks: shared_slice(base.add(buffer_locks_off).cast::<LWLockPadded>(), nslots_u),
+            buffer_locks: shared_slice(
+                base.add(buffer_locks_off).cast::<LWLockPadded>(),
+                nslots_u
+            ),
             bank_locks: shared_slice(base.add(bank_locks_off).cast::<LWLockPadded>(), nbanks_u),
             bank_cur_lru_count: shared_slice(
                 base.add(bank_cur_lru_count_off).cast::<AtomicI32>(),
@@ -377,8 +380,7 @@ pub fn SimpleLruInit(
 }
 
 fn reset_lwlock_in_place(lock: &LWLock) {
-    lock.state
-        .store(lwlock::LW_FLAG_RELEASE_OK, Ordering::Relaxed);
+    lock.state.store(lwlock::LW_FLAG_RELEASE_OK, Ordering::Relaxed);
     // SAFETY: crash choreography drained every child before reset; the
     // postmaster thread has exclusive access, so no holder or waiter exists.
     unsafe {
@@ -421,9 +423,7 @@ pub fn check_slru_buffers(name: &str, newval: i32) -> (bool, Option<String>) {
     } else {
         (
             false,
-            Some(format!(
-                "\"{name}\" must be a multiple of {SLRU_BANK_SIZE}."
-            )),
+            Some(format!("\"{name}\" must be a multiple of {SLRU_BANK_SIZE}.")),
         )
     }
 }
@@ -470,9 +470,7 @@ pub fn SimpleLruZeroPage(ctl: &SlruCtlData, pageno: i64, bank: &mut LwGuard) -> 
     SimpleLruZeroLSNs(ctl, slotno);
 
     // Runs under the same bank lock as the victim search; no barrier needed.
-    shared
-        .latest_page_number
-        .store(pageno as u64, Ordering::Relaxed);
+    shared.latest_page_number.store(pageno as u64, Ordering::Relaxed);
 
     pgstat_seams::pgstat_count_slru_page_zeroed::call(shared.slru_stats_idx);
 
@@ -499,8 +497,7 @@ fn SimpleLruWaitIO(ctl: &SlruCtlData, slotno: usize, bank: &mut LwGuard) -> PgRe
     {
         // In-progress state with a free buffer lock = failed I/O whose owner
         // aborted without resetting the state.
-        if let Some(buf) =
-            LwGuard::conditional_acquire(&shared.buffer_locks[slotno].lock, LW_SHARED)?
+        if let Some(buf) = LwGuard::conditional_acquire(&shared.buffer_locks[slotno].lock, LW_SHARED)?
         {
             if shared.page_status.get(slotno) == SLRU_PAGE_READ_IN_PROGRESS {
                 shared.page_status.set(slotno, SLRU_PAGE_EMPTY);
@@ -791,8 +788,9 @@ fn SlruPhysicalReadPage(
     set_errno(0);
     waitevent_seams::pgstat_report_wait_start::call(WAIT_EVENT_SLRU_READ);
     // SAFETY: the slot's BLCKSZ bytes are ours per the buffer-lock protocol.
-    let page =
-        unsafe { core::slice::from_raw_parts_mut(ctl.shared.pages.page_ptr(slotno), BLCKSZ) };
+    let page = unsafe {
+        core::slice::from_raw_parts_mut(ctl.shared.pages.page_ptr(slotno), BLCKSZ)
+    };
     let nread = vfs::pread(fd, page, offset as libc::off_t);
     if nread != BLCKSZ as isize {
         waitevent_seams::pgstat_report_wait_end::call();
@@ -902,8 +900,9 @@ fn SlruPhysicalWritePage(
         // SAFETY: `src` points at the slot's BLCKSZ live bytes; the relaxed
         // atomic load makes the read of the concurrently-written status byte
         // defined, matching the race C's plain read already tolerates.
-        *dst =
-            unsafe { (*src.add(i).cast::<core::sync::atomic::AtomicU8>()).load(Ordering::Relaxed) };
+        *dst = unsafe {
+            (*src.add(i).cast::<core::sync::atomic::AtomicU8>()).load(Ordering::Relaxed)
+        };
     }
 
     set_errno(0);
@@ -1237,7 +1236,9 @@ pub fn SimpleLruTruncate(ctl: &SlruCtlData, cutoffPage: i64) -> PgResult<()> {
                 continue;
             }
 
-            if shared.page_status.get(slotno) == SLRU_PAGE_VALID && !shared.page_dirty.get(slotno) {
+            if shared.page_status.get(slotno) == SLRU_PAGE_VALID
+                && !shared.page_dirty.get(slotno)
+            {
                 shared.page_status.set(slotno, SLRU_PAGE_EMPTY);
                 continue;
             }
@@ -1303,7 +1304,9 @@ pub fn SlruDeleteSegment(ctl: &SlruCtlData, segno: i64) -> PgResult<()> {
                 continue;
             }
 
-            if shared.page_status.get(slotno) == SLRU_PAGE_VALID && !shared.page_dirty.get(slotno) {
+            if shared.page_status.get(slotno) == SLRU_PAGE_VALID
+                && !shared.page_dirty.get(slotno)
+            {
                 shared.page_status.set(slotno, SLRU_PAGE_EMPTY);
                 continue;
             }
@@ -1369,28 +1372,12 @@ fn SlruPagePrecedesTestOffset(ctl: &SlruCtlData, per_page: i32, offset: u32) {
     debug_assert!(!precedes(page(lhs), page(rhs)));
     debug_assert!(!precedes(page(rhs), page(lhs)));
     debug_assert!(!precedes(page(lhs.wrapping_sub(pp)), page(rhs)));
-    debug_assert!(precedes(
-        page(rhs),
-        page(lhs.wrapping_sub(3u32.wrapping_mul(pp)))
-    ));
-    debug_assert!(precedes(
-        page(rhs),
-        page(lhs.wrapping_sub(2u32.wrapping_mul(pp)))
-    ));
-    debug_assert!(
-        precedes(page(rhs), page(lhs.wrapping_sub(pp))) || !(1u32 << 31).is_multiple_of(pp)
-    );
-    debug_assert!(
-        precedes(page(lhs.wrapping_add(pp)), page(rhs)) || !(1u32 << 31).is_multiple_of(pp)
-    );
-    debug_assert!(precedes(
-        page(lhs.wrapping_add(2u32.wrapping_mul(pp))),
-        page(rhs)
-    ));
-    debug_assert!(precedes(
-        page(lhs.wrapping_add(3u32.wrapping_mul(pp))),
-        page(rhs)
-    ));
+    debug_assert!(precedes(page(rhs), page(lhs.wrapping_sub(3u32.wrapping_mul(pp)))));
+    debug_assert!(precedes(page(rhs), page(lhs.wrapping_sub(2u32.wrapping_mul(pp)))));
+    debug_assert!(precedes(page(rhs), page(lhs.wrapping_sub(pp))) || ! (1u32 << 31).is_multiple_of( pp));
+    debug_assert!(precedes(page(lhs.wrapping_add(pp)), page(rhs)) || ! (1u32 << 31).is_multiple_of( pp));
+    debug_assert!(precedes(page(lhs.wrapping_add(2u32.wrapping_mul(pp))), page(rhs)));
+    debug_assert!(precedes(page(lhs.wrapping_add(3u32.wrapping_mul(pp))), page(rhs)));
     debug_assert!(!precedes(page(rhs), page(lhs.wrapping_add(pp))));
 
     // the last safely assignable XID lives in the LAST page of the second
@@ -1480,10 +1467,7 @@ pub fn SlruScanDirectory(
 
             ::elog::elog(
                 DEBUG2,
-                format!(
-                    "SlruScanDirectory invoking callback on {}/{}",
-                    ctl.dir, d_name
-                ),
+                format!("SlruScanDirectory invoking callback on {}/{}", ctl.dir, d_name),
             )?;
             return callback(ctl, d_name, segpage);
         }

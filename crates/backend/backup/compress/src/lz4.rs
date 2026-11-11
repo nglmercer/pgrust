@@ -107,14 +107,17 @@ impl BbsinkLz4<'_> {
 
     /// Forward everything the encoder has emitted so far, in chunks no
     /// larger than the successor's buffer.
-    fn drain_staged(&mut self, next: &mut Bbsink<'_>, state: &mut BbsinkState) -> PgResult<()> {
+    fn drain_staged(
+        &mut self,
+        next: &mut Bbsink<'_>,
+        state: &mut BbsinkState
+    ) -> PgResult<()> {
         let staged = std::mem::take(&mut *self.staged.borrow_mut());
         let next_len = next.buffer_length();
         let mut off = 0usize;
         while off < staged.len() {
             let n = next_len.min(staged.len() - off);
-            next.buffer_slice_mut(n)
-                .copy_from_slice(&staged[off..off + n]);
+            next.buffer_slice_mut(n).copy_from_slice(&staged[off..off + n]);
             bbsink_archive_contents(next, state, n)?;
             off += n;
         }
@@ -139,8 +142,7 @@ impl<'mcx> BbsinkOps<'mcx> for BbsinkLz4<'mcx> {
         sink.set_buffer(self.mcx, buffer_length)?;
         let output_buffer_bound = round_up_blcksz(lz4_output_bound(buffer_length));
         bbsink_begin_backup(
-            sink.next_mut()
-                .expect("compression sink must have next sink"),
+            sink.next_mut().expect("compression sink must have next sink"),
             state,
             output_buffer_bound,
         )
@@ -160,9 +162,7 @@ impl<'mcx> BbsinkOps<'mcx> for BbsinkLz4<'mcx> {
 
         // Add ".lz4" to the archive name.
         let lz4_archive_name = format!("{archive_name}.lz4");
-        let next = sink
-            .next_mut()
-            .expect("compression sink must have next sink");
+        let next = sink.next_mut().expect("compression sink must have next sink");
         ::sink::bbsink_begin_archive(next, state, &lz4_archive_name)
     }
 
@@ -182,9 +182,7 @@ impl<'mcx> BbsinkOps<'mcx> for BbsinkLz4<'mcx> {
                 return lz4_error("compress data", e);
             }
         }
-        let next = sink
-            .next_mut()
-            .expect("compression sink must have next sink");
+        let next = sink.next_mut().expect("compression sink must have next sink");
         self.drain_staged(next, state)
     }
 
@@ -198,9 +196,7 @@ impl<'mcx> BbsinkOps<'mcx> for BbsinkLz4<'mcx> {
         if let Err(e) = encoder.finish() {
             return lz4_error("end lz4 compression", e);
         }
-        let next = sink
-            .next_mut()
-            .expect("compression sink must have next sink");
+        let next = sink.next_mut().expect("compression sink must have next sink");
         self.drain_staged(next, state)?;
 
         // Pass on the information that this archive has ended.

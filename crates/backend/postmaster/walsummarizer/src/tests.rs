@@ -397,7 +397,7 @@ fn smgr_create_unknown_fork_is_an_error_not_a_panic() {
         (2, VISIBILITYMAP_FORKNUM),
         (3, ForkNumber::INIT_FORKNUM),
     ] {
-        data[12..16].copy_from_slice(&i32::to_ne_bytes(raw));
+        data[12..16].copy_from_slice(& i32::to_ne_bytes(raw));
         assert_eq!(smgr_create_forknum(&data).unwrap(), fork);
     }
 }

@@ -73,8 +73,8 @@ use types_nodes::list::OidList;
 use types_nodes::parsenodes::{Query, RTEKind, RangeTblEntry};
 use types_nodes::plannodes::GravityFinal;
 use types_nodes::primnodes::{
-    Aggref, BoolExpr, BoolExprType, CaseExpr, CaseWhen, CoercionForm, FromExpr, FuncExpr, NullTest,
-    NullTestType, OpExpr, ParamKind, TargetEntry, Var,
+    Aggref, BoolExpr, BoolExprType, CaseExpr, CaseWhen, CoercionForm, FromExpr, FuncExpr, NullTest, NullTestType, OpExpr,
+    ParamKind, TargetEntry, Var,
 };
 use types_nodes::{Node, NodeList, NodeTag};
 use types_rel::{NoLock, RELKIND_PARTITIONED_TABLE, RELKIND_RELATION};
@@ -128,71 +128,28 @@ enum Kind {
 }
 
 const ARITH: [(Oid, Kind); 30] = [
-    (176, Kind::Add),
-    (180, Kind::Sub),
-    (177, Kind::Add),
-    (181, Kind::Sub),
-    (463, Kind::Add),
-    (464, Kind::Sub),
-    (178, Kind::Add),
-    (182, Kind::Sub),
-    (179, Kind::Add),
-    (183, Kind::Sub),
-    (1274, Kind::Add),
-    (1275, Kind::Sub),
-    (1278, Kind::Add),
-    (1279, Kind::Sub),
-    (837, Kind::Add),
-    (838, Kind::Sub),
-    (841, Kind::Add),
-    (942, Kind::Sub),
-    (152, Kind::Mul),
-    (141, Kind::Mul),
-    (465, Kind::Mul),
-    (170, Kind::Mul),
-    (171, Kind::Mul),
-    (1280, Kind::Mul),
-    (1276, Kind::Mul),
-    (943, Kind::Mul),
-    (839, Kind::Mul),
-    (1724, Kind::Add),
-    (1725, Kind::Sub),
-    (1726, Kind::Mul),
+    (176, Kind::Add), (180, Kind::Sub), (177, Kind::Add), (181, Kind::Sub), (463, Kind::Add), (464, Kind::Sub),
+    (178, Kind::Add), (182, Kind::Sub), (179, Kind::Add), (183, Kind::Sub), (1274, Kind::Add), (1275, Kind::Sub),
+    (1278, Kind::Add), (1279, Kind::Sub), (837, Kind::Add), (838, Kind::Sub), (841, Kind::Add), (942, Kind::Sub),
+    (152, Kind::Mul), (141, Kind::Mul), (465, Kind::Mul), (170, Kind::Mul), (171, Kind::Mul), (1280, Kind::Mul),
+    (1276, Kind::Mul), (943, Kind::Mul), (839, Kind::Mul), (1724, Kind::Add), (1725, Kind::Sub), (1726, Kind::Mul),
 ];
 
 const CASTS: [(Oid, Oid, Oid); 6] = [
-    (313, INT2OID, INT4OID),
-    (754, INT2OID, INT8OID),
-    (481, INT4OID, INT8OID),
-    (1782, INT2OID, NUMERICOID),
-    (1740, INT4OID, NUMERICOID),
-    (1781, INT8OID, NUMERICOID),
+    (313, INT2OID, INT4OID), (754, INT2OID, INT8OID), (481, INT4OID, INT8OID), (1782, INT2OID, NUMERICOID),
+    (1740, INT4OID, NUMERICOID), (1781, INT8OID, NUMERICOID),
 ];
 
 #[derive(Clone, Copy)]
 enum Step<'mcx> {
-    Arith {
-        kind: Kind,
-        opno: Oid,
-        opfuncid: Oid,
-        restype: Oid,
-        c: Node<'mcx>,
-        c_first: bool,
-    },
-    Cast {
-        funcid: Oid,
-        restype: Oid,
-        format: CoercionForm,
-    },
+    Arith { kind: Kind, opno: Oid, opfuncid: Oid, restype: Oid, c: Node<'mcx>, c_first: bool, },
+    Cast { funcid: Oid, restype: Oid, format: CoercionForm, },
 }
 
 #[derive(Clone, Copy)]
 enum Range {
     Int(i128, i128),
-    Num {
-        digits: Option<i32>,
-        scale: Option<i32>,
-    },
+    Num { digits: Option<i32>, scale: Option<i32>, },
 }
 
 pub(crate) struct Chain<'mcx> {
@@ -233,13 +190,7 @@ fn const_range(c: Node<'_>) -> Option<(Range, Option<i8>)> {
     if let Some(p) = c.as_param() {
         return Some(match int_range(p.paramtype) {
             Some((lo, hi)) => (Range::Int(lo, hi), None),
-            None if p.paramtype == NUMERICOID => (
-                Range::Num {
-                    digits: None,
-                    scale: None,
-                },
-                None,
-            ),
+            None if p.paramtype == NUMERICOID => (Range::Num { digits: None, scale: None, }, None,),
             None => return None,
         });
     }
@@ -252,28 +203,14 @@ fn const_range(c: Node<'_>) -> Option<(Range, Option<i8>)> {
         INT4OID => k.constvalue.as_i32().into(),
         INT8OID => k.constvalue.as_i64().into(),
         NUMERICOID => {
-            let n = adt_numeric::Num::from_payload(crate::selfuncs::varlena_datum_payload(
-                k.constvalue,
-            ));
+            let n = adt_numeric::Num::from_payload(crate::selfuncs::varlena_datum_payload(k.constvalue,));
             if n.is_special() {
                 return None;
             }
             let zero = n.ndigits() == 0;
-            let sign = if zero {
-                0
-            } else if n.sign() == adt_numeric::NUMERIC_NEG {
-                -1
-            } else {
-                1
-            };
+            let sign = if zero { 0 } else if n.sign() == adt_numeric::NUMERIC_NEG { -1 } else { 1 };
             let digits = if zero { 0 } else { 4 * (n.weight() + 1) };
-            return Some((
-                Range::Num {
-                    digits: Some(digits.max(0)),
-                    scale: Some(n.dscale()),
-                },
-                Some(sign),
-            ));
+            return Some((Range::Num { digits: Some(digits.max(0)), scale: Some(n.dscale()), }, Some(sign),));
         }
         _ => return None,
     };
@@ -282,20 +219,14 @@ fn const_range(c: Node<'_>) -> Option<(Range, Option<i8>)> {
 
 fn to_num(r: Range) -> Range {
     match r {
-        Range::Int(lo, hi) => Range::Num {
-            digits: Some(dec_digits(lo.unsigned_abs().max(hi.unsigned_abs()))),
-            scale: Some(0),
-        },
+        Range::Int(lo, hi) => Range::Num { digits: Some(dec_digits(lo.unsigned_abs().max(hi.unsigned_abs()))), scale: Some(0), },
         n => n,
     }
 }
 
 fn magnitude(r: Range) -> i128 {
     match r {
-        Range::Int(lo, hi) => lo
-            .unsigned_abs()
-            .max(hi.unsigned_abs())
-            .min(i128::MAX as u128) as i128,
+        Range::Int(lo, hi) => lo.unsigned_abs().max(hi.unsigned_abs()).min(i128::MAX as u128) as i128,
         Range::Num { .. } => 0,
     }
 }
@@ -322,8 +253,7 @@ fn row_expr(x: Node<'_>) -> PgResult<bool> {
 /// A `$n` read from the statement's parameter list. An initplan's output (PARAM_EXEC) is left out: PostgreSQL runs the
 /// initplan only when a row reaches it, and the rewrite would run it at the projection over no rows too.
 fn extern_param(n: Node<'_>) -> bool {
-    n.as_param()
-        .is_some_and(|p| p.paramkind == ParamKind::PARAM_EXTERN)
+    n.as_param().is_some_and(|p| p.paramkind == ParamKind::PARAM_EXTERN)
 }
 
 impl<'mcx> Chain<'mcx> {
@@ -332,14 +262,8 @@ impl<'mcx> Chain<'mcx> {
         let mut cur = e;
         let x = loop {
             if let Some(op) = cur.as_op_expr() {
-                let f = if op.opfuncid != 0 {
-                    op.opfuncid
-                } else {
-                    lsyscache::get_opcode(op.opno)?
-                };
-                let Some(&(_, kind)) = ARITH.iter().find(|a| a.0 == f) else {
-                    return Ok(None);
-                };
+                let f = if op.opfuncid != 0 { op.opfuncid } else { lsyscache::get_opcode(op.opno)? };
+                let Some(&(_, kind)) = ARITH.iter().find(|a| a.0 == f) else { return Ok(None); };
                 if op.args.len() != 2 {
                     return Ok(None);
                 }
@@ -350,27 +274,14 @@ impl<'mcx> Chain<'mcx> {
                     (true, false) => (b, a, true),
                     _ => return Ok(None),
                 };
-                steps.push(Step::Arith {
-                    kind,
-                    opno: op.opno,
-                    opfuncid: f,
-                    restype: op.opresulttype,
-                    c,
-                    c_first,
-                });
+                steps.push(Step::Arith { kind, opno: op.opno, opfuncid: f, restype: op.opresulttype, c, c_first, });
                 cur = inner;
             } else if let Some(fx) = cur.as_func_expr() {
-                let Some(&(_, _, to)) = CASTS.iter().find(|k| k.0 == fx.funcid) else {
-                    return Ok(None);
-                };
+                let Some(&(_, _, to)) = CASTS.iter().find(|k| k.0 == fx.funcid) else { return Ok(None); };
                 if fx.args.len() != 1 || fx.funcretset || fx.funcresulttype != to {
                     return Ok(None);
                 }
-                steps.push(Step::Cast {
-                    funcid: fx.funcid,
-                    restype: to,
-                    format: fx.funcformat,
-                });
+                steps.push(Step::Cast { funcid: fx.funcid, restype: to, format: fx.funcformat, });
                 cur = fx.args.nth(0);
             } else {
                 break cur;
@@ -396,15 +307,9 @@ impl<'mcx> Chain<'mcx> {
             None if xtype == NUMERICOID && xtypmod >= 4 => {
                 let t = xtypmod - 4;
                 let (p, s) = ((t >> 16) & 0xffff, ((t & 0x7ff) ^ 1024) - 1024);
-                Range::Num {
-                    digits: Some((p - s).max(0)),
-                    scale: Some(s.max(0)),
-                }
+                Range::Num { digits: Some((p - s).max(0)), scale: Some(s.max(0)), }
             }
-            None if xtype == NUMERICOID => Range::Num {
-                digits: None,
-                scale: None,
-            },
+            None if xtype == NUMERICOID => Range::Num { digits: None, scale: None, },
             None => return Ok(None),
         };
         let mut chain = Chain {
@@ -425,16 +330,8 @@ impl<'mcx> Chain<'mcx> {
                     }
                     chain.tfinal = restype;
                 }
-                Step::Arith {
-                    kind,
-                    restype,
-                    c,
-                    c_first,
-                    ..
-                } => {
-                    let Some((cr, csign)) = const_range(c) else {
-                        return Ok(None);
-                    };
+                Step::Arith { kind, restype, c, c_first, .. } => {
+                    let Some((cr, csign)) = const_range(c) else { return Ok(None); };
                     let (next, raises) = match (range, cr, int_range(restype)) {
                         (Range::Int(lo, hi), Range::Int(clo, chi), Some((tlo, thi))) => {
                             let r = match (kind, c_first) {
@@ -442,12 +339,7 @@ impl<'mcx> Chain<'mcx> {
                                 (Kind::Sub, false) => lo.checked_sub(chi).zip(hi.checked_sub(clo)),
                                 (Kind::Sub, true) => clo.checked_sub(hi).zip(chi.checked_sub(lo)),
                                 (Kind::Mul, _) => {
-                                    let p = [
-                                        lo.checked_mul(clo),
-                                        lo.checked_mul(chi),
-                                        hi.checked_mul(clo),
-                                        hi.checked_mul(chi),
-                                    ];
+                                    let p = [lo.checked_mul(clo), lo.checked_mul(chi), hi.checked_mul(clo), hi.checked_mul(chi),];
                                     p.iter().all(Option::is_some).then(|| {
                                         let p = p.map(Option::unwrap);
                                         (*p.iter().min().unwrap(), *p.iter().max().unwrap())
@@ -455,24 +347,14 @@ impl<'mcx> Chain<'mcx> {
                                 }
                             };
                             match r {
-                                Some((rlo, rhi)) if rlo >= tlo && rhi <= thi => {
-                                    (Range::Int(rlo, rhi), false)
+                                Some((rlo, rhi)) if rlo >= tlo && rhi <= thi => { (Range::Int(rlo, rhi), false)
                                 }
                                 Some((rlo, rhi)) => (Range::Int(rlo.max(tlo), rhi.min(thi)), true),
                                 None => (Range::Int(tlo, thi), true),
                             }
                         }
                         (a, cr, None) if restype == NUMERICOID => {
-                            let (
-                                Range::Num {
-                                    digits: da,
-                                    scale: sa,
-                                },
-                                Range::Num {
-                                    digits: dc,
-                                    scale: sc,
-                                },
-                            ) = (to_num(a), to_num(cr))
+                            let (Range::Num { digits: da, scale: sa, }, Range::Num { digits: dc, scale: sc, },) = (to_num(a), to_num(cr))
                             else {
                                 unreachable!("to_num gives Num")
                             };
@@ -482,15 +364,9 @@ impl<'mcx> Chain<'mcx> {
                                 if !exact {
                                     return Ok(None);
                                 }
-                                (
-                                    da.zip(dc).map(|(a, b)| a + b),
-                                    sa.zip(sc).map(|(a, b)| a + b),
-                                )
+                                (da.zip(dc).map(|(a, b)| a + b), sa.zip(sc).map(|(a, b)| a + b),)
                             } else {
-                                (
-                                    da.zip(dc).map(|(a, b)| a.max(b) + 1),
-                                    sa.zip(sc).map(|(a, b)| a.max(b)),
-                                )
+                                (da.zip(dc).map(|(a, b)| a.max(b) + 1), sa.zip(sc).map(|(a, b)| a.max(b)),)
                             };
                             let raises = digits.is_none_or(|d| d > NUMERIC_MAX_DIGITS);
                             (Range::Num { digits, scale }, raises)
@@ -554,11 +430,7 @@ fn base_fns(t: Oid) -> (Oid, Oid, Oid) {
 }
 
 fn sum_type(t: Oid) -> Oid {
-    if matches!(t, INT2OID | INT4OID) {
-        INT8OID
-    } else {
-        NUMERICOID
-    }
+    if matches!(t, INT2OID | INT4OID) { INT8OID } else { NUMERICOID }
 }
 
 struct Member<'mcx> {
@@ -573,9 +445,7 @@ struct Member<'mcx> {
 
 fn member<'mcx>(node: Node<'mcx>) -> PgResult<Option<Member<'mcx>>> {
     let a = node.as_aggref().expect("Aggref");
-    let Some(agg) = agg_kind(a.aggfnoid) else {
-        return Ok(None);
-    };
+    let Some(agg) = agg_kind(a.aggfnoid) else { return Ok(None); };
     if a.aggstar
         || !a.aggdistinct.is_nil()
         || !a.aggorder.is_nil()
@@ -593,39 +463,20 @@ fn member<'mcx>(node: Node<'mcx>) -> PgResult<Option<Member<'mcx>>> {
             return Ok(None);
         }
     }
-    let arg = a
-        .args
-        .nth(0)
-        .as_target_entry()
-        .expect("agg arg is a TLE")
-        .expr;
-    let Some(chain) = Chain::of(arg)? else {
-        return Ok(None);
-    };
+    let arg = a.args.nth(0).as_target_entry().expect("agg arg is a TLE").expr;
+    let Some(chain) = Chain::of(arg)? else { return Ok(None); };
     let numeric_x = chain.xtype == NUMERICOID;
     let ok = match agg {
         Agg::Sum => a.aggtype == sum_type(chain.tfinal),
         Agg::Avg => a.aggtype == NUMERICOID,
-        Agg::Count => chain
-            .steps
-            .iter()
-            .all(|s| !matches!(s, Step::Arith { c, .. } if c.node_tag() == NodeTag::T_Param)),
-        Agg::Min | Agg::Max => {
-            a.aggtype == chain.tfinal && chain.dir.is_some_and(|d| d > 0 || !numeric_x)
+        Agg::Count => chain.steps.iter().all(|s| !matches!(s, Step::Arith { c, .. } if c.node_tag() == NodeTag::T_Param)),
+        Agg::Min | Agg::Max => { a.aggtype == chain.tfinal && chain.dir.is_some_and(|d| d > 0 || !numeric_x)
         }
     };
     if !ok || (chain.raising && chain.raise_types.contains(&NUMERICOID)) {
         return Ok(None);
     }
-    Ok(Some(Member {
-        aggref: node,
-        agg,
-        chain,
-        take: false,
-        guard: false,
-        filter: a.aggfilter,
-        row_cost: None,
-    }))
+    Ok(Some(Member { aggref: node, agg, chain, take: false, guard: false, filter: a.aggfilter, row_cost: None, }))
 }
 
 struct AggrefWalker<'mcx>(Vec<Node<'mcx>>);
@@ -647,16 +498,10 @@ fn aggrefs_in(node: Node<'_>) -> PgResult<Vec<Node<'_>>> {
 
 pub fn deferrable(run: &PlannerRun<'_>) -> PgResult<bool> {
     let parse = run.parse();
-    if parse.groupClause.is_nil()
-        || !parse.groupingSets.is_nil()
-        || parse.hasWindowFuncs
-        || parse.hasTargetSRFs
-    {
+    if parse.groupClause.is_nil() || !parse.groupingSets.is_nil() || parse.hasWindowFuncs || parse.hasTargetSRFs {
         return Ok(false);
     }
-    let ordered = |n: &Node<'_>| {
-        n.as_aggref()
-            .is_some_and(|a| !a.aggorder.is_nil() || !a.aggdistinct.is_nil())
+    let ordered = |n: &Node<'_>| { n.as_aggref().is_some_and(|a| !a.aggorder.is_nil() || !a.aggdistinct.is_nil())
     };
     if let Some(h) = parse.havingQual {
         if aggrefs_in(h)?.iter().any(ordered) {
@@ -673,10 +518,7 @@ pub fn deferrable(run: &PlannerRun<'_>) -> PgResult<bool> {
     Ok(true)
 }
 
-pub fn rewrite_shifted_sums<'mcx>(
-    run: &mut PlannerRun<'mcx>,
-    at: Option<Deferred>,
-) -> PgResult<Option<Rewrite<'mcx>>> {
+pub fn rewrite_shifted_sums<'mcx>(run: &mut PlannerRun<'mcx>, at: Option<Deferred>,) -> PgResult<Option<Rewrite<'mcx>>> {
     let parse = run.parse();
     if !parse.groupingSets.is_nil() {
         return Ok(None);
@@ -704,11 +546,7 @@ pub fn rewrite_shifted_sums<'mcx>(
     if at.is_some() {
         fires::fire("agg_algebra.affine.deferred");
     }
-    let minmax = |n: &Node<'_>| {
-        matches!(
-            agg_kind(n.as_aggref().unwrap().aggfnoid),
-            Some(Agg::Min | Agg::Max)
-        )
+    let minmax = |n: &Node<'_>| { matches!(agg_kind(n.as_aggref().unwrap().aggfnoid), Some(Agg::Min | Agg::Max))
     };
     let all_minmax = parse.groupClause.is_nil() && all.iter().all(minmax);
     if all_minmax && planagg_may_index(run, &members)? {
@@ -719,32 +557,20 @@ pub fn rewrite_shifted_sums<'mcx>(
     // One relation without children feeds at most ROW_CAP rows (the bare int8 form's cap).
     let capped = rel.as_ref().is_some_and(|r| r.single && !r.children);
     let plain_one = parse.groupClause.is_nil() && rel.as_ref().is_some_and(|r| r.single);
-    let cse =
-        g_ok && !above && plain_one && members.iter().filter(|m| cse_shape(m, capped)).count() >= 2;
-    let others: Vec<Node<'mcx>> = all
-        .iter()
-        .copied()
-        .filter(|n| !members.iter().any(|m| m.aggref.ptr_eq(*n)))
-        .collect();
+    let cse = g_ok && !above && plain_one && members.iter().filter(|m| cse_shape(m, capped)).count() >= 2;
+    let others: Vec<Node<'mcx>> =
+        all.iter().copied().filter(|n| !members.iter().any(|m| m.aggref.ptr_eq(*n))).collect();
     for m in members.iter_mut() {
         m.take = !m.chain.raising || (g_ok && !above);
         m.guard = m.chain.raising || (cse && cse_shape(m, capped));
     }
     if let Some(Deferred { rows, width, .. }) = at {
-        if !members.iter().any(|m| m.take) || (!forced() && !bound(run, &mut members, rows, width)?)
-        {
+        if !members.iter().any(|m| m.take) || (!forced() && !bound(run, &mut members, rows, width)?) {
             return Ok(None);
         }
     }
     let (per_group, groups) = groups_per_row(run)?;
-    let price = profitable(
-        run,
-        &mut members,
-        &others,
-        cse.then_some(capped),
-        capped,
-        per_group,
-    )?;
+    let price = profitable(run, &mut members, &others, cse.then_some(capped), capped, per_group,)?;
     if !members.iter().any(|m| m.take) {
         return Ok(None);
     }
@@ -768,26 +594,10 @@ pub fn rewrite_shifted_sums<'mcx>(
     mark(run, &built);
     let having = having_first(run, &members)?;
     let undoable = !cse && !all_minmax && !above && !sorted;
-    Ok(Some(Rewrite {
-        entries,
-        having,
-        marks_from,
-        price,
-        nodes: nodes as f64,
-        groups,
-        raising,
-        cse,
-        undoable,
-        deferred: at,
-    }))
+    Ok(Some(Rewrite { entries, having, marks_from, price, nodes: nodes as f64, groups, raising, cse, undoable, deferred: at, }))
 }
 
-fn bound<'mcx>(
-    run: &mut PlannerRun<'mcx>,
-    members: &mut [Member<'mcx>],
-    rows: f64,
-    width: f64,
-) -> PgResult<bool> {
+fn bound<'mcx>(run: &mut PlannerRun<'mcx>, members: &mut [Member<'mcx>], rows: f64, width: f64,) -> PgResult<bool> {
     let mut orig = 0.0;
     for m in members.iter_mut().filter(|m| m.take) {
         orig += member_cost(run, m)?;
@@ -800,16 +610,7 @@ fn member_cost<'mcx>(run: &mut PlannerRun<'mcx>, m: &mut Member<'mcx>) -> PgResu
         return Ok(c);
     }
     let a = m.aggref.as_aggref().expect("Aggref");
-    let c = agg_row_cost(
-        run,
-        a.aggfnoid,
-        a.args
-            .nth(0)
-            .as_target_entry()
-            .expect("aggregate argument")
-            .expr,
-        0,
-    )?;
+    let c = agg_row_cost(run, a.aggfnoid, a.args.nth(0).as_target_entry().expect("aggregate argument").expr, 0,)?;
     m.row_cost = Some(c);
     Ok(c)
 }
@@ -857,12 +658,7 @@ const MACHINE: &str = "box 72: c8g.16xlarge, Graviton 4 (Neoverse V2), 64 vCPU";
 const CORPUS: &str = "algebra fit0c + fit0c2 (lanes/algebra/work/fit0c)";
 /// One anchor (the check anchor: a row's arithmetic in the executor), so the rule holds on every host.
 const fn fitted(ns: f64) -> Fitted {
-    Fitted {
-        ns,
-        machine: MACHINE,
-        corpus: CORPUS,
-        anchor: Anchor::Check,
-    }
+    Fitted { ns, machine: MACHINE, corpus: CORPUS, anchor: Anchor::Check, }
 }
 /// A PostgreSQL cost unit of per-row work the rewrite saves, per participant.
 const UNIT: Fitted = fitted(759.8);
@@ -870,8 +666,7 @@ const NODE: Fitted = fitted(353.1);
 const FIXED: Fitted = fitted(28_909.0);
 
 pub(crate) fn pays(price: Price, nodes: f64, rows: f64, groups: f64, width: f64) -> bool {
-    let saved = (rows * (price.orig - price.new) - groups * (price.new_final - price.orig_final))
-        / width.max(1.0);
+    let saved = (rows * (price.orig - price.new) - groups * (price.new_final - price.orig_final)) / width.max(1.0);
     saved * UNIT.ns > FIXED.ns + nodes * NODE.ns
 }
 
@@ -884,11 +679,7 @@ pub fn heap_width(run: &PlannerRun<'_>, rel: types_pathnodes::RelId) -> f64 {
         }
     }
     let w = (i64::from(blocks) / 64).min(granted);
-    if w >= 2 {
-        w as f64
-    } else {
-        1.0
-    }
+    if w >= 2 { w as f64 } else { 1.0 }
 }
 
 #[cfg(test)]
@@ -913,12 +704,7 @@ fn forced() -> bool {
 /// the one never rewriting makes. The aggregates are numbered (`renumber`) unless the numbering already read the list
 /// settle leaves: a kept rewrite built before query_planner, or an undone deferred one numbered as written before
 /// query_planner (a semi join).
-pub fn settle<'mcx>(
-    run: &mut PlannerRun<'mcx>,
-    rw: Rewrite<'mcx>,
-    rows: f64,
-    width: f64,
-) -> PgResult<()> {
+pub fn settle<'mcx>(run: &mut PlannerRun<'mcx>, rw: Rewrite<'mcx>, rows: f64, width: f64,) -> PgResult<()> {
     let undoable = rw.undoable && run.root.numOrderedAggs == 0;
     if !undoable || forced() || pays(rw.price, rw.nodes, rows, rw.groups.min(rows), width) {
         fires::fire("agg_algebra.affine"); // shapecheck fire signal (REGISTRY NEW-decompose-planner-1)
@@ -928,11 +714,7 @@ pub fn settle<'mcx>(
         if rw.cse {
             fires::fire("agg_algebra.cse");
         }
-        return if rw.deferred.is_some() {
-            renumber(run)
-        } else {
-            Ok(())
-        };
+        return if rw.deferred.is_some() { renumber(run) } else { Ok(()) };
     }
     fires::fire("agg_algebra.affine.undone");
     for (tle_node, expr) in rw.entries {
@@ -962,8 +744,7 @@ pub fn semi_join(parse: &types_nodes::parsenodes::Query<'_>) -> bool {
         if let Some(f) = n.as_from_expr() {
             return f.fromlist.iter().any(walk);
         }
-        n.as_join_expr().is_some_and(|j| {
-            j.jointype == types_nodes::JoinType::JOIN_SEMI || walk(j.larg) || walk(j.rarg)
+        n.as_join_expr().is_some_and(|j| { j.jointype == types_nodes::JoinType::JOIN_SEMI || walk(j.larg) || walk(j.rarg)
         })
     }
     parse.jointree.is_some_and(|f| f.fromlist.iter().any(walk))
@@ -1001,49 +782,19 @@ fn node_count(n: Node<'_>) -> PgResult<usize> {
 /// and raised at its row. So the HAVING becomes `CASE WHEN g1 AND .. AND gn THEN <its quals> ELSE false END`: each gi is
 /// a taken raising member's guard (`guarded`, true or raising), run for every group before the quals can drop it. A
 /// CASE keeps that order where a reordering of an AND's arguments or of the qual list would not.
-fn having_first<'mcx>(
-    run: &PlannerRun<'mcx>,
-    members: &[Member<'mcx>],
-) -> PgResult<Option<(Node<'mcx>, NodeList<'mcx>)>> {
+fn having_first<'mcx>(run: &PlannerRun<'mcx>, members: &[Member<'mcx>],) -> PgResult<Option<(Node<'mcx>, NodeList<'mcx>)>> {
     let mcx = run.mcx;
-    let Some(h) = run.parse().havingQual else {
-        return Ok(None);
-    };
+    let Some(h) = run.parse().havingQual else { return Ok(None); };
     let mut guards = NodeList::nil();
     for (i, m) in members.iter().enumerate() {
-        if !m.take
-            || !m.chain.raising
-            || members[..i]
-                .iter()
-                .any(|o| o.take && types_nodes::equal(o.aggref, m.aggref))
-        {
+        if !m.take || !m.chain.raising || members[..i].iter().any(|o| o.take && types_nodes::equal(o.aggref, m.aggref)) {
             continue;
         }
         let a = m.aggref.as_aggref().expect("Aggref");
         let (_, min_fn, max_fn) = base_fns(m.chain.xtype);
-        let edge = |f: Oid| {
-            agg_of(
-                mcx,
-                f,
-                m.chain.xtype,
-                m.chain.x,
-                m.chain.xtype,
-                a.location,
-                m.filter,
-            )
+        let edge = |f: Oid| { agg_of(mcx, f, m.chain.xtype, m.chain.x, m.chain.xtype, a.location, m.filter,)
         };
-        guards.lappend(
-            mcx,
-            guarded(
-                mcx,
-                &m.chain,
-                edge(min_fn)?,
-                edge(max_fn)?,
-                bool_const(mcx, true)?,
-                BOOLOID,
-                bool_const(mcx, true)?,
-            )?,
-        )?;
+        guards.lappend(mcx, guarded(mcx, &m.chain, edge(min_fn)?, edge(max_fn)?, bool_const(mcx, true)?, BOOLOID, bool_const(mcx, true)?,)?,)?;
     }
     if guards.is_nil() {
         return Ok(None);
@@ -1058,23 +809,10 @@ fn having_first<'mcx>(
         if l.len() == 1 {
             Ok(l.nth(0))
         } else {
-            Node::mk(
-                mcx,
-                BoolExpr {
-                    boolop: BoolExprType::AND_EXPR,
-                    args: l,
-                    location: -1,
-                },
-            )
+            Node::mk(mcx, BoolExpr { boolop: BoolExprType::AND_EXPR, args: l, location: -1, },)
         }
     };
-    let wrapped = case_of(
-        mcx,
-        BOOLOID,
-        all(guards)?,
-        all(args)?,
-        bool_const(mcx, false)?,
-    )?;
+    let wrapped = case_of(mcx, BOOLOID, all(guards)?, all(args)?, bool_const(mcx, false)?,)?;
     let one = NodeList::make1(mcx, wrapped)?;
     // SAFETY: the planner exclusively owns the parse tree before it is sealed; `quals` is not used past this point and no
     // other reference derived from the HAVING list is live.
@@ -1083,16 +821,7 @@ fn having_first<'mcx>(
 }
 
 fn bool_const(mcx: mcx::Mcx<'_>, v: bool) -> PgResult<Node<'_>> {
-    Node::mk_const(
-        mcx,
-        BOOLOID,
-        -1,
-        0,
-        1,
-        datum::Datum::from_bool(v),
-        false,
-        true,
-    )
+    Node::mk_const(mcx, BOOLOID, -1, 0, 1, datum::Datum::from_bool(v), false, true,)
 }
 
 fn mark<'mcx>(run: &mut PlannerRun<'mcx>, built: &[(Node<'mcx>, [Node<'mcx>; 4])]) {
@@ -1100,36 +829,21 @@ fn mark<'mcx>(run: &mut PlannerRun<'mcx>, built: &[(Node<'mcx>, [Node<'mcx>; 4])
         return;
     }
     let mcx = run.mcx;
-    let list = run
-        .gravity_finals
-        .get_or_insert_with(|| mcx::PgVec::new_in(mcx));
+    let list = run.gravity_finals.get_or_insert_with(|| mcx::PgVec::new_in(mcx));
     for &b in built {
         list.push(b);
     }
 }
 
-pub fn finals_of<'mcx>(
-    run: &PlannerRun<'mcx>,
-    tlist: &NodeList<'mcx>,
-) -> PgResult<&'mcx [GravityFinal]> {
-    let Some(built) = run.gravity_finals.as_ref() else {
-        return Ok(&[]);
-    };
+pub fn finals_of<'mcx>(run: &PlannerRun<'mcx>, tlist: &NodeList<'mcx>,) -> PgResult<&'mcx [GravityFinal]> {
+    let Some(built) = run.gravity_finals.as_ref() else { return Ok(&[]); };
     let mut out = mcx::PgVec::new_in(run.mcx);
     for t in tlist.iter() {
         let te = t.as_target_entry().expect("tlist entry");
-        let Some((_, a)) = built.iter().find(|(e, _)| e.ptr_eq(te.expr)) else {
-            continue;
-        };
+        let Some((_, a)) = built.iter().find(|(e, _)| e.ptr_eq(te.expr)) else { continue; };
         let no = a.map(|n| n.as_aggref().map_or(-1, |r| r.aggno));
         if no.iter().all(|&n| n >= 0) {
-            out.push(GravityFinal {
-                resno: te.resno,
-                min: no[0],
-                max: no[1],
-                sum: no[2],
-                count: no[3],
-            });
+            out.push(GravityFinal { resno: te.resno, min: no[0], max: no[1], sum: no[2], count: no[3], });
         }
     }
     mcx::vec_borrow_in(run.mcx, out)
@@ -1154,8 +868,7 @@ fn rewrite<'mcx>(
             None => Ok(None),
         };
     }
-    nodes_core::expression_tree_mutator(run.mcx, node, &mut |n| {
-        rewrite(run, n, members, capped, &mut *built)
+    nodes_core::expression_tree_mutator(run.mcx, node, &mut |n| { rewrite(run, n, members, capped, &mut *built)
     })
 }
 
@@ -1173,14 +886,8 @@ struct Rel<'mcx> {
 
 fn relations<'mcx>(run: &PlannerRun<'mcx>) -> PgResult<Option<Rel<'mcx>>> {
     let parse = run.parse();
-    let Some(from) = parse.jointree else {
-        return Ok(None);
-    };
-    let mut rel = Rel {
-        children: false,
-        single: false,
-        quals: Vec::new(),
-    };
+    let Some(from) = parse.jointree else { return Ok(None); };
+    let mut rel = Rel { children: false, single: false, quals: Vec::new(), };
     let mut count = 0;
     if !walk_from(run, parse, true, from, &mut rel, &mut count)? || count == 0 {
         return Ok(None);
@@ -1221,28 +928,14 @@ fn walk<'mcx>(
         rel.quals.extend(j.quals);
         return Ok(walk(run, q, top, j.larg, rel, count)? && walk(run, q, top, j.rarg, rel, count)?);
     }
-    let Some(rtr) = n.as_range_tbl_ref() else {
-        return Ok(false);
-    };
-    let rte = q
-        .rtable
-        .nth(rtr.rtindex as usize - 1)
-        .as_range_tbl_entry()
-        .expect("rtable cell is a RangeTblEntry");
+    let Some(rtr) = n.as_range_tbl_ref() else { return Ok(false); };
+    let rte = q.rtable.nth(rtr.rtindex as usize - 1).as_range_tbl_entry().expect("rtable cell is a RangeTblEntry");
     match rte.rtekind {
         RTEKind::RTE_RELATION => relation(run, rte, rel, count),
         // PSP2-09: a CTE scan reads the CTE's rows as its query makes them, so that query must raise on no row.
         RTEKind::RTE_CTE if rte.ctelevelsup == 0 && !rte.self_reference => {
-            let cte = q
-                .cteList
-                .iter()
-                .filter_map(|c| c.as_common_table_expr())
-                .find(|c| c.ctename == rte.ctename);
-            match cte
-                .filter(|c| !c.cterecursive)
-                .and_then(|c| c.ctequery)
-                .and_then(|n| n.as_query())
-            {
+            let cte = q.cteList.iter().filter_map(|c| c.as_common_table_expr()).find(|c| c.ctename == rte.ctename);
+            match cte.filter(|c| !c.cterecursive).and_then(|c| c.ctequery).and_then(|n| n.as_query()) {
                 Some(cq) => scan_query(run, cq, rel, count),
                 None => Ok(false),
             }
@@ -1256,12 +949,7 @@ fn walk<'mcx>(
 /// types and typmods (MergeAttributes) and its quals translated, and evaluates nothing more per row unless a member is a
 /// foreign table, whose scan can raise (a remote error, a conversion). The members are read from pg_inherits unlocked:
 /// PostgreSQL locks only the partitions it keeps.
-fn relation<'mcx>(
-    run: &PlannerRun<'mcx>,
-    rte: &RangeTblEntry<'mcx>,
-    rel: &mut Rel<'mcx>,
-    count: &mut usize,
-) -> PgResult<bool> {
+fn relation<'mcx>(run: &PlannerRun<'mcx>, rte: &RangeTblEntry<'mcx>, rel: &mut Rel<'mcx>, count: &mut usize,) -> PgResult<bool> {
     let plain = |k: u8| matches!(k, RELKIND_RELATION | RELKIND_PARTITIONED_TABLE);
     if !plain(rte.relkind) {
         return Ok(false);
@@ -1284,19 +972,10 @@ fn relation<'mcx>(
 /// A CTE's (or an appendrel arm's) query that raises on no row as far as `order_safe` can tell: a plain SELECT over
 /// relations as `walk` reads them, with no aggregate, window function, set-returning target, grouping, DISTINCT, ORDER BY,
 /// LIMIT, locking clause, sublink or WITH of its own; its targets and quals join `rel.quals`, which order_safe reads.
-fn scan_query<'mcx>(
-    run: &PlannerRun<'mcx>,
-    q: &'mcx Query<'mcx>,
-    rel: &mut Rel<'mcx>,
-    count: &mut usize,
-) -> PgResult<bool> {
+fn scan_query<'mcx>(run: &PlannerRun<'mcx>, q: &'mcx Query<'mcx>, rel: &mut Rel<'mcx>, count: &mut usize,) -> PgResult<bool> {
     let plain = q.commandType == types_nodes::CmdType::CMD_SELECT
         && q.setOperations.is_none()
-        && !(q.hasAggs
-            || q.hasWindowFuncs
-            || q.hasTargetSRFs
-            || q.hasSubLinks
-            || q.hasModifyingCTE)
+        && !(q.hasAggs || q.hasWindowFuncs || q.hasTargetSRFs || q.hasSubLinks || q.hasModifyingCTE)
         && q.groupClause.is_nil()
         && q.groupingSets.is_nil()
         && q.havingQual.is_none()
@@ -1306,38 +985,22 @@ fn scan_query<'mcx>(
         && q.limitOffset.is_none()
         && q.rowMarks.is_nil()
         && q.cteList.is_nil();
-    let Some(from) = q.jointree.filter(|_| plain) else {
-        return Ok(false);
-    };
+    let Some(from) = q.jointree.filter(|_| plain) else { return Ok(false); };
     rel.quals.extend(q.targetList.iter());
     walk_from(run, q, false, from, rel, count)
 }
 
-fn union_members<'mcx>(
-    run: &PlannerRun<'mcx>,
-    rti: i32,
-    rel: &mut Rel<'mcx>,
-    count: &mut usize,
-) -> PgResult<bool> {
+fn union_members<'mcx>(run: &PlannerRun<'mcx>, rti: i32, rel: &mut Rel<'mcx>, count: &mut usize,) -> PgResult<bool> {
     let parse = run.parse();
     let mut any = false;
-    for ai in run
-        .root
-        .append_rel_list
-        .iter()
-        .filter(|a| i64::from(a.parent_relid) == i64::from(rti))
-    {
+    for ai in run.root.append_rel_list.iter().filter(|a| i64::from(a.parent_relid) == i64::from(rti)) {
         for &t in ai.translated_vars.iter() {
             if t == types_pathnodes::NodeId::default() {
                 return Ok(false);
             }
             rel.quals.push(*run.root.expr_node(t));
         }
-        let rte = parse
-            .rtable
-            .nth(ai.child_relid as usize - 1)
-            .as_range_tbl_entry()
-            .expect("rtable cell is a RangeTblEntry");
+        let rte = parse.rtable.nth(ai.child_relid as usize - 1).as_range_tbl_entry().expect("rtable cell is a RangeTblEntry");
         let ok = match (rte.rtekind, rte.subquery) {
             (RTEKind::RTE_RELATION, _) => relation(run, rte, rel, count)?,
             (RTEKind::RTE_SUBQUERY, Some(sq)) => scan_query(run, sq, rel, count)?,
@@ -1361,9 +1024,7 @@ fn planagg_may_index(run: &PlannerRun<'_>, members: &[Member<'_>]) -> PgResult<b
     if parse.hasWindowFuncs || !parse.cteList.is_nil() {
         return Ok(false);
     }
-    let Some(mut from) = parse.jointree else {
-        return Ok(false);
-    };
+    let Some(mut from) = parse.jointree else { return Ok(false); };
     let rtr = loop {
         if from.fromlist.len() != 1 {
             return Ok(false);
@@ -1375,12 +1036,7 @@ fn planagg_may_index(run: &PlannerRun<'_>, members: &[Member<'_>]) -> PgResult<b
             (None, None) => return Ok(false),
         }
     };
-    let rte = run
-        .parse()
-        .rtable
-        .nth(rtr.rtindex as usize - 1)
-        .as_range_tbl_entry()
-        .expect("rtable cell is a RangeTblEntry");
+    let rte = run.parse().rtable.nth(rtr.rtindex as usize - 1).as_range_tbl_entry().expect("rtable cell is a RangeTblEntry");
     match rte.rtekind {
         types_nodes::parsenodes::RTEKind::RTE_RELATION => {}
         types_nodes::parsenodes::RTEKind::RTE_SUBQUERY => return Ok(rte.inh),
@@ -1392,19 +1048,11 @@ fn planagg_may_index(run: &PlannerRun<'_>, members: &[Member<'_>]) -> PgResult<b
     if children || !indexed {
         return Ok(children);
     }
-    let cols: Vec<i16> = members
-        .iter()
-        .filter_map(|m| column(m.chain.x))
-        .map(|v| v.varattno)
-        .collect();
+    let cols: Vec<i16> = members.iter().filter_map(|m| column(m.chain.x)).map(|v| v.varattno).collect();
     for &oid in relcache_seams::relation_get_index_list::call(run.mcx, rte.relid)?.iter() {
         let ix = indexam::index_open(run.mcx, oid, rte.rellockmode)?;
-        let ind = ix
-            .rd_index
-            .as_ref()
-            .expect("index relation carries rd_index");
-        let reads = (0..ind.indnkeyatts as usize)
-            .any(|i| ind.indkey[i] == 0 || cols.contains(&ind.indkey[i]));
+        let ind = ix.rd_index.as_ref().expect("index relation carries rd_index");
+        let reads = (0..ind.indnkeyatts as usize).any(|i| ind.indkey[i] == 0 || cols.contains(&ind.indkey[i]));
         indexam::index_close(ix, NoLock)?;
         if reads {
             return Ok(true);
@@ -1420,11 +1068,7 @@ fn planagg_may_index(run: &PlannerRun<'_>, members: &[Member<'_>]) -> PgResult<b
 /// (LIMIT, a cursor, a semi join) reads the groups that PostgreSQL's sorted GroupAggregate would have run the
 /// transitions of, a legal PostgreSQL evaluation. Which: nothing else on the way can raise (quals, other targets:
 /// `quiet`, grouping keys included), and one result type covers every raising operator (one message).
-fn order_safe(
-    run: &PlannerRun<'_>,
-    members: &[Member<'_>],
-    rel: Option<&Rel<'_>>,
-) -> PgResult<bool> {
+fn order_safe(run: &PlannerRun<'_>, members: &[Member<'_>], rel: Option<&Rel<'_>>,) -> PgResult<bool> {
     let parse = run.parse();
     let Some(rel) = rel else { return Ok(false) };
     if let Some(h) = parse.havingQual {
@@ -1450,10 +1094,7 @@ fn order_safe(
     }
     for tle_node in run.processed_tlist() {
         let expr = tle_node.as_target_entry().expect("tlist entry").expr;
-        if !members.iter().any(|m| m.aggref.ptr_eq(expr))
-            && !quiet(expr)?
-            && !same_message(expr, &types)?
-        {
+        if !members.iter().any(|m| m.aggref.ptr_eq(expr)) && !quiet(expr)? && !same_message(expr, &types)? {
             return Ok(false);
         }
     }
@@ -1464,30 +1105,19 @@ fn order_safe(
 /// overflow, per row in both forms; when that is the raising members' one type, the statement raises the same error
 /// whichever of the two PostgreSQL meets first.
 fn same_message(expr: Node<'_>, types: &[Oid]) -> PgResult<bool> {
-    Ok(!types.is_empty()
-        && Chain::of(expr)?.is_some_and(|c| c.raise_types.iter().all(|t| types.contains(t))))
+    Ok(!types.is_empty() && Chain::of(expr)?.is_some_and(|c| c.raise_types.iter().all(|t| types.contains(t))))
 }
 
 fn cse_shape(m: &Member<'_>, capped: bool) -> bool {
     let one_shift = matches!(m.chain.steps[..], [Step::Arith { kind: Kind::Add | Kind::Sub, c, .. }] if int_value(c).is_some());
-    m.agg == Agg::Sum
-        && m.filter.is_none()
-        && one_shift
-        && matches!(m.chain.tfinal, INT2OID | INT4OID)
-        && capped
-        && under_cap(m.chain.row_magnitude)
+    m.agg == Agg::Sum && m.filter.is_none() && one_shift && matches!(m.chain.tfinal, INT2OID | INT4OID) && capped && under_cap(m.chain.row_magnitude)
 }
 
 /// PostgreSQL's per-row cost of one aggregate over `arg` (get_agg_clause_costs: the transition function plus the
 /// argument's evaluation), with `cast` (a function applied to `arg`, 0 for none). Priced without §3 #7's pgrc class
 /// multipliers (`cost_qual_eval_node_pg`), which read the relations query_planner builds: before it they never apply,
 /// so a rewrite decided after query_planner (0d) is priced as one decided before it, and as UNIT / NODE / FIXED were fit.
-fn agg_row_cost<'mcx>(
-    run: &mut PlannerRun<'mcx>,
-    aggfnoid: Oid,
-    arg: Node<'mcx>,
-    cast: Oid,
-) -> PgResult<f64> {
+fn agg_row_cost<'mcx>(run: &mut PlannerRun<'mcx>, aggfnoid: Oid, arg: Node<'mcx>, cast: Oid,) -> PgResult<f64> {
     let Some(shape) = syscache_seams::lookup_pg_aggregate_shape::call(aggfnoid)? else {
         return Err(crate::cache_lookup_failed("aggregate", aggfnoid));
     };
@@ -1520,21 +1150,13 @@ fn agg_final_cost(aggfnoid: Oid) -> PgResult<f64> {
 /// unique column (`id % 1000`) as one group a row.
 fn groups_per_row(run: &PlannerRun<'_>) -> PgResult<(f64, f64)> {
     let parse = run.parse();
-    let Some(rti) = one_item(parse) else {
-        return Ok((0.0, 0.0));
-    };
-    let Some(rows) = input_rows(run, parse, rti)? else {
-        return Ok((0.0, 0.0));
-    };
+    let Some(rti) = one_item(parse) else { return Ok((0.0, 0.0)); };
+    let Some(rows) = input_rows(run, parse, rti)? else { return Ok((0.0, 0.0)); };
     let (mut groups, mut most, mut keys) = (1.0f64, 1.0f64, 0);
     for sgc in parse.groupClause.iter() {
-        let sgc = sgc
-            .as_sort_group_clause()
-            .expect("groupClause holds SortGroupClauses");
+        let sgc = sgc.as_sort_group_clause().expect("groupClause holds SortGroupClauses");
         let key = crate::pathkeys::get_sortgroupclause_expr(sgc, run.processed_tlist());
-        let d = key_ndistinct(run, parse, rti, key)?
-            .unwrap_or(types_pathnodes::DEFAULT_NUM_DISTINCT)
-            .min(rows);
+        let d = key_ndistinct(run, parse, rti, key)?.unwrap_or(types_pathnodes::DEFAULT_NUM_DISTINCT).min(rows);
         groups *= d;
         most = most.max(d);
         keys += 1;
@@ -1546,10 +1168,7 @@ fn groups_per_row(run: &PlannerRun<'_>) -> PgResult<(f64, f64)> {
 }
 
 fn top(run: &PlannerRun<'_>, q: &Query<'_>) -> bool {
-    core::ptr::eq(
-        q as *const Query<'_> as *const (),
-        run.parse() as *const Query<'_> as *const (),
-    )
+    core::ptr::eq(q as *const Query<'_> as *const (), run.parse() as *const Query<'_> as *const (),)
 }
 
 fn one_item(q: &Query<'_>) -> Option<i32> {
@@ -1568,21 +1187,14 @@ fn one_item(q: &Query<'_>) -> Option<i32> {
 }
 
 fn rte_of<'m>(q: &'m Query<'m>, rti: i32) -> &'m RangeTblEntry<'m> {
-    q.rtable
-        .nth(rti as usize - 1)
-        .as_range_tbl_entry()
-        .expect("rtable cell is a RangeTblEntry")
+    q.rtable.nth(rti as usize - 1).as_range_tbl_entry().expect("rtable cell is a RangeTblEntry")
 }
 
 fn cte_scan<'m>(q: &'m Query<'m>, rte: &RangeTblEntry<'_>) -> Option<(&'m Query<'m>, i32)> {
     if rte.ctelevelsup != 0 || rte.self_reference {
         return None;
     }
-    let cte = q
-        .cteList
-        .iter()
-        .filter_map(|c| c.as_common_table_expr())
-        .find(|c| c.ctename == rte.ctename)?;
+    let cte = q.cteList.iter().filter_map(|c| c.as_common_table_expr()).find(|c| c.ctename == rte.ctename)?;
     let cq = cte.ctequery.filter(|_| !cte.cterecursive)?.as_query()?;
     let keeps = cq.setOperations.is_none()
         && !(cq.hasAggs || cq.hasWindowFuncs || cq.hasTargetSRFs)
@@ -1603,10 +1215,7 @@ fn input_rows<'m>(run: &PlannerRun<'_>, q: &'m Query<'m>, rti: i32) -> PgResult<
     let rows = match rte.rtekind {
         RTEKind::RTE_RELATION => {
             let tables = if rte.inh {
-                ::mcx::stdvec::try_to_vec(
-                    &pg_inherits::find_all_inheritors(run.mcx, rte.relid, NoLock)?,
-                    "agg_algebra",
-                )?
+                ::mcx::stdvec::try_to_vec(&pg_inherits::find_all_inheritors(run.mcx, rte.relid, NoLock)?, "agg_algebra",)?
             } else {
                 vec![rte.relid]
             };
@@ -1623,9 +1232,7 @@ fn input_rows<'m>(run: &PlannerRun<'_>, q: &'m Query<'m>, rti: i32) -> PgResult<
                     table::table_close(r, NoLock)?;
                     kt
                 } else {
-                    let Some(r) = relcache_seams::relation_id_get_relation::call(oid)? else {
-                        return Ok(None);
-                    };
+                    let Some(r) = relcache_seams::relation_id_get_relation::call(oid)? else { return Ok(None); };
                     (r.rd_rel.relkind, r.rd_rel.reltuples)
                 };
                 if kind == RELKIND_PARTITIONED_TABLE {
@@ -1644,12 +1251,7 @@ fn input_rows<'m>(run: &PlannerRun<'_>, q: &'m Query<'m>, rti: i32) -> PgResult<
         },
         RTEKind::RTE_SUBQUERY if rte.inh && top(run, q) => {
             let mut rows = 0.0;
-            for ai in run
-                .root
-                .append_rel_list
-                .iter()
-                .filter(|a| i64::from(a.parent_relid) == i64::from(rti))
-            {
+            for ai in run.root.append_rel_list.iter().filter(|a| i64::from(a.parent_relid) == i64::from(rti)) {
                 let child = ai.child_relid as i32;
                 let r = match (rte_of(q, child).rtekind, rte_of(q, child).subquery) {
                     (RTEKind::RTE_RELATION, _) => input_rows(run, q, child)?,
@@ -1674,73 +1276,41 @@ fn input_rows<'m>(run: &PlannerRun<'_>, q: &'m Query<'m>, rti: i32) -> PgResult<
 /// of that one column has no predicate, else pg_statistic.stadistinct (a negative one a fraction of the rows); of a CTE
 /// scan, its query's target's; of a UNION ALL appendrel, the sum of its members' (at most their union's). `None` for
 /// any other key, or a column with no statistic.
-fn key_ndistinct<'m>(
-    run: &PlannerRun<'_>,
-    q: &'m Query<'m>,
-    rti: i32,
-    key: Node<'_>,
-) -> PgResult<Option<f64>> {
+fn key_ndistinct<'m>(run: &PlannerRun<'_>, q: &'m Query<'m>, rti: i32, key: Node<'_>,) -> PgResult<Option<f64>> {
     let mut k = Chain::of(key)?.map_or(key, |c| c.x);
     while let Some(r) = k.as_relabel_type() {
         k = r.arg;
     }
-    let Some(v) = k
-        .as_var()
-        .filter(|v| v.varlevelsup == 0 && v.varno == rti && v.varattno > 0)
-    else {
-        return Ok(None);
-    };
+    let Some(v) = k.as_var().filter(|v| v.varlevelsup == 0 && v.varno == rti && v.varattno > 0) else { return Ok(None); };
     let rte = rte_of(q, rti);
     match rte.rtekind {
         RTEKind::RTE_RELATION => {
             let r = table::table_open(run.mcx, rte.relid, NoLock)?;
             let (indexed, children) = (r.rd_rel.relhasindex, r.rd_rel.relhassubclass);
             table::table_close(r, NoLock)?;
-            let Some(rows) = input_rows(run, q, rti)? else {
-                return Ok(None);
-            };
+            let Some(rows) = input_rows(run, q, rti)? else { return Ok(None); };
             if indexed {
-                for &oid in
-                    relcache_seams::relation_get_index_list::call(run.mcx, rte.relid)?.iter()
-                {
+                for &oid in relcache_seams::relation_get_index_list::call(run.mcx, rte.relid)?.iter() {
                     let ix = indexam::index_open(run.mcx, oid, rte.rellockmode)?;
-                    let ind = ix
-                        .rd_index
-                        .as_ref()
-                        .expect("index relation carries rd_index");
-                    let unique = ind.indisunique
-                        && ind.indnkeyatts == 1
-                        && ind.indkey[0] == v.varattno
-                        && ind.indpred_src.is_none();
+                    let ind = ix.rd_index.as_ref().expect("index relation carries rd_index");
+                    let unique =
+                        ind.indisunique && ind.indnkeyatts == 1 && ind.indkey[0] == v.varattno && ind.indpred_src.is_none();
                     indexam::index_close(ix, NoLock)?;
                     if unique {
                         return Ok(Some(rows));
                     }
                 }
             }
-            Ok(
-                match syscache_seams::lookup_pg_statistic_shape::call(
-                    rte.relid,
-                    v.varattno,
-                    rte.inh && children,
-                )? {
-                    Some(s) if s.stadistinct > 0.0 => Some((s.stadistinct as f64).min(rows)),
-                    Some(s) if s.stadistinct < 0.0 => {
-                        Some((-(s.stadistinct as f64) * rows).min(rows))
+            Ok(match syscache_seams::lookup_pg_statistic_shape::call(rte.relid, v.varattno, rte.inh && children,)? {
+                Some(s) if s.stadistinct > 0.0 => Some((s.stadistinct as f64).min(rows)),
+                Some(s) if s.stadistinct < 0.0 => { Some((-(s.stadistinct as f64) * rows).min(rows))
                     }
-                    _ => None,
-                },
-            )
+                _ => None,
+            },)
         }
         RTEKind::RTE_CTE => {
-            let Some((cq, r)) = cte_scan(q, rte) else {
-                return Ok(None);
-            };
-            let tle = cq
-                .targetList
-                .iter()
-                .filter_map(|t| t.as_target_entry())
-                .find(|t| t.resno == v.varattno);
+            let Some((cq, r)) = cte_scan(q, rte) else { return Ok(None); };
+            let tle = cq.targetList.iter().filter_map(|t| t.as_target_entry()).find(|t| t.resno == v.varattno);
             match tle {
                 Some(t) => key_ndistinct(run, cq, r, t.expr),
                 None => Ok(None),
@@ -1748,15 +1318,8 @@ fn key_ndistinct<'m>(
         }
         RTEKind::RTE_SUBQUERY if rte.inh && top(run, q) => {
             let mut sum = 0.0;
-            for ai in run
-                .root
-                .append_rel_list
-                .iter()
-                .filter(|a| i64::from(a.parent_relid) == i64::from(rti))
-            {
-                let Some(&t) = ai.translated_vars.get(v.varattno as usize - 1) else {
-                    return Ok(None);
-                };
+            for ai in run.root.append_rel_list.iter().filter(|a| i64::from(a.parent_relid) == i64::from(rti)) {
+                let Some(&t) = ai.translated_vars.get(v.varattno as usize - 1) else { return Ok(None); };
                 if t == types_pathnodes::NodeId::default() {
                     return Ok(None);
                 }
@@ -1765,10 +1328,7 @@ fn key_ndistinct<'m>(
                     (RTEKind::RTE_RELATION, _) => key_ndistinct(run, q, child, e)?,
                     (RTEKind::RTE_SUBQUERY, Some(sq)) => {
                         let inner = e.as_var().and_then(|cv| {
-                            sq.targetList
-                                .iter()
-                                .filter_map(|t| t.as_target_entry())
-                                .find(|t| t.resno == cv.varattno)
+                            sq.targetList.iter().filter_map(|t| t.as_target_entry()).find(|t| t.resno == cv.varattno)
                         });
                         match (inner, one_item(sq)) {
                             (Some(t), Some(i)) => key_ndistinct(run, sq, i, t.expr)?,
@@ -1792,9 +1352,7 @@ fn same_final(a: &Member<'_>, b: &Member<'_>, capped: bool) -> bool {
     let form = |k: Node<'_>, kind: Kind, first: bool| {
         let v = int_value(k);
         let folded = kind == Kind::Sub && !first && v.and_then(i64::checked_neg).is_some();
-        let t = k
-            .as_const()
-            .map_or_else(|| k.as_param().map_or(0, |p| p.paramtype), |c| c.consttype);
+        let t = k.as_const().map_or_else(|| k.as_param().map_or(0, |p| p.paramtype), |c| c.consttype);
         (k.node_tag(), t, v.is_some(), folded)
     };
     a.agg == b.agg
@@ -1807,37 +1365,12 @@ fn same_final(a: &Member<'_>, b: &Member<'_>, capped: bool) -> bool {
         && x.steps.len() == y.steps.len()
         && x.steps.iter().zip(&y.steps).all(|(s, t)| match (*s, *t) {
             (
-                Step::Arith {
-                    kind: k1,
-                    opfuncid: f1,
-                    restype: r1,
-                    c: c1,
-                    c_first: o1,
-                    ..
-                },
-                Step::Arith {
-                    kind: k2,
-                    opfuncid: f2,
-                    restype: r2,
-                    c: c2,
-                    c_first: o2,
-                    ..
-                },
-            ) => {
-                k1 == k2 && f1 == f2 && r1 == r2 && o1 == o2 && form(c1, k1, o1) == form(c2, k2, o2)
+                Step::Arith { kind: k1, opfuncid: f1, restype: r1, c: c1, c_first: o1, .. },
+                Step::Arith { kind: k2, opfuncid: f2, restype: r2, c: c2, c_first: o2, .. },
+            ) => { k1 == k2 && f1 == f2 && r1 == r2 && o1 == o2 && form(c1, k1, o1) == form(c2, k2, o2)
             }
-            (
-                Step::Cast {
-                    funcid: f1,
-                    restype: r1,
-                    format: g1,
-                },
-                Step::Cast {
-                    funcid: f2,
-                    restype: r2,
-                    format: g2,
-                },
-            ) => f1 == f2 && r1 == r2 && g1 == g2,
+            (Step::Cast { funcid: f1, restype: r1, format: g1, }, Step::Cast { funcid: f2, restype: r2, format: g2, },) =>
+                f1 == f2 && r1 == r2 && g1 == g2,
             _ => false,
         })
 }
@@ -1861,26 +1394,19 @@ fn profitable<'mcx>(
         (Some(a), Some(b)) => types_nodes::equal(a, b),
         (a, b) => a.is_none() && b.is_none(),
     };
-    let family = |a: &Member<'_>, b: &Member<'_>| {
-        types_nodes::equal(a.chain.x, b.chain.x) && same(a.filter, b.filter)
+    let family = |a: &Member<'_>, b: &Member<'_>| { types_nodes::equal(a.chain.x, b.chain.x) && same(a.filter, b.filter)
     };
     for i in 0..members.len() {
         if !members[i].take || (0..i).any(|j| family(&members[j], &members[i])) {
             continue;
         }
-        let fam: Vec<usize> = (i..members.len())
-            .filter(|&j| members[j].take && family(&members[i], &members[j]))
-            .collect();
+        let fam: Vec<usize> = (i..members.len()).filter(|&j| members[j].take && family(&members[i], &members[j])).collect();
         let (mut orig, mut orig_final, mut written) = (0.0, 0.0, 0);
         for (n, &j) in fam.iter().enumerate() {
-            if !fam[..n]
-                .iter()
-                .any(|&k| types_nodes::equal(members[k].aggref, members[j].aggref))
-            {
+            if !fam[..n].iter().any(|&k| types_nodes::equal(members[k].aggref, members[j].aggref)) {
                 written += 1;
                 orig += member_cost(run, &mut members[j])?;
-                orig_final +=
-                    agg_final_cost(members[j].aggref.as_aggref().expect("Aggref").aggfnoid)?;
+                orig_final += agg_final_cost(members[j].aggref.as_aggref().expect("Aggref").aggfnoid)?;
             }
         }
         let m = &members[i];
@@ -1894,23 +1420,14 @@ fn profitable<'mcx>(
             fam.iter().any(|&j| {
                 let c = &members[j].chain;
                 matches!(members[j].agg, Agg::Sum | Agg::Avg)
-                    && wide
-                        == (matches!(c.xtype, INT2OID | INT4OID)
-                            && !matches!(c.tfinal, INT2OID | INT4OID))
+                    && wide == (matches!(c.xtype, INT2OID | INT4OID) && !matches!(c.tfinal, INT2OID | INT4OID))
             })
         };
-        let widen = CASTS
-            .iter()
-            .find(|c| c.1 == m.chain.xtype && c.2 == INT8OID)
-            .map_or(0, |c| c.0);
+        let widen = CASTS.iter().find(|c| c.1 == m.chain.xtype && c.2 == INT8OID).map_or(0, |c| c.0);
         let needed = [
             (sum_fn, 0, summed(false)),
             (SUM_INT8, widen, summed(true)),
-            (
-                COUNT_ANY,
-                0,
-                wants(Agg::Sum) || wants(Agg::Avg) || wants(Agg::Count),
-            ),
+            (COUNT_ANY, 0, wants(Agg::Sum) || wants(Agg::Avg) || wants(Agg::Count),),
             (min_fn, 0, edges),
             (max_fn, 0, edges),
         ];
@@ -1937,15 +1454,11 @@ fn profitable<'mcx>(
         // guard adds min / max, so it is rewritten only where its bases are no more than its distinct members: three
         // FILTERed raising sums as four FILTERed bases measured 1.03x-1.11x slower at W8 (algebra q10), four or more
         // faster; agg_row_cost does not price the FILTER.
-        let filter_runs =
-            m.filter.is_some() && bases > written && fam.iter().any(|&j| members[j].chain.raising);
+        let filter_runs = m.filter.is_some() && bases > written && fam.iter().any(|&j| members[j].chain.raising);
         {
             let mut costs = mcx::PgVec::new_in(run.mcx);
             for (n, &j) in fam.iter().enumerate() {
-                let known = fam[..n]
-                    .iter()
-                    .position(|&k| same_final(&members[k], &members[j], capped))
-                    .map(|p| costs[p]);
+                let known = fam[..n].iter().position(|&k| same_final(&members[k], &members[j], capped)).map(|p| costs[p]);
                 let per = match known {
                     Some(c) => c,
                     None => {
@@ -1974,8 +1487,8 @@ fn profitable<'mcx>(
 /// Aggregates whose transition and final cannot raise over any input: count, and sum / avg / min / max of int2 /
 /// int4 / int8 (an int8 state, exact int128 / numeric accumulation).
 const QUIET_AGGS: [Oid; 14] = [
-    COUNT_STAR, COUNT_ANY, AVG_INT8, AVG_INT4, AVG_INT2, SUM_INT8, SUM_INT4, SUM_INT2, MAX_INT8,
-    MAX_INT4, MAX_INT2, MIN_INT8, MIN_INT4, MIN_INT2,
+    COUNT_STAR, COUNT_ANY, AVG_INT8, AVG_INT4, AVG_INT2, SUM_INT8, SUM_INT4, SUM_INT2, MAX_INT8, MAX_INT4, MAX_INT2,
+    MIN_INT8, MIN_INT4, MIN_INT2,
 ];
 
 /// `n` cannot raise: Vars, Consts, Params, leakproof functions (PostgreSQL's contract: no error that depends on the
@@ -2000,42 +1513,22 @@ pub(crate) fn quiet(n: Node<'_>) -> PgResult<bool> {
         NodeTag::T_TargetEntry => quiet(n.as_target_entry().expect("TargetEntry").expr)?,
         NodeTag::T_List => all(n.as_list().expect("List"))?,
         NodeTag::T_BoolExpr => all(&n.as_bool_expr().expect("BoolExpr").args)?,
-        NodeTag::T_NullTest => n
-            .as_null_test()
-            .expect("NullTest")
-            .arg
-            .map_or(Ok(true), quiet)?,
-        NodeTag::T_BooleanTest => n
-            .as_boolean_test()
-            .expect("BooleanTest")
-            .arg
-            .map_or(Ok(true), quiet)?,
+        NodeTag::T_NullTest => n.as_null_test().expect("NullTest").arg.map_or(Ok(true), quiet)?,
+        NodeTag::T_BooleanTest => n.as_boolean_test().expect("BooleanTest").arg.map_or(Ok(true), quiet)?,
         NodeTag::T_OpExpr => {
             let o = n.as_op_expr().expect("OpExpr");
-            let f = if o.opfuncid != 0 {
-                o.opfuncid
-            } else {
-                lsyscache::get_opcode(o.opno)?
-            };
-            lsyscache::get_func_leakproof(f)?
-                && crate::createplan::collation_determinate(n)?
-                && all(&o.args)?
+            let f = if o.opfuncid != 0 { o.opfuncid } else { lsyscache::get_opcode(o.opno)? };
+            lsyscache::get_func_leakproof(f)? && crate::createplan::collation_determinate(n)? && all(&o.args)?
         }
         NodeTag::T_FuncExpr => {
             let f = n.as_func_expr().expect("FuncExpr");
-            lsyscache::get_func_leakproof(f.funcid)?
-                && crate::createplan::collation_determinate(n)?
-                && all(&f.args)?
+            lsyscache::get_func_leakproof(f.funcid)? && crate::createplan::collation_determinate(n)? && all(&f.args)?
         }
         // PSP2-12: `x IN (..)` over a leakproof builtin operator, its array a Const or a one-dimensional ARRAY[] (a
         // multidimensional one raises on mismatched dimensions); COALESCE picks an argument and compares nothing.
         NodeTag::T_ScalarArrayOpExpr => {
             let o = n.as_scalar_array_op_expr().expect("ScalarArrayOpExpr");
-            let f = if o.opfuncid != 0 {
-                o.opfuncid
-            } else {
-                lsyscache::get_opcode(o.opno)?
-            };
+            let f = if o.opfuncid != 0 { o.opfuncid } else { lsyscache::get_opcode(o.opno)? };
             f < types_core::catalog::FirstNormalObjectId
                 && lsyscache::get_func_leakproof(f)?
                 && crate::createplan::collation_determinate(n)?
@@ -2048,21 +1541,12 @@ pub(crate) fn quiet(n: Node<'_>) -> PgResult<bool> {
         NodeTag::T_CoalesceExpr => all(&n.as_coalesce_expr().expect("CoalesceExpr").args)?,
         NodeTag::T_Aggref => {
             let a = n.as_aggref().expect("Aggref");
-            let arg_type = || {
-                a.args
-                    .iter()
-                    .next()
-                    .and_then(|t| t.as_target_entry())
-                    .map(|t| nodes_core::expr_type(t.expr))
+            let arg_type = || { a.args.iter().next().and_then(|t| t.as_target_entry()).map(|t| nodes_core::expr_type(t.expr))
             };
             let distinct = a.aggdistinct.is_nil()
-                || arg_type()
-                    .is_some_and(|t| types_core::quiet::distinct_count_quiet(a.aggfnoid, t));
-            let text = types_core::quiet::text_extremum_quiet(a.aggfnoid, a.inputcollid)
-                && a.inputcollid != 0;
-            (QUIET_AGGS.contains(&a.aggfnoid)
-                || types_core::quiet::extremum_quiet(a.aggfnoid)
-                || text)
+                || arg_type().is_some_and(|t| types_core::quiet::distinct_count_quiet(a.aggfnoid, t));
+            let text = types_core::quiet::text_extremum_quiet(a.aggfnoid, a.inputcollid) && a.inputcollid != 0;
+            (QUIET_AGGS.contains(&a.aggfnoid) || types_core::quiet::extremum_quiet(a.aggfnoid) || text)
                 && a.aggkind == types_nodes::primnodes::AGGKIND_NORMAL
                 && a.aggfilter.map_or(Ok(true), filter_quiet)?
                 && a.aggorder.is_nil()
@@ -2082,11 +1566,7 @@ fn builtin_calls(n: Node<'_>) -> PgResult<bool> {
     impl<'mcx> nodes_core::NodeWalker<'mcx> for Builtins {
         fn visit(&mut self, node: Node<'mcx>) -> PgResult<bool> {
             let f = match (node.as_op_expr(), node.as_func_expr()) {
-                (Some(o), _) => Some(if o.opfuncid != 0 {
-                    o.opfuncid
-                } else {
-                    lsyscache::get_opcode(o.opno)?
-                }),
+                (Some(o), _) => Some(if o.opfuncid != 0 { o.opfuncid } else { lsyscache::get_opcode(o.opno)? }),
                 (_, Some(f)) => Some(f.funcid),
                 _ => None,
             };
@@ -2102,11 +1582,7 @@ fn builtin_calls(n: Node<'_>) -> PgResult<bool> {
     Ok(w.0)
 }
 
-fn build<'mcx>(
-    mcx: mcx::Mcx<'mcx>,
-    m: &Member<'mcx>,
-    capped: bool,
-) -> PgResult<(Node<'mcx>, Option<[Node<'mcx>; 4]>)> {
+fn build<'mcx>(mcx: mcx::Mcx<'mcx>, m: &Member<'mcx>, capped: bool,) -> PgResult<(Node<'mcx>, Option<[Node<'mcx>; 4]>)> {
     let a = m.aggref.as_aggref().expect("Aggref");
     let (c, loc, x, xt) = (&m.chain, a.location, m.chain.x, m.chain.xtype);
     let (sum_fn, min_fn, max_fn) = base_fns(xt);
@@ -2120,31 +1596,18 @@ fn build<'mcx>(
     let n = rows_n(c.row_magnitude);
     let bare = capped && under_cap(c.row_magnitude);
     let shift = small_shift(c).filter(|_| capped && !bare);
-    let k_count = |k: i64| -> PgResult<Node<'mcx>> {
-        op_of(mcx, INT8_OPS[2], INT8OID, int8_const(mcx, k)?, count_x()?)
-    };
+    let k_count = |k: i64| -> PgResult<Node<'mcx>> { op_of(mcx, INT8_OPS[2], INT8OID, int8_const(mcx, k)?, count_x()?) };
     // S(e) in numeric, exact: sum(x) of an int8 / numeric x, else PostgreSQL's wrapped int8 sum(x) when `e`
     // accumulates in int8 too (the wrap is taken modulo 2^64 below), else sum(x::int8).
     let numeric_s = || -> PgResult<Node<'mcx>> {
         match xt {
             INT2OID | INT4OID if !int8_acc => {
-                let cast = CASTS
-                    .iter()
-                    .find(|k| k.1 == xt && k.2 == INT8OID)
-                    .expect("int -> int8")
-                    .0;
+                let cast = CASTS.iter().find(|k| k.1 == xt && k.2 == INT8OID).expect("int -> int8").0;
                 let x8 = func_of(mcx, cast, INT8OID, x, CoercionForm::COERCE_IMPLICIT_CAST)?;
                 let sum8 = agg_of(mcx, SUM_INT8, NUMERICOID, x8, INT8OID, loc, m.filter)?;
                 sum_expr(mcx, c, sum8, NUMERICOID, &count_x, true)
             }
-            _ => sum_expr(
-                mcx,
-                c,
-                base(sum_fn, sum_type(xt))?,
-                sum_type(xt),
-                &count_x,
-                true,
-            ),
+            _ => sum_expr(mcx, c, base(sum_fn, sum_type(xt))?, sum_type(xt), &count_x, true,),
         }
     };
     // Below N rows the value, past them PostgreSQL's accumulator: the numeric total modulo 2^64.
@@ -2157,11 +1620,7 @@ fn build<'mcx>(
         Agg::Count => count_x()?,
         Agg::Min | Agg::Max => {
             let low = (m.agg == Agg::Min) == c.dir.is_some_and(|d| d >= 0);
-            let edge = if low {
-                base(min_fn, xt)?
-            } else {
-                base(max_fn, xt)?
-            };
+            let edge = if low { base(min_fn, xt)? } else { base(max_fn, xt)? };
             apply(mcx, c, edge)?
         }
         // An int2 / int4 `e` below N rows: S(e) in the int8 form (as `sum`'s, every intermediate exact there) and one
@@ -2169,42 +1628,19 @@ fn build<'mcx>(
         // numeric step by step is the same value at scale 0, but costs a hosted numeric call per step and group.
         Agg::Avg if int8_acc => {
             let s = match shift {
-                Some(k) => int8_numeric(
-                    mcx,
-                    wrap_add(mcx, k, &|| base(sum_fn, INT8OID), &|| k_count(k))?,
-                )?,
+                Some(k) => int8_numeric(mcx, wrap_add(mcx, k, &|| base(sum_fn, INT8OID), &|| k_count(k))?,)?,
                 None => {
-                    let s = int8_numeric(
-                        mcx,
-                        sum_expr(mcx, c, base(sum_fn, INT8OID)?, INT8OID, &count_x, false)?,
-                    )?;
-                    if bare {
-                        s
-                    } else {
-                        upto_n(NUMERICOID, s, wrap64(mcx, numeric_s()?)?)?
-                    }
+                    let s = int8_numeric(mcx, sum_expr(mcx, c, base(sum_fn, INT8OID)?, INT8OID, &count_x, false)?,)?;
+                    if bare { s } else { upto_n(NUMERICOID, s, wrap64(mcx, numeric_s()?)?)? }
                 }
             };
-            op_of(
-                mcx,
-                NUMERIC_DIV,
-                NUMERICOID,
-                s,
-                int8_numeric(mcx, count_x()?)?,
-            )?
+            op_of(mcx, NUMERIC_DIV, NUMERICOID, s, int8_numeric(mcx, count_x()?)?,)?
         }
-        Agg::Avg => op_of(
-            mcx,
-            NUMERIC_DIV,
-            NUMERICOID,
-            numeric_s()?,
-            int8_numeric(mcx, count_x()?)?,
-        )?,
+        Agg::Avg => op_of(mcx, NUMERIC_DIV, NUMERICOID, numeric_s()?, int8_numeric(mcx, count_x()?)?,)?,
         Agg::Sum if !int8_acc => numeric_s()?,
         Agg::Sum if shift.is_some() => {
             let k = shift.unwrap_or(0);
-            let (first_sum, first_count) =
-                (core::cell::Cell::new(None), core::cell::Cell::new(None));
+            let (first_sum, first_count) = (core::cell::Cell::new(None), core::cell::Cell::new(None));
             let a = || -> PgResult<Node<'mcx>> {
                 let n = base(sum_fn, INT8OID)?;
                 first_sum.set(first_sum.get().or(Some(n)));
@@ -2231,13 +1667,7 @@ fn build<'mcx>(
             if bare {
                 s
             } else {
-                let past = func_of(
-                    mcx,
-                    NUMERIC_INT8_PROC,
-                    INT8OID,
-                    wrap64(mcx, numeric_s()?)?,
-                    CoercionForm::COERCE_EXPLICIT_CAST,
-                )?;
+                let past = func_of(mcx, NUMERIC_INT8_PROC, INT8OID, wrap64(mcx, numeric_s()?)?, CoercionForm::COERCE_EXPLICIT_CAST,)?;
                 upto_n(INT8OID, s, past)?
             }
         }
@@ -2245,20 +1675,11 @@ fn build<'mcx>(
     if !m.guard {
         return Ok((value, None));
     }
-    let otherwise = if m.agg == Agg::Count {
-        count_x()?
-    } else {
-        typed_null(mcx, rettype)?
-    };
+    let otherwise = if m.agg == Agg::Count { count_x()? } else { typed_null(mcx, rettype)? };
     let (min_x, max_x) = (base(min_fn, xt)?, base(max_fn, xt)?);
     let case = guarded(mcx, c, min_x, max_x, value, rettype, otherwise)?;
     let one_shift = matches!(c.steps[..], [Step::Arith { kind: Kind::Add | Kind::Sub, c: k, .. }] if int_value(k).is_some());
-    Ok((
-        case,
-        marks
-            .filter(|_| one_shift)
-            .map(|(sum_x, n)| [min_x, max_x, sum_x, n]),
-    ))
+    Ok((case, marks.filter(|_| one_shift).map(|(sum_x, n)| [min_x, max_x, sum_x, n]),))
 }
 
 fn rows_n(row_magnitude: i128) -> i128 {
@@ -2266,23 +1687,13 @@ fn rows_n(row_magnitude: i128) -> i128 {
 }
 
 fn under_cap(row_magnitude: i128) -> bool {
-    row_magnitude
-        .checked_mul(ROW_CAP)
-        .is_some_and(|p| p <= INT8_LIMIT)
+    row_magnitude.checked_mul(ROW_CAP).is_some_and(|p| p <= INT8_LIMIT)
 }
 
 /// k of a one-step `x ± k` (or `k + x`), an integer literal with |k| < 2^16: over one relation k · count(x) is exact in int8
 /// (count(x) <= ROW_CAP), so PostgreSQL's wrapping int8 total sum(x) + k · count(x) has an int8-operator spelling.
 fn small_shift(c: &Chain<'_>) -> Option<i64> {
-    let [Step::Arith {
-        kind,
-        c: k,
-        c_first,
-        ..
-    }] = c.steps[..]
-    else {
-        return None;
-    };
+    let [Step::Arith { kind, c: k, c_first, .. }] = c.steps[..] else { return None; };
     let v = int_value(k)?;
     let v = match (kind, c_first) {
         (Kind::Add, _) => v,
@@ -2305,29 +1716,11 @@ pub(crate) fn wrap_add<'mcx>(
     let min = || int8_const(mcx, i64::MIN);
     let plain = add(a()?, b()?)?;
     if k >= 0 {
-        let past = op_of(
-            mcx,
-            INT8_GT,
-            16,
-            a()?,
-            sub(int8_const(mcx, i64::MAX)?, b()?)?,
-        )?;
-        case_of(
-            mcx,
-            INT8OID,
-            past,
-            add(add(a()?, min()?)?, add(b()?, min()?)?)?,
-            plain,
-        )
+        let past = op_of(mcx, INT8_GT, 16, a()?, sub(int8_const(mcx, i64::MAX)?, b()?)?,)?;
+        case_of(mcx, INT8OID, past, add(add(a()?, min()?)?, add(b()?, min()?)?)?, plain,)
     } else {
         let below = op_of(mcx, INT8_LT, 16, a()?, sub(min()?, b()?)?)?;
-        case_of(
-            mcx,
-            INT8OID,
-            below,
-            add(sub(a()?, min()?)?, sub(b()?, min()?)?)?,
-            plain,
-        )
+        case_of(mcx, INT8OID, below, add(sub(a()?, min()?)?, sub(b()?, min()?)?)?, plain,)
     }
 }
 
@@ -2335,22 +1728,9 @@ pub(crate) fn wrap_add<'mcx>(
 /// spelled with -2^63 = i64::MIN and 2^64 = i64::MIN · -2 from by-value literals (`numeric_const`).
 fn wrap64<'mcx>(mcx: mcx::Mcx<'mcx>, v: Node<'mcx>) -> PgResult<Node<'mcx>> {
     let min = || numeric_const(mcx, i64::MIN);
-    let w = || {
-        op_of(
-            mcx,
-            NUMERIC_OPS[2],
-            NUMERICOID,
-            numeric_const(mcx, i64::MIN)?,
-            numeric_const(mcx, -2)?,
-        )
+    let w = || { op_of(mcx, NUMERIC_OPS[2], NUMERICOID, numeric_const(mcx, i64::MIN)?, numeric_const(mcx, -2)?,)
     };
-    let r = op_of(
-        mcx,
-        NUMERIC_MOD,
-        NUMERICOID,
-        op_of(mcx, NUMERIC_OPS[1], NUMERICOID, v, min()?)?,
-        w()?,
-    )?;
+    let r = op_of(mcx, NUMERIC_MOD, NUMERICOID, op_of(mcx, NUMERIC_OPS[1], NUMERICOID, v, min()?)?, w()?,)?;
     let r = op_of(mcx, NUMERIC_OPS[0], NUMERICOID, r, w()?)?;
     let r = op_of(mcx, NUMERIC_MOD, NUMERICOID, r, w()?)?;
     op_of(mcx, NUMERIC_OPS[0], NUMERICOID, r, min()?)
@@ -2375,26 +1755,11 @@ fn sum_expr<'mcx>(
             s = int8_numeric(mcx, s)?;
             t = next;
         }
-        let Step::Arith {
-            kind,
-            c: k,
-            c_first,
-            ..
-        } = *step
-        else {
-            continue;
-        };
+        let Step::Arith { kind, c: k, c_first, .. } = *step else { continue; };
         let ops = if t == INT8OID { INT8_OPS } else { NUMERIC_OPS };
-        let count = || {
-            if t == INT8OID {
-                count_x()
-            } else {
-                int8_numeric(mcx, count_x()?)
-            }
+        let count = || { if t == INT8OID { count_x() } else { int8_numeric(mcx, count_x()?) }
         };
-        let folded = (kind == Kind::Sub && !c_first)
-            .then(|| int_value(k).and_then(i64::checked_neg))
-            .flatten();
+        let folded = (kind == Kind::Sub && !c_first).then(|| int_value(k).and_then(i64::checked_neg)).flatten();
         s = match (kind, c_first) {
             (Kind::Mul, _) => op_of(mcx, ops[2], t, const_as(mcx, k, t, None)?, s)?,
             (Kind::Sub, true) => {
@@ -2424,18 +1789,9 @@ fn int_value(k: Node<'_>) -> Option<i64> {
     })
 }
 
-fn const_as<'mcx>(
-    mcx: mcx::Mcx<'mcx>,
-    k: Node<'mcx>,
-    t: Oid,
-    value: Option<i64>,
-) -> PgResult<Node<'mcx>> {
+fn const_as<'mcx>(mcx: mcx::Mcx<'mcx>, k: Node<'mcx>, t: Oid, value: Option<i64>,) -> PgResult<Node<'mcx>> {
     if let Some(v) = value.or_else(|| int_value(k)) {
-        return if t == INT8OID {
-            int8_const(mcx, v)
-        } else {
-            numeric_const(mcx, v)
-        };
+        return if t == INT8OID { int8_const(mcx, v) } else { numeric_const(mcx, v) };
     }
     let kt = match k.as_param() {
         Some(p) => p.paramtype,
@@ -2444,10 +1800,7 @@ fn const_as<'mcx>(
     if kt == t {
         return Ok(k);
     }
-    let &(f, _, _) = CASTS
-        .iter()
-        .find(|x| x.1 == kt && x.2 == t)
-        .expect("a widening cast to the sum type");
+    let &(f, _, _) = CASTS.iter().find(|x| x.1 == kt && x.2 == t).expect("a widening cast to the sum type");
     func_of(mcx, f, t, k, CoercionForm::COERCE_IMPLICIT_CAST)
 }
 
@@ -2455,14 +1808,7 @@ fn apply<'mcx>(mcx: mcx::Mcx<'mcx>, c: &Chain<'mcx>, base: Node<'mcx>) -> PgResu
     let mut v = base;
     for step in &c.steps {
         v = match *step {
-            Step::Arith {
-                opno,
-                opfuncid,
-                restype,
-                c: k,
-                c_first,
-                ..
-            } => {
+            Step::Arith { opno, opfuncid, restype, c: k, c_first, .. } => {
                 let (l, r) = if c_first { (k, v) } else { (v, k) };
                 Node::mk(
                     mcx,
@@ -2478,11 +1824,7 @@ fn apply<'mcx>(mcx: mcx::Mcx<'mcx>, c: &Chain<'mcx>, base: Node<'mcx>) -> PgResu
                     },
                 )?
             }
-            Step::Cast {
-                funcid,
-                restype,
-                format,
-            } => func_of(mcx, funcid, restype, v, format)?,
+            Step::Cast { funcid, restype, format, } => func_of(mcx, funcid, restype, v, format)?,
         };
     }
     Ok(v)
@@ -2501,76 +1843,24 @@ pub(crate) fn guarded<'mcx>(
 ) -> PgResult<Node<'mcx>> {
     let not_null = |edge| -> PgResult<Node<'mcx>> {
         let arg = Some(apply(mcx, c, edge)?);
-        Node::mk(
-            mcx,
-            NullTest {
-                arg,
-                nulltesttype: NullTestType::IS_NOT_NULL,
-                argisrow: false,
-                location: -1,
-            },
-        )
+        Node::mk(mcx, NullTest { arg, nulltesttype: NullTestType::IS_NOT_NULL, argisrow: false, location: -1, },)
     };
-    let guard = BoolExpr {
-        boolop: BoolExprType::AND_EXPR,
-        args: NodeList::make2(mcx, not_null(min_x)?, not_null(max_x)?)?,
-        location: -1,
-    };
+    let guard = BoolExpr { boolop: BoolExprType::AND_EXPR, args: NodeList::make2(mcx, not_null(min_x)?, not_null(max_x)?)?, location: -1, };
     case_of(mcx, rettype, Node::mk(mcx, guard)?, value, otherwise)
 }
 
-fn case_of<'mcx>(
-    mcx: mcx::Mcx<'mcx>,
-    t: Oid,
-    when: Node<'mcx>,
-    then: Node<'mcx>,
-    other: Node<'mcx>,
-) -> PgResult<Node<'mcx>> {
-    let w = Node::mk(
-        mcx,
-        CaseWhen {
-            expr: Some(when),
-            result: Some(then),
-            location: -1,
-        },
-    )?;
-    Node::mk(
-        mcx,
-        CaseExpr {
-            casetype: t,
-            casecollid: 0,
-            arg: None,
-            args: NodeList::make1(mcx, w)?,
-            defresult: Some(other),
-            location: -1,
-        },
-    )
+fn case_of<'mcx>(mcx: mcx::Mcx<'mcx>, t: Oid, when: Node<'mcx>, then: Node<'mcx>, other: Node<'mcx>,) -> PgResult<Node<'mcx>> {
+    let w = Node::mk(mcx, CaseWhen { expr: Some(when), result: Some(then), location: -1, },)?;
+    Node::mk(mcx, CaseExpr { casetype: t, casecollid: 0, arg: None, args: NodeList::make1(mcx, w)?, defresult: Some(other), location: -1, },)
 }
 
 fn typed_null(mcx: mcx::Mcx<'_>, t: Oid) -> PgResult<Node<'_>> {
-    let (len, byval) = if t == NUMERICOID {
-        (-1, false)
-    } else if t == INT2OID {
-        (2, true)
-    } else if t == INT4OID {
-        (4, true)
-    } else {
-        (8, true)
-    };
+    let (len, byval) = if t == NUMERICOID { (-1, false) } else if t == INT2OID { (2, true) } else if t == INT4OID { (4, true) } else { (8, true) };
     Node::mk_const(mcx, t, -1, 0, len, datum::Datum::null(), true, byval)
 }
 
 fn int8_const(mcx: mcx::Mcx<'_>, v: i64) -> PgResult<Node<'_>> {
-    Node::mk_const(
-        mcx,
-        INT8OID,
-        -1,
-        0,
-        8,
-        datum::Datum::from_i64(v),
-        false,
-        true,
-    )
+    Node::mk_const(mcx, INT8OID, -1, 0, 8, datum::Datum::from_i64(v), false, true,)
 }
 
 /// The integer `v` as numeric: `v::int8::numeric`, a by-value literal cast at run time (the same value and display scale
@@ -2582,22 +1872,10 @@ fn numeric_const(mcx: mcx::Mcx<'_>, v: i64) -> PgResult<Node<'_>> {
 }
 
 fn int8_numeric<'mcx>(mcx: mcx::Mcx<'mcx>, n: Node<'mcx>) -> PgResult<Node<'mcx>> {
-    func_of(
-        mcx,
-        INT8_NUMERIC_PROC,
-        NUMERICOID,
-        n,
-        CoercionForm::COERCE_EXPLICIT_CAST,
-    )
+    func_of(mcx, INT8_NUMERIC_PROC, NUMERICOID, n, CoercionForm::COERCE_EXPLICIT_CAST,)
 }
 
-fn func_of<'mcx>(
-    mcx: mcx::Mcx<'mcx>,
-    funcid: Oid,
-    t: Oid,
-    arg: Node<'mcx>,
-    format: CoercionForm,
-) -> PgResult<Node<'mcx>> {
+fn func_of<'mcx>(mcx: mcx::Mcx<'mcx>, funcid: Oid, t: Oid, arg: Node<'mcx>, format: CoercionForm,) -> PgResult<Node<'mcx>> {
     Node::mk(
         mcx,
         FuncExpr {
@@ -2628,25 +1906,11 @@ fn agg_of<'mcx>(
     let arg = Node::mk_target_entry(mcx, x, 1, None, false)?;
     Node::mk(
         mcx,
-        Aggref {
-            aggfnoid,
-            aggtype,
-            aggargtypes,
-            args: NodeList::make1(mcx, arg)?,
-            aggfilter,
-            location,
-            ..Aggref::default()
-        },
+        Aggref { aggfnoid, aggtype, aggargtypes, args: NodeList::make1(mcx, arg)?, aggfilter, location, ..Aggref::default() },
     )
 }
 
-fn op_of<'mcx>(
-    mcx: mcx::Mcx<'mcx>,
-    op: (Oid, Oid),
-    t: Oid,
-    l: Node<'mcx>,
-    r: Node<'mcx>,
-) -> PgResult<Node<'mcx>> {
+fn op_of<'mcx>(mcx: mcx::Mcx<'mcx>, op: (Oid, Oid), t: Oid, l: Node<'mcx>, r: Node<'mcx>,) -> PgResult<Node<'mcx>> {
     Node::mk(
         mcx,
         OpExpr {
@@ -2668,12 +1932,7 @@ mod bound_tests {
 
     #[test]
     fn the_settle_rule_follows_the_fit() {
-        let m = |n: f64| Price {
-            orig: 0.005 * n,
-            new: 0.01,
-            orig_final: 0.0,
-            new_final: 0.0275 * n,
-        };
+        let m = |n: f64| Price { orig: 0.005 * n, new: 0.01, orig_final: 0.0, new_final: 0.0275 * n, };
         let (m3, m30) = ((m(3.0), 132.0), (m(30.0), 1320.0));
         for ((price, nodes), rows, width, delta) in [
             (m30, 2_000.0, 1.0, 303),
@@ -2683,26 +1942,17 @@ mod bound_tests {
             (m3, 400_000.0, 1.0, -600),
             (m3, 50_000.0, 4.0, 73),
         ] {
-            assert_eq!(
-                pays(price, nodes, rows, 1.0, width),
-                delta < 0,
-                "{nodes} nodes, {rows} rows, width {width}"
-            );
+            assert_eq!(pays(price, nodes, rows, 1.0, width), delta < 0, "{nodes} nodes, {rows} rows, width {width}");
         }
     }
 
     #[test]
     fn int8_form_cap_and_wrap() {
         // smallint + 89, M = 32857: bare under the cap; M = 2^16 reaches 2^63; an int4 x never.
-        assert!(
-            under_cap(32_857) && under_cap(65_535) && !under_cap(65_536) && !under_cap(1 << 31)
-        );
+        assert!(under_cap(32_857) && under_cap(65_535) && !under_cap(65_536) && !under_cap(1 << 31));
         for m in [1i128, 89, 32_857, 1 << 31] {
             let n = rows_n(m);
-            assert!(
-                m * n <= i64::MAX as i128 && m * (n + 1) > i64::MAX as i128,
-                "M {m}"
-            );
+            assert!(m * n <= i64::MAX as i128 && m * (n + 1) > i64::MAX as i128, "M {m}");
         }
         // wrap64 = PostgreSQL's int4_sum accumulator (int8, wrapping): the exact total modulo 2^64. The formula runs on
         // numeric's truncating mod, which Rust's i128 % matches.
@@ -2713,29 +1963,14 @@ mod bound_tests {
             exact += x as i128;
             assert_eq!(wrap(exact), acc.unwrap() as i128, "after {x}");
         }
-        for v in [
-            0i128,
-            -1,
-            i64::MIN as i128,
-            i64::MIN as i128 - 1,
-            5 << 64,
-            -(7 << 70) + 3,
-        ] {
+        for v in [0i128, -1, i64::MIN as i128, i64::MIN as i128 - 1, 5 << 64, -(7 << 70) + 3,] {
             assert_eq!(wrap(v), v as i64 as i128, "{v}");
         }
     }
 
     #[test]
     fn decimal_digits() {
-        assert_eq!(
-            (
-                dec_digits(0),
-                dec_digits(9),
-                dec_digits(10),
-                dec_digits(32767)
-            ),
-            (0, 1, 2, 5)
-        );
+        assert_eq!((dec_digits(0), dec_digits(9), dec_digits(10), dec_digits(32767)), (0, 1, 2, 5));
         assert_eq!(dec_digits(u128::MAX), 39);
     }
 }

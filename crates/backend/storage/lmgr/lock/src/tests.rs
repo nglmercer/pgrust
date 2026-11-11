@@ -814,7 +814,7 @@ fn autovacuum_cancel_failure_warning_carries_strerror_text() {
         .map(|(_, msg, _)| msg.clone())
         .collect();
     assert!(
-        warnings.contains(&expected),
+        warnings.contains(& expected),
         "expected {expected:?}, got {warnings:?}"
     );
 }

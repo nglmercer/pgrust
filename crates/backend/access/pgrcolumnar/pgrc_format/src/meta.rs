@@ -375,9 +375,7 @@ impl<'a> FlatStatsRef<'a> {
         let key_kind = c.u8("FlatStats")?;
         KeyKind::from_u8(key_kind)?;
         if body.len() != FLATSTATS_HDR_LEN + FLATSTATS_ENTRY_BYTES * n || n == 0 {
-            return Err(FormatError::Corrupt {
-                at: "FlatStats len",
-            });
+            return Err(FormatError::Corrupt { at: "FlatStats len", });
         }
         Ok(FlatStatsRef {
             body,
@@ -403,7 +401,7 @@ impl<'a> FlatStatsRef<'a> {
 
     fn cast<T>(&self, ord: usize) -> Option<&'a [T]> {
         let b = self.plane(ord, core::mem::size_of::<T>());
-        if !(b.as_ptr() as usize).is_multiple_of(core::mem::align_of::<T>()) {
+        if !( b.as_ptr() as usize).is_multiple_of( core::mem::align_of::<T>()) {
             return None;
         }
         // SAFETY: length exact, alignment checked, T is a plain LE integer
@@ -475,9 +473,7 @@ pub fn codezones_encode(ranges: &[(u32, u32)]) -> FormatResult<Vec<u8>> {
 /// short body, or an index past it.
 pub fn codezone_at(body: &[u8], i: usize) -> Option<(u32, u32)> {
     let u16_at = |o: usize| body.get(o..o + 2).map(|b| u16::from_le_bytes([b[0], b[1]]));
-    let u32_at = |o: usize| {
-        body.get(o..o + 4)
-            .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+    let u32_at = |o: usize| { body.get(o..o + 4).map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
     };
     if u16_at(0)? != CODEZONES_VERSION {
         return None;
@@ -492,12 +488,8 @@ pub fn codezone_at(body: &[u8], i: usize) -> Option<(u32, u32)> {
 
 /// The number of entries of a CodeZones body (granules + 1), `None` for a malformed one.
 pub fn codezones_len(body: &[u8]) -> Option<usize> {
-    let n = body
-        .get(4..8)
-        .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))? as usize;
-    (body.get(0..2) == Some(&CODEZONES_VERSION.to_le_bytes()[..])
-        && body.len() == CODEZONES_HDR_LEN + 8 * n)
-        .then_some(n)
+    let n = body.get(4..8).map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))? as usize;
+    (body.get(0..2) == Some(&CODEZONES_VERSION.to_le_bytes()[..]) && body.len() == CODEZONES_HDR_LEN + 8 * n).then_some(n)
 }
 
 // ---------------------------------------------------------------------------

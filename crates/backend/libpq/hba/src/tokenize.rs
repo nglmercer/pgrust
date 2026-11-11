@@ -36,7 +36,8 @@ pub(crate) fn next_field_expand(
     elevel: ErrorLevel,
     depth: i32,
     err_msg: &mut Option<String>,
-    #[allow(clippy::ptr_arg)] tok_lines: &mut Vec<TokenizedAuthLine>,
+    #[allow(clippy::ptr_arg)]
+    tok_lines: &mut Vec<TokenizedAuthLine>,
 ) -> PgResult<Vec<AuthToken>> {
     let mut buf: Vec<u8> = Vec::new();
     let mut trailing_comma = false;
@@ -51,15 +52,7 @@ pub(crate) fn next_field_expand(
         // Is this referencing a file?
         if !initial_quote && buf.len() > 1 && buf[0] == b'@' {
             let inc = String::from_utf8_lossy(&buf[1..]).into_owned();
-            tokenize_expand_file(
-                &mut tokens,
-                filename,
-                &inc,
-                elevel,
-                depth + 1,
-                err_msg,
-                tok_lines,
-            )?;
+            tokenize_expand_file(&mut tokens, filename, &inc, elevel, depth + 1, err_msg, tok_lines,)?;
         } else {
             tokens.push(make_auth_token(&buf, initial_quote)?);
         }
@@ -152,12 +145,9 @@ impl TokenizeErrorContext {
         let callback = {
             let linenum = Rc::clone(&linenum);
             let filename = filename.to_owned();
-            elog::push_context_frame(
-                Box::new(move |e| {
-                    e.add_context_line(crate::line_context(linenum.get(), &filename));
-                }),
-                true,
-            )
+            elog::push_context_frame(Box::new(move |e| {
+                e.add_context_line(crate::line_context(linenum.get(), &filename));
+            }), true,)
         };
         TokenizeErrorContext { linenum, callback }
     }
@@ -214,15 +204,8 @@ pub fn tokenize_auth_file<R: BufRead>(
 
         let mut lineptr: usize = 0;
         while lineptr < buf.len() && err_msg.is_none() {
-            let current_field = next_field_expand(
-                filename,
-                &buf,
-                &mut lineptr,
-                elevel,
-                depth,
-                &mut err_msg,
-                tok_lines,
-            )?;
+            let current_field =
+                next_field_expand(filename, &buf, &mut lineptr, elevel, depth, &mut err_msg, tok_lines,)?;
             if !current_field.is_empty() {
                 current_line.push(current_field);
             }
@@ -236,15 +219,7 @@ pub fn tokenize_auth_file<R: BufRead>(
             let second = current_line[1][0].string.clone();
 
             if first == "include" {
-                tokenize_include_file(
-                    filename,
-                    &second,
-                    tok_lines,
-                    elevel,
-                    depth + 1,
-                    false,
-                    &mut err_msg,
-                )?;
+                tokenize_include_file(filename, &second, tok_lines, elevel, depth + 1, false, &mut err_msg,)?;
                 if err_msg.is_none() {
                     goto_next_line = true;
                 }
@@ -261,13 +236,7 @@ pub fn tokenize_auth_file<R: BufRead>(
                     for fname in &res.filenames {
                         let fname_s = fname.to_string_lossy().into_owned();
                         tokenize_include_file(
-                            filename,
-                            &fname_s,
-                            tok_lines,
-                            elevel,
-                            depth + 1,
-                            false,
-                            &mut err_msg,
+                            filename, &fname_s, tok_lines, elevel, depth + 1, false, &mut err_msg,
                         )?;
                         if let Some(e) = &err_msg {
                             if !err_buf.is_empty() {
@@ -283,15 +252,7 @@ pub fn tokenize_auth_file<R: BufRead>(
                     }
                 }
             } else if first == "include_if_exists" {
-                tokenize_include_file(
-                    filename,
-                    &second,
-                    tok_lines,
-                    elevel,
-                    depth + 1,
-                    true,
-                    &mut err_msg,
-                )?;
+                tokenize_include_file(filename, &second, tok_lines, elevel, depth + 1, true, &mut err_msg,)?;
                 if err_msg.is_none() {
                     goto_next_line = true;
                 }
@@ -332,12 +293,7 @@ struct LineReader<R> {
 
 impl<R: BufRead> LineReader<R> {
     fn new(reader: R) -> Self {
-        Self {
-            reader,
-            maxlen: 1024,
-            done: false,
-            read_errno: None,
-        }
+        Self { reader, maxlen: 1024, done: false, read_errno: None, }
     }
 
     fn append(&mut self, buf: &mut Vec<u8>) -> PgResult<bool> {
@@ -362,10 +318,7 @@ impl<R: BufRead> LineReader<R> {
                     break;
                 }
                 let bytes = &bytes[..bytes.len().min(remaining)];
-                let end = bytes
-                    .iter()
-                    .position(|&b| b == b'\n')
-                    .map_or(bytes.len(), |i| i + 1);
+                let end = bytes.iter().position(|&b| b == b'\n').map_or(bytes.len(), |i| i + 1);
                 let newline = bytes[end - 1] == b'\n';
                 if !nul {
                     let len = bytes[..end].iter().position(|&b| b == 0).unwrap_or(end);
@@ -397,32 +350,19 @@ fn line_capacity(len: usize, maxlen: usize) -> PgResult<usize> {
         return line_limit_error(len);
     }
     let needed = len + 128 + 1;
-    Ok(if needed <= maxlen {
-        maxlen
-    } else {
-        (maxlen * 2).max(needed.next_power_of_two()).min(LIMIT)
-    })
+    Ok(if needed <= maxlen { maxlen } else { (maxlen * 2).max(needed.next_power_of_two()).min(LIMIT) })
 }
 
 #[cold]
 fn line_limit_error(len: usize) -> PgResult<usize> {
     let mut report = elog::ereport(types_error::ERROR)
         .errcode(types_error::ERRCODE_PROGRAM_LIMIT_EXCEEDED)
-        .errmsg(format!(
-            "string buffer exceeds maximum allowed length ({} bytes)",
-            mcx::MAX_ALLOC_SIZE
-        ))
-        .errdetail(format!(
-            "Cannot enlarge string buffer containing {len} bytes by 128 more bytes."
-        ));
+        .errmsg(format!("string buffer exceeds maximum allowed length ({} bytes)", mcx::MAX_ALLOC_SIZE))
+        .errdetail(format!("Cannot enlarge string buffer containing {len} bytes by 128 more bytes."));
     if let Some(context) = elog::GetErrorContextStack() {
         report = report.errcontext_msg(context);
     }
-    report.finish(types_error::ErrorLocation::new(
-        "stringinfo.c",
-        360,
-        "enlargeStringInfo",
-    ))?;
+    report.finish(types_error::ErrorLocation::new("stringinfo.c", 360, "enlargeStringInfo",))?;
     unreachable!()
 }
 
@@ -437,26 +377,10 @@ mod tests {
         let _context = TokenizeErrorContext::push("auth.conf", 7);
         let err = line_capacity(limit - 128, limit).unwrap_err();
         assert_eq!(err.sqlstate, types_error::ERRCODE_PROGRAM_LIMIT_EXCEEDED);
-        assert_eq!(
-            err.message,
-            "string buffer exceeds maximum allowed length (1073741823 bytes)"
-        );
-        assert_eq!(
-            err.detail.as_deref(),
-            Some("Cannot enlarge string buffer containing 1073741695 bytes by 128 more bytes.")
-        );
-        assert_eq!(
-            err.context.as_deref(),
-            Some("line 7 of configuration file \"auth.conf\"")
-        );
-        assert_eq!(
-            err.location,
-            Some(types_error::ErrorLocation::new(
-                "stringinfo.c",
-                360,
-                "enlargeStringInfo"
-            ))
-        );
+        assert_eq!(err.message, "string buffer exceeds maximum allowed length (1073741823 bytes)");
+        assert_eq!(err.detail.as_deref(), Some("Cannot enlarge string buffer containing 1073741695 bytes by 128 more bytes."));
+        assert_eq!(err.context.as_deref(), Some("line 7 of configuration file \"auth.conf\""));
+        assert_eq!(err.location, Some(types_error::ErrorLocation::new("stringinfo.c", 360, "enlargeStringInfo")));
     }
 
     #[test]

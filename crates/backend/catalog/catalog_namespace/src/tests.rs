@@ -67,10 +67,7 @@ fn install_fakes() {
         });
         syscache_seams::lookup_pg_class_relid_by_name::set(|relname, nsp| {
             Ok(RELS
-                .with(|m| {
-                    m.borrow()
-                        .get(&(String::from_utf8_lossy(relname).into_owned(), nsp))
-                        .copied()
+                .with(|m| { m.borrow().get(&(String::from_utf8_lossy(relname).into_owned(), nsp)).copied()
                 })
                 .unwrap_or(InvalidOid))
         });
@@ -345,9 +342,7 @@ fn range_var_lookups() {
     assert_eq!(err.sqlstate(), types_error::ERRCODE_UNDEFINED_TABLE);
     assert!(err.message().contains("relation \"gone\" does not exist"));
 
-    let err = RangeVarGetRelid(&rv(Some("no_such"), "t1"), 1, false)
-        .err()
-        .unwrap();
+    let err = RangeVarGetRelid(&rv(Some("no_such"), "t1"), 1, false).err().unwrap();
     assert_eq!(err.sqlstate(), types_error::ERRCODE_UNDEFINED_SCHEMA);
 
     assert_eq!(
@@ -363,50 +358,24 @@ fn range_var_lookups_from_name_bytes() {
     set_search_path("public");
     dbcommands_seams::get_database_name::set(|_| Ok(Some("testdb".into())));
 
-    assert_eq!(
-        RangeVarGetRelidFromNameBytes(&[b"t1"], 1, false).unwrap(),
-        REL_T1
-    );
-    assert_eq!(
-        RangeVarGetRelidFromNameBytes(&[b"\xE9abc"], 1, true).unwrap(),
-        InvalidOid
-    );
+    assert_eq!(RangeVarGetRelidFromNameBytes(&[b"t1"], 1, false).unwrap(), REL_T1);
+    assert_eq!(RangeVarGetRelidFromNameBytes(&[b"\xE9abc"], 1, true).unwrap(), InvalidOid);
 
-    let err = RangeVarGetRelidFromNameBytes(&[b"\xE9abc"], 1, false)
-        .err()
-        .unwrap();
+    let err = RangeVarGetRelidFromNameBytes(&[b"\xE9abc"], 1, false).err().unwrap();
     assert_eq!(err.sqlstate(), types_error::ERRCODE_UNDEFINED_TABLE);
-    assert_eq!(
-        err.message_raw.as_deref(),
-        Some(b"relation \"\xE9abc\" does not exist".as_slice())
-    );
+    assert_eq!(err.message_raw.as_deref(), Some(b"relation \"\xE9abc\" does not exist".as_slice()));
 
-    let err = RangeVarGetRelidFromNameBytes(&[b"public", b"\xE9"], 1, false)
-        .err()
-        .unwrap();
+    let err = RangeVarGetRelidFromNameBytes(&[b"public", b"\xE9"], 1, false).err().unwrap();
     assert_eq!(err.sqlstate(), types_error::ERRCODE_UNDEFINED_TABLE);
-    assert_eq!(
-        err.message_raw.as_deref(),
-        Some(b"relation \"public.\xE9\" does not exist".as_slice())
-    );
+    assert_eq!(err.message_raw.as_deref(), Some(b"relation \"public.\xE9\" does not exist".as_slice()));
 
-    let err = RangeVarGetRelidFromNameBytes(&[b"no_such", b"\xE9"], 1, false)
-        .err()
-        .unwrap();
+    let err = RangeVarGetRelidFromNameBytes(&[b"no_such", b"\xE9"], 1, false).err().unwrap();
     assert_eq!(err.sqlstate(), types_error::ERRCODE_UNDEFINED_SCHEMA);
 
-    let err = RangeVarGetRelidFromNameBytes(&[b"\xE9", b"t1"], 1, false)
-        .err()
-        .unwrap();
+    let err = RangeVarGetRelidFromNameBytes(&[b"\xE9", b"t1"], 1, false).err().unwrap();
     assert_eq!(err.sqlstate(), types_error::ERRCODE_UNDEFINED_SCHEMA);
-    assert_eq!(
-        err.message_raw.as_deref(),
-        Some(b"schema \"\xE9\" does not exist".as_slice())
-    );
-    assert_eq!(
-        RangeVarGetRelidFromNameBytes(&[b"\xE9", b"t1"], 1, true).unwrap(),
-        InvalidOid
-    );
+    assert_eq!(err.message_raw.as_deref(), Some(b"schema \"\xE9\" does not exist".as_slice()));
+    assert_eq!(RangeVarGetRelidFromNameBytes(&[b"\xE9", b"t1"], 1, true).unwrap(), InvalidOid);
 
     let err = RangeVarGetRelidFromNameBytes(&[b"a", b"b", b"c", b"\xE9"], 1, false)
         .err()
@@ -418,21 +387,17 @@ fn range_var_lookups_from_name_bytes() {
     );
 
     for missing_ok in [false, true] {
-        let err =
-            RangeVarGetRelidFromNameBytes(&[b"other", b"\xE9", b"t1"], 1, missing_ok).unwrap_err();
+        let err = RangeVarGetRelidFromNameBytes(&[b"other", b"\xE9", b"t1"], 1, missing_ok)
+            .unwrap_err();
         assert_eq!(err.sqlstate(), types_error::ERRCODE_FEATURE_NOT_SUPPORTED);
-        assert_eq!(
-            err.message_raw.as_deref(),
-            Some(b"cross-database references are not implemented: \"other.\xE9.t1\"".as_slice())
-        );
+        assert_eq!(err.message_raw.as_deref(),
+            Some(b"cross-database references are not implemented: \"other.\xE9.t1\"".as_slice()));
     }
-    let err =
-        RangeVarGetRelidFromNameBytes(&[b"testdb", b"public", b"\xE9"], 1, false).unwrap_err();
+    let err = RangeVarGetRelidFromNameBytes(&[b"testdb", b"public", b"\xE9"], 1, false)
+        .unwrap_err();
     assert_eq!(err.sqlstate(), types_error::ERRCODE_UNDEFINED_TABLE);
-    assert_eq!(
-        err.message_raw.as_deref(),
-        Some(b"relation \"public.\xE9\" does not exist".as_slice())
-    );
+    assert_eq!(err.message_raw.as_deref(),
+        Some(b"relation \"public.\xE9\" does not exist".as_slice()));
 }
 
 #[test]
@@ -465,11 +430,7 @@ fn lookup_namespace_helpers() {
         ACL_DENIED.with(|d| d.borrow_mut().push(NS_S1));
         LookupExplicitNamespace("s1", false)
     };
-    assert!(denied
-        .err()
-        .unwrap()
-        .message()
-        .contains("permission denied"));
+    assert!(denied.err().unwrap().message().contains("permission denied"));
 }
 
 // audit fp-catalog-namespace-p3#2: no 3F000 while CREATE TEMP TABLE defers.
@@ -481,14 +442,8 @@ fn deferred_temp_namespace_lookup_finds_nothing() {
     assert_eq!(missing.message(), "schema \"pg_temp\" does not exist");
     {
         let _deferred = defer_temp_namespace_creation();
-        assert_eq!(
-            LookupExplicitNamespace("pg_temp", false).unwrap(),
-            InvalidOid
-        );
-        assert_eq!(
-            LookupExplicitNamespace("pg_temp", true).unwrap(),
-            InvalidOid
-        );
+        assert_eq!(LookupExplicitNamespace("pg_temp", false).unwrap(), InvalidOid);
+        assert_eq!(LookupExplicitNamespace("pg_temp", true).unwrap(), InvalidOid);
     }
     assert!(LookupExplicitNamespace("pg_temp", false).is_err());
 }
@@ -836,14 +791,8 @@ fn temp_namespace_refused_during_recovery() {
     let ctx = MemoryContext::new("t");
     let err = GetTempTableNamespace(ctx.mcx())
         .expect_err("InitTempTableNamespace must refuse during recovery");
-    assert_eq!(
-        err.sqlstate(),
-        types_error::ERRCODE_READ_ONLY_SQL_TRANSACTION
-    );
-    assert_eq!(
-        err.message(),
-        "cannot create temporary tables during recovery"
-    );
+    assert_eq!(err.sqlstate(), types_error::ERRCODE_READ_ONLY_SQL_TRANSACTION);
+    assert_eq!(err.message(), "cannot create temporary tables during recovery");
     assert_eq!(my_temp_namespace(), InvalidOid);
 }
 
@@ -857,10 +806,7 @@ fn temp_namespace_refused_in_parallel_worker() {
     let ctx = MemoryContext::new("t");
     let err = GetTempTableNamespace(ctx.mcx())
         .expect_err("InitTempTableNamespace must refuse in a parallel worker");
-    assert_eq!(
-        err.sqlstate(),
-        types_error::ERRCODE_READ_ONLY_SQL_TRANSACTION
-    );
+    assert_eq!(err.sqlstate(), types_error::ERRCODE_READ_ONLY_SQL_TRANSACTION);
     assert_eq!(
         err.message(),
         "cannot create temporary tables during a parallel operation"
@@ -907,8 +853,7 @@ fn session_namespace_noninitializing_reads_and_borrowed_teardown() {
         assert!(std::panic::catch_unwind(clear_path_state).is_err());
         assert_eq!(value[16383], 7);
         Ok(())
-    })
-    .unwrap();
+    }).unwrap();
     assert!(std::panic::catch_unwind(|| with_path(|_| clear_path_state())).is_err());
     assert_eq!(base_path_nth(0), NS_PUBLIC);
     clear_path_state();
@@ -933,10 +878,7 @@ fn session_namespace_cleanup_rebuilds_worker_path_and_matcher() {
     set_search_path("s1");
     ResetTempNamespaceStateForRetainedPark();
     assert!(!SearchPathMatchesCurrentEnvironment(&mut matcher).unwrap());
-    assert_eq!(
-        fetch_search_path(ctx.mcx(), false).unwrap().as_slice(),
-        &[NS_S1]
-    );
+    assert_eq!(fetch_search_path(ctx.mcx(), false).unwrap().as_slice(), &[NS_S1]);
     clear_path_state();
     BOOTSTRAP.set(true);
     InitializeSearchPath().unwrap();
@@ -958,11 +900,7 @@ fn session_namespace_error_unwind_keeps_owner_valid() {
     clear_path_state();
     let result = mcx::McxOwned::<PathStateTy>::try_new(
         MemoryContext::new("namespace failed construction").with_limit(1),
-        |mcx| {
-            Ok(PathState {
-                mcx,
-                base_search_path: PgVec::new_in(mcx),
-            })
+        |mcx| { Ok(PathState { mcx, base_search_path: PgVec::new_in(mcx), })
         },
     );
     assert!(result.is_err());
@@ -978,8 +916,7 @@ fn session_namespace_reclaims_complete_context() {
         with_path_state_mut(|st| {
             st.base_search_path = mcx::slice_in(st.mcx, &[NS_PUBLIC; 8192])?;
             Ok(())
-        })
-        .unwrap();
+        }).unwrap();
         clear_path_state();
         assert_eq!(mcx::global_footprint::bytes(), before);
     }
@@ -1000,14 +937,11 @@ fn session_namespace_registered_cleanup_reinitializes() {
         with_path_state_mut(|st| {
             st.base_search_path = mcx::slice_in(st.mcx, &[NS_PUBLIC])?;
             Ok(())
-        })
-        .unwrap();
+        }).unwrap();
         BASE_SEARCH_PATH_VALID.set(true);
         let callbacks = CLEANUPS.with(|slot| std::mem::take(&mut *slot.borrow_mut()));
         assert_eq!(callbacks.len(), 1);
-        for callback in callbacks {
-            callback();
-        }
+        for callback in callbacks { callback(); }
         assert!(!BASE_SEARCH_PATH_VALID.get());
         assert_eq!(base_path_len(), 0);
         PATH.with(|slot| assert!(slot.borrow().is_none()));

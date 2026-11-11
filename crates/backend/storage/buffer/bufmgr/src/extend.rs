@@ -376,6 +376,7 @@ fn ExtendBufferedRelShared(
     );
 
     #[allow(clippy::needless_range_loop)]
+
     for i in 0..extend_by as usize {
         let buf = buffers[i];
         let desc = GetBufferDescriptor(buf - 1);

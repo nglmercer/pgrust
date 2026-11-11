@@ -16,10 +16,7 @@ use datum::Datum;
 use mcx::{Mcx, PgVec};
 use types_core::{AttrNumber, InvalidOid, Oid, RELATION_RELATION_ID};
 use types_error::{PgError, PgResult};
-use types_rel::{
-    AccessExclusiveLock, AccessShareLock, NoLock, RowExclusiveLock, LOCKMODE, RELKIND_INDEX,
-    RELKIND_TOASTVALUE,
-};
+use types_rel::{AccessExclusiveLock, AccessShareLock, NoLock, RowExclusiveLock, LOCKMODE, RELKIND_INDEX, RELKIND_TOASTVALUE,};
 use types_scan::scankey::{BTEqualStrategyNumber, ScanKeyData};
 
 const Anum_pg_class_relnamespace: usize = 3;
@@ -141,11 +138,7 @@ fn pg_class_reloptions_image<'mcx>(
     let mut isnull = false;
     // SAFETY: reloptions is a pg_class column under its descriptor.
     let d = unsafe { types_tuple::heap_getattr(tup, Anum_pg_class_reloptions, desc, &mut isnull) };
-    let image = if isnull {
-        None
-    } else {
-        Some(reloptions::text_array_image(mcx, d)?)
-    };
+    let image = if isnull { None } else { Some(reloptions::text_array_image(mcx, d)?) };
     genam::systable_endscan(mcx, scan)?;
     rel_relation.close(AccessShareLock)?;
     Ok(image)
@@ -294,12 +287,7 @@ pub fn finish_heap_swap<'mcx>(
             // cluster.c:1603-1612: is_internal=true; is_index only for the
             // valid index (the table takes AccessExclusiveLock).
             tablecmds_rename_seam(mcx, cur_toast, &format!("pg_toast_{old_heap_oid}"), false)?;
-            tablecmds_rename_seam(
-                mcx,
-                toastidx,
-                &format!("pg_toast_{old_heap_oid}_index"),
-                true,
-            )?;
+            tablecmds_rename_seam(mcx, toastidx, &format!("pg_toast_{old_heap_oid}_index"), true,)?;
             xact::CommandCounterIncrement()?;
             set_relrewrite(mcx, cur_toast, InvalidOid)?;
         }
@@ -404,39 +392,17 @@ fn swap_relation_files<'mcx>(
         // Normal non-mapped relations: swap relfilenumbers, reltablespaces,
         // relam, relpersistence (cluster.c:1101-1134).
         debug_assert!(!target_is_pg_class);
-        row1.vals
-            .push((Anum_pg_class_relfilenode, Datum::from_oid(row2.relfilenode)));
-        row1.vals.push((
-            Anum_pg_class_reltablespace,
-            Datum::from_oid(row2.reltablespace),
-        ));
-        row1.vals
-            .push((Anum_pg_class_relam, Datum::from_oid(row2.relam)));
-        row1.vals.push((
-            Anum_pg_class_relpersistence,
-            Datum::from_i8(row2.relpersistence),
-        ));
-        row2.vals
-            .push((Anum_pg_class_relfilenode, Datum::from_oid(row1.relfilenode)));
-        row2.vals.push((
-            Anum_pg_class_reltablespace,
-            Datum::from_oid(row1.reltablespace),
-        ));
-        row2.vals
-            .push((Anum_pg_class_relam, Datum::from_oid(row1.relam)));
-        row2.vals.push((
-            Anum_pg_class_relpersistence,
-            Datum::from_i8(row1.relpersistence),
-        ));
+        row1.vals.push((Anum_pg_class_relfilenode, Datum::from_oid(row2.relfilenode)));
+        row1.vals.push((Anum_pg_class_reltablespace, Datum::from_oid(row2.reltablespace),));
+        row1.vals.push((Anum_pg_class_relam, Datum::from_oid(row2.relam)));
+        row1.vals.push((Anum_pg_class_relpersistence, Datum::from_i8(row2.relpersistence),));
+        row2.vals.push((Anum_pg_class_relfilenode, Datum::from_oid(row1.relfilenode)));
+        row2.vals.push((Anum_pg_class_reltablespace, Datum::from_oid(row1.reltablespace),));
+        row2.vals.push((Anum_pg_class_relam, Datum::from_oid(row1.relam)));
+        row2.vals.push((Anum_pg_class_relpersistence, Datum::from_i8(row1.relpersistence),));
         if !swap_toast_by_content {
-            row1.vals.push((
-                Anum_pg_class_reltoastrelid,
-                Datum::from_oid(row2.reltoastrelid),
-            ));
-            row2.vals.push((
-                Anum_pg_class_reltoastrelid,
-                Datum::from_oid(row1.reltoastrelid),
-            ));
+            row1.vals.push((Anum_pg_class_reltoastrelid, Datum::from_oid(row2.reltoastrelid),));
+            row2.vals.push((Anum_pg_class_reltoastrelid, Datum::from_oid(row1.reltoastrelid),));
         }
     } else {
         // Mapped-relation case (cluster.c:1135-1186): swap the relation-map
@@ -480,27 +446,15 @@ fn swap_relation_files<'mcx>(
     }
 
     if row1.relkind != RELKIND_INDEX as i8 {
-        row1.vals.push((
-            Anum_pg_class_relfrozenxid,
-            Datum::from_transaction_id(frozen_xid),
-        ));
-        row1.vals
-            .push((Anum_pg_class_relminmxid, Datum::from_u32(cutoff_multi)));
+        row1.vals.push((Anum_pg_class_relfrozenxid, Datum::from_transaction_id(frozen_xid),));
+        row1.vals.push((Anum_pg_class_relminmxid, Datum::from_u32(cutoff_multi)));
     }
     // Swap size statistics too, since new rel has freshly-updated stats.
     for (anum, a, b) in [
         (Anum_pg_class_relpages, row2.relpages, row1.relpages),
         (Anum_pg_class_reltuples, row2.reltuples, row1.reltuples),
-        (
-            Anum_pg_class_relallvisible,
-            row2.relallvisible,
-            row1.relallvisible,
-        ),
-        (
-            Anum_pg_class_relallfrozen,
-            row2.relallfrozen,
-            row1.relallfrozen,
-        ),
+        (Anum_pg_class_relallvisible, row2.relallvisible, row1.relallvisible,),
+        (Anum_pg_class_relallfrozen, row2.relallfrozen, row1.relallfrozen,),
     ] {
         row1.vals.push((anum, a));
         row2.vals.push((anum, b));
@@ -549,10 +503,8 @@ fn swap_relation_files<'mcx>(
         let rel1 = relation::relation_open(mcx, r1, NoLock)?;
         let rel2 = relation::relation_open(mcx, r2, NoLock)?;
         rel2.rd_createSubid.set(rel1.rd_createSubid.get());
-        rel2.rd_newRelfilelocatorSubid
-            .set(rel1.rd_newRelfilelocatorSubid.get());
-        rel2.rd_firstRelfilelocatorSubid
-            .set(rel1.rd_firstRelfilelocatorSubid.get());
+        rel2.rd_newRelfilelocatorSubid.set(rel1.rd_newRelfilelocatorSubid.get());
+        rel2.rd_firstRelfilelocatorSubid.set(rel1.rd_firstRelfilelocatorSubid.get());
         relcache::invalidate::RelationAssumeNewRelfilelocator(&rel1);
         rel1.close(NoLock)?;
         rel2.close(NoLock)?;
@@ -561,7 +513,8 @@ fn swap_relation_files<'mcx>(
     // Repoint the relations' pg_am dependencies at their post-swap AMs
     // (cluster.c:1275-1297).
     if row1.relam != row2.relam {
-        for (relid, old_am, new_am) in [(r1, row1.relam, row2.relam), (r2, row2.relam, row1.relam)]
+        for (relid, old_am, new_am) in
+            [(r1, row1.relam, row2.relam), (r2, row2.relam, row1.relam)]
         {
             if pg_depend::changeDependencyFor(
                 mcx,
@@ -579,13 +532,7 @@ fn swap_relation_files<'mcx>(
 
     // cluster.c:1300-1307: post-alter hook for the modified relations. The
     // change to r2 is always internal; r1 depends on the invocation context.
-    objectaccess::InvokeObjectPostAlterHookArg(
-        RELATION_RELATION_ID,
-        r1,
-        0,
-        InvalidOid,
-        is_internal,
-    )?;
+    objectaccess::InvokeObjectPostAlterHookArg(RELATION_RELATION_ID, r1, 0, InvalidOid, is_internal,)?;
     objectaccess::InvokeObjectPostAlterHookArg(RELATION_RELATION_ID, r2, 0, InvalidOid, true)?;
 
     if row1.reltoastrelid != InvalidOid || row2.reltoastrelid != InvalidOid {
@@ -612,8 +559,7 @@ fn swap_relation_files<'mcx>(
             // Disallowed for system catalogs (the catalog being rebuilt could
             // be one the dependency changes touch).
             assert!(
-                !(catalog::IsCatalogRelationOid(r1)
-                    || catalog::IsToastNamespace(row1.relnamespace)),
+                !(catalog::IsCatalogRelationOid(r1) || catalog::IsToastNamespace(row1.relnamespace)),
                 "cannot swap toast files by links for system catalogs"
             );
             if row1.reltoastrelid != InvalidOid {
@@ -691,10 +637,7 @@ fn delete_toast_dependency<'mcx>(mcx: Mcx<'mcx>, toastrelid: Oid) -> PgResult<()
         count += 1;
     }
     genam::systable_endscan(mcx, scan)?;
-    assert!(
-        count == 1,
-        "expected one dependency record for TOAST table, found {count}"
-    );
+    assert!(count == 1, "expected one dependency record for TOAST table, found {count}");
     for tid in tids.iter() {
         catalog_indexing::CatalogTupleDelete(&dep_rel, tid)?;
     }
@@ -740,9 +683,7 @@ fn set_relrewrite<'mcx>(mcx: Mcx<'mcx>, relid: Oid, relrewrite: Oid) -> PgResult
 #[cold]
 #[inline(never)]
 pub(crate) fn cache_lookup_failed(what: &str, oid: Oid) -> Box<PgError> {
-    Box::new(PgError::error(format!(
-        "cache lookup failed for {what} {oid}"
-    )))
+    Box::new(PgError::error(format!("cache lookup failed for {what} {oid}")))
 }
 
 #[cfg(test)]

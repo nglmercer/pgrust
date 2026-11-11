@@ -16,7 +16,7 @@ fn corpus() -> Vec<Vec<u8>> {
         b"apple".to_vec(),
         b"apple".to_vec(),
         b"".to_vec(),
-        "z\u{00E9}bra".as_bytes().to_vec(),  // é = 2 bytes
+        "z\u{00E9}bra".as_bytes().to_vec(),   // é = 2 bytes
         "\u{1F600}grin".as_bytes().to_vec(), // 4-byte emoji lead
         b"apple2".to_vec(),
         b"Apple".to_vec(),
@@ -36,31 +36,24 @@ fn byte_rank_sorted_codes_and_stored_lengths() {
         b.observe(&e);
     }
     let built = b.build();
-    assert!(
-        built.is_byte_rank_sorted(),
-        "byte-rank order is contractual"
-    );
+    assert!(built.is_byte_rank_sorted(), "byte-rank order is contractual");
     // Distinct: 8 named + 1500 bulk ("apple" duplicated).
     assert_eq!(built.entry_count(), 1508);
     // code compare == byte compare (order embedding).
     assert!(built.code_of(b"Apple") < built.code_of(b"apple"));
     assert!(built.code_of(b"apple") < built.code_of(b"apple2"));
-    assert!(
-        built.code_of(b"").unwrap() == 0,
-        "empty string is byte-rank first"
-    );
+    assert!(built.code_of(b"").unwrap() == 0, "empty string is byte-rank first");
     assert!(built.code_of(b"nope").is_none());
 
-    let images = built
-        .emit_sections(DictCharLenForm::Absolute)
-        .expect("emit");
+    let images = built.emit_sections(DictCharLenForm::Absolute).expect("emit");
     // Round-trip vs oracle through the format's own reader.
     let verified = built.verify_sections(&images).expect("round-trip");
     assert_eq!(verified, 1508);
 
     // char_len law: UTF-8 chars for text semantics.
     let d = DictSections {
-        index: &images.index_section[STREAM_SECTION_HDR_LEN..images.index_section.len()],
+        index: &images.index_section
+            [STREAM_SECTION_HDR_LEN..images.index_section.len()],
         payload: payload_of(&images.payload_section),
         entry_count: images.entry_count,
         charlen_form: images.charlen_form,
@@ -85,9 +78,7 @@ fn bytes_semantics_char_len_equals_byte_len() {
     let mut b = DictBuilder::new(TextSemantics::BytesOnly);
     b.observe(&[0xFF, 0xFE, 0x00, 0x41]);
     let built = b.build();
-    let images = built
-        .emit_sections(DictCharLenForm::Absolute)
-        .expect("emit");
+    let images = built.emit_sections(DictCharLenForm::Absolute).expect("emit");
     built.verify_sections(&images).expect("round-trip");
     let d = DictSections {
         index: &images.index_section[STREAM_SECTION_HDR_LEN..],
@@ -108,9 +99,7 @@ fn determinism_two_builds_identical_sections() {
         for e in corpus() {
             b.observe(&e);
         }
-        b.build()
-            .emit_sections(DictCharLenForm::Absolute)
-            .expect("emit")
+        b.build().emit_sections(DictCharLenForm::Absolute).expect("emit")
     };
     let a = build();
     let b = build();
@@ -145,11 +134,7 @@ fn charlen_delta_form_roundtrips_and_zeroes_ascii() {
     }
     let built = b.build();
     let images = built.emit_sections(DictCharLenForm::Delta).expect("emit");
-    assert_eq!(
-        images.charlen_form,
-        DictCharLenForm::Delta,
-        "the emitted form is recorded"
-    );
+    assert_eq!(images.charlen_form, DictCharLenForm::Delta, "the emitted form is recorded");
     // The write-side round-trip oracle must reconstruct through the form.
     let verified = built.verify_sections(&images).expect("delta round-trip");
     assert_eq!(verified, 1508);
@@ -164,11 +149,7 @@ fn charlen_delta_form_roundtrips_and_zeroes_ascii() {
     let zebra = "z\u{00E9}bra".as_bytes();
     let zc = built.code_of(zebra).expect("zebra code");
     let e = dict_entry(&d, zc).expect("entry");
-    assert_eq!(
-        (e.byte_len, e.char_len),
-        (6, 5),
-        "absolute char_len reconstructed"
-    );
+    assert_eq!((e.byte_len, e.char_len), (6, 5), "absolute char_len reconstructed");
     assert_eq!(raw_char_field(&images, zc), 1, "stored form is the delta");
     // 4-byte emoji lead: 8 bytes, 5 chars → delta 3.
     let grin = "\u{1F600}grin".as_bytes();
@@ -196,17 +177,10 @@ fn charlen_delta_disarmed_is_byte_identical_lineage() {
         b.observe(&e);
     }
     let built = b.build();
-    let abs = built
-        .emit_sections(DictCharLenForm::Absolute)
-        .expect("emit abs");
-    let delta = built
-        .emit_sections(DictCharLenForm::Delta)
-        .expect("emit delta");
+    let abs = built.emit_sections(DictCharLenForm::Absolute).expect("emit abs");
+    let delta = built.emit_sections(DictCharLenForm::Delta).expect("emit delta");
     assert_eq!(abs.charlen_form, DictCharLenForm::Absolute);
-    assert!(
-        abs.payload_section == delta.payload_section,
-        "payload untouched"
-    );
+    assert!(abs.payload_section == delta.payload_section, "payload untouched");
     let d = DictSections {
         index: &abs.index_section[STREAM_SECTION_HDR_LEN..],
         payload: payload_of(&abs.payload_section),
@@ -271,13 +245,8 @@ fn charlen_absent_stores_zeros_and_recomputes() {
     // The write-side round-trip oracle must recompute through the form.
     let verified = built.verify_sections(&images).expect("absent round-trip");
     assert_eq!(verified, 1508);
-    let abs = built
-        .emit_sections(DictCharLenForm::Absolute)
-        .expect("emit abs");
-    assert!(
-        images.payload_section == abs.payload_section,
-        "payload untouched"
-    );
+    let abs = built.emit_sections(DictCharLenForm::Absolute).expect("emit abs");
+    assert!(images.payload_section == abs.payload_section, "payload untouched");
     let d = DictSections {
         index: &images.index_section[STREAM_SECTION_HDR_LEN..],
         payload: payload_of(&images.payload_section),
@@ -293,11 +262,7 @@ fn charlen_absent_stores_zeros_and_recomputes() {
         &b"bulk-00042"[..],
     ] {
         let c = built.code_of(probe).expect("code");
-        assert_eq!(
-            raw_char_field(&images, c),
-            0,
-            "NOTHING stored — zeros on the wire"
-        );
+        assert_eq!(raw_char_field(&images, c), 0, "NOTHING stored — zeros on the wire");
         let e = dict_entry(&d, c).expect("entry");
         assert_eq!(e.byte_len, probe.len() as u32);
         assert_eq!(
@@ -364,12 +329,8 @@ fn assert_arms_equal(corpus: &[Vec<u8>], sem: TextSemantics, what: &str) {
         );
     }
     // Section bytes: the part-byte surface.
-    let hi = hb
-        .emit_sections(DictCharLenForm::Absolute)
-        .expect("hash emit");
-    let ri = rb
-        .emit_sections(DictCharLenForm::Absolute)
-        .expect("btree emit");
+    let hi = hb.emit_sections(DictCharLenForm::Absolute).expect("hash emit");
+    let ri = rb.emit_sections(DictCharLenForm::Absolute).expect("btree emit");
     hb.verify_sections(&hi).expect("hash round-trip");
     rb.verify_sections(&ri).expect("btree round-trip");
     assert!(
@@ -455,10 +416,7 @@ fn counted_entries_are_exact_and_byte_ordered() {
         .build()
         .into_counted_entries()
         .expect("rebuild path carries counts");
-    assert!(
-        entries.windows(2).all(|w| w[0].0 < w[1].0),
-        "strict byte order"
-    );
+    assert!(entries.windows(2).all(|w| w[0].0 < w[1].0), "strict byte order");
     assert_eq!(entries.iter().map(|(_, c)| c).sum::<u64>(), observed);
     for (val, count) in &entries {
         let direct = corpus.iter().filter(|v| *v == val).count() as u64;
@@ -488,9 +446,7 @@ fn observe_handles_equal_binary_search_codes() {
     let mut rows: Vec<Vec<u8>> = Vec::new();
     let mut seed = 0xD1C7_u64;
     let mut next = move || {
-        seed = seed
-            .wrapping_mul(6364136223846793005)
-            .wrapping_add(1442695040888963407);
+        seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
         seed
     };
     for i in 0..5000u64 {
@@ -528,11 +484,7 @@ fn dict_exec_flags_truth_table() {
     assert_eq!(dict_exec_flags(true, true), STREAMF_DICT_EXEC_NULLABLE);
     assert_eq!(dict_exec_flags(false, false), 0);
     assert_eq!(dict_exec_flags(false, true), 0);
-    assert_eq!(
-        STREAMF_DICT_EXEC & STREAMF_DICT_EXEC_NULLABLE,
-        0,
-        "distinct bits"
-    );
+    assert_eq!(STREAMF_DICT_EXEC & STREAMF_DICT_EXEC_NULLABLE, 0, "distinct bits");
 }
 
 /// D4575: the section images are the dictionary owner's before their fills. The plan's charge holds the caller's bytes
@@ -554,47 +506,19 @@ fn d4575_the_section_images_are_the_owners_before_their_fills() {
         }
         let built = b.build();
         let n = built.entry_count() as usize;
-        let lens: usize = (0..5000u32)
-            .map(|i| (4 + 12 + (i % 37) as usize).next_multiple_of(8))
-            .sum();
+        let lens: usize = (0..5000u32).map(|i| (4 + 12 + (i % 37) as usize).next_multiple_of(8)).sum();
         let caller = 4096u64;
         let mut charge = HeldCharge::new(Some(o));
         charge.sync(caller);
-        let images = built
-            .emit_sections_on(DictCharLenForm::Absolute, &mut charge, caller)
-            .expect("emit");
-        let plain = built
-            .emit_sections(DictCharLenForm::Absolute)
-            .expect("emit plain");
-        assert_eq!(
-            (&images.payload_section, &images.index_section),
-            (&plain.payload_section, &plain.index_section)
-        );
-        let (p, x) = (
-            images.payload_section.capacity(),
-            images.index_section.capacity(),
-        );
-        assert_eq!(
-            p,
-            STREAM_SECTION_HDR_LEN + lens + n.div_ceil(DICT_FRAME_ENTRIES as usize) * 4,
-            "the payload's reserve, never grown"
-        );
-        assert_eq!(
-            x,
-            STREAM_SECTION_HDR_LEN + n * DICT_INDEX_ENTRY_LEN,
-            "the index's reserve, never grown"
-        );
+        let images = built.emit_sections_on(DictCharLenForm::Absolute, &mut charge, caller).expect("emit");
+        let plain = built.emit_sections(DictCharLenForm::Absolute).expect("emit plain");
+        assert_eq!((&images.payload_section, &images.index_section), (&plain.payload_section, &plain.index_section));
+        let (p, x) = (images.payload_section.capacity(), images.index_section.capacity(),);
+        assert_eq!(p, STREAM_SECTION_HDR_LEN + lens + n.div_ceil(DICT_FRAME_ENTRIES as usize) * 4, "the payload's reserve, never grown");
+        assert_eq!(x, STREAM_SECTION_HDR_LEN + n * DICT_INDEX_ENTRY_LEN, "the index's reserve, never grown");
         assert_eq!(x, images.index_section.len(), "the index bound is exact");
-        assert_eq!(
-            charge.charged(),
-            caller + (p + x) as u64,
-            "the charge holds the caller's bytes and both images"
-        );
-        assert_eq!(
-            owner_row(o).committed,
-            charge.charged() as i64,
-            "on the owner"
-        );
+        assert_eq!(charge.charged(), caller + (p + x) as u64, "the charge holds the caller's bytes and both images");
+        assert_eq!(owner_row(o).committed, charge.charged() as i64, "on the owner");
         charge.sync(0);
         drop(images);
         drop(charge);

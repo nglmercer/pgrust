@@ -161,12 +161,7 @@ impl Drop for ScopeGuard {
             d.set(cur);
             cur
         });
-        eprintln!(
-            "[{}] {}<< {}",
-            self.category.name(),
-            indent(depth),
-            self.label
-        );
+        eprintln!("[{}] {}<< {}", self.category.name(), indent(depth), self.label);
     }
 }
 

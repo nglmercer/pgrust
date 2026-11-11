@@ -181,7 +181,7 @@ fn resize_multidim_dims_rewrite() {
     w.extend_from_slice(&1i32.to_ne_bytes()); // lb[0]
     w.extend_from_slice(&1i32.to_ne_bytes()); // lb[1]
     for v in [4, 3, 2, 1] {
-        w.extend_from_slice(&i32::to_ne_bytes(v));
+        w.extend_from_slice(& i32::to_ne_bytes(v));
     }
     let mut a = IntArray::from_image(&w).unwrap();
     assert_eq!(a.nelems().unwrap(), 4);

@@ -478,7 +478,7 @@ fn process_startup_packet(mcx: Mcx<'_>, mut ssl_done: bool, mut gss_done: bool) 
         // cluster from one unauthenticated packet (PROTODIFF-1). wrapping_sub
         // reproduces the C arithmetic exactly; the reject is unchanged.
         let len = i32::from_be_bytes(len_bytes).wrapping_sub(4);
-        if !(SIZEOF_PROTOCOL_VERSION..=MAX_STARTUP_PACKET_LENGTH).contains(&len) {
+        if !( SIZEOF_PROTOCOL_VERSION..= MAX_STARTUP_PACKET_LENGTH).contains(&len) {
             ereport(COMMERROR)
                 .errcode(ERRCODE_PROTOCOL_VIOLATION)
                 .errmsg("invalid length of startup packet")
@@ -682,7 +682,7 @@ fn process_startup_packet(mcx: Mcx<'_>, mut ssl_done: bool, mut gss_done: bool) 
                         }
                     }
                     _ if name_bytes.starts_with(b"_pq_.") => {
-                        unrecognized_protocol_options.push(::mcx::std_vec_from_slice("backend_startup", name_bytes)?);
+                        unrecognized_protocol_options.push(::mcx::std_vec_from_slice("backend_startup",name_bytes)?);
                     }
                     _ => {
                         // C stores the raw value (backend_startup.c:814) and

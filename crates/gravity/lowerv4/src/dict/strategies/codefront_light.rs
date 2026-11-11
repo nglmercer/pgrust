@@ -136,7 +136,7 @@ impl CountFrontMech for Light {
     fn plan<'g>(&self, t: &TableDecl, g: &GroupDecl<'_>, keys: &[CountKey], mcx: Mcx<'g>) -> Option<CountShape<'g>> {
         let (l, n) = (&t.layout, keys.len());
         // the image: two words a key (its Fp128 entry), then the flags words when a key is nullable
-        let words = (2 * n..=2 * n + flag_words(n)).contains(&{ l.nkeys() });
+        let words = (2 * n..=2 * n + flag_words(n)).contains(&{l.nkeys() });
         let estimated = n == 1 || g.groups <= LIGHT_KEYS_MAX_GROUPS;
         if l.is_wide() || l.flags & LAYOUT_IMPLICIT_COUNT != 0 || l.size() > CODE_FRONT_MAX_RECORD || n == 0 || n > LIGHT_KEYS_MAX || !estimated || g.keys.len() != n || keys.iter().any(|k| k.fp_table == DictRef::NO_TABLE) || !words {
             return None;

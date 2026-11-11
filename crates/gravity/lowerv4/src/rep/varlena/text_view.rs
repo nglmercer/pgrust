@@ -370,7 +370,7 @@ mod tests {
             let s = site(true, Some(Some(())), false, true);
             for d in VALUES {
                 let v = reference(d, true, Some((1, Some(2)))).expect("count 2");
-                let hit = elems.contains(&v.as_bytes());
+                let hit = elems.contains(& v.as_bytes());
                 let want = if hit { (1, true, false) } else { (0, !null_elem, false) };
                 assert_eq!(eval(&s, &arr, Some(&v1(d.as_bytes())), Some((1, Some(2)))), want, "{d:?} null elem {null_elem}");
             }

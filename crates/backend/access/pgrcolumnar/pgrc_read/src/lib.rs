@@ -124,21 +124,14 @@ pub mod testpart;
 #[cfg(test)]
 mod tests;
 
-pub use cursor::{
-    reference_binding_leaked, CodecBinding, DictTail, KeptPool, Residency, SectionUnwrapper,
-    SideTable, StreamCursor,
-};
+pub use cursor::{reference_binding_leaked, CodecBinding, DictTail, KeptPool, Residency, SectionUnwrapper, SideTable, StreamCursor,};
 
 /// `PGRUST_PGRC_DICT_RESIDENT=frontcoded` keeps FrontZstd dictionary payloads front-coded in
 /// memory (lane dictresident's prototype; `expanded`, the default, rebuilds the v1 image at
 /// extent open). Read once per process.
 pub fn dict_resident_frontcoded() -> bool {
     static KNOB: pgsync::OnceLock<bool> = pgsync::OnceLock::new();
-    *KNOB.get_or_init(|| {
-        matches!(
-            std::env::var("PGRUST_PGRC_DICT_RESIDENT").as_deref(),
-            Ok("frontcoded")
-        )
+    *KNOB.get_or_init(|| { matches!(std::env::var("PGRUST_PGRC_DICT_RESIDENT").as_deref(), Ok("frontcoded"))
     })
 }
 
@@ -147,20 +140,11 @@ pub fn dict_census_on() -> bool {
     static KNOB: pgsync::OnceLock<bool> = pgsync::OnceLock::new();
     *KNOB.get_or_init(|| matches!(std::env::var("PGRUST_PGRC_DICT_CENSUS").as_deref(), Ok("1")))
 }
-pub use dicthandle::{
-    wrapped_dense_pays, wrapped_payload_whole, DictEntryCursor, DictEpochKey, DictFaultMode,
-    DictHandle, DictTouch,
-};
+pub use dicthandle::{wrapped_dense_pays, wrapped_payload_whole, DictEntryCursor, DictEpochKey, DictFaultMode, DictHandle, DictTouch,};
 pub use io::{MemPartIo, MemTableDir, PartIo, TableDirIo, VfsPartIo, VfsTableDir};
-pub use manifest_walk::{
-    resolve_effective, AllCommitted, CommitCheck, EffectiveManifest, TableExpect,
-};
-pub use openpart::{
-    FaceHold, FaultEntry, FaultTag, OpenPart, PartExpect, PartUse, SegBuf, UseMoves,
-};
-pub use registry::{
-    PartPin, PartRegistry, PinBreakdown, ReuseCensus, UntrimmableByHolder, REUSE_WINDOWS,
-};
+pub use manifest_walk::{resolve_effective, AllCommitted, CommitCheck, EffectiveManifest, TableExpect,};
+pub use openpart::{FaceHold, FaultEntry, FaultTag, OpenPart, PartExpect, PartUse, SegBuf, UseMoves,};
+pub use registry::{PartPin, PartRegistry, PinBreakdown, ReuseCensus, UntrimmableByHolder, REUSE_WINDOWS,};
 pub use sidecar::{read_sidecar, SidecarConsult};
 pub use streams::read_path_table;
 
@@ -242,11 +226,7 @@ impl core::fmt::Display for ReadError {
             ReadError::Unsupported { what } => {
                 write!(f, "pgrc read: unsupported part shape: {what}")
             }
-            ReadError::ShredLaneRefused {
-                attno,
-                ordinal,
-                why,
-            } => write!(
+            ReadError::ShredLaneRefused { attno, ordinal, why, } => write!(
                 f,
                 "pgrc read: shred lane refused (attno {attno}, scan column {ordinal}): {why}"
             ),

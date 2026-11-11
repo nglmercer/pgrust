@@ -8,6 +8,7 @@
 //! sites unchanged.
 
 pub(crate) use lsyscache::run_memo::{
-    class_aclmask, comparison_ops_are_compatible, get_commutator, get_op_opfamily_strategy,
+    class_aclmask, comparison_ops_are_compatible, get_commutator,
+    get_op_opfamily_strategy,
     get_opcode, get_opfamily_member, get_oprrest, op_mergejoinable,
 };

@@ -19,12 +19,7 @@ pub struct PgMemoMap<'mcx, K: Copy, V: Copy> {
 impl<'mcx, K: Copy + Eq + Hash, V: Copy> PgMemoMap<'mcx, K, V> {
     #[inline]
     pub fn new_in(mcx: Mcx<'mcx>) -> Self {
-        PgMemoMap {
-            len: 0,
-            inline: [MaybeUninit::uninit(); MEMO_INLINE],
-            map: None,
-            mcx,
-        }
+        PgMemoMap { len: 0, inline: [MaybeUninit::uninit(); MEMO_INLINE], map: None, mcx, }
     }
 
     #[inline]

@@ -56,15 +56,13 @@ const ZSTD_LEVEL: i32 = 3;
 /// deterministic function of input at a given level.
 pub fn zstd_level() -> i32 {
     static L: pgsync::OnceLock<i32> = pgsync::OnceLock::new();
-    *L.get_or_init(|| {
-        parse_level(std::env::var("PGRUST_PGRC_ZSTD_LEVEL").ok().as_deref()).unwrap_or(ZSTD_LEVEL)
+    *L.get_or_init(|| { parse_level(std::env::var("PGRUST_PGRC_ZSTD_LEVEL").ok().as_deref()).unwrap_or(ZSTD_LEVEL)
     })
 }
 
 /// A zstd level from a switch's text: `1..=22`, else None (unset, junk or out of range).
 pub fn parse_level(v: Option<&str>) -> Option<i32> {
-    v.and_then(|v| v.trim().parse::<i32>().ok())
-        .filter(|l| (1..=22).contains(l))
+    v.and_then(|v| v.trim().parse::<i32>().ok()).filter(|l| (1..=22).contains(l))
 }
 
 /// `PGRUST_PGRC_ZSTD_LEVEL_TEXT=<1..=22>` (read once; unset = string data keeps [`zstd_level`]).
@@ -107,17 +105,10 @@ pub const ADAPT_SAMPLE: usize = 64 << 10;
 impl ZstdAdapt {
     pub fn high_wins(&self, base: usize, low_len: usize, high_len: usize) -> bool {
         let base = base as u128;
-        let disk = |w: usize| {
-            if (w as u128) * 5 <= base * 4 {
-                w as u128
-            } else {
-                base
-            }
+        let disk = |w: usize| { if (w as u128) * 5 <= base * 4 { w as u128 } else { base }
         };
         let saved = disk(low_len).saturating_sub(disk(high_len));
-        saved > 0
-            && saved * 1000 >= self.permille as u128 * base
-            && (!self.gated || disk(low_len) < base)
+        saved > 0 && saved * 1000 >= self.permille as u128 * base && (!self.gated || disk(low_len) < base)
     }
 }
 
@@ -131,18 +122,12 @@ pub fn zstd_adapt() -> Option<&'static ZstdAdapt> {
         if !on("PGRUST_PGRC_ZSTD_ADAPTIVE") {
             return None;
         }
-        let level = |k: &str, d: i32| {
-            var(k)
-                .and_then(|v| v.trim().parse::<i32>().ok())
-                .filter(|l| (1..=22).contains(l))
-                .unwrap_or(d)
+        let level = |k: &str, d: i32| { var(k).and_then(|v| v.trim().parse::<i32>().ok()).filter(|l| (1..=22).contains(l)).unwrap_or(d)
         };
         Some(ZstdAdapt {
             low: level("PGRUST_PGRC_ZSTD_ADAPTIVE_LOW", zstd_level()),
             high: level("PGRUST_PGRC_ZSTD_ADAPTIVE_HIGH", 6),
-            permille: var("PGRUST_PGRC_ZSTD_ADAPTIVE_X")
-                .and_then(|v| v.trim().parse::<u32>().ok())
-                .unwrap_or(40),
+            permille: var("PGRUST_PGRC_ZSTD_ADAPTIVE_X").and_then(|v| v.trim().parse::<u32>().ok()).unwrap_or(40),
             gated: on("PGRUST_PGRC_ZSTD_ADAPTIVE_GATED"),
         })
     })
@@ -157,36 +142,24 @@ pub const fn wrapper_available(w: Wrapper) -> bool {
     match w {
         Wrapper::None => false,
         Wrapper::Lz4 => true,
-        Wrapper::Zstd
-        | Wrapper::FrontZstd
-        | Wrapper::PackedZstd
-        | Wrapper::FrontOnPairZstd
-        | Wrapper::OnPairZstd
-        | Wrapper::IntPre => {
+        Wrapper::Zstd | Wrapper::FrontZstd | Wrapper::PackedZstd | Wrapper::FrontOnPairZstd | Wrapper::OnPairZstd | Wrapper::IntPre => {
             cfg!(not(target_family = "wasm"))
         }
     }
 }
 
 /// Compress one granule block under `wrapper` (zstd at `level`), appended to `out`.
-fn compress_block(
-    wrapper: Wrapper,
-    input: &[u8],
-    out: &mut Vec<u8>,
-    level: i32,
-) -> FormatResult<()> {
+fn compress_block(wrapper: Wrapper, input: &[u8], out: &mut Vec<u8>, level: i32,) -> FormatResult<()> {
     match wrapper {
         Wrapper::Lz4 => {
             lz4::compress(input, out);
             Ok(())
         }
-        Wrapper::Zstd | Wrapper::FrontZstd | Wrapper::PackedZstd => {
-            zstd_compress_block_at(input, out, level)
+        Wrapper::Zstd | Wrapper::FrontZstd | Wrapper::PackedZstd => { zstd_compress_block_at(input, out, level)
         }
-        Wrapper::None | Wrapper::FrontOnPairZstd | Wrapper::OnPairZstd | Wrapper::IntPre => {
-            Err(FormatError::EncodeContract {
-                detail: "compress_block with Wrapper::None, an OnPair arm or IntPre",
-            })
+        Wrapper::None | Wrapper::FrontOnPairZstd | Wrapper::OnPairZstd | Wrapper::IntPre => { Err(FormatError::EncodeContract {
+            detail: "compress_block with Wrapper::None, an OnPair arm or IntPre",
+        })
         }
     }
 }
@@ -219,11 +192,7 @@ pub(crate) fn zstd_compress_block(input: &[u8], out: &mut Vec<u8>) -> FormatResu
 }
 
 #[cfg(not(target_family = "wasm"))]
-pub(crate) fn zstd_compress_block_at(
-    input: &[u8],
-    out: &mut Vec<u8>,
-    level: i32,
-) -> FormatResult<()> {
+pub(crate) fn zstd_compress_block_at(input: &[u8], out: &mut Vec<u8>, level: i32,) -> FormatResult<()> {
     // One zstd frame per granule block (`ZSTD_compress2`: content size stamped
     // in the frame header; deterministic at a pinned level + library),
     // written straight after `out`'s bytes (no frame buffer of its own).
@@ -254,11 +223,7 @@ pub(crate) fn zstd_compress_block_at(
 }
 
 #[cfg(target_family = "wasm")]
-pub(crate) fn zstd_compress_block_at(
-    _input: &[u8],
-    _out: &mut Vec<u8>,
-    _level: i32,
-) -> FormatResult<()> {
+pub(crate) fn zstd_compress_block_at(_input: &[u8], _out: &mut Vec<u8>, _level: i32,) -> FormatResult<()> {
     Err(FormatError::WrapperUnsupported {
         wrapper: Wrapper::Zstd.as_u8(),
     })
@@ -270,11 +235,7 @@ pub(crate) fn zstd_compress_block_at(
 #[cfg(not(target_family = "wasm"))]
 pub(crate) fn zstd_decompress_block(src: &[u8], dst: &mut [u8]) -> FormatResult<usize> {
     // D4632: a pooled decompression context (`zpool`), not one created and freed per block
-    let r = if zpool::on() {
-        zpool::decompress(src, dst)
-    } else {
-        zstd::bulk::decompress_to_buffer(src, dst)
-    };
+    let r = if zpool::on() { zpool::decompress(src, dst) } else { zstd::bulk::decompress_to_buffer(src, dst) };
     r.map_err(|_| FormatError::Corrupt { at: "zstd block" })
 }
 
@@ -294,11 +255,9 @@ mod zpool {
     /// the pool itself never allocates.
     const KEEP: usize = 64;
 
-    static DCTX: Mutex<[Option<zstd::bulk::Decompressor<'static>>; KEEP]> =
-        Mutex::new([const { None }; KEEP]);
+    static DCTX: Mutex<[Option<zstd::bulk::Decompressor<'static>>; KEEP]> = Mutex::new([const { None }; KEEP]);
     #[allow(dead_code)]
-    static CCTX: Mutex<[Option<zstd::bulk::Compressor<'static>>; KEEP]> =
-        Mutex::new([const { None }; KEEP]);
+    static CCTX: Mutex<[Option<zstd::bulk::Compressor<'static>>; KEEP]> = Mutex::new([const { None }; KEEP]);
 
     pub(super) fn on() -> bool {
         static ON: pgsync::OnceLock<bool> = pgsync::OnceLock::new();
@@ -415,48 +374,24 @@ pub fn wrap_section(
 ) -> FormatResult<()> {
     match wrapper {
         Wrapper::Lz4 | Wrapper::Zstd | Wrapper::IntPre => {}
-        Wrapper::None
-        | Wrapper::FrontZstd
-        | Wrapper::PackedZstd
-        | Wrapper::FrontOnPairZstd
-        | Wrapper::OnPairZstd => {
+        Wrapper::None | Wrapper::FrontZstd | Wrapper::PackedZstd | Wrapper::FrontOnPairZstd | Wrapper::OnPairZstd => {
             return Err(FormatError::EncodeContract {
                 detail: "wrap_section with a role-bound or absent wrapper",
             })
         }
     }
-    wrap_section_with(
-        section,
-        granule_payload_ends,
-        wrapper,
-        out,
-        None,
-        zstd_adapt(),
-        zstd_level_text(),
-    )
-    .map(|_| ())
+    wrap_section_with(section, granule_payload_ends, wrapper, out, None, zstd_adapt(), zstd_level_text(),).map(|_| ())
 }
 
 /// `Wrapper::FrontZstd` over an UNWRAPPED DictPayload section: one block
 /// per dict frame (the frame table is the block geometry), each frame
 /// front-coded against `index` (the v1 12 B records of the whole
 /// dictionary) and then zstd-compressed.
-pub fn wrap_dict_payload_section(
-    section: &[u8],
-    index: &[u8],
-    out: &mut Vec<u8>,
-) -> FormatResult<()> {
+pub fn wrap_dict_payload_section(section: &[u8], index: &[u8], out: &mut Vec<u8>,) -> FormatResult<()> {
     let hdr = StreamSectionHdr::decode(section)?;
     let ends = frame_block_ends(&hdr, section)?;
-    wrap_section_with(
-        section,
-        &ends,
-        Wrapper::FrontZstd,
-        out,
-        Some(&mut |b, raw, blk| front_code_frame(raw, dict_frame_records(index, b as u32)?, blk)),
-        zstd_adapt(),
-        zstd_level_text(),
-    )
+    wrap_section_with(section, &ends, Wrapper::FrontZstd, out, Some(&mut |b, raw, blk|
+        front_code_frame(raw, dict_frame_records(index, b as u32)?, blk)), zstd_adapt(), zstd_level_text(),)
     .map(|_| ())
 }
 
@@ -466,19 +401,10 @@ pub fn wrap_dict_index_section(section: &[u8], out: &mut Vec<u8>) -> FormatResul
     let hdr = StreamSectionHdr::decode(section)?;
     let ends = frame_block_ends(&hdr, section)?;
     if ends.len() != 1 {
-        return Err(FormatError::EncodeContract {
-            detail: "framed dict index",
-        });
+        return Err(FormatError::EncodeContract { detail: "framed dict index", });
     }
-    wrap_section_with(
-        section,
-        &ends,
-        Wrapper::PackedZstd,
-        out,
-        Some(&mut |_b, raw, blk| pack_dict_index(raw, blk)),
-        zstd_adapt(),
-        zstd_level_text(),
-    )
+    wrap_section_with(section, &ends, Wrapper::PackedZstd, out, Some(&mut |_b, raw, blk|
+        pack_dict_index(raw, blk)), zstd_adapt(), zstd_level_text(),)
     .map(|_| ())
 }
 
@@ -492,12 +418,9 @@ pub(crate) fn frame_block_ends(hdr: &StreamSectionHdr, section: &[u8]) -> Format
     } else {
         section.len()
     };
-    let payload_len =
-        payload_end
-            .checked_sub(STREAM_SECTION_HDR_LEN)
-            .ok_or(FormatError::Bounds {
-                at: "payload region",
-            })? as u32;
+    let payload_len = payload_end
+        .checked_sub(STREAM_SECTION_HDR_LEN)
+        .ok_or(FormatError::Bounds { at: "payload region", })? as u32;
     Ok(match hdr.frame_table(section)? {
         Some(offs) if !offs.is_empty() => offs
             .iter()
@@ -568,8 +491,7 @@ pub(crate) fn wrap_section_with(
             let (mut lo, mut hi) = (Vec::new(), Vec::new());
             zstd_compress_block_at(sample, &mut lo, a.low)?;
             zstd_compress_block_at(sample, &mut hi, a.high)?;
-            let base =
-                (sample.len() as u128 * raw0.len() as u128 / src.len().max(1) as u128) as usize;
+            let base = (sample.len() as u128 * raw0.len() as u128 / src.len().max(1) as u128) as usize;
             if a.high_wins(base, lo.len(), hi.len()) {
                 level = a.high;
             }
@@ -666,33 +588,20 @@ pub fn unwrap_section(section: &[u8], scratch: &mut Vec<u8>) -> FormatResult<()>
 
 /// D3887: [`unwrap_section`] asking `stop` before each block: `Ok(false)` when it said stop, `scratch` then holding no
 /// image (a dictionary payload under a role-agnostic wrapper).
-pub fn unwrap_section_until(
-    section: &[u8],
-    scratch: &mut Vec<u8>,
-    stop: &mut dyn FnMut() -> bool,
-) -> FormatResult<bool> {
+pub fn unwrap_section_until(section: &[u8], scratch: &mut Vec<u8>, stop: &mut dyn FnMut() -> bool,) -> FormatResult<bool> {
     unwrap_section_with(section, None, scratch, stop)
 }
 
 /// The DictPayload unwrap: `index` is the dictionary's v1 index image
 /// (12 B records), which a `FrontZstd` section needs for its expand;
 /// every other wrapper ignores it.
-pub fn unwrap_dict_payload_section(
-    section: &[u8],
-    index: &[u8],
-    scratch: &mut Vec<u8>,
-) -> FormatResult<()> {
+pub fn unwrap_dict_payload_section(section: &[u8], index: &[u8], scratch: &mut Vec<u8>,) -> FormatResult<()> {
     unwrap_section_with(section, Some(index), scratch, &mut || false).map(drop)
 }
 
 /// D3887: [`unwrap_dict_payload_section`] asking `stop` before each block (a large dictionary's payload is hundreds of
 /// blocks and seconds of inflate and expand): `Ok(false)` when it said stop, `scratch` then holding no image.
-pub fn unwrap_dict_payload_section_until(
-    section: &[u8],
-    index: &[u8],
-    scratch: &mut Vec<u8>,
-    stop: &mut dyn FnMut() -> bool,
-) -> FormatResult<bool> {
+pub fn unwrap_dict_payload_section_until(section: &[u8], index: &[u8], scratch: &mut Vec<u8>, stop: &mut dyn FnMut() -> bool,) -> FormatResult<bool> {
     unwrap_section_with(section, Some(index), scratch, stop)
 }
 
@@ -712,12 +621,7 @@ pub fn dict_payload_len_checked(hdr: &StreamSectionHdr, index: &[u8]) -> FormatR
     Ok(())
 }
 
-fn unwrap_section_with(
-    section: &[u8],
-    index: Option<&[u8]>,
-    scratch: &mut Vec<u8>,
-    stop: &mut dyn FnMut() -> bool,
-) -> FormatResult<bool> {
+fn unwrap_section_with(section: &[u8], index: Option<&[u8]>, scratch: &mut Vec<u8>, stop: &mut dyn FnMut() -> bool,) -> FormatResult<bool> {
     let hdr = StreamSectionHdr::decode(section)?;
     let wrapper = Wrapper::from_u8(hdr.wrapper)?;
     match wrapper {
@@ -729,13 +633,10 @@ fn unwrap_section_with(
             })
         }
         Wrapper::FrontOnPairZstd => {
-            let index = index.ok_or(FormatError::Corrupt {
-                at: "front-coded dict payload unwrap without the dict index",
-            })?;
+            let index = index.ok_or(FormatError::Corrupt { at: "front-coded dict payload unwrap without the dict index", })?;
             return crate::onpairwrap::unwrap_dict_payload(&hdr, section, index, scratch, stop);
         }
-        Wrapper::OnPairZstd => {
-            return crate::onpairvals::unwrap_values(&hdr, section, scratch, stop)
+        Wrapper::OnPairZstd => { return crate::onpairvals::unwrap_values(&hdr, section, scratch, stop)
         }
         Wrapper::None => {
             return Err(FormatError::Corrupt {
@@ -766,7 +667,7 @@ fn unwrap_section_with(
         });
     }
     let first = u32::from_le_bytes(wrapped_payload[..4].try_into().expect("len 4")) as usize;
-    if first < 4 || !first.is_multiple_of(4) || first > wrapped_payload.len() {
+    if first < 4 || ! first.is_multiple_of( 4) || first > wrapped_payload.len() {
         return Err(FormatError::Corrupt {
             at: "wrapper block table",
         });
@@ -800,11 +701,9 @@ fn unwrap_section_with(
     // D4228: the image's zero fill FILL_PIECE bytes at a time, `stop` asked before each piece past the first: a fill
     // faults in every page of the image (hundreds of ms for a large one under memory pressure) before the first block's ask
     scratch.clear();
-    scratch
-        .try_reserve_exact(need)
-        .map_err(|_| FormatError::Bounds {
-            at: "unwrapped section reservation",
-        })?;
+    scratch.try_reserve_exact(need).map_err(|_| FormatError::Bounds {
+        at: "unwrapped section reservation",
+    })?;
     while scratch.len() < need {
         scratch.resize(need.min(scratch.len() + FILL_PIECE), 0);
         if scratch.len() < need && stop() {
@@ -854,9 +753,7 @@ fn unwrap_section_with(
         Wrapper::FrontZstd => {
             let ft = hdr.frame_table(section)?.unwrap_or_default();
             if ft.len() != nblocks {
-                return Err(FormatError::Corrupt {
-                    at: "front-coded block geometry",
-                });
+                return Err(FormatError::Corrupt { at: "front-coded block geometry", });
             }
             ft
         }
@@ -871,15 +768,9 @@ fn unwrap_section_with(
         let src = &wrapped_payload[offs[b]..offs[b + 1]];
         let take = match wrapper {
             Wrapper::FrontZstd => {
-                let f1 = if b + 1 < nblocks {
-                    frame_starts[b + 1] as usize
-                } else {
-                    img_len
-                };
+                let f1 = if b + 1 < nblocks { frame_starts[b + 1] as usize } else { img_len };
                 if frame_starts[b] as usize != d || f1 < d || f1 > img_len {
-                    return Err(FormatError::Corrupt {
-                        at: "front-coded block geometry",
-                    });
+                    return Err(FormatError::Corrupt { at: "front-coded block geometry", });
                 }
                 let dst = &mut scratch[STREAM_SECTION_HDR_LEN + d..STREAM_SECTION_HDR_LEN + f1];
                 unwrap_dict_payload_block(
@@ -892,9 +783,7 @@ fn unwrap_section_with(
             }
             Wrapper::PackedZstd => {
                 if nblocks != 1 {
-                    return Err(FormatError::Corrupt {
-                        at: "packed index block geometry",
-                    });
+                    return Err(FormatError::Corrupt { at: "packed index block geometry", });
                 }
                 let dst = &mut scratch[STREAM_SECTION_HDR_LEN..STREAM_SECTION_HDR_LEN + img_len];
                 unwrap_block_into(wrapper, src, dst)?;
@@ -988,87 +877,49 @@ pub fn unwrap_block_into(wrapper: Wrapper, src: &[u8], dst: &mut [u8]) -> Format
 /// The resident front-coded form of a FrontZstd DictPayload section (lane dictresident): the
 /// blocks inflated to their front-coded frames and laid out as [`pgrc_format::dict::FcResident`]
 /// under an unwrapped twin header with no tables — never expanded. `index` is the v1 index image.
-pub fn unwrap_dict_payload_fc_section(
-    section: &[u8],
-    index: &[u8],
-    scratch: &mut Vec<u8>,
-) -> FormatResult<()> {
+pub fn unwrap_dict_payload_fc_section(section: &[u8], index: &[u8], scratch: &mut Vec<u8>,) -> FormatResult<()> {
     unwrap_dict_payload_fc_section_until(section, index, scratch, &mut || false).map(drop)
 }
 
 /// D3973: [`unwrap_dict_payload_fc_section`] asking `stop` before each block: `Ok(false)` when it said stop, `scratch` empty.
-pub fn unwrap_dict_payload_fc_section_until(
-    section: &[u8],
-    index: &[u8],
-    scratch: &mut Vec<u8>,
-    stop: &mut dyn FnMut() -> bool,
-) -> FormatResult<bool> {
+pub fn unwrap_dict_payload_fc_section_until(section: &[u8], index: &[u8], scratch: &mut Vec<u8>, stop: &mut dyn FnMut() -> bool,) -> FormatResult<bool> {
     let hdr = StreamSectionHdr::decode(section)?;
     if Wrapper::from_u8(hdr.wrapper)? == Wrapper::FrontOnPairZstd {
         return crate::onpairwrap::unwrap_dict_payload_fc(&hdr, section, index, scratch, stop);
     }
     if Wrapper::from_u8(hdr.wrapper)? != Wrapper::FrontZstd {
-        return Err(FormatError::Corrupt {
-            at: "front-coded resident form of a non-FrontZstd section",
-        });
+        return Err(FormatError::Corrupt { at: "front-coded resident form of a non-FrontZstd section", });
     }
     dict_payload_len_checked(&hdr, index)?;
-    let payload_end = if hdr.frame_table_off != 0 {
-        hdr.frame_table_off as usize
-    } else {
-        section.len()
-    };
+    let payload_end = if hdr.frame_table_off != 0 { hdr.frame_table_off as usize } else { section.len() };
     if payload_end < STREAM_SECTION_HDR_LEN + 4 || payload_end > section.len() {
-        return Err(FormatError::Bounds {
-            at: "payload region",
-        });
+        return Err(FormatError::Bounds { at: "payload region", });
     }
     let wrapped = &section[STREAM_SECTION_HDR_LEN..payload_end];
     let first = u32::from_le_bytes(wrapped[..4].try_into().expect("len 4")) as usize;
-    if first < 4 || !first.is_multiple_of(4) || first > wrapped.len() {
-        return Err(FormatError::Corrupt {
-            at: "wrapper block table",
-        });
+    if first < 4 || ! first.is_multiple_of( 4) || first > wrapped.len() {
+        return Err(FormatError::Corrupt { at: "wrapper block table", });
     }
     let nblocks = first / 4 - 1;
-    let offs: Vec<usize> = (0..=nblocks)
-        .map(|i| u32::from_le_bytes(wrapped[i * 4..i * 4 + 4].try_into().expect("len 4")) as usize)
-        .collect();
+    let offs: Vec<usize> = (0..=nblocks).map(|i| u32::from_le_bytes(wrapped[i * 4..i * 4 + 4].try_into().expect("len 4")) as usize).collect();
     if offs.windows(2).any(|w| w[0] > w[1]) || *offs.last().expect("nonempty") > wrapped.len() {
-        return Err(FormatError::Corrupt {
-            at: "wrapper block offsets",
-        });
+        return Err(FormatError::Corrupt { at: "wrapper block offsets", });
     }
     let mut body = Vec::new();
     let mut stopped = false;
-    let built = pgrc_format::dict::fc_resident_build(
-        index,
-        &mut |b, out| {
-            if stop() {
-                stopped = true;
-                return Err(FormatError::Corrupt {
-                    at: "front-coded resident form stopped",
-                });
-            }
-            let src = offs
-                .get(b as usize..b as usize + 2)
-                .ok_or(FormatError::Corrupt {
-                    at: "front-coded block geometry",
-                })?;
-            let recs = dict_frame_records(index, b)?;
-            let bound = recs.len() / pgrc_format::dict::DICT_INDEX_ENTRY_LEN * 8
-                + (0..recs.len() / 12)
-                    .map(|i| {
-                        u32::from_le_bytes(recs[i * 12 + 4..i * 12 + 8].try_into().expect("len 4"))
-                            as usize
-                    })
-                    .sum::<usize>();
-            let fc = zstd_inflate_bounded(&wrapped[src[0]..src[1]], bound + 8)?;
-            out.extend_from_slice(&fc);
-            Ok(())
-        },
-        &mut body,
-    );
+    let built = pgrc_format::dict::fc_resident_build(index, &mut |b, out| {
+        if stop() {
+            stopped = true;
+            return Err(FormatError::Corrupt { at: "front-coded resident form stopped", });
+        }
+        let src = offs.get(b as usize..b as usize + 2).ok_or(FormatError::Corrupt { at: "front-coded block geometry", })?;
+        let recs = dict_frame_records(index, b)?;
+        let bound = recs.len() / pgrc_format::dict::DICT_INDEX_ENTRY_LEN * 8 + (0..recs.len() / 12).map(|i| { u32::from_le_bytes(recs[i * 12 + 4..i * 12 + 8].try_into().expect("len 4")) as usize
+                    }).sum::<usize>();
+        let fc = zstd_inflate_bounded(&wrapped[src[0]..src[1]], bound + 8)?;
+        out.extend_from_slice(&fc);
+        Ok(())
+    }, &mut body,);
     scratch.clear();
     if stopped {
         return Ok(false);
@@ -1085,9 +936,7 @@ pub fn unwrap_dict_payload_fc_section_until(
     // the frames' copy FILL_PIECE bytes at a time, `stop` asked before each piece past the first
     if scratch.try_reserve_exact(body.len()).is_err() {
         scratch.clear();
-        return Err(FormatError::Bounds {
-            at: "front-coded resident form reservation",
-        });
+        return Err(FormatError::Bounds { at: "front-coded resident form reservation", });
     }
     for (i, piece) in body.chunks(FILL_PIECE).enumerate() {
         if i > 0 && stop() {
@@ -1207,9 +1056,10 @@ pub fn meta_unwrap_body(envelope: &[u8]) -> FormatResult<Vec<u8>> {
     }
     let raw_len = u32::from_le_bytes(envelope[..4].try_into().expect("len 4")) as usize;
     let mut out = vec![0u8; raw_len];
-    let n = zstd_decompress_block(&envelope[4..], &mut out).map_err(|_| FormatError::Corrupt {
-        at: "meta envelope zstd frame",
-    })?;
+    let n = zstd_decompress_block(&envelope[4..], &mut out)
+        .map_err(|_| FormatError::Corrupt {
+            at: "meta envelope zstd frame",
+        })?;
     if n != raw_len {
         return Err(FormatError::Corrupt {
             at: "meta envelope raw_len claim",

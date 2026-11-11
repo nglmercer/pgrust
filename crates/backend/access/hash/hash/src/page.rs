@@ -53,12 +53,7 @@ pub(crate) fn write_opaque(page: &mut PageMut<'_>, opaque: &HashPageOpaqueData) 
     debug_assert!(off == BLCKSZ - SIZEOF_OPAQUE);
     // SAFETY: in-bounds 4-aligned special area; exclusive page access.
     unsafe {
-        page.as_ref()
-            .as_ptr()
-            .cast_mut()
-            .add(off)
-            .cast::<HashPageOpaqueData>()
-            .write(*opaque)
+        page.as_ref().as_ptr().cast_mut().add(off).cast::<HashPageOpaqueData>().write(*opaque)
     }
 }
 
@@ -66,12 +61,7 @@ pub(crate) fn write_opaque(page: &mut PageMut<'_>, opaque: &HashPageOpaqueData) 
 /// # Safety
 /// `buf` is a pinned hash metapage; caller synchronizes via the buffer lock.
 pub(crate) unsafe fn meta_ptr(buf: Buffer) -> *mut HashMetaPageData {
-    unsafe {
-        bm::buffer_get_page::call(buf)
-            .as_ptr()
-            .add(SizeOfPageHeaderData)
-            .cast()
-    }
+    unsafe { bm::buffer_get_page::call(buf).as_ptr().add(SizeOfPageHeaderData).cast() }
 }
 
 /// Scoped read of the (locked or lock-free-stable) metapage.
@@ -246,7 +236,8 @@ pub(crate) fn _hash_dropbuf(buf: Buffer) -> PgResult<()> {
 
 /// _hash_dropscanbuf.
 pub(crate) fn _hash_dropscanbuf(so: &mut HashScanOpaqueData<'_>) -> PgResult<()> {
-    if so.hashso_bucket_buf != ::types_core::InvalidBuffer && so.hashso_bucket_buf != so.currPos.buf
+    if so.hashso_bucket_buf != ::types_core::InvalidBuffer
+        && so.hashso_bucket_buf != so.currPos.buf
     {
         _hash_dropbuf(so.hashso_bucket_buf)?;
     }
@@ -270,7 +261,11 @@ pub(crate) fn _hash_dropscanbuf(so: &mut HashScanOpaqueData<'_>) -> PgResult<()>
 }
 
 /// _hash_init: metapage + initial buckets + first bitmap page.
-pub fn _hash_init(rel: &Relation<'_>, num_tuples: f64, fork_num: ForkNumber) -> PgResult<u32> {
+pub fn _hash_init(
+    rel: &Relation<'_>,
+    num_tuples: f64,
+    fork_num: ForkNumber
+) -> PgResult<u32> {
     if bm::relation_get_number_of_blocks_in_fork::call(rel, fork_num)? != 0 {
         // hashpage.c:344 elog(ERROR).
         return Err(Box::new(PgError::error(format!(
@@ -298,7 +293,8 @@ pub fn _hash_init(rel: &Relation<'_>, num_tuples: f64, fork_num: ForkNumber) -> 
     bm::mark_buffer_dirty::call(metabuf)?;
 
     if use_wal {
-        let (m_procid, m_ffactor) = with_meta(metabuf, |m| (m.hashm_procid, m.hashm_ffactor));
+        let (m_procid, m_ffactor) =
+            with_meta(metabuf, |m| (m.hashm_procid, m.hashm_ffactor));
         let xlrec = crate::wal::xl_hash_init_meta_page(num_tuples, m_procid, m_ffactor);
         let recptr = ::xloginsert_seams::xlog_insert_record::call(
             RM_HASH,
@@ -332,7 +328,7 @@ pub fn _hash_init(rel: &Relation<'_>, num_tuples: f64, fork_num: ForkNumber) -> 
             // log_newpage(&rel->rd_locator, ...): the page is in `buf`, so the
             // buffer form is the same record.
             let recptr = ::xloginsert_seams::xlog_insert_record::call(
-                0,    /* RM_XLOG_ID */
+                0, /* RM_XLOG_ID */
                 0xB0, /* XLOG_FPI */
                 0,
                 &[],
@@ -374,18 +370,8 @@ pub fn _hash_init(rel: &Relation<'_>, num_tuples: f64, fork_num: ForkNumber) -> 
             0,
             &[&xlrec],
             &[
-                XLogRegBuf {
-                    block_id: 0,
-                    buffer: bitmapbuf,
-                    flags: REGBUF_WILL_INIT,
-                    bufdata: &[],
-                },
-                XLogRegBuf {
-                    block_id: 1,
-                    buffer: metabuf,
-                    flags: REGBUF_STANDARD,
-                    bufdata: &[],
-                },
+                XLogRegBuf { block_id: 0, buffer: bitmapbuf, flags: REGBUF_WILL_INIT, bufdata: &[], },
+                XLogRegBuf { block_id: 1, buffer: metabuf, flags: REGBUF_STANDARD, bufdata: &[], },
             ],
         )?;
         // SAFETY: pins + exclusive locks held on both.
@@ -404,11 +390,8 @@ pub fn _hash_init(rel: &Relation<'_>, num_tuples: f64, fork_num: ForkNumber) -> 
 #[inline(never)]
 fn out_of_overflow_pages(rel: &Relation<'_>) -> Box<PgError> {
     Box::new(
-        PgError::error(format!(
-            "out of overflow pages in hash index \"{}\"",
-            rel.name()
-        ))
-        .with_sqlstate(ERRCODE_PROGRAM_LIMIT_EXCEEDED),
+        PgError::error(format!("out of overflow pages in hash index \"{}\"", rel.name()))
+            .with_sqlstate(ERRCODE_PROGRAM_LIMIT_EXCEEDED),
     )
 }
 
@@ -486,7 +469,9 @@ pub(crate) fn _hash_init_metabuffer(
     });
 
     // pd_lower past the metadata keeps it out of the xlog page-hole.
-    page.set_pd_lower((SizeOfPageHeaderData + core::mem::size_of::<HashMetaPageData>()) as u16);
+    page.set_pd_lower(
+        (SizeOfPageHeaderData + core::mem::size_of::<HashMetaPageData>()) as u16
+    );
 }
 
 // HashGetMaxBitmapSize.
@@ -505,8 +490,8 @@ pub(crate) fn _hash_expandtable(rel: &Relation<'_>, metabuf: Buffer) -> PgResult
         bm::lock_buffer::call(metabuf, bm::BUFFER_LOCK_EXCLUSIVE)?;
         _hash_checkpage(rel, metabuf, LH_META_PAGE)?;
 
-        let (ntuples, ffactor, maxbucket_now) = with_meta(metabuf, |m| {
-            (m.hashm_ntuples, m.hashm_ffactor, m.hashm_maxbucket)
+        let (ntuples, ffactor, maxbucket_now) =
+            with_meta(metabuf, |m| { (m.hashm_ntuples, m.hashm_ffactor, m.hashm_maxbucket)
         });
 
         // Re-check under the lock; stays in sync with _hash_doinsert.
@@ -536,9 +521,7 @@ pub(crate) fn _hash_expandtable(rel: &Relation<'_>, metabuf: Buffer) -> PgResult
             });
             bm::lock_buffer::call(metabuf, bm::BUFFER_LOCK_UNLOCK)?;
             bm::lock_buffer::call(buf_oblkno, bm::BUFFER_LOCK_UNLOCK)?;
-            _hash_finish_split(
-                rel, metabuf, buf_oblkno, old_bucket, maxbucket, highmask, lowmask,
-            )?;
+            _hash_finish_split(rel, metabuf, buf_oblkno, old_bucket, maxbucket, highmask, lowmask,)?;
             _hash_dropbuf(buf_oblkno)?;
             continue 'restart_expand;
         }
@@ -549,18 +532,8 @@ pub(crate) fn _hash_expandtable(rel: &Relation<'_>, metabuf: Buffer) -> PgResult
             });
             bm::lock_buffer::call(metabuf, bm::BUFFER_LOCK_UNLOCK)?;
             hashbucketcleanup(
-                rel,
-                old_bucket,
-                buf_oblkno,
-                start_oblkno,
-                None,
-                maxbucket,
-                highmask,
-                lowmask,
-                None,
-                None,
-                true,
-                None,
+                rel, old_bucket, buf_oblkno, start_oblkno, None, maxbucket, highmask, lowmask,
+                None, None, true, None,
             )?;
             _hash_dropbuf(buf_oblkno)?;
             continue 'restart_expand;
@@ -608,8 +581,8 @@ pub(crate) fn _hash_expandtable(rel: &Relation<'_>, metabuf: Buffer) -> PgResult
         });
         bm::mark_buffer_dirty::call(metabuf)?;
 
-        let (maxbucket, highmask, lowmask) = with_meta(metabuf, |m| {
-            (m.hashm_maxbucket, m.hashm_highmask, m.hashm_lowmask)
+        let (maxbucket, highmask, lowmask) =
+            with_meta(metabuf, |m| { (m.hashm_maxbucket, m.hashm_highmask, m.hashm_lowmask)
         });
 
         // Mark old bucket split-in-progress; prevblkno tracks bucket count as
@@ -657,9 +630,8 @@ pub(crate) fn _hash_expandtable(rel: &Relation<'_>, metabuf: Buffer) -> PgResult
                 flags |= XLH_SPLIT_META_UPDATE_SPLITPOINT;
                 with_meta(metabuf, |m| {
                     meta_data.extend_from_slice(&m.hashm_ovflpoint.to_ne_bytes());
-                    meta_data.extend_from_slice(
-                        &m.hashm_spares[m.hashm_ovflpoint as usize].to_ne_bytes(),
-                    );
+                    meta_data
+                        .extend_from_slice(&m.hashm_spares[m.hashm_ovflpoint as usize].to_ne_bytes(),);
                 });
             }
             let xlrec =
@@ -670,24 +642,9 @@ pub(crate) fn _hash_expandtable(rel: &Relation<'_>, metabuf: Buffer) -> PgResult
                 0,
                 &[&xlrec],
                 &[
-                    XLogRegBuf {
-                        block_id: 0,
-                        buffer: buf_oblkno,
-                        flags: REGBUF_STANDARD,
-                        bufdata: &[],
-                    },
-                    XLogRegBuf {
-                        block_id: 1,
-                        buffer: buf_nblkno,
-                        flags: REGBUF_WILL_INIT,
-                        bufdata: &[],
-                    },
-                    XLogRegBuf {
-                        block_id: 2,
-                        buffer: metabuf,
-                        flags: REGBUF_STANDARD,
-                        bufdata: &[&meta_data],
-                    },
+                    XLogRegBuf { block_id: 0, buffer: buf_oblkno, flags: REGBUF_STANDARD, bufdata: &[], },
+                    XLogRegBuf { block_id: 1, buffer: buf_nblkno, flags: REGBUF_WILL_INIT, bufdata: &[], },
+                    XLogRegBuf { block_id: 2, buffer: metabuf, flags: REGBUF_STANDARD, bufdata: &[&meta_data], },
                 ],
             )?;
             // SAFETY: pins + exclusive locks held on all three.
@@ -716,11 +673,7 @@ fn fail_unlock(metabuf: Buffer) -> PgResult<()> {
 }
 
 /// _hash_alloc_buckets: extend the logical EOF to the end of the splitpoint.
-fn _hash_alloc_buckets(
-    rel: &Relation<'_>,
-    firstblock: BlockNumber,
-    nblocks: u32,
-) -> PgResult<bool> {
+fn _hash_alloc_buckets(rel: &Relation<'_>, firstblock: BlockNumber, nblocks: u32,) -> PgResult<bool> {
     let lastblock = firstblock.wrapping_add(nblocks).wrapping_sub(1);
     if lastblock < firstblock || lastblock == InvalidBlockNumber {
         return Ok(false);
@@ -797,8 +750,7 @@ fn _hash_splitbucket(
     // itups carry (start,len) into copy storage: C pallocs CopyIndexTuple per
     // moved tuple; one retained buffer replaces the per-tuple allocs.
     let mut tup_storage: Vec<u8> = Vec::with_capacity(BLCKSZ);
-    let mut itups: Vec<(usize, usize)> =
-        ::mcx::std_vec_with_capacity("access", MaxIndexTuplesPerPage)?;
+    let mut itups: Vec<(usize, usize)> = ::mcx::std_vec_with_capacity("access", MaxIndexTuplesPerPage)?;
     let mut itup_offsets = [0 as OffsetNumber; MaxIndexTuplesPerPage];
     let mut all_tups_size = 0usize;
 
@@ -806,10 +758,7 @@ fn _hash_splitbucket(
         let (omaxoffnum, onextblkno) = {
             // SAFETY: obuf pinned + locked (cleanup on entry; read on chain).
             let opage = unsafe { page_ref(obuf) };
-            (
-                opage.max_offset_number(),
-                page_opaque(&opage).hasho_nextblkno,
-            )
+            (opage.max_offset_number(), page_opaque(&opage).hasho_nextblkno,)
         };
 
         for ooffnum in 1..=omaxoffnum {
@@ -922,18 +871,8 @@ fn _hash_splitbucket(
             0,
             &[&xlrec],
             &[
-                XLogRegBuf {
-                    block_id: 0,
-                    buffer: bucket_obuf,
-                    flags: REGBUF_STANDARD,
-                    bufdata: &[],
-                },
-                XLogRegBuf {
-                    block_id: 1,
-                    buffer: bucket_nbuf,
-                    flags: REGBUF_STANDARD,
-                    bufdata: &[],
-                },
+                XLogRegBuf { block_id: 0, buffer: bucket_obuf, flags: REGBUF_STANDARD, bufdata: &[], },
+                XLogRegBuf { block_id: 1, buffer: bucket_nbuf, flags: REGBUF_STANDARD, bufdata: &[], },
             ],
         )?;
         // SAFETY: pins + exclusive locks held.
@@ -1124,10 +1063,7 @@ pub(crate) fn _hash_getcachedmetap(
 }
 
 /// Read fields off the cached metapage (must be primed).
-pub(crate) fn with_cached_metap<R>(
-    rel: &Relation<'_>,
-    f: impl FnOnce(&HashMetaPageData) -> R,
-) -> R {
+pub(crate) fn with_cached_metap<R>(rel: &Relation<'_>, f: impl FnOnce(&HashMetaPageData) -> R,) -> R {
     let cache = rel.rd_amcache_hash.borrow();
     f(cache.as_ref().expect("hash rd_amcache primed"))
 }
@@ -1146,12 +1082,8 @@ pub(crate) fn _hash_getbucketbuf_from_hashkey(
 
     let (buf, bucket) = loop {
         let (bucket, blkno) = with_cached_metap(rel, |m| {
-            let bucket = _hash_hashkey2bucket(
-                hashkey,
-                m.hashm_maxbucket,
-                m.hashm_highmask,
-                m.hashm_lowmask,
-            );
+            let bucket =
+                _hash_hashkey2bucket(hashkey, m.hashm_maxbucket, m.hashm_highmask, m.hashm_lowmask,);
             (bucket, m.bucket_to_blkno(bucket))
         });
 

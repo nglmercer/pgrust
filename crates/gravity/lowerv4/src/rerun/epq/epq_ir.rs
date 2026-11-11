@@ -751,7 +751,7 @@ fn redo_n<'g, 'p>(px: &mut Px<'g, 'p>, k: usize, j: usize, node: i32, sys: Shape
     // expr_row.rs), the newest version's, as EvalPlanQual's slot forms it; not over a relation with a dropped attribute,
     // whose stored value PostgreSQL's image keeps (D2789) and the site row lacks. The visibility words (xmin / xmax / cmin
     // / cmax) are the old version's lanes: refused
-    let whole_ok = |relid: u32| gx.facts.rel(relid).is_some_and(|r| (1..={ r.natts.max(0) }).all(|a| gx.facts.att(relid, a).is_some()));
+    let whole_ok = |relid: u32| gx.facts.rel(relid).is_some_and(|r| (1..={r.natts.max(0) }).all(|a| gx.facts.att(relid, a).is_some()));
     if gx.graph.scan_lanes.iter().any(|l| l.node_id == first && l.names().any(|n| n != "ctid" && n != "tableoid" && !(n == "wholerow" && whole_ok(l.relid)))) {
         crate::refuse!(node, Reason::Shape { why: sys });
     }

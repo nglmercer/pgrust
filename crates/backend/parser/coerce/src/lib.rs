@@ -1,4 +1,4 @@
-#![allow(non_camel_case_types, non_snake_case, non_upper_case_globals)]
+#![allow(non_camel_case_types, non_snake_case,non_upper_case_globals)]
 
 #[cfg(test)]
 mod tests;
@@ -61,7 +61,8 @@ pub const TYPCATEGORY_STRING: i8 = b'S' as i8;
 fn is_polymorphic_type_family1(typid: Oid) -> bool {
     matches!(
         typid,
-        ANYELEMENTOID | ANYARRAYOID | ANYNONARRAYOID | ANYENUMOID | ANYRANGEOID | ANYMULTIRANGEOID
+        ANYELEMENTOID | ANYARRAYOID | ANYNONARRAYOID | ANYENUMOID | ANYRANGEOID
+            | ANYMULTIRANGEOID
     )
 }
 
@@ -84,9 +85,7 @@ pub fn IsPolymorphicType(typid: Oid) -> bool {
 
 // ISCOMPLEX (parse_type.h): typeOrDomainTypeRelid drills through domains.
 fn is_complex(typid: Oid) -> PgResult<bool> {
-    Ok(OidIsValid(lsyscache::get_typ_typrelid(
-        lsyscache::getBaseType(typid)?,
-    )?))
+    Ok(OidIsValid(lsyscache::get_typ_typrelid(lsyscache::getBaseType(typid)?,)?))
 }
 
 fn is_complex_array(typid: Oid) -> PgResult<bool> {
@@ -161,14 +160,7 @@ pub fn coerce_type<'mcx>(
         // transforming; no reference derived from `node` is live here.
         let consumed = unsafe {
             node.with_mut::<Param, _>(|p| {
-                variable_coerce_param_hook(
-                    pstate,
-                    p,
-                    targetTypeId,
-                    targetTypeMod,
-                    location,
-                    encoding,
-                )
+                variable_coerce_param_hook(pstate, p, targetTypeId, targetTypeMod, location, encoding,)
             })
         }
         .unwrap()?;
@@ -195,11 +187,7 @@ pub fn coerce_type<'mcx>(
         }
         return Node::mk(
             mcx,
-            types_nodes::CollateExpr {
-                arg,
-                collOid: coll.collOid,
-                location: coll.location,
-            },
+            types_nodes::CollateExpr { arg, collOid: coll.collOid, location: coll.location, },
         );
     }
     let (pathtype, funcId) = find_coercion_pathway(targetTypeId, inputTypeId, ccontext)?;
@@ -208,41 +196,18 @@ pub fn coerce_type<'mcx>(
         let baseTypeId = lsyscache::getBaseTypeAndTypmod(targetTypeId, &mut baseTypeMod)?;
         if pathtype != COERCION_PATH_RELABELTYPE {
             let result = build_coercion_expression(
-                mcx,
-                node,
-                pathtype,
-                funcId,
-                baseTypeId,
-                baseTypeMod,
-                ccontext,
-                cformat,
-                location,
+                mcx, node, pathtype, funcId, baseTypeId, baseTypeMod, ccontext, cformat, location,
             )?;
             if targetTypeId != baseTypeId {
                 return coerce_to_domain(
-                    mcx,
-                    result,
-                    baseTypeId,
-                    baseTypeMod,
-                    targetTypeId,
-                    ccontext,
-                    cformat,
-                    location,
-                    true,
+                    mcx, result, baseTypeId, baseTypeMod, targetTypeId, ccontext, cformat,
+                    location, true,
                 );
             }
             return Ok(result);
         }
         let result = coerce_to_domain(
-            mcx,
-            node,
-            baseTypeId,
-            baseTypeMod,
-            targetTypeId,
-            ccontext,
-            cformat,
-            location,
-            false,
+            mcx, node, baseTypeId, baseTypeMod, targetTypeId, ccontext, cformat, location, false,
         )?;
         if result.ptr_eq(node) {
             return Node::mk(
@@ -301,12 +266,7 @@ pub fn coerce_type<'mcx>(
         };
         return Node::mk(
             mcx,
-            ConvertRowtypeExpr {
-                arg,
-                resulttype: targetTypeId,
-                convertformat: cformat,
-                location,
-            },
+            ConvertRowtypeExpr { arg, resulttype: targetTypeId, convertformat: cformat, location, },
         );
     }
     Err(conversion_not_found(inputTypeId, targetTypeId))
@@ -342,11 +302,7 @@ fn coerce_record_to_complex<'mcx>(
     // coercion request's own location if it has one, else the input
     // expression's — without the fallback a coercion requested with
     // location -1 (make_fn_arguments) loses C's LINE/caret/QUERY framing.
-    let node_errloc = if location >= 0 {
-        location
-    } else {
-        expr_location(node)
-    };
+    let node_errloc = if location >= 0 { location } else { expr_location(node) };
     // A RowExpr source is RECORD-typed, so it holds no dropped columns.
     let args = match node.as_row_expr() {
         Some(r) => r.args.clone_in(mcx)?,
@@ -355,13 +311,7 @@ fn coerce_record_to_complex<'mcx>(
                 // upstream 9108fed3eda9 (18.5): Fix parsing of parenthesised OLD/NEW in RETURNING list.
                 parse_relation_seams::expand_nsitem_vars_at::call(mcx, pstate, v)?
             }
-            _ => {
-                return Err(record_cast_error(
-                    pstate,
-                    targetTypeId,
-                    Option::None,
-                    node_errloc,
-                ))
+            _ => { return Err(record_cast_error(pstate, targetTypeId, Option::None, node_errloc,))
             }
         },
     };
@@ -390,11 +340,7 @@ fn coerce_record_to_complex<'mcx>(
         }
         let expr = args.nth(argix);
         let exprtype = expr_type(expr);
-        let expr_errloc = if location >= 0 {
-            location
-        } else {
-            expr_location(expr)
-        };
+        let expr_errloc = if location >= 0 { location } else { expr_location(expr) };
         let cexpr = coerce_to_target_type(
             mcx,
             pstate,
@@ -407,14 +353,7 @@ fn coerce_record_to_complex<'mcx>(
             -1,
         )?
         .ok_or_else(|| {
-            record_cast_column_error(
-                pstate,
-                exprtype,
-                attr.atttypid,
-                targetTypeId,
-                ucolno,
-                expr_errloc,
-            )
+            record_cast_column_error(pstate, exprtype, attr.atttypid, targetTypeId, ucolno, expr_errloc,)
         })?;
         newargs.lappend(mcx, cexpr)?;
         ucolno += 1;
@@ -494,9 +433,7 @@ fn record_cast_column_error(
     let tyname = format_type::format_type_be(target).unwrap_or_default();
     Box::new(
         types_error::PgError::error(format!("cannot cast type record to {tyname}"))
-            .with_detail(format!(
-                "Cannot cast type {fname} to {toname} in column {ucolno}."
-            ))
+            .with_detail(format!("Cannot cast type {fname} to {toname} in column {ucolno}."))
             .with_sqlstate(types_error::ERRCODE_CANNOT_COERCE)
             .with_cursor_position(parser_errposition(
                 pstate,
@@ -522,11 +459,7 @@ fn coerce_unknown_const<'mcx>(
 
     let mut baseTypeMod = targetTypeMod;
     let baseTypeId = lsyscache::getBaseTypeAndTypmod(targetTypeId, &mut baseTypeMod)?;
-    let inputTypeMod = if baseTypeId == INTERVALOID {
-        baseTypeMod
-    } else {
-        -1
-    };
+    let inputTypeMod = if baseTypeId == INTERVALOID { baseTypeMod } else { -1 };
 
     let Some(io) = syscache_seams::pg_type_io_shape::call(baseTypeId)? else {
         return Err(type_lookup_failed(baseTypeId));
@@ -540,18 +473,19 @@ fn coerce_unknown_const<'mcx>(
     let armed = arm_parser_errposition(pstate, con.location);
     let constvalue = string_type_datum(mcx, &io, con.constvalue, inputTypeMod, con.constisnull);
     drop(armed);
-    let constvalue = constvalue.map_err(|e| {
-        if e.sqlstate() == ERRCODE_QUERY_CANCELED {
-            return e;
-        }
-        // parser_errposition leaves the error untouched when it has no
-        // position to give (parse_node.c:111-116).
-        let pos = parser_errposition(pstate, con.location, mbutils::GetDatabaseEncoding());
-        if pos <= 0 {
-            return e;
-        }
-        Box::new((*e).with_cursor_position(pos))
-    })?;
+    let constvalue = constvalue
+        .map_err(|e| {
+            if e.sqlstate() == ERRCODE_QUERY_CANCELED {
+                return e;
+            }
+            // parser_errposition leaves the error untouched when it has no
+            // position to give (parse_node.c:111-116).
+            let pos = parser_errposition(pstate, con.location, mbutils::GetDatabaseEncoding());
+            if pos <= 0 {
+                return e;
+            }
+            Box::new((*e).with_cursor_position(pos))
+        })?;
 
     let result = Node::mk(
         mcx,
@@ -628,7 +562,8 @@ fn own_datum<'mcx>(mcx: Mcx<'mcx>, d: Datum, typlen: i16, typbyval: bool) -> PgR
         // SAFETY: a strict input function returned a non-null by-reference
         // varlena datum; varsize_any reads only the header, valid for every
         // varlena form including a TOAST-pointer image.
-        let image = unsafe { core::slice::from_raw_parts(p, types_tuple::varatt::varsize_any(p)) };
+        let image =
+            unsafe { core::slice::from_raw_parts(p, types_tuple::varatt::varsize_any(p)) };
         // C: PG_DETOAST_DATUM over the new Const's value (parse_coerce.c) —
         // flattens external/expanded/compressed/short before the copy.
         return Ok(Datum::from_usize(
@@ -640,17 +575,13 @@ fn own_datum<'mcx>(mcx: Mcx<'mcx>, d: Datum, typlen: i16, typbyval: bool) -> PgR
     // bytes).
     let bytes: &[u8] = unsafe {
         let len = match typlen {
-            -2 => core::ffi::CStr::from_ptr(p.cast())
-                .to_bytes_with_nul()
-                .len(),
+            -2 => core::ffi::CStr::from_ptr(p.cast()).to_bytes_with_nul().len(),
             n if n > 0 => n as usize,
             n => panic!("own_datum: unexpected typlen {n}"),
         };
         core::slice::from_raw_parts(p, len)
     };
-    Ok(Datum::from_usize(
-        mcx::slice_in(mcx, bytes)?.leak().as_ptr() as usize,
-    ))
+    Ok(Datum::from_usize(mcx::slice_in(mcx, bytes)?.leak().as_ptr() as usize,))
 }
 
 pub fn can_coerce_type(
@@ -806,7 +737,8 @@ fn check_generic_type_consistency(
                     if !OidIsValid(anycompatible_range_typelem) {
                         return Ok(false);
                     }
-                    anycompatible_actual_types[n_anycompatible_args] = anycompatible_range_typelem;
+                    anycompatible_actual_types[n_anycompatible_args] =
+                        anycompatible_range_typelem;
                     n_anycompatible_args += 1;
                 }
             }
@@ -885,7 +817,8 @@ fn check_generic_type_consistency(
             }
         } else {
             anycompatible_range_typeid = anycompatible_multirange_typelem;
-            anycompatible_range_typelem = lsyscache::get_range_subtype(anycompatible_range_typeid)?;
+            anycompatible_range_typelem =
+                lsyscache::get_range_subtype(anycompatible_range_typeid)?;
             if !OidIsValid(anycompatible_range_typelem) {
                 return Ok(false);
             }
@@ -982,10 +915,7 @@ fn verify_common_type_from_oids(common_type: Oid, typeids: &[Oid]) -> PgResult<b
 #[cold]
 #[inline(never)]
 fn argument_types_mismatch(ptype: Oid, ntype: Oid) -> Box<PgError> {
-    let (p, n) = match (
-        format_type::format_type_be(ptype),
-        format_type::format_type_be(ntype),
-    ) {
+    let (p, n) = match (format_type::format_type_be(ptype), format_type::format_type_be(ntype),) {
         (Ok(p), Ok(n)) => (p, n),
         (Err(e), _) | (_, Err(e)) => return e,
     };
@@ -1001,13 +931,11 @@ pub fn TypeCategory(typid: Oid) -> PgResult<i8> {
 
 pub fn IsPreferredType(category: i8, typid: Oid) -> PgResult<bool> {
     let (typcategory, typispreferred) = lsyscache::get_type_category_preferred(typid)?;
-    Ok(
-        if category == typcategory || category == TYPCATEGORY_INVALID {
-            typispreferred
-        } else {
-            false
-        },
-    )
+    Ok(if category == typcategory || category == TYPCATEGORY_INVALID {
+        typispreferred
+    } else {
+        false
+    },)
 }
 
 pub fn init_seams() {
@@ -1030,16 +958,10 @@ pub fn find_coercion_pathway(
     let mut funcid = InvalidOid;
     let mut result = COERCION_PATH_NONE;
 
-    let sourceTypeId = if OidIsValid(sourceTypeId) {
-        lsyscache::getBaseType(sourceTypeId)?
-    } else {
-        sourceTypeId
-    };
-    let targetTypeId = if OidIsValid(targetTypeId) {
-        lsyscache::getBaseType(targetTypeId)?
-    } else {
-        targetTypeId
-    };
+    let sourceTypeId =
+        if OidIsValid(sourceTypeId) { lsyscache::getBaseType(sourceTypeId)? } else { sourceTypeId };
+    let targetTypeId =
+        if OidIsValid(targetTypeId) { lsyscache::getBaseType(targetTypeId)? } else { targetTypeId };
 
     if sourceTypeId == targetTypeId {
         return Ok((COERCION_PATH_RELABELTYPE, funcid));
@@ -1126,16 +1048,11 @@ pub fn IsBinaryCoercibleWithCast(srctype: Oid, targettype: Oid) -> PgResult<(boo
     if matches!(targettype, ANYOID | ANYELEMENTOID | ANYCOMPATIBLEOID) {
         return Ok((true, InvalidOid));
     }
-    let srctype = if OidIsValid(srctype) {
-        lsyscache::getBaseType(srctype)?
-    } else {
-        srctype
-    };
+    let srctype = if OidIsValid(srctype) { lsyscache::getBaseType(srctype)? } else { srctype };
     if srctype == targettype {
         return Ok((true, InvalidOid));
     }
-    let type_is_array =
-        |t: Oid| -> PgResult<bool> { Ok(OidIsValid(lsyscache::get_element_type(t)?)) };
+    let type_is_array = |t: Oid| -> PgResult<bool> { Ok(OidIsValid(lsyscache::get_element_type(t)?)) };
     if matches!(targettype, ANYARRAYOID | ANYCOMPATIBLEARRAYOID) && type_is_array(srctype)? {
         return Ok((true, InvalidOid));
     }
@@ -1391,7 +1308,8 @@ pub fn enforce_generic_type_consistency(
                             format_type::format_type_be(actual_type)?
                         )));
                     }
-                    anycompatible_actual_types[n_anycompatible_args] = anycompatible_range_typelem;
+                    anycompatible_actual_types[n_anycompatible_args] =
+                        anycompatible_range_typelem;
                     n_anycompatible_args += 1;
                 }
             }
@@ -1532,7 +1450,10 @@ pub fn enforce_generic_type_consistency(
                 format_type::format_type_be(elem_typeid)?
             )));
         }
-        if have_anyenum && elem_typeid != ANYELEMENTOID && !lsyscache::type_is_enum(elem_typeid)? {
+        if have_anyenum
+            && elem_typeid != ANYELEMENTOID
+            && !lsyscache::type_is_enum(elem_typeid)?
+        {
             return Err(poly_mismatch(format!(
                 "type matched to anyenum is not an enum type: {}",
                 format_type::format_type_be(elem_typeid)?
@@ -1563,7 +1484,8 @@ pub fn enforce_generic_type_consistency(
                     )));
                 }
                 have_anycompatible_range = true;
-                anycompatible_actual_types[n_anycompatible_args] = anycompatible_range_typelem;
+                anycompatible_actual_types[n_anycompatible_args] =
+                    anycompatible_range_typelem;
                 n_anycompatible_args += 1;
             }
         } else if have_anycompatible_multirange && OidIsValid(anycompatible_range_typeid) {
@@ -1576,7 +1498,8 @@ pub fn enforce_generic_type_consistency(
             anycompatible_typeid = select_common_type_from_oids(types, false)?;
             if !verify_common_type_from_oids(anycompatible_typeid, types)? {
                 return Err(poly_mismatch(
-                    "arguments of anycompatible family cannot be cast to a common type".to_string(),
+                    "arguments of anycompatible family cannot be cast to a common type"
+                        .to_string(),
                 ));
             }
             if have_anycompatible_array {
@@ -1650,6 +1573,7 @@ pub fn enforce_generic_type_consistency(
         }
 
         #[allow(clippy::needless_range_loop)]
+
         for j in 0..nargs {
             match declared_arg_types[j] {
                 ANYCOMPATIBLEOID | ANYCOMPATIBLENONARRAYOID => {
@@ -1722,24 +1646,15 @@ pub fn enforce_generic_type_consistency(
             Ok(array_typeid)
         }
         ANYRANGEOID => {
-            assert!(
-                OidIsValid(range_typeid),
-                "could not determine anyrange result"
-            );
+            assert!(OidIsValid(range_typeid), "could not determine anyrange result");
             Ok(range_typeid)
         }
         ANYMULTIRANGEOID => {
-            assert!(
-                OidIsValid(multirange_typeid),
-                "could not determine anymultirange result"
-            );
+            assert!(OidIsValid(multirange_typeid), "could not determine anymultirange result");
             Ok(multirange_typeid)
         }
         ANYCOMPATIBLEOID | ANYCOMPATIBLENONARRAYOID => {
-            assert!(
-                OidIsValid(anycompatible_typeid),
-                "could not identify anycompatible type"
-            );
+            assert!(OidIsValid(anycompatible_typeid), "could not identify anycompatible type");
             Ok(anycompatible_typeid)
         }
         ANYCOMPATIBLEARRAYOID => {
@@ -1783,9 +1698,7 @@ fn conversion_not_found(inputTypeId: Oid, targetTypeId: Oid) -> Box<PgError> {
 #[cold]
 #[inline(never)]
 fn type_lookup_failed(typid: Oid) -> Box<PgError> {
-    Box::new(PgError::error(format!(
-        "cache lookup failed for type {typid}"
-    )))
+    Box::new(PgError::error(format!("cache lookup failed for type {typid}")))
 }
 
 fn build_coercion_expression<'mcx>(
@@ -1929,9 +1842,7 @@ fn build_coercion_expression<'mcx>(
 #[cold]
 #[inline(never)]
 fn function_lookup_failed(funcid: Oid) -> Box<PgError> {
-    Box::new(PgError::error(format!(
-        "cache lookup failed for function {funcid}"
-    )))
+    Box::new(PgError::error(format!("cache lookup failed for function {funcid}")))
 }
 
 /// C coerce_to_domain (parse_coerce.c:675). resultcollid starts InvalidOid;
@@ -2040,39 +1951,20 @@ pub fn coerce_to_target_type<'mcx>(
         inner = inner.as_collate_expr().unwrap().arg;
     }
     let result = coerce_type(
-        mcx,
-        pstate,
-        inner,
-        exprtype,
-        targettype,
-        targettypmod,
-        ccontext,
-        cformat,
-        location,
+        mcx, pstate, inner, exprtype, targettype, targettypmod, ccontext, cformat, location,
     )?;
     // Hide only nodes coerce_type generated: it can return the input unchanged
     // (unknown Params are retyped in place), and hide_coercion_node must never
     // run on a node it did not wrap — identity, not type inequality.
     let hide = !result.ptr_eq(inner) && result.as_variant::<Const>().is_none();
     let result = coerce_type_typmod(
-        mcx,
-        result,
-        targettype,
-        targettypmod,
-        ccontext,
-        cformat,
-        location,
-        hide,
+        mcx, result, targettype, targettypmod, ccontext, cformat, location, hide,
     )?;
     if expr.node_tag() == NodeTag::T_CollateExpr && lsyscache::type_is_collatable(targettype)? {
         let coll = expr.as_collate_expr().unwrap();
         return Ok(Some(Node::mk(
             mcx,
-            CollateExpr {
-                arg: result,
-                collOid: coll.collOid,
-                location: coll.location,
-            },
+            CollateExpr { arg: result, collOid: coll.collOid, location: coll.location, },
         )?));
     }
     Ok(Some(result))
@@ -2093,7 +1985,8 @@ fn hide_coercion_node(node: Node<'_>) -> PgResult<()> {
                 })
                 .is_some()
             || node
-                .with_mut::<CoerceViaIO, _>(|c| c.coerceformat = CoercionForm::COERCE_IMPLICIT_CAST)
+                .with_mut::<CoerceViaIO, _>(|c|
+                    c.coerceformat = CoercionForm::COERCE_IMPLICIT_CAST)
                 .is_some()
             || node
                 .with_mut::<ArrayCoerceExpr, _>(|a| {
@@ -2183,15 +2076,7 @@ fn coerce_type_typmod<'mcx>(
     }
 
     build_coercion_expression(
-        mcx,
-        node,
-        pathtype,
-        funcId,
-        targetTypeId,
-        targetTypMod,
-        ccontext,
-        cformat,
-        location,
+        mcx, node, pathtype, funcId, targetTypeId, targetTypMod, ccontext, cformat, location,
     )
 }
 
@@ -2323,24 +2208,12 @@ pub fn expression_returns_set(node: Node<'_>) -> bool {
             let op = node.as_op_expr().unwrap();
             op.opretset || op.args.iter().any(expression_returns_set)
         }
-        NodeTag::T_BoolExpr => node
-            .as_bool_expr()
-            .unwrap()
-            .args
-            .iter()
-            .any(expression_returns_set),
-        NodeTag::T_ScalarArrayOpExpr => node
-            .as_scalar_array_op_expr()
-            .unwrap()
-            .args
-            .iter()
-            .any(expression_returns_set),
-        NodeTag::T_ArrayExpr => node
-            .as_array_expr()
-            .unwrap()
-            .elements
-            .iter()
-            .any(expression_returns_set),
+        NodeTag::T_BoolExpr =>
+            node.as_bool_expr().unwrap().args.iter().any(expression_returns_set),
+        NodeTag::T_ScalarArrayOpExpr =>
+            node.as_scalar_array_op_expr().unwrap().args.iter().any(expression_returns_set),
+        NodeTag::T_ArrayExpr =>
+            node.as_array_expr().unwrap().elements.iter().any(expression_returns_set),
         NodeTag::T_RelabelType => expression_returns_set(node.as_relabel_type().unwrap().arg),
         NodeTag::T_CoerceViaIO => expression_returns_set(node.as_coerce_via_io().unwrap().arg),
         NodeTag::T_ArrayCoerceExpr => {
@@ -2351,49 +2224,23 @@ pub fn expression_returns_set(node: Node<'_>) -> bool {
             expression_returns_set(node.as_convert_rowtype_expr().unwrap().arg)
         }
         NodeTag::T_CollateExpr => expression_returns_set(node.as_collate_expr().unwrap().arg),
-        NodeTag::T_CoalesceExpr => node
-            .as_coalesce_expr()
-            .unwrap()
-            .args
-            .iter()
-            .any(expression_returns_set),
-        NodeTag::T_MinMaxExpr => node
-            .as_min_max_expr()
-            .unwrap()
-            .args
-            .iter()
-            .any(expression_returns_set),
+        NodeTag::T_CoalesceExpr =>
+            node.as_coalesce_expr().unwrap().args.iter().any(expression_returns_set),
+        NodeTag::T_MinMaxExpr =>
+            node.as_min_max_expr().unwrap().args.iter().any(expression_returns_set),
         NodeTag::T_SQLValueFunction => false,
-        NodeTag::T_NullTest => node
-            .as_null_test()
-            .unwrap()
-            .arg
-            .is_some_and(expression_returns_set),
-        NodeTag::T_BooleanTest => node
-            .as_boolean_test()
-            .unwrap()
-            .arg
-            .is_some_and(expression_returns_set),
+        NodeTag::T_NullTest =>
+            node.as_null_test().unwrap().arg.is_some_and(expression_returns_set),
+        NodeTag::T_BooleanTest =>
+            node.as_boolean_test().unwrap().arg.is_some_and(expression_returns_set),
         // C's walker recurses DistinctExpr/NullIfExpr generically (no
         // opretset probe).
-        NodeTag::T_DistinctExpr => node
-            .as_distinct_expr()
-            .unwrap()
-            .args
-            .iter()
-            .any(expression_returns_set),
-        NodeTag::T_NullIfExpr => node
-            .as_null_if_expr()
-            .unwrap()
-            .args
-            .iter()
-            .any(expression_returns_set),
-        NodeTag::T_RowExpr => node
-            .as_row_expr()
-            .unwrap()
-            .args
-            .iter()
-            .any(expression_returns_set),
+        NodeTag::T_DistinctExpr =>
+            node.as_distinct_expr().unwrap().args.iter().any(expression_returns_set),
+        NodeTag::T_NullIfExpr =>
+            node.as_null_if_expr().unwrap().args.iter().any(expression_returns_set),
+        NodeTag::T_RowExpr =>
+            node.as_row_expr().unwrap().args.iter().any(expression_returns_set),
         NodeTag::T_RowCompareExpr => {
             let rc = node.as_row_compare_expr().unwrap();
             rc.largs.iter().any(expression_returns_set)
@@ -2429,11 +2276,8 @@ pub fn expression_returns_set(node: Node<'_>) -> bool {
         // C short-circuits these before recursing (parser guarantees no SRF).
         NodeTag::T_Aggref | NodeTag::T_GroupingFunc | NodeTag::T_WindowFunc => false,
         // SubLink is not set-returning; C's walker does not enter subselects.
-        NodeTag::T_SubLink => node
-            .as_sub_link()
-            .unwrap()
-            .testexpr
-            .is_some_and(expression_returns_set),
+        NodeTag::T_SubLink =>
+            node.as_sub_link().unwrap().testexpr.is_some_and(expression_returns_set),
         // expression_tree_walker (nodeFuncs.c:2245-2256): recurse into
         // testexpr and args, but not into the Plan.
         NodeTag::T_SubPlan => {
@@ -2442,23 +2286,12 @@ pub fn expression_returns_set(node: Node<'_>) -> bool {
                 || sp.args.iter().any(expression_returns_set)
         }
         // expression_tree_walker (nodeFuncs.c:2257-2258).
-        NodeTag::T_AlternativeSubPlan => node
-            .as_alternative_sub_plan()
-            .unwrap()
-            .subplans
-            .iter()
-            .any(expression_returns_set),
+        NodeTag::T_AlternativeSubPlan =>
+            node.as_alternative_sub_plan().unwrap().subplans.iter().any(expression_returns_set),
         NodeTag::T_SubscriptingRef => {
             let sr = node.as_subscripting_ref().unwrap();
-            sr.refupperindexpr
-                .iter()
-                .flatten()
-                .any(expression_returns_set)
-                || sr
-                    .reflowerindexpr
-                    .iter()
-                    .flatten()
-                    .any(expression_returns_set)
+            sr.refupperindexpr.iter().flatten().any(expression_returns_set)
+                || sr.reflowerindexpr.iter().flatten().any(expression_returns_set)
                 || sr.refexpr.is_some_and(expression_returns_set)
                 || sr.refassgnexpr.is_some_and(expression_returns_set)
         }
@@ -2473,16 +2306,10 @@ pub fn expression_returns_set(node: Node<'_>) -> bool {
                 || c.func.is_some_and(expression_returns_set)
                 || c.coercion.is_some_and(expression_returns_set)
         }
-        NodeTag::T_JsonIsPredicate => node
-            .as_json_is_predicate()
-            .unwrap()
-            .expr
-            .is_some_and(expression_returns_set),
-        NodeTag::T_JsonBehavior => node
-            .as_json_behavior()
-            .unwrap()
-            .expr
-            .is_some_and(expression_returns_set),
+        NodeTag::T_JsonIsPredicate =>
+            node.as_json_is_predicate().unwrap().expr.is_some_and(expression_returns_set),
+        NodeTag::T_JsonBehavior =>
+            node.as_json_behavior().unwrap().expr.is_some_and(expression_returns_set),
         NodeTag::T_JsonExpr => {
             let j = node.as_json_expr().unwrap();
             [j.formatted_expr, j.path_spec, j.on_empty, j.on_error]
@@ -2501,8 +2328,9 @@ pub fn expression_returns_set(node: Node<'_>) -> bool {
             .unwrap()
             .arg
             .is_some_and(expression_returns_set),
-        NodeTag::T_TargetEntry => {
-            expression_returns_set(node.as_variant::<types_nodes::TargetEntry>().unwrap().expr)
+        NodeTag::T_TargetEntry => { expression_returns_set(
+            node.as_variant::<types_nodes::TargetEntry>().unwrap().expr
+        )
         }
         NodeTag::T_List => node.as_list().unwrap().iter().any(expression_returns_set),
         NodeTag::T_FieldStore => {
@@ -2517,14 +2345,10 @@ pub fn expression_returns_set(node: Node<'_>) -> bool {
             .expr
             .is_some_and(expression_returns_set),
         NodeTag::T_ReturningExpr => expression_returns_set(
-            node.as_variant::<types_nodes::primnodes::ReturningExpr>()
-                .unwrap()
-                .retexpr,
+            node.as_variant::<types_nodes::primnodes::ReturningExpr>().unwrap().retexpr,
         ),
         NodeTag::T_WindowFuncRunCondition => expression_returns_set(
-            node.as_variant::<types_nodes::primnodes::WindowFuncRunCondition>()
-                .unwrap()
-                .arg,
+            node.as_variant::<types_nodes::primnodes::WindowFuncRunCondition>().unwrap().arg,
         ),
         // Query-structure tags cannot appear under a coercion expression;
         // anything else would fall out of C's expression_tree_walker default
@@ -2582,9 +2406,7 @@ pub fn select_common_type_pick(
                 pcategory = ncategory;
                 pispreferred = nispreferred;
             } else if ncategory != pcategory {
-                let Some(context) = context else {
-                    return Ok((InvalidOid, pick));
-                };
+                let Some(context) = context else { return Ok((InvalidOid, pick)); };
                 return Err(common_type_mismatch(pstate, context, ptype, ntype, nloc));
             } else if !pispreferred
                 && can_coerce_type(&[ptype], &[ntype], COERCION_IMPLICIT)?
@@ -2641,13 +2463,7 @@ pub fn coerce_to_common_type<'mcx>(
             -1,
         )
     } else {
-        Err(cannot_coerce(
-            pstate,
-            context,
-            input_type_id,
-            target_type_id,
-            node_location,
-        ))
+        Err(cannot_coerce(pstate, context, input_type_id, target_type_id, node_location,))
     }
 }
 
@@ -2678,10 +2494,7 @@ fn common_type_mismatch(
     ntype: Oid,
     location: ParseLoc,
 ) -> Box<PgError> {
-    let (p, n) = match (
-        format_type::format_type_be(ptype),
-        format_type::format_type_be(ntype),
-    ) {
+    let (p, n) = match (format_type::format_type_be(ptype), format_type::format_type_be(ntype),) {
         (Ok(p), Ok(n)) => (p, n),
         (Err(e), _) | (_, Err(e)) => return e,
     };
@@ -2689,17 +2502,9 @@ fn common_type_mismatch(
         elog::ereport(ERROR)
             .errcode(ERRCODE_DATATYPE_MISMATCH)
             .errmsg(format!("{context} types {p} and {n} cannot be matched"))
-            .errposition(parser_errposition(
-                pstate,
-                location,
-                mbutils::GetDatabaseEncoding(),
-            ))
+            .errposition(parser_errposition(pstate, location, mbutils::GetDatabaseEncoding(),))
             .into_error()
-            .with_error_location(ErrorLocation::new(
-                file!(),
-                line!() as i32,
-                "select_common_type",
-            )),
+            .with_error_location(ErrorLocation::new(file!(), line!() as i32, "select_common_type",)),
     )
 }
 
@@ -2724,20 +2529,10 @@ fn cannot_coerce(
     Box::new(
         elog::ereport(ERROR)
             .errcode(ERRCODE_CANNOT_COERCE)
-            .errmsg(format!(
-                "{context} could not convert type {input} to {target}"
-            ))
-            .errposition(parser_errposition(
-                pstate,
-                location,
-                mbutils::GetDatabaseEncoding(),
-            ))
+            .errmsg(format!("{context} could not convert type {input} to {target}"))
+            .errposition(parser_errposition(pstate, location, mbutils::GetDatabaseEncoding(),))
             .into_error()
-            .with_error_location(ErrorLocation::new(
-                file!(),
-                line!() as i32,
-                "coerce_to_common_type",
-            )),
+            .with_error_location(ErrorLocation::new(file!(), line!() as i32, "coerce_to_common_type",)),
     )
 }
 
@@ -2764,17 +2559,9 @@ fn construct_type_mismatch(
             .errmsg(format!(
                 "argument of {construct_name} must be type {target}, not type {input}"
             ))
-            .errposition(parser_errposition(
-                pstate,
-                location,
-                mbutils::GetDatabaseEncoding(),
-            ))
+            .errposition(parser_errposition(pstate, location, mbutils::GetDatabaseEncoding(),))
             .into_error()
-            .with_error_location(ErrorLocation::new(
-                file!(),
-                line!() as i32,
-                "coerce_to_boolean",
-            )),
+            .with_error_location(ErrorLocation::new(file!(), line!() as i32, "coerce_to_boolean",)),
     )
 }
 
@@ -2790,19 +2577,9 @@ fn returns_set(
     Box::new(
         elog::ereport(ERROR)
             .errcode(ERRCODE_DATATYPE_MISMATCH)
-            .errmsg(format!(
-                "argument of {construct_name} must not return a set"
-            ))
-            .errposition(parser_errposition(
-                pstate,
-                location,
-                mbutils::GetDatabaseEncoding(),
-            ))
+            .errmsg(format!("argument of {construct_name} must not return a set"))
+            .errposition(parser_errposition(pstate, location, mbutils::GetDatabaseEncoding(),))
             .into_error()
-            .with_error_location(ErrorLocation::new(
-                file!(),
-                line!() as i32,
-                "coerce_to_boolean",
-            )),
+            .with_error_location(ErrorLocation::new(file!(), line!() as i32, "coerce_to_boolean",)),
     )
 }

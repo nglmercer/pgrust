@@ -209,7 +209,7 @@ impl Store {
         if p.is_null() {
             return Err(bad("m10_win_put: a null row"));
         }
-        if (self.nrows as usize).is_multiple_of(CHUNK_ROWS) {
+        if ( self.nrows as usize).is_multiple_of( CHUNK_ROWS) {
             self.lay_chunk(self.nrows)?;
         }
         let ncols = self.cols.len();
@@ -408,7 +408,7 @@ mod store_tests {
     /// One stored row `n` as `Store::put` lays it: its chunk at a chunk's first row, its word, a by-reference copy carved
     /// beside it.
     fn store_row(s: &mut Store, n: u64, copy: usize) {
-        if (n as usize).is_multiple_of(CHUNK_ROWS) {
+        if ( n as usize).is_multiple_of( CHUNK_ROWS) {
             s.lay_chunk(n).unwrap();
         }
         let p = s.carve(copy, n).unwrap();

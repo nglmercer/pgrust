@@ -39,9 +39,7 @@ impl<'a, 'mcx> BbsinkOps<'mcx> for RecordingOps<'a, 'mcx> {
         _state: &mut BbsinkState,
         name: &str,
     ) -> PgResult<()> {
-        self.log
-            .borrow_mut()
-            .push(Event::BeginArchive(name.to_string()));
+        self.log.borrow_mut().push(Event::BeginArchive(name.to_string()));
         Ok(())
     }
     fn archive_contents(
@@ -57,11 +55,7 @@ impl<'a, 'mcx> BbsinkOps<'mcx> for RecordingOps<'a, 'mcx> {
         self.log.borrow_mut().push(Event::EndArchive);
         Ok(())
     }
-    fn begin_manifest(
-        &mut self,
-        _sink: &mut Bbsink<'mcx>,
-        _state: &mut BbsinkState,
-    ) -> PgResult<()> {
+    fn begin_manifest(&mut self, _sink: &mut Bbsink<'mcx>, _state: &mut BbsinkState,) -> PgResult<()> {
         self.log.borrow_mut().push(Event::BeginManifest);
         Ok(())
     }
@@ -214,11 +208,7 @@ fn forwarding_callbacks_delegate_to_next_sink() {
     let mcx = ctx.mcx();
     let log = RefCell::new(Vec::new());
     let mut st = state();
-    let leaf = Box::new(Bbsink::new(
-        mcx,
-        Box::new(RecordingOps { log: &log, mcx }),
-        None,
-    ));
+    let leaf = Box::new(Bbsink::new(mcx, Box::new(RecordingOps { log: &log, mcx }), None,));
     let mut forwarder = Bbsink::new(mcx, Box::new(ForwardingOps), Some(leaf));
 
     bbsink_begin_backup(&mut forwarder, &mut st, BLCKSZ).unwrap();

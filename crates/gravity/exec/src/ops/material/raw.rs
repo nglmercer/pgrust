@@ -188,7 +188,7 @@ pub(crate) fn restart(o: &SpoolObj) -> PgResult<()> {
 
 /// An empty spool of `rec`-byte records (8-aligned, at most `MAX_RECORD`), its regions drawn by `draw`.
 pub(crate) fn new_obj(rec: u64, draw: Draw) -> PgResult<Box<SpoolObj>> {
-    if rec == 0 || !rec.is_multiple_of(8) || rec > MAX_RECORD {
+    if rec == 0 || ! rec.is_multiple_of( 8) || rec > MAX_RECORD {
         return Err(glue::internal(&format!("gravity: nest.spool's record of {rec} bytes (8-aligned, 8 to {MAX_RECORD})"))); // alloc: Cold
     }
     let cell = abi::SpoolCell { head: abi::Head { magic: abi::SPOOL_MAGIC, op }, base: 0, cap: 0, rec };

@@ -173,7 +173,7 @@ fn pgaio_io_snapshot_renders_a_non_idle_handle_of_another_backend() {
     test_ctl();
     // No PGPROC table in this harness: inject the owner-pid read.
     let snap = |index: u32| pgaio_io_snapshot_with(index, |_| 0);
-    let index: u32 = (TEST_IMC + 5) as u32; // procno 1, its 6th handle
+    let index: u32 = ( TEST_IMC + 5) as u32; // procno 1, its 6th handle
     let h = ioh(index);
     assert_eq!(h.owner_procno, 1);
     assert!(snap(index).is_none(), "IDLE handles are not displayed");

@@ -46,7 +46,7 @@ pub(crate) unsafe fn put(t: &Rt, src: &Rt, r: core::ops::Range<usize>) {
             }
             false => (w >> 32 & 1, w >> 33 & 1),
         };
-        (dup, at, m) = (dup || m[0] & b != 0, a, [m[0] | b, m[1] | (b * v), m[2] | (b * nul)]);
+        (dup, at, m) = (dup || m[0] & b != 0, a, [m[0] | b, m[1] | ( b * v), m[2] | ( b * nul)]);
     }
     if m[0] != 0 && or(at, m) || dup {
         (*(t.d.add(FLAGS) as *const AtomicU8)).fetch_or(F_DUP, Relaxed);
@@ -74,6 +74,5 @@ pub(crate) unsafe fn expand(d: *mut u8) {
         if pay == 1 {
             wr::<u64>(r, 16, v);
         }
-    }
-    wr::<u32>(d, REC, full); wr::<u8>(d, FLAGS, rd::<u8>(d, FLAGS) & !F_COMPACT);
+    }wr::<u32>(d, REC, full); wr::<u8>(d, FLAGS, rd::<u8>(d, FLAGS) & !F_COMPACT);
 }

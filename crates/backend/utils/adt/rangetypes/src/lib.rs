@@ -129,9 +129,9 @@ impl RangeInfo {
 
 // range_get_typcache (rangetypes.c): fn_extra memo keyed by rngtypid.
 pub fn cached_range_info(
-    flinfo: &mut FmgrInfo,
+    flinfo: & mut FmgrInfo,
     rngtypid: Oid,
-) -> PgResult<&mut RangeInfo> {
+) -> PgResult<& mut RangeInfo> {
     let need = match flinfo.fn_extra_ref::<RangeInfo>() {
         Some(ri) => ri.rngtypid != rngtypid,
         None => true,

@@ -27,37 +27,15 @@ fn huge_asks_are_refused() {
         unsafe {
             assert!(!grow_span(&mut pool, n), "grow_span(pool, {n:#x})");
             assert!(!grow_span(&mut lazy, n), "grow_span(lazy, {n:#x})");
-            assert!(
-                resize(p.cast(), 4 << 16, n, 1 << 16).is_none(),
-                "resize(runs, {n:#x})"
-            );
-            assert!(
-                guard_past(&mut lazy, n),
-                "guard_past past the end is a no-op"
-            );
+            assert!(resize(p.cast(), 4 << 16, n, 1 << 16).is_none(), "resize(runs, {n:#x})");
+            assert!(guard_past(&mut lazy, n), "guard_past past the end is a no-op");
         }
         if let Some(z) = frames::zone() {
             // SAFETY: frames' own PROT_NONE range; a refused commit maps nothing.
-            assert!(
-                unsafe {
-                    frames::commit(
-                        z.lo(),
-                        n & !(hooks::page_size() - 1),
-                        true,
-                        Mode::Move,
-                        Tag::FRAME,
-                    )
-                }
-                .is_none(),
-                "commit({n:#x})"
-            );
+            assert!(unsafe { frames::commit(z.lo(), n & !(hooks::page_size() - 1), true, Mode::Move, Tag::FRAME,) }.is_none(), "commit({n:#x})");
         }
     }
-    assert_eq!(
-        (pool.len(), lazy.len()),
-        (2 * SUPER, 64 * MIB),
-        "refused grows changed nothing"
-    );
+    assert_eq!((pool.len(), lazy.len()), (2 * SUPER, 64 * MIB), "refused grows changed nothing");
     // SAFETY: ours, not used again.
     unsafe {
         give(p.cast(), 4 << 16);

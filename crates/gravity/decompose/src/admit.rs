@@ -233,7 +233,7 @@ fn fold(n: Node<'_>) -> Option<(Vec<(i32, i64)>, Option<i64>)> {
     crate::walk::stack_check(); // D3748
     let fit = |v: i128, w: u8| -> Option<i64> {
         let half = 1i128 << (8 * u32::from(w) - 1);
-        (-half..half).contains(&v).then_some(v as i64)
+        (-half..half).contains(&v).then_some( v as i64)
     };
     if let Some(c) = n.as_const() {
         let w = match c.consttype {

@@ -10,15 +10,8 @@ fn child_len(policy: Option<&str>) -> usize {
     let mut c = std::process::Command::new(std::env::current_exe().unwrap());
     // one test thread: libtest then writes `test <name> ... ` before the child's own line, on that line (the parse below
     // finds the field anywhere), the same on any box (a child left to pick its threads printed it apart, or not)
-    c.args([
-        "child_prints_the_pool_range",
-        "--exact",
-        "--include-ignored",
-        "--nocapture",
-        "--test-threads",
-        "1",
-    ])
-    .env("PAGEPOOL_POLICY_CHILD", "1");
+    c.args(["child_prints_the_pool_range", "--exact", "--include-ignored", "--nocapture", "--test-threads", "1",])
+        .env("PAGEPOOL_POLICY_CHILD", "1");
     match policy {
         Some(p) => c.env("PGRUST_MEMPOLICY", p),
         None => c.env_remove("PGRUST_MEMPOLICY"),
@@ -28,9 +21,7 @@ fn child_len(policy: Option<&str>) -> usize {
     text.lines()
         .find_map(|l| {
             let v = l.split_once("POOL_LEN ")?.1;
-            v[..v.find(|c: char| !c.is_ascii_digit()).unwrap_or(v.len())]
-                .parse()
-                .ok()
+            v[..v.find(|c: char| !c.is_ascii_digit()).unwrap_or(v.len())].parse().ok()
         })
         .unwrap_or_else(|| panic!("child: {text}"))
 }
@@ -47,8 +38,5 @@ fn child_prints_the_pool_range() {
 fn the_policys_pool_knobs_count() {
     let (base, wide) = (child_len(None), child_len(Some("pool_va_mul=3")));
     assert!(base > 0, "the pool started at the first block");
-    assert!(
-        wide > base,
-        "pool_va_mul=3 widened the pool zone: {base} -> {wide}"
-    );
+    assert!(wide > base, "pool_va_mul=3 widened the pool zone: {base} -> {wide}");
 }

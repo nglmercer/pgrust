@@ -10,6 +10,7 @@ pub mod runtime;
 
 // raw.rs is written by build.rs on every build: lint findings in it cannot be fixed by hand, so lints are off for this module only.
 #[allow(clippy::all, unused)]
+
 mod raw {
     include!(concat!(env!("OUT_DIR"), "/raw.rs"));
 }

@@ -64,9 +64,7 @@ fn sequential(f: &File, chunk: usize) -> f64 {
 #[test]
 #[ignore = "a measurement: run on a box with --ignored (module doc)"]
 fn device_reads_at_the_dev_seed() {
-    let dir = std::env::var("COST_FIT_DIR")
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|_| std::env::temp_dir());
+    let dir = std::env::var("COST_FIT_DIR").map(std::path::PathBuf::from).unwrap_or_else(|_| std::env::temp_dir());
     let path = dir.join(format!("cost_fit_device.{}", std::process::id()));
     let mut s = DEV_SEED;
     {
@@ -81,15 +79,8 @@ fn device_reads_at_the_dev_seed() {
         w.sync_all().unwrap();
     }
     println!("fit\tmode\tunit\tvalue\tnote");
-    let cold = OpenOptions::new()
-        .read(true)
-        .custom_flags(O_DIRECT)
-        .open(&path)
-        .unwrap();
-    let pts: Vec<(f64, f64)> = [4096usize, 16 << 10, 64 << 10, 256 << 10]
-        .iter()
-        .map(|&b| (b as f64, random_reads(&cold, b, 256, &mut s)))
-        .collect();
+    let cold = OpenOptions::new().read(true).custom_flags(O_DIRECT).open(&path).unwrap();
+    let pts: Vec<(f64, f64)> = [4096usize, 16 << 10, 64 << 10, 256 << 10].iter().map(|&b| (b as f64, random_reads(&cold, b, 256, &mut s))).collect();
     for (b, ns) in &pts {
         println!("fit\tcold\trandom_read_{b}\t{ns:.0}\tns per O_DIRECT read at a random offset");
     }
@@ -98,36 +89,21 @@ fn device_reads_at_the_dev_seed() {
     println!("fit\tcold\tread_fixed_ns\t{fixed:.0}\tleast-squares intercept over 4 KiB .. 256 KiB");
     println!("fit\tcold\trandom_ns_per_byte\t{per_byte:.4}\tleast-squares slope");
     println!("fit\tcold\tsequential_ns_per_byte\t{seq:.4}\t1 MiB reads, whole file");
-    println!(
-        "fit\tcold\tcoalesce_gap_bytes\t{:.0}\tfixed / sequential ns per byte",
-        fixed / seq
-    );
+    println!("fit\tcold\tcoalesce_gap_bytes\t{:.0}\tfixed / sequential ns per byte", fixed / seq);
     let block = 16u64 << 10;
     let (r, q) = (fixed + per_byte * block as f64, seq * block as f64);
-    println!(
-        "fit\tcold\tstream_div_16k\t{}\tbreak_even_div(random 16 KiB block, streamed 16 KiB)",
-        break_even_div(r, q)
-    );
+    println!("fit\tcold\tstream_div_16k\t{}\tbreak_even_div(random 16 KiB block, streamed 16 KiB)", break_even_div(r, q));
     drop(cold);
     let warm = File::open(&path).unwrap();
     let _ = sequential(&warm, 1 << 20);
     let wseq = sequential(&warm, 1 << 20);
-    let wpts: Vec<(f64, f64)> = [4096usize, 16 << 10, 64 << 10, 256 << 10]
-        .iter()
-        .map(|&b| (b as f64, random_reads(&warm, b, 4096, &mut s)))
-        .collect();
+    let wpts: Vec<(f64, f64)> = [4096usize, 16 << 10, 64 << 10, 256 << 10].iter().map(|&b| (b as f64, random_reads(&warm, b, 4096, &mut s))).collect();
     let (wfixed, wper) = least_squares(&wpts);
     println!("fit\twarm\tread_fixed_ns\t{wfixed:.0}\tpage-cache pread intercept");
     println!("fit\twarm\trandom_ns_per_byte\t{wper:.4}\tpage-cache pread slope");
     println!("fit\twarm\tsequential_ns_per_byte\t{wseq:.4}\tpage-cache 1 MiB reads");
-    println!(
-        "fit\twarm\tcoalesce_gap_bytes\t{:.0}\tfixed / sequential ns per byte",
-        wfixed / wseq
-    );
-    println!(
-        "fit\twarm\tstream_div_16k\t{}\tbreak_even_div(random 16 KiB block, streamed 16 KiB)",
-        break_even_div(wfixed + wper * block as f64, wseq * block as f64)
-    );
+    println!("fit\twarm\tcoalesce_gap_bytes\t{:.0}\tfixed / sequential ns per byte", wfixed / wseq);
+    println!("fit\twarm\tstream_div_16k\t{}\tbreak_even_div(random 16 KiB block, streamed 16 KiB)", break_even_div(wfixed + wper * block as f64, wseq * block as f64));
     std::fs::remove_file(&path).unwrap();
     assert!(fixed > 0.0 && seq > 0.0, "a read costs something");
 }

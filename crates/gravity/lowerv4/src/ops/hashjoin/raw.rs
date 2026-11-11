@@ -366,7 +366,7 @@ pub(crate) unsafe fn lay_out(d: *mut u8, len: usize) -> gravity_driver::Result<(
             wr::<u64>(d, N, 0);
             wr::<u8>(d, 15, KIND);
             // the driver zeroes only the first 64 header bytes: a region no row opened never spilled
-            wr::<u8>(d, crate::ops::hashjoin::spill::build::SPILL, 0); wr::<u8>(d, crate::ops::hashjoin::spill::build::PBITS, 0); wr::<u64>(d, crate::ops::hashjoin::spill::build::SPILLED, 0);
+wr::<u8>(d, crate::ops::hashjoin::spill::build::SPILL, 0); wr::<u8>(d, crate::ops::hashjoin::spill::build::PBITS, 0); wr::<u64>(d, crate::ops::hashjoin::spill::build::SPILLED, 0);
         }
         _ => {}
     }
@@ -514,8 +514,7 @@ pub(crate) fn prepare_parts(leader: &mut State<'_>, partials: &[Partial<'_>]) ->
             grow_to_exact(leader, t.dir() + bits::need(d), t.n as u64)?;
             bits::prepare(&Rt::of(leader.bytes.as_mut_ptr(), leader.bytes.len()));
             wr::<u8>(leader.bytes.as_mut_ptr(), RF_BITS, 0);
-            return {
-                wr::<u8>(leader.bytes.as_mut_ptr(), PHASE, 2);
+            return {wr::<u8>(leader.bytes.as_mut_ptr(), PHASE, 2);
                 Ok(())
             };
         }

@@ -1,5 +1,4 @@
-#![allow(clippy::missing_transmute_annotations)]
-//! dlopen binding to the system GSSAPI library, resolved once per process.
+#![allow(clippy::missing_transmute_annotations)]//! dlopen binding to the system GSSAPI library, resolved once per process.
 
 #![allow(non_camel_case_types)]
 
@@ -23,10 +22,7 @@ pub struct gss_buffer_desc {
 
 impl gss_buffer_desc {
     pub const fn empty() -> Self {
-        Self {
-            length: 0,
-            value: core::ptr::null_mut(),
-        }
+        Self { length: 0, value: core::ptr::null_mut(), }
     }
 }
 
@@ -83,14 +79,10 @@ pub struct GssApi {
         message_context: *mut OM_uint32,
         status_string: *mut gss_buffer_desc,
     ) -> OM_uint32,
-    pub gss_release_buffer: unsafe extern "C" fn(
-        minor_status: *mut OM_uint32,
-        buffer: *mut gss_buffer_desc,
-    ) -> OM_uint32,
-    pub gss_release_cred: unsafe extern "C" fn(
-        minor_status: *mut OM_uint32,
-        cred_handle: *mut gss_cred_id_t,
-    ) -> OM_uint32,
+    pub gss_release_buffer:
+        unsafe extern "C" fn(minor_status: *mut OM_uint32, buffer: *mut gss_buffer_desc,) -> OM_uint32,
+    pub gss_release_cred:
+        unsafe extern "C" fn(minor_status: *mut OM_uint32, cred_handle: *mut gss_cred_id_t,) -> OM_uint32,
     pub gss_release_name:
         unsafe extern "C" fn(minor_status: *mut OM_uint32, name: *mut gss_name_t) -> OM_uint32,
     pub gss_delete_sec_context: unsafe extern "C" fn(
@@ -194,12 +186,7 @@ fn open_lib() -> Result<*mut c_void, String> {
 
 #[cfg(all(not(target_family = "wasm"), not(target_os = "macos")))]
 fn open_lib() -> Result<*mut c_void, String> {
-    for name in [
-        "libgssapi_krb5.so.2",
-        "libgssapi_krb5.so",
-        "libgssapi.so.3",
-        "libgssapi.so",
-    ] {
+    for name in ["libgssapi_krb5.so.2", "libgssapi_krb5.so", "libgssapi.so.3", "libgssapi.so",] {
         let cname = format!("{name}\0");
         // SAFETY: cname is NUL-terminated.
         let h = unsafe { libc::dlopen(cname.as_ptr() as *const c_char, libc::RTLD_NOW) };

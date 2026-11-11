@@ -40,9 +40,7 @@ fn unlock(l: &AtomicU32) {
 fn take(p: &Pool, c: usize) -> Option<(usize, u32)> {
     lock(&p.class[c]);
     lock(&p.runs);
-    let got = [1 - c, c]
-        .into_iter()
-        .find_map(|s| take_free(&p.sp[s], 1, 1).map(|m| (s, m)));
+    let got = [1 - c, c].into_iter().find_map(|s| take_free(&p.sp[s], 1, 1).map(|m| (s, m)));
     unlock(&p.runs);
     unlock(&p.class[c]);
     got
@@ -60,11 +58,7 @@ fn free(p: &Pool, c: usize, s: usize, m: u32) {
 fn cross_class_takes_and_frees() {
     loom::model(|| {
         // superpage 0: run 0 free, run 1 held by the freer; superpage 1: run 0 free, run 1 held by the freer
-        let p = Arc::new(Pool {
-            class: [AtomicU32::new(0), AtomicU32::new(0)],
-            runs: AtomicU32::new(0),
-            sp: [Bits(AtomicU32::new(1)), Bits(AtomicU32::new(1))],
-        });
+        let p = Arc::new(Pool { class: [AtomicU32::new(0), AtomicU32::new(0)], runs: AtomicU32::new(0), sp: [Bits(AtomicU32::new(1)), Bits(AtomicU32::new(1))], });
         let ts: Vec<_> = (0..2)
             .map(|c| {
                 let p = p.clone();

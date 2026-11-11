@@ -37,10 +37,7 @@ fn setup() {
 #[test]
 fn boot_defaults_flow_through_hooks() {
     setup();
-    assert_eq!(
-        guc::store::get_string("DateStyle").unwrap().as_deref(),
-        Some("ISO, MDY")
-    );
+    assert_eq!(guc::store::get_string("DateStyle").unwrap().as_deref(), Some("ISO, MDY"));
     assert_eq!(adt_datetime::settings::date_style(), USE_ISO_DATES);
     assert_eq!(adt_datetime::settings::date_order(), DATEORDER_MDY);
     assert!(tz::session_timezone().is_some());
@@ -119,10 +116,7 @@ fn timezone_nan_hours_is_out_of_range() {
     for v in ["nan", "NaN", "-nan", "inf", "-inf"] {
         let mut val = Some(v.to_string());
         let mut extra = None;
-        assert!(
-            !check_timezone(&mut val, &mut extra, PGC_S_SESSION).unwrap(),
-            "{v}"
-        );
+        assert!(!check_timezone(&mut val, &mut extra, PGC_S_SESSION).unwrap(), "{v}");
     }
 }
 
@@ -206,10 +200,7 @@ fn client_encoding_canonicalizes_with_unicode_kluge() {
     let mut extra = None;
     assert!(check_client_encoding(&mut val, &mut extra, PGC_S_SESSION).unwrap());
     assert_eq!(val.as_deref(), Some("UTF8"));
-    assert_eq!(
-        extra.as_ref().unwrap().downcast_ref::<i32>(),
-        Some(&wchar::PG_UTF8)
-    );
+    assert_eq!(extra.as_ref().unwrap().downcast_ref::<i32>(), Some(&wchar::PG_UTF8));
 
     let mut val = Some("UNICODE".to_string());
     assert!(check_client_encoding(&mut val, &mut None, PGC_S_SESSION).unwrap());
@@ -321,22 +312,13 @@ fn datestyle_default_resolves_inside_set_config_option() {
         )
     };
     assert_eq!(set("DEFAULT").unwrap(), 1);
-    assert_eq!(
-        guc::store::get_string("DateStyle").unwrap().as_deref(),
-        Some("ISO, MDY")
-    );
+    assert_eq!(guc::store::get_string("DateStyle").unwrap().as_deref(), Some("ISO, MDY"));
     assert_eq!(set("German, DEFAULT").unwrap(), 1);
-    assert_eq!(
-        guc::store::get_string("DateStyle").unwrap().as_deref(),
-        Some("German, MDY")
-    );
+    assert_eq!(guc::store::get_string("DateStyle").unwrap().as_deref(), Some("German, MDY"));
     assert_eq!(adt_datetime::settings::date_style(), USE_GERMAN_DATES);
     assert_eq!(adt_datetime::settings::date_order(), DATEORDER_MDY);
     assert_eq!(set("DEFAULT, YMD").unwrap(), 1);
-    assert_eq!(
-        guc::store::get_string("DateStyle").unwrap().as_deref(),
-        Some("ISO, YMD")
-    );
+    assert_eq!(guc::store::get_string("DateStyle").unwrap().as_deref(), Some("ISO, YMD"));
     assert_eq!(set("ISO, MDY").unwrap(), 1);
     assert_eq!(adt_datetime::settings::date_style(), USE_ISO_DATES);
     assert_eq!(adt_datetime::settings::date_order(), DATEORDER_MDY);
@@ -347,23 +329,12 @@ fn login_settings_apply_datestyle_default_and_only_warn_on_garbage() {
     setup();
     // postinit.c ApplySetting: ProcessGUCArray(a, PGC_SUSET, source, GUC_ACTION_SET).
     let apply = |item: &str| {
-        guc::ProcessGUCArray(
-            &[item.to_string()],
-            PGC_SUSET,
-            PGC_S_USER,
-            guc::GUC_ACTION_SET,
-        )
+        guc::ProcessGUCArray(&[item.to_string()], PGC_SUSET, PGC_S_USER, guc::GUC_ACTION_SET,)
     };
     apply("DateStyle=German, DEFAULT").unwrap();
-    assert_eq!(
-        guc::store::get_string("DateStyle").unwrap().as_deref(),
-        Some("German, MDY")
-    );
+    assert_eq!(guc::store::get_string("DateStyle").unwrap().as_deref(), Some("German, MDY"));
     apply("DateStyle=bogus").unwrap();
-    assert_eq!(
-        guc::store::get_string("DateStyle").unwrap().as_deref(),
-        Some("German, MDY")
-    );
+    assert_eq!(guc::store::get_string("DateStyle").unwrap().as_deref(), Some("German, MDY"));
 }
 
 // audit-18.6 b195 (variable.c:329 check_timezone): C parses the numeric-hours

@@ -70,40 +70,18 @@ fn grow(on: bool, room: usize) {
     set_claim_room(usize::MAX);
     let sps = given_back_in();
     if on && room == 0 {
-        assert_eq!(
-            g1.releases + g1.skips,
-            g0.releases + g0.skips + 1,
-            "one settle: {g0:?} -> {g1:?}"
-        );
+        assert_eq!(g1.releases + g1.skips, g0.releases + g0.skips + 1, "one settle: {g0:?} -> {g1:?}");
         if g1.releases > g0.releases {
-            assert!(
-                g1.bytes - g0.bytes >= (18 * RUN) as u64,
-                "the free runs went back: {g0:?} -> {g1:?}"
-            );
-            assert!(
-                sps.contains(&sp),
-                "the free runs' superpage gave back: {sps:x?} ({sp:x})"
-            );
-            assert_eq!(
-                g1.bins.iter().sum::<u64>(),
-                g1.releases,
-                "every release in one bin"
-            );
+            assert!(g1.bytes - g0.bytes >= (18 * RUN) as u64, "the free runs went back: {g0:?} -> {g1:?}");
+            assert!(sps.contains(&sp), "the free runs' superpage gave back: {sps:x?} ({sp:x})");
+            assert_eq!(g1.bins.iter().sum::<u64>(), g1.releases, "every release in one bin");
             assert!(g1.max_ns >= g1.ns - g0.ns || g0.releases > 0);
             for &p in &freed {
-                assert_eq!(
-                    resident(p, BLOCK),
-                    0,
-                    "the free runs' pages left the process"
-                );
+                assert_eq!(resident(p, BLOCK), 0, "the free runs' pages left the process");
             }
         }
     } else {
-        assert_eq!(
-            (g1.releases, g1.skips, g1.bytes),
-            (g0.releases, g0.skips, g0.bytes),
-            "off or with room: nothing"
-        );
+        assert_eq!((g1.releases, g1.skips, g1.bytes), (g0.releases, g0.skips, g0.bytes), "off or with room: nothing");
         assert!(!sps.contains(&sp), "nothing given back: {sps:x?} ({sp:x})");
     }
     // SAFETY: ours, not used again.

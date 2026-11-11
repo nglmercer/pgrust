@@ -367,7 +367,7 @@ pub(crate) fn declare_verdicts<'g>(px: &mut Px<'g, '_>, k: usize, site: &mut Sit
         site.set_filter_only(l);
     }
     if !elide.is_empty() {
-        enables |= VERDICT_ELIDE | (VERDICT_ELIDE_HIT * hit_only as u64);
+        enables |= VERDICT_ELIDE | ( VERDICT_ELIDE_HIT * hit_only as u64);
     }
     // D3042, count.only: a plain count(*)-only end over projections alone (the fold's `count_only` plan: answer.rs `whole`
     // counts every window `end - cursor` and reads no lane) over a site with no predicate of any kind, its attribute lanes

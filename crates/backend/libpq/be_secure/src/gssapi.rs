@@ -9,9 +9,7 @@ use be_gssapi_common::gss_ffi::{
     self, gss_buffer_desc, gss_cred_id_t, gss_ctx_id_t, gss_error, gss_name_t, GssApi,
     GSS_C_QOP_DEFAULT, GSS_S_COMPLETE, GSS_S_CONTINUE_NEEDED,
 };
-use be_gssapi_common::{
-    acquire_keytab_cred, gss_setenv, pg_GSS_error, pg_store_delegated_credential,
-};
+use be_gssapi_common::{acquire_keytab_cred, gss_setenv, pg_GSS_error, pg_store_delegated_credential,};
 use elog::{ereport, PCT_M};
 use types_error::{PgResult, COMMERROR, FATAL};
 use types_storage::waiteventset::{WL_LATCH_SET, WL_SOCKET_READABLE, WL_SOCKET_WRITEABLE};
@@ -117,10 +115,7 @@ pub fn gssenc_available() -> bool {
 pub fn be_gssapi_close() {
     let (ctx, name) = GSS.with(|g| {
         g.enc.set(false);
-        (
-            g.ctx.replace(core::ptr::null_mut()),
-            g.name.replace(core::ptr::null_mut()),
-        )
+        (g.ctx.replace(core::ptr::null_mut()), g.name.replace(core::ptr::null_mut()),)
     });
     let Ok(api) = gss_ffi::try_gss() else { return };
     let mut minor: u32 = 0;
@@ -176,9 +171,7 @@ pub(crate) fn be_gssapi_write(sock: i32, ptr: &[u8]) -> PgResult<(isize, i32)> {
         let len = ptr.len();
         if len < b.send_consumed {
             ereport(COMMERROR)
-                .errmsg_internal(
-                    "GSSAPI caller failed to retransmit all data needing to be retried",
-                )
+                .errmsg_internal("GSSAPI caller failed to retransmit all data needing to be retried",)
                 .finish(loc("be_gssapi_write"))?;
             return Ok((-1, libc::ECONNRESET));
         }
@@ -211,15 +204,7 @@ pub(crate) fn be_gssapi_write(sock: i32, ptr: &[u8]) -> PgResult<(isize, i32)> {
             let mut minor: u32 = 0;
             // SAFETY: gctx is the established context; input borrows ptr.
             let major = unsafe {
-                wrap(
-                    &mut minor,
-                    gctx,
-                    1,
-                    GSS_C_QOP_DEFAULT,
-                    &mut input,
-                    &mut conf_state,
-                    &mut output,
-                )
+                wrap(&mut minor, gctx, 1, GSS_C_QOP_DEFAULT, &mut input, &mut conf_state, &mut output,)
             };
             if major != GSS_S_COMPLETE {
                 pg_GSS_error("GSSAPI wrap error", major, minor)?;
@@ -324,23 +309,14 @@ pub(crate) fn be_gssapi_read(sock: i32, ptr: &mut [u8]) -> PgResult<(isize, i32)
             if b.recv_len - HDR < plen {
                 return Ok((-1, libc::EWOULDBLOCK));
             }
-            let mut input = gss_buffer_desc {
-                length: plen,
-                value: b.recv[HDR..].as_ptr() as *mut c_void,
-            };
+            let mut input =
+                gss_buffer_desc { length: plen, value: b.recv[HDR..].as_ptr() as *mut c_void, };
             let mut output = gss_buffer_desc::empty();
             let mut conf_state: core::ffi::c_int = 0;
             let mut minor: u32 = 0;
             // SAFETY: gctx is the established context; input borrows recv.
             let major = unsafe {
-                unwrap(
-                    &mut minor,
-                    gctx,
-                    &mut input,
-                    &mut output,
-                    &mut conf_state,
-                    core::ptr::null_mut(),
-                )
+                unwrap(&mut minor, gctx, &mut input, &mut output, &mut conf_state, core::ptr::null_mut(),)
             };
             if major != GSS_S_COMPLETE {
                 pg_GSS_error("GSSAPI unwrap error", major, minor)?;
@@ -461,9 +437,7 @@ pub fn secure_open_gssapi(sock: i32) -> PgResult<i32> {
     // The configured keytab binds through the thread-safe credential store
     // where the library has it; the process environment is shared by every
     // backend thread (see be_gssapi_common::gss_setenv).
-    let keyfile = guc_tables::vars::pg_krb_server_keyfile
-        .read()
-        .unwrap_or_default();
+    let keyfile = guc_tables::vars::pg_krb_server_keyfile.read().unwrap_or_default();
     let mut cred: gss_cred_id_t = core::ptr::null_mut();
     if !keyfile.is_empty() {
         let kt = CString::new(keyfile.as_str()).unwrap_or_default();
@@ -528,10 +502,7 @@ fn open_loop(api: &'static GssApi, sock: i32, cred: gss_cred_id_t) -> PgResult<i
         let mut minor: u32 = 0;
         let major = GSS.with(|g| {
             let b = g.bufs.borrow();
-            let mut input = gss_buffer_desc {
-                length: plen,
-                value: b.recv.as_ptr() as *mut c_void,
-            };
+            let mut input = gss_buffer_desc { length: plen, value: b.recv.as_ptr() as *mut c_void, };
             // SAFETY: input borrows the receive buffer for the call; the
             // context, name and output token are owned by this connection.
             unsafe {
@@ -546,11 +517,7 @@ fn open_loop(api: &'static GssApi, sock: i32, cred: gss_cred_id_t) -> PgResult<i
                     &mut output,
                     core::ptr::null_mut(),
                     core::ptr::null_mut(),
-                    if accept_delegation {
-                        &mut delegated_creds
-                    } else {
-                        core::ptr::null_mut()
-                    },
+                    if accept_delegation { &mut delegated_creds } else { core::ptr::null_mut() },
                 )
             }
         });
@@ -599,9 +566,7 @@ fn open_loop(api: &'static GssApi, sock: i32, cred: gss_cred_id_t) -> PgResult<i
     }
 
     GSS.with(|g| g.bufs.borrow_mut().reset(PQ_GSS_MAX_PACKET_SIZE))?;
-    let wrap_size_limit = api
-        .gss_wrap_size_limit
-        .expect("gssenc_available checked gss_wrap_size_limit");
+    let wrap_size_limit = api.gss_wrap_size_limit.expect("gssenc_available checked gss_wrap_size_limit");
     let mut max_pkt: u32 = 0;
     let mut minor: u32 = 0;
     let ctx = GSS.with(|g| g.ctx.get());

@@ -6,10 +6,7 @@
 
 use memledger::arena::{cache_scope_for, cache_took, road, road_live, set_cache_heap_ready};
 use memledger::charge::context;
-use memledger::{
-    bind_backend, door_heap, statement_begin, statement_end, unbind_backend, Consumer, Holder,
-    Kind, Owner,
-};
+use memledger::{bind_backend, door_heap, statement_begin, statement_end, unbind_backend, Consumer, Holder, Kind, Owner,};
 
 const MIB: isize = 1 << 20;
 const H: Owner = Owner::Cache(Holder::Of(Consumer::PartCache));
@@ -60,11 +57,7 @@ fn the_road_counts_live_blocks_and_what_no_cache_holder_covers() {
         door_heap(-2 * MIB);
         road_live(false, -2 * MIB);
         let r3 = road();
-        assert_eq!(
-            (r3.arena_live, r3.own_live, r3.holders_heap),
-            (r0.arena_live, r0.own_live, r0.holders_heap),
-            "{r3:?}"
-        );
+        assert_eq!((r3.arena_live, r3.own_live, r3.holders_heap), (r0.arena_live, r0.own_live, r0.holders_heap), "{r3:?}");
         assert_eq!(r3.plain, r0.plain, "every scope named its owner");
         statement_end();
         unbind_backend();

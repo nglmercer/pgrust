@@ -530,7 +530,7 @@ fn XactLockForVirtualXact(
                 )?;
                 xid = found;
                 more = have_more;
-            }
+        }
         if xid == InvalidTransactionId {
             debug_assert!(!more);
             return Ok(true);

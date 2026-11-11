@@ -3,10 +3,7 @@
 //! in the tombstone heap, locked as a heap row.
 
 use mcx::Mcx;
-use tableam_vocab::{
-    LockTupleMode, LockWaitPolicy, Snapshot, TM_FailureData, TM_Result,
-    TUPLE_LOCK_FLAG_FIND_LAST_VERSION,
-};
+use tableam_vocab::{LockTupleMode, LockWaitPolicy, Snapshot, TM_FailureData, TM_Result, TUPLE_LOCK_FLAG_FIND_LAST_VERSION,};
 use types_core::CommandId;
 use types_error::{PgError, PgResult};
 use types_nodes::CmdType;
@@ -23,20 +20,14 @@ pub fn admit(op: CmdType, on_conflict: bool) -> PgResult<()> {
     match op {
         CmdType::CMD_INSERT => crate::route::admit_insert(on_conflict),
         CmdType::CMD_UPDATE | CmdType::CMD_DELETE => Ok(()),
-        CmdType::CMD_MERGE => Err(pgrc_am::dml::trickle_unsupported(
-            pgrc_am::dml::TrickleOp::Merge,
-        )),
+        CmdType::CMD_MERGE => Err(pgrc_am::dml::trickle_unsupported(pgrc_am::dml::TrickleOp::Merge,)),
         _ => Err(pgrc_am::unsupported("this DML operation")),
     }
 }
 
 /// The RowIdent at a position this statement minted (a row trigger event's tuple, kept past the statement by a
 /// deferred event: the RowIdent survives seals and compactions, the position does not).
-pub fn rowident_of<'mcx>(
-    mcx: Mcx<'mcx>,
-    rel: &Relation<'mcx>,
-    tid: &ItemPointerData,
-) -> PgResult<u64> {
+pub fn rowident_of<'mcx>(mcx: Mcx<'mcx>, rel: &Relation<'mcx>, tid: &ItemPointerData,) -> PgResult<u64> {
     rowident_at(mcx, rel, tid)
 }
 
@@ -53,10 +44,7 @@ pub fn delete<'mcx>(
 ) -> PgResult<TM_Result> {
     let r = rowident_at(mcx, rel, tid)?;
     tmfd.ctid = *tid;
-    let res = visible(
-        stageb::write(mcx, rel, r, None, cid, wait, changing_part, tmfd)?,
-        "delete",
-    )?;
+    let res = visible(stageb::write(mcx, rel, r, None, cid, wait, changing_part, tmfd)?, "delete",)?;
     if res == TM_Result::TM_Ok {
         crate::stats::deleted(rel);
         if crate::logical::active(rel) {
@@ -82,10 +70,7 @@ pub fn update<'mcx>(
     *lockmode = LockTupleMode::LockTupleNoKeyExclusive;
     let r = rowident_at(mcx, rel, otid)?;
     tmfd.ctid = *otid;
-    let res = visible(
-        stageb::write(mcx, rel, r, Some(&mut *slot), cid, wait, false, tmfd)?,
-        "update",
-    )?;
+    let res = visible(stageb::write(mcx, rel, r, Some(&mut *slot), cid, wait, false, tmfd)?, "update",)?;
     if res == TM_Result::TM_Ok {
         crate::stats::updated(rel);
         if crate::logical::active(rel) {
@@ -143,10 +128,7 @@ pub fn lock<'mcx>(
                 }
             }
             Locking::Answer(p) => {
-                return Err(Box::new(
-                    PgError::error(format!("pgrcolumnar: unexpected row lock answer {p:?}"))
-                        .with_sqlstate(types_error::ERRCODE_INTERNAL_ERROR),
-                ))
+                return Err(Box::new(PgError::error(format!("pgrcolumnar: unexpected row lock answer {p:?}")).with_sqlstate(types_error::ERRCODE_INTERNAL_ERROR),))
             }
         };
         tmfd.xmax = xmax;
@@ -161,11 +143,7 @@ pub fn lock<'mcx>(
 }
 
 fn rowident_at<'mcx>(mcx: Mcx<'mcx>, rel: &Relation<'mcx>, tid: &ItemPointerData) -> PgResult<u64> {
-    if crate::pathcache::was_located(
-        rel,
-        types_tuple::ItemPointerGetBlockNumberNoCheck(tid),
-        types_tuple::ItemPointerGetOffsetNumberNoCheck(tid),
-    )? {
+    if crate::pathcache::was_located(rel, types_tuple::ItemPointerGetBlockNumberNoCheck(tid), types_tuple::ItemPointerGetOffsetNumberNoCheck(tid),)? {
         return position::id_at(rel, tid);
     }
     let mut view = ViewRef::default();
@@ -175,20 +153,16 @@ fn rowident_at<'mcx>(mcx: Mcx<'mcx>, rel: &Relation<'mcx>, tid: &ItemPointerData
 /// heap_delete / heap_update raise on a row the command cannot see.
 fn visible(res: TM_Result, what: &str) -> PgResult<TM_Result> {
     match res {
-        TM_Result::TM_Invisible => Err(Box::new(
-            PgError::error(format!("attempted to {what} invisible tuple"))
-                .with_sqlstate(types_error::ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
-        )),
+        TM_Result::TM_Invisible =>
+            Err(Box::new(PgError::error(format!("attempted to {what} invisible tuple")).with_sqlstate(types_error::ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),)),
         r => Ok(r),
     }
 }
 
 fn moved() -> Box<PgError> {
     Box::new(
-        PgError::error(
-            "tuple to be locked was already moved to another partition due to concurrent update",
-        )
-        .with_sqlstate(types_error::ERRCODE_T_R_SERIALIZATION_FAILURE),
+        PgError::error("tuple to be locked was already moved to another partition due to concurrent update",)
+            .with_sqlstate(types_error::ERRCODE_T_R_SERIALIZATION_FAILURE),
     )
 }
 
@@ -207,11 +181,7 @@ mod tests {
         ] {
             match admit(op, on_conflict) {
                 Ok(()) => assert!(ok, "{op:?} refused"),
-                Err(e) => assert!(
-                    !ok && e.sqlstate() == types_error::ERRCODE_FEATURE_NOT_SUPPORTED,
-                    "{op:?}: {}",
-                    e.message()
-                ),
+                Err(e) => assert!(!ok && e.sqlstate() == types_error::ERRCODE_FEATURE_NOT_SUPPORTED, "{op:?}: {}", e.message()),
             }
         }
     }

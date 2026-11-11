@@ -1,5 +1,4 @@
-#![allow(non_snake_case)]
-#![allow(non_upper_case_globals)]
+#![allow(non_snake_case, non_upper_case_globals)]
 
 use std::fmt::Write as _;
 use std::rc::Rc;
@@ -434,7 +433,7 @@ fn oid_output_function_call(mcx: Mcx<'_>, typoutput: Oid, val: Datum) -> PgResul
     let d = types_fmgr::function_call1_coll_in(&mut flinfo, InvalidOid, mcx, val)?;
     // SAFETY: output functions return a NUL-terminated cstring datum.
     let bytes = unsafe { core::ffi::CStr::from_ptr((d.as_usize() as *const u8).cast()) }.to_bytes();
-    ::mcx::std_vec_from_slice("test_decoding", bytes)
+    ::mcx::std_vec_from_slice("test_decoding",bytes)
 }
 
 fn varatt_is_external_ondisk(val: Datum) -> bool {

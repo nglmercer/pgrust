@@ -27,8 +27,7 @@ fn a_poll_gap_lines_os_part_leaves_out_its_own_write() {
         child();
         return;
     }
-    let path = std::path::Path::new(env!("CARGO_TARGET_TMPDIR"))
-        .join(format!("cancel_probe_order-{}.err", std::process::id()));
+    let path = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("cancel_probe_order-{}.err", std::process::id()));
     let err_file = std::fs::File::create(&path).unwrap();
     let out = std::process::Command::new(std::env::current_exe().unwrap())
         .args(["--exact", NAME, "--nocapture", "--test-threads", "1"])
@@ -39,31 +38,13 @@ fn a_poll_gap_lines_os_part_leaves_out_its_own_write() {
     let err = std::fs::read_to_string(&path).unwrap();
     let _ = std::fs::remove_file(&path);
     assert!(out.status.success(), "the child failed: {err}");
-    let lines: Vec<&str> = err
-        .lines()
-        .filter(|l| l.starts_with("poll-gap: "))
-        .collect();
+    let lines: Vec<&str> = err.lines().filter(|l| l.starts_with("poll-gap: ")).collect();
     assert_eq!(lines.len(), 1, "one gap: {err}");
-    assert!(
-        err.starts_with("poll-gap: "),
-        "the line is the stderr file's first write: {err}"
-    );
+    assert!(err.starts_with("poll-gap: "), "the line is the stderr file's first write: {err}");
     if cfg!(target_os = "linux") {
         let l = lines[0];
-        let at = l
-            .find("; blocks ")
-            .unwrap_or_else(|| panic!("no OS part: {l}"))
-            + "; blocks ".len();
-        let blocks: Vec<u64> = l[at..]
-            .split(|c: char| !c.is_ascii_digit())
-            .filter(|x| !x.is_empty())
-            .take(2)
-            .map(|x| x.parse().unwrap())
-            .collect();
-        assert_eq!(
-            blocks,
-            vec![0, 0],
-            "a sleep's OS part has no block I/O: the line's own write is not in it: {l}"
-        );
+        let at = l.find("; blocks ").unwrap_or_else(|| panic!("no OS part: {l}")) + "; blocks ".len();
+        let blocks: Vec<u64> = l[at..].split(|c: char| !c.is_ascii_digit()).filter(|x| !x.is_empty()).take(2).map(|x| x.parse().unwrap()).collect();
+        assert_eq!(blocks, vec![0, 0], "a sleep's OS part has no block I/O: the line's own write is not in it: {l}");
     }
 }

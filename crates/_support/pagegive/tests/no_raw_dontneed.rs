@@ -41,10 +41,7 @@ fn violations(text: &str) -> Vec<usize> {
     for (i, line) in text.lines().enumerate() {
         let code = code_of(line);
         let compact: String = code.chars().filter(|c| !c.is_whitespace()).collect();
-        if code.contains("MADV_DONTNEED")
-            || (compact.contains("madvise(")
-                && (compact.ends_with(",4)") || compact.contains(",4)}")))
-        {
+        if code.contains("MADV_DONTNEED") || (compact.contains("madvise(") && (compact.ends_with(",4)") || compact.contains(",4)}"))) {
             v.push(i + 1);
         }
     }
@@ -52,9 +49,7 @@ fn violations(text: &str) -> Vec<usize> {
 }
 
 fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
-    let Ok(rd) = std::fs::read_dir(dir) else {
-        return;
-    };
+    let Ok(rd) = std::fs::read_dir(dir) else { return; };
     for e in rd.flatten() {
         let p = e.path();
         let name = e.file_name();
@@ -70,49 +65,26 @@ fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
 
 #[test]
 fn the_scanner_sees_a_seeded_violation() {
-    assert_eq!(
-        violations("unsafe { libc::madvise(p, n, libc::MADV_DONTNEED) };"),
-        vec![1]
-    );
-    assert_eq!(
-        violations("let x = 1;\n    madvise(lo as *mut c_void, hi - lo, 4)\n"),
-        vec![2]
-    );
-    assert!(violations(
-        "// MADV_DONTNEED in a comment\nlet s = \"MADV_DONTNEED\";\n/// doc MADV_DONTNEED"
-    )
-    .is_empty());
+    assert_eq!(violations("unsafe { libc::madvise(p, n, libc::MADV_DONTNEED) };"), vec![1]);
+    assert_eq!(violations("let x = 1;\n    madvise(lo as *mut c_void, hi - lo, 4)\n"), vec![2]);
+    assert!(violations("// MADV_DONTNEED in a comment\nlet s = \"MADV_DONTNEED\";\n/// doc MADV_DONTNEED").is_empty());
 }
 
 #[test]
 fn no_raw_madv_dontneed_outside_the_allowed_sites() {
     // The checkout under test, read at run time (D793-b): cargo sets CARGO_MANIFEST_DIR for every test process.
-    let manifest = std::env::var_os("CARGO_MANIFEST_DIR")
-        .expect("cargo sets CARGO_MANIFEST_DIR for the test process");
+    let manifest = std::env::var_os("CARGO_MANIFEST_DIR").expect("cargo sets CARGO_MANIFEST_DIR for the test process");
     let crates = Path::new(&manifest).join("../..").canonicalize().unwrap();
     let mut files = Vec::new();
     walk(&crates, &mut files);
-    assert!(
-        files.len() > 1000,
-        "the walk found the tree: {} files under {}",
-        files.len(),
-        crates.display()
-    );
+    assert!(files.len() > 1000, "the walk found the tree: {} files under {}", files.len(), crates.display());
     let mut bad = Vec::new();
     for f in files {
-        let rel = f
-            .strip_prefix(&crates)
-            .unwrap()
-            .to_string_lossy()
-            .replace('\\', "/");
-        if ALLOWED.iter().any(|(p, _)| *p == rel)
-            || rel == "_support/pagegive/tests/no_raw_dontneed.rs"
-        {
+        let rel = f.strip_prefix(&crates).unwrap().to_string_lossy().replace('\\', "/");
+        if ALLOWED.iter().any(|(p, _)| *p == rel) || rel == "_support/pagegive/tests/no_raw_dontneed.rs" {
             continue;
         }
-        let Ok(text) = std::fs::read_to_string(&f) else {
-            continue;
-        };
+        let Ok(text) = std::fs::read_to_string(&f) else { continue; };
         for line in violations(&text) {
             bad.push(format!("crates/{rel}:{line}"));
         }

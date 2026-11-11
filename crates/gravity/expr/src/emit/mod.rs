@@ -260,7 +260,7 @@ impl<'p> KidIter<'p> {
 
     /// The children as the program's own list, when they are one (a call's arguments, a BoolExpr's operands, none).
     pub fn slice(&self) -> Option<&'p [NodeId]> {
-        (self.head.is_none() && self.b.as_slice().is_empty() && self.tail.is_none() && !self.skip_none).then_some(self.a.as_slice())
+        (self.head.is_none() && self.b.as_slice().is_empty() && self.tail.is_none() && !self.skip_none).then_some( self.a.as_slice())
     }
 }
 

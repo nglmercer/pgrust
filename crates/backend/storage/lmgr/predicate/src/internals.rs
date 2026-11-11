@@ -1,7 +1,6 @@
 #![allow(clippy::missing_safety_doc)]
 // predicate_internals.h structs, #[repr(C)] so the intrusive-dlist pointer
 // arithmetic in engine.rs matches C's layout assumptions.
-
 #![allow(non_camel_case_types, non_snake_case, non_upper_case_globals)]
 
 use lwlock::LWLock;

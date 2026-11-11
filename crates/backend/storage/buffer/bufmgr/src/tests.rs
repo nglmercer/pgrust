@@ -1991,7 +1991,7 @@ fn setup_b039_seams() {
         }
         // C relpath() (relpath.h): tablespace- and fork-aware rendering.
         if !relpath_seams::relpathbackend::is_installed() {
-            relpath_seams::relpathbackend::set(relpath::GetRelationPath);
+            relpath_seams::relpathbackend::set( relpath::GetRelationPath);
         }
     });
 }

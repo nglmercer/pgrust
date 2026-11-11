@@ -21,7 +21,7 @@ use crate::{
 fn arg_text_string(fcinfo: &mut FunctionCallInfoBaseData, i: usize) -> PgResult<Vec<u8>> {
     // SAFETY: strict fn — the arg is a non-null text varlena.
     let name = unsafe { fcinfo.arg_varlena_packed(i)? };
-    ::mcx::std_vec_from_slice("replication", name.data())
+    ::mcx::std_vec_from_slice("replication",name.data())
 }
 
 pub fn fc_pg_replication_origin_create(

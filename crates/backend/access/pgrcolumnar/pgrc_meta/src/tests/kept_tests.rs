@@ -10,10 +10,7 @@ use memledger::charge::{context, owner_row};
 use memledger::{bind_backend, statement_begin, statement_end, unbind_backend, Kind, Owner};
 
 fn int_class() -> StorageClass {
-    StorageClass::ByvalWord {
-        width: 8,
-        signed: true,
-    }
+    StorageClass::ByvalWord { width: 8, signed: true, }
 }
 
 fn text_class() -> StorageClass {
@@ -33,9 +30,7 @@ fn granules(text: bool) -> Vec<TestColumn> {
             let mut rows: Vec<Option<TestValue>> = (0..8192u64)
                 .map(|i| {
                     if text {
-                        Some(TestValue::Bytes(
-                            format!("value-{g}-{i}-padding-padding").into_bytes(),
-                        ))
+                        Some(TestValue::Bytes(format!("value-{g}-{i}-padding-padding").into_bytes(),))
                     } else if i % 97 == 0 {
                         None
                     } else {
@@ -58,14 +53,7 @@ fn profile(text: bool) -> MetaProfile {
 }
 
 #[allow(clippy::type_complexity)]
-fn run(
-    b: &mut ColumnMeta,
-    cols: &[TestColumn],
-    mut each: impl FnMut(&ColumnMeta),
-) -> (
-    Vec<(crate::format::part::SectionKind, Vec<u8>)>,
-    Option<crate::format::sidecar::ColDistribution>,
-) {
+fn run(b: &mut ColumnMeta, cols: &[TestColumn], mut each: impl FnMut(&ColumnMeta),) -> (Vec<(crate::format::part::SectionKind, Vec<u8>)>, Option<crate::format::sidecar::ColDistribution>,) {
     for (g, c) in cols.iter().enumerate() {
         b.observe_granule(&c.input(), g as u32);
         each(b);
@@ -96,29 +84,19 @@ fn a_builder_with_an_owner_charges_its_heap_and_gives_it_back() {
             assert_eq!(b.owner(), Some((o, Kind::Region)));
             let mut peak = 0u64;
             let got = run(&mut b, &cols, |b| {
-                assert_eq!(
-                    committed(o),
-                    b.charged_bytes() as i64,
-                    "the owner holds exactly the builder's fitted bytes"
-                );
+                assert_eq!(committed(o), b.charged_bytes() as i64, "the owner holds exactly the builder's fitted bytes");
                 peak = peak.max(b.charged_bytes());
             });
             // 4 sealed granules hold at least their HLL register blocks (1 KiB each); the text arm's accumulator holds
             // the 32768 distinct values' bytes.
             assert!(peak >= 4 * 1024, "text={text}: peak {peak}");
             if text {
-                assert!(
-                    peak >= 32768 * 20,
-                    "text: the value arena is charged: {peak}"
-                );
+                assert!(peak >= 32768 * 20, "text: the value arena is charged: {peak}");
             }
             let mut plain = ColumnMeta::new(profile(text));
             assert_eq!(plain.owner(), None);
             let want = run(&mut plain, &cols, |p| assert_eq!(p.charged_bytes(), 0));
-            assert_eq!(
-                got, want,
-                "text={text}: the same sections and sketch with or without an owner"
-            );
+            assert_eq!(got, want, "text={text}: the same sections and sketch with or without an owner");
             drop(b);
             assert_eq!(committed(o), 0, "text={text}: given back with the builder");
         }
@@ -139,11 +117,7 @@ fn the_accumulator_charges_each_grow_as_it_happens() {
         statement_begin();
         let (o, _) = context();
         for words in [true, false] {
-            let mut d = if words {
-                crate::sketch::DistAcc::for_words()
-            } else {
-                crate::sketch::DistAcc::with_hash_arm(true)
-            };
+            let mut d = if words { crate::sketch::DistAcc::for_words() } else { crate::sketch::DistAcc::with_hash_arm(true) };
             d.charge_to(Some((o, Kind::Region)));
             let (mut grows, mut last) = (0u32, d.heap_bytes());
             for i in 0..100_000u64 {
@@ -157,21 +131,13 @@ fn the_accumulator_charges_each_grow_as_it_happens() {
                 let now = d.heap_bytes();
                 grows += u32::from(now != last);
                 last = now;
-                assert_eq!(
-                    committed(o),
-                    now as i64,
-                    "words={words}: the owner holds the accumulator's blocks at value {i}"
-                );
+                assert_eq!(committed(o), now as i64, "words={words}: the owner holds the accumulator's blocks at value {i}");
                 assert_eq!(d.charged(), now);
             }
             assert!(grows >= 10, "words={words}: the table grew {grows} times");
             assert!(last >= 100_000 * 8, "words={words}: {last} bytes");
             drop(d);
-            assert_eq!(
-                committed(o),
-                0,
-                "words={words}: given back with the accumulator"
-            );
+            assert_eq!(committed(o), 0, "words={words}: given back with the accumulator");
         }
         statement_end();
         unbind_backend();
@@ -202,16 +168,8 @@ fn a_finish_working_vector_is_the_owners_before_its_fill() {
             }),
         )
         .expect("a 1 Mi-entry reserve");
-        assert_eq!(
-            first.get(),
-            (n * 8) as i64,
-            "the block is charged before the fill starts"
-        );
-        assert_eq!(
-            committed(o),
-            (v.capacity() * 8) as i64,
-            "and stays fitted to its capacity after it"
-        );
+        assert_eq!(first.get(), (n * 8) as i64, "the block is charged before the fill starts");
+        assert_eq!(committed(o), (v.capacity() * 8) as i64, "and stays fitted to its capacity after it");
         drop(v);
         assert_eq!(committed(o), 0, "given back with the vector");
         statement_end();

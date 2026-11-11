@@ -37,10 +37,7 @@ fn exec_or_fail(
 ) -> PgResult<QueryResult> {
     let res = conn.exec(cmd)?;
     if res.status != ExecStatus::TuplesOk && res.status != ExecStatus::CommandOk {
-        return Err(err(
-            format!("could not {what}: {}", res.err.clone()),
-            sqlstate,
-        ));
+        return Err(err(format!("could not {what}: {}", res.err.clone()), sqlstate,));
     }
     Ok(res)
 }
@@ -92,10 +89,8 @@ pub(crate) fn check_publications(conn: &mut PgConn, publications: &[&str]) -> Pg
     )?;
 
     let found: Vec<String> = res.rows.iter().map(|r| row_text(r, 0)).collect();
-    let missing: Vec<&&str> = publications
-        .iter()
-        .filter(|p| !found.iter().any(|f| f == **p))
-        .collect();
+    let missing: Vec<&&str> =
+        publications.iter().filter(|p| !found.iter().any(|f| f == **p)).collect();
     if !missing.is_empty() {
         let mut list = String::new();
         for (i, p) in missing.iter().enumerate() {
@@ -358,10 +353,7 @@ pub(crate) fn drop_slot_at_pub_node(
     slotname: &str,
     missing_ok: bool,
 ) -> PgResult<()> {
-    let cmd = format!(
-        "DROP_REPLICATION_SLOT \"{}\" WAIT",
-        slotname.replace('"', "\"\"")
-    );
+    let cmd = format!("DROP_REPLICATION_SLOT \"{}\" WAIT", slotname.replace('"', "\"\""));
     let res = conn.exec(&cmd)?;
     if res.status == ExecStatus::CommandOk {
         let _ = elog::elog(
@@ -375,9 +367,7 @@ pub(crate) fn drop_slot_at_pub_node(
     let undefined_object = res.diag.as_ref().is_some_and(|d| d.sqlstate == "42704");
     if res.status == ExecStatus::Error && missing_ok && undefined_object {
         elog::ereport(LOG)
-            .errmsg(format!(
-                "could not drop replication slot \"{slotname}\" on publisher: {msg}"
-            ))
+            .errmsg(format!("could not drop replication slot \"{slotname}\" on publisher: {msg}"))
             .finish(types_error::ErrorLocation::new(
                 "src/backend/commands/subscriptioncmds.c",
                 0,
@@ -457,8 +447,7 @@ pub(crate) fn AlterSubscription_refresh<'mcx>(
         )?;
 
         // Add remote tables missing locally.
-        let mut pubrel_local_oids: Vec<types_core::Oid> =
-            ::mcx::std_vec_with_capacity("commands", pubrels.len())?;
+        let mut pubrel_local_oids: Vec<types_core::Oid> = ::mcx::std_vec_with_capacity("commands", pubrels.len())?;
         for (nspname, relname) in &pubrels {
             let rv = rel_vocab::RangeVar {
                 catalogname: None,
@@ -468,8 +457,7 @@ pub(crate) fn AlterSubscription_refresh<'mcx>(
                 relpersistence: b'p',
                 location: -1,
             };
-            let relid =
-                catalog_namespace::RangeVarGetRelid(&rv, types_rel::AccessShareLock, false)?;
+            let relid = catalog_namespace::RangeVarGetRelid(&rv, types_rel::AccessShareLock, false)?;
             crate::CheckSubscriptionRelkind(
                 lsyscache::get_rel_relkind(relid)? as u8,
                 nspname,
@@ -658,9 +646,7 @@ mod tests {
     fn table_list_query_follows_publisher_version() {
         let pubs = ["p1", "p2"];
         let v16 = fetch_table_list_query(160000, &pubs);
-        assert!(v16.starts_with(
-            "SELECT DISTINCT n.nspname, c.relname, gpt.attrs\n       FROM pg_class c\n"
-        ));
+        assert!(v16.starts_with("SELECT DISTINCT n.nspname, c.relname, gpt.attrs\n       FROM pg_class c\n"));
         assert!(v16.contains("pg_get_publication_tables(VARIADIC array_agg(pubname::text))"));
         assert!(v16.contains("WHERE pubname IN ( 'p1', 'p2' )) AS gpt\n"));
         assert_eq!(

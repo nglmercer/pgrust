@@ -62,8 +62,5 @@ fn if_not_exists_inside_extension_script_is_55000() {
         crate::CreateSchemaCommand(ctx.mcx(), &ifne_stmt(), &mut |_, _, _| Ok(()))
     })
     .unwrap_err();
-    assert_eq!(
-        e.message(),
-        format!("test probe: relation {DEPEND_RELATION_ID} opened")
-    );
+    assert_eq!(e.message(), format!("test probe: relation {DEPEND_RELATION_ID} opened"));
 }

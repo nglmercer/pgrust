@@ -10,7 +10,7 @@ use crate::{BT_IS_POSTING, BT_OFFSET_MASK, INDEX_ALT_TID_MASK};
 use types_core::{OffsetNumber, Size, BLCKSZ};
 use types_error::{PgError, PgResult, ERRCODE_DATA_CORRUPTED};
 use types_storage::bufpage::{ItemIdData, PageMut, SizeOfPageHeaderData};
-use types_tuple::itemptr::{InvalidOffsetNumber, ItemPointerData};
+use types_tuple::itemptr::{ InvalidOffsetNumber, ItemPointerData};
 
 pub const INDEX_SIZE_MASK: u16 = 0x1FFF;
 pub const MaxIndexTuplesPerPage: usize = (BLCKSZ - SizeOfPageHeaderData) / (16 + 4);
@@ -170,7 +170,8 @@ impl BTDedupState {
         };
 
         // must match the size formed in finish_pending
-        let mergedtupsz = maxalign(self.basetupsize + (self.nhtids + nhtids) * IPD_SIZE);
+        let mergedtupsz =
+            maxalign(self.basetupsize + (self.nhtids + nhtids) * IPD_SIZE);
 
         if mergedtupsz > self.maxpostingsize {
             // counts for single value strategy only past 50 TIDs
@@ -217,10 +218,7 @@ impl BTDedupState {
 
             self.intervals[self.nintervals].nitems = self.nitems as u16;
 
-            if newpage
-                .add_item(&self.scratch[..newsize], tupoff, 0)
-                .is_none()
-            {
+            if newpage.add_item(&self.scratch[..newsize], tupoff, 0).is_none() {
                 return Err(());
             }
 
@@ -252,7 +250,8 @@ impl BTDedupState {
         // BTreeTupleSetPosting: alt TID = (postingoffset blkid, nhtids|BT_IS_POSTING)
         self.scratch[0..2].copy_from_slice(&((keysize >> 16) as u16).to_ne_bytes());
         self.scratch[2..4].copy_from_slice(&((keysize & 0xffff) as u16).to_ne_bytes());
-        self.scratch[4..6].copy_from_slice(&(self.nhtids as u16 | BT_IS_POSTING).to_ne_bytes());
+        self.scratch[4..6]
+            .copy_from_slice(&(self.nhtids as u16 | BT_IS_POSTING).to_ne_bytes());
         core::ptr::copy_nonoverlapping(
             self.htids.as_ptr().cast::<u8>(),
             self.scratch.as_mut_ptr().add(keysize),
@@ -307,12 +306,7 @@ mod tests {
     /// Build a raw posting-tuple header: `posting_offset` in the alt-TID
     /// blkid, `nposting | BT_IS_POSTING` in the posid, `size | ALT_TID` in
     /// t_info. The buffer is padded to `buflen` so a valid copy has room.
-    fn posting_tuple(
-        nposting: usize,
-        posting_offset: usize,
-        size: usize,
-        buflen: usize,
-    ) -> Vec<u8> {
+    fn posting_tuple(nposting: usize, posting_offset: usize, size: usize, buflen: usize,) -> Vec<u8> {
         let mut b = vec![0u8; buflen];
         b[0..2].copy_from_slice(&((posting_offset >> 16) as u16).to_ne_bytes());
         b[2..4].copy_from_slice(&((posting_offset & 0xffff) as u16).to_ne_bytes());

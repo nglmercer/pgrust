@@ -803,8 +803,7 @@ pub fn select_neighbors(
     lm: i32,
     support: &mut HnswSupport,
     closer_set: &mut bool,
-    new_candidate: Option<usize>,
-    pruned: Option<&mut Option<Candidate>>,
+    new_candidate: Option<usize>, pruned: Option<&mut Option<Candidate>>,
     sort_candidates: bool,
     out: &mut Vec<Candidate>,
 ) -> PgResult<()> {
@@ -814,7 +813,7 @@ pub fn select_neighbors(
         return Ok(());
     }
 
-    let mut w: Vec<Candidate> = ::mcx::std_vec_from_slice("pgvector_hnsw", c)?;
+    let mut w: Vec<Candidate> = ::mcx::std_vec_from_slice("pgvector_hnsw",c)?;
     let mut w_is_new: Vec<bool> = ::mcx::std_vec_from_elem("pgvector_hnsw", false, w.len())?;
     if let Some(nc) = new_candidate {
         w_is_new[nc] = true;

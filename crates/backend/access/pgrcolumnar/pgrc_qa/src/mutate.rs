@@ -302,11 +302,7 @@ pub fn mutate(pristine: &[u8], seed: u64) -> (Vec<u8>, MutationDesc) {
                 }
             }
             fix_crc_chain(&mut bytes, &mut map, None);
-            (
-                "sem_section_entry",
-                map.section_table_off + i * SECTION_ENTRY_LEN,
-                true,
-            )
+            ("sem_section_entry", map.section_table_off + i * SECTION_ENTRY_LEN, true,)
         }
     };
     (

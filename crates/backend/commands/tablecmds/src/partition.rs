@@ -82,7 +82,7 @@ pub(crate) fn compute_partition_key<'mcx>(
                     raw,
                     parser_small1::ParseExprKind::EXPR_KIND_PARTITION_EXPRESSION,
                 )?;
-                parse_collate::assign_expr_collations(mcx, &pstate, transformed)?;
+                parse_collate::assign_expr_collations(mcx, & pstate, transformed)?;
                 Some(transformed)
             }
             _ => None,
@@ -152,7 +152,8 @@ pub(crate) fn compute_partition_key<'mcx>(
             }
             info.partattrs.push(attnum);
         } else {
-            let transformed = transformed_exprs[attn].expect("PartitionElem without name or expr");
+            let transformed =
+                transformed_exprs[attn].expect("PartitionElem without name or expr");
             atttype = nodes_core::expr_type(transformed);
             attcollation = nodes_core::expr_collation(transformed);
             let mut rowtypes: mcx::PgVec<'_, Oid> = mcx::vec_with_capacity_in(mcx, 1)?;

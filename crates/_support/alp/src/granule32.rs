@@ -61,10 +61,7 @@ pub struct ElectionReportF32 {
 
 impl ElectionReportF32 {
     pub fn granules_using(&self, scheme: Scheme) -> usize {
-        self.granule_schemes
-            .iter()
-            .filter(|&&s| s == scheme)
-            .count()
+        self.granule_schemes.iter().filter(|&&s| s == scheme).count()
     }
 
     /// The chunk writer's deterministic election discipline: engage only on
@@ -147,7 +144,8 @@ fn run32(values: &[f32], emit: bool) -> GranuleEncodedF32 {
                 classic32::encode_vector32(c, e, f)
             })
             .collect();
-        let alp_size = FRAME_HEADER_BYTES + alp_vecs.iter().map(|v| v.size_bytes()).sum::<usize>();
+        let alp_size =
+            FRAME_HEADER_BYTES + alp_vecs.iter().map(|v| v.size_bytes()).sum::<usize>();
         let raw_size = FRAME_HEADER_BYTES + g.len() * 4;
         enc.report.alp_frame_bytes += alp_size;
         enc.report.raw_frame_bytes += raw_size;
@@ -185,11 +183,7 @@ fn run32(values: &[f32], emit: bool) -> GranuleEncodedF32 {
                     }
                 }
             }
-            debug_assert_eq!(
-                frame.len(),
-                size,
-                "f32 frame image drifted from size accounting"
-            );
+            debug_assert_eq!(frame.len(), size, "f32 frame image drifted from size accounting");
             enc.frames.push(frame);
         }
     }

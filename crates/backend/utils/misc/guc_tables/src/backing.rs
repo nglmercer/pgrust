@@ -122,9 +122,9 @@ crate::session_guc_cluster!(BackingSessionGucs, BACKING_SESSION_GUCS:
     // (toast_internals.c:59), so the product MUST install it — the reader
     // landed with only a test-local install (the gate-blindness class).
     (default_toast_compression_cell, i32, default_toast_compression, set_default_toast_compression, crate::consts::TOAST_PGLZ_COMPRESSION),
-    (phony_random_seed_cell, f64, phony_random_seed, set_phony_random_seed, 0.0_f64),
-    (log_statement_sample_rate_cell, f64, log_statement_sample_rate, set_log_statement_sample_rate, 1.0_f64),
-    (log_xact_sample_rate_cell, f64, log_xact_sample_rate, set_log_xact_sample_rate, 0.0_f64),
+    (phony_random_seed_cell, f64, phony_random_seed, set_phony_random_seed,0.0_f64),
+    (log_statement_sample_rate_cell, f64, log_statement_sample_rate, set_log_statement_sample_rate,1.0_f64),
+    (log_xact_sample_rate_cell, f64, log_xact_sample_rate, set_log_xact_sample_rate,0.0_f64),
 );
 
 macro_rules! bool_var {

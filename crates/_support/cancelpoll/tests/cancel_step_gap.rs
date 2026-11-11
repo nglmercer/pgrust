@@ -30,22 +30,14 @@ fn cancel_a_live_step_past_the_threshold_without_a_poll_is_one_gap() {
         spin(150);
         drop(s);
     });
-    assert_eq!(
-        cancelpoll::step_gaps(),
-        n0 + 1,
-        "one gap, at the step's end"
-    );
+    assert_eq!(cancelpoll::step_gaps(), n0 + 1, "one gap, at the step's end");
     cancelpoll::scoped(&byte, || {
         let mut s = cancelpoll::step("one long unit");
         let _ = s.tick();
         spin(150);
         let _ = s.tick();
     });
-    assert_eq!(
-        cancelpoll::step_gaps(),
-        n0 + 2,
-        "one gap, at the tick after the long unit"
-    );
+    assert_eq!(cancelpoll::step_gaps(), n0 + 2, "one gap, at the tick after the long unit");
     let s = cancelpoll::step("outside a kernel call");
     spin(150);
     drop(s);
@@ -60,10 +52,6 @@ fn cancel_a_live_step_past_the_threshold_without_a_poll_is_one_gap() {
         spin(60);
         let _ = s.tick();
     });
-    assert_eq!(
-        cancelpoll::step_gaps(),
-        n0 + 2,
-        "a nested kernel call's start and end are polls"
-    );
+    assert_eq!(cancelpoll::step_gaps(), n0 + 2, "a nested kernel call's start and end are polls");
     cancelpoll::set_step_gap_ms(cancelpoll::STEP_GAP_MS);
 }

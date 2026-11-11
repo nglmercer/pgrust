@@ -688,9 +688,7 @@ mod passing_text_detoast {
         let rows = jsonb_path_query_core(mcx, &jb[4..], &jp, JsonPathVars::List(&var), false, false)
             .unwrap_or_else(|e| panic!("$x: {}", e.message()));
         assert_eq!(rows.len(), 1);
-        let img = rows.image(mcx, 0).unwrap().unwrap();
-        
-        out(mcx, &img[4..])
+        let img = rows.image(mcx, 0).unwrap().unwrap(); out(mcx, &img[4..])
     }
 
     #[test]

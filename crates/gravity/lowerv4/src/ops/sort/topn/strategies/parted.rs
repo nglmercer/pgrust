@@ -266,7 +266,7 @@ mod tests {
         let (mut moved, mut wide) = (0, false);
         for (k, c) in rows.filter_map(|(k, m)| m.downcast_ref::<ClassImpl>().map(|c| (k, c.0))) {
             assert!(!deferred(c), "{k:?}: a registered class is not the deferred minimum");
-            if core::mem::size_of_val(c) != 0 || !at.is_multiple_of(core::mem::align_of_val(c)) {
+            if core::mem::size_of_val(c) != 0 || ! at.is_multiple_of( core::mem::align_of_val(c)) {
                 continue;
             }
             // SAFETY: a zero-sized value is valid at any non-null address aligned for it (no byte is read)

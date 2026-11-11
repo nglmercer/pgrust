@@ -1488,7 +1488,7 @@ fn wco_sets<'g>(gx: &Gx<'g, '_>, k: usize) -> PgVec<'g, usize> {
     let mut out: PgVec<'_, usize> = (0..ps.len()).filter(|&q| q != k && ps[q].desc.produces().is_some_and(|s| slots.contains(&s))).collect_in(gx.mcx);
     // a product only those builds read (a join inside the set's subquery)
     let only = |out: &[usize], q: usize| ps[q].desc.produces().is_some_and(|s| {
-        let mut readers = (0..ps.len()).filter(|&r| ps[r].desc.consumes.contains(&s)).peekable();
+        let mut readers = (0..ps.len()).filter(|&r| ps[r].desc.consumes.contains(& s)).peekable();
         readers.peek().is_some() && readers.all(|r| out.contains(&r))
     });
     while let Some(q) = (0..ps.len()).find(|&q| q != k && !out.contains(&q) && only(&out[..], q)) {

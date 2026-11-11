@@ -1,5 +1,7 @@
 use elog::{ereport, errno, PCT_M};
-use types_core::{FullTransactionId, TransactionId, TransactionIdIsNormal, TransactionIdIsValid};
+use types_core::{
+    FullTransactionId, TransactionId, TransactionIdIsNormal, TransactionIdIsValid
+};
 use types_error::{PgResult, ERRCODE_DATA_CORRUPTED, ERROR, WARNING};
 
 use crate::codec::{
@@ -98,10 +100,7 @@ pub(crate) fn read_twophase_file(
     }
 
     let crc_offset = st_size - 4;
-    let calc = crc32c::fin_crc32c(crc32c::pg_comp_crc32c(
-        crc32c::CRC32C_INIT,
-        &buf[..crc_offset],
-    ));
+    let calc = crc32c::fin_crc32c(crc32c::pg_comp_crc32c(crc32c::CRC32C_INIT, &buf[..crc_offset],));
     let file_crc = u32::from_ne_bytes(buf[crc_offset..crc_offset + 4].try_into().unwrap());
     if calc != file_crc {
         ereport(ERROR)

@@ -184,8 +184,7 @@ fn read_node(data: &[u8], off: usize) -> PgResult<Vec<u8>> {
     let sz = varsize(&data[off..]);
     if off + sz > data.len() {
         return Err(PgError::error("corrupt ltree_gist GiST key (node overruns key)").into());
-    }
-    ::mcx::std_vec_from_slice("ltree", &data[off..off + sz])
+    }::mcx::std_vec_from_slice("ltree", &data[off..off + sz])
 }
 
 fn ltree_gist_alloc(
@@ -314,10 +313,10 @@ pub fn ltree_union(entries: &[(Vec<u8>, bool)], siglen: usize) -> PgResult<Vec<u
         if cur.is_onenode() {
             let curtree = &cur.lnode;
             hashing(&mut base, curtree, siglen);
-            if left.as_ref().is_none_or(|l| op::ltree_compare(l, curtree) > 0) {
+            if left.as_ref().is_none_or( |l| op::ltree_compare(l, curtree) > 0) {
                 left = Some(curtree.clone());
             }
-            if right.as_ref().is_none_or(|r| op::ltree_compare(r, curtree) < 0) {
+            if right.as_ref().is_none_or( |r| op::ltree_compare(r, curtree) < 0) {
                 right = Some(curtree.clone());
             }
         } else {
@@ -330,12 +329,12 @@ pub fn ltree_union(entries: &[(Vec<u8>, bool)], siglen: usize) -> PgResult<Vec<u
                 }
             }
             let lt = cur.get_lnode();
-            if left.as_ref().is_none_or(|l| op::ltree_compare(l, lt) > 0) {
-                left = Some(::mcx::std_vec_from_slice("ltree", lt)?);
+            if left.as_ref().is_none_or( |l| op::ltree_compare(l, lt) > 0) {
+                left = Some(::mcx::std_vec_from_slice("ltree",lt)?);
             }
             let rt = cur.get_rnode();
-            if right.as_ref().is_none_or(|r| op::ltree_compare(r, rt) < 0) {
-                right = Some(::mcx::std_vec_from_slice("ltree", rt)?);
+            if right.as_ref().is_none_or( |r| op::ltree_compare(r, rt) < 0) {
+                right = Some(::mcx::std_vec_from_slice("ltree",rt)?);
             }
         }
     }
@@ -412,8 +411,8 @@ pub fn ltree_picksplit(
         if j <= half {
             spl_left.push(*index as u16);
             let rt = lu.get_rnode();
-            if lu_r.as_ref().is_none_or(|x| op::ltree_compare(rt, x) > 0) {
-                lu_r = Some(::mcx::std_vec_from_slice("ltree", rt)?);
+            if lu_r.as_ref().is_none_or( |x| op::ltree_compare(rt, x) > 0) {
+                lu_r = Some(::mcx::std_vec_from_slice("ltree",rt)?);
             }
             if lu.is_onenode() {
                 hashing(&mut ls, &lu.lnode, siglen);
@@ -428,8 +427,8 @@ pub fn ltree_picksplit(
         } else {
             spl_right.push(*index as u16);
             let rt = lu.get_rnode();
-            if ru_r.as_ref().is_none_or(|x| op::ltree_compare(rt, x) > 0) {
-                ru_r = Some(::mcx::std_vec_from_slice("ltree", rt)?);
+            if ru_r.as_ref().is_none_or( |x| op::ltree_compare(rt, x) > 0) {
+                ru_r = Some(::mcx::std_vec_from_slice("ltree",rt)?);
             }
             if lu.is_onenode() {
                 hashing(&mut rs, &lu.lnode, siglen);
@@ -452,12 +451,12 @@ pub fn ltree_picksplit(
     }
 
     // lu_l = LTG_GETLNODE(entry array[FirstOffsetNumber].index)
-    let lu_l = ::mcx::std_vec_from_slice("ltree", lnodes[array[0]])?;
+    let lu_l = ::mcx::std_vec_from_slice("ltree",lnodes[array[0]])?;
     let lu = ltree_gist_alloc(lisat, Some(&ls), siglen, Some(&lu_l), lu_r.as_deref())?;
 
     // ru_l = LTG_GETLNODE(entry array[1 + half].index)
     let ru_l_index = array[(1 + half) as usize - 1];
-    let ru_l = ::mcx::std_vec_from_slice("ltree", keys[ru_l_index].as_ref().unwrap().get_lnode())?;
+    let ru_l = ::mcx::std_vec_from_slice("ltree",keys[ru_l_index].as_ref().unwrap().get_lnode())?;
     let ru = ltree_gist_alloc(risat, Some(&rs), siglen, Some(&ru_l), ru_r.as_deref())?;
 
     Ok((spl_left, spl_right, lu, ru))
@@ -591,7 +590,8 @@ fn gist_qtxt(key: &LtgKey, query: &[u8], siglen: usize) -> PgResult<bool> {
     op::ltxtq_exec_sign(query, &flg_canlooksign, &|val| {
         getbit(sign, hashval(val, siglen))
     })
-    .map_err(Box::new)}
+    .map_err(Box::new)
+}
 
 fn arrq_cons(key: &LtgKey, query_array: &[u8], siglen: usize) -> PgResult<bool> {
     let arr = LtreeArray::parse(query_array);

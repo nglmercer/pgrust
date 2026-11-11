@@ -11,8 +11,7 @@
 //   pattern); crash-cycle reset rewrites in place.
 // - The exported globals replorigin_session_origin{,_lsn,_timestamp} are
 //   thread-locals exposed through origin_seams for xact's commit records.
-#![allow(non_snake_case)]
-#![allow(non_upper_case_globals)]
+#![allow(non_snake_case, non_upper_case_globals)]
 
 use std::cell::Cell;
 use std::rc::Rc;
@@ -212,7 +211,7 @@ fn text_datum_to_bytes(mcx: Mcx<'_>, d: Datum) -> PgResult<Vec<u8>> {
     // text_to_cstring(&full_image) call kept the 4-byte varlena header glued
     // to the front of every roname read back through this path.
     let payload = varlena::open_image(mcx, raw)?;
-    ::mcx::std_vec_from_slice("replication", payload.as_bytes())
+    ::mcx::std_vec_from_slice("replication",payload.as_bytes())
 }
 
 fn text_datum(mcx: Mcx<'_>, s: &[u8]) -> PgResult<Datum> {

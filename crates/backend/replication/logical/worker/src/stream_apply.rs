@@ -825,7 +825,7 @@ pub(crate) fn apply_spooled_messages(
             break;
         }
 
-        if nchanges.is_multiple_of(1000) {
+        if nchanges.is_multiple_of( 1000) {
             let _ = elog::elog(
                 DEBUG1,
                 format!("replayed {nchanges} changes from file \"{name}\""),

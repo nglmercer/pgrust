@@ -248,8 +248,7 @@ impl PgError {
         match core::str::from_utf8(bytes) {
             Ok(s) => Self::error(alloc::format!("{prefix}{s}{suffix}")),
             Err(_) => {
-                let mut msg =
-                    alloc::vec::Vec::with_capacity(prefix.len() + bytes.len() + suffix.len());
+                let mut msg = alloc::vec::Vec::with_capacity(prefix.len() + bytes.len() + suffix.len());
                 msg.extend_from_slice(prefix.as_bytes());
                 msg.extend_from_slice(bytes);
                 msg.extend_from_slice(suffix.as_bytes());
@@ -401,11 +400,7 @@ impl PgError {
     pub fn with_context_raw(mut self, bytes: alloc::vec::Vec<u8>) -> Self {
         if !self.context_abandoned {
             let lossy = String::from_utf8_lossy(&bytes).into_owned();
-            self.context_raw = if self.context.is_none() {
-                Some(bytes)
-            } else {
-                None
-            };
+            self.context_raw = if self.context.is_none() { Some(bytes) } else { None };
             self.context = append_context(self.context.take(), lossy);
         }
         self
@@ -751,9 +746,7 @@ mod tests {
     // callbacks still append and the client still gets the field.
     #[test]
     fn hidden_context_still_accumulates_context() {
-        let e = PgError::error("m")
-            .with_hide_context(true)
-            .with_context("a");
+        let e = PgError::error("m").with_hide_context(true).with_context("a");
         assert_eq!(e.context.as_deref(), Some("a"));
         let mut e = PgError::error("m").with_context_abandoned();
         e.add_context_line("b");
@@ -803,10 +796,7 @@ mod tests {
         );
         let mut replaced = PgError::error("x").with_context_raw(b"a\xff".to_vec());
         replaced.context = Some(String::from("other"));
-        assert_eq!(
-            &*replaced.context_wire_bytes().unwrap(),
-            b"other".as_slice()
-        );
+        assert_eq!(&*replaced.context_wire_bytes().unwrap(), b"other".as_slice());
         assert!(PgError::error("x").context_wire_bytes().is_none());
     }
 

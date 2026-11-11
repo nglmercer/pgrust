@@ -197,7 +197,7 @@ pub(crate) fn kept(gx: &Gx<'_, '_>, (e, slot, feeds): &(usize, u8, Vec<usize>)) 
     // a CteScan arm S2b streams (D3789, inner_arms.rs `cte_streams`) streams as a scan arm does: read at the open PG's
     // Append reaches, never filling its CTE ahead of an outer with no row
     let breaker_arm = feeds.iter().any(|&f| matches!(ps[f].source, Source::Breaker { .. }) && !crate::rerun::inner_arms::cte_streams(gx, f));
-    if params.iter().next().is_some() || union_of(ip).is_none_or(|u| u.1) || !breaker_arm {
+    if params.iter().next().is_some() ||union_of(ip).is_none_or(|u|u.1) || !breaker_arm {
         return false;
     }
     let mut parts: PgVec<'_, usize> = mcx::to_vec_in(&feeds[..], gx.mcx);

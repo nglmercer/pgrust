@@ -66,7 +66,8 @@ pub fn eval_xml_expr(st: &XmlExprState) -> PgResult<(Datum, bool)> {
     // SAFETY: compile-time XmlExpr reference, plan-lived.
     let x: &XmlExpr<'_> = unsafe { st.xexpr.as_ref() };
     // SAFETY: compile-allocated slot arrays sized to the arg lists.
-    let named = unsafe { core::slice::from_raw_parts(st.named_slots.as_ptr(), st.n_named) };
+    let named =
+        unsafe { core::slice::from_raw_parts(st.named_slots.as_ptr(), st.n_named) };
     let args = unsafe { core::slice::from_raw_parts(st.arg_slots.as_ptr(), st.n_args) };
     let mcx = res_mcx(&st.resmcx);
 
@@ -114,8 +115,7 @@ pub fn eval_xml_expr(st: &XmlExprState) -> PgResult<(Datum, bool)> {
             Ok((xml_datum(mcx, &buf)?, false))
         }
         XmlExprOp::IS_XMLELEMENT => {
-            let mut named_strs: Vec<(String, Option<Vec<u8>>)> =
-                ::mcx::std_vec_with_capacity("ExecutorState", named.len())?;
+            let mut named_strs: Vec<(String, Option<Vec<u8>>)> = ::mcx::std_vec_with_capacity("ExecutorState", named.len())?;
             for (i, nd) in named.iter().enumerate() {
                 let argname = x
                     .arg_names
@@ -134,8 +134,7 @@ pub fn eval_xml_expr(st: &XmlExprState) -> PgResult<(Datum, bool)> {
                 };
                 named_strs.push((argname, v));
             }
-            let mut content: Vec<Vec<u8>> =
-                ::mcx::std_vec_with_capacity("ExecutorState", args.len())?;
+            let mut content: Vec<Vec<u8>> = ::mcx::std_vec_with_capacity("ExecutorState", args.len())?;
             for (i, nd) in args.iter().enumerate() {
                 if nd.isnull {
                     continue;
@@ -262,10 +261,7 @@ pub fn map_sql_value_to_xml_value(
                 continue;
             }
             append(&mut buf, b"<element>")?;
-            append(
-                &mut buf,
-                &map_sql_value_to_xml_value(*elem, elmtype, true, resmcx)?,
-            )?;
+            append(&mut buf, &map_sql_value_to_xml_value(*elem, elmtype, true, resmcx)?,)?;
             append(&mut buf, b"</element>")?;
         }
         return Ok(buf);
@@ -299,7 +295,7 @@ pub fn map_sql_value_to_xml_value(
                 ::adt_datetime::consts::USE_XSD_DATES,
                 &mut buf,
             );
-            return ::mcx::std_vec_from_slice("execexpr", &buf[..n]);
+            return::mcx::std_vec_from_slice("execexpr", &buf[..n]);
         }
         TIMESTAMPOID => {
             let ts = value.as_i64();
@@ -321,7 +317,7 @@ pub fn map_sql_value_to_xml_value(
                 ::adt_datetime::consts::USE_XSD_DATES,
                 &mut buf,
             );
-            return ::mcx::std_vec_from_slice("execexpr", &buf[..n]);
+            return::mcx::std_vec_from_slice("execexpr", &buf[..n]);
         }
         TIMESTAMPTZOID => {
             let ts = value.as_i64();
@@ -354,7 +350,7 @@ pub fn map_sql_value_to_xml_value(
                 ::adt_datetime::consts::USE_XSD_DATES,
                 &mut buf,
             );
-            return ::mcx::std_vec_from_slice("execexpr", &buf[..n]);
+            return::mcx::std_vec_from_slice("execexpr", &buf[..n]);
         }
         BYTEAOID => {
             let payload = varlena_payload(value, resmcx)?;
@@ -378,7 +374,7 @@ pub fn map_sql_value_to_xml_value(
     let bytes = cstr.to_bytes();
 
     if type_ == XMLOID || !xml_escape_strings {
-        Ok(::mcx::std_vec_from_slice("execexpr", bytes)?)
+        Ok(::mcx::std_vec_from_slice("execexpr",bytes)?)
     } else {
         Ok(adt_xml::escape_xml(bytes))
     }

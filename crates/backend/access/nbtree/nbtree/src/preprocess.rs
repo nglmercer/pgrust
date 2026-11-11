@@ -493,11 +493,11 @@ fn compare_scankey_args_scalar<R: BtReadRel + ?Sized>(
             strat = BTCommuteStrategyNumber(strat);
         }
         let result = match strat {
-            BTLessStrategyNumber => !leftnull & rightnull,
+            BTLessStrategyNumber => ! leftnull & rightnull,
             BTLessEqualStrategyNumber => leftnull <= rightnull,
             BTEqualStrategyNumber => leftnull == rightnull,
             BTGreaterEqualStrategyNumber => leftnull >= rightnull,
-            BTGreaterStrategyNumber => leftnull & !rightnull,
+            BTGreaterStrategyNumber => leftnull & ! rightnull,
             other => panic!("unrecognized StrategyNumber: {other}"),
         };
         return Ok(Some(result));

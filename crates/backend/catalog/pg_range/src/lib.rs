@@ -3,8 +3,7 @@
 
 use datum::Datum;
 use mcx::Mcx;
-use pg_depend::{
-    recordDependencyOn, record_object_address_dependencies, DependencyType, ObjectAddress,
+use pg_depend::{ recordDependencyOn, record_object_address_dependencies, DependencyType, ObjectAddress,
 };
 use types_core::{
     AttrNumber, Oid, OidIsValid, COLLATION_RELATION_ID, OPERATOR_CLASS_RELATION_ID,

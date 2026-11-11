@@ -28,10 +28,7 @@ use types_rel::Relation;
 
 use crate::catalog::{Generation, RowMap};
 use crate::ingest::SealWriter;
-use crate::scan::{
-    codec_binding, col_cell, decode_column_granule, decode_granule, read_residency, ColBuf,
-    PartCursors,
-};
+use crate::scan::{codec_binding, col_cell, decode_column_granule, decode_granule, read_residency, ColBuf, PartCursors,};
 
 /// What a job did.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -59,10 +56,7 @@ pub(crate) struct In {
 }
 
 fn contract(what: &str) -> Box<PgError> {
-    Box::new(
-        PgError::error(format!("pgrcolumnar: compaction {what}"))
-            .with_sqlstate(types_error::ERRCODE_INTERNAL_ERROR),
-    )
+    Box::new(PgError::error(format!("pgrcolumnar: compaction {what}")).with_sqlstate(types_error::ERRCODE_INTERNAL_ERROR),)
 }
 
 /// Resolve `job`'s inputs in `gen`: records, maps and DV marks as ordinal bitsets.
@@ -77,34 +71,15 @@ fn contract(what: &str) -> Box<PgError> {
 /// drops the run); a member of a run with others is refused ([`member_ids`]: the run pass merges and rewrites those,
 /// L3). L2: a run job (`whole_runs`, `crate::runmerge`) takes every live member of each run it merges, so a member
 /// brings no ranges of its own and the job brings its run's once.
-pub(crate) fn inputs(
-    rel: &Relation<'_>,
-    gen: &Generation,
-    dir: &str,
-    job: &Job,
-    presences: &mut crate::fastadd::Presences<'_>,
-    renumber: bool,
-    whole_runs: bool,
-) -> PgResult<Vec<In>> {
+pub(crate) fn inputs(rel: &Relation<'_>, gen: &Generation, dir: &str, job: &Job, presences: &mut crate::fastadd::Presences<'_>, renumber: bool, whole_runs: bool,) -> PgResult<Vec<In>> {
     job.inputs
         .iter()
         .map(|&no| {
-            let idx = gen
-                .manifest
-                .parts
-                .iter()
-                .position(|p| p.part_no == no)
-                .ok_or_else(|| {
-                    contract(&format!("input part {no} is not in generation {}", gen.gen))
+            let idx = gen.manifest.parts.iter().position(|p| p.part_no == no).ok_or_else(|| { contract(&format!("input part {no} is not in generation {}", gen.gen))
                 })?;
             let rec = gen.manifest.parts[idx];
-            let grain = if rec.granule_rows == 0 {
-                GRANULE_ROWS
-            } else {
-                rec.granule_rows
-            };
-            let mut dead =
-                crate::alloc::try_filled((rec.rows as usize).div_ceil(64), 0u64, "compact")?;
+            let grain = if rec.granule_rows == 0 { GRANULE_ROWS } else { rec.granule_rows };
+            let mut dead = crate::alloc::try_filled((rec.rows as usize).div_ceil(64), 0u64, "compact")?;
             if let Some(d) = &gen.parts[idx].deletes {
                 for g in 0..rec.granule_count {
                     let mut mask = [0u64; pgrc_scan::DV_GRANULE_WORDS];
@@ -117,10 +92,7 @@ pub(crate) fn inputs(
                     }
                 }
             }
-            let part_fp = gen.parts[idx]
-                .expect
-                .schema_fingerprint
-                .unwrap_or(gen.schema_fp);
+            let part_fp = gen.parts[idx].expect.schema_fingerprint.unwrap_or(gen.schema_fp);
             // D2189: a stamp a column dropped with no ALTER publish left (`schema::book_dropped_stamp`)
             if part_fp != presences.reader_fp() {
                 crate::schema::book_dropped_stamp(rel, part_fp)?;
@@ -128,24 +100,13 @@ pub(crate) fn inputs(
             let present = presences.of(part_fp)?;
             let (map, ids) = match job_input_ids(gen, idx, renumber, whole_runs)? {
                 InputIds::Own(ids) | InputIds::Run(ids) => (gen.row_map(idx, dir)?, ids),
-                InputIds::StandIn => (
-                    Arc::new(RowMap::Implicit(pgrc_format::rowid::ROWID_FIRST)),
-                    Vec::new(),
-                ),
+                InputIds::StandIn => (Arc::new(RowMap::Implicit(pgrc_format::rowid::ROWID_FIRST)), Vec::new(),),
                 InputIds::Fresh => {
                     let r = crate::rowid_alloc::reserve(rel, rec.rows)?;
                     (Arc::new(RowMap::Implicit(r.lo)), vec![(r.lo, r.hi)])
                 }
             };
-            Ok(In {
-                idx,
-                rec,
-                grain,
-                map,
-                ids,
-                dead,
-                present,
-            })
+            Ok(In { idx, rec, grain, map, ids, dead, present, })
         })
         .collect()
 }
@@ -188,12 +149,7 @@ pub fn input_ids(gen: &Generation, idx: usize, renumber: bool) -> PgResult<Input
 /// site) exactly [`input_ids`]. A run job (`whole_runs`, `crate::runmerge`) takes every live member of each run it
 /// merges, so a member of a run that homes its IDs brings none of its own (`Run` of no ranges): the job brings its
 /// run's ranges once.
-pub fn job_input_ids(
-    gen: &Generation,
-    idx: usize,
-    renumber: bool,
-    whole_runs: bool,
-) -> PgResult<InputIds> {
+pub fn job_input_ids(gen: &Generation, idx: usize, renumber: bool, whole_runs: bool,) -> PgResult<InputIds> {
     if whole_runs && gen.ids_of(idx).is_empty() && gen.run_member(idx).is_some() {
         return Ok(InputIds::Run(Vec::new()));
     }
@@ -212,12 +168,7 @@ pub(crate) struct Granules<'g> {
 }
 
 impl Granules<'_> {
-    fn get(
-        &mut self,
-        n: u16,
-        g: u32,
-        interrupt: &dyn Fn(bool) -> PgResult<()>,
-    ) -> PgResult<&[ColBuf]> {
+    fn get(&mut self, n: u16, g: u32, interrupt: &dyn Fn(bool) -> PgResult<()>,) -> PgResult<&[ColBuf]> {
         if let Some(i) = self.held.iter().position(|(k, _)| *k == (n, g)) {
             return Ok(&self.held[i].1);
         }
@@ -226,36 +177,15 @@ impl Granules<'_> {
             true => (0..self.schemas.len()).map(|_| ColBuf::new()).collect(),
             false => self.held.pop().expect("one held").1,
         };
-        let lacks = self.ins[n as usize]
-            .present
-            .as_deref()
-            .map(|present| crate::scan::Lacks {
-                present,
-                fills: self.fills,
-            });
-        decode_granule(
-            &mut self.cursors[n as usize],
-            codec_binding(),
-            self.schemas,
-            g,
-            &mut cols,
-            lacks,
-        )?;
+        let lacks = self.ins[n as usize].present.as_deref().map(|present| crate::scan::Lacks { present, fills: self.fills, });
+        decode_granule(&mut self.cursors[n as usize], codec_binding(), self.schemas, g, &mut cols, lacks,)?;
         self.held.push(((n, g), cols));
         Ok(&self.held.last().expect("pushed").1)
     }
 }
 
 /// Row `o` of input `n` as the slot arrays `raw_row` reads (`natts` wide; dropped columns NULL).
-pub(crate) fn row_of(
-    g: &mut Granules<'_>,
-    ins: &[In],
-    n: u16,
-    o: u32,
-    values: &mut [datum::Datum],
-    isnull: &mut [bool],
-    interrupt: &dyn Fn(bool) -> PgResult<()>,
-) -> PgResult<()> {
+pub(crate) fn row_of(g: &mut Granules<'_>, ins: &[In], n: u16, o: u32, values: &mut [datum::Datum], isnull: &mut [bool], interrupt: &dyn Fn(bool) -> PgResult<()>,) -> PgResult<()> {
     let grain = ins[n as usize].grain;
     let schemas = g.schemas;
     let cols = g.get(n, o / grain, interrupt)?;
@@ -295,16 +225,8 @@ enum Held {
 }
 
 impl<'j> ColumnFeed<'j> {
-    pub(crate) fn new(
-        gen: &'j Generation,
-        ins: &'j [In],
-        fills: &'j [crate::fastadd::Fill],
-        order: &'j [(u16, u32)],
-    ) -> PgResult<ColumnFeed<'j>> {
-        let (mut last, mut monotone) = (
-            crate::alloc::try_filled(ins.len(), 0u32, "compact")?,
-            crate::alloc::try_filled(ins.len(), true, "compact")?,
-        );
+    pub(crate) fn new(gen: &'j Generation, ins: &'j [In], fills: &'j [crate::fastadd::Fill], order: &'j [(u16, u32)],) -> PgResult<ColumnFeed<'j>> {
+        let (mut last, mut monotone) = (crate::alloc::try_filled(ins.len(), 0u32, "compact")?, crate::alloc::try_filled(ins.len(), true, "compact")?,);
         for &(n, o) in order {
             let (n, g) = (n as usize, o / ins[n as usize].grain);
             match g < last[n] {
@@ -313,28 +235,12 @@ impl<'j> ColumnFeed<'j> {
             }
         }
         let residency = read_residency(ins.iter().map(|i| i.rec.file_len).sum());
-        Ok(ColumnFeed {
-            gen,
-            ins,
-            fills,
-            order,
-            monotone,
-            residency,
-        })
+        Ok(ColumnFeed { gen, ins, fills, order, monotone, residency, })
     }
 
     /// Granule `g` of input `n`, column `one`, decoded into `held` unless it is there; `first`: this is the job's
     /// first column pass (`interrupt`'s argument).
-    fn granule<'h>(
-        &self,
-        held: &'h mut Held,
-        n: usize,
-        g: u32,
-        one: &[ColSchema],
-        absent: Option<&crate::fastadd::Fill>,
-        first: bool,
-        interrupt: &dyn Fn(bool) -> PgResult<()>,
-    ) -> PgResult<&'h ColBuf> {
+    fn granule<'h>(&self, held: &'h mut Held, n: usize, g: u32, one: &[ColSchema], absent: Option<&crate::fastadd::Fill>, first: bool, interrupt: &dyn Fn(bool) -> PgResult<()>,) -> PgResult<&'h ColBuf> {
         let part = &self.gen.parts[self.ins[n].idx].part;
         match held {
             Held::Last(slot, cursor) => {
@@ -342,17 +248,12 @@ impl<'j> ColumnFeed<'j> {
                     interrupt(first)?;
                     let mut buf = slot.take().map_or_else(ColBuf::new, |(_, b)| b);
                     if let Some(fill) = absent {
-                        buf.fill_const(
-                            pgrc_format::geom::rows_in_granule_at(part.rows(), part.grain(), g),
-                            fill,
-                        );
+                        buf.fill_const(pgrc_format::geom::rows_in_granule_at(part.rows(), part.grain(), g), fill,);
                         *slot = Some((g, buf));
                         return Ok(&slot.as_ref().expect("filled").1);
                     }
                     if cursor.is_none() {
-                        let c =
-                            StreamCursor::open(Arc::clone(part), codec_binding(), one[0].attno, 0)
-                                .map_err(crate::read_error)?;
+                        let c = StreamCursor::open(Arc::clone(part), codec_binding(), one[0].attno, 0).map_err(crate::read_error)?;
                         *cursor = Some(c.with_residency(self.residency));
                     }
                     decode_column_granule(cursor.as_mut().expect("opened"), &one[0], g, &mut buf)?;
@@ -361,26 +262,14 @@ impl<'j> ColumnFeed<'j> {
                 Ok(&slot.as_ref().expect("decoded").1)
             }
             Held::All(all, pc) => {
-                let at = all
-                    .get_mut(g as usize)
-                    .ok_or_else(|| contract("granule is past its input's granule count"))?;
+                let at = all.get_mut(g as usize).ok_or_else(|| contract("granule is past its input's granule count"))?;
                 if at.is_none() {
                     interrupt(first)?;
                     let mut buf = ColBuf::new();
                     match absent {
-                        Some(fill) => buf.fill_const(
-                            pgrc_format::geom::rows_in_granule_at(part.rows(), part.grain(), g),
-                            fill,
-                        ),
+                        Some(fill) => buf.fill_const(pgrc_format::geom::rows_in_granule_at(part.rows(), part.grain(), g), fill,),
                         None => {
-                            decode_granule(
-                                pc,
-                                codec_binding(),
-                                one,
-                                g,
-                                std::slice::from_mut(&mut buf),
-                                None,
-                            )?;
+                            decode_granule(pc, codec_binding(), one, g, std::slice::from_mut(&mut buf), None,)?;
                         }
                     }
                     *at = Some(buf);
@@ -393,15 +282,7 @@ impl<'j> ColumnFeed<'j> {
     /// Column `c` (of `schemas`) of the rows of `order`, appended to `out` through the row feed's conversion
     /// (`raw_row`'s per-attribute law) and its chunks, so the column's bytes are the row feed's. `first`: the job's
     /// first column pass, the one that decodes each granule it reaches for the first time in the job.
-    pub(crate) fn fill(
-        &self,
-        rel: &Relation<'_>,
-        schemas: &[ColSchema],
-        c: usize,
-        out: &mut ColBuffer,
-        first: bool,
-        interrupt: &dyn Fn(bool) -> PgResult<()>,
-    ) -> PgResult<()> {
+    pub(crate) fn fill(&self, rel: &Relation<'_>, schemas: &[ColSchema], c: usize, out: &mut ColBuffer, first: bool, interrupt: &dyn Fn(bool) -> PgResult<()>,) -> PgResult<()> {
         let att = &rel.rd_att.attrs[schemas[c].attno as usize - 1];
         let one = &schemas[c..c + 1];
         let mut held: Vec<Held> = self
@@ -410,30 +291,15 @@ impl<'j> ColumnFeed<'j> {
             .zip(&self.monotone)
             .map(|(i, &m)| match m {
                 true => Held::Last(None, None),
-                false => Held::All(
-                    (0..i.rec.granule_count).map(|_| None).collect(),
-                    PartCursors::new(&self.gen.parts[i.idx].part, self.residency),
-                ),
+                false => Held::All((0..i.rec.granule_count).map(|_| None).collect(), PartCursors::new(&self.gen.parts[i.idx].part, self.residency),),
             })
             .collect();
-        let absent: Vec<Option<&crate::fastadd::Fill>> = self
-            .ins
-            .iter()
-            .map(|i| i.present.as_ref().filter(|p| !p[c]).map(|_| &self.fills[c]))
-            .collect();
+        let absent: Vec<Option<&crate::fastadd::Fill>> = self.ins.iter().map(|i| i.present.as_ref().filter(|p| !p[c]).map(|_| &self.fills[c])).collect();
         let rows = crate::ingest::SEAL_CHUNK_ROWS;
         let (mut chunk, mut scratch) = (RowChunk::new(1, rows), Vec::new());
         for &(n, o) in self.order {
             let grain = self.ins[n as usize].grain;
-            let buf = self.granule(
-                &mut held[n as usize],
-                n as usize,
-                o / grain,
-                one,
-                absent[n as usize],
-                first,
-                interrupt,
-            )?;
+            let buf = self.granule(&mut held[n as usize], n as usize, o / grain, one, absent[n as usize], first, interrupt,)?;
             let cell = col_cell(std::slice::from_ref(buf), 0, (o % grain) as usize);
             let d = datum::Datum::from_u64(cell.unwrap_or(0));
             let raw = match cell {
@@ -442,15 +308,11 @@ impl<'j> ColumnFeed<'j> {
             };
             chunk.push_row(&[raw]).map_err(crate::write_error)?;
             if chunk.rows() >= rows {
-                chunk
-                    .append_column(0, out, &mut NoExternalDetoast, &mut scratch)
-                    .map_err(crate::write_error)?;
+                chunk.append_column(0, out, &mut NoExternalDetoast, &mut scratch).map_err(crate::write_error)?;
                 chunk = RowChunk::new(1, rows);
             }
         }
-        chunk
-            .append_column(0, out, &mut NoExternalDetoast, &mut scratch)
-            .map_err(crate::write_error)
+        chunk.append_column(0, out, &mut NoExternalDetoast, &mut scratch).map_err(crate::write_error)
     }
 }
 
@@ -460,13 +322,7 @@ impl<'j> ColumnFeed<'j> {
 /// decode, told whether the decode is in the job's first pass over its input granules (the row feed, or the first
 /// column pass; a test pause runs there only, so a paused job pauses once per input granule, not once per column and
 /// granule). The allocator's freed memory goes back once the job is done (K1-MEM).
-pub fn run_job(
-    rel: &Relation<'_>,
-    gen: &Arc<Generation>,
-    job: &Job,
-    pool: Option<Arc<dyn ColumnPool>>,
-    interrupt: &dyn Fn(bool) -> PgResult<()>,
-) -> PgResult<CompactOut> {
+pub fn run_job(rel: &Relation<'_>, gen: &Arc<Generation>, job: &Job, pool: Option<Arc<dyn ColumnPool>>, interrupt: &dyn Fn(bool) -> PgResult<()>,) -> PgResult<CompactOut> {
     let out = job_body(rel, gen, job, None, pool, interrupt);
     mcx::release_retained();
     out
@@ -475,14 +331,7 @@ pub fn run_job(
 /// IX0 L4 (OC-4 C): `job` renumbering its survivors: the output's `n` rows take IDs `base..base + n` in output order
 /// (one range run), and it homes `[base, base + align_up(n))` alone; its inputs' ranges go with them. The caller
 /// (VACUUM FULL's renumber, `pgrc_front::compact::renumber_step`) chose `base` clear of every other part's ranges.
-pub fn run_job_renumbered(
-    rel: &Relation<'_>,
-    gen: &Arc<Generation>,
-    job: &Job,
-    base: u64,
-    pool: Option<Arc<dyn ColumnPool>>,
-    interrupt: &dyn Fn(bool) -> PgResult<()>,
-) -> PgResult<CompactOut> {
+pub fn run_job_renumbered(rel: &Relation<'_>, gen: &Arc<Generation>, job: &Job, base: u64, pool: Option<Arc<dyn ColumnPool>>, interrupt: &dyn Fn(bool) -> PgResult<()>,) -> PgResult<CompactOut> {
     let out = job_body(rel, gen, job, Some(base), pool, interrupt);
     mcx::release_retained();
     out
@@ -491,108 +340,42 @@ pub fn run_job_renumbered(
 /// The renumbered output's map and ranges: `n` rows from `base` (one dense run, the granules form),
 /// `[base, base + align_up(n))`.
 fn renumbered_map(base: u64, n: u64) -> PgResult<(ident::OutMap, pgrc_format::manifest::IdRanges)> {
-    let map =
-        ident::renumbered(base, n).map_err(|e| contract_owned(format!("renumbered map: {e:?}")))?;
-    let ranges = if n == 0 {
-        Vec::new()
-    } else {
-        vec![(base, base + pgrc_format::rowid::align_up(n))]
-    };
+    let map = ident::renumbered(base, n).map_err(|e| contract_owned(format!("renumbered map: {e:?}")))?;
+    let ranges = if n == 0 { Vec::new() } else { vec![(base, base + pgrc_format::rowid::align_up(n))] };
     Ok((map, ranges))
 }
 
 fn contract_owned(why: String) -> Box<PgError> {
-    Box::new(
-        PgError::error(format!("pgrcolumnar compaction: {why}"))
-            .with_sqlstate(types_error::ERRCODE_INTERNAL_ERROR),
-    )
+    Box::new(PgError::error(format!("pgrcolumnar compaction: {why}")).with_sqlstate(types_error::ERRCODE_INTERNAL_ERROR),)
 }
 
-fn job_body(
-    rel: &Relation<'_>,
-    gen: &Arc<Generation>,
-    job: &Job,
-    renumber: Option<u64>,
-    pool: Option<Arc<dyn ColumnPool>>,
-    interrupt: &dyn Fn(bool) -> PgResult<()>,
-) -> PgResult<CompactOut> {
+fn job_body(rel: &Relation<'_>, gen: &Arc<Generation>, job: &Job, renumber: Option<u64>, pool: Option<Arc<dyn ColumnPool>>, interrupt: &dyn Fn(bool) -> PgResult<()>,) -> PgResult<CompactOut> {
     let dir = crate::dirpath::table_dir_path(rel.rd_locator.get(), rel.rd_backend);
     let schemas = crate::schema::col_schemas(rel)?;
-    let mut presences =
-        crate::fastadd::Presences::new(&schemas, pgrc_format::ident::schema_fingerprint(&schemas));
-    let ins = inputs(
-        rel,
-        gen,
-        &dir,
-        job,
-        &mut presences,
-        renumber.is_some(),
-        false,
-    )?;
+    let mut presences = crate::fastadd::Presences::new(&schemas, pgrc_format::ident::schema_fingerprint(&schemas));
+    let ins = inputs(rel, gen, &dir, job, &mut presences, renumber.is_some(), false,)?;
     let fills = match presences.any_absent() {
         true => crate::fastadd::fills(&rel.rd_att, &schemas)?,
         false => Vec::new(),
     };
     for i in &ins {
-        RealVfs.willneed(
-            &format!(
-                "{dir}/{}",
-                pgrc_format::dirlayout::part_file_name(i.rec.part_no)
-            ),
-            0,
-            i.rec.file_len,
-        );
+        RealVfs.willneed(&format!("{dir}/{}", pgrc_format::dirlayout::part_file_name(i.rec.part_no)), 0, i.rec.file_len,);
     }
     let decls = crate::reloptions::cluster_key(rel);
     // A sorted merge, and a DV rewrite of a `sorted_by` table, keep the parts sorted; a forced concatenation does not.
-    let sorted =
-        job.kind == JobKind::SortedMerge || (job.kind == JobKind::DvRewrite && !decls.is_empty());
+    let sorted = job.kind == JobKind::SortedMerge || (job.kind == JobKind::DvRewrite && !decls.is_empty());
     if sorted && decls.is_empty() {
-        return Err(Box::new(
-            PgError::error(format!(
-                "pgrcolumnar: a sorted merge of \"{}\", which has no sorted_by key",
-                rel.name()
-            ))
-            .with_sqlstate(types_error::ERRCODE_INVALID_PARAMETER_VALUE),
-        ));
+        return Err(Box::new(PgError::error(format!("pgrcolumnar: a sorted merge of \"{}\", which has no sorted_by key", rel.name())).with_sqlstate(types_error::ERRCODE_INVALID_PARAMETER_VALUE),));
     }
     let views: Vec<RowMapView<'_>> = ins.iter().map(|i| i.map.view()).collect();
-    let dels: Vec<Box<dyn Fn(u32) -> bool + '_>> = ins
-        .iter()
-        .map(|i| {
-            Box::new(move |o: u32| i.dead[o as usize / 64] >> (o % 64) & 1 == 1)
-                as Box<dyn Fn(u32) -> bool + '_>
-        })
-        .collect();
-    let job_inputs: Vec<Input<'_>> = ins
-        .iter()
-        .zip(&dels)
-        .zip(&views)
-        .map(|((i, d), v)| Input {
-            part_no: i.rec.part_no,
-            rows: i.rec.rows as u32,
-            deleted: &**d,
-            map: v,
-        })
-        .collect();
+    let dels: Vec<Box<dyn Fn(u32) -> bool + '_>> = ins.iter().map(|i| { Box::new(move |o: u32| i.dead[o as usize / 64] >> (o % 64) & 1 == 1) as Box<dyn Fn(u32) -> bool + '_>
+        }).collect();
+    let job_inputs: Vec<Input<'_>> = ins.iter().zip(&dels).zip(&views).map(|((i, d), v)| Input { part_no: i.rec.part_no, rows: i.rec.rows as u32, deleted: &**d, map: v, }).collect();
     let natts = rel.rd_att.natts as usize;
-    let (mut values, mut isnull) = (
-        crate::alloc::try_filled(natts, datum::Datum::null(), "compact")?,
-        crate::alloc::try_filled(natts, true, "compact")?,
-    );
+    let (mut values, mut isnull) = (crate::alloc::try_filled(natts, datum::Datum::null(), "compact")?, crate::alloc::try_filled(natts, true, "compact")?,);
     let residency = read_residency(ins.iter().map(|i| i.rec.file_len).sum());
-    let cursors = ins
-        .iter()
-        .map(|i| PartCursors::new(&gen.parts[i.idx].part, residency))
-        .collect();
-    let mut g = Granules {
-        schemas: &schemas,
-        ins: &ins,
-        fills: &fills,
-        hold_all: sorted,
-        held: Vec::new(),
-        cursors,
-    };
+    let cursors = ins.iter().map(|i| PartCursors::new(&gen.parts[i.idx].part, residency)).collect();
+    let mut g = Granules { schemas: &schemas, ins: &ins, fills: &fills, hold_all: sorted, held: Vec::new(), cursors, };
     let first = std::cell::Cell::new(true);
     let order = match sorted {
         false => concat_order(&job_inputs).map_err(crate::format_error)?,
@@ -602,10 +385,7 @@ fn job_body(
             let feed = ColumnFeed::new(gen, &ins, &fills, &base)?;
             let mut bufs: Vec<ColBuffer> = crate::alloc::try_vec(decls.len(), "compact")?;
             for d in &decls {
-                let k = schemas
-                    .iter()
-                    .position(|s| s.attno == d.attno)
-                    .ok_or_else(|| contract("key column is not a table column"))?;
+                let k = schemas.iter().position(|s| s.attno == d.attno).ok_or_else(|| contract("key column is not a table column"))?;
                 let mut b = ColBuffer::new(schemas[k]);
                 feed.fill(rel, &schemas, k, &mut b, first.replace(false), interrupt)?;
                 bufs.push(b);
@@ -613,36 +393,16 @@ fn job_body(
             // sortpath (trunk 11a92c3cccf, V5SYNC): a jsonb path key orders by its `->>` value, as the seal's cluster sort
             // does (`seal::cmp::decl_slots`), never by the column's stored bytes: the output map is built from this order
             // and the seal's verify re-sorts by the same key
-            let holds = bufs
-                .iter()
-                .zip(&decls)
-                .map(|(b, d)| {
-                    (!d.path.is_empty())
-                        .then(|| path_values(b, &d.path))
-                        .transpose()
-                })
-                .collect::<Result<Vec<_>, _>>()
-                .map_err(crate::write_error)?;
-            let keys = bufs
-                .iter()
-                .zip(&decls)
-                .zip(&holds)
-                .map(|((b, d), h)| decl_slots(b, d, h))
-                .collect::<Result<Vec<_>, _>>()
-                .map_err(crate::write_error)?;
+            let holds = bufs.iter().zip(&decls).map(|(b, d)| { (!d.path.is_empty()).then(|| path_values(b, &d.path)).transpose()
+                }).collect::<Result<Vec<_>, _>>().map_err(crate::write_error)?;
+            let keys = bufs.iter().zip(&decls).zip(&holds).map(|((b, d), h)| decl_slots(b, d, h)).collect::<Result<Vec<_>, _>>().map_err(crate::write_error)?;
             sorted_order(&job_inputs, &keys, &decls).map_err(crate::format_error)?
         }
     };
     // IX0: the output homes every input's ranges (a dropped row's ID stays homed, never handed out again); a renumbered
     // one homes its own dense range
     let (map, ids) = match renumber {
-        None => (
-            ident::build_map(&job.kind, &job_inputs, &order).map_err(|e| match e {
-                pgrc_format::FormatError::OutOfMemory { .. } => crate::format_error(e),
-                e => contract_owned(format!("output map: {e:?}")),
-            })?,
-            ident::union_ranges(ins.iter().map(|i| &i.ids[..])),
-        ),
+        None => (ident::build_map(&job.kind, &job_inputs, &order).map_err(|e| match e { pgrc_format::FormatError::OutOfMemory { .. } => crate::format_error(e), e => contract_owned(format!("output map: {e:?}")), })?, ident::union_ranges(ins.iter().map(|i| &i.ids[..])),),
         Some(base) => renumbered_map(base, order.len() as u64)?,
     };
     let mut w = SealWriter::open_compact(rel, pool, sorted)?;
@@ -651,8 +411,7 @@ fn job_body(
             return Ok(());
         }
         let feed = ColumnFeed::new(gen, &ins, &fills, &order)?;
-        if w.seal_columns(rel, order.len() as u64, &mut |c, out| {
-            feed.fill(rel, &schemas, c, out, first.replace(false), interrupt)
+        if w.seal_columns(rel, order.len() as u64, &mut |c, out| { feed.fill(rel, &schemas, c, out, first.replace(false), interrupt)
         })? {
             return Ok(());
         }
@@ -672,15 +431,7 @@ fn job_body(
     }
     let retire: Vec<(u32, u64)> = ins.iter().map(|i| (i.rec.part_no, i.rec.dv_gen)).collect();
     let (out_gen, part_no) = w.publish_compact(rel, &retire, (map.form(), &map.encode()), &ids)?;
-    let output_bytes = part_no
-        .and_then(|no| out_gen.manifest.parts.iter().find(|p| p.part_no == no))
-        .map_or(0, |p| p.file_len);
+    let output_bytes = part_no.and_then(|no| out_gen.manifest.parts.iter().find(|p| p.part_no == no)).map_or(0, |p| p.file_len);
     let rows: u64 = ins.iter().map(|i| i.rec.rows).sum();
-    Ok(CompactOut {
-        part_no,
-        rows: order.len() as u64,
-        dropped: rows - order.len() as u64,
-        input_bytes: ins.iter().map(|i| i.rec.file_len).sum(),
-        output_bytes,
-    })
+    Ok(CompactOut { part_no, rows: order.len() as u64, dropped: rows - order.len() as u64, input_bytes: ins.iter().map(|i| i.rec.file_len).sum(), output_bytes, })
 }

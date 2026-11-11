@@ -1,11 +1,9 @@
 use crate::{appendf, rec_data, rec_info, XLR_INFO_MASK};
 use pgrc_format::wal::{
-    decode_dir, identify, BulkRowsRec, DirLoc, FileRefRec, FileWriteRec, InstallRec, PublishRec,
-    ReclaimRec, Retire, RowRec, RowidExtentsRec, RowidReserveRec, TupleImage, XLOG_PGRC_BULK_ROWS,
-    XLOG_PGRC_DIR_CREATE, XLOG_PGRC_FILE_CREATE, XLOG_PGRC_FILE_REF, XLOG_PGRC_FILE_WRITE,
-    XLOG_PGRC_INSTALL, XLOG_PGRC_PUBLISH, XLOG_PGRC_RECLAIM, XLOG_PGRC_ROWID_EXTENTS,
-    XLOG_PGRC_ROWID_RESERVE, XLOG_PGRC_ROWID_SET, XLOG_PGRC_ROW_DELETE, XLOG_PGRC_ROW_UPDATE,
-    XLOG_PGRC_TRUNCATE,
+    decode_dir, identify, BulkRowsRec, DirLoc, FileRefRec, FileWriteRec, InstallRec, PublishRec, ReclaimRec, Retire,
+    RowRec, RowidExtentsRec, RowidReserveRec, TupleImage, XLOG_PGRC_BULK_ROWS, XLOG_PGRC_DIR_CREATE, XLOG_PGRC_FILE_CREATE, XLOG_PGRC_FILE_REF,
+    XLOG_PGRC_FILE_WRITE, XLOG_PGRC_INSTALL, XLOG_PGRC_PUBLISH, XLOG_PGRC_RECLAIM,
+    XLOG_PGRC_ROWID_EXTENTS, XLOG_PGRC_ROWID_RESERVE, XLOG_PGRC_ROWID_SET, XLOG_PGRC_ROW_DELETE, XLOG_PGRC_ROW_UPDATE, XLOG_PGRC_TRUNCATE,
 };
 use pgrc_format::FormatError;
 use stringinfo::StringInfo;
@@ -27,32 +25,16 @@ fn image(t: Option<TupleImage<'_>>) -> String {
 pub fn pgrc_desc(buf: &mut StringInfo<'_>, record: &XLogReaderState) -> PgResult<()> {
     let data = rec_data(record);
     match rec_info(record) & !XLR_INFO_MASK {
-        XLOG_PGRC_DIR_CREATE | XLOG_PGRC_TRUNCATE => {
-            appendf!(buf, "dir {}", loc(decode_dir(data).map_err(bad)?))
+        XLOG_PGRC_DIR_CREATE | XLOG_PGRC_TRUNCATE => { appendf!(buf, "dir {}", loc(decode_dir(data).map_err(bad)?))
         }
         XLOG_PGRC_FILE_WRITE | XLOG_PGRC_FILE_CREATE => {
             let r = FileWriteRec::decode(data).map_err(bad)?;
-            appendf!(
-                buf,
-                "dir {} {} off {} len {}",
-                loc(r.dir),
-                r.name,
-                r.off,
-                r.bytes.len()
-            )
+            appendf!(buf, "dir {} {} off {} len {}", loc(r.dir), r.name, r.off, r.bytes.len())
         }
         XLOG_PGRC_FILE_REF => {
             let r = FileRefRec::decode(data).map_err(bad)?;
             let masks = r.masks.iter().filter(|m| m.1 != 0).count();
-            appendf!(
-                buf,
-                "dir {} {} len {} crc {:08X} masks {}",
-                loc(r.dir),
-                r.name,
-                r.len,
-                r.crc,
-                masks
-            )?;
+            appendf!(buf, "dir {} {} len {} crc {:08X} masks {}", loc(r.dir), r.name, r.len, r.crc, masks)?;
             for (off, len) in r.masks.iter().filter(|m| m.1 != 0) {
                 appendf!(buf, " [{off}+{len}]")?;
             }
@@ -103,13 +85,7 @@ pub fn pgrc_desc(buf: &mut StringInfo<'_>, record: &XLogReaderState) -> PgResult
         }
         XLOG_PGRC_BULK_ROWS => {
             let r = BulkRowsRec::decode(data).map_err(bad)?;
-            appendf!(
-                buf,
-                "parent {} ntuples {} bytes {}",
-                loc(r.parent),
-                r.ntuples,
-                r.tuples.len()
-            )
+            appendf!(buf, "parent {} ntuples {} bytes {}", loc(r.parent), r.ntuples, r.tuples.len())
         }
         XLOG_PGRC_ROWID_RESERVE | XLOG_PGRC_ROWID_SET => {
             let r = RowidReserveRec::decode(data).map_err(bad)?;
@@ -117,19 +93,8 @@ pub fn pgrc_desc(buf: &mut StringInfo<'_>, record: &XLogReaderState) -> PgResult
         }
         XLOG_PGRC_ROWID_EXTENTS => {
             let r = RowidExtentsRec::decode(data).map_err(bad)?;
-            let segs = r
-                .table
-                .iter()
-                .map(|e| e.part_no)
-                .collect::<std::collections::BTreeSet<_>>()
-                .len();
-            appendf!(
-                buf,
-                "dir {} extents {} segments {}",
-                loc(r.dir),
-                r.table.len(),
-                segs
-            )
+            let segs = r.table.iter().map(|e| e.part_no).collect::<std::collections::BTreeSet<_>>().len();
+            appendf!(buf, "dir {} extents {} segments {}", loc(r.dir), r.table.len(), segs)
         }
         _ => Ok(()),
     }

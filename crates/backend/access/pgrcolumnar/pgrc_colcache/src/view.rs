@@ -48,15 +48,7 @@ pub enum SegSource {
 
 impl SegView {
     pub fn rows(&self) -> Option<Vec<(u32, u16)>> {
-        let SegSource::Image {
-            img,
-            recent_ok,
-            deleted,
-            own_deleted,
-        } = &self.src
-        else {
-            return None;
-        };
+        let SegSource::Image { img, recent_ok, deleted, own_deleted, } = &self.src else { return None; };
         let mut out = Vec::new();
         let mut r = 0usize;
         for c in img.chunks.iter().flatten() {
@@ -67,17 +59,13 @@ impl SegView {
                     while r < img.recent.len() && img.recent[r] < (c.block, i as u16) {
                         r += 1;
                     }
-                    r < img.recent.len()
-                        && img.recent[r] == (c.block, i as u16)
-                        && recent_ok[r / 64] & (1 << (r % 64)) != 0
+                    r < img.recent.len() && img.recent[r] == (c.block, i as u16) && recent_ok[r / 64] & (1 << (r % 64)) != 0
                 };
                 if !vis {
                     continue;
                 }
                 if let Some(pos) = seg_local(c.block, c.hdr[i].off) {
-                    if deleted.binary_search(&pos).is_ok()
-                        || own_deleted.binary_search(&pos).is_ok()
-                    {
+                    if deleted.binary_search(&pos).is_ok() || own_deleted.binary_search(&pos).is_ok() {
                         continue;
                     }
                 }
@@ -97,21 +85,12 @@ pub struct ViewFilter {
 
 impl ViewFilter {
     pub fn empty() -> ViewFilter {
-        ViewFilter {
-            settled: Vec::new(),
-            recent: TombFilter::default(),
-            segs: HashMap::new(),
-        }
+        ViewFilter { settled: Vec::new(), recent: TombFilter::default(), segs: HashMap::new(), }
     }
 }
 
 impl DeletionFilter for ViewFilter {
-    fn granule_into(
-        &self,
-        part: usize,
-        g: u32,
-        mask: &mut Option<Box<[u64; pgrc_scan::DV_GRANULE_WORDS]>>,
-    ) {
+    fn granule_into(&self, part: usize, g: u32, mask: &mut Option<Box<[u64; pgrc_scan::DV_GRANULE_WORDS]>>,) {
         for s in &self.settled {
             s.granule_into(part, g, mask);
         }
@@ -134,12 +113,7 @@ pub struct TombIn<'a> {
 }
 
 /// A row is deleted if any heap holds a tombstone for it that the snapshot sees.
-pub fn build(
-    k: &mut dyn Keyer,
-    tombs: &[TombIn<'_>],
-    segs: Vec<SegIn>,
-    snap: &dyn SnapView,
-) -> PgResult<(u64, Vec<SegView>, ViewFilter)> {
+pub fn build(k: &mut dyn Keyer, tombs: &[TombIn<'_>], segs: Vec<SegIn>, snap: &dyn SnapView,) -> PgResult<(u64, Vec<SegView>, ViewFilter)> {
     let live: HashMap<u32, u16> = segs.iter().map(|s| (s.rec.part_no, s.rec.slot)).collect();
     let nparts = k.nparts();
     let mut recent = TombFilter::with_parts(nparts);
@@ -175,11 +149,7 @@ pub fn build(
     for s in segs {
         let deleted = settled_positions(tombs, s.rec.part_no).unwrap_or_else(|| Arc::clone(&empty));
         let own_deleted = recent_segs.remove(&s.rec.slot).unwrap_or_default();
-        let mut merged: Vec<u32> = deleted
-            .iter()
-            .copied()
-            .chain(own_deleted.iter().copied())
-            .collect();
+        let mut merged: Vec<u32> = deleted.iter().copied().chain(own_deleted.iter().copied()).collect();
         merged.sort_unstable();
         merged.dedup();
         if !merged.is_empty() {
@@ -188,11 +158,7 @@ pub fn build(
         let src = match s.img {
             Some(img) => {
                 seq_sum = seq_sum.wrapping_add(img.seq);
-                let mut recent_ok = ::mcx::stdvec::try_filled(
-                    img.recent.len().div_ceil(64),
-                    0u64,
-                    "pgrc column view",
-                )?;
+                let mut recent_ok = ::mcx::stdvec::try_filled(img.recent.len().div_ceil(64), 0u64, "pgrc column view",)?;
                 for (r, &(blk, i)) in img.recent.iter().enumerate() {
                     let c = img.chunk(blk).expect("a recent row's chunk");
                     let h = &c.hdr[i as usize];
@@ -200,84 +166,40 @@ pub fn build(
                         recent_ok[r / 64] |= 1 << (r % 64);
                     }
                 }
-                SegSource::Image {
-                    img,
-                    recent_ok: recent_ok.into_boxed_slice(),
-                    deleted,
-                    own_deleted,
-                }
+                SegSource::Image { img, recent_ok: recent_ok.into_boxed_slice(), deleted, own_deleted, }
             }
             None => SegSource::Heap,
         };
-        out.push(SegView {
-            slot: s.rec.slot,
-            part_no: s.rec.part_no,
-            relid: s.rec.relid,
-            src,
-        });
+        out.push(SegView { slot: s.rec.slot, part_no: s.rec.part_no, relid: s.rec.relid, src, });
     }
-    let filter = ViewFilter {
-        settled: tombs.iter().map(|t| Arc::clone(&t.settled.parts)).collect(),
-        recent: recent.finished(),
-        segs: filter_segs,
-    };
+    let filter = ViewFilter { settled: tombs.iter().map(|t| Arc::clone(&t.settled.parts)).collect(), recent: recent.finished(), segs: filter_segs, };
     Ok((seq_sum, out, filter))
 }
 
 fn settled_positions(tombs: &[TombIn<'_>], part_no: u32) -> Option<Arc<[u32]>> {
-    let mut lists = tombs
-        .iter()
-        .filter_map(|t| t.settled.segs.get(&part_no))
-        .peekable();
+    let mut lists = tombs.iter().filter_map(|t| t.settled.segs.get(&part_no)).peekable();
     let first = lists.next()?;
     if lists.peek().is_none() {
         return Some(Arc::clone(first));
     }
-    let mut all: Vec<u32> = first
-        .iter()
-        .chain(lists.flat_map(|l| l.iter()))
-        .copied()
-        .collect();
+    let mut all: Vec<u32> = first.iter().chain(lists.flat_map(|l| l.iter())).copied().collect();
     all.sort_unstable();
     all.dedup();
     Some(Arc::from(all))
 }
 
 /// `None` = the provider is off for this statement: the caller runs the F2 path.
-pub fn view<'mcx>(
-    mcx: Mcx<'mcx>,
-    rel: &Relation<'mcx>,
-    gen: Option<&Arc<Generation>>,
-    segs: &[SegmentRecord],
-    snap: &SnapshotData<'mcx>,
-) -> PgResult<Option<ColView>> {
+pub fn view<'mcx>(mcx: Mcx<'mcx>, rel: &Relation<'mcx>, gen: Option<&Arc<Generation>>, segs: &[SegmentRecord], snap: &SnapshotData<'mcx>,) -> PgResult<Option<ColView>> {
     build_view(mcx, rel, gen, segs, snap, true)
 }
 
 /// The segments are keyed but not imaged: a fetch reads a segment row by heap visibility.
-pub fn deletes<'a, 'mcx>(
-    mcx: Mcx<'mcx>,
-    rel: &'a Relation<'mcx>,
-    gen: Option<&'a Arc<Generation>>,
-    segs: &'a [SegmentRecord],
-    snap: &'a SnapshotData<'mcx>,
-) -> PgResult<Option<Box<dyn DeletionFilter>>> {
-    Ok(build_view(mcx, rel, gen, segs, snap, false)?
-        .map(|v| Box::new(v.filter) as Box<dyn DeletionFilter>))
+pub fn deletes<'a, 'mcx>(mcx: Mcx<'mcx>, rel: &'a Relation<'mcx>, gen: Option<&'a Arc<Generation>>, segs: &'a [SegmentRecord], snap: &'a SnapshotData<'mcx>,) -> PgResult<Option<Box<dyn DeletionFilter>>> {
+    Ok(build_view(mcx, rel, gen, segs, snap, false)?.map(|v| Box::new(v.filter) as Box<dyn DeletionFilter>))
 }
 
-fn build_view<'mcx>(
-    mcx: Mcx<'mcx>,
-    rel: &Relation<'mcx>,
-    gen: Option<&Arc<Generation>>,
-    segs: &[SegmentRecord],
-    snap: &SnapshotData<'mcx>,
-    images: bool,
-) -> PgResult<Option<ColView>> {
-    if snap.snapshot_type != SnapshotType::SNAPSHOT_MVCC
-        || rel.uses_local_buffers()
-        || pgrc_read::mem::cap() == 0
-    {
+fn build_view<'mcx>(mcx: Mcx<'mcx>, rel: &Relation<'mcx>, gen: Option<&Arc<Generation>>, segs: &[SegmentRecord], snap: &SnapshotData<'mcx>, images: bool,) -> PgResult<Option<ColView>> {
+    if snap.snapshot_type != SnapshotType::SNAPSHOT_MVCC || rel.uses_local_buffers() || pgrc_read::mem::cap() == 0 {
         return Ok(None);
     }
     let sv = Mvcc { snap };
@@ -285,28 +207,15 @@ fn build_view<'mcx>(
     let ext = pgrc_am::rowid_alloc::extents(&dir)?;
     let mut keyer = gen.map(|g| GenKeyer::new(g, dir, std::sync::Arc::clone(&ext)));
     // Two with rows (a retired heap the view has unfolded, or the newest current heap past a switch) are a union.
-    let slots = pgrc_front::tombs::read_slots(
-        &pgrc_front::tombs::state(gen.map(|g| &**g))?,
-        &pgrc_front::tombs::newest_state(rel)?,
-    );
+    let slots = pgrc_front::tombs::read_slots(&pgrc_front::tombs::state(gen.map(|g| &**g))?, &pgrc_front::tombs::newest_state(rel)?,);
     let heaps = pgrc_front::tombs::open_read(mcx, rel.rd_id, &slots)?;
     let imgs: PgResult<Option<Vec<Arc<CompanionImage>>>> = (|| {
         let mut out = ::mcx::stdvec::try_vec(heaps.len(), "pgrc column view")?;
         for h in &heaps {
-            if bufmgr::RelationGetNumberOfBlocksInFork(
-                &h.rel,
-                types_core::ForkNumber::MAIN_FORKNUM,
-            )? == 0
-            {
+            if bufmgr::RelationGetNumberOfBlocksInFork(&h.rel, types_core::ForkNumber::MAIN_FORKNUM,)? == 0 {
                 continue;
             }
-            match crate::image::current(
-                crate::locator(&h.rel),
-                h.rel.rd_id,
-                Kind::Tomb,
-                &BufPages { rel: &h.rel },
-                &Procs { rel: &h.rel },
-            )? {
+            match crate::image::current(crate::locator(&h.rel), h.rel.rd_id, Kind::Tomb, &BufPages { rel: &h.rel }, &Procs { rel: &h.rel },)? {
                 Ok(img) => out.push(img),
                 Err(_) => return Ok(None),
             }
@@ -322,44 +231,21 @@ fn build_view<'mcx>(
     };
     let mut tombs = ::mcx::stdvec::try_vec(imgs.len(), "pgrc column view")?;
     for img in &imgs {
-        tombs.push(TombIn {
-            img,
-            settled: settled(img, k)?,
-        });
+        tombs.push(TombIn { img, settled: settled(img, k)?, });
     }
     let mut ins = ::mcx::stdvec::try_vec(segs.len(), "pgrc column view")?;
     for rec in segs {
         if !images {
-            ins.push(SegIn {
-                rec: *rec,
-                img: None,
-            });
+            ins.push(SegIn { rec: *rec, img: None, });
             continue;
         }
         let s = table::table_open(mcx, rec.relid, AccessShareLock)?;
-        let out = crate::image::current(
-            crate::locator(&s),
-            rec.relid,
-            Kind::Segment {
-                slot: rec.slot,
-                part_no: rec.part_no,
-            },
-            &BufPages { rel: &s },
-            &Procs { rel: &s },
-        );
+        let out = crate::image::current(crate::locator(&s), rec.relid, Kind::Segment { slot: rec.slot, part_no: rec.part_no, }, &BufPages { rel: &s }, &Procs { rel: &s },);
         s.close(NoLock)?;
-        ins.push(SegIn {
-            rec: *rec,
-            img: out?.ok(),
-        });
+        ins.push(SegIn { rec: *rec, img: out?.ok(), });
     }
     let (seq_sum, segs, filter) = build(k, &tombs, ins, &sv)?;
-    Ok(Some(ColView {
-        gen: gen.cloned(),
-        identity: (gen.map_or(0, |g| g.view_key()), seq_sum),
-        segs,
-        filter,
-    }))
+    Ok(Some(ColView { gen: gen.cloned(), identity: (gen.map_or(0, |g| g.view_key()), seq_sum), segs, filter, }))
 }
 
 pub struct NoGen(pub std::sync::Arc<pgrc_am::rowid_alloc::Extents>);

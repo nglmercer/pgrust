@@ -42,7 +42,9 @@ fn small_part() -> BuiltPart {
 }
 
 fn open(b: &BuiltPart, dev: u64, ino: u64) -> Arc<OpenPart> {
-    Arc::new(OpenPart::open(Box::new(b.mem_io(dev, ino)), &PartExpect::none()).expect("open"))
+    Arc::new(
+        OpenPart::open(Box::new(b.mem_io(dev, ino)), &PartExpect::none()).expect("open")
+    )
 }
 
 /// Model 1: the segment map is write-once under a faulting race.
@@ -60,14 +62,13 @@ fn concurrent_section_fault_is_write_once() {
         let faults = part.faults();
         let section_faults = faults
             .iter()
-            .filter(|f| {
-                !matches!(
-                    f.tag,
-                    pgrc_read::FaultTag::Tail
-                        | pgrc_read::FaultTag::Footer
-                        | pgrc_read::FaultTag::SectionTable
-                        | pgrc_read::FaultTag::Header
-                )
+            .filter(|f| { !matches!(
+                f.tag,
+                pgrc_read::FaultTag::Tail
+                    | pgrc_read::FaultTag::Footer
+                    | pgrc_read::FaultTag::SectionTable
+                    | pgrc_read::FaultTag::Header
+            )
             })
             .count();
         assert_eq!(section_faults, 1, "one region, one fault log entry");
@@ -145,9 +146,7 @@ fn registry_janitor_never_evicts_a_racing_pinned_part() {
 fn dict_lazy_region_publishes_once() {
     let mut col = text_col(1, 100, None);
     col.dict = Some(DictSpec {
-        entries: (0..8u32)
-            .map(|i| format!("d-{i:03}").into_bytes())
-            .collect(),
+        entries: (0..8u32).map(|i| format!("d-{i:03}").into_bytes()).collect(),
     });
     let b = build_part(&PartSpec::new(100, vec![col]));
     loom::model(move || {
@@ -186,31 +185,19 @@ fn cached_image_is_never_evicted_while_held() {
     loom::model(move || {
         let part = open(&b, 5, 13);
         let dir = part.stream_directory().expect("dir");
-        let ps = dir
-            .lookup(1, 0, StreamRole::Values)
-            .expect("values")
-            .clone();
+        let ps = dir.lookup(1, 0, StreamRole::Values).expect("values").clone();
         drop(dir);
         let (entry, rec) = (ps.entry, ps.extents[0]);
         let want = b.bytes[rec.file_off as usize..(rec.file_off + rec.len) as usize].to_vec();
         let base = part.resident();
         for (i, r) in ps.extents.iter().enumerate() {
-            drop(
-                part.extent_bytes_cached(&entry, r, i as u32)
-                    .expect("admit"),
-            );
+            drop(part.extent_bytes_cached(&entry, r, i as u32).expect("admit"),);
         }
         let sweeper = thread::spawn(pgrc_read::mem::sweep_all_for_tests);
         let a = part.extent_bytes_cached(&entry, &rec, 0).expect("take");
-        let a2 = part
-            .extent_bytes_cached(&entry, &rec, 0)
-            .expect("take again");
+        let a2 = part.extent_bytes_cached(&entry, &rec, 0).expect("take again");
         sweeper.join().expect("join");
-        assert_eq!(
-            a.bytes().as_ptr(),
-            a2.bytes().as_ptr(),
-            "a held image was evicted"
-        );
+        assert_eq!(a.bytes().as_ptr(), a2.bytes().as_ptr(), "a held image was evicted");
         assert_eq!(a.bytes(), &want[..]);
         drop((a, a2));
         pgrc_read::mem::sweep_all_for_tests();

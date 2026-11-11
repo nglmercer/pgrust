@@ -26,10 +26,7 @@ pub fn available() -> bool {
     {
         static OFF: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
         !*OFF.get_or_init(|| {
-            matches!(
-                std::env::var("PGRUST_JIT_DEFORM").as_deref(),
-                Ok("0") | Ok("off")
-            )
+            matches!(std::env::var("PGRUST_JIT_DEFORM").as_deref(), Ok("0") | Ok("off"))
         })
     }
     #[cfg(not(target_arch = "aarch64"))]
@@ -121,10 +118,7 @@ impl CodeBlock {
 /// None = refused (arch, arena full): callers fail open to their interpreter.
 pub fn install_code(words: &[u32]) -> Option<CodeBlock> {
     let code = imp::alloc_code(words)?;
-    Some(CodeBlock {
-        code,
-        len: words.len() * 4,
-    })
+    Some(CodeBlock { code, len: words.len() * 4, })
 }
 
 /// Process-shared W^X body for cross-thread code caches (the sqe Tier-B
@@ -182,10 +176,7 @@ impl SharedCode {
 /// None = refused (arch, empty body, mmap failure): callers fail open.
 pub fn install_code_shared(words: &[u32]) -> Option<SharedCode> {
     let alloc = imp::alloc_code_shared(words)?;
-    Some(SharedCode {
-        alloc,
-        len: words.len() * 4,
-    })
+    Some(SharedCode { alloc, len: words.len() * 4, })
 }
 
 // C JitInstrumentation slice we can attribute (created_functions +
@@ -252,15 +243,8 @@ mod imp {
 
     /// C8 move 7: deform kernels' code pages (door 2) are the program caches' memory, whichever thread compiled them.
     fn code_charge(bytes: usize) -> memledger::Charge {
-        let owner =
-            memledger::Owner::Cache(memledger::Holder::Of(memledger::Consumer::ProgramCaches));
-        memledger::Charge::open(
-            owner,
-            memledger::Release::Evict,
-            memledger::Kind::Mapped,
-            memledger::charge::Door::Mapped,
-            bytes as u64,
-        )
+        let owner = memledger::Owner::Cache(memledger::Holder::Of(memledger::Consumer::ProgramCaches));
+        memledger::Charge::open(owner, memledger::Release::Evict, memledger::Kind::Mapped, memledger::charge::Door::Mapped, bytes as u64,)
     }
 
     impl Drop for Chunk {
@@ -314,12 +298,7 @@ mod imp {
             return None;
         }
         mempolicy::maps::name(base.cast(), CHUNK_BYTES, c"pgrust:jit_deform");
-        Some(Rc::new(Chunk {
-            base: base.cast(),
-            used: Cell::new(0),
-            live: Cell::new(0),
-            _charge: code_charge(CHUNK_BYTES),
-        }))
+        Some(Rc::new(Chunk { base: base.cast(), used: Cell::new(0), live: Cell::new(0), _charge: code_charge(CHUNK_BYTES), }))
     }
 
     pub(crate) fn alloc_code(words: &[u32]) -> Option<CodeAlloc> {
@@ -433,11 +412,7 @@ mod imp {
         }
         let base: *mut u8 = base.cast();
         mempolicy::maps::name(base, map_len, c"pgrust:jit_deform");
-        let alloc = SharedAlloc {
-            base,
-            map_len,
-            _charge: code_charge(map_len),
-        };
+        let alloc = SharedAlloc { base, map_len, _charge: code_charge(map_len), };
         // SAFETY: len <= map_len; the mapping is ours alone; after the
         // RX flip it is never writable again (W^X by construction).
         unsafe {
@@ -485,10 +460,7 @@ mod imp {
 
     impl Emitter {
         fn new() -> Emitter {
-            Emitter {
-                code: Vec::with_capacity(96),
-                ok: true,
-            }
+            Emitter { code: Vec::with_capacity(96), ok: true, }
         }
 
         // fetch_att Datum semantics: byval sign-extends by width, byref = address.
@@ -558,8 +530,7 @@ mod imp {
     fn emit_row(atts: &[CompactAttribute], ncols: usize) -> Option<(Vec<u32>, u32)> {
         let mut e = Emitter::new();
         e.zero_bytes(2, ncols);
-        let end = emit_loads(&mut e, atts, ncols, |e, rt, c| {
-            e.str64(rt, 1, (c * 8) as u32)
+        let end = emit_loads(&mut e, atts, ncols, |e, rt, c| { e.str64(rt, 1, (c * 8) as u32)
         });
         e.ret();
         e.ok.then_some((e.code, end))

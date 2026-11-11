@@ -444,8 +444,7 @@ impl<'mcx> nodes_core::NodeWalker<'mcx> for ChangeVars<'mcx> {
                         Ok(())
                     })
                 }
-                .expect("PlaceHolderVar")?;
-                nodes_core::expression_tree_walker(node, self)
+                .expect("PlaceHolderVar")?; nodes_core::expression_tree_walker(node, self)
             }
             NodeTag::T_CurrentOfExpr => {
                 if self.sublevels_up == 0 {
@@ -959,7 +958,7 @@ pub fn getInsertSelectQuery_node<'mcx>(
     }
 }
 
-fn rte_at<'mcx>(rtable: &NodeList<'mcx>, varno: i32) -> &'mcx RangeTblEntry<'mcx> {
+fn rte_at< 'mcx>(rtable: & NodeList<'mcx>, varno: i32) -> &'mcx RangeTblEntry<'mcx> {
     rtable.nth(varno as usize - 1).as_range_tbl_entry().expect("rtable holds RangeTblEntry")
 }
 

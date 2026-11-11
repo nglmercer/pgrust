@@ -2197,7 +2197,7 @@ fn seen_slot(key: gravity_program::ContentKey) -> (&'static AtomicU64, u64) {
 pub fn arena_seen(key: gravity_program::ContentKey) -> Option<(u64, u64)> {
     let (slot, tag) = seen_slot(key);
     let w = slot.load(Ordering::Relaxed);
-    (w >> 48 == tag).then_some(((w >> 24 & 0xFF_FFFF) << 10, (w & 0xFF_FFFF) << 10))
+    (w >> 48 == tag).then_some( ((w >> 24 & 0xFF_FFFF) << 10, (w & 0xFF_FFFF) << 10))
 }
 
 /// DR-12: forget every program's seen arena draws (the priors stand again): a re-fit, and tests that pin the priors.

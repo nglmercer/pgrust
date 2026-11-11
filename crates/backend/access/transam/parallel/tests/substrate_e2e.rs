@@ -35,9 +35,7 @@ static WORKER_LOG: Mutex<Vec<String>> = Mutex::new(Vec::new());
 static LEAKED_WORKER_IDENTITY: Mutex<Vec<String>> = Mutex::new(Vec::new());
 
 fn assert_no_leaked_worker_identity() {
-    let leaked = LEAKED_WORKER_IDENTITY
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
+    let leaked = LEAKED_WORKER_IDENTITY.lock().unwrap_or_else(|e| e.into_inner());
     assert!(
         leaked.is_empty(),
         "worker thread(s) kept their parallel identity past the task (parallel.c:115/121): {}",
@@ -56,9 +54,7 @@ static TEST_RECORD_REGISTRIES: Mutex<
 
 fn test_record_registry_handle() -> typcache_seams::RecordRegistryHandle {
     let thread = std::thread::current().id();
-    let mut registries = TEST_RECORD_REGISTRIES
-        .lock()
-        .unwrap_or_else(|error| error.into_inner());
+    let mut registries = TEST_RECORD_REGISTRIES.lock().unwrap_or_else(|error| error.into_inner());
     if let Some((_, registry)) = registries.iter().find(|(id, _)| *id == thread) {
         return Arc::clone(registry);
     }
@@ -69,9 +65,7 @@ fn test_record_registry_handle() -> typcache_seams::RecordRegistryHandle {
 
 fn install_test_record_registry(registry: typcache_seams::RecordRegistryHandle) {
     let thread = std::thread::current().id();
-    let mut registries = TEST_RECORD_REGISTRIES
-        .lock()
-        .unwrap_or_else(|error| error.into_inner());
+    let mut registries = TEST_RECORD_REGISTRIES.lock().unwrap_or_else(|error| error.into_inner());
     if let Some((_, current)) = registries.iter_mut().find(|(id, _)| *id == thread) {
         *current = registry;
     } else {
@@ -84,10 +78,7 @@ fn wlog(s: String) {
 }
 
 fn wlog_dump() -> String {
-    WORKER_LOG
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .join(" | ")
+    WORKER_LOG.lock().unwrap_or_else(|e| e.into_inner()).join(" | ")
 }
 
 // A hang here otherwise burns the whole CI cluster job deadline.
@@ -114,7 +105,9 @@ impl Drop for Watchdog {
 
 // IsUnderPostmaster is thread-local; scope it to registration so the latch
 // wait paths never arm a postmaster-death watch (no postmaster pipe here).
-fn launch_as_if_under_postmaster(pcxt: parallel::ParallelContextId) -> PgResult<i32> {
+fn launch_as_if_under_postmaster(
+    pcxt: parallel::ParallelContextId
+) -> PgResult<i32> {
     g::SetIsUnderPostmaster(true);
     let r = parallel::LaunchParallelWorkers(pcxt);
     g::SetIsUnderPostmaster(false);
@@ -300,7 +293,8 @@ fn setup() {
         remove_data_dir_at_exit();
         println!("data dir {}", dir.display());
         std::env::set_current_dir(&dir).unwrap();
-        let dir_str: &'static str = Box::leak(dir.to_str().unwrap().to_string().into_boxed_str());
+        let dir_str: &'static str =
+            Box::leak(dir.to_str().unwrap().to_string().into_boxed_str());
         DATA_DIR.set(dir_str).unwrap();
         thread_globals();
         g::SetMyProcPid(779);
@@ -432,12 +426,8 @@ fn boot_xlog_ctl() {
     let ctl = transam_xlog::ctl::XLogCtl();
     ctl.InsertTimeLineID.store(1, Relaxed);
     ctl.PrevTimeLineID.store(1, Relaxed);
-    ctl.Insert
-        .CurrBytePos
-        .store(XLogRecPtrToBytePos(end_of_log), Relaxed);
-    ctl.Insert
-        .PrevBytePos
-        .store(XLogRecPtrToBytePos(prev_rec), Relaxed);
+    ctl.Insert.CurrBytePos.store(XLogRecPtrToBytePos(end_of_log), Relaxed);
+    ctl.Insert.PrevBytePos.store(XLogRecPtrToBytePos(prev_rec), Relaxed);
     ctl.Insert.fullPageWrites.store(true, Relaxed);
     ctl.Insert.RedoRecPtr.store(prev_rec, Relaxed);
     ctl.RedoRecPtr.store(prev_rec, Relaxed);
@@ -447,8 +437,7 @@ fn boot_xlog_ctl() {
     ctl.logFlushResult.store(end_of_log, Relaxed);
     ctl.LogwrtRqstWrite.store(end_of_log, Relaxed);
     ctl.LogwrtRqstFlush.store(end_of_log, Relaxed);
-    ctl.SharedRecoveryState
-        .store(transam_xlog::RECOVERY_STATE_DONE, Relaxed);
+    ctl.SharedRecoveryState.store(transam_xlog::RECOVERY_STATE_DONE, Relaxed);
     ctl.InstallXLogFileSegmentActive.store(true, Relaxed);
     xlogutils::set_in_recovery(false);
 }
@@ -467,9 +456,7 @@ fn tuple_image(worker: usize, i: usize) -> Vec<u8> {
 fn e2e_worker_main(shared: &parallel::ParallelShared) -> PgResult<()> {
     let me = parallel::ParallelWorkerNumber() as usize;
     let private = shared.private().expect("e2e private missing");
-    let e2e = private
-        .downcast_ref::<E2eShared>()
-        .expect("e2e private type");
+    let e2e = private.downcast_ref::<E2eShared>().expect("e2e private type");
     let mq = Arc::clone(&e2e.queues[me]);
     mq.set_sender(g::MyProcNumber());
     let mut tx = shm_mq::shm_mq_attach(mq);
@@ -494,10 +481,7 @@ fn e2e_worker_main(shared: &parallel::ParallelShared) -> PgResult<()> {
 }
 
 fn e2e_error_main(_shared: &parallel::ParallelShared) -> PgResult<()> {
-    wlog(format!(
-        "e2e_error_main reached in worker {}",
-        parallel::ParallelWorkerNumber()
-    ));
+    wlog(format!("e2e_error_main reached in worker {}", parallel::ParallelWorkerNumber()));
     Err(Box::new(
         PgError::new(types_error::FATAL, "worker exploded on purpose")
             .with_sqlstate(types_error::ERRCODE_DIVISION_BY_ZERO)
@@ -574,11 +558,7 @@ fn panic_text(payload: &(dyn Any + Send)) -> Option<&str> {
 static EXPECT_UNCOMMITTED_ENUM: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
 fn query_task_binder_hook(_source: &parallel::ParallelShared) {
-    let Some(target) = BINDER_TARGET
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .take()
-    else {
+    let Some(target) = BINDER_TARGET.lock().unwrap_or_else(|e| e.into_inner()).take() else {
         return;
     };
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -745,9 +725,7 @@ fn query_task_binder_hook(_source: &parallel::ParallelShared) {
         if panic_text(double_panic.as_ref()) != Some("binder original panic")
             || init_small::wretain::candidate()
         {
-            return Err(
-                PgError::error("double panic did not preserve body panic and retire").into(),
-            );
+            return Err(PgError::error("double panic did not preserve body panic and retire").into(),);
         }
         assert_helper_state(&helper_state)?;
 
@@ -776,9 +754,7 @@ fn query_task_binder_hook(_source: &parallel::ParallelShared) {
         })
         .expect_err("fault-injected cleanup must preserve the body error");
         if cleanup_fault.message() != "binder first fault" || init_small::wretain::candidate() {
-            return Err(
-                PgError::error("cleanup fault did not preserve error and retire helper").into(),
-            );
+            return Err(PgError::error("cleanup fault did not preserve error and retire helper").into(),);
         }
         g::SetCritSectionCount(0);
         assert_helper_state(&helper_state)?;
@@ -807,9 +783,7 @@ fn assert_query_task_helper_clean() -> PgResult<()> {
         return Err(PgError::error("query-task helper boundary: snapshot state is live").into());
     }
     if pg_enum::HasUncommittedEnums() {
-        return Err(
-            PgError::error("query-task helper boundary: uncommitted enums are live").into(),
-        );
+        return Err(PgError::error("query-task helper boundary: uncommitted enums are live").into(),);
     }
     Ok(())
 }
@@ -826,9 +800,7 @@ fn launch_registered_workers() -> Vec<std::thread::JoinHandle<i32>> {
         let pid = NEXT_PID.fetch_add(1, Relaxed);
         let slot = bgworker::rw_shmem_slot(idx);
         let generation = bgworker::slot_generation(slot);
-        wlog(format!(
-            "stand-in launch: idx={idx} slot={slot} gen={generation} pid={pid}"
-        ));
+        wlog(format!("stand-in launch: idx={idx} slot={slot} gen={generation} pid={pid}"));
         bgworker::set_rw_pid(idx, pid);
         bgworker::ReportBackgroundWorkerPID(idx);
         // launch_backend's per-thread GUC boot (the postmaster snapshot).
@@ -845,15 +817,15 @@ fn launch_registered_workers() -> Vec<std::thread::JoinHandle<i32>> {
                 waiteventset::InitializeWaitEventSupport().unwrap();
                 miscinit::InitProcessLocalLatch().expect("local latch");
                 latch::InitializeLatchWaitSet().unwrap();
-                let sd =
-                    StartupData::BgWorker(types_startup::BgWorkerStartupData { slot, generation });
+                let sd = StartupData::BgWorker(types_startup::BgWorkerStartupData {
+                    slot,
+                    generation
+                });
                 let payload = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     bgworker::BackgroundWorkerMain(&sd)
                 }))
                 .unwrap_err();
-                let code = payload
-                    .downcast_ref::<ipc::ProcExitThread>()
-                    .map(|p| p.code);
+                let code = payload.downcast_ref::<ipc::ProcExitThread>().map(|p| p.code);
                 // proc_exit defers the exit-callback drain to the thread top
                 // (run_child_task in the real server; this rig is that top).
                 if let Some(code) = code {
@@ -991,13 +963,7 @@ fn substrate_happy_path_with_launch_fewer() {
     // worker slot into the leader's node instrumentation.
     let mut leader_instr = types_core::instrument::Instrumentation::default();
     instrument::instr_init(&mut leader_instr, 0);
-    for wi in e2e_shared
-        .instr
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .iter()
-        .take(2)
-    {
+    for wi in e2e_shared.instr.lock().unwrap_or_else(|e| e.into_inner()).iter().take(2) {
         instrument::instr_agg_node(&mut leader_instr, wi);
     }
     assert_eq!(leader_instr.ntuples, (2 * N_TUPLES) as f64);
@@ -1052,10 +1018,7 @@ fn worker_error_rethrows_with_c_shape() {
 #[test]
 fn query_task_binder_restores_clean_helper_across_outcomes() {
     let _s = serial();
-    let _w = Watchdog::arm(
-        180,
-        "query_task_binder_restores_clean_helper_across_outcomes",
-    );
+    let _w = Watchdog::arm(180, "query_task_binder_restores_clean_helper_across_outcomes",);
     setup();
 
     g::SetMyDatabaseId(42);
@@ -1080,7 +1043,8 @@ fn query_task_binder_restores_clean_helper_across_outcomes() {
     parallel::InitializeParallelDSM(target).unwrap();
     miscinit::ReplaceSessionIdentityState(helper_identity);
     parallel::InstallQueryTaskBinding(target, parallel::QueryTaskBindingPolicy::default()).unwrap();
-    *BINDER_TARGET.lock().unwrap_or_else(|e| e.into_inner()) = Some(parallel::shared_for(target));
+    *BINDER_TARGET.lock().unwrap_or_else(|e| e.into_inner()) =
+        Some(parallel::shared_for(target));
     *BINDER_REPORT.0.lock().unwrap_or_else(|e| e.into_inner()) = None;
 
     let refusal_cases = [
@@ -1116,11 +1080,7 @@ fn query_task_binder_restores_clean_helper_across_outcomes() {
             },
             "invalidations",
         ),
-        (
-            43,
-            parallel::QueryTaskBindingPolicy::default(),
-            "cross-database",
-        ),
+        (43, parallel::QueryTaskBindingPolicy::default(), "cross-database",),
     ];
     let mut refusal_contexts = Vec::new();
     for (database, policy, needle) in refusal_cases {
@@ -1147,11 +1107,7 @@ fn query_task_binder_restores_clean_helper_across_outcomes() {
         .1
         .wait_timeout_while(report, std::time::Duration::from_secs(120), |r| r.is_none())
         .unwrap_or_else(|e| e.into_inner());
-    assert!(
-        !timeout.timed_out(),
-        "binder hook timed out; worker log: {}",
-        wlog_dump()
-    );
+    assert!(!timeout.timed_out(), "binder hook timed out; worker log: {}", wlog_dump());
     report.take().expect("binder hook omitted report").unwrap();
     drop(report);
 

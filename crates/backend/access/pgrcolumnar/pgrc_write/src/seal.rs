@@ -46,15 +46,12 @@ use pgrc_format::part::{
     SECTIONF_META_ZSTD, STREAMF_HAS_OVERFLOW, STREAMF_SIGNED,
 };
 use pgrc_format::rowid::MAX_GRANULES_PER_PART;
-use pgrc_format::sortkey::{
-    NullsOrder, SortDir, SortKeyEntry, SortKeyRecord, SORT_KEY_KIND_TEXT_PATH,
-};
+use pgrc_format::sortkey::{NullsOrder, SortDir, SortKeyEntry, SortKeyRecord, SORT_KEY_KIND_TEXT_PATH,};
 use pgrc_format::verbatim::{encode_validity_bitmap, reference_vtables, VerbatimEncoder};
 use pgrc_format::wire::{pad_to, varlena_entry_at};
 
 use pgrc_codec::wrapper::wrapper_available;
 use pgrc_format::dict::{DictCharLenForm, DictSections};
-
 use pgrc_codec::arraydual::{
     assemble_array_datums, assembled_arena_bytes, elect_array_split, ArrayElemFacts, ArraySplit,
 };
@@ -239,9 +236,7 @@ pub fn band_count_u64(rows: u64) -> u64 {
 fn fuse_fold_enabled() -> bool {
     static ON: pgsync::OnceLock<bool> = pgsync::OnceLock::new();
     *ON.get_or_init(|| {
-        std::env::var("PGRUST_SEAL_FUSE_FOLD")
-            .map(|v| v.trim() != "0")
-            .unwrap_or(true)
+        std::env::var("PGRUST_SEAL_FUSE_FOLD").map(|v| v.trim() != "0").unwrap_or(true)
     })
 }
 
@@ -275,9 +270,7 @@ fn wrap_byte_run_section(
             pgrc_codec::wrapper::wrap_dict_payload_section(section, index, &mut out)
                 .map_err(WriteError::Format)?;
             // the OnPair arm is kept only when its exact image is the smaller one
-            match pgrc_codec::onpairwrap::offer_dict_payload(section, index)
-                .map_err(WriteError::Format)?
-            {
+            match pgrc_codec::onpairwrap::offer_dict_payload(section, index).map_err(WriteError::Format)? {
                 Some(op) if op.len() < out.len() => Some((Wrapper::FrontOnPairZstd, op)),
                 _ => Some((Wrapper::FrontZstd, out)),
             }
@@ -318,13 +311,7 @@ fn wrap_byte_run_section(
     // one block.
     let mut ends: ChargedVec<u32> = ChargedVec::new(owner, Kind::Region);
     match hdr.frame_table(section).map_err(WriteError::Format)? {
-        Some(offs) if !offs.is_empty() => ends.with_vec(|v| {
-            v.extend(
-                offs.iter()
-                    .skip(1)
-                    .copied()
-                    .chain(std::iter::once(payload_len as u32)),
-            )
+        Some(offs) if !offs.is_empty() => ends.with_vec(|v| { v.extend(offs.iter().skip(1).copied().chain(std::iter::once(payload_len as u32)),)
         }), // alloc: Exec charged ends.owner()
         _ => ends.with_vec(|v| v.push(payload_len as u32)), // alloc: Exec charged ends.owner()
     }
@@ -401,27 +388,14 @@ pub fn seal_part(
     fxid: u64,
     seq: u32,
 ) -> WriteResult<(SealedPart, SealReport)> {
-    seal_part_core(
-        vfs,
-        table_dir,
-        spec,
-        roots,
-        lanes,
-        octet,
-        builders,
-        structural,
-        fxid,
-        seq,
-        None,
-        |sc, builders, sink| {
-            for (si, b) in builders.iter_mut().enumerate() {
-                let out = seal_stream(sc, si, b.get(), sources, resolver)?;
-                b.release();
-                sink(out)?;
-            }
-            Ok(())
-        },
-    )
+    seal_part_core(vfs, table_dir, spec, roots, lanes, octet, builders, structural, fxid, seq, None, |sc, builders, sink| {
+        for (si, b) in builders.iter_mut().enumerate() {
+            let out = seal_stream(sc, si, b.get(), sources, resolver)?;
+            b.release();
+            sink(out)?;
+        }
+        Ok(())
+    },)
 }
 
 /// [`seal_part`] with the streams sealed concurrently on `pool` (F1 L6): each stream writes its own image and the
@@ -442,25 +416,12 @@ pub fn seal_part_pooled(
     seq: u32,
     pool: &dyn ColumnPool,
 ) -> WriteResult<(SealedPart, SealReport)> {
-    seal_part_core(
-        vfs,
-        table_dir,
-        spec,
-        roots,
-        lanes,
-        octet,
-        builders,
-        structural,
-        fxid,
-        seq,
-        None,
-        |sc, builders, sink| {
-            for out in seal_streams_pooled(sc, builders, sources, resolver, pool)? {
-                sink(out)?;
-            }
-            Ok(())
-        },
-    )
+    seal_part_core(vfs, table_dir, spec, roots, lanes, octet, builders, structural, fxid, seq, None, |sc, builders, sink| {
+        for out in seal_streams_pooled(sc, builders, sources, resolver, pool)? {
+            sink(out)?;
+        }
+        Ok(())
+    },)
 }
 
 /// FASTADD (pgrc-plans/FASTADD.done): seal `roots` (no shred lanes) into one part image in memory at `grain`, never a
@@ -475,30 +436,16 @@ pub fn seal_part_image(
 ) -> WriteResult<Vec<u8>> {
     let mut vfs = crate::wvfs::MemVfs::new();
     vfs.mkdir_path("image")?;
-    let mut builders: Vec<Box<dyn ColumnMetaBuilder>> =
-        crate::meta_wire::builders_for_streams(roots, &[], &[]);
+    let mut builders: Vec<Box<dyn ColumnMetaBuilder>> = crate::meta_wire::builders_for_streams(roots, &[], &[]);
     let structural = StructuralPolicy::new();
-    let (sealed, _) = seal_part_core(
-        &mut vfs,
-        "image",
-        spec,
-        roots,
-        &[],
-        &[],
-        &mut builders,
-        &structural,
-        0,
-        0,
-        Some(grain),
-        |sc, builders, sink| {
-            for (si, b) in builders.iter_mut().enumerate() {
-                let out = seal_stream(sc, si, b.get(), sources, resolver)?;
-                b.release();
-                sink(out)?;
-            }
-            Ok(())
-        },
-    )?;
+    let (sealed, _) = seal_part_core(&mut vfs, "image", spec, roots, &[], &[], &mut builders, &structural, 0, 0, Some(grain), |sc, builders, sink| {
+        for (si, b) in builders.iter_mut().enumerate() {
+            let out = seal_stream(sc, si, b.get(), sources, resolver)?;
+            b.release();
+            sink(out)?;
+        }
+        Ok(())
+    },)?;
     vfs.read_full(&format!("image/{}", sealed.tmp_name))
 }
 
@@ -610,17 +557,10 @@ fn seal_streams_pooled(
     resolver: &(dyn VerifyResolver + Sync),
     pool: &dyn ColumnPool,
 ) -> WriteResult<Vec<StreamOut>> {
-    type Slot<'b> = pgsync::Mutex<(
-        &'b mut Box<dyn ColumnMetaBuilder + Send>,
-        Option<WriteResult<StreamOut>>,
-    )>;
-    let slots: Vec<Slot<'_>> = builders
-        .iter_mut()
-        .map(|b| pgsync::Mutex::new((b, None)))
-        .collect();
+    type Slot<'b> = pgsync::Mutex<(&'b mut Box<dyn ColumnMetaBuilder + Send>, Option<WriteResult<StreamOut>>,)>;
+    let slots: Vec<Slot<'_>> = builders.iter_mut().map(|b| pgsync::Mutex::new((b, None))).collect();
     pool.run(slots.len(), &|si| {
-        let srcs: Vec<&dyn CandidateSource> =
-            sources.iter().map(|s| *s as &dyn CandidateSource).collect();
+        let srcs: Vec<&dyn CandidateSource> = sources.iter().map(|s| *s as &dyn CandidateSource).collect();
         let mut slot = pgsync::lock(&slots[si]);
         let out = seal_stream(sc, si, slot.0.get(), &srcs, resolver);
         slot.0.release();
@@ -634,13 +574,7 @@ fn seal_streams_pooled(
     });
     slots
         .into_iter()
-        .map(|slot| {
-            slot.into_inner()
-                .unwrap_or_else(|e| e.into_inner())
-                .1
-                .ok_or(WriteError::Contract {
-                    detail: "a pool skipped a stream",
-                })?
+        .map(|slot| { slot.into_inner().unwrap_or_else(|e| e.into_inner()).1.ok_or(WriteError::Contract { detail: "a pool skipped a stream", })?
         })
         .collect()
 }
@@ -690,8 +624,7 @@ fn octet_answered(plans: &[StreamPlan], attno: u32) -> bool {
         p.attno == attno
             && p.path_ord == 0
             && p.role == StreamRole::Values
-            && (p.encoding == EncodingId::DictCodes.as_u16()
-                || p.encoding == EncodingId::Const.as_u16())
+            && (p.encoding == EncodingId::DictCodes.as_u16() || p.encoding == EncodingId::Const.as_u16())
     })
 }
 
@@ -776,10 +709,7 @@ pub struct StreamCtx<'a> {
 /// The byte ranges of a sealed part that its publish patches (`plan::apply_part_install`: the header at 0, the fixed
 /// footer at `footer_off`): the masks of its reference's crc (WR).
 pub fn part_ref_masks(footer_off: u64) -> pgrc_format::wal::SmallMasks {
-    [
-        (0, pgrc_format::part::PART_HEADER_LEN as u32),
-        (footer_off, pgrc_format::part::FOOTER_FIXED_LEN as u32),
-    ]
+    [(0, pgrc_format::part::PART_HEADER_LEN as u32), (footer_off, pgrc_format::part::FOOTER_FIXED_LEN as u32),]
 }
 
 /// [`part_ref_masks`] before the footer's offset is known (a streamed seal, K1-MEM): the header alone. The footer's
@@ -841,8 +771,7 @@ impl PartAsm {
         // it is allocated
         let more: usize = head.parts.iter().map(|p| p.len()).sum::<usize>() + img.len();
         if self.buf.capacity() - self.buf.len() < more {
-            self.charge
-                .sync((self.buf.len() + more).max(self.buf.capacity() * 2) as u64);
+            self.charge.sync((self.buf.len() + more).max(self.buf.capacity() * 2) as u64);
             let _ = self.buf.try_reserve(more);
         }
         for p in head.parts.iter().chain(std::iter::once(&img)) {
@@ -856,22 +785,11 @@ impl PartAsm {
 
     /// The streamed seal: write one stream's image through at `flushed` (nothing is buffered, so it is 8-aligned),
     /// then the zeros to the next 8-byte boundary that the next piece's padding would write. No copy of the image.
-    fn push_write(
-        &mut self,
-        mut out: StreamOut,
-        vfs: &mut dyn WriteVfs,
-        fd: &WvFd,
-    ) -> WriteResult<()> {
-        if !self.buf.is_empty() || !self.flushed.is_multiple_of(8) {
-            return Err(WriteError::Contract {
-                detail: "a streamed stream written over buffered bytes",
-            });
+    fn push_write(&mut self, mut out: StreamOut, vfs: &mut dyn WriteVfs, fd: &WvFd,) -> WriteResult<()> {
+        if !self.buf.is_empty() || ! self.flushed.is_multiple_of( 8) {
+            return Err(WriteError::Contract { detail: "a streamed stream written over buffered bytes", });
         }
-        let (base, head, img) = (
-            self.flushed,
-            std::mem::take(&mut out.head),
-            std::mem::take(&mut out.buf),
-        );
+        let (base, head, img) = (self.flushed, std::mem::take(&mut out.head), std::mem::take(&mut out.buf),);
         let mut at = base;
         for p in head.parts.iter().chain(std::iter::once(&img)) {
             if !p.is_empty() {
@@ -892,11 +810,7 @@ impl PartAsm {
 
     /// A stitched stream's sections, plans, report and slices, its offsets moved to `base`.
     fn note(&mut self, out: StreamOut, base: u64) {
-        self.sections
-            .extend(out.sections.into_iter().map(|s| SectionEntry {
-                off: s.off + base,
-                ..s
-            }));
+        self.sections.extend(out.sections.into_iter().map(|s| SectionEntry { off: s.off + base, ..s }));
         self.plans.extend(out.plans.into_iter().map(|mut p| {
             p.extents.iter_mut().for_each(|e| e.file_off += base);
             p
@@ -946,14 +860,7 @@ impl PartAsm {
         // ---- PathTable (spec §6.5; shredded parts only) --------------------
         if !lane_paths.is_empty() {
             let body = encode_path_table(lane_paths)?;
-            push_raw_section(
-                &mut self.buf,
-                &mut self.sections,
-                SectionKind::PathTable,
-                0,
-                0,
-                &body,
-            )?;
+            push_raw_section(&mut self.buf, &mut self.sections, SectionKind::PathTable, 0, 0, &body,)?;
         }
 
         // ---- SortKey (spec §9): with a declared cluster key the v4 writer IS
@@ -978,10 +885,7 @@ impl PartAsm {
                     let (collation_class, pad) = if k.path.is_empty() {
                         (col.collation_class.as_u8(), 0)
                     } else {
-                        (
-                            pgrc_format::class::CollationClass::C.as_u8(),
-                            SORT_KEY_KIND_TEXT_PATH,
-                        )
+                        (pgrc_format::class::CollationClass::C.as_u8(), SORT_KEY_KIND_TEXT_PATH,)
                     };
                     SortKeyEntry {
                         attno: k.attno,
@@ -993,35 +897,16 @@ impl PartAsm {
                 })
                 .collect();
             self.report.cluster_keys = structural.cluster_key().iter().map(|k| k.attno).collect();
-            let paths = structural
-                .cluster_key()
-                .iter()
-                .map(|k| k.path.clone())
-                .collect();
+            let paths = structural.cluster_key().iter().map(|k| k.path.clone()).collect();
             SortKeyRecord { keys, paths }.encode()
         };
-        push_raw_section(
-            &mut self.buf,
-            &mut self.sections,
-            SectionKind::SortKey,
-            0,
-            0,
-            &sort_body,
-        )?;
+        push_raw_section(&mut self.buf, &mut self.sections, SectionKind::SortKey, 0, 0, &sort_body,)?;
 
         // ---- StreamDir (spec §6.2/§6.3) -----------------------------------
-        self.plans
-            .sort_by_key(|p| (p.attno, p.path_ord, p.role.as_u8()));
+        self.plans.sort_by_key(|p| (p.attno, p.path_ord, p.role.as_u8()));
         let dir_body = encode_stream_dir(&self.plans);
         let stream_count = self.plans.len() as u32;
-        push_raw_section(
-            &mut self.buf,
-            &mut self.sections,
-            SectionKind::StreamDir,
-            0,
-            0,
-            &dir_body,
-        )?;
+        push_raw_section(&mut self.buf, &mut self.sections, SectionKind::StreamDir, 0, 0, &dir_body,)?;
         for s in &mut self.sections[first..] {
             s.off += base;
         }
@@ -1056,8 +941,7 @@ impl PartAsm {
             footer_crc: 0, // computed by encode_into
         }
         .encode_into(&mut self.buf);
-        let footer_image =
-            self.buf[footer_rel..footer_rel + pgrc_format::part::FOOTER_FIXED_LEN].to_vec();
+        let footer_image = self.buf[footer_rel..footer_rel + pgrc_format::part::FOOTER_FIXED_LEN].to_vec();
         let footer_off = base + footer_rel as u64;
         PartTail::new(footer_off).encode_into(&mut self.buf);
         self.charge.sync(self.buf.capacity() as u64);
@@ -1110,10 +994,7 @@ impl PartAsm {
             facts_slices: {
                 let mut fs = self.facts_slices;
                 for f in fs.iter_mut() {
-                    let plan = |role: StreamRole| {
-                        plans
-                            .iter()
-                            .find(|p| p.attno == f.attno && p.path_ord == 0 && p.role == role)
+                    let plan = |role: StreamRole| { plans.iter().find(|p| p.attno == f.attno && p.path_ord == 0 && p.role == role)
                     };
                     if let Some(v) = plan(StreamRole::Values) {
                         f.class = v.class_id;
@@ -1123,25 +1004,14 @@ impl PartAsm {
                         f.class = u8::MAX;
                     }
                     // The STORAGE width (the schema's), never the plan's encoding width.
-                    f.width = schema
-                        .iter()
-                        .find(|s| s.attno == f.attno)
-                        .map_or(0, |s| s.class.width());
+                    f.width = schema.iter().find(|s| s.attno == f.attno).map_or(0, |s| s.class.width());
                     if f.dict {
                         f.ncodes = plan(StreamRole::DictPayload).map_or(0, |d| d.values);
                     }
                     // D3038: the octet-length lanes' sections are no scan's reads of their column (`facts` the same)
                     f.disk_bytes = sections
                         .iter()
-                        .filter(|e| {
-                            e.attno == f.attno
-                                && !octet_ords.contains(&e.path_ord)
-                                && matches!(
-                                    SectionKind::from_u16(e.kind),
-                                    Ok(SectionKind::StreamDir)
-                                        | Ok(SectionKind::Stream)
-                                        | Ok(SectionKind::PathTable)
-                                )
+                        .filter(|e| { e.attno == f.attno && !octet_ords.contains(&e.path_ord) && matches!(SectionKind::from_u16(e.kind), Ok(SectionKind::StreamDir) | Ok(SectionKind::Stream) | Ok(SectionKind::PathTable))
                         })
                         .map(|e| e.len)
                         .sum();
@@ -1156,12 +1026,7 @@ impl PartAsm {
 
 /// jsonops (3): the part-global path_ords (1..) of the lanes with object roots.
 fn object_root_lanes(lanes: &[ShredLane]) -> Vec<u32> {
-    lanes
-        .iter()
-        .enumerate()
-        .filter(|(_, l)| l.object_roots)
-        .map(|(i, _)| i as u32 + 1)
-        .collect()
+    lanes.iter().enumerate().filter(|(_, l)| l.object_roots).map(|(i, _)| i as u32 + 1).collect()
 }
 
 /// The roots that derived shred lanes.
@@ -1184,11 +1049,7 @@ fn seal_part_core<B: MetaSlot>(
     fxid: u64,
     seq: u32,
     grain: Option<GranuleGrain>,
-    mut emit: impl FnMut(
-        &StreamCtx<'_>,
-        &mut [B],
-        &mut dyn FnMut(StreamOut) -> WriteResult<()>,
-    ) -> WriteResult<()>,
+    mut emit: impl FnMut(&StreamCtx<'_>, &mut [B], &mut dyn FnMut(StreamOut) -> WriteResult<()>,) -> WriteResult<()>,
 ) -> WriteResult<(SealedPart, SealReport)> {
     // ---- contracts ---------------------------------------------------------
     let Some(first) = roots.first() else {
@@ -1232,7 +1093,8 @@ fn seal_part_core<B: MetaSlot>(
     // feed and a presorted feed seal byte-identical parts.
     let cluster_hold;
     let mut cluster_perm = None;
-    let (roots, lanes): (&[ColBuffer], &[ShredLane]) = if structural.cluster_key().is_empty() {
+    let (roots, lanes): (&[ColBuffer], &[ShredLane]) = if structural.cluster_key().is_empty()
+    {
         (roots, lanes)
     } else {
         match cluster_sort(roots, lanes, structural.cluster_key())? {
@@ -1274,11 +1136,7 @@ fn seal_part_core<B: MetaSlot>(
     // (FASTADD: a stand-in part's grain is the part it stands beside, `seal_part_image`; D3038: the octet-length
     // lanes elect beside the other streams)
     let grain = grain.unwrap_or_else(|| {
-        let all: Vec<(u32, u32, &ColBuffer, Option<i32>)> = streams
-            .iter()
-            .copied()
-            .chain(octs.iter().map(|l| (l.parent_attno, 0, &l.col, None)))
-            .collect();
+        let all: Vec<(u32, u32, &ColBuffer, Option<i32>)> = streams.iter().copied().chain(octs.iter().map(|l| (l.parent_attno, 0, &l.col, None))).collect();
         elect_part_grain(rows, &all)
     });
     // The closed forms are untruncated u64 (geom §, idx 253). Bound the
@@ -1315,12 +1173,8 @@ fn seal_part_core<B: MetaSlot>(
     // ---- D3038: the octet-length lanes, once every other stream sealed ------
     // A lane whose column sealed as dictionary codes or one constant is not emitted; the others take the path
     // ordinals after the shred lanes, in column order, and seal as the other streams did (the same images on a pool).
-    let keep: Vec<usize> = (0..octs.len())
-        .filter(|&i| !octet_answered(&asm.plans, octs[i].parent_attno))
-        .collect();
-    let octet_ords: Vec<u32> = (0..keep.len())
-        .map(|j| lanes.len() as u32 + 1 + j as u32)
-        .collect();
+    let keep: Vec<usize> = (0..octs.len()).filter(|&i| !octet_answered(&asm.plans, octs[i].parent_attno)).collect();
+    let octet_ords: Vec<u32> = (0..keep.len()).map(|j| lanes.len() as u32 + 1 + j as u32).collect();
     if !keep.is_empty() {
         let mut kept: Vec<B> = keep.iter().map(|&i| builders[n1 + i].take()).collect();
         let sc = StreamCtx {
@@ -1328,11 +1182,7 @@ fn seal_part_core<B: MetaSlot>(
             grain,
             granule_count,
             band_count,
-            streams: keep
-                .iter()
-                .zip(&octet_ords)
-                .map(|(&i, &ord)| (octs[i].parent_attno, ord, &octs[i].col, None))
-                .collect(),
+            streams: keep.iter().zip(&octet_ords).map(|(&i, &ord)| (octs[i].parent_attno, ord, &octs[i].col, None)).collect(),
             shredded: shredded_roots(lanes),
             object_root_lanes: object_root_lanes(lanes),
             structural,
@@ -1342,25 +1192,9 @@ fn seal_part_core<B: MetaSlot>(
             Ok(())
         })?;
     }
-    let lane_paths: Vec<&str> = lanes
-        .iter()
-        .map(|l| l.path.as_str())
-        .chain(
-            keep.iter()
-                .map(|_| pgrc_format::shredlane::OCTET_LENGTH_PATH),
-        )
-        .collect();
+    let lane_paths: Vec<&str> = lanes.iter().map(|l| l.path.as_str()).chain(keep.iter().map(|_| pgrc_format::shredlane::OCTET_LENGTH_PATH),).collect();
     let schema: Vec<ColSchema> = roots.iter().map(|c| c.schema).collect();
-    let (footer_off, footer_image) = asm.tail(
-        spec,
-        &lane_paths,
-        structural,
-        &schema,
-        rows,
-        granule_count,
-        band_count,
-        grain,
-    )?;
+    let (footer_off, footer_image) = asm.tail(spec, &lane_paths, structural, &schema, rows, granule_count, band_count, grain,)?;
 
     // ---- write the tmp file, header first (spec §5) ------------------------
     let tmp_name = pgrc_format::dirlayout::temp_file_name(fxid, seq);
@@ -1382,17 +1216,7 @@ fn seal_part_core<B: MetaSlot>(
     asm.report.sort_secs = (t_seal0 - t_sort0).as_secs_f64();
     asm.report.seal_secs = t_seal0.elapsed().as_secs_f64();
     asm.report.cluster_perm = cluster_perm;
-    Ok(asm.into_sealed(
-        tmp_name,
-        rows,
-        file_len,
-        footer_off,
-        footer_image,
-        granule_count,
-        band_count,
-        &schema,
-        &octet_ords,
-    ))
+    Ok(asm.into_sealed(tmp_name, rows, file_len, footer_off, footer_image, granule_count, band_count, &schema, &octet_ords,))
 }
 
 /// K1-MEM: what [`seal_part_streamed`] did.
@@ -1434,11 +1258,7 @@ pub(crate) struct BatchBound {
 
 impl BatchBound {
     pub(crate) fn new(pooled: bool, floor: u64) -> BatchBound {
-        BatchBound {
-            held: 0,
-            bound: if pooled { floor } else { 0 },
-            pooled,
-        }
+        BatchBound { held: 0, bound: if pooled { floor } else { 0 }, pooled, }
     }
 
     /// A stream of estimated working set `ws` joins: true when the batch gathered so far (if any) must seal first.
@@ -1453,10 +1273,7 @@ impl BatchBound {
 }
 
 /// `streams` in order, cut into pooled batches by `b`.
-fn stream_batches<'c>(
-    streams: Vec<(u32, u32, &'c ColBuffer, Option<i32>)>,
-    b: &mut BatchBound,
-) -> Vec<Vec<(u32, u32, &'c ColBuffer, Option<i32>)>> {
+fn stream_batches<'c>(streams: Vec<(u32, u32, &'c ColBuffer, Option<i32>)>, b: &mut BatchBound,) -> Vec<Vec<(u32, u32, &'c ColBuffer, Option<i32>)>> {
     let mut out: Vec<Vec<(u32, u32, &'c ColBuffer, Option<i32>)>> = Vec::new();
     for s in streams {
         let gathered = !out.is_empty();
@@ -1525,18 +1342,13 @@ fn seal_streamed_batch(
         _ => {
             for si in 0..n {
                 let mut builder = match octet {
-                    true => {
-                        crate::meta_wire::octet_builder(sc.streams[si].0, sc.streams[si].2.owner())
+                    true => { crate::meta_wire::octet_builder(sc.streams[si].0, sc.streams[si].2.owner())
                     }
-                    false => crate::meta_wire::builder_for(
-                        &sc.streams[si].2.schema,
-                        sc.streams[si].2.owner(),
-                    ),
+                    false => crate::meta_wire::builder_for(&sc.streams[si].2.schema, sc.streams[si].2.owner(),),
                 };
                 // A stream sealed alone spreads its band work over the pool, when there is one.
                 let out = match pool {
-                    Some(p) => {
-                        seal_stream_beside(&sc, si, &mut *builder, p.pool, sources, resolver)?
+                    Some(p) => { seal_stream_beside(&sc, si, &mut *builder, p.pool, sources, resolver)?
                     }
                     None => seal_stream(&sc, si, &mut *builder, sources, resolver)?,
                 };
@@ -1581,36 +1393,27 @@ pub fn seal_part_streamed(
     created: &mut bool,
 ) -> WriteResult<Streamed> {
     if schema.is_empty() {
-        return Err(WriteError::Contract {
-            detail: "seal with zero columns",
-        });
+        return Err(WriteError::Contract { detail: "seal with zero columns", });
     }
     if rows == 0 {
-        return Err(WriteError::Contract {
-            detail: "seal of an empty part",
-        });
+        return Err(WriteError::Contract { detail: "seal of an empty part", });
     }
     // No phase timers (`SealReport::seal_secs` stays 0): nothing reads them, and a raw clock read here would grow the
     // file's determinism-lint budget.
     let grain = GranuleGrain::DEFAULT;
     let gc = geom::granule_count_at(rows, grain);
     if gc > MAX_GRANULES_PER_PART as u64 {
-        return Err(WriteError::Contract {
-            detail: "part exceeds the rowid granule budget (cut policy breach)",
-        });
+        return Err(WriteError::Contract { detail: "part exceeds the rowid granule budget (cut policy breach)", });
     }
     let (granule_count, band_count) = (gc as u32, geom::band_count_at(rows, grain) as u32);
     // `elect_part_grain`'s test at its first (the default) rung.
-    let fits = |c: &ColBuffer| {
-        c.granule_pricing_bytes().div_ceil(gc.max(1)) <= geom::GRANULE_BYTE_BOUND_PROVISIONAL
+    let fits = |c: &ColBuffer| { c.granule_pricing_bytes().div_ceil(gc.max(1)) <= geom::GRANULE_BYTE_BOUND_PROVISIONAL
     };
     let mut fetch = |c: usize| -> WriteResult<ColBuffer> {
         let mut col = ColBuffer::new(schema[c]);
         feed(c, &mut col)?;
         if col.rows() != rows {
-            return Err(WriteError::Contract {
-                detail: "column row counts diverge",
-            });
+            return Err(WriteError::Contract { detail: "column row counts diverge", });
         }
         Ok(col)
     };
@@ -1619,21 +1422,16 @@ pub fn seal_part_streamed(
     let mut held: Vec<Option<ColBuffer>> = (0..schema.len()).map(|_| None).collect();
     if !structural.cluster_key().is_empty() {
         for d in structural.cluster_key() {
-            let k = schema
-                .iter()
-                .position(|s| s.attno == d.attno)
-                .ok_or(WriteError::Contract {
-                    detail: "declared cluster-key attno is not a table column",
-                })?;
+            let k = schema.iter().position(|s| s.attno == d.attno).ok_or(WriteError::Contract {
+                detail: "declared cluster-key attno is not a table column",
+            })?;
             if held[k].is_none() {
                 held[k] = Some(fetch(k)?);
             }
         }
         let keys: Vec<&ColBuffer> = held.iter().flatten().collect();
         if !cluster_ordered(&keys, structural.cluster_key())? {
-            return Err(WriteError::Contract {
-                detail: "a streamed seal's feed is not in cluster-key order",
-            });
+            return Err(WriteError::Contract { detail: "a streamed seal's feed is not in cluster-key order", });
         }
     }
 
@@ -1651,19 +1449,7 @@ pub fn seal_part_streamed(
                     shredded: &[u32],
                     object_roots: &[u32],
                     octet: bool| {
-            seal_streamed_batch(
-                asm,
-                vfs,
-                &fd,
-                geo,
-                batch,
-                (shredded, object_roots),
-                octet,
-                structural,
-                pool,
-                sources,
-                resolver,
-            )
+            seal_streamed_batch(asm, vfs, &fd, geo, batch, (shredded, object_roots), octet, structural, pool, sources, resolver,)
         };
 
         // ---- roots, in schema order ------------------------------------
@@ -1677,20 +1463,8 @@ pub fn seal_part_streamed(
         for c in 0..schema.len() {
             // A column is held while the batch before it seals only when its size is known to be small (a fixed-width
             // column beside a pooled batch): without a pool, or ahead of a varlena column, the batch seals first.
-            if !batch.is_empty()
-                && (pool.is_none() || schema[c].class == StorageClass::VarlenaVerbatim)
-            {
-                seal(
-                    &mut asm,
-                    &mut *vfs,
-                    batch
-                        .iter()
-                        .map(|b| (b.schema.attno, 0u32, b, None))
-                        .collect(),
-                    &shredded,
-                    &[],
-                    false,
-                )?;
+            if !batch.is_empty() && (pool.is_none() || schema[c].class == StorageClass::VarlenaVerbatim) {
+                seal(&mut asm, &mut *vfs, batch.iter().map(|b| (b.schema.attno, 0u32, b, None)).collect(), &shredded, &[], false,)?;
                 batch.clear();
                 bound.held = 0;
                 octs.retain(|l| !octet_answered(&asm.plans, l.parent_attno));
@@ -1703,8 +1477,7 @@ pub fn seal_part_streamed(
                 return Ok(None);
             }
             if crate::octet::eligible(&col, structural, &*shred) {
-                let lane =
-                    crate::octet::octet_lanes(std::slice::from_ref(&col), &[col.schema.attno])?;
+                let lane = crate::octet::octet_lanes(std::slice::from_ref(&col), &[col.schema.attno])?;
                 if lane.iter().any(|l| !fits(&l.col)) {
                     return Ok(None);
                 }
@@ -1718,9 +1491,7 @@ pub fn seal_part_streamed(
                 if !derived.is_empty() {
                     for l in &derived {
                         if l.col.rows() != rows {
-                            return Err(WriteError::Contract {
-                                detail: "shred lane not row-aligned",
-                            });
+                            return Err(WriteError::Contract { detail: "shred lane not row-aligned", });
                         }
                         if !fits(&l.col) {
                             return Ok(None);
@@ -1731,33 +1502,13 @@ pub fn seal_part_streamed(
                 }
             }
             if bound.admit(seal_working_set(&col), !batch.is_empty()) {
-                seal(
-                    &mut asm,
-                    &mut *vfs,
-                    batch
-                        .iter()
-                        .map(|b| (b.schema.attno, 0u32, b, None))
-                        .collect(),
-                    &shredded,
-                    &[],
-                    false,
-                )?;
+                seal(&mut asm, &mut *vfs, batch.iter().map(|b| (b.schema.attno, 0u32, b, None)).collect(), &shredded, &[], false,)?;
                 batch.clear();
                 octs.retain(|l| !octet_answered(&asm.plans, l.parent_attno));
             }
             batch.push(col);
         }
-        seal(
-            &mut asm,
-            &mut *vfs,
-            batch
-                .iter()
-                .map(|b| (b.schema.attno, 0u32, b, None))
-                .collect(),
-            &shredded,
-            &[],
-            false,
-        )?;
+        seal(&mut asm, &mut *vfs, batch.iter().map(|b| (b.schema.attno, 0u32, b, None)).collect(), &shredded, &[], false,)?;
         drop(batch);
         bound.held = 0;
 
@@ -1769,24 +1520,11 @@ pub fn seal_part_streamed(
             let derived = shred.shred(&col, shred_opts)?;
             validate_lanes(&col, &derived, shred_opts)?;
             drop(col);
-            if derived.len() != paths.len() || derived.iter().zip(paths).any(|(l, p)| l.path != *p)
-            {
-                return Err(WriteError::Contract {
-                    detail: "shred lanes moved between a streamed seal's passes",
-                });
+            if derived.len() != paths.len() || derived.iter().zip(paths).any(|(l, p)| l.path != *p) {
+                return Err(WriteError::Contract { detail: "shred lanes moved between a streamed seal's passes", });
             }
-            object_roots.extend(
-                derived
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, l)| l.object_roots)
-                    .map(|(i, _)| ord + i as u32),
-            );
-            let lanes = derived
-                .iter()
-                .enumerate()
-                .map(|(i, l)| (l.parent_attno, ord + i as u32, &l.col, l.scale))
-                .collect();
+            object_roots.extend(derived.iter().enumerate().filter(|(_, l)| l.object_roots).map(|(i, _)| ord + i as u32),);
+            let lanes = derived.iter().enumerate().map(|(i, l)| (l.parent_attno, ord + i as u32, &l.col, l.scale)).collect();
             for b in stream_batches(lanes, &mut bound) {
                 seal(&mut asm, &mut *vfs, b, &shredded, &object_roots, false)?;
             }
@@ -1796,11 +1534,7 @@ pub fn seal_part_streamed(
         // ---- D3038: the octet-length lanes, as `seal_part_core` emits them --------------------------------------
         octs.retain(|l| !octet_answered(&asm.plans, l.parent_attno));
         let octet_ords: Vec<u32> = (0..octs.len() as u32).map(|j| ord + j).collect();
-        let streams = octs
-            .iter()
-            .zip(&octet_ords)
-            .map(|(l, &o)| (l.parent_attno, o, &l.col, None))
-            .collect();
+        let streams = octs.iter().zip(&octet_ords).map(|(l, &o)| (l.parent_attno, o, &l.col, None)).collect();
         for b in stream_batches(streams, &mut bound) {
             seal(&mut asm, &mut *vfs, b, &shredded, &object_roots, true)?;
         }
@@ -1810,36 +1544,13 @@ pub fn seal_part_streamed(
         let paths: Vec<&str> = lane_paths
             .iter()
             .flat_map(|(_, p)| p.iter().map(|s| s.as_str()))
-            .chain(
-                octet_ords
-                    .iter()
-                    .map(|_| pgrc_format::shredlane::OCTET_LENGTH_PATH),
-            )
+            .chain(octet_ords.iter().map(|_| pgrc_format::shredlane::OCTET_LENGTH_PATH),)
             .collect();
-        let (footer_off, footer_image) = asm.tail(
-            spec,
-            &paths,
-            structural,
-            schema,
-            rows,
-            granule_count,
-            band_count,
-            grain,
-        )?;
+        let (footer_off, footer_image) = asm.tail(spec, &paths, structural, schema, rows, granule_count, band_count, grain,)?;
         vfs.note_ref_masks(&fd, part_ref_masks(footer_off))?;
         asm.write_out(&mut *vfs, &fd)?;
         let file_len = asm.flushed;
-        Ok(Some(asm.into_sealed(
-            tmp_name.clone(),
-            rows,
-            file_len,
-            footer_off,
-            footer_image,
-            granule_count,
-            band_count,
-            schema,
-            &octet_ords,
-        )))
+        Ok(Some(asm.into_sealed(tmp_name.clone(), rows, file_len, footer_off, footer_image, granule_count, band_count, schema, &octet_ords,)))
     })();
     let closed = vfs.close_file(fd);
     match body? {
@@ -1903,13 +1614,7 @@ fn seal_stream_pinned(
     sources: &[&dyn CandidateSource],
     resolver: &dyn VerifyResolver,
 ) -> WriteResult<StreamOut> {
-    let (rows, grain, granule_count, band_count, structural) = (
-        sc.rows,
-        sc.grain,
-        sc.granule_count,
-        sc.band_count,
-        sc.structural,
-    );
+    let (rows, grain, granule_count, band_count, structural) = (sc.rows, sc.grain, sc.granule_count, sc.band_count, sc.structural,);
     let (attno, path_ord, col, lane_scale) = sc.streams[si];
     let mut buf: Vec<u8> = Vec::new();
     let mut sections: Vec<SectionEntry> = Vec::new();
@@ -1973,10 +1678,8 @@ fn seal_stream_pinned(
                 let mut splits_charge = HeldCharge::new(col.owner());
                 splits_charge.sync(
                     (splits.capacity() * core::mem::size_of::<ArraySplit>()
-                        + splits
-                            .iter()
-                            .map(|s| (s.sizes.capacity() + s.elems.capacity()) * 8)
-                            .sum::<usize>()) as u64,
+                        + splits.iter().map(|s| (s.sizes.capacity() + s.elems.capacity()) * 8).sum::<usize>())
+                        as u64,
                 );
                 let baseline = verbatim_baseline_len(&stats, &shape);
                 seal_array_dual(
@@ -2001,17 +1704,7 @@ fn seal_stream_pinned(
                 )?;
                 let dist = builder.distribution().map(|d| (attno, path_ord, d));
                 img.sync(buf.capacity() as u64);
-                return Ok(StreamOut {
-                    charge: img,
-                    head: Pieces::default(),
-                    buf,
-                    sections,
-                    plans,
-                    report,
-                    plane_slices,
-                    facts_slices,
-                    dist,
-                });
+                return Ok(StreamOut { charge: img, head: Pieces::default(), buf, sections, plans, report, plane_slices, facts_slices, dist, });
             }
         }
     }
@@ -2180,18 +1873,15 @@ fn seal_stream_pinned(
     let codes_regrain: Option<Vec<Vec<u64>>> = match (dict_plan, grain.is_default()) {
         (Some(d), false) => {
             let flat: Vec<u64> = d.codes.iter().flat_map(|v| v.iter().copied()).collect(); // alloc: Exec charged flat_charge
-                                                                                           // CONVERT W3-2a: the flattened codes on the part's owner while the re-slice copies them (declared after
-                                                                                           // them: drops first)
+            // CONVERT W3-2a: the flattened codes on the part's owner while the re-slice copies them (declared after
+            // them: drops first)
             let mut flat_charge = HeldCharge::new(col.owner());
             flat_charge.sync(flat.capacity() as u64 * 8);
             let mut out = pgrc_format::try_vec(granule_count as usize, "seal")?; // alloc: Exec charged regrain_charge
             for g in 0..granule_count {
                 let start = g as usize * grain.rows() as usize;
                 let rows_g = geom::rows_in_granule_at(rows, grain, g) as usize;
-                out.push(pgrc_format::try_to_vec(
-                    &flat[start..start + rows_g],
-                    "seal",
-                )?); // alloc: Exec charged regrain_charge
+                out.push(pgrc_format::try_to_vec(&flat[start..start + rows_g], "seal",)?); // alloc: Exec charged regrain_charge
             }
             Some(out)
         }
@@ -2255,20 +1945,7 @@ fn seal_stream_pinned(
         ginputs: &ginputs,
         observe_codes,
     };
-    let verify = VerifyBands {
-        vt,
-        key,
-        flags,
-        col,
-        rows,
-        grain,
-        granule_count,
-        ginputs: &ginputs,
-        val_bytes: &val_bytes,
-        dict: dict_payloads,
-        attno,
-        path_ord,
-    };
+    let verify = VerifyBands { vt, key, flags, col, rows, grain, granule_count, ginputs: &ginputs, val_bytes: &val_bytes, dict: dict_payloads, attno, path_ord, };
     // ---- wrapper decision (stream grain, exact bytes, the wrapper-
     // layer ≥20% law — O-CMP-4(a); the v4 DEFAULT on every full
     // election — SB-1: zstd-3 block-grain per data family, the
@@ -2280,30 +1957,18 @@ fn seal_stream_pinned(
     // degradation).
     // The integer pre-pass (`PGRUST_PGRC_INTPRE`) is offered on value streams whose encoding has an integer view; its
     // blocks fall back to the plain zstd block, and a stream where none pre-passed settles to Zstd below.
-    let wrap_arm = match pgrc_codec::intpre::on()
-        && pgrc_codec::intpre::eligible(encoding, width)
-        && wrapper_available(Wrapper::IntPre)
-    {
+    let wrap_arm = match pgrc_codec::intpre::on() && pgrc_codec::intpre::eligible(encoding, width) && wrapper_available(Wrapper::IntPre) {
         true => Wrapper::IntPre,
         false => Wrapper::Zstd,
     };
     let want_wrap = full.offer_wrapper && wrapper_available(wrap_arm);
-    let (band_secs, ovf_buf, ovf_entries, verified, images, band_bytes): BandsOut = match band_pool
-    {
+    let (band_secs, ovf_buf, ovf_entries, verified, images, band_bytes): BandsOut = match band_pool {
         None => {
-            let (band_secs, ovf_buf, ovf_entries, band_bytes) =
-                bands.encode(Some(&mut *builder), &mut img)?;
+            let (band_secs, ovf_buf, ovf_entries, band_bytes) = bands.encode(Some(&mut *builder), &mut img)?;
             let mut verified = 0u64;
-            let (datum_scratch, arena_words) = verify_scratch
-                .get_or_insert_with(|| (Words::datums(col.owner()), Words::arena(col.owner())));
+            let (datum_scratch, arena_words) = verify_scratch.get_or_insert_with(|| (Words::datums(col.owner()), Words::arena(col.owner())));
             for (bi, (sec, _, _)) in band_secs.iter().enumerate() {
-                verified += verify.band(
-                    bi as u32,
-                    sec,
-                    ovf_buf.as_slice(),
-                    datum_scratch,
-                    arena_words,
-                )?;
+                verified += verify.band(bi as u32, sec, ovf_buf.as_slice(), datum_scratch, arena_words,)?;
                 arena_words.sync();
             }
             let mut held = band_bytes;
@@ -2322,51 +1987,26 @@ fn seal_stream_pinned(
                 ),
                 false => None,
             };
-            (
-                band_secs,
-                ovf_buf,
-                ovf_entries,
-                verified,
-                images,
-                band_bytes,
-            )
+            (band_secs, ovf_buf, ovf_entries, verified, images, band_bytes,)
         }
         Some(pool) => {
             let (band_secs, ovf_buf, ovf_entries, band_bytes) = bands.encode(None, &mut img)?;
             let wrap = want_wrap.then_some(wrap_arm);
-            let (verified, images) = verify.pooled_beside(
-                pool,
-                &band_secs,
-                ovf_buf.as_slice(),
-                wrap,
-                (&mut img, band_bytes),
-                &mut || {
-                    for g in 0..granule_count {
-                        match observe_codes {
-                            true => builder.observe_granule_dict_codes(&enc_inputs[g as usize], g),
-                            false => builder.observe_granule(&ginputs[g as usize], g),
-                        }
+            let (verified, images) = verify.pooled_beside(pool, &band_secs, ovf_buf.as_slice(), wrap, (&mut img, band_bytes), &mut || {
+                for g in 0..granule_count {
+                    match observe_codes {
+                        true => builder.observe_granule_dict_codes(&enc_inputs[g as usize], g),
+                        false => builder.observe_granule(&ginputs[g as usize], g),
                     }
-                },
-            )?;
-            (
-                band_secs,
-                ovf_buf,
-                ovf_entries,
-                verified,
-                images,
-                band_bytes,
-            )
+                }
+            },)?;
+            (band_secs, ovf_buf, ovf_entries, verified, images, band_bytes,)
         }
     };
     report.granules_verified += verified;
     // `bank`: the builder's fold when it walked every non-null value (the meta fold above), else the walk.
     if bank_pending {
-        let fused = if bank_fused {
-            builder.bank_fold_take()
-        } else {
-            None
-        };
+        let fused = if bank_fused { builder.bank_fold_take() } else { None };
         match fused {
             Some(f) if f.digest().2 == stats.nonnull => bank_hash.merge(&f),
             _ => bank_hash = col.logical_hash()?,
@@ -2379,10 +2019,7 @@ fn seal_stream_pinned(
         let unwrapped_total: usize = band_secs.iter().map(|(sec, _, _)| sec.len()).sum();
         let wrapped_total: usize = images.iter().map(|i| i.len()).sum();
         // the OnPair verbatim arm: every band's exact image, kept only when the stream's total is the smaller one
-        let onpair = match class == StorageClass::VarlenaVerbatim
-            && encoding == EncodingId::Verbatim.as_u16()
-            && pgrc_codec::onpairwrap::onpair_verbatim_on()
-        {
+        let onpair = match class == StorageClass::VarlenaVerbatim && encoding == EncodingId::Verbatim.as_u16() && pgrc_codec::onpairwrap::onpair_verbatim_on() {
             true => {
                 // the competing images at their lengths, not their worst-case bounds, while the OnPair images are built
                 for i in images.iter_mut() {
@@ -2395,8 +2032,7 @@ fn seal_stream_pinned(
             false => None,
         };
         let (arm, images) = match onpair {
-            Some(op) if op.iter().map(|i| i.len()).sum::<usize>() < wrapped_total => {
-                (Wrapper::OnPairZstd, op)
+            Some(op) if op.iter().map(|i| i.len()).sum::<usize>() < wrapped_total => { (Wrapper::OnPairZstd, op)
             }
             _ => (arm, images),
         };
@@ -2430,9 +2066,7 @@ fn seal_stream_pinned(
         let (image, crc) = match wrapped_images.as_mut() {
             Some(images) => {
                 drop_charged(&mut img, &mut held, sec);
-                let image = images.next().ok_or(WriteError::Contract {
-                    detail: "a band without its wrapped image",
-                })?;
+                let image = images.next().ok_or(WriteError::Contract { detail: "a band without its wrapped image", })?;
                 let crc = pgrc_format::wire::crc32c(&image);
                 (image, crc)
             }
@@ -2560,11 +2194,7 @@ fn seal_stream_pinned(
             // strictly downstream of verify, like the value path.
             let wrapped = if full.offer_wrapper {
                 let index = crate::dict::section_payload(&d.images.index_section)?;
-                wrap_byte_run_section(
-                    image,
-                    Some((role, index, d.images.charlen_form)),
-                    col.owner(),
-                )?
+                wrap_byte_run_section(image, Some((role, index, d.images.charlen_form)), col.owner(),)?
             } else {
                 None
             };
@@ -2602,7 +2232,8 @@ fn seal_stream_pinned(
             // frame grain there is the unwrapped image's, not the
             // disk's. DictIndex stays single-extent (12-B closed-form
             // stride; it is the small always-resident half).
-            let extents: Vec<ExtentRecord> = if role == StreamRole::DictPayload && wrapped.is_none()
+            let extents: Vec<ExtentRecord> = if role == StreamRole::DictPayload
+                && wrapped.is_none()
             {
                 dict_frame_extents(image, s as u64, d.entry_count, col.owner())?
             } else {
@@ -2662,19 +2293,12 @@ fn seal_stream_pinned(
     {
         let overflow: u64 = overflow_extents.iter().map(|e| e.len).sum();
         let mut stored: ChargedVec<u64> = ChargedVec::new(col.owner(), Kind::Region);
-        stored
-            .with_vec(|v| v.try_reserve_exact(granule_count as usize))
-            .map_err(|_| {
-                WriteError::Format(pgrc_format::FormatError::OutOfMemory {
-                    bytes: granule_count as usize * core::mem::size_of::<u64>(),
-                })
+        stored.with_vec(|v| v.try_reserve_exact(granule_count as usize)).map_err(|_| { WriteError::Format(pgrc_format::FormatError::OutOfMemory { bytes: granule_count as usize * core::mem::size_of::<u64>(), })
             })?; // alloc: Exec charged stored.owner()
         stored.with_vec(|v| v.resize(granule_count as usize, 0)); // alloc: Exec charged stored.owner()
         for e in &value_extents {
             let g1 = (e.granule_start + e.granule_count).min(granule_count);
-            let band_rows: u64 = (e.granule_start..g1)
-                .map(|g| geom::rows_in_granule_at(rows, grain, g) as u64)
-                .sum();
+            let band_rows: u64 = (e.granule_start..g1).map(|g| geom::rows_in_granule_at(rows, grain, g) as u64).sum();
             for g in e.granule_start..g1 {
                 let r = geom::rows_in_granule_at(rows, grain, g) as u64;
                 stored[g as usize] += e.len * r / band_rows.max(1);
@@ -2711,14 +2335,7 @@ fn seal_stream_pinned(
     // Coarse prefix keys tie.
     if dict_plan.is_some() {
         let body = pgrc_format::meta::codezones_encode(&code_zones(&enc_inputs))?;
-        push_optional_raw_section(
-            &mut buf,
-            &mut sections,
-            SectionKind::CodeZones,
-            attno,
-            path_ord,
-            &body,
-        )?;
+        push_optional_raw_section(&mut buf, &mut sections, SectionKind::CodeZones, attno, path_ord, &body,)?;
     }
 
     // K1-MEM B: what was built in `buf` sits after the bands.
@@ -2727,10 +2344,7 @@ fn seal_stream_pinned(
     }
     let rebase = |e: &mut ExtentRecord| e.file_off += base;
     overflow_extents.iter_mut().for_each(rebase);
-    dict_stream_plans
-        .iter_mut()
-        .flat_map(|p| p.extents.iter_mut())
-        .for_each(rebase);
+    dict_stream_plans.iter_mut().flat_map(|p| p.extents.iter_mut()).for_each(rebase);
     let validity_extent = validity_extent.map(|mut e| {
         rebase(&mut e);
         e
@@ -2806,17 +2420,7 @@ fn seal_stream_pinned(
     // ST-1: the stream's distribution sketch now (K1-MEM), so the caller can drop its builder with the stream.
     let dist = builder.distribution().map(|d| (attno, path_ord, d));
     img.sync(image_bytes(&head, &buf));
-    Ok(StreamOut {
-        charge: img,
-        head,
-        buf,
-        sections,
-        plans,
-        report,
-        plane_slices,
-        facts_slices,
-        dist,
-    })
+    Ok(StreamOut { charge: img, head, buf, sections, plans, report, plane_slices, facts_slices, dist, })
 }
 
 /// One band's scratch section: its image, closeout and granule payload ends.
@@ -2838,14 +2442,7 @@ fn image_bytes(head: &Pieces, buf: &Vec<u8>) -> u64 {
 /// A stream's bands: sections, the overflow region and its entry count, the granules verified and the wrapper's band
 /// images (when the election offers a wrapper).
 /// R15-SEAL-IMAGE-CHARGE: and the bytes of the bands the stream's image charge holds.
-type BandsOut = (
-    Vec<BandSec>,
-    ChargedVec<u8>,
-    u64,
-    u64,
-    Option<Vec<Vec<u8>>>,
-    u64,
-);
+type BandsOut = (Vec<BandSec>, ChargedVec<u8>, u64, u64, Option<Vec<Vec<u8>>>, u64,);
 
 /// The band emission of a stream's election ([`seal_stream`]).
 struct EncodeBands<'a> {
@@ -2867,18 +2464,8 @@ impl EncodeBands<'_> {
     /// folds them itself, [`seal_stream_beside`]).
     /// R15-SEAL-IMAGE-CHARGE: the bands' bytes go onto `img` as each granule is written (the overflow region onto its own
     /// `ChargedVec`, the same owner); returns them with the bands.
-    fn encode(
-        &self,
-        mut observer: Option<&mut dyn ColumnMetaBuilder>,
-        img: &mut HeldCharge,
-    ) -> WriteResult<(Vec<BandSec>, ChargedVec<u8>, u64, u64)> {
-        let (class, encoding, width, grain, granule_count) = (
-            self.class,
-            self.encoding,
-            self.width,
-            self.grain,
-            self.granule_count,
-        );
+    fn encode(&self, mut observer: Option<&mut dyn ColumnMetaBuilder>, img: &mut HeldCharge,) -> WriteResult<(Vec<BandSec>, ChargedVec<u8>, u64, u64)> {
+        let (class, encoding, width, grain, granule_count) = (self.class, self.encoding, self.width, self.grain, self.granule_count,);
         let (enc_inputs, ginputs) = (self.enc_inputs, self.ginputs);
         let dict = matches!(self.plan, ElectPlan::Dict(_));
         let mut ovf_buf: ChargedVec<u8> = ChargedVec::new(img.owner(), Kind::Region);
@@ -2927,13 +2514,7 @@ impl EncodeBands<'_> {
                     // pair.
                     match observer.as_deref_mut() {
                         Some(builder) if !dict && fuse_fold_enabled() => {
-                            enc.encode_granule_observed(
-                                &enc_inputs[g as usize],
-                                &mut w,
-                                &mut ovf,
-                                builder,
-                                g,
-                            )?;
+                            enc.encode_granule_observed(&enc_inputs[g as usize], &mut w, &mut ovf, builder, g,)?;
                         }
                         Some(builder) => {
                             enc.encode_granule(&enc_inputs[g as usize], &mut w, &mut ovf)?;
@@ -2998,14 +2579,7 @@ struct VerifyBands<'a> {
 
 impl VerifyBands<'_> {
     /// Band `b` (section `sec`, the stream's overflow region `ovf`): the granules verified.
-    fn band(
-        &self,
-        b: u32,
-        sec: &[u8],
-        ovf: &[u8],
-        datum_scratch: &mut [u64],
-        arena_words: &mut Vec<u64>,
-    ) -> WriteResult<u64> {
+    fn band(&self, b: u32, sec: &[u8], ovf: &[u8], datum_scratch: &mut [u64], arena_words: &mut Vec<u64>,) -> WriteResult<u64> {
         let (col, grain, class) = (self.col, self.grain, self.col.schema.class);
         let g0 = b * GRANULES_PER_BAND;
         let g1 = (g0 + GRANULES_PER_BAND).min(self.granule_count);
@@ -3031,23 +2605,20 @@ impl VerifyBands<'_> {
                 values: rows_g,
                 validity_bytes: validity_slice(col, self.val_bytes, g, rows_g, grain),
                 overflow: if ovf.is_empty() { None } else { Some(ovf) },
-                dict: self
-                    .dict
-                    .map(|(index, payload, entry_count, charlen_form)| DictSections {
-                        index,
-                        payload,
-                        entry_count,
-                        charlen_form,
-                        form: pgrc_format::dict::DictPayloadForm::Expanded,
-                    }),
+                dict: self.dict.map(|(index, payload, entry_count, charlen_form)| DictSections {
+                    index,
+                    payload,
+                    entry_count,
+                    charlen_form,
+                    form: pgrc_format::dict::DictPayloadForm::Expanded,
+                }),
             };
-            verify_roundtrip(self.vt, &ctx, input, datum_scratch, arena_buf).map_err(|cause| {
-                WriteError::RoundTrip {
-                    attno: self.attno,
-                    path_ord: self.path_ord,
-                    granule: g,
-                    cause,
-                }
+            verify_roundtrip(self.vt, &ctx, input, datum_scratch, arena_buf).map_err(|cause| { WriteError::RoundTrip {
+                attno: self.attno,
+                path_ord: self.path_ord,
+                granule: g,
+                cause,
+            }
             })?;
             // SEAL-FUSION (walks #13/#14 dropped): the dict
             // `decode_codes` cross-witness re-decoded every granule and
@@ -3084,39 +2655,20 @@ impl VerifyBands<'_> {
         let wrapped: Vec<Slot<Vec<u8>>> = secs.iter().map(|_| pgsync::Mutex::new(None)).collect();
         // R15-SEAL-IMAGE-CHARGE: the images' bound on the stream's image charge before they are allocated
         if let Some(arm) = wrap {
-            img.sync(
-                held + secs
-                    .iter()
-                    .map(|(sec, _, ends)| {
-                        pgrc_codec::wrapper::wrap_section_bound(sec, ends, arm) as u64
-                    })
-                    .sum::<u64>(),
-            );
+            img.sync(held + secs.iter().map(|(sec, _, ends)| { pgrc_codec::wrapper::wrap_section_bound(sec, ends, arm) as u64
+                    }).sum::<u64>(),);
         }
         let outs: Vec<pgsync::Mutex<Vec<u8>>> = match wrap {
-            Some(arm) => secs
-                .iter()
-                .map(|(sec, _, ends)| {
-                    pgsync::Mutex::new(Vec::with_capacity(pgrc_codec::wrapper::wrap_section_bound(
-                        sec, ends, arm,
-                    )))
-                })
-                .collect(),
+            Some(arm) => secs.iter().map(|(sec, _, ends)| { pgsync::Mutex::new(Vec::with_capacity(pgrc_codec::wrapper::wrap_section_bound(sec, ends, arm,)))
+                }).collect(),
             None => Vec::new(),
         };
-        let tasks = if wrap.is_some() {
-            2 * secs.len()
-        } else {
-            secs.len()
-        };
+        let tasks = if wrap.is_some() { 2 * secs.len() } else { secs.len() };
         pool.run_beside(
             tasks,
             &|i| match (i < secs.len(), wrap) {
                 (true, _) => {
-                    let (mut scratch, mut arena) = (
-                        Words::datums(self.col.owner()),
-                        Words::arena(self.col.owner()),
-                    );
+                    let (mut scratch, mut arena) = (Words::datums(self.col.owner()), Words::arena(self.col.owner()),);
                     let out = self.band(i as u32, &secs[i].0, ovf, &mut scratch, &mut arena);
                     *pgsync::lock(&verified[i]) = Some(out);
                 }
@@ -3125,10 +2677,7 @@ impl VerifyBands<'_> {
                     let mut out = std::mem::take(&mut *pgsync::lock(&outs[b]));
                     let cap = out.capacity();
                     let r = wrap_band(&secs[b], arm, &mut out);
-                    debug_assert!(
-                        r.is_err() || out.capacity() == cap,
-                        "a band's wrap outgrew wrap_section_bound"
-                    );
+                    debug_assert!(r.is_err() || out.capacity() == cap, "a band's wrap outgrew wrap_section_bound");
                     *pgsync::lock(&wrapped[b]) = Some(r.map(|()| out));
                 }
                 (false, None) => {}
@@ -3136,21 +2685,14 @@ impl VerifyBands<'_> {
             beside,
         );
         fn take<T>(slot: Slot<T>, what: &'static str) -> WriteResult<T> {
-            slot.into_inner()
-                .unwrap_or_else(|e| e.into_inner())
-                .ok_or(WriteError::Contract { detail: what })?
+            slot.into_inner().unwrap_or_else(|e| e.into_inner()).ok_or(WriteError::Contract { detail: what })?
         }
         let mut n = 0u64;
         for slot in verified {
             n += take(slot, "a pool skipped a band's verify")?;
         }
         let images = match wrap {
-            Some(_) => Some(
-                wrapped
-                    .into_iter()
-                    .map(|slot| take(slot, "a pool skipped a band's wrap"))
-                    .collect::<WriteResult<Vec<_>>>()?,
-            ),
+            Some(_) => Some(wrapped.into_iter().map(|slot| take(slot, "a pool skipped a band's wrap")).collect::<WriteResult<Vec<_>>>()?,),
             None => None,
         };
         Ok((n, images))
@@ -3159,11 +2701,7 @@ impl VerifyBands<'_> {
 
 /// Every band's `Wrapper::OnPairZstd` image (charged on `img` above `held` as each is built), or `None` when a
 /// band does not offer the arm (switch off, small, or a layout the arm does not carry).
-fn onpair_value_images(
-    secs: &[BandSec],
-    img: &mut HeldCharge,
-    mut held: u64,
-) -> WriteResult<Option<Vec<Vec<u8>>>> {
+fn onpair_value_images(secs: &[BandSec], img: &mut HeldCharge, mut held: u64,) -> WriteResult<Option<Vec<Vec<u8>>>> {
     let mut out = Vec::new();
     for (sec, _, _) in secs {
         match pgrc_codec::onpairvals::offer_values(sec).map_err(WriteError::Format)? {
@@ -3241,8 +2779,7 @@ fn push_meta_section(
 /// else raw; `SECTION_OPTIONAL` either way, so a reader without the kind skips it.
 /// Test apparatus: [`set_sample_section_off`]'s process-wide switch (the `PGRUST_PGRC_SAMPLE=0` arm without the
 /// environment, which a test process cannot set safely while other threads read it).
-static SAMPLE_SECTION_OFF: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(false);
+static SAMPLE_SECTION_OFF: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// Seal this process's parts without the spec §8.9 Sample section (`off`), or with it again. For tests whose premise
 /// is two parts of the same byte length from different values: the section's zstd-wrapped body depends on the values.
@@ -3280,21 +2817,16 @@ fn sample_image(col: &ColBuffer, row: u64) -> WriteResult<Option<Vec<u8>>> {
     }
     Ok(Some(match col.schema.class {
         StorageClass::Fixed { .. } => {
-            pgrc_format::try_to_vec(col.fixed_at(row)?.unwrap_or(&[]), "sample image")
-                .map_err(WriteError::Format)?
+            pgrc_format::try_to_vec(col.fixed_at(row)?.unwrap_or(&[]), "sample image").map_err(WriteError::Format)?
         }
         StorageClass::VarlenaVerbatim => {
             let p = col.varlena_payload(row)?.unwrap_or(&[]);
-            let mut v =
-                pgrc_format::try_vec(4 + p.len(), "sample image").map_err(WriteError::Format)?;
-            v.extend_from_slice(
-                &pgrc_format::wire::varlena_header_4b_u(p.len() as u32).to_le_bytes(),
-            );
+            let mut v = pgrc_format::try_vec(4 + p.len(), "sample image").map_err(WriteError::Format)?;
+            v.extend_from_slice(&pgrc_format::wire::varlena_header_4b_u(p.len() as u32).to_le_bytes(),);
             v.extend_from_slice(p);
             v
         }
-        _ => pgrc_format::try_to_vec(&col.word_at(row).to_le_bytes(), "sample image")
-            .map_err(WriteError::Format)?,
+        _ => pgrc_format::try_to_vec(&col.word_at(row).to_le_bytes(), "sample image").map_err(WriteError::Format)?,
     }))
 }
 
@@ -3302,73 +2834,47 @@ fn sample_image(col: &ColBuffer, row: u64) -> WriteResult<Option<Vec<u8>>> {
 /// count and the first root's values at its first, middle and last rows; every root column, ascending attno.
 #[allow(dead_code)] // V5SYNC r14: trunk's seal helper (loadstats D Sample / D4400 / D4409), not yet wired into the line's seal
 fn sample_body(roots: &[ColBuffer], fp: u64, rows: u64) -> WriteResult<Vec<u8>> {
-    use pgrc_format::sample::{
-        sample_digest, sample_ordinals, sample_seed, SampleValues, SampleWriter,
-    };
+    use pgrc_format::sample::{sample_digest, sample_ordinals, sample_seed, SampleValues, SampleWriter,};
     let mut digest = 0u64;
     for r in [0, rows / 2, rows - 1] {
         digest = sample_digest(digest, sample_image(&roots[0], r)?.as_deref());
     }
     let ords = sample_ordinals(rows, sample_seed(fp, rows, digest)).map_err(WriteError::Format)?;
-    let mut order: ChargedVec<usize> =
-        ChargedVec::new(roots.first().and_then(ColBuffer::owner), Kind::Region);
-    order
-        .with_vec(|v| v.try_reserve_exact(roots.len()))
-        .map_err(|_| {
-            WriteError::Format(pgrc_format::FormatError::OutOfMemory {
-                bytes: roots.len() * core::mem::size_of::<usize>(),
-            })
+    let mut order: ChargedVec<usize> = ChargedVec::new(roots.first().and_then(ColBuffer::owner), Kind::Region);
+    order.with_vec(|v| v.try_reserve_exact(roots.len())).map_err(|_| { WriteError::Format(pgrc_format::FormatError::OutOfMemory { bytes: roots.len() * core::mem::size_of::<usize>(), })
         })?; // alloc: Exec charged order.owner()
     order.with_vec(|v| v.extend(0..roots.len())); // alloc: Exec charged order.owner()
     order.with_vec(|v| v.sort_by_key(|&i| roots[i].schema.attno)); // alloc: Exec charged order.owner()
-    let mut w = SampleWriter::new(
-        pgrc_format::try_to_vec(&ords, "sample ordinals").map_err(WriteError::Format)?,
-    );
+    let mut w = SampleWriter::new(pgrc_format::try_to_vec(&ords, "sample ordinals").map_err(WriteError::Format)?,);
     for &i in order.iter() {
         let col = &roots[i];
         match col.schema.class {
             StorageClass::Fixed { .. } | StorageClass::VarlenaVerbatim => {
                 let mut own: Vec<Option<Vec<u8>>> =
-                    pgrc_format::try_vec(ords.len(), "sample images")
-                        .map_err(WriteError::Format)?; // alloc: Exec charged sample_charge
+                    pgrc_format::try_vec(ords.len(), "sample images").map_err(WriteError::Format)?; // alloc: Exec charged sample_charge
                 for &o in &ords {
                     own.push(sample_image(col, o as u64)?); // alloc: Exec charged sample_charge
                 }
                 let mut refs: Vec<Option<&[u8]>> =
-                    pgrc_format::try_vec(ords.len(), "sample images")
-                        .map_err(WriteError::Format)?; // alloc: Exec charged sample_charge
+                    pgrc_format::try_vec(ords.len(), "sample images").map_err(WriteError::Format)?; // alloc: Exec charged sample_charge
                 refs.extend(own.iter().map(|v| v.as_deref())); // alloc: Exec charged sample_charge
-                                                               // CONVERT W3-2a: one column's sampled value images on the part's owner while the writer copies them
-                                                               // (declared after them: drops first)
+                // CONVERT W3-2a: one column's sampled value images on the part's owner while the writer copies them
+                // (declared after them: drops first)
                 let mut sample_charge = HeldCharge::new(col.owner());
                 sample_charge.sync(
                     cap_bytes(own.capacity(), &own)
-                        + own
-                            .iter()
-                            .map(|v| v.as_ref().map_or(0, |b| b.capacity() as u64))
-                            .sum::<u64>()
+                        + own.iter().map(|v| v.as_ref().map_or(0, |b| b.capacity() as u64)).sum::<u64>()
                         + cap_bytes(refs.capacity(), &refs),
                 );
-                w.add(col.schema.attno, SampleValues::Images(&refs))
-                    .map_err(WriteError::Format)?;
+                w.add(col.schema.attno, SampleValues::Images(&refs)).map_err(WriteError::Format)?;
             }
             _ => {
                 let mut words: ChargedVec<Option<u64>> = ChargedVec::new(col.owner(), Kind::Region);
-                words
-                    .with_vec(|v| v.try_reserve_exact(ords.len()))
-                    .map_err(|_| {
-                        WriteError::Format(pgrc_format::FormatError::OutOfMemory {
-                            bytes: ords.len() * core::mem::size_of::<Option<u64>>(),
-                        })
+                words.with_vec(|v| v.try_reserve_exact(ords.len())).map_err(|_| { WriteError::Format(pgrc_format::FormatError::OutOfMemory { bytes: ords.len() * core::mem::size_of::<Option<u64>>(), })
                     })?; // alloc: Exec charged words.owner()
-                words.with_vec(|v| {
-                    v.extend(
-                        ords.iter()
-                            .map(|&o| col.valid_at(o as u64).then(|| col.word_at(o as u64))),
-                    )
+                words.with_vec(|v| { v.extend(ords.iter().map(|&o| col.valid_at(o as u64).then(|| col.word_at(o as u64))),)
                 }); // alloc: Exec charged words.owner()
-                w.add(col.schema.attno, SampleValues::Words(&words))
-                    .map_err(WriteError::Format)?;
+                w.add(col.schema.attno, SampleValues::Words(&words)).map_err(WriteError::Format)?;
             }
         }
     }
@@ -3468,9 +2974,7 @@ pub(crate) fn unwrap_kept(image: &[u8], crc: u32) -> WriteResult<Vec<u8>> {
     let mut plain: Vec<u8> = Vec::new();
     pgrc_codec::wrapper::unwrap_section(image, &mut plain).map_err(WriteError::Format)?;
     if pgrc_format::wire::crc32c(&plain) != crc {
-        return Err(WriteError::Refused {
-            what: "a band kept wrapped did not unwrap to the section its writer closed out",
-        });
+        return Err(WriteError::Refused { what: "a band kept wrapped did not unwrap to the section its writer closed out", });
     }
     Ok(plain)
 }
@@ -3482,8 +2986,7 @@ pub(crate) fn unwrap_kept(image: &[u8], crc: u32) -> WriteResult<Vec<u8>> {
 fn image_room(buf: &mut Vec<u8>, extra: usize) -> WriteResult<()> {
     if buf.capacity() - buf.len() < extra {
         let grow = mempolicy::load::image_grow(buf.len() as u64, extra as u64) as usize;
-        buf.try_reserve_exact(grow).map_err(|_| {
-            WriteError::Format(pgrc_format::FormatError::OutOfMemory { bytes: grow })
+        buf.try_reserve_exact(grow).map_err(|_| { WriteError::Format(pgrc_format::FormatError::OutOfMemory { bytes: grow })
         })?;
     }
     Ok(())
@@ -3632,7 +3135,8 @@ fn emit_validity_stream(
     image_room(buf, val_bytes.len() + 8)?;
     pad_to(buf, 8);
     let vsec_start = buf.len();
-    let mut w = StreamSectionWriter::begin(buf, EncodingId::BoolBitmap.as_u16(), 0, Wrapper::None)?;
+    let mut w =
+        StreamSectionWriter::begin(buf, EncodingId::BoolBitmap.as_u16(), 0, Wrapper::None)?;
     w.payload().extend_from_slice(val_bytes);
     for g in 0..granule_count {
         w.end_granule(geom::rows_in_granule_at(rows, grain, g));
@@ -3702,12 +3206,7 @@ fn emit_stats_sections(
 ) -> WriteResult<()> {
     let mut stats_body: Vec<u8> = Vec::new();
     let mut band_sums: ChargedVec<u64> = ChargedVec::new(col.owner(), Kind::Region);
-    band_sums
-        .with_vec(|v| v.try_reserve_exact(band_count as usize))
-        .map_err(|_| {
-            WriteError::Format(pgrc_format::FormatError::OutOfMemory {
-                bytes: band_count as usize * core::mem::size_of::<u64>(),
-            })
+    band_sums.with_vec(|v| v.try_reserve_exact(band_count as usize)).map_err(|_| { WriteError::Format(pgrc_format::FormatError::OutOfMemory { bytes: band_count as usize * core::mem::size_of::<u64>(), })
         })?; // alloc: Exec charged band_sums.owner()
     band_sums.with_vec(|v| v.resize(band_count as usize, 0)); // alloc: Exec charged band_sums.owner()
     let mut part_sum: u64 = 0;
@@ -3715,12 +3214,7 @@ fn emit_stats_sections(
     // §2.1) its SoA transposition — one builder walk, two section bodies,
     // facts byte-identical by construction.
     let mut granule_recs: ChargedVec<StatsRecord> = ChargedVec::new(col.owner(), Kind::Region);
-    granule_recs
-        .with_vec(|v| v.try_reserve_exact(granule_count as usize))
-        .map_err(|_| {
-            WriteError::Format(pgrc_format::FormatError::OutOfMemory {
-                bytes: granule_count as usize * core::mem::size_of::<StatsRecord>(),
-            })
+    granule_recs.with_vec(|v| v.try_reserve_exact(granule_count as usize)).map_err(|_| { WriteError::Format(pgrc_format::FormatError::OutOfMemory { bytes: granule_count as usize * core::mem::size_of::<StatsRecord>(), })
         })?; // alloc: Exec charged granule_recs.owner()
     for g in 0..granule_count {
         let rows_g = geom::rows_in_granule_at(rows, grain, g);
@@ -3741,12 +3235,7 @@ fn emit_stats_sections(
         granule_recs.with_vec(|v| v.push(rec)); // alloc: Exec charged granule_recs.owner()
     }
     let mut band_recs: ChargedVec<StatsRecord> = ChargedVec::new(col.owner(), Kind::Region);
-    band_recs
-        .with_vec(|v| v.try_reserve_exact(band_count as usize))
-        .map_err(|_| {
-            WriteError::Format(pgrc_format::FormatError::OutOfMemory {
-                bytes: band_count as usize * core::mem::size_of::<StatsRecord>(),
-            })
+    band_recs.with_vec(|v| v.try_reserve_exact(band_count as usize)).map_err(|_| { WriteError::Format(pgrc_format::FormatError::OutOfMemory { bytes: band_count as usize * core::mem::size_of::<StatsRecord>(), })
         })?; // alloc: Exec charged band_recs.owner()
     for b in 0..band_count {
         let rec = builder.seal_band(b);
@@ -3778,14 +3267,7 @@ fn emit_stats_sections(
 
     // CMP-F (SB-6): the meta plane rides the wrapper machinery from the
     // start — Stats + every builder aux section (Psma/Bloom/NdvRegisters).
-    push_meta_section(
-        buf,
-        sections,
-        SectionKind::Stats,
-        attno,
-        path_ord,
-        &stats_body,
-    )?;
+    push_meta_section(buf, sections, SectionKind::Stats, attno, path_ord, &stats_body,)?;
     // pgrc format 2.1 §2.1: the FlatStats SoA transposition of the SAME records —
     // OPTIONAL (old readers skip typed), always RAW (mmap-cast law, never
     // zstd-wrapped), granule ordinals + one part rollup, ~44B/granule.
@@ -3797,14 +3279,7 @@ fn emit_stats_sections(
         Ok("0") | Ok("off")
     ) {
         let flat = pgrc_format::meta::flatstats_encode(&granule_recs, &part_rec);
-        push_optional_raw_section(
-            buf,
-            sections,
-            SectionKind::FlatStats,
-            attno,
-            path_ord,
-            &flat,
-        )?;
+        push_optional_raw_section(buf, sections, SectionKind::FlatStats, attno, path_ord, &flat,)?;
     }
     // pgrc format 2.1 §2.2: the per-(column, part) exact digest — exact NDV (the
     // dict entry count, free when this stream elected DICT_CODES) + the
@@ -3844,9 +3319,10 @@ fn emit_stats_sections(
             path_ord,
             &digest_bytes,
         )?;
-        plane_digest =
-            <[u8; pgrc_format::bankstats::BANKSTATS_DIGEST_LEN]>::try_from(digest_bytes.as_slice())
-                .ok();
+        plane_digest = <[u8; pgrc_format::bankstats::BANKSTATS_DIGEST_LEN]>::try_from(
+            digest_bytes.as_slice()
+        )
+        .ok();
     }
     // OD-10/OD-11 populate kill switches (the M3.psma-ab populate half's
     // A/B apparatus): an OFF arm seals WITHOUT the aux section — the byte
@@ -3882,17 +3358,7 @@ fn emit_stats_sections(
         aux_charge.sync(aux_left);
     }
     if path_ord == 0 {
-        facts.push(FactsSlice {
-            attno,
-            class: 0,
-            signed: false,
-            width: 0,
-            ndv_body,
-            bloom,
-            dict: false,
-            ncodes: 0,
-            disk_bytes: 0,
-        });
+        facts.push(FactsSlice { attno, class: 0, signed: false, width: 0, ndv_body, bloom, dict: false, ncodes: 0, disk_bytes: 0, });
     }
     // [fmt-land] Stats-plane capture — the seal byproduct the bankstats
     // sidecar is assembled from at publish (top-level columns only; the
@@ -3915,7 +3381,9 @@ fn emit_stats_sections(
 fn words_as_bytes(words: &mut [u64]) -> &mut [u8] {
     // SAFETY: u64 → u8 reinterpret of an exclusively borrowed buffer;
     // alignment only loosens and the length is exact.
-    unsafe { core::slice::from_raw_parts_mut(words.as_mut_ptr() as *mut u8, words.len() * 8) }
+    unsafe {
+        core::slice::from_raw_parts_mut(words.as_mut_ptr() as *mut u8, words.len() * 8)
+    }
 }
 
 /// One emitted dual-substream's per-band facts.
@@ -4051,9 +3519,12 @@ fn seal_array_dual(
         width: facts.elem_len,
         signed: false,
     };
-    let sizes_key =
-        pgrc_format::enc::stream_kernel_key(EncodingId::Verbatim.as_u16(), CLASS_BYVAL, 4)
-            .map_err(WriteError::Format)?;
+    let sizes_key = pgrc_format::enc::stream_kernel_key(
+        EncodingId::Verbatim.as_u16(),
+        CLASS_BYVAL,
+        4
+    )
+    .map_err(WriteError::Format)?;
     let elems_key = pgrc_format::enc::stream_kernel_key(
         EncodingId::Verbatim.as_u16(),
         CLASS_BYVAL,
@@ -4097,30 +3568,13 @@ fn seal_array_dual(
         for g in g0..g1 {
             let s = &splits[g as usize];
             let legs: [(&DualBandSec, KernelKey, &CodecVtable, &[u64], StorageClass); 2] = [
-                (
-                    &sizes_secs[b as usize],
-                    sizes_key,
-                    sizes_vt,
-                    &s.sizes,
-                    sizes_class,
-                ),
-                (
-                    &elems_secs[b as usize],
-                    elems_key,
-                    elems_vt,
-                    &s.elems,
-                    elem_class,
-                ),
+                (&sizes_secs[b as usize], sizes_key, sizes_vt, &s.sizes, sizes_class,),
+                (&elems_secs[b as usize], elems_key, elems_vt, &s.elems, elem_class,),
             ];
             for (bs, key, vt, datums, class) in legs {
                 let n = datums.len() as u32;
                 if datum_scratch.len() < datums.len() {
-                    datum_scratch
-                        .with_vec(|v| v.try_reserve_exact(datums.len() - v.len()))
-                        .map_err(|_| {
-                            WriteError::Format(pgrc_format::FormatError::OutOfMemory {
-                                bytes: std::mem::size_of_val(datums),
-                            })
+                    datum_scratch.with_vec(|v| v.try_reserve_exact(datums.len() - v.len())).map_err(|_| { WriteError::Format(pgrc_format::FormatError::OutOfMemory { bytes: std::mem::size_of_val(datums), })
                         })?; // alloc: Exec charged datum_scratch.owner()
                     datum_scratch.with_vec(|v| v.resize(datums.len(), 0)); // alloc: Exec charged datum_scratch.owner()
                 }
@@ -4158,24 +3612,13 @@ fn seal_array_dual(
             // (the 8-aligned-base law again).
             let input = &ginputs[g as usize];
             let need = assembled_arena_bytes(facts, &s.sizes) + 64;
-            let mut compose_arena_words: ChargedVec<u64> =
-                ChargedVec::new(col.owner(), Kind::Region);
-            compose_arena_words
-                .with_vec(|v| v.try_reserve_exact(need.div_ceil(8)))
-                .map_err(|_| {
-                    WriteError::Format(pgrc_format::FormatError::OutOfMemory {
-                        bytes: need.div_ceil(8) * core::mem::size_of::<u64>(),
-                    })
+            let mut compose_arena_words: ChargedVec<u64> = ChargedVec::new(col.owner(), Kind::Region);
+            compose_arena_words.with_vec(|v| v.try_reserve_exact(need.div_ceil(8))).map_err(|_| { WriteError::Format(pgrc_format::FormatError::OutOfMemory { bytes: need.div_ceil(8) * core::mem::size_of::<u64>(), })
                 })?; // alloc: Exec charged compose_arena_words.owner()
             compose_arena_words.with_vec(|v| v.resize(need.div_ceil(8), 0)); // alloc: Exec charged compose_arena_words.owner()
             let mut arena = ByteArena::new(words_as_bytes(&mut compose_arena_words));
             if compose_out.len() < s.sizes.len() {
-                compose_out
-                    .with_vec(|v| v.try_reserve_exact(s.sizes.len() - v.len()))
-                    .map_err(|_| {
-                        WriteError::Format(pgrc_format::FormatError::OutOfMemory {
-                            bytes: s.sizes.len() * core::mem::size_of::<u64>(),
-                        })
+                compose_out.with_vec(|v| v.try_reserve_exact(s.sizes.len() - v.len())).map_err(|_| { WriteError::Format(pgrc_format::FormatError::OutOfMemory { bytes: s.sizes.len() * core::mem::size_of::<u64>(), })
                     })?; // alloc: Exec charged compose_out.owner()
                 compose_out.with_vec(|v| v.resize(s.sizes.len(), 0)); // alloc: Exec charged compose_out.owner()
             }
@@ -4436,17 +3879,11 @@ fn dict_frame_extents(
     // frame 0); the last extent runs to the section end (frame table tail).
     let nf = ft.len();
     let mut bounds: ChargedVec<usize> = ChargedVec::new(owner, Kind::Region);
-    bounds
-        .with_vec(|v| v.try_reserve_exact(nf + 1))
-        .map_err(|_| {
-            WriteError::Format(pgrc_format::FormatError::OutOfMemory {
-                bytes: (nf + 1) * core::mem::size_of::<usize>(),
-            })
+    bounds.with_vec(|v| v.try_reserve_exact(nf + 1)).map_err(|_| { WriteError::Format(pgrc_format::FormatError::OutOfMemory { bytes: (nf + 1) * core::mem::size_of::<usize>(), })
         })?; // alloc: Exec charged bounds.owner()
     bounds.with_vec(|v| v.push(0)); // alloc: Exec charged bounds.owner()
     for &off in ft.iter().skip(1) {
-        bounds.with_vec(|v| v.push(pgrc_format::part::STREAM_SECTION_HDR_LEN + off as usize));
-        // alloc: Exec charged bounds.owner()
+        bounds.with_vec(|v| v.push(pgrc_format::part::STREAM_SECTION_HDR_LEN + off as usize)); // alloc: Exec charged bounds.owner()
     }
     bounds.with_vec(|v| v.push(image.len())); // alloc: Exec charged bounds.owner()
     let mut out = Vec::with_capacity(nf);
@@ -4523,11 +3960,13 @@ pub fn cluster_sortable(schema: &pgrc_format::class::ColSchema) -> bool {
         | StorageClass::Bool
         | StorageClass::F32
         | StorageClass::F64 => true,
-        StorageClass::Fixed { .. } | StorageClass::VarlenaVerbatim => match schema.semantics {
-            TypeSemantics::MemcmpOrdered => true,
-            TypeSemantics::TextCollated => schema.collation_class == CollationClass::C,
-            _ => false,
-        },
+        StorageClass::Fixed { .. } | StorageClass::VarlenaVerbatim =>
+            match schema.semantics {
+                TypeSemantics::MemcmpOrdered => true,
+                TypeSemantics::TextCollated =>
+                    schema.collation_class == CollationClass::C,
+                _ => false,
+            },
     }
 }
 
@@ -4551,9 +3990,7 @@ pub fn jsonb_path_text(doc: &[u8], path: &[Vec<u8>]) -> WriteResult<Option<Vec<u
         if !container_is_object(c) {
             return Ok(None);
         }
-        let Some(v) = get_key_value(c, key) else {
-            return Ok(None);
-        };
+        let Some(v) = get_key_value(c, key) else { return Ok(None); };
         if i + 1 < path.len() {
             match v {
                 JsonbItem::Binary(sub) => c = sub,
@@ -4567,11 +4004,9 @@ pub fn jsonb_path_text(doc: &[u8], path: &[Vec<u8>]) -> WriteResult<Option<Vec<u
             other => {
                 // numbers, booleans and containers: JsonbValueAsText
                 let ctx = mcx::MemoryContext::new("pgrc sort path");
-                let text = adt_jsonb::getfield::value_as_text(ctx.mcx(), &other).map_err(|_| {
-                    WriteError::Contract {
-                        detail: "jsonb sort path: value_as_text failed",
-                    }
-                })?;
+                let text = adt_jsonb::getfield::value_as_text(ctx.mcx(), &other)
+                    .map_err(|_| { WriteError::Contract { detail: "jsonb sort path: value_as_text failed",
+                    } })?;
                 match text {
                     Some(t) => Some(pgrc_format::try_to_vec(t.data(), "seal")?),
                     None => None,
@@ -4600,10 +4035,8 @@ pub fn decl_slots<'a>(
     hold: &'a Option<Vec<Option<Vec<u8>>>>,
 ) -> WriteResult<Vec<KeySlot<'a>>> {
     match hold {
-        Some(vals) if !d.path.is_empty() => Ok(vals
-            .iter()
-            .map(|v| v.as_deref().map_or(KeySlot::Null, KeySlot::B))
-            .collect()),
+        Some(vals) if !d.path.is_empty() =>
+            Ok(vals.iter().map(|v| v.as_deref().map_or(KeySlot::Null, KeySlot::B)).collect()),
         _ => key_slots(col),
     }
 }
@@ -4617,8 +4050,7 @@ pub fn key_slot_at(col: &ColBuffer, r: u64) -> WriteResult<KeySlot<'_>> {
     }
     Ok(match col.schema.class {
         StorageClass::ByvalWord { signed: true, .. } => KeySlot::I(col.word_at(r) as i64),
-        StorageClass::ByvalWord { signed: false, .. } | StorageClass::Bool => {
-            KeySlot::U(col.word_at(r))
+        StorageClass::ByvalWord { signed: false, .. } | StorageClass::Bool => { KeySlot::U(col.word_at(r))
         }
         StorageClass::F32 => KeySlot::F(f32::from_bits(col.word_at(r) as u32) as f64),
         StorageClass::F64 => KeySlot::F(f64::from_bits(col.word_at(r))),
@@ -4647,18 +4079,10 @@ pub fn slot_cmp(a: &KeySlot<'_>, b: &KeySlot<'_>, decl: &ClusterKeyDecl) -> std:
     let ord = match (a, b) {
         (KeySlot::Null, KeySlot::Null) => return Equal,
         (KeySlot::Null, _) => {
-            return if decl.nulls == NullsOrder::First {
-                Less
-            } else {
-                Greater
-            }
+            return if decl.nulls == NullsOrder::First { Less } else { Greater }
         }
         (_, KeySlot::Null) => {
-            return if decl.nulls == NullsOrder::First {
-                Greater
-            } else {
-                Less
-            }
+            return if decl.nulls == NullsOrder::First { Greater } else { Less }
         }
         (KeySlot::I(x), KeySlot::I(y)) => x.cmp(y),
         (KeySlot::U(x), KeySlot::U(y)) => x.cmp(y),
@@ -4687,12 +4111,7 @@ pub fn slot_cmp(a: &KeySlot<'_>, b: &KeySlot<'_>, decl: &ClusterKeyDecl) -> std:
 fn cluster_key_cols<'c>(
     cols: &[&'c ColBuffer],
     decls: &'c [ClusterKeyDecl],
-) -> WriteResult<
-    Vec<(
-        &'c ColBuffer,
-        &'c ClusterKeyDecl,
-        Option<Vec<Option<Vec<u8>>>>,
-    )>,
+) -> WriteResult<Vec<(&'c ColBuffer, &'c ClusterKeyDecl, Option<Vec<Option<Vec<u8>>>>,)>,
 > {
     let mut keys: Vec<(&ColBuffer, &ClusterKeyDecl)> = Vec::with_capacity(decls.len());
     for d in decls {
@@ -4715,14 +4134,7 @@ fn cluster_key_cols<'c>(
         keys.push((col, d));
     }
     keys.into_iter()
-        .map(|(col, d)| {
-            Ok((
-                col,
-                d,
-                (!d.path.is_empty())
-                    .then(|| path_values(col, &d.path))
-                    .transpose()?,
-            ))
+        .map(|(col, d)| { Ok((col, d, (!d.path.is_empty()).then(|| path_values(col, &d.path)).transpose()?,))
         })
         .collect()
 }
@@ -4730,23 +4142,13 @@ fn cluster_key_cols<'c>(
 /// The comparison slots of [`cluster_key_cols`]' keys, in declaration order.
 #[allow(clippy::type_complexity)]
 fn key_slot_cols<'a, 'c: 'a>(
-    keys: &'a [(
-        &'c ColBuffer,
-        &'c ClusterKeyDecl,
-        Option<Vec<Option<Vec<u8>>>>,
-    )],
+    keys: &'a [(&'c ColBuffer, &'c ClusterKeyDecl, Option<Vec<Option<Vec<u8>>>>,)],
 ) -> WriteResult<Vec<(Vec<KeySlot<'a>>, &'a ClusterKeyDecl)>> {
-    keys.iter()
-        .map(|(col, d, hold)| Ok((decl_slots(col, d, hold)?, *d)))
-        .collect()
+    keys.iter().map(|(col, d, hold)| Ok((decl_slots(col, d, hold)?, *d))).collect()
 }
 
 /// Rows `r - 1` and `r` of the key slots, in key order.
-fn key_rows_cmp(
-    slot_cols: &[(Vec<KeySlot<'_>>, &ClusterKeyDecl)],
-    a: usize,
-    b: usize,
-) -> std::cmp::Ordering {
+fn key_rows_cmp(slot_cols: &[(Vec<KeySlot<'_>>, &ClusterKeyDecl)], a: usize, b: usize,) -> std::cmp::Ordering {
     for (slots, d) in slot_cols {
         let ord = key_cmp(slots, d, a, b);
         if ord != std::cmp::Ordering::Equal {
@@ -4762,8 +4164,7 @@ fn cluster_ordered(cols: &[&ColBuffer], decls: &[ClusterKeyDecl]) -> WriteResult
     let rows = cols.first().map(|c| c.rows()).unwrap_or(0);
     let keys = cluster_key_cols(cols, decls)?;
     let slot_cols = key_slot_cols(&keys)?;
-    Ok((1..rows as usize)
-        .all(|r| key_rows_cmp(&slot_cols, r - 1, r) != std::cmp::Ordering::Greater))
+    Ok((1..rows as usize).all(|r| key_rows_cmp(&slot_cols, r - 1, r) != std::cmp::Ordering::Greater))
 }
 
 fn cluster_sort(
@@ -4778,10 +4179,7 @@ fn cluster_sort(
     // CONVERT W3-2a: the sort's key slots and permutation on the part's owner while it sorts (declared after them:
     // drops first)
     let owner = roots.first().and_then(ColBuffer::owner);
-    let slots_held: u64 = slot_cols
-        .iter()
-        .map(|(v, _)| cap_bytes(v.capacity(), v))
-        .sum();
+    let slots_held: u64 = slot_cols.iter().map(|(v, _)| cap_bytes(v.capacity(), v)).sum();
     let mut sort_charge = HeldCharge::new(owner);
     sort_charge.sync(slots_held);
     let cmp_rows = |a: usize, b: usize| key_rows_cmp(&slot_cols, a, b);
@@ -4815,23 +4213,14 @@ fn cluster_sort(
     // PERMUTED buffers — the attestation never rides the sort's own
     // correctness alone.
     {
-        let mut vcols: ChargedVec<&ColBuffer> =
-            ChargedVec::new(roots.first().and_then(ColBuffer::owner), Kind::Region);
-        vcols.with_vec(|v| {
-            v.extend(decls.iter().map(|d| {
-                sorted_roots
-                    .iter()
-                    .find(|c| c.schema.attno == d.attno)
-                    .expect("validated above")
+        let mut vcols: ChargedVec<&ColBuffer> = ChargedVec::new(roots.first().and_then(ColBuffer::owner), Kind::Region);
+        vcols.with_vec(|v| { v.extend(decls.iter().map(|d| { sorted_roots.iter().find(|c| c.schema.attno == d.attno).expect("validated above")
             }))
         }); // alloc: Exec charged vcols.owner()
         let vholds: Vec<Option<Vec<Option<Vec<u8>>>>> = vcols
             .iter()
             .zip(decls)
-            .map(|(col, d)| {
-                (!d.path.is_empty())
-                    .then(|| path_values(col, &d.path))
-                    .transpose()
+            .map(|(col, d)| {(!d.path.is_empty()).then(|| path_values(col, &d.path)).transpose()
             })
             .collect::<WriteResult<_>>()?;
         let mut vkeys: Vec<(Vec<KeySlot<'_>>, &ClusterKeyDecl)> = Vec::new();

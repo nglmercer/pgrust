@@ -210,9 +210,7 @@ pub fn seg_id(bases: &[u64], local: u32) -> Option<u64> {
 /// The local position of `id` in a segment whose extents start at `bases`; `None` when no extent holds it.
 #[inline]
 pub fn seg_local_of(bases: &[u64], id: u64) -> Option<u32> {
-    let i = bases
-        .iter()
-        .position(|&b| b <= id && id - b < SEG_EXTENT_IDS)?;
+    let i = bases.iter().position(|&b| b <= id && id - b < SEG_EXTENT_IDS)?;
     u32::try_from(i as u64 * SEG_EXTENT_IDS + (id - bases[i])).ok()
 }
 
@@ -246,14 +244,10 @@ fn segext_crc(head: &[u8], entries: &[u8]) -> crate::FormatResult<u32> {
 /// [`SEGEXT_MAX_ENTRIES`] (the image then stays under [`SEGEXT_MAX_BYTES`]).
 pub fn encode_segext(e: &[SegExtent]) -> crate::FormatResult<Vec<u8>> {
     if e.len() > SEGEXT_MAX_ENTRIES {
-        return Err(crate::FormatError::EncodeContract {
-            detail: "extent table past SEGEXT_MAX_ENTRIES",
-        });
+        return Err(crate::FormatError::EncodeContract { detail: "extent table past SEGEXT_MAX_ENTRIES", });
     }
     if !check_segext(e) {
-        return Err(crate::FormatError::EncodeContract {
-            detail: "extent table not sorted, contiguous, aligned and disjoint",
-        });
+        return Err(crate::FormatError::EncodeContract { detail: "extent table not sorted, contiguous, aligned and disjoint", });
     }
     let mut out = crate::try_vec(SEGEXT_HEADER_LEN + SEGEXT_ENTRY_LEN * e.len(), "segext")?;
     crate::wire::put_u32(&mut out, SEGEXT_MAGIC);
@@ -266,10 +260,7 @@ pub fn encode_segext(e: &[SegExtent]) -> crate::FormatResult<Vec<u8>> {
     }
     let crc = segext_crc(&out[..8], &out[SEGEXT_HEADER_LEN..])?;
     out[8..12].copy_from_slice(&crc.to_le_bytes());
-    assert!(
-        out.len() <= SEGEXT_MAX_BYTES,
-        "the extent table image stays under 64 KB"
-    );
+    assert!(out.len() <= SEGEXT_MAX_BYTES, "the extent table image stays under 64 KB");
     Ok(out)
 }
 
@@ -293,21 +284,12 @@ pub fn decode_segext(b: &[u8]) -> crate::FormatResult<Vec<SegExtent>> {
     if b.len() < end {
         return Err(crate::FormatError::Truncated { at: AT });
     }
-    if u32::from_le_bytes(b[8..12].try_into().expect("4"))
-        != segext_crc(&b[..8], &b[SEGEXT_HEADER_LEN..end])?
-    {
+    if u32::from_le_bytes(b[8..12].try_into().expect("4")) != segext_crc(&b[..8], &b[SEGEXT_HEADER_LEN..end])? {
         return Err(crate::FormatError::CrcMismatch { at: AT });
     }
     let mut c = crate::wire::Cur::new(&b[SEGEXT_HEADER_LEN..end]);
-    let e = (0..n)
-        .map(|_| {
-            Ok(SegExtent {
-                part_no: c.u32(AT)?,
-                idx: c.u32(AT)?,
-                base: c.u64(AT)?,
-            })
-        })
-        .collect::<crate::FormatResult<Vec<_>>>()?;
+    let e = (0..n).map(|_| { Ok(SegExtent { part_no: c.u32(AT)?, idx: c.u32(AT)?, base: c.u64(AT)?, })
+        }).collect::<crate::FormatResult<Vec<_>>>()?;
     if !check_segext(&e) {
         return Err(crate::FormatError::Corrupt { at: AT });
     }
@@ -324,11 +306,7 @@ pub fn check_segext(e: &[SegExtent]) -> bool {
             Some(p) => p.part_no < x.part_no && x.idx == 0,
             None => x.idx == 0,
         };
-        next && x.base >= ROWID_FIRST
-            && x.base % IDS_PER_BLOCK == 0
-            && x.base
-                .checked_add(SEG_EXTENT_IDS)
-                .is_some_and(|h| h <= ROWID_LIMIT)
+        next && x.base >= ROWID_FIRST && x.base % IDS_PER_BLOCK == 0 && x.base.checked_add(SEG_EXTENT_IDS).is_some_and(|h| h <= ROWID_LIMIT)
     });
     let mut bases: Vec<u64> = e.iter().map(|x| x.base).collect();
     bases.sort_unstable();
@@ -375,18 +353,7 @@ mod tests {
 
     #[test]
     fn row_ids_round_trip_through_tids_at_the_edges() {
-        for id in [
-            0,
-            1,
-            290,
-            291,
-            292,
-            581,
-            582,
-            ROWID_FIRST,
-            ROWID_LIMIT / 2 + 7,
-            ROWID_LIMIT - 1,
-        ] {
+        for id in [0, 1, 290, 291, 292, 581, 582, ROWID_FIRST, ROWID_LIMIT / 2 + 7, ROWID_LIMIT - 1,] {
             let (b, o) = tid_of(id);
             assert!((1..=291).contains(&o), "id {id} off {o}");
             assert_eq!(id_of(b, o), Some(id), "id {id}");
@@ -448,40 +415,21 @@ mod tests {
         let bases = [ROWID_FIRST, 10 * SEG_EXTENT_IDS + 582];
         assert_eq!(seg_id(&bases, 0), Some(ROWID_FIRST));
         let last0 = SEG_EXTENT_IDS as u32 - 1;
-        assert_eq!(
-            seg_id(&bases, last0),
-            Some(ROWID_FIRST + SEG_EXTENT_IDS - 1)
-        );
-        assert_eq!(
-            seg_id(&bases, last0 + 1),
-            Some(bases[1]),
-            "block 1024 starts extent 1"
-        );
+        assert_eq!(seg_id(&bases, last0), Some(ROWID_FIRST + SEG_EXTENT_IDS - 1));
+        assert_eq!(seg_id(&bases, last0 + 1), Some(bases[1]), "block 1024 starts extent 1");
         assert_eq!(seg_id(&bases, seg_local(1024, 1).unwrap()), Some(bases[1]));
-        assert_eq!(
-            seg_id(&bases, seg_local(2048, 1).unwrap()),
-            None,
-            "extent 2 not reserved"
-        );
+        assert_eq!(seg_id(&bases, seg_local(2048, 1).unwrap()), None, "extent 2 not reserved");
         for l in [0, 7, last0, last0 + 1, last0 + 300] {
             assert_eq!(seg_local_of(&bases, seg_id(&bases, l).unwrap()), Some(l));
         }
         assert_eq!(seg_local_of(&bases, ROWID_FIRST - 1), None);
         assert_eq!(seg_local_of(&bases, bases[1] + SEG_EXTENT_IDS), None);
         let (b, o) = tid_of(seg_id(&bases, seg_local(1030, 5).unwrap()).unwrap());
-        assert_eq!(
-            (b as u64, o),
-            (bases[1] / IDS_PER_BLOCK + 6, 5),
-            "a segment row's ctid is its heap TID shifted by its extent"
-        );
+        assert_eq!((b as u64, o), (bases[1] / IDS_PER_BLOCK + 6, 5), "a segment row's ctid is its heap TID shifted by its extent");
     }
 
     fn ext(part_no: u32, idx: u32, k: u64) -> SegExtent {
-        SegExtent {
-            part_no,
-            idx,
-            base: ROWID_FIRST + k * SEG_EXTENT_IDS,
-        }
+        SegExtent { part_no, idx, base: ROWID_FIRST + k * SEG_EXTENT_IDS, }
     }
 
     #[test]
@@ -501,38 +449,12 @@ mod tests {
             vec![ext(3, 0, 0), ext(3, 2, 1)],
             vec![ext(9, 0, 0), ext(3, 0, 1)],
             vec![ext(3, 0, 0), ext(4, 0, 0)],
-            vec![SegExtent {
-                part_no: 1,
-                idx: 0,
-                base: ROWID_FIRST + 1,
-            }],
-            vec![SegExtent {
-                part_no: 1,
-                idx: 0,
-                base: 0,
-            }],
-            vec![SegExtent {
-                part_no: 1,
-                idx: 0,
-                base: ROWID_LIMIT - IDS_PER_BLOCK,
-            }],
-            vec![
-                SegExtent {
-                    part_no: 1,
-                    idx: 0,
-                    base: ROWID_FIRST,
-                },
-                SegExtent {
-                    part_no: 2,
-                    idx: 0,
-                    base: ROWID_FIRST + SEG_EXTENT_IDS - IDS_PER_BLOCK,
-                },
-            ],
+            vec![SegExtent { part_no: 1, idx: 0, base: ROWID_FIRST + 1, }],
+            vec![SegExtent { part_no: 1, idx: 0, base: 0, }],
+            vec![SegExtent { part_no: 1, idx: 0, base: ROWID_LIMIT - IDS_PER_BLOCK, }],
+            vec![SegExtent { part_no: 1, idx: 0, base: ROWID_FIRST, }, SegExtent { part_no: 2, idx: 0, base: ROWID_FIRST + SEG_EXTENT_IDS - IDS_PER_BLOCK, },],
         ] {
-            assert!(
-                !check_segext(&bad) && encode_segext(&bad).is_err(),
-                "{bad:?}"
-            );
+            assert!(!check_segext(&bad) && encode_segext(&bad).is_err(), "{bad:?}");
         }
     }
 
@@ -541,47 +463,28 @@ mod tests {
     /// is a torn write, refused, while one in the tail is not looked at.
     #[test]
     fn a_shorter_table_over_a_longer_file_decodes_exactly() {
-        let long =
-            encode_segext(&[ext(3, 0, 0), ext(3, 1, 4), ext(9, 0, 2), ext(9, 1, 7)]).unwrap();
+        let long = encode_segext(&[ext(3, 0, 0), ext(3, 1, 4), ext(9, 0, 2), ext(9, 1, 7)]).unwrap();
         let short_t = vec![ext(9, 0, 2)];
         let short = encode_segext(&short_t).unwrap();
         let mut file = long.clone();
         file[..short.len()].copy_from_slice(&short);
         assert_eq!(&img_header(&file), &img_header(&short));
-        assert_eq!(
-            decode_segext(&file).unwrap(),
-            short_t,
-            "the longer table's tail is ignored"
-        );
+        assert_eq!(decode_segext(&file).unwrap(), short_t, "the longer table's tail is ignored");
         for i in 0..short.len() {
             let mut torn = file.clone();
             torn[i] ^= 0x10;
-            assert!(
-                decode_segext(&torn).is_err(),
-                "a flipped byte {i} of the live region is detected"
-            );
+            assert!(decode_segext(&torn).is_err(), "a flipped byte {i} of the live region is detected");
         }
         let mut tail = file.clone();
         *tail.last_mut().unwrap() ^= 0x10;
-        assert_eq!(
-            decode_segext(&tail).unwrap(),
-            short_t,
-            "the tail is never read"
-        );
+        assert_eq!(decode_segext(&tail).unwrap(), short_t, "the tail is never read");
         let mut half = short.clone();
         half[4..8].copy_from_slice(&2u32.to_le_bytes());
-        assert!(
-            decode_segext(&half).is_err(),
-            "a count past the image is torn, never guessed"
-        );
+        assert!(decode_segext(&half).is_err(), "a count past the image is torn, never guessed");
         let empty = encode_segext(&[]).unwrap();
         let mut file = long.clone();
         file[..empty.len()].copy_from_slice(&empty);
-        assert_eq!(
-            decode_segext(&file).unwrap(),
-            vec![],
-            "an emptied table over a full one"
-        );
+        assert_eq!(decode_segext(&file).unwrap(), vec![], "an emptied table over a full one");
     }
 
     fn img_header(b: &[u8]) -> [u8; SEGEXT_HEADER_LEN] {
@@ -591,15 +494,9 @@ mod tests {
     #[test]
     #[allow(clippy::assertions_on_constants)]
     fn the_extent_table_is_capped_under_64_kb() {
-        let full: Vec<SegExtent> = (0..SEGEXT_MAX_ENTRIES as u64)
-            .map(|k| ext((k / 64) as u32, (k % 64) as u32, k))
-            .collect();
+        let full: Vec<SegExtent> = (0..SEGEXT_MAX_ENTRIES as u64).map(|k| ext((k / 64) as u32, (k % 64) as u32, k)).collect();
         let img = encode_segext(&full).unwrap();
-        assert!(
-            img.len() <= SEGEXT_MAX_BYTES && img.len() <= 65536,
-            "{} bytes at the cap",
-            img.len()
-        );
+        assert!(img.len() <= SEGEXT_MAX_BYTES && img.len() <= 65536, "{} bytes at the cap", img.len());
         assert_eq!(decode_segext(&img).unwrap().len(), SEGEXT_MAX_ENTRIES);
         let mut over = full.clone();
         over.push(ext(u32::MAX, 0, SEGEXT_MAX_ENTRIES as u64));

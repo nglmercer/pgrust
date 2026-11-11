@@ -76,7 +76,7 @@ pub const fn uleb_len(value: u64) -> usize {
     if value == 0 {
         1
     } else {
-        (64 - value.leading_zeros() as usize).div_ceil(7)
+        (64 - value.leading_zeros() as usize).div_ceil( 7)
     }
 }
 pub fn uleb_write(dst: &mut [u8], mut value: u64) -> PgResult<usize> {

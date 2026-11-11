@@ -1,3 +1,4 @@
+
 use std::collections::HashMap;
 
 const RESERVED: std::ops::RangeInclusive<u32> = 9000..=9099;
@@ -24,9 +25,7 @@ fn extra_builtin_oids_are_unique_and_clear_of_live_rows() {
         if RESERVED.contains(&b.foid) {
             native += 1;
             assert!(
-                fmgr_core::CANONICAL
-                    .iter()
-                    .all(|c| c.0 != b.foid && c.1 != b.name),
+                fmgr_core::CANONICAL.iter().all(|c| c.0 != b.foid && c.1 != b.name),
                 "pgrust-native {} ({}) collides with a canonical builtin",
                 b.foid,
                 b.name
@@ -34,10 +33,7 @@ fn extra_builtin_oids_are_unique_and_clear_of_live_rows() {
         }
     }
     // the janitor's three, the buffer pool's two, the pgrc planner facts and layout faces' five
-    assert!(
-        native >= 10,
-        "the pgrust-native rows went missing: {native}"
-    );
+    assert!(native >= 10, "the pgrust-native rows went missing: {native}");
 }
 
 /// The by-oid answer for each pgrust-native row is that row (the lookup the collision broke).
@@ -45,18 +41,9 @@ fn extra_builtin_oids_are_unique_and_clear_of_live_rows() {
 fn each_extra_oid_resolves_to_its_own_row() {
     static INSTALL: std::sync::Once = std::sync::Once::new();
     INSTALL.call_once(|| fmgr_core::install_extra_builtins(&seams_init::EXTRA_BUILTINS));
-    for b in seams_init::EXTRA_BUILTINS
-        .iter()
-        .flat_map(|t| t.iter())
-        .filter(|b| RESERVED.contains(&b.foid))
-    {
+    for b in seams_init::EXTRA_BUILTINS.iter().flat_map(|t| t.iter()).filter(|b| RESERVED.contains(&b.foid)) {
         let got = fmgr_core::fmgr_isbuiltin(b.foid).expect("an installed extra row");
         assert_eq!(got.name, b.name, "oid {} resolves to {}", b.foid, got.name);
-        assert_eq!(
-            fmgr_core::fmgr_internal_function(b.name),
-            b.foid,
-            "{} by name",
-            b.name
-        );
+        assert_eq!(fmgr_core::fmgr_internal_function(b.name), b.foid, "{} by name", b.name);
     }
 }

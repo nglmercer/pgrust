@@ -1,4 +1,5 @@
-#![allow(non_snake_case, non_upper_case_globals)]
+
+#![allow(non_snake_case,non_upper_case_globals)]
 
 pub mod checksum;
 
@@ -64,8 +65,7 @@ pub enum BackupManifestOption {
 }
 
 pub use BackupManifestOption::{
-    ForceEncode as MANIFEST_OPTION_FORCE_ENCODE, No as MANIFEST_OPTION_NO,
-    Yes as MANIFEST_OPTION_YES,
+    ForceEncode as MANIFEST_OPTION_FORCE_ENCODE, No as MANIFEST_OPTION_NO, Yes as MANIFEST_OPTION_YES,
 };
 
 pub struct BackupManifestInfo<'mcx> {
@@ -160,8 +160,7 @@ fn escape_json(buf: &mut PgVec<'_, u8>, s: &[u8]) -> PgResult<()> {
 
 fn hex_append(buf: &mut PgVec<'_, u8>, src: &[u8]) -> PgResult<()> {
     let mcx = *buf.allocator();
-    buf.try_reserve(2 * src.len())
-        .map_err(|_| mcx.oom(2 * src.len()))?;
+    buf.try_reserve(2 * src.len()).map_err(|_| mcx.oom(2 * src.len()))?;
     hex_encode_into(src, buf);
     Ok(())
 }
@@ -417,11 +416,7 @@ fn AppendStringToManifest(manifest: &mut BackupManifestInfo, s: &[u8]) -> PgResu
             ctx.update(s);
         }
     }
-    manifest
-        .buffile
-        .as_mut()
-        .expect("manifest enabled")
-        .write(s)?;
+    manifest.buffile.as_mut().expect("manifest enabled").write(s)?;
     manifest.manifest_size += len as u64;
     Ok(())
 }

@@ -63,19 +63,11 @@ fn a_built_image_is_allocated_inside_a_cache_scope() {
     let n = 3_000_008usize;
     let v: Vec<u8> = (0..n).map(|i| (i % 251) as u8).collect();
     let mut img = None;
-    let (inside, outside) = watched(n as u64, || {
-        img = Some(SegBuf::from_bytes(&v).expect("built"))
+    let (inside, outside) = watched(n as u64, || { img = Some(SegBuf::from_bytes(&v).expect("built"))
     });
     assert_eq!(img.expect("built").bytes(), &v[..]);
-    assert_eq!(
-        (inside, outside),
-        (1, 0),
-        "the image's one allocation is the cache arena's"
-    );
-    assert!(
-        !memledger::arena::in_cache_scope(),
-        "the scope ends with the build"
-    );
+    assert_eq!((inside, outside), (1, 0), "the image's one allocation is the cache arena's");
+    assert!(!memledger::arena::in_cache_scope(), "the scope ends with the build");
 }
 
 /// Every cache scope names its owner: an image no reader names (`SegBuf::from_bytes`) is charged to the thread's context
@@ -94,11 +86,7 @@ fn an_image_no_reader_names_is_charged_to_the_threads_context() {
         let n = 1_000_008usize;
         let v: Vec<u8> = (0..n).map(|i| (i % 251) as u8).collect();
         let img = SegBuf::from_bytes(&v).expect("built");
-        assert!(
-            committed() - before >= n as i64,
-            "the image is its statement's: {} of {n}",
-            committed() - before
-        );
+        assert!(committed() - before >= n as i64, "the image is its statement's: {} of {n}", committed() - before);
         drop(img);
         assert_eq!(committed(), before, "its drop gives the charge back");
         memledger::statement_end();

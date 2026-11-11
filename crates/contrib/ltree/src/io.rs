@@ -420,7 +420,7 @@ pub fn parse_lquery(buf: &[u8]) -> Result<Vec<u8>, PgError> {
                     state = LQPRS_WAITSNUM;
                 } else if c.is_ascii_digit() {
                     let low = atoi(buf, i);
-                    if !(0..=LTREE_MAX_LEVELS).contains(&low) {
+                    if !( 0..= LTREE_MAX_LEVELS).contains(&low) {
                         return Err(prog_limit_detail(
                             "lquery syntax error",
                             &format!(
@@ -438,7 +438,7 @@ pub fn parse_lquery(buf: &[u8]) -> Result<Vec<u8>, PgError> {
             LQPRS_WAITSNUM => {
                 if c.is_ascii_digit() {
                     let high = atoi(buf, i);
-                    if !(0..=LTREE_MAX_LEVELS).contains(&high) {
+                    if !( 0..= LTREE_MAX_LEVELS).contains(&high) {
                         return Err(prog_limit_detail(
                             "lquery syntax error",
                             &format!(

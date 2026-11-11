@@ -680,8 +680,7 @@ impl MvccXidResolve for PageMemoResolve<'_> {
             return Ok(f & XVM_IN_SNAPSHOT != 0);
         }
         let r = XidInMVCCSnapshot(xid, snapshot)?;
-        self.memo
-            .merge(xid, XVM_SNAP_VALID | if r { XVM_IN_SNAPSHOT } else { 0 });
+        self.memo.merge(xid, XVM_SNAP_VALID | if r { XVM_IN_SNAPSHOT } else { 0 });
         Ok(r)
     }
 
@@ -704,8 +703,7 @@ impl MvccXidResolve for PageMemoResolve<'_> {
             return Ok(f & XVM_COMMITTED != 0);
         }
         let r = TransactionIdDidCommit(xid)?;
-        self.memo
-            .merge(xid, XVM_COMMIT_VALID | if r { XVM_COMMITTED } else { 0 });
+        self.memo.merge(xid, XVM_COMMIT_VALID | if r { XVM_COMMITTED } else { 0 });
         Ok(r)
     }
 
@@ -1259,6 +1257,8 @@ pub fn HeapTupleSatisfiesHistoricMVCC(
     }
 
     #[allow(clippy::if_same_then_else)]
+
+
     if (infomask & HEAP_XMAX_INVALID) != 0 {
         return Ok(true);
     } else if HEAP_XMAX_IS_LOCKED_ONLY(infomask) {
@@ -1285,7 +1285,9 @@ pub fn HeapTupleSatisfiesHistoricMVCC(
 
         Ok(cmax >= snapshot.curcid.get())
     } else if TransactionIdPrecedes(xmax, snapshot.xmin) {
-        debug_assert!(!((infomask & HEAP_XMAX_COMMITTED) != 0 && !TransactionIdDidCommit(xmax)?));
+        debug_assert!(
+            !((infomask & HEAP_XMAX_COMMITTED) != 0 && !TransactionIdDidCommit(xmax)?)
+        );
 
         if (infomask & HEAP_XMAX_COMMITTED) != 0 {
             return Ok(false);

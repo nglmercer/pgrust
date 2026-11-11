@@ -23,10 +23,7 @@ fn percent_placeholders_substitution() {
 fn percent_placeholders_errors() {
     let e = replace_percent_placeholders("echo %", "archive_command", &[]).unwrap_err();
     assert_eq!(e.sqlstate, types_error::ERRCODE_INVALID_PARAMETER_VALUE);
-    assert_eq!(
-        e.message,
-        "invalid value for parameter \"archive_command\": \"echo %\""
-    );
+    assert_eq!(e.message, "invalid value for parameter \"archive_command\": \"echo %\"");
     assert_eq!(
         e.detail.as_deref(),
         Some("String ends unexpectedly after escape character \"%\".")
@@ -34,21 +31,13 @@ fn percent_placeholders_errors() {
 
     let e = replace_percent_placeholders("echo %q", "restore_command", &[('f', Some("x"))])
         .unwrap_err();
-    assert_eq!(
-        e.message,
-        "invalid value for parameter \"restore_command\": \"echo %q\""
-    );
-    assert_eq!(
-        e.detail.as_deref(),
-        Some("String contains unexpected placeholder \"%q\".")
-    );
+    assert_eq!(e.message, "invalid value for parameter \"restore_command\": \"echo %q\"");
+    assert_eq!(e.detail.as_deref(), Some("String contains unexpected placeholder \"%q\"."));
 
     // A present letter with a NULL value reports the same unknown-placeholder error.
-    let e = replace_percent_placeholders("echo %p", "restore_command", &[('p', None)]).unwrap_err();
-    assert_eq!(
-        e.detail.as_deref(),
-        Some("String contains unexpected placeholder \"%p\".")
-    );
+    let e = replace_percent_placeholders("echo %p", "restore_command", &[('p', None)])
+        .unwrap_err();
+    assert_eq!(e.detail.as_deref(), Some("String contains unexpected placeholder \"%p\"."));
 }
 
 #[test]
@@ -57,10 +46,7 @@ fn wait_result_classification() {
     assert!(wait_error::WIFEXITED(rc));
     assert_eq!(wait_error::WEXITSTATUS(rc), 3);
     assert!(!wait_error::wait_result_is_any_signal(rc, true));
-    assert_eq!(
-        wait_error::wait_result_to_str(rc),
-        "child process exited with exit code 3"
-    );
+    assert_eq!(wait_error::wait_result_to_str(rc), "child process exited with exit code 3");
 
     let rc = wait_error::system("true");
     assert_eq!(rc, 0);
@@ -78,10 +64,8 @@ fn wait_result_classification() {
     assert!(wait_error::wait_result_is_signal(rc, libc::SIGTERM));
     assert!(!wait_error::wait_result_is_signal(rc, libc::SIGINT));
     assert!(wait_error::wait_result_is_any_signal(rc, false));
-    assert!(wait_error::wait_result_to_str(rc).starts_with(&format!(
-        "child process was terminated by signal {}: ",
-        libc::SIGTERM
-    )));
+    assert!(wait_error::wait_result_to_str(rc)
+        .starts_with(&format!("child process was terminated by signal {}: ", libc::SIGTERM)));
 
     // Shell-reported child signal death: exit code 128 + signum.
     let rc = wait_error::system("sh -c 'kill -TERM $$'; exit $?");

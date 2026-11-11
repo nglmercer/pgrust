@@ -68,7 +68,7 @@ fn printed_decimal(num: Num<'_>) -> Option<(bool, u64, i32)> {
 
 #[inline]
 fn strip_fraction_zeros(m: &mut u64, e: &mut i32) {
-    while *e < 0 && *m != 0 && (*m).is_multiple_of(10) {
+    while *e < 0 && *m != 0 && ( *m).is_multiple_of( 10) {
         *m /= 10;
         *e += 1;
     }

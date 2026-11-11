@@ -1573,9 +1573,7 @@ impl CmpOp {
     // The conformance test in tests.rs pins this to the exact 90-OID golden
     // mapping.
     pub fn for_fn_oid(oid: Oid) -> Option<CmpOp> {
-        Some(CmpOp::from_lanereg_shape(crate::batchreg::aot_qual_cmp(
-            oid,
-        )?))
+        Some(CmpOp::from_lanereg_shape(crate::batchreg::aot_qual_cmp(oid,)?))
     }
 
     fn from_lanereg_shape(s: crate::batchreg::CmpShape) -> CmpOp {

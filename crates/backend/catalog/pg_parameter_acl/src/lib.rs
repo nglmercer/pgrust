@@ -1,4 +1,4 @@
-#![allow(non_snake_case, non_upper_case_globals)]
+#![allow(non_snake_case,non_upper_case_globals)]
 
 use catalog::{ParameterAclOidIndexId, ParameterAclRelationId};
 use datum::Datum;
@@ -85,8 +85,6 @@ mod tests {
     fn lookup_miss_error_shape() {
         let e = undefined_err("plperl.on_init");
         assert_eq!(e.sqlstate(), ERRCODE_UNDEFINED_OBJECT);
-        assert!(e
-            .message()
-            .contains("parameter ACL \"plperl.on_init\" does not exist"));
+        assert!(e.message().contains("parameter ACL \"plperl.on_init\" does not exist"));
     }
 }

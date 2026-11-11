@@ -430,7 +430,7 @@ fn unnest_collect(fcinfo: &mut Fcinfo) -> PgResult<Vec<Vec<u8>>> {
             nulls[2] = false;
         }
         let tuple = ::heaptuple::heap_form_tuple(mcx, &desc, &values, &nulls)?;
-        rows.push(::mcx::std_vec_from_slice("adt", tuple.image())?);
+        rows.push(::mcx::std_vec_from_slice("adt",tuple.image())?);
     }
     Ok(rows)
 }

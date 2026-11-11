@@ -47,9 +47,8 @@ fn install() {
         snapmgr_seams::unregister_snapshot::set(|_s| {
             UNREGISTERED.with(|c| c.set(c.get() + 1));
         });
-        procarray_seams::transaction_id_is_in_progress::set(
-            |_| Ok(XID_IN_PROGRESS.with(Cell::get)),
-        );
+        procarray_seams::transaction_id_is_in_progress::set(|_|
+            Ok(XID_IN_PROGRESS.with(Cell::get)),);
         transam_seams::transaction_id_did_commit::set(|_| Ok(XID_COMMITTED.with(Cell::get)));
         transam_xlog_seams::xlog_standby_info_active::set(|| false);
         // BTORDER_PROC lookup for the live btree read path: btint4cmp.
@@ -82,13 +81,11 @@ fn make<'mcx>(mcx: Mcx<'mcx>, oid: Oid, name: &str, relkind: u8, relam: Oid) -> 
             indxmin: 0,
             indkey,
             has_indpred: false,
-            indexprs_src: None,
-            indpred_src: None,
+        indexprs_src: None,
+        indpred_src: None,
         }
     });
-    let data = RelationData {
-        rd_locator: Default::default(),
-        rd_smgr: Default::default(),
+    let data = RelationData { rd_locator: Default::default(), rd_smgr: Default::default(),
         rd_id: oid,
         rd_backend: INVALID_PROC_NUMBER,
         rd_islocaltemp: false,
@@ -98,10 +95,7 @@ fn make<'mcx>(mcx: Mcx<'mcx>, oid: Oid, name: &str, relkind: u8, relam: Oid) -> 
         rd_firstRelfilelocatorSubid: Cell::new(0),
         rd_droppedSubid: Cell::new(0),
         rd_lockInfo: LockInfoData {
-            lockRelId: LockRelId {
-                relId: oid,
-                dbId: 5,
-            },
+            lockRelId: LockRelId { relId: oid, dbId: 5, },
         },
         rd_rel: FormData_pg_class {
             relname,
@@ -145,17 +139,13 @@ fn make<'mcx>(mcx: Mcx<'mcx>, oid: Oid, name: &str, relkind: u8, relam: Oid) -> 
         pgstat_enabled: Cell::new(false),
         pgstat_link: core::cell::Cell::new((0, core::ptr::null_mut())),
         rd_amcache: Default::default(),
-        rd_amcache_hash: Default::default(),
-        rd_amcache_gin: Default::default(),
-        rd_amcache_spgist: Default::default(),
-        rd_amcache_bloom: Default::default(),
+        rd_amcache_hash: Default::default(), rd_amcache_gin: Default::default(), rd_amcache_spgist: Default::default(), rd_amcache_bloom: Default::default(),
         rd_support: two_col_vec(mcx, relkind, 0),
         rd_supportinfo: Default::default(),
         rd_opcoptions: Default::default(),
         rd_indexlist: Default::default(),
-        rd_trigdesc: Default::default(),
-        rd_hastriggers: false,
-        rd_hasrules: false,
+            rd_trigdesc: Default::default(),
+            rd_hastriggers: false, rd_hasrules: false,
     };
     Relation::open(data, Some(record_close))
 }
@@ -176,13 +166,7 @@ fn record_close(_oid: Oid, _lockmode: LOCKMODE) -> PgResult<()> {
 fn fake_relation_open(mcx: Mcx<'_>, oid: Oid, _lockmode: LOCKMODE) -> PgResult<Relation<'_>> {
     match oid {
         TBL => Ok(make(mcx, TBL, "pg_class", RELKIND_RELATION, HEAP_AM)),
-        IDX => Ok(make(
-            mcx,
-            IDX,
-            "pg_class_oid_index",
-            RELKIND_INDEX,
-            BTREE_AM_OID,
-        )),
+        IDX => Ok(make(mcx, IDX, "pg_class_oid_index", RELKIND_INDEX, BTREE_AM_OID,)),
         _ => panic!("unexpected relation {oid}"),
     }
 }
@@ -322,8 +306,7 @@ fn seam_scan_reaches_the_buffer_layer() {
     let mcx = cx.mcx();
     let tbl = make(mcx, TBL, "pg_class", RELKIND_RELATION, HEAP_AM);
     let mut consume = |_: &HeapTupleData<'_>| Ok(true);
-    let _ =
-        genam_seams::systable_scan_catalog::call(mcx, &tbl, IDX, true, &[key_on(3)], &mut consume);
+    let _ = genam_seams::systable_scan_catalog::call(mcx, &tbl, IDX, true, &[key_on(3)], &mut consume);
 }
 
 #[test]
@@ -335,7 +318,8 @@ fn ignore_system_indexes_forces_the_heap_arm() {
 
     miscinit::SetIgnoreSystemIndexes(true);
     let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let _ = systable_beginscan(mcx, &tbl, IDX, true, Some(static_snapshot()), &[key_on(1)]);
+        let _ =
+            systable_beginscan(mcx, &tbl, IDX, true, Some(static_snapshot()), &[key_on(1)]);
     }));
     miscinit::SetIgnoreSystemIndexes(false);
 
@@ -379,9 +363,7 @@ fn install_horizon_seams() {
             if rel.rd_id != TBL {
                 // Keeps seam_scan_reaches_the_buffer_layer's witness: an
                 // index-arm descent still dies at read_buffer.
-                panic!(
-                    "read_buffer reached from the index arm (horizon mock serves the heap only)"
-                );
+                panic!("read_buffer reached from the index arm (horizon mock serves the heap only)");
             }
             HORIZON_PINS.with(|c| c.set(c.get() + 1));
             Ok(HEAP_BUF + blkno as ::types_core::Buffer)
@@ -391,7 +373,8 @@ fn install_horizon_seams() {
             Ok(())
         });
         bufmgr_seams::lock_buffer::set(|_buf, _mode| Ok(()));
-        bufmgr_seams::incr_buffer_ref_count::set(|_buf| HORIZON_PINS.with(|c| c.set(c.get() + 1)));
+        bufmgr_seams::incr_buffer_ref_count::set(|_buf|
+            HORIZON_PINS.with(|c| c.set(c.get() + 1)));
         bufmgr_seams::buffer_get_block_number::set(|buf| match buf {
             INDEX_BUF => 7,
             b => (b - HEAP_BUF) as ::types_core::BlockNumber,
@@ -412,7 +395,8 @@ fn dead_heap_tuple_image(val: i32) -> [u8; 28] {
     img[0..4].copy_from_slice(&10u32.to_ne_bytes()); // xmin
     img[4..8].copy_from_slice(&20u32.to_ne_bytes()); // xmax
     img[18..20].copy_from_slice(&1u16.to_ne_bytes()); // natts
-    let infomask = ::types_tuple::HEAP_XMIN_COMMITTED | ::types_tuple::HEAP_XMAX_COMMITTED;
+    let infomask =
+        ::types_tuple::HEAP_XMIN_COMMITTED | ::types_tuple::HEAP_XMAX_COMMITTED;
     img[20..22].copy_from_slice(&infomask.to_ne_bytes());
     img[22] = 24; // t_hoff
     img[24..28].copy_from_slice(&val.to_ne_bytes());

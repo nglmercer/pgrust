@@ -4,7 +4,7 @@
 //! the unported VACUUM lane but replays anyway (a C-written WAL stream may
 //! carry it).
 
-#![allow(non_snake_case, non_upper_case_globals)]
+#![allow(non_snake_case,non_upper_case_globals)]
 
 use types_core::{BlockNumber, Buffer, InvalidBlockNumber, InvalidBuffer, OffsetNumber, BLCKSZ};
 use types_error::{PgError, PgResult, ERRCODE_DATA_CORRUPTED};
@@ -24,19 +24,17 @@ const SIZEOF_OPAQUE: usize = core::mem::size_of::<HashPageOpaqueData>();
 // i.e. the whole page minus the aligned header and special area. Every bitmap
 // page's bit array is confined to this region, so it bounds both the redo
 // bitmap memset (init_bitmapbuffer) and the SETBIT/CLRBIT word writes.
-const MAX_BITMAP_SIZE: usize = BLCKSZ - (maxalign(SizeOfPageHeaderData) + maxalign(SIZEOF_OPAQUE));
+const MAX_BITMAP_SIZE: usize =
+    BLCKSZ - (maxalign(SizeOfPageHeaderData) + maxalign(SIZEOF_OPAQUE));
 
-fn main_data(record: &XLogReaderState) -> &[u8] {
-    let rec = record
-        .record
-        .as_ref()
-        .expect("hash redo with no decoded record");
+fn main_data(record: & XLogReaderState) -> & [u8] {
+    let rec = record.record.as_ref().expect("hash redo with no decoded record");
     // SAFETY: points into the reader's decode buffer, valid for the redo
     // callback's duration.
     unsafe { rec.main_data_bytes() }
 }
 
-fn block_data(record: &XLogReaderState, block_id: u8) -> &[u8] {
+fn block_data(record: & XLogReaderState, block_id: u8) -> & [u8] {
     // SAFETY: same decode-buffer lifetime as main_data.
     unsafe { record.block(block_id).data_bytes() }
 }
@@ -90,10 +88,7 @@ fn require(cond: bool, msg: impl FnOnce() -> String) -> PgResult<()> {
 #[inline]
 fn require_len(b: &[u8], need: usize, what: &str) -> PgResult<()> {
     require(b.len() >= need, || {
-        format!(
-            "hash redo: {what} main data too short: {} bytes, need {need}",
-            b.len()
-        )
+        format!("hash redo: {what} main data too short: {} bytes, need {need}", b.len())
     })
 }
 
@@ -116,15 +111,12 @@ fn checked_item_size(data: &[u8], off: usize) -> PgResult<usize> {
     // corruption, even though MAXALIGN would otherwise round it up to 8).
     let raw = (u16::from_ne_bytes([data[off + 6], data[off + 7]]) & 0x1FFF) as usize;
     let sz = maxalign(raw);
-    require(
-        raw >= SIZE_OF_INDEX_TUPLE_DATA && off + sz <= data.len(),
-        || {
-            format!(
-                "hash redo: invalid item size {raw} at offset {off} in {} bytes of tuple stream",
-                data.len()
-            )
-        },
-    )?;
+    require(raw >= SIZE_OF_INDEX_TUPLE_DATA && off + sz <= data.len(), || {
+        format!(
+            "hash redo: invalid item size {raw} at offset {off} in {} bytes of tuple stream",
+            data.len()
+        )
+    },)?;
     Ok(sz)
 }
 
@@ -161,7 +153,9 @@ fn checked_bitmap_bit(bit: u32) -> PgResult<usize> {
     let word = (bit / BITS_PER_MAP) as usize;
     // 4-byte u32 word at byte offset `word * 4` within the bitmap region.
     require(word * 4 + 4 <= MAX_BITMAP_SIZE, || {
-        format!("hash redo: bitmap bit {bit} out of range (max bitmap {MAX_BITMAP_SIZE} bytes)")
+        format!(
+            "hash redo: bitmap bit {bit} out of range (max bitmap {MAX_BITMAP_SIZE} bytes)"
+        )
     })?;
     Ok(word)
 }
@@ -186,11 +180,7 @@ fn checked_bmsize(bmsize: u16) -> PgResult<usize> {
 #[inline]
 fn require_u32(b: &[u8], off: usize, what: &str) -> PgResult<()> {
     require(b.len() >= off + 4, || {
-        format!(
-            "hash redo: {what} block data too short: {} bytes, need {}",
-            b.len(),
-            off + 4
-        )
+        format!("hash redo: {what} block data too short: {} bytes, need {}", b.len(), off + 4)
     })
 }
 
@@ -240,12 +230,7 @@ fn write_opaque(page: &mut PageMut<'_>, opaque: &HashPageOpaqueData) -> PgResult
     check_special(off, "hash redo: write_opaque")?;
     // SAFETY: validated in-bounds 4-aligned special area; exclusive page access.
     unsafe {
-        page.as_ref()
-            .as_ptr()
-            .cast_mut()
-            .add(off)
-            .cast::<HashPageOpaqueData>()
-            .write(*opaque)
+        page.as_ref().as_ptr().cast_mut().add(off).cast::<HashPageOpaqueData>().write(*opaque)
     }
     Ok(())
 }
@@ -258,10 +243,7 @@ fn hash_pageinit(page: &mut PageMut<'_>) {
 // SAFETY: caller follows the module's pin+lock contract.
 unsafe fn meta_ptr(buffer: Buffer) -> *mut HashMetaPageData {
     unsafe {
-        bufmgr_seams::buffer_get_page::call(buffer)
-            .as_ptr()
-            .add(SizeOfPageHeaderData)
-            .cast()
+        bufmgr_seams::buffer_get_page::call(buffer).as_ptr().add(SizeOfPageHeaderData).cast()
     }
 }
 
@@ -544,22 +526,10 @@ fn hash_xlog_add_ovfl_page(record: &mut XLogReaderState) -> PgResult<()> {
         // Validate the meta-page-sourced array indices before touching the
         // fixed hashm_spares/hashm_mapp arrays (C indexes them unchecked).
         // SAFETY: redo pin+lock contract.
-        let (ovflpoint, nmaps) = unsafe {
-            (
-                (*meta_ptr(metabuf)).hashm_ovflpoint,
-                (*meta_ptr(metabuf)).hashm_nmaps,
-            )
-        };
-        let spare_slot = if !bmpage_found {
-            Some(checked_splitpoint(ovflpoint)?)
-        } else {
-            None
-        };
-        let map_slot = if !bmpage_found && new_bmpage {
-            Some(checked_nmaps(nmaps)?)
-        } else {
-            None
-        };
+        let (ovflpoint, nmaps) =
+            unsafe { ((*meta_ptr(metabuf)).hashm_ovflpoint, (*meta_ptr(metabuf)).hashm_nmaps,) };
+        let spare_slot = if !bmpage_found { Some(checked_splitpoint(ovflpoint)?) } else { None };
+        let map_slot = if !bmpage_found && new_bmpage { Some(checked_nmaps(nmaps)?) } else { None };
         // SAFETY: redo pin+lock contract.
         unsafe {
             let m = meta_ptr(metabuf);
@@ -593,7 +563,8 @@ fn hash_xlog_split_allocate_page(record: &mut XLogReaderState) -> PgResult<()> {
     let new_bucket_flag = u16_at(xlrec, 6);
     let flags = xlrec[8];
 
-    let (action, oldbuf) = XLogReadBufferForRedoExtended(record, 0, ReadBufferMode::Normal, true)?;
+    let (action, oldbuf) =
+        XLogReadBufferForRedoExtended(record, 0, ReadBufferMode::Normal, true)?;
     // The special space is not included in the image: update either way.
     if action == BLK_NEEDS_REDO || action == BLK_RESTORED {
         // SAFETY: redo pin+cleanup-lock contract.
@@ -761,11 +732,7 @@ fn replay_add_tuples(buffer: Buffer, ntups: u16, data: &[u8], who: &str) -> PgRe
 fn hash_xlog_move_page_contents(record: &mut XLogReaderState) -> PgResult<()> {
     let lsn = record.EndRecPtr;
     let xldata = main_data(record);
-    require_len(
-        xldata,
-        SIZE_OF_HASH_MOVE_PAGE_CONTENTS,
-        "MOVE_PAGE_CONTENTS",
-    )?;
+    require_len(xldata, SIZE_OF_HASH_MOVE_PAGE_CONTENTS, "MOVE_PAGE_CONTENTS",)?;
     let ntups = u16_at(xldata, 0);
     let is_prim_bucket_same_wrt = xldata[2] != 0;
 
@@ -798,8 +765,7 @@ fn hash_xlog_move_page_contents(record: &mut XLogReaderState) -> PgResult<()> {
     if action == BLK_NEEDS_REDO {
         let ptr = block_data(record, 2);
         if !ptr.is_empty() {
-            let mut unused: Vec<OffsetNumber> =
-                ::mcx::std_vec_with_capacity("access", ptr.len() / 2)?;
+            let mut unused: Vec<OffsetNumber> = ::mcx::std_vec_with_capacity("access", ptr.len() / 2)?;
             for ch in ptr.chunks_exact(2) {
                 unused.push(u16::from_ne_bytes([ch[0], ch[1]]));
             }
@@ -855,12 +821,7 @@ fn hash_xlog_squeeze_page(record: &mut XLogReaderState) -> PgResult<()> {
     if action == BLK_NEEDS_REDO {
         let mut mod_wbuf = false;
         if ntups > 0 {
-            replay_add_tuples(
-                writebuf,
-                ntups,
-                block_data(record, 1),
-                "hash_xlog_squeeze_page",
-            )?;
+            replay_add_tuples(writebuf, ntups, block_data(record, 1), "hash_xlog_squeeze_page",)?;
             mod_wbuf = true;
         } else {
             debug_assert!(is_prim_bucket_same_wrt || is_prev_bucket_same_wrt);
@@ -1010,8 +971,7 @@ fn hash_xlog_delete(record: &mut XLogReaderState) -> PgResult<()> {
     if action == BLK_NEEDS_REDO {
         let ptr = block_data(record, 1);
         if !ptr.is_empty() {
-            let mut unused: Vec<OffsetNumber> =
-                ::mcx::std_vec_with_capacity("access", ptr.len() / 2)?;
+            let mut unused: Vec<OffsetNumber> = ::mcx::std_vec_with_capacity("access", ptr.len() / 2)?;
             for ch in ptr.chunks_exact(2) {
                 unused.push(u16::from_ne_bytes([ch[0], ch[1]]));
             }
@@ -1093,8 +1053,7 @@ fn hash_xlog_vacuum_one_page(record: &mut XLogReaderState) -> PgResult<()> {
     if action == BLK_NEEDS_REDO {
         require_len(xldata, 8 + ntuples as usize * 2, "VACUUM_ONE_PAGE offsets")?;
         let to_delete = &xldata[8..8 + ntuples as usize * 2];
-        let mut unused: Vec<OffsetNumber> =
-            ::mcx::std_vec_with_capacity("access", ntuples as usize)?;
+        let mut unused: Vec<OffsetNumber> = ::mcx::std_vec_with_capacity("access", ntuples as usize)?;
         for ch in to_delete.chunks_exact(2) {
             unused.push(u16::from_ne_bytes([ch[0], ch[1]]));
         }
@@ -1127,11 +1086,7 @@ fn hash_xlog_vacuum_one_page(record: &mut XLogReaderState) -> PgResult<()> {
 }
 
 pub fn hash_redo(record: &mut XLogReaderState) -> PgResult<()> {
-    let info = record
-        .record
-        .as_ref()
-        .expect("hash_redo with no decoded record")
-        .xl_info
+    let info = record.record.as_ref().expect("hash_redo with no decoded record").xl_info
         & !XLR_INFO_MASK;
     match info {
         XLOG_HASH_INIT_META_PAGE => hash_xlog_init_meta_page(record),
@@ -1198,16 +1153,10 @@ mod redo_bounds_tests {
         let mut rec = xlogreader_seams::DecodedXLogRecord::default();
         rec.main_data = xlrec.as_ptr();
         rec.main_data_len = xlrec.len() as u32;
-        let mut record = XLogReaderState {
-            record: Some(rec),
-            ..Default::default()
-        };
+        let mut record = XLogReaderState { record: Some(rec), ..Default::default() };
         let err = hash_xlog_add_ovfl_page(&mut record)
             .expect_err("absent block 0 must be a catchable error");
-        assert_eq!(
-            err.message(),
-            "could not locate backup block with ID 0 in WAL record"
-        );
+        assert_eq!(err.message(), "could not locate backup block with ID 0 in WAL record");
         assert_eq!(err.level(), types_error::ERROR);
     }
 
@@ -1285,9 +1234,7 @@ mod redo_bounds_tests {
     fn out_of_range_meta_indices_are_rejected() {
         checked_splitpoint(0).unwrap();
         checked_splitpoint(HASH_MAX_SPLITPOINTS as u32 - 1).unwrap();
-        let err = checked_splitpoint(HASH_MAX_SPLITPOINTS as u32)
-            .err()
-            .unwrap();
+        let err = checked_splitpoint(HASH_MAX_SPLITPOINTS as u32).err().unwrap();
         assert_eq!(err.sqlstate(), ERRCODE_DATA_CORRUPTED);
         let err = checked_splitpoint(u32::MAX).err().unwrap();
         assert_eq!(err.sqlstate(), ERRCODE_DATA_CORRUPTED);
@@ -1322,10 +1269,7 @@ mod redo_bounds_tests {
         let err = checked_bmsize(0).err().unwrap();
         assert_eq!(err.sqlstate(), ERRCODE_DATA_CORRUPTED);
         assert_eq!(checked_bmsize(4096).unwrap(), 4096);
-        assert_eq!(
-            checked_bmsize(MAX_BITMAP_SIZE as u16).unwrap(),
-            MAX_BITMAP_SIZE
-        );
+        assert_eq!(checked_bmsize(MAX_BITMAP_SIZE as u16).unwrap(), MAX_BITMAP_SIZE);
         let err = checked_bmsize(u16::MAX).err().unwrap();
         assert_eq!(err.sqlstate(), ERRCODE_DATA_CORRUPTED);
     }
@@ -1376,8 +1320,7 @@ mod audit_b004_tests {
                 hasho_flag: flag,
                 hasho_page_id: HASHO_PAGE_ID,
             },
-        )
-        .unwrap();
+        ).unwrap();
         p
     }
 
@@ -1445,11 +1388,7 @@ mod audit_b004_tests {
 
         let err = replay_add_tuples(1, 1, &data, "hash_xlog_move_page_contents")
             .expect_err("PageAddItem fails on a full page");
-        assert_eq!(
-            err.level(),
-            types_error::ERROR,
-            "hash_xlog.c:539 is elog(ERROR): {err:?}"
-        );
+        assert_eq!(err.level(), types_error::ERROR, "hash_xlog.c:539 is elog(ERROR): {err:?}");
         assert_eq!(
             err.message(),
             "hash_xlog_move_page_contents: failed to add item to hash index page, size 16 bytes"

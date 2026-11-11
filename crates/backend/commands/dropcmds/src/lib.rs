@@ -20,10 +20,8 @@ const PROKIND_AGGREGATE: i8 = b'a' as i8;
 // (dropcmds.c:521, 18.6; the name+args variant is :523): the NOTICE carries
 // C's F/L/R fields so `\set VERBOSITY verbose` shows the same LOCATION.
 fn notice(msg: String) -> PgResult<()> {
-    elog_seams::ereport::call(PgError::notice(msg).with_location(
-        "dropcmds.c",
-        521,
-        "does_not_exist_skipping",
+    elog_seams::ereport::call(
+        PgError::notice(msg).with_location("dropcmds.c", 521, "does_not_exist_skipping",
     ))
 }
 
@@ -43,9 +41,7 @@ fn schema_does_not_exist_skipping_parts(parts: &[&str]) -> PgResult<Option<Strin
     if parts.len() >= 2 {
         let schemaname = parts[parts.len() - 2];
         if catalog_namespace::LookupNamespaceNoError(schemaname)? == types_core::InvalidOid {
-            return Ok(Some(format!(
-                "schema \"{schemaname}\" does not exist, skipping"
-            )));
+            return Ok(Some(format!("schema \"{schemaname}\" does not exist, skipping")));
         }
     }
     Ok(None)
@@ -55,10 +51,7 @@ fn string_parts<'mcx>(names: &NodeList<'mcx>, upto: usize) -> Vec<&'mcx str> {
     names
         .iter()
         .take(upto)
-        .map(|n| {
-            n.as_string()
-                .expect("qualified name component is a String node")
-                .sval
+        .map(|n| { n.as_string().expect("qualified name component is a String node").sval
         })
         .collect()
 }
@@ -69,11 +62,7 @@ fn owningrel_does_not_exist_skipping(names: &NodeList<'_>) -> PgResult<Option<St
         return Ok(Some(msg));
     }
     let rv = catalog_objectaddress::makeRangeVarFromParts(&parent)?;
-    if !OidIsValid(catalog_namespace::RangeVarGetRelid(
-        &rv,
-        types_rel::NoLock,
-        true,
-    )?) {
+    if !OidIsValid(catalog_namespace::RangeVarGetRelid(&rv, types_rel::NoLock, true,)?) {
         return Ok(Some(format!(
             "relation \"{}\" does not exist, skipping",
             parent.join(".")
@@ -101,9 +90,7 @@ fn type_in_list_does_not_exist_skipping(
 ) -> PgResult<Option<String>> {
     for n in typenames.iter() {
         let Some(n) = n else { continue };
-        let tn = n
-            .as_variant::<TypeName>()
-            .expect("objargs holds TypeName nodes");
+        let tn = n.as_variant::<TypeName>().expect("objargs holds TypeName nodes");
         if let Some(msg) = type_does_not_exist_skipping(tn)? {
             return Ok(Some(msg));
         }
@@ -124,10 +111,7 @@ fn does_not_exist_skipping(objtype: ObjectType, object: Node<'_>) -> PgResult<()
             }
         }
         ObjectType::OBJECT_SCHEMA => {
-            let name = object
-                .as_string()
-                .expect("schema name is a String node")
-                .sval;
+            let name = object.as_string().expect("schema name is a String node").sval;
             format!("schema \"{name}\" does not exist, skipping")
         }
         ObjectType::OBJECT_CONVERSION => {
@@ -136,46 +120,28 @@ fn does_not_exist_skipping(objtype: ObjectType, object: Node<'_>) -> PgResult<()
                 Some(msg) => msg,
                 None => {
                     let parts = string_parts(names, names.len());
-                    format!(
-                        "conversion \"{}\" does not exist, skipping",
-                        parts.join(".")
-                    )
+                    format!("conversion \"{}\" does not exist, skipping", parts.join("."))
                 }
             }
         }
         ObjectType::OBJECT_LANGUAGE => {
-            let name = object
-                .as_string()
-                .expect("language name is a String node")
-                .sval;
+            let name = object.as_string().expect("language name is a String node").sval;
             format!("language \"{name}\" does not exist, skipping")
         }
         ObjectType::OBJECT_EXTENSION => {
-            let name = object
-                .as_string()
-                .expect("extension name is a String node")
-                .sval;
+            let name = object.as_string().expect("extension name is a String node").sval;
             format!("extension \"{name}\" does not exist, skipping")
         }
         ObjectType::OBJECT_EVENT_TRIGGER => {
-            let name = object
-                .as_string()
-                .expect("event trigger name is a String node")
-                .sval;
+            let name = object.as_string().expect("event trigger name is a String node").sval;
             format!("event trigger \"{name}\" does not exist, skipping")
         }
         ObjectType::OBJECT_ACCESS_METHOD => {
-            let name = object
-                .as_string()
-                .expect("access method name is a String node")
-                .sval;
+            let name = object.as_string().expect("access method name is a String node").sval;
             format!("access method \"{name}\" does not exist, skipping")
         }
         ObjectType::OBJECT_PUBLICATION => {
-            let name = object
-                .as_string()
-                .expect("publication name is a String node")
-                .sval;
+            let name = object.as_string().expect("publication name is a String node").sval;
             format!("publication \"{name}\" does not exist, skipping")
         }
         ObjectType::OBJECT_COLLATION
@@ -244,9 +210,7 @@ fn does_not_exist_skipping(objtype: ObjectType, object: Node<'_>) -> PgResult<()
             }
         }
         ObjectType::OBJECT_POLICY => {
-            let names = object
-                .as_list()
-                .expect("relation-attached object is a name list");
+            let names = object.as_list().expect("relation-attached object is a name list");
             match owningrel_does_not_exist_skipping(names)? {
                 Some(msg) => msg,
                 None => {
@@ -264,9 +228,7 @@ fn does_not_exist_skipping(objtype: ObjectType, object: Node<'_>) -> PgResult<()
             }
         }
         ObjectType::OBJECT_RULE | ObjectType::OBJECT_TRIGGER => {
-            let names = object
-                .as_list()
-                .expect("relation-attached object is a name list");
+            let names = object.as_list().expect("relation-attached object is a name list");
             match owningrel_does_not_exist_skipping(names)? {
                 Some(msg) => msg,
                 None => {
@@ -275,11 +237,7 @@ fn does_not_exist_skipping(objtype: ObjectType, object: Node<'_>) -> PgResult<()
                         .and_then(|n| n.as_string())
                         .expect("dependent object name is a String node")
                         .sval;
-                    let noun = if objtype == ObjectType::OBJECT_RULE {
-                        "rule"
-                    } else {
-                        "trigger"
-                    };
+                    let noun = if objtype == ObjectType::OBJECT_RULE { "rule" } else { "trigger" };
                     let parent = string_parts(names, names.len() - 1);
                     format!(
                         "{noun} \"{depname}\" for relation \"{}\" does not exist, skipping",
@@ -347,8 +305,7 @@ fn does_not_exist_skipping(objtype: ObjectType, object: Node<'_>) -> PgResult<()
                 .and_then(|n| n.as_string())
                 .expect("opclass access method name is a String node")
                 .sval;
-            let tail: Vec<&str> =
-                ::mcx::std_vec_from_slice("dropcmds", &string_parts(names, names.len())[1..])?;
+            let tail: Vec<&str> = ::mcx::std_vec_from_slice("dropcmds", &string_parts(names, names.len())[1..])?;
             match schema_does_not_exist_skipping_parts(&tail)? {
                 Some(msg) => msg,
                 None => {
@@ -365,17 +322,11 @@ fn does_not_exist_skipping(objtype: ObjectType, object: Node<'_>) -> PgResult<()
             }
         }
         ObjectType::OBJECT_FDW => {
-            let name = object
-                .as_string()
-                .expect("foreign-data wrapper name is a String node")
-                .sval;
+            let name = object.as_string().expect("foreign-data wrapper name is a String node").sval;
             format!("foreign-data wrapper \"{name}\" does not exist, skipping")
         }
         ObjectType::OBJECT_FOREIGN_SERVER => {
-            let name = object
-                .as_string()
-                .expect("server name is a String node")
-                .sval;
+            let name = object.as_string().expect("server name is a String node").sval;
             format!("server \"{name}\" does not exist, skipping")
         }
         // C: relations & friends are handled elsewhere; the rest are not used
@@ -470,10 +421,7 @@ mod tests {
         assert_eq!(loc.filename.as_deref(), Some("dropcmds.c"));
         assert_eq!(loc.lineno, 521);
         assert_eq!(loc.funcname.as_deref(), Some("does_not_exist_skipping"));
-        NOTICES
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .push(err.message().to_owned());
+        NOTICES.lock().unwrap_or_else(|e| e.into_inner()).push(err.message().to_owned());
         Ok(())
     }
 
@@ -491,7 +439,8 @@ mod tests {
         elog_seams::ereport::set(capture);
 
         does_not_exist_skipping(ObjectType::OBJECT_FDW, string_node(mcx, "w1")).unwrap();
-        does_not_exist_skipping(ObjectType::OBJECT_FOREIGN_SERVER, string_node(mcx, "s1")).unwrap();
+        does_not_exist_skipping(ObjectType::OBJECT_FOREIGN_SERVER, string_node(mcx, "s1"))
+            .unwrap();
         does_not_exist_skipping(ObjectType::OBJECT_SCHEMA, string_node(mcx, "n1")).unwrap();
         {
             let notices = NOTICES.lock().unwrap_or_else(|e| e.into_inner());
@@ -507,23 +456,18 @@ mod tests {
 
         // C puts OBJECT_TABLE (handled elsewhere) and OBJECT_SUBSCRIPTION
         // (separate statement) in the internal-error bucket.
-        let e =
-            does_not_exist_skipping(ObjectType::OBJECT_TABLE, string_node(mcx, "t1")).unwrap_err();
-        assert_eq!(
-            e.message(),
-            format!(
-                "unsupported object type: {}",
-                ObjectType::OBJECT_TABLE as i32
-            )
-        );
-        let e = does_not_exist_skipping(ObjectType::OBJECT_SUBSCRIPTION, string_node(mcx, "sub1"))
+        let e = does_not_exist_skipping(ObjectType::OBJECT_TABLE, string_node(mcx, "t1"))
             .unwrap_err();
         assert_eq!(
             e.message(),
-            format!(
-                "unsupported object type: {}",
-                ObjectType::OBJECT_SUBSCRIPTION as i32
-            )
+            format!("unsupported object type: {}", ObjectType::OBJECT_TABLE as i32)
+        );
+        let e =
+            does_not_exist_skipping(ObjectType::OBJECT_SUBSCRIPTION, string_node(mcx, "sub1"))
+                .unwrap_err();
+        assert_eq!(
+            e.message(),
+            format!("unsupported object type: {}", ObjectType::OBJECT_SUBSCRIPTION as i32)
         );
     }
 }

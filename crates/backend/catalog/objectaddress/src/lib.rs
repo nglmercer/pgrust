@@ -2,7 +2,7 @@
 // lanes (DROP matrix + COMMENT matrix unions), getObjectDescription/
 // getObjectIdentity for the classes pg_depend can reach; every other
 // objtype/class is a named panic.
-#![allow(non_snake_case, non_upper_case_globals)]
+#![allow(non_snake_case,non_upper_case_globals)]
 
 mod builtins;
 mod description;
@@ -150,11 +150,7 @@ fn err_at(
     line: i32,
     funcname: &'static str,
 ) -> Box<PgError> {
-    Box::new(
-        PgError::new(ERROR, msg)
-            .with_sqlstate(sqlstate)
-            .with_location(file, line, funcname),
-    )
+    Box::new(PgError::new(ERROR, msg).with_sqlstate(sqlstate).with_location(file, line, funcname),)
 }
 
 fn fill_range_var<'mcx>(parts: &[&'mcx str]) -> PgResult<RangeVar<'mcx>> {
@@ -180,10 +176,7 @@ fn fill_range_var<'mcx>(parts: &[&'mcx str]) -> PgResult<RangeVar<'mcx>> {
         _ => {
             return Err(err(
                 ERRCODE_SYNTAX_ERROR,
-                format!(
-                    "improper relation name (too many dotted names): {}",
-                    parts.join(".")
-                ),
+                format!("improper relation name (too many dotted names): {}", parts.join(".")),
             ))
         }
     }
@@ -197,14 +190,12 @@ pub fn makeRangeVarFromParts<'mcx>(parts: &[&'mcx str]) -> PgResult<RangeVar<'mc
 pub fn makeRangeVarFromNameList<'mcx>(names: &NodeList<'mcx>) -> PgResult<RangeVar<'mcx>> {
     let parts: Vec<&'mcx str> = names
         .iter()
-        .map(|n| {
-            n.as_string()
-                .expect("qualified name component is a String node")
-                .sval
+        .map(|n| { n.as_string().expect("qualified name component is a String node").sval
         })
         .collect();
     fill_range_var(&parts)
 }
+
 
 pub fn NameListToString(names: &NodeList<'_>) -> String {
     let mut out = String::new();
@@ -212,11 +203,7 @@ pub fn NameListToString(names: &NodeList<'_>) -> String {
         if i > 0 {
             out.push('.');
         }
-        out.push_str(
-            node.as_string()
-                .expect("name component is a String node")
-                .sval,
-        );
+        out.push_str(node.as_string().expect("name component is a String node").sval,);
     }
     out
 }
@@ -280,11 +267,8 @@ fn lookup_type_name(tn: &TypeName<'_>, missing_ok: bool) -> PgResult<Oid> {
         }
     } else if tn.pct_type {
         // Handle %TYPE reference to type of an existing field.
-        let parts: Vec<&str> = tn
-            .names
-            .iter()
-            .map(|n| n.as_string().expect("TypeName names").sval)
-            .collect();
+        let parts: Vec<&str> =
+            tn.names.iter().map(|n| n.as_string().expect("TypeName names").sval).collect();
         let (relparts, field) = match parts.len() {
             1 => {
                 return Err(err(
@@ -389,6 +373,7 @@ fn lookup_type_name(tn: &TypeName<'_>, missing_ok: bool) -> PgResult<Oid> {
     Ok(typoid)
 }
 
+
 fn get_relation_by_qualified_name<'mcx>(
     mcx: Mcx<'mcx>,
     objtype: ObjectType,
@@ -404,10 +389,7 @@ fn get_relation_by_qualified_name<'mcx>(
     let relkind = rel.rd_rel.relkind;
     let relname = rel.name().to_string();
     let wrong = |what: &str| -> Box<PgError> {
-        err(
-            ERRCODE_WRONG_OBJECT_TYPE,
-            format!("\"{relname}\" is not {what}"),
-        )
+        err(ERRCODE_WRONG_OBJECT_TYPE, format!("\"{relname}\" is not {what}"),)
     };
     match objtype {
         ObjectType::OBJECT_INDEX => {
@@ -454,17 +436,11 @@ fn get_object_address_attribute<'mcx>(
 ) -> PgResult<(ObjectAddress, Option<Relation<'mcx>>)> {
     let nnames = object.len();
     if nnames < 2 {
-        return Err(err(
-            ERRCODE_SYNTAX_ERROR,
-            "column name must be qualified".into(),
-        ));
+        return Err(err(ERRCODE_SYNTAX_ERROR, "column name must be qualified".into(),));
     }
     let parts: Vec<&'mcx str> = object
         .iter()
-        .map(|n| {
-            n.as_string()
-                .expect("qualified name component is a String node")
-                .sval
+        .map(|n| { n.as_string().expect("qualified name component is a String node").sval
         })
         .collect();
     let attname = parts[nnames - 1];
@@ -494,6 +470,7 @@ fn get_object_address_attribute<'mcx>(
         Some(rel),
     ))
 }
+
 
 fn get_object_address_type(
     objtype: ObjectType,
@@ -531,16 +508,15 @@ fn get_object_address_type(
     Ok(address)
 }
 
+
+
 fn get_object_address_unqualified<'mcx>(
     mcx: Mcx<'mcx>,
     objtype: ObjectType,
     object: Node<'_>,
     missing_ok: bool,
 ) -> PgResult<ObjectAddress> {
-    let name = object
-        .as_string()
-        .expect("unqualified object name is a String node")
-        .sval;
+    let name = object.as_string().expect("unqualified object name is a String node").sval;
     match objtype {
         ObjectType::OBJECT_SCHEMA => Ok(ObjectAddress::set(
             NAMESPACE_RELATION_ID,
@@ -602,6 +578,7 @@ fn get_object_address_unqualified<'mcx>(
         )),
     }
 }
+
 
 // get_event_trigger_oid (event_trigger.c); hosted here because event_trigger
 // depends on this crate for identity parts.
@@ -797,10 +774,7 @@ fn get_object_address_relobject<'mcx>(
     let parts: Vec<&'mcx str> = object
         .iter()
         .take(nnames - 1)
-        .map(|n| {
-            n.as_string()
-                .expect("qualified name component is a String node")
-                .sval
+        .map(|n| { n.as_string().expect("qualified name component is a String node").sval
         })
         .collect();
     let rv = fill_range_var(&parts)?;
@@ -810,8 +784,7 @@ fn get_object_address_relobject<'mcx>(
         ObjectType::OBJECT_RULE => (
             RewriteRelationId,
             match &rel {
-                Some(_) => {
-                    rewrite_define_seams::get_rewrite_oid::call(mcx, reloid, depname, missing_ok)?
+                Some(_) => { rewrite_define_seams::get_rewrite_oid::call(mcx, reloid, depname, missing_ok)?
                 }
                 None => InvalidOid,
             },
@@ -850,6 +823,7 @@ fn get_object_address_relobject<'mcx>(
     }
     Ok((address, rel))
 }
+
 
 // get_object_address_opcf (objectaddress.c).
 fn get_object_address_opcf<'mcx>(
@@ -896,10 +870,7 @@ fn get_relation_policy_oid<'mcx>(
     let mut namebuf = [0u8; 64];
     let n = policy_name.len().min(namebuf.len());
     namebuf[..n].copy_from_slice(&policy_name.as_bytes()[..n]);
-    let mut keys = [
-        types_scan::scankey::ScanKeyData::empty(),
-        types_scan::scankey::ScanKeyData::empty(),
-    ];
+    let mut keys = [types_scan::scankey::ScanKeyData::empty(), types_scan::scankey::ScanKeyData::empty(),];
     keys[0].sk_attno = 3;
     keys[0].sk_strategy = types_scan::scankey::BTEqualStrategyNumber;
     keys[0].sk_func = fmgr_seams::fmgr_info::call(types_core::fmgr::F_OIDEQ)?;
@@ -950,17 +921,11 @@ fn get_object_address_attrdef<'mcx>(
 ) -> PgResult<(ObjectAddress, Option<Relation<'mcx>>)> {
     let nnames = object.len();
     if nnames < 2 {
-        return Err(err(
-            ERRCODE_SYNTAX_ERROR,
-            "column name must be qualified".into(),
-        ));
+        return Err(err(ERRCODE_SYNTAX_ERROR, "column name must be qualified".into(),));
     }
     let parts: Vec<&'mcx str> = object
         .iter()
-        .map(|n| {
-            n.as_string()
-                .expect("qualified name component is a String node")
-                .sval
+        .map(|n| { n.as_string().expect("qualified name component is a String node").sval
         })
         .collect();
     let attname = parts[nnames - 1];
@@ -1118,7 +1083,10 @@ fn unrecognized_defacl_objtype(objtype: u8) -> PgError {
 }
 
 // get_object_address_defacl (objectaddress.c).
-fn get_object_address_defacl(object: &NodeList<'_>, missing_ok: bool) -> PgResult<ObjectAddress> {
+fn get_object_address_defacl(
+    object: &NodeList<'_>,
+    missing_ok: bool
+) -> PgResult<ObjectAddress> {
     let cells = object.as_slice();
     let sval = |i: usize| {
         cells[i]
@@ -1127,11 +1095,7 @@ fn get_object_address_defacl(object: &NodeList<'_>, missing_ok: bool) -> PgResul
             .sval
     };
     let username = sval(1);
-    let schema = if cells.len() >= 3 {
-        Some(sval(2))
-    } else {
-        None
-    };
+    let schema = if cells.len() >= 3 { Some(sval(2)) } else { None };
     let objtype = sval(0).as_bytes().first().copied().unwrap_or(0);
     let objtype_str = match objtype {
         b'r' => "tables",
@@ -1222,10 +1186,7 @@ fn c_atoi(s: &str) -> i32 {
             break;
         }
         if !overflow {
-            match v
-                .checked_mul(10)
-                .and_then(|x| x.checked_add((c - b'0') as u64))
-            {
+            match v.checked_mul(10).and_then(|x| x.checked_add((c - b'0') as u64)) {
                 Some(x) => v = x,
                 None => overflow = true,
             }
@@ -1273,9 +1234,7 @@ fn get_object_address_opf_member<'mcx>(
     let mut typenames: [Option<&TypeName<'mcx>>; 2] = [None, None];
     let mut typeoids: [Oid; 2] = [InvalidOid, InvalidOid];
     for (i, cell) in args_list.iter().take(2).enumerate() {
-        let tn = cell
-            .as_type_name()
-            .expect("opfamily member arg is a TypeName");
+        let tn = cell.as_type_name().expect("opfamily member arg is a TypeName");
         typenames[i] = Some(tn);
         typeoids[i] = get_object_address_type(ObjectType::OBJECT_TYPE, tn, missing_ok)?.objectId;
     }
@@ -1369,16 +1328,12 @@ pub fn get_object_address<'mcx>(
                 get_object_address_relobject(
                     mcx,
                     objtype,
-                    object
-                        .as_list()
-                        .expect("relation-attached object is a name list"),
+                    object.as_list().expect("relation-attached object is a name list"),
                     missing_ok,
                 )?
             }
             OBJECT_DOMCONSTRAINT => {
-                let objlist = object
-                    .as_list()
-                    .expect("domain constraint object is a list");
+                let objlist = object.as_list().expect("domain constraint object is a list");
                 let tn = objlist
                     .first()
                     .and_then(|n| n.as_type_name())
@@ -1397,40 +1352,23 @@ pub fn get_object_address<'mcx>(
                 )?;
                 (ObjectAddress::set(CONSTRAINT_RELATION_ID, conoid), None)
             }
-            OBJECT_DATABASE
-            | OBJECT_EXTENSION
-            | OBJECT_TABLESPACE
-            | OBJECT_ROLE
-            | OBJECT_SCHEMA
-            | OBJECT_LANGUAGE
-            | OBJECT_FDW
-            | OBJECT_FOREIGN_SERVER
-            | OBJECT_EVENT_TRIGGER
-            | OBJECT_PARAMETER_ACL
-            | OBJECT_ACCESS_METHOD
-            | OBJECT_PUBLICATION
-            | OBJECT_SUBSCRIPTION => (
-                get_object_address_unqualified(mcx, objtype, object, missing_ok)?,
-                None,
-            ),
+            OBJECT_DATABASE | OBJECT_EXTENSION | OBJECT_TABLESPACE | OBJECT_ROLE
+            | OBJECT_SCHEMA | OBJECT_LANGUAGE | OBJECT_FDW | OBJECT_FOREIGN_SERVER
+            | OBJECT_EVENT_TRIGGER | OBJECT_PARAMETER_ACL | OBJECT_ACCESS_METHOD
+            | OBJECT_PUBLICATION | OBJECT_SUBSCRIPTION =>
+                (get_object_address_unqualified(mcx, objtype, object, missing_ok)?, None,),
             OBJECT_TYPE | OBJECT_DOMAIN => {
                 let tn = object.as_type_name().expect("type object is a TypeName");
                 (get_object_address_type(objtype, tn, missing_ok)?, None)
             }
             OBJECT_PUBLICATION_NAMESPACE => (
-                get_object_address_publication_schema(
-                    object
-                        .as_list()
-                        .expect("publication schema object is a list"),
+                get_object_address_publication_schema(object.as_list().expect("publication schema object is a list"),
                     missing_ok,
                 )?,
                 None,
             ),
             OBJECT_PUBLICATION_REL => get_object_address_publication_rel(
-                mcx,
-                object
-                    .as_list()
-                    .expect("publication relation object is a list"),
+                mcx,object.as_list().expect("publication relation object is a list"),
                 missing_ok,
             )?,
             OBJECT_AGGREGATE | OBJECT_FUNCTION | OBJECT_PROCEDURE | OBJECT_ROUTINE => {
@@ -1462,32 +1400,22 @@ pub fn get_object_address<'mcx>(
                 let parts: Vec<&str> = names
                     .iter()
                     .map(|n| {
-                        n.as_string()
-                            .expect("qualified name component is a String node")
-                            .sval
+                        n.as_string().expect("qualified name component is a String node").sval
                     })
                     .collect();
                 let oid = catalog_namespace::get_conversion_oid(&parts, missing_ok)?;
-                (
-                    ObjectAddress::set(pg_conversion::ConversionRelationId, oid),
-                    None,
-                )
+                (ObjectAddress::set(pg_conversion::ConversionRelationId, oid), None,)
             }
             OBJECT_OPCLASS | OBJECT_OPFAMILY => {
                 let names = object.as_list().expect("opclass object is a name list");
-                (
-                    get_object_address_opcf(mcx, objtype, names, missing_ok)?,
-                    None,
-                )
+                (get_object_address_opcf(mcx, objtype, names, missing_ok)?, None,)
             }
             OBJECT_STATISTIC_EXT => {
                 let names = object.as_list().expect("statistics object is a name list");
                 let parts: Vec<&str> = names
                     .iter()
                     .map(|n| {
-                        n.as_string()
-                            .expect("qualified name component is a String node")
-                            .sval
+                        n.as_string().expect("qualified name component is a String node").sval
                     })
                     .collect();
                 (
@@ -1498,14 +1426,13 @@ pub fn get_object_address<'mcx>(
                     None,
                 )
             }
-            OBJECT_TSPARSER | OBJECT_TSDICTIONARY | OBJECT_TSTEMPLATE | OBJECT_TSCONFIGURATION => {
+            OBJECT_TSPARSER | OBJECT_TSDICTIONARY | OBJECT_TSTEMPLATE
+            | OBJECT_TSCONFIGURATION => {
                 let names = object.as_list().expect("text search object is a name list");
                 let parts: Vec<&str> = names
                     .iter()
                     .map(|n| {
-                        n.as_string()
-                            .expect("qualified name component is a String node")
-                            .sval
+                        n.as_string().expect("qualified name component is a String node").sval
                     })
                     .collect();
                 let (class_id, oid) = match objtype {
@@ -1560,9 +1487,7 @@ pub fn get_object_address<'mcx>(
             }
             OBJECT_DEFAULT => get_object_address_attrdef(
                 mcx,
-                object
-                    .as_list()
-                    .expect("default value object is a name list"),
+                object.as_list().expect("default value object is a name list"),
                 lockmode,
                 missing_ok,
             )?,
@@ -1588,15 +1513,13 @@ pub fn get_object_address<'mcx>(
                 )
             }
             OBJECT_USER_MAPPING => (
-                get_object_address_usermapping(
-                    object.as_list().expect("user mapping object is a list"),
+                get_object_address_usermapping(object.as_list().expect("user mapping object is a list"),
                     missing_ok,
                 )?,
                 None,
             ),
             OBJECT_DEFACL => (
-                get_object_address_defacl(
-                    object.as_list().expect("default ACL object is a list"),
+                get_object_address_defacl(object.as_list().expect("default ACL object is a list"),
                     missing_ok,
                 )?,
                 None,
@@ -1604,8 +1527,7 @@ pub fn get_object_address<'mcx>(
             OBJECT_AMOP | OBJECT_AMPROC => (
                 get_object_address_opf_member(
                     mcx,
-                    objtype,
-                    object.as_list().expect("opfamily member object is a list"),
+                    objtype,object.as_list().expect("opfamily member object is a list"),
                     missing_ok,
                 )?,
                 None,
@@ -1699,9 +1621,7 @@ pub fn get_object_namespace(address: &ObjectAddress) -> PgResult<Oid> {
 #[cold]
 #[inline(never)]
 fn cache_lookup_failed_for_cache(cache: i32, oid: Oid) -> Box<PgError> {
-    Box::new(PgError::error(format!(
-        "cache lookup failed for cache {cache} oid {oid}"
-    )))
+    Box::new(PgError::error(format!("cache lookup failed for cache {cache} oid {oid}")))
 }
 
 const Anum_pg_constraint_contypid: i32 = 10;
@@ -1832,11 +1752,7 @@ pub fn check_object_ownership<'mcx>(
         | ObjectType::OBJECT_TSCONFIGURATION => {
             if !aclchk::object_ownercheck(address.classId, address.objectId, roleid)? {
                 let names = object.as_list().expect("object is a name list");
-                aclchk::aclcheck_error(
-                    aclchk::ACLCHECK_NOT_OWNER,
-                    objtype,
-                    &NameListToString(names),
-                )?;
+                aclchk::aclcheck_error(aclchk::ACLCHECK_NOT_OWNER, objtype, &NameListToString(names),)?;
             }
         }
         ObjectType::OBJECT_LARGEOBJECT => {
@@ -1876,9 +1792,7 @@ pub fn check_object_ownership<'mcx>(
             }
         }
         ObjectType::OBJECT_TRANSFORM => {
-            let objlist = object
-                .as_list()
-                .expect("transform object leads with a TypeName");
+            let objlist = object.as_list().expect("transform object leads with a TypeName");
             let tn = objlist
                 .first()
                 .and_then(|n| n.as_type_name())
@@ -1956,11 +1870,7 @@ pub fn check_object_ownership<'mcx>(
 // aclcheck_error_type (aclchk.c): arrays report their element type.
 fn aclcheck_error_type(aclerr: i32, type_oid: Oid) -> PgResult<()> {
     let element_type = lsyscache::get_element_type(type_oid)?;
-    let type_oid = if OidIsValid(element_type) {
-        element_type
-    } else {
-        type_oid
-    };
+    let type_oid = if OidIsValid(element_type) { element_type } else { type_oid };
     aclchk::aclcheck_error(
         aclerr,
         ObjectType::OBJECT_TYPE,
@@ -1986,10 +1896,7 @@ mod tests {
         assert_eq!(e.level(), types_error::ERROR);
 
         let e = crate::description::cache_lookup_failed("foreign-data wrapper", 0);
-        assert_eq!(
-            e.message(),
-            "cache lookup failed for foreign-data wrapper 0"
-        );
+        assert_eq!(e.message(), "cache lookup failed for foreign-data wrapper 0");
         assert_eq!(e.sqlstate(), types_error::ERRCODE_INTERNAL_ERROR);
     }
 
@@ -2045,10 +1952,8 @@ mod tests {
     }
 
     fn pct_typename<'mcx>(mcx: Mcx<'mcx>, parts: &[&'mcx str]) -> TypeName<'mcx> {
-        let nodes: Vec<Node<'mcx>> = parts
-            .iter()
-            .map(|p| Node::mk_string(mcx, p).unwrap())
-            .collect();
+        let nodes: Vec<Node<'mcx>> =
+            parts.iter().map(|p| Node::mk_string(mcx, p).unwrap()).collect();
         TypeName {
             names: NodeList::from_slice(mcx, &nodes).unwrap(),
             pct_type: true,
@@ -2065,19 +1970,9 @@ mod tests {
     #[test]
     fn lookup_type_name_oid_pre_resolved_lane() {
         install_seams();
-        let tn = TypeName {
-            typeOid: KNOWN_TYPE,
-            typemod: -1,
-            location: -1,
-            ..Default::default()
-        };
+        let tn = TypeName { typeOid: KNOWN_TYPE, typemod: -1, location: -1, ..Default::default() };
         assert_eq!(LookupTypeNameOid(&tn, false).unwrap(), KNOWN_TYPE);
-        let gone = TypeName {
-            typeOid: 99999,
-            typemod: -1,
-            location: -1,
-            ..Default::default()
-        };
+        let gone = TypeName { typeOid: 99999, typemod: -1, location: -1, ..Default::default() };
         for missing_ok in [true, false] {
             let e = LookupTypeNameOid(&gone, missing_ok).unwrap_err();
             assert_eq!(e.sqlstate(), types_error::ERRCODE_INTERNAL_ERROR);
@@ -2093,17 +1988,11 @@ mod tests {
         let mcx = ctx.mcx();
         let e = LookupTypeNameOid(&pct_typename(mcx, &["a"]), false).unwrap_err();
         assert_eq!(e.sqlstate(), ERRCODE_SYNTAX_ERROR);
-        assert_eq!(
-            e.message,
-            "improper %TYPE reference (too few dotted names): a"
-        );
+        assert_eq!(e.message, "improper %TYPE reference (too few dotted names): a");
         let e =
             LookupTypeNameOid(&pct_typename(mcx, &["a", "b", "c", "d", "e"]), false).unwrap_err();
         assert_eq!(e.sqlstate(), ERRCODE_SYNTAX_ERROR);
-        assert_eq!(
-            e.message,
-            "improper %TYPE reference (too many dotted names): a.b.c.d.e"
-        );
+        assert_eq!(e.message, "improper %TYPE reference (too many dotted names): a.b.c.d.e");
     }
 
     // Panic-hygiene pins (2026-08-18): the get_object_address dispatch tails
@@ -2115,15 +2004,12 @@ mod tests {
         let ctx = mcx::MemoryContext::new("t");
         let mcx = ctx.mcx();
         let name = Node::mk_string(mcx, "x").unwrap();
-        let e =
-            get_object_address_unqualified(mcx, ObjectType::OBJECT_TABLE, name, false).unwrap_err();
+        let e = get_object_address_unqualified(mcx, ObjectType::OBJECT_TABLE, name, false)
+            .unwrap_err();
         assert_eq!(e.sqlstate(), types_error::ERRCODE_INTERNAL_ERROR);
         assert_eq!(
             e.message,
-            format!(
-                "unrecognized object type: {}",
-                ObjectType::OBJECT_TABLE as i32
-            )
+            format!("unrecognized object type: {}", ObjectType::OBJECT_TABLE as i32)
         );
     }
 
@@ -2149,17 +2035,11 @@ mod tests {
     fn oidparse_rejects_other_nodes_with_c_elog() {
         let ctx = mcx::MemoryContext::new("t");
         let mcx = ctx.mcx();
-        assert_eq!(
-            oidparse(Node::mk_integer(mcx, 16384).unwrap()).unwrap(),
-            16384
-        );
+        assert_eq!(oidparse(Node::mk_integer(mcx, 16384).unwrap()).unwrap(), 16384);
         let e = oidparse(Node::mk_string(mcx, "x").unwrap()).unwrap_err();
         assert_eq!(
             e.message(),
-            format!(
-                "unrecognized node type: {}",
-                types_nodes::NodeTag::T_String as i32
-            )
+            format!("unrecognized node type: {}", types_nodes::NodeTag::T_String as i32)
         );
         assert_eq!(e.sqlstate(), types_error::ERRCODE_INTERNAL_ERROR);
     }

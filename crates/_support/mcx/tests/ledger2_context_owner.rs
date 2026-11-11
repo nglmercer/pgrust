@@ -31,10 +31,7 @@ fn on(procno: u32, f: impl FnOnce(Acct) + Send + 'static) {
 }
 
 fn stmt(a: Acct) -> Owner {
-    Owner::Statement {
-        acct: a,
-        stmt: memledger::running_statement(a),
-    }
+    Owner::Statement { acct: a, stmt: memledger::running_statement(a), }
 }
 
 #[test]
@@ -43,15 +40,9 @@ fn ledger2_an_unnamed_roots_bytes_follow_its_creating_statement_and_a_later_free
         memledger::statement_begin();
         let s1 = stmt(a);
         let ctx = MemoryContext::new("ledger2-unnamed-root");
-        let p = ctx
-            .mcx()
-            .allocate(chunk(256 * KIB))
-            .expect("a dedicated chunk");
+        let p = ctx.mcx().allocate(chunk(256 * KIB)).expect("a dedicated chunk");
         let (_, inferred) = owner_ctx(s1);
-        assert!(
-            inferred >= 256 * KIB as i64,
-            "the creating statement's, inferred: {inferred}"
-        );
+        assert!(inferred >= 256 * KIB as i64, "the creating statement's, inferred: {inferred}");
         let mut seen = 0;
         memledger::charge::unnamed_roots(|name, b| {
             if name == "ledger2-unnamed-root" {
@@ -61,22 +52,14 @@ fn ledger2_an_unnamed_roots_bytes_follow_its_creating_statement_and_a_later_free
         assert_eq!(seen, inferred, "counted under the root's name");
         let _ = memledger::statement_end();
         let s = Owner::Session(a);
-        assert_eq!(
-            owner_ctx(s).1,
-            inferred,
-            "the statement's end hands its context bytes to the session"
-        );
+        assert_eq!(owner_ctx(s).1, inferred, "the statement's end hands its context bytes to the session");
         memledger::statement_begin();
         let s2 = stmt(a);
         // SAFETY: `p` is the chunk this context handed out for this layout
         unsafe { ctx.mcx().deallocate(p.cast(), chunk(256 * KIB)) };
         drop(ctx);
         assert_eq!(owner_ctx(s2), (0, 0), "the later statement pays nothing");
-        assert_eq!(
-            owner_ctx(s),
-            (0, 0),
-            "the free and the drop take them off where they are: never below 0"
-        );
+        assert_eq!(owner_ctx(s), (0, 0), "the free and the drop take them off where they are: never below 0");
         let _ = memledger::statement_end();
     });
 }
@@ -87,39 +70,20 @@ fn ledger2_a_named_root_moves_its_bytes_and_its_children_take_its_owner() {
         memledger::statement_begin();
         let st = stmt(a);
         let root = MemoryContext::new("ledger2-named-root");
-        let p = root
-            .mcx()
-            .allocate(chunk(64 * KIB))
-            .expect("a dedicated chunk");
+        let p = root.mcx().allocate(chunk(64 * KIB)).expect("a dedicated chunk");
         let (_, inferred) = owner_ctx(st);
         root.set_owner_session();
         let s = Owner::Session(a);
-        assert_eq!(
-            (owner_ctx(st).1, owner_ctx(s).0),
-            (0, inferred),
-            "moved in one step, now named"
-        );
+        assert_eq!((owner_ctx(st).1, owner_ctx(s).0), (0, inferred), "moved in one step, now named");
         let child = root.new_child("ledger2-child");
-        let q = child
-            .mcx()
-            .allocate(chunk(32 * KIB))
-            .expect("a dedicated chunk");
-        assert!(
-            owner_ctx(s).0 >= inferred + 32 * KIB as i64,
-            "the child takes its parent's owner"
-        );
+        let q = child.mcx().allocate(chunk(32 * KIB)).expect("a dedicated chunk");
+        assert!(owner_ctx(s).0 >= inferred + 32 * KIB as i64, "the child takes its parent's owner");
         let token = memledger::charge::new_owner_id();
         memledger::charge::portal_begin(token);
-        let po = Owner::Portal {
-            acct: a,
-            portal: token,
-        };
+        let po = Owner::Portal { acct: a, portal: token, };
         let pc = root.new_child("ledger2-portal-context");
         pc.set_owner_portal(token);
-        let r = pc
-            .mcx()
-            .allocate(chunk(128 * KIB))
-            .expect("a dedicated chunk");
+        let r = pc.mcx().allocate(chunk(128 * KIB)).expect("a dedicated chunk");
         assert!(owner_ctx(po).0 >= 128 * KIB as i64, "the portal's");
         assert_eq!(usage(st).held, 0, "nothing of it on the statement");
         // SAFETY: each pointer is the chunk its context handed out for its layout
@@ -148,11 +112,7 @@ fn ledger2_a_mapped_block_maps_for_its_contexts_owner_not_the_running_statement(
         let big = chunk(2 * MMAP_THRESHOLD);
         let (c0, n0) = (owner_row(s).committed, owner_ctx(s).0);
         let p = ctx.mcx().allocate(big).expect("a mapping");
-        assert_eq!(
-            owner_row(s).committed - c0,
-            2 * MMAP_THRESHOLD as i64,
-            "on the context's owner, door 2"
-        );
+        assert_eq!(owner_row(s).committed - c0, 2 * MMAP_THRESHOLD as i64, "on the context's owner, door 2");
         assert_eq!(owner_ctx(s).0, n0, "not also in its door-1 context bytes");
         assert_eq!(owner_row(st).committed, 0, "not on the running statement");
         // SAFETY: `p` is the mapping this context handed out for this layout
@@ -177,10 +137,7 @@ fn ledger2_a_reset_gives_back_what_it_frees() {
         let mut ctx = ctx;
         ctx.reset();
         let kept = owner_ctx(s).0;
-        assert!(
-            kept < grown && kept >= 0,
-            "the reset's freed blocks leave the owner: {grown} -> {kept}"
-        );
+        assert!(kept < grown && kept >= 0, "the reset's freed blocks leave the owner: {grown} -> {kept}");
         drop(ctx);
         assert_eq!(owner_ctx(s).0, 0);
     });
@@ -197,28 +154,17 @@ fn ledger2_a_block_on_another_accounts_thread_moves_to_the_owners_account() {
         memledger::fold();
         let (a0, c0) = (net(a), owner_ctx(s).0);
         let g = memledger::charge::enter_as(Owner::Session(b));
-        let p = ctx
-            .mcx()
-            .allocate(chunk(256 * KIB))
-            .expect("a dedicated chunk");
+        let p = ctx.mcx().allocate(chunk(256 * KIB)).expect("a dedicated chunk");
         memledger::fold();
         let grown = owner_ctx(s).0 - c0;
         assert!(grown >= 256 * KIB as i64, "the context's owner: {grown}");
-        assert_eq!(
-            net(a) - a0,
-            grown,
-            "and its account, though another account's thread allocated it"
-        );
+        assert_eq!(net(a) - a0, grown, "and its account, though another account's thread allocated it");
         // SAFETY: `p` is the chunk this context handed out for this layout
         unsafe { ctx.mcx().deallocate(p.cast(), chunk(256 * KIB)) };
         memledger::fold();
         drop(g);
         memledger::fold();
-        assert_eq!(
-            (net(a) - a0, owner_ctx(s).0 - c0),
-            (0, 0),
-            "the free on that thread takes them back off both"
-        );
+        assert_eq!((net(a) - a0, owner_ctx(s).0 - c0), (0, 0), "the free on that thread takes them back off both");
         drop(ctx);
     });
 }
@@ -232,69 +178,32 @@ fn ledger2_set_owner_tree_moves_the_whole_live_subtree_and_later_children_take_t
         // a product built under the statement: its root, a child, a grandchild, and a child dropped before the adoption
         let product = MemoryContext::new("ledger2-product");
         product.set_owner(st);
-        let p = product
-            .mcx()
-            .allocate(chunk(64 * KIB))
-            .expect("a dedicated chunk");
+        let p = product.mcx().allocate(chunk(64 * KIB)).expect("a dedicated chunk");
         let child = product.new_child("ledger2-product-child");
-        let q = child
-            .mcx()
-            .allocate(chunk(32 * KIB))
-            .expect("a dedicated chunk");
+        let q = child.mcx().allocate(chunk(32 * KIB)).expect("a dedicated chunk");
         let grand = child.new_child("ledger2-product-grandchild");
-        let r = grand
-            .mcx()
-            .allocate(chunk(16 * KIB))
-            .expect("a dedicated chunk");
+        let r = grand.mcx().allocate(chunk(16 * KIB)).expect("a dedicated chunk");
         let gone = product.new_child("ledger2-product-gone");
-        let _ = gone
-            .mcx()
-            .allocate(chunk(8 * KIB))
-            .expect("a dedicated chunk");
+        let _ = gone.mcx().allocate(chunk(8 * KIB)).expect("a dedicated chunk");
         drop(gone);
         let held = owner_ctx(st).0;
-        assert!(
-            held >= (64 + 32 + 16) * KIB as i64,
-            "the building statement's: {held}"
-        );
+        assert!(held >= (64 + 32 + 16) * KIB as i64, "the building statement's: {held}");
         let s0 = owner_ctx(s).0;
         // a plain set_owner moves the root alone; the tree form moves what is left on the statement too
         product.set_owner(s);
         let root_only = owner_ctx(s).0 - s0;
-        assert!(
-            root_only > 0 && owner_ctx(st).0 == held - root_only,
-            "set_owner leaves the children: {root_only}"
-        );
+        assert!(root_only > 0 && owner_ctx(st).0 == held - root_only, "set_owner leaves the children: {root_only}");
         product.set_owner(st);
         assert_eq!(owner_ctx(st).0, held, "back on the statement");
         product.set_owner_tree(s);
-        assert_eq!(
-            owner_ctx(st).0,
-            0,
-            "nothing of the product left on the statement"
-        );
-        assert_eq!(
-            owner_ctx(s).0 - s0,
-            held,
-            "all of it on the holder, in one step"
-        );
+        assert_eq!(owner_ctx(st).0, 0, "nothing of the product left on the statement");
+        assert_eq!(owner_ctx(s).0 - s0, held, "all of it on the holder, in one step");
         let later = grand.new_child("ledger2-product-later");
-        let t = later
-            .mcx()
-            .allocate(chunk(4 * KIB))
-            .expect("a dedicated chunk");
-        assert_eq!(
-            owner_ctx(st).0,
-            0,
-            "a child made after the adoption takes the holder"
-        );
+        let t = later.mcx().allocate(chunk(4 * KIB)).expect("a dedicated chunk");
+        assert_eq!(owner_ctx(st).0, 0, "a child made after the adoption takes the holder");
         let adopted = owner_ctx(s).0 - s0;
         let _ = memledger::statement_end();
-        assert_eq!(
-            owner_ctx(s).0 - s0,
-            adopted,
-            "the statement's end moves nothing: the holder already has it"
-        );
+        assert_eq!(owner_ctx(s).0 - s0, adopted, "the statement's end moves nothing: the holder already has it");
         // SAFETY: each pointer is the chunk its context handed out for its layout
         unsafe {
             later.mcx().deallocate(t.cast(), chunk(4 * KIB));
@@ -306,11 +215,7 @@ fn ledger2_set_owner_tree_moves_the_whole_live_subtree_and_later_children_take_t
         drop(grand);
         drop(child);
         drop(product);
-        assert_eq!(
-            owner_ctx(s).0,
-            s0,
-            "the drops take them off the holder: never below where it was"
-        );
+        assert_eq!(owner_ctx(s).0, s0, "the drops take them off the holder: never below where it was");
     });
 }
 
@@ -327,13 +232,9 @@ fn ledger2_set_owner_tree_stops_at_a_descendant_another_owner_named() {
         let foreign = product.new_child("ledger2-foreign-child");
         foreign.set_owner(Owner::Session(a));
         let holder = Owner::Cache(memledger::Holder::Of(memledger::Consumer::ProgramCaches));
-        let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            product.set_owner_tree(holder)
+        let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| { product.set_owner_tree(holder)
         }));
-        assert!(
-            r.is_err(),
-            "a descendant the session named is not the statement's product"
-        );
+        assert!(r.is_err(), "a descendant the session named is not the statement's product");
         drop(foreign);
         drop(product);
         let _ = memledger::statement_end();
@@ -352,35 +253,19 @@ fn ledger2_set_owner_tree_moves_a_child_that_has_not_followed_its_ended_owner() 
         let root = MemoryContext::new("ledger2-scratch");
         root.set_owner(st);
         let child = root.new_child("ledger2-scratch-child");
-        let q = child
-            .mcx()
-            .allocate(chunk(32 * KIB))
-            .expect("a dedicated chunk");
+        let q = child.mcx().allocate(chunk(32 * KIB)).expect("a dedicated chunk");
         let s0 = owner_ctx(s).0;
         let _ = memledger::statement_end();
         let ended = owner_ctx(s).0 - s0;
-        assert!(
-            ended >= 32 * KIB as i64,
-            "the statement's end moved its contexts' bytes to the session: {ended}"
-        );
+        assert!(ended >= 32 * KIB as i64, "the statement's end moved its contexts' bytes to the session: {ended}");
         // the root posts after the end (it follows to the session); the child does not
-        let p = root
-            .mcx()
-            .allocate(chunk(64 * KIB))
-            .expect("a dedicated chunk");
+        let p = root.mcx().allocate(chunk(64 * KIB)).expect("a dedicated chunk");
         let both = owner_ctx(s).0 - s0;
-        assert!(
-            both >= ended + 64 * KIB as i64,
-            "the root's new block lands on the session: {both}"
-        );
+        assert!(both >= ended + 64 * KIB as i64, "the root's new block lands on the session: {both}");
         let depot = Owner::Cache(memledger::Holder::SlotDepot);
         let d0 = owner_ctx(depot).0;
         root.set_owner_tree(depot);
-        assert_eq!(
-            owner_ctx(depot).0 - d0,
-            both,
-            "the whole tree on the depot, the child's bytes too"
-        );
+        assert_eq!(owner_ctx(depot).0 - d0, both, "the whole tree on the depot, the child's bytes too");
         assert_eq!(owner_ctx(s).0, s0, "none left on the session");
         // SAFETY: each pointer is the chunk its context handed out for its layout
         unsafe {

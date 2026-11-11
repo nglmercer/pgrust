@@ -8,7 +8,7 @@
 // The corpus walk runs on every core (std::thread::scope); the result order is the sorted fixture order
 // whatever the scheduling, so the goldens, the histogram and the failure lists are deterministic.
 // Every test ends with a `--stats` line (`cargo test … -- --nocapture` shows it).
-#![allow(clippy::duplicate_mod, dead_code)]
+#![allow(clippy::duplicate_mod,dead_code)]
 
 use std::fs;
 use std::path::{Path, PathBuf};

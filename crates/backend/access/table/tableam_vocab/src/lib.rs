@@ -1,7 +1,7 @@
 //! tableam.h/relscan.h vocabulary + block parallel-scan helpers, hoisted
 //! below the heap AM crates so tableam -> heapam_handler -> heapam is acyclic.
 
-#![allow(non_camel_case_types, non_snake_case, non_upper_case_globals)]
+#![allow(non_camel_case_types, non_snake_case,non_upper_case_globals)]
 
 /// W2a block-run allocator (parallel writes increment 2).
 pub mod block_run;
@@ -211,11 +211,7 @@ pub struct WriteMultiInsertBuffer<'mcx> {
 
 impl<'mcx> WriteMultiInsertBuffer<'mcx> {
     pub fn new() -> Self {
-        WriteMultiInsertBuffer {
-            slots: Vec::new(),
-            nused: 0,
-            bytes: 0,
-        }
+        WriteMultiInsertBuffer { slots: Vec::new(), nused: 0, bytes: 0, }
     }
 }
 
@@ -230,8 +226,7 @@ impl Default for WriteMultiInsertBuffer<'_> {
 // read it off the SampleScanState they are handed (tsm_system_rows does).
 pub trait SampleScanDriver {
     fn has_next_sample_block(&self) -> bool;
-    fn next_sample_block(&mut self, nblocks: BlockNumber, donetuples: i64)
-        -> PgResult<BlockNumber>;
+    fn next_sample_block(&mut self, nblocks: BlockNumber, donetuples: i64) -> PgResult<BlockNumber>;
     fn next_sample_tuple(
         &mut self,
         blockno: BlockNumber,

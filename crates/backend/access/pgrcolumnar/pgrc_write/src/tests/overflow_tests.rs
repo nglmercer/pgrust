@@ -15,12 +15,8 @@ fn oversize_values_route_through_overflow_and_roundtrip() {
     let mut w = open_writer(vec![text_col(1)], stamp(11, 1));
     // Two oversize values (one exactly at threshold), plus small values and
     // nulls around them.
-    let big_a: Vec<u8> = (0..OVERSIZE_THRESHOLD as usize)
-        .map(|i| (i % 251) as u8)
-        .collect();
-    let big_b: Vec<u8> = (0..(OVERSIZE_THRESHOLD as usize) * 2)
-        .map(|i| (i % 249) as u8)
-        .collect();
+    let big_a: Vec<u8> = (0..OVERSIZE_THRESHOLD as usize).map(|i| (i % 251) as u8).collect();
+    let big_b: Vec<u8> = (0..(OVERSIZE_THRESHOLD as usize) * 2).map(|i| (i % 249) as u8).collect();
     let imgs: Vec<Option<Vec<u8>>> = vec![
         Some(img_4b_u(b"small-1")),
         Some(img_4b_u(&big_a)),
@@ -57,9 +53,7 @@ fn oversize_values_route_through_overflow_and_roundtrip() {
     let pv = PartView::open(&mut vfs, "part-0.pgrc");
     let (values, _) = pv.stream(1, 0, StreamRole::Values).expect("values");
     assert_ne!(values.flags & STREAMF_HAS_OVERFLOW, 0, "HAS_OVERFLOW flag");
-    let (ovf, ovf_exts) = pv
-        .stream(1, 0, StreamRole::Overflow)
-        .expect("overflow stream");
+    let (ovf, ovf_exts) = pv.stream(1, 0, StreamRole::Overflow).expect("overflow stream");
     assert_eq!(ovf.values, 2, "two oversize entries");
     assert_eq!(ovf_exts.len(), 1);
     // Validity stream present (one null).

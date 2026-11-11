@@ -11,11 +11,7 @@ pub struct Heap<'s> {
 
 impl<'s> Heap<'s> {
     /// A heap over the sources in `slots[..live]`.
-    pub fn new(
-        slots: &'s mut [u32],
-        live: usize,
-        less: &mut dyn FnMut(u32, u32) -> bool,
-    ) -> Heap<'s> {
+    pub fn new(slots: &'s mut [u32], live: usize, less: &mut dyn FnMut(u32, u32) -> bool,) -> Heap<'s> {
         let mut h = Heap::resume(slots, live);
         for i in (0..live / 2).rev() {
             h.down(i, less);
@@ -25,11 +21,7 @@ impl<'s> Heap<'s> {
 
     /// The heap a previous [`Heap`] over the same slots left, `live` being its [`Heap::len`].
     pub fn resume(slots: &'s mut [u32], live: usize) -> Heap<'s> {
-        assert!(
-            live <= slots.len(),
-            "heap: {live} live sources in {} slots",
-            slots.len()
-        );
+        assert!(live <= slots.len(), "heap: {live} live sources in {} slots", slots.len());
         Heap { v: slots, n: live }
     }
 
@@ -43,11 +35,7 @@ impl<'s> Heap<'s> {
         match self.n {
             0 | 1 => None,
             2 => Some(self.v[1]),
-            _ => Some(if less(self.v[2], self.v[1]) {
-                self.v[2]
-            } else {
-                self.v[1]
-            }),
+            _ => Some(if less(self.v[2], self.v[1]) { self.v[2] } else { self.v[1] }),
         }
     }
 
@@ -85,11 +73,7 @@ impl<'s> Heap<'s> {
             if l >= n {
                 return;
             }
-            let c = if l + 1 < n && less(self.v[l + 1], self.v[l]) {
-                l + 1
-            } else {
-                l
-            };
+            let c = if l + 1 < n && less(self.v[l + 1], self.v[l]) { l + 1 } else { l };
             if !less(self.v[c], self.v[i]) {
                 return;
             }

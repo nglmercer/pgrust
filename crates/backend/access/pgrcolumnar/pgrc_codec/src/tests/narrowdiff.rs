@@ -18,10 +18,7 @@ fn narrow_i16(built: &Built, g: u32) -> Vec<i16> {
     let ctx = built.ctx(g);
     let vt = crate::registry().resolve(ctx.key).expect("kernel resolves");
     let mut out = vec![0i16; ctx.rows as usize];
-    assert_eq!(
-        (vt.decode_narrow)(&ctx, NarrowOut::I16(&mut out)).expect("decode_narrow i16"),
-        ctx.rows
-    );
+    assert_eq!((vt.decode_narrow)(&ctx, NarrowOut::I16(&mut out)).expect("decode_narrow i16"), ctx.rows);
     out
 }
 
@@ -29,10 +26,7 @@ fn narrow_i32(built: &Built, g: u32) -> Vec<i32> {
     let ctx = built.ctx(g);
     let vt = crate::registry().resolve(ctx.key).expect("kernel resolves");
     let mut out = vec![0i32; ctx.rows as usize];
-    assert_eq!(
-        (vt.decode_narrow)(&ctx, NarrowOut::I32(&mut out)).expect("decode_narrow i32"),
-        ctx.rows
-    );
+    assert_eq!((vt.decode_narrow)(&ctx, NarrowOut::I32(&mut out)).expect("decode_narrow i32"), ctx.rows);
     out
 }
 
@@ -49,10 +43,7 @@ fn assert_narrow_eq(built: &Built, granules: usize, tag: &str) {
         if ctx.rows > 1 {
             let mut short = vec![0i16; ctx.rows as usize - 1];
             assert!(
-                matches!(
-                    (vt.decode_narrow)(&ctx, NarrowOut::I16(&mut short)),
-                    Err(FormatError::Bounds { .. })
-                ),
+                matches!((vt.decode_narrow)(&ctx, NarrowOut::I16(&mut short)), Err(FormatError::Bounds { .. })),
                 "{tag}: a short lane is a bounds error"
             );
         }
@@ -70,32 +61,10 @@ fn validity_shape(kind: u32, rows: u32, seed: &mut u64) -> Option<Vec<u64>> {
 #[test]
 fn byte_for_narrow_equals_widened_every_delta_width_and_base() {
     let mut seed = 0x11A2_2026_u64;
-    let class = StorageClass::ByvalWord {
-        width: 8,
-        signed: true,
-    };
+    let class = StorageClass::ByvalWord { width: 8, signed: true, };
     // (delta width, delta modulus); bases sit at and past the lane types' bounds.
-    let widths: [(u8, u64); 8] = [
-        (1, 200),
-        (2, 60_000),
-        (3, 1 << 23),
-        (4, 3_000_000_000),
-        (5, 1 << 39),
-        (6, 1 << 47),
-        (7, 1 << 55),
-        (8, u64::MAX / 2),
-    ];
-    let bases: [i64; 9] = [
-        i16::MIN as i64,
-        i16::MAX as i64 - 100,
-        -7,
-        i32::MIN as i64,
-        i32::MAX as i64 - 100,
-        1_000_000,
-        -(1i64 << 40),
-        i64::MIN,
-        i64::MAX - 100,
-    ];
+    let widths: [(u8, u64); 8] = [(1, 200), (2, 60_000), (3, 1 << 23), (4, 3_000_000_000), (5, 1 << 39), (6, 1 << 47), (7, 1 << 55), (8, u64::MAX / 2),];
+    let bases: [i64; 9] = [i16::MIN as i64, i16::MAX as i64 - 100, -7, i32::MIN as i64, i32::MAX as i64 - 100, 1_000_000, -(1i64 << 40), i64::MIN, i64::MAX - 100,];
     for (wi, &(w, modu)) in widths.iter().enumerate() {
         for (bi, &base) in bases.iter().enumerate() {
             let shape = (wi + bi) as u32;
@@ -112,19 +81,11 @@ fn byte_for_narrow_equals_widened_every_delta_width_and_base() {
                             _ => (base as u64).wrapping_add(splitmix(&mut seed) % (modu + 1)),
                         })
                         .collect();
-                    GranuleData {
-                        rows,
-                        datums,
-                        validity,
-                    }
+                    GranuleData { rows, datums, validity, }
                 })
                 .collect();
             let inputs: Vec<EncodeInput<'_>> = gs.iter().map(|g| g.input(class)).collect();
-            let need = inputs
-                .iter()
-                .map(|g| granule_min_width(g, true))
-                .max()
-                .unwrap();
+            let need = inputs.iter().map(|g| granule_min_width(g, true)).max().unwrap();
             assert!(need <= w, "corpus must fit the forced width");
             let mut enc = ByteForEncoder::new_bytefor(8, w, true);
             let built = build_stream(&mut enc, &inputs, 0, true);
@@ -139,40 +100,28 @@ fn verbatim_narrow_equals_widened_every_word_width_and_sign() {
     for &w in &[1u8, 2, 4, 8] {
         for &signed in &[false, true] {
             let class = StorageClass::ByvalWord { width: w, signed };
-            let lim: u64 = if w == 8 {
-                u64::MAX
-            } else {
-                (1u64 << (w * 8)) - 1
-            };
+            let lim: u64 = if w == 8 { u64::MAX } else { (1u64 << (w * 8)) - 1 };
             // the closed-form value base: only the last granule may be short
-            let gs: Vec<GranuleData> = [
-                8192u32,
-                8192,
-                [300u32, 1, 8192, 17][(w as usize + signed as usize) % 4],
-            ]
-            .iter()
-            .enumerate()
-            .map(|(i, &rows)| {
-                let validity = validity_shape(w as u32 + signed as u32 + i as u32, rows, &mut seed);
-                let datums = (0..rows)
-                    .map(|r| {
-                        let raw = match r % 5 {
-                            0 => lim,
-                            1 => lim >> 1,
-                            2 => 1u64 << (w * 8 - 1),
-                            3 => 0,
-                            _ => splitmix(&mut seed) & lim,
-                        };
-                        crate::section::extend_word(raw, w, signed)
-                    })
-                    .collect();
-                GranuleData {
-                    rows,
-                    datums,
-                    validity,
-                }
-            })
-            .collect();
+            let gs: Vec<GranuleData> = [8192u32, 8192, [300u32, 1, 8192, 17][(w as usize + signed as usize) % 4],]
+                .iter()
+                .enumerate()
+                .map(|(i, &rows)| {
+                    let validity = validity_shape(w as u32 + signed as u32 + i as u32, rows, &mut seed);
+                    let datums = (0..rows)
+                        .map(|r| {
+                            let raw = match r % 5 {
+                                0 => lim,
+                                1 => lim >> 1,
+                                2 => 1u64 << (w * 8 - 1),
+                                3 => 0,
+                                _ => splitmix(&mut seed) & lim,
+                            };
+                            crate::section::extend_word(raw, w, signed)
+                        })
+                        .collect();
+                    GranuleData { rows, datums, validity, }
+                })
+                .collect();
             let inputs: Vec<EncodeInput<'_>> = gs.iter().map(|g| g.input(class)).collect();
             let built = build_stream(&mut VerbatimEncoder { class }, &inputs, 0, signed);
             assert_narrow_eq(&built, gs.len(), &format!("verbatim w{w} signed={signed}"));
@@ -184,10 +133,7 @@ fn verbatim_narrow_equals_widened_every_word_width_and_sign() {
 fn ffor_and_delta_for_narrow_equal_widened() {
     #[allow(clippy::unusual_byte_groupings)]
     let mut seed = 0x11A2_FF_u64;
-    let class = StorageClass::ByvalWord {
-        width: 8,
-        signed: true,
-    };
+    let class = StorageClass::ByvalWord { width: 8, signed: true, };
     for shape in 0..8u32 {
         let last = [8192u32, 1025, 64, 1][shape as usize % 4];
         let gs: Vec<GranuleData> = [8192u32, last]
@@ -202,15 +148,7 @@ fn ffor_and_delta_for_narrow_equal_widened() {
             .collect();
         let signed = shape % 2 == 1;
         let inputs: Vec<EncodeInput<'_>> = gs.iter().map(|g| g.input(class)).collect();
-        let built = build_stream(
-            &mut FforEncoder {
-                signed,
-                carry: None,
-            },
-            &inputs,
-            0,
-            signed,
-        );
+        let built = build_stream(&mut FforEncoder { signed, carry: None, }, &inputs, 0, signed,);
         assert_narrow_eq(&built, gs.len(), &format!("ffor shape {shape}"));
         let built = build_stream(&mut DeltaForEncoder::default(), &inputs, 0, true);
         assert_narrow_eq(&built, gs.len(), &format!("delta_for shape {shape}"));
@@ -230,9 +168,6 @@ fn narrow_refuses_typed_off_the_int_encodings() {
     let mut out = vec![0i32; 512];
     assert!(matches!(
         (vt.decode_narrow)(&ctx, NarrowOut::I32(&mut out)),
-        Err(FormatError::FaceUnsupported {
-            face: Face::DecodeNarrow,
-            ..
-        })
+        Err(FormatError::FaceUnsupported { face: Face::DecodeNarrow, .. })
     ));
 }

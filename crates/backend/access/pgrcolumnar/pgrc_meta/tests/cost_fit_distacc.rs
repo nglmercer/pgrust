@@ -41,15 +41,11 @@ fn distacc_prefetch_distance_at_the_dev_seed() {
     let mut s = DEV_SEED;
     println!("fit\tndv\tahead\tns_per_value");
     for ndv in [1u64 << 10, 1 << 16, 1 << 22] {
-        let w: Vec<u64> = (0..ROWS)
-            .map(|_| (xorshift(&mut s) % ndv).wrapping_mul(0x9e37_79b9_7f4a_7c15))
-            .collect();
+        let w: Vec<u64> = (0..ROWS).map(|_| (xorshift(&mut s) % ndv).wrapping_mul(0x9e37_79b9_7f4a_7c15)).collect();
         let h: Vec<(u64, u64)> = w.iter().map(|&v| meta_hash128_word(v, 8)).collect();
         let mut best = (f64::INFINITY, 0usize);
         for ahead in [0usize, 2, 4, 8, 16, 32] {
-            let ns = (0..3)
-                .map(|_| take(&h, &w, ahead))
-                .fold(f64::INFINITY, f64::min);
+            let ns = (0..3).map(|_| take(&h, &w, ahead)).fold(f64::INFINITY, f64::min);
             println!("fit\t{ndv}\t{ahead}\t{ns:.3}");
             if ns < best.0 {
                 best = (ns, ahead);

@@ -442,7 +442,7 @@ pub fn accum_array_result_arr<'mcx>(
             None => {
                 // First input with nulls: prior inputs marked all-non-null.
                 st.aitems = pg_nextpower2_32(core::cmp::max(256, newnitems + 1) as u32) as i32;
-                let need = (st.aitems as usize).div_ceil(8);
+                let need = (st.aitems as usize).div_ceil( 8);
                 let mut bm: PgVec<u8> = vec_with_capacity_in(mcx, need)?;
                 bm.resize(need, 0);
                 array_bitmap_copy(&mut bm, 0, 0, None, 0, st.nitems);
@@ -451,7 +451,7 @@ pub fn accum_array_result_arr<'mcx>(
             Some(bm) => {
                 if newnitems > st.aitems {
                     st.aitems = core::cmp::max(st.aitems * 2, newnitems);
-                    bm.resize((st.aitems as usize).div_ceil(8), 0);
+                    bm.resize((st.aitems as usize).div_ceil( 8), 0);
                 }
             }
         }

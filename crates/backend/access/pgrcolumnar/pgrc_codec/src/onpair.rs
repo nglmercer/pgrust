@@ -32,38 +32,23 @@ pub struct Params {
 }
 
 impl Params {
-    pub const DEFAULT: Params = Params {
-        sample_max: 256 << 10,
-        window: 4096,
-        max_ids: 4096,
-        threshold: 0,
-    };
+    pub const DEFAULT: Params = Params { sample_max: 256 << 10, window: 4096, max_ids: 4096, threshold: 0, };
 }
 
 #[inline]
 fn mask(len: usize) -> u64 {
-    if len >= 8 {
-        u64::MAX
-    } else {
-        (1u64 << (len * 8)) - 1
-    }
+    if len >= 8 { u64::MAX } else { (1u64 << (len * 8)) - 1 }
 }
 
 #[inline]
 fn load16(s: &[u8], pos: usize) -> (u64, u64) {
     if let Some(w) = s.get(pos..pos + 16) {
-        (
-            u64::from_le_bytes(w[..8].try_into().expect("len 8")),
-            u64::from_le_bytes(w[8..].try_into().expect("len 8")),
-        )
+        (u64::from_le_bytes(w[..8].try_into().expect("len 8")), u64::from_le_bytes(w[8..].try_into().expect("len 8")),)
     } else {
         let mut b = [0u8; 16];
         let t = &s[pos..];
         b[..t.len()].copy_from_slice(t);
-        (
-            u64::from_le_bytes(b[..8].try_into().expect("len 8")),
-            u64::from_le_bytes(b[8..].try_into().expect("len 8")),
-        )
+        (u64::from_le_bytes(b[..8].try_into().expect("len 8")), u64::from_le_bytes(b[8..].try_into().expect("len 8")),)
     }
 }
 
@@ -78,11 +63,7 @@ const NIL: u32 = u32::MAX;
 
 impl Map {
     fn new(cap_log2: u32) -> FormatResult<Map> {
-        Ok(Map {
-            slots: pgrc_format::try_filled(1usize << cap_log2, (0u64, NIL), "onpair map")?,
-            shift: 64 - cap_log2,
-            n: 0,
-        })
+        Ok(Map { slots: pgrc_format::try_filled(1usize << cap_log2, (0u64, NIL), "onpair map")?, shift: 64 - cap_log2, n: 0, })
     }
 
     #[inline]
@@ -126,11 +107,7 @@ struct Filter(Vec<u64>);
 
 impl Filter {
     fn new() -> FormatResult<Filter> {
-        Ok(Filter(pgrc_format::try_filled(
-            1 << 10,
-            0u64,
-            "onpair filter",
-        )?))
+        Ok(Filter(pgrc_format::try_filled(1 << 10, 0u64, "onpair filter",)?))
     }
     #[inline]
     fn bit(k: u64) -> usize {
@@ -165,11 +142,7 @@ struct Buckets {
 
 impl Buckets {
     fn new() -> FormatResult<Buckets> {
-        Ok(Buckets {
-            heads: Map::new(8)?,
-            filter: Filter::new()?,
-            ents: Vec::new(),
-        })
+        Ok(Buckets { heads: Map::new(8)?, filter: Filter::new()?, ents: Vec::new(), })
     }
 
     fn put(&mut self, key: u64, val: u64, len: usize, id: u16) -> FormatResult<()> {
@@ -182,12 +155,7 @@ impl Buckets {
             prev = cur;
             cur = self.ents[cur as usize].next;
         }
-        self.ents.push(Ent {
-            val,
-            next: cur,
-            id,
-            len: len as u8,
-        });
+        self.ents.push(Ent { val, next: cur, id, len: len as u8, });
         match prev {
             NIL => self.heads.put(key, e)?,
             p => self.ents[p as usize].next = e,
@@ -234,10 +202,7 @@ impl Dict {
     }
 
     fn add(&mut self, l: u16, r: u16) -> FormatResult<u16> {
-        let (ll, rl) = (
-            self.lens[l as usize] as usize,
-            self.lens[r as usize] as usize,
-        );
+        let (ll, rl) = (self.lens[l as usize] as usize, self.lens[r as usize] as usize,);
         let len = ll + rl;
         let mut t = self.bytes[l as usize];
         t[ll..len].copy_from_slice(&self.bytes[r as usize][..rl]);
@@ -253,9 +218,7 @@ impl Dict {
         match len {
             2 => self.two[lo as usize & 0xFFFF] = id,
             3 => self.three.put(lo & mask(3), id as u32)?,
-            4..=8 => self
-                .mid
-                .put(lo & 0xFFFF_FFFF, (lo & mask(len)) >> 32, len, id)?,
+            4..=8 => self.mid.put(lo & 0xFFFF_FFFF, (lo & mask(len)) >> 32, len, id)?,
             _ => self.long.put(lo, hi & mask(len - 8), len, id)?,
         }
         Ok(id)
@@ -315,11 +278,7 @@ impl Dict {
         let window = p.window.max(64);
         let take = text.len().min(p.sample_max.max(window));
         let nwin = take.div_ceil(window);
-        let stride = if nwin > 1 {
-            (text.len() - window.min(text.len())) / (nwin - 1)
-        } else {
-            0
-        };
+        let stride = if nwin > 1 { (text.len() - window.min(text.len())) / (nwin - 1) } else { 0 };
         let threshold = match p.threshold {
             0 => (take >> 20).max(1).ilog2().max(2),
             t => t.max(1),
@@ -327,9 +286,7 @@ impl Dict {
         let mut counts = PairCounts::new(take)?;
         // the token arrays at their final size up front: no doubling, no copy window past the set's own bytes
         let more = max_ids - BASE;
-        let oom = |_| FormatError::OutOfMemory {
-            bytes: more * (MAX_TOKEN + 5),
-        };
+        let oom = |_| FormatError::OutOfMemory { bytes: more * (MAX_TOKEN + 5), };
         d.bytes.try_reserve_exact(more).map_err(oom)?;
         d.lens.try_reserve_exact(more).map_err(oom)?;
         d.pairs.try_reserve_exact(more).map_err(oom)?;
@@ -342,14 +299,8 @@ impl Dict {
                 let (id, len) = d.longest(s, pos);
                 pos += len;
                 let cur = match prev {
-                    Some(l)
-                        if d.lens[l as usize] as usize + len <= MAX_TOKEN && d.ids() < max_ids =>
-                    {
-                        if counts.bump(l, id)? >= threshold {
-                            d.add(l, id)?
-                        } else {
-                            id
-                        }
+                    Some(l) if d.lens[l as usize] as usize + len <= MAX_TOKEN && d.ids() < max_ids => {
+                        if counts.bump(l, id)? >= threshold { d.add(l, id)? } else { id }
                     }
                     _ => id,
                 };
@@ -372,11 +323,7 @@ impl Dict {
 
     /// The symbol form a stream over this set uses: 12-bit when every id fits.
     pub fn form(&self) -> u8 {
-        if self.ids() <= 1 << 12 {
-            FORM_12
-        } else {
-            FORM_U16
-        }
+        if self.ids() <= 1 << 12 { FORM_12 } else { FORM_U16 }
     }
 
     /// The stream bytes [`Self::encode`] needs for `text` at most, estimated from a parse of its first 64 KiB
@@ -397,9 +344,7 @@ impl Dict {
     pub fn encode(&self, text: &[u8], form: u8, out: &mut Vec<u8>) -> FormatResult<()> {
         const PIECE: usize = ENCODE_PIECE;
         if form == FORM_12 && self.ids() > 1 << 12 {
-            return Err(FormatError::EncodeContract {
-                detail: "onpair 12-bit form over a wide set",
-            });
+            return Err(FormatError::EncodeContract { detail: "onpair 12-bit form over a wide set", });
         }
         let start = out.len();
         pgrc_format::try_resize(out, start + STREAM_HDR, 0, "onpair stream")?;
@@ -498,12 +443,7 @@ impl DecodeTable {
     /// Parse a table written by [`Dict::write_table`]; returns the table and the bytes it took.
     pub fn read(b: &[u8]) -> FormatResult<(DecodeTable, usize)> {
         let at = "onpair table";
-        let m = u16::from_le_bytes(
-            b.get(..2)
-                .ok_or(FormatError::Truncated { at })?
-                .try_into()
-                .expect("len 2"),
-        ) as usize;
+        let m = u16::from_le_bytes(b.get(..2).ok_or(FormatError::Truncated { at })?.try_into().expect("len 2"),) as usize;
         let need = 2 + m * 4;
         let body = b.get(2..need).ok_or(FormatError::Truncated { at })?;
         let n = BASE + m;
@@ -565,16 +505,9 @@ pub fn decode(t: &DecodeTable, b: &[u8], dst: &mut [u8]) -> FormatResult<usize> 
     if text_len != dst.len() {
         return Err(FormatError::Corrupt { at });
     }
-    let syms = b
-        .get(STREAM_HDR..STREAM_HDR + bytes)
-        .ok_or(FormatError::Truncated { at })?;
+    let syms = b.get(STREAM_HDR..STREAM_HDR + bytes).ok_or(FormatError::Truncated { at })?;
     let pos = match form {
-        FORM_U16 => decode_syms(
-            t,
-            syms.chunks_exact(2)
-                .map(|c| u16::from_le_bytes([c[0], c[1]])),
-            dst,
-        )?,
+        FORM_U16 => decode_syms(t, syms.chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])), dst,)?,
         _ => {
             let it = syms.chunks_exact(3).flat_map(|c| {
                 let v = c[0] as u32 | (c[1] as u32) << 8 | (c[2] as u32) << 16;
@@ -590,11 +523,7 @@ pub fn decode(t: &DecodeTable, b: &[u8], dst: &mut [u8]) -> FormatResult<usize> 
 }
 
 #[inline(always)]
-fn decode_syms(
-    t: &DecodeTable,
-    syms: impl Iterator<Item = u16>,
-    dst: &mut [u8],
-) -> FormatResult<usize> {
+fn decode_syms(t: &DecodeTable, syms: impl Iterator<Item = u16>, dst: &mut [u8],) -> FormatResult<usize> {
     let at = "onpair stream";
     let (slots, lens) = (&t.slots[..], &t.lens[..t.slots.len()]);
     let end = dst.len();
@@ -608,9 +537,7 @@ fn decode_syms(
         if let Some(w) = dst.get_mut(pos..pos + MAX_TOKEN) {
             w.copy_from_slice(slot);
         } else {
-            dst.get_mut(pos..pos + len)
-                .ok_or(FormatError::Corrupt { at })?
-                .copy_from_slice(&slot[..len]);
+            dst.get_mut(pos..pos + len).ok_or(FormatError::Corrupt { at })?.copy_from_slice(&slot[..len]);
         }
         pos += len;
     }

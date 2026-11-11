@@ -51,13 +51,7 @@ pub struct RunRef {
 impl RunRef {
     /// The reference to `bytes`, an encoded run written as `(gen, seq)` over `nparts` parts.
     pub fn of(gen: u64, seq: u32, nparts: u32, bytes: &[u8]) -> RunRef {
-        RunRef {
-            gen,
-            seq,
-            nparts,
-            len: bytes.len() as u64,
-            crc: crc32c(bytes),
-        }
+        RunRef { gen, seq, nparts, len: bytes.len() as u64, crc: crc32c(bytes), }
     }
 
     pub fn encode_into(&self, out: &mut Vec<u8>) {
@@ -71,13 +65,7 @@ impl RunRef {
 
     pub fn decode_from(c: &mut Cur<'_>) -> FormatResult<RunRef> {
         let at = "RunRef";
-        let r = RunRef {
-            gen: c.u64(at)?,
-            seq: c.u32(at)?,
-            nparts: c.u32(at)?,
-            len: c.u64(at)?,
-            crc: c.u32(at)?,
-        };
+        let r = RunRef { gen: c.u64(at)?, seq: c.u32(at)?, nparts: c.u32(at)?, len: c.u64(at)?, crc: c.u32(at)?, };
         if c.u32(at)? != 0 {
             return Err(FormatError::Corrupt { at: "RunRef pad" });
         }
@@ -107,14 +95,10 @@ pub fn encode_refs(refs: &[RunRef]) -> Vec<u8> {
 /// `RunRef` × n; a length that is not a multiple of 32 or a nonzero pad is `Corrupt`.
 pub fn decode_refs(b: &[u8]) -> FormatResult<Vec<RunRef>> {
     if !b.len().is_multiple_of(RUN_REF_LEN) {
-        return Err(FormatError::Corrupt {
-            at: "RunRef list length",
-        });
+        return Err(FormatError::Corrupt { at: "RunRef list length", });
     }
     let mut c = Cur::new(b);
-    (0..b.len() / RUN_REF_LEN)
-        .map(|_| RunRef::decode_from(&mut c))
-        .collect()
+    (0..b.len() / RUN_REF_LEN).map(|_| RunRef::decode_from(&mut c)).collect()
 }
 
 /// What `encode_run` writes. `answers` are `(attno, answers::encode_column payload)`, attno ascending; `partext` are
@@ -136,14 +120,8 @@ fn schema_crc(fp: u64) -> u32 {
 
 /// Encode a run file. The caller keeps the invariants `RunFile::parse` checks; they are debug-asserted here.
 pub fn encode_run(img: &RunImage<'_>) -> FormatResult<Vec<u8>> {
-    debug_assert!(
-        img.parts.windows(2).all(|w| w[0].part_no < w[1].part_no),
-        "run parts must be part_no ascending"
-    );
-    debug_assert!(
-        img.answers.windows(2).all(|w| w[0].0 < w[1].0),
-        "run answers must be attno ascending"
-    );
+    debug_assert!(img.parts.windows(2).all(|w| w[0].part_no < w[1].part_no), "run parts must be part_no ascending");
+    debug_assert!(img.answers.windows(2).all(|w| w[0].0 < w[1].0), "run answers must be attno ascending");
     let mut parts = crate::try_vec(img.parts.len() * BANKSTATS_PARTIDENT_LEN, "stats run parts")?;
     for p in img.parts {
         p.encode_into(&mut parts);
@@ -158,8 +136,7 @@ pub fn encode_run(img: &RunImage<'_>) -> FormatResult<Vec<u8>> {
         put_u32(&mut partext, bytes.len() as u32);
         partext.extend_from_slice(bytes);
     }
-    let mut sections: Vec<(u32, u32, &[u8])> =
-        crate::try_vec(img.answers.len() + 4, "stats run sections")?;
+    let mut sections: Vec<(u32, u32, &[u8])> = crate::try_vec(img.answers.len() + 4, "stats run sections")?;
     sections.push((SECTION_RUN_PARTS, 0, &parts));
     sections.push((SECTION_FACTS, 0, &facts));
     for (attno, payload) in img.answers {
@@ -171,14 +148,7 @@ pub fn encode_run(img: &RunImage<'_>) -> FormatResult<Vec<u8>> {
     if !img.partext.is_empty() {
         sections.push((SECTION_RUN_PARTEXT, 0, &partext));
     }
-    assemble_bound(
-        RUN_MAGIC,
-        RUN_VERSION,
-        img.gen,
-        img.publisher_fxid,
-        schema_crc(img.schema_fingerprint),
-        &sections,
-    )
+    assemble_bound(RUN_MAGIC, RUN_VERSION, img.gen, img.publisher_fxid, schema_crc(img.schema_fingerprint), &sections,)
 }
 
 /// A parsed run: its identity, its parts and its root list, validated against the `RunRef` it was read by; the facts,
@@ -198,18 +168,14 @@ impl RunFile {
     /// ascending by (gen, seq), naming a run at or past `want`'s own (gen, seq), or a run of no parts.
     pub fn parse(bytes: Vec<u8>, want: &RunRef) -> FormatResult<RunFile> {
         if bytes.len() as u64 != want.len {
-            return Err(FormatError::Corrupt {
-                at: "stats run length vs ref",
-            });
+            return Err(FormatError::Corrupt { at: "stats run length vs ref", });
         }
         if crc32c(&bytes) != want.crc {
             return Err(FormatError::CrcMismatch { at: "stats run" });
         }
         let file = SectionsFile::parse_with(bytes, RUN_MAGIC, RUN_VERSION)?;
         if file.gen != want.gen {
-            return Err(FormatError::Corrupt {
-                at: "stats run gen vs ref",
-            });
+            return Err(FormatError::Corrupt { at: "stats run gen vs ref", });
         }
         let (mut nfacts, mut nparts_sec, mut nroot, mut npartext) = (0, 0, 0, 0);
         let mut attnos: Vec<u32> = Vec::new();
@@ -220,48 +186,28 @@ impl RunFile {
                 SECTION_RUN_ROOT => nroot += 1,
                 SECTION_RUN_PARTEXT => npartext += 1,
                 SECTION_ANSWERS => attnos.push(e.attno),
-                _ => {
-                    return Err(FormatError::Corrupt {
-                        at: "stats run section kind",
-                    })
+                _ => { return Err(FormatError::Corrupt { at: "stats run section kind", })
                 }
             }
             if e.kind != SECTION_ANSWERS && e.attno != 0 {
-                return Err(FormatError::Corrupt {
-                    at: "stats run section attno",
-                });
+                return Err(FormatError::Corrupt { at: "stats run section attno", });
             }
         }
         attnos.sort_unstable();
-        if nfacts != 1
-            || nparts_sec != 1
-            || nroot > 1
-            || npartext > 1
-            || attnos.windows(2).any(|w| w[0] == w[1])
-        {
-            return Err(FormatError::Corrupt {
-                at: "stats run section set",
-            });
+        if nfacts != 1 || nparts_sec != 1 || nroot > 1 || npartext > 1 || attnos.windows(2).any(|w| w[0] == w[1]) {
+            return Err(FormatError::Corrupt { at: "stats run section set", });
         }
         let pb = file.section(file.find(SECTION_RUN_PARTS, 0).expect("counted"))?;
         if !pb.len().is_multiple_of(BANKSTATS_PARTIDENT_LEN) {
-            return Err(FormatError::Corrupt {
-                at: "stats run parts length",
-            });
+            return Err(FormatError::Corrupt { at: "stats run parts length", });
         }
         let mut c = Cur::new(pb);
-        let parts = (0..pb.len() / BANKSTATS_PARTIDENT_LEN)
-            .map(|_| PartIdent::decode_from(&mut c))
-            .collect::<FormatResult<Vec<_>>>()?;
+        let parts = (0..pb.len() / BANKSTATS_PARTIDENT_LEN).map(|_| PartIdent::decode_from(&mut c)).collect::<FormatResult<Vec<_>>>()?;
         if parts.len() as u64 != u64::from(want.nparts) {
-            return Err(FormatError::Corrupt {
-                at: "stats run nparts vs ref",
-            });
+            return Err(FormatError::Corrupt { at: "stats run nparts vs ref", });
         }
         if parts.windows(2).any(|w| w[0].part_no >= w[1].part_no) {
-            return Err(FormatError::Corrupt {
-                at: "stats run parts order",
-            });
+            return Err(FormatError::Corrupt { at: "stats run parts order", });
         }
         let root = match file.find(SECTION_RUN_ROOT, 0) {
             None => None,
@@ -269,20 +215,12 @@ impl RunFile {
                 let refs = decode_refs(file.section(i)?)?;
                 let ordered = refs.windows(2).all(|w| w[0].key() < w[1].key());
                 if !ordered || refs.iter().any(|r| r.key() >= want.key() || r.nparts == 0) {
-                    return Err(FormatError::Corrupt {
-                        at: "stats run root list",
-                    });
+                    return Err(FormatError::Corrupt { at: "stats run root list", });
                 }
                 Some(refs)
             }
         };
-        Ok(RunFile {
-            gen: file.gen,
-            publisher_fxid: file.publisher_fxid,
-            parts,
-            root,
-            file,
-        })
+        Ok(RunFile { gen: file.gen, publisher_fxid: file.publisher_fxid, parts, root, file, })
     }
 
     /// True when the run was written for a table of this schema fingerprint.
@@ -292,14 +230,9 @@ impl RunFile {
 
     /// The run's facts image; one whose part count is not the run's is `Corrupt`.
     pub fn facts(&self) -> FormatResult<FactsImage> {
-        let img = FactsImage::decode(
-            self.file
-                .section(self.file.find(SECTION_FACTS, 0).expect("parsed"))?,
-        )?;
+        let img = FactsImage::decode(self.file.section(self.file.find(SECTION_FACTS, 0).expect("parsed"))?,)?;
         if img.header.parts != self.parts.len() as u64 {
-            return Err(FormatError::Corrupt {
-                at: "stats run facts parts",
-            });
+            return Err(FormatError::Corrupt { at: "stats run facts parts", });
         }
         Ok(img)
     }
@@ -336,12 +269,7 @@ impl RunFile {
             let len = c.u32(at)? as usize;
             let bytes = crate::try_to_vec(c.take(len, at)?, at)?;
             let ordered = out.last().is_none_or(|l| (l.0, l.1) < (part_no, tag));
-            if !ordered
-                || self
-                    .parts
-                    .binary_search_by_key(&part_no, |p| p.part_no)
-                    .is_err()
-            {
+            if !ordered || self.parts.binary_search_by_key(&part_no, |p| p.part_no).is_err() {
                 return Err(FormatError::Corrupt { at });
             }
             out.push((part_no, tag, bytes));
@@ -358,33 +286,13 @@ mod tests {
     use crate::sections::SECTIONS_HEADER_LEN;
 
     fn ident(part_no: u32) -> PartIdent {
-        PartIdent {
-            part_no,
-            granule_count: 1,
-            band_count: 1,
-            rows: 100 + u64::from(part_no),
-            footer_off: 4096,
-        }
+        PartIdent { part_no, granule_count: 1, band_count: 1, rows: 100 + u64::from(part_no), footer_off: 4096, }
     }
 
     fn facts(parts: u64) -> FactsImage {
         FactsImage {
-            header: FactsHeader {
-                gen: 7,
-                publisher_fxid: 70,
-                schema_fingerprint: 5,
-                rows: 300,
-                bytes: 900,
-                granules: parts,
-                parts,
-            },
-            cols: vec![ColFacts {
-                attno: 1,
-                class: 1,
-                width: 8,
-                nonnull: 300,
-                ..ColFacts::default()
-            }],
+            header: FactsHeader { gen: 7, publisher_fxid: 70, schema_fingerprint: 5, rows: 300, bytes: 900, granules: parts, parts, },
+            cols: vec![ColFacts { attno: 1, class: 1, width: 8, nonnull: 300, ..ColFacts::default() }],
         }
     }
 
@@ -393,64 +301,24 @@ mod tests {
         rref: RunRef,
     }
 
-    fn build(
-        gen: u64,
-        seq: u32,
-        part_nos: &[u32],
-        root: Option<&[RunRef]>,
-        partext: &[(u32, u16, &[u8])],
-    ) -> Built {
+    fn build(gen: u64, seq: u32, part_nos: &[u32], root: Option<&[RunRef]>, partext: &[(u32, u16, &[u8])],) -> Built {
         let parts: Vec<PartIdent> = part_nos.iter().map(|&n| ident(n)).collect();
         let f = facts(parts.len() as u64);
         let bodies: Vec<Vec<u8>> = parts.iter().map(|p| vec![p.part_no as u8; 80]).collect();
         let body_refs: Vec<&[u8]> = bodies.iter().map(|b| &b[..]).collect();
-        let digests: Vec<Option<[u8; 24]>> = parts
-            .iter()
-            .map(|p| Some([p.part_no as u8 + 1; 24]))
-            .collect();
+        let digests: Vec<Option<[u8; 24]>> = parts.iter().map(|p| Some([p.part_no as u8 + 1; 24])).collect();
         let col1 = encode_column(&body_refs, &digests).unwrap();
         let col3 = encode_column(&vec![&[][..]; parts.len()], &vec![None; parts.len()]).unwrap();
         let answers: Vec<(u32, &[u8])> = vec![(1, &col1[..]), (3, &col3[..])];
-        let bytes = encode_run(&RunImage {
-            gen,
-            publisher_fxid: gen * 10,
-            schema_fingerprint: 5,
-            parts: &parts,
-            facts: &f,
-            answers: &answers,
-            root,
-            partext,
-        })
-        .expect("encode_run");
+        let bytes = encode_run(&RunImage { gen, publisher_fxid: gen * 10, schema_fingerprint: 5, parts: &parts, facts: &f, answers: &answers, root, partext, }).expect("encode_run");
         let rref = RunRef::of(gen, seq, parts.len() as u32, &bytes);
         Built { bytes, rref }
     }
 
     #[test]
     fn a_run_round_trips_through_its_ref() {
-        let root = [
-            RunRef {
-                gen: 3,
-                seq: 0,
-                nparts: 256,
-                len: 9000,
-                crc: 11,
-            },
-            RunRef {
-                gen: 7,
-                seq: 0,
-                nparts: 16,
-                len: 800,
-                crc: 12,
-            },
-        ];
-        let b = build(
-            7,
-            1,
-            &[4, 9, 12],
-            Some(&root[..]),
-            &[(4, 1, &b"birth"[..]), (4, 2, &b""[..]), (12, 1, &b"x"[..])],
-        );
+        let root = [RunRef { gen: 3, seq: 0, nparts: 256, len: 9000, crc: 11, }, RunRef { gen: 7, seq: 0, nparts: 16, len: 800, crc: 12, },];
+        let b = build(7, 1, &[4, 9, 12], Some(&root[..]), &[(4, 1, &b"birth"[..]), (4, 2, &b""[..]), (12, 1, &b"x"[..])],);
         let r = RunFile::parse(b.bytes.clone(), &b.rref).unwrap();
         assert_eq!((r.gen, r.publisher_fxid), (7, 70));
         assert_eq!(r.parts, vec![ident(4), ident(9), ident(12)]);
@@ -462,20 +330,8 @@ mod tests {
         let col = crate::answers::ColumnAnswers::parse(&answers[0].1, 3).unwrap();
         assert_eq!(col.stats_body(1), Some(&[9u8; 80][..]));
         assert_eq!(col.digest(2), Some(&[13u8; 24][..]));
-        assert_eq!(
-            crate::answers::ColumnAnswers::parse(&answers[1].1, 3)
-                .unwrap()
-                .stats_body(0),
-            None
-        );
-        assert_eq!(
-            r.partext().unwrap(),
-            vec![
-                (4, 1, b"birth".to_vec()),
-                (4, 2, Vec::new()),
-                (12, 1, b"x".to_vec())
-            ]
-        );
+        assert_eq!(crate::answers::ColumnAnswers::parse(&answers[1].1, 3).unwrap().stats_body(0), None);
+        assert_eq!(r.partext().unwrap(), vec![(4, 1, b"birth".to_vec()), (4, 2, Vec::new()), (12, 1, b"x".to_vec())]);
         assert_eq!(decode_refs(&encode_refs(&root)).unwrap(), root.to_vec());
         assert!(decode_refs(&[0u8; 31]).is_err());
     }
@@ -499,19 +355,10 @@ mod tests {
     fn a_run_read_by_another_ref_is_refused() {
         let b = build(7, 1, &[4, 9], None, &[]);
         let bad_refs = [
-            RunRef {
-                len: b.rref.len + 1,
-                ..b.rref
-            },
-            RunRef {
-                crc: b.rref.crc ^ 1,
-                ..b.rref
-            },
+            RunRef { len: b.rref.len + 1, ..b.rref },
+            RunRef { crc: b.rref.crc ^ 1, ..b.rref },
             RunRef { gen: 8, ..b.rref },
-            RunRef {
-                nparts: 3,
-                ..b.rref
-            },
+            RunRef { nparts: 3, ..b.rref },
         ];
         for want in &bad_refs {
             assert!(RunFile::parse(b.bytes.clone(), want).is_err(), "{want:?}");
@@ -519,17 +366,11 @@ mod tests {
         let mut flipped = b.bytes.clone();
         let last = flipped.len() - 1;
         flipped[last] ^= 1;
-        assert!(
-            RunFile::parse(flipped, &b.rref).is_err(),
-            "a flipped byte fails the whole-file crc"
-        );
+        assert!(RunFile::parse(flipped, &b.rref).is_err(), "a flipped byte fails the whole-file crc");
         let mut other_magic = b.bytes.clone();
         other_magic[0] ^= 1;
         let r = RunRef::of(7, 1, 2, &other_magic);
-        assert!(matches!(
-            RunFile::parse(other_magic, &r),
-            Err(FormatError::BadMagic { .. })
-        ));
+        assert!(matches!(RunFile::parse(other_magic, &r), Err(FormatError::BadMagic { .. })));
     }
 
     /// A run assembled from raw sections, with its matching ref: what a corrupt writer could produce.
@@ -553,100 +394,25 @@ mod tests {
         let good = idents(&[1, 2]);
         assert!(raw(&[(SECTION_RUN_PARTS, 0, &good), (SECTION_FACTS, 0, &f)], 2).is_ok());
         for parts in [idents(&[2, 1]), idents(&[2, 2])] {
-            assert!(
-                raw(&[(SECTION_RUN_PARTS, 0, &parts), (SECTION_FACTS, 0, &f)], 2).is_err(),
-                "unsorted or duplicate parts"
-            );
+            assert!(raw(&[(SECTION_RUN_PARTS, 0, &parts), (SECTION_FACTS, 0, &f)], 2).is_err(), "unsorted or duplicate parts");
         }
         let mut padded = good.clone();
         padded[12] = 1;
-        assert!(
-            raw(
-                &[(SECTION_RUN_PARTS, 0, &padded), (SECTION_FACTS, 0, &f)],
-                2
-            )
-            .is_err(),
-            "a nonzero ident pad"
-        );
-        assert!(
-            raw(
-                &[(SECTION_RUN_PARTS, 0, &good[..40]), (SECTION_FACTS, 0, &f)],
-                2
-            )
-            .is_err(),
-            "a ragged parts section"
-        );
-        assert!(
-            raw(
-                &[
-                    (SECTION_RUN_PARTS, 0, &good),
-                    (SECTION_FACTS, 0, &f),
-                    (9, 0, b"")
-                ],
-                2
-            )
-            .is_err(),
-            "an unknown kind"
-        );
-        assert!(
-            raw(&[(SECTION_RUN_PARTS, 0, &good)], 2).is_err(),
-            "no facts"
-        );
-        assert!(
-            raw(&[(SECTION_FACTS, 0, &f)], 0).is_err(),
-            "no parts section"
-        );
-        assert!(
-            raw(
-                &[
-                    (SECTION_RUN_PARTS, 0, &good),
-                    (SECTION_FACTS, 0, &f),
-                    (SECTION_FACTS, 0, &f)
-                ],
-                2
-            )
-            .is_err(),
-            "two facts"
-        );
-        assert!(
-            raw(&[(SECTION_RUN_PARTS, 0, &good), (SECTION_FACTS, 1, &f)], 2).is_err(),
-            "facts under an attno"
-        );
+        assert!(raw(&[(SECTION_RUN_PARTS, 0, &padded), (SECTION_FACTS, 0, &f)], 2).is_err(), "a nonzero ident pad");
+        assert!(raw(&[(SECTION_RUN_PARTS, 0, &good[..40]), (SECTION_FACTS, 0, &f)], 2).is_err(), "a ragged parts section");
+        assert!(raw(&[(SECTION_RUN_PARTS, 0, &good), (SECTION_FACTS, 0, &f), (9, 0, b"")], 2).is_err(), "an unknown kind");
+        assert!(raw(&[(SECTION_RUN_PARTS, 0, &good)], 2).is_err(), "no facts");
+        assert!(raw(&[(SECTION_FACTS, 0, &f)], 0).is_err(), "no parts section");
+        assert!(raw(&[(SECTION_RUN_PARTS, 0, &good), (SECTION_FACTS, 0, &f), (SECTION_FACTS, 0, &f)], 2).is_err(), "two facts");
+        assert!(raw(&[(SECTION_RUN_PARTS, 0, &good), (SECTION_FACTS, 1, &f)], 2).is_err(), "facts under an attno");
         let col = encode_column(&[&[1u8][..], &[2u8][..]], &[None, None]).unwrap();
-        let two_answers = [
-            (SECTION_RUN_PARTS, 0, &good[..]),
-            (SECTION_FACTS, 0, &f[..]),
-            (SECTION_ANSWERS, 1, &col[..]),
-            (SECTION_ANSWERS, 1, &col[..]),
-        ];
-        assert!(
-            raw(&two_answers, 2).is_err(),
-            "two answers sections of one attno"
-        );
-        let short = [
-            (SECTION_RUN_PARTS, 0, &good[..]),
-            (SECTION_FACTS, 0, &f[..]),
-            (SECTION_ANSWERS, 1, &col[..8]),
-        ];
-        assert!(
-            raw(&short, 2).unwrap().answers().is_err(),
-            "an answers payload short of the run's parts"
-        );
+        let two_answers = [(SECTION_RUN_PARTS, 0, &good[..]), (SECTION_FACTS, 0, &f[..]), (SECTION_ANSWERS, 1, &col[..]), (SECTION_ANSWERS, 1, &col[..]),];
+        assert!(raw(&two_answers, 2).is_err(), "two answers sections of one attno");
+        let short = [(SECTION_RUN_PARTS, 0, &good[..]), (SECTION_FACTS, 0, &f[..]), (SECTION_ANSWERS, 1, &col[..8]),];
+        assert!(raw(&short, 2).unwrap().answers().is_err(), "an answers payload short of the run's parts");
         let f3 = facts(3).encode().unwrap();
-        assert!(
-            raw(&[(SECTION_RUN_PARTS, 0, &good), (SECTION_FACTS, 0, &f3)], 2)
-                .unwrap()
-                .facts()
-                .is_err(),
-            "facts over other parts"
-        );
-        let r = |gen, seq, nparts| RunRef {
-            gen,
-            seq,
-            nparts,
-            len: 64,
-            crc: 1,
-        };
+        assert!(raw(&[(SECTION_RUN_PARTS, 0, &good), (SECTION_FACTS, 0, &f3)], 2).unwrap().facts().is_err(), "facts over other parts");
+        let r = |gen, seq, nparts| RunRef { gen, seq, nparts, len: 64, crc: 1, };
         for (refs, why) in [
             (vec![r(3, 0, 5), r(2, 0, 5)], "unsorted"),
             (vec![r(3, 0, 5), r(3, 0, 5)], "duplicate"),
@@ -655,55 +421,14 @@ mod tests {
             (vec![r(3, 0, 0)], "a run of no parts"),
         ] {
             let root = encode_refs(&refs);
-            assert!(
-                raw(
-                    &[
-                        (SECTION_RUN_PARTS, 0, &good),
-                        (SECTION_FACTS, 0, &f),
-                        (SECTION_RUN_ROOT, 0, &root)
-                    ],
-                    2
-                )
-                .is_err(),
-                "{why}"
-            );
+            assert!(raw(&[(SECTION_RUN_PARTS, 0, &good), (SECTION_FACTS, 0, &f), (SECTION_RUN_ROOT, 0, &root)], 2).is_err(), "{why}");
         }
         let ok_root = encode_refs(&[r(3, 0, 5), r(7, 0, 16)]);
-        assert!(raw(
-            &[
-                (SECTION_RUN_PARTS, 0, &good),
-                (SECTION_FACTS, 0, &f),
-                (SECTION_RUN_ROOT, 0, &ok_root)
-            ],
-            2
-        )
-        .is_ok());
+        assert!(raw(&[(SECTION_RUN_PARTS, 0, &good), (SECTION_FACTS, 0, &f), (SECTION_RUN_ROOT, 0, &ok_root)], 2).is_ok());
         let mut bad_pad = ok_root.clone();
         bad_pad[31] = 1;
-        assert!(
-            raw(
-                &[
-                    (SECTION_RUN_PARTS, 0, &good),
-                    (SECTION_FACTS, 0, &f),
-                    (SECTION_RUN_ROOT, 0, &bad_pad)
-                ],
-                2
-            )
-            .is_err(),
-            "a nonzero ref pad"
-        );
-        assert!(
-            raw(
-                &[
-                    (SECTION_RUN_PARTS, 0, &good),
-                    (SECTION_FACTS, 0, &f),
-                    (SECTION_RUN_ROOT, 0, &ok_root[..20])
-                ],
-                2
-            )
-            .is_err(),
-            "a ragged root"
-        );
+        assert!(raw(&[(SECTION_RUN_PARTS, 0, &good), (SECTION_FACTS, 0, &f), (SECTION_RUN_ROOT, 0, &bad_pad)], 2).is_err(), "a nonzero ref pad");
+        assert!(raw(&[(SECTION_RUN_PARTS, 0, &good), (SECTION_FACTS, 0, &f), (SECTION_RUN_ROOT, 0, &ok_root[..20])], 2).is_err(), "a ragged root");
     }
 
     #[test]
@@ -721,36 +446,12 @@ mod tests {
             }
             out
         };
-        let read = |x: &[u8]| {
-            raw(
-                &[
-                    (SECTION_RUN_PARTS, 0, &good),
-                    (SECTION_FACTS, 0, &f),
-                    (SECTION_RUN_PARTEXT, 0, x),
-                ],
-                2,
-            )
-            .unwrap()
-            .partext()
+        let read = |x: &[u8]| { raw(&[(SECTION_RUN_PARTS, 0, &good), (SECTION_FACTS, 0, &f), (SECTION_RUN_PARTEXT, 0, x),], 2,).unwrap().partext()
         };
-        assert_eq!(
-            read(&ext(&[(1, 1, 0, b"a"), (2, 1, 0, b"")]))
-                .unwrap()
-                .len(),
-            2
-        );
-        assert!(
-            read(&ext(&[(3, 1, 0, b"a")])).is_err(),
-            "a part the run does not hold"
-        );
-        assert!(
-            read(&ext(&[(2, 1, 0, b"a"), (1, 1, 0, b"")])).is_err(),
-            "unsorted"
-        );
-        assert!(
-            read(&ext(&[(1, 1, 0, b"a"), (1, 1, 0, b"")])).is_err(),
-            "a duplicate (part_no, tag)"
-        );
+        assert_eq!(read(&ext(&[(1, 1, 0, b"a"), (2, 1, 0, b"")])).unwrap().len(), 2);
+        assert!(read(&ext(&[(3, 1, 0, b"a")])).is_err(), "a part the run does not hold");
+        assert!(read(&ext(&[(2, 1, 0, b"a"), (1, 1, 0, b"")])).is_err(), "unsorted");
+        assert!(read(&ext(&[(1, 1, 0, b"a"), (1, 1, 0, b"")])).is_err(), "a duplicate (part_no, tag)");
         assert!(read(&ext(&[(1, 1, 7, b"a")])).is_err(), "a nonzero pad");
         let full = ext(&[(1, 1, 0, b"abc")]);
         assert!(read(&full[..full.len() - 1]).is_err(), "a truncated record");
@@ -761,15 +462,9 @@ mod tests {
     fn the_run_header_is_the_sections_header_under_its_own_magic() {
         let b = build(7, 1, &[4], None, &[]);
         assert_eq!(&b.bytes[..4], b"PRCR");
-        assert_eq!(
-            u32::from_le_bytes(b.bytes[4..8].try_into().unwrap()),
-            RUN_VERSION
-        );
+        assert_eq!(u32::from_le_bytes(b.bytes[4..8].try_into().unwrap()), RUN_VERSION);
         assert_eq!(u64::from_le_bytes(b.bytes[8..16].try_into().unwrap()), 7);
         assert!(b.bytes.len() > SECTIONS_HEADER_LEN);
-        assert!(
-            SectionsFile::parse(b.bytes).is_err(),
-            "a run is not a sections file"
-        );
+        assert!(SectionsFile::parse(b.bytes).is_err(), "a run is not a sections file");
     }
 }

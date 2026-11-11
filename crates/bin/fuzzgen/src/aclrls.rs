@@ -737,7 +737,8 @@ fn gen_aclitem(g: &mut Gen) -> Vec<StmtKind> {
         3 => {
             // aclmembers via the aclitemin/array path: build a 2-item acl and
             // check containment + equality (aclcontains, aclitem_eq).
-            "SELECT aclcontains(ARRAY[aclitemin('postgres=arwdDxtm/postgres'), aclitemin('=r/postgres')], aclitemin('=r/postgres'));".to_string()
+                "SELECT aclcontains(ARRAY[aclitemin('postgres=arwdDxtm/postgres'), aclitemin('=r/postgres')], aclitemin('=r/postgres'));".to_string(
+            )
         }
         4 => {
             // acldefault ::text directly (acldefault + aclitemout array path).

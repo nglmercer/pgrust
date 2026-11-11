@@ -460,7 +460,7 @@ fn leaf_arbiters(mcx: Mcx<'static>, leaf: &Relation<'static>, arbiters: &[u32]) 
         let ancestors = pg_inherits::get_partition_ancestors(mcx, child)?;
         // bounded("catalog-sized: one per arbiter index of the root the statement's ON CONFLICT names (the plan's arbiterIndexes)")
         for &root_index in arbiters {
-            if ancestors.contains(&root_index) {
+            if ancestors.contains(& root_index) {
                 out.push(child); // alloc: Node
             }
         }

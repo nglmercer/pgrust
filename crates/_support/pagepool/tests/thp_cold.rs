@@ -18,8 +18,7 @@ const BLOCK: usize = 9 * RUN;
 const MADV_COLD: i32 = 20;
 
 fn thp_host() -> bool {
-    std::fs::read_to_string("/sys/kernel/mm/transparent_hugepage/enabled")
-        .is_ok_and(|s| !s.contains("[never]"))
+    std::fs::read_to_string("/sys/kernel/mm/transparent_hugepage/enabled").is_ok_and(|s| !s.contains("[never]"))
 }
 
 /// Blocks of 9 runs, the first per superpage kept, the rest freed: free runs inside superpages in use.
@@ -32,11 +31,7 @@ fn free_runs_in_used_superpages(h: Hint) -> Vec<NonNull<u8>> {
         let p = b.as_ptr() as usize;
         // SAFETY: ours.
         unsafe { core::ptr::write_bytes(p as *mut u8, 0x5a, BLOCK) };
-        if seen.insert(p / SUPER) {
-            kept.push(b)
-        } else {
-            freed.push(b)
-        }
+        if seen.insert(p / SUPER) { kept.push(b) } else { freed.push(b) }
     }
     for b in freed {
         // SAFETY: ours, freed once.
@@ -78,23 +73,14 @@ fn thp_cold_only() {
     let (s0, r1) = (thp_hot_skips(), stats().released_bytes);
     hooks::clear();
     lazy_pass_now();
-    assert!(
-        thp_hot_skips() > s0,
-        "the used superpage kept its free runs"
-    );
-    assert!(
-        stats().released_bytes > r1,
-        "the quiet ones gave theirs back"
-    );
+    assert!(thp_hot_skips() > s0, "the used superpage kept its free runs");
+    assert!(stats().released_bytes > r1, "the quiet ones gave theirs back");
     assert!(cold_splits() > 0, "split first, as mode 2");
     // a whole decay with no use: the last one goes too
     let (s1, r2) = (thp_hot_skips(), stats().released_bytes);
     lazy_pass_now();
     assert_eq!(thp_hot_skips(), s1, "nothing hot any more");
-    assert!(
-        stats().released_bytes > r2,
-        "the once-hot superpage's free runs went back"
-    );
+    assert!(stats().released_bytes > r2, "the once-hot superpage's free runs went back");
     for b in kept {
         // SAFETY: ours, freed once.
         unsafe { give(b, BLOCK) };
@@ -112,10 +98,7 @@ fn thp_cold_only() {
     let (s2, r3) = (thp_hot_skips(), stats().released_bytes);
     lazy_pass_now();
     assert_eq!(thp_hot_skips(), s2, "pressed: no hot skip");
-    assert!(
-        stats().released_bytes > r3,
-        "pressed: the free runs go back at once"
-    );
+    assert!(stats().released_bytes > r3, "pressed: the free runs go back at once");
     set_claim_room(usize::MAX);
     for b in kept {
         // SAFETY: ours, freed once.
@@ -128,9 +111,7 @@ fn thp_cold_only() {
     // base sub-zone's dirty list, which no clean reaches, and its claim stayed)
     let (d0, c0) = (hooks::base_dirty(), stats().lazy_committed);
     let len = 64 * MIB;
-    let s = take(len, SUPER, Hint::new(Class::Process, Tag::REGION))
-        .expect("a lazy span")
-        .cast::<u8>();
+    let s = take(len, SUPER, Hint::new(Class::Process, Tag::REGION)).expect("a lazy span").cast::<u8>();
     // SAFETY: ours.
     unsafe { core::ptr::write_bytes(s.as_ptr(), 0x5a, len) };
     // SAFETY: inside our own span: a piece given and taken back, both uses
@@ -140,17 +121,9 @@ fn thp_cold_only() {
     // SAFETY: ours, freed once.
     unsafe { give(s, len) };
     flush_shelf();
-    assert_eq!(
-        hooks::base_dirty(),
-        d0,
-        "a used lazy span's give is no base give"
-    );
+    assert_eq!(hooks::base_dirty(), d0, "a used lazy span's give is no base give");
     purge_now(usize::MAX, None);
-    assert_eq!(
-        stats().lazy_committed,
-        c0,
-        "the used lazy span's commit went back"
-    );
+    assert_eq!(stats().lazy_committed, c0, "the used lazy span's commit went back");
     set_thp_partial(2);
     balanced();
 }

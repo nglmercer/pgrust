@@ -21,11 +21,7 @@ pub fn part_cache_sizer(broker: bool, ladder: bool) -> Sizer {
 }
 
 /// A server setting is the cache's minimum: the broker's target never takes it under.
-pub fn part_cache_budget(
-    server: Option<u64>,
-    target: Option<u64>,
-    derived: impl FnOnce() -> u64,
-) -> u64 {
+pub fn part_cache_budget(server: Option<u64>, target: Option<u64>, derived: impl FnOnce() -> u64,) -> u64 {
     match target {
         Some(t) => t.max(server.unwrap_or(0)),
         None => server.unwrap_or_else(derived),
@@ -112,13 +108,7 @@ pub fn release_short(gate: ParkedGate, s: &ParkedSignals) -> bool {
 /// the governor on; else B's free bytes, then B only past a first snapshot). Reading every [`ParkedSignals`] field each
 /// time cost a short scan ~157 k instructions (+6%) on a box with room.
 #[inline]
-pub fn release_short_by(
-    gate: ParkedGate,
-    bar: u64,
-    projected: impl FnOnce() -> u64,
-    free_b: impl FnOnce() -> u64,
-    b: impl FnOnce() -> u64,
-) -> bool {
+pub fn release_short_by(gate: ParkedGate, bar: u64, projected: impl FnOnce() -> u64, free_b: impl FnOnce() -> u64, b: impl FnOnce() -> u64,) -> bool {
     if gate == ParkedGate::Cap {
         return false;
     }
@@ -148,11 +138,7 @@ pub fn part_cache_trim_target(budget: u64) -> u64 {
 /// step under the budget, at most a quarter; 0 = a quarter under (`part_cache_trim_target`).
 #[inline]
 pub fn part_cache_trim_target_by(budget: u64, step: u64) -> u64 {
-    if step == 0 {
-        part_cache_trim_target(budget)
-    } else {
-        budget - step.min(budget / 4)
-    }
+    if step == 0 { part_cache_trim_target(budget) } else { budget - step.min(budget / 4) }
 }
 
 /// Ladder C1b, while the ladder sizes the part cache with `step` (> 0): while the bytes its own trim cannot drop
@@ -189,21 +175,10 @@ pub fn part_cache_shed_target(budget: u64, have: u64, step: u64) -> u64 {
 /// (`part_cache_shed_target`), or with the shed off (`shed` = cache_hold_shed 0, H5a) the step-under target at once.
 /// `shed` on (the default) is the landed shape.
 #[inline]
-pub fn part_cache_own_target(
-    budget: u64,
-    have: u64,
-    step: u64,
-    cushion: Option<u64>,
-    shed: bool,
-) -> u64 {
+pub fn part_cache_own_target(budget: u64, have: u64, step: u64, cushion: Option<u64>, shed: bool,) -> u64 {
     match step {
         0 => part_cache_trim_target_by(budget, 0),
-        step => cushion.unwrap_or_else(|| {
-            if shed {
-                part_cache_shed_target(budget, have, step)
-            } else {
-                part_cache_trim_target_by(budget, step)
-            }
+        step => cushion.unwrap_or_else(|| { if shed { part_cache_shed_target(budget, have, step) } else { part_cache_trim_target_by(budget, step) }
         }),
     }
 }
@@ -212,11 +187,7 @@ pub fn part_cache_own_target(
 /// load's room): `level`; with a `step` and the shed on (`shed`, H5a), at most one step under `have`.
 #[inline]
 pub fn part_cache_own_level(have: u64, level: u64, step: u64, shed: bool) -> u64 {
-    if step == 0 || !shed {
-        level
-    } else {
-        level.max(have.saturating_sub(step))
-    }
+    if step == 0 || !shed { level } else { level.max(have.saturating_sub(step)) }
 }
 
 /// The part cache is past its `budget` and past the level a failed trim set (`retry_at`; pgrc_read's `over_budget`).
@@ -268,12 +239,7 @@ pub enum ShortRelease {
 
 /// The short hook, each release once per statement epoch: under `pressure` all, else the older sets when two are parked.
 #[inline]
-pub fn short_release(
-    pressure: bool,
-    sets: usize,
-    older_done: impl FnOnce() -> bool,
-    all_done: impl FnOnce() -> bool,
-) -> ShortRelease {
+pub fn short_release(pressure: bool, sets: usize, older_done: impl FnOnce() -> bool, all_done: impl FnOnce() -> bool,) -> ShortRelease {
     if !pressure {
         if sets < 2 || older_done() {
             return ShortRelease::None;
@@ -340,25 +306,14 @@ pub fn point_memo_over(entries: usize, bytes: usize) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        parked_evictable, part_cache_sizer, part_cache_trim_target, registry_budget, ParkedGate,
-        ParkedSignals, Sizer, PARKED_GATE, REGISTRY_BUDGET_BYTES,
-    };
+    use super::{parked_evictable, part_cache_sizer, part_cache_trim_target, registry_budget, ParkedGate, ParkedSignals, Sizer, PARKED_GATE, REGISTRY_BUDGET_BYTES,};
 
     /// Under ladder C1 the ladder sizes the part cache whether the broker's part-cache actuator acts or not.
     #[test]
     fn under_c1_the_ladder_sizes_the_part_cache_broker_or_not() {
-        assert_eq!(
-            part_cache_sizer(true, true),
-            Sizer::Ladder,
-            "C1 under the broker: the ladder, one evicter"
-        );
+        assert_eq!(part_cache_sizer(true, true), Sizer::Ladder, "C1 under the broker: the ladder, one evicter");
         assert_eq!(part_cache_sizer(false, true), Sizer::Ladder);
-        assert_eq!(
-            part_cache_sizer(true, false),
-            Sizer::Broker,
-            "C1 off: the broker's target, as before"
-        );
+        assert_eq!(part_cache_sizer(true, false), Sizer::Broker, "C1 off: the broker's target, as before");
         assert_eq!(part_cache_sizer(false, false), Sizer::Own);
     }
 
@@ -370,31 +325,12 @@ mod tests {
     fn a_load_waits_only_for_other_statements_pins_once_per_epoch() {
         use super::{part_cache_load_target, part_cache_load_waits};
         assert_eq!(part_cache_load_target(10 * G, G), 9 * G);
-        assert_eq!(
-            part_cache_load_target(G / 2, G),
-            0,
-            "a load larger than the budget empties what it can"
-        );
-        assert!(
-            part_cache_load_waits(true, false, 2 * G, G),
-            "others pin enough: wait for them"
-        );
-        assert!(
-            !part_cache_load_waits(true, false, G / 2, G),
-            "others pin too little: its own pins fill the cache, no wait"
-        );
-        assert!(
-            !part_cache_load_waits(false, false, 2 * G, G),
-            "a read ahead never waits"
-        );
-        assert!(
-            !part_cache_load_waits(true, true, 2 * G, G),
-            "a wait spent this epoch: no second wait"
-        );
-        assert!(
-            !part_cache_load_waits(true, false, 2 * G, 0),
-            "the trim made room: nothing to wait for"
-        );
+        assert_eq!(part_cache_load_target(G / 2, G), 0, "a load larger than the budget empties what it can");
+        assert!(part_cache_load_waits(true, false, 2 * G, G), "others pin enough: wait for them");
+        assert!(!part_cache_load_waits(true, false, G / 2, G), "others pin too little: its own pins fill the cache, no wait");
+        assert!(!part_cache_load_waits(false, false, 2 * G, G), "a read ahead never waits");
+        assert!(!part_cache_load_waits(true, true, 2 * G, G), "a wait spent this epoch: no second wait");
+        assert!(!part_cache_load_waits(true, false, 2 * G, 0), "the trim made room: nothing to wait for");
     }
 
     /// Ladder C1b: while the bytes the own trim cannot drop reach the budget, it is bounded by the floor plus a step,
@@ -404,126 +340,39 @@ mod tests {
     fn the_own_trim_keeps_a_step_past_the_floor_and_sheds_one_step_a_trim() {
         use super::{part_cache_own_cushion, part_cache_shed_target};
         const M: u64 = 1 << 20;
-        assert_eq!(
-            part_cache_own_cushion(4 * G, 4 * G, 256 * M, 0),
-            Some(4 * G + 256 * M),
-            "the floor at the budget: a step past it"
-        );
-        assert_eq!(
-            part_cache_own_cushion(4 * G, 5 * G, 256 * M, 4 * G),
-            Some(5 * G + 256 * M),
-            "at or under TOP (the reach the budget): a step past the floor"
-        );
-        assert_eq!(
-            part_cache_own_cushion(4 * G, 5 * G, 256 * M, 9 * G),
-            Some(9 * G),
-            "past TOP: the room a raise could give"
-        );
-        assert_eq!(
-            part_cache_own_cushion(4 * G, 5 * G, 256 * M, 5 * G),
-            Some(5 * G + 256 * M),
-            "room falling toward TOP: never under a step past the floor"
-        );
-        assert_eq!(
-            part_cache_own_cushion(4 * G, 3 * G, 256 * M, 9 * G),
-            None,
-            "under it: the budget bounds the trim"
-        );
-        assert_eq!(
-            part_cache_own_cushion(4 * G, 5 * G, 0, 9 * G),
-            None,
-            "no step (a fixed budget): no hold"
-        );
-        assert_eq!(
-            part_cache_shed_target(4 * G, 6 * G, 256 * M),
-            6 * G - 256 * M,
-            "2 GiB past the budget: one step"
-        );
-        assert_eq!(
-            part_cache_shed_target(4 * G, 4 * G + 64 * M, 256 * M),
-            4 * G - 192 * M,
-            "a load just past it: one step"
-        );
-        assert_eq!(
-            part_cache_shed_target(4 * G, 4 * G - 64 * M, 256 * M),
-            4 * G - 256 * M,
-            "never under the step-under target"
-        );
-        assert_eq!(
-            part_cache_shed_target(G / 2, G, 256 * M),
-            G - 256 * M,
-            "one step a trim at a small budget too"
-        );
-        assert_eq!(
-            part_cache_shed_target(G / 2, G / 2 + M, 256 * M),
-            G / 2 - G / 8,
-            "at most a quarter under the budget"
-        );
+        assert_eq!(part_cache_own_cushion(4 * G, 4 * G, 256 * M, 0), Some(4 * G + 256 * M), "the floor at the budget: a step past it");
+        assert_eq!(part_cache_own_cushion(4 * G, 5 * G, 256 * M, 4 * G), Some(5 * G + 256 * M), "at or under TOP (the reach the budget): a step past the floor");
+        assert_eq!(part_cache_own_cushion(4 * G, 5 * G, 256 * M, 9 * G), Some(9 * G), "past TOP: the room a raise could give");
+        assert_eq!(part_cache_own_cushion(4 * G, 5 * G, 256 * M, 5 * G), Some(5 * G + 256 * M), "room falling toward TOP: never under a step past the floor");
+        assert_eq!(part_cache_own_cushion(4 * G, 3 * G, 256 * M, 9 * G), None, "under it: the budget bounds the trim");
+        assert_eq!(part_cache_own_cushion(4 * G, 5 * G, 0, 9 * G), None, "no step (a fixed budget): no hold");
+        assert_eq!(part_cache_shed_target(4 * G, 6 * G, 256 * M), 6 * G - 256 * M, "2 GiB past the budget: one step");
+        assert_eq!(part_cache_shed_target(4 * G, 4 * G + 64 * M, 256 * M), 4 * G - 192 * M, "a load just past it: one step");
+        assert_eq!(part_cache_shed_target(4 * G, 4 * G - 64 * M, 256 * M), 4 * G - 256 * M, "never under the step-under target");
+        assert_eq!(part_cache_shed_target(G / 2, G, 256 * M), G - 256 * M, "one step a trim at a small budget too");
+        assert_eq!(part_cache_shed_target(G / 2, G / 2 + M, 256 * M), G / 2 - G / 8, "at most a quarter under the budget");
     }
 
     /// H5a: cache_hold_shed on (the default) is the landed shape: the cushion where the hold bounds the own trim, else
     /// the one-step shed; off, the step-under target at once. With no step neither applies.
     #[test]
     fn the_shed_knob_on_is_the_landed_shape_and_off_trims_to_the_step_under_target() {
-        use super::{
-            part_cache_own_level, part_cache_own_target, part_cache_shed_target,
-            part_cache_trim_target_by,
-        };
+        use super::{part_cache_own_level, part_cache_own_target, part_cache_shed_target, part_cache_trim_target_by,};
         const M: u64 = 1 << 20;
         let (b, have, step) = (4 * G, 6 * G, 256 * M);
-        assert_eq!(
-            part_cache_own_target(b, have, step, None, true),
-            part_cache_shed_target(b, have, step),
-            "on, no hold: the shed (landed)"
-        );
-        assert_eq!(
-            part_cache_own_target(b, have, step, Some(5 * G), true),
-            5 * G,
-            "on, the hold: its cushion (landed)"
-        );
-        assert_eq!(
-            part_cache_own_target(b, have, step, None, false),
-            b - step,
-            "off: the step-under target at once"
-        );
-        assert_eq!(
-            part_cache_own_target(b, have, step, Some(5 * G), false),
-            5 * G,
-            "off: the hold's cushion still bounds it"
-        );
-        assert_eq!(
-            part_cache_own_target(b, have, 0, None, true),
-            part_cache_trim_target_by(b, 0),
-            "no step: the trim target"
-        );
-        assert_eq!(
-            part_cache_own_level(have, b - step, step, true),
-            have - step,
-            "on: one step under what it holds (landed)"
-        );
-        assert_eq!(
-            part_cache_own_level(have, b - step, step, false),
-            b - step,
-            "off: the level asked"
-        );
-        assert_eq!(
-            part_cache_own_level(have, b - step, 0, true),
-            b - step,
-            "no step: the level asked"
-        );
+        assert_eq!(part_cache_own_target(b, have, step, None, true), part_cache_shed_target(b, have, step), "on, no hold: the shed (landed)");
+        assert_eq!(part_cache_own_target(b, have, step, Some(5 * G), true), 5 * G, "on, the hold: its cushion (landed)");
+        assert_eq!(part_cache_own_target(b, have, step, None, false), b - step, "off: the step-under target at once");
+        assert_eq!(part_cache_own_target(b, have, step, Some(5 * G), false), 5 * G, "off: the hold's cushion still bounds it");
+        assert_eq!(part_cache_own_target(b, have, 0, None, true), part_cache_trim_target_by(b, 0), "no step: the trim target");
+        assert_eq!(part_cache_own_level(have, b - step, step, true), have - step, "on: one step under what it holds (landed)");
+        assert_eq!(part_cache_own_level(have, b - step, step, false), b - step, "off: the level asked");
+        assert_eq!(part_cache_own_level(have, b - step, 0, true), b - step, "no step: the level asked");
     }
 
     /// B 15 GiB with `free_b` free, the governor off, the broker off, a 3.6 GiB part cache at 18.6 GiB (D3268's).
     fn sig(free_b: u64) -> ParkedSignals {
-        ParkedSignals {
-            bar: 0,
-            projected: 0,
-            free_b,
-            b: 15 * G,
-            broker: false,
-            bytes: 18 * G + G / 2,
-            budget: 3 * G + G / 2,
-        }
+        ParkedSignals { bar: 0, projected: 0, free_b, b: 15 * G, broker: false, bytes: 18 * G + G / 2, budget: 3 * G + G / 2, }
     }
 
     /// D3994 (B.1 W): the parts only parked executors use go under memory pressure only: B's free bytes under its last
@@ -537,71 +386,25 @@ mod tests {
         assert!(p(sig(0)), "B full");
         assert!(p(sig(b / 4 - 1)), "past three quarters of B");
         assert!(!p(sig(b / 4)), "at the line: not yet");
-        assert!(
-            !p(sig(12 * G)),
-            "a box with room keeps them past the cache's budget"
-        );
+        assert!(!p(sig(12 * G)), "a box with room keeps them past the cache's budget");
         assert!(!p(sig(u64::MAX)), "no budget snapshot yet");
         assert!(!p(ParkedSignals { b: 0, ..sig(0) }), "no budget");
         // the governor on: its bar's last quarter, as the short hook's
-        assert!(
-            p(ParkedSignals {
-                bar: 8 * G,
-                projected: 7 * G,
-                ..sig(12 * G)
-            }),
-            "past the bar's three quarters"
-        );
-        assert!(
-            !p(ParkedSignals {
-                bar: 8 * G,
-                projected: 6 * G,
-                ..sig(0)
-            }),
-            "the bar has room"
-        );
+        assert!(p(ParkedSignals { bar: 8 * G, projected: 7 * G, ..sig(12 * G) }), "past the bar's three quarters");
+        assert!(!p(ParkedSignals { bar: 8 * G, projected: 6 * G, ..sig(0) }), "the bar has room");
         // the broker on: the cache past its target
-        assert!(
-            p(ParkedSignals {
-                broker: true,
-                ..sig(12 * G)
-            }),
-            "past the broker's target"
-        );
-        assert!(
-            !p(ParkedSignals {
-                broker: true,
-                bytes: 3 * G,
-                ..sig(12 * G)
-            }),
-            "under the broker's target"
-        );
-        assert!(
-            !p(ParkedSignals {
-                broker: true,
-                budget: u64::MAX,
-                ..sig(12 * G)
-            }),
-            "an unbounded cache"
-        );
+        assert!(p(ParkedSignals { broker: true, ..sig(12 * G) }), "past the broker's target");
+        assert!(!p(ParkedSignals { broker: true, bytes: 3 * G, ..sig(12 * G) }), "under the broker's target");
+        assert!(!p(ParkedSignals { broker: true, budget: u64::MAX, ..sig(12 * G) }), "an unbounded cache");
     }
 
     /// D3994 (level gate): the release side of the switch: Pressure adds memory short to the level, Cap nothing.
     #[test]
     fn d3994_release_short_follows_the_switch() {
         use super::release_short;
-        assert!(
-            release_short(ParkedGate::Pressure, &sig(0)),
-            "Pressure: B full"
-        );
-        assert!(
-            !release_short(ParkedGate::Pressure, &sig(12 * G)),
-            "Pressure: room"
-        );
-        assert!(
-            !release_short(ParkedGate::Cap, &sig(0)),
-            "Cap: the level alone"
-        );
+        assert!(release_short(ParkedGate::Pressure, &sig(0)), "Pressure: B full");
+        assert!(!release_short(ParkedGate::Pressure, &sig(12 * G)), "Pressure: room");
+        assert!(!release_short(ParkedGate::Cap, &sig(0)), "Cap: the level alone");
     }
 
     /// D3994 (level gate): the per-credit read gives `release_short`'s answer on every arm, and reads nothing it does not need.
@@ -610,38 +413,14 @@ mod tests {
         use super::{release_short, release_short_by};
         let never = || -> u64 { panic!("a signal this arm does not read") };
         for gate in [ParkedGate::Pressure, ParkedGate::Cap] {
-            for s in [
-                sig(0),
-                sig(12 * G),
-                sig(u64::MAX),
-                ParkedSignals {
-                    bar: 8 * G,
-                    projected: 7 * G,
-                    ..sig(12 * G)
-                },
-                ParkedSignals {
-                    bar: 8 * G,
-                    projected: G,
-                    ..sig(0)
-                },
-                ParkedSignals { b: 0, ..sig(0) },
-            ] {
+            for s in [sig(0), sig(12 * G), sig(u64::MAX), ParkedSignals { bar: 8 * G, projected: 7 * G, ..sig(12 * G) }, ParkedSignals { bar: 8 * G, projected: G, ..sig(0) }, ParkedSignals { b: 0, ..sig(0) },] {
                 let by = release_short_by(gate, s.bar, || s.projected, || s.free_b, || s.b);
                 assert_eq!(by, release_short(gate, &s), "{gate:?} {s:?}");
             }
         }
-        assert!(
-            !release_short_by(ParkedGate::Cap, 8 * G, never, never, never),
-            "Cap reads no signal"
-        );
-        assert!(
-            !release_short_by(ParkedGate::Pressure, 0, never, || u64::MAX, never),
-            "no snapshot: B is not read"
-        );
-        assert!(
-            release_short_by(ParkedGate::Pressure, 8 * G, || 7 * G, never, never),
-            "governor on: B's free bytes are not read"
-        );
+        assert!(!release_short_by(ParkedGate::Cap, 8 * G, never, never, never), "Cap reads no signal");
+        assert!(!release_short_by(ParkedGate::Pressure, 0, never, || u64::MAX, never), "no snapshot: B is not read");
+        assert!(release_short_by(ParkedGate::Pressure, 8 * G, || 7 * G, never, never), "governor on: B's free bytes are not read");
     }
 
     /// D3994 (B.1 W): the cap arm (behind the same switch) evicts them whenever the cache is past its budget.
@@ -649,20 +428,8 @@ mod tests {
     fn d3994_parked_parts_cap_arm() {
         let c = |s: ParkedSignals| parked_evictable(ParkedGate::Cap, &s);
         assert!(c(sig(12 * G)), "past the budget, room or not");
-        assert!(
-            !c(ParkedSignals {
-                bytes: 3 * G,
-                ..sig(0)
-            }),
-            "under the budget, pressure or not"
-        );
-        assert!(
-            !c(ParkedSignals {
-                budget: u64::MAX,
-                ..sig(0)
-            }),
-            "an unbounded cache"
-        );
+        assert!(!c(ParkedSignals { bytes: 3 * G, ..sig(0) }), "under the budget, pressure or not");
+        assert!(!c(ParkedSignals { budget: u64::MAX, ..sig(0) }), "an unbounded cache");
     }
 
     #[test]
@@ -670,35 +437,16 @@ mod tests {
         assert_eq!(registry_budget(None), REGISTRY_BUDGET_BYTES);
         assert_eq!(registry_budget(Some(1 << 20)), REGISTRY_BUDGET_BYTES);
         assert_eq!(registry_budget(Some(1 << 30)), 1 << 30);
-        assert_eq!(
-            (part_cache_trim_target(1 << 30), part_cache_trim_target(0)),
-            (3 << 28, 0),
-            "a quarter under the budget"
-        );
+        assert_eq!((part_cache_trim_target(1 << 30), part_cache_trim_target(0)), (3 << 28, 0), "a quarter under the budget");
     }
 
     /// cachepolicy (C5): W-TinyLFU's segments and admission.
     #[test]
     fn cachepolicy_tinylfu_segments_and_admission() {
         use super::{tinylfu_admit, tinylfu_protected, tinylfu_window};
-        assert_eq!(
-            (
-                tinylfu_window(10_000),
-                tinylfu_window(50),
-                tinylfu_window(0)
-            ),
-            (100, 1, 1),
-            "1 % of the cap, at least 1"
-        );
-        assert_eq!(
-            tinylfu_protected(10_000),
-            7_920,
-            "80 % of main (the cap less the window)"
-        );
+        assert_eq!((tinylfu_window(10_000), tinylfu_window(50), tinylfu_window(0)), (100, 1, 1), "1 % of the cap, at least 1");
+        assert_eq!(tinylfu_protected(10_000), 7_920, "80 % of main (the cap less the window)");
         assert_eq!(tinylfu_protected(0), 0);
-        assert!(
-            tinylfu_admit(3, 2) && !tinylfu_admit(2, 2) && !tinylfu_admit(0, 0),
-            "strictly more often"
-        );
+        assert!(tinylfu_admit(3, 2) && !tinylfu_admit(2, 2) && !tinylfu_admit(0, 0), "strictly more often");
     }
 }

@@ -52,16 +52,10 @@ const fn same(a: &str, b: &str) -> bool {
 const _: () = {
     let mut i = 0;
     while i < N {
-        assert!(
-            !KNOBS[i].name.is_empty() && !KNOBS[i].doc.is_empty(),
-            "a knob with an empty name or doc (knobs.rs)"
-        );
+        assert!(!KNOBS[i].name.is_empty() && !KNOBS[i].doc.is_empty(), "a knob with an empty name or doc (knobs.rs)");
         let mut j = i + 1;
         while j < N {
-            assert!(
-                !same(KNOBS[i].name, KNOBS[j].name),
-                "a knob name twice (knobs.rs)"
-            );
+            assert!(!same(KNOBS[i].name, KNOBS[j].name), "a knob name twice (knobs.rs)");
             j += 1;
         }
         i += 1;
@@ -98,8 +92,7 @@ impl Source {
     }
 }
 
-static SOURCES: [core::sync::atomic::AtomicU8; N] =
-    [const { core::sync::atomic::AtomicU8::new(Source::Default as u8) }; N];
+static SOURCES: [core::sync::atomic::AtomicU8; N] = [const { core::sync::atomic::AtomicU8::new(Source::Default as u8) }; N];
 
 #[inline]
 pub fn get(k: K) -> u64 {
@@ -178,10 +171,7 @@ pub fn apply(spec: &str) -> Result<Applied, Refusal<'_>> {
     let entries = || spec.split(',').map(str::trim).filter(|e| !e.is_empty());
     let mut applied = Applied::default();
     for e in entries() {
-        let (key, value) = e
-            .split_once('=')
-            .map(|(k, v)| (k.trim(), v.trim()))
-            .ok_or(Refusal::UnknownKey(e))?;
+        let (key, value) = e.split_once('=').map(|(k, v)| (k.trim(), v.trim())).ok_or(Refusal::UnknownKey(e))?;
         match key {
             "impl" => {
                 if value != "default" {
@@ -202,10 +192,7 @@ pub fn apply(spec: &str) -> Result<Applied, Refusal<'_>> {
         }
     }
     for e in entries() {
-        let (key, value) = e
-            .split_once('=')
-            .map(|(k, v)| (k.trim(), v.trim()))
-            .expect("validated");
+        let (key, value) = e.split_once('=').map(|(k, v)| (k.trim(), v.trim())).expect("validated");
         match key {
             "impl" => IMPL.store(Impl::Default as u8, Ordering::Relaxed),
             "trace" => applied.trace = value == "1",
@@ -233,11 +220,7 @@ mod tests {
         assert_eq!(KNOBS[K::BytesWaitMs as usize].name, "bytes_wait_ms");
         assert_eq!(N, KNOBS.len());
         for (i, a) in KNOBS.iter().enumerate() {
-            assert!(
-                KNOBS[i + 1..].iter().all(|b| b.name != a.name),
-                "{} twice",
-                a.name
-            );
+            assert!(KNOBS[i + 1..].iter().all(|b| b.name != a.name), "{} twice", a.name);
             assert!(!a.doc.is_empty(), "{} has no doc", a.name);
         }
     }
@@ -247,36 +230,15 @@ mod tests {
         let _one = pgsync::lock(&TEST_LOCK);
         reset();
         assert_eq!(get(K::BytesWaitMs), 2_000);
-        assert_eq!(
-            apply(" bytes_wait_ms = 500 , trace=1,impl=default"),
-            Ok(Applied {
-                knobs: 1,
-                trace: true
-            })
-        );
+        assert_eq!(apply(" bytes_wait_ms = 500 , trace=1,impl=default"), Ok(Applied { knobs: 1, trace: true }));
         assert_eq!(get(K::BytesWaitMs), 500);
-        assert_eq!(
-            get_ms(K::BytesWaitMs),
-            core::time::Duration::from_millis(500)
-        );
-        assert_eq!(
-            apply("work_pool_min=1,ghost=3"),
-            Err(Refusal::UnknownKey("ghost=3"))
-        );
+        assert_eq!(get_ms(K::BytesWaitMs), core::time::Duration::from_millis(500));
+        assert_eq!(apply("work_pool_min=1,ghost=3"), Err(Refusal::UnknownKey("ghost=3")));
         assert_eq!(get(K::WorkPoolMin), GIB, "a refusal sets nothing");
-        assert_eq!(
-            apply("work_pool_min=1G"),
-            Err(Refusal::NotAnInteger("work_pool_min=1G"))
-        );
-        assert_eq!(
-            apply("impl=spark_fair"),
-            Err(Refusal::UnknownImpl("impl=spark_fair"))
-        );
+        assert_eq!(apply("work_pool_min=1G"), Err(Refusal::NotAnInteger("work_pool_min=1G")));
+        assert_eq!(apply("impl=spark_fair"), Err(Refusal::UnknownImpl("impl=spark_fair")));
         assert_eq!(apply("trace=yes"), Err(Refusal::NotAnInteger("trace=yes")));
-        assert_eq!(
-            apply("bytes_wait_ms"),
-            Err(Refusal::UnknownKey("bytes_wait_ms"))
-        );
+        assert_eq!(apply("bytes_wait_ms"), Err(Refusal::UnknownKey("bytes_wait_ms")));
         assert_eq!(apply(""), Ok(Applied::default()));
         assert_eq!(rules(), Impl::Default);
         reset();
@@ -288,40 +250,13 @@ mod tests {
     fn each_knob_records_where_its_value_came_from() {
         let _one = pgsync::lock(&TEST_LOCK);
         reset();
-        assert_eq!(
-            [
-                source(K::CacheFloor),
-                source(K::GiveBackSpill),
-                source(K::BytesWaitMs)
-            ],
-            [Source::Default; 3]
-        );
-        assert_eq!(
-            apply("cache_floor=1, give_back_spill=1"),
-            Ok(Applied {
-                knobs: 2,
-                trace: false
-            })
-        );
-        assert_eq!(
-            (get(K::CacheFloor), source(K::CacheFloor)),
-            (1, Source::Env)
-        );
-        assert_eq!(
-            source(K::GiveBackSpill),
-            Source::Env,
-            "a text that names the default value still sets it"
-        );
+        assert_eq!([source(K::CacheFloor), source(K::GiveBackSpill), source(K::BytesWaitMs)], [Source::Default; 3]);
+        assert_eq!(apply("cache_floor=1, give_back_spill=1"), Ok(Applied { knobs: 2, trace: false }));
+        assert_eq!((get(K::CacheFloor), source(K::CacheFloor)), (1, Source::Env));
+        assert_eq!(source(K::GiveBackSpill), Source::Env, "a text that names the default value still sets it");
         assert_eq!(source(K::BytesWaitMs), Source::Default);
-        assert_eq!(
-            apply("bytes_wait_ms=5,ghost=1"),
-            Err(Refusal::UnknownKey("ghost=1"))
-        );
-        assert_eq!(
-            source(K::BytesWaitMs),
-            Source::Default,
-            "a refusal sets no source"
-        );
+        assert_eq!(apply("bytes_wait_ms=5,ghost=1"), Err(Refusal::UnknownKey("ghost=1")));
+        assert_eq!(source(K::BytesWaitMs), Source::Default, "a refusal sets no source");
         let mut seen = 0;
         each(|k, v, s| {
             seen += 1;
@@ -331,18 +266,8 @@ mod tests {
         });
         assert_eq!(seen, N, "every knob once");
         set(K::CacheFloor, 0);
-        assert_eq!(
-            (get(K::CacheFloor), source(K::CacheFloor)),
-            (0, Source::Set)
-        );
-        assert_eq!(
-            [
-                Source::Default.name(),
-                Source::Env.name(),
-                Source::Set.name()
-            ],
-            ["default", "PGRUST_MEMPOLICY", "set"]
-        );
+        assert_eq!((get(K::CacheFloor), source(K::CacheFloor)), (0, Source::Set));
+        assert_eq!([Source::Default.name(), Source::Env.name(), Source::Set.name()], ["default", "PGRUST_MEMPOLICY", "set"]);
         reset();
         assert_eq!(source(K::CacheFloor), Source::Default);
     }

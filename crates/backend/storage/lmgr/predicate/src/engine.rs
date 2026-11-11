@@ -2,9 +2,7 @@
 // global shmem/dynahash/LWLock substrate — same adaptation as lock/shared.rs:
 // one address space, structures behind a OnceLock, C's LWLock discipline kept.
 
-#![allow(non_snake_case)]
-#![allow(non_upper_case_globals)]
-#![allow(clippy::missing_safety_doc)]
+#![allow(clippy::missing_safety_doc, non_snake_case, non_upper_case_globals)]
 
 use core::cell::Cell;
 use core::ptr;
@@ -305,9 +303,9 @@ unsafe fn RWConflictExists(
 
     let head = &raw const (*reader).outConflicts;
     let mut cur = (*head).head.next;
-    while !std::ptr::eq(cur, (&raw const (*head).head)) {
+    while !std::ptr::eq( cur, (&raw const (*head).head)) {
         let conflict = dlist_container!(RWConflictData, outLink, cur);
-        if std::ptr::eq((*conflict).sxactIn, writer) {
+        if std::ptr::eq( (*conflict).sxactIn, writer) {
             return true;
         }
         cur = (*cur).next;
@@ -400,7 +398,7 @@ unsafe fn FlagSxactUnsafe(sxact: *mut SERIALIZABLEXACT) {
 
     let head = &raw mut (*sxact).possibleUnsafeConflicts;
     let mut cur = (*head).head.next;
-    while !std::ptr::eq(cur, (&raw mut (*head).head)) {
+    while !std::ptr::eq( cur, (&raw mut (*head).head)) {
         let next = (*cur).next;
         let conflict = dlist_container!(RWConflictData, inLink, cur);
         debug_assert!(!SxactIsReadOnly((*conflict).sxactOut));
@@ -860,7 +858,7 @@ fn GetSerializableTransactionSnapshotInt(source: SnapshotSource<'_, '_>) -> PgRe
 
             let head = &raw const (*px).activeList;
             let mut cur = (*head).head.next;
-            while !std::ptr::eq(cur, (&raw const (*head).head)) {
+            while !std::ptr::eq( cur, (&raw const (*head).head)) {
                 let othersxact = dlist_container!(SERIALIZABLEXACT, xactLink, cur);
                 if !SxactIsCommitted(othersxact)
                     && !SxactIsDoomed(othersxact)
@@ -1077,7 +1075,7 @@ unsafe fn DeleteChildTargetLocks(newtargettag: *const PREDICATELOCKTARGETTAG) ->
 
     let head = &raw mut (*sxact).predicateLocks;
     let mut cur = (*head).head.next;
-    while !std::ptr::eq(cur, (&raw mut (*head).head)) {
+    while !std::ptr::eq( cur, (&raw mut (*head).head)) {
         let next = (*cur).next;
         let predlock = dlist_container!(PREDICATELOCK, xactLink, cur);
 
@@ -1402,7 +1400,7 @@ unsafe fn DeleteLockTarget(target: *mut PREDICATELOCKTARGET, targettaghash: u32)
 
     let head = &raw mut (*target).predicateLocks;
     let mut cur = (*head).head.next;
-    while !std::ptr::eq(cur, (&raw mut (*head).head)) {
+    while !std::ptr::eq( cur, (&raw mut (*head).head)) {
         let next = (*cur).next;
         let predlock = dlist_container!(PREDICATELOCK, targetLink, cur);
         dlist_delete(&raw mut (*predlock).xactLink);
@@ -1506,7 +1504,7 @@ unsafe fn TransferPredicateLocksToNewTarget(
 
         let head = &raw mut (*oldtarget).predicateLocks;
         let mut cur = (*head).head.next;
-        while !std::ptr::eq(cur, (&raw mut (*head).head)) {
+        while !std::ptr::eq( cur, (&raw mut (*head).head)) {
             let next = (*cur).next;
             let oldpredlock = dlist_container!(PREDICATELOCK, targetLink, cur);
             let oldCommitSeqNo = (*oldpredlock).commitSeqNo;
@@ -1651,7 +1649,7 @@ unsafe fn SetNewSxactGlobalXmin() -> PgResult<()> {
 
     let head = &raw const (*px).activeList;
     let mut cur = (*head).head.next;
-    while !std::ptr::eq(cur, (&raw const (*head).head)) {
+    while !std::ptr::eq( cur, (&raw const (*head).head)) {
         let sxact = dlist_container!(SERIALIZABLEXACT, xactLink, cur);
         if !SxactIsRolledBack(sxact)
             && !SxactIsCommitted(sxact)
@@ -1770,7 +1768,7 @@ pub fn ReleasePredicateLocks(mut isCommit: bool, isReadOnlySafe: bool) -> PgResu
         } else {
             let head = &raw mut (*mysx).possibleUnsafeConflicts;
             let mut cur = (*head).head.next;
-            while !std::ptr::eq(cur, (&raw mut (*head).head)) {
+            while !std::ptr::eq( cur, (&raw mut (*head).head)) {
                 let next = (*cur).next;
                 let puc = dlist_container!(RWConflictData, inLink, cur);
                 debug_assert!(!SxactIsReadOnly((*puc).sxactOut));
@@ -1787,7 +1785,7 @@ pub fn ReleasePredicateLocks(mut isCommit: bool, isReadOnlySafe: bool) -> PgResu
 
         let head = &raw mut (*mysx).outConflicts;
         let mut cur = (*head).head.next;
-        while !std::ptr::eq(cur, (&raw mut (*head).head)) {
+        while !std::ptr::eq( cur, (&raw mut (*head).head)) {
             let next = (*cur).next;
             let conflict = dlist_container!(RWConflictData, outLink, cur);
 
@@ -1813,7 +1811,7 @@ pub fn ReleasePredicateLocks(mut isCommit: bool, isReadOnlySafe: bool) -> PgResu
 
         let head = &raw mut (*mysx).inConflicts;
         let mut cur = (*head).head.next;
-        while !std::ptr::eq(cur, (&raw mut (*head).head)) {
+        while !std::ptr::eq( cur, (&raw mut (*head).head)) {
             let next = (*cur).next;
             let conflict = dlist_container!(RWConflictData, inLink, cur);
             if !isCommit
@@ -1828,7 +1826,7 @@ pub fn ReleasePredicateLocks(mut isCommit: bool, isReadOnlySafe: bool) -> PgResu
         if !topLevelIsDeclaredReadOnly {
             let head = &raw mut (*mysx).possibleUnsafeConflicts;
             let mut cur = (*head).head.next;
-            while !std::ptr::eq(cur, (&raw mut (*head).head)) {
+            while !std::ptr::eq( cur, (&raw mut (*head).head)) {
                 let next = (*cur).next;
                 let puc = dlist_container!(RWConflictData, outLink, cur);
                 let roXact = (*puc).sxactIn;
@@ -1960,7 +1958,7 @@ unsafe fn ClearOldPredicateLocks() -> PgResult<()> {
     let px = shared().pred_xact;
     let finished = shared().finished;
     let mut cur = (*finished).head.next;
-    while !std::ptr::eq(cur, (&raw mut (*finished).head)) {
+    while !std::ptr::eq( cur, (&raw mut (*finished).head)) {
         let next = (*cur).next;
         let finishedSxact = dlist_container!(SERIALIZABLEXACT, finishedLink, cur);
 
@@ -1995,7 +1993,7 @@ unsafe fn ClearOldPredicateLocks() -> PgResult<()> {
     let oc = shared().old_committed_sxact;
     let head = &raw mut (*oc).predicateLocks;
     let mut cur = (*head).head.next;
-    while !std::ptr::eq(cur, (&raw mut (*head).head)) {
+    while !std::ptr::eq( cur, (&raw mut (*head).head)) {
         let next = (*cur).next;
         let predlock = dlist_container!(PREDICATELOCK, xactLink, cur);
 
@@ -2055,7 +2053,7 @@ unsafe fn ReleaseOneSerializableXact(
 
     let head = &raw mut (*sxact).predicateLocks;
     let mut cur = (*head).head.next;
-    while !std::ptr::eq(cur, (&raw mut (*head).head)) {
+    while !std::ptr::eq( cur, (&raw mut (*head).head)) {
         let next = (*cur).next;
         let mut predlock = dlist_container!(PREDICATELOCK, xactLink, cur);
 
@@ -2136,7 +2134,7 @@ unsafe fn ReleaseOneSerializableXact(
     if !partial {
         let head = &raw mut (*sxact).outConflicts;
         let mut cur = (*head).head.next;
-        while !std::ptr::eq(cur, (&raw mut (*head).head)) {
+        while !std::ptr::eq( cur, (&raw mut (*head).head)) {
             let next = (*cur).next;
             let conflict = dlist_container!(RWConflictData, outLink, cur);
             if summarize {
@@ -2149,7 +2147,7 @@ unsafe fn ReleaseOneSerializableXact(
 
     let head = &raw mut (*sxact).inConflicts;
     let mut cur = (*head).head.next;
-    while !std::ptr::eq(cur, (&raw mut (*head).head)) {
+    while !std::ptr::eq( cur, (&raw mut (*head).head)) {
         let next = (*cur).next;
         let conflict = dlist_container!(RWConflictData, inLink, cur);
         if summarize {
@@ -2355,7 +2353,7 @@ unsafe fn CheckTargetForConflictsIn(targettag: *mut PREDICATELOCKTARGETTAG) -> P
 
     let head = &raw mut (*target).predicateLocks;
     let mut cur = (*head).head.next;
-    while !std::ptr::eq(cur, (&raw mut (*head).head)) {
+    while !std::ptr::eq( cur, (&raw mut (*head).head)) {
         let next = (*cur).next;
         let predlock = dlist_container!(PREDICATELOCK, targetLink, cur);
         let sxact = (*predlock).tag.myXact;
@@ -2589,7 +2587,7 @@ fn DropAllPredicateLocksFromTable(
 
                 let head = &raw mut (*oldtarget).predicateLocks;
                 let mut cur = (*head).head.next;
-                while !std::ptr::eq(cur, (&raw mut (*head).head)) {
+                while !std::ptr::eq( cur, (&raw mut (*head).head)) {
                     let next = (*cur).next;
                     let oldpredlock = dlist_container!(PREDICATELOCK, targetLink, cur);
                     let oldCommitSeqNo = (*oldpredlock).commitSeqNo;
@@ -2717,7 +2715,7 @@ pub fn CheckTableForSerializableConflictIn(
 
             let head = &raw mut (*target).predicateLocks;
             let mut cur = (*head).head.next;
-            while !std::ptr::eq(cur, (&raw mut (*head).head)) {
+            while !std::ptr::eq( cur, (&raw mut (*head).head)) {
                 let next = (*cur).next;
                 let predlock = dlist_container!(PREDICATELOCK, targetLink, cur);
                 if (*predlock).tag.myXact != mysx
@@ -2780,7 +2778,7 @@ unsafe fn OnConflict_CheckForSerializationFailure(
     } else if !failure {
         let head = &raw const (*writer).outConflicts;
         let mut cur = (*head).head.next;
-        while !std::ptr::eq(cur, (&raw const (*head).head)) {
+        while !std::ptr::eq( cur, (&raw const (*head).head)) {
             let conflict = dlist_container!(RWConflictData, outLink, cur);
             let t2 = (*conflict).sxactIn;
 
@@ -2803,7 +2801,7 @@ unsafe fn OnConflict_CheckForSerializationFailure(
         } else {
             let head = &raw const (*reader).inConflicts;
             let mut cur = (*head).head.next;
-            while !std::ptr::eq(cur, (&raw const (*head).head)) {
+            while !std::ptr::eq( cur, (&raw const (*head).head)) {
                 let conflict = dlist_container!(RWConflictData, inLink, cur);
                 let t0 = (*conflict).sxactOut;
 
@@ -2859,7 +2857,7 @@ pub fn PreCommit_CheckForSerializationFailure() -> PgResult<()> {
 
         let head = &raw const (*mysx).inConflicts;
         let mut near = (*head).head.next;
-        while !std::ptr::eq(near, (&raw const (*head).head)) {
+        while !std::ptr::eq( near, (&raw const (*head).head)) {
             let nearConflict = dlist_container!(RWConflictData, inLink, near);
 
             if !SxactIsCommitted((*nearConflict).sxactOut)
@@ -2867,7 +2865,7 @@ pub fn PreCommit_CheckForSerializationFailure() -> PgResult<()> {
             {
                 let fhead = &raw const (*(*nearConflict).sxactOut).inConflicts;
                 let mut far = (*fhead).head.next;
-                while !std::ptr::eq(far, (&raw const (*fhead).head)) {
+                while !std::ptr::eq( far, (&raw const (*fhead).head)) {
                     let farConflict = dlist_container!(RWConflictData, inLink, far);
                     if (*farConflict).sxactOut == mysx
                         || (!SxactIsCommitted((*farConflict).sxactOut)
@@ -3028,7 +3026,7 @@ pub fn AtPrepare_PredicateLocks() -> PgResult<()> {
         let head = &raw const (*sxact).predicateLocks;
         let mut cur = (*head).head.next;
         let mut register_err: PgResult<()> = Ok(());
-        while !std::ptr::eq(cur, (&raw const (*head).head)) {
+        while !std::ptr::eq( cur, (&raw const (*head).head)) {
             let predlock = dlist_container!(PREDICATELOCK, xactLink, cur);
             let target = (*predlock).tag.myTarget;
             let targettag = (*target).tag;
@@ -3313,7 +3311,7 @@ pub fn GetSafeSnapshotBlockingPids(blocked_pid: i32, output_size: usize) -> PgRe
         let head = &raw const (*px).activeList;
         let mut cur = (*head).head.next;
         let mut blocking_sxact: *mut SERIALIZABLEXACT = ptr::null_mut();
-        while !std::ptr::eq(cur, (&raw const (*head).head)) {
+        while !std::ptr::eq( cur, (&raw const (*head).head)) {
             let sxact = dlist_container!(SERIALIZABLEXACT, xactLink, cur);
             if (*sxact).pid == blocked_pid {
                 blocking_sxact = sxact;
@@ -3327,7 +3325,7 @@ pub fn GetSafeSnapshotBlockingPids(blocked_pid: i32, output_size: usize) -> PgRe
         {
             let head = &raw const (*blocking_sxact).possibleUnsafeConflicts;
             let mut cur = (*head).head.next;
-            while !std::ptr::eq(cur, (&raw const (*head).head)) {
+            while !std::ptr::eq( cur, (&raw const (*head).head)) {
                 let conflict = dlist_container!(RWConflictData, inLink, cur);
                 pids.push((*(*conflict).sxactOut).pid);
                 if pids.len() >= output_size {

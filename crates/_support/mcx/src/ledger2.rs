@@ -52,9 +52,7 @@ pub fn scan_cost() -> (u64, u64, u64) {
 
 #[cfg(feature = "std")]
 fn owned_now(procno: Option<usize>) -> u64 {
-    let Some(p) = procno.and_then(|p| u32::try_from(p).ok()) else {
-        return 0;
-    };
+    let Some(p) = procno.and_then(|p| u32::try_from(p).ok()) else { return 0; };
     let a = memledger::Acct::backend(p);
     if !a.is_backend() {
         return 0;
@@ -62,16 +60,10 @@ fn owned_now(procno: Option<usize>) -> u64 {
     let (stmt, portal) = memledger::charge::running_owners(a);
     let mut t = 0i64;
     if stmt != 0 {
-        t = t.saturating_add(
-            memledger::charge::usage(memledger::Owner::Statement { acct: a, stmt })
-                .subtree_resident(),
-        );
+        t = t.saturating_add(memledger::charge::usage(memledger::Owner::Statement { acct: a, stmt }).subtree_resident(),);
     }
     if portal != 0 {
-        t = t.saturating_add(
-            memledger::charge::usage(memledger::Owner::Portal { acct: a, portal })
-                .subtree_resident(),
-        );
+        t = t.saturating_add(memledger::charge::usage(memledger::Owner::Portal { acct: a, portal }).subtree_resident(),);
     }
     t.max(0) as u64
 }
@@ -90,12 +82,7 @@ pub enum Decision {
 }
 
 pub const DECISIONS: usize = 4;
-pub const DECISION_NAMES: [&str; DECISIONS] = [
-    "R6 cancel pick",
-    "fair-share cancel",
-    "R4a own spill",
-    "R4b revoke",
-];
+pub const DECISION_NAMES: [&str; DECISIONS] = ["R6 cancel pick", "fair-share cancel", "R4a own spill", "R4b revoke",];
 
 /// At most one line per decision this often (ms).
 pub const LINE_EVERY_MS: u64 = 1_000;
@@ -108,24 +95,12 @@ struct Rec {
     last_ms: AtomicU64,
 }
 
-static RECS: [Rec; DECISIONS] = [const {
-    Rec {
-        runs: AtomicU64::new(0),
-        differ: AtomicU64::new(0),
-        skipped: AtomicU64::new(0),
-        last_ms: AtomicU64::new(0),
-    }
-}; DECISIONS];
+static RECS: [Rec; DECISIONS] = [const { Rec { runs: AtomicU64::new(0), differ: AtomicU64::new(0), skipped: AtomicU64::new(0), last_ms: AtomicU64::new(0), } }; DECISIONS];
 
 /// Per decision since the server started: how many ran, how many the owner tree would have decided otherwise, how many
 /// were not compared (`skip`).
 pub fn counts() -> [(u64, u64, u64); DECISIONS] {
-    core::array::from_fn(|i| {
-        (
-            RECS[i].runs.load(Relaxed),
-            RECS[i].differ.load(Relaxed),
-            RECS[i].skipped.load(Relaxed),
-        )
+    core::array::from_fn(|i| { (RECS[i].runs.load(Relaxed), RECS[i].differ.load(Relaxed), RECS[i].skipped.load(Relaxed),)
     })
 }
 
@@ -142,19 +117,10 @@ pub fn summary_line(out: &mut [u8]) -> usize {
     let mut e = Buf { b: out, n: 0 };
     let _ = write!(e, "ledger2-shadow summary since start:");
     for (i, (runs, differ, skipped)) in counts().iter().enumerate() {
-        let _ = write!(
-            e,
-            " {} {runs} run, {differ} differ, {skipped} skipped;",
-            DECISION_NAMES[i]
-        );
+        let _ = write!(e, " {} {runs} run, {differ} differ, {skipped} skipped;", DECISION_NAMES[i]);
     }
     let (scans, ns, max) = scan_cost();
-    let _ = write!(
-        e,
-        " operator-cell scans {scans}, mean {} us, max {} us",
-        ns / scans.max(1) / 1_000,
-        max / 1_000
-    );
+    let _ = write!(e, " operator-cell scans {scans}, mean {} us, max {} us", ns / scans.max(1) / 1_000, max / 1_000);
     e.n
 }
 
@@ -189,10 +155,7 @@ pub fn note(d: Decision, today: Choice, tree: Choice, now_ms: u64) {
     if last != 0 && now_ms.saturating_sub(last) < LINE_EVERY_MS {
         return;
     }
-    if r.last_ms
-        .compare_exchange(last, now_ms.max(1), Relaxed, Relaxed)
-        .is_err()
-    {
+    if r.last_ms.compare_exchange(last, now_ms.max(1), Relaxed, Relaxed).is_err() {
         return;
     }
     #[cfg(feature = "std")]
@@ -234,12 +197,7 @@ fn write_line(d: Decision, today: Choice, tree: Choice, runs: u64, differ: u64) 
     let _ = side(&mut e, tree);
     let _ = write!(e, "; {differ} of {runs} such decisions differ since start");
     let (scans, ns, max) = scan_cost();
-    let _ = write!(
-        e,
-        "; operator-cell scans {scans}, mean {} us, max {} us",
-        ns / scans.max(1) / 1_000,
-        max / 1_000
-    );
+    let _ = write!(e, "; operator-cell scans {scans}, mean {} us, max {} us", ns / scans.max(1) / 1_000, max / 1_000);
     e.n = e.n.min(e.b.len() - 1);
     e.b[e.n] = b'\n';
     // D4812: through the server's stderr writer (deferred on a memory safety thread), never a raw stderr write
@@ -268,25 +226,13 @@ mod tests {
         skip(Decision::OwnSpill);
         skip(Decision::OwnSpill);
         let after = counts()[Decision::OwnSpill as usize];
-        assert_eq!(
-            (after.0 - before.0, after.1 - before.1),
-            (0, 0),
-            "not compared"
-        );
+        assert_eq!((after.0 - before.0, after.1 - before.1), (0, 0), "not compared");
         assert!(after.2 - before.2 >= 2, "counted as skipped");
         let mut b = [0u8; 512];
         let n = summary_line(&mut b);
         let line = core::str::from_utf8(&b[..n]).unwrap();
-        assert!(
-            line.starts_with("ledger2-shadow summary since start:"),
-            "{line}"
-        );
+        assert!(line.starts_with("ledger2-shadow summary since start:"), "{line}");
         // other tests may note decisions meanwhile: the shape, not the numbers
-        assert!(
-            line.contains("R4a own spill ")
-                && line.contains(" skipped;")
-                && line.contains("operator-cell scans "),
-            "{line}"
-        );
+        assert!(line.contains("R4a own spill ") && line.contains(" skipped;") && line.contains("operator-cell scans "), "{line}");
     }
 }

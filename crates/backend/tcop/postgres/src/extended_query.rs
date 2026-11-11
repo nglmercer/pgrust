@@ -994,7 +994,8 @@ pub(crate) fn owned_msg_string<'mcx>(
     // these bytes, so the honest report is 0A000, not a protocol violation.
     let text =
         core::str::from_utf8(s.as_bytes()).map_err(|_| crate::non_utf8_query_error())?;
-    PgString::from_str_in(text, mcx)}
+    PgString::from_str_in(text, mcx)
+}
 
 // pg_client_to_server + the trailing NUL C scribbles onto the message buffer.
 fn client_to_server_cstring<'mcx>(

@@ -123,7 +123,7 @@ fn name_ref<'a>(d: Datum) -> &'a NameData {
 // parity == payload parity); realign by copy (C DatumGetNumeric; short <= 125B).
 fn aligned_num<'a>(payload: &'a [u8], buf: &'a mut [u16; 64]) -> adt_numeric::Num<'a> {
     let num = adt_numeric::Num::from_payload(payload);
-    if num.is_special() || (payload.as_ptr() as usize).is_multiple_of(2) {
+    if num.is_special() || ( payload.as_ptr() as usize).is_multiple_of( 2) {
         return num;
     }
     assert!(payload.len() <= 128);
@@ -355,7 +355,7 @@ fn fc_gin_numeric_cmp(_f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResul
     Ok(Datum::from_i32(adt_numeric::cmp_numerics(a, b)))
 }
 
-fn fc_gin_enum_cmp(f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
+fn fc_gin_enum_cmp( f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
     let (a, b) = (fcinfo.arg(0).as_oid(), fcinfo.arg(1).as_oid());
     let res = if a == InvalidOid || b == InvalidOid {
         enum_sentinel_cmp(a, b)?

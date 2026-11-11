@@ -46,11 +46,7 @@ fn logicalmsg_desc_data(buf: &mut StringInfo<'_>, data: &[u8], info: u8) -> PgRe
         appendf!(
             buf,
             "{}, prefix \"",
-            if transactional {
-                "transactional"
-            } else {
-                "non-transactional"
-            }
+            if transactional { "transactional" } else { "non-transactional" }
         )?;
         buf.append_bytes(prefix)?;
         appendf!(buf, "\"; payload ({message_size} bytes): ")?;
@@ -85,7 +81,8 @@ mod tests {
         data.extend_from_slice(message);
         let cx = mcx::MemoryContext::new("logicalmsgdesc_test");
         let mut buf = StringInfo::new_in(cx.mcx()).unwrap();
-        logicalmsg_desc_data(&mut buf, &data, XLOG_LOGICAL_MESSAGE).map_err(|e| e.to_string())?;
+        logicalmsg_desc_data(&mut buf, &data, XLOG_LOGICAL_MESSAGE)
+            .map_err(|e| e.to_string())?;
         Ok(buf.as_bytes().to_vec())
     }
 

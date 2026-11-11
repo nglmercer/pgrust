@@ -129,12 +129,7 @@ impl BumpArena {
     }
 
     pub(crate) fn mem_allocated(&self) -> usize {
-        self.mem_allocated
-            + if self.blocks.is_empty() {
-                INIT_BLOCK_SIZE
-            } else {
-                0
-            }
+        self.mem_allocated + if self.blocks.is_empty() { INIT_BLOCK_SIZE } else { 0 }
     }
 
     pub(crate) fn window_tail(&self) -> usize {
@@ -161,10 +156,7 @@ impl BumpArena {
             // SAFETY: csize <= avail keeps the bump inside the active block; p non-null there.
             unsafe {
                 self.cur_ptr = p.add(csize);
-                return Ok(NonNull::slice_from_raw_parts(
-                    NonNull::new_unchecked(p),
-                    csize,
-                ));
+                return Ok(NonNull::slice_from_raw_parts(NonNull::new_unchecked(p), csize,));
             }
         }
         self.alloc_from_new_block(csize, acct)
@@ -199,10 +191,7 @@ impl BumpArena {
         // SAFETY: csize <= avail keeps the bump inside the active block; p is non-null there (avail > 0).
         unsafe {
             self.cur_ptr = p.add(csize);
-            Some(NonNull::slice_from_raw_parts(
-                NonNull::new_unchecked(p),
-                csize,
-            ))
+            Some(NonNull::slice_from_raw_parts(NonNull::new_unchecked(p), csize,))
         }
     }
 
@@ -284,11 +273,7 @@ impl BumpArena {
             self.cur_end = p.as_ptr().add(blksize);
         }
         acct.window_tail.set(blksize - csize);
-        self.keeper_base = if is_keeper && self.oversize.is_empty() {
-            p.as_ptr()
-        } else {
-            core::ptr::null_mut()
-        };
+        self.keeper_base = if is_keeper && self.oversize.is_empty() { p.as_ptr() } else { core::ptr::null_mut() };
         self.blocks.push(block);
         self.reuse = self.blocks.len() as u32;
         Ok(NonNull::slice_from_raw_parts(p, csize))
@@ -375,9 +360,7 @@ impl BumpArena {
             acct.admit_block(delta);
             // SAFETY: (ptr, cur_layout) is the live heap allocation recorded
             // for this chunk; new_size >= cur_layout.size().
-            let (new, served) = unsafe {
-                crate::heap::resize_served_for(ptr, cur_layout, new_layout, &acct.led, served)?
-            };
+            let (new, served) = unsafe { crate::heap::resize_served_for(ptr, cur_layout, new_layout, &acct.led, served)? };
             self.oversize[i] = (new.cast(), new_layout, served);
             self.mem_allocated += delta;
             crate::global_footprint::add(delta);
@@ -415,31 +398,17 @@ impl BumpArena {
         }
         self.next_block_size = INIT_BLOCK_SIZE;
         self.reuse = 1;
-        debug_assert_eq!(
-            self.mem_allocated,
-            self.blocks.iter().map(|b| b.size).sum::<usize>()
-        );
-        debug_assert!(
-            !self
-                .blocks
-                .iter()
-                .any(|b| crate::heap::pooled(b.ptr.as_ptr())),
-            "mcx: a block source's block kept over a reset"
-        );
+        debug_assert_eq!(self.mem_allocated, self.blocks.iter().map(|b| b.size).sum::<usize>());
+        debug_assert!(!self.blocks.iter().any(|b| crate::heap::pooled(b.ptr.as_ptr())), "mcx: a block source's block kept over a reset");
     }
 
     pub(crate) fn oversize_served(&self, p: NonNull<u8>) -> Option<bool> {
-        self.oversize
-            .iter()
-            .find(|e| e.0 == p)
-            .and_then(|e| e.2.known(p.as_ptr()))
+        self.oversize.iter().find(|e| e.0 == p).and_then(|e| e.2.known(p.as_ptr()))
     }
 
     /// Whether a new block of `size` bytes is one a reset keeps (`retain_cap`): never the block source's.
     fn retains(&self, size: usize) -> bool {
-        self.retain_cap != 0
-            && self.blocks.iter().skip(1).map(|b| b.size).sum::<usize>() + size
-                <= self.retain_cap as usize
+        self.retain_cap != 0 && self.blocks.iter().skip(1).map(|b| b.size).sum::<usize>() + size <= self.retain_cap as usize
     }
 
     #[cold]
@@ -454,9 +423,7 @@ impl BumpArena {
         if self.blocks.len() > 1 {
             let mut keep = 1;
             let mut kept = 0usize;
-            while keep < self.blocks.len()
-                && kept + self.blocks[keep].size <= self.retain_cap as usize
-            {
+            while keep < self.blocks.len() && kept + self.blocks[keep].size <= self.retain_cap as usize {
                 kept += self.blocks[keep].size;
                 keep += 1;
             }
@@ -543,10 +510,7 @@ mod tests {
         unsafe {
             p.as_ptr().write_bytes(0x5a, old.size());
             let q = a.grow(p, old, large, &acct).unwrap().cast::<u8>();
-            assert_eq!(
-                core::slice::from_raw_parts(q.as_ptr(), old.size()),
-                &[0x5a; 64]
-            );
+            assert_eq!(core::slice::from_raw_parts(q.as_ptr(), old.size()), &[0x5a; 64]);
         }
         assert_eq!(a.oversize.len(), 1);
         assert_eq!(a.oversize[0].1.size(), 1024);
@@ -571,10 +535,7 @@ mod tests {
             last = Some(p);
         }
         assert!(a.footprint() >= 1000 * 24);
-        assert!(
-            acct.self_used.get() >= 1000 * 24,
-            "block charges cover the chunks"
-        );
+        assert!(acct.self_used.get() >= 1000 * 24, "block charges cover the chunks");
         assert_eq!(acct.self_used.get() % 8, 0);
     }
 
@@ -585,23 +546,13 @@ mod tests {
         let l = Layout::from_size_align(64, 8).unwrap();
         let _ = a.alloc(l, &acct).unwrap();
         let after_first = acct.self_used.get();
-        assert_eq!(
-            after_first, INIT_BLOCK_SIZE,
-            "first alloc charges the whole keeper"
-        );
+        assert_eq!(after_first, INIT_BLOCK_SIZE, "first alloc charges the whole keeper");
         for _ in 0..(INIT_BLOCK_SIZE / 64 - 1) {
             let _ = a.alloc(l, &acct).unwrap();
         }
-        assert_eq!(
-            acct.self_used.get(),
-            after_first,
-            "in-block allocs charge nothing"
-        );
+        assert_eq!(acct.self_used.get(), after_first, "in-block allocs charge nothing");
         let _ = a.alloc(l, &acct).unwrap();
-        assert!(
-            acct.self_used.get() > after_first,
-            "block transition charges"
-        );
+        assert!(acct.self_used.get() > after_first, "block transition charges");
         assert_eq!(acct.arena_footprint.get(), a.footprint());
         assert_eq!(acct.arena_nblocks.get(), a.nblocks());
     }
@@ -622,18 +573,11 @@ mod tests {
         assert_eq!(a.blocks.len(), 1);
         assert_eq!(a.footprint(), a.blocks[0].size);
         let keeper_base = a.blocks[0].ptr.as_ptr();
-        assert_eq!(
-            a.cur_ptr, keeper_base,
-            "window re-opens on the keeper at reset"
-        );
+        assert_eq!(a.cur_ptr, keeper_base, "window re-opens on the keeper at reset");
         let charged = acct.self_used.get();
         let p = a.alloc(l, &acct).unwrap().cast::<u8>().as_ptr();
         assert_eq!(p, keeper_base, "first post-reset chunk starts the keeper");
-        assert_eq!(
-            acct.self_used.get(),
-            charged,
-            "no re-charge on the fast path"
-        );
+        assert_eq!(acct.self_used.get(), charged, "no re-charge on the fast path");
     }
 
     #[test]
@@ -698,33 +642,21 @@ mod tests {
         let q = unsafe {
             p.as_ptr().write_bytes(0xa5, old.size());
             let q = a.grow(p, old, new, &acct).unwrap().cast::<u8>();
-            assert!(core::slice::from_raw_parts(q.as_ptr(), old.size())
-                .iter()
-                .all(|&b| b == 0xa5));
+            assert!(core::slice::from_raw_parts(q.as_ptr(), old.size()).iter().all(|&b| b == 0xa5));
             q
         };
-        assert_eq!(
-            a.oversize.len(),
-            1,
-            "realloc replaces the entry, never appends"
-        );
+        assert_eq!(a.oversize.len(), 1, "realloc replaces the entry, never appends");
         assert_eq!(a.oversize[0].0, q);
         assert_eq!(a.oversize[0].1.size(), new.size());
         assert_eq!(a.blocks.len(), 0, "no block was opened for the copy");
-        assert_eq!(
-            a.footprint(),
-            new.size(),
-            "old dedicated bytes are released, not retained"
-        );
+        assert_eq!(a.footprint(), new.size(), "old dedicated bytes are released, not retained");
         assert_eq!(acct.self_used.get(), used0 + (new.size() - old.size()));
         assert_eq!(acct.arena_footprint.get(), a.footprint());
         assert_eq!(acct.arena_nblocks.get(), 1);
         // Second grow on the moved pointer keeps one entry.
         let bigger = Layout::from_size_align(8 * BUMP_CHUNK_LIMIT, 8).unwrap();
         // SAFETY: q live from grow with `new`.
-        let r = unsafe { a.grow(q, new, bigger, &acct) }
-            .unwrap()
-            .cast::<u8>();
+        let r = unsafe { a.grow(q, new, bigger, &acct) }.unwrap().cast::<u8>();
         assert_eq!(a.oversize.len(), 1);
         assert_eq!(a.oversize[0].0, r);
         assert_eq!(a.footprint(), bigger.size());
@@ -748,22 +680,12 @@ mod tests {
             assert_eq!(core::slice::from_raw_parts(q.as_ptr(), 64), &[0x3c; 64]);
             q
         };
-        assert_eq!(
-            a.oversize.len(),
-            1,
-            "crossing chunk_limit promotes to a dedicated chunk"
-        );
-        assert_eq!(
-            a.blocks.len(),
-            1,
-            "the dead 64-byte chunk stays in the keeper"
-        );
+        assert_eq!(a.oversize.len(), 1, "crossing chunk_limit promotes to a dedicated chunk");
+        assert_eq!(a.blocks.len(), 1, "the dead 64-byte chunk stays in the keeper");
         assert_eq!(a.footprint(), INIT_BLOCK_SIZE + big.size());
         let bigger = Layout::from_size_align(2 * BUMP_CHUNK_LIMIT, 8).unwrap();
         // SAFETY: q live from grow with `big`.
-        let r = unsafe { a.grow(q, big, bigger, &acct) }
-            .unwrap()
-            .cast::<u8>();
+        let r = unsafe { a.grow(q, big, bigger, &acct) }.unwrap().cast::<u8>();
         assert_eq!(a.oversize.len(), 1);
         assert_eq!(a.oversize[0].0, r);
         assert_eq!(a.footprint(), INIT_BLOCK_SIZE + bigger.size());

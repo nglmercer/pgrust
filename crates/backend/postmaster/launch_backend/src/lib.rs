@@ -297,7 +297,7 @@ fn reserve_child_pid() -> Option<pid_t> {
         // 0/negative), normalizing any out-of-range value the same way.
         let mut cur = NEXT_CHILD_PID.load(Ordering::Relaxed);
         let candidate = loop {
-            let c = if !(MIN_SYNTHETIC_PID..=MAX_SYNTHETIC_PID).contains(&cur) {
+            let c = if !( MIN_SYNTHETIC_PID..= MAX_SYNTHETIC_PID).contains(&cur) {
                 MIN_SYNTHETIC_PID
             } else {
                 cur
@@ -2786,8 +2786,7 @@ pub mod rtpool {
                         });
                 }
                 body();
-            }));
-        spawned
+            })); spawned
     }
 
     /// M4 bgjobs increment 4 (docs/design/m4-bgjobs.md §3.6, the virtual

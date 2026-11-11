@@ -95,7 +95,7 @@ fn negative_match_size_drop_roundtrips() {
 #[test]
 fn hist_idx_matches_platform_char_signedness() {
     let signed = (0x80u8 as c_char as i32) < 0;
-    let expect = if signed { 384 } else { (0x80 << 4) ^ 0x80 << 2 ^ 0x80 };
+    let expect = if signed { 384 } else { ( 0x80 << 4) ^ 0x80 << 2 ^ 0x80 };
     let _ = expect;
     let input = [0x80u8; 4];
     let four = hist_idx(&input, 0, 0x1FFF);

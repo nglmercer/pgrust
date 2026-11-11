@@ -319,6 +319,7 @@ fn form_tuple<'mcx>(
         [Datum::from_usize(0); INDEX_MAX_KEYS as usize];
     untoasted[..natts].copy_from_slice(&values[..natts]);
 
+
     // C pfrees the detoasted/compressed temporaries after heap_fill_tuple
     // (indextuple.c:184); only the returned tuple lives in `mcx`.
     let mut scratch: Option<::mcx::MemoryContext> = None;
@@ -378,34 +379,19 @@ struct ImageShape {
 }
 
 #[inline]
-fn image_shape(
-    tupdesc: &TupleDescData<'_>,
-    values: &[Datum],
-    isnull: &[bool],
-) -> PgResult<ImageShape> {
+fn image_shape(tupdesc: &TupleDescData<'_>, values: &[Datum], isnull: &[bool],) -> PgResult<ImageShape> {
     let hasnull = isnull[..values.len()].contains(&true);
     let hoff = index_info_find_data_offset(if hasnull { INDEX_NULL_MASK } else { 0 });
     let data_size = ::heaptuple::heap_compute_data_size(tupdesc, values, isnull);
     let size = maxalign(hoff + data_size);
     validate_index_tuple_size(size)?;
-    Ok(ImageShape {
-        size,
-        data_size,
-        hoff,
-        hasnull,
-    })
+    Ok(ImageShape { size, data_size, hoff, hasnull, })
 }
 
 /// # Safety
 /// `tp` points at `shape.size` writable zeroed bytes, 8-aligned.
 #[inline]
-unsafe fn fill_image(
-    tupdesc: &TupleDescData<'_>,
-    values: &[Datum],
-    isnull: &[bool],
-    shape: &ImageShape,
-    tp: *mut u8,
-) {
+unsafe fn fill_image(tupdesc: &TupleDescData<'_>, values: &[Datum], isnull: &[bool], shape: &ImageShape, tp: *mut u8,) {
     let mut infomask: u16 = if shape.hasnull { INDEX_NULL_MASK } else { 0 };
     let mut tupmask: u16 = 0;
     // SAFETY: tp holds hoff + data_size zeroed bytes; bitmap area pre-zeroed (caller).
@@ -456,9 +442,7 @@ pub(crate) fn index_form_tuple_stack(
         // SAFETY: non-null varlena datums carry live pointers (caller contract), as form_tuple's loop.
         unsafe {
             if varatt_is_1b_e(p)
-                || (!varatt_is_1b(p)
-                    && !varatt_is_compressed(p)
-                    && varsize_any(p) > TOAST_INDEX_TARGET)
+                || (!varatt_is_1b(p) && !varatt_is_compressed(p) && varsize_any(p) > TOAST_INDEX_TARGET)
             {
                 return Ok(None);
             }
@@ -764,7 +748,7 @@ pub unsafe fn index_tuple_verify(itup: ITup, lp_len: usize, atts: &[CompactAttri
                 }
                 let tagsz = match vartag_external(p) {
                     // varatt_indirect / varatt_expanded (8) ; varatt_external (16).
-                    1..=3 => 8,
+                    1..= 3 => 8,
                     18 => 16,
                     _ => return false,
                 };

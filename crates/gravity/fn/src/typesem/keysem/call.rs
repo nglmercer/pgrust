@@ -144,7 +144,7 @@ fn call_run(run: &mut Running, a: u64, b: u64) -> Result<crate::NullableDatum, B
 /// afresh); a running one is never touched (D3375 N7: its call ends first, then the next find drops it).
 #[inline]
 fn find(h: &mut Vec<Slot>, proc: u32, coll: u32, use_: Use) -> Option<Running> {
-    let i = h.iter().position(|s| s.idle().is_some_and(|e| e.proc == proc && e.coll == coll && e.use_ == use_ && !e.stale && e.alias.is_none_or(|a| a.current())))?;
+    let i = h.iter().position(|s| s.idle().is_some_and(|e| e.proc == proc && e.coll == coll && e.use_ == use_ && !e.stale &&e.alias.is_none_or(|a|a.current())))?;
     if !h[i].idle().is_some_and(|e| e.held.as_ref().is_none_or(gravity_deps::Held::stands)) {
         drop(h.swap_remove(i));
         return None;
@@ -152,7 +152,7 @@ fn find(h: &mut Vec<Slot>, proc: u32, coll: u32, use_: Use) -> Option<Running> {
     let s = &mut h[i];
     let e = s.idle_mut().expect("gravity: the binding found idle");
     e.calls += 1;
-    if e.calls.is_multiple_of(WINDOW) {
+    if e.calls.is_multiple_of( WINDOW) {
         e.f.reset_window();
     }
     Some(s.run())
@@ -166,7 +166,7 @@ fn bind(proc: u32, coll: u32, use_: Use) -> Result<Running, Box<PgError>> {
     let alias = if use_ == Use::Order && coll == 0 { alias::read(proc) } else { None };
     BOUND.with(|h| {
         let mut h = h.borrow_mut();
-        h.retain(|s| s.idle().is_none_or(|e| e.alias.is_none_or(|a| a.current())));
+        h.retain(|s|s.idle().is_none_or(|e| e.alias.is_none_or(|a|a.current())));
         let Some(f) = FmgrCall::bind_resolved(alias.map_or(proc, |(b, _)| b), 2, coll) else {
             return Err(Box::new(PgError::error(match use_ { // alloc: Cold
                 Use::Order => "gravity: a comparator no lowering resolved",

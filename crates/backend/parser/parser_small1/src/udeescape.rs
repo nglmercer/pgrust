@@ -56,11 +56,7 @@ fn check_unicode_value(c: pg_wchar, escpos: i32) -> Result<(), UdeescapeError> {
     if is_valid_unicode_codepoint(c) {
         Ok(())
     } else {
-        Err(UdeescapeError {
-            message: "invalid Unicode escape value",
-            location: escpos,
-            hint: None,
-        })
+        Err(UdeescapeError { message: "invalid Unicode escape value", location: escpos, hint: None, })
     }
 }
 
@@ -93,11 +89,8 @@ fn pg_unicode_to_server<'mcx>(
             mbutils::GetDatabaseEncoding(),
             "str_udeescape encoding drifted from the database encoding"
         );
-        let bytes =
-            mbutils::pg_unicode_to_server(mcx, c).map_err(|error| UdeescapeFailure::Hard {
-                error,
-                location: escpos,
-            })?;
+        let bytes = mbutils::pg_unicode_to_server(mcx, c)
+            .map_err(|error| UdeescapeFailure::Hard { error, location: escpos, })?;
         mcx::vec_append_bytes(out, &bytes).unwrap_or_else(|e| panic!("{}", e.message()));
         return Ok(());
     }
@@ -145,14 +138,7 @@ pub fn str_udeescape<'mcx>(
                     + (hexval(byte(i + 2)) << 8)
                     + (hexval(byte(i + 3)) << 4)
                     + hexval(byte(i + 4));
-                emit(
-                    mcx,
-                    &mut out,
-                    &mut pair_first,
-                    unicode,
-                    escpos,
-                    server_encoding,
-                )?;
+                emit(mcx, &mut out, &mut pair_first, unicode, escpos, server_encoding,)?;
                 i += 5;
             } else if byte(i + 1) == b'+' && (2..=7).all(|k| byte(i + k).is_ascii_hexdigit()) {
                 let unicode = (hexval(byte(i + 2)) << 20)
@@ -161,14 +147,7 @@ pub fn str_udeescape<'mcx>(
                     + (hexval(byte(i + 5)) << 8)
                     + (hexval(byte(i + 6)) << 4)
                     + hexval(byte(i + 7));
-                emit(
-                    mcx,
-                    &mut out,
-                    &mut pair_first,
-                    unicode,
-                    escpos,
-                    server_encoding,
-                )?;
+                emit(mcx, &mut out, &mut pair_first, unicode, escpos, server_encoding,)?;
                 i += 8;
             } else {
                 return Err(UdeescapeError {
@@ -202,11 +181,8 @@ fn emit<'mcx>(
     server_encoding: pg_enc,
 ) -> Result<(), UdeescapeFailure> {
     check_unicode_value(unicode, escpos)?;
-    let invalid_pair = UdeescapeError {
-        message: "invalid Unicode surrogate pair",
-        location: escpos,
-        hint: None,
-    };
+    let invalid_pair =
+        UdeescapeError { message: "invalid Unicode surrogate pair", location: escpos, hint: None, };
     let cp = if *pair_first != 0 {
         if !is_utf16_surrogate_second(unicode) {
             return Err(invalid_pair.into());

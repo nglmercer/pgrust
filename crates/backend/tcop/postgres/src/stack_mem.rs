@@ -292,8 +292,7 @@ pub fn release_idle_stack() -> usize {
         // `pagegive::give_back_stack`: MADV_DONTNEED in calls that never cover a whole 2 MiB-aligned range (CVE-2026-74674).
         unsafe {
             pagegive::give_back_stack(start, len);
-        }
-        len
+        } len
     }
     #[cfg(target_os = "macos")]
     {

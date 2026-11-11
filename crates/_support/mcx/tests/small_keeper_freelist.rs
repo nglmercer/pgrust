@@ -57,10 +57,7 @@ fn small_contexts_reuse_their_first_block_like_aset_c() {
         let live: Vec<MemoryContext> = (0..150).map(|_| used_small(&root)).collect();
         drop(live);
         let again: Vec<MemoryContext> = (0..150).map(|_| root.new_child_small("again")).collect();
-        let reused = again
-            .iter()
-            .filter(|c| c.mem_allocated() == ALLOCSET_SMALL_INITSIZE)
-            .count();
+        let reused = again.iter().filter(|c| c.mem_allocated() == ALLOCSET_SMALL_INITSIZE).count();
         assert_eq!(reused, 150 - MAX_FREE_CONTEXTS);
         assert!(again.iter().all(|c| c.stats().used == 0));
         drop(again);

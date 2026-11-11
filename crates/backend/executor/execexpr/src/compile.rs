@@ -91,7 +91,9 @@ impl<'a, 'mcx> Bind<'a, 'mcx> {
             // (SubPlan init is synchronous within the parent's compile).
             Some(w) => Bind::Win(WinBind {
                 agg,
-                wfuncnos: unsafe { &*(w.as_ptr() as *const [(Node<'mcx>, u32)]) },
+                wfuncnos: unsafe {
+                    &*(w.as_ptr() as *const [(Node<'mcx>, u32)])
+                },
             }),
             None => Bind::Agg(agg),
         }
@@ -232,24 +234,9 @@ pub fn exec_init_expr_subplans_agg_merge<'mcx>(
     let mut state = ExprState::new_boxed_in(mcx)?;
     state.allow_merge_support = merge.is_some();
     state.merge_action_cell = merge;
-    create_expr_setup_steps(
-        &mut state,
-        mcx,
-        &[node],
-        agg.map(Bind::from_agg),
-        params,
-        sub,
-    )?;
+    create_expr_setup_steps(&mut state, mcx, &[node], agg.map(Bind::from_agg), params, sub,)?;
     let rout = state.result_out();
-    init_expr_rec(
-        node,
-        &mut state,
-        mcx,
-        rout,
-        agg.map(Bind::from_agg),
-        params,
-        sub,
-    )?;
+    init_expr_rec(node, &mut state, mcx, rout, agg.map(Bind::from_agg), params, sub,)?;
     push_step(&mut state, mcx, Step::DoneReturn)?;
     ready_expr(&mut state);
     Ok(Some(state))
@@ -436,16 +423,7 @@ pub fn exec_build_projection_info_subplans_merge<'mcx>(
     sub: Option<SubplanCompileEnv>,
     merge: Option<MergeActionCell>,
 ) -> PgResult<PgBox<'mcx, ExprState<'mcx>>> {
-    build_projection_info_ext(
-        mcx,
-        target_list,
-        input_desc,
-        None,
-        params,
-        sub,
-        merge.is_some(),
-        merge,
-    )
+    build_projection_info_ext(mcx, target_list, input_desc, None, params, sub, merge.is_some(), merge,)
 }
 
 /// Agg-node projection: Aggrefs bound to the AggState's result arrays.
@@ -618,15 +596,7 @@ pub fn exec_build_agg_trans<'mcx>(
     agg_node: FmNodePtr,
     params: ParamBind<'mcx>,
 ) -> PgResult<PgBox<'mcx, ExprState<'mcx>>> {
-    build_agg_trans(
-        mcx,
-        specs,
-        PergroupMode::Fixed,
-        agg_node,
-        params,
-        None,
-        false,
-    )
+    build_agg_trans(mcx, specs, PergroupMode::Fixed, agg_node, params, None, false,)
 }
 
 /// [`exec_build_agg_trans`] with SubPlan compile support wired (aggregated
@@ -638,15 +608,7 @@ pub fn exec_build_agg_trans_subplans<'mcx>(
     params: ParamBind<'mcx>,
     sub: Option<SubplanCompileEnv>,
 ) -> PgResult<PgBox<'mcx, ExprState<'mcx>>> {
-    build_agg_trans(
-        mcx,
-        specs,
-        PergroupMode::Fixed,
-        agg_node,
-        params,
-        sub,
-        false,
-    )
+    build_agg_trans(mcx, specs, PergroupMode::Fixed, agg_node, params, sub, false,)
 }
 
 /// Grouping-sets variant: args evaluated once per transno, one trans call
@@ -926,14 +888,7 @@ fn push_indirect_nullchecked(
 ) -> PgResult<()> {
     let check_ix = state.steps.len();
     if nullcheck {
-        push_step(
-            state,
-            mcx,
-            Step::AggPergroupNullcheck {
-                cell,
-                jumpnull: u32::MAX,
-            },
-        )?;
+        push_step(state, mcx, Step::AggPergroupNullcheck { cell, jumpnull: u32::MAX, },)?;
     }
     push_step(state, mcx, indirect_step(cell))?;
     if nullcheck {
@@ -2013,9 +1968,7 @@ fn init_subplan_expr<'mcx>(
     };
     let stash = SubplanParentWinScope(SUBPLAN_PARENT_WIN.get());
     if let Some(Bind::Win(w)) = agg {
-        let erased =
-            NonNull::new(w.wfuncnos as *const [(Node<'_>, u32)] as *mut [(Node<'static>, u32)])
-                .expect("slice");
+        let erased = NonNull::new(w.wfuncnos as *const [(Node<'_>, u32)] as *mut [(Node<'static>, u32)]).expect("slice");
         SUBPLAN_PARENT_WIN.set(Some((w.agg, erased)));
     }
     let sstate = unsafe { init(env.estate, node, aggbind, merge) };
@@ -2041,10 +1994,7 @@ impl Drop for SubplanParentWinScope {
     }
 }
 
-fn merge_action_cell<'mcx>(
-    state: &mut ExprState<'mcx>,
-    mcx: Mcx<'mcx>,
-) -> PgResult<MergeActionCell> {
+fn merge_action_cell<'mcx>(state: &mut ExprState<'mcx>, mcx: Mcx<'mcx>,) -> PgResult<MergeActionCell> {
     if let Some(c) = state.merge_action_cell {
         return Ok(c);
     }
@@ -2891,9 +2841,7 @@ pub(crate) fn init_expr_rec<'mcx>(
                             stashed
                         }
                         None => {
-                            return Err(Box::new(PgError::error(
-                                "WindowFunc found in non-WindowAgg plan node",
-                            )));
+                            return Err(Box::new(PgError::error("WindowFunc found in non-WindowAgg plan node",)));
                         }
                     },
                 };
@@ -5471,10 +5419,7 @@ pub(crate) fn fetch_missing_param(
     if prm.ptype != paramtype {
         return Err(param_type_mismatch(paramid, prm.ptype, paramtype));
     }
-    Ok(::datum::NullableDatum {
-        value: prm.value,
-        isnull: prm.isnull,
-    })
+    Ok(::datum::NullableDatum { value: prm.value, isnull: prm.isnull, })
 }
 
 #[cold]
@@ -5554,8 +5499,7 @@ fn init_coerce_via_io<'mcx>(
     let (infunc, typioparam) = lsyscache::getTypeInputInfo(cio.resulttype)?;
 
     let flinfo_out = fmgr_core::fmgr_info(outfunc)?;
-    let text_into = if cio.resulttype == ::types_core::catalog::TEXTOID && state.escontext.is_none()
-    {
+    let text_into = if cio.resulttype == ::types_core::catalog::TEXTOID && state.escontext.is_none() {
         fmgr_core::fmgr_out_into(&flinfo_out)
     } else {
         None
@@ -5860,9 +5804,7 @@ fn init_func<'mcx>(
     flinfo.fn_expr = Some(erase_fn_expr(mcx, node)?);
     if flinfo.fn_retset {
         let pos = sub
-            .and_then(|env| {
-                env.errpos
-                    .map(|f| f(env.estate, nodes_core::expr_location(node)))
+            .and_then(|env| { env.errpos.map(|f| f(env.estate, nodes_core::expr_location(node)))
             })
             .unwrap_or(0);
         return Err(retset_error_at(pos));
@@ -6975,7 +6917,7 @@ fn select_scan_contains_clause(state: &ExprState<'_>) -> Option<crate::steps::Sc
         return None;
     }
     let needle = &bytes[lead..bytes.len() - trail];
-    if needle.contains(&b'%') {
+    if needle.contains(& b'%') {
         return None;
     }
     Some(crate::steps::ScanContainsClause::new(
@@ -7266,10 +7208,7 @@ fn select_scan_proj_expr_key(state: &ExprState<'_>) -> Option<crate::steps::Scan
                                 }
                             }
                             #[allow(clippy::question_mark)]
-                            let Some(va) = var_argno
-                            else {
-                                return None;
-                            };
+                            let Some(va) = var_argno else { return None; };
                             // Every sibling must be a compile-time non-null
                             // Const, prefilled in its arg slot.
                             let mut args = [::datum::NullableDatum::null(); PROJ_KEY_MAX_ARGS];
@@ -7920,15 +7859,7 @@ mod assgn_needs_old_tests {
     use ::types_nodes::primnodes::{CaseTestExpr, FieldStore, RelabelType};
 
     fn casetest(mcx: Mcx<'_>) -> Node<'_> {
-        Node::mk(
-            mcx,
-            CaseTestExpr {
-                typeId: 25,
-                typeMod: -1,
-                collation: 0,
-            },
-        )
-        .unwrap()
+        Node::mk(mcx, CaseTestExpr { typeId: 25, typeMod: -1, collation: 0, },).unwrap()
     }
 
     #[test]
@@ -7966,10 +7897,8 @@ mod assgn_needs_old_tests {
 fn alloc_row_cache<'mcx>(mcx: Mcx<'mcx>) -> PgResult<NonNull<crate::steps::RowNullState>> {
     use crate::steps::RowNullState;
     let rn_layout = core::alloc::Layout::new::<RowNullState>();
-    let rn: NonNull<RowNullState> = mcx
-        .allocate(rn_layout)
-        .map_err(|_| mcx.oom(rn_layout.size()))?
-        .cast();
+    let rn: NonNull<RowNullState> =
+        mcx.allocate(rn_layout).map_err(|_| mcx.oom(rn_layout.size()))?.cast();
     // SAFETY: fresh exact-layout allocation; the compile mcx outlives every
     // eval of the owning step, so the 'static restamp never escapes it.
     unsafe {
@@ -7999,22 +7928,13 @@ mod guard_tests {
         let unwound = std::panic::catch_unwind(|| {
             let _stash = SubplanParentWinScope(SUBPLAN_PARENT_WIN.get());
             let (mut value, mut null) = (::datum::Datum::null(), false);
-            let bind = AggBind {
-                values: NonNull::from(&mut value),
-                nulls: NonNull::from(&mut null),
-                naggs: 0,
-                grouping: None,
-                win: None,
-            };
+            let bind = AggBind { values: NonNull::from(&mut value), nulls: NonNull::from(&mut null), naggs: 0, grouping: None, win: None, };
             let none: &[(Node<'static>, u32)] = &[];
             SUBPLAN_PARENT_WIN.set(Some((bind, NonNull::from(none))));
             panic!("the SubPlan's init unwinds");
         });
         assert!(unwound.is_err());
-        assert!(
-            SUBPLAN_PARENT_WIN.get().is_none(),
-            "the stash outlived the unwind"
-        );
+        assert!(SUBPLAN_PARENT_WIN.get().is_none(), "the stash outlived the unwind");
     }
 
     /// C7 clause (d): an EXECUTE-ACL window closes on an unwind out of the compile it covers; a finished one returns its
@@ -8030,11 +7950,7 @@ mod guard_tests {
         });
         assert!(unwound.is_err());
         execute_acl_record(3);
-        assert_eq!(
-            outer.finish(),
-            vec![1, 3],
-            "the unwound inner window was still open"
-        );
+        assert_eq!(outer.finish(), vec![1, 3], "the unwound inner window was still open");
         assert!(EXECUTE_ACL_SESSION.with(|s| s.borrow().is_none()));
     }
 }

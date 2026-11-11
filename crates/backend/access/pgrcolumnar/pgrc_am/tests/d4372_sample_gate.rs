@@ -52,45 +52,25 @@ fn d4372_a_sample_window_past_the_ladders_line_runs_alone_and_is_never_refused()
     let mut serial = false;
 
     ladder(mcx::ladder::OFF, 2 * LINE);
-    assert_eq!(
-        sample_window_dop(8, &mut serial, || panic!("ladder off: no estimate")).expect("off"),
-        8,
-        "ladder off: the dop"
-    );
+    assert_eq!(sample_window_dop(8, &mut serial, || panic!("ladder off: no estimate")).expect("off"), 8, "ladder off: the dop");
 
     ladder(mcx::ladder::ON, 100 * MIB);
-    assert_eq!(
-        sample_window_dop(8, &mut serial, || ASK).expect("under"),
-        8,
-        "under the line: the dop"
-    );
+    assert_eq!(sample_window_dop(8, &mut serial, || ASK).expect("under"), 8, "under the line: the dop");
     assert!(!serial);
 
     ladder(mcx::ladder::ON, LINE + ASK);
     // the rungs run so far, R5's wait among them
     let runs = || mcx::ladder::counts().0.iter().map(|r| r.0).sum::<u64>();
     let before = runs();
-    assert_eq!(
-        sample_window_dop(8, &mut serial, || ASK).expect("past the line: never a refusal"),
-        1,
-        "past the line: alone"
-    );
+    assert_eq!(sample_window_dop(8, &mut serial, || ASK).expect("past the line: never a refusal"), 1, "past the line: alone");
     assert!(serial, "the next window past the line goes alone");
     assert!(runs() > before, "the gate climbed and waited first");
     let before = runs();
-    assert_eq!(
-        sample_window_dop(8, &mut serial, || ASK).expect("past"),
-        1,
-        "the next window past the line: alone"
-    );
+    assert_eq!(sample_window_dop(8, &mut serial, || ASK).expect("past"), 1, "the next window past the line: alone");
     assert_eq!(runs(), before, "without a second climb or wait");
 
     ladder(mcx::ladder::ON, 100 * MIB);
-    assert_eq!(
-        sample_window_dop(8, &mut serial, || ASK).expect("under"),
-        8,
-        "back under the line: the dop again"
-    );
+    assert_eq!(sample_window_dop(8, &mut serial, || ASK).expect("under"), 8, "back under the line: the dop again");
     assert!(!serial);
 
     ladder(mcx::ladder::OFF, 0);

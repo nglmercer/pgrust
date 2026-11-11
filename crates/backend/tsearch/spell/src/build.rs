@@ -1130,7 +1130,7 @@ impl<'mcx> IspellDict<'mcx> {
                 if is_new {
                     curaffix += 1;
                     debug_assert!(curaffix < naffix);
-                    let dup = new_bytes(mcx, self.spell[i].flag.as_slice())?;
+                    let dup = new_bytes(mcx,self.spell[i].flag.as_slice())?;
                     affix_data.push(dup);
                 }
                 let wordlen = self.spell[i].word.len() as i32;

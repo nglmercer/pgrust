@@ -23,25 +23,13 @@ fn read(lo: usize, hi: usize, _scratch: &mut [u8]) -> Option<usize> {
 /// back.
 fn mapped(n: usize) -> memledger::Charge {
     let (owner, release) = memledger::charge::context();
-    memledger::Charge::open(
-        owner,
-        release,
-        memledger::Kind::Mapped,
-        memledger::charge::Door::Mapped,
-        n as u64,
-    )
+    memledger::Charge::open(owner, release, memledger::Kind::Mapped, memledger::charge::Door::Mapped, n as u64,)
 }
 
 /// A running statement on backend `procno` with `held` bytes on its ledger account; with `region`, those bytes are one
 /// Gravity region on the residency registry, made fresh (none of its pages resident yet). It returns whether it was
 /// canceled.
-fn statement(
-    procno: u32,
-    held: usize,
-    region: bool,
-    ready: mpsc::Sender<()>,
-    done: Arc<Barrier>,
-) -> std::thread::JoinHandle<bool> {
+fn statement(procno: u32, held: usize, region: bool, ready: mpsc::Sender<()>, done: Arc<Barrier>,) -> std::thread::JoinHandle<bool> {
     std::thread::spawn(move || {
         let pid = 7000 + procno as i32;
         governor::register(procno as i32, pid);
@@ -51,15 +39,7 @@ fn statement(
         let charge = governor::Charge::new("held", held);
         let pages = mapped(held);
         let lo = 0x7000_0000_0000 + ((procno as usize) << 32);
-        let id = region.then(|| {
-            memledger::resident::register(
-                lo,
-                held,
-                held,
-                memledger::Acct::backend(procno),
-                true,
-                true,
-            )
+        let id = region.then(|| { memledger::resident::register(lo, held, held, memledger::Acct::backend(procno), true, true,)
         });
         memledger::fold();
         ready.send(()).unwrap();
@@ -78,12 +58,7 @@ fn statement(
 }
 
 /// `statement` without a region, which ends as soon as the watchdog cancels it (its 53200 raised), then says so.
-fn smaller(
-    procno: u32,
-    held: usize,
-    ready: mpsc::Sender<()>,
-    ended: mpsc::Sender<()>,
-) -> std::thread::JoinHandle<bool> {
+fn smaller(procno: u32, held: usize, ready: mpsc::Sender<()>, ended: mpsc::Sender<()>,) -> std::thread::JoinHandle<bool> {
     std::thread::spawn(move || {
         let pid = 7000 + procno as i32;
         governor::register(procno as i32, pid);
@@ -111,8 +86,7 @@ fn smaller(
 }
 
 #[test]
-fn before_the_residency_threads_read_the_pick_is_the_last_reads_and_counted_stale_and_the_next_reads_it(
-) {
+fn before_the_residency_threads_read_the_pick_is_the_last_reads_and_counted_stale_and_the_next_reads_it() {
     let (tx, ready) = mpsc::channel();
     let done = Arc::new(Barrier::new(2));
     let filled = statement(93, 800 * MIB, true, tx.clone(), done.clone());
@@ -123,34 +97,20 @@ fn before_the_residency_threads_read_the_pick_is_the_last_reads_and_counted_stal
     // the pass reads the region before its pages are written: 800 MiB not resident on its statement's account
     RESIDENT.store(0, Ordering::Relaxed);
     assert!(memledger::resident::pass(read, mempolicy::watchdog::RESIDENCY_READ_BYTES).is_some());
-    assert_eq!(
-        memledger::account_row(memledger::Acct::backend(93)).not_resident_bytes,
-        800 * MIB as i64
-    );
+    assert_eq!(memledger::account_row(memledger::Acct::backend(93)).not_resident_bytes, 800 * MIB as i64);
     // then they are written, with no event of ours: the pick ranks by the last read, and the filled statement goes to
     // the residency thread
     RESIDENT.store(usize::MAX, Ordering::Relaxed);
     let first = governor::cancel_largest_victim(90, 32 * MIB).expect("a victim");
-    assert_eq!(
-        first.backend,
-        Some((94, 7094)),
-        "the last read's pick: {first:?}"
-    );
+    assert_eq!(first.backend, Some((94, 7094)), "the last read's pick: {first:?}");
     assert_eq!(governor::pick_counts().stale_picks, 1, "counted stale");
     assert!(plain.join().unwrap(), "the smaller one is canceled");
     ended.recv().unwrap();
     // the residency thread's next step reads it again
     assert_eq!(memledger::resident::refresh_hinted(), 1);
-    assert_eq!(
-        memledger::account_row(memledger::Acct::backend(93)).not_resident_bytes,
-        0
-    );
+    assert_eq!(memledger::account_row(memledger::Acct::backend(93)).not_resident_bytes, 0);
     let v = governor::cancel_largest_victim(90, 32 * MIB).expect("a victim");
-    assert_eq!(
-        v.backend,
-        Some((93, 7093)),
-        "the statement whose region filled (800 MiB): {v:?}"
-    );
+    assert_eq!(v.backend, Some((93, 7093)), "the statement whose region filled (800 MiB): {v:?}");
     assert_eq!(v.bytes, 800 * MIB, "ranked by what is resident now");
     done.wait();
     assert!(filled.join().unwrap(), "the filled statement is canceled");

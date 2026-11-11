@@ -170,7 +170,7 @@ pub(crate) fn memeq(b: &mut FunctionBuilder<'_>, p: Value, lit: &[u8]) -> Value 
     };
     let n = lit.len();
     (0..n / 8).for_each(|i| cmp(b, Type::I64, 8 * i, 8));
-    if n > 8 && !n.is_multiple_of(8) {
+    if n > 8 && ! n.is_multiple_of( 8) {
         cmp(b, Type::I64, n - 8, 8);
     } else if n < 8 {
         let mut at = 0;

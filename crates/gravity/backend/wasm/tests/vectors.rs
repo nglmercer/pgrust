@@ -1,5 +1,4 @@
-#![cfg(feature = "wasmtime-oracle")]
-//! The vector ops through SIMD128 against the interpreter's lane-by-lane
+#![cfg(feature = "wasmtime-oracle")]//! The vector ops through SIMD128 against the interpreter's lane-by-lane
 //! reference (`gravity_tpde/tests/ops_vector.rs`'s shapes): every op at
 //! every lane width over edge lanes, operands through memory.
 

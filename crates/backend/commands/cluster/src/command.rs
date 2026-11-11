@@ -7,14 +7,11 @@ use crate::{cache_lookup_failed, finish_heap_swap, make_new_heap, oid_key};
 use backend_progress::progress;
 use mcx::Mcx;
 use types_core::{InvalidOid, Oid, INDEX_RELATION_ID};
-use types_error::{
-    PgError, PgResult, ERRCODE_FEATURE_NOT_SUPPORTED, ERRCODE_SYNTAX_ERROR,
-    ERRCODE_UNDEFINED_OBJECT, ERRCODE_WRONG_OBJECT_TYPE, ERROR, WARNING,
-};
+use types_error::{PgError, PgResult, ERRCODE_FEATURE_NOT_SUPPORTED, ERRCODE_SYNTAX_ERROR, ERRCODE_UNDEFINED_OBJECT, ERRCODE_WRONG_OBJECT_TYPE, ERROR, WARNING,};
 use types_nodes::parsenodes::ClusterStmt;
 use types_rel::{
-    AccessExclusiveLock, AccessShareLock, NoLock, Relation, RowExclusiveLock, RELKIND_MATVIEW,
-    RELKIND_PARTITIONED_TABLE, RELKIND_RELATION, RELKIND_TOASTVALUE,
+    AccessExclusiveLock, AccessShareLock, NoLock, Relation, RowExclusiveLock,
+    RELKIND_MATVIEW, RELKIND_PARTITIONED_TABLE, RELKIND_RELATION, RELKIND_TOASTVALUE,
 };
 use types_scan::scankey::ScanKeyData;
 
@@ -53,9 +50,7 @@ pub fn cluster<'mcx>(
 ) -> PgResult<()> {
     let mut verbose = false;
     for opt_node in stmt.params.iter() {
-        let opt = opt_node
-            .as_def_elem()
-            .expect("ClusterStmt option is DefElem");
+        let opt = opt_node.as_def_elem().expect("ClusterStmt option is DefElem");
         match opt.defname.unwrap_or("") {
             "verbose" => verbose = explain::defGetBoolean(opt)?,
             name => {
@@ -71,9 +66,7 @@ pub fn cluster<'mcx>(
     let mut options = if verbose { CLUOPT_VERBOSE } else { 0 };
 
     if let Some(rv_node) = stmt.relation {
-        let rv = rv_node
-            .as_range_var()
-            .expect("ClusterStmt.relation is RangeVar");
+        let rv = rv_node.as_range_var().expect("ClusterStmt.relation is RangeVar");
         let rv = rel_vocab::RangeVar {
             catalogname: rv.catalogname,
             schemaname: rv.schemaname,
@@ -98,9 +91,7 @@ pub fn cluster<'mcx>(
         // cope; C's comment at cluster.c:369 relies on this catching every
         // attempt to cluster a remote temp table by name.
         if rel.is_other_temp() {
-            return Err(feature_err(
-                "cannot cluster temporary tables of other sessions",
-            ));
+            return Err(feature_err("cannot cluster temporary tables of other sessions",));
         }
         // Refused before the index lookup: a pgrcolumnar table has no index to name.
         if let Some(am) = columnar_am(&rel) {
@@ -278,11 +269,7 @@ pub fn cluster_rel<'mcx>(
                 elog_seams::ereport::call(columnar_rewrite_refusal(WARNING, am, old_heap.name()))?;
                 return old_heap.close(AccessExclusiveLock);
             }
-            return Err(Box::new(columnar_rewrite_refusal(
-                ERROR,
-                am,
-                old_heap.name(),
-            )));
+            return Err(Box::new(columnar_rewrite_refusal(ERROR, am, old_heap.name(),)));
         }
         if let Some(parent) = pgrc_companion_parent(&old_heap) {
             if recheck {
@@ -292,11 +279,7 @@ pub fn cluster_rel<'mcx>(
         }
         catalog_heap::CheckTableNotInUse(
             &old_heap,
-            if index_oid != InvalidOid {
-                "CLUSTER"
-            } else {
-                "VACUUM"
-            },
+            if index_oid != InvalidOid { "CLUSTER" } else { "VACUUM" },
         )?;
 
         let index = if index_oid != InvalidOid {
@@ -382,9 +365,7 @@ pub fn mark_index_clustered<'mcx>(
     is_internal: bool,
 ) -> PgResult<()> {
     if rel.rd_rel.relkind == RELKIND_PARTITIONED_TABLE {
-        return Err(feature_err(
-            "cannot mark index clustered in partitioned table",
-        ));
+        return Err(feature_err("cannot mark index clustered in partitioned table",));
     }
     if index_oid != InvalidOid && lsyscache::get_index_isclustered(index_oid)? {
         return Ok(());
@@ -456,14 +437,8 @@ fn rebuild_relation<'mcx>(
         mark_index_clustered(mcx, &old_heap, index.rd_id, true)?;
     }
 
-    let oid_new_heap = make_new_heap(
-        mcx,
-        table_oid,
-        old_heap.rd_rel.reltablespace,
-        old_heap.rd_rel.relam,
-        relpersistence,
-        NoLock,
-    )?;
+    let oid_new_heap =
+        make_new_heap(mcx, table_oid, old_heap.rd_rel.reltablespace, old_heap.rd_rel.relam, relpersistence, NoLock,)?;
     let new_heap = table::table_open(mcx, oid_new_heap, NoLock)?;
 
     let (frozen_xid, cutoff_multi, swap_toast_by_content) =
@@ -517,13 +492,10 @@ fn copy_table_data<'mcx>(
     // into new_heap carry the old toast table's OID with value OIDs preserved
     // (C's NewHeap->rd_toastoid, threaded to toast_save_datum). Old-only
     // toast (droppable columns) falls back to swap by links.
-    let swap_toast_by_content =
-        old_heap.rd_rel.reltoastrelid != InvalidOid && new_heap.rd_rel.reltoastrelid != InvalidOid;
-    let toastoid = if swap_toast_by_content {
-        old_heap.rd_rel.reltoastrelid
-    } else {
-        InvalidOid
-    };
+    let swap_toast_by_content = old_heap.rd_rel.reltoastrelid != InvalidOid
+        && new_heap.rd_rel.reltoastrelid != InvalidOid;
+    let toastoid =
+        if swap_toast_by_content { old_heap.rd_rel.reltoastrelid } else { InvalidOid };
 
     // C memsets VacuumParams to zero: freeze ages 0 = freeze aggressively.
     let params = tableam_vocab::VacuumParams {
@@ -552,8 +524,7 @@ fn copy_table_data<'mcx>(
             cutoffs.FreezeLimit = relfrozenxid;
         }
         let relminmxid = old_heap.rd_rel.relminmxid;
-        if relminmxid != 0
-            && types_core::xact::MultiXactIdPrecedes(cutoffs.MultiXactCutoff, relminmxid)
+        if relminmxid != 0 && types_core::xact::MultiXactIdPrecedes(cutoffs.MultiXactCutoff, relminmxid)
         {
             cutoffs.MultiXactCutoff = relminmxid;
         }
@@ -566,11 +537,7 @@ fn copy_table_data<'mcx>(
         _ => false,
     };
 
-    let elevel = if verbose {
-        types_error::INFO
-    } else {
-        types_error::DEBUG2
-    };
+    let elevel = if verbose { types_error::INFO } else { types_error::DEBUG2 };
     let what = match old_index {
         Some(index) if !use_sort => format!(
             "clustering \"{}.{}\" using index scan on \"{}\"",
@@ -587,11 +554,7 @@ fn copy_table_data<'mcx>(
     };
     elog::ereport(elevel)
         .errmsg(what)
-        .finish(types_error::ErrorLocation::new(
-            file!(),
-            line!() as i32,
-            "copy_table_data",
-        ))?;
+        .finish(types_error::ErrorLocation::new(file!(), line!() as i32, "copy_table_data",))?;
 
     let (num_tuples, tups_vacuumed, tups_recently_dead) = crate::copy::copy_for_cluster(
         mcx,
@@ -605,11 +568,15 @@ fn copy_table_data<'mcx>(
         toastoid,
     )?;
 
-    let num_pages =
-        bufmgr::RelationGetNumberOfBlocksInFork(new_heap, types_core::ForkNumber::MAIN_FORKNUM)?;
+    let num_pages = bufmgr::RelationGetNumberOfBlocksInFork(
+        new_heap,
+        types_core::ForkNumber::MAIN_FORKNUM
+    )?;
 
-    let old_pages =
-        bufmgr::RelationGetNumberOfBlocksInFork(old_heap, types_core::ForkNumber::MAIN_FORKNUM)?;
+    let old_pages = bufmgr::RelationGetNumberOfBlocksInFork(
+        old_heap,
+        types_core::ForkNumber::MAIN_FORKNUM
+    )?;
     elog::ereport(elevel)
         .errmsg(format!(
             "\"{}.{}\": found {:.0} removable, {:.0} nonremovable row versions in {} pages",
@@ -624,11 +591,7 @@ fn copy_table_data<'mcx>(
             tups_recently_dead,
             pg_rusage::pg_rusage_show(&ru0).as_str(),
         ))
-        .finish(types_error::ErrorLocation::new(
-            file!(),
-            line!() as i32,
-            "copy_table_data",
-        ))?;
+        .finish(types_error::ErrorLocation::new(file!(), line!() as i32, "copy_table_data",))?;
 
     // Update the transient rel's pg_class stats. When rebuilding pg_class
     // itself the update would scribble on the data we're about to discard;
@@ -659,7 +622,8 @@ fn copy_table_data<'mcx>(
         replace[crate::Anum_pg_class_relpages - 1] = true;
         values[crate::Anum_pg_class_reltuples - 1] = datum::Datum::from_f32(num_tuples as f32);
         replace[crate::Anum_pg_class_reltuples - 1] = true;
-        let mut newtup = heaptuple::heap_modify_tuple(mcx, tup, desc, &values, &isnull, &replace)?;
+        let mut newtup =
+            heaptuple::heap_modify_tuple(mcx, tup, desc, &values, &isnull, &replace)?;
         let otid = tup.t_self;
         genam::systable_endscan(mcx, scan)?;
         if old_heap.rd_id != types_core::RELATION_RELATION_ID {
@@ -671,11 +635,7 @@ fn copy_table_data<'mcx>(
     }
     xact::CommandCounterIncrement()?;
 
-    Ok((
-        cutoffs.FreezeLimit,
-        cutoffs.MultiXactCutoff,
-        swap_toast_by_content,
-    ))
+    Ok((cutoffs.FreezeLimit, cutoffs.MultiXactCutoff, swap_toast_by_content,))
 }
 
 fn get_tables_to_cluster<'mcx>(mcx: Mcx<'mcx>) -> PgResult<mcx::PgVec<'mcx, RelToCluster>> {
@@ -728,10 +688,7 @@ fn get_tables_to_cluster_partitioned<'mcx>(
         if !cluster_is_permitted_for_relation(mcx, relid, miscinit::GetUserId())? {
             continue;
         }
-        rtcs.push(RelToCluster {
-            table_oid: relid,
-            index_oid: indexrelid,
-        });
+        rtcs.push(RelToCluster { table_oid: relid, index_oid: indexrelid, });
     }
     Ok(rtcs)
 }
@@ -744,15 +701,17 @@ fn cluster_is_permitted_for_relation<'mcx>(
     if aclchk::pg_class_aclcheck(relid, userid, adt_acl::ACL_MAINTAIN)? == aclchk::ACLCHECK_OK {
         return Ok(true);
     }
-    elog_seams::ereport::call(PgError::new(
-        WARNING,
-        format!(
-            "permission denied to cluster \"{}\", skipping it",
-            lsyscache::get_rel_name(mcx, relid)?
-                .map(|s| s.as_str().to_string())
-                .unwrap_or_default()
-        ),
-    ))?;
+    elog_seams::ereport::call(
+        PgError::new(
+            WARNING,
+            format!(
+                "permission denied to cluster \"{}\", skipping it",
+                lsyscache::get_rel_name(mcx, relid)?
+                    .map(|s| s.as_str().to_string())
+                    .unwrap_or_default()
+            ),
+        )
+    )?;
     Ok(false)
 }
 
@@ -760,7 +719,9 @@ fn cluster_is_permitted_for_relation<'mcx>(
 #[cold]
 #[inline(never)]
 fn feature_err(msg: &str) -> Box<PgError> {
-    Box::new(PgError::new(ERROR, msg.to_string()).with_sqlstate(ERRCODE_FEATURE_NOT_SUPPORTED))
+    Box::new(
+        PgError::new(ERROR, msg.to_string()).with_sqlstate(ERRCODE_FEATURE_NOT_SUPPORTED)
+    )
 }
 
 fn columnar_am(rel: &Relation<'_>) -> Option<&'static str> {
@@ -774,47 +735,26 @@ fn columnar_am(rel: &Relation<'_>) -> Option<&'static str> {
 #[inline(never)]
 fn columnar_rewrite_refusal(level: types_error::ErrorLevel, am: &str, relname: &str) -> PgError {
     // VACUUM FULL of a pgrcolumnar table compacts it in place (vacuum_rel never reaches cluster_rel for one).
-    let what = if am == "pgrcolumnar" {
-        "CLUSTER"
-    } else {
-        "VACUUM FULL or CLUSTER"
-    };
-    PgError::new(
-        level,
-        format!("access method \"{am}\" does not support {what}"),
-    )
-    .with_sqlstate(ERRCODE_FEATURE_NOT_SUPPORTED)
-    .with_detail(format!("Table \"{relname}\" was left unchanged."))
+    let what = if am == "pgrcolumnar" { "CLUSTER" } else { "VACUUM FULL or CLUSTER" };
+    PgError::new(level, format!("access method \"{am}\" does not support {what}"),)
+        .with_sqlstate(ERRCODE_FEATURE_NOT_SUPPORTED)
+        .with_detail(format!("Table \"{relname}\" was left unchanged."))
 }
 
 fn pgrc_companion_parent(rel: &Relation<'_>) -> Option<Oid> {
-    pgrc_companion::companion_parent(
-        rel.rd_rel.relnamespace,
-        rel.name().as_bytes(),
-        rel.rd_rel.relkind,
-    )
+    pgrc_companion::companion_parent(rel.rd_rel.relnamespace, rel.name().as_bytes(), rel.rd_rel.relkind,)
 }
 
 #[cold]
 #[inline(never)]
-fn pgrc_companion_refusal<'mcx>(
-    mcx: Mcx<'mcx>,
-    rel: &Relation<'mcx>,
-    parent: Oid,
-) -> PgResult<PgError> {
+fn pgrc_companion_refusal<'mcx>(mcx: Mcx<'mcx>, rel: &Relation<'mcx>, parent: Oid,) -> PgResult<PgError> {
     let detail = match lsyscache::get_rel_name(mcx, parent)? {
         Some(p) => format!("It stores part of table \"{}\"; rewriting it on its own would lose that table's deletes.", p.as_str()),
         None => "It stores part of a pgrcolumnar table; rewriting it on its own would lose that table's deletes.".to_string(),
     };
-    Ok(PgError::new(
-        ERROR,
-        format!(
-            "cannot run VACUUM FULL or CLUSTER on pgrcolumnar companion table \"{}\"",
-            rel.name()
-        ),
-    )
-    .with_sqlstate(ERRCODE_FEATURE_NOT_SUPPORTED)
-    .with_detail(detail))
+    Ok(PgError::new(ERROR, format!("cannot run VACUUM FULL or CLUSTER on pgrcolumnar companion table \"{}\"", rel.name()),)
+        .with_sqlstate(ERRCODE_FEATURE_NOT_SUPPORTED)
+        .with_detail(detail))
 }
 
 pub fn init_seams() {
@@ -866,21 +806,9 @@ mod tests {
     // every matview was fenced with 0A000).
     #[test]
     fn matview_gate_matches_c() {
-        assert!(is_unpopulated_matview(&pg_class_form(
-            RELKIND_MATVIEW,
-            false
-        )));
-        assert!(!is_unpopulated_matview(&pg_class_form(
-            RELKIND_MATVIEW,
-            true
-        )));
-        assert!(!is_unpopulated_matview(&pg_class_form(
-            RELKIND_RELATION,
-            true
-        )));
-        assert!(!is_unpopulated_matview(&pg_class_form(
-            RELKIND_TOASTVALUE,
-            true
-        )));
+        assert!(is_unpopulated_matview(&pg_class_form(RELKIND_MATVIEW, false)));
+        assert!(!is_unpopulated_matview(&pg_class_form(RELKIND_MATVIEW, true)));
+        assert!(!is_unpopulated_matview(&pg_class_form(RELKIND_RELATION, true)));
+        assert!(!is_unpopulated_matview(&pg_class_form(RELKIND_TOASTVALUE, true)));
     }
 }

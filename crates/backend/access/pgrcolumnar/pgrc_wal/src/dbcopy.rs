@@ -43,13 +43,9 @@ fn logged(from: &str, to: &str, loc: DirLoc, fxid: u64) -> WriteResult<()> {
         }
         let tmp = temp_file_name(fxid, 0);
         dircopy::copy_file(&mut vfs, from, &f, to, &tmp)?;
-        let rec = InstallRec {
-            dir: loc,
-            renames: vec![(tmp, CURRENT_FILE_NAME.to_string())],
-        };
+        let rec = InstallRec { dir: loc, renames: vec![(tmp, CURRENT_FILE_NAME.to_string())], };
         let (inner, sink) = vfs.into_parts();
-        return sink.install(&rec, &mut || {
-            apply_install(&mut *inner, to, &rec, ApplyMode::Primary)
+        return sink.install(&rec, &mut || { apply_install(&mut *inner, to, &rec, ApplyMode::Primary)
         });
     }
     Ok(())

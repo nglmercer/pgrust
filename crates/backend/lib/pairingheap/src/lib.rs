@@ -24,12 +24,7 @@ pub struct PairingHeap<T, C: Fn(&T, &T) -> i32> {
 
 impl<T, C: Fn(&T, &T) -> i32> PairingHeap<T, C> {
     pub fn new(compare: C) -> Self {
-        PairingHeap {
-            slots: Vec::new(),
-            free: Vec::new(),
-            root: INVALID,
-            compare,
-        }
+        PairingHeap { slots: Vec::new(), free: Vec::new(), root: INVALID, compare, }
     }
 
     #[inline]
@@ -51,8 +46,7 @@ impl<T, C: Fn(&T, &T) -> i32> PairingHeap<T, C> {
 
     /// The bytes its arena holds now (slot and free-list capacity, which `reset` keeps), for a caller that charges them.
     pub fn heap_bytes(&self) -> usize {
-        self.slots.capacity() * core::mem::size_of::<Slot<T>>()
-            + self.free.capacity() * core::mem::size_of::<NodeId>()
+        self.slots.capacity() * core::mem::size_of::<Slot<T>>() + self.free.capacity() * core::mem::size_of::<NodeId>()
     }
 
     #[inline]

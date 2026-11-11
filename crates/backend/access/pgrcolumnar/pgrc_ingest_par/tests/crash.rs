@@ -82,19 +82,11 @@ use pgrc_write::WriteError;
 fn feed_error_cancels_unlinks_and_retry_publishes() {
     let (rt, pool) = rt_pool(4);
     let shared = shared_mem_with_dir();
-    let mut w = open_writer_policy(
-        vec![int8_col(1), text_col(2)],
-        stamp(FXID, 1),
-        policy_small(),
-    );
+    let mut w = open_writer_policy(vec![int8_col(1), text_col(2)], stamp(FXID, 1), policy_small(),);
 
-    let err =
-        run_session(&mut w, &rt, par_providers(&shared), 2000, Some(1500)).expect_err("must fail");
+    let err = run_session(&mut w, &rt, par_providers(&shared), 2000, Some(1500)).expect_err("must fail");
     assert!(matches!(err, WriteError::Refused { .. }), "typed: {err:?}");
-    assert!(
-        tmp_residue(&shared).is_empty(),
-        "no temp residue after cancel"
-    );
+    assert!(tmp_residue(&shared).is_empty(), "no temp residue after cancel");
     assert!(w.sealed_parts().is_empty(), "nothing deposited on error");
 
     // Retry on the same writer: full success, then publish.
@@ -105,10 +97,7 @@ fn feed_error_cancels_unlinks_and_retry_publishes() {
     let mut vfs_handle = pgrc_write::par::SharedMemVfs::clone(&shared);
     let out = w.publish(&mut vfs_handle, &probe).expect("publish");
     assert_eq!(out.part_nos.len(), 8);
-    assert!(
-        tmp_residue(&shared).is_empty(),
-        "publish renamed every temp"
-    );
+    assert!(tmp_residue(&shared).is_empty(), "publish renamed every temp");
     pool.shutdown();
 }
 
@@ -118,18 +107,9 @@ fn feed_error_cancels_unlinks_and_retry_publishes() {
 fn worker_error_is_typed_and_cleanup_total() {
     let (rt, pool) = rt_pool(4);
     let shared = shared_mem_with_dir();
-    let mut w = open_writer_policy(
-        vec![int8_col(1), text_col(2)],
-        stamp(FXID, 1),
-        policy_small(),
-    );
+    let mut w = open_writer_policy(vec![int8_col(1), text_col(2)], stamp(FXID, 1), policy_small(),);
 
-    let err = pgrc_ingest_par::parallel_ingest(
-        &mut w,
-        &rt,
-        par_providers(&shared),
-        opts_small(),
-        |sess| {
+    let err = pgrc_ingest_par::parallel_ingest(&mut w, &rt, par_providers(&shared), opts_small(), |sess| {
             for i in 0..1000u64 {
                 if i == 700 {
                     // A 4B-C image whose pglz payload is garbage.
@@ -144,17 +124,13 @@ fn worker_error_is_typed_and_cleanup_total() {
                 }
             }
             Ok(())
-        },
-    )
-    .expect_err("corrupt toast must fail the session");
+        },)
+        .expect_err("corrupt toast must fail the session");
     assert!(
         matches!(err, WriteError::Contract { detail } if detail.contains("pglz")),
         "typed pglz refusal, got {err:?}"
     );
-    assert!(
-        tmp_residue(&shared).is_empty(),
-        "no residue after worker error"
-    );
+    assert!(tmp_residue(&shared).is_empty(), "no residue after worker error");
     pool.shutdown();
 }
 
@@ -192,12 +168,10 @@ fn kill9_sweep_over_parallel_session_exactly_old_or_new() {
         let mut w = session_writer(FXID + 1, &log);
         let probe = Probe::new(pgrc_write::publish::TxnVerdict::Committed);
         let res: WriteResult<Vec<u32>> =
-            run_session(&mut w, &rt, logged_par_providers(&shared, &log), 700, None).and_then(
-                |_| {
-                    let mut vfs_handle = SharedMemVfs::clone(&shared);
-                    w.publish(&mut vfs_handle, &probe).map(|out| out.part_nos)
-                },
-            );
+            run_session(&mut w, &rt, logged_par_providers(&shared, &log), 700, None).and_then(|_| {
+                let mut vfs_handle = SharedMemVfs::clone(&shared);
+                w.publish(&mut vfs_handle, &probe).map(|out| out.part_nos)
+            },);
         if !shared.with(|v| v.killed()) {
             pool.shutdown();
             // The armed op was never reached (scheduling variance shifted
@@ -211,37 +185,22 @@ fn kill9_sweep_over_parallel_session_exactly_old_or_new() {
         }
         let upto = durable_upto(&log, crash_at % 2 == 0);
         shared.with(|v| crash_and_recover(v, &log, upto));
-        assert!(
-            tmp_residue(&shared).is_empty(),
-            "crash_at={crash_at}: recovery reclaims all temp residue"
-        );
+        assert!(tmp_residue(&shared).is_empty(), "crash_at={crash_at}: recovery reclaims all temp residue");
         for (name, bytes) in &gen1 {
-            let now = shared.with(|v| {
-                v.read_full(&format!("{DIR}/{name}"))
-                    .expect("committed part")
+            let now = shared.with(|v| { v.read_full(&format!("{DIR}/{name}")).expect("committed part")
             });
             assert_eq!(&now, bytes, "crash_at={crash_at}: committed bytes moved");
         }
         let mut vfs_handle = SharedMemVfs::clone(&shared);
-        let m = pgrc_write::publish::effective_manifest(
-            &mut vfs_handle,
-            DIR,
-            &committed_probe(&log),
-            None,
-        )
-        .expect("manifest readable")
-        .expect("generation 1 survives");
-        assert_eq!(
-            m.header.gen,
-            if res.is_ok() { 2 } else { 1 },
-            "crash_at={crash_at}: exactly old or new"
-        );
+        let m = pgrc_write::publish::effective_manifest(&mut vfs_handle, DIR, &committed_probe(&log), None,)
+            .expect("manifest readable")
+            .expect("generation 1 survives");
+        assert_eq!(m.header.gen, if res.is_ok() { 2 } else { 1 }, "crash_at={crash_at}: exactly old or new");
 
         // Retry: a fresh parallel session + publish succeeds post-recovery
         // (same pool — the runtime survived; only the vfs universe died).
         let mut w2 = session_writer(FXID + 2, &log);
-        run_session(&mut w2, &rt, logged_par_providers(&shared, &log), 700, None)
-            .expect("retry session");
+        run_session(&mut w2, &rt, logged_par_providers(&shared, &log), 700, None).expect("retry session");
         let mut vfs_handle = SharedMemVfs::clone(&shared);
         w2.publish(&mut vfs_handle, &probe).expect("retry publish");
         assert!(tmp_residue(&shared).is_empty());
@@ -256,12 +215,8 @@ fn kill9_sweep_over_parallel_session_exactly_old_or_new() {
 }
 
 fn session_writer(fxid: u64, log: &SharedLog) -> TableWriter {
-    open_writer_policy(
-        vec![int8_col(1), text_col(2)],
-        stamp(fxid, 1),
-        policy_small(),
-    )
-    .with_sink(Box::new(RecordingSink::new(DIR, log.clone())))
+    open_writer_policy(vec![int8_col(1), text_col(2)], stamp(fxid, 1), policy_small(),)
+        .with_sink(Box::new(RecordingSink::new(DIR, log.clone())))
 }
 
 /// Seed one committed serial generation through `log`; return its published
@@ -288,8 +243,7 @@ fn seed_acked_generation(shared: &SharedMemVfs, log: &SharedLog) -> Vec<(String,
             shred: &mut kit.shred,
             shred_opts: &kit.opts,
         };
-        with_mixed_row(i, |row| {
-            w.append_row(row, &mut kit.ext, &mut env).expect("append")
+        with_mixed_row(i, |row| { w.append_row(row, &mut kit.ext, &mut env).expect("append")
         });
     }
     let sources: [&dyn pgrc_write::elect::CandidateSource; 1] = [&kit.cands];

@@ -21,26 +21,20 @@ use crate::run::PlannerRun;
 // Convert top-level ANY/EXISTS sublinks into SEMI/ANTI JoinExprs stacked into
 // the jointree. New nodes are freshly built here, so the post-hoc fixups
 // mirror C's in-place writes on exclusively-owned nodes.
-pub fn pull_up_sublinks<'mcx>(run: &mut PlannerRun<'mcx>, parse: &mut Query<'mcx>) -> PgResult<()> {
+pub fn pull_up_sublinks<'mcx>(
+    run: &mut PlannerRun<'mcx>,
+    parse: &mut Query<'mcx>
+) -> PgResult<()> {
     let mcx = run.mcx;
     let f = parse.jointree.expect("jointree is a FromExpr");
-    let jt_node = Node::mk(
-        mcx,
-        FromExpr {
-            fromlist: f.fromlist.clone_in(mcx)?,
-            quals: f.quals,
-        },
-    )?;
+    let jt_node = Node::mk(mcx, FromExpr { fromlist: f.fromlist.clone_in(mcx)?, quals: f.quals, },)?;
     let (jtnode, _relids) = pull_up_sublinks_jointree_recurse(run, parse, jt_node)?;
     if let Some(newf) = jtnode.as_from_expr() {
         parse.jointree = Some(newf);
     } else {
         parse.jointree = Some(mcx::alloc_leak_in(
             mcx,
-            FromExpr {
-                fromlist: NodeList::make1(mcx, jtnode)?,
-                quals: None,
-            },
+            FromExpr { fromlist: NodeList::make1(mcx, jtnode)?, quals: None, },
         )?);
     }
     Ok(())
@@ -65,17 +59,13 @@ fn pull_up_sublinks_jointree_recurse<'mcx>(
             let mut newfromlist = NodeList::nil();
             let mut frelids = types_nodes::Bitmapset::empty();
             for child in &f.fromlist {
-                let (newchild, childrelids) = pull_up_sublinks_jointree_recurse(run, parse, child)?;
+                let (newchild, childrelids) =
+                    pull_up_sublinks_jointree_recurse(run, parse, child)?;
                 newfromlist.lappend(mcx, newchild)?;
                 frelids.add_members(mcx, &childrelids)?;
             }
-            let newf = Node::mk(
-                mcx,
-                FromExpr {
-                    fromlist: newfromlist,
-                    quals: None,
-                },
-            )?;
+            let newf =
+                Node::mk(mcx, FromExpr { fromlist: newfromlist, quals: None, },)?;
             let mut jtlink = newf;
             let quals =
                 pull_up_sublinks_qual_recurse(run, parse, f.quals, &mut jtlink, &frelids, None)?;
@@ -109,12 +99,7 @@ fn pull_up_sublinks_jointree_recurse<'mcx>(
                     both.add_members(mcx, &rightrelids)?;
                     let mut jtlink = newj;
                     let quals = pull_up_sublinks_qual_recurse(
-                        run,
-                        parse,
-                        j.quals,
-                        &mut jtlink,
-                        &both,
-                        None,
+                        run, parse, j.quals, &mut jtlink, &both, None,
                     )?;
                     // SAFETY: newj is exclusively owned (built above).
                     unsafe { newj.with_mut::<types_nodes::JoinExpr, _>(|nj| nj.quals = quals) };
@@ -123,12 +108,7 @@ fn pull_up_sublinks_jointree_recurse<'mcx>(
                 types_nodes::JoinType::JOIN_LEFT => {
                     let mut rarg_link = rarg;
                     let quals = pull_up_sublinks_qual_recurse(
-                        run,
-                        parse,
-                        j.quals,
-                        &mut rarg_link,
-                        &rightrelids,
-                        None,
+                        run, parse, j.quals, &mut rarg_link, &rightrelids, None,
                     )?;
                     // SAFETY: as above.
                     unsafe {
@@ -141,12 +121,7 @@ fn pull_up_sublinks_jointree_recurse<'mcx>(
                 types_nodes::JoinType::JOIN_RIGHT => {
                     let mut larg_link = larg;
                     let quals = pull_up_sublinks_qual_recurse(
-                        run,
-                        parse,
-                        j.quals,
-                        &mut larg_link,
-                        &leftrelids,
-                        None,
+                        run, parse, j.quals, &mut larg_link, &leftrelids, None,
                     )?;
                     // SAFETY: as above.
                     unsafe {
@@ -159,10 +134,13 @@ fn pull_up_sublinks_jointree_recurse<'mcx>(
                 types_nodes::JoinType::JOIN_FULL => {
                     // can't do anything with full-join quals
                     // SAFETY: as above.
-                    unsafe { newj.with_mut::<types_nodes::JoinExpr, _>(|nj| nj.quals = j.quals) };
+                    unsafe {
+                        newj.with_mut::<types_nodes::JoinExpr, _>(|nj| nj.quals = j.quals)
+                    };
                 }
-                other => {
-                    panic!("pull_up_sublinks_jointree_recurse (prepjointree.c): {other:?} arm")
+                other => { panic!(
+                    "pull_up_sublinks_jointree_recurse (prepjointree.c): {other:?} arm"
+                )
                 }
             }
             let mut relids = types_nodes::Bitmapset::empty();
@@ -173,8 +151,9 @@ fn pull_up_sublinks_jointree_recurse<'mcx>(
             }
             Ok((result, relids))
         }
-        other => {
-            panic!("pull_up_sublinks_jointree_recurse (prepjointree.c): {other:?} jointree node")
+        other => { panic!(
+            "pull_up_sublinks_jointree_recurse (prepjointree.c): {other:?} jointree node"
+        )
         }
     }
 }
@@ -212,7 +191,8 @@ fn pull_up_sublinks_qual_recurse<'mcx>(
                     return Ok(None);
                 }
                 if let Some((jtlink2, rels2)) = jtlink2_rels2 {
-                    if let Some((rarg, quals)) = convert_any_sublink_to_join(run, parse, sl, rels2)?
+                    if let Some((rarg, quals)) =
+                        convert_any_sublink_to_join(run, parse, sl, rels2)?
                     {
                         attach_pulled_up_join(
                             run,
@@ -269,16 +249,20 @@ fn pull_up_sublinks_qual_recurse<'mcx>(
                 let arg = b.args.first().expect("NOT has one arg");
                 if let Some(sl) = arg.as_sub_link() {
                     if sl.subLinkType == SubLinkType::EXISTS_SUBLINK {
-                        if let Some((rarg, quals)) =
-                            convert_exists_sublink_to_join(run, parse, sl, true, available_rels1)?
-                        {
+                        if let Some((rarg, quals)) = convert_exists_sublink_to_join(
+                            run,
+                            parse,
+                            sl,
+                            true,
+                            available_rels1
+                        )? {
                             attach_anti_join(run, parse, jtlink1, rarg, quals)?;
                             return Ok(None);
                         }
                         if let Some((jtlink2, rels2)) = jtlink2_rels2 {
-                            if let Some((rarg, quals)) =
-                                convert_exists_sublink_to_join(run, parse, sl, true, rels2)?
-                            {
+                            if let Some((rarg, quals)) = convert_exists_sublink_to_join(
+                                run, parse, sl, true, rels2
+                            )? {
                                 attach_anti_join(run, parse, jtlink2, rarg, quals)?;
                                 return Ok(None);
                             }
@@ -420,16 +404,9 @@ fn convert_values_to_any<'mcx>(
     sublink: &SubLink<'mcx>,
 ) -> PgResult<Option<Node<'mcx>>> {
     let mcx = run.mcx;
-    let values = sublink
-        .subselect
-        .as_query()
-        .expect("transformed sublink holds a Query");
-    let Some(testexpr) = sublink.testexpr else {
-        return Ok(None);
-    };
-    let Some(op) = testexpr.as_op_expr() else {
-        return Ok(None);
-    };
+    let values = sublink.subselect.as_query().expect("transformed sublink holds a Query");
+    let Some(testexpr) = sublink.testexpr else { return Ok(None); };
+    let Some(op) = testexpr.as_op_expr() else { return Ok(None); };
     if op.args.len() != 2
         || values.targetList.len() > 1
         || values.limitCount.is_some()
@@ -461,9 +438,7 @@ fn convert_values_to_any<'mcx>(
         let value = elem.as_list().expect("values row is a list").nth(0);
         let value = convert_testexpr(mcx, rightop, &[value])?;
         let value = crate::setrefs::fold_with_deps(run, value)?;
-        let Some(c) = value.as_const() else {
-            return Ok(None);
-        };
+        let Some(c) = value.as_const() else { return Ok(None); };
         elems.push(c.constvalue);
         nulls.push(c.constisnull);
     }
@@ -551,21 +526,18 @@ fn convert_any_sublink_to_join<'mcx>(
         if te.resjunk {
             continue;
         }
-        colnames.lappend(mcx, Node::mk_string(mcx, te.resname.unwrap_or("?column?"))?)?;
+        colnames.lappend(
+            mcx,
+            Node::mk_string(mcx, te.resname.unwrap_or("?column?"))?
+        )?;
     }
     let alias = mcx::leak_in(mcx::alloc_in(
         mcx,
-        types_nodes::primnodes::Alias {
-            aliasname: Some("ANY_subquery"),
-            colnames: NodeList::nil(),
-        },
+        types_nodes::primnodes::Alias { aliasname: Some("ANY_subquery"), colnames: NodeList::nil(), },
     )?);
     let eref = mcx::leak_in(mcx::alloc_in(
         mcx,
-        types_nodes::primnodes::Alias {
-            aliasname: Some("ANY_subquery"),
-            colnames,
-        },
+        types_nodes::primnodes::Alias { aliasname: Some("ANY_subquery"), colnames, },
     )?);
     let rte = Node::mk(
         mcx,
@@ -638,7 +610,8 @@ fn convert_testexpr_mutator<'mcx>(
     if node.node_tag() == NodeTag::T_SubLink {
         return Ok(None);
     }
-    clauses::expression_tree_mutator(mcx, node, &mut |n| convert_testexpr_mutator(mcx, n, subst))
+    clauses::expression_tree_mutator(mcx, node, &mut |n|
+        convert_testexpr_mutator(mcx, n, subst))
 }
 
 // Returns (rarg, whereClause) with the simplified sub-select's rtable already
@@ -664,19 +637,14 @@ fn convert_exists_sublink_to_join<'mcx>(
     let where_clause = jt.quals;
     subselect.jointree = Some(mcx::alloc_leak_in(
         mcx,
-        types_nodes::primnodes::FromExpr {
-            fromlist: jt.fromlist.clone_in(mcx)?,
-            quals: None,
-        },
+        types_nodes::primnodes::FromExpr { fromlist: jt.fromlist.clone_in(mcx)?, quals: None, },
     )?);
 
     let sub_node = Node::mk(mcx, query_cells_copy(mcx, &subselect)?)?;
     if vars::contain_vars_of_level(sub_node, 1)? {
         return Ok(None);
     }
-    let Some(where_clause) = where_clause else {
-        return Ok(None);
-    };
+    let Some(where_clause) = where_clause else { return Ok(None); };
     if !vars::contain_vars_of_level(where_clause, 1)? {
         return Ok(None);
     }
@@ -704,8 +672,9 @@ fn convert_exists_sublink_to_join<'mcx>(
                 rewrite_manip::IncrementVarSublevelsUp(copy, -1, 1)?;
                 off_fromlist.lappend(mcx, copy)?;
             }
-            other => {
-                panic!("OffsetVarNodes (rewriteManip.c): {other:?} EXISTS jointree arm; join lane")
+            other => { panic!(
+                "OffsetVarNodes (rewriteManip.c): {other:?} EXISTS jointree arm; join lane"
+            )
             }
         }
     }
@@ -744,7 +713,8 @@ fn convert_exists_sublink_to_join<'mcx>(
             // rejected above, so ctelevelsup >= 1 here).
             // SAFETY: exclusive pre-seal fixup of the fresh copy.
             unsafe {
-                copy.with_mut::<types_nodes::parsenodes::RangeTblEntry, _>(|r| r.ctelevelsup -= 1)
+                copy.with_mut::<types_nodes::parsenodes::RangeTblEntry, _>(|r|
+                    r.ctelevelsup -= 1)
             };
         }
         if srte.rtekind == RTEKind::RTE_JOIN {
@@ -781,9 +751,7 @@ fn convert_exists_sublink_to_join<'mcx>(
             // Offset each RangeTblFunction funcexpr into the copy.
             let mut functions = NodeList::nil();
             for f in &srte.functions {
-                let rtfunc = f
-                    .as_range_tbl_function()
-                    .expect("functions holds RangeTblFunction");
+                let rtfunc = f.as_range_tbl_function().expect("functions holds RangeTblFunction");
                 let funcexpr = match rtfunc.funcexpr {
                     Some(fexpr) => Some(offset_and_pull_down(mcx, fexpr, rtoffset)?),
                     None => None,
@@ -865,13 +833,7 @@ fn convert_exists_sublink_to_join<'mcx>(
     let rarg = if off_fromlist.len() == 1 {
         off_fromlist.nth(0)
     } else {
-        Node::mk(
-            mcx,
-            FromExpr {
-                fromlist: off_fromlist,
-                quals: None,
-            },
-        )?
+        Node::mk(mcx, FromExpr { fromlist: off_fromlist, quals: None, },)?
     };
     Ok(Some((rarg, Some(where_clause))))
 }
@@ -1046,7 +1008,8 @@ fn process_sublinks_mutator<'mcx>(
 pub(crate) fn subplan_tuple_fraction(sub_link_type: SubLinkType) -> f64 {
     if sub_link_type == SubLinkType::EXISTS_SUBLINK {
         1.0 // just like a LIMIT 1
-    } else if sub_link_type == SubLinkType::ALL_SUBLINK || sub_link_type == SubLinkType::ANY_SUBLINK
+    } else if sub_link_type == SubLinkType::ALL_SUBLINK
+        || sub_link_type == SubLinkType::ANY_SUBLINK
     {
         0.5 // 50%
     } else {
@@ -1114,7 +1077,9 @@ fn make_subplan<'mcx>(
         let mut subquery = query_cells_copy(mcx, deep.as_query().expect("Query round trip"))?;
         let ok = simplify_exists_query(run, &mut subquery)?;
         debug_assert!(ok);
-        if let Some((subquery, newtestexpr, param_ids)) = convert_exists_to_any(run, subquery)? {
+        if let Some((subquery, newtestexpr, param_ids)) =
+            convert_exists_to_any(run, subquery)?
+        {
             run.push_root()?;
             crate::gravity_paths::nest_sublink(run);
             crate::subquery::subquery_planner(
@@ -1151,9 +1116,7 @@ fn make_subplan<'mcx>(
                     param_ids,
                     true,
                 )?;
-                let hsp = hashplan
-                    .as_sub_plan()
-                    .expect("build_subplan yields a SubPlan");
+                let hsp = hashplan.as_sub_plan().expect("build_subplan yields a SubPlan");
                 debug_assert!(hsp.parParam.is_nil() && hsp.useHashTable);
                 let asplan = Node::mk(
                     mcx,
@@ -1180,15 +1143,10 @@ fn convert_exists_to_any<'mcx>(
     let mcx = run.mcx;
     debug_assert!(subselect.targetList.is_nil());
     let jt = subselect.jointree.expect("jointree is a FromExpr");
-    let Some(where_clause) = jt.quals else {
-        return Ok(None);
-    };
+    let Some(where_clause) = jt.quals else { return Ok(None); };
     subselect.jointree = Some(mcx::alloc_leak_in(
         mcx,
-        FromExpr {
-            fromlist: jt.fromlist.clone_in(mcx)?,
-            quals: None,
-        },
+        FromExpr { fromlist: jt.fromlist.clone_in(mcx)?, quals: None, },
     )?);
     let sub_node = Node::mk(mcx, query_cells_copy(mcx, &subselect)?)?;
     if vars::contain_vars_of_level(sub_node, 1)? {
@@ -1285,10 +1243,7 @@ fn convert_exists_to_any<'mcx>(
         let jt = subselect.jointree.expect("jointree is a FromExpr");
         subselect.jointree = Some(mcx::alloc_leak_in(
             mcx,
-            FromExpr {
-                fromlist: jt.fromlist.clone_in(mcx)?,
-                quals: Some(quals),
-            },
+            FromExpr { fromlist: jt.fromlist.clone_in(mcx)?, quals: Some(quals), },
         )?);
     }
 
@@ -1355,6 +1310,8 @@ fn contain_aggs_of_level(node: Node<'_>, level: i32) -> PgResult<bool> {
     rewrite_manip::contain_aggs_of_level(node, level)
 }
 
+
+
 #[allow(clippy::too_many_arguments)]
 fn build_subplan<'mcx>(
     run: &mut PlannerRun<'mcx>,
@@ -1416,8 +1373,7 @@ fn build_subplan<'mcx>(
         per_call_cost: 0.0,
     };
 
-    #[allow(unused_assignments)]
-    // Rust-structural: definite-init boilerplate (C: subselect.c:327 declares uninitialized; every branch assigns)
+    #[allow(unused_assignments)] // Rust-structural: definite-init boilerplate (C: subselect.c:327 declares uninitialized; every branch assigns)
     let mut is_init_plan = false;
     let mut result: Option<Node<'mcx>> = None;
     if splan.parParam.is_nil() && sub_link_type == SubLinkType::EXISTS_SUBLINK {
@@ -1558,10 +1514,7 @@ fn build_subplan<'mcx>(
     }
     splan.plan_name = Some(str_in(
         mcx,
-        &format!(
-            "{} {plan_id}",
-            if is_init_plan { "InitPlan" } else { "SubPlan" }
-        ),
+        &format!("{} {plan_id}", if is_init_plan { "InitPlan" } else { "SubPlan" }),
     )?);
     cost_subplan(&mut splan, plan)?;
     let splan_node = Node::mk(mcx, splan)?;
@@ -1621,9 +1574,7 @@ fn testexpr_is_hashable<'mcx>(testexpr: Node<'mcx>, param_ids: &IntList<'mcx>) -
     if let Some(b) = testexpr.as_bool_expr() {
         if b.boolop == types_nodes::BoolExprType::AND_EXPR {
             for arg in &b.args {
-                let Some(op) = arg.as_op_expr() else {
-                    return Ok(false);
-                };
+                let Some(op) = arg.as_op_expr() else { return Ok(false); };
                 if !test_opexpr_is_hashable(op, param_ids)? {
                     return Ok(false);
                 }
@@ -1696,10 +1647,7 @@ fn hash_ok_operator(expr: &types_nodes::primnodes::OpExpr<'_>) -> PgResult<bool>
 
 // materialize_finished_plan (createplan.c) + cost_material (costsize.c):
 // Material shield so repeated rescans of an uncorrelated subplan are cheap.
-pub(crate) fn materialize_finished_plan<'mcx>(
-    mcx: Mcx<'mcx>,
-    subplan: Node<'mcx>,
-) -> PgResult<Node<'mcx>> {
+pub(crate) fn materialize_finished_plan<'mcx>(mcx: Mcx<'mcx>, subplan: Node<'mcx>,) -> PgResult<Node<'mcx>> {
     // C's "horrid kluge": hoist the subplan's initPlans (and their cost
     // delta) onto the Material node so SS_finalize_plan sees them at the top.
     let mut initplan_cost = 0.0;
@@ -1786,7 +1734,10 @@ pub(crate) fn get_first_col_type(plan: Node<'_>) -> (types_core::Oid, i32, types
 
 // cost_subplan (costsize.c). The testexpr qual cost is computed root-less,
 // as C (NULL root).
-pub(crate) fn cost_subplan<'mcx>(splan: &mut SubPlan<'mcx>, plan: Node<'mcx>) -> PgResult<()> {
+pub(crate) fn cost_subplan<'mcx>(
+    splan: &mut SubPlan<'mcx>,
+    plan: Node<'mcx>
+) -> PgResult<()> {
     let p = plan.as_plan().expect("plan node");
     // cost_qual_eval's walker charges nothing for the AND shell itself, so
     // walking the testexpr whole equals C's implicit-AND list walk.
@@ -1799,8 +1750,7 @@ pub(crate) fn cost_subplan<'mcx>(splan: &mut SubPlan<'mcx>, plan: Node<'mcx>) ->
     let mut startup = cost.startup;
     let mut per_tuple = cost.per_tuple;
     if splan.useHashTable {
-        startup += fp_contract::fmadd(p.plan_rows, crate::gucs::cpu_operator_cost(), p.total_cost);
-    // costsize.c:4565
+        startup += fp_contract::fmadd(p.plan_rows, crate::gucs::cpu_operator_cost(), p.total_cost); // costsize.c:4565
     } else {
         let plan_run_cost = p.total_cost - p.startup_cost;
         match splan.subLinkType {
@@ -1810,11 +1760,8 @@ pub(crate) fn cost_subplan<'mcx>(splan: &mut SubPlan<'mcx>, plan: Node<'mcx>) ->
             SubLinkType::ALL_SUBLINK | SubLinkType::ANY_SUBLINK => {
                 per_tuple += 0.5 * plan_run_cost;
                 // costsize.c:4599
-                per_tuple = fp_contract::fmadd(
-                    0.5 * p.plan_rows,
-                    crate::gucs::cpu_operator_cost(),
-                    per_tuple,
-                );
+                per_tuple =
+                    fp_contract::fmadd(0.5 * p.plan_rows, crate::gucs::cpu_operator_cost(), per_tuple,);
             }
             _ => per_tuple += plan_run_cost,
         }
@@ -1846,10 +1793,7 @@ fn exec_materializes_output(tag: NodeTag) -> bool {
     )
 }
 
-fn simplify_exists_query<'mcx>(
-    run: &mut PlannerRun<'mcx>,
-    query: &mut Query<'mcx>,
-) -> PgResult<bool> {
+fn simplify_exists_query<'mcx>(run: &mut PlannerRun<'mcx>, query: &mut Query<'mcx>,) -> PgResult<bool> {
     if query.commandType != types_nodes::CmdType::CMD_SELECT
         || query.setOperations.is_some()
         || query.hasAggs
@@ -1866,9 +1810,7 @@ fn simplify_exists_query<'mcx>(
     if let Some(limit) = query.limitCount {
         let node = crate::setrefs::fold_with_deps(run, limit)?;
         query.limitCount = Some(node);
-        let Some(c) = node.as_const() else {
-            return Ok(false);
-        };
+        let Some(c) = node.as_const() else { return Ok(false); };
         debug_assert_eq!(c.consttype, types_core::catalog::INT8OID);
         if !c.constisnull && c.constvalue.as_i64() <= 0 {
             return Ok(false);
@@ -1987,9 +1929,7 @@ fn replace_correlation_vars_mutator<'mcx>(
     }
     if let Some(phv) = node.as_place_holder_var() {
         if phv.phlevelsup > 0 {
-            return Ok(Some(crate::paramassign::replace_outer_placeholdervar(
-                run, phv, node,
-            )?));
+            return Ok(Some(crate::paramassign::replace_outer_placeholdervar(run, phv, node,)?));
         }
     }
     if let Some(a) = node.as_aggref() {
@@ -1999,9 +1939,7 @@ fn replace_correlation_vars_mutator<'mcx>(
     }
     if let Some(g) = node.as_grouping_func() {
         if g.agglevelsup > 0 {
-            return Ok(Some(crate::paramassign::replace_outer_grouping(
-                run, g, node,
-            )?));
+            return Ok(Some(crate::paramassign::replace_outer_grouping(run, g, node,)?));
         }
     }
     if let Some(r) = node.as_returning_expr() {
@@ -2017,9 +1955,7 @@ fn replace_correlation_vars_mutator<'mcx>(
         // C: root->parse->commandType != CMD_MERGE; the level's command type
         // is carried on the root (queries interns lazily, post-preprocess).
         if run.root.command_type != types_nodes::CmdType::CMD_MERGE {
-            return Ok(Some(crate::paramassign::replace_outer_merge_support(
-                run, m, node,
-            )?));
+            return Ok(Some(crate::paramassign::replace_outer_merge_support(run, m, node,)?));
         }
         return Ok(None);
     }
@@ -2102,10 +2038,7 @@ pub fn ss_finalize_plan<'mcx>(
 ) -> PgResult<()> {
     // Planner-arena set -> nodes-side bitmapset, converted once at the boundary.
     let mut valid = types_nodes::bitmapset::Bitmapset::empty();
-    for (i, w) in crate::relnode::relids_word_slice(outer_params)
-        .iter()
-        .enumerate()
-    {
+    for (i, w) in crate::relnode::relids_word_slice(outer_params).iter().enumerate() {
         let mut w = *w;
         while w != 0 {
             let bit = w.trailing_zeros();
@@ -2113,14 +2046,7 @@ pub fn ss_finalize_plan<'mcx>(
             w &= w - 1;
         }
     }
-    finalize_plan(
-        run,
-        root,
-        plan,
-        -1,
-        &valid,
-        &types_nodes::bitmapset::Bitmapset::empty(),
-    )?;
+    finalize_plan(run, root, plan, -1, &valid, &types_nodes::bitmapset::Bitmapset::empty(),)?;
     Ok(())
 }
 
@@ -2162,10 +2088,7 @@ fn finalize_plan<'mcx>(
 
     // A parallel-aware scan depends on the parent Gather's rescan Param.
     if base.parallel_aware {
-        assert!(
-            gather_param >= 0,
-            "parallel-aware plan node is not below a Gather"
-        );
+        assert!(gather_param >= 0, "parallel-aware plan node is not below a Gather");
         paramids.add_member(mcx, gather_param)?;
     }
 
@@ -2208,11 +2131,7 @@ fn finalize_plan<'mcx>(
                 let mut agg_paramids = types_nodes::bitmapset::Bitmapset::empty();
                 {
                     let mut w = FinalizeAggPrimnode {
-                        inner: FinalizePrimnode {
-                            run,
-                            root,
-                            paramids: &mut agg_paramids,
-                        },
+                        inner: FinalizePrimnode { run, root, paramids: &mut agg_paramids, },
                     };
                     for tle in &agg.plan.targetlist {
                         w.visit(tle)?;
@@ -2252,12 +2171,7 @@ fn finalize_plan<'mcx>(
             paramids.add_members(mcx, scan_params)?;
         }
         NodeTag::T_TidScan => {
-            finalize_primnode_list(
-                run,
-                root,
-                &plan.as_tid_scan().unwrap().tidquals,
-                &mut paramids,
-            )?;
+            finalize_primnode_list(run, root, &plan.as_tid_scan().unwrap().tidquals, &mut paramids,)?;
             paramids.add_members(mcx, scan_params)?;
         }
         NodeTag::T_TidRangeScan => {
@@ -2270,12 +2184,7 @@ fn finalize_plan<'mcx>(
             paramids.add_members(mcx, scan_params)?;
         }
         NodeTag::T_Memoize => {
-            finalize_primnode_list(
-                run,
-                root,
-                &plan.as_memoize().unwrap().param_exprs,
-                &mut paramids,
-            )?;
+            finalize_primnode_list(run, root, &plan.as_memoize().unwrap().param_exprs, &mut paramids,)?;
         }
         // cteParam is linkage only; the CTE plan's extParam matters (C bug #4902).
         NodeTag::T_CteScan => {
@@ -2416,18 +2325,14 @@ fn finalize_plan<'mcx>(
         NodeTag::T_SubqueryScan => {
             let ss = plan.as_subquery_scan().unwrap();
             let rel = crate::relnode::find_base_rel(root, ss.scan.scanrelid as i32);
-            let idx = root
-                .rel(rel)
-                .subroot_idx
-                .expect("subquery rel has a subroot");
+            let idx = root.rel(rel).subroot_idx.expect("subquery rel has a subroot");
             let subroot = &run.rel_subroots[idx].root;
             // subselect.c:2554-2560: the subquery finalizes under its subroot
             // with the parent Gather's rescan param carried across (a
             // parallel-aware node inside the subquery hangs off our Gather).
             let mut subquery_params = types_nodes::bitmapset::Bitmapset::empty();
-            for (i, w) in crate::relnode::relids_word_slice(&subroot.outer_params)
-                .iter()
-                .enumerate()
+            for (i, w) in
+                crate::relnode::relids_word_slice(&subroot.outer_params).iter().enumerate()
             {
                 let mut w = *w;
                 while w != 0 {
@@ -2448,7 +2353,8 @@ fn finalize_plan<'mcx>(
                 &subquery_params,
                 &types_nodes::bitmapset::Bitmapset::empty(),
             )?;
-            paramids.add_members(mcx, &subplan.as_plan().expect("plan node").extParam)?;
+            paramids
+                .add_members(mcx, &subplan.as_plan().expect("plan node").extParam)?;
             paramids.add_members(mcx, scan_params)?;
         }
         NodeTag::T_MergeJoin => {
@@ -2466,11 +2372,7 @@ fn finalize_plan<'mcx>(
         }
         NodeTag::T_Unique | NodeTag::T_Group => {}
         NodeTag::T_TableFuncScan => {
-            let tf = plan
-                .as_table_func_scan()
-                .unwrap()
-                .tablefunc
-                .expect("tablefunc");
+            let tf = plan.as_table_func_scan().unwrap().tablefunc.expect("tablefunc");
             finalize_primnode(run, root, tf, &mut paramids)?;
             paramids.add_members(mcx, scan_params)?;
         }
@@ -2512,8 +2414,7 @@ fn finalize_plan<'mcx>(
         } else {
             let mut inner_valid = valid.clone_in(mcx)?;
             inner_valid.add_members(mcx, &nestloop_params)?;
-            let mut child_params =
-                finalize_plan(run, root, child, gather_param, &inner_valid, scan_params)?;
+            let mut child_params = finalize_plan(run, root, child, gather_param, &inner_valid, scan_params)?;
             child_params.del_members(&nestloop_params);
             paramids.add_members(mcx, &child_params)?;
         }
@@ -2578,7 +2479,9 @@ impl<'a, 'mcx> clauses::NodeWalker<'mcx> for FinalizePrimnode<'a, 'mcx> {
         if node.node_tag() == NodeTag::T_Aggref {
             // The Aggref becomes an InitPlan output Param in setrefs; account
             // for that Param here (C's find_minmax_agg_replacement_param wart).
-            if let Some(prm) = crate::setrefs::find_minmax_agg_replacement_param(self.root, node) {
+            if let Some(prm) =
+                crate::setrefs::find_minmax_agg_replacement_param(self.root, node)
+            {
                 let paramid = self
                     .root
                     .expr_node(prm)
@@ -2606,11 +2509,8 @@ impl<'a, 'mcx> clauses::NodeWalker<'mcx> for FinalizePrimnode<'a, 'mcx> {
             for arg in &sp.args {
                 self.visit(arg)?;
             }
-            let mut subparamids = plan
-                .as_plan()
-                .expect("plan node")
-                .extParam
-                .clone_in(self.run.mcx)?;
+            let mut subparamids =
+                plan.as_plan().expect("plan node").extParam.clone_in(self.run.mcx)?;
             for id in sp.parParam.iter() {
                 subparamids.del_member(id);
             }
@@ -2627,12 +2527,7 @@ fn finalize_primnode<'mcx>(
     node: Node<'mcx>,
     paramids: &mut types_nodes::bitmapset::Bitmapset<'mcx>,
 ) -> PgResult<()> {
-    FinalizePrimnode {
-        run,
-        root,
-        paramids,
-    }
-    .visit(node)?;
+    FinalizePrimnode { run, root, paramids, }.visit(node)?;
     Ok(())
 }
 
@@ -2664,8 +2559,10 @@ impl<'a, 'mcx> clauses::NodeWalker<'mcx> for FinalizeAggPrimnode<'a, 'mcx> {
 fn no_array_type(elemtype: types_core::Oid) -> Box<types_error::PgError> {
     let tyname = format_type::format_type_be(elemtype).unwrap_or_else(|_| elemtype.to_string());
     Box::new(
-        types_error::PgError::error(format!("could not find array type for data type {tyname}"))
-            .with_sqlstate(types_error::ERRCODE_UNDEFINED_OBJECT),
+        types_error::PgError::error(format!(
+            "could not find array type for data type {tyname}"
+        ))
+        .with_sqlstate(types_error::ERRCODE_UNDEFINED_OBJECT),
     )
 }
 
@@ -2816,14 +2713,8 @@ mod simplify_exists_tests {
             commandType: CmdType::CMD_SELECT,
             rtable: NodeList::make1(mcx, shared).unwrap(),
             jointree: Some(
-                mcx::alloc_leak_in(
-                    mcx,
-                    FromExpr {
-                        fromlist: NodeList::nil(),
-                        quals: None,
-                    },
-                )
-                .unwrap(),
+                mcx::alloc_leak_in(mcx, FromExpr { fromlist: NodeList::nil(), quals: None, },)
+                    .unwrap(),
             ),
             hasGroupRTE: true,
             ..Query::default()
@@ -2891,12 +2782,7 @@ mod cost_subplan_fma_tests {
 
     fn check(got: f64, fused: u64, plain: u64) {
         let want = if fp_contract::FUSED { fused } else { plain };
-        assert_eq!(
-            got.to_bits(),
-            want,
-            "got {got}, want {}",
-            f64::from_bits(want)
-        );
+        assert_eq!(got.to_bits(), want, "got {got}, want {}", f64::from_bits(want));
     }
 
     #[test]
@@ -2905,10 +2791,7 @@ mod cost_subplan_fma_tests {
         crate::gucs::set_cpu_operator_cost(0.0031);
         let cx = MemoryContext::new_bump("d400-subplan");
         let plan = seqscan(cx.mcx(), 0.0, 1.9750186076568241, 10448.691690736405);
-        let mut splan = SubPlan {
-            useHashTable: true,
-            ..Default::default()
-        };
+        let mut splan = SubPlan { useHashTable: true, ..Default::default() };
         cost_subplan(&mut splan, plan).unwrap();
         check(splan.startup_cost, 0x40412ed7dee1df9b, 0x40412ed7dee1df9a);
     }
@@ -2918,16 +2801,11 @@ mod cost_subplan_fma_tests {
         crate::tests::install_fixtures();
         crate::gucs::set_cpu_operator_cost(0.0031);
         let cx = MemoryContext::new_bump("d400-subplan");
-        let plan = seqscan(
-            cx.mcx(),
+        let plan = seqscan(cx.mcx(),
             53_216.516_827_383_39,
             620_243.069_673_190_1,
-            4_326_533.337_983_532,
-        );
-        let mut splan = SubPlan {
-            subLinkType: SubLinkType::ANY_SUBLINK,
-            ..Default::default()
-        };
+            4_326_533.337_983_532,);
+        let mut splan = SubPlan { subLinkType: SubLinkType::ANY_SUBLINK, ..Default::default() };
         cost_subplan(&mut splan, plan).unwrap();
         check(splan.per_call_cost, 0x4114f62fae00996c, 0x4114f62fae00996d);
     }

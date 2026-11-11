@@ -87,12 +87,7 @@ pub(crate) fn index_io_cost(index_correlation: f64, min_io_cost: f64, max_io_cos
 }
 
 /// cost_bitmap_heap_scan per-page cost (costsize.c:1070-1073).
-pub(crate) fn bitmap_cost_per_page(
-    spc_random: f64,
-    spc_seq: f64,
-    pages_fetched: f64,
-    t: f64,
-) -> f64 {
+pub(crate) fn bitmap_cost_per_page(spc_random: f64, spc_seq: f64, pages_fetched: f64, t: f64,) -> f64 {
     if pages_fetched >= 2.0 {
         fmsub(spc_random - spc_seq, (pages_fetched / t).sqrt(), spc_random)
     } else {
@@ -227,13 +222,7 @@ pub(crate) fn windowagg_total_cost(
     for &wfunccost in wfunccosts {
         total_cost = windowagg_add_func(total_cost, wfunccost, input_tuples);
     }
-    windowagg_tail(
-        total_cost,
-        num_cols,
-        input_tuples,
-        cpu_operator_cost,
-        cpu_tuple_cost,
-    )
+    windowagg_tail(total_cost, num_cols, input_tuples, cpu_operator_cost, cpu_tuple_cost,)
 }
 
 /// One window function's per-tuple charge (costsize.c:3151).
@@ -311,8 +300,7 @@ pub(crate) fn nestloop_early_stop_costs(
             ); // :3490
         }
         if outer_unmatched_rows > 0.0 {
-            run_cost = fmadd(outer_unmatched_rows, inner_rescan_run_cost, run_cost);
-            // :3494
+            run_cost = fmadd(outer_unmatched_rows, inner_rescan_run_cost, run_cost); // :3494
         }
     }
     (run_cost, ntuples)
@@ -328,21 +316,13 @@ pub(crate) fn join_tail_run_cost(
     tlist_per_tuple: f64,
     rows: f64,
 ) -> f64 {
-    fmadd(
-        tlist_per_tuple,
-        rows,
-        fmadd(cpu_per_tuple, ntuples, run_cost),
-    )
+    fmadd(tlist_per_tuple, rows, fmadd(cpu_per_tuple, ntuples, run_cost),)
 }
 
 /// initial_cost_mergejoin startup share of one input's run cost
 /// (costsize.c:3730/3739 outer, 3771/3780 inner). The run-cost shares at
 /// 3732/3741 fuse with a 0.0 addend, so they round like plain code.
-pub(crate) fn mergejoin_startup_share(
-    startup_cost: f64,
-    input_run_cost: f64,
-    startsel: f64,
-) -> f64 {
+pub(crate) fn mergejoin_startup_share(startup_cost: f64, input_run_cost: f64, startsel: f64,) -> f64 {
     fmadd(input_run_cost, startsel, startup_cost)
 }
 
@@ -377,11 +357,7 @@ pub(crate) fn mergejoin_qual_costs(
         ),
         fmadd(
             merge_qual_per_tuple,
-            fmadd(
-                inner_rows - inner_skip_rows,
-                rescanratio,
-                outer_rows - outer_skip_rows,
-            ),
+            fmadd(inner_rows - inner_skip_rows, rescanratio, outer_rows - outer_skip_rows,),
             run_cost,
         ),
     )
@@ -428,11 +404,7 @@ pub(crate) fn hashjoin_unmatched_cost(
     outer_unmatched_rows: f64,
     bucket_rows: f64,
 ) -> f64 {
-    fmadd(
-        hash_qual_per_tuple * outer_unmatched_rows * bucket_rows,
-        0.05,
-        run_cost,
-    )
+    fmadd(hash_qual_per_tuple * outer_unmatched_rows * bucket_rows, 0.05, run_cost,)
 }
 
 /// cost_qual_eval_walker hashed ScalarArrayOpExpr build charge (costsize.c:4904).

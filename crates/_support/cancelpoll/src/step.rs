@@ -43,11 +43,7 @@ pub(crate) struct Lent {
 }
 
 impl Lent {
-    pub(crate) const OFF: Lent = Lent {
-        test: core::ptr::null(),
-        real: core::ptr::null(),
-        mask: 0,
-    };
+    pub(crate) const OFF: Lent = Lent { test: core::ptr::null(), real: core::ptr::null(), mask: 0, };
 
     /// A kernel call's lent byte: off under the host-poll switch (`set_host_polls`, which covers its host code's loops).
     #[inline]
@@ -66,17 +62,9 @@ impl Lent {
             return Lent::OFF;
         }
         if crate::probe_on() {
-            return Lent {
-                test: &PROBING,
-                real: byte,
-                mask: PROBE_BIT,
-            };
+            return Lent { test: &PROBING, real: byte, mask: PROBE_BIT, };
         }
-        Lent {
-            test: byte,
-            real: byte,
-            mask: ABORT_BIT,
-        }
+        Lent { test: byte, real: byte, mask: ABORT_BIT, }
     }
 }
 
@@ -102,12 +90,7 @@ mod gap {
         for s in &SAID {
             let mut cur = s.load(Ordering::Acquire);
             if cur.is_null() {
-                cur = match s.compare_exchange(
-                    core::ptr::null_mut(),
-                    p,
-                    Ordering::AcqRel,
-                    Ordering::Acquire,
-                ) {
+                cur = match s.compare_exchange(core::ptr::null_mut(), p, Ordering::AcqRel, Ordering::Acquire,) {
                     Ok(_) => return true,
                     Err(other) => other,
                 };
@@ -143,12 +126,7 @@ mod gap {
 
     /// A poll of the step `label` (open since `since`) at `site`: the stretch since this thread's last poll (no earlier
     /// than the step's open), logged when it reaches the threshold.
-    pub(crate) fn poll(
-        label: &'static str,
-        since: u64,
-        end: &str,
-        site: &'static Location<'static>,
-    ) {
+    pub(crate) fn poll(label: &'static str, since: u64, end: &str, site: &'static Location<'static>,) {
         let now = now();
         let from = LAST.replace(now).max(since);
         let gap = now.saturating_sub(from);
@@ -277,11 +255,7 @@ impl Step {
     #[inline]
     #[cfg_attr(debug_assertions, track_caller)]
     fn open(l: Lent, label: &'static str, lent: bool) -> Step {
-        let test = if l.mask == 0 {
-            &NEVER as *const AtomicU8
-        } else {
-            l.test
-        };
+        let test = if l.mask == 0 { &NEVER as *const AtomicU8 } else { l.test };
         Step {
             test,
             real: l.real,
@@ -291,11 +265,7 @@ impl Step {
             #[cfg(debug_assertions)]
             scope: if lent { l.real } else { core::ptr::null() },
             #[cfg(debug_assertions)]
-            debug: GapState {
-                name: label,
-                site: Location::caller(),
-                since: gap::now(),
-            },
+            debug: GapState { name: label, site: Location::caller(), since: gap::now(), },
             _not_send: PhantomData,
         }
     }
@@ -346,10 +316,7 @@ impl Step {
     fn check_scope(&self) {
         if !self.scope.is_null() {
             let now = LENT.get().real;
-            assert!(
-                core::ptr::eq(now, self.scope),
-                "cancelpoll: a Step ticked outside the kernel call it was opened in"
-            );
+            assert!(core::ptr::eq(now, self.scope), "cancelpoll: a Step ticked outside the kernel call it was opened in");
         }
     }
 
@@ -357,23 +324,13 @@ impl Step {
     #[inline]
     #[track_caller]
     pub fn each<I: IntoIterator>(&mut self, it: I) -> Each<'_, I::IntoIter> {
-        Each {
-            step: self,
-            it: it.into_iter(),
-            site: Location::caller(),
-            done: false,
-        }
+        Each { step: self, it: it.into_iter(), site: Location::caller(), done: false, }
     }
 
     /// `f` over `0..len` in pieces of at most `piece` (`PIECE` unless the site says why), a tick before each.
     #[inline]
     #[track_caller]
-    pub fn pieces<E: From<Canceled>>(
-        &mut self,
-        len: usize,
-        piece: usize,
-        mut f: impl FnMut(Range<usize>) -> Result<(), E>,
-    ) -> Result<(), E> {
+    pub fn pieces<E: From<Canceled>>(&mut self, len: usize, piece: usize, mut f: impl FnMut(Range<usize>) -> Result<(), E>,) -> Result<(), E> {
         let site = Location::caller();
         let piece = piece.max(1);
         let mut at = 0;
@@ -426,10 +383,7 @@ pub const LOCK_PARK: core::time::Duration = core::time::Duration::from_millis(1)
 /// in a long write: `Mutex::lock` there polled nothing (D4210: a spill stage's stored-stream lock waited 0.8-2.5 s
 /// off-CPU behind another worker's stalled epoch write). The park is pgsync's sleep (a TimedPark under the DST scheduler).
 #[track_caller]
-pub fn lock_or_cancel<'m, T>(
-    step: &mut Step,
-    m: &'m pgsync::Mutex<T>,
-) -> Result<pgsync::MutexGuard<'m, T>, Canceled> {
+pub fn lock_or_cancel<'m, T>(step: &mut Step, m: &'m pgsync::Mutex<T>,) -> Result<pgsync::MutexGuard<'m, T>, Canceled> {
     let mut park = core::time::Duration::from_micros(50);
     loop {
         match m.try_lock() {
@@ -448,12 +402,7 @@ impl Drop for Step {
     fn drop(&mut self) {
         #[cfg(debug_assertions)]
         if self.mask != 0 {
-            gap::poll(
-                self.debug.name,
-                self.debug.since,
-                "the end of the step opened",
-                self.debug.site,
-            );
+            gap::poll(self.debug.name, self.debug.since, "the end of the step opened", self.debug.site,);
         }
         if self.label {
             crate::phase_exit();
@@ -489,12 +438,7 @@ impl<I: Iterator> Iterator for Each<'_, I> {
 /// `scratch` and back with a tick per `BATCH` elements. `scratch` holds at least `v.len()` when `v.len() > SORT_RUN`
 /// (the caller allocates it). `Err`: `v` holds its elements in no order.
 #[track_caller]
-pub fn sort_by<T: Copy>(
-    step: &mut Step,
-    v: &mut [T],
-    scratch: &mut [T],
-    cmp: impl Fn(&T, &T) -> CmpOrdering,
-) -> Result<(), Canceled> {
+pub fn sort_by<T: Copy>(step: &mut Step, v: &mut [T], scratch: &mut [T], cmp: impl Fn(&T, &T) -> CmpOrdering,) -> Result<(), Canceled> {
     let site = Location::caller();
     for run in v.chunks_mut(SORT_RUN) {
         step.tick_at(site)?;
@@ -507,11 +451,7 @@ pub fn sort_by<T: Copy>(
     let scratch = &mut scratch[..n];
     let (mut in_v, mut width, mut r) = (true, SORT_RUN, Ok(()));
     'passes: while width < n {
-        let (src, dst): (&[T], &mut [T]) = if in_v {
-            (&*v, &mut *scratch)
-        } else {
-            (&*scratch, &mut *v)
-        };
+        let (src, dst): (&[T], &mut [T]) = if in_v { (&*v, &mut *scratch) } else { (&*scratch, &mut *v) };
         let mut k = 0usize;
         for start in (0..n).step_by(2 * width) {
             let (mid, end) = ((start + width).min(n), (start + 2 * width).min(n));

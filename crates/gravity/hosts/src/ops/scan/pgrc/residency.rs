@@ -637,7 +637,7 @@ fn part_cache_load(n: u64, kind: pgrc_read::partcache::Load) {
         // every fifth poll (10 ms): a statement's end or a part every claim of it left unpins bytes; they are elastic
         // now and the trim makes the room
         polls += 1;
-        if polls.is_multiple_of(5) {
+        if polls.is_multiple_of( 5) {
             let now = registry.in_use_bytes();
             if now < pinned && registry.load_room(n) == 0 {
                 break false;

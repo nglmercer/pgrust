@@ -371,12 +371,7 @@ mod zone_word_class_tests {
 
     #[test]
     fn agrees_with_the_derivation_on_every_class_and_semantics() {
-        let mut classes = vec![
-            StorageClass::F32,
-            StorageClass::F64,
-            StorageClass::Bool,
-            StorageClass::VarlenaVerbatim,
-        ];
+        let mut classes = vec![StorageClass::F32, StorageClass::F64, StorageClass::Bool, StorageClass::VarlenaVerbatim,];
         for width in [1u8, 2, 4, 8] {
             for signed in [false, true] {
                 classes.push(StorageClass::ByvalWord { width, signed });
@@ -402,37 +397,19 @@ mod zone_word_class_tests {
         let mut word_keys = 0;
         for &class in &classes {
             for &sem in &semantics {
-                for coll in [
-                    CollationClass::C,
-                    CollationClass::OtherDeterministic,
-                    CollationClass::Nondeterministic,
-                ] {
-                    let Ok(p) = MetaProfile::derive(class, coll, sem) else {
-                        continue;
-                    };
-                    let word = matches!(
-                        p.key,
-                        KeyDerivation::SignedWord
-                            | KeyDerivation::UnsignedWordSmall
-                            | KeyDerivation::Bool
-                    );
+                for coll in [CollationClass::C, CollationClass::OtherDeterministic, CollationClass::Nondeterministic,] {
+                    let Ok(p) = MetaProfile::derive(class, coll, sem) else { continue; };
+                    let word = matches!(p.key, KeyDerivation::SignedWord | KeyDerivation::UnsignedWordSmall | KeyDerivation::Bool);
                     let pred = zone_word_class(class.id(), class.signed(), class.width());
                     if word {
                         word_keys += 1;
                         assert!(pred, "{class:?} {sem:?}: a word key the predicate misses");
                     } else if pred {
-                        assert!(
-                            matches!(p.key, KeyDerivation::None),
-                            "{class:?} {sem:?}: the predicate admits a non-word exact key {:?}",
-                            p.key
-                        );
+                        assert!(matches!(p.key, KeyDerivation::None), "{class:?} {sem:?}: the predicate admits a non-word exact key {:?}", p.key);
                     }
                 }
             }
         }
-        assert!(
-            word_keys >= 9,
-            "the matrix exercised {word_keys} word-key profiles"
-        );
+        assert!(word_keys >= 9, "the matrix exercised {word_keys} word-key profiles");
     }
 }

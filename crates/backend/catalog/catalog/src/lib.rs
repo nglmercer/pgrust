@@ -1,6 +1,6 @@
 // catalog.c: classification predicates + OID generation (pg_nextoid and
 // pg_stop_making_pinned_objects stay with the fmgr-callable surface).
-#![allow(non_snake_case, non_upper_case_globals)]
+#![allow(non_snake_case,non_upper_case_globals)]
 
 mod oid;
 pub use oid::{Anum_pg_class_oid, ClassOidIndexId, GetNewOidWithIndex, GetNewRelFileNumber};
@@ -116,7 +116,8 @@ pub fn IsCatalogNamespace(namespaceId: Oid) -> bool {
 }
 
 pub fn IsToastNamespace(namespaceId: Oid) -> bool {
-    namespaceId == PG_TOAST_NAMESPACE || namespace_seams::is_temp_toast_namespace::call(namespaceId)
+    namespaceId == PG_TOAST_NAMESPACE
+        || namespace_seams::is_temp_toast_namespace::call(namespaceId)
 }
 
 pub fn IsReservedName(name: &str) -> bool {

@@ -1,7 +1,8 @@
 // getObjectDescription / getObjectIdentity arms for the live object classes;
 // all other classes raise clean errors.
 use crate::{
-    AttrDefaultRelationId, CastRelationId, ConstraintRelationId, ObjectAddress, PolicyRelationId,
+    AttrDefaultRelationId, CastRelationId, ConstraintRelationId, ObjectAddress,
+    PolicyRelationId,
     ProcedureRelationId, PublicationNamespaceRelationId, PublicationRelRelationId,
     PublicationRelationId, RewriteRelationId, SubscriptionRelationId, TriggerRelationId,
 };
@@ -15,10 +16,9 @@ use types_core::{
     OPERATOR_RELATION_ID, RELATION_RELATION_ID, TYPE_RELATION_ID,
 };
 use types_error::PgResult;
-use types_rel::{
-    AccessShareLock, RELKIND_COMPOSITE_TYPE, RELKIND_FOREIGN_TABLE, RELKIND_INDEX, RELKIND_MATVIEW,
-    RELKIND_PARTITIONED_INDEX, RELKIND_PARTITIONED_TABLE, RELKIND_RELATION, RELKIND_SEQUENCE,
-    RELKIND_TOASTVALUE, RELKIND_VIEW,
+use types_rel::{AccessShareLock, RELKIND_COMPOSITE_TYPE, RELKIND_FOREIGN_TABLE, RELKIND_INDEX,
+    RELKIND_MATVIEW, RELKIND_PARTITIONED_INDEX, RELKIND_PARTITIONED_TABLE, RELKIND_RELATION,
+    RELKIND_SEQUENCE, RELKIND_TOASTVALUE, RELKIND_VIEW,
 };
 use types_scan::scankey::{BTEqualStrategyNumber, ScanKeyData};
 use types_tuple::NameData;
@@ -35,9 +35,7 @@ use types_tuple::NameData;
 #[cold]
 #[inline(never)]
 pub(crate) fn cache_lookup_failed(noun: &str, oid: Oid) -> Box<types_error::PgError> {
-    Box::new(types_error::PgError::error(format!(
-        "cache lookup failed for {noun} {oid}"
-    )))
+    Box::new(types_error::PgError::error(format!("cache lookup failed for {noun} {oid}")))
 }
 
 // The index-scanned catalogs (no OID syscache) report a missing row with
@@ -49,9 +47,7 @@ pub(crate) fn cache_lookup_failed(noun: &str, oid: Oid) -> Box<types_error::PgEr
 #[cold]
 #[inline(never)]
 pub(crate) fn could_not_find_tuple(noun: &str, oid: Oid) -> Box<types_error::PgError> {
-    Box::new(types_error::PgError::error(format!(
-        "could not find tuple for {noun} {oid}"
-    )))
+    Box::new(types_error::PgError::error(format!("could not find tuple for {noun} {oid}")))
 }
 
 fn oid_key(attno: AttrNumber, oid: Oid) -> ScanKeyData {
@@ -75,9 +71,7 @@ pub(crate) fn name_from_datum(d: Datum) -> String {
             name.data.len(),
         );
     }
-    core::str::from_utf8(name.name_str())
-        .expect("catalog NameData is valid UTF-8")
-        .to_string()
+    core::str::from_utf8(name.name_str()).expect("catalog NameData is valid UTF-8").to_string()
 }
 
 fn name_str(name: &NameData) -> &str {
@@ -171,11 +165,7 @@ pub(crate) fn scan_one_row<'mcx, T>(
     Ok(result)
 }
 
-pub(crate) fn getattr(
-    tup: &types_tuple::HeapTupleData<'_>,
-    attnum: i32,
-    desc: &types_tuple::TupleDescData<'_>,
-) -> Datum {
+pub(crate) fn getattr(tup: &types_tuple::HeapTupleData<'_>, attnum: i32, desc: &types_tuple::TupleDescData<'_>,) -> Datum {
     let mut isnull = false;
     // SAFETY: fixed NOT NULL catalog column under the relation's descriptor.
     let d = unsafe { types_tuple::heap_getattr(tup, attnum, desc, &mut isnull) };
@@ -234,10 +224,7 @@ pub fn getObjectDescription(
         }
         CastRelationId => {
             let row = scan_one_row(mcx, CastRelationId, 2660, object.objectId, |tup, desc| {
-                (
-                    getattr(tup, 2, desc).as_oid(),
-                    getattr(tup, 3, desc).as_oid(),
-                )
+                (getattr(tup, 2, desc).as_oid(), getattr(tup, 3, desc).as_oid(),)
             })?;
             let Some((castsource, casttarget)) = row else {
                 if !missing_ok {
@@ -252,7 +239,8 @@ pub fn getObjectDescription(
             )))
         }
         ConstraintRelationId => {
-            let Some(con) = syscache_seams::lookup_pg_constraint_desc_shape::call(object.objectId)?
+            let Some(con) =
+                syscache_seams::lookup_pg_constraint_desc_shape::call(object.objectId)?
             else {
                 if !missing_ok {
                     return Err(cache_lookup_failed("constraint", object.objectId));
@@ -262,10 +250,7 @@ pub fn getObjectDescription(
             if OidIsValid(con.conrelid) {
                 let rel = getRelationDescription(con.conrelid, false)?
                     .expect("constraint's relation exists");
-                Ok(Some(format!(
-                    "constraint {} on {rel}",
-                    name_str(&con.conname)
-                )))
+                Ok(Some(format!("constraint {} on {rel}", name_str(&con.conname))))
             } else {
                 Ok(Some(format!("constraint {}", name_str(&con.conname))))
             }
@@ -279,23 +264,14 @@ pub fn getObjectDescription(
                 return Ok(None);
             }
             let colobject = ObjectAddress::sub_set(RELATION_RELATION_ID, adrelid, adnum as i32);
-            let col =
-                getObjectDescription(mcx, &colobject, false)?.expect("attrdef's column exists");
+            let col = getObjectDescription(mcx, &colobject, false)?
+                .expect("attrdef's column exists");
             Ok(Some(format!("default value for {col}")))
         }
         RewriteRelationId => {
-            let row = scan_one_row(
-                mcx,
-                RewriteRelationId,
-                2692,
-                object.objectId,
-                |tup, desc| {
-                    (
-                        name_from_datum(getattr(tup, 2, desc)),
-                        getattr(tup, 3, desc).as_oid(),
-                    )
-                },
-            )?;
+            let row = scan_one_row(mcx, RewriteRelationId, 2692, object.objectId, |tup, desc| {
+                (name_from_datum(getattr(tup, 2, desc)), getattr(tup, 3, desc).as_oid(),)
+            },)?;
             let Some((rulename, ev_class)) = row else {
                 if !missing_ok {
                     return Err(could_not_find_tuple("rule", object.objectId));
@@ -306,18 +282,9 @@ pub fn getObjectDescription(
             Ok(Some(format!("rule {rulename} on {rel}")))
         }
         TriggerRelationId => {
-            let row = scan_one_row(
-                mcx,
-                TriggerRelationId,
-                2702,
-                object.objectId,
-                |tup, desc| {
-                    (
-                        getattr(tup, 2, desc).as_oid(),
-                        name_from_datum(getattr(tup, 4, desc)),
-                    )
-                },
-            )?;
+            let row = scan_one_row(mcx, TriggerRelationId, 2702, object.objectId, |tup, desc| {
+                (getattr(tup, 2, desc).as_oid(), name_from_datum(getattr(tup, 4, desc)),)
+            },)?;
             let Some((tgrelid, tgname)) = row else {
                 if !missing_ok {
                     return Err(could_not_find_tuple("trigger", object.objectId));
@@ -329,10 +296,7 @@ pub fn getObjectDescription(
         }
         PolicyRelationId => {
             let row = scan_one_row(mcx, PolicyRelationId, 3257, object.objectId, |tup, desc| {
-                (
-                    name_from_datum(getattr(tup, 2, desc)),
-                    getattr(tup, 3, desc).as_oid(),
-                )
+                (name_from_datum(getattr(tup, 2, desc)), getattr(tup, 3, desc).as_oid(),)
             })?;
             let Some((polname, polrelid)) = row else {
                 if !missing_ok {
@@ -352,10 +316,9 @@ pub fn getObjectDescription(
             };
             Ok(Some(format!("schema {nspname}")))
         }
-        AUTH_ID_RELATION_ID => Ok(
-            miscinit::GetUserNameFromId(mcx, object.objectId, missing_ok)?
-                .map(|name| format!("role {}", name.as_str())),
-        ),
+        AUTH_ID_RELATION_ID =>
+            Ok(miscinit::GetUserNameFromId(mcx, object.objectId, missing_ok)?
+                .map(|name| format!("role {}", name.as_str())),),
         DATABASE_RELATION_ID => {
             let Some(datname) = dbcommands_seams::get_database_name::call(object.objectId)? else {
                 if !missing_ok {
@@ -387,72 +350,42 @@ pub fn getObjectDescription(
                 adt_regproc::format_operator(mcx, object.objectId)?
             )))
         }
-        crate::CollationRelationId => named_nsp_class_description(
-            mcx,
-            object,
-            missing_ok,
-            crate::CollationRelationId,
-            3085,
-            2,
-            3,
-            "collation",
-            |name| catalog_namespace::get_collation_oid(&[name], true),
-        ),
-        StatisticExtRelationId_descr => named_nsp_class_description(
-            mcx,
-            object,
-            missing_ok,
-            StatisticExtRelationId_descr,
-            3380,
-            3,
-            4,
-            "statistics object",
-            |name| statscmds::get_statistics_object_oid(&[name], true),
-        ),
-        crate::TSParserRelationId => named_nsp_class_description(
-            mcx,
-            object,
-            missing_ok,
-            crate::TSParserRelationId,
-            3607,
-            2,
-            3,
-            "text search parser",
-            |name| catalog_namespace::get_ts_parser_oid(&[name], true),
-        ),
-        crate::TSDictionaryRelationId => named_nsp_class_description(
-            mcx,
-            object,
-            missing_ok,
-            crate::TSDictionaryRelationId,
-            3605,
-            2,
-            3,
-            "text search dictionary",
-            |name| catalog_namespace::get_ts_dict_oid(&[name], true),
-        ),
-        crate::TSTemplateRelationId => named_nsp_class_description(
-            mcx,
-            object,
-            missing_ok,
-            crate::TSTemplateRelationId,
-            3767,
-            2,
-            3,
-            "text search template",
-            |name| catalog_namespace::get_ts_template_oid(&[name], true),
-        ),
-        crate::TSConfigRelationId => named_nsp_class_description(
-            mcx,
-            object,
-            missing_ok,
-            crate::TSConfigRelationId,
-            3712,
-            2,
-            3,
-            "text search configuration",
-            |name| catalog_namespace::get_ts_config_oid(&[name], true),
-        ),
+        crate::CollationRelationId =>
+            named_nsp_class_description(
+                mcx, object, missing_ok,
+                crate::CollationRelationId, 3085, 2, 3, "collation",
+                |name| catalog_namespace::get_collation_oid(&[name], true),
+            ),
+        StatisticExtRelationId_descr =>
+            named_nsp_class_description(
+                mcx, object, missing_ok,
+                StatisticExtRelationId_descr, 3380, 3, 4, "statistics object",
+                |name| statscmds::get_statistics_object_oid(&[name], true),
+            ),
+        crate::TSParserRelationId =>
+            named_nsp_class_description(
+                mcx, object, missing_ok,
+                crate::TSParserRelationId, 3607, 2, 3, "text search parser",
+                |name| catalog_namespace::get_ts_parser_oid(&[name], true),
+            ),
+        crate::TSDictionaryRelationId =>
+            named_nsp_class_description(
+                mcx, object, missing_ok,
+                crate::TSDictionaryRelationId, 3605, 2, 3, "text search dictionary",
+                |name| catalog_namespace::get_ts_dict_oid(&[name], true),
+            ),
+        crate::TSTemplateRelationId =>
+            named_nsp_class_description(
+                mcx, object, missing_ok,
+                crate::TSTemplateRelationId, 3767, 2, 3, "text search template",
+                |name| catalog_namespace::get_ts_template_oid(&[name], true),
+            ),
+        crate::TSConfigRelationId =>
+            named_nsp_class_description(
+                mcx, object, missing_ok,
+                crate::TSConfigRelationId, 3712, 2, 3, "text search configuration",
+                |name| catalog_namespace::get_ts_config_oid(&[name], true),
+            ),
         pg_conversion::ConversionRelationId => {
             let row = scan_one_row(
                 mcx,
@@ -460,10 +393,7 @@ pub fn getObjectDescription(
                 pg_conversion::ConversionOidIndexId,
                 object.objectId,
                 |tup, desc| {
-                    (
-                        name_from_datum(getattr(tup, 2, desc)),
-                        getattr(tup, 3, desc).as_oid(),
-                    )
+                    (name_from_datum(getattr(tup, 2, desc)), getattr(tup, 3, desc).as_oid(),)
                 },
             )?;
             let Some((conname, connamespace)) = row else {
@@ -472,12 +402,13 @@ pub fn getObjectDescription(
                 }
                 return Ok(None);
             };
-            let nspname =
-                if catalog_namespace::get_conversion_oid(&[&conname], true)? == object.objectId {
-                    None
-                } else {
-                    get_namespace_name(connamespace)?
-                };
+            let nspname = if catalog_namespace::get_conversion_oid(&[&conname], true)?
+                == object.objectId
+            {
+                None
+            } else {
+                get_namespace_name(connamespace)?
+            };
             Ok(Some(format!(
                 "conversion {}",
                 quote_qualified(nspname.as_deref(), &conname)
@@ -500,8 +431,10 @@ pub fn getObjectDescription(
             Ok(Some(format!("language {lanname}")))
         }
         OPERATOR_CLASS_RELATION_ID => {
-            let Some((opcmethod, opcname, opcnamespace)) =
-                opclass_or_opfamily_row(cache_syscache::cacheinfo::CLAOID, object.objectId)?
+            let Some((opcmethod, opcname, opcnamespace)) = opclass_or_opfamily_row(
+                cache_syscache::cacheinfo::CLAOID,
+                object.objectId
+            )?
             else {
                 if !missing_ok {
                     return Err(cache_lookup_failed("opclass", object.objectId));
@@ -509,21 +442,23 @@ pub fn getObjectDescription(
                 return Ok(None);
             };
             let amname = am_name(opcmethod)?;
-            let nspname = if catalog_namespace::OpclassnameGetOpcid(opcmethod, &opcname)?
-                == object.objectId
-            {
-                None
-            } else {
-                get_namespace_name(opcnamespace)?
-            };
+            let nspname =
+                if catalog_namespace::OpclassnameGetOpcid(opcmethod, &opcname)? == object.objectId
+                {
+                    None
+                } else {
+                    get_namespace_name(opcnamespace)?
+                };
             Ok(Some(format!(
                 "operator class {} for access method {amname}",
                 quote_qualified(nspname.as_deref(), &opcname)
             )))
         }
         OPERATOR_FAMILY_RELATION_ID => {
-            let Some((opfmethod, opfname, opfnamespace)) =
-                opclass_or_opfamily_row(cache_syscache::cacheinfo::OPFAMILYOID, object.objectId)?
+            let Some((opfmethod, opfname, opfnamespace)) = opclass_or_opfamily_row(
+                cache_syscache::cacheinfo::OPFAMILYOID,
+                object.objectId
+            )?
             else {
                 if !missing_ok {
                     return Err(cache_lookup_failed("opfamily", object.objectId));
@@ -544,10 +479,8 @@ pub fn getObjectDescription(
             )))
         }
         PublicationRelationId => {
-            Ok(
-                lsyscache::get_publication_name(mcx, object.objectId, missing_ok)?
-                    .map(|pubname| format!("publication {}", pubname.as_str())),
-            )
+            Ok(lsyscache::get_publication_name(mcx, object.objectId, missing_ok)?
+                .map(|pubname| format!("publication {}", pubname.as_str())),)
         }
         PublicationNamespaceRelationId => {
             let Some((pubname, nspname)) =
@@ -593,10 +526,8 @@ pub fn getObjectDescription(
             )))
         }
         SubscriptionRelationId => {
-            Ok(
-                lsyscache::get_subscription_name(mcx, object.objectId, missing_ok)?
-                    .map(|subname| format!("subscription {}", subname.as_str())),
-            )
+            Ok(lsyscache::get_subscription_name(mcx, object.objectId, missing_ok)?
+                .map(|subname| format!("subscription {}", subname.as_str())),)
         }
         types_core::FOREIGN_DATA_WRAPPER_RELATION_ID => {
             let Some(name) = foreign_object_name(
@@ -612,8 +543,10 @@ pub fn getObjectDescription(
             Ok(Some(format!("foreign-data wrapper {name}")))
         }
         types_core::FOREIGN_SERVER_RELATION_ID => {
-            let Some(name) =
-                foreign_object_name(cache_syscache::cacheinfo::FOREIGNSERVEROID, object.objectId)?
+            let Some(name) = foreign_object_name(
+                cache_syscache::cacheinfo::FOREIGNSERVEROID,
+                object.objectId
+            )?
             else {
                 if !missing_ok {
                     return Err(cache_lookup_failed("foreign server", object.objectId));
@@ -654,14 +587,14 @@ pub fn getObjectDescription(
                     .as_str()
                     .to_string()
             };
-            let Some(srvname) =
-                foreign_object_name(cache_syscache::cacheinfo::FOREIGNSERVEROID, serverid)?
+            let Some(srvname) = foreign_object_name(
+                cache_syscache::cacheinfo::FOREIGNSERVEROID,
+                serverid
+            )?
             else {
                 return Err(cache_lookup_failed("foreign server", serverid));
             };
-            Ok(Some(format!(
-                "user mapping for {usename} on server {srvname}"
-            )))
+            Ok(Some(format!("user mapping for {usename} on server {srvname}")))
         }
         crate::LargeObjectRelationId => {
             if !pg_largeobject::LargeObjectExists(mcx, object.objectId)? {
@@ -681,7 +614,8 @@ pub fn getObjectDescription(
                 }
                 return Ok(None);
             };
-            let amname = name_from_datum(cache_syscache::SysCacheGetAttrNotNull(cacheid, &tup, 2)?);
+            let amname =
+                name_from_datum(cache_syscache::SysCacheGetAttrNotNull(cacheid, &tup, 2)?);
             cache_syscache::ReleaseSysCache(tup);
             Ok(Some(format!("access method {amname}")))
         }
@@ -783,11 +717,7 @@ pub fn getObjectDescription(
                 crate::AuthMemRelationId,
                 crate::AuthMemOidIndexId,
                 object.objectId,
-                |tup, desc| {
-                    (
-                        getattr(tup, 2, desc).as_oid(),
-                        getattr(tup, 3, desc).as_oid(),
-                    )
+                |tup, desc| { (getattr(tup, 2, desc).as_oid(), getattr(tup, 3, desc).as_oid(),)
                 },
             )?;
             let Some((roleid, member)) = row else {
@@ -1054,10 +984,7 @@ pub(crate) fn foreign_object_name(cache_id: i32, oid: Oid) -> PgResult<Option<St
 
 // pg_opclass and pg_opfamily share the (method, name, namespace) column
 // layout at attnums 2/3/4.
-pub(crate) fn opclass_or_opfamily_row(
-    cacheid: i32,
-    objid: Oid,
-) -> PgResult<Option<(Oid, String, Oid)>> {
+pub(crate) fn opclass_or_opfamily_row(cacheid: i32, objid: Oid,) -> PgResult<Option<(Oid, String, Oid)>> {
     let Some(tup) = cache_syscache::SearchSysCache1(
         cacheid,
         cache_syscache::SysCacheKey::Value(Datum::from_oid(objid)),
@@ -1148,8 +1075,5 @@ fn named_nsp_class_description<'mcx>(
     } else {
         get_namespace_name(nsp)?
     };
-    Ok(Some(format!(
-        "{noun} {}",
-        quote_qualified(nspname.as_deref(), &name)
-    )))
+    Ok(Some(format!("{noun} {}", quote_qualified(nspname.as_deref(), &name))))
 }

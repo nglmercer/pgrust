@@ -42,6 +42,7 @@ fn buffer_readv_stage(ioh: u32, _cb_data: u8, is_temp: bool) {
     };
 
     #[allow(clippy::needless_range_loop)]
+
     for i in 0..len {
         let buffer = io_data[i] as Buffer;
         let desc = GetBufferDescriptor(buffer - 1);

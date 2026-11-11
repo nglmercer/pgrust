@@ -140,7 +140,7 @@ fn verbatim_nulls_fixture() -> BuiltFixture {
     use pgrc_qa::corpus::{append_rows_with_sources, finish_with_sources, open_writer};
     use pgrc_write::publish::{effective_manifest, TxnVerdict};
     let rows = 20_000u64;
-    let value = |i: u64| (!i.is_multiple_of(7)).then(|| if i.is_multiple_of(11) { Vec::new() } else { format!("v{:05}-{}", i * 13 % 9_973, "x".repeat((i % 29) as usize)).into_bytes() });
+    let value = |i: u64| (!i.is_multiple_of( 7)).then(|| if i.is_multiple_of( 11) { Vec::new() } else { format!("v{:05}-{}", i * 13 % 9_973, "x".repeat((i % 29) as usize)).into_bytes() });
     let fx = Fixture {
         name: "gravity_late_verbatim",
         dir: "/qa/t7333".to_string(),

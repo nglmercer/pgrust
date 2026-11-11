@@ -251,8 +251,7 @@ pub fn coll_bytes(coll: Oid) -> R<bool> {
     use crate::typesem::collation::{C_COLLATION_OID, POSIX_COLLATION_OID};
     if matches!(coll, 0 | DEFAULT_COLLATION | C_COLLATION_OID | POSIX_COLLATION_OID) {
         return Ok(true);
-    }
-    lsyscache::get_collation_isdeterministic(coll)
+    }lsyscache::get_collation_isdeterministic(coll)
 }
 
 /// `coll_bytes` for a claim that can only decline (an open-coded compare): a failed read, or a lowering with no
@@ -1720,7 +1719,7 @@ mod tests {
         t[18..20].copy_from_slice(&2u16.to_le_bytes());
         t[22] = 24;
         t.extend_from_slice(col);
-        while !t.len().is_multiple_of(4) {
+        while ! t.len().is_multiple_of( 4) {
             t.push(0);
         }
         t.extend_from_slice(&n.to_le_bytes());

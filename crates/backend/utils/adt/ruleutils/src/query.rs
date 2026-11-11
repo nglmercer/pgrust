@@ -434,7 +434,7 @@ fn set_using_names(
                 }
             }
 
-            let mut child_using: Vec<String> = ::mcx::std_vec_from_slice("ruleutils", parent_using)?;
+            let mut child_using: Vec<String> = ::mcx::std_vec_from_slice("ruleutils",parent_using)?;
             if !j.usingClause.is_nil() {
                 expand_colnames_array_to(&mut colinfo, j.usingClause.len());
                 for (i, uc) in j.usingClause.iter().enumerate() {
@@ -2313,7 +2313,7 @@ fn get_from_clause_item<'mcx>(
             let j = jtnode.as_join_expr().unwrap();
             let need_paren_on_right = ctx.pretty_paren()
                 && j.rarg.node_tag() != NodeTag::T_RangeTblRef
-                && j.rarg.as_join_expr().is_none_or(|rj| rj.alias.is_none());
+                &&j.rarg.as_join_expr().is_none_or(|rj| rj.alias.is_none());
 
             if !ctx.pretty_paren() || j.alias.is_some() {
                 ctx.buf.push('(');

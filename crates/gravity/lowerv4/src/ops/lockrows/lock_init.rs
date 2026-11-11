@@ -170,7 +170,7 @@ fn checks(px: &Px<'_, '_>, k: usize, node: i32, ir: bool, at: Option<(usize, usi
         let of = px.gx.with_producers([i.pipeline as usize]);
         of.contains(&k) || run.iter().any(|a| of.contains(a)) || at.is_some_and(|(q, _)| of.contains(&q))
     };
-    let inside = ir && px.gx.graph.init_plans.iter().any(&holds);
+    let inside = ir && px.gx.graph.init_plans.iter().any(& holds);
     // lockrows M4 (lk-0061): one attached inside another InitPlan's pipelines (a min() sublink's MinMaxAgg InitPlan) is
     // read there alone; the recheck copies the outer one's value, so neither PG's nor the runner's recheck runs it again
     let nested = |i: &gravity_decompose::InitPlan<'_>| {

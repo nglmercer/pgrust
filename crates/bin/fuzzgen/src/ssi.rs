@@ -300,12 +300,13 @@ impl EngineRun {
 
     fn setup(&mut self, scenario: &Scenario) -> Result<(), String> {
         for sql in &scenario.setup {
-            if let StmtOutcome::Error { sqlstate, message } = self.monitor_exec(sql)? {
-                return Err(format!(
-                    "{} setup {sql:?} failed: {sqlstate} {message}",
-                    self.label
-                ))
-            }
+            if let
+                StmtOutcome::Error { sqlstate, message } = self.monitor_exec(sql)? {
+                    return Err(format!(
+                        "{} setup {sql:?} failed: {sqlstate} {message}",
+                        self.label
+                    ))
+                }
         }
         for _ in 0..scenario.sessions {
             let h = spawn_session(&self.ep, &scenario.session_setup)

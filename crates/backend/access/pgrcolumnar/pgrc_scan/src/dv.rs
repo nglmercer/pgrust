@@ -35,33 +35,16 @@ struct DvCharge(memledger::Charge);
 
 impl DvCharge {
     fn of(granules: &BTreeMap<u32, Box<[u64; DV_GRANULE_WORDS]>>) -> DvCharge {
-        const OWNER: memledger::Owner =
-            memledger::Owner::Cache(memledger::Holder::Of(memledger::Consumer::PartCache));
+        const OWNER: memledger::Owner = memledger::Owner::Cache(memledger::Holder::Of(memledger::Consumer::PartCache));
         const NODE: usize = 2 * size_of::<usize>();
-        let bytes = granules.len()
-            * (size_of::<(u32, Box<[u64; DV_GRANULE_WORDS]>)>()
-                + NODE
-                + DV_GRANULE_WORDS * size_of::<u64>())
-            + size_of::<PartDeletes>();
-        DvCharge(memledger::Charge::open(
-            OWNER,
-            memledger::Release::Evict,
-            memledger::Kind::Region,
-            memledger::charge::Door::Heap,
-            bytes as u64,
-        ))
+        let bytes = granules.len() * (size_of::<(u32, Box<[u64; DV_GRANULE_WORDS]>)>() + NODE + DV_GRANULE_WORDS * size_of::<u64>()) + size_of::<PartDeletes>();
+        DvCharge(memledger::Charge::open(OWNER, memledger::Release::Evict, memledger::Kind::Region, memledger::charge::Door::Heap, bytes as u64,))
     }
 }
 
 impl Clone for DvCharge {
     fn clone(&self) -> DvCharge {
-        DvCharge(memledger::Charge::open(
-            self.0.owner(),
-            memledger::Release::Evict,
-            memledger::Kind::Region,
-            memledger::charge::Door::Heap,
-            self.0.committed(),
-        ))
+        DvCharge(memledger::Charge::open(self.0.owner(), memledger::Release::Evict, memledger::Kind::Region, memledger::charge::Door::Heap, self.0.committed(),))
     }
 }
 
@@ -129,9 +112,7 @@ impl PartDeletes {
                         }
                         if let Some(p) = prev {
                             if r <= p {
-                                return Err(FormatError::Corrupt {
-                                    at: "DV list order",
-                                });
+                                return Err(FormatError::Corrupt { at: "DV list order", });
                             }
                         }
                         prev = Some(r);
@@ -174,22 +155,10 @@ impl PartDeletes {
     }
 
     /// Builds from granule masks (compile's in-memory result, checked against its encoded DV); empty masks drop.
-    pub fn from_granule_masks(
-        masks: impl IntoIterator<Item = (u32, Box<[u64; DV_GRANULE_WORDS]>)>,
-    ) -> PartDeletes {
-        let granules: BTreeMap<_, _> = masks
-            .into_iter()
-            .filter(|(_, m)| m.iter().any(|&w| w != 0))
-            .collect();
-        let deleted_rows = granules
-            .values()
-            .map(|m| m.iter().map(|w| w.count_ones() as u64).sum::<u64>())
-            .sum();
-        PartDeletes {
-            charge: DvCharge::of(&granules),
-            granules,
-            deleted_rows,
-        }
+    pub fn from_granule_masks(masks: impl IntoIterator<Item = (u32, Box<[u64; DV_GRANULE_WORDS]>)>,) -> PartDeletes {
+        let granules: BTreeMap<_, _> = masks.into_iter().filter(|(_, m)| m.iter().any(|&w| w != 0)).collect();
+        let deleted_rows = granules.values().map(|m| m.iter().map(|w| w.count_ones() as u64).sum::<u64>()).sum();
+        PartDeletes { charge: DvCharge::of(&granules), granules, deleted_rows, }
     }
 
     /// D4537 T18c: the bytes this vector has charged to the part cache.
@@ -227,21 +196,14 @@ mod tests {
     fn granule_masks_match_the_decoded_dv_and_union_into_ors() {
         let g0: Vec<u16> = vec![0, 63, 64, 8191];
         let g2: Vec<u16> = (0..GRANULE_ROWS as u16).step_by(5).collect();
-        let payload = encode_dv(
-            4,
-            9,
-            &[(0, DvBlockKind::List, &g0), (2, DvBlockKind::Bitmap, &g2)],
-        )
-        .unwrap();
+        let payload = encode_dv(4, 9, &[(0, DvBlockKind::List, &g0), (2, DvBlockKind::Bitmap, &g2)],).unwrap();
         let decoded = PartDeletes::from_dv_payload(&payload, 4, 9, 3).unwrap();
         let mask = |rows: &[u16]| {
             let mut m = Box::new([0u64; DV_GRANULE_WORDS]);
-            rows.iter()
-                .for_each(|&r| m[r as usize / 64] |= 1 << (r % 64));
+            rows.iter().for_each(|&r| m[r as usize / 64] |= 1 << (r % 64));
             m
         };
-        let built =
-            PartDeletes::from_granule_masks([(0, mask(&g0)), (1, mask(&[])), (2, mask(&g2))]);
+        let built = PartDeletes::from_granule_masks([(0, mask(&g0)), (1, mask(&[])), (2, mask(&g2))]);
         assert_eq!(built, decoded);
         assert!(built.granule_mask(1).is_none());
         let mut m = *mask(&[1, 63]);
@@ -254,36 +216,14 @@ mod tests {
     #[test]
     fn a_delete_vector_is_on_the_part_cache() {
         let rows: Vec<u16> = (0..GRANULE_ROWS as u16).step_by(7).collect();
-        let payload = encode_dv(
-            4,
-            9,
-            &[
-                (0, DvBlockKind::Bitmap, &rows),
-                (2, DvBlockKind::Bitmap, &rows),
-            ],
-        )
-        .unwrap();
+        let payload = encode_dv(4, 9, &[(0, DvBlockKind::Bitmap, &rows), (2, DvBlockKind::Bitmap, &rows),],).unwrap();
         let dv = PartDeletes::from_dv_payload(&payload, 4, 9, 3).unwrap();
         let masks = 2 * DV_GRANULE_WORDS * size_of::<u64>();
-        assert!(
-            dv.charged() >= masks as u64,
-            "both granules' masks are counted ({} bytes)",
-            dv.charged()
-        );
-        assert_eq!(
-            dv.charge.0.owner(),
-            memledger::Owner::Cache(memledger::Holder::Of(memledger::Consumer::PartCache))
-        );
+        assert!(dv.charged() >= masks as u64, "both granules' masks are counted ({} bytes)", dv.charged());
+        assert_eq!(dv.charge.0.owner(), memledger::Owner::Cache(memledger::Holder::Of(memledger::Consumer::PartCache)));
         let copy = dv.clone();
-        assert_eq!(
-            (copy.charged(), &copy),
-            (dv.charged(), &dv),
-            "a clone charges its own copy and compares equal"
-        );
+        assert_eq!((copy.charged(), &copy), (dv.charged(), &dv), "a clone charges its own copy and compares equal");
         let none = PartDeletes::from_granule_masks([]);
-        assert!(
-            none.charged() > 0 && none.charged() < dv.charged(),
-            "an empty vector counts only its shell"
-        );
+        assert!(none.charged() > 0 && none.charged() < dv.charged(), "an empty vector counts only its shell");
     }
 }

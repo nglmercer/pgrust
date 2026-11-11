@@ -163,7 +163,7 @@ pub fn ParseFuncOrColumn<'mcx>(
         match arg.as_named_arg_expr() {
             Some(na) => {
                 let name = na.name.expect("NamedArgExpr has a name");
-                if argnames.contains(&name) {
+                if argnames.contains(& name) {
                     return Err(named_arg_error(
                         pstate,
                         format!("argument name \"{name}\" used more than once"),
@@ -1018,10 +1018,7 @@ fn cache_lookup_failed_aggregate(funcid: Oid) -> Box<PgError> {
 #[cold]
 #[inline(never)]
 fn unrecognized_prokind(prokind: i8) -> Box<PgError> {
-    Box::new(PgError::error(format!(
-        "unrecognized prokind: {}",
-        prokind as u8 as char
-    )))
+    Box::new(PgError::error(format!("unrecognized prokind: {}", prokind as u8 as char)))
 }
 
 // parse_func.c:1681 elog(ERROR, "cache lookup failed for function %u").
@@ -1328,8 +1325,8 @@ pub fn func_match_argtypes<'c, 'mcx, C: CandidateArgs>(
     Ok(out)
 }
 
-fn keep_best<C: CandidateArgs>(
-    candidates: &mut PgVec<'_, &C>,
+fn keep_best< C: CandidateArgs>(
+    candidates: &mut PgVec<'_, & C>,
     nmatch: impl Fn(&C) -> PgResult<usize>,
 ) -> PgResult<()> {
     let mut best = 0usize;

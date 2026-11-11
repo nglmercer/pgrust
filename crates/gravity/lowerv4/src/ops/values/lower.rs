@@ -87,7 +87,7 @@ fn make<'g>(px: &mut Px<'g, '_>, k: usize) -> PgBox<'g, dyn SourceMech + 'g> {
     let road = crate::ops::strategy(WRITE_LITERALS).and_then(|m| m.downcast_ref::<LiteralsRoad>());
     // CAP-29 / D2907: past the per-row code's cost (its cells), its capacity (its rows) or the words its expressions'
     // literals would take, the rows holding an expression stream (the table's stream form)
-    let holds = |l: &Node<'_>| l.as_list().is_none_or(|l| l.iter().any(|n| n.as_const().is_none()));
+    let holds = |l: &Node<'_>| l.as_list().is_none_or( |l| l.iter().any(|n| n.as_const().is_none()));
     // D4449: a list of Consts alone (`consts_only`) has no row holding an expression, no coded cell and no expression's
     // literal word: it streams only for the plan's own words, and its rows are not walked to learn it
     let consts = values::consts_only(gx.graph, lists);

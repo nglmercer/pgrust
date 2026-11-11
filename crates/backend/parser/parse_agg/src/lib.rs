@@ -924,16 +924,7 @@ pub fn parseCheckAggregates<'mcx>(
         let new_having = match ctx.qry.havingQual {
             None => None,
             Some(having) => {
-                finalize_grouping_exprs(
-                    mcx,
-                    ctx.pstate,
-                    ctx.qry,
-                    grp,
-                    has_join_rtes,
-                    hnvg,
-                    0,
-                    having,
-                )?;
+                finalize_grouping_exprs(mcx, ctx.pstate, ctx.qry, grp, has_join_rtes, hnvg, 0, having,)?;
                 let clause = if has_join_rtes {
                     vars::flatten_join_alias_vars(
                         mcx,
@@ -1482,9 +1473,8 @@ fn sgc_mutate<'mcx>(
         // A current-or-higher-level GroupingFunc's arguments are not
         // evaluated; not recursed into.
         NodeTag::T_GroupingFunc
-            if node.as_grouping_func().unwrap().agglevelsup as i32 >= ctx.sublevels_up =>
-        {
-            return Ok(None);
+            if node.as_grouping_func().unwrap().agglevelsup as i32 >= ctx.sublevels_up => {
+                return Ok(None);
         }
         _ => {}
     }

@@ -6,7 +6,7 @@ use crate::mem::{palloc0, pfree};
 use crate::types::{symbol, SN_env};
 use crate::utilities::{create_s, lose_s, replace_s};
 
-#[allow(clippy::blocks_in_conditions, clippy::missing_safety_doc, non_snake_case)]
+#[allow(clippy::blocks_in_conditions, clippy::missing_safety_doc,non_snake_case)]
 pub unsafe fn SN_create_env(S_size: c_int, I_size: c_int) -> *mut SN_env {
     let z: *mut SN_env = palloc0(size_of::<SN_env>()) as *mut SN_env;
     if z.is_null() {
@@ -57,7 +57,7 @@ pub unsafe fn SN_create_env(S_size: c_int, I_size: c_int) -> *mut SN_env {
     core::ptr::null_mut()
 }
 
-#[allow(clippy::missing_safety_doc, non_snake_case)]
+#[allow(clippy::missing_safety_doc,non_snake_case)]
 pub unsafe fn SN_close_env(z: *mut SN_env, S_size: c_int) {
     if z.is_null() {
         return;
@@ -79,7 +79,7 @@ pub unsafe fn SN_close_env(z: *mut SN_env, S_size: c_int) {
     }
 }
 
-#[allow(clippy::missing_safety_doc, non_snake_case)]
+#[allow(clippy::missing_safety_doc,non_snake_case)]
 pub unsafe fn SN_set_current(z: *mut SN_env, size: c_int, s: *const symbol) -> c_int {
     let err = unsafe { replace_s(z, 0, (*z).l, size, s, core::ptr::null_mut()) };
     unsafe { (*z).c = 0 };

@@ -7,11 +7,7 @@ use types_slot::SlotData;
 
 use crate::segscan::SegScan;
 
-pub fn total_rows<'mcx>(
-    mcx: Mcx<'mcx>,
-    c: &mut PgrcScanDescData<'mcx>,
-    slot: &mut SlotData<'mcx>,
-) -> PgResult<u64> {
+pub fn total_rows<'mcx>(mcx: Mcx<'mcx>, c: &mut PgrcScanDescData<'mcx>, slot: &mut SlotData<'mcx>,) -> PgResult<u64> {
     under_snapshot(mcx, c)?;
     let parts = c.live_part_rows()?;
     let mut segments = 0u64;
@@ -23,12 +19,7 @@ pub fn total_rows<'mcx>(
     Ok(parts + segments)
 }
 
-pub fn fetch<'mcx>(
-    mcx: Mcx<'mcx>,
-    c: &mut PgrcScanDescData<'mcx>,
-    pos: u64,
-    slot: &mut SlotData<'mcx>,
-) -> PgResult<bool> {
+pub fn fetch<'mcx>(mcx: Mcx<'mcx>, c: &mut PgrcScanDescData<'mcx>, pos: u64, slot: &mut SlotData<'mcx>,) -> PgResult<bool> {
     if pos & SEGMENT_POSITION == 0 {
         return c.fetch_sample(pos, slot);
     }
@@ -55,32 +46,18 @@ fn under_snapshot<'mcx>(mcx: Mcx<'mcx>, c: &mut PgrcScanDescData<'mcx>) -> PgRes
     if c.rs_base.rs_snapshot.is_some() {
         return Ok(());
     }
-    let snap = if snapmgr::ActiveSnapshotSet() {
-        snapmgr::GetActiveSnapshot()
-    } else {
-        snapmgr::GetTransactionSnapshot()?
-    };
+    let snap = if snapmgr::ActiveSnapshotSet() { snapmgr::GetActiveSnapshot() } else { snapmgr::GetTransactionSnapshot()? };
     c.rs_base.rs_snapshot = Some(snap);
     let gen = c.generation().cloned();
     let newer = crate::ring::newer_segments(&c.rs_base.rs_rd, gen.as_deref())?;
-    let filter = crate::filter::build(
-        mcx,
-        &c.rs_base.rs_rd,
-        gen.as_ref(),
-        &newer,
-        &c.rs_base.rs_snapshot,
-    )?;
+    let filter = crate::filter::build(mcx, &c.rs_base.rs_rd, gen.as_ref(), &newer, &c.rs_base.rs_snapshot,)?;
     if let Some(f) = filter {
         c.filter = Some(Box::new(f));
     }
     Ok(())
 }
 
-fn next_segment_row<'mcx>(
-    mcx: Mcx<'mcx>,
-    c: &mut PgrcScanDescData<'mcx>,
-    slot: &mut SlotData<'mcx>,
-) -> PgResult<bool> {
+fn next_segment_row<'mcx>(mcx: Mcx<'mcx>, c: &mut PgrcScanDescData<'mcx>, slot: &mut SlotData<'mcx>,) -> PgResult<bool> {
     loop {
         if let Some(seg) = c.segment.as_mut() {
             if seg.next(slot)? {
@@ -90,26 +67,14 @@ fn next_segment_row<'mcx>(
                 done.end()?;
             }
         }
-        let Some((segslot, relid, part_no)) = c.claim_segment() else {
-            return Ok(false);
-        };
+        let Some((segslot, relid, part_no)) = c.claim_segment() else { return Ok(false); };
         let snapshot = c.rs_base.rs_snapshot.clone();
         let parent = c.rs_base.rs_rd.rd_id;
         let deleted = match c.filter.as_ref() {
-            Some(f) => {
-                ::mcx::stdvec::try_to_vec(f.segment_positions(segslot), "pgrc segment sample")?
+            Some(f) => { ::mcx::stdvec::try_to_vec(f.segment_positions(segslot), "pgrc segment sample")?
             }
             None => Vec::new(),
         };
-        c.segment = Some(Box::new(SegScan::begin(
-            mcx,
-            &c.rs_base.rs_rd,
-            relid,
-            segslot,
-            part_no,
-            snapshot,
-            parent,
-            deleted,
-        )?));
+        c.segment = Some(Box::new(SegScan::begin(mcx, &c.rs_base.rs_rd, relid, segslot, part_no, snapshot, parent, deleted,)?));
     }
 }

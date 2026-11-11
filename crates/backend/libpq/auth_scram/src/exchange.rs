@@ -95,23 +95,20 @@ impl SaslMech for ScramMech {
     }
 }
 
-fn scram_init(
-    port: &Port,
-    selected_mech: &[u8],
-    shadow_pass: Option<&str>,
-) -> PgResult<ScramState> {
-    let channel_binding_in_use =
-        if selected_mech == SCRAM_SHA_256_PLUS_NAME.as_bytes() && port.ssl_in_use {
-            true
-        } else if selected_mech == SCRAM_SHA_256_NAME.as_bytes() {
-            false
-        } else {
-            elog::ereport(ERROR)
-                .errcode(ERRCODE_PROTOCOL_VIOLATION)
-                .errmsg("client selected an invalid SASL authentication mechanism")
-                .finish(loc("scram_init"))?;
-            unreachable!()
-        };
+fn scram_init(port: &Port, selected_mech: &[u8], shadow_pass: Option<&str>,) -> PgResult<ScramState> {
+    let channel_binding_in_use = if selected_mech == SCRAM_SHA_256_PLUS_NAME.as_bytes()
+        && port.ssl_in_use
+    {
+        true
+    } else if selected_mech == SCRAM_SHA_256_NAME.as_bytes() {
+        false
+    } else {
+        elog::ereport(ERROR)
+            .errcode(ERRCODE_PROTOCOL_VIOLATION)
+            .errmsg("client selected an invalid SASL authentication mechanism")
+            .finish(loc("scram_init"))?;
+        unreachable!()
+    };
 
     let user_name = port.user_name.as_deref().unwrap_or("");
     let mut logdetail = None;
@@ -354,12 +351,7 @@ fn sanitize_char(c: u8) -> String {
 fn sanitize_str(s: &[u8]) -> String {
     s.iter()
         .take(30)
-        .map(|&c| {
-            if (0x21..=0x7e).contains(&c) {
-                c as char
-            } else {
-                '?'
-            }
+        .map(|&c| { if (0x21..=0x7e).contains(&c) { c as char } else { '?' }
         })
         .collect()
 }
@@ -481,8 +473,7 @@ fn read_client_first_message(
             .finish(loc("read_client_first_message"))?;
     }
 
-    state.client_username =
-        ::mcx::std_vec_from_slice("auth_scram", read_attr_value(input, &mut pos, b'n')?)?;
+    state.client_username = ::mcx::std_vec_from_slice("auth_scram",read_attr_value(input, &mut pos, b'n')?)?;
 
     let client_nonce = read_attr_value(input, &mut pos, b'r')?;
     if !is_scram_printable(client_nonce) {
@@ -491,7 +482,7 @@ fn read_client_first_message(
             .errmsg("non-printable characters in SCRAM nonce")
             .finish(loc("read_client_first_message"))?;
     }
-    state.client_nonce = ::mcx::std_vec_from_slice("auth_scram", client_nonce)?;
+    state.client_nonce = ::mcx::std_vec_from_slice("auth_scram",client_nonce)?;
 
     while at(input, pos) != 0 {
         read_any_attr(input, &mut pos)?;
@@ -521,10 +512,7 @@ fn build_server_first_message(state: &mut ScramState) -> PgResult<Vec<u8>> {
     encoded.truncate(n as usize);
     state.server_nonce = encoded;
 
-    let mut msg = ::mcx::std_vec_with_capacity(
-        "libpq",
-        2 + state.client_nonce.len() + state.server_nonce.len() + 3 + state.salt.len() + 16,
-    )?;
+    let mut msg = ::mcx::std_vec_with_capacity("libpq", 2 + state.client_nonce.len() + state.server_nonce.len() + 3 + state.salt.len() + 16,)?;
     msg.extend_from_slice(b"r=");
     msg.extend_from_slice(&state.client_nonce);
     msg.extend_from_slice(&state.server_nonce);
@@ -556,12 +544,7 @@ fn read_client_final_message(state: &mut ScramState, input: &[u8]) -> PgResult<(
 
         let cap = pg_b64_enc_len(cbind_input.len() as i32);
         let mut b64_message = ::mcx::std_vec_from_elem("libpq", 0u8, cap as usize)?;
-        let n = pg_b64_encode(
-            &cbind_input,
-            cbind_input.len() as i32,
-            &mut b64_message,
-            cap,
-        );
+        let n = pg_b64_encode(&cbind_input, cbind_input.len() as i32, &mut b64_message, cap,);
         if n < 0 {
             elog::ereport(ERROR)
                 .errmsg_internal("could not encode channel binding data")
@@ -588,8 +571,7 @@ fn read_client_final_message(state: &mut ScramState, input: &[u8]) -> PgResult<(
         }
     }
 
-    state.client_final_nonce =
-        ::mcx::std_vec_from_slice("auth_scram", read_attr_value(input, &mut pos, b'r')?)?;
+    state.client_final_nonce = ::mcx::std_vec_from_slice("auth_scram",read_attr_value(input, &mut pos, b'r')?)?;
 
     // Ignore optional extensions: scan until the "p" attribute.
     let mut proof_pos;
@@ -625,8 +607,7 @@ fn read_client_final_message(state: &mut ScramState, input: &[u8]) -> PgResult<(
             .finish(loc("read_client_final_message"))?;
     }
 
-    state.client_final_message_without_proof =
-        ::mcx::std_vec_from_slice("auth_scram", &input[..proof_pos])?;
+    state.client_final_message_without_proof = ::mcx::std_vec_from_slice("auth_scram", &input[..proof_pos])?;
     Ok(())
 }
 
@@ -653,6 +634,7 @@ fn verify_client_proof(state: &mut ScramState) -> bool {
     let client_signature = ctx.finalize();
 
     #[allow(clippy::needless_range_loop)]
+
     for i in 0..state.key_length {
         state.client_key[i] = state.client_proof[i] ^ client_signature[i];
     }

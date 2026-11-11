@@ -5,15 +5,9 @@
 //! is `Charge::transfer`, the one place bytes move between owners. Each owner's numbers sit in a static cell (no
 //! allocation, a computed index), so the owner-end checks and the per-owner rank read them in O(1).
 
-use core::sync::atomic::{
-    AtomicI64, AtomicU32, AtomicU64, AtomicUsize,
-    Ordering::{self, AcqRel, Acquire, Relaxed},
-};
+use core::sync::atomic::{AtomicI64, AtomicU32, AtomicU64, AtomicUsize, Ordering::{self, AcqRel, Acquire, Relaxed},};
 
-use crate::{
-    current, pool_back, pool_charge, post, post_q, switch, Acct, Consumer, Entered, Kind,
-    ACCOUNT_SLOTS, CONSUMERS, GIVEN, SLOTS,
-};
+use crate::{current, pool_back, pool_charge, post, post_q, switch, Acct, Consumer, Entered, Kind, ACCOUNT_SLOTS, CONSUMERS, GIVEN, SLOTS,};
 
 /// A cache-class owner: a consumer's own account, the depots' parked memory, the reaper's pending unmaps, or the memory
 /// of threads that never took an account.
@@ -36,8 +30,7 @@ impl Holder {
             i if i == Acct::PARKED.0 => Holder::Parked,
             i if i == Acct::REAPING.0 => Holder::Reaping,
             i if i == Acct::SLOT_DEPOT.0 => Holder::SlotDepot,
-            i if i >= 1 && ((i - 1) as usize) < CONSUMERS => {
-                Holder::Of(Consumer::ALL[(i - 1) as usize])
+            i if i >= 1 && ((i - 1) as usize) < CONSUMERS => { Holder::Of(Consumer::ALL[(i - 1) as usize])
             }
             _ => Holder::Unbound,
         }
@@ -68,35 +61,23 @@ impl Holder {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Owner {
     /// A backend's statement: its account and its process-wide id (`running_statement`; never 0, never reused).
-    Statement {
-        acct: Acct,
-        stmt: u64,
-    },
+    Statement { acct: Acct, stmt: u64, },
     /// A backend's portal: its account and the portal's token (the runner's exec slot, `portal_begin`).
-    Portal {
-        acct: Acct,
-        portal: u64,
-    },
+    Portal { acct: Acct, portal: u64, },
     /// A worker set, by its id (`worker_set_begin`); its bytes sit on the account it was begun on.
     WorkerSet(u32),
     Cache(Holder),
     /// A backend's estate between statements (its memo's parked Nodes, their kept cursors).
     Session(Acct),
     /// LEDGER2: an operator's (or a worker arena's) bytes inside its parent (`op_begin`), on the parent's account.
-    Op {
-        acct: Acct,
-        id: u64,
-    },
+    Op { acct: Acct, id: u64, },
 }
 
 impl Owner {
     /// The account the owner's committed bytes sit on.
     pub fn acct(self) -> Acct {
         match self {
-            Owner::Statement { acct, .. }
-            | Owner::Portal { acct, .. }
-            | Owner::Session(acct)
-            | Owner::Op { acct, .. } => acct,
+            Owner::Statement { acct, .. } | Owner::Portal { acct, .. } | Owner::Session(acct) | Owner::Op { acct, .. } => acct,
             Owner::WorkerSet(id) => match find(SET_AT, SET_CELLS, id as u64 + 1, None) {
                 Some(i) => Acct(CELLS[i].acct.load(Relaxed)),
                 None => Acct::PARKED,
@@ -181,14 +162,7 @@ pub enum OwnerClass {
 pub const OWNER_CLASSES: usize = 6;
 
 impl OwnerClass {
-    pub const ALL: [OwnerClass; OWNER_CLASSES] = [
-        OwnerClass::Statement,
-        OwnerClass::Portal,
-        OwnerClass::WorkerSet,
-        OwnerClass::Cache,
-        OwnerClass::Session,
-        OwnerClass::Op,
-    ];
+    pub const ALL: [OwnerClass; OWNER_CLASSES] = [OwnerClass::Statement, OwnerClass::Portal, OwnerClass::WorkerSet, OwnerClass::Cache, OwnerClass::Session, OwnerClass::Op,];
 
     pub const fn name(self) -> &'static str {
         match self {
@@ -383,12 +357,9 @@ fn mix(key: u64, acct: u32) -> usize {
 /// The table cell holding `key` (and `acct` when given) among `n` from `at`.
 fn find(at: usize, n: usize, key: u64, acct: Option<u32>) -> Option<usize> {
     let h = mix(key, acct.unwrap_or(0));
-    (0..PROBES)
-        .map(|i| at + (h.wrapping_add(i) % n))
-        .find(|&i| {
-            CELLS[i].key.load(Relaxed) == key
-                && acct.is_none_or(|a| CELLS[i].acct.load(Relaxed) == a)
-        })
+    (0..PROBES).map(|i| at + (h.wrapping_add(i) % n)).find(|&i| {
+        CELLS[i].key.load(Relaxed) == key && acct.is_none_or(|a| CELLS[i].acct.load(Relaxed) == a)
+    })
 }
 
 /// A free cell for `key` among `n` from `at` (claimed with the account first, then the key), or None when the probes
@@ -448,10 +419,7 @@ fn locate(o: Owner) -> (usize, u64, u64) {
 /// its cell holds its key (a session bound, a statement running, a portal begun).
 #[inline]
 fn live(o: Owner, cell: usize, key: u64) -> bool {
-    let keyed = matches!(
-        o,
-        Owner::Statement { .. } | Owner::Portal { .. } | Owner::Session(_)
-    ) && slot_ix(o.acct()).is_some();
+    let keyed = matches!(o, Owner::Statement { .. } | Owner::Portal { .. } | Owner::Session(_)) && slot_ix(o.acct()).is_some();
     (!keyed && key == 0) || (key != 0 && CELLS[cell].key.load(Relaxed) == key)
 }
 
@@ -470,8 +438,7 @@ fn cell_of(o: Owner) -> (u32, u64, u64) {
 /// unbound and has not drained (B2), else the orphan cell.
 fn redirect(a: Acct, skey: u64) -> (u32, u64, u64) {
     match slot_ix(a) {
-        Some(i) if skey != 0 && CELLS[SESSION_AT + i].key.load(Relaxed) == skey => {
-            ((SESSION_AT + i) as u32, skey, 0)
+        Some(i) if skey != 0 && CELLS[SESSION_AT + i].key.load(Relaxed) == skey => { ((SESSION_AT + i) as u32, skey, 0)
         }
         Some(_) if skey != 0 => match find(EXIT_AT, EXIT_CELLS, skey, Some(a.0)) {
             Some(x) => (x as u32, skey, 0),
@@ -508,21 +475,13 @@ pub struct OwnerRow {
 }
 
 fn row_of(c: &OwnerCell) -> OwnerRow {
-    OwnerRow {
-        committed: c.committed.load(Relaxed),
-        reserved: c.reserved.load(Relaxed),
-        uses: c.uses.load(Relaxed),
-    }
+    OwnerRow { committed: c.committed.load(Relaxed), reserved: c.reserved.load(Relaxed), uses: c.uses.load(Relaxed), }
 }
 
 /// Owner `o`'s numbers now (zeros for an owner that ended).
 pub fn owner_row(o: Owner) -> OwnerRow {
     let (cell, key, _) = locate(o);
-    if live(o, cell, key) {
-        row_of(&CELLS[cell])
-    } else {
-        OwnerRow::default()
-    }
+    if live(o, cell, key) { row_of(&CELLS[cell]) } else { OwnerRow::default() }
 }
 
 /// Ends owner cell `i`: its numbers move to cell `to` (a statement's or a portal's residue to its session, a session's
@@ -532,26 +491,13 @@ fn end_cell(i: usize, to: usize, class: OwnerClass, acct: Acct) -> Option<Residu
 }
 
 /// `end_cell` with its residue noted under `src` (C8 move 6: a dead session's, 'crashed').
-fn end_cell_as(
-    i: usize,
-    to: usize,
-    class: OwnerClass,
-    acct: Acct,
-    src: crate::owner_end::Source,
-) -> Option<Residue> {
+fn end_cell_as(i: usize, to: usize, class: OwnerClass, acct: Acct, src: crate::owner_end::Source,) -> Option<Residue> {
     end_cell_noted(i, to, class, acct, src, None)
 }
 
 /// `end_cell_as` with the residue's pid given (B2: a drained session's, whose slot may hold the next session by then);
 /// None: the slot's now.
-fn end_cell_noted(
-    i: usize,
-    to: usize,
-    class: OwnerClass,
-    acct: Acct,
-    src: crate::owner_end::Source,
-    pid: Option<u32>,
-) -> Option<Residue> {
+fn end_cell_noted(i: usize, to: usize, class: OwnerClass, acct: Acct, src: crate::owner_end::Source, pid: Option<u32>,) -> Option<Residue> {
     // a table cell's account clears before this (its claimer writes the account after the key: a cell freed here is never
     // a new owner's with its account cleared)
     let c = &CELLS[i];
@@ -561,40 +507,20 @@ fn end_cell_noted(
     if r == OwnerRow::default() {
         return None;
     }
-    let r = Residue {
-        class,
-        acct,
-        committed: r.committed,
-        reserved: r.reserved,
-        uses: r.uses,
-    };
+    let r = Residue { class, acct, committed: r.committed, reserved: r.reserved, uses: r.uses, };
     crate::owner_end::note_as(src, r, pid);
     Some(r)
 }
 
 /// Every number of cell `c` moved onto cell `t`; `c`'s committed, reserved and uses (a residue's numbers) returned.
 fn move_cell(c: &OwnerCell, t: &OwnerCell) -> OwnerRow {
-    for (f, g) in [
-        (&c.mapped, &t.mapped),
-        (&c.backed, &t.backed),
-        (&c.ctx_named, &t.ctx_named),
-        (&c.ctx_inferred, &t.ctx_inferred),
-        (&c.spilled, &t.spilled),
-        (&c.nr, &t.nr),
-        (&c.pins, &t.pins),
-        (&c.pin_ev, &t.pin_ev),
-        (&c.pin_sh, &t.pin_sh),
-    ] {
+    for (f, g) in [(&c.mapped, &t.mapped), (&c.backed, &t.backed), (&c.ctx_named, &t.ctx_named), (&c.ctx_inferred, &t.ctx_inferred), (&c.spilled, &t.spilled), (&c.nr, &t.nr), (&c.pins, &t.pins), (&c.pin_ev, &t.pin_ev), (&c.pin_sh, &t.pin_sh),] {
         let n = f.swap(0, Relaxed);
         if n != 0 {
             g.fetch_add(n, Relaxed);
         }
     }
-    let r = OwnerRow {
-        committed: c.committed.swap(0, Relaxed),
-        reserved: c.reserved.swap(0, Relaxed),
-        uses: c.uses.swap(0, Relaxed),
-    };
+    let r = OwnerRow { committed: c.committed.swap(0, Relaxed), reserved: c.reserved.swap(0, Relaxed), uses: c.uses.swap(0, Relaxed), };
     t.committed.fetch_add(r.committed, Relaxed);
     t.reserved.fetch_add(r.reserved, Relaxed);
     t.uses.fetch_add(r.uses, Relaxed);
@@ -605,12 +531,7 @@ fn move_cell(c: &OwnerCell, t: &OwnerCell) -> OwnerRow {
 pub(crate) fn begin_statement(a: Acct, stmt: u64) {
     if let Some(i) = slot_ix(a) {
         let old = CELLS[STMT_AT + i].key.load(Relaxed);
-        end_ops(
-            a,
-            Some((STMT_AT + i, old)),
-            SESSION_AT + i,
-            crate::owner_end::Source::Owner,
-        );
+        end_ops(a, Some((STMT_AT + i, old)), SESSION_AT + i, crate::owner_end::Source::Owner,);
         end_cell(STMT_AT + i, SESSION_AT + i, OwnerClass::Statement, a);
         CELLS[STMT_AT + i].key.store(stmt, Relaxed);
     }
@@ -621,12 +542,7 @@ pub(crate) fn begin_statement(a: Acct, stmt: u64) {
 pub(crate) fn end_statement(a: Acct) -> Option<Residue> {
     let i = slot_ix(a)?;
     let k = CELLS[STMT_AT + i].key.load(Relaxed);
-    end_ops(
-        a,
-        Some((STMT_AT + i, k)),
-        SESSION_AT + i,
-        crate::owner_end::Source::Owner,
-    );
+    end_ops(a, Some((STMT_AT + i, k)), SESSION_AT + i, crate::owner_end::Source::Owner,);
     end_cell(STMT_AT + i, SESSION_AT + i, OwnerClass::Statement, a)
 }
 
@@ -654,11 +570,8 @@ pub(crate) fn end_session(a: Acct) -> Option<Residue> {
 /// `end_session` with its residues noted under `src` (C8 move 6: a dead session's, 'crashed'): the session's residue and
 /// how many residues were noted.
 pub(crate) fn end_session_as(a: Acct, src: crate::owner_end::Source) -> (Option<Residue>, u32) {
-    let Some(i) = slot_ix(a) else {
-        return (None, 0);
-    };
-    let mut n =
-        u32::from(end_cell_as(STMT_AT + i, ORPHAN, OwnerClass::Statement, a, src).is_some());
+    let Some(i) = slot_ix(a) else { return (None, 0); };
+    let mut n = u32::from(end_cell_as(STMT_AT + i, ORPHAN, OwnerClass::Statement, a, src).is_some());
     #[allow(clippy::needless_range_loop)]
     for c in PORTAL_AT..PORTAL_AT + PORTAL_CELLS {
         if CELLS[c].key.load(Relaxed) != 0 && CELLS[c].acct.load(Relaxed) == a.0 {
@@ -686,10 +599,7 @@ pub(crate) fn exit_session(a: Acct) {
     let Some(i) = slot_ix(a) else { return };
     let skey = CELLS[SESSION_AT + i].key.load(Relaxed);
     // claimed before any cell ends: a release racing the ends below finds the exit cell, not the orphan's
-    let Some(x) = (skey != 0)
-        .then(|| claim(EXIT_AT, EXIT_CELLS, skey, a.0))
-        .flatten()
-    else {
+    let Some(x) = (skey != 0).then(|| claim(EXIT_AT, EXIT_CELLS, skey, a.0)).flatten() else {
         end_session(a);
         return;
     };
@@ -717,22 +627,13 @@ pub(crate) fn exit_session(a: Acct) {
 /// the thread's next bind or its exit): what its exit cell still holds is the session's residue, noted now (`owner_end`)
 /// and moved to the orphan cell, where a later release still finds it. No pending exit on this thread: nothing.
 pub fn session_drained() {
-    let (skey, a, pid) = EXITING
-        .try_with(|e| e.replace((0, 0, 0)))
-        .unwrap_or((0, 0, 0));
+    let (skey, a, pid) = EXITING.try_with(|e| e.replace((0, 0, 0))).unwrap_or((0, 0, 0));
     if skey == 0 {
         return;
     }
     if let Some(x) = find(EXIT_AT, EXIT_CELLS, skey, Some(a)) {
         CELLS[x].acct.store(0, Relaxed);
-        end_cell_noted(
-            x,
-            ORPHAN,
-            OwnerClass::Session,
-            Acct(a),
-            crate::owner_end::Source::Owner,
-            Some(pid),
-        );
+        end_cell_noted(x, ORPHAN, OwnerClass::Session, Acct(a), crate::owner_end::Source::Owner, Some(pid),);
     }
 }
 
@@ -751,9 +652,7 @@ pub fn new_owner_id() -> u64 {
 pub fn portal_begin(token: u64) {
     let a = current();
     if let Some(i) = slot_ix(a).filter(|_| token != 0) {
-        if find(PORTAL_AT, PORTAL_CELLS, token, Some(a.0)).is_none()
-            && claim(PORTAL_AT, PORTAL_CELLS, token, a.0).is_some()
-        {
+        if find(PORTAL_AT, PORTAL_CELLS, token, Some(a.0)).is_none() && claim(PORTAL_AT, PORTAL_CELLS, token, a.0).is_some() {
             SLOTS[i].portals.fetch_add(1, Relaxed);
         }
     }
@@ -763,17 +662,10 @@ pub fn portal_begin(token: u64) {
 pub fn portal_end(a: Acct, token: u64) -> Option<Residue> {
     let i = slot_ix(a)?;
     let c = find(PORTAL_AT, PORTAL_CELLS, token, Some(a.0))?;
-    end_ops(
-        a,
-        Some((c, token)),
-        SESSION_AT + i,
-        crate::owner_end::Source::Owner,
-    );
+    end_ops(a, Some((c, token)), SESSION_AT + i, crate::owner_end::Source::Owner,);
     CELLS[c].acct.store(0, Relaxed);
     let r = end_cell(c, SESSION_AT + i, OwnerClass::Portal, a);
-    let _ = SLOTS[i]
-        .portals
-        .fetch_update(Relaxed, Relaxed, |n| n.checked_sub(1));
+    let _ = SLOTS[i].portals.fetch_update(Relaxed, Relaxed, |n| n.checked_sub(1));
     r
 }
 
@@ -791,13 +683,7 @@ pub fn holder_name(a: Acct, key: u64) -> &'static str {
         // a set past the set table books on the spill cell, which every set shares: its end is not seen here
         return "worker_set";
     }
-    let Some(i) = slot_ix(a) else {
-        return if a == Acct::PARKED || a == Acct::SLOT_DEPOT {
-            "parked"
-        } else {
-            "cache"
-        };
-    };
+    let Some(i) = slot_ix(a) else { return if a == Acct::PARKED || a == Acct::SLOT_DEPOT { "parked" } else { "cache" }; };
     if key == 0 {
         "session"
     } else if CELLS[STMT_AT + i].key.load(Relaxed) == key {
@@ -811,15 +697,7 @@ pub fn holder_name(a: Acct, key: u64) -> &'static str {
 }
 
 /// `holder_name`'s names, in the order the views list them.
-pub const HOLDER_NAMES: [&str; 7] = [
-    "statement",
-    "portal",
-    "worker_set",
-    "session",
-    "parked",
-    "cache",
-    "ended",
-];
+pub const HOLDER_NAMES: [&str; 7] = ["statement", "portal", "worker_set", "session", "parked", "cache", "ended",];
 
 /// `f(account, its session's numbers, its live portals)` over each bound backend whose session owns something now or has a
 /// live portal (checker 1's at-rest read: a use on a session is a kept cursor, D1507).
@@ -829,10 +707,7 @@ pub fn for_each_session(mut f: impl FnMut(Acct, OwnerRow, u32)) {
         if !a.is_backend() || CELLS[SESSION_AT + i].key.load(Relaxed) == 0 {
             continue;
         }
-        let (row, live) = (
-            row_of(&CELLS[SESSION_AT + i]),
-            SLOTS[i].portals.load(Relaxed),
-        );
+        let (row, live) = (row_of(&CELLS[SESSION_AT + i]), SLOTS[i].portals.load(Relaxed),);
         if row != OwnerRow::default() || live != 0 {
             f(a, row, live);
         }
@@ -842,12 +717,7 @@ pub fn for_each_session(mut f: impl FnMut(Acct, OwnerRow, u32)) {
 /// `f(holder, its numbers)` over each cache holder that owns something now (checker 1's at-rest read: a use on `Parked` is
 /// a parked worker set's kept cursor, D4087).
 pub fn for_each_holder(mut f: impl FnMut(Holder, OwnerRow)) {
-    let fixed = [
-        Holder::Parked,
-        Holder::Reaping,
-        Holder::Unbound,
-        Holder::SlotDepot,
-    ];
+    let fixed = [Holder::Parked, Holder::Reaping, Holder::Unbound, Holder::SlotDepot,];
     for h in Consumer::ALL.iter().map(|&c| Holder::Of(c)).chain(fixed) {
         let row = row_of(&CELLS[HOLDER_AT + h.index()]);
         if row != OwnerRow::default() {
@@ -863,11 +733,7 @@ pub fn cache_holders_heap() -> i64 {
     for c in Consumer::ALL {
         if c.is_cache() {
             let v = &CELLS[HOLDER_AT + Holder::Of(c).index()];
-            let held = v
-                .committed
-                .load(Relaxed)
-                .wrapping_add(v.ctx_named.load(Relaxed))
-                .wrapping_add(v.ctx_inferred.load(Relaxed));
+            let held = v.committed.load(Relaxed).wrapping_add(v.ctx_named.load(Relaxed)).wrapping_add(v.ctx_inferred.load(Relaxed));
             s = s.wrapping_add(held.wrapping_sub(v.mapped.load(Relaxed)));
         }
     }
@@ -885,9 +751,7 @@ pub fn worker_set_begin(id: u32, a: Acct) {
 pub fn worker_set_end(id: u32) -> Option<Residue> {
     let c = find(SET_AT, SET_CELLS, id as u64 + 1, None)?;
     let a = Acct(CELLS[c].acct.load(Relaxed));
-    CELLS[c].acct.store(0, Relaxed);
-
-    end_cell(c, ORPHAN, OwnerClass::WorkerSet, a)
+    CELLS[c].acct.store(0, Relaxed); end_cell(c, ORPHAN, OwnerClass::WorkerSet, a)
 }
 
 /// An operator cell's parent cell (`NO_PARENT as usize`: none) and the key it was begun under.
@@ -917,13 +781,10 @@ pub fn op_begin(parent: Owner, label: u32, budget: u64) -> Owner {
     let acct = parent.acct();
     let id = new_owner_id();
     let h = mix(id, acct.0);
-    let Some(i) = (0..PROBES)
-        .map(|k| OP_AT + (h.wrapping_add(k) % OP_CELLS))
-        .find(|&i| {
-            let c = &CELLS[i];
-            c.key.load(Relaxed) == 0 && c.key.compare_exchange(0, id, Relaxed, Relaxed).is_ok()
-        })
-    else {
+    let Some(i) = (0..PROBES).map(|k| OP_AT + (h.wrapping_add(k) % OP_CELLS)).find(|&i| {
+        let c = &CELLS[i];
+        c.key.load(Relaxed) == 0 && c.key.compare_exchange(0, id, Relaxed, Relaxed).is_ok()
+    }) else {
         OP_OVERFLOW.fetch_add(1, Relaxed);
         return parent;
     };
@@ -942,11 +803,7 @@ pub fn op_begin(parent: Owner, label: u32, budget: u64) -> Owner {
         CELLS[pcell].kids.fetch_add(1, Relaxed);
     }
     // the chain's top (the statement, portal or session it ends with) counts it, so that end sweeps only when one is
-    match if is_op(pcell) {
-        top_of(pcell)
-    } else {
-        Some((pcell, pkey))
-    } {
+    match if is_op(pcell) { top_of(pcell) } else { Some((pcell, pkey)) } {
         Some((t, tk)) => {
             c.tkey.store(tk, Relaxed);
             c.top.store(t as u32 + 1, Relaxed);
@@ -966,9 +823,7 @@ pub fn op_begin(parent: Owner, label: u32, budget: u64) -> Owner {
 /// session's end sweeps what is left (`end_ops`). A begin past the table (`o` is not an operator): nothing.
 pub fn op_end(o: Owner) {
     let Owner::Op { acct, id } = o else { return };
-    let Some(i) = find(OP_AT, OP_CELLS, id, Some(acct.0)) else {
-        return;
-    };
+    let Some(i) = find(OP_AT, OP_CELLS, id, Some(acct.0)) else { return; };
     CELLS[i].label.fetch_or(ENDED, Relaxed);
     OP_ENDS.fetch_add(1, Relaxed);
     op_drained(i as u32);
@@ -991,11 +846,7 @@ pub fn spilled(o: Owner, delta: i64) {
         return;
     }
     let (cell, key, skey) = locate(o);
-    let cell = if live(o, cell, key) {
-        cell
-    } else {
-        redirect(o.acct(), skey).0 as usize
-    };
+    let cell = if live(o, cell, key) { cell } else { redirect(o.acct(), skey).0 as usize };
     CELLS[cell].spilled.fetch_add(delta, Relaxed);
 }
 
@@ -1013,27 +864,12 @@ fn op_drained(cell: u32) {
 #[cold]
 fn op_drained_slow(i: usize) {
     let c = &CELLS[i];
-    let busy = [
-        &c.committed,
-        &c.reserved,
-        &c.uses,
-        &c.ctx_named,
-        &c.ctx_inferred,
-        &c.nr,
-        &c.pins,
-    ]
-    .iter()
-    .any(|x| x.load(Relaxed) != 0);
+    let busy = [&c.committed, &c.reserved, &c.uses, &c.ctx_named, &c.ctx_inferred, &c.nr, &c.pins,].iter().any(|x| x.load(Relaxed) != 0);
     if busy || c.kids.load(Relaxed) != 0 {
         return;
     }
     let k = c.key.load(Relaxed);
-    if k == 0
-        || k == OP_FREEING
-        || c.key
-            .compare_exchange(k, OP_FREEING, Relaxed, Relaxed)
-            .is_err()
-    {
+    if k == 0 || k == OP_FREEING || c.key.compare_exchange(k, OP_FREEING, Relaxed, Relaxed).is_err() {
         return;
     }
     op_unkey(i);
@@ -1054,9 +890,7 @@ fn op_unkey(i: usize) {
     }
     let (t, tk) = (c.top.swap(0, Relaxed), c.tkey.swap(0, Relaxed));
     if t != 0 && CELLS[t as usize - 1].key.load(Relaxed) == tk {
-        let _ = CELLS[t as usize - 1]
-            .ops
-            .fetch_update(Relaxed, Relaxed, |n| n.checked_sub(1));
+        let _ = CELLS[t as usize - 1].ops.fetch_update(Relaxed, Relaxed, |n| n.checked_sub(1));
     }
     c.parent.store(0, Relaxed);
     c.pkey.store(0, Relaxed);
@@ -1067,9 +901,7 @@ fn op_unkey(i: usize) {
     OPS_KEYED.fetch_sub(1, Relaxed);
     c.key.store(0, Relaxed);
     if parent_live && is_op(p) {
-        let _ = CELLS[p]
-            .kids
-            .fetch_update(Relaxed, Relaxed, |n| n.checked_sub(1));
+        let _ = CELLS[p].kids.fetch_update(Relaxed, Relaxed, |n| n.checked_sub(1));
         op_drained(p as u32);
     }
 }
@@ -1137,8 +969,7 @@ fn end_ops(a: Acct, root: Option<(usize, u64)>, to: usize, src: crate::owner_end
         }
     }
     SLOTS[s].sweeps.fetch_add(1, Relaxed);
-    let mine = |c: &OwnerCell| {
-        !matches!(c.key.load(Relaxed), 0 | OP_FREEING) && c.acct.load(Relaxed) == a.0
+    let mine = |c: &OwnerCell| { !matches!(c.key.load(Relaxed), 0 | OP_FREEING) && c.acct.load(Relaxed) == a.0
     };
     #[allow(clippy::needless_range_loop)]
     for i in OP_AT..NCELLS {
@@ -1151,27 +982,12 @@ fn end_ops(a: Acct, root: Option<(usize, u64)>, to: usize, src: crate::owner_end
     for i in OP_AT..NCELLS {
         let c = &CELLS[i];
         let k = c.key.load(Relaxed);
-        if !mine(c)
-            || c.label.load(Relaxed) & SWEPT == 0
-            || c.key
-                .compare_exchange(k, OP_FREEING, Relaxed, Relaxed)
-                .is_err()
-        {
+        if !mine(c) || c.label.load(Relaxed) & SWEPT == 0 || c.key.compare_exchange(k, OP_FREEING, Relaxed, Relaxed).is_err() {
             continue;
         }
         let r = move_cell(c, &CELLS[to]);
         if r != OwnerRow::default() {
-            crate::owner_end::note_as(
-                src,
-                Residue {
-                    class: OwnerClass::Op,
-                    acct: a,
-                    committed: r.committed,
-                    reserved: r.reserved,
-                    uses: r.uses,
-                },
-                None,
-            );
+            crate::owner_end::note_as(src, Residue { class: OwnerClass::Op, acct: a, committed: r.committed, reserved: r.reserved, uses: r.uses, }, None,);
             n += 1;
         }
         // its parent is being taken too (or lives on): the child count is the sweep's, not a free's
@@ -1205,17 +1021,12 @@ impl Usage {
 
 #[inline]
 fn held_of(c: &OwnerCell) -> i64 {
-    c.committed
-        .load(Relaxed)
-        .wrapping_add(c.ctx_named.load(Relaxed))
-        .wrapping_add(c.ctx_inferred.load(Relaxed))
+    c.committed.load(Relaxed).wrapping_add(c.ctx_named.load(Relaxed)).wrapping_add(c.ctx_inferred.load(Relaxed))
 }
 
 #[inline]
 fn budget_of(c: &OwnerCell) -> i64 {
-    c.reserved
-        .load(Relaxed)
-        .wrapping_add(c.budget.load(Relaxed))
+    c.reserved.load(Relaxed).wrapping_add(c.budget.load(Relaxed))
 }
 
 /// LEDGER2: owner `o`'s `Usage` now (zeros for an owner that ended). The subtree is summed on read: one pass over the
@@ -1226,20 +1037,8 @@ pub fn usage(o: Owner) -> Usage {
         return Usage::default();
     }
     let own = &CELLS[cell];
-    let (held, spilled, nr) = (
-        held_of(own),
-        own.spilled.load(Relaxed),
-        own.nr.load(Relaxed),
-    );
-    let mut u = Usage {
-        held,
-        budget: budget_of(own),
-        spilled,
-        subtree: held,
-        subtree_spilled: spilled,
-        not_resident: nr,
-        subtree_not_resident: nr,
-    };
+    let (held, spilled, nr) = (held_of(own), own.spilled.load(Relaxed), own.nr.load(Relaxed),);
+    let mut u = Usage { held, budget: budget_of(own), spilled, subtree: held, subtree_spilled: spilled, not_resident: nr, subtree_not_resident: nr, };
     let add = |u: &mut Usage, c: &OwnerCell| {
         u.subtree = u.subtree.wrapping_add(held_of(c));
         u.subtree_spilled = u.subtree_spilled.wrapping_add(c.spilled.load(Relaxed));
@@ -1269,8 +1068,7 @@ pub fn usage(o: Owner) -> Usage {
         #[allow(clippy::needless_range_loop)]
         for i in OP_AT..NCELLS {
             let c = &CELLS[i];
-            if i != cell && !matches!(c.key.load(Relaxed), 0 | OP_FREEING) && reaches(i, cell, key)
-            {
+            if i != cell && !matches!(c.key.load(Relaxed), 0 | OP_FREEING) && reaches(i, cell, key) {
                 add(&mut u, c);
             }
         }
@@ -1292,11 +1090,7 @@ fn scanned(t0: u64) {
 
 /// `(scans, total ns, max ns)` of `usage`'s operator-cell scans since start.
 pub fn scan_cost() -> (u64, u64, u64) {
-    (
-        SCANS[0].load(Relaxed),
-        SCANS[1].load(Relaxed),
-        SCANS[2].load(Relaxed),
-    )
+    (SCANS[0].load(Relaxed), SCANS[1].load(Relaxed), SCANS[2].load(Relaxed),)
 }
 
 /// PINS: owner `o`'s `(pins, evicted, share)` now: the cache-entry bytes its scans reference, of those the evicted ones, and its
@@ -1307,11 +1101,7 @@ pub fn pins_of(o: Owner) -> (i64, i64, i64) {
         return (0, 0, 0);
     }
     let c = &CELLS[cell];
-    (
-        c.pins.load(Relaxed),
-        c.pin_ev.load(Relaxed),
-        c.pin_sh.load(Relaxed),
-    )
+    (c.pins.load(Relaxed), c.pin_ev.load(Relaxed), c.pin_sh.load(Relaxed),)
 }
 
 /// LEDGER2 step 2: owner `o`'s memory-context bytes now, (named, inferred); zeros for an owner that ended.
@@ -1320,10 +1110,7 @@ pub fn owner_ctx(o: Owner) -> (i64, i64) {
     if !live(o, cell, key) {
         return (0, 0);
     }
-    (
-        CELLS[cell].ctx_named.load(Relaxed),
-        CELLS[cell].ctx_inferred.load(Relaxed),
-    )
+    (CELLS[cell].ctx_named.load(Relaxed), CELLS[cell].ctx_inferred.load(Relaxed),)
 }
 
 /// LEDGER2: one owner cell as the owners view lists it (`for_each_owner`).
@@ -1360,9 +1147,7 @@ pub struct OwnerView {
 impl OwnerView {
     /// Measured: its charges' committed bytes and its contexts' blocks.
     pub fn held(&self) -> i64 {
-        self.committed
-            .wrapping_add(self.ctx_named)
-            .wrapping_add(self.ctx_inferred)
+        self.committed.wrapping_add(self.ctx_named).wrapping_add(self.ctx_inferred)
     }
 
     /// Promised: its charges' reservations and an operator's share.
@@ -1413,15 +1198,7 @@ fn view_of(i: usize, name: &'static str, acct: Acct, parent: u32) -> OwnerView {
 /// portals, its portal spill cell under it), the worker sets, the cache holders, the exit cells and the orphan cell, then
 /// the operator cells. Read now, cell by cell (a racing charge may show in one row and not its parent's sum).
 pub fn for_each_owner(mut f: impl FnMut(&OwnerView)) {
-    let some = |v: &OwnerView| {
-        v.committed != 0
-            || v.reserved != 0
-            || v.uses != 0
-            || v.ctx_named != 0
-            || v.ctx_inferred != 0
-            || v.spilled != 0
-            || v.nr != 0
-            || v.pins != 0
+    let some = |v: &OwnerView| { v.committed != 0 || v.reserved != 0 || v.uses != 0 || v.ctx_named != 0 || v.ctx_inferred != 0 || v.spilled != 0 || v.nr != 0 || v.pins != 0
     };
     for s in 0..SLOTS_N {
         let a = Acct(s as u32);
@@ -1430,11 +1207,7 @@ pub fn for_each_owner(mut f: impl FnMut(&OwnerView)) {
         }
         let skey = CELLS[SESSION_AT + s].key.load(Relaxed);
         let sv = view_of(SESSION_AT + s, "session", a, NO_PARENT);
-        let parent = if skey != 0 {
-            (SESSION_AT + s) as u32
-        } else {
-            NO_PARENT
-        };
+        let parent = if skey != 0 { (SESSION_AT + s) as u32 } else { NO_PARENT };
         if skey != 0 || some(&sv) {
             f(&sv);
         }
@@ -1447,10 +1220,7 @@ pub fn for_each_owner(mut f: impl FnMut(&OwnerView)) {
             f(&ps);
         }
     }
-    let session_of = |a: Acct| {
-        slot_ix(a)
-            .filter(|&s| CELLS[SESSION_AT + s].key.load(Relaxed) != 0)
-            .map_or(NO_PARENT, |s| (SESSION_AT + s) as u32)
+    let session_of = |a: Acct| { slot_ix(a).filter(|&s| CELLS[SESSION_AT + s].key.load(Relaxed) != 0).map_or(NO_PARENT, |s| (SESSION_AT + s) as u32)
     };
     #[allow(clippy::needless_range_loop)]
     for i in PORTAL_AT..PORTAL_AT + PORTAL_CELLS {
@@ -1461,22 +1231,12 @@ pub fn for_each_owner(mut f: impl FnMut(&OwnerView)) {
     }
     #[allow(clippy::needless_range_loop)]
     for i in SET_AT..=SET_SPILL {
-        let v = view_of(
-            i,
-            "worker_set",
-            Acct(CELLS[i].acct.load(Relaxed)),
-            NO_PARENT,
-        );
+        let v = view_of(i, "worker_set", Acct(CELLS[i].acct.load(Relaxed)), NO_PARENT,);
         if v.key != 0 || some(&v) {
             f(&v);
         }
     }
-    let fixed = [
-        Holder::Parked,
-        Holder::Reaping,
-        Holder::Unbound,
-        Holder::SlotDepot,
-    ];
+    let fixed = [Holder::Parked, Holder::Reaping, Holder::Unbound, Holder::SlotDepot,];
     for h in Consumer::ALL.iter().map(|&c| Holder::Of(c)).chain(fixed) {
         let v = view_of(HOLDER_AT + h.index(), "cache", h.acct(), NO_PARENT);
         if some(&v) {
@@ -1504,16 +1264,8 @@ pub fn for_each_owner(mut f: impl FnMut(&OwnerView)) {
         }
         let a = Acct(c.acct.load(Relaxed));
         let (p, pk) = parent_of(c);
-        let parent = if p != NO_PARENT as usize && CELLS[p].key.load(Relaxed) == pk {
-            p as u32
-        } else {
-            session_of(a)
-        };
-        let name = if c.label.load(Relaxed) & WORKER_ARENA != 0 {
-            "worker_arena"
-        } else {
-            "operator"
-        };
+        let parent = if p != NO_PARENT as usize && CELLS[p].key.load(Relaxed) == pk { p as u32 } else { session_of(a) };
+        let name = if c.label.load(Relaxed) & WORKER_ARENA != 0 { "worker_arena" } else { "operator" };
         f(&view_of(i, name, a, parent));
     }
 }
@@ -1523,15 +1275,9 @@ pub fn for_each_owner(mut f: impl FnMut(&OwnerView)) {
 /// on it and its keyed operator cells. Read cell by cell (a racing charge may be in or out); no allocation, no lock.
 pub(crate) fn acct_held(a: Acct) -> i64 {
     let Some(s) = slot_ix(a) else { return 0 };
-    let held = |c: &OwnerCell| {
-        c.committed
-            .load(Relaxed)
-            .wrapping_add(c.ctx_named.load(Relaxed))
-            .wrapping_add(c.ctx_inferred.load(Relaxed))
+    let held = |c: &OwnerCell| { c.committed.load(Relaxed).wrapping_add(c.ctx_named.load(Relaxed)).wrapping_add(c.ctx_inferred.load(Relaxed))
     };
-    let mut sum = held(&CELLS[SESSION_AT + s])
-        .wrapping_add(held(&CELLS[STMT_AT + s]))
-        .wrapping_add(held(&CELLS[PORTAL_SPILL_AT + s]));
+    let mut sum = held(&CELLS[SESSION_AT + s]).wrapping_add(held(&CELLS[STMT_AT + s])).wrapping_add(held(&CELLS[PORTAL_SPILL_AT + s]));
     for c in &CELLS[PORTAL_AT..PORTAL_AT + PORTAL_CELLS] {
         if c.key.load(Relaxed) != 0 && c.acct.load(Relaxed) == a.0 {
             sum = sum.wrapping_add(held(c));
@@ -1555,18 +1301,12 @@ pub(crate) fn acct_held(a: Acct) -> i64 {
 /// LEDGER2: (operator cells keyed now, operator begins that charged their parent: a full table or an ended parent,
 /// operator ends).
 pub fn op_counters() -> (i64, u64, u64) {
-    (
-        OPS_KEYED.load(Relaxed),
-        OP_OVERFLOW.load(Relaxed),
-        OP_ENDS.load(Relaxed),
-    )
+    (OPS_KEYED.load(Relaxed), OP_OVERFLOW.load(Relaxed), OP_ENDS.load(Relaxed),)
 }
 
 /// The portal the backend on account `a` is executing now (0: none).
 pub fn active_portal(a: Acct) -> u64 {
-    SLOTS
-        .get(a.0 as usize)
-        .map_or(0, |s| s.portal.load(Relaxed))
+    SLOTS.get(a.0 as usize).map_or(0, |s| s.portal.load(Relaxed))
 }
 
 /// The calling thread's backend executes portal `token` until the guard drops (the runner's Execute step): the charges
@@ -1574,10 +1314,7 @@ pub fn active_portal(a: Acct) -> u64 {
 #[must_use]
 pub fn enter_portal(token: u64) -> PortalScope {
     let a = current();
-    let back = SLOTS
-        .get(a.0 as usize)
-        .filter(|_| a.is_backend())
-        .map_or(0, |s| s.portal.swap(token, Relaxed));
+    let back = SLOTS.get(a.0 as usize).filter(|_| a.is_backend()).map_or(0, |s| s.portal.swap(token, Relaxed));
     PortalScope { acct: a, back }
 }
 
@@ -1641,11 +1378,7 @@ pub fn context_of(a: Acct) -> (Owner, Release) {
 /// cache's insert): the typed `enter`.
 #[must_use]
 pub fn enter_as(o: Owner) -> Entered {
-    Entered {
-        back: switch(o.acct()),
-        paused: 0,
-        visit: false,
-    }
+    Entered { back: switch(o.acct()), paused: 0, visit: false, }
 }
 
 /// C8 (move 7, C1; memlead 2026-10-12T17:00:54Z, main 17:02:28Z): door 2 of a memory context's mapped block, mcx heap.rs's
@@ -1663,11 +1396,7 @@ pub fn door_mapped(ptr: usize, bytes: u64, on: bool) {
     if on {
         let (o, _) = context();
         let (cell, key, skey) = cell_of(o);
-        let acct = if past_session(cell) && o.acct().is_backend() {
-            Acct::UNBOUND
-        } else {
-            o.acct()
-        };
+        let acct = if past_session(cell) && o.acct().is_backend() { Acct::UNBOUND } else { o.acct() };
         door_map_on(ptr, bytes, cell, key, skey, acct);
         return;
     }
@@ -1675,10 +1404,7 @@ pub fn door_mapped(ptr: usize, bytes: u64, on: bool) {
         Some(i) => {
             let (cell, _, _, acct) = DOOR_TABLE[i].owner();
             let n = DOOR_TABLE[i].bytes.load(Relaxed).min(i64::MAX as u64) as i64;
-            debug_assert_eq!(
-                n, b,
-                "memledger: a mapped block unmapped with another size than it was mapped with"
-            );
+            debug_assert_eq!(n, b, "memledger: a mapped block unmapped with another size than it was mapped with");
             mapped_on(cell, -n);
             post(acct, -n, -n, Kind::Mapped, -n);
             DOOR_TABLE[i].ptr.store(DOOR_TOMB, Ordering::Release);
@@ -1733,47 +1459,21 @@ pub struct CtxOwner {
 const NO_CTX: u32 = u32::MAX;
 
 impl CtxOwner {
-    pub const NONE: CtxOwner = CtxOwner {
-        cell: NO_CTX,
-        acct: Acct::UNBOUND,
-        key: 0,
-        skey: 0,
-        named: false,
-        root: 0,
-    };
+    pub const NONE: CtxOwner = CtxOwner { cell: NO_CTX, acct: Acct::UNBOUND, key: 0, skey: 0, named: false, root: 0, };
 
     /// Owner `o`, named by its root (a session root's session, a portal's PortalContext).
     pub fn named(o: Owner) -> CtxOwner {
         let (cell, key, skey) = cell_of(o);
-        let acct = if past_session(cell) && o.acct().is_backend() {
-            Acct::UNBOUND
-        } else {
-            o.acct()
-        };
-        let skey = if skey == 0 && matches!(o, Owner::Session(_)) {
-            key
-        } else {
-            skey
-        };
-        CtxOwner {
-            cell,
-            acct,
-            key,
-            skey,
-            named: true,
-            root: 0,
-        }
+        let acct = if past_session(cell) && o.acct().is_backend() { Acct::UNBOUND } else { o.acct() };
+        let skey = if skey == 0 && matches!(o, Owner::Session(_)) { key } else { skey };
+        CtxOwner { cell, acct, key, skey, named: true, root: 0, }
     }
 
     /// The creating thread's owner now (`context`), once, at an unnamed root's creation: its bytes are inferred, and
     /// counted under the root's `name` too.
     pub fn inferred(name: &'static str) -> CtxOwner {
         let o = CtxOwner::named(context().0);
-        CtxOwner {
-            named: false,
-            root: root_slot(name),
-            ..o
-        }
+        CtxOwner { named: false, root: root_slot(name), ..o }
     }
 
     pub fn is_named(&self) -> bool {
@@ -1901,8 +1601,7 @@ pub struct PoolReading {
 }
 
 static POOL_CLAIMED: AtomicI64 = AtomicI64::new(0);
-static POOL_PROBE: core::sync::atomic::AtomicPtr<()> =
-    core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
+static POOL_PROBE: core::sync::atomic::AtomicPtr<()> = core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
 
 /// The page pool's door: `delta` bytes of RAM claimed from the OS (+) or released (-), superpage grain. A process total
 /// on no account, so `doors_total` never counts a pooled byte twice.
@@ -1917,23 +1616,17 @@ pub fn pool_claimed() -> i64 {
 
 /// Of `doors_total`, the page pool's bytes on every account (`AccountRow::pagepool_bytes` summed).
 pub fn pagepool_total() -> i64 {
-    SLOTS
-        .iter()
-        .fold(0i64, |t, s| t.wrapping_add(s.pooled.load(Relaxed)))
+    SLOTS.iter().fold(0i64, |t, s| t.wrapping_add(s.pooled.load(Relaxed)))
 }
 
 /// The pool's resident bytes no owner holds (free, shelved, stranded, rounding): claimed less the owners' (`post_pool`)
 /// and less door 1's (`pool_door1`: `PoolAlloc`'s blocks, on their accounts in `doors_total` already, so a door-1 byte the
 /// pool serves is counted once, as owned; pppress card 9).
 pub fn pool_unowned() -> i64 {
-    pool_claimed()
-        .wrapping_sub(pagepool_total())
-        .wrapping_sub(pool_door1())
-        .max(0)
+    pool_claimed().wrapping_sub(pagepool_total()).wrapping_sub(pool_door1()).max(0)
 }
 
-static POOL_DOOR1: core::sync::atomic::AtomicPtr<()> =
-    core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
+static POOL_DOOR1: core::sync::atomic::AtomicPtr<()> = core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
 
 /// pppress card 9: how to read the pool's bytes door 1 charged, on demand (the pool's `PoolAlloc` as the global
 /// allocator: `pagepool::global_live`, its blocks at their good size, which door 1 charges as the layout's bytes on their
@@ -1968,10 +1661,7 @@ pub fn pool_probed() -> bool {
 pub fn pool_reading() -> PoolReading {
     let p = POOL_PROBE.load(Ordering::Acquire);
     if p.is_null() {
-        return PoolReading {
-            claimed: pool_claimed().max(0) as u64,
-            ..PoolReading::default()
-        };
+        return PoolReading { claimed: pool_claimed().max(0) as u64, ..PoolReading::default() };
     }
     // SAFETY: only set_pool_probe stores here, always from fn() -> PoolReading.
     let f = unsafe { core::mem::transmute::<*mut (), fn() -> PoolReading>(p) };
@@ -1995,11 +1685,7 @@ fn root_slot(name: &'static str) -> u16 {
         if cur == p {
             return i as u16;
         }
-        if cur == 0
-            && ROOT_NAME[i]
-                .compare_exchange(0, p, Relaxed, Relaxed)
-                .is_ok()
-        {
+        if cur == 0 && ROOT_NAME[i].compare_exchange(0, p, Relaxed, Relaxed).is_ok() {
             ROOT_LEN[i].store(name.len(), Relaxed);
             return i as u16;
         }
@@ -2017,13 +1703,7 @@ pub fn unnamed_roots(mut f: impl FnMut(&'static str, i64)) {
         let (p, n) = (ROOT_NAME[i].load(Relaxed), ROOT_LEN[i].load(Relaxed));
         // SAFETY: a slot's address and length are a `&'static str`'s (`root_slot`), the length stored after the address
         // and read after it here: a slot whose length is not stored yet reads as ''.
-        let name = if p == 0 || n == 0 {
-            ""
-        } else {
-            unsafe {
-                core::str::from_utf8_unchecked(core::slice::from_raw_parts(p as *const u8, n))
-            }
-        };
+        let name = if p == 0 || n == 0 { "" } else { unsafe { core::str::from_utf8_unchecked(core::slice::from_raw_parts(p as *const u8, n)) } };
         f(name, b);
     }
 }
@@ -2047,8 +1727,7 @@ fn mapped_on(cell: u32, n: i64) {
 #[cold]
 #[inline(never)]
 pub fn door_remapped(old: usize, new: usize, old_bytes: u64, new_bytes: u64) {
-    let d =
-        (new_bytes.min(i64::MAX as u64) as i64).wrapping_sub(old_bytes.min(i64::MAX as u64) as i64);
+    let d = (new_bytes.min(i64::MAX as u64) as i64).wrapping_sub(old_bytes.min(i64::MAX as u64) as i64);
     let Some(i) = door_find(old | DOOR_MOVING).or_else(|| door_find(old)) else {
         post(current(), d, d, Kind::Mapped, d);
         return;
@@ -2080,11 +1759,7 @@ pub fn door_remapped(old: usize, new: usize, old_bytes: u64, new_bytes: u64) {
 #[cold]
 #[inline(never)]
 pub fn door_moving(ptr: usize, on: bool) {
-    let (from, to) = if on {
-        (ptr, ptr | DOOR_MOVING)
-    } else {
-        (ptr | DOOR_MOVING, ptr)
-    };
+    let (from, to) = if on { (ptr, ptr | DOOR_MOVING) } else { (ptr | DOOR_MOVING, ptr) };
     if let Some(i) = door_find(from) {
         DOOR_TABLE[i].ptr.store(to, Ordering::Release);
     }
@@ -2097,10 +1772,7 @@ pub fn door_overflow() -> u64 {
 
 /// The mapped blocks the table remembers now (tests, the census).
 pub fn door_blocks() -> usize {
-    DOOR_TABLE
-        .iter()
-        .filter(|e| !matches!(e.ptr.load(Relaxed), 0 | DOOR_TOMB))
-        .count()
+    DOOR_TABLE.iter().filter(|e| !matches!(e.ptr.load(Relaxed), 0 | DOOR_TOMB)).count()
 }
 
 /// `door_mapped`'s table size: mcx maps a block only at 32 MiB and more, so a full table is 128 GiB of live mapped blocks.
@@ -2151,11 +1823,7 @@ impl DoorBlock {
     /// not drained, else the orphan's; past its session a backend's account is UNBOUND).
     fn owner(&self) -> (u32, u64, u64, Acct) {
         let _ = self.bytes.load(Acquire);
-        let (mut cell, mut key, mut skey) = (
-            self.cell.load(Relaxed),
-            self.key.load(Relaxed),
-            self.skey.load(Relaxed),
-        );
+        let (mut cell, mut key, mut skey) = (self.cell.load(Relaxed), self.key.load(Relaxed), self.skey.load(Relaxed),);
         let mut acct = Acct(self.acct.load(Relaxed));
         if key != 0 && CELLS[cell as usize].key.load(Relaxed) != key {
             STALE.fetch_add(1, Relaxed);
@@ -2174,9 +1842,7 @@ impl DoorBlock {
 /// bits carry nothing), the moving bit outside them.
 #[inline]
 fn door_at(ptr: usize, k: usize) -> usize {
-    (((ptr as u64 >> 12).wrapping_mul(0x9E37_79B9_7F4A_7C15) >> (64 - DOOR_BITS)) as usize)
-        .wrapping_add(k)
-        & (DOOR_BLOCKS - 1)
+    (((ptr as u64 >> 12).wrapping_mul(0x9E37_79B9_7F4A_7C15) >> (64 - DOOR_BITS)) as usize).wrapping_add(k) & (DOOR_BLOCKS - 1)
 }
 
 /// A free entry for `ptr` (never used or freed), claimed; None when the probes find none.
@@ -2205,12 +1871,7 @@ fn door_find(ptr: usize) -> Option<usize> {
 /// that found a residue in its cell and the residues' committed bytes: `owner_end`'s owner-source totals).
 pub fn counters() -> (u64, u64, [u64; OWNER_CLASSES], [u64; OWNER_CLASSES]) {
     let t = OwnerClass::ALL.map(|c| crate::owner_end::totals(crate::owner_end::Source::Owner, c));
-    (
-        STALE.load(Relaxed),
-        OVERFLOW.load(Relaxed),
-        t.map(|x| x.events),
-        t.map(|x| x.committed),
-    )
+    (STALE.load(Relaxed), OVERFLOW.load(Relaxed), t.map(|x| x.events), t.map(|x| x.committed),)
 }
 
 /// One owned charge (see the module doc). No `Clone`: a charge is moved, transferred or dropped, never copied.
@@ -2261,27 +1922,8 @@ impl Charge {
 
     fn new(owner: Owner, release: Release, kind: Kind, door: Door) -> Charge {
         let (cell, key, skey) = cell_of(owner);
-        let acct = if past_session(cell) && owner.acct().is_backend() {
-            Acct::UNBOUND
-        } else {
-            owner.acct()
-        };
-        Charge {
-            owner,
-            acct,
-            release,
-            kind,
-            door,
-            cell,
-            key,
-            skey,
-            committed: 0,
-            reserved: 0,
-            backed: 0,
-            given: 0,
-            uses: 0,
-            orphan: false,
-        }
+        let acct = if past_session(cell) && owner.acct().is_backend() { Acct::UNBOUND } else { owner.acct() };
+        Charge { owner, acct, release, kind, door, cell, key, skey, committed: 0, reserved: 0, backed: 0, given: 0, uses: 0, orphan: false, }
     }
 
     /// `bytes` of promised room for owner `o`: on its cell and its account's reserved bytes, never in its `net`.
@@ -2312,11 +1954,7 @@ impl Charge {
         if self.key != 0 && CELLS[self.cell as usize].key.load(Relaxed) != self.key {
             STALE.fetch_add(1, Relaxed);
             // a session's own charge carries its session's generation as its key (`locate`)
-            let skey = if self.skey == 0 && matches!(self.owner, Owner::Session(_)) {
-                self.key
-            } else {
-                self.skey
-            };
+            let skey = if self.skey == 0 && matches!(self.owner, Owner::Session(_)) { self.key } else { self.skey };
             (self.cell, self.key, self.skey) = redirect(self.acct, skey);
             if past_session(self.cell) && self.acct.is_backend() {
                 (self.acct, self.orphan) = (Acct::UNBOUND, true);
@@ -2365,9 +2003,7 @@ impl Charge {
         if self.backed > self.reserved {
             let d = self.backed - self.reserved;
             self.backs(self.acct, -Self::signed(d));
-            CELLS[self.cell as usize]
-                .backed
-                .fetch_sub(Self::signed(d), Relaxed);
+            CELLS[self.cell as usize].backed.fetch_sub(Self::signed(d), Relaxed);
             self.backed = self.reserved;
         }
     }
@@ -2490,10 +2126,7 @@ impl Charge {
     /// drop's step for `n` bytes). The reservation is untouched. A mapping's given-back pages are `uncommit`, its unmap the
     /// drop.
     pub fn free(&mut self, n: u64) {
-        debug_assert!(
-            self.door == Door::Heap,
-            "a mapping's pages leave by uncommit or the drop"
-        );
+        debug_assert!(self.door == Door::Heap, "a mapping's pages leave by uncommit or the drop");
         let n = n.min(self.committed);
         if n == 0 {
             return;
@@ -2570,17 +2203,9 @@ impl Charge {
     pub fn transfer(&mut self, to: Owner, release: Release) {
         let old = self.cell();
         let (a1, a2) = (self.acct, to.acct());
-        let (c, r, u) = (
-            Self::signed(self.committed),
-            Self::signed(self.reserved),
-            self.uses as i64,
-        );
+        let (c, r, u) = (Self::signed(self.committed), Self::signed(self.reserved), self.uses as i64,);
         let (cell, key, skey) = cell_of(to);
-        let a2 = if past_session(cell) && a2.is_backend() {
-            Acct::UNBOUND
-        } else {
-            a2
-        };
+        let a2 = if past_session(cell) && a2.is_backend() { Acct::UNBOUND } else { a2 };
         if a1 != a2 {
             if c != 0 {
                 let m = if self.door == Door::Mapped { c } else { 0 };
@@ -2599,10 +2224,7 @@ impl Charge {
             }
             self.orphan = false;
         }
-        let (m, k) = (
-            if self.door == Door::Mapped { c } else { 0 },
-            Self::signed(self.backed),
-        );
+        let (m, k) = (if self.door == Door::Mapped { c } else { 0 }, Self::signed(self.backed),);
         // D4554: only the counters that hold something move (a part use moves its one use, a heap charge its committed
         // bytes): an add of 0 is a locked add on the cell's line all the same, and a backend moves thousands of kept
         // cursors' charges at every statement's bind and end
@@ -2625,14 +2247,7 @@ impl Charge {
         };
         shift(old, -1);
         op_drained(self.cell);
-        (
-            self.owner,
-            self.acct,
-            self.release,
-            self.cell,
-            self.key,
-            self.skey,
-        ) = (to, a2, release, cell, key, skey);
+        (self.owner, self.acct, self.release, self.cell, self.key, self.skey,) = (to, a2, release, cell, key, skey);
         shift(&CELLS[cell as usize], 1);
     }
 
@@ -2653,10 +2268,7 @@ impl Charge {
     /// another. `other`'s reservation, uses and given-back pages stay with it (they leave at its drop). Returns the bytes
     /// taken over.
     pub fn absorb(&mut self, mut other: Charge) -> u64 {
-        debug_assert!(
-            self.door == Door::Heap && other.door == Door::Heap,
-            "absorb joins door-1 charges"
-        );
+        debug_assert!(self.door == Door::Heap && other.door == Door::Heap, "absorb joins door-1 charges");
         let c = other.committed;
         if c == 0 || self.door != Door::Heap || other.door != Door::Heap {
             return 0;
@@ -2734,17 +2346,8 @@ impl Charge {
     /// as the charge follows it (`cell`) when its owner ends.
     pub fn nr_home(&self) -> NrHome {
         // a session's own charge carries its session's generation as its key (`locate`), as `cell` reads it
-        let skey = if self.skey == 0 && matches!(self.owner, Owner::Session(_)) {
-            self.key
-        } else {
-            self.skey
-        };
-        NrHome {
-            cell: self.cell,
-            key: self.key,
-            skey,
-            acct: self.acct,
-        }
+        let skey = if self.skey == 0 && matches!(self.owner, Owner::Session(_)) { self.key } else { self.skey };
+        NrHome { cell: self.cell, key: self.key, skey, acct: self.acct, }
     }
 }
 
@@ -2761,12 +2364,7 @@ pub struct NrHome {
 }
 
 impl NrHome {
-    pub const NONE: NrHome = NrHome {
-        cell: u32::MAX,
-        key: 0,
-        skey: 0,
-        acct: Acct::UNBOUND,
-    };
+    pub const NONE: NrHome = NrHome { cell: u32::MAX, key: 0, skey: 0, acct: Acct::UNBOUND, };
 
     /// `d` more not-resident bytes on the home's cell (fewer, negative), followed first as `Charge::cell` follows an ended
     /// owner; an ended operator's cell frees once its last such byte leaves. No allocation, no lock: the registry calls it
@@ -2789,12 +2387,7 @@ impl Drop for Charge {
     /// Discharges both sides. Door 2's pages leave the owner's account; door 1's block is about to be freed by the caller
     /// on the calling thread, so its bytes (given-back pages included) move to that thread's account, where the free lands.
     fn drop(&mut self) {
-        let (c, r, u, g) = (
-            Self::signed(self.committed),
-            Self::signed(self.reserved),
-            self.uses as i64,
-            Self::signed(self.given),
-        );
+        let (c, r, u, g) = (Self::signed(self.committed), Self::signed(self.reserved), self.uses as i64, Self::signed(self.given),);
         if c == 0 && r == 0 && u == 0 && g == 0 {
             return;
         }
@@ -2833,10 +2426,7 @@ impl Drop for Charge {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        account_row, bind_backend, door_heap, fold, running_statement, statement_begin,
-        statement_end, unbind_backend,
-    };
+    use crate::{account_row, bind_backend, door_heap, fold, running_statement, statement_begin, statement_end, unbind_backend,};
 
     const MIB: u64 = 1 << 20;
     const M: i64 = MIB as i64;
@@ -2860,11 +2450,7 @@ mod tests {
     }
 
     fn row(committed: i64, reserved: i64, uses: i64) -> OwnerRow {
-        OwnerRow {
-            committed,
-            reserved,
-            uses,
-        }
+        OwnerRow { committed, reserved, uses, }
     }
 
     #[test]
@@ -2873,39 +2459,18 @@ mod tests {
         on(3900, |a| {
             statement_begin();
             let (o, rel) = context();
-            assert_eq!(
-                (o, rel),
-                (
-                    Owner::Statement {
-                        acct: a,
-                        stmt: running_statement(a)
-                    },
-                    Release::Statement
-                )
-            );
+            assert_eq!((o, rel), (Owner::Statement { acct: a, stmt: running_statement(a) }, Release::Statement));
             let b = nums(a);
             let mut c = Charge::reserve(o, rel, Kind::HashAgg, Door::Mapped, 10 * MIB);
             assert_eq!(nums(a), (b.0, b.1, b.2 + 10 * M), "room only: never in net");
             assert_eq!(owner_row(o), row(0, 10 * M, 0));
             c.commit(4 * MIB);
-            assert_eq!(
-                nums(a),
-                (b.0 + 4 * M, b.1 + 4 * M, b.2 + 6 * M),
-                "no byte counted twice"
-            );
+            assert_eq!(nums(a), (b.0 + 4 * M, b.1 + 4 * M, b.2 + 6 * M), "no byte counted twice");
             c.commit(8 * MIB);
-            assert_eq!(
-                nums(a),
-                (b.0 + 12 * M, b.1 + 12 * M, b.2),
-                "6 from the reservation, 2 past it"
-            );
+            assert_eq!(nums(a), (b.0 + 12 * M, b.1 + 12 * M, b.2), "6 from the reservation, 2 past it");
             assert_eq!(owner_row(o), row(12 * M, 0, 0));
             c.uncommit(2 * MIB);
-            assert_eq!(
-                nums(a),
-                (b.0 + 10 * M, b.1 + 10 * M, b.2 + 2 * M),
-                "given back: room again"
-            );
+            assert_eq!(nums(a), (b.0 + 10 * M, b.1 + 10 * M, b.2 + 2 * M), "given back: room again");
             c.shrink(MIB);
             c.grow(3 * MIB);
             assert_eq!(owner_row(o), row(10 * M, 4 * M, 0));
@@ -2921,10 +2486,7 @@ mod tests {
         on(3901, |a| {
             statement_begin();
             let (o, rel) = context();
-            let (cache, ca) = (
-                Owner::Cache(Holder::Of(Consumer::ZoneStore)),
-                Acct::of(Consumer::ZoneStore),
-            );
+            let (cache, ca) = (Owner::Cache(Holder::Of(Consumer::ZoneStore)), Acct::of(Consumer::ZoneStore),);
             let (b, k) = (nums(a), nums(ca));
             let mut c = Charge::reserve(o, rel, Kind::Sort, Door::Mapped, 6 * MIB);
             c.commit(4 * MIB);
@@ -2932,17 +2494,11 @@ mod tests {
             c.transfer(cache, Release::Evict);
             assert_eq!(nums(a), b, "nothing of it left on the statement's account");
             assert_eq!(nums(ca), (k.0 + 4 * M, k.1 + 4 * M, k.2 + 2 * M));
-            assert_eq!(
-                (owner_row(o), owner_row(cache)),
-                (row(0, 0, 1), row(4 * M, 2 * M, 0))
-            );
+            assert_eq!((owner_row(o), owner_row(cache)), (row(0, 0, 1), row(4 * M, 2 * M, 0)));
             assert_eq!((c.owner(), c.release()), (cache, Release::Evict));
             drop(u);
             drop(c);
-            assert_eq!(
-                (nums(ca), owner_row(o), owner_row(cache)),
-                (k, OwnerRow::default(), OwnerRow::default())
-            );
+            assert_eq!((nums(ca), owner_row(o), owner_row(cache)), (k, OwnerRow::default(), OwnerRow::default()));
             statement_end();
         });
     }
@@ -2952,18 +2508,11 @@ mod tests {
         let _unbound = crate::unbound_shared(); // D4356: this test binds a backend, so it may move UNBOUND's books
         on(3902, |a| {
             statement_begin();
-            let (cache, ca) = (
-                Owner::Cache(Holder::Of(Consumer::BuildPool)),
-                Acct::of(Consumer::BuildPool),
-            );
+            let (cache, ca) = (Owner::Cache(Holder::Of(Consumer::BuildPool)), Acct::of(Consumer::BuildPool),);
             let (b, k) = (nums(a).0, nums(ca).0);
             door_heap(8 << 20); // the block, allocated on the backend's thread
             let mut c = Charge::open(cache, Release::Evict, Kind::Region, Door::Heap, 8 * MIB);
-            assert_eq!(
-                (nums(a).0, nums(ca).0),
-                (b, k + 8 * M),
-                "the cache's bytes, not the opener's (D4084)"
-            );
+            assert_eq!((nums(a).0, nums(ca).0), (b, k + 8 * M), "the cache's bytes, not the opener's (D4084)");
             c.uncommit(2 * MIB);
             assert_eq!(nums(ca).0, k + 6 * M, "pages given back leave the account");
             c.commit(MIB);
@@ -2978,21 +2527,14 @@ mod tests {
     #[test]
     fn a_heap_block_freed_while_its_charge_lives_leaves_from_the_thread_that_frees_it() {
         let _unbound = crate::unbound_shared(); // D4356: this test binds a backend, so it may move UNBOUND's books
-        let (cache, ca) = (
-            Owner::Cache(Holder::Of(Consumer::ProgramCaches)),
-            Acct::of(Consumer::ProgramCaches),
-        );
+        let (cache, ca) = (Owner::Cache(Holder::Of(Consumer::ProgramCaches)), Acct::of(Consumer::ProgramCaches),);
         let held = std::sync::Arc::new(std::sync::Mutex::new(None::<(Charge, i64)>));
         let h = held.clone();
         on(3907, move |a| {
             let (b, k) = (nums(a).0, nums(ca).0);
             door_heap(8 << 20);
             let c = Charge::open(cache, Release::Evict, Kind::Region, Door::Heap, 8 * MIB);
-            assert_eq!(
-                (nums(a).0, nums(ca).0),
-                (b, k + 8 * M),
-                "the opener nets zero"
-            );
+            assert_eq!((nums(a).0, nums(ca).0), (b, k + 8 * M), "the opener nets zero");
             *h.lock().unwrap() = Some((c, k));
         });
         on(3908, move |a| {
@@ -3000,18 +2542,10 @@ mod tests {
             let (b, r) = (nums(a).0, owner_row(cache).committed);
             c.free(3 * MIB);
             door_heap(-(3 << 20)); // the evicted bytes' free, on this thread
-            assert_eq!(
-                (nums(a).0, nums(ca).0, c.committed()),
-                (b, k + 5 * M, 5 * MIB),
-                "the freeing thread nets zero"
-            );
+            assert_eq!((nums(a).0, nums(ca).0, c.committed()), (b, k + 5 * M, 5 * MIB), "the freeing thread nets zero");
             assert_eq!(owner_row(cache).committed, r - 3 * M, "the owner's cell");
             c.free(8 * MIB);
-            assert_eq!(
-                (nums(a).0, c.committed()),
-                (b + 5 * M, 0),
-                "at most what is committed"
-            );
+            assert_eq!((nums(a).0, c.committed()), (b + 5 * M, 0), "at most what is committed");
             door_heap(-(5 << 20));
             drop(c);
             assert_eq!((nums(a).0, nums(ca).0), (b, k));
@@ -3028,31 +2562,14 @@ mod tests {
             let mut c = Charge::open(o, rel, Kind::Spool, Door::Mapped, 3 * MIB);
             let r0 = counters().2[OwnerClass::Statement as usize];
             statement_end();
-            assert!(
-                counters().2[OwnerClass::Statement as usize] > r0,
-                "the statement's end found a residue"
-            );
-            assert_eq!(
-                (owner_row(o), owner_row(Owner::Session(a))),
-                (OwnerRow::default(), row(3 * M, 0, 0))
-            );
+            assert!(counters().2[OwnerClass::Statement as usize] > r0, "the statement's end found a residue");
+            assert_eq!((owner_row(o), owner_row(Owner::Session(a))), (OwnerRow::default(), row(3 * M, 0, 0)));
             statement_begin();
-            assert_eq!(
-                owner_row(context().0),
-                OwnerRow::default(),
-                "the next statement starts clean"
-            );
+            assert_eq!(owner_row(context().0), OwnerRow::default(), "the next statement starts clean");
             c.commit(MIB);
-            assert_eq!(
-                owner_row(Owner::Session(a)),
-                row(4 * M, 0, 0),
-                "a stale charge books on its session"
-            );
+            assert_eq!(owner_row(Owner::Session(a)), row(4 * M, 0, 0), "a stale charge books on its session");
             drop(c);
-            assert_eq!(
-                (nums(a), owner_row(Owner::Session(a))),
-                (b, OwnerRow::default())
-            );
+            assert_eq!((nums(a), owner_row(Owner::Session(a))), (b, OwnerRow::default()));
             statement_end();
         });
     }
@@ -3066,32 +2583,12 @@ mod tests {
             let u = {
                 let _p = enter_portal(77);
                 let (o, rel) = context();
-                assert_eq!(
-                    (o, rel),
-                    (
-                        Owner::Portal {
-                            acct: a,
-                            portal: 77
-                        },
-                        Release::Portal
-                    )
-                );
+                assert_eq!((o, rel), (Owner::Portal { acct: a, portal: 77 }, Release::Portal));
                 Charge::use_of(o, rel)
             };
-            assert_eq!(
-                context().0,
-                Owner::Statement {
-                    acct: a,
-                    stmt: running_statement(a)
-                },
-                "outside the Execute"
-            );
+            assert_eq!(context().0, Owner::Statement { acct: a, stmt: running_statement(a) }, "outside the Execute");
             statement_end();
-            assert_eq!(
-                owner_row(Owner::Session(a)),
-                OwnerRow::default(),
-                "a suspended portal's use is not the statement's"
-            );
+            assert_eq!(owner_row(Owner::Session(a)), OwnerRow::default(), "a suspended portal's use is not the statement's");
             let r = portal_end(a, 77).expect("a use left at the portal's end");
             assert_eq!((r.class, r.uses, r.committed), (OwnerClass::Portal, 1, 0));
             assert_eq!(owner_row(Owner::Session(a)), row(0, 0, 1));
@@ -3107,13 +2604,7 @@ mod tests {
         let held = std::thread::spawn(|| {
             bind_backend(3905, 1);
             let a = Acct::backend(3905);
-            let c = Charge::open(
-                Owner::Session(a),
-                Release::Session,
-                Kind::Mapped,
-                Door::Mapped,
-                5 * MIB,
-            );
+            let c = Charge::open(Owner::Session(a), Release::Session, Kind::Mapped, Door::Mapped, 5 * MIB,);
             unbind_backend();
             c
         })
@@ -3121,17 +2612,9 @@ mod tests {
         .unwrap();
         on(3905, move |a| {
             let n = nums(a);
-            assert_eq!(
-                owner_row(Owner::Session(a)),
-                OwnerRow::default(),
-                "a new session starts at zero"
-            );
+            assert_eq!(owner_row(Owner::Session(a)), OwnerRow::default(), "a new session starts at zero");
             drop(held);
-            assert_eq!(
-                nums(a),
-                n,
-                "the old session's bytes left UNBOUND, where its unbind put them"
-            );
+            assert_eq!(nums(a), n, "the old session's bytes left UNBOUND, where its unbind put them");
         });
     }
 
@@ -3145,10 +2628,7 @@ mod tests {
             let mut c = Charge::open(ws, Release::Session, Kind::Arena, Door::Mapped, MIB);
             assert_eq!(owner_row(ws), row(M, 0, 0));
             c.transfer(Owner::Cache(Holder::Parked), Release::Evict);
-            assert_eq!(
-                (owner_row(ws), worker_set_end(3906)),
-                (OwnerRow::default(), None)
-            );
+            assert_eq!((owner_row(ws), worker_set_end(3906)), (OwnerRow::default(), None));
             drop(c);
         });
     }
@@ -3158,31 +2638,11 @@ mod tests {
         std::thread::spawn(|| {
             assert_eq!(context(), (Owner::Cache(Holder::Unbound), Release::Evict));
             let _in = enter_as(Owner::Cache(Holder::Of(Consumer::CondCache)));
-            assert_eq!(
-                context(),
-                (
-                    Owner::Cache(Holder::Of(Consumer::CondCache)),
-                    Release::Evict
-                )
-            );
+            assert_eq!(context(), (Owner::Cache(Holder::Of(Consumer::CondCache)), Release::Evict));
         })
         .join()
         .unwrap();
-        assert_eq!(
-            [
-                Holder::Parked,
-                Holder::Reaping,
-                Holder::Unbound,
-                Holder::SlotDepot
-            ]
-            .map(|h| Holder::of_acct(h.acct())),
-            [
-                Holder::Parked,
-                Holder::Reaping,
-                Holder::Unbound,
-                Holder::SlotDepot
-            ]
-        );
+        assert_eq!([Holder::Parked, Holder::Reaping, Holder::Unbound, Holder::SlotDepot].map(|h| Holder::of_acct(h.acct())), [Holder::Parked, Holder::Reaping, Holder::Unbound, Holder::SlotDepot]);
         for c in Consumer::ALL {
             assert_eq!(Holder::of_acct(Acct::of(c)), Holder::Of(c));
         }
@@ -3197,11 +2657,7 @@ mod tests {
             let mut m = Charge::open(s, Release::Session, Kind::Region, Door::Mapped, 8 * MIB);
             assert_eq!(nums(a), (8 * M, 8 * M, 0));
             m.give(3 * MIB);
-            assert_eq!(
-                (nums(a), owner_row(s)),
-                ((5 * M, 5 * M, 0), row(5 * M, 0, 0)),
-                "off the account; no room kept"
-            );
+            assert_eq!((nums(a), owner_row(s)), ((5 * M, 5 * M, 0), row(5 * M, 0, 0)), "off the account; no room kept");
             m.give(9 * MIB);
             assert_eq!(nums(a), (0, 0, 0), "at most what it holds");
             m.commit(2 * MIB);
@@ -3211,26 +2667,14 @@ mod tests {
             // door 1: an allocator region's tail given back (the allocator still counts the block), then taken again
             let base = nums(a).0;
             let mut h = Charge::open(s, Release::Session, Kind::Region, Door::Heap, 4 * MIB);
-            assert_eq!(
-                nums(a).0,
-                base,
-                "the allocator counted the block on this thread: no move"
-            );
+            assert_eq!(nums(a).0, base, "the allocator counted the block on this thread: no move");
             h.give(MIB);
             assert_eq!((nums(a).0, owner_row(s)), (base - M, row(3 * M, 0, 0)));
             h.commit(MIB);
-            assert_eq!(
-                (nums(a).0, owner_row(s)),
-                (base, row(4 * M, 0, 0)),
-                "the given-back pages come back first"
-            );
+            assert_eq!((nums(a).0, owner_row(s)), (base, row(4 * M, 0, 0)), "the given-back pages come back first");
             h.give(MIB);
             drop(h);
-            assert_eq!(
-                (nums(a).0, owner_row(s)),
-                (base, OwnerRow::default()),
-                "the drop takes the given-back pages back for the free"
-            );
+            assert_eq!((nums(a).0, owner_row(s)), (base, OwnerRow::default()), "the drop takes the given-back pages back for the free");
         });
     }
 
@@ -3248,43 +2692,25 @@ mod tests {
             // a 16 MiB region drawn inside the room: its pages go on the account (door 2 here), its room is backed
             let pages = Charge::open(s, Release::Session, Kind::Region, Door::Mapped, 16 * MIB);
             room.back(16 * MIB);
-            assert_eq!(
-                (claim(a), nums(a).0, crate::pool_reserved(a)),
-                ((48 * M, 16 * M), 16 * M, 64 * M),
-                "pages + unbacked room = the claim; the claim unchanged"
-            );
-            assert_eq!(
-                owner_row(s),
-                row(16 * M, 64 * M, 0),
-                "the owner's cell keeps the whole promise"
-            );
+            assert_eq!((claim(a), nums(a).0, crate::pool_reserved(a)), ((48 * M, 16 * M), 16 * M, 64 * M), "pages + unbacked room = the claim; the claim unchanged");
+            assert_eq!(owner_row(s), row(16 * M, 64 * M, 0), "the owner's cell keeps the whole promise");
             room.back(64 * MIB);
             assert_eq!(claim(a), (0, 64 * M), "at most the room");
             room.unback(48 * MIB);
             assert_eq!(claim(a), (48 * M, 16 * M));
             // a lend gives back unbacked room only while some is left; past it the backed part goes too
             room.shrink(56 * MIB);
-            assert_eq!(
-                (claim(a), room.reserved(), room.backed()),
-                ((0, 8 * M), 8 * MIB, 8 * MIB)
-            );
+            assert_eq!((claim(a), room.reserved(), room.backed()), ((0, 8 * M), 8 * MIB, 8 * MIB));
             // a transfer takes the backed part with it
             let p = Owner::Cache(Holder::Parked);
             room.transfer(p, Release::Evict);
             assert_eq!(claim(a), (0, 0));
-            assert!(
-                claim(Acct::PARKED).1 >= 8 * M,
-                "on the parked holder's account now"
-            );
+            assert!(claim(Acct::PARKED).1 >= 8 * M, "on the parked holder's account now");
             room.transfer(s, Release::Session);
             assert_eq!(claim(a), (0, 8 * M));
             drop(pages);
             drop(room);
-            assert_eq!(
-                (claim(a), owner_row(s)),
-                ((0, 0), OwnerRow::default()),
-                "the drop takes the backed part off too"
-            );
+            assert_eq!((claim(a), owner_row(s)), ((0, 0), OwnerRow::default()), "the drop takes the backed part off too");
         });
     }
 
@@ -3300,65 +2726,28 @@ mod tests {
         let _turn = DOOR_TURN.lock().unwrap_or_else(|e| e.into_inner());
         on(3913, |a| {
             statement_begin();
-            let x = Owner::Statement {
-                acct: a,
-                stmt: crate::running_statement(a),
-            };
+            let x = Owner::Statement { acct: a, stmt: crate::running_statement(a), };
             let (p, q) = (0x7f13_0000_0000usize, 0x7f13_4000_0000usize);
             let n0 = nums(a).0;
             door_mapped(p, 4 * MIB, true);
-            assert_eq!(
-                (owner_row(x).committed, nums(a).0 - n0),
-                (4 * M, 4 * M),
-                "the mapping statement's, on its account"
-            );
+            assert_eq!((owner_row(x).committed, nums(a).0 - n0), (4 * M, 4 * M), "the mapping statement's, on its account");
             statement_end();
             statement_begin();
-            let (y, s) = (
-                Owner::Statement {
-                    acct: a,
-                    stmt: crate::running_statement(a),
-                },
-                Owner::Session(a),
-            );
+            let (y, s) = (Owner::Statement { acct: a, stmt: crate::running_statement(a), }, Owner::Session(a),);
             door_moving(p, true);
             door_remapped(p, p, 4 * MIB, 6 * MIB);
-            assert_eq!(
-                (owner_row(y).committed, owner_row(s).committed),
-                (0, 6 * M),
-                "grown in place: the session's (X ended)"
-            );
+            assert_eq!((owner_row(y).committed, owner_row(s).committed), (0, 6 * M), "grown in place: the session's (X ended)");
             door_moving(p, true);
             door_moving(p, false);
             door_moving(p, true);
             door_mapped(p, 2 * MIB, true);
-            assert_eq!(
-                (owner_row(y).committed, owner_row(s).committed),
-                (2 * M, 6 * M),
-                "a block mapped at the old address is Y's"
-            );
+            assert_eq!((owner_row(y).committed, owner_row(s).committed), (2 * M, 6 * M), "a block mapped at the old address is Y's");
             door_remapped(p, q, 6 * MIB, 8 * MIB);
-            assert_eq!(
-                (owner_row(y).committed, owner_row(s).committed),
-                (2 * M, 8 * M),
-                "moved: its entry follows it"
-            );
+            assert_eq!((owner_row(y).committed, owner_row(s).committed), (2 * M, 8 * M), "moved: its entry follows it");
             door_mapped(p, 2 * MIB, false);
             door_mapped(q, 8 * MIB, false);
-            assert_eq!(
-                (
-                    owner_row(y).committed,
-                    owner_row(s).committed,
-                    nums(a).0 - n0
-                ),
-                (0, 0, 0),
-                "the frees take them off"
-            );
-            assert_eq!(
-                door_find(p).or(door_find(p | DOOR_MOVING)).or(door_find(q)),
-                None,
-                "no entry is left"
-            );
+            assert_eq!((owner_row(y).committed, owner_row(s).committed, nums(a).0 - n0), (0, 0, 0), "the frees take them off");
+            assert_eq!(door_find(p).or(door_find(p | DOOR_MOVING)).or(door_find(q)), None, "no entry is left");
             statement_end();
         });
     }
@@ -3371,10 +2760,7 @@ mod tests {
         let _turn = DOOR_TURN.lock().unwrap_or_else(|e| e.into_inner());
         on(3914, |a| {
             statement_begin();
-            let x = Owner::Statement {
-                acct: a,
-                stmt: crate::running_statement(a),
-            };
+            let x = Owner::Statement { acct: a, stmt: crate::running_statement(a), };
             let (n0, o0, b0) = (nums(a).0, door_overflow(), door_blocks());
             let n = DOOR_BLOCKS + 16;
             let ptr = |k: usize| 0x5a00_0000_0000usize + (k << 21);
@@ -3383,23 +2769,12 @@ mod tests {
             }
             let over = (door_overflow() - o0) as usize;
             let kept = door_blocks() - b0;
-            assert!(
-                over >= 16 && kept + over == n,
-                "{kept} remembered + {over} past the table = {n}"
-            );
-            assert_eq!(
-                (owner_row(x).committed, nums(a).0 - n0),
-                (kept as i64 * 4096, n as i64 * 4096),
-                "the account has all"
-            );
+            assert!(over >= 16 && kept + over == n, "{kept} remembered + {over} past the table = {n}");
+            assert_eq!((owner_row(x).committed, nums(a).0 - n0), (kept as i64 * 4096, n as i64 * 4096), "the account has all");
             for k in 0..n {
                 door_mapped(ptr(k), 4096, false);
             }
-            assert_eq!(
-                (owner_row(x).committed, nums(a).0 - n0, door_blocks() - b0),
-                (0, 0, 0),
-                "every free found its owner or none"
-            );
+            assert_eq!((owner_row(x).committed, nums(a).0 - n0, door_blocks() - b0), (0, 0, 0), "every free found its owner or none");
             statement_end();
             let mut left = 0;
             crate::owner_end::for_each_recent(|r| left += usize::from(r.acct == a));
@@ -3425,11 +2800,7 @@ mod tests {
         };
         let (mapped, at_unbind, moved) = std::thread::spawn(move || {
             bind_backend(3923, 1);
-            assert_eq!(
-                context().0,
-                Owner::Session(a),
-                "no statement runs: the session maps it"
-            );
+            assert_eq!(context().0, Owner::Session(a), "no statement runs: the session maps it");
             door_mapped(p, 4 * MIB, true);
             let mapped = owner_row(Owner::Session(a)).committed;
             unbind_backend();
@@ -3440,20 +2811,9 @@ mod tests {
         })
         .join()
         .unwrap();
-        assert_eq!(
-            (mapped, at_unbind),
-            (4 * M, 0),
-            "the session's block; the unbind is not the session's end"
-        );
-        assert_eq!(
-            moved, 0,
-            "the free books UNBOUND, where the unbind moved the session's bytes"
-        );
-        assert_eq!(
-            ends(),
-            0,
-            "the teardown freed it: the session's end reads no residue"
-        );
+        assert_eq!((mapped, at_unbind), (4 * M, 0), "the session's block; the unbind is not the session's end");
+        assert_eq!(moved, 0, "the free books UNBOUND, where the unbind moved the session's bytes");
+        assert_eq!(ends(), 0, "the teardown freed it: the session's end reads no residue");
         assert_eq!(door_find(p), None, "its entry is freed");
     }
 
@@ -3463,11 +2823,7 @@ mod tests {
     fn a_uses_holder_is_named_by_its_key() {
         let _unbound = crate::unbound_shared(); // D4356: this test binds a backend, so it may move UNBOUND's books
         on(3925, |a| {
-            assert_eq!(
-                holder_name(a, 0),
-                "session",
-                "a backend's own key: its session (a kept cursor)"
-            );
+            assert_eq!(holder_name(a, 0), "session", "a backend's own key: its session (a kept cursor)");
             assert_eq!(holder_name(Acct::PARKED, 0), "parked");
             statement_begin();
             let stmt = crate::running_statement(a);
@@ -3504,45 +2860,16 @@ mod tests {
             let s = Charge::open(st, Release::Statement, Kind::Region, Door::Mapped, MIB);
             let o = Charge::open(op, Release::Statement, Kind::Sort, Door::Mapped, 4 * MIB);
             let mut w = Charge::open(wa, Release::Statement, Kind::Sort, Door::Mapped, 2 * MIB);
-            assert_eq!(
-                nums(a).0 - n0.0,
-                7 * M,
-                "on the statement's account, each byte once"
-            );
-            assert_eq!(
-                usage(st),
-                Usage {
-                    held: M,
-                    budget: 0,
-                    spilled: 0,
-                    subtree: 7 * M,
-                    subtree_spilled: 0,
-                    not_resident: 0,
-                    subtree_not_resident: 0
-                }
-            );
-            assert_eq!(
-                usage(op),
-                Usage {
-                    held: 4 * M,
-                    budget: 64 * M,
-                    spilled: 0,
-                    subtree: 6 * M,
-                    subtree_spilled: 0,
-                    not_resident: 0,
-                    subtree_not_resident: 0
-                }
-            );
+            assert_eq!(nums(a).0 - n0.0, 7 * M, "on the statement's account, each byte once");
+            assert_eq!(usage(st), Usage { held: M, budget: 0, spilled: 0, subtree: 7 * M, subtree_spilled: 0, not_resident: 0, subtree_not_resident: 0 });
+            assert_eq!(usage(op), Usage { held: 4 * M, budget: 64 * M, spilled: 0, subtree: 6 * M, subtree_spilled: 0, not_resident: 0, subtree_not_resident: 0 });
             assert_eq!(usage(wa).subtree, 2 * M);
             assert_eq!(usage(Owner::Session(a)).subtree, 7 * M, "the backend total");
             let mut rows = 0;
             for_each_owner(|v| {
                 if v.acct == a && v.name == "worker_arena" {
                     rows += 1;
-                    assert_eq!(
-                        (v.held(), v.label & 0xff, v.parent),
-                        (2 * M, Kind::Sort as u32, locate(op).0 as u32)
-                    );
+                    assert_eq!((v.held(), v.label & 0xff, v.parent), (2 * M, Kind::Sort as u32, locate(op).0 as u32));
                 }
             });
             assert_eq!(rows, 1);
@@ -3555,40 +2882,15 @@ mod tests {
             drop(o);
             assert!(keyed(op), "its worker arena still keyed under it");
             w.give(2 * MIB);
-            assert!(
-                !keyed(wa) && !keyed(op),
-                "the last byte left: both free, the child first"
-            );
-            assert_eq!(
-                usage(st),
-                Usage {
-                    held: M,
-                    budget: 0,
-                    spilled: 3 * M,
-                    subtree: M,
-                    subtree_spilled: 3 * M,
-                    not_resident: 0,
-                    subtree_not_resident: 0
-                },
-                "the spill went up the chain"
-            );
+            assert!(!keyed(wa) && !keyed(op), "the last byte left: both free, the child first");
+            assert_eq!(usage(st), Usage { held: M, budget: 0, spilled: 3 * M, subtree: M, subtree_spilled: 3 * M, not_resident: 0, subtree_not_resident: 0 }, "the spill went up the chain");
             w.commit(MIB);
-            assert_eq!(
-                owner_row(Owner::Session(a)).committed,
-                M,
-                "a charge outliving its freed operator books on the session"
-            );
+            assert_eq!(owner_row(Owner::Session(a)).committed, M, "a charge outliving its freed operator books on the session");
             drop(w);
             spilled(st, -3 * M);
             drop(s);
             statement_end();
-            assert_eq!(
-                (
-                    owner_row(Owner::Session(a)),
-                    usage(Owner::Session(a)).spilled
-                ),
-                (OwnerRow::default(), 0)
-            );
+            assert_eq!((owner_row(Owner::Session(a)), usage(Owner::Session(a)).spilled), (OwnerRow::default(), 0));
         });
     }
 
@@ -3602,13 +2904,9 @@ mod tests {
             let st = context().0;
             let op = op_begin(st, Kind::HashAgg as u32, 0);
             let c = Charge::open(op, Release::Statement, Kind::HashAgg, Door::Mapped, 5 * MIB);
-            let e0 =
-                crate::owner_end::totals(crate::owner_end::Source::Owner, OwnerClass::Op).events;
+            let e0 = crate::owner_end::totals(crate::owner_end::Source::Owner, OwnerClass::Op).events;
             statement_end();
-            assert_eq!(
-                crate::owner_end::totals(crate::owner_end::Source::Owner, OwnerClass::Op).events,
-                e0 + 1
-            );
+            assert_eq!(crate::owner_end::totals(crate::owner_end::Source::Owner, OwnerClass::Op).events, e0 + 1);
             assert!(!keyed(op), "its cell freed");
             assert_eq!(owner_row(Owner::Session(a)).committed, 5 * M);
             drop(c);
@@ -3640,11 +2938,7 @@ mod tests {
             let st = context().0;
             let outer = op_begin(st, Kind::HashAgg as u32, 0);
             let (ci, _, _) = locate(st);
-            assert_eq!(
-                CELLS[ci].ops.load(Relaxed),
-                1,
-                "the statement counts its operator"
-            );
+            assert_eq!(CELLS[ci].ops.load(Relaxed), 1, "the statement counts its operator");
             for _ in 0..3 {
                 let p = new_owner_id();
                 portal_begin(p);
@@ -3652,11 +2946,7 @@ mod tests {
                 let op = op_begin(po, Kind::Sort as u32, 0);
                 let w = op_begin(op, Kind::Sort as u32 | WORKER_ARENA, 0);
                 let (pc, _, _) = locate(po);
-                assert_eq!(
-                    CELLS[pc].ops.load(Relaxed),
-                    2,
-                    "the portal counts its operator and the worker arena under it"
-                );
+                assert_eq!(CELLS[pc].ops.load(Relaxed), 2, "the portal counts its operator and the worker arena under it");
                 op_end(w);
                 op_end(op);
                 assert_eq!(CELLS[pc].ops.load(Relaxed), 0, "drained: uncounted");
@@ -3691,11 +2981,7 @@ mod tests {
             let op = op_begin(st, Kind::Sort as u32, 0);
             assert_eq!((op, op_counters().1), (st, o0 + 1), "the parent itself");
             let c = Charge::open(op, Release::Statement, Kind::Sort, Door::Mapped, MIB);
-            assert_eq!(
-                owner_row(Owner::Session(a)).committed,
-                M,
-                "its session's, as a late charge of the statement's"
-            );
+            assert_eq!(owner_row(Owner::Session(a)).committed, M, "its session's, as a late charge of the statement's");
             drop(c);
             op_end(op);
         });
@@ -3726,17 +3012,10 @@ mod tests {
             assert_eq!(account_row(a).pagepool_bytes, M);
             let mut o = o;
             o.post_pool(-M);
-            assert_eq!(
-                (nums(a).0, owner_ctx(s), account_row(a).pagepool_bytes),
-                (before, ctx0, 0)
-            );
+            assert_eq!((nums(a).0, owner_ctx(s), account_row(a).pagepool_bytes), (before, ctx0, 0));
             let mut d = CtxOwner::named(s);
             d.post(M);
-            assert_eq!(
-                nums(a).0,
-                before,
-                "door 1's post on the owner's own thread moves nothing"
-            );
+            assert_eq!(nums(a).0, before, "door 1's post on the owner's own thread moves nothing");
             d.post(-M);
         });
     }
@@ -3749,12 +3028,7 @@ mod tests {
         let _unbound = crate::unbound_shared(); // D4356: this test binds a backend, so it may move UNBOUND's books
         on(3946, |a| {
             let s = Owner::Session(a);
-            let (n0, m0, q0, c0) = (
-                nums(a).0,
-                nums(a).1,
-                account_row(a).pagepool_bytes,
-                owner_row(s).committed,
-            );
+            let (n0, m0, q0, c0) = (nums(a).0, nums(a).1, account_row(a).pagepool_bytes, owner_row(s).committed,);
             let (c, other) = std::thread::spawn(move || {
                 bind_backend(3947, 8000 + 3947);
                 let b = Acct::backend(3947);
@@ -3766,53 +3040,24 @@ mod tests {
             })
             .join()
             .unwrap();
-            assert_eq!(
-                other.0, other.1,
-                "no move off the committing thread's account, its pool bytes untouched"
-            );
+            assert_eq!(other.0, other.1, "no move off the committing thread's account, its pool bytes untouched");
             fold();
-            assert_eq!(
-                (
-                    nums(a).0 - n0,
-                    account_row(a).pagepool_bytes - q0,
-                    owner_row(s).committed - c0
-                ),
-                (2 * M, 2 * M, 2 * M)
-            );
+            assert_eq!((nums(a).0 - n0, account_row(a).pagepool_bytes - q0, owner_row(s).committed - c0), (2 * M, 2 * M, 2 * M));
             assert_eq!(nums(a).1, m0, "never door 2's mapped bytes");
             let mut c = c;
             c.give(MIB);
             c.commit(MIB);
             fold();
-            assert_eq!(
-                (nums(a).0 - n0, account_row(a).pagepool_bytes - q0),
-                (2 * M, 2 * M),
-                "a give and a commit of the pool's pages, back where they were"
-            );
-            let (cache, cacct) = (
-                Owner::Cache(Holder::Of(Consumer::FpTables)),
-                Acct::of(Consumer::FpTables),
-            );
+            assert_eq!((nums(a).0 - n0, account_row(a).pagepool_bytes - q0), (2 * M, 2 * M), "a give and a commit of the pool's pages, back where they were");
+            let (cache, cacct) = (Owner::Cache(Holder::Of(Consumer::FpTables)), Acct::of(Consumer::FpTables),);
             let (cn0, cq0) = (nums(cacct).0, account_row(cacct).pagepool_bytes);
             c.transfer(cache, Release::Evict);
             fold();
-            assert_eq!(
-                (nums(a).0 - n0, account_row(a).pagepool_bytes - q0),
-                (0, 0),
-                "moved off the session"
-            );
-            assert_eq!(
-                (nums(cacct).0 - cn0, account_row(cacct).pagepool_bytes - cq0),
-                (2 * M, 2 * M),
-                "onto the cache, pool bytes and all"
-            );
+            assert_eq!((nums(a).0 - n0, account_row(a).pagepool_bytes - q0), (0, 0), "moved off the session");
+            assert_eq!((nums(cacct).0 - cn0, account_row(cacct).pagepool_bytes - cq0), (2 * M, 2 * M), "onto the cache, pool bytes and all");
             drop(c);
             fold();
-            assert_eq!(
-                (nums(cacct).0, account_row(cacct).pagepool_bytes),
-                (cn0, cq0),
-                "the drop takes them off"
-            );
+            assert_eq!((nums(cacct).0, account_row(cacct).pagepool_bytes), (cn0, cq0), "the drop takes them off");
             assert_eq!(owner_row(s).committed, c0);
         });
     }
@@ -3828,29 +3073,12 @@ mod tests {
             assert_eq!(CtxOwner::named(op).lifetime(), OwnerLife::Statement);
             op_end(op);
             statement_end();
-            assert_eq!(
-                CtxOwner::named(st).lifetime(),
-                OwnerLife::Session,
-                "an ended statement's: its session's"
-            );
-            assert_eq!(
-                CtxOwner::named(Owner::Session(a)).lifetime(),
-                OwnerLife::Session
-            );
+            assert_eq!(CtxOwner::named(st).lifetime(), OwnerLife::Session, "an ended statement's: its session's");
+            assert_eq!(CtxOwner::named(Owner::Session(a)).lifetime(), OwnerLife::Session);
         });
-        assert_eq!(
-            CtxOwner::named(Owner::Cache(Holder::Of(Consumer::ALL[0]))).lifetime(),
-            OwnerLife::Cache
-        );
-        assert_eq!(
-            CtxOwner::named(Owner::Cache(Holder::Parked)).lifetime(),
-            OwnerLife::Cache,
-            "the depots' parked memory"
-        );
-        assert_eq!(
-            CtxOwner::named(Owner::Cache(Holder::Reaping)).lifetime(),
-            OwnerLife::Process
-        );
+        assert_eq!(CtxOwner::named(Owner::Cache(Holder::Of(Consumer::ALL[0]))).lifetime(), OwnerLife::Cache);
+        assert_eq!(CtxOwner::named(Owner::Cache(Holder::Parked)).lifetime(), OwnerLife::Cache, "the depots' parked memory");
+        assert_eq!(CtxOwner::named(Owner::Cache(Holder::Reaping)).lifetime(), OwnerLife::Process);
         let mut none = CtxOwner::NONE;
         assert_eq!(none.lifetime(), OwnerLife::Process);
     }
@@ -3868,37 +3096,18 @@ mod tests {
             let mut kept_op = CtxOwner::named(op);
             assert_eq!(kept_op.lifetime(), OwnerLife::Statement);
             op_end(op);
-            assert_eq!(
-                kept_op.lifetime(),
-                OwnerLife::Session,
-                "an ended operator's: its session's"
-            );
+            assert_eq!(kept_op.lifetime(), OwnerLife::Session, "an ended operator's: its session's");
             statement_end();
             statement_begin();
-            assert_eq!(
-                CtxOwner::named(context().0).lifetime(),
-                OwnerLife::Statement,
-                "the next statement, on the reused cell"
-            );
-            assert_eq!(
-                stmt.lifetime(),
-                OwnerLife::Session,
-                "the ended statement's: its session's, not the reused cell's"
-            );
+            assert_eq!(CtxOwner::named(context().0).lifetime(), OwnerLife::Statement, "the next statement, on the reused cell");
+            assert_eq!(stmt.lifetime(), OwnerLife::Session, "the ended statement's: its session's, not the reused cell's");
             statement_end();
             portal_begin(0x5e5_0001);
-            let mut portal = CtxOwner::named(Owner::Portal {
-                acct: a,
-                portal: 0x5e5_0001,
-            });
+            let mut portal = CtxOwner::named(Owner::Portal { acct: a, portal: 0x5e5_0001, });
             assert_eq!(portal.lifetime(), OwnerLife::Statement);
             let _ = portal_end(a, 0x5e5_0001);
             portal_begin(0x5e5_0002);
-            assert_eq!(
-                portal.lifetime(),
-                OwnerLife::Session,
-                "an ended portal's: its session's, whoever took its cell"
-            );
+            assert_eq!(portal.lifetime(), OwnerLife::Session, "an ended portal's: its session's, whoever took its cell");
             let _ = portal_end(a, 0x5e5_0002);
         });
     }
@@ -3906,24 +3115,13 @@ mod tests {
     #[test]
     fn the_pool_door_counts_claims_and_the_probe_reads_the_pool() {
         fn probe() -> PoolReading {
-            PoolReading {
-                claimed: 6 * MIB,
-                warm_free: 2 * MIB,
-                shelved: MIB,
-                stranded: 0,
-            }
+            PoolReading { claimed: 6 * MIB, warm_free: 2 * MIB, shelved: MIB, stranded: 0, }
         }
         let _unbound = crate::unbound_shared(); // pppress card 9: its claims stay out of a_door_one_pool_byte_is_counted_once
         let c0 = pool_claimed();
         door_pool(4 * M);
         assert_eq!(pool_claimed(), c0 + 4 * M);
-        assert_eq!(
-            pool_reading(),
-            PoolReading {
-                claimed: (c0 + 4 * M) as u64,
-                ..PoolReading::default()
-            }
-        );
+        assert_eq!(pool_reading(), PoolReading { claimed: (c0 + 4 * M) as u64, ..PoolReading::default() });
         door_pool(-4 * M);
         assert!(!pool_probed());
         set_pool_probe(probe);
@@ -3954,16 +3152,8 @@ mod tests {
         DOOR1.store(3 * M, Relaxed);
         assert_eq!(crate::doors_total() - t0, 3 * M, "door 1 charged the block");
         assert_eq!(pool_door1(), 3 * M);
-        assert_eq!(
-            pool_unowned(),
-            u0 - 3 * M,
-            "the block is owned: it leaves the pool's unowned bytes"
-        );
-        assert_eq!(
-            crate::doors_total() + pool_unowned(),
-            t0 + u0,
-            "counted once: on its account, not unowned too"
-        );
+        assert_eq!(pool_unowned(), u0 - 3 * M, "the block is owned: it leaves the pool's unowned bytes");
+        assert_eq!(crate::doors_total() + pool_unowned(), t0 + u0, "counted once: on its account, not unowned too");
         crate::door_heap(-(3 * M) as isize);
         crate::fold();
         DOOR1.store(0, Relaxed);
@@ -3982,11 +3172,7 @@ mod tests {
             o.post_pool(-M);
             fold();
             let r = account_row(a);
-            assert_eq!(
-                (r.account_bytes - n0, r.pagepool_bytes),
-                (-M, -M),
-                "door 1's floor leaves the pool's bytes alone"
-            );
+            assert_eq!((r.account_bytes - n0, r.pagepool_bytes), (-M, -M), "door 1's floor leaves the pool's bytes alone");
             o.post_pool(M);
         });
         crate::set_floor(false);
@@ -4005,11 +3191,7 @@ mod tests {
             let (n1, u1) = (nums(a).0, nums(Acct::UNBOUND).0);
             o.post_pool(-M);
             assert_eq!(nums(a).0, n1, "not on the slot's next session");
-            assert_eq!(
-                nums(Acct::UNBOUND).0,
-                u1 - M,
-                "on UNBOUND, where the unbind moved the block's bytes"
-            );
+            assert_eq!(nums(Acct::UNBOUND).0, u1 - M, "on UNBOUND, where the unbind moved the block's bytes");
             assert_eq!(account_row(a).pagepool_bytes, 0);
         });
     }

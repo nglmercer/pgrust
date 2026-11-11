@@ -7,7 +7,9 @@ use types_nodes::parsenodes::{QuerySource, TransactionStmt};
 use types_nodes::rawnodes::{RawStmt, SelectStmt, ValUnion};
 use types_nodes::{Integer, Node, NodeList, String as PgStr};
 
-use crate::{analyze_requires_snapshot, parse_analyze_fixedparams, stmt_requires_parse_analysis};
+use crate::{
+    analyze_requires_snapshot, parse_analyze_fixedparams, stmt_requires_parse_analysis
+};
 
 fn int_const<'mcx>(mcx: Mcx<'mcx>, ival: i32, location: i32) -> Node<'mcx> {
     Node::mk_a_const(mcx, Some(ValUnion::Integer(Integer { ival })), location).unwrap()
@@ -16,20 +18,13 @@ fn int_const<'mcx>(mcx: Mcx<'mcx>, ival: i32, location: i32) -> Node<'mcx> {
 fn select_stmt<'mcx>(mcx: Mcx<'mcx>, targets: &[Node<'mcx>]) -> Node<'mcx> {
     Node::mk(
         mcx,
-        SelectStmt {
-            targetList: NodeList::from_slice(mcx, targets).unwrap(),
-            ..Default::default()
-        },
+        SelectStmt { targetList: NodeList::from_slice(mcx, targets).unwrap(), ..Default::default() },
     )
     .unwrap()
 }
 
 fn raw<'mcx>(stmt: Node<'mcx>, len: i32) -> RawStmt<'mcx> {
-    RawStmt {
-        stmt: Some(stmt),
-        stmt_location: 0,
-        stmt_len: len,
-    }
+    RawStmt { stmt: Some(stmt), stmt_location: 0, stmt_len: len, }
 }
 
 // init_seams panics on double-install; every test-side installer funnels here.
@@ -50,8 +45,8 @@ fn analyze<'mcx>(
 fn select_1_end_to_end() {
     let ctx = MemoryContext::new("t");
     let mcx = ctx.mcx();
-    let target =
-        Node::mk_res_target(mcx, None, NodeList::nil(), Some(int_const(mcx, 1, 7)), 7).unwrap();
+    let target = Node::mk_res_target(mcx, None, NodeList::nil(), Some(int_const(mcx, 1, 7)), 7)
+        .unwrap();
     let raw_stmt = raw(select_stmt(mcx, &[target]), 8);
 
     let q = analyze(mcx, "SELECT 1", &raw_stmt);
@@ -89,16 +84,10 @@ fn select_1_end_to_end() {
 fn select_with_alias_and_multiple_columns() {
     let ctx = MemoryContext::new("t");
     let mcx = ctx.mcx();
-    let t1 = Node::mk_res_target(
-        mcx,
-        Some("foo"),
-        NodeList::nil(),
-        Some(int_const(mcx, 1, 7)),
-        7,
-    )
-    .unwrap();
-    let t2 =
-        Node::mk_res_target(mcx, None, NodeList::nil(), Some(int_const(mcx, 2, 17)), 17).unwrap();
+    let t1 = Node::mk_res_target(mcx, Some("foo"), NodeList::nil(), Some(int_const(mcx, 1, 7)), 7,)
+        .unwrap();
+    let t2 = Node::mk_res_target(mcx, None, NodeList::nil(), Some(int_const(mcx, 2, 17)), 17)
+        .unwrap();
     let raw_stmt = raw(select_stmt(mcx, &[t1, t2]), 19);
 
     let q = analyze(mcx, "SELECT 1 AS foo, 2", &raw_stmt);
@@ -139,10 +128,7 @@ fn select_1_plus_1_end_to_end() {
     assert_eq!((op.opcollid, op.inputcollid), (InvalidOid, InvalidOid));
     assert_eq!(op.args.len(), 2);
     let lhs = op.args.nth(0).as_const().unwrap();
-    assert_eq!(
-        (lhs.consttype, lhs.constvalue),
-        (INT4OID, Datum::from_i32(1))
-    );
+    assert_eq!((lhs.consttype, lhs.constvalue), (INT4OID, Datum::from_i32(1)));
     assert_eq!(op.location, 9);
 }
 
@@ -151,7 +137,8 @@ fn select_string_resolves_unknown_to_text() {
     install_type_fixture();
     let ctx = MemoryContext::new("t");
     let mcx = ctx.mcx();
-    let sconst = Node::mk_a_const(mcx, Some(ValUnion::String(PgStr { sval: "x" })), 7).unwrap();
+    let sconst =
+        Node::mk_a_const(mcx, Some(ValUnion::String(PgStr { sval: "x" })), 7).unwrap();
     let target = Node::mk_res_target(mcx, None, NodeList::nil(), Some(sconst), 7).unwrap();
     let raw_stmt = raw(select_stmt(mcx, &[target]), 10);
 
@@ -160,10 +147,7 @@ fn select_string_resolves_unknown_to_text() {
     let te = q.targetList.nth(0).as_target_entry().unwrap();
     let c = te.expr.as_const().unwrap();
     assert_eq!(c.consttype, TEXTOID);
-    assert_eq!(
-        (c.constlen, c.constbyval, c.constisnull),
-        (-1, false, false)
-    );
+    assert_eq!((c.constlen, c.constbyval, c.constisnull), (-1, false, false));
     assert_eq!(c.constcollid, 100);
     assert_eq!(c.location, 7);
     // SAFETY: the datum points at a flat 4B-header text varlena owned by mcx.
@@ -207,8 +191,8 @@ fn seams_install_and_dispatch() {
     let mcx = ctx.mcx();
     init_seams_once();
 
-    let target =
-        Node::mk_res_target(mcx, None, NodeList::nil(), Some(int_const(mcx, 1, 7)), 7).unwrap();
+    let target = Node::mk_res_target(mcx, None, NodeList::nil(), Some(int_const(mcx, 1, 7)), 7)
+        .unwrap();
     let raw_stmt = raw(select_stmt(mcx, &[target]), 8);
 
     assert!(analyze_seams::analyze_requires_snapshot::call(&raw_stmt));
@@ -239,18 +223,15 @@ fn install_type_fixture() {
         syscache_seams::pg_type_base_shape::set(|typid| {
             // 1007 = _int4; 6179 = array_subscript_handler (pg_type/pg_proc.dat).
             Ok(Some(syscache_seams::PgTypeBaseShape {
-                typtype: if typid == UNKNOWNOID {
-                    b'p' as i8
-                } else {
-                    b'b' as i8
-                },
+                typtype: if typid == UNKNOWNOID { b'p' as i8 } else { b'b' as i8 },
                 typbasetype: InvalidOid,
                 typtypmod: -1,
                 typelem: if typid == 1007 { INT4OID } else { InvalidOid },
                 typsubscript: if typid == 1007 { 6179 } else { InvalidOid },
             }))
         });
-        syscache_seams::pg_type_typarray::set(|typid| Ok((typid == INT4OID).then_some(1007)));
+        syscache_seams::pg_type_typarray::set(|typid|
+            Ok((typid == INT4OID).then_some(1007)));
         syscache_seams::pg_type_io_shape::set(|typid| {
             Ok((typid == TEXTOID).then_some(syscache_seams::PgTypeIoShape {
                 oid: TEXTOID,
@@ -298,8 +279,7 @@ fn install_type_fixture() {
             // 551 = int4pl (proc 177 -> int4); 521 = int4gt (proc 147 -> bool);
             // values verified vs pg_operator.dat/pg_proc.dat.
             Ok(match opno {
-                551 => Some(syscache_seams::PgOperatorShape {
-                    oprnamespace: 11,
+                551 => Some(syscache_seams::PgOperatorShape { oprnamespace: 11,
                     oprleft: INT4OID,
                     oprright: INT4OID,
                     oprresult: INT4OID,
@@ -311,8 +291,7 @@ fn install_type_fixture() {
                     oprcanmerge: false,
                     oprcanhash: false,
                 }),
-                521 => Some(syscache_seams::PgOperatorShape {
-                    oprnamespace: 11,
+                521 => Some(syscache_seams::PgOperatorShape { oprnamespace: 11,
                     oprleft: INT4OID,
                     oprright: INT4OID,
                     oprresult: BOOLOID,
@@ -326,8 +305,7 @@ fn install_type_fixture() {
                 }),
                 // 97 = int4lt (proc 66), 523 = int4le (proc 149),
                 // 525 = int4ge (proc 150) — pg_operator.dat.
-                97 => Some(syscache_seams::PgOperatorShape {
-                    oprnamespace: 11,
+                97 => Some(syscache_seams::PgOperatorShape { oprnamespace: 11,
                     oprleft: INT4OID,
                     oprright: INT4OID,
                     oprresult: BOOLOID,
@@ -339,8 +317,7 @@ fn install_type_fixture() {
                     oprcanmerge: true,
                     oprcanhash: false,
                 }),
-                523 => Some(syscache_seams::PgOperatorShape {
-                    oprnamespace: 11,
+                523 => Some(syscache_seams::PgOperatorShape { oprnamespace: 11,
                     oprleft: INT4OID,
                     oprright: INT4OID,
                     oprresult: BOOLOID,
@@ -352,8 +329,7 @@ fn install_type_fixture() {
                     oprcanmerge: true,
                     oprcanhash: false,
                 }),
-                525 => Some(syscache_seams::PgOperatorShape {
-                    oprnamespace: 11,
+                525 => Some(syscache_seams::PgOperatorShape { oprnamespace: 11,
                     oprleft: INT4OID,
                     oprright: INT4OID,
                     oprresult: BOOLOID,
@@ -366,8 +342,7 @@ fn install_type_fixture() {
                     oprcanhash: false,
                 }),
                 // 96 = int4eq (proc 65 -> bool).
-                96 => Some(syscache_seams::PgOperatorShape {
-                    oprnamespace: 11,
+                96 => Some(syscache_seams::PgOperatorShape { oprnamespace: 11,
                     oprleft: INT4OID,
                     oprright: INT4OID,
                     oprresult: BOOLOID,
@@ -380,8 +355,7 @@ fn install_type_fixture() {
                     oprcanhash: true,
                 }),
                 // 518 = int4ne (proc 144 -> bool).
-                518 => Some(syscache_seams::PgOperatorShape {
-                    oprnamespace: 11,
+                518 => Some(syscache_seams::PgOperatorShape { oprnamespace: 11,
                     oprleft: INT4OID,
                     oprright: INT4OID,
                     oprresult: BOOLOID,
@@ -479,7 +453,7 @@ fn install_type_fixture() {
                     proisstrict: false,
                     proleakproof: false,
                 }),
-                3100..=3102 => Some(syscache_seams::PgProcShape {
+                3100..= 3102 => Some(syscache_seams::PgProcShape {
                     prolang: 12,
                     prosecdef: false,
                     proconfig_isnull: true,
@@ -561,41 +535,35 @@ fn install_type_fixture() {
             Ok(v)
         });
         syscache_seams::lookup_pg_aggregate_shape::set(|aggfnoid| {
-            Ok(
-                (aggfnoid == 2803 || aggfnoid == 2108 || aggfnoid == 2107).then_some(
-                    syscache_seams::PgAggregateShape {
-                        aggkind: b'n' as i8,
-                        aggnumdirectargs: 0,
-                        aggtransfn: 1219,
-                        aggfinalfn: InvalidOid,
-                        aggcombinefn: 463,
-                        aggserialfn: InvalidOid,
-                        aggdeserialfn: InvalidOid,
-                        aggfinalextra: false,
-                        aggfinalmodify: b'r' as i8,
-                        aggsortop: 0,
-                        aggtranstype: 20,
-                        aggmtransfn: 0,
-                        aggminvtransfn: 0,
-                        aggmfinalfn: 0,
-                        aggmfinalextra: false,
-                        aggmfinalmodify: b'r' as i8,
-                        aggmtranstype: 0,
-                        aggtransspace: 0,
-                    },
-                ),
-            )
+            Ok((aggfnoid == 2803 || aggfnoid == 2108 || aggfnoid == 2107).then_some(syscache_seams::PgAggregateShape {
+                aggkind: b'n' as i8,
+                aggnumdirectargs: 0,
+                aggtransfn: 1219,
+                aggfinalfn: InvalidOid,
+                aggcombinefn: 463,
+                aggserialfn: InvalidOid,
+                aggdeserialfn: InvalidOid,
+                aggfinalextra: false,
+                aggfinalmodify: b'r' as i8,
+                aggsortop: 0,
+                aggtranstype: 20,
+                aggmtransfn: 0,
+                aggminvtransfn: 0,
+                aggmfinalfn: 0,
+                aggmfinalextra: false,
+                aggmfinalmodify: b'r' as i8,
+                aggmtranstype: 0,
+                aggtransspace: 0,
+            },),)
         });
         syscache_seams::lookup_pg_cast_shape::set(|src, tgt| {
             // pg_cast: int4 -> int8 via 481 int8(int4), implicit, function.
-            Ok(
-                (src == INT4OID && tgt == INT8OID).then_some(syscache_seams::PgCastShape {
-                    oid: 10001,
-                    castfunc: 481,
-                    castcontext: b'i' as i8,
-                    castmethod: b'f' as i8,
-                }),
-            )
+            Ok((src == INT4OID && tgt == INT8OID).then_some(syscache_seams::PgCastShape {
+                oid: 10001,
+                castfunc: 481,
+                castcontext: b'i' as i8,
+                castmethod: b'f' as i8,
+            }),)
         });
         syscache_seams::lookup_pg_type_typcache_shape::set(|typid| {
             let name = match typid {
@@ -689,8 +657,8 @@ fn select_1_order_by_1_end_to_end() {
     install_type_fixture();
     let ctx = MemoryContext::new("t");
     let mcx = ctx.mcx();
-    let target =
-        Node::mk_res_target(mcx, None, NodeList::nil(), Some(int_const(mcx, 1, 7)), 7).unwrap();
+    let target = Node::mk_res_target(mcx, None, NodeList::nil(), Some(int_const(mcx, 1, 7)), 7)
+        .unwrap();
     let sortby = Node::mk(
         mcx,
         types_nodes::rawnodes::SortBy {
@@ -733,8 +701,8 @@ fn select_1_limit_1_end_to_end() {
     install_type_fixture();
     let ctx = MemoryContext::new("t");
     let mcx = ctx.mcx();
-    let target =
-        Node::mk_res_target(mcx, None, NodeList::nil(), Some(int_const(mcx, 1, 7)), 7).unwrap();
+    let target = Node::mk_res_target(mcx, None, NodeList::nil(), Some(int_const(mcx, 1, 7)), 7)
+        .unwrap();
     let stmt = Node::mk(
         mcx,
         SelectStmt {
@@ -752,24 +720,15 @@ fn select_1_limit_1_end_to_end() {
     // C Query shape: limitCount = FuncExpr(funcid 481 int8(int4), rettype
     // int8, COERCE_IMPLICIT_CAST, args [Const int4 1]).
     assert!(q.limitOffset.is_none());
-    assert_eq!(
-        q.limitOption,
-        types_nodes::nodes_enums::LimitOption::LIMIT_OPTION_COUNT
-    );
+    assert_eq!(q.limitOption, types_nodes::nodes_enums::LimitOption::LIMIT_OPTION_COUNT);
     let f = q.limitCount.unwrap().as_func_expr().unwrap();
     assert_eq!((f.funcid, f.funcresulttype), (481, INT8OID));
-    assert_eq!(
-        f.funcformat,
-        types_nodes::CoercionForm::COERCE_IMPLICIT_CAST
-    );
+    assert_eq!(f.funcformat, types_nodes::CoercionForm::COERCE_IMPLICIT_CAST);
     assert!(!f.funcretset && !f.funcvariadic);
     assert_eq!((f.funccollid, f.inputcollid), (InvalidOid, InvalidOid));
     assert_eq!(f.args.len(), 1);
     let arg = f.args.nth(0).as_const().unwrap();
-    assert_eq!(
-        (arg.consttype, arg.constvalue),
-        (INT4OID, Datum::from_i32(1))
-    );
+    assert_eq!((arg.consttype, arg.constvalue), (INT4OID, Datum::from_i32(1)));
     assert_eq!(arg.location, 15);
     assert!(q.sortClause.is_nil());
 }
@@ -800,10 +759,15 @@ fn undefined_param_is_42p02() {
     let target = Node::mk_res_target(mcx, None, NodeList::nil(), Some(pref), 7).unwrap();
     let raw_stmt = raw(select_stmt(mcx, &[target]), 9);
 
-    let err =
-        parse_analyze_fixedparams(mcx, &raw_stmt, "SELECT $2", &[INT4OID], Default::default())
-            .map(|_| ())
-            .unwrap_err();
+    let err = parse_analyze_fixedparams(
+        mcx,
+        &raw_stmt,
+        "SELECT $2",
+        &[INT4OID],
+        Default::default()
+    )
+    .map(|_| ())
+    .unwrap_err();
     assert_eq!(err.sqlstate(), types_error::ERRCODE_UNDEFINED_PARAMETER);
 }
 
@@ -865,9 +829,7 @@ mod from_where {
             a.attname.namestrcpy(name);
             attrs.push(a);
         }
-        let data = RelationData {
-            rd_locator: Default::default(),
-            rd_smgr: Default::default(),
+        let data = RelationData { rd_locator: Default::default(), rd_smgr: Default::default(),
             rd_id: oid,
             rd_backend: INVALID_PROC_NUMBER,
             rd_islocaltemp: false,
@@ -876,12 +838,7 @@ mod from_where {
             rd_newRelfilelocatorSubid: std::cell::Cell::new(0),
             rd_firstRelfilelocatorSubid: std::cell::Cell::new(0),
             rd_droppedSubid: std::cell::Cell::new(0),
-            rd_lockInfo: LockInfoData {
-                lockRelId: LockRelId {
-                    relId: oid,
-                    dbId: 5,
-                },
-            },
+            rd_lockInfo: LockInfoData { lockRelId: LockRelId { relId: oid, dbId: 5, }, },
             rd_rel: FormData_pg_class {
                 relname,
                 relnamespace: 2200,
@@ -916,17 +873,13 @@ mod from_where {
             pgstat_enabled: std::cell::Cell::new(false),
             pgstat_link: core::cell::Cell::new((0, core::ptr::null_mut())),
             rd_amcache: Default::default(),
-            rd_amcache_hash: Default::default(),
-            rd_amcache_gin: Default::default(),
-            rd_amcache_spgist: Default::default(),
-            rd_amcache_bloom: Default::default(),
+            rd_amcache_hash: Default::default(), rd_amcache_gin: Default::default(), rd_amcache_spgist: Default::default(), rd_amcache_bloom: Default::default(),
             rd_support: PgVec::new_in(mcx),
             rd_supportinfo: Default::default(),
             rd_opcoptions: Default::default(),
             rd_indexlist: Default::default(),
             rd_trigdesc: Default::default(),
-            rd_hastriggers: false,
-            rd_hasrules: false,
+            rd_hastriggers: false, rd_hasrules: false,
         };
         Relation::open(data, None)
     }
@@ -993,7 +946,8 @@ mod from_where {
         sql: &str,
     ) -> PgResult<types_nodes::parsenodes::Query<'mcx>> {
         let list =
-            gram_core::raw_parser(mcx, sql, parser_seams::RawParseMode::RAW_PARSE_DEFAULT).unwrap();
+            gram_core::raw_parser(mcx, sql, parser_seams::RawParseMode::RAW_PARSE_DEFAULT)
+                .unwrap();
         assert_eq!(list.len(), 1);
         let raw = list.nth(0).as_raw_stmt().unwrap();
         let src = mcx::slice_borrow_in(mcx, sql.as_bytes()).unwrap();
@@ -1019,10 +973,7 @@ mod from_where {
         // with GROUP BY gets the group RTE and hasGroupRTE = true) — the
         // formerly-recorded divergence is retired; this pin now asserts
         // C's behavior.
-        assert!(
-            q.hasGroupRTE,
-            "RTE_GROUP substitution is C's behavior (divergence retired)"
-        );
+        assert!(q.hasGroupRTE, "RTE_GROUP substitution is C's behavior (divergence retired)");
         assert_eq!(q.groupClause.len(), 1);
         let gc = q.groupClause.nth(0).as_sort_group_clause().unwrap();
         let t0 = q.targetList.nth(0).as_target_entry().unwrap();
@@ -1059,10 +1010,7 @@ mod from_where {
     fn simple_refs(gs: &types_nodes::parsenodes::GroupingSet<'_>) -> Vec<i32> {
         use types_nodes::parsenodes::GroupingSetKind;
         assert_eq!(gs.kind, GroupingSetKind::GROUPING_SET_SIMPLE);
-        gs.content
-            .iter()
-            .map(|n| n.as_integer().unwrap().ival)
-            .collect()
+        gs.content.iter().map(|n| n.as_integer().unwrap().ival).collect()
     }
 
     #[test]
@@ -1079,31 +1027,15 @@ mod from_where {
         .unwrap();
 
         assert_eq!(q.groupClause.len(), 2);
-        let r0 = q
-            .targetList
-            .nth(0)
-            .as_target_entry()
-            .unwrap()
-            .ressortgroupref;
-        let r1 = q
-            .targetList
-            .nth(1)
-            .as_target_entry()
-            .unwrap()
-            .ressortgroupref;
+        let r0 = q.targetList.nth(0).as_target_entry().unwrap().ressortgroupref;
+        let r1 = q.targetList.nth(1).as_target_entry().unwrap().ressortgroupref;
         assert!(r0 > 0 && r1 > 0);
         assert_eq!(q.groupingSets.len(), 1);
         let gs = q.groupingSets.nth(0).as_grouping_set().unwrap();
         assert_eq!(gs.kind, GroupingSetKind::GROUPING_SET_ROLLUP);
         assert_eq!(gs.content.len(), 2);
-        assert_eq!(
-            simple_refs(gs.content.nth(0).as_grouping_set().unwrap()),
-            [r0 as i32]
-        );
-        assert_eq!(
-            simple_refs(gs.content.nth(1).as_grouping_set().unwrap()),
-            [r1 as i32]
-        );
+        assert_eq!(simple_refs(gs.content.nth(0).as_grouping_set().unwrap()), [r0 as i32]);
+        assert_eq!(simple_refs(gs.content.nth(1).as_grouping_set().unwrap()), [r1 as i32]);
     }
 
     #[test]
@@ -1141,30 +1073,14 @@ mod from_where {
         .unwrap();
 
         assert_eq!(q.groupClause.len(), 2);
-        let r0 = q
-            .targetList
-            .nth(0)
-            .as_target_entry()
-            .unwrap()
-            .ressortgroupref;
-        let r1 = q
-            .targetList
-            .nth(1)
-            .as_target_entry()
-            .unwrap()
-            .ressortgroupref;
+        let r0 = q.targetList.nth(0).as_target_entry().unwrap().ressortgroupref;
+        let r1 = q.targetList.nth(1).as_target_entry().unwrap().ressortgroupref;
         assert_eq!(q.groupingSets.len(), 1);
         let gs = q.groupingSets.nth(0).as_grouping_set().unwrap();
         assert_eq!(gs.kind, GroupingSetKind::GROUPING_SET_SETS);
         assert_eq!(gs.content.len(), 3);
-        assert_eq!(
-            simple_refs(gs.content.nth(0).as_grouping_set().unwrap()),
-            [r0 as i32]
-        );
-        assert_eq!(
-            simple_refs(gs.content.nth(1).as_grouping_set().unwrap()),
-            [r1 as i32]
-        );
+        assert_eq!(simple_refs(gs.content.nth(0).as_grouping_set().unwrap()), [r0 as i32]);
+        assert_eq!(simple_refs(gs.content.nth(1).as_grouping_set().unwrap()), [r1 as i32]);
         let empty = gs.content.nth(2).as_grouping_set().unwrap();
         assert_eq!(empty.kind, GroupingSetKind::GROUPING_SET_EMPTY);
         assert!(empty.content.is_nil());
@@ -1189,9 +1105,7 @@ mod from_where {
         let q = analyze_sql(mcx, "SELECT 1 FROM t GROUP BY ()").unwrap();
         assert!(!q.hasAggs);
         assert_eq!(q.groupingSets.len(), 1);
-        let err = analyze_sql(mcx, "SELECT x FROM t GROUP BY ()")
-            .map(|_| ())
-            .unwrap_err();
+        let err = analyze_sql(mcx, "SELECT x FROM t GROUP BY ()").map(|_| ()).unwrap_err();
         assert_eq!(err.sqlstate(), types_error::ERRCODE_GROUPING_ERROR);
     }
 
@@ -1201,16 +1115,10 @@ mod from_where {
         let ctx = MemoryContext::new("t");
         let mcx = ctx.mcx();
 
-        let q = analyze_sql(
-            mcx,
-            "SELECT x, count(*) FROM t GROUP BY GROUPING SETS ((x))",
-        )
-        .unwrap();
+        let q = analyze_sql(mcx, "SELECT x, count(*) FROM t GROUP BY GROUPING SETS ((x))",)
+            .unwrap();
         assert_eq!(q.groupClause.len(), 1);
-        assert!(
-            q.groupingSets.is_nil(),
-            "single-set expansion drops the grouping sets"
-        );
+        assert!(q.groupingSets.is_nil(), "single-set expansion drops the grouping sets");
     }
 
     #[test]
@@ -1227,18 +1135,8 @@ mod from_where {
         .unwrap();
 
         assert!(q.hasAggs);
-        let r0 = q
-            .targetList
-            .nth(0)
-            .as_target_entry()
-            .unwrap()
-            .ressortgroupref;
-        let r1 = q
-            .targetList
-            .nth(1)
-            .as_target_entry()
-            .unwrap()
-            .ressortgroupref;
+        let r0 = q.targetList.nth(0).as_target_entry().unwrap().ressortgroupref;
+        let r1 = q.targetList.nth(1).as_target_entry().unwrap().ressortgroupref;
         let t2 = q.targetList.nth(2).as_target_entry().unwrap();
         assert_eq!(t2.resname, Some("grouping"));
         let grp = t2.expr.as_grouping_func().unwrap();
@@ -1256,14 +1154,8 @@ mod from_where {
 
         let q = analyze_sql(mcx, "SELECT GROUPING(x) FROM t GROUP BY x").unwrap();
         assert!(q.hasAggs);
-        let grp = q
-            .targetList
-            .nth(0)
-            .as_target_entry()
-            .unwrap()
-            .expr
-            .as_grouping_func()
-            .unwrap();
+        let grp =
+            q.targetList.nth(0).as_target_entry().unwrap().expr.as_grouping_func().unwrap();
         assert_eq!(grp.refs.len(), 1);
     }
 
@@ -1322,14 +1214,14 @@ mod from_where {
 
         // 4^7 = 16384 expanded sets.
         let clause = ["CUBE(x, x)"; 7].join(", ");
-        let err = analyze_sql(mcx, &format!("SELECT x, count(*) FROM t GROUP BY {clause}"))
-            .map(|_| ())
-            .unwrap_err();
+        let err = analyze_sql(
+            mcx,
+            &format!("SELECT x, count(*) FROM t GROUP BY {clause}")
+        )
+        .map(|_| ())
+        .unwrap_err();
         assert_eq!(err.sqlstate(), types_error::ERRCODE_STATEMENT_TOO_COMPLEX);
-        assert_eq!(
-            err.message(),
-            "too many grouping sets present (maximum 4096)"
-        );
+        assert_eq!(err.message(), "too many grouping sets present (maximum 4096)");
     }
 
     #[test]
@@ -1349,35 +1241,11 @@ mod from_where {
         assert!(!q.hasAggs);
         assert_eq!(q.windowClause.len(), 3);
 
-        let wf1 = q
-            .targetList
-            .nth(1)
-            .as_target_entry()
-            .unwrap()
-            .expr
-            .as_window_func()
-            .unwrap();
-        assert_eq!(
-            (wf1.winfnoid, wf1.wintype, wf1.winref, wf1.winagg),
-            (3100, 20, 1, false)
-        );
-        let wf2 = q
-            .targetList
-            .nth(2)
-            .as_target_entry()
-            .unwrap()
-            .expr
-            .as_window_func()
-            .unwrap();
+        let wf1 = q.targetList.nth(1).as_target_entry().unwrap().expr.as_window_func().unwrap();
+        assert_eq!((wf1.winfnoid, wf1.wintype, wf1.winref, wf1.winagg), (3100, 20, 1, false));
+        let wf2 = q.targetList.nth(2).as_target_entry().unwrap().expr.as_window_func().unwrap();
         assert_eq!((wf2.winfnoid, wf2.winref, wf2.winagg), (3101, 2, false));
-        let wf3 = q
-            .targetList
-            .nth(3)
-            .as_target_entry()
-            .unwrap()
-            .expr
-            .as_window_func()
-            .unwrap();
+        let wf3 = q.targetList.nth(3).as_target_entry().unwrap().expr.as_window_func().unwrap();
         assert_eq!((wf3.winfnoid, wf3.winref, wf3.winagg), (2108, 3, true));
         assert_eq!(wf3.args.len(), 1);
 
@@ -1397,15 +1265,9 @@ mod from_where {
         assert_eq!(ord.tleSortGroupRef, t0.ressortgroupref);
 
         let wc2 = q.windowClause.nth(1).as_window_clause().unwrap();
-        assert_eq!(
-            (wc2.winref, wc2.partitionClause.len(), wc2.orderClause.len()),
-            (2, 0, 1)
-        );
+        assert_eq!((wc2.winref, wc2.partitionClause.len(), wc2.orderClause.len()), (2, 0, 1));
         let wc3 = q.windowClause.nth(2).as_window_clause().unwrap();
-        assert_eq!(
-            (wc3.winref, wc3.partitionClause.len(), wc3.orderClause.len()),
-            (3, 1, 0)
-        );
+        assert_eq!((wc3.winref, wc3.partitionClause.len(), wc3.orderClause.len()), (3, 1, 0));
     }
 
     #[test]
@@ -1420,22 +1282,8 @@ mod from_where {
         )
         .unwrap();
         assert_eq!(q.windowClause.len(), 1);
-        let wf1 = q
-            .targetList
-            .nth(0)
-            .as_target_entry()
-            .unwrap()
-            .expr
-            .as_window_func()
-            .unwrap();
-        let wf2 = q
-            .targetList
-            .nth(1)
-            .as_target_entry()
-            .unwrap()
-            .expr
-            .as_window_func()
-            .unwrap();
+        let wf1 = q.targetList.nth(0).as_target_entry().unwrap().expr.as_window_func().unwrap();
+        let wf2 = q.targetList.nth(1).as_target_entry().unwrap().expr.as_window_func().unwrap();
         assert_eq!((wf1.winref, wf2.winref), (1, 1));
         assert_eq!(wf2.winfnoid, 3102);
     }
@@ -1458,18 +1306,8 @@ mod from_where {
         assert_eq!(wc.partitionClause.len(), 1);
         let ord = wc.orderClause.nth(0).as_sort_group_clause().unwrap();
         assert!(ord.reverse_sort);
-        let wf = q
-            .targetList
-            .nth(0)
-            .as_target_entry()
-            .unwrap()
-            .expr
-            .as_window_func()
-            .unwrap();
-        assert_eq!(
-            (wf.winfnoid, wf.winref, wf.winagg, wf.winstar),
-            (2803, 1, true, true)
-        );
+        let wf = q.targetList.nth(0).as_target_entry().unwrap().expr.as_window_func().unwrap();
+        assert_eq!((wf.winfnoid, wf.winref, wf.winagg, wf.winstar), (2803, 1, true, true));
     }
 
     #[test]
@@ -1497,14 +1335,9 @@ mod from_where {
         let ctx = MemoryContext::new("t");
         let mcx = ctx.mcx();
 
-        let err = analyze_sql(mcx, "SELECT rank() FROM t")
-            .map(|_| ())
-            .unwrap_err();
+        let err = analyze_sql(mcx, "SELECT rank() FROM t").map(|_| ()).unwrap_err();
         assert_eq!(err.sqlstate(), types_error::ERRCODE_WRONG_OBJECT_TYPE);
-        assert_eq!(
-            err.message(),
-            "window function rank requires an OVER clause"
-        );
+        assert_eq!(err.message(), "window function rank requires an OVER clause");
     }
 
     #[test]
@@ -1526,9 +1359,7 @@ mod from_where {
         let ctx = MemoryContext::new("t");
         let mcx = ctx.mcx();
 
-        let err = analyze_sql(mcx, "SELECT count(*) OVER w FROM t")
-            .map(|_| ())
-            .unwrap_err();
+        let err = analyze_sql(mcx, "SELECT count(*) OVER w FROM t").map(|_| ()).unwrap_err();
         assert_eq!(err.sqlstate(), types_error::ERRCODE_UNDEFINED_OBJECT);
         assert_eq!(err.message(), "window \"w\" does not exist");
     }
@@ -1569,11 +1400,7 @@ mod from_where {
             .map(|_| ())
             .unwrap_err();
         assert_eq!(err.sqlstate(), types_error::ERRCODE_GROUPING_ERROR);
-        assert!(
-            err.message().contains("column \"t.x\" must appear"),
-            "{}",
-            err.message()
-        );
+        assert!(err.message().contains("column \"t.x\" must appear"), "{}", err.message());
     }
 
     #[test]
@@ -1589,10 +1416,7 @@ mod from_where {
         .map(|_| ())
         .unwrap_err();
         assert_eq!(err.sqlstate(), types_error::ERRCODE_WINDOWING_ERROR);
-        assert_eq!(
-            err.message(),
-            "cannot override PARTITION BY clause of window \"w\""
-        );
+        assert_eq!(err.message(), "cannot override PARTITION BY clause of window \"w\"");
     }
 
     #[test]
@@ -1608,11 +1432,9 @@ mod from_where {
         .map(|_| ())
         .unwrap_err();
         assert_eq!(err.sqlstate(), types_error::ERRCODE_WINDOWING_ERROR);
-        assert_eq!(
-            err.message(),
-            "cannot override ORDER BY clause of window \"w\""
-        );
+        assert_eq!(err.message(), "cannot override ORDER BY clause of window \"w\"");
     }
+
 
     // transformFromClause appends one RTE + RangeTblRef per comma-separated
     // from-item (parse_clause.c); explicit JOIN syntax stays loud in
@@ -1669,11 +1491,8 @@ mod from_where {
         assert!(jrte.inFromCl && !jrte.lateral);
         let eref = jrte.eref.unwrap();
         assert_eq!(eref.aliasname, Some("unnamed_join"));
-        let names: Vec<_> = eref
-            .colnames
-            .iter()
-            .map(|n| n.as_string().unwrap().sval)
-            .collect();
+        let names: Vec<_> =
+            eref.colnames.iter().map(|n| n.as_string().unwrap().sval).collect();
         assert_eq!(names, ["x", "y", "x", "y"]);
         assert_eq!(jrte.joinaliasvars.len(), 4);
         for (i, (varno, attno)) in [(1, 1), (1, 2), (2, 1), (2, 2)].iter().enumerate() {
@@ -1718,9 +1537,8 @@ mod from_where {
         assert_eq!(vars, [(1, 1), (1, 2), (2, 1), (2, 2)]);
 
         // Unqualified refs resolve through the join namespace: ambiguous here.
-        let err = analyze_sql(mcx, "SELECT x FROM t JOIN t u ON t.x = u.x")
-            .map(|_| ())
-            .unwrap_err();
+        let err =
+            analyze_sql(mcx, "SELECT x FROM t JOIN t u ON t.x = u.x").map(|_| ()).unwrap_err();
         assert_eq!(err.message(), "column reference \"x\" is ambiguous");
 
         // Join alias hides the inputs.
@@ -1731,29 +1549,17 @@ mod from_where {
             err.message(),
             "invalid reference to FROM-clause entry for table \"t\""
         );
-        let q = analyze_sql(
-            mcx,
-            "SELECT j.a FROM (t JOIN t u ON t.x = u.x) AS j(a, b, c, d)",
-        )
-        .unwrap();
+        let q =
+            analyze_sql(mcx, "SELECT j.a FROM (t JOIN t u ON t.x = u.x) AS j(a, b, c, d)",)
+                .unwrap();
         let jrte = q.rtable.nth(2).as_range_tbl_entry().unwrap();
         assert_eq!(jrte.alias.unwrap().aliasname, Some("j"));
         let eref = jrte.eref.unwrap();
         assert_eq!(eref.aliasname, Some("j"));
-        let names: Vec<_> = eref
-            .colnames
-            .iter()
-            .map(|n| n.as_string().unwrap().sval)
-            .collect();
+        let names: Vec<_> =
+            eref.colnames.iter().map(|n| n.as_string().unwrap().sval).collect();
         assert_eq!(names, ["a", "b", "c", "d"]);
-        let v = q
-            .targetList
-            .nth(0)
-            .as_target_entry()
-            .unwrap()
-            .expr
-            .as_var()
-            .unwrap();
+        let v = q.targetList.nth(0).as_target_entry().unwrap().expr.as_var().unwrap();
         assert_eq!((v.varno, v.varattno), (1, 1));
 
         // Nested joins chain left-deep with a second join RTE.
@@ -1793,11 +1599,8 @@ mod from_where {
         assert!(rte.inFromCl && !rte.lateral);
         let eref = rte.eref.unwrap();
         assert_eq!(eref.aliasname, Some("t"));
-        let names: Vec<_> = eref
-            .colnames
-            .iter()
-            .map(|n| n.as_string().unwrap().sval)
-            .collect();
+        let names: Vec<_> =
+            eref.colnames.iter().map(|n| n.as_string().unwrap().sval).collect();
         assert_eq!(names, ["x", "y"]);
 
         assert_eq!(q.rteperminfos.len(), 1);
@@ -1805,12 +1608,8 @@ mod from_where {
         assert_eq!(perminfo.relid, T_OID);
         assert!(perminfo.inh);
         assert_eq!(perminfo.requiredPerms, ACL_SELECT);
-        assert!(perminfo
-            .selectedCols
-            .is_member(1 - FirstLowInvalidHeapAttributeNumber));
-        assert!(!perminfo
-            .selectedCols
-            .is_member(2 - FirstLowInvalidHeapAttributeNumber));
+        assert!(perminfo.selectedCols.is_member(1 - FirstLowInvalidHeapAttributeNumber));
+        assert!(!perminfo.selectedCols.is_member(2 - FirstLowInvalidHeapAttributeNumber));
 
         assert_eq!(q.targetList.len(), 1);
         let te = q.targetList.nth(0).as_target_entry().unwrap();
@@ -1834,10 +1633,7 @@ mod from_where {
         assert_eq!(qual.location, 24);
         assert_eq!(qual.args.len(), 2);
         let lv = qual.args.nth(0).as_var().unwrap();
-        assert_eq!(
-            (lv.varno, lv.varattno, lv.vartype, lv.location),
-            (1, 1, INT4OID, 22)
-        );
+        assert_eq!((lv.varno, lv.varattno, lv.vartype, lv.location), (1, 1, INT4OID, 22));
         let rc = qual.args.nth(1).as_const().unwrap();
         assert_eq!((rc.consttype, rc.constvalue), (INT4OID, Datum::from_i32(5)));
         assert_eq!(rc.location, 26);
@@ -1862,12 +1658,8 @@ mod from_where {
         assert_eq!((v1.varattno, v1.vartype, v1.varcollid), (2, TEXTOID, 100));
 
         let perminfo = q.rteperminfos.nth(0).as_rte_permission_info().unwrap();
-        assert!(perminfo
-            .selectedCols
-            .is_member(1 - FirstLowInvalidHeapAttributeNumber));
-        assert!(perminfo
-            .selectedCols
-            .is_member(2 - FirstLowInvalidHeapAttributeNumber));
+        assert!(perminfo.selectedCols.is_member(1 - FirstLowInvalidHeapAttributeNumber));
+        assert!(perminfo.selectedCols.is_member(2 - FirstLowInvalidHeapAttributeNumber));
     }
 
     #[test]
@@ -1914,12 +1706,8 @@ mod from_where {
 
         let perminfo = q.rteperminfos.nth(0).as_rte_permission_info().unwrap();
         assert_eq!(perminfo.requiredPerms, types_nodes::parsenodes::ACL_INSERT);
-        assert!(perminfo
-            .insertedCols
-            .is_member(1 - FirstLowInvalidHeapAttributeNumber));
-        assert!(perminfo
-            .insertedCols
-            .is_member(2 - FirstLowInvalidHeapAttributeNumber));
+        assert!(perminfo.insertedCols.is_member(1 - FirstLowInvalidHeapAttributeNumber));
+        assert!(perminfo.insertedCols.is_member(2 - FirstLowInvalidHeapAttributeNumber));
     }
 
     #[test]
@@ -1963,38 +1751,20 @@ mod from_where {
         let ctx = MemoryContext::new("t");
         let mcx = ctx.mcx();
 
-        let err = analyze_sql(mcx, "INSERT INTO t VALUES (1, 'a', 3)")
-            .map(|_| ())
-            .unwrap_err();
-        assert_eq!(
-            err.message,
-            "INSERT has more expressions than target columns"
-        );
+        let err = analyze_sql(mcx, "INSERT INTO t VALUES (1, 'a', 3)").map(|_| ()).unwrap_err();
+        assert_eq!(err.message, "INSERT has more expressions than target columns");
 
-        let err = analyze_sql(mcx, "INSERT INTO t (x, y) VALUES (1)")
-            .map(|_| ())
-            .unwrap_err();
-        assert_eq!(
-            err.message,
-            "INSERT has more target columns than expressions"
-        );
+        let err = analyze_sql(mcx, "INSERT INTO t (x, y) VALUES (1)").map(|_| ()).unwrap_err();
+        assert_eq!(err.message, "INSERT has more target columns than expressions");
 
-        let err = analyze_sql(mcx, "INSERT INTO t (nope) VALUES (1)")
-            .map(|_| ())
-            .unwrap_err();
-        assert_eq!(
-            err.message,
-            "column \"nope\" of relation \"t\" does not exist"
-        );
+        let err = analyze_sql(mcx, "INSERT INTO t (nope) VALUES (1)").map(|_| ()).unwrap_err();
+        assert_eq!(err.message, "column \"nope\" of relation \"t\" does not exist");
 
-        let err = analyze_sql(mcx, "INSERT INTO t (x, x) VALUES (1, 2)")
-            .map(|_| ())
-            .unwrap_err();
+        let err = analyze_sql(mcx, "INSERT INTO t (x, x) VALUES (1, 2)").map(|_| ()).unwrap_err();
         assert_eq!(err.message, "column \"x\" specified more than once");
 
-        let err = analyze_sql(mcx, "INSERT INTO t (x) VALUES (1), (2, 3)")
-            .map(|_| ())
-            .unwrap_err();
+        let err =
+            analyze_sql(mcx, "INSERT INTO t (x) VALUES (1), (2, 3)").map(|_| ()).unwrap_err();
         assert_eq!(err.message, "VALUES lists must all be the same length");
     }
 
@@ -2052,11 +1822,8 @@ mod from_where {
         assert_eq!((tw.resno, tw.expr.as_var().unwrap().varattno), (0, 0));
         assert_eq!(tw.resname, None);
 
-        let q = analyze_sql(
-            mcx,
-            "INSERT INTO u VALUES (1, 'foo') ON CONFLICT DO NOTHING",
-        )
-        .unwrap();
+        let q =
+            analyze_sql(mcx, "INSERT INTO u VALUES (1, 'foo') ON CONFLICT DO NOTHING",).unwrap();
         let oc = q.onConflict.unwrap().as_on_conflict_expr().unwrap();
         assert_eq!(oc.action, OnConflictAction::ONCONFLICT_NOTHING);
         assert!(oc.arbiterElems.is_nil() && oc.arbiterWhere.is_none());
@@ -2087,10 +1854,7 @@ mod from_where {
             "INSERT INTO t (x, y) SELECT (1, 2) FROM (SELECT 1) s",
         ] {
             let err = analyze_sql(mcx, sql).map(|_| ()).unwrap_err();
-            assert_eq!(
-                err.message, "INSERT has more target columns than expressions",
-                "{sql}"
-            );
+            assert_eq!(err.message, "INSERT has more target columns than expressions", "{sql}");
             assert_eq!(err.sqlstate(), types_error::ERRCODE_SYNTAX_ERROR, "{sql}");
             assert_eq!(err.hint(), Some(HINT), "{sql}");
             // parser_errposition on the first unmatched column: 1-based "y".
@@ -2106,10 +1870,7 @@ mod from_where {
             "INSERT INTO t (x, y) SELECT (SELECT (1, 2))",
         ] {
             let err = analyze_sql(mcx, sql).map(|_| ()).unwrap_err();
-            assert_eq!(
-                err.message, "INSERT has more target columns than expressions",
-                "{sql}"
-            );
+            assert_eq!(err.message, "INSERT has more target columns than expressions", "{sql}");
             assert_eq!(err.hint(), None, "{sql}");
         }
     }
@@ -2140,13 +1901,10 @@ mod from_where {
             let err = parse_analyze_fixedparams(mcx, raw, src, &[INT4OID], Default::default())
                 .map(|_| ())
                 .unwrap_err();
+            assert_eq!(err.sqlstate(), types_error::ERRCODE_FEATURE_NOT_SUPPORTED, "{sql}");
             assert_eq!(
-                err.sqlstate(),
-                types_error::ERRCODE_FEATURE_NOT_SUPPORTED,
-                "{sql}"
-            );
-            assert_eq!(
-                err.message, "materialized views may not be defined using bound parameters",
+                err.message,
+                "materialized views may not be defined using bound parameters",
                 "{sql}"
             );
             assert_eq!(err.cursor_position(), None, "{sql}");
@@ -2155,8 +1913,8 @@ mod from_where {
         // The same query as a plain CREATE TABLE AS is accepted with the
         // parameter bound (C only gates OBJECT_MATVIEW).
         let sql = "CREATE TABLE ct AS SELECT $1";
-        let list =
-            gram_core::raw_parser(mcx, sql, parser_seams::RawParseMode::RAW_PARSE_DEFAULT).unwrap();
+        let list = gram_core::raw_parser(mcx, sql, parser_seams::RawParseMode::RAW_PARSE_DEFAULT)
+            .unwrap();
         let raw = list.nth(0).as_raw_stmt().unwrap();
         let q = parse_analyze_fixedparams(mcx, raw, sql, &[INT4OID], Default::default()).unwrap();
         assert_eq!(q.commandType, CmdType::CMD_UTILITY);
@@ -2168,12 +1926,10 @@ mod from_where {
         let ctx = MemoryContext::new("t");
         let mcx = ctx.mcx();
 
-        let err = analyze_sql(
-            mcx,
-            "INSERT INTO u VALUES (1, 'a') ON CONFLICT DO UPDATE SET y = 'b'",
-        )
-        .map(|_| ())
-        .unwrap_err();
+        let err =
+            analyze_sql(mcx, "INSERT INTO u VALUES (1, 'a') ON CONFLICT DO UPDATE SET y = 'b'",)
+                .map(|_| ())
+                .unwrap_err();
         assert_eq!(err.sqlstate(), types_error::ERRCODE_SYNTAX_ERROR);
         assert_eq!(
             err.message,
@@ -2181,33 +1937,22 @@ mod from_where {
         );
 
         // t's OID is below FirstUnpinnedObjectId, i.e. a catalog relation.
-        let err = analyze_sql(
-            mcx,
-            "INSERT INTO t VALUES (1, 'a') ON CONFLICT (x) DO NOTHING",
-        )
-        .map(|_| ())
-        .unwrap_err();
+        let err = analyze_sql(mcx, "INSERT INTO t VALUES (1, 'a') ON CONFLICT (x) DO NOTHING",)
+            .map(|_| ())
+            .unwrap_err();
         assert_eq!(err.sqlstate(), types_error::ERRCODE_FEATURE_NOT_SUPPORTED);
-        assert_eq!(
-            err.message,
-            "ON CONFLICT is not supported with system catalog tables"
-        );
+        assert_eq!(err.message, "ON CONFLICT is not supported with system catalog tables");
 
         // C resolve_unique_index_expr (parse_clause.c:3225/3231) tags BOTH
         // the ASC/DESC and NULLS FIRST/LAST rejections
         // ERRCODE_INVALID_COLUMN_REFERENCE (42P10), verified against the
         // pinned 18.3 oracle — round-14 gramwalk seed 1992923080990245657
         // caught pgrust's old 0A000 skew.
-        let err = analyze_sql(
-            mcx,
-            "INSERT INTO u VALUES (1, 'a') ON CONFLICT (x DESC) DO NOTHING",
-        )
-        .map(|_| ())
-        .unwrap_err();
-        assert_eq!(
-            err.sqlstate(),
-            types_error::ERRCODE_INVALID_COLUMN_REFERENCE
-        );
+        let err =
+            analyze_sql(mcx, "INSERT INTO u VALUES (1, 'a') ON CONFLICT (x DESC) DO NOTHING",)
+                .map(|_| ())
+                .unwrap_err();
+        assert_eq!(err.sqlstate(), types_error::ERRCODE_INVALID_COLUMN_REFERENCE);
         assert_eq!(err.message, "ASC/DESC is not allowed in ON CONFLICT clause");
 
         let err = analyze_sql(
@@ -2216,21 +1961,12 @@ mod from_where {
         )
         .map(|_| ())
         .unwrap_err();
-        assert_eq!(
-            err.sqlstate(),
-            types_error::ERRCODE_INVALID_COLUMN_REFERENCE
-        );
-        assert_eq!(
-            err.message,
-            "NULLS FIRST/LAST is not allowed in ON CONFLICT clause"
-        );
+        assert_eq!(err.sqlstate(), types_error::ERRCODE_INVALID_COLUMN_REFERENCE);
+        assert_eq!(err.message, "NULLS FIRST/LAST is not allowed in ON CONFLICT clause");
 
-        let err = analyze_sql(
-            mcx,
-            "INSERT INTO u VALUES (1, 'a') ON CONFLICT (nope) DO NOTHING",
-        )
-        .map(|_| ())
-        .unwrap_err();
+        let err = analyze_sql(mcx, "INSERT INTO u VALUES (1, 'a') ON CONFLICT (nope) DO NOTHING",)
+            .map(|_| ())
+            .unwrap_err();
         assert_eq!(err.sqlstate(), types_error::ERRCODE_UNDEFINED_COLUMN);
     }
 
@@ -2252,11 +1988,7 @@ mod from_where {
         ] {
             let sql = format!("DECLARE c CURSOR WITH HOLD FOR SELECT x FROM u {clause}");
             let err = analyze_sql(mcx, &sql).map(|_| ()).unwrap_err();
-            assert_eq!(
-                err.sqlstate(),
-                types_error::ERRCODE_FEATURE_NOT_SUPPORTED,
-                "{sql}"
-            );
+            assert_eq!(err.sqlstate(), types_error::ERRCODE_FEATURE_NOT_SUPPORTED, "{sql}");
             assert_eq!(
                 err.message(),
                 format!("DECLARE CURSOR WITH HOLD ... {lcs} is not supported")
@@ -2265,34 +1997,20 @@ mod from_where {
         }
 
         // SCROLL: 0A000.
-        let err = analyze_sql(
-            mcx,
-            "DECLARE c SCROLL CURSOR FOR SELECT x FROM u FOR UPDATE",
-        )
-        .map(|_| ())
-        .unwrap_err();
+        let err = analyze_sql(mcx, "DECLARE c SCROLL CURSOR FOR SELECT x FROM u FOR UPDATE",)
+            .map(|_| ())
+            .unwrap_err();
         assert_eq!(err.sqlstate(), types_error::ERRCODE_FEATURE_NOT_SUPPORTED);
-        assert_eq!(
-            err.message(),
-            "DECLARE SCROLL CURSOR ... FOR UPDATE is not supported"
-        );
+        assert_eq!(err.message(), "DECLARE SCROLL CURSOR ... FOR UPDATE is not supported");
         assert_eq!(err.detail(), Some("Scrollable cursors must be READ ONLY."));
 
         // INSENSITIVE: 42P11, "is not valid".
-        let err = analyze_sql(
-            mcx,
-            "DECLARE c INSENSITIVE CURSOR FOR SELECT x FROM u FOR KEY SHARE",
-        )
-        .map(|_| ())
-        .unwrap_err();
-        assert_eq!(
-            err.sqlstate(),
-            types_error::ERRCODE_INVALID_CURSOR_DEFINITION
-        );
-        assert_eq!(
-            err.message(),
-            "DECLARE INSENSITIVE CURSOR ... FOR KEY SHARE is not valid"
-        );
+        let err =
+            analyze_sql(mcx, "DECLARE c INSENSITIVE CURSOR FOR SELECT x FROM u FOR KEY SHARE",)
+                .map(|_| ())
+                .unwrap_err();
+        assert_eq!(err.sqlstate(), types_error::ERRCODE_INVALID_CURSOR_DEFINITION);
+        assert_eq!(err.message(), "DECLARE INSENSITIVE CURSOR ... FOR KEY SHARE is not valid");
         assert_eq!(err.detail(), Some("Insensitive cursors must be READ ONLY."));
 
         // C checks WITH HOLD before SCROLL when both apply.
@@ -2302,10 +2020,7 @@ mod from_where {
         )
         .map(|_| ())
         .unwrap_err();
-        assert_eq!(
-            err.message(),
-            "DECLARE CURSOR WITH HOLD ... FOR SHARE is not supported"
-        );
+        assert_eq!(err.message(), "DECLARE CURSOR WITH HOLD ... FOR SHARE is not supported");
 
         // No conflict: a plain (NO SCROLL default) FOR UPDATE cursor is fine.
         let q = analyze_sql(mcx, "DECLARE c CURSOR FOR SELECT x FROM u FOR UPDATE").unwrap();
@@ -2325,11 +2040,7 @@ mod from_where {
 
         let not_allowed = |sql: &str, msg: &str| {
             let err = analyze_sql(mcx, sql).map(|_| ()).unwrap_err();
-            assert_eq!(
-                err.sqlstate(),
-                types_error::ERRCODE_FEATURE_NOT_SUPPORTED,
-                "{sql}"
-            );
+            assert_eq!(err.sqlstate(), types_error::ERRCODE_FEATURE_NOT_SUPPORTED, "{sql}");
             assert_eq!(err.message(), msg, "{sql}");
         };
 
@@ -2429,10 +2140,7 @@ mod from_where {
 
         assert_eq!(q.targetList.len(), 1);
         let te = q.targetList.nth(0).as_target_entry().unwrap();
-        assert_eq!(
-            (te.resno, te.resname, te.ressortgroupref),
-            (1, Some("column1"), 1)
-        );
+        assert_eq!((te.resno, te.resname, te.ressortgroupref), (1, Some("column1"), 1));
         let var = te.expr.as_var().unwrap();
         assert_eq!((var.varno, var.varattno, var.vartype), (1, 1, INT4OID));
 
@@ -2489,9 +2197,7 @@ mod from_where {
         let ctx = MemoryContext::new("t");
         let mcx = ctx.mcx();
 
-        let err = analyze_sql(mcx, "VALUES (1), (2, 3)")
-            .map(|_| ())
-            .unwrap_err();
+        let err = analyze_sql(mcx, "VALUES (1), (2, 3)").map(|_| ()).unwrap_err();
         assert_eq!(err.sqlstate(), types_error::ERRCODE_SYNTAX_ERROR);
         assert_eq!(err.message, "VALUES lists must all be the same length");
     }
@@ -2516,25 +2222,22 @@ mod from_where {
         }
         let sub = types_nodes::Node::mk(
             mcx,
-            types_nodes::rawnodes::SelectStmt {
-                valuesLists: values_lists,
-                ..Default::default()
-            },
+            types_nodes::rawnodes::SelectStmt { valuesLists: values_lists, ..Default::default() },
         )
         .unwrap();
         let mut colnames = types_nodes::NodeList::nil();
         for name in ["n", "s"] {
             colnames
-                .lappend(mcx, types_nodes::Node::mk_string(mcx, name).unwrap())
+                .lappend(
+                    mcx,
+                    types_nodes::Node::mk_string(mcx, name).unwrap()
+                )
                 .unwrap();
         }
         let alias = &*mcx::leak_in(
             mcx::alloc_in(
                 mcx,
-                types_nodes::Alias {
-                    aliasname: Some("v"),
-                    colnames,
-                },
+                types_nodes::Alias { aliasname: Some("v"), colnames, },
             )
             .unwrap(),
         );
@@ -2547,17 +2250,15 @@ mod from_where {
             },
         )
         .unwrap();
-        let star =
-            types_nodes::NodeList::make1(mcx, types_nodes::Node::mk_a_star(mcx).unwrap()).unwrap();
-        let star_ref = types_nodes::Node::mk_column_ref(mcx, star, 7).unwrap();
-        let target = types_nodes::Node::mk_res_target(
+        let star = types_nodes::NodeList::make1(
             mcx,
-            None,
-            types_nodes::NodeList::nil(),
-            Some(star_ref),
-            7,
+            types_nodes::Node::mk_a_star(mcx).unwrap()
         )
         .unwrap();
+        let star_ref = types_nodes::Node::mk_column_ref(mcx, star, 7).unwrap();
+        let target =
+            types_nodes::Node::mk_res_target(mcx, None, types_nodes::NodeList::nil(), Some(star_ref), 7,)
+                .unwrap();
         let stmt = types_nodes::Node::mk(
             mcx,
             types_nodes::rawnodes::SelectStmt {
@@ -2598,25 +2299,17 @@ mod from_where {
 
         assert_eq!(q.targetList.len(), 2);
         let t0 = q.targetList.nth(0).as_target_entry().unwrap();
-        assert_eq!(
-            (t0.resname, t0.expr.as_var().unwrap().vartype),
-            (Some("n"), INT4OID)
-        );
+        assert_eq!((t0.resname, t0.expr.as_var().unwrap().vartype), (Some("n"), INT4OID));
         let v0 = t0.expr.as_var().unwrap();
         assert_eq!((v0.varno, v0.varattno), (1, 1));
         let t1 = q.targetList.nth(1).as_target_entry().unwrap();
-        assert_eq!(
-            (t1.resname, t1.expr.as_var().unwrap().vartype),
-            (Some("s"), TEXTOID)
-        );
+        assert_eq!((t1.resname, t1.expr.as_var().unwrap().vartype), (Some("s"), TEXTOID));
     }
 
     fn int_c(mcx: Mcx<'_>, ival: i32) -> types_nodes::Node<'_> {
         types_nodes::Node::mk_a_const(
             mcx,
-            Some(types_nodes::rawnodes::ValUnion::Integer(
-                types_nodes::Integer { ival },
-            )),
+            Some(types_nodes::rawnodes::ValUnion::Integer(types_nodes::Integer { ival },)),
             -1,
         )
         .unwrap()
@@ -2625,9 +2318,7 @@ mod from_where {
     fn str_c<'m>(mcx: Mcx<'m>, s: &'m str) -> types_nodes::Node<'m> {
         types_nodes::Node::mk_a_const(
             mcx,
-            Some(types_nodes::rawnodes::ValUnion::String(
-                types_nodes::String { sval: s },
-            )),
+            Some(types_nodes::rawnodes::ValUnion::String(types_nodes::String { sval: s },)),
             -1,
         )
         .unwrap()
@@ -2660,16 +2351,9 @@ mod from_where {
         assert_eq!(parse_expr::expr_type(te.expr), TEXTOID);
 
         let perminfo = q.rteperminfos.nth(0).as_rte_permission_info().unwrap();
-        assert_eq!(
-            perminfo.requiredPerms,
-            types_nodes::parsenodes::ACL_UPDATE | ACL_SELECT
-        );
-        assert!(perminfo
-            .updatedCols
-            .is_member(2 - FirstLowInvalidHeapAttributeNumber));
-        assert!(!perminfo
-            .updatedCols
-            .is_member(1 - FirstLowInvalidHeapAttributeNumber));
+        assert_eq!(perminfo.requiredPerms, types_nodes::parsenodes::ACL_UPDATE | ACL_SELECT);
+        assert!(perminfo.updatedCols.is_member(2 - FirstLowInvalidHeapAttributeNumber));
+        assert!(!perminfo.updatedCols.is_member(1 - FirstLowInvalidHeapAttributeNumber));
     }
 
     #[test]
@@ -2692,14 +2376,9 @@ mod from_where {
         let ctx = MemoryContext::new("t");
         let mcx = ctx.mcx();
 
-        let err = analyze_sql(mcx, "UPDATE t SET nope = 1")
-            .map(|_| ())
-            .unwrap_err();
+        let err = analyze_sql(mcx, "UPDATE t SET nope = 1").map(|_| ()).unwrap_err();
         assert_eq!(err.sqlstate(), types_error::ERRCODE_UNDEFINED_COLUMN);
-        assert_eq!(
-            err.message,
-            "column \"nope\" of relation \"t\" does not exist"
-        );
+        assert_eq!(err.message, "column \"nope\" of relation \"t\" does not exist");
     }
 
     #[test]
@@ -2716,10 +2395,7 @@ mod from_where {
         assert_eq!(jt.fromlist.len(), 1);
         assert!(jt.quals.is_some());
         let perminfo = q.rteperminfos.nth(0).as_rte_permission_info().unwrap();
-        assert_eq!(
-            perminfo.requiredPerms,
-            types_nodes::parsenodes::ACL_DELETE | ACL_SELECT
-        );
+        assert_eq!(perminfo.requiredPerms, types_nodes::parsenodes::ACL_DELETE | ACL_SELECT);
     }
 
     #[test]
@@ -2771,9 +2447,7 @@ mod from_where {
 
         let perm_u = q.rteperminfos.nth(1).as_rte_permission_info().unwrap();
         assert_eq!(perm_u.requiredPerms, ACL_SELECT);
-        assert!(perm_u
-            .selectedCols
-            .is_member(2 - FirstLowInvalidHeapAttributeNumber));
+        assert!(perm_u.selectedCols.is_member(2 - FirstLowInvalidHeapAttributeNumber));
     }
 
     #[test]
@@ -2815,11 +2489,8 @@ mod from_where {
         let ctx = MemoryContext::new("t");
         let mcx = ctx.mcx();
 
-        let q = analyze_sql(
-            mcx,
-            "WITH w AS (UPDATE t SET y = 'z' RETURNING x) SELECT x FROM w",
-        )
-        .unwrap();
+        let q = analyze_sql(mcx, "WITH w AS (UPDATE t SET y = 'z' RETURNING x) SELECT x FROM w",)
+            .unwrap();
         assert_eq!(q.commandType, CmdType::CMD_SELECT);
         assert!(q.hasModifyingCTE);
         assert_eq!(q.cteList.len(), 1);
@@ -2840,17 +2511,11 @@ mod from_where {
         let ctx = MemoryContext::new("t");
         let mcx = ctx.mcx();
 
-        let err = analyze_sql(
-            mcx,
-            "WITH w AS (INSERT INTO t VALUES (1, 'a')) SELECT * FROM w",
-        )
-        .map(|_| ())
-        .unwrap_err();
+        let err = analyze_sql(mcx, "WITH w AS (INSERT INTO t VALUES (1, 'a')) SELECT * FROM w",)
+            .map(|_| ())
+            .unwrap_err();
         assert_eq!(err.sqlstate(), types_error::ERRCODE_FEATURE_NOT_SUPPORTED);
-        assert_eq!(
-            err.message,
-            "WITH query \"w\" does not have a RETURNING clause"
-        );
+        assert_eq!(err.message, "WITH query \"w\" does not have a RETURNING clause");
     }
 
     #[test]
@@ -2879,33 +2544,16 @@ mod from_where {
         let ctx = MemoryContext::new("t");
         let mcx = ctx.mcx();
 
-        let q = analyze_sql(
-            mcx,
-            "UPDATE t SET y = 'b' WHERE x = 1 RETURNING old.y, new.y",
-        )
-        .unwrap();
+        let q =
+            analyze_sql(mcx, "UPDATE t SET y = 'b' WHERE x = 1 RETURNING old.y, new.y",).unwrap();
         assert_eq!(q.returningOldAlias, Some("old"));
         assert_eq!(q.returningNewAlias, Some("new"));
         assert_eq!(q.returningList.len(), 2);
         use types_nodes::primnodes::VarReturningType;
-        let v0 = q
-            .returningList
-            .nth(0)
-            .as_target_entry()
-            .unwrap()
-            .expr
-            .as_var()
-            .unwrap();
+        let v0 = q.returningList.nth(0).as_target_entry().unwrap().expr.as_var().unwrap();
         assert_eq!(v0.varreturningtype, VarReturningType::VAR_RETURNING_OLD);
         assert_eq!((v0.varno, v0.varattno), (1, 2));
-        let v1 = q
-            .returningList
-            .nth(1)
-            .as_target_entry()
-            .unwrap()
-            .expr
-            .as_var()
-            .unwrap();
+        let v1 = q.returningList.nth(1).as_target_entry().unwrap().expr.as_var().unwrap();
         assert_eq!(v1.varreturningtype, VarReturningType::VAR_RETURNING_NEW);
         assert_eq!((v1.varno, v1.varattno), (1, 2));
     }
@@ -2924,23 +2572,9 @@ mod from_where {
         assert_eq!(q.returningOldAlias, Some("o"));
         assert_eq!(q.returningNewAlias, Some("n"));
         use types_nodes::primnodes::VarReturningType;
-        let v0 = q
-            .returningList
-            .nth(0)
-            .as_target_entry()
-            .unwrap()
-            .expr
-            .as_var()
-            .unwrap();
+        let v0 = q.returningList.nth(0).as_target_entry().unwrap().expr.as_var().unwrap();
         assert_eq!(v0.varreturningtype, VarReturningType::VAR_RETURNING_OLD);
-        let v1 = q
-            .returningList
-            .nth(1)
-            .as_target_entry()
-            .unwrap()
-            .expr
-            .as_var()
-            .unwrap();
+        let v1 = q.returningList.nth(1).as_target_entry().unwrap().expr.as_var().unwrap();
         assert_eq!(v1.varreturningtype, VarReturningType::VAR_RETURNING_NEW);
     }
 
@@ -2980,12 +2614,9 @@ mod from_where {
         assert_eq!(err.sqlstate(), types_error::ERRCODE_DUPLICATE_ALIAS);
         assert_eq!(err.message(), "table name \"t\" specified more than once");
 
-        let err = analyze_sql(
-            mcx,
-            "UPDATE t SET y = 'b' RETURNING WITH (old AS x, new AS x) *",
-        )
-        .map(|_| ())
-        .unwrap_err();
+        let err = analyze_sql(mcx, "UPDATE t SET y = 'b' RETURNING WITH (old AS x, new AS x) *",)
+            .map(|_| ())
+            .unwrap_err();
         assert_eq!(err.sqlstate(), types_error::ERRCODE_DUPLICATE_ALIAS);
         assert_eq!(err.message(), "table name \"x\" specified more than once");
     }
@@ -2996,9 +2627,7 @@ mod from_where {
         let ctx = MemoryContext::new("t");
         let mcx = ctx.mcx();
 
-        let err = analyze_sql(mcx, "SELECT x FROM nope")
-            .map(|_| ())
-            .unwrap_err();
+        let err = analyze_sql(mcx, "SELECT x FROM nope").map(|_| ()).unwrap_err();
         assert_eq!(err.sqlstate(), ERRCODE_UNDEFINED_TABLE);
         assert_eq!(err.message, "relation \"nope\" does not exist");
         assert_eq!(err.cursor_position(), Some(15));
@@ -3033,20 +2662,11 @@ mod from_where {
         let mcx = ctx.mcx();
 
         let q = analyze_sql(mcx, "SELECT x FROM t WHERE x IN (1, 2)").unwrap();
-        let saop = q
-            .jointree
-            .unwrap()
-            .quals
-            .unwrap()
-            .as_scalar_array_op_expr()
-            .unwrap();
+        let saop = q.jointree.unwrap().quals.unwrap().as_scalar_array_op_expr().unwrap();
         assert!(saop.useOr);
         // 96 = int4eq operator, 65 = int4eq proc.
         assert_eq!((saop.opno, saop.opfuncid), (96, 65));
-        assert_eq!(
-            (saop.hashfuncid, saop.negfuncid),
-            (types_core::InvalidOid, types_core::InvalidOid)
-        );
+        assert_eq!((saop.hashfuncid, saop.negfuncid), (types_core::InvalidOid, types_core::InvalidOid));
         assert_eq!(saop.inputcollid, types_core::InvalidOid);
         assert_eq!(saop.location, 24);
         assert_eq!(saop.args.len(), 2);
@@ -3060,23 +2680,11 @@ mod from_where {
         assert_eq!((arr.list_start, arr.list_end), (27, 32));
         assert_eq!(arr.location, -1);
         assert_eq!(arr.elements.len(), 2);
-        assert_eq!(
-            arr.elements.nth(0).as_const().unwrap().constvalue.as_i32(),
-            1
-        );
-        assert_eq!(
-            arr.elements.nth(1).as_const().unwrap().constvalue.as_i32(),
-            2
-        );
+        assert_eq!(arr.elements.nth(0).as_const().unwrap().constvalue.as_i32(), 1);
+        assert_eq!(arr.elements.nth(1).as_const().unwrap().constvalue.as_i32(), 2);
 
         let q = analyze_sql(mcx, "SELECT x FROM t WHERE x NOT IN (1, 2)").unwrap();
-        let saop = q
-            .jointree
-            .unwrap()
-            .quals
-            .unwrap()
-            .as_scalar_array_op_expr()
-            .unwrap();
+        let saop = q.jointree.unwrap().quals.unwrap().as_scalar_array_op_expr().unwrap();
         assert!(!saop.useOr);
         // 518 = int4ne operator, 144 = int4ne proc.
         assert_eq!((saop.opno, saop.opfuncid), (518, 144));
@@ -3128,12 +2736,7 @@ mod from_where {
             .map(|_| ())
             .unwrap_err();
         assert_eq!(err.sqlstate(), types_error::ERRCODE_SYNTAX_ERROR);
-        assert!(
-            err.message()
-                .contains("subquery must return only one column"),
-            "{}",
-            err.message()
-        );
+        assert!(err.message().contains("subquery must return only one column"), "{}", err.message());
     }
 
     #[test]
@@ -3142,11 +2745,8 @@ mod from_where {
         let ctx = MemoryContext::new("t");
         let mcx = ctx.mcx();
 
-        let q = analyze_sql(
-            mcx,
-            "WITH w AS (SELECT x FROM t WHERE x > 5) SELECT * FROM w",
-        )
-        .unwrap();
+        let q = analyze_sql(mcx, "WITH w AS (SELECT x FROM t WHERE x > 5) SELECT * FROM w",)
+            .unwrap();
         assert!(!q.hasRecursive && !q.hasModifyingCTE);
         assert_eq!(q.cteList.len(), 1);
         let cte = q.cteList.nth(0).as_common_table_expr().unwrap();
@@ -3201,20 +2801,14 @@ mod from_where {
         let ctx = MemoryContext::new("t");
         let mcx = ctx.mcx();
 
-        let q = analyze_sql(
-            mcx,
-            "WITH w (a, b) AS (SELECT x, y FROM t) SELECT a, b FROM w",
-        )
-        .unwrap();
+        let q = analyze_sql(mcx, "WITH w (a, b) AS (SELECT x, y FROM t) SELECT a, b FROM w",)
+            .unwrap();
         let cte = q.cteList.nth(0).as_common_table_expr().unwrap();
         assert_eq!(cte.ctecolnames.len(), 2);
         assert_eq!(cte.ctecolnames.nth(0).as_string().unwrap().sval, "a");
         assert_eq!(cte.ctecolnames.nth(1).as_string().unwrap().sval, "b");
         assert_eq!(cte.ctecoltypes.as_slice(), &[INT4OID, TEXTOID]);
-        assert_eq!(
-            cte.ctecolcollations.as_slice(),
-            &[types_core::InvalidOid, 100]
-        );
+        assert_eq!(cte.ctecolcollations.as_slice(), &[types_core::InvalidOid, 100]);
     }
 
     #[test]
@@ -3227,10 +2821,7 @@ mod from_where {
             .map(|_| ())
             .unwrap_err();
         assert_eq!(err.sqlstate(), types_error::ERRCODE_DUPLICATE_ALIAS);
-        assert_eq!(
-            err.message(),
-            "WITH query name \"w\" specified more than once"
-        );
+        assert_eq!(err.message(), "WITH query name \"w\" specified more than once");
     }
 
     #[test]
@@ -3242,13 +2833,8 @@ mod from_where {
         let err = analyze_sql(mcx, "WITH w (a, b) AS (SELECT 1) SELECT a FROM w")
             .map(|_| ())
             .unwrap_err();
-        assert_eq!(
-            err.sqlstate(),
-            types_error::ERRCODE_INVALID_COLUMN_REFERENCE
-        );
-        assert!(err
-            .message()
-            .contains("has 1 columns available but 2 columns specified"));
+        assert_eq!(err.sqlstate(), types_error::ERRCODE_INVALID_COLUMN_REFERENCE);
+        assert!(err.message().contains("has 1 columns available but 2 columns specified"));
     }
 
     #[test]
@@ -3264,15 +2850,9 @@ mod from_where {
         .map(|_| ())
         .unwrap_err();
         assert_eq!(err.sqlstate(), types_error::ERRCODE_UNDEFINED_TABLE);
+        assert!(err.message().contains("relation \"b\" does not exist"), "{}", err.message());
         assert!(
-            err.message().contains("relation \"b\" does not exist"),
-            "{}",
-            err.message()
-        );
-        assert!(
-            err.detail()
-                .unwrap_or_default()
-                .contains("There is a WITH item named \"b\""),
+            err.detail().unwrap_or_default().contains("There is a WITH item named \"b\""),
             "{:?}",
             err.detail()
         );
@@ -3307,23 +2887,15 @@ mod from_where {
         assert!(!cq.canSetTag);
         assert!(cq.setOperations.is_some());
         assert_eq!(cq.rtable.len(), 2);
-        let rec_leaf = cq
-            .rtable
-            .nth(1)
-            .as_range_tbl_entry()
-            .unwrap()
-            .subquery
-            .unwrap();
+        let rec_leaf =
+            cq.rtable.nth(1).as_range_tbl_entry().unwrap().subquery.unwrap();
         let wrte = rec_leaf.rtable.nth(0).as_range_tbl_entry().unwrap();
         assert_eq!(wrte.rtekind, RTEKind::RTE_CTE);
         assert!(wrte.self_reference);
         assert_eq!(wrte.ctename, Some("w"));
         assert_eq!(wrte.ctelevelsup, 2);
         assert_eq!(wrte.coltypes.as_slice(), &[INT4OID]);
-        assert_eq!(
-            wrte.eref.unwrap().colnames.nth(0).as_string().unwrap().sval,
-            "n"
-        );
+        assert_eq!(wrte.eref.unwrap().colnames.nth(0).as_string().unwrap().sval, "n");
 
         let te = q.targetList.nth(0).as_target_entry().unwrap();
         assert_eq!(te.resname, Some("n"));
@@ -3359,28 +2931,10 @@ mod from_where {
         )
         .unwrap();
         assert_eq!(q.cteList.len(), 2);
-        assert_eq!(
-            q.cteList.nth(0).as_common_table_expr().unwrap().ctename,
-            Some("b")
-        );
-        assert_eq!(
-            q.cteList.nth(1).as_common_table_expr().unwrap().ctename,
-            Some("a")
-        );
-        assert!(
-            !q.cteList
-                .nth(0)
-                .as_common_table_expr()
-                .unwrap()
-                .cterecursive
-        );
-        assert!(
-            !q.cteList
-                .nth(1)
-                .as_common_table_expr()
-                .unwrap()
-                .cterecursive
-        );
+        assert_eq!(q.cteList.nth(0).as_common_table_expr().unwrap().ctename, Some("b"));
+        assert_eq!(q.cteList.nth(1).as_common_table_expr().unwrap().ctename, Some("a"));
+        assert!(!q.cteList.nth(0).as_common_table_expr().unwrap().cterecursive);
+        assert!(!q.cteList.nth(1).as_common_table_expr().unwrap().cterecursive);
     }
 
     #[test]
@@ -3487,12 +3041,9 @@ mod from_where {
         let ctx = MemoryContext::new("t");
         let mcx = ctx.mcx();
 
-        let err = analyze_sql(
-            mcx,
-            "WITH RECURSIVE w(n) AS (SELECT n FROM w) SELECT * FROM w",
-        )
-        .map(|_| ())
-        .unwrap_err();
+        let err = analyze_sql(mcx, "WITH RECURSIVE w(n) AS (SELECT n FROM w) SELECT * FROM w",)
+            .map(|_| ())
+            .unwrap_err();
         assert_eq!(err.sqlstate(), types_error::ERRCODE_INVALID_RECURSION);
         assert_eq!(
             err.message(),
@@ -3515,10 +3066,7 @@ mod from_where {
         .map(|_| ())
         .unwrap_err();
         assert_eq!(err.sqlstate(), types_error::ERRCODE_FEATURE_NOT_SUPPORTED);
-        assert_eq!(
-            err.message(),
-            "ORDER BY in a recursive query is not implemented"
-        );
+        assert_eq!(err.message(), "ORDER BY in a recursive query is not implemented");
     }
 
     #[test]
@@ -3535,10 +3083,7 @@ mod from_where {
         .map(|_| ())
         .unwrap_err();
         assert_eq!(err.sqlstate(), types_error::ERRCODE_FEATURE_NOT_SUPPORTED);
-        assert_eq!(
-            err.message(),
-            "LIMIT in a recursive query is not implemented"
-        );
+        assert_eq!(err.message(), "LIMIT in a recursive query is not implemented");
     }
 
     #[test]
@@ -3554,10 +3099,7 @@ mod from_where {
         .map(|_| ())
         .unwrap_err();
         assert_eq!(err.sqlstate(), types_error::ERRCODE_FEATURE_NOT_SUPPORTED);
-        assert_eq!(
-            err.message(),
-            "mutual recursion between WITH items is not implemented"
-        );
+        assert_eq!(err.message(), "mutual recursion between WITH items is not implemented");
     }
 
     // The 42804 nrterm-vs-overall type mismatch needs live operator/cast
@@ -3589,10 +3131,7 @@ mod from_where {
             let rte = rte_node.as_range_tbl_entry().unwrap();
             assert_eq!(rte.rtekind, RTEKind::RTE_SUBQUERY);
             let eref = rte.eref.unwrap();
-            assert_eq!(
-                eref.aliasname,
-                Some(if i == 0 { "*SELECT* 1" } else { "*SELECT* 2" })
-            );
+            assert_eq!(eref.aliasname, Some(if i == 0 { "*SELECT* 1" } else { "*SELECT* 2" }));
             assert!(!rte.inFromCl);
             let sub = rte.subquery.unwrap();
             assert_eq!(sub.commandType, CmdType::CMD_SELECT);
@@ -3610,10 +3149,7 @@ mod from_where {
         assert!(!te.resjunk);
         let v = te.expr.as_var().unwrap();
         assert_eq!((v.varno, v.varattno), (1, 1));
-        assert_eq!(
-            (v.vartype, v.vartypmod, v.varcollid),
-            (INT4OID, -1, types_core::InvalidOid)
-        );
+        assert_eq!((v.vartype, v.vartypmod, v.varcollid), (INT4OID, -1, types_core::InvalidOid));
         assert_eq!(v.varlevelsup, 0);
         assert_eq!((v.varnosyn, v.varattnosyn), (1, 1));
         assert_eq!(v.location, 7);
@@ -3674,14 +3210,7 @@ mod from_where {
             let te = sub.targetList.nth(0).as_target_entry().unwrap();
             assert_eq!(te.expr.as_const().unwrap().consttype, TEXTOID);
         }
-        let v = q
-            .targetList
-            .nth(0)
-            .as_target_entry()
-            .unwrap()
-            .expr
-            .as_var()
-            .unwrap();
+        let v = q.targetList.nth(0).as_target_entry().unwrap().expr.as_var().unwrap();
         assert_eq!((v.vartype, v.varcollid), (TEXTOID, 100));
     }
 
@@ -3699,17 +3228,7 @@ mod from_where {
         assert_eq!(inner.larg.unwrap().as_range_tbl_ref().unwrap().rtindex, 2);
         assert_eq!(inner.rarg.unwrap().as_range_tbl_ref().unwrap().rtindex, 3);
         assert_eq!(q.rtable.len(), 3);
-        assert_eq!(
-            q.targetList
-                .nth(0)
-                .as_target_entry()
-                .unwrap()
-                .expr
-                .as_var()
-                .unwrap()
-                .varno,
-            1
-        );
+        assert_eq!(q.targetList.nth(0).as_target_entry().unwrap().expr.as_var().unwrap().varno, 1);
     }
 
     #[test]
@@ -3744,10 +3263,7 @@ mod from_where {
             .map(|_| ())
             .unwrap_err();
         assert_eq!(err.sqlstate(), types_error::ERRCODE_FEATURE_NOT_SUPPORTED);
-        assert_eq!(
-            err.message(),
-            "invalid UNION/INTERSECT/EXCEPT ORDER BY clause"
-        );
+        assert_eq!(err.message(), "invalid UNION/INTERSECT/EXCEPT ORDER BY clause");
     }
 
     #[test]
@@ -3756,13 +3272,10 @@ mod from_where {
         let ctx = MemoryContext::new("t");
         let mcx = ctx.mcx();
 
-        let err = analyze_sql(mcx, "SELECT 1 UNION ALL SELECT 1, 2")
-            .map(|_| ())
-            .unwrap_err();
+        let err = analyze_sql(mcx, "SELECT 1 UNION ALL SELECT 1, 2").map(|_| ()).unwrap_err();
         assert_eq!(err.sqlstate(), types_error::ERRCODE_SYNTAX_ERROR);
         assert!(
-            err.message()
-                .contains("each UNION query must have the same number of columns"),
+            err.message().contains("each UNION query must have the same number of columns"),
             "{}",
             err.message()
         );
@@ -3847,45 +3360,29 @@ mod from_where {
             "DELETE FROM v WHERE CURRENT OF c1",
         ] {
             let err = analyze_sql(mcx, sql).map(|_| ()).unwrap_err();
-            assert_eq!(
-                err.sqlstate(),
-                types_error::ERRCODE_FEATURE_NOT_SUPPORTED,
-                "{sql}"
-            );
-            assert_eq!(
-                err.message(),
-                "WHERE CURRENT OF on a view is not implemented",
-                "{sql}"
-            );
+            assert_eq!(err.sqlstate(), types_error::ERRCODE_FEATURE_NOT_SUPPORTED, "{sql}");
+            assert_eq!(err.message(), "WHERE CURRENT OF on a view is not implemented", "{sql}");
         }
         // Any other WHERE on the view is fine at parse time.
         analyze_sql(mcx, "UPDATE v SET x = 1 WHERE x = 2").unwrap();
         analyze_sql(mcx, "DELETE FROM v WHERE x = 2").unwrap();
         // On a table the CurrentOfExpr passes through, naming the target RTE.
         let q = analyze_sql(mcx, "UPDATE t SET x = 1 WHERE CURRENT OF c1").unwrap();
-        let c = q
-            .jointree
-            .unwrap()
-            .quals
-            .unwrap()
-            .as_current_of_expr()
-            .unwrap();
+        let c = q.jointree.unwrap().quals.unwrap().as_current_of_expr().unwrap();
         assert_eq!(c.cvarno, 1);
         assert_eq!(c.cursor_name, Some("c1"));
         let q = analyze_sql(mcx, "DELETE FROM t WHERE CURRENT OF c1").unwrap();
-        let c = q
-            .jointree
-            .unwrap()
-            .quals
-            .unwrap()
-            .as_current_of_expr()
-            .unwrap();
+        let c = q.jointree.unwrap().quals.unwrap().as_current_of_expr().unwrap();
         assert_eq!(c.cvarno, 1);
     }
 }
 
 fn count_star_call(mcx: Mcx<'_>) -> Node<'_> {
-    let funcname = NodeList::make1(mcx, Node::mk(mcx, PgStr { sval: "count" }).unwrap()).unwrap();
+    let funcname = NodeList::make1(
+        mcx,
+        Node::mk(mcx, PgStr { sval: "count" }).unwrap()
+    )
+    .unwrap();
     Node::mk(
         mcx,
         types_nodes::rawnodes::FuncCall {
@@ -3932,8 +3429,8 @@ fn count_star_in_where_is_42803() {
     install_type_fixture();
     let ctx = MemoryContext::new("t");
     let mcx = ctx.mcx();
-    let target =
-        Node::mk_res_target(mcx, None, NodeList::nil(), Some(int_const(mcx, 1, 7)), 7).unwrap();
+    let target = Node::mk_res_target(mcx, None, NodeList::nil(), Some(int_const(mcx, 1, 7)), 7)
+        .unwrap();
     let sel = Node::mk(
         mcx,
         SelectStmt {
@@ -3956,8 +3453,7 @@ fn count_star_in_where_is_42803() {
     .unwrap_err();
     assert_eq!(err.sqlstate(), types_error::ERRCODE_GROUPING_ERROR);
     assert!(
-        err.message()
-            .contains("aggregate functions are not allowed in WHERE"),
+        err.message().contains("aggregate functions are not allowed in WHERE"),
         "{}",
         err.message()
     );
@@ -4010,8 +3506,8 @@ fn call_stmt_cache_lookup_failure_is_catchable_xx000() {
 fn parse_analyze_does_not_copy_the_source_text_into_the_arena() {
     let ctx = MemoryContext::new("t");
     let mcx = ctx.mcx();
-    let target =
-        Node::mk_res_target(mcx, None, NodeList::nil(), Some(int_const(mcx, 1, 7)), 7).unwrap();
+    let target = Node::mk_res_target(mcx, None, NodeList::nil(), Some(int_const(mcx, 1, 7)), 7)
+        .unwrap();
     let raw_stmt = raw(select_stmt(mcx, &[target]), 8);
     let padding = 1usize << 20;
     let source = format!("SELECT 1;{}", " ".repeat(padding));
@@ -4021,10 +3517,7 @@ fn parse_analyze_does_not_copy_the_source_text_into_the_arena() {
 
     assert_eq!(q.commandType, CmdType::CMD_SELECT);
     let grew = ctx.used() - before;
-    assert!(
-        grew < padding / 4,
-        "analysis of an 8-byte statement charged {grew} bytes to the arena"
-    );
+    assert!(grew < padding / 4, "analysis of an 8-byte statement charged {grew} bytes to the arena");
 }
 
 // Stack bytes per analyzer recursion level, measured through the guard.
@@ -4087,13 +3580,7 @@ fn analyzer_recursion_stack_per_level_is_capped() {
     let plus = analyzer_bytes_per_level(plus_chain);
     eprintln!("analyzer stack per level: sub-select {sublink} B, `+` {plus} B");
     let cap = stack_depth::per_level_cap(7_000, 32_000);
-    assert!(
-        sublink <= cap,
-        "nested sub-select analysis costs {sublink} B/level (cap {cap})"
-    );
+    assert!(sublink <= cap, "nested sub-select analysis costs {sublink} B/level (cap {cap})");
     let cap = stack_depth::per_level_cap(256, 1_000);
-    assert!(
-        plus <= cap,
-        "`+` chain analysis costs {plus} B/level (cap {cap})"
-    );
+    assert!(plus <= cap, "`+` chain analysis costs {plus} B/level (cap {cap})");
 }

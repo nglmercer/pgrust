@@ -696,7 +696,7 @@ impl<'s> FnView<'s> {
     /// shapecheck: the `FUSION_NAMES` bits this function's fusion passes took (narrow moves are marked at their sites).
     fn fusion_bits(&self) -> u8 {
         let mut b = 0u8;
-        b |= self.term_fuse.iter().any(|t| t.is_some()) as u8;
+        b |=self.term_fuse.iter().any(|t| t.is_some()) as u8;
         b |= (self.const_fused.iter().any(|&c| c) as u8) << 1;
         b |= ((!self.icmp_self_ext.is_empty() || !self.shifted.is_empty() || !self.trunc_sbfx.is_empty()) as u8) << 2;
         b |= ((!self.load_override.is_empty() || !self.ptr_add_override.is_empty() || !self.store_override.is_empty()) as u8) << 4;
@@ -943,7 +943,7 @@ impl<'s> FnView<'s> {
             for (ei, e) in b.term.edges().enumerate() {
                 for (i, a) in e.args.iter().enumerate() {
                     let v = rn(a.index());
-                    let split = self.blocks[bi].succs.get(ei).is_none_or(|&s| s != e.target.0);
+                    let split = self.blocks[bi].succs.get(ei).is_none_or( |&s| s != e.target.0);
                     let (n, t, pi) = edge[v];
                     edge[v] = if split || (n != 0 && (t, pi) != (e.target.0, i as u32)) { (n + 1, u32::MAX, u32::MAX) } else { (n + 1, e.target.0, i as u32) };
                 }
@@ -1320,7 +1320,7 @@ impl<'s> FnView<'s> {
                 param_block[p.index()] = bi as u32;
             }
         }
-        let live_edge = |bi: usize, ei: usize| self.term_const[bi].is_none_or(|t| t == ei);
+        let live_edge = |bi: usize, ei: usize|self.term_const[bi].is_none_or(|t| t == ei);
         // Reads the compiler emits: operands of the view's instructions
         // and the arguments of live edges (a folded `condbr`'s dead arm
         // names values it never moves).
@@ -2562,7 +2562,7 @@ impl<'s> FnView<'s> {
                 let (kt, kb) = self.const_of[index as usize].unwrap();
                 let k = const_canon(kt, kb);
                 let off = off_p + k.wrapping_mul(scale as i64) + off_l as i64;
-                if off >= 0 && (off as u64).is_multiple_of(size as u64) && (off as u64 / size as u64) < 4096 && self.ptr_add_override.get(&pa).is_none() {
+                if off >= 0 && ( off as u64).is_multiple_of( size as u64) && (off as u64 / size as u64) < 4096 && self.ptr_add_override.get(&pa).is_none() {
                     put(&mut self.load_override, ii, (base, None, off));
                     self.set_operands(ii, &[base]);
                     self.fused[pa as usize] = true;
@@ -2580,7 +2580,7 @@ impl<'s> FnView<'s> {
                 self.clear_operands(pa);
                 self.results[pa as usize] = u32::MAX;
                 self.ptr_add_override.remove(&pa);
-            } else if off_p != 0 && off >= 0 && (off as u64).is_multiple_of(size as u64) && (off as u64 / size as u64) < 4096 {
+            } else if off_p != 0 && off >= 0 && ( off as u64).is_multiple_of( size as u64) && (off as u64 / size as u64) < 4096 {
                 put(&mut self.ptr_add_override, pa, (index, scale, 0));
                 put(&mut self.load_override, ii, (p as u32, None, off));
             }
@@ -3023,7 +3023,7 @@ impl<'s> FnView<'s> {
         resize_with_in(&mut self.preds, nb, || PgVec::new_in(m));
         for (bi, b) in func.blocks.iter().enumerate() {
             for (ei, e) in b.term.edges().enumerate() {
-                if e.target.index() < nb && self.term_const[bi].is_none_or(|t| t == ei) {
+                if e.target.index() < nb &&self.term_const[bi].is_none_or(|t| t == ei) {
                     self.preds[e.target.index()].push_hot(bi as u32);
                 }
             }
@@ -3040,7 +3040,7 @@ impl<'s> FnView<'s> {
         while let Some(x) = work.pop() {
             for (ei, e) in func.blocks[x].term.edges().enumerate() {
                 let t = e.target.index();
-                if t < nb && !reach[t] && self.term_const[x].is_none_or(|c| c == ei) {
+                if t < nb && !reach[t] &&self.term_const[x].is_none_or(|c| c == ei) {
                     reach[t] = true;
                     work.push_hot(t);
                 }
@@ -3356,7 +3356,7 @@ impl<'s> FnView<'s> {
         self.weight.extend_hot(
             w.iter()
                 .map(|x| ((x * 64.0).max(1.0)).min(u32::MAX as f32 / 2.0) as u32)
-                .chain(core::iter::repeat_n(1, self.num_slots as usize)),
+                .chain(core::iter::repeat_n(1,self.num_slots as usize)),
         );
     }
 

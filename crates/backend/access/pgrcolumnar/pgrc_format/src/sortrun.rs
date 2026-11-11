@@ -158,10 +158,7 @@ impl SortRun {
 
 /// The record's body for `runs` (`run_id` ascending).
 pub fn try_encode(runs: &[SortRun]) -> FormatResult<Vec<u8>> {
-    let len = 8 + runs
-        .iter()
-        .map(|r| RUN_HEADER_LEN + 4 * r.members.len() + 16 * r.ranges.len())
-        .sum::<usize>();
+    let len = 8 + runs.iter().map(|r| RUN_HEADER_LEN + 4 * r.members.len() + 16 * r.ranges.len()).sum::<usize>();
     let mut out = crate::try_vec(len, AT)?;
     put_u8(&mut out, RUNS_VERSION);
     put_u8(&mut out, LAW_HOMES);
@@ -203,10 +200,7 @@ pub fn decode(body: &[u8]) -> FormatResult<Vec<SortRun>> {
     let mut c = Cur::new(body);
     let (version, law, r0, r1) = (c.u8(AT)?, c.u8(AT)?, c.u8(AT)?, c.u8(AT)?);
     if version != RUNS_VERSION {
-        return Err(FormatError::BadVersion {
-            at: AT,
-            got: u32::from(version),
-        });
+        return Err(FormatError::BadVersion { at: AT, got: u32::from(version), });
     }
     if law != LAW_HOMES || r0 != 0 || r1 != 0 {
         return Err(corrupt());
@@ -220,8 +214,7 @@ pub fn decode(body: &[u8]) -> FormatResult<Vec<SortRun>> {
         let run_id = c.u64(AT)?;
         let (level, rev, rank, flags) = (c.u8(AT)?, c.u8(AT)?, c.u8(AT)?, c.u8(AT)?);
         let nmembers = c.u32(AT)? as usize;
-        let (rows, rev_len, rev_crc, nranges) =
-            (c.u64(AT)?, c.u64(AT)?, c.u32(AT)?, c.u32(AT)? as usize);
+        let (rows, rev_len, rev_crc, nranges) = (c.u64(AT)?, c.u64(AT)?, c.u32(AT)?, c.u32(AT)? as usize);
         let rev = RunRevForm::of(rev).ok_or_else(corrupt)?;
         let rank = RankForm::of(rank).ok_or_else(corrupt)?;
         let ok = run_id != 0
@@ -230,10 +223,7 @@ pub fn decode(body: &[u8]) -> FormatResult<Vec<SortRun>> {
             && flags == 0
             && (1..=MAX_MEMBERS).contains(&nmembers)
             && rows >= 1
-            && nmembers
-                .saturating_mul(4)
-                .saturating_add(nranges.saturating_mul(16))
-                <= c.remaining();
+            && nmembers.saturating_mul(4).saturating_add(nranges.saturating_mul(16)) <= c.remaining();
         if !ok {
             return Err(corrupt());
         }
@@ -251,26 +241,11 @@ pub fn decode(body: &[u8]) -> FormatResult<Vec<SortRun>> {
             prev_hi = hi;
             ranges.push((lo, hi));
         }
-        let r = SortRun {
-            run_id,
-            level,
-            rev,
-            rank,
-            rows,
-            rev_len,
-            rev_crc,
-            members,
-            ranges,
-        };
+        let r = SortRun { run_id, level, rev, rank, rows, rev_len, rev_crc, members, ranges, };
         let shape = match r.rev {
-            RunRevForm::None => {
-                r.ranges.is_empty() && r.rev_len == 0 && r.rev_crc == 0 && r.rank == RankForm::Dense
+            RunRevForm::None => { r.ranges.is_empty() && r.rev_len == 0 && r.rev_crc == 0 && r.rank == RankForm::Dense
             }
-            _ => {
-                !r.ranges.is_empty()
-                    && r.rev_len >= crate::runrev::PAGE as u64
-                    && r.rev_len.is_multiple_of(crate::runrev::PAGE as u64)
-                    && (r.rank == RankForm::Set || r.rows <= r.span())
+            _ => { !r.ranges.is_empty() && r.rev_len >= crate::runrev::PAGE as u64 && r.rev_len.is_multiple_of( crate::runrev::PAGE as u64) && (r.rank == RankForm::Set || r.rows <= r.span())
             }
         };
         if !shape || r.live().next().is_none() {
@@ -329,17 +304,10 @@ fn check_against(m: &Manifest, runs: &[SortRun]) -> FormatResult<()> {
     }
     let mut seen: Vec<u32> = runs.iter().flat_map(|r| r.live()).collect();
     seen.sort_unstable();
-    if seen.windows(2).any(|w| w[0] == w[1])
-        || seen
-            .iter()
-            .any(|&p| m.parts.binary_search_by_key(&p, |x| x.part_no).is_err())
-    {
+    if seen.windows(2).any(|w| w[0] == w[1]) || seen.iter().any(|&p| m.parts.binary_search_by_key(&p, |x| x.part_no).is_err()) {
         return Err(corrupt());
     }
-    let ranged: Vec<u32> = crate::manifest::range_entries(m)?
-        .into_iter()
-        .map(|e| e.0)
-        .collect();
+    let ranged: Vec<u32> = crate::manifest::range_entries(m)?.into_iter().map(|e| e.0).collect();
     for r in runs.iter().filter(|r| r.homes()) {
         if r.live().any(|p| ranged.binary_search(&p).is_ok()) {
             return Err(corrupt());
@@ -366,14 +334,8 @@ pub fn with_runs(ext: &[u8], runs: &[SortRun]) -> FormatResult<Vec<u8>> {
 /// it to (a member rewritten in place: its DV folded, the run reverse unchanged), else 0 (the member left with every
 /// row); a run left with no live slot is dropped (its reverse file goes with the next reclaim). `ext` unchanged
 /// without a record or when nothing applies. `repoint`'s targets must not be members already.
-pub fn retire_members(
-    ext: &[u8],
-    retired: &[u32],
-    repoint: &[(u32, u32)],
-) -> FormatResult<Vec<u8>> {
-    let Some(_) = record(ext)? else {
-        return crate::try_to_vec(ext, AT);
-    };
+pub fn retire_members(ext: &[u8], retired: &[u32], repoint: &[(u32, u32)],) -> FormatResult<Vec<u8>> {
+    let Some(_) = record(ext)? else { return crate::try_to_vec(ext, AT); };
     let mut runs = runs_in(ext)?;
     let mut changed = false;
     for r in runs.iter_mut() {

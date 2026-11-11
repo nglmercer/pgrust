@@ -1001,7 +1001,7 @@ impl<'m> FunctionWriterBase<'_, '_, 'm> {
         self.eh_advance_raw(size)
     }
     fn eh_init_cie(&mut self, personality: SymRef) -> PgResult<()> {
-        ensure(self.state.eh_cursor.is_multiple_of(4), "unaligned CIE")?;
+        ensure(self.state.eh_cursor.is_multiple_of( 4), "unaligned CIE")?;
         ensure(
             self.cie.code_alignment_factor < 128 && self.cie.data_alignment_factor < 128,
             "CIE alignment factors require one-byte LEB",
@@ -1064,7 +1064,7 @@ impl<'m> FunctionWriterBase<'_, '_, 'm> {
             self.eh_init_cie(personality)?;
             self.state.personality = personality;
         }
-        ensure(self.state.eh_cursor.is_multiple_of(4), "unaligned FDE")?;
+        ensure(self.state.eh_cursor.is_multiple_of( 4), "unaligned FDE")?;
         let start = offset32(self.state.eh_cursor)?;
         let id = start
             .checked_sub(self.state.cie_offset)
@@ -1121,7 +1121,7 @@ impl<'m> FunctionWriterBase<'_, '_, 'm> {
             "flush text before ending module",
         )?;
         ensure(!self.state.fde_open, "cannot end module with open FDE")?;
-        ensure(self.state.eh_cursor.is_multiple_of(4), "unaligned EH frame section")?;
+        ensure(self.state.eh_cursor.is_multiple_of( 4), "unaligned EH frame section")?;
         if self.state.eh_cursor & 7 != 0 {
             let start = self.state.fde_start as usize;
             let data = self.eh_data()?;

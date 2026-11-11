@@ -37,7 +37,7 @@ fn an_unselected_fault_is_silent_and_a_selected_one_raises_at_its_row() {
     assert_eq!(unsafe { t.gather_mask(dirty.as_ptr(), core::ptr::null(), 6, true, &mut out) }, Err(Deferred { row: 2, code: xylo }));
     let valid = [!(1 << 2)];
     assert_eq!(unsafe { t.gather_mask(dirty.as_ptr(), valid.as_ptr(), 6, true, &mut out) }, Err(Deferred { row: 4, code: xray }), "a null row never raises; the next selected fault does");
-    let valid = [!(1 << 2) & !(1 << 4)];
+    let valid = [ !(1 << 2) & !(1 << 4)];
     unsafe { t.gather_mask(dirty.as_ptr(), valid.as_ptr(), 6, true, &mut out) }.unwrap();
     assert_eq!(out[0], 0b101001 & valid[0]);
     let mut mask = [0b000011u64];

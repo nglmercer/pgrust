@@ -44,10 +44,7 @@ impl MinimalFormPlan {
                 return None;
             }
             off = att_nominal_alignby(off, att.attalignby);
-            *col = FormCol {
-                off: off as u16,
-                len: att.attlen as u8,
-            };
+            *col = FormCol { off: off as u16, len: att.attlen as u8, };
             off += att.attlen as usize;
         }
         let hoff = MAXALIGN(SizeofMinimalTupleHeader);

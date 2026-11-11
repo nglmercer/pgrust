@@ -19,14 +19,14 @@
 
 use crate::section::{frame_base, frame_start, open_section, payload_region, read_le_w};
 use pgrc_format::abi::{
-    narrow_each, refuse_decode_codes, refuse_dict_handle, validity_from_ctx, CodecVtable,
-    DecodeOut, EncodeInput, GranuleEncoder, KernelCtx, KernelKey, NarrowInt, NarrowOut, Selection,
-    ValidityVerdict,
+    narrow_each,
+    refuse_decode_codes, refuse_dict_handle, validity_from_ctx, CodecVtable, DecodeOut,
+    EncodeInput, GranuleEncoder, KernelCtx, KernelKey, NarrowInt, NarrowOut, Selection, ValidityVerdict,
 };
 use pgrc_format::class::CLASS_BYVAL;
 use pgrc_format::enc::EncodingId;
 use pgrc_format::geom::{FRAME_VALUES, GRANULE_ROWS};
-use pgrc_format::meta::{MetaProbe, ProbeAnswer};
+use pgrc_format::meta::{ MetaProbe, ProbeAnswer};
 use pgrc_format::part::{OverflowSink, StreamSectionWriter};
 use pgrc_format::{FormatError, FormatResult};
 
@@ -238,13 +238,7 @@ fn dec_frame(payload: &[u8], fs: usize, n: usize, buf: &mut [u64]) -> FormatResu
 
 /// The first `need` values of a frame of `n` (`need <= n`): the frame's bounds
 /// are checked for all `n`, as a whole-frame decode checks them.
-fn dec_frame_prefix(
-    payload: &[u8],
-    fs: usize,
-    n: usize,
-    need: usize,
-    buf: &mut [u64],
-) -> FormatResult<()> {
+fn dec_frame_prefix(payload: &[u8], fs: usize, n: usize, need: usize, buf: &mut [u64],) -> FormatResult<()> {
     debug_assert!(need <= n);
     let hdr = payload
         .get(fs..fs + FRAME_HDR_LEN)
@@ -324,10 +318,7 @@ fn df_narrow<T: NarrowInt>(ctx: &KernelCtx<'_>, out: &mut [T]) -> FormatResult<u
         let n = (ctx.values - r).min(FRAME_VALUES) as usize;
         let fs = frame_start(ctx.frame_table, fbase + f)?;
         dec_frame(payload, fs, n, &mut buf)?;
-        for (o, &w) in out[r as usize..r as usize + n]
-            .iter_mut()
-            .zip(buf[..n].iter())
-        {
+        for (o, &w) in out[r as usize..r as usize + n].iter_mut().zip(buf[..n].iter()) {
             *o = T::of_word(w);
         }
         r += n as u32;
@@ -337,11 +328,7 @@ fn df_narrow<T: NarrowInt>(ctx: &KernelCtx<'_>, out: &mut [T]) -> FormatResult<u
 }
 
 fn df_dec_narrow(ctx: &KernelCtx<'_>, out: NarrowOut<'_>) -> FormatResult<u32> {
-    narrow_each(
-        out,
-        |o| df_narrow::<i16>(ctx, o),
-        |o| df_narrow::<i32>(ctx, o),
-    )
+    narrow_each(out, |o| df_narrow::<i16>(ctx, o), |o| df_narrow::<i32>(ctx, o),)
 }
 
 fn df_dec_sel(

@@ -66,12 +66,7 @@ fn elect(col: &ColBuffer, cands: &CodecCandidates) -> FullElection {
         .map(|g| {
             let start = g as usize * GranuleGrain::DEFAULT.rows() as usize;
             let rows_g = geom::rows_in_granule(rows, g);
-            col.encode_input(
-                g,
-                GranuleGrain::DEFAULT,
-                &flat[start..start + rows_g as usize],
-                rows_g,
-            )
+            col.encode_input(g, GranuleGrain::DEFAULT, &flat[start..start + rows_g as usize], rows_g,)
         })
         .collect();
     let fin = FullElectInput {
@@ -83,10 +78,7 @@ fn elect(col: &ColBuffer, cands: &CodecCandidates) -> FullElection {
         col: Some(col),
     };
     use crate::elect::CandidateSource;
-    cands
-        .elect_full(&fin)
-        .expect("full source answers")
-        .expect("election ok")
+    cands.elect_full(&fin).expect("full source answers").expect("election ok")
 }
 
 /// The shared fixture: two overlapping source dictionaries (both carrying
@@ -129,17 +121,17 @@ fn fixture() -> (Vec<Arc<dyn DictEntries>>, Vec<(u64, Vec<u8>)>) {
     };
     for i in 0..9000u32 {
         match i % 6 {
-            0 => rows.push((0, d0e(0))),
-            1 => rows.push((1, d0e(1))),
+            0 => rows.push(( 0, d0e(0))),
+            1 => rows.push(( 1, d0e(1))),
             2 => rows.push(((1u64 << 32), d1e(0))),
             3 => rows.push((1u64 << 32 | 1, d1e(1))),
-            4 => rows.push((3, d0e(3))),
+            4 => rows.push(( 3, d0e(3))),
             _ => rows.push((1u64 << 32 | 2, d1e(2))),
         }
     }
     // Empty-string dict rows (code 4 of d0).
     for _ in 0..64 {
-        rows.push((4, Vec::new()));
+        rows.push(( 4, Vec::new()));
     }
     // PLAIN hybrid tail: new values + values duplicating dict entries (the
     // merge must collapse those too).
@@ -154,7 +146,10 @@ fn fixture() -> (Vec<Arc<dyn DictEntries>>, Vec<(u64, Vec<u8>)>) {
     (vec![d0, d1], rows)
 }
 
-fn build_cols(sources: &[Arc<dyn DictEntries>], rows: &[(u64, Vec<u8>)]) -> (ColBuffer, ColBuffer) {
+fn build_cols(
+    sources: &[Arc<dyn DictEntries>],
+    rows: &[(u64, Vec<u8>)]
+) -> (ColBuffer, ColBuffer) {
     let mut rebuild = ColBuffer::new(text_schema());
     let mut inherit = ColBuffer::new(text_schema());
     for (_, payload) in rows {
@@ -171,10 +166,7 @@ fn build_cols(sources: &[Arc<dyn DictEntries>], rows: &[(u64, Vec<u8>)]) -> (Col
 fn inherit_equals_rebuild_multisource_hybrid() {
     let (sources, rows) = fixture();
     let (rebuild, inherit) = build_cols(&sources, &rows);
-    assert!(
-        inherit.dict_side().is_some(),
-        "side channel covers the part"
-    );
+    assert!(inherit.dict_side().is_some(), "side channel covers the part");
     let cands = dict_cands(1 << 20);
     let a = elect(&rebuild, &cands);
     let b = elect(&inherit, &cands);
@@ -244,12 +236,7 @@ fn inherit_out_of_range_code_refuses_typed() {
         .map(|g| {
             let start = g as usize * GranuleGrain::DEFAULT.rows() as usize;
             let rows_g = geom::rows_in_granule(nrows, g);
-            col.encode_input(
-                g,
-                GranuleGrain::DEFAULT,
-                &flat[start..start + rows_g as usize],
-                rows_g,
-            )
+            col.encode_input(g, GranuleGrain::DEFAULT, &flat[start..start + rows_g as usize], rows_g,)
         })
         .collect();
     let fin = FullElectInput {

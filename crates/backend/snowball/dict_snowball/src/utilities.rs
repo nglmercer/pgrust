@@ -64,7 +64,7 @@ pub unsafe fn skip_utf8(p: *const symbol, mut c: c_int, limit: c_int, mut n: c_i
         if b >= 0xc0 {
             while c < limit {
                 b = unsafe { *p.offset(c as isize) } as c_int;
-                if !(0x80..0xc0).contains(&b) {
+                if !(0x80.. 0xc0).contains(& b) {
                     break;
                 }
                 c += 1;
@@ -102,29 +102,29 @@ pub unsafe fn skip_b_utf8(p: *const symbol, mut c: c_int, limit: c_int, mut n: c
 }
 
 unsafe fn get_utf8(p: *const symbol, mut c: c_int, l: c_int, slot: *mut c_int) -> c_int {
-    
-    
-    
     if c >= l {
         return 0;
     }
     let fresh1 = c;
     c += 1;
-    let b0: c_int = unsafe { *p.offset(fresh1 as isize) } as c_int;
+    let
+    b0: c_int = unsafe { *p.offset(fresh1 as isize) } as c_int;
     if b0 < 0xc0 || c == l {
         unsafe { *slot = b0 };
         return 1;
     }
     let fresh2 = c;
     c += 1;
-    let b1: c_int = unsafe { *p.offset(fresh2 as isize) } as c_int & 0x3f;
+    let
+    b1: c_int = unsafe { *p.offset(fresh2 as isize) } as c_int & 0x3f;
     if b0 < 0xe0 || c == l {
         unsafe { *slot = (b0 & 0x1f) << 6 | b1 };
         return 2;
     }
     let fresh3 = c;
     c += 1;
-    let b2: c_int = unsafe { *p.offset(fresh3 as isize) } as c_int & 0x3f;
+    let
+    b2: c_int = unsafe { *p.offset(fresh3 as isize) } as c_int & 0x3f;
     if b0 < 0xf0 || c == l {
         unsafe { *slot = (b0 & 0xf) << 12 | b1 << 6 | b2 };
         return 3;

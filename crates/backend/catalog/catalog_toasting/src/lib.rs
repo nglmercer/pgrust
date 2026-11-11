@@ -1,5 +1,5 @@
 // toasting.c; bootstrap arms are unreached here.
-#![allow(non_snake_case, non_upper_case_globals)]
+#![allow(non_snake_case,non_upper_case_globals)]
 
 use datum::Datum;
 use execindexing::IndexInfo;
@@ -35,9 +35,7 @@ fn unported(what: &str) -> ! {
 #[cold]
 #[inline(never)]
 fn relation_lookup_failed(relOid: types_core::Oid) -> Box<types_error::PgError> {
-    Box::new(types_error::PgError::error(format!(
-        "cache lookup failed for relation {relOid}"
-    )))
+    Box::new(types_error::PgError::error(format!("cache lookup failed for relation {relOid}")))
 }
 
 pub fn NewRelationCreateToastTable<'mcx>(
@@ -45,14 +43,7 @@ pub fn NewRelationCreateToastTable<'mcx>(
     relOid: Oid,
     reloptions: Option<&[u8]>,
 ) -> PgResult<()> {
-    CheckAndCreateToastTable(
-        mcx,
-        relOid,
-        reloptions,
-        AccessExclusiveLock,
-        false,
-        InvalidOid,
-    )
+    CheckAndCreateToastTable(mcx, relOid, reloptions, AccessExclusiveLock, false, InvalidOid,)
 }
 
 pub fn AlterTableCreateToastTable<'mcx>(
@@ -83,23 +74,12 @@ pub fn BootstrapToastTable<'mcx>(
         location: -1,
     };
     let rel = table::table_openrv(mcx, &rv, AccessExclusiveLock)?;
-    if rel.rd_rel.relkind != types_rel::RELKIND_RELATION
-        && rel.rd_rel.relkind != types_rel::RELKIND_MATVIEW
-    {
+    if rel.rd_rel.relkind != types_rel::RELKIND_RELATION && rel.rd_rel.relkind != types_rel::RELKIND_MATVIEW {
         return Err(Box::new(types_error::PgError::error(format!(
             "\"{rel_name}\" is not a table or materialized view"
         ))));
     }
-    if !create_toast_table(
-        mcx,
-        &rel,
-        toast_oid,
-        toast_index_oid,
-        None,
-        AccessExclusiveLock,
-        false,
-        InvalidOid,
-    )? {
+    if !create_toast_table(mcx, &rel, toast_oid, toast_index_oid, None, AccessExclusiveLock, false, InvalidOid,)? {
         return Err(Box::new(types_error::PgError::error(format!(
             "\"{rel_name}\" does not require a toast table"
         ))));
@@ -126,16 +106,7 @@ fn CheckAndCreateToastTable<'mcx>(
     OIDOldToast: Oid,
 ) -> PgResult<()> {
     let rel = table::table_open(mcx, relOid, lockmode)?;
-    create_toast_table(
-        mcx,
-        &rel,
-        InvalidOid,
-        InvalidOid,
-        reloptions,
-        lockmode,
-        check,
-        OIDOldToast,
-    )?;
+    create_toast_table(mcx, &rel, InvalidOid, InvalidOid, reloptions, lockmode, check, OIDOldToast,)?;
     rel.close(NoLock)
 }
 
@@ -177,30 +148,9 @@ fn create_toast_table<'mcx>(
     let toast_idxname = format!("pg_toast_{relOid}_index");
 
     let mut tupdesc = tupdesc::CreateTemplateTupleDesc(mcx, 3)?;
-    tupdesc::TupleDescInitEntry(
-        &mut tupdesc,
-        1 as AttrNumber,
-        Some("chunk_id"),
-        OIDOID,
-        -1,
-        0,
-    )?;
-    tupdesc::TupleDescInitEntry(
-        &mut tupdesc,
-        2 as AttrNumber,
-        Some("chunk_seq"),
-        INT4OID,
-        -1,
-        0,
-    )?;
-    tupdesc::TupleDescInitEntry(
-        &mut tupdesc,
-        3 as AttrNumber,
-        Some("chunk_data"),
-        BYTEAOID,
-        -1,
-        0,
-    )?;
+    tupdesc::TupleDescInitEntry(&mut tupdesc, 1 as AttrNumber, Some("chunk_id"), OIDOID, -1, 0,)?;
+    tupdesc::TupleDescInitEntry(&mut tupdesc, 2 as AttrNumber, Some("chunk_seq"), INT4OID, -1, 0,)?;
+    tupdesc::TupleDescInitEntry(&mut tupdesc, 3 as AttrNumber, Some("chunk_data"), BYTEAOID, -1, 0,)?;
     for i in 0..3 {
         let att = tupdesc.attr_mut(i);
         att.attstorage = TYPSTORAGE_PLAIN;

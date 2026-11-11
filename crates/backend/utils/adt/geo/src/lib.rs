@@ -1,7 +1,7 @@
 //! geo_ops.c: the 2-D geometric types (point/lseg/line/box/path/polygon/circle)
 //! and their operators. PATH and POLYGON are varlena; the fixed-size types are
 //! by-ref native struct images.
-#![allow(non_snake_case, non_upper_case_globals)]
+#![allow(non_snake_case,non_upper_case_globals)]
 
 pub mod boxes;
 pub mod builtins;

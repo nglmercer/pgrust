@@ -53,15 +53,15 @@ pub const EXTENT_MAX_LEN: u64 = u32::MAX as u64;
 
 // Nesting laws, compile-time (the freeze itself).
 const _: () = {
-    assert!(GRANULE_ROWS.is_multiple_of(BATCH_ROWS));
-    assert!(GRANULE_ROWS.is_multiple_of(FRAME_VALUES));
-    assert!(BAND_ROWS.is_multiple_of(GRANULE_ROWS));
+    assert!(GRANULE_ROWS.is_multiple_of( BATCH_ROWS));
+    assert!(GRANULE_ROWS.is_multiple_of( FRAME_VALUES));
+    assert!(BAND_ROWS.is_multiple_of( GRANULE_ROWS));
     assert!(FRAMES_PER_GRANULE == 8);
     assert!(GRANULES_PER_BAND == 8);
     assert!(FRAME_VALUES == BATCH_ROWS);
     // Bit-packed frame addressing is byte-exact at any width (spec §6.11):
     // FRAME_VALUES × width ≡ 0 (mod 8) for all widths because 1024 % 8 == 0.
-    assert!(FRAME_VALUES.is_multiple_of(8));
+    assert!(FRAME_VALUES.is_multiple_of( 8));
 };
 
 // ---------------------------------------------------------------------------
@@ -93,7 +93,7 @@ const _: () = {
     while i < GRAIN_LADDER.len() {
         let g = GRAIN_LADDER[i];
         assert!(g.is_power_of_two());
-        assert!(g.is_multiple_of(FRAME_VALUES));
+        assert!(g.is_multiple_of( FRAME_VALUES));
         assert!(g <= GRANULE_ROWS);
         assert!(g >= FRAME_VALUES);
         // Largest-first, strictly descending.

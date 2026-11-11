@@ -29,15 +29,11 @@ impl Rng {
 const N: usize = 8 << 20; // 8Mi values = 64 MiB of f64 payload per arm
 
 fn decimal_origin(rng: &mut Rng) -> Vec<f64> {
-    (0..N)
-        .map(|_| rng.i64_in(-10_000_000, 10_000_000) as f64 / 100.0)
-        .collect()
+    (0..N).map(|_| rng.i64_in(-10_000_000, 10_000_000) as f64 / 100.0).collect()
 }
 
 fn real_double(rng: &mut Rng) -> Vec<f64> {
-    (0..N)
-        .map(|_| (rng.next_u64() >> 11) as f64 * (1.0 / (1u64 << 53) as f64))
-        .collect()
+    (0..N).map(|_| (rng.next_u64() >> 11) as f64 * (1.0 / (1u64 << 53) as f64)).collect()
 }
 
 fn mixed(rng: &mut Rng) -> Vec<f64> {

@@ -18,9 +18,7 @@ use crate::*;
 pub(crate) fn make<'mcx>(mcx: Mcx<'mcx>, oid: Oid, relkind: u8, relam: Oid) -> Relation<'mcx> {
     let mut relname = NameData::default();
     relname.namestrcpy("t");
-    let data = RelationData {
-        rd_locator: Default::default(),
-        rd_smgr: Default::default(),
+    let data = RelationData { rd_locator: Default::default(), rd_smgr: Default::default(),
         rd_id: oid,
         rd_backend: INVALID_PROC_NUMBER,
         rd_islocaltemp: false,
@@ -30,10 +28,7 @@ pub(crate) fn make<'mcx>(mcx: Mcx<'mcx>, oid: Oid, relkind: u8, relam: Oid) -> R
         rd_firstRelfilelocatorSubid: Cell::new(0),
         rd_droppedSubid: Cell::new(0),
         rd_lockInfo: LockInfoData {
-            lockRelId: LockRelId {
-                relId: oid,
-                dbId: 5,
-            },
+            lockRelId: LockRelId { relId: oid, dbId: 5, },
         },
         rd_rel: FormData_pg_class {
             relname,
@@ -77,17 +72,13 @@ pub(crate) fn make<'mcx>(mcx: Mcx<'mcx>, oid: Oid, relkind: u8, relam: Oid) -> R
         pgstat_enabled: Cell::new(false),
         pgstat_link: core::cell::Cell::new((0, core::ptr::null_mut())),
         rd_amcache: Default::default(),
-        rd_amcache_hash: Default::default(),
-        rd_amcache_gin: Default::default(),
-        rd_amcache_spgist: Default::default(),
-        rd_amcache_bloom: Default::default(),
+        rd_amcache_hash: Default::default(), rd_amcache_gin: Default::default(), rd_amcache_spgist: Default::default(), rd_amcache_bloom: Default::default(),
         rd_support: PgVec::new_in(mcx),
         rd_supportinfo: Default::default(),
         rd_opcoptions: Default::default(),
         rd_indexlist: Default::default(),
-        rd_trigdesc: Default::default(),
-        rd_hastriggers: false,
-        rd_hasrules: false,
+            rd_trigdesc: Default::default(),
+            rd_hastriggers: false, rd_hasrules: false,
     };
     Relation::open(data, None)
 }
@@ -130,10 +121,7 @@ fn invalid_latest_tid_error_location() {
     let location = err.location.unwrap();
     assert_eq!(location.filename.as_deref(), Some("tableam.c"));
     assert_eq!(location.lineno, 259);
-    assert_eq!(
-        location.funcname.as_deref(),
-        Some("table_tuple_get_latest_tid")
-    );
+    assert_eq!(location.funcname.as_deref(), Some("table_tuple_get_latest_tid"));
 }
 
 #[test]
@@ -455,19 +443,8 @@ fn pgrc_tuple_update_delete_reach_the_front_at_the_dispatch() {
     let mut tmfd = TM_FailureData::default();
     let not_valid = "pgrcolumnar: position not valid in this statement";
 
-    let e = table_tuple_delete(
-        ctx.mcx(),
-        &rel,
-        &tid,
-        0,
-        &None,
-        &None,
-        true,
-        &mut tmfd,
-        false,
-    )
-    .err()
-    .unwrap();
+    let e = table_tuple_delete(ctx.mcx(), &rel, &tid, 0, &None, &None, true, &mut tmfd, false,)
+        .err().unwrap();
     assert_eq!(e.sqlstate(), types_error::ERRCODE_INVALID_PARAMETER_VALUE);
     assert_eq!(e.message(), not_valid);
 
@@ -487,19 +464,12 @@ fn pgrc_tuple_update_delete_reach_the_front_at_the_dispatch() {
         &mut lockmode,
         &mut update_indexes,
     )
-    .err()
-    .unwrap();
+    .err().unwrap();
     assert_eq!(e.sqlstate(), types_error::ERRCODE_INVALID_PARAMETER_VALUE);
     assert_eq!(e.message(), not_valid);
     // LOCK: a pgrcolumnar UPDATE is a no-key update (no unique index), as heap_update's lock mode for it; IX1 L2:
     // the new version has a new ID, so every index takes an entry for it
-    assert_eq!(
-        (lockmode, update_indexes),
-        (
-            LockTupleMode::LockTupleNoKeyExclusive,
-            TU_UpdateIndexes::TU_All
-        )
-    );
+    assert_eq!((lockmode, update_indexes), (LockTupleMode::LockTupleNoKeyExclusive, TU_UpdateIndexes::TU_All));
 }
 
 #[test]
@@ -519,11 +489,10 @@ fn pgrc_index_callbacks_raise_a_typed_error_not_a_panic() {
     table_index_fetch_reset(&mut fetch);
     table_index_fetch_end(fetch);
     let tid = ItemPointerData::new(1, 1);
-    assert!(!table_index_fetch_all_visible(&rel, &tid, |_| unreachable!(
-        "pgrc consults no visibility map"
-    ))
-    .unwrap());
+    assert!(!table_index_fetch_all_visible(&rel, &tid, |_| unreachable!("pgrc consults no visibility map")).unwrap());
     let e = cb2_refused("bitmap scans");
     assert_eq!(e.sqlstate(), types_error::ERRCODE_FEATURE_NOT_SUPPORTED);
     assert_eq!(e.message(), "pgrcolumnar does not support bitmap scans");
 }
+
+

@@ -150,7 +150,7 @@ fn setting_tuple(mcx: Mcx<'_>, desc: &TupleDescData<'_>, conf: &GucVariable) -> 
     values[16] = Datum::from_bool(gen.status & GUC_PENDING_RESTART != 0);
 
     let tuple = heaptuple::heap_form_tuple(mcx, desc, &values, &nulls)?;
-    let image = ::mcx::std_vec_from_slice("misc", tuple.image())?;
+    let image = ::mcx::std_vec_from_slice("misc",tuple.image())?;
     drop(enum_arr);
     Ok(image)
 }

@@ -315,7 +315,7 @@ fn report_missing_or_gen_attrs(
     }
     if !generated.is_empty() {
         // C collects these in a Bitmapset: ascending remote attnum order.
-        let mut generated = ::mcx::std_vec_from_slice("replication", generated)?;
+        let mut generated = ::mcx::std_vec_from_slice("replication",generated)?;
         generated.sort_unstable();
         let column = if generated.len() == 1 { "column" } else { "columns" };
         ereport(ERROR)

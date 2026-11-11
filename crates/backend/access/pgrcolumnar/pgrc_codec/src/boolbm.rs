@@ -9,13 +9,13 @@
 
 use crate::section::{frame_start, granule_frame_base, open_section, payload_region};
 use pgrc_format::abi::{
-    refuse_decode_codes, refuse_decode_narrow, refuse_dict_handle, validity_from_ctx, CodecVtable,
-    DecodeOut, EncodeInput, GranuleEncoder, KernelCtx, KernelKey, Selection, ValidityVerdict,
+    refuse_decode_codes, refuse_decode_narrow, refuse_dict_handle, validity_from_ctx, CodecVtable, DecodeOut,
+    EncodeInput, GranuleEncoder, KernelCtx, KernelKey, Selection, ValidityVerdict,
 };
 use pgrc_format::class::CLASS_BOOL;
 use pgrc_format::enc::EncodingId;
 use pgrc_format::geom::GRANULE_ROWS;
-use pgrc_format::meta::{MetaProbe, ProbeAnswer};
+use pgrc_format::meta::{ MetaProbe, ProbeAnswer};
 use pgrc_format::part::{OverflowSink, StreamSectionWriter};
 use pgrc_format::{FormatError, FormatResult};
 

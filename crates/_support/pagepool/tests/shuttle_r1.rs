@@ -52,16 +52,9 @@ fn one_round() {
     pagepool::serve_ask_now();
     pagepool::serve_ask_now();
     if asked != 0 {
-        assert!(
-            pagepool::r1_counts().calls > before,
-            "R1's ask was served by a plain purge, not return_warm_now"
-        );
+        assert!(pagepool::r1_counts().calls > before, "R1's ask was served by a plain purge, not return_warm_now");
     }
-    assert_eq!(
-        pagepool::landing(u32::MAX),
-        0,
-        "LANDING left set with no ask pending"
-    );
+    assert_eq!(pagepool::landing(u32::MAX), 0, "LANDING left set with no ask pending");
     if let Err(e) = pagepool::hooks::check() {
         panic!("{e}: {:?}", pagepool::stats());
     }
@@ -69,9 +62,6 @@ fn one_round() {
 
 #[test]
 fn r1_ask_races_the_purgers_pass() {
-    let iters = std::env::var("SHUTTLE_ITERS")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(2000);
+    let iters = std::env::var("SHUTTLE_ITERS").ok().and_then(|v| v.parse().ok()).unwrap_or(2000);
     shuttle::check_pct(one_round, iters, 3);
 }

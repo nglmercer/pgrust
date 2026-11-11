@@ -26,13 +26,13 @@
 use crate::section::{frame_base, frame_start, open_section, payload_region, read_le_w};
 use pgrc_format::abi::{
     narrow_each, refuse_decode_codes, refuse_dict_handle, validity_from_ctx, CodecVtable,
-    DecodeOut, EncodeInput, GranuleEncoder, KernelCtx, KernelKey, NarrowInt, NarrowOut, Selection,
-    ValidityVerdict,
+    DecodeOut, EncodeInput, GranuleEncoder, KernelCtx, KernelKey, NarrowInt, NarrowOut,
+    Selection, ValidityVerdict,
 };
 use pgrc_format::class::CLASS_BYVAL;
 use pgrc_format::enc::EncodingId;
 use pgrc_format::geom::FRAME_VALUES;
-use pgrc_format::meta::{MetaProbe, ProbeAnswer};
+use pgrc_format::meta::{ MetaProbe, ProbeAnswer};
 use pgrc_format::part::{OverflowSink, StreamSectionWriter};
 use pgrc_format::{FormatError, FormatResult};
 
@@ -424,12 +424,7 @@ impl SelWord for i16 {
 /// The selected rows of a resolved granule, each value at its own row (`out[r]` for every selected `r`; `out` spans the
 /// rows up to the last selected one, the others untouched), at delta width `width` (1..=8): a lane's gather and scatter in
 /// one pass with no ctx and no section header parse (TH14's source lever, main 09-24).
-pub fn sel_at_framed<T: SelWord>(
-    f: &Framed<'_>,
-    width: u8,
-    sel: &Selection<'_>,
-    out: &mut [T],
-) -> FormatResult<u32> {
+pub fn sel_at_framed<T: SelWord>(f: &Framed<'_>, width: u8, sel: &Selection<'_>, out: &mut [T],) -> FormatResult<u32> {
     let v = f.view();
     match width {
         1 => dec_sel_into::<1, true, T>(&v, sel, out),
@@ -450,15 +445,9 @@ pub fn sel_at_framed<T: SelWord>(
 /// `deltas` its `n × width` stored bytes (`n` its values), its address and body proven inside the payload. A consumer
 /// that compares values on their deltas (gravity's row filter, D3223) reads them through this. Stops at the first `false`
 /// (`Ok(false)`).
-pub fn each_frame<'a>(
-    f: &Framed<'a>,
-    width: u8,
-    mut each: impl FnMut(usize, u64, &'a [u8]) -> bool,
-) -> FormatResult<bool> {
+pub fn each_frame<'a>(f: &Framed<'a>, width: u8, mut each: impl FnMut(usize, u64, &'a [u8]) -> bool,) -> FormatResult<bool> {
     if !(1..=8).contains(&width) {
-        return Err(FormatError::Corrupt {
-            at: "byte-for width",
-        });
+        return Err(FormatError::Corrupt { at: "byte-for width", });
     }
     let (w, values) = (width as usize, f.values as usize);
     let (mut r, mut fi) = (0usize, 0u32);
@@ -467,12 +456,7 @@ pub fn each_frame<'a>(
         let fs = frame_start(Some(f.frame_table), f.fbase + fi)?;
         let refw = load_frame_ref(f.payload, fs)?;
         let base = fs + FRAME_REF_LEN;
-        let body = f
-            .payload
-            .get(base..base + n * w)
-            .ok_or(FormatError::Bounds {
-                at: "byte-for frame payload",
-            })?;
+        let body = f.payload.get(base..base + n * w).ok_or(FormatError::Bounds { at: "byte-for frame payload", })?;
         if !each(r, refw, body) {
             return Ok(false);
         }
@@ -522,10 +506,7 @@ fn dec_full_width<const W: usize>(v: &ByteForView<'_>, out: &mut [u64]) -> Forma
 /// `dec_full_width` into a lane of the column's width: the frame's reference
 /// narrowed once, each delta added at that width — the same flat
 /// `zip(chunks_exact(W))` body, half or a quarter of the stores.
-fn dec_narrow_width<const W: usize, T: NarrowInt>(
-    v: &ByteForView<'_>,
-    out: &mut [T],
-) -> FormatResult<u32> {
+fn dec_narrow_width<const W: usize, T: NarrowInt>(v: &ByteForView<'_>, out: &mut [T],) -> FormatResult<u32> {
     if out.len() < v.values as usize {
         return Err(FormatError::Bounds {
             at: "decode_narrow out",
@@ -573,11 +554,7 @@ pub(crate) fn widen_into<const W: usize, T>(src: &[u8], out: &mut [T], f: impl F
     let mask = u64::MAX >> (64 - 8 * W);
     // The bytes a group's 8 masked loads touch: 7 values' strides plus one whole word.
     let span = (G - 1) * W + 8;
-    let groups = if src.len() >= span {
-        ((src.len() - span) / (G * W) + 1).min(n / G)
-    } else {
-        0
-    };
+    let groups = if src.len() >= span { ((src.len() - span) / (G * W) + 1).min(n / G) } else { 0 };
     let (head, tail) = out.split_at_mut(groups * G);
     for (gi, oc) in head.chunks_exact_mut(G).enumerate() {
         let g = &src[gi * G * W..gi * G * W + span];
@@ -586,10 +563,7 @@ pub(crate) fn widen_into<const W: usize, T>(src: &[u8], out: &mut [T], f: impl F
             oc[j] = f(u64::from_le_bytes(g[j * W..j * W + 8].try_into().expect("len 8")) & mask);
         }
     }
-    for (o, c) in tail
-        .iter_mut()
-        .zip(src[groups * G * W..n * W].chunks_exact(W))
-    {
+    for (o, c) in tail.iter_mut().zip(src[groups * G * W..n * W].chunks_exact(W)) {
         *o = f(read_le_w::<W>(c));
     }
 }
@@ -636,11 +610,7 @@ fn dec_sel_into<const W: usize, const AT: bool, T: SelWord>(
     out: &mut [T],
 ) -> FormatResult<u32> {
     let rows = sel.rows;
-    let need = if AT {
-        rows.last().map_or(0, |&r| r as usize + 1)
-    } else {
-        rows.len()
-    };
+    let need = if AT { rows.last().map_or(0, |&r| r as usize + 1) } else { rows.len() };
     if out.len() < need {
         return Err(FormatError::Bounds {
             at: "decode_sel out",
@@ -691,11 +661,7 @@ fn bf_dec_sel<const W: usize>(
 
 fn bf_dec_narrow<const W: usize>(ctx: &KernelCtx<'_>, out: NarrowOut<'_>) -> FormatResult<u32> {
     let v = open_view(ctx, EncodingId::ByteFor.as_u16())?;
-    narrow_each(
-        out,
-        |o| dec_narrow_width::<W, i16>(&v, o),
-        |o| dec_narrow_width::<W, i32>(&v, o),
-    )
+    narrow_each(out, |o| dec_narrow_width::<W, i16>(&v, o), |o| dec_narrow_width::<W, i32>(&v, o),)
 }
 
 fn bf_meta(ctx: &KernelCtx<'_>, probe: &MetaProbe) -> FormatResult<ProbeAnswer> {

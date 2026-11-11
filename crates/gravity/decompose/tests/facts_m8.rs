@@ -223,7 +223,7 @@ fn a_plans_qual_conjuncts_keep_their_order() {
         for n in nodes {
             let qual = &n.as_plan().unwrap().qual;
             // an index-only scan read as the heap range filters its conjuncts over the relation's columns
-            let found: Vec<(Node<'_>, Option<(usize, usize)>)> = qual.iter().map(|q| (q, at(q).or_else(|| heap_form(fx.mcx, n, q).and_then(&at)))).collect();
+            let found: Vec<(Node<'_>, Option<(usize, usize)>)> = qual.iter().map(|q| (q, at(q).or_else(|| heap_form(fx.mcx, n, q).and_then(& at)))).collect();
             for (q, pos) in found.iter() {
                 if gravity_decompose::expr::has_subplan(*q) {
                     subs += 1;

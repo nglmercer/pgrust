@@ -77,10 +77,7 @@ pub fn stage_stats_sidecars(
         let fd = vfs.create_rw(&format!("{dir}/{tmp_name}"))?;
         vfs.pwrite_at(&fd, 0, &image)?;
         vfs.close_file(fd)?;
-        renames.push((
-            tmp_name,
-            dirlayout::sidecar_file_name(*part_no, SidecarKind::Stats, 1),
-        ));
+        renames.push((tmp_name, dirlayout::sidecar_file_name(*part_no, SidecarKind::Stats, 1),));
     }
     Ok(renames)
 }
@@ -96,16 +93,7 @@ pub fn stage_sidecar(
     payload: &[u8],
     fxid: u64,
 ) -> WriteResult<(String, String)> {
-    stage_sidecar_gen(
-        vfs,
-        dir,
-        kind,
-        schema_fingerprint,
-        part_no,
-        1,
-        payload,
-        fxid,
-    )
+    stage_sidecar_gen(vfs, dir, kind, schema_fingerprint, part_no, 1, payload, fxid,)
 }
 
 /// [`stage_sidecar`] named at generation `gen` (a DV at its `dv_gen`). One publish stages at most one authoritative

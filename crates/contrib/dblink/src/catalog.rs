@@ -191,7 +191,7 @@ fn get_text_array_contents(
         } else {
             // SAFETY: text element datum from the array image.
             let pv = unsafe { types_fmgr::datum_varlena_packed(*d, mcx)? };
-            out.push(Some(::mcx::std_vec_from_slice("dblink", pv.data())?));
+            out.push(Some(::mcx::std_vec_from_slice("dblink",pv.data())?));
         }
     }
     Ok(out)

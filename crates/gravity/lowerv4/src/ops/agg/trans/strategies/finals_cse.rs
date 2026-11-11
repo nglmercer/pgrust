@@ -132,7 +132,7 @@ fn place<'p>(px: &mut Px<'_, 'p>, n: Node<'p>, node: i32) -> (Place, i64, bool) 
 fn entry(aggs: &crate::frame::env::AggRow, aggno: u64) -> Option<u64> {
     let c: &AggCell = aggs.cells.get(aggno as usize)?;
     let valid = match c.valid { CellValid::Bit { off, bit: 0 } | CellValid::NonZeroAt(off) => off, _ => return None };
-    (c.form == CellForm::Word && c.off.is_multiple_of(16) && valid == c.off + 8).then_some(u64::from(c.off / 16))
+    (c.form == CellForm::Word && c.off.is_multiple_of( 16) && valid == c.off + 8).then_some(u64::from(c.off / 16))
 }
 
 /// Every member's `(value, null)`: the records written (each final named by its entry in the drain's area), one `members`

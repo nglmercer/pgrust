@@ -1,6 +1,4 @@
-#![allow(non_camel_case_types)]
-#![allow(non_snake_case)]
-#![allow(non_upper_case_globals)]
+#![allow(non_camel_case_types, non_snake_case, non_upper_case_globals)]
 
 mod qc_tables;
 mod recomp_hash;
@@ -184,7 +182,7 @@ impl Iterator for DecompositionCodes<'_> {
 fn get_decomposed_size(code: pg_wchar, compat: bool) -> usize {
     if (SBASE..SBASE + SCOUNT).contains(&code) {
         let sindex = code - SBASE;
-        return if !sindex.is_multiple_of(TCOUNT) { 3 } else { 2 };
+        return if ! sindex.is_multiple_of( TCOUNT) { 3 } else { 2 };
     }
 
     let Some(entry) = get_code_entry(code).copied() else {
@@ -238,7 +236,7 @@ fn recompose_code(start: pg_wchar, code: pg_wchar) -> Option<pg_wchar> {
     }
 
     if (SBASE..SBASE + SCOUNT).contains(&start)
-        && (start - SBASE).is_multiple_of(TCOUNT)
+        && (start - SBASE).is_multiple_of( TCOUNT)
         // TBASE itself is not a T syllable; the T range starts at U+11A8.
         && (TBASE + 1..TBASE + TCOUNT).contains(&code)
     {

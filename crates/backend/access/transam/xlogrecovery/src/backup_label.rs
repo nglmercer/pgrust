@@ -492,10 +492,8 @@ mod tests {
 
     #[test]
     fn standard_file_parses() {
-        let out = label(&head(
-            "BACKUP METHOD: streamed\nBACKUP FROM: primary\nSTART TIMELINE: 1\n",
-        ))
-        .unwrap();
+        let out = label(&head("BACKUP METHOD: streamed\nBACKUP FROM: primary\nSTART TIMELINE: 1\n",))
+            .unwrap();
         assert_eq!(out.redo_start_lsn, 0x16000028);
         assert_eq!(out.checkpoint_loc, 0x16000060);
         assert_eq!(out.redo_start_tli, 1);
@@ -510,8 +508,8 @@ mod tests {
     fn space_before_slash_fails_like_c() {
         // fscanf: literal '/' must match the next byte exactly; "0 /16000028"
         // leaves the '/' unmatched after %X stops at the space.
-        let c =
-            "START WAL LOCATION: 0 /16000028 (file 000000010000000000000016)\n".to_string() + LINE2;
+        let c = "START WAL LOCATION: 0 /16000028 (file 000000010000000000000016)\n".to_string()
+            + LINE2;
         assert_eq!(label(&c).unwrap_err(), LabelError::Invalid);
     }
 
@@ -538,8 +536,8 @@ mod tests {
         // The space before "(file" and inside it are whitespace directives
         // (any run matches); %08X takes up to 8 hex chars — 7 is fine — and
         // %16s then reads exactly 16 non-whitespace bytes before the ')'.
-        let c =
-            "START WAL LOCATION: 0/16000028 (file  0000001GGGGGGGGGGGGGGGG)\n".to_string() + LINE2;
+        let c = "START WAL LOCATION: 0/16000028 (file  0000001GGGGGGGGGGGGGGGG)\n".to_string()
+            + LINE2;
         let out = label(&c).unwrap();
         assert_eq!(out.redo_start_tli, 1);
         assert_eq!(out.backup_label_tli, 1);
@@ -549,8 +547,8 @@ mod tests {
     fn zero_width_whitespace_directive_accepted_like_c() {
         // A whitespace directive matches an EMPTY run too: no space before
         // "(file" still matches fscanf's " (file ".
-        let c =
-            "START WAL LOCATION: 0/16000028(file 000000010000000000000016)\n".to_string() + LINE2;
+        let c = "START WAL LOCATION: 0/16000028(file 000000010000000000000016)\n".to_string()
+            + LINE2;
         assert!(label(&c).is_ok());
     }
 
@@ -572,8 +570,8 @@ mod tests {
 
     #[test]
     fn junk_after_paren_fails_like_c() {
-        let c =
-            "START WAL LOCATION: 0/16000028 (file 000000010000000000000016)x\n".to_string() + LINE2;
+        let c = "START WAL LOCATION: 0/16000028 (file 000000010000000000000016)x\n".to_string()
+            + LINE2;
         assert_eq!(label(&c).unwrap_err(), LabelError::Invalid);
     }
 
@@ -614,10 +612,8 @@ mod tests {
 
     #[test]
     fn backup_from_first_token_wins_like_c() {
-        let out = label(&head(
-            "BACKUP METHOD: streamed\nBACKUP FROM: standby whatever\n",
-        ))
-        .unwrap();
+        let out =
+            label(&head("BACKUP METHOD: streamed\nBACKUP FROM: standby whatever\n",)).unwrap();
         assert!(out.backup_from_standby);
     }
 
@@ -664,10 +660,8 @@ mod tests {
         // it matched (nothing here), so START TIME and START TIMELINE are
         // still reached in order.
         assert_eq!(
-            label(&head(
-                "BACKUP METHOD: streamed\nSTART TIME: t\nSTART TIMELINE: 2\n"
-            ))
-            .unwrap_err(),
+            label(&head("BACKUP METHOD: streamed\nSTART TIME: t\nSTART TIMELINE: 2\n"))
+                .unwrap_err(),
             LabelError::TimelineMismatch { file: 2, walseg: 1 }
         );
     }
@@ -733,8 +727,7 @@ mod tests {
 
     #[test]
     fn tablespace_path_non_utf8_bytes_preserved_like_c() {
-        let ts =
-            parse_tablespace_map_content(b"16384 /data/caf\xe9\n16385 /tbs_\xc3\xa9\n").unwrap();
+        let ts = parse_tablespace_map_content(b"16384 /data/caf\xe9\n16385 /tbs_\xc3\xa9\n").unwrap();
         assert_eq!(ts[0].path, b"/data/caf\xe9");
         assert_eq!(ts[1].path, "/tbs_\u{e9}".as_bytes());
     }
@@ -783,7 +776,7 @@ mod tests {
     fn tablespace_line_truncated_at_1023_bytes_like_c() {
         // C caps the de-escaped line at MAXPGPATH - 1 = 1023 bytes.
         let mut line = b"1 ".to_vec();
-        line.extend(std::iter::repeat_n(b'a', 1500));
+        line.extend(std::iter::repeat_n(b'a',1500));
         line.push(b'\n');
         let ts = parse_tablespace_map_content(&line).unwrap();
         assert_eq!(ts[0].path.len(), 1021);

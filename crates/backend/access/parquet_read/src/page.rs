@@ -1,3 +1,4 @@
+
 use types_error::PgResult;
 
 use crate::thrift::{corrupt, Cur, T_STRUCT};
@@ -50,12 +51,7 @@ impl Enc {
 
 pub(crate) enum PageKind {
     /// v1 data page: [rep levels][def levels][values], all under one codec.
-    Data {
-        num_values: usize,
-        encoding: Enc,
-        def_encoding: Enc,
-        rep_encoding: Enc,
-    },
+    Data { num_values: usize, encoding: Enc, def_encoding: Enc, rep_encoding: Enc, },
     /// v2 data page: uncompressed RLE levels of the given byte lengths ahead
     /// of the (optionally compressed) values.
     DataV2 {
@@ -67,10 +63,7 @@ pub(crate) enum PageKind {
         rep_len: usize,
         compressed: bool,
     },
-    Dict {
-        num_values: usize,
-        encoding: Enc,
-    },
+    Dict { num_values: usize, encoding: Enc, },
     /// Index pages are skipped, not decoded.
     Skip,
 }
@@ -131,12 +124,7 @@ pub(crate) fn parse_page_header(chunk: &[u8], at: usize, _column: &str) -> PgRes
                     }
                 }
                 let n = num_values.ok_or_else(|| corrupt("data page without num_values"))?;
-                data_hdr = Some((
-                    count(n, "negative data page num_values")?,
-                    enc,
-                    def_enc,
-                    rep_enc,
-                ));
+                data_hdr = Some((count(n, "negative data page num_values")?, enc, def_enc, rep_enc,));
             }
             7 => {
                 if t != T_STRUCT {
@@ -152,7 +140,8 @@ pub(crate) fn parse_page_header(chunk: &[u8], at: usize, _column: &str) -> PgRes
                         _ => cur.skip(ft, 0)?,
                     }
                 }
-                let n = num_values.ok_or_else(|| corrupt("dictionary page without num_values"))?;
+                let n =
+                    num_values.ok_or_else(|| corrupt("dictionary page without num_values"))?;
                 dict_hdr = Some((count(n, "negative dictionary num_values")?, enc));
             }
             8 => {
@@ -211,32 +200,17 @@ pub(crate) fn parse_page_header(chunk: &[u8], at: usize, _column: &str) -> PgRes
         0 => {
             let (num_values, encoding, def_encoding, rep_encoding) =
                 data_hdr.ok_or_else(|| corrupt("data page without its header"))?;
-            PageKind::Data {
-                num_values,
-                encoding,
-                def_encoding,
-                rep_encoding,
-            }
+            PageKind::Data { num_values, encoding, def_encoding, rep_encoding, }
         }
         1 => PageKind::Skip, // index page: skip payload, keep walking
         2 => {
             let (num_values, encoding) =
                 dict_hdr.ok_or_else(|| corrupt("dictionary page without its header"))?;
-            PageKind::Dict {
-                num_values,
-                encoding,
-            }
+            PageKind::Dict { num_values, encoding, }
         }
         3 => {
             let kind = v2_hdr.ok_or_else(|| corrupt("data page v2 without its header"))?;
-            if let PageKind::DataV2 {
-                def_len,
-                rep_len,
-                num_nulls,
-                num_values,
-                ..
-            } = &kind
-            {
+            if let PageKind::DataV2 { def_len, rep_len, num_nulls, num_values, .. } = &kind {
                 if def_len + rep_len > compressed as usize
                     || def_len + rep_len > uncompressed as usize
                 {

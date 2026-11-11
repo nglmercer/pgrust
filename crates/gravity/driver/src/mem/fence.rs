@@ -72,7 +72,7 @@ pub(crate) fn pick(shape: &RowShape, raw: &[u8]) -> Option<Picks> {
     let head = shape.head as usize;
     if shape.var.is_none() {
         // fixed records: every `step`-th row
-        if !raw.len().is_multiple_of(head) || !first_kept(head, raw.len()) {
+        if ! raw.len().is_multiple_of( head) || !first_kept(head, raw.len()) {
             return None;
         }
         let rows = raw.len() / head;

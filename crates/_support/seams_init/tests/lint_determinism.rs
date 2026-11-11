@@ -1,10 +1,10 @@
+
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 
 fn repo_root() -> PathBuf {
-    manifest_dir()
-        .to_path_buf()
+    manifest_dir().to_path_buf()
         .join("../../..")
         .canonicalize()
         .expect("repo root")
@@ -32,8 +32,7 @@ fn run_lint(tree: Option<&std::path::Path>, allowlist: Option<&std::path::Path>)
 }
 
 fn scratch(name: &str) -> PathBuf {
-    let dir =
-        std::env::temp_dir().join(format!("lint-determinism-{}-{}", std::process::id(), name));
+    let dir = std::env::temp_dir().join(format!("lint-determinism-{}-{}", std::process::id(), name));
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).expect("scratch dir");
     dir
@@ -67,10 +66,7 @@ fn new_raw_fs_site_fails_named() {
     fs::write(&allow, "# empty\n").unwrap();
 
     let (ok, report) = run_lint(Some(&dir.join("tree")), Some(&allow));
-    assert!(
-        !ok,
-        "lint must fail on an unallowlisted raw fs site:\n{report}"
-    );
+    assert!(!ok, "lint must fail on an unallowlisted raw fs site:\n{report}");
     assert!(
         report.contains("VIOLATION(new-site): [fs] crates/backend/synthetic/src/lib.rs"),
         "violation must name category and file:\n{report}"
@@ -92,10 +88,7 @@ fn budget_growth_fails_ratchet() {
     fs::write(&allow, "fs\tcrates/backend/synthetic/src/lib.rs\t1\n").unwrap();
 
     let (ok, report) = run_lint(Some(&dir.join("tree")), Some(&allow));
-    assert!(
-        !ok,
-        "lint must fail when sites exceed the budget:\n{report}"
-    );
+    assert!(!ok, "lint must fail when sites exceed the budget:\n{report}");
     assert!(
         report.contains("VIOLATION(ratchet): [fs] crates/backend/synthetic/src/lib.rs"),
         "ratchet violation must name category and file:\n{report}"
@@ -228,10 +221,7 @@ fn comment_tokens_inside_strings_do_not_hide_sites() {
     fs::write(&allow, "# empty\n").unwrap();
 
     let (ok, report) = run_lint(Some(&dir.join("tree")), Some(&allow));
-    assert!(
-        !ok,
-        "fs site after a string-literal // must still be seen:\n{report}"
-    );
+    assert!(!ok, "fs site after a string-literal // must still be seen:\n{report}");
     assert!(
         report.contains("VIOLATION(new-site): [fs] crates/backend/synthetic/src/lib.rs"),
         "string-aware scan must catch the site:\n{report}"
@@ -283,10 +273,7 @@ fn cfg_edges_and_literal_poison_handled() {
         report.contains("VIOLATION(new-site): [fs] crates/backend/synthetic/src/charlit.rs"),
         "literals inside the test mod must not poison the prod tail:\n{report}"
     );
-    assert!(
-        !report.contains("WARN(scan-poison)"),
-        "no poison expected:\n{report}"
-    );
+    assert!(!report.contains("WARN(scan-poison)"), "no poison expected:\n{report}");
     let _ = fs::remove_dir_all(&dir);
 }
 
@@ -295,11 +282,7 @@ fn eof_poison_warns_but_passes() {
     let dir = scratch("poison");
     let src_dir = dir.join("tree/crates/backend/synthetic/src");
     fs::create_dir_all(&src_dir).unwrap();
-    fs::write(
-        src_dir.join("lib.rs"),
-        "pub fn fine() {}\n/* unclosed at EOF\n",
-    )
-    .unwrap();
+    fs::write(src_dir.join("lib.rs"), "pub fn fine() {}\n/* unclosed at EOF\n",).unwrap();
     let allow = dir.join("empty.allow");
     fs::write(&allow, "# empty\n").unwrap();
 
@@ -380,14 +363,8 @@ fn sanctioned_routes_and_test_dirs_are_clean() {
     fs::write(&allow, "# empty\n").unwrap();
 
     let (ok, report) = run_lint(Some(&dir.join("tree")), Some(&allow));
-    assert!(
-        ok,
-        "a sanctioned route or a test/ file was flagged:\n{report}"
-    );
-    assert!(
-        report.contains("lint-determinism PASS"),
-        "expected PASS marker:\n{report}"
-    );
+    assert!(ok, "a sanctioned route or a test/ file was flagged:\n{report}");
+    assert!(report.contains("lint-determinism PASS"), "expected PASS marker:\n{report}");
     let _ = fs::remove_dir_all(&dir);
 }
 
@@ -396,15 +373,9 @@ fn env_group_import_arm_is_std_env_only() {
     let dir = scratch("envarm");
     let tree = dir.join("tree/crates/gravity");
     for (krate, body) in [
-        (
-            "synthetic_crate",
-            "use crate::frame::env::{AggRow, Env};\nuse super::env::*;\n",
-        ),
+        ("synthetic_crate", "use crate::frame::env::{AggRow, Env};\nuse super::env::*;\n",),
         ("synthetic_std", "use std::env::{var, vars};\n"),
-        (
-            "synthetic_bare",
-            "use std::env;\nuse env::{var as getenv};\n",
-        ),
+        ("synthetic_bare", "use std::env;\nuse env::{var as getenv};\n",),
         ("synthetic_nested", "use std::{env::{var_os}};\n"),
     ] {
         fs::create_dir_all(tree.join(krate).join("src")).unwrap();
@@ -419,10 +390,7 @@ fn env_group_import_arm_is_std_env_only() {
         let want = format!("VIOLATION(new-site): [env] crates/gravity/{want}/src/lib.rs");
         assert!(report.contains(&want), "missing {want:?} in:\n{report}");
     }
-    assert!(
-        !report.contains("crates/gravity/synthetic_crate/"),
-        "a crate-path env module was flagged:\n{report}"
-    );
+    assert!(!report.contains("crates/gravity/synthetic_crate/"), "a crate-path env module was flagged:\n{report}");
     let _ = fs::remove_dir_all(&dir);
 }
 
@@ -430,9 +398,6 @@ fn env_group_import_arm_is_std_env_only() {
 /// env!()'s path baked in at compile time: a test binary reused from another checkout would read that checkout's files.
 fn manifest_dir() -> &'static std::path::Path {
     static DIR: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
-    DIR.get_or_init(|| {
-        std::env::var_os("CARGO_MANIFEST_DIR")
-            .map(Into::into)
-            .expect("CARGO_MANIFEST_DIR unset: run under cargo test (D793-b)")
+    DIR.get_or_init(|| { std::env::var_os("CARGO_MANIFEST_DIR").map(Into::into).expect("CARGO_MANIFEST_DIR unset: run under cargo test (D793-b)")
     })
 }

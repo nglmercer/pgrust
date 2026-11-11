@@ -13,7 +13,7 @@ use ::types_fmgr::{
 };
 
 // Raw server-encoding bytes: C quotes the cstring as-is in its messages.
-fn in_arg(fcinfo: &Fcinfo) -> &[u8] {
+fn in_arg(fcinfo: & Fcinfo) -> & [u8] {
     // SAFETY: catalog arg 0 of cash_in is cstring (typlen -2).
     unsafe { fcinfo.arg_cstring(0) }.to_bytes()
 }

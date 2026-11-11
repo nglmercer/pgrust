@@ -25,51 +25,27 @@ pub struct BitmapScan<'mcx> {
     cursor: u32,
 }
 
-pub fn begin<'mcx>(
-    mcx: Mcx<'mcx>,
-    rel: &Relation<'mcx>,
-    snapshot: Snapshot<'mcx>,
-) -> PgResult<BitmapScan<'mcx>> {
+pub fn begin<'mcx>(mcx: Mcx<'mcx>, rel: &Relation<'mcx>, snapshot: Snapshot<'mcx>,) -> PgResult<BitmapScan<'mcx>> {
     let kind = ixfetch::kind_of(&snapshot)?;
     crate::filter::predicate_lock(rel, &snapshot)?;
-    Ok(BitmapScan {
-        mcx,
-        fetch: ixfetch::begin(rel),
-        snapshot,
-        kind,
-        staged: Vec::new(),
-        gen: None,
-        cursor: 0,
-    })
+    Ok(BitmapScan { mcx, fetch: ixfetch::begin(rel), snapshot, kind, staged: Vec::new(), gen: None, cursor: 0, })
 }
 
 pub(crate) fn page_ids(block: u32, offsets: Option<&[u16]>) -> impl Iterator<Item = u64> + '_ {
-    let lossy = offsets
-        .is_none()
-        .then_some(1..=IDS_PER_BLOCK as u16)
-        .into_iter()
-        .flatten();
+    let lossy = offsets.is_none().then_some(1..=IDS_PER_BLOCK as u16).into_iter().flatten();
     let exact = offsets.into_iter().flatten().copied();
-    lossy
-        .chain(exact)
-        .filter_map(move |off| id_of(block, off))
-        .filter(|&id| id >= ROWID_FIRST)
+    lossy.chain(exact).filter_map(move |off| id_of(block, off)).filter(|&id| id >= ROWID_FIRST)
 }
 
 fn decode_key(h: &Hit) -> (u8, usize, u32, u32) {
     match *h {
         Hit::Segment { .. } => (0, 0, 0, 0),
-        Hit::Part {
-            part, granule, row, ..
-        } => (1, part, granule, row),
+        Hit::Part { part, granule, row, .. } => (1, part, granule, row),
     }
 }
 
 pub(crate) fn decode_order(staged: &mut [Hit]) {
-    if staged
-        .windows(2)
-        .any(|w| decode_key(&w[0]) > decode_key(&w[1]))
-    {
+    if staged.windows(2).any(|w| decode_key(&w[0]) > decode_key(&w[1])) {
         staged.sort_by_key(decode_key);
     }
 }
@@ -96,8 +72,7 @@ impl BitmapSource for BitmapScan<'_> {
 
     fn store<'s>(&mut self, mcx: Mcx<'s>, i: u32, slot: &mut SlotData<'s>) -> PgResult<()> {
         let hit = self.staged[i as usize];
-        self.fetch
-            .store_hit(self.mcx, mcx, self.gen.as_ref(), &hit, &self.snapshot, slot)?;
+        self.fetch.store_hit(self.mcx, mcx, self.gen.as_ref(), &hit, &self.snapshot, slot)?;
         self.cursor = i + 1;
         Ok(())
     }
@@ -135,42 +110,24 @@ mod tests {
     fn seg(id: u64) -> Hit {
         let mut tid = ItemPointerData::default();
         ItemPointerSet(&mut tid, 3, (id % 291) as u16 + 1);
-        Hit::Segment {
-            relid: 16000,
-            tid,
-            id,
-        }
+        Hit::Segment { relid: 16000, tid, id, }
     }
 
     fn part(part: usize, granule: u32, row: u32, id: u64) -> Hit {
-        Hit::Part {
-            part,
-            granule,
-            row,
-            id,
-        }
+        Hit::Part { part, granule, row, id, }
     }
 
     #[test]
     fn a_page_names_the_ids_of_its_virtual_block() {
-        assert_eq!(
-            page_ids(2, Some(&[1, 5, 291])).collect::<Vec<_>>(),
-            vec![582, 586, 872]
-        );
-        assert_eq!(
-            page_ids(2, Some(&[0, 292, 7])).collect::<Vec<_>>(),
-            vec![588]
-        );
+        assert_eq!(page_ids(2, Some(&[1, 5, 291])).collect::<Vec<_>>(), vec![582, 586, 872]);
+        assert_eq!(page_ids(2, Some(&[0, 292, 7])).collect::<Vec<_>>(), vec![588]);
         let lossy: Vec<u64> = page_ids(3, None).collect();
         assert_eq!(lossy.len(), 291);
         assert_eq!((lossy[0], lossy[290]), (873, 1163));
         assert!(lossy.windows(2).all(|w| w[1] == w[0] + 1));
         assert_eq!(page_ids(0, None).count(), 0);
         assert_eq!(page_ids(0, Some(&[1, 291])).count(), 0);
-        assert_eq!(
-            page_ids(1, Some(&[1])).collect::<Vec<_>>(),
-            vec![ROWID_FIRST]
-        );
+        assert_eq!(page_ids(1, Some(&[1])).collect::<Vec<_>>(), vec![ROWID_FIRST]);
         for id in page_ids(4000, None) {
             assert_eq!(pgrc_format::rowid::tid_of(id).0, 4000);
         }
@@ -178,14 +135,7 @@ mod tests {
 
     #[test]
     fn a_page_decodes_in_physical_order() {
-        let mut page = vec![
-            part(1, 7, 3, 600),
-            seg(601),
-            part(0, 2, 9, 602),
-            part(1, 0, 4, 603),
-            seg(604),
-            part(1, 7, 1, 605),
-        ];
+        let mut page = vec![part(1, 7, 3, 600), seg(601), part(0, 2, 9, 602), part(1, 0, 4, 603), seg(604), part(1, 7, 1, 605),];
         decode_order(&mut page);
         let ids: Vec<u64> = page.iter().map(Hit::id).collect();
         assert_eq!(ids, vec![601, 604, 602, 603, 605, 600]);

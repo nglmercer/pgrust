@@ -58,15 +58,9 @@ pub(crate) fn setup(stats: &mut VacAttrStats<'_>) -> PgResult<bool> {
 
 pub(crate) fn std_compute_of(c: &ComputeStats) -> Option<ComputeStats> {
     match c {
-        ComputeStats::Jsonb {
-            std: StdCompute::Scalar,
-        } => Some(ComputeStats::Scalar),
-        ComputeStats::Jsonb {
-            std: StdCompute::Distinct,
-        } => Some(ComputeStats::Distinct),
-        ComputeStats::Jsonb {
-            std: StdCompute::Trivial,
-        } => Some(ComputeStats::Trivial),
+        ComputeStats::Jsonb { std: StdCompute::Scalar, } => Some(ComputeStats::Scalar),
+        ComputeStats::Jsonb { std: StdCompute::Distinct, } => Some(ComputeStats::Distinct),
+        ComputeStats::Jsonb { std: StdCompute::Trivial, } => Some(ComputeStats::Trivial),
         _ => None,
     }
 }
@@ -244,12 +238,8 @@ fn choose_mcvs<'a>(
     analyzed: i32,
     population: f64,
 ) -> std::vec::Vec<(u32, &'a [u8])> {
-    let mut track: std::vec::Vec<(u32, &'a [u8])> = acc
-        .values
-        .iter()
-        .filter(|(_, &c)| c > 1)
-        .map(|(&v, &c)| (c, v))
-        .collect();
+    let mut track: std::vec::Vec<(u32, &'a [u8])> =
+        acc.values.iter().filter(|(_, &c)| c > 1).map(|(&v, &c)| (c, v)).collect();
     track.sort_unstable_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(b.1)));
     let all = track.len() == acc.values.len()
         && acc.toowide == 0
@@ -260,13 +250,8 @@ fn choose_mcvs<'a>(
         if keep > 0 {
             let counts: std::vec::Vec<i32> = track[..keep].iter().map(|&(c, _)| c as i32).collect();
             let nullfrac = 1.0 - acc.scalars as f64 / analyzed.max(1) as f64;
-            let nd = if ndistinct < 0.0 {
-                -ndistinct * population
-            } else {
-                ndistinct
-            };
-            let k =
-                crate::analyze_mcv_list(&counts, keep as i32, nd, nullfrac, analyzed, population);
+            let nd = if ndistinct < 0.0 { -ndistinct * population } else { ndistinct };
+            let k = crate::analyze_mcv_list(&counts, keep as i32, nd, nullfrac, analyzed, population);
             track.truncate(k.max(0) as usize);
         } else {
             track.clear();
@@ -287,10 +272,7 @@ fn choose_hist<'a>(
     } else if c.string > 0
         && c.number == 0
         && c.boolean == 0
-        && acc
-            .values
-            .keys()
-            .all(|v| v.first().is_some_and(u8::is_ascii_digit))
+        && acc.values.keys().all(|v| v.first().is_some_and(u8::is_ascii_digit))
     {
         fmt::HIST_BYTES
     } else {
@@ -302,10 +284,7 @@ fn choose_hist<'a>(
         .filter(|(v, _)| !mcvs.iter().any(|(_, m)| m == *v))
         .map(|(&v, &c)| {
             let x = if kind == fmt::HIST_NUMERIC {
-                std::str::from_utf8(v)
-                    .ok()
-                    .and_then(|s| s.parse::<f64>().ok())
-                    .unwrap_or(0.0)
+                std::str::from_utf8(v).ok().and_then(|s| s.parse::<f64>().ok()).unwrap_or(0.0)
             } else {
                 0.0
             };
@@ -395,7 +374,7 @@ pub(crate) fn compute_jsonb_path_slot<'mcx>(
             continue;
         }
         doc_no += 1;
-        if !(doc_no - 1).is_multiple_of(stride) {
+        if ! (doc_no - 1).is_multiple_of( stride) {
             continue;
         }
         {
@@ -420,14 +399,9 @@ pub(crate) fn compute_jsonb_path_slot<'mcx>(
                 match paths_tab.get_mut(key) {
                     Some(t) => t.frequency += 1,
                     None => {
-                        let k: &[u8] = mcx::slice_borrow_in(col_mcx, key).expect("path key alloc");
-                        paths_tab.insert(
-                            k,
-                            PathTrack {
-                                frequency: 1,
-                                delta: b_current - 1,
-                            },
-                        );
+                        let k: &[u8] =
+                            mcx::slice_borrow_in(col_mcx, key).expect("path key alloc");
+                        paths_tab.insert(k, PathTrack { frequency: 1, delta: b_current - 1, },);
                     }
                 }
                 path_no += 1;
@@ -464,8 +438,7 @@ pub(crate) fn compute_jsonb_path_slot<'mcx>(
 
     let mut index: PgFxHashMap<'_, &[u8], usize> =
         PgFxHashMap::with_hasher_in(Default::default(), col_mcx);
-    let mut accs: std::vec::Vec<PathAcc<'_>> =
-        ::mcx::stdvec::try_vec(survivors.len(), "jsonb_typanalyze")?;
+    let mut accs: std::vec::Vec<PathAcc<'_>> = ::mcx::stdvec::try_vec(survivors.len(), "jsonb_typanalyze")?;
     for (i, &(p, _)) in survivors.iter().enumerate() {
         index.insert(p, i);
         accs.push(PathAcc {
@@ -486,13 +459,11 @@ pub(crate) fn compute_jsonb_path_slot<'mcx>(
             continue;
         }
         doc_no += 1;
-        if !(doc_no - 1).is_multiple_of(stride) {
+        if ! (doc_no - 1).is_multiple_of( stride) {
             continue;
         }
         {
-            let Some(payload) = doc_payload(row_scratch.mcx(), value)? else {
-                continue;
-            };
+            let Some(payload) = doc_payload(row_scratch.mcx(), value)? else { continue; };
             if !container_is_object(payload) || container_is_scalar(payload) {
                 continue;
             }
@@ -511,9 +482,7 @@ pub(crate) fn compute_jsonb_path_slot<'mcx>(
                     Member::Array => c.array += 1,
                     Member::Object => c.object += 1,
                 }
-                let Some(text) = scalar_text(&m, &mut textbuf) else {
-                    return;
-                };
+                let Some(text) = scalar_text(&m, &mut textbuf) else { return; };
                 acc.scalars += 1;
                 acc.width_sum += text.len() as u64;
                 if text.len() > WIDTH_THRESHOLD {
@@ -536,8 +505,7 @@ pub(crate) fn compute_jsonb_path_slot<'mcx>(
     let per_doc = docs_frac / analyzed_rows as f64; // table-row fraction of one document
     let population = totalrows * docs_frac; // table rows holding a document
     let num_mcv = target as usize;
-    let mut drafts: std::vec::Vec<Draft<'_>> =
-        ::mcx::stdvec::try_vec(survivors.len(), "jsonb_typanalyze")?;
+    let mut drafts: std::vec::Vec<Draft<'_>> = ::mcx::stdvec::try_vec(survivors.len(), "jsonb_typanalyze")?;
     for (i, &(key, freq)) in survivors.iter().enumerate() {
         let acc = &accs[i];
         if acc.counts.present == 0 {
@@ -546,11 +514,7 @@ pub(crate) fn compute_jsonb_path_slot<'mcx>(
         let nd = path_ndistinct(acc, acc.scalars as f64 * per_doc, totalrows);
         let mcvs = choose_mcvs(acc, num_mcv, nd, analyzed_rows as i32, population);
         let (hist_kind, bounds) = choose_hist(acc, &mcvs, num_mcv);
-        let avgwidth = if acc.scalars > 0 {
-            (acc.width_sum / acc.scalars as u64) as i32 + 4
-        } else {
-            0
-        };
+        let avgwidth = if acc.scalars > 0 { (acc.width_sum / acc.scalars as u64) as i32 + 4 } else { 0 };
         drafts.push(Draft {
             key,
             freq,
@@ -625,15 +589,7 @@ pub(crate) fn compute_jsonb_path_slot<'mcx>(
     root.present = analyzed_rows;
     w.path(b"", &root, 0.0, 0, &[], fmt::HIST_NONE, &[]);
     for d in &drafts {
-        w.path(
-            d.key,
-            &d.counts,
-            d.ndistinct,
-            d.avgwidth,
-            &d.mcvs,
-            d.hist_kind,
-            &d.bounds,
-        );
+        w.path(d.key, &d.counts, d.ndistinct, d.avgwidth, &d.mcvs, d.hist_kind, &d.bounds,);
     }
     let blob = w.finish();
 
@@ -657,9 +613,7 @@ fn bytea_datum_in<'m>(mcx: Mcx<'m>, s: &[u8]) -> PgResult<Datum> {
     let mut img: PgVec<'m, u8> = mcx::vec_with_capacity_in(mcx, s.len() + datum::VARHDRSZ)?;
     mcx::vec_append_bytes(&mut img, &datum::set_varsize_4b(s.len() + datum::VARHDRSZ))?;
     mcx::vec_append_bytes(&mut img, s)?;
-    Ok(Datum::from_usize(
-        adt_multirangetypes::leak_image(img).as_ptr() as usize,
-    ))
+    Ok(Datum::from_usize(adt_multirangetypes::leak_image(img).as_ptr() as usize,))
 }
 
 #[cfg(test)]
@@ -673,13 +627,7 @@ mod jsonb_path_stats_tests {
             values.insert(v, c);
             scalars += c;
         }
-        PathAcc {
-            counts,
-            values,
-            toowide: 0,
-            scalars,
-            width_sum: 0,
-        }
+        PathAcc { counts, values, toowide: 0, scalars, width_sum: 0, }
     }
 
     #[test]
@@ -705,10 +653,8 @@ mod jsonb_path_stats_tests {
         let a = acc_of(cx.mcx(), &[(b"a", 5), (b"b", 3)], c);
         assert_eq!(path_ndistinct(&a, 0.8, 1000.0), 2.0);
         // over 10% of the table: a negative fraction of totalrows
-        let vals: std::vec::Vec<std::vec::Vec<u8>> =
-            (0..300).map(|i| format!("v{i}").into_bytes()).collect();
-        let mut pairs: std::vec::Vec<(&[u8], u32)> =
-            vals.iter().map(|v| (v.as_slice(), 2)).collect();
+        let vals: std::vec::Vec<std::vec::Vec<u8>> = (0..300).map(|i| format!("v{i}").into_bytes()).collect();
+        let mut pairs: std::vec::Vec<(&[u8], u32)> = vals.iter().map(|v| (v.as_slice(), 2)).collect();
         pairs.push((b"x", 1));
         let a = acc_of(cx.mcx(), &pairs, c);
         let nd = path_ndistinct(&a, 1.0, 1000.0);
@@ -718,21 +664,10 @@ mod jsonb_path_stats_tests {
     #[test]
     fn histogram_bounds_are_equi_height_and_skip_mcvs() {
         let cx = MemoryContext::new_bump("t");
-        let c = fmt::Counts {
-            present: 10,
-            number: 10,
-            ..Default::default()
-        };
+        let c = fmt::Counts { present: 10, number: 10, ..Default::default() };
         let a = acc_of(
             cx.mcx(),
-            &[
-                (b"1", 1),
-                (b"2", 1),
-                (b"10", 1),
-                (b"3", 1),
-                (b"7", 5),
-                (b"4", 1),
-            ],
+            &[(b"1", 1), (b"2", 1), (b"10", 1), (b"3", 1), (b"7", 5), (b"4", 1),],
             c,
         );
         let mcvs = [(5u32, &b"7"[..])];
@@ -742,24 +677,12 @@ mod jsonb_path_stats_tests {
         let (_, b) = choose_hist(&a, &mcvs, 1);
         assert_eq!(b, vec![&b"1"[..], b"10"]);
         // strings: only digit-led (date-like) values get a byte-order histogram
-        let s = fmt::Counts {
-            present: 3,
-            string: 3,
-            ..Default::default()
-        };
-        let d = acc_of(
-            cx.mcx(),
-            &[(b"2024-01-02", 1), (b"2023-05-06", 1), (b"2025-01-01", 1)],
-            s,
-        );
+        let s = fmt::Counts { present: 3, string: 3, ..Default::default() };
+        let d = acc_of(cx.mcx(), &[(b"2024-01-02", 1), (b"2023-05-06", 1), (b"2025-01-01", 1)], s,);
         let (k, b) = choose_hist(&d, &[], 100);
         assert_eq!(k, fmt::HIST_BYTES);
         assert_eq!(b, vec![&b"2023-05-06"[..], b"2024-01-02", b"2025-01-01"]);
-        let w = acc_of(
-            cx.mcx(),
-            &[(b"2024-01-02", 1), (b"abc", 1), (b"2025", 1)],
-            s,
-        );
+        let w = acc_of(cx.mcx(), &[(b"2024-01-02", 1), (b"abc", 1), (b"2025", 1)], s,);
         assert_eq!(choose_hist(&w, &[], 100).0, fmt::HIST_NONE);
     }
 }

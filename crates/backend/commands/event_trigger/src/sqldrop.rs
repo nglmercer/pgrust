@@ -50,7 +50,8 @@ pub fn EventTriggerSQLDropAddObject(
     } else if object.classId == ATTR_DEFAULT_RELATION_ID {
         let (relid, attnum) = pg_attrdef::GetAttrDefaultColumnAddress(mcx, object.objectId)?;
         if OidIsValid(relid) {
-            let mut colobject = ObjectAddress::set(types_core::RELATION_RELATION_ID, relid);
+            let mut colobject =
+                ObjectAddress::set(types_core::RELATION_RELATION_ID, relid);
             colobject.objectSubId = attnum as i32;
             if !obtain_object_name_namespace(mcx, &colobject, &mut obj)? {
                 return Ok(());
@@ -81,8 +82,9 @@ pub fn EventTriggerSQLDropAddObject(
         return Ok(());
     }
 
-    let identity = catalog_objectaddress::getObjectIdentityParts(mcx, &obj.address, false)?
-        .expect("missing_ok=false");
+    let identity =
+        catalog_objectaddress::getObjectIdentityParts(mcx, &obj.address, false)?
+            .expect("missing_ok=false");
     obj.objidentity = Some(identity.identity);
     obj.addrnames = Some(identity.objname);
     obj.addrargs = Some(identity.objargs);
@@ -168,8 +170,9 @@ fn obtain_object_name_namespace(
             .then(|| {
                 let mut isnull = false;
                 // SAFETY: attnum from the ObjectProperty row for this catalog.
-                let d =
-                    unsafe { types_tuple::heap_getattr(tup, prop.attnum_name, desc, &mut isnull) };
+                let d = unsafe {
+                    types_tuple::heap_getattr(tup, prop.attnum_name, desc, &mut isnull)
+                };
                 (!isnull).then(|| name_datum_str(d))
             })
             .flatten();
@@ -258,12 +261,7 @@ fn trigger_get_relid(mcx: Mcx<'_>, trigger_oid: Oid) -> PgResult<Oid> {
         let mut isnull = false;
         // SAFETY: fixed NOT NULL pg_trigger.tgrelid under its descriptor.
         relid = unsafe {
-            types_tuple::heap_getattr(
-                tup,
-                Anum_pg_trigger_tgrelid as i32,
-                rel.descr(),
-                &mut isnull,
-            )
+            types_tuple::heap_getattr(tup, Anum_pg_trigger_tgrelid as i32, rel.descr(), &mut isnull,)
         }
         .as_oid();
     }
@@ -298,12 +296,7 @@ fn policy_get_relid(mcx: Mcx<'_>, policy_oid: Oid) -> PgResult<Oid> {
         let mut isnull = false;
         // SAFETY: fixed NOT NULL pg_policy.polrelid under its descriptor.
         relid = unsafe {
-            types_tuple::heap_getattr(
-                tup,
-                Anum_pg_policy_polrelid as i32,
-                rel.descr(),
-                &mut isnull,
-            )
+            types_tuple::heap_getattr(tup, Anum_pg_policy_polrelid as i32, rel.descr(), &mut isnull,)
         }
         .as_oid();
     }
@@ -353,23 +346,11 @@ mod tests {
     fn object_namespace_null_for_schema_less_classes() {
         let ctx = MemoryContext::new("sqldrop-test");
         // pg_enum (3501): not in ObjectProperty.
-        assert_eq!(
-            object_namespace(ctx.mcx(), &ObjectAddress::set(3501, 1)).unwrap(),
-            None
-        );
+        assert_eq!(object_namespace(ctx.mcx(), &ObjectAddress::set(3501, 1)).unwrap(), None);
         // pg_rewrite (2618), pg_default_acl (826), pg_user_mapping (1418):
         // ObjectProperty rows with attnum_namespace = InvalidAttrNumber.
-        assert_eq!(
-            object_namespace(ctx.mcx(), &ObjectAddress::set(2618, 1)).unwrap(),
-            None
-        );
-        assert_eq!(
-            object_namespace(ctx.mcx(), &ObjectAddress::set(826, 1)).unwrap(),
-            None
-        );
-        assert_eq!(
-            object_namespace(ctx.mcx(), &ObjectAddress::set(1418, 1)).unwrap(),
-            None
-        );
+        assert_eq!(object_namespace(ctx.mcx(), &ObjectAddress::set(2618, 1)).unwrap(), None);
+        assert_eq!(object_namespace(ctx.mcx(), &ObjectAddress::set(826, 1)).unwrap(), None);
+        assert_eq!(object_namespace(ctx.mcx(), &ObjectAddress::set(1418, 1)).unwrap(), None);
     }
 }

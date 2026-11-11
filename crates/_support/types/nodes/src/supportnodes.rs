@@ -77,11 +77,7 @@ pub struct SupportRequestSimplify<'mcx> {
 
 impl<'mcx> SupportRequestSimplify<'mcx> {
     pub fn new(fcall: Option<Node<'mcx>>, mcx: Option<::mcx::Mcx<'mcx>>) -> Self {
-        SupportRequestSimplify {
-            tag: NodeTag::T_SupportRequestSimplify,
-            fcall,
-            mcx,
-        }
+        SupportRequestSimplify { tag: NodeTag::T_SupportRequestSimplify, fcall, mcx, }
     }
 }
 
@@ -120,12 +116,7 @@ pub struct SupportRequestModifyInPlace<'a, 'mcx> {
 
 impl<'a, 'mcx> SupportRequestModifyInPlace<'a, 'mcx> {
     pub fn new(funcid: Oid, args: &'a [Option<Node<'mcx>>], paramid: i32) -> Self {
-        SupportRequestModifyInPlace {
-            tag: NodeTag::T_SupportRequestModifyInPlace,
-            funcid,
-            args,
-            paramid,
-        }
+        SupportRequestModifyInPlace { tag: NodeTag::T_SupportRequestModifyInPlace, funcid, args, paramid, }
     }
 }
 

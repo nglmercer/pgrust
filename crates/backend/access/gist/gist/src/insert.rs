@@ -19,11 +19,10 @@ use ::types_tuple::itemptr::ItemPointerData;
 use crate::split::{gistSplitByKey, GistSplitVector};
 use crate::state::GistState;
 use crate::util::{
-    copy_itup, copy_page_item, gistGetFakeLSN, gistNewBuffer, gist_init_buffer,
-    gist_tuple_is_invalid, gist_tuple_set_valid, gistcheckpage, gistchoose, gistextractpage,
-    gistfillbuffer, gistfillitupvec, gistfitpage, gistgetadjusted, gistnospace, index_tuple_size,
-    itup_block_number, itup_get_tid, itup_set_block_number, itup_slice, page_item,
-    FirstOffsetNumber, ITup, InvalidOffsetNumber,
+    copy_itup, copy_page_item, gistGetFakeLSN, gistNewBuffer, gist_init_buffer, gist_tuple_is_invalid, gist_tuple_set_valid,
+    gistcheckpage, gistchoose, gistextractpage, gistfillbuffer, gistfillitupvec, gistfitpage,
+    gistgetadjusted, gistnospace, index_tuple_size, itup_block_number,
+    itup_get_tid, itup_set_block_number, itup_slice, page_item, FirstOffsetNumber, ITup, InvalidOffsetNumber,
 };
 use crate::{buf_page_mut, relation_needs_wal};
 
@@ -51,7 +50,8 @@ fn ensure_split_record_space(npage: usize) -> PgResult<()> {
 
 fn gist_internal_error<T>(msg: String) -> PgResult<T> {
     Err(Box::new(
-        ::types_error::PgError::error(msg).with_sqlstate(::types_error::ERRCODE_INTERNAL_ERROR),
+        ::types_error::PgError::error(msg)
+            .with_sqlstate(::types_error::ERRCODE_INTERNAL_ERROR),
     ))
 }
 #[cold]
@@ -150,9 +150,7 @@ fn gist_corruption_error<T>(r: &Relation<'_>, what: &str) -> PgResult<T> {
 }
 
 // PageGetTempPageCopySpecial.
-fn page_get_temp_page_copy_special(
-    src: &::types_storage::bufpage::PageRef<'_>,
-) -> PgResult<PageTemp> {
+fn page_get_temp_page_copy_special(src: &::types_storage::bufpage::PageRef<'_>,) -> PgResult<PageTemp> {
     let mut temp = PageTemp::new(::types_core::BLCKSZ)
         .map_err(|e| -> Box<::types_error::PgError> { Box::new(e) })?;
     let special = src.pd_special() as usize;
@@ -168,9 +166,8 @@ fn page_get_temp_page_copy_special(
     // copy the special area verbatim
     let bytes = temp.as_mut_bytes();
     // SAFETY: src page is BLCKSZ readable (PageRef contract).
-    let src_special = unsafe {
-        core::slice::from_raw_parts(src.as_ptr().add(special), ::types_core::BLCKSZ - special)
-    };
+    let src_special =
+        unsafe { core::slice::from_raw_parts(src.as_ptr().add(special), ::types_core::BLCKSZ - special) };
     bytes[special..].copy_from_slice(src_special);
     Ok(temp)
 }
@@ -229,8 +226,7 @@ pub fn gistplacetopage<'mcx>(
 
         // form the tuple vector, dropping the old version when replacing
         let extracted = gistextractpage(mcx, &buffer.page())?;
-        let mut itvec: Vec<ITup> =
-            ::mcx::std_vec_with_capacity("access", extracted.len() + itup.len())?;
+        let mut itvec: Vec<ITup> = ::mcx::std_vec_with_capacity("access", extracted.len() + itup.len())?;
         for (i, t) in extracted.iter().enumerate() {
             if oldoffnum != InvalidOffsetNumber && (i as OffsetNumber) + 1 == oldoffnum {
                 continue;
@@ -364,10 +360,7 @@ pub fn gistplacetopage<'mcx>(
 
             let fill = |pm: &mut PageMut<'_>| -> PgResult<()> {
                 for (i, tuple) in tuples.iter().enumerate() {
-                    if pm
-                        .add_item(tuple, i as OffsetNumber + FirstOffsetNumber, 0)
-                        .is_none()
-                    {
+                    if pm.add_item(tuple, i as OffsetNumber + FirstOffsetNumber, 0).is_none() {
                         return split_page_add_error(rel.name());
                     }
                 }
@@ -516,8 +509,7 @@ pub fn gistplacetopage<'mcx>(
 }
 
 /// gistdoinsert. Assumes a short-lived `mcx` (reset by the caller per tuple).
-#[allow(unused_assignments)]
-// C-parity dead store: xlocked = true (gist.c:849); hoisted — assignment stmts take no attrs
+#[allow(unused_assignments)] // C-parity dead store: xlocked = true (gist.c:849); hoisted — assignment stmts take no attrs
 // Kept safe on purpose: C's gistdoinsert takes the index relation and its tuple pointers, valid for the call.
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub fn gistdoinsert<'mcx>(
@@ -574,9 +566,8 @@ pub fn gistdoinsert<'mcx>(
 
         let cur = state.current;
         if state.frames[cur].lsn == 0 && state.frames[cur].pin.is_none() {
-            let pin =
-                BufferPin::adopt(bufmgr::read_buffer::call(state.r, state.frames[cur].blkno)?)
-                    .expect("ReadBuffer");
+            let pin = BufferPin::adopt(bufmgr::read_buffer::call(state.r, state.frames[cur].blkno)?)
+                .expect("ReadBuffer");
             state.frames[cur].pin = Some(pin);
         }
         let buffer = state.frames[cur].pin.as_ref().expect("pinned").buffer();
@@ -614,9 +605,7 @@ pub fn gistdoinsert<'mcx>(
             unlock(state.frames[cur].pin.as_ref().expect("pinned").buffer())?;
             state.frames[cur].pin = None;
             xlocked = false;
-            state.current = state.frames[cur]
-                .parent
-                .expect("followright frame has parent");
+            state.current = state.frames[cur].parent.expect("followright frame has parent");
             continue;
         }
 
@@ -681,14 +670,7 @@ pub fn gistdoinsert<'mcx>(
 
                 // SAFETY: owned newtup image live for the call.
                 let newtup_slice = unsafe { itup_slice(newtup.as_ptr()) };
-                if gistinserttuple(
-                    mcx,
-                    &mut state,
-                    cur,
-                    giststate,
-                    newtup_slice,
-                    downlinkoffnum,
-                )? {
+                if gistinserttuple(mcx, &mut state, cur, giststate, newtup_slice, downlinkoffnum,)? {
                     // page split: retry from parent unless we're the root
                     if state.frames[cur].blkno != GIST_ROOT_BLKNO {
                         unlock(state.frames[cur].pin.as_ref().expect("pinned").buffer())?;
@@ -872,7 +854,10 @@ fn gistFindPath(
 
 // gistFindCorrectParent: child's parent must be exclusively locked on entry
 // and stays so on exit (possibly a different page).
-fn gistFindCorrectParent(state: &mut InsertState<'_, '_>, child: usize) -> PgResult<()> {
+fn gistFindCorrectParent(
+    state: &mut InsertState<'_, '_>,
+    child: usize
+) -> PgResult<()> {
     let parent = state.frames[child].parent.expect("child has a parent");
     gistcheckpage(state.r, state.frames[parent].pin.as_ref().expect("pinned"))?;
 
@@ -940,8 +925,8 @@ fn gistFindCorrectParent(state: &mut InsertState<'_, '_>, child: usize) -> PgRes
         if rightlink == InvalidBlockNumber {
             break;
         }
-        let pin =
-            BufferPin::adopt(bufmgr::read_buffer::call(state.r, rightlink)?).expect("ReadBuffer");
+        let pin = BufferPin::adopt(bufmgr::read_buffer::call(state.r, rightlink)?)
+            .expect("ReadBuffer");
         lock(pin.buffer(), GIST_EXCLUSIVE)?;
         gistcheckpage(state.r, &pin)?;
         state.frames[parent].pin = Some(pin);
@@ -969,11 +954,7 @@ fn gistFindCorrectParent(state: &mut InsertState<'_, '_>, child: usize) -> PgRes
     state.frames[child].parent = Some(new_parent);
 
     lock(
-        state.frames[new_parent]
-            .pin
-            .as_ref()
-            .expect("pinned")
-            .buffer(),
+        state.frames[new_parent].pin.as_ref().expect("pinned").buffer(),
         GIST_EXCLUSIVE,
     )?;
     gistFindCorrectParent(state, child)
@@ -995,10 +976,11 @@ fn gistformdownlink<'mcx>(
             let ituple = page_item(&page, offset);
             downlink = Some(match downlink {
                 None => copy_page_item(mcx, &page, offset)?,
-                Some(dl) => match gistgetadjusted(mcx, state.r, dl.as_ptr(), ituple, giststate)? {
-                    Some(new_dl) => new_dl,
-                    None => dl,
-                },
+                Some(dl) =>
+                    match gistgetadjusted(mcx, state.r, dl.as_ptr(), ituple, giststate)? {
+                        Some(new_dl) => new_dl,
+                        None => dl,
+                    },
             });
         }
     }
@@ -1067,7 +1049,8 @@ fn gistfixsplit<'mcx>(
     // re-acquire a content lock we already hold — a permanent self-deadlock.
     // Detect a revisited block before locking it and raise a catchable error
     // instead. `visited` is seeded with the starting page's block.
-    let mut visited: Vec<BlockNumber> = vec![state.frames[stack]
+    let mut visited: Vec<BlockNumber> = vec![state
+        .frames[stack]
         .pin
         .as_ref()
         .expect("pinned")
@@ -1174,19 +1157,11 @@ fn gistinserttuples<'mcx>(
     predicate_seams::check_for_serializable_conflict_in::call(
         state.r,
         None,
-        state.frames[stack]
-            .pin
-            .as_ref()
-            .expect("pinned")
-            .block_number(),
+        state.frames[stack].pin.as_ref().expect("pinned").block_number(),
     )?;
 
     let (is_split, splitinfo) = {
-        let pin = state.frames[stack]
-            .pin
-            .as_ref()
-            .expect("pinned")
-            .incr_clone();
+        let pin = state.frames[stack].pin.as_ref().expect("pinned").incr_clone();
         let res = gistplacetopage(
             mcx,
             state.r,
@@ -1280,13 +1255,11 @@ fn gistfinishsplit<'mcx>(
     let right = splitinfo.pop().expect("two remain");
     let left = splitinfo.pop().expect("one remains");
     debug_assert!(splitinfo.is_empty());
-    debug_assert!(left.buf == state.frames[stack].pin.as_ref().expect("pinned").buffer());
+    debug_assert!(
+        left.buf == state.frames[stack].pin.as_ref().expect("pinned").buffer()
+    );
 
-    let left_pin_for_child = state.frames[stack]
-        .pin
-        .as_ref()
-        .expect("pinned")
-        .incr_clone();
+    let left_pin_for_child = state.frames[stack].pin.as_ref().expect("pinned").incr_clone();
     gistFindCorrectParent(state, stack)?;
     let parent = state.frames[stack].parent.expect("has parent");
     // SAFETY: owned downlink images.
@@ -1415,28 +1388,18 @@ fn gistFormTupleFromSplit<'mcx>(
 ) -> PgResult<ItupBuf<'mcx>> {
     let n = giststate.nonLeafTupdesc.natts as usize;
     if left {
-        crate::util::gistFormTuple(
-            mcx,
-            giststate,
-            r,
-            &v.spl_lattr[..n],
-            &v.spl_lisnull[..n],
-            false,
-        )
+        crate::util::gistFormTuple(mcx, giststate, r, &v.spl_lattr[..n], &v.spl_lisnull[..n], false,)
     } else {
-        crate::util::gistFormTuple(
-            mcx,
-            giststate,
-            r,
-            &v.spl_rattr[..n],
-            &v.spl_risnull[..n],
-            false,
-        )
+        crate::util::gistFormTuple(mcx, giststate, r, &v.spl_rattr[..n], &v.spl_risnull[..n], false,)
     }
 }
 
 // gistprunepage: remove LP_DEAD items; buffer exclusively locked.
-fn gistprunepage(rel: &Relation<'_>, buffer: &BufferPin, heap_rel: &Relation<'_>) -> PgResult<()> {
+fn gistprunepage(
+    rel: &Relation<'_>,
+    buffer: &BufferPin,
+    heap_rel: &Relation<'_>
+) -> PgResult<()> {
     let mut deletable: Vec<OffsetNumber> = Vec::new();
     {
         let page = buffer.page();
@@ -1504,10 +1467,7 @@ mod split_record_space_tests {
         assert!(ensure_split_record_space(::xloginsert::XLR_MAX_BLOCK_ID).is_ok());
         let err = ensure_split_record_space(::xloginsert::XLR_MAX_BLOCK_ID + 1).unwrap_err();
         assert_eq!(err.sqlstate(), ::types_error::ERRCODE_INTERNAL_ERROR);
-        assert_eq!(
-            err.message(),
-            "maximum number of WAL record block references exceeded"
-        );
+        assert_eq!(err.message(), "maximum number of WAL record block references exceeded");
     }
 }
 

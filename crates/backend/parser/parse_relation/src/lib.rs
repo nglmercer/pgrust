@@ -589,21 +589,22 @@ fn markRTEForSelectPriv(
         }
         // A whole-row join reference propagates to both inputs; merged USING
         // columns need nothing (the join qual already marked the inputs).
-        RTEKind::RTE_JOIN if col == InvalidAttrNumber => {
-            let j = pstate
-                .p_joinexprs
-                .get(rtindex as usize - 1)
-                .copied()
-                .flatten()
-                .and_then(|n| n.as_join_expr())
-                .expect("could not find JoinExpr for whole-row reference");
-            for arg in [j.larg, j.rarg] {
-                let varno = match arg.node_tag() {
-                    NodeTag::T_RangeTblRef => arg.as_range_tbl_ref().unwrap().rtindex,
-                    NodeTag::T_JoinExpr => arg.as_join_expr().unwrap().rtindex,
-                    other => panic!("unrecognized node type: {other:?}"),
-                };
-                markRTEForSelectPriv(mcx, pstate, varno, InvalidAttrNumber)?;
+        RTEKind::RTE_JOIN
+            if col == InvalidAttrNumber => {
+                let j = pstate
+                    .p_joinexprs
+                    .get(rtindex as usize - 1)
+                    .copied()
+                    .flatten()
+                    .and_then(|n| n.as_join_expr())
+                    .expect("could not find JoinExpr for whole-row reference");
+                for arg in [j.larg, j.rarg] {
+                    let varno = match arg.node_tag() {
+                        NodeTag::T_RangeTblRef => arg.as_range_tbl_ref().unwrap().rtindex,
+                        NodeTag::T_JoinExpr => arg.as_join_expr().unwrap().rtindex,
+                        other => panic!("unrecognized node type: {other:?}"),
+                    };
+                    markRTEForSelectPriv(mcx, pstate, varno, InvalidAttrNumber)?;
             }
         }
         _ => {}

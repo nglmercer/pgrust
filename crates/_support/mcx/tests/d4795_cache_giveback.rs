@@ -37,18 +37,10 @@ fn a_part_freed_on_another_thread_mid_statement_leaves_the_statements_count() {
         let before = l.bytes();
         let mut rec = CacheCharge::default();
         governor::charge_cache(N, "pgrc part cache", &mut rec);
-        assert_eq!(
-            l.bytes() - before,
-            N as isize,
-            "the fault is on the statement's count"
-        );
+        assert_eq!(l.bytes() - before, N as isize, "the fault is on the statement's count");
         let held = l.held();
         let rec = free_elsewhere(N, rec);
-        assert_eq!(
-            l.bytes(),
-            before,
-            "the free on another thread takes exactly the part's bytes back"
-        );
+        assert_eq!(l.bytes(), before, "the free on another thread takes exactly the part's bytes back");
         assert_eq!(held - l.held(), N as u64, "held() with them");
         assert_eq!(rec, CacheCharge::default(), "the holder's record is spent");
     });
@@ -62,11 +54,7 @@ fn a_part_freed_after_its_statement_ended_changes_nothing() {
         governor::statement_end();
         let ended = l.bytes();
         free_elsewhere(N, rec);
-        assert_eq!(
-            l.bytes(),
-            ended,
-            "a free after the end takes nothing from the ended statement"
-        );
+        assert_eq!(l.bytes(), ended, "a free after the end takes nothing from the ended statement");
         governor::statement_start(0, true);
     });
 }
@@ -84,11 +72,7 @@ fn a_free_of_the_last_statements_part_leaves_the_next_statement_alone() {
         let charged = l.bytes();
         assert_eq!(charged - start, (N / 3) as isize);
         free_elsewhere(N, old);
-        assert_eq!(
-            l.bytes(),
-            charged,
-            "the slot's epoch moved: the earlier statement's free is not this one's"
-        );
+        assert_eq!(l.bytes(), charged, "the slot's epoch moved: the earlier statement's free is not this one's");
         free_elsewhere(N / 3, new);
         assert_eq!(l.bytes(), start);
     });
@@ -126,10 +110,7 @@ fn frees_racing_the_next_statement_start_never_land_on_it() {
         let past = |seen: u64, k: usize| {
             let t0 = std::time::Instant::now();
             while ran.load(Acquire) <= seen {
-                assert!(
-                    t0.elapsed() < std::time::Duration::from_secs(60),
-                    "round {k}: the worker ran no pair in 60 s"
-                );
+                assert!(t0.elapsed() < std::time::Duration::from_secs(60), "round {k}: the worker ran no pair in 60 s");
                 std::thread::yield_now();
             }
         };
@@ -143,22 +124,14 @@ fn frees_racing_the_next_statement_start_never_land_on_it() {
             governor::charge_cache(PIN, "pgrc part cache", &mut pin);
             let seen = ran.load(Acquire);
             for _ in 0..64 {
-                assert!(
-                    l.bytes() >= PIN as isize,
-                    "round {k}: a free of another statement's part landed on this one: {} < {PIN}",
-                    l.bytes()
-                );
+                assert!(l.bytes() >= PIN as isize, "round {k}: a free of another statement's part landed on this one: {} < {PIN}", l.bytes());
                 std::hint::spin_loop();
             }
             past(seen, k);
             if k == ROUNDS - 1 {
                 stop.store(true, Release);
                 pairs = w.take().expect("joined once").join().unwrap();
-                assert_eq!(
-                    l.bytes(),
-                    PIN as isize,
-                    "every pair inside this statement netted to nothing"
-                );
+                assert_eq!(l.bytes(), PIN as isize, "every pair inside this statement netted to nothing");
             }
             governor::release_cache(PIN, &mut pin);
             if k == ROUNDS - 1 {
@@ -185,19 +158,11 @@ fn a_reused_slot_starts_empty() {
     })
     .join()
     .unwrap();
-    assert_eq!(
-        old.bytes() - before,
-        N as isize,
-        "the share outlives its backend until the slot is taken"
-    );
+    assert_eq!(old.bytes() - before, N as isize, "the share outlives its backend until the slot is taken");
     on(4005, move |l| {
         assert_eq!(old.bytes(), before, "register emptied the share");
         let start = l.bytes();
         free_elsewhere(N, rec);
-        assert_eq!(
-            l.bytes(),
-            start,
-            "the earlier backend's free takes nothing from the new backend's statement"
-        );
+        assert_eq!(l.bytes(), start, "the earlier backend's free takes nothing from the new backend's statement");
     });
 }

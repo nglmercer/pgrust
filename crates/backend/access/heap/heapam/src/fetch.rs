@@ -16,9 +16,7 @@ use ::types_tuple::{
     ItemPointerIsValid, ItemPointerSetOffsetNumber, HEAP_XMAX_INVALID,
 };
 
-use crate::{
-    check_for_interrupts, HeapCheckForSerializableConflictOut, HeapTupleHeaderGetUpdateXid,
-};
+use crate::{check_for_interrupts, HeapCheckForSerializableConflictOut, HeapTupleHeaderGetUpdateXid,};
 use heapam_visibility_seams as hv_seam;
 
 /// Raise a catchable data-corruption error (ERRCODE_DATA_CORRUPTED).

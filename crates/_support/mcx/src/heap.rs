@@ -61,10 +61,7 @@ pub fn set_block_source(s: &'static BlockSource, lo: usize, len: usize, min: usi
     LEN.store(len, Relaxed);
     MIN.store(min, Relaxed);
     KEEPERS.store(keepers, Relaxed);
-    SOURCE.store(
-        s as *const BlockSource as *mut BlockSource,
-        core::sync::atomic::Ordering::Release,
-    );
+    SOURCE.store(s as *const BlockSource as *mut BlockSource, core::sync::atomic::Ordering::Release,);
 }
 
 #[inline(always)]
@@ -153,11 +150,7 @@ impl Served {
             return None;
         }
         let s = self == Served::Source;
-        debug_assert_eq!(
-            s,
-            pooled(p),
-            "mcx: a block's served bit is not the source's answer for {p:p}"
-        );
+        debug_assert_eq!(s, pooled(p), "mcx: a block's served bit is not the source's answer for {p:p}");
         Some(s)
     }
 
@@ -186,10 +179,7 @@ fn take_for(s: &BlockSource, layout: Layout, led: &crate::owner::Led) -> Option<
     // SAFETY: the source's contract: a block of `bytes` at `align`, or null.
     let life = led.lifetime();
     let p = NonNull::new(unsafe { (s.take)(layout.size(), layout.align(), life, false) })?;
-    debug_assert!(
-        pooled(p.as_ptr()),
-        "mcx: a block source served a block outside its range"
-    );
+    debug_assert!(pooled(p.as_ptr()), "mcx: a block source served a block outside its range");
     led.pooled_in(layout.size(), life);
     Some(NonNull::slice_from_raw_parts(p, layout.size()))
 }
@@ -222,12 +212,7 @@ pub(crate) unsafe fn free_block(ptr: NonNull<u8>, layout: Layout, life: Option<L
 /// # Safety
 /// As `free_block`, and `served` is the block's.
 #[inline]
-pub(crate) unsafe fn free_served_block(
-    ptr: NonNull<u8>,
-    layout: Layout,
-    life: Option<Lifetime>,
-    served: Served,
-) {
+pub(crate) unsafe fn free_served_block(ptr: NonNull<u8>, layout: Layout, life: Option<Lifetime>, served: Served,) {
     if served.pooled(ptr.as_ptr()) {
         return give(ptr, layout, life);
     }
@@ -253,11 +238,7 @@ unsafe fn dealloc_unpooled(ptr: NonNull<u8>, layout: Layout) {
 #[cold]
 #[inline(never)]
 unsafe fn stray(ptr: NonNull<u8>, layout: Layout) {
-    debug_assert!(
-        false,
-        "mcx: a pooled block of {} bytes freed without its context's Led",
-        layout.size()
-    );
+    debug_assert!(false, "mcx: a pooled block of {} bytes freed without its context's Led", layout.size());
     give(ptr, layout, None);
 }
 
@@ -382,37 +363,25 @@ pub(crate) fn door(ptr: usize, bytes: usize, on: bool, led: Option<&crate::owner
 /// LEDGER2 step 2: `Heap::allocate` for a context's arena: a mapped block maps for the context's owner (`led`) and counts
 /// in its mapped bytes; the arena's footprint update then posts nothing for it.
 #[inline(always)]
-pub(crate) fn allocate_for(
-    layout: Layout,
-    led: &crate::owner::Led,
-) -> Result<NonNull<[u8]>, AllocError> {
+pub(crate) fn allocate_for(layout: Layout, led: &crate::owner::Led,) -> Result<NonNull<[u8]>, AllocError> {
     allocate_from(layout, led).map(|(p, _)| p)
 }
 
 /// `allocate_for` with the allocator that served the block.
 #[inline(always)]
-pub(crate) fn allocate_served_for(
-    layout: Layout,
-    led: &crate::owner::Led,
-) -> Result<(NonNull<[u8]>, Served), AllocError> {
+pub(crate) fn allocate_served_for(layout: Layout, led: &crate::owner::Led,) -> Result<(NonNull<[u8]>, Served), AllocError> {
     allocate_from(layout, led).map(|(p, source)| (p, Served::now(source)))
 }
 
 /// `allocate_kept_for` with the allocator that served the block (never the source).
 #[inline(always)]
-pub(crate) fn allocate_kept_served_for(
-    layout: Layout,
-    led: &crate::owner::Led,
-) -> Result<(NonNull<[u8]>, Served), AllocError> {
+pub(crate) fn allocate_kept_served_for(layout: Layout, led: &crate::owner::Led,) -> Result<(NonNull<[u8]>, Served), AllocError> {
     allocate_kept_for(layout, led).map(|p| (p, Served::now(false)))
 }
 
 /// The block and whether the source's take served it (else the take was not asked or refused it).
 #[inline(always)]
-fn allocate_from(
-    layout: Layout,
-    led: &crate::owner::Led,
-) -> Result<(NonNull<[u8]>, bool), AllocError> {
+fn allocate_from(layout: Layout, led: &crate::owner::Led,) -> Result<(NonNull<[u8]>, bool), AllocError> {
     if let Some(s) = source() {
         if layout.size() >= MIN.load(Relaxed) {
             if let Some(p) = take_for(s, layout, led) {
@@ -425,10 +394,7 @@ fn allocate_from(
 
 /// `allocate_for` for a block a reset keeps (a keeper): never the source's, so a reset leaves no pooled byte behind.
 #[inline(always)]
-pub(crate) fn allocate_kept_for(
-    layout: Layout,
-    led: &crate::owner::Led,
-) -> Result<NonNull<[u8]>, AllocError> {
+pub(crate) fn allocate_kept_for(layout: Layout, led: &crate::owner::Led,) -> Result<NonNull<[u8]>, AllocError> {
     if !mapped(layout) {
         return Global.allocate(layout);
     }
@@ -456,12 +422,7 @@ pub(crate) unsafe fn deallocate_for(ptr: NonNull<u8>, layout: Layout, led: &crat
 /// # Safety
 /// As `deallocate_for`, and `served` is the block's.
 #[inline(always)]
-pub(crate) unsafe fn deallocate_served_for(
-    ptr: NonNull<u8>,
-    layout: Layout,
-    led: &crate::owner::Led,
-    served: Served,
-) {
+pub(crate) unsafe fn deallocate_served_for(ptr: NonNull<u8>, layout: Layout, led: &crate::owner::Led, served: Served,) {
     if served.pooled(ptr.as_ptr()) {
         return give_for(ptr, layout, led);
     }
@@ -483,12 +444,7 @@ unsafe fn give_for(ptr: NonNull<u8>, layout: Layout, led: &crate::owner::Led) {
 /// As `resize_for`, for a source's block.
 #[cold]
 #[inline(never)]
-unsafe fn resize_pooled(
-    ptr: NonNull<u8>,
-    old: Layout,
-    new: Layout,
-    led: &crate::owner::Led,
-) -> Result<NonNull<[u8]>, AllocError> {
+unsafe fn resize_pooled(ptr: NonNull<u8>, old: Layout, new: Layout, led: &crate::owner::Led,) -> Result<NonNull<[u8]>, AllocError> {
     resize_pooled_served(ptr, old, new, led).map(|(q, _)| q)
 }
 
@@ -507,29 +463,14 @@ unsafe fn resize_pooled_served(
     led: &crate::owner::Led,
 ) -> Result<(NonNull<[u8]>, Served), AllocError> {
     if let Some(s) = source() {
-        if let Some(q) = NonNull::new((s.resize)(
-            ptr.as_ptr(),
-            old.size(),
-            new.size(),
-            new.align(),
-        )) {
-            debug_assert!(
-                pooled(q.as_ptr()),
-                "mcx: a block source resized a block outside its range"
-            );
+        if let Some(q) = NonNull::new((s.resize)(ptr.as_ptr(), old.size(), new.size(), new.align(),)) {
+            debug_assert!(pooled(q.as_ptr()), "mcx: a block source resized a block outside its range");
             led.pooled_resized(old.size(), new.size());
-            return Ok((
-                NonNull::slice_from_raw_parts(q, new.size()),
-                Served::now(true),
-            ));
+            return Ok((NonNull::slice_from_raw_parts(q, new.size()), Served::now(true),));
         }
     }
     let (q, served) = allocate_served_for(new, led)?;
-    core::ptr::copy_nonoverlapping(
-        ptr.as_ptr(),
-        q.cast::<u8>().as_ptr(),
-        old.size().min(new.size()),
-    );
+    core::ptr::copy_nonoverlapping(ptr.as_ptr(), q.cast::<u8>().as_ptr(), old.size().min(new.size()),);
     give_for(ptr, old, led);
     Ok((q, served))
 }
@@ -538,22 +479,13 @@ unsafe fn resize_pooled_served(
 ///
 /// # Safety
 /// As `Allocator::grow`/`shrink` (either direction).
-pub(crate) unsafe fn resize_for(
-    ptr: NonNull<u8>,
-    old: Layout,
-    new: Layout,
-    led: &crate::owner::Led,
-) -> Result<NonNull<[u8]>, AllocError> {
+pub(crate) unsafe fn resize_for(ptr: NonNull<u8>, old: Layout, new: Layout, led: &crate::owner::Led,) -> Result<NonNull<[u8]>, AllocError> {
     if pooled(ptr.as_ptr()) {
         return resize_pooled(ptr, old, new, led);
     }
     let out = if mapped(new) && !mapped(old) {
         let q = Heap.map_for(new, led)?;
-        core::ptr::copy_nonoverlapping(
-            ptr.as_ptr(),
-            q.cast::<u8>().as_ptr(),
-            old.size().min(new.size()),
-        );
+        core::ptr::copy_nonoverlapping(ptr.as_ptr(), q.cast::<u8>().as_ptr(), old.size().min(new.size()),);
         dealloc_unpooled(ptr, old);
         q
     } else {
@@ -584,11 +516,7 @@ pub(crate) unsafe fn resize_served_for(
     }
     let out = if mapped(new) && !mapped(old) {
         let q = Heap.map_for(new, led)?;
-        core::ptr::copy_nonoverlapping(
-            ptr.as_ptr(),
-            q.cast::<u8>().as_ptr(),
-            old.size().min(new.size()),
-        );
+        core::ptr::copy_nonoverlapping(ptr.as_ptr(), q.cast::<u8>().as_ptr(), old.size().min(new.size()),);
         dealloc_unpooled(ptr, old);
         q
     } else {
@@ -618,12 +546,7 @@ pub(crate) fn door_move(ptr: usize, on: bool) {
 #[cfg_attr(not(unix), allow(dead_code))]
 pub(crate) fn door_remap(old: usize, new: usize, old_bytes: usize, new_bytes: usize) {
     #[cfg(all(feature = "std", unix))]
-    memledger::charge::door_remapped(
-        old,
-        new,
-        os::round(old_bytes) as u64,
-        os::round(new_bytes) as u64,
-    );
+    memledger::charge::door_remapped(old, new, os::round(old_bytes) as u64, os::round(new_bytes) as u64,);
     #[cfg(not(all(feature = "std", unix)))]
     let _ = (old, new, old_bytes, new_bytes);
 }
@@ -676,11 +599,7 @@ unsafe impl Allocator for Heap {
 
 impl Heap {
     #[cold]
-    fn map_for(
-        &self,
-        layout: Layout,
-        led: &crate::owner::Led,
-    ) -> Result<NonNull<[u8]>, AllocError> {
+    fn map_for(&self, layout: Layout, led: &crate::owner::Led,) -> Result<NonNull<[u8]>, AllocError> {
         #[cfg(unix)]
         {
             let p = os::map(layout.size()).ok_or(AllocError)?;
@@ -719,11 +638,7 @@ impl Heap {
     ) -> Result<NonNull<[u8]>, AllocError> {
         if pooled(ptr.as_ptr()) {
             let q = self.allocate(new)?;
-            core::ptr::copy_nonoverlapping(
-                ptr.as_ptr(),
-                q.cast::<u8>().as_ptr(),
-                old.size().min(new.size()),
-            );
+            core::ptr::copy_nonoverlapping(ptr.as_ptr(), q.cast::<u8>().as_ptr(), old.size().min(new.size()),);
             stray(ptr, old);
             return Ok(q);
         }
@@ -755,12 +670,7 @@ impl Heap {
                     door_move(ptr.as_ptr() as usize, false);
                     return Err(AllocError);
                 };
-                door_remap(
-                    ptr.as_ptr() as usize,
-                    p.as_ptr() as usize,
-                    old.size(),
-                    new.size(),
-                );
+                door_remap(ptr.as_ptr() as usize, p.as_ptr() as usize, old.size(), new.size(),);
                 Ok(NonNull::slice_from_raw_parts(p, new.size()))
             }
             _ => {

@@ -1,5 +1,4 @@
-#![cfg(feature = "wasmtime-oracle")]
-//! Every scalar op form at every width, compiled to wasm and run under
+#![cfg(feature = "wasmtime-oracle")]//! Every scalar op form at every width, compiled to wasm and run under
 //! wasmtime against the interpreter over `gravity_interp/tests/ops_oracle.rs`'s
 //! operand sets (the interpreter is itself checked against Rust there).
 

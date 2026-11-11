@@ -61,10 +61,7 @@ fn posting_list_decode_continuation_runs_into_padding() {
     // ginpostinglist.c:145: a continuation bit on the last payload byte is
     // terminated by the segment's zero alignment pad, which C reads.
     let ctx = MemoryContext::new_bump("t");
-    for (last, expect) in [
-        (0x81u8, [tid(0, 1), tid(0, 2)]),
-        (0x80u8, [tid(0, 1), tid(0, 1)]),
-    ] {
+    for (last, expect) in [(0x81u8, [tid(0, 1), tid(0, 2)]), (0x80u8, [tid(0, 1), tid(0, 1)]),] {
         let img: [u8; 10] = [0, 0, 0, 0, 1, 0, 1, 0, last, 0x00];
         let mut out = mcx::vec_new_in(ctx.mcx());
         ginPostingListDecodeAllSegments(&img, &mut out).unwrap();
@@ -84,10 +81,7 @@ fn insert_scratch_is_released_after_the_insertion() {
     })
     .unwrap();
     assert_eq!(keep, 1 << 20);
-    assert!(
-        crate::insert::insert_scratch_used() < 1 << 20,
-        "scratch retained past the insertion"
-    );
+    assert!(crate::insert::insert_scratch_used() < 1 << 20, "scratch retained past the insertion");
 }
 
 // trgm_gin.c:24 gin_extract_trgm: a pre-9.1 pg_trgm opclass names this one
@@ -97,19 +91,17 @@ fn trgm_compatibility_symbol_resolves_for_both_extractors() {
     const PROC: ::types_core::Oid = 70_001;
     if !::syscache_seams::lookup_pg_proc_fmgr::is_installed() {
         ::syscache_seams::lookup_pg_proc_fmgr::set(|funcid| {
-            Ok(
-                (funcid == PROC).then_some(::syscache_seams::PgProcFmgrShape {
-                    prolang: 13,
-                    prorettype: 2281,
-                    pronargs: 3,
-                    proisstrict: true,
-                    proretset: false,
-                    prosecdef: false,
-                    proconfig_isnull: true,
-                    xmin: 0,
-                    tid: Default::default(),
-                }),
-            )
+            Ok((funcid == PROC).then_some(::syscache_seams::PgProcFmgrShape {
+                prolang: 13,
+                prorettype: 2281,
+                pronargs: 3,
+                proisstrict: true,
+                proretset: false,
+                prosecdef: false,
+                proconfig_isnull: true,
+                xmin: 0,
+                tid: Default::default(),
+            }),)
         });
     }
     if !::syscache_seams::lookup_pg_proc_prosrc::is_installed() {
@@ -121,14 +113,8 @@ fn trgm_compatibility_symbol_resolves_for_both_extractors() {
             })
         });
     }
-    assert!(matches!(
-        crate::util::resolve_extract_value(PROC).unwrap(),
-        GinExtractValueFn::Trgm
-    ));
-    assert!(matches!(
-        crate::util::resolve_extract_query(PROC).unwrap(),
-        GinExtractQueryFn::Trgm
-    ));
+    assert!(matches!(crate::util::resolve_extract_value(PROC).unwrap(), GinExtractValueFn::Trgm));
+    assert!(matches!(crate::util::resolve_extract_query(PROC).unwrap(), GinExtractQueryFn::Trgm));
 }
 
 #[test]
@@ -137,7 +123,10 @@ fn merge_item_pointers_dedups() {
     let a = [tid(1, 1), tid(2, 2), tid(5, 5)];
     let b = [tid(2, 2), tid(3, 3)];
     let m = ginMergeItemPointers(ctx.mcx(), &a, &b).unwrap();
-    assert_eq!(m.as_slice(), &[tid(1, 1), tid(2, 2), tid(3, 3), tid(5, 5)]);
+    assert_eq!(
+        m.as_slice(),
+        &[tid(1, 1), tid(2, 2), tid(3, 3), tid(5, 5)]
+    );
     // Disjoint fast paths.
     let m = ginMergeItemPointers(ctx.mcx(), &a[..1], &b).unwrap();
     assert_eq!(m.as_slice(), &[tid(1, 1), tid(2, 2), tid(3, 3)]);
@@ -179,11 +168,7 @@ fn wal_record_image_sizes_match_c() {
 fn one_col_state(col: GinColState) -> GinState {
     let mut cols = [col; GIN_MAX_KEY_COLS];
     cols[0] = col;
-    GinState {
-        natts: 1,
-        one_col: true,
-        cols,
-    }
+    GinState { natts: 1, one_col: true, cols, }
 }
 
 #[test]
@@ -209,44 +194,23 @@ fn build_accumulator_dump_order_and_tids() {
     let mut acc = crate::bulk::BuildAccumulator::new(mcx, state);
     let kb = key(mcx, b"\x01bbb");
     let ka = key(mcx, b"\x01aaa");
-    acc.insert_entries(
-        &tid(1, 1),
-        1,
-        &[kb, ka],
-        &[GIN_CAT_NORM_KEY, GIN_CAT_NORM_KEY],
-    )
-    .unwrap();
-    acc.insert_entries(&tid(1, 2), 1, &[ka], &[GIN_CAT_NORM_KEY])
+    acc.insert_entries(&tid(1, 1), 1, &[kb, ka], &[GIN_CAT_NORM_KEY, GIN_CAT_NORM_KEY],)
         .unwrap();
-    acc.insert_entries(&tid(2, 1), 1, &[kb], &[GIN_CAT_NORM_KEY])
-        .unwrap();
+    acc.insert_entries(&tid(1, 2), 1, &[ka], &[GIN_CAT_NORM_KEY]).unwrap();
+    acc.insert_entries(&tid(2, 1), 1, &[kb], &[GIN_CAT_NORM_KEY]).unwrap();
     // A null-item placeholder sorts after normal keys.
-    acc.insert_entries(
-        &tid(3, 1),
-        1,
-        &[::datum::Datum::null()],
-        &[GIN_CAT_NULL_ITEM],
-    )
-    .unwrap();
+    acc.insert_entries(&tid(3, 1), 1, &[::datum::Datum::null()], &[GIN_CAT_NULL_ITEM],)
+        .unwrap();
 
     acc.begin_scan().unwrap();
-    let (k1, c1, l1) = acc
-        .next_entry()
-        .map(|(_, k, c, l)| (k, c, l.to_vec()))
-        .unwrap();
+    let (k1, c1, l1) = acc.next_entry().map(|(_, k, c, l)| (k, c, l.to_vec())).unwrap();
     assert_eq!(c1, GIN_CAT_NORM_KEY);
     let (_, _, _) = (k1, c1, &l1);
     assert_eq!(l1, vec![tid(1, 1), tid(1, 2)]); // "aaa" first, TIDs sorted
-    let (_, c2, l2) = acc
-        .next_entry()
-        .map(|(_, k, c, l)| (k, c, l.to_vec()))
-        .unwrap();
+    let (_, c2, l2) = acc.next_entry().map(|(_, k, c, l)| (k, c, l.to_vec())).unwrap();
     assert_eq!(c2, GIN_CAT_NORM_KEY);
     assert_eq!(l2, vec![tid(1, 1), tid(2, 1)]);
-    let (_, c3, l3) = acc
-        .next_entry()
-        .map(|(_, k, c, l)| (k, c, l.to_vec()))
-        .unwrap();
+    let (_, c3, l3) = acc.next_entry().map(|(_, k, c, l)| (k, c, l.to_vec())).unwrap();
     assert_eq!(c3, GIN_CAT_NULL_ITEM);
     assert_eq!(l3, vec![tid(3, 1)]);
     assert!(acc.next_entry().is_none());
@@ -326,10 +290,7 @@ fn compare_detoasts_compressed_keys() {
     la.extend_from_slice(b"zzz0");
     lb.extend_from_slice(b"zzz1");
     // Round-trip sanity: the built image detoasts back to the payload.
-    assert_eq!(
-        crate::opclass::detoast_payload(mcx, pglz_key(mcx, &la)).unwrap(),
-        &la[..]
-    );
+    assert_eq!(crate::opclass::detoast_payload(mcx, pglz_key(mcx, &la)).unwrap(), &la[..]);
 
     let col = ts_col();
     for (a, b, want) in [(&la, &la, 0), (&la, &lb, -1), (&lb, &la, 1)] {
@@ -341,10 +302,7 @@ fn compare_detoasts_compressed_keys() {
             (flat_key(mcx, a), pglz_key(mcx, b)),
             (pglz_key(mcx, a), pglz_key(mcx, b)),
         ] {
-            assert_eq!(
-                crate::opclass::compare(&col, da, db).unwrap().signum(),
-                want
-            );
+            assert_eq!(crate::opclass::compare(&col, da, db).unwrap().signum(), want);
         }
     }
 
@@ -358,14 +316,9 @@ fn compare_detoasts_compressed_keys() {
             support_collation: ::types_core::catalog::C_COLLATION_OID,
             ..col
         };
+        assert_eq!(crate::opclass::compare(&col, pglz_key(mcx, &la), flat_key(mcx, &la)).unwrap(), 0);
         assert_eq!(
-            crate::opclass::compare(&col, pglz_key(mcx, &la), flat_key(mcx, &la)).unwrap(),
-            0
-        );
-        assert_eq!(
-            crate::opclass::compare(&col, pglz_key(mcx, &la), pglz_key(mcx, &lb))
-                .unwrap()
-                .signum(),
+            crate::opclass::compare(&col, pglz_key(mcx, &la), pglz_key(mcx, &lb)).unwrap().signum(),
             -1
         );
     }
@@ -381,42 +334,18 @@ fn compare_partial_detoasts_compressed_keys() {
     let col = ts_col();
     // Stored key carries the prefix: gin_cmp_prefix must say "match" (0)
     // whether the stored key is flat or compressed.
-    let want = crate::opclass::compare_partial(
-        &col,
-        flat_key(mcx, &prefix),
-        flat_key(mcx, &full),
-        0,
-        ::datum::Datum::null(),
-    );
+    let want = crate::opclass::compare_partial(&col, flat_key(mcx, &prefix), flat_key(mcx, &full), 0, ::datum::Datum::null(),);
     assert_eq!(want, 0);
     assert_eq!(
-        crate::opclass::compare_partial(
-            &col,
-            flat_key(mcx, &prefix),
-            pglz_key(mcx, &full),
-            0,
-            ::datum::Datum::null()
-        ),
+        crate::opclass::compare_partial(&col, flat_key(mcx, &prefix), pglz_key(mcx, &full), 0, ::datum::Datum::null()),
         0
     );
     // A stored key past the prefix range stops the scan (> 0) in both forms.
     let other = b"zz".repeat(1030);
-    let stop = crate::opclass::compare_partial(
-        &col,
-        flat_key(mcx, &prefix),
-        flat_key(mcx, &other),
-        0,
-        ::datum::Datum::null(),
-    );
+    let stop = crate::opclass::compare_partial(&col, flat_key(mcx, &prefix), flat_key(mcx, &other), 0, ::datum::Datum::null(),);
     assert!(stop > 0);
     assert_eq!(
-        crate::opclass::compare_partial(
-            &col,
-            flat_key(mcx, &prefix),
-            pglz_key(mcx, &other),
-            0,
-            ::datum::Datum::null()
-        ),
+        crate::opclass::compare_partial(&col, flat_key(mcx, &prefix), pglz_key(mcx, &other), 0, ::datum::Datum::null()),
         stop
     );
 }
@@ -433,30 +362,14 @@ fn build_accumulator_compressed_keys_group_and_sort_detoasted() {
     let ka1 = pglz_key(mcx, &big);
     let ka2 = pglz_key(mcx, &big); // separate copy, identical image bytes
     let kb = flat_key(mcx, b"zz");
-    acc.insert_entries(
-        &tid(1, 1),
-        1,
-        &[ka1, kb],
-        &[GIN_CAT_NORM_KEY, GIN_CAT_NORM_KEY],
-    )
-    .unwrap();
-    acc.insert_entries(&tid(2, 1), 1, &[ka2], &[GIN_CAT_NORM_KEY])
+    acc.insert_entries(&tid(1, 1), 1, &[ka1, kb], &[GIN_CAT_NORM_KEY, GIN_CAT_NORM_KEY],)
         .unwrap();
+    acc.insert_entries(&tid(2, 1), 1, &[ka2], &[GIN_CAT_NORM_KEY]).unwrap();
     acc.begin_scan().unwrap();
     // Identical compressed images grouped into one entry; "y..." dumps first.
-    let (_, _, l1) = acc
-        .next_entry()
-        .map(|(_, k, c, l)| (k, c, l.to_vec()))
-        .unwrap();
-    assert_eq!(
-        l1,
-        vec![tid(1, 1), tid(2, 1)],
-        "compressed key groups + sorts detoasted-first"
-    );
-    let (_, _, l2) = acc
-        .next_entry()
-        .map(|(_, k, c, l)| (k, c, l.to_vec()))
-        .unwrap();
+    let (_, _, l1) = acc.next_entry().map(|(_, k, c, l)| (k, c, l.to_vec())).unwrap();
+    assert_eq!(l1, vec![tid(1, 1), tid(2, 1)], "compressed key groups + sorts detoasted-first");
+    let (_, _, l2) = acc.next_entry().map(|(_, k, c, l)| (k, c, l.to_vec())).unwrap();
     assert_eq!(l2, vec![tid(1, 1)]);
     assert!(acc.next_entry().is_none());
     assert_eq!(acc.nentries(), 2);
@@ -478,15 +391,9 @@ fn build_accumulator_keeps_flat_key_equal_to_a_compressed_image_apart() {
         core::slice::from_raw_parts(p, ::types_tuple::varatt::varsize_any(p))
     };
     let kb = flat_key(mcx, image);
-    acc.insert_entries(&tid(1, 1), 1, &[ka], &[GIN_CAT_NORM_KEY])
-        .unwrap();
-    acc.insert_entries(&tid(2, 1), 1, &[kb], &[GIN_CAT_NORM_KEY])
-        .unwrap();
-    assert_eq!(
-        acc.nentries(),
-        2,
-        "flat payload == compressed image is a different key"
-    );
+    acc.insert_entries(&tid(1, 1), 1, &[ka], &[GIN_CAT_NORM_KEY]).unwrap();
+    acc.insert_entries(&tid(2, 1), 1, &[kb], &[GIN_CAT_NORM_KEY]).unwrap();
+    assert_eq!(acc.nentries(), 2, "flat payload == compressed image is a different key");
     acc.begin_scan().unwrap();
     let mut lists = Vec::new();
     while let Some((_, _, _, l)) = acc.next_entry() {
@@ -507,13 +414,8 @@ fn build_accumulator_charges_c_entry_accumulator_chunk() {
     let state = one_col_state(GinColState::array_ops(GinCompareFn::Int4, true, 4));
     let mut acc = crate::bulk::BuildAccumulator::new(mcx, state);
     assert_eq!(acc.allocated_memory, 0);
-    acc.insert_entries(
-        &tid(1, 1),
-        1,
-        &[::datum::Datum::from_i32(7)],
-        &[GIN_CAT_NORM_KEY],
-    )
-    .unwrap();
+    acc.insert_entries(&tid(1, 1), 1, &[::datum::Datum::from_i32(7)], &[GIN_CAT_NORM_KEY],)
+        .unwrap();
     assert_eq!(acc.allocated_memory, 64 * 2048 + 8 + 40);
 }
 
@@ -686,10 +588,7 @@ mod posting_tree_vacuum {
             rd_firstRelfilelocatorSubid: Cell::new(0),
             rd_droppedSubid: Cell::new(0),
             rd_lockInfo: LockInfoData {
-                lockRelId: LockRelId {
-                    relId: 6000,
-                    dbId: 5,
-                },
+                lockRelId: LockRelId { relId: 6000, dbId: 5, },
             },
             rd_rel: FormData_pg_class {
                 relname,
@@ -819,11 +718,7 @@ mod posting_tree_vacuum {
             false,
             -1,
         );
-        let state = GinState {
-            natts: 2,
-            one_col: false,
-            cols,
-        };
+        let state = GinState { natts: 2, one_col: false, cols, };
         let desc = crate::entrypage::gin_col_tupdesc(mcx, &rel, &state, 2).unwrap();
         assert_eq!(desc.natts, 2);
         assert_eq!(desc.attr(1).attnum, 2);
@@ -842,15 +737,10 @@ mod posting_tree_vacuum {
         // Block 0 stands in for the metapage; the tree is three chained
         // leaves 1 -> 2 -> 3, the root being the leftmost leaf.
         super::fake_bufmgr::set_pages(
-            [
-                empty_leaf(InvalidBlockNumber),
-                empty_leaf(2),
-                empty_leaf(3),
-                empty_leaf(InvalidBlockNumber),
-            ]
-            .into_iter()
-            .map(|page| core::ptr::NonNull::from(Box::leak(page)).cast::<u8>())
-            .collect(),
+            [empty_leaf(InvalidBlockNumber), empty_leaf(2), empty_leaf(3), empty_leaf(InvalidBlockNumber),]
+                .into_iter()
+                .map(|page| core::ptr::NonNull::from(Box::leak(page)).cast::<u8>())
+                .collect(),
         );
         init_small::globals::SetVacuumCostActive(true);
 
@@ -895,15 +785,10 @@ mod posting_tree_vacuum {
     fn posting_tree_vacuum_reads_through_the_strategy_seam() {
         super::fake_bufmgr::install();
         super::fake_bufmgr::set_pages(
-            [
-                empty_leaf(InvalidBlockNumber),
-                empty_leaf(2),
-                empty_leaf(3),
-                empty_leaf(InvalidBlockNumber),
-            ]
-            .into_iter()
-            .map(|page| core::ptr::NonNull::from(Box::leak(page)).cast::<u8>())
-            .collect(),
+            [empty_leaf(InvalidBlockNumber), empty_leaf(2), empty_leaf(3), empty_leaf(InvalidBlockNumber),]
+                .into_iter()
+                .map(|page| core::ptr::NonNull::from(Box::leak(page)).cast::<u8>())
+                .collect(),
         );
         let before = super::fake_bufmgr::strategy_reads();
         let ctx = MemoryContext::new("t");
@@ -932,55 +817,23 @@ fn build_accumulator_comparator_equal_images_coalesce() {
     let first = pglz_key(mcx, &bytes);
     let alternate = flat_key(mcx, &bytes);
     let distinct = flat_key(mcx, b"zz");
-    for (key, block) in [
-        (first, 8),
-        (alternate, 3),
-        (first, 2),
-        (alternate, 9),
-        (distinct, 1),
-        (alternate, 4),
-        (first, 7),
-        (alternate, 6),
-    ] {
-        acc.insert_entries(&tid(block, 1), 1, &[key], &[GIN_CAT_NORM_KEY])
-            .unwrap();
+    for (key, block) in [(first, 8), (alternate, 3), (first, 2), (alternate, 9),
+                         (distinct, 1), (alternate, 4), (first, 7), (alternate, 6),] {
+        acc.insert_entries(&tid(block, 1), 1, &[key], &[GIN_CAT_NORM_KEY]).unwrap();
     }
     for _ in 0..2 {
         acc.begin_scan().unwrap();
         let (att, key, category, list) = acc.next_entry().unwrap();
         assert_eq!((att, category), (1, GIN_CAT_NORM_KEY));
         assert!(crate::opclass::inline_image(key) == crate::opclass::inline_image(first));
-        assert_eq!(
-            list,
-            &[
-                tid(2, 1),
-                tid(3, 1),
-                tid(4, 1),
-                tid(6, 1),
-                tid(7, 1),
-                tid(8, 1),
-                tid(9, 1)
-            ]
-        );
+        assert_eq!(list, &[tid(2, 1), tid(3, 1), tid(4, 1), tid(6, 1), tid(7, 1), tid(8, 1), tid(9, 1)]);
         assert_eq!(acc.next_entry().unwrap().3, &[tid(1, 1)]);
         assert!(acc.next_entry().is_none());
     }
-    acc.insert_entries(&tid(5, 1), 1, &[alternate], &[GIN_CAT_NORM_KEY])
-        .unwrap();
+    acc.insert_entries(&tid(5, 1), 1, &[alternate], &[GIN_CAT_NORM_KEY]).unwrap();
     acc.begin_scan().unwrap();
-    assert_eq!(
-        acc.next_entry().unwrap().3,
-        &[
-            tid(2, 1),
-            tid(3, 1),
-            tid(4, 1),
-            tid(5, 1),
-            tid(6, 1),
-            tid(7, 1),
-            tid(8, 1),
-            tid(9, 1)
-        ]
-    );
+    assert_eq!(acc.next_entry().unwrap().3,
+        &[tid(2, 1), tid(3, 1), tid(4, 1), tid(5, 1), tid(6, 1), tid(7, 1), tid(8, 1), tid(9, 1)]);
 }
 
 #[test]
@@ -998,9 +851,7 @@ fn try_sort_by_orders_stably_and_aborts_on_error() {
         }
         if *a == 3 || *b == 3 {
             failed = true;
-            return Err(Box::new(::types_error::PgError::error(
-                "compare failed".to_string(),
-            )));
+            return Err(Box::new(::types_error::PgError::error("compare failed".to_string(),)));
         }
         Ok(a.cmp(b))
     })

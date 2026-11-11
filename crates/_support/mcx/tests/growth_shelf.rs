@@ -48,8 +48,7 @@ fn bound(procno: u32, f: impl FnOnce(Acct, &MemoryContext) + Send + 'static) {
 }
 
 #[test]
-fn a_dropped_contexts_growth_blocks_park_on_its_session_account_up_to_the_cap_and_go_at_the_session_end(
-) {
+fn a_dropped_contexts_growth_blocks_park_on_its_session_account_up_to_the_cap_and_go_at_the_session_end() {
     let g = |a| memledger::growth(a);
     let none = (0i64, 0i64);
     // 8 (first) + 8 + 16 + 32 KiB: three growth blocks, 56 KiB
@@ -66,15 +65,8 @@ fn a_dropped_contexts_growth_blocks_park_on_its_session_account_up_to_the_cap_an
         assert_eq!(memledger::bound(), a);
         let k0 = memledger::keepers(a);
         drop(grown(root, blocks));
-        assert_eq!(
-            g(a),
-            parked,
-            "on: the growth blocks park on the session's account"
-        );
-        assert!(
-            memledger::keepers(a) - k0 >= parked.0,
-            "counted in the account's keepers too"
-        );
+        assert_eq!(g(a), parked, "on: the growth blocks park on the session's account");
+        assert!(memledger::keepers(a) - k0 >= parked.0, "counted in the account's keepers too");
 
         // the next context takes them back, block for block, before it mallocs
         let c = grown(root, blocks);
@@ -85,10 +77,7 @@ fn a_dropped_contexts_growth_blocks_park_on_its_session_account_up_to_the_cap_an
         // the cap: a context with a 64 KiB block too keeps the shelf at 64 KiB in at most 4 blocks
         drop(grown(root, 2 * blocks));
         let (b, n) = g(a);
-        assert!(
-            b > 0 && b <= 64 * KIB as i64 && n <= 4,
-            "at most 64 KiB in 4 blocks: {b} in {n}"
-        );
+        assert!(b > 0 && b <= 64 * KIB as i64 && n <= 4, "at most 64 KiB in 4 blocks: {b} in {n}");
 
         // a thread-reuse park empties the shelf; so does idle passivation
         mcx::run_thread_reuse_hooks();
@@ -110,19 +99,11 @@ fn a_dropped_contexts_growth_blocks_park_on_its_session_account_up_to_the_cap_an
 
         // the session's unbind empties it while the thread still charges the account; after it nothing parks
         memledger::unbind_backend();
-        assert_eq!(
-            g(a),
-            none,
-            "the unbind empties the shelf, counted out on the session's account"
-        );
+        assert_eq!(g(a), none, "the unbind empties the shelf, counted out on the session's account");
         assert_eq!(memledger::bound(), Acct::UNBOUND);
         let unbound = g(Acct::UNBOUND);
         drop(grown(root, blocks));
-        assert_eq!(
-            (g(a), g(Acct::UNBOUND)),
-            (none, unbound),
-            "no session account of its own: nothing parks"
-        );
+        assert_eq!((g(a), g(Acct::UNBOUND)), (none, unbound), "no session account of its own: nothing parks");
     });
 
     // the thread's exit empties it too
@@ -137,22 +118,14 @@ fn a_dropped_contexts_growth_blocks_park_on_its_session_account_up_to_the_cap_an
     .join()
     .expect("the exiting thread");
     assert_eq!(left, parked);
-    assert_eq!(
-        g(Acct::backend(4063)),
-        none,
-        "the thread's exit frees its shelf, counted out"
-    );
+    assert_eq!(g(Acct::backend(4063)), none, "the thread's exit frees its shelf, counted out");
 
     // a thread bound to no session parks nothing
     std::thread::spawn(move || {
         let (t, u) = (memledger::growth_total(), g(Acct::UNBOUND));
         let root = MemoryContext::new("unbound root");
         drop(grown(&root, blocks));
-        assert_eq!(
-            (memledger::growth_total(), g(Acct::UNBOUND)),
-            (t, u),
-            "unbound: nothing parks"
-        );
+        assert_eq!((memledger::growth_total(), g(Acct::UNBOUND)), (t, u), "unbound: nothing parks");
     })
     .join()
     .expect("the unbound thread");

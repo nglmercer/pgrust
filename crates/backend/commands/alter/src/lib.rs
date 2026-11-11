@@ -3,14 +3,18 @@
 // plus the ExecRenameStmt/ExecAlterObjectSchemaStmt/ExecAlterOwnerStmt
 // generic arms. Per-class arms whose target commands are unported stay loud
 // in tcop's dispatch.
-#![allow(non_snake_case, non_upper_case_globals)]
+#![allow(non_snake_case,non_upper_case_globals)]
 
 use datum::Datum;
 use mcx::{Mcx, PgVec};
 use types_core::fmgr::{F_OIDEQ, NAMEDATALEN};
 use types_core::primitive::OidIsValid;
-use types_core::{AttrNumber, InvalidOid, Oid, DATABASE_RELATION_ID, NAMESPACE_RELATION_ID};
-use types_error::{PgError, PgResult, ERRCODE_DUPLICATE_OBJECT, ERRCODE_INSUFFICIENT_PRIVILEGE};
+use types_core::{
+    AttrNumber, InvalidOid, Oid, DATABASE_RELATION_ID, NAMESPACE_RELATION_ID
+};
+use types_error::{
+    PgError, PgResult, ERRCODE_DUPLICATE_OBJECT, ERRCODE_INSUFFICIENT_PRIVILEGE
+};
 use types_nodes::parsenodes::{
     AlterObjectDependsStmt, AlterObjectSchemaStmt, AlterOwnerStmt, ObjectType, RenameStmt,
 };
@@ -83,9 +87,7 @@ fn name_attr(td: &TupleDescData<'_>, tup: &HeapTupleData<'_>, attno: i32) -> Str
     let d = getattr(td, tup, attno).0;
     // SAFETY: a name attr datum addresses NAMEDATALEN in-tuple bytes.
     let name = unsafe { core::ptr::read_unaligned(d.as_usize() as *const NameData) };
-    core::str::from_utf8(name.name_str())
-        .expect("catalog name is UTF-8")
-        .to_string()
+    core::str::from_utf8(name.name_str()).expect("catalog name is UTF-8").to_string()
 }
 
 fn namespace_name(mcx: Mcx<'_>, nsp_oid: Oid) -> PgResult<String> {
@@ -126,7 +128,9 @@ fn report_namespace_conflict(
         TSDictionaryRelationId => "text search dictionary",
         TSTemplateRelationId => "text search template",
         TSConfigRelationId => "text search configuration",
-        other => panic!("report_namespace_conflict (alter.c): unsupported object class: {other}"),
+        other => panic!(
+            "report_namespace_conflict (alter.c): unsupported object class: {other}"
+        ),
     };
     Ok(dup_err(format!(
         "{noun} \"{name}\" already exists in schema \"{}\"",
@@ -154,7 +158,12 @@ fn name_cache_exists(cache_id: i32, name: &str, nsp: Option<Oid>) -> PgResult<bo
     }
 }
 
-fn must_be_owner_err(mcx: Mcx<'_>, class_id: Oid, object_id: Oid, objname: &str) -> PgResult<()> {
+fn must_be_owner_err(
+    mcx: Mcx<'_>,
+    class_id: Oid,
+    object_id: Oid,
+    objname: &str
+) -> PgResult<()> {
     aclchk::aclcheck_error(
         aclchk::ACLCHECK_NOT_OWNER,
         catalog_objectaddress::get_object_type(class_id, object_id)?,
@@ -165,8 +174,12 @@ fn must_be_owner_err(mcx: Mcx<'_>, class_id: Oid, object_id: Oid, objname: &str)
 }
 
 fn check_namespace_create(mcx: Mcx<'_>, nsp_oid: Oid, roleid: Oid) -> PgResult<()> {
-    let aclresult =
-        aclchk::object_aclcheck(NAMESPACE_RELATION_ID, nsp_oid, roleid, adt_acl::ACL_CREATE)?;
+    let aclresult = aclchk::object_aclcheck(
+        NAMESPACE_RELATION_ID,
+        nsp_oid,
+        roleid,
+        adt_acl::ACL_CREATE
+    )?;
     if aclresult != aclchk::ACLCHECK_OK {
         aclchk::aclcheck_error(
             aclresult,
@@ -335,9 +348,8 @@ pub fn AlterObjectRename_internal<'mcx>(
                     .unwrap_or_default();
                 aclchk::aclcheck_error(aclresult, ObjectType::OBJECT_DATABASE, &dbname)?;
             }
-            let subpasswordrequired = getattr(td, oldtup, Anum_pg_subscription_subpasswordrequired)
-                .0
-                .as_bool();
+            let subpasswordrequired =
+                getattr(td, oldtup, Anum_pg_subscription_subpasswordrequired).0.as_bool();
             if !subpasswordrequired {
                 return Err(Box::new(
                     PgError::error("password_required=false is superuser-only")
@@ -354,9 +366,7 @@ pub fn AlterObjectRename_internal<'mcx>(
     check_duplicate_name(mcx, rel, oldtup, object_id, new_name, namespace_id)?;
 
     let puballtables = if class_id == PublicationRelationId {
-        getattr(td, oldtup, Anum_pg_publication_puballtables)
-            .0
-            .as_bool()
+        getattr(td, oldtup, Anum_pg_publication_puballtables).0.as_bool()
     } else {
         false
     };
@@ -383,10 +393,7 @@ pub fn AlterObjectRename_internal<'mcx>(
 }
 
 // ExecRenameStmt (alter.c), generic catalog arm.
-pub fn ExecRenameStmt_generic<'mcx>(
-    mcx: Mcx<'mcx>,
-    stmt: &RenameStmt<'mcx>,
-) -> PgResult<ObjectAddress> {
+pub fn ExecRenameStmt_generic<'mcx>(mcx: Mcx<'mcx>, stmt: &RenameStmt<'mcx>,) -> PgResult<ObjectAddress> {
     let (address, _relation) = catalog_objectaddress::get_object_address(
         mcx,
         stmt.renameType,
@@ -506,11 +513,18 @@ pub fn AlterObjectNamespace_oid<'mcx>(
         RELATION_RELATION_ID => {
             let rel = relation_seams::relation_open::call(mcx, objid, AccessExclusiveLock)?;
             let old_nsp_oid = rel.rd_rel.relnamespace;
-            tablecmds::AlterTableNamespaceInternal(mcx, &rel, old_nsp_oid, nsp_oid, objs_moved)?;
+            tablecmds::AlterTableNamespaceInternal(
+                mcx,
+                &rel,
+                old_nsp_oid,
+                nsp_oid,
+                objs_moved
+            )?;
             rel.close(types_rel::lock::NoLock)?;
             Ok(old_nsp_oid)
         }
-        TYPE_RELATION_ID => typecmds::AlterTypeNamespace_oid(mcx, objid, nsp_oid, true, objs_moved),
+        TYPE_RELATION_ID =>
+            typecmds::AlterTypeNamespace_oid(mcx, objid, nsp_oid, true, objs_moved),
         ProcedureRelationId
         | CollationRelationId
         | ConversionRelationId
@@ -713,7 +727,8 @@ pub fn AlterObjectOwner_internal<'mcx>(
             }
         }
 
-        let mut replacements: Vec<(i32, Datum)> = vec![(anum_owner, Datum::from_oid(new_owner_id))];
+        let mut replacements: Vec<(i32, Datum)> =
+            vec![(anum_owner, Datum::from_oid(new_owner_id))];
         let acl_img;
         if anum_acl > 0 {
             let (acl_datum, isnull) = getattr(td, oldtup, anum_acl);
@@ -726,7 +741,8 @@ pub fn AlterObjectOwner_internal<'mcx>(
             }
         }
 
-        let mut newtup = build_replace_tuple(mcx, td, td.natts as usize, &replacements, oldtup)?;
+        let mut newtup =
+            build_replace_tuple(mcx, td, td.natts as usize, &replacements, oldtup)?;
         catalog_indexing::CatalogTupleUpdate(mcx, &rel, &otid, &mut newtup)?;
         lmgr::UnlockTuple(&rel, &otid, InplaceUpdateTupleLock)?;
 
@@ -745,12 +761,8 @@ pub fn AlterObjectOwner_internal<'mcx>(
 // without event-trigger support (DATABASE, TABLESPACE, EVENT TRIGGER) are
 // dispatched in tcop before reaching here; DATABASE/SCHEMA arms are kept for
 // C parity of this function.
-pub fn ExecAlterOwnerStmt<'mcx>(
-    mcx: Mcx<'mcx>,
-    stmt: &AlterOwnerStmt<'mcx>,
-) -> PgResult<ObjectAddress> {
-    let newowner =
-        aclchk::get_rolespec_oid(stmt.newowner.expect("AlterOwnerStmt.newowner"), false)?;
+pub fn ExecAlterOwnerStmt<'mcx>(mcx: Mcx<'mcx>, stmt: &AlterOwnerStmt<'mcx>,) -> PgResult<ObjectAddress> {
+    let newowner = aclchk::get_rolespec_oid(stmt.newowner.expect("AlterOwnerStmt.newowner"), false)?;
 
     match stmt.objectType {
         ObjectType::OBJECT_PUBLICATION => {
@@ -870,10 +882,7 @@ mod tests {
         let e = ExecAlterOwnerStmt(ctx.mcx(), &stmt).unwrap_err();
         assert_eq!(
             e.message(),
-            format!(
-                "unrecognized AlterOwnerStmt type: {}",
-                ObjectType::OBJECT_TABLE as i32
-            )
+            format!("unrecognized AlterOwnerStmt type: {}", ObjectType::OBJECT_TABLE as i32)
         );
     }
 }

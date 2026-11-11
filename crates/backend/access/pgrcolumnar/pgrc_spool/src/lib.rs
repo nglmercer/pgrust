@@ -5,9 +5,7 @@ use std::ffi::CString;
 use std::io;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use pgrc_format::spool::{
-    parse_pending_name, parse_spool_name, pending_name, spool_name, SPOOL_DIR,
-};
+use pgrc_format::spool::{parse_pending_name, parse_spool_name, pending_name, spool_name, SPOOL_DIR,};
 use pgrc_format::wal::DirLoc;
 use pgsync::{lock, Condvar, Mutex};
 
@@ -65,10 +63,7 @@ pub struct Spool {
 
 impl Spool {
     pub fn data() -> Spool {
-        Spool {
-            dir: SPOOL_DIR.to_string(),
-            parent: ".".to_string(),
-        }
+        Spool { dir: SPOOL_DIR.to_string(), parent: ".".to_string(), }
     }
 
     pub fn at(dir: &str) -> Spool {
@@ -76,10 +71,7 @@ impl Spool {
             Some((p, _)) if !p.is_empty() => p.to_string(),
             _ => ".".to_string(),
         };
-        Spool {
-            dir: dir.to_string(),
-            parent,
-        }
+        Spool { dir: dir.to_string(), parent, }
     }
 
     pub fn dir(&self) -> &str {
@@ -176,11 +168,7 @@ impl Spool {
     }
 
     fn entries(&self) -> io::Result<Vec<(Lsn, String)>> {
-        Ok(self
-            .names()?
-            .into_iter()
-            .filter_map(|n| parse_spool_name(&n).map(|l| (l, n)))
-            .collect())
+        Ok(self.names()?.into_iter().filter_map(|n| parse_spool_name(&n).map(|l| (l, n))).collect())
     }
 
     fn names(&self) -> io::Result<Vec<String>> {
@@ -191,10 +179,7 @@ impl Spool {
         };
         let mut v = Vec::new();
         for n in it {
-            v.push(
-                String::from_utf8_lossy(n.map_err(io::Error::from_raw_os_error)?.as_bytes())
-                    .into_owned(),
-            );
+            v.push(String::from_utf8_lossy(n.map_err(io::Error::from_raw_os_error)?.as_bytes()).into_owned(),);
         }
         v.sort();
         Ok(v)
@@ -221,12 +206,7 @@ impl Spool {
     }
 
     pub fn remove_below(&self, cutoff: Lsn) -> io::Result<(u32, u64)> {
-        let old: Vec<String> = self
-            .entries()?
-            .into_iter()
-            .filter(|(l, _)| *l < cutoff)
-            .map(|(_, n)| n)
-            .collect();
+        let old: Vec<String> = self.entries()?.into_iter().filter(|(l, _)| *l < cutoff).map(|(_, n)| n).collect();
         let r = self.remove(&old)?;
         if self.dir == SPOOL_DIR {
             lock(&LEDGER).remove_below(cutoff);
@@ -268,20 +248,11 @@ impl Spool {
     pub fn land_begin(&self, lsn: Lsn) -> io::Result<Landing> {
         self.ensure_dir()?;
         let path = self.recv_path(lsn);
-        let fd = vfs::open(
-            &cstr(&path)?,
-            libc::O_WRONLY | libc::O_CREAT | libc::O_TRUNC,
-            0o600,
-        );
+        let fd = vfs::open(&cstr(&path)?, libc::O_WRONLY | libc::O_CREAT | libc::O_TRUNC, 0o600,);
         if fd < 0 {
             return Err(last_err());
         }
-        Ok(Landing {
-            spool: self.clone(),
-            lsn,
-            fd,
-            path,
-        })
+        Ok(Landing { spool: self.clone(), lsn, fd, path, })
     }
 
     pub fn bytes_held(&self) -> io::Result<u64> {
@@ -376,10 +347,7 @@ impl Landing {
                 return Err(e);
             }
         }
-        check(vfs::rename(
-            &cstr(&self.path)?,
-            &cstr(&self.spool.path(self.lsn))?,
-        ))?;
+        check(vfs::rename(&cstr(&self.path)?, &cstr(&self.spool.path(self.lsn))?,))?;
         self.spool.fsync_dir()?;
         self.spool.account(self.lsn);
         note_named(self.lsn);
@@ -392,6 +360,7 @@ impl Drop for Landing {
         vfs::close(self.fd);
     }
 }
+
 
 pgsync::process_global! {
     static SAME_DEVICE: Mutex<Vec<(String, bool)>> = Mutex::new(Vec::new());
@@ -420,6 +389,7 @@ pub fn forget_devices() {
     lock(&SAME_DEVICE).clear();
 }
 
+
 #[derive(Debug)]
 #[must_use = "every begun reference must be ended"]
 pub struct RefTicket(u64);
@@ -441,11 +411,7 @@ pub struct Registry {
 impl Registry {
     pub const fn new() -> Registry {
         Registry {
-            state: Mutex::new(InFlight {
-                next: 0,
-                open: std::collections::BTreeSet::new(),
-                lowlevel_backups: 0,
-            }),
+            state: Mutex::new(InFlight { next: 0, open: std::collections::BTreeSet::new(), lowlevel_backups: 0, }),
             done: Condvar::new(),
             latest: AtomicU64::new(0),
         }
@@ -575,6 +541,7 @@ pub fn latest_ref_lsn() -> Lsn {
     REGISTRY.latest_ref_lsn()
 }
 
+
 /// The spool's entries as `(lsn, running byte sum through the entry)`, sorted, so WAL retention counts in O(log n).
 #[derive(Debug, Default)]
 pub struct Ledger {
@@ -589,13 +556,7 @@ pub struct Ledger {
 
 impl Ledger {
     pub const fn new() -> Ledger {
-        Ledger {
-            entries: std::collections::VecDeque::new(),
-            base: 0,
-            cut: 0,
-            removed_upto: 0,
-            seeded: false,
-        }
+        Ledger { entries: std::collections::VecDeque::new(), base: 0, cut: 0, removed_upto: 0, seeded: false, }
     }
 
     fn index(&self, lsn: Lsn) -> usize {
@@ -603,11 +564,7 @@ impl Ledger {
     }
 
     fn sum_before(&self, i: usize) -> u64 {
-        if i == 0 {
-            self.base
-        } else {
-            self.entries[i - 1].1
-        }
+        if i == 0 { self.base } else { self.entries[i - 1].1 }
     }
 
     fn sum_all(&self) -> u64 {
@@ -620,10 +577,7 @@ impl Ledger {
             return;
         }
         self.entries.insert(i, (lsn, self.sum_before(i) + bytes));
-        self.entries
-            .iter_mut()
-            .skip(i + 1)
-            .for_each(|e| e.1 += bytes);
+        self.entries.iter_mut().skip(i + 1).for_each(|e| e.1 += bytes);
     }
 
     pub fn remove_below(&mut self, cutoff: Lsn) {
@@ -692,6 +646,7 @@ pub fn with_ledger<R>(f: impl FnOnce(&Ledger) -> R) -> R {
     f(&lock(&LEDGER))
 }
 
+
 /// A stock client streaming the backup's WAL gets no files; the restore replays that WAL. So once the backup has
 /// listed the spool, the stream is held at the first reference at or past the cover.
 #[derive(Debug)]
@@ -712,8 +667,7 @@ impl BackupCover {
     }
 
     pub fn set_cover(&self, cover: Lsn) {
-        self.cover
-            .store(cover.min(COVER_LISTING - 1), Ordering::SeqCst);
+        self.cover.store(cover.min(COVER_LISTING - 1), Ordering::SeqCst);
     }
 
     pub fn abort(&self) {
@@ -735,10 +689,7 @@ pgsync::process_global! {
 }
 
 pub fn backup_begin(start: Lsn, seg_size: u64) -> std::sync::Arc<BackupCover> {
-    let b = std::sync::Arc::new(BackupCover {
-        seg_start: start - start % seg_size,
-        cover: AtomicU64::new(COVER_OPEN),
-    });
+    let b = std::sync::Arc::new(BackupCover { seg_start: start - start % seg_size, cover: AtomicU64::new(COVER_OPEN), });
     let mut all = lock(&BACKUPS);
     if all.len() >= BACKUPS_KEPT {
         all.remove(0);
@@ -748,11 +699,7 @@ pub fn backup_begin(start: Lsn, seg_size: u64) -> std::sync::Arc<BackupCover> {
 }
 
 pub fn backup_stream(start: Lsn) -> Option<std::sync::Arc<BackupCover>> {
-    lock(&BACKUPS)
-        .iter()
-        .rev()
-        .find(|b| b.seg_start == start)
-        .cloned()
+    lock(&BACKUPS).iter().rev().find(|b| b.seg_start == start).cloned()
 }
 
 #[cfg(test)]

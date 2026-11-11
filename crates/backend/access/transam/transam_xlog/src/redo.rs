@@ -8,10 +8,7 @@ use crate::ctl::{ControlFileLock, XLogCtl};
 use crate::*;
 
 fn main_data(record: &XLogReaderState) -> &[u8] {
-    let rec = record
-        .record
-        .as_ref()
-        .expect("xlog_redo with no decoded record");
+    let rec = record.record.as_ref().expect("xlog_redo with no decoded record");
     // SAFETY: main_data points into the reader's decode buffer, valid for the
     // redo callback's duration.
     unsafe { rec.main_data_bytes() }
@@ -36,7 +33,11 @@ fn main_data_checked<'a>(
 /// Pure length gate for `main_data_checked`: reject a main-data slice shorter
 /// than the record type's fixed-offset parse requires, as a catchable
 /// ERRCODE_DATA_CORRUPTED error rather than a slice-index panic.
-fn require_main_data_len<'a>(data: &'a [u8], min_len: usize, what: &str) -> PgResult<&'a [u8]> {
+fn require_main_data_len<'a>(
+    data: &'a [u8],
+    min_len: usize,
+    what: &str
+) -> PgResult<&'a [u8]> {
     if data.len() < min_len {
         return Err(Box::new(
             PgError::new(
@@ -79,14 +80,13 @@ pub(crate) fn RecoveryRestartPoint(check_point: &CheckPoint, record: &XLogReader
 }
 
 pub fn xlog_redo(record: &mut XLogReaderState) -> PgResult<()> {
-    let rec = record
-        .record
-        .as_ref()
-        .expect("xlog_redo with no decoded record");
+    let rec = record.record.as_ref().expect("xlog_redo with no decoded record");
     let info = rec.xl_info & !XLR_INFO_MASK;
     let lsn = record.EndRecPtr;
 
-    debug_assert!(info == XLOG_FPI || info == XLOG_FPI_FOR_HINT || !record.has_block_ref(0));
+    debug_assert!(
+        info == XLOG_FPI || info == XLOG_FPI_FOR_HINT || !record.has_block_ref(0)
+    );
 
     match info {
         XLOG_NEXTOID => {
@@ -94,9 +94,7 @@ pub fn xlog_redo(record: &mut XLogReaderState) -> PgResult<()> {
             // counter: max() breaks on OID wraparound, and no OID allocation
             // happens during replay anyway.
             let next_oid = u32::from_ne_bytes(
-                main_data_checked(record, 4, "XLOG_NEXTOID")?[..4]
-                    .try_into()
-                    .unwrap(),
+                main_data_checked(record, 4, "XLOG_NEXTOID")?[..4].try_into().unwrap(),
             );
             let oid_gen_lock = lwlock::main_lock(varsup::OID_GEN_LOCK);
             lwlock::LWLockAcquire(
@@ -115,12 +113,8 @@ pub fn xlog_redo(record: &mut XLogReaderState) -> PgResult<()> {
                 core::mem::size_of::<CheckPoint>(),
                 "shutdown checkpoint",
             )?);
-            procarray::TransamVariables()
-                .nextXid
-                .store(check_point.nextXid.value, Relaxed);
-            varsup::TransamVariables()
-                .nextOid
-                .store(check_point.nextOid, Relaxed);
+            procarray::TransamVariables().nextXid.store(check_point.nextXid.value, Relaxed);
+            varsup::TransamVariables().nextOid.store(check_point.nextOid, Relaxed);
             varsup::TransamVariables().oidCount.store(0, Relaxed);
             if multixact_seams::multixact_set_next_mxact::is_installed() {
                 multixact_seams::multixact_set_next_mxact::call(
@@ -200,8 +194,7 @@ pub fn xlog_redo(record: &mut XLogReaderState) -> PgResult<()> {
             control_file_update(|cf| cf.checkPointCopy.nextXid = check_point.nextXid);
             lwlock::LWLockRelease(ControlFileLock())?;
             let ctl = XLogCtl();
-            ctl.info_lck
-                .with(|| ctl.ckptFullXid.store(check_point.nextXid.value, Relaxed));
+            ctl.info_lck.with(|| ctl.ckptFullXid.store(check_point.nextXid.value, Relaxed));
 
             let (_, replay_tli) = xlogrecovery_seams::get_current_replay_rec_ptr::call();
             if check_point.ThisTimeLineID != replay_tli {
@@ -263,8 +256,7 @@ pub fn xlog_redo(record: &mut XLogReaderState) -> PgResult<()> {
             control_file_update(|cf| cf.checkPointCopy.nextXid = check_point.nextXid);
             lwlock::LWLockRelease(ControlFileLock())?;
             let ctl = XLogCtl();
-            ctl.info_lck
-                .with(|| ctl.ckptFullXid.store(check_point.nextXid.value, Relaxed));
+            ctl.info_lck.with(|| ctl.ckptFullXid.store(check_point.nextXid.value, Relaxed));
 
             let (_, replay_tli) = xlogrecovery_seams::get_current_replay_rec_ptr::call();
             if check_point.ThisTimeLineID != replay_tli {

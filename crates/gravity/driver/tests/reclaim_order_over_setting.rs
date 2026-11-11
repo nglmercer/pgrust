@@ -42,8 +42,7 @@ fn cond_trim(to: u64) -> u64 {
 }
 
 #[test]
-fn a_cache_past_its_setting_goes_before_a_full_one() {
-    PART.store(7400 * MIB, Ordering::Relaxed); COND.store(1024 * MIB, Ordering::Relaxed);
+fn a_cache_past_its_setting_goes_before_a_full_one() {PART.store(7400 * MIB, Ordering::Relaxed); COND.store(1024 * MIB, Ordering::Relaxed);
     assert!(budget::register(Consumer::PartCache, Hooks { current: part, floor: part_floor, cap: part_cap, reclaim: Some(part_trim) }));
     assert!(budget::register(Consumer::CondCache, Hooks { current: cond, floor: cond_floor, cap: cond_cap, reclaim: Some(cond_trim) }));
     assert_eq!(reclaim::reclaim_backstop(3000 * MIB), 3000 * MIB);

@@ -27,16 +27,14 @@
 
 use crate::section::{frame_base, frame_start, open_section, payload_region, read_le};
 use pgrc_format::abi::{
-    refuse_decode_narrow, validity_from_ctx, CodecVtable, DecodeOut, EncodeInput, GranuleEncoder,
-    KernelCtx, KernelKey, Selection, ValidityVerdict,
+    refuse_decode_narrow, validity_from_ctx, CodecVtable, DecodeOut, EncodeInput, GranuleEncoder, KernelCtx, KernelKey,
+    Selection, ValidityVerdict,
 };
 use pgrc_format::class::{CLASS_FIXED, CLASS_VARLENA};
-use pgrc_format::dict::{
-    dict_entry, dict_entry_datum, dict_fc_alloc_varlena, DictLayout, DictPayloadForm, DictSections,
-};
+use pgrc_format::dict::{dict_entry, dict_entry_datum, dict_fc_alloc_varlena, DictLayout, DictPayloadForm, DictSections,};
 use pgrc_format::enc::EncodingId;
 use pgrc_format::geom::{DICT_FRAME_ENTRIES, FRAME_VALUES, GRANULE_ROWS};
-use pgrc_format::meta::{MetaProbe, ProbeAnswer};
+use pgrc_format::meta::{ MetaProbe, ProbeAnswer};
 use pgrc_format::part::{OverflowSink, StreamSectionWriter};
 use pgrc_format::{FormatError, FormatResult};
 
@@ -476,16 +474,9 @@ fn dc_dec_full(ctx: &KernelCtx<'_>, out: &mut DecodeOut<'_>) -> FormatResult<u32
                 let frame_bytes = done * v.width as usize / 8;
                 unpack_codes_raw(v.base, v.width, &v.bits[frame_bytes..], &mut codes[..m]);
                 match d.form {
-                    DictPayloadForm::Expanded => {
-                        gather_varlena(&d, &codes[..m], &mut out.datums[done..done + m], &mut memo)?
+                    DictPayloadForm::Expanded => { gather_varlena(&d, &codes[..m], &mut out.datums[done..done + m], &mut memo)?
                     }
-                    DictPayloadForm::FrontCoded => gather_varlena_fc(
-                        &d,
-                        &codes[..m],
-                        &mut out.datums[done..done + m],
-                        &mut memo,
-                        &mut out.arena,
-                    )?,
+                    DictPayloadForm::FrontCoded => gather_varlena_fc(&d, &codes[..m], &mut out.datums[done..done + m], &mut memo, &mut out.arena,)?,
                 }
                 done += m;
             }
@@ -539,10 +530,7 @@ fn dc_dec_sel(
                     }
                 };
             }
-            FC_GATHER_ROWS.fetch_add(
-                (d.form == DictPayloadForm::FrontCoded) as u64,
-                Ordering::Relaxed,
-            );
+            FC_GATHER_ROWS.fetch_add((d.form == DictPayloadForm::FrontCoded) as u64, Ordering::Relaxed,);
             memo.1
         } else {
             materialize_fixed(ctx, &d, code, &mut out.arena)?

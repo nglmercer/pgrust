@@ -1140,7 +1140,7 @@ impl Node {
             return share;
         }
         let held: u64 = (0..self.slots.len()).filter(|&o| o != s && self.slots[o].shared && self.slot_life.is_live(o as u8)).map(|o| self.slots[o].counted).sum();
-        let left = (grant.saturating_sub(held).saturating_sub(images as u64) / (1 + waiting)) & !(crate::park::REGION_MIN as u64 - 1);
+        let left = ( grant.saturating_sub(held).saturating_sub(images as u64) / (1 + waiting)) & !(crate::park::REGION_MIN as u64 - 1);
         let charged = self.sized_pipe(p, g).or_else(|| self.program.pipelines.get(p).copied()).map_or(0, |pipe| crate::mem::grant::charged_share(&pipe, g));
         crate::mem::grant::cut_share(share, left, charged)
     }

@@ -8,16 +8,16 @@
 //! §6.8 (overflow), §6.9 (const).
 
 use crate::abi::{
-    narrow_each, refuse_decode_codes, refuse_dict_handle, validity_from_ctx, ByteArena,
-    CodecVtable, DecodeOut, EncodeInput, Face, GranuleEncoder, KernelCtx, KernelKey, NarrowInt,
-    NarrowOut, Selection, ValidityVerdict,
+    narrow_each, refuse_decode_codes, refuse_dict_handle, validity_from_ctx, ByteArena, CodecVtable,
+    DecodeOut, EncodeInput, Face, GranuleEncoder, KernelCtx, KernelKey, NarrowInt, NarrowOut,
+    Selection, ValidityVerdict,
 };
 use crate::class::{
     StorageClass, CLASS_BOOL, CLASS_BYVAL, CLASS_F32, CLASS_F64, CLASS_FIXED, CLASS_VARLENA,
 };
 use crate::enc::EncodingId;
 use crate::geom::{FRAMES_PER_GRANULE, FRAME_VALUES, GRANULE_ROWS, OVERSIZE_THRESHOLD};
-use crate::meta::{MetaProbe, ProbeAnswer, Sortedness};
+use crate::meta::{ MetaProbe, ProbeAnswer, Sortedness};
 use crate::part::{
     OverflowSink, StreamSectionHdr, StreamSectionWriter, OVERFLOW_MARK, STREAMF_SIGNED,
     STREAM_SECTION_HDR_LEN,
@@ -285,25 +285,16 @@ pub fn varlena_lengths(ctx: &KernelCtx<'_>, out: &mut [u32]) -> FormatResult<u32
 fn vdec_narrow(ctx: &KernelCtx<'_>, out: NarrowOut<'_>) -> FormatResult<u32> {
     let v = VerbatimView::open(ctx)?;
     if v.class_id != CLASS_BYVAL {
-        return Err(FormatError::FaceUnsupported {
-            face: Face::DecodeNarrow,
-            encoding: ctx.key.encoding,
-        });
+        return Err(FormatError::FaceUnsupported { face: Face::DecodeNarrow, encoding: ctx.key.encoding, });
     }
     if out.len() < v.values as usize {
-        return Err(FormatError::Bounds {
-            at: "decode_narrow out",
-        });
+        return Err(FormatError::Bounds { at: "decode_narrow out", });
     }
     let mut words = [0u64; 8];
     // SAFETY: an 8-aligned 64-byte scratch; byval values never touch the arena.
     let bytes = unsafe { core::slice::from_raw_parts_mut(words.as_mut_ptr() as *mut u8, 64) };
     let mut arena = ByteArena::new(bytes);
-    fn fill<T: NarrowInt>(
-        v: &VerbatimView<'_>,
-        arena: &mut ByteArena<'_>,
-        o: &mut [T],
-    ) -> FormatResult<u32> {
+    fn fill<T: NarrowInt>(v: &VerbatimView<'_>, arena: &mut ByteArena<'_>, o: &mut [T],) -> FormatResult<u32> {
         for r in 0..v.values {
             o[r as usize] = T::of_word(v.datum_at(r, arena)?);
         }
@@ -450,15 +441,10 @@ fn cdec_full(ctx: &KernelCtx<'_>, out: &mut DecodeOut<'_>) -> FormatResult<u32> 
 fn cdec_narrow(ctx: &KernelCtx<'_>, out: NarrowOut<'_>) -> FormatResult<u32> {
     let rec = const_record(ctx)?;
     if ctx.key.class != CLASS_BYVAL {
-        return Err(FormatError::FaceUnsupported {
-            face: Face::DecodeNarrow,
-            encoding: ctx.key.encoding,
-        });
+        return Err(FormatError::FaceUnsupported { face: Face::DecodeNarrow, encoding: ctx.key.encoding, });
     }
     if out.len() < ctx.values as usize {
-        return Err(FormatError::Bounds {
-            at: "decode_narrow out",
-        });
+        return Err(FormatError::Bounds { at: "decode_narrow out", });
     }
     let mut words = [0u64; 8];
     // SAFETY: an 8-aligned 64-byte scratch; a byval const never touches the arena.
@@ -750,7 +736,8 @@ impl GranuleEncoder for VerbatimEncoder {
         meta: &mut dyn crate::abi::ColumnMetaBuilder,
         granule: u32,
     ) -> FormatResult<()> {
-        if !meta.row_observe_supported() || !matches!(self.class, StorageClass::VarlenaVerbatim) {
+        if !meta.row_observe_supported() || !matches!(self.class, StorageClass::VarlenaVerbatim)
+        {
             self.encode_granule(input, w, ovf)?;
             meta.observe_granule(input, granule);
             return Ok(());
@@ -930,11 +917,7 @@ pub struct ConstEncoder {
 fn word_mask(class: StorageClass) -> Option<(u64, bool)> {
     match class {
         StorageClass::ByvalWord { width, .. } => Some((
-            if width >= 8 {
-                u64::MAX
-            } else {
-                (1u64 << (8 * u32::from(width))) - 1
-            },
+            if width >= 8 { u64::MAX } else { (1u64 << (8 * u32::from(width))) - 1 },
             false,
         )),
         StorageClass::F32 => Some((0xFFFF_FFFF, false)),
@@ -952,6 +935,7 @@ impl ConstEncoder {
             word: None,
         }
     }
+
 
     /// The record payload for the stored value (word classes: the full
     /// 8-byte datum word; fixed/varlena: the image/payload bytes).
@@ -1031,11 +1015,7 @@ impl GranuleEncoder for ConstEncoder {
             let mut scratch = [0u8; 8];
             // SAFETY: EncodeInput pointer-class contract (spec §19.6).
             let canon = unsafe {
-                crate::abi::datum_canonical_bytes(
-                    self.class,
-                    input.datums[r as usize],
-                    &mut scratch,
-                )?
+                crate::abi::datum_canonical_bytes(self.class, input.datums[r as usize], &mut scratch,)?
             };
             match &self.state {
                 ConstState::Empty | ConstState::AllNullSoFar => {
@@ -1044,11 +1024,7 @@ impl GranuleEncoder for ConstEncoder {
                     self.state = ConstState::Value(canon.to_vec());
                     self.word = word_mask(self.class).map(|(mask, is_bool)| {
                         let d = input.datums[r as usize];
-                        (
-                            (if is_bool { (d != 0) as u64 } else { d }) & mask,
-                            mask,
-                            is_bool,
-                        )
+                        ((if is_bool { (d != 0) as u64 } else { d }) & mask, mask, is_bool,)
                     });
                 }
                 ConstState::Value(stored) => {

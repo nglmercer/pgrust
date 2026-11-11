@@ -215,7 +215,7 @@ pub(crate) unsafe fn build_bytes(d: &Desc, a: u64) -> types_error::PgResult<grav
     let room = if tset { sec + IMG_HEAD + (n + cap) * 16 } else { at + img.len as usize };
     let mut buf = gravity_driver::in_list_set_region(room).map_err(|e| super::saop_set::region_err("the IN list's set", e))?;
     let base = buf.as_mut_ptr();
-    if !(base as usize).is_multiple_of(8) {
+    if !( base as usize).is_multiple_of( 8) {
         return Err(err("the IN list's set region is not 8-aligned"));
     }
     core::ptr::copy_nonoverlapping(img.ptr, base.add(at), img.len as usize);
@@ -554,7 +554,7 @@ mod tests {
     #[test]
     fn a_zero_hash_is_occupied() {
         assert_ne!(mix(&[0]) as u64 | OCC, 0);
-        assert_ne!(OCC, 0);
+        assert_ne!( OCC, 0);
     }
 
     /// A 1-byte-header text datum of `b` (at most 126 bytes).

@@ -63,10 +63,7 @@ pub struct VmBuffer {
 impl VmBuffer {
     #[inline]
     pub const fn new() -> VmBuffer {
-        VmBuffer {
-            pin: None,
-            map_block: 0,
-        }
+        VmBuffer { pin: None, map_block: 0, }
     }
 
     #[inline]
@@ -103,10 +100,7 @@ impl VmBuffer {
     pub fn adopt(buffer: Buffer) -> Option<VmBuffer> {
         let pin = BufferPin::adopt(buffer)?;
         let map_block = pin.block_number();
-        Some(VmBuffer {
-            pin: Some(pin),
-            map_block,
-        })
+        Some(VmBuffer { pin: Some(pin), map_block, })
     }
 }
 
@@ -188,7 +182,7 @@ pub fn vm_all_visible_by_locator(
     if mapBlock >= vm_nblocks {
         return Ok(false);
     }
-    if vmbuf.pin.is_none() && (vmbuf.map_block == mapBlock) {
+    if vmbuf.pin.is_none() && ( vmbuf.map_block == mapBlock) {
         if let Some(pin) = vmbuf.pin.take() {
             pin.release();
         }
@@ -324,18 +318,8 @@ fn log_heap_visible(
         0,
         &[&xlrec],
         &[
-            XLogRegBuf {
-                block_id: 0,
-                buffer: vm_buffer,
-                flags: 0,
-                bufdata: &[],
-            },
-            XLogRegBuf {
-                block_id: 1,
-                buffer: heap_buffer,
-                flags: heap_flags,
-                bufdata: &[],
-            },
+            XLogRegBuf { block_id: 0, buffer: vm_buffer, flags: 0, bufdata: &[], },
+            XLogRegBuf { block_id: 1, buffer: heap_buffer, flags: heap_flags, bufdata: &[], },
         ],
     )
 }
@@ -360,10 +344,10 @@ pub fn visibilitymap_set(
     debug_assert!((flags & VISIBILITYMAP_VALID_BITS) == flags);
     debug_assert!(flags != VISIBILITYMAP_ALL_FROZEN);
 
-    if BufferIsValid(heapBuf) && bufmgr_seams::buffer_get_block_number::call(heapBuf) != heapBlk {
-        return Err(wrong_buffer(
-            "wrong heap buffer passed to visibilitymap_set",
-        ));
+    if BufferIsValid(heapBuf)
+        && bufmgr_seams::buffer_get_block_number::call(heapBuf) != heapBlk
+    {
+        return Err(wrong_buffer("wrong heap buffer passed to visibilitymap_set",));
     }
     let Some(pin) = vmbuf.pin.as_ref().filter(|_| vmbuf.map_block == mapBlock) else {
         return Err(wrong_buffer("wrong VM buffer passed to visibilitymap_set"));
@@ -383,14 +367,7 @@ pub fn visibilitymap_set(
             // visibilitymap.c:313 START_CRIT_SECTION() .. :344 END.
             CritSection::run(|| {
                 set_bits_and_log(
-                    rel,
-                    heapBuf,
-                    recptr,
-                    pin,
-                    cutoff_xid,
-                    flags,
-                    map_byte_ptr,
-                    mapOffset,
+                    rel, heapBuf, recptr, pin, cutoff_xid, flags, map_byte_ptr, mapOffset,
                 )
             })?;
         }
@@ -425,8 +402,9 @@ fn set_bits_and_log(
             if xlog_hint_bit_is_needed() {
                 // SAFETY: caller holds the heap buffer exclusively locked
                 // (visibilitymap_set contract).
-                let mut hp =
-                    unsafe { PageMut::from_raw(bufmgr_seams::buffer_get_page::call(heapBuf)) };
+                let mut hp = unsafe {
+                    PageMut::from_raw(bufmgr_seams::buffer_get_page::call(heapBuf))
+                };
                 hp.set_lsn(recptr);
             }
         }
@@ -556,7 +534,9 @@ pub fn visibilitymap_prepare_truncate(
         truncBlock
     };
 
-    if smgr_seams::smgr_nblocks::call(rlocator, ForkNumber::VISIBILITYMAP_FORKNUM)? <= newnblocks {
+    if smgr_seams::smgr_nblocks::call(rlocator, ForkNumber::VISIBILITYMAP_FORKNUM)?
+        <= newnblocks
+    {
         return Ok(InvalidBlockNumber);
     }
     Ok(newnblocks)
@@ -578,10 +558,7 @@ fn heap_page(buf: Buffer) -> PageRef<'static> {
 #[cold]
 #[inline(never)]
 fn wrong_buffer(msg: &str) -> Box<types_error::PgError> {
-    Box::new(types_error::PgError::new(
-        types_error::ERROR,
-        msg.to_string(),
-    ))
+    Box::new(types_error::PgError::new(types_error::ERROR, msg.to_string(),))
 }
 
 fn vm_readbuf(

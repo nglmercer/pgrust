@@ -67,10 +67,7 @@ struct BuiltinValidatorEntry {
 
 static BUILTIN_VALIDATORS: Mutex<Vec<BuiltinValidatorEntry>> = Mutex::new(Vec::new());
 
-pub fn register_builtin_validator(
-    name: &'static str,
-    validator: &'static (dyn OAuthValidator + Sync),
-) {
+pub fn register_builtin_validator(name: &'static str, validator: &'static (dyn OAuthValidator + Sync),) {
     let mut vals = BUILTIN_VALIDATORS.lock().unwrap();
     match vals.iter_mut().find(|e| e.name == name) {
         Some(existing) => existing.validator = validator,
@@ -208,10 +205,7 @@ fn oauth_exchange(
     }
     // C compares inputlen to strlen(input): an interior NUL is a mismatch.
     if input.contains(&0) {
-        malformed(
-            172,
-            "Message length does not match input length.".to_string(),
-        )?;
+        malformed(172, "Message length does not match input length.".to_string(),)?;
     }
 
     match ctx.state {
@@ -466,8 +460,7 @@ fn validate_token_format(header: &[u8]) -> PgResult<Option<&[u8]>> {
 
     let mut span = token
         .iter()
-        .position(|&c| {
-            !(c.is_ascii_alphanumeric() || matches!(c, b'-' | b'.' | b'_' | b'~' | b'+' | b'/'))
+        .position(|&c| { !(c.is_ascii_alphanumeric() || matches!(c, b'-' | b'.' | b'_' | b'~' | b'+' | b'/'))
         })
         .unwrap_or(token.len());
     while token.get(span) == Some(&b'=') {
@@ -529,7 +522,7 @@ fn validate(mech: &OAuthMech, ctx: &OauthCtx, port: &Port, auth: &[u8]) -> PgRes
         return Ok(true);
     }
 
-    if ret.authn_id.as_deref().is_none_or(str::is_empty) {
+    if ret.authn_id.as_deref().is_none_or( str::is_empty) {
         ereport(LOG)
             .errmsg(format!(
                 "OAuth bearer authentication failed for user \"{user_name}\""
@@ -573,8 +566,7 @@ impl OAuthValidator for TestValidator {
         result: &mut ValidatorModuleResult,
     ) -> PgResult<bool> {
         elog::elog(
-            LOG,
-            format!("oauth_test_validator: token=\"{token}\", role=\"{role}\""),
+            LOG,format!("oauth_test_validator: token=\"{token}\", role=\"{role}\""),
         )?;
 
         if token == "modulefail" {

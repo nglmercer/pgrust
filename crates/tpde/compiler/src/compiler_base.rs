@@ -340,7 +340,6 @@ impl<'m, 'id, A: CompilerAdaptor, T: CompilerTarget<A, N>, const N: usize>
                     &self.allocator,
                     self.analyzer.liveness.len(),
                     |slots| {
-                        
                         let session = FunctionSession {
                             adaptor: &self.adaptor,
                             analyzer: &self.analyzer,
@@ -375,7 +374,8 @@ impl<'m, 'id, A: CompilerAdaptor, T: CompilerTarget<A, N>, const N: usize>
                             failure: RefCell::new(None),
                         };
                         session.begin_function(index as u32)?;
-                        let info = self.target.borrow().cc_info(&self.adaptor);
+                        let
+                        info = self.target.borrow().cc_info(&self.adaptor);
                         let policy = self.target.borrow().new_cc_policy(&self.adaptor);
                         *session.assigner.borrow_mut() = Some(CCAssigner::new(&info, policy));
                         session.compile_function(index as u32, &mut self.dynamic_allocas)
@@ -1095,7 +1095,7 @@ impl<
             // no slot, no store.
             if self.adaptor.local_const(local).is_some() {
                 return {
-                    let _: () = self.with_part(local, part, |ap| ap.set_stack_valid());
+                    let _:() =self.with_part(local, part, |ap| ap.set_stack_valid());
                     Ok(())
                 };
             }
@@ -1612,7 +1612,7 @@ impl<
                         .min(0xffff) as u32;
                 }
                 let score = (u32::from(spilled) << 31)
-                    | (0x8000_u32.saturating_sub(distance) << 16)
+                    | (0x8000_u32.saturating_sub( distance) << 16)
                     | if refs < 0xffff { 0x10000 - refs } else { 1 };
                 tpde_assert_ne!(score, 0);
                 if score > maximum {
@@ -1939,7 +1939,7 @@ impl<
         if self.adaptor.local_const(local).is_some() {
             // Rematerialized after the call (`reload_to_reg`).
             return {
-                let _: () = self.with_part(local, part, |ap| ap.set_stack_valid());
+                let _:() =self.with_part(local, part, |ap| ap.set_stack_valid());
                 Ok(())
             };
         }

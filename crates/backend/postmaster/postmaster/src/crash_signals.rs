@@ -244,7 +244,7 @@ pub unsafe fn walk_frames(fp: usize, out: &mut [usize]) -> usize {
     let mut fp = fp;
     let mut n = 0usize;
     let mut prev = 0usize;
-    while n < cap && fp > prev && fp.is_multiple_of(8) && (prev == 0 || fp - prev < (64 << 20)) {
+    while n < cap && fp > prev && fp.is_multiple_of( 8) && (prev == 0 || fp - prev < (64 << 20)) {
         // SAFETY: guarded by the loop condition; see the doc comment.
         let ret = unsafe { core::ptr::read_volatile((fp + 8) as *const usize) };
         if ret < 0x1_0000 {

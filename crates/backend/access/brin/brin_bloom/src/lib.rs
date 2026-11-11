@@ -62,11 +62,7 @@ fn bloom_filter_size(ndistinct: i32, false_positive_rate: f64) -> (usize, u32, u
     let nbytes = ((nbits + 7) / 8) as usize;
     nbits = (nbytes * 8) as i64;
     let k = 2.0f64.ln() * nbits as f64 / ndistinct as f64;
-    let k = if k - k.floor() >= 0.5 {
-        k.ceil()
-    } else {
-        k.floor()
-    };
+    let k = if k - k.floor() >= 0.5 { k.ceil() } else { k.floor() };
     (nbytes, nbits as u32, k as u8)
 }
 
@@ -215,9 +211,7 @@ pub fn brin_bloom_add_value(
     debug_assert!(!isnull);
     let attno = column.bv_attno;
 
-    let opts = bdesc.bd_info[attno as usize - 1]
-        .oi_opclass_options
-        .as_deref();
+    let opts = bdesc.bd_info[attno as usize - 1].oi_opclass_options.as_deref();
     let mut updated = false;
     if column.bv_allnulls {
         column.bv_values[0] = bloom_init(
@@ -276,9 +270,7 @@ pub fn brin_bloom_consistent(
 #[cold]
 #[inline(never)]
 fn invalid_strategy(strategy: u16) -> Box<PgError> {
-    Box::new(PgError::error(format!(
-        "invalid strategy number {strategy}"
-    )))
+    Box::new(PgError::error(format!("invalid strategy number {strategy}")))
 }
 
 pub fn brin_bloom_union(
@@ -301,7 +293,7 @@ pub fn brin_bloom_union(
     debug_assert!(read_u32(filter_a, OFF_NBITS) == read_u32(filter_b, OFF_NBITS));
     debug_assert!(filter_a[OFF_NHASHES] == filter_b[OFF_NHASHES]);
     let nbits = read_u32(filter_a, OFF_NBITS);
-    debug_assert!(nbits > 0 && nbits.is_multiple_of(8));
+    debug_assert!(nbits > 0 && nbits.is_multiple_of( 8));
     let nbytes = (nbits / 8) as usize;
 
     let mut nbits_set = 0u32;
@@ -323,7 +315,8 @@ fn bloom_get_procinfo(bdesc: &BrinDesc<'_>, attno: u16) -> PgResult<FmgrInfo> {
     }
     let opfamily = bdesc.bd_opfamily[attno as usize - 1];
     let opcintype = bdesc.bd_opcintype[attno as usize - 1];
-    let proc = lsyscache::get_opfamily_proc(opfamily, opcintype, opcintype, PROCNUM_HASH as i16)?;
+    let proc =
+        lsyscache::get_opfamily_proc(opfamily, opcintype, opcintype, PROCNUM_HASH as i16)?;
     if proc == 0 {
         return Err(invalid_opclass(PROCNUM_HASH, attno));
     }

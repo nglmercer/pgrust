@@ -140,13 +140,7 @@ fn noop_close(_oid: Oid, _mode: LOCKMODE) -> ::types_error::PgResult<()> {
     Ok(())
 }
 
-fn pg_class(
-    relname: &str,
-    relam: Oid,
-    relkind: u8,
-    oid: Oid,
-    relhasindex: bool,
-) -> FormData_pg_class {
+fn pg_class(relname: &str, relam: Oid, relkind: u8, oid: Oid, relhasindex: bool,) -> FormData_pg_class {
     let mut name = ::types_tuple::NameData::default();
     name.namestrcpy(relname);
     FormData_pg_class {
@@ -196,12 +190,7 @@ pub(crate) fn index_rel(mcx: Mcx<'_>) -> Relation<'_> {
         rd_newRelfilelocatorSubid: Cell::new(0),
         rd_firstRelfilelocatorSubid: Cell::new(0),
         rd_droppedSubid: Cell::new(0),
-        rd_lockInfo: LockInfoData {
-            lockRelId: LockRelId {
-                relId: INDEX_OID,
-                dbId: 5,
-            },
-        },
+        rd_lockInfo: LockInfoData { lockRelId: LockRelId { relId: INDEX_OID, dbId: 5, }, },
         rd_rel: pg_class("t_spgidx", SPGIST_AM_OID, RELKIND_INDEX, INDEX_OID, false),
         rd_att: Rc::new(int4_tupdesc(mcx)),
         rd_index: Some(FormData_pg_index {
@@ -258,12 +247,7 @@ pub(crate) fn heap_rel(mcx: Mcx<'_>) -> Relation<'_> {
         rd_newRelfilelocatorSubid: Cell::new(0),
         rd_firstRelfilelocatorSubid: Cell::new(0),
         rd_droppedSubid: Cell::new(0),
-        rd_lockInfo: LockInfoData {
-            lockRelId: LockRelId {
-                relId: HEAP_OID,
-                dbId: 5,
-            },
-        },
+        rd_lockInfo: LockInfoData { lockRelId: LockRelId { relId: HEAP_OID, dbId: 5, }, },
         // 2 = HEAP_TABLE_AM_OID.
         rd_rel: pg_class("t", 2, RELKIND_RELATION, HEAP_OID, true),
         rd_att: Rc::new(int4_tupdesc(mcx)),
@@ -300,13 +284,8 @@ pub(crate) fn spg_state(mcx: Mcx<'_>) -> SpGistState<'_> {
 // A 16-byte LIVE leaf tuple image (12-byte header, MAXALIGN padding).
 pub(crate) fn leaf_tuple(tid: ItemPointerData) -> Vec<u8> {
     let mut v = vec![0u8; 16];
-    SpGistLeafTupleHeader {
-        tupstate: SPGIST_LIVE,
-        size: 16,
-        t_info: 0,
-        heapPtr: tid,
-    }
-    .encode(&mut v);
+    SpGistLeafTupleHeader { tupstate: SPGIST_LIVE, size: 16, t_info: 0, heapPtr: tid, }
+        .encode(&mut v);
     v
 }
 
@@ -347,12 +326,7 @@ fn add_leaf_tuple_wal_failure_escapes_inside_the_critical_section() {
     let mut leaf = leaf_tuple(ItemPointerData::new(10, 1));
     // A non-root leaf page holding no chain yet: the "not part of a chain"
     // arm, no parent downlink.
-    let mut current = SPPageDesc {
-        blkno: 4,
-        buffer,
-        offnum: InvalidOffsetNumber,
-        node: 0,
-    };
+    let mut current = SPPageDesc { blkno: 4, buffer, offnum: InvalidOffsetNumber, node: 0, };
     let parent = SPPageDesc {
         blkno: InvalidBlockNumber,
         buffer: InvalidBuffer,
@@ -362,16 +336,8 @@ fn add_leaf_tuple_wal_failure_escapes_inside_the_critical_section() {
 
     init_small::globals::SetCritSectionCount(0);
     set_wal_fail(true);
-    let err = addLeafTuple(
-        &index,
-        &mut state,
-        &mut leaf,
-        &mut current,
-        &parent,
-        false,
-        false,
-    )
-    .expect_err("the simulated XLogInsert failure must surface");
+    let err = addLeafTuple(&index, &mut state, &mut leaf, &mut current, &parent, false, false,)
+        .expect_err("the simulated XLogInsert failure must surface");
     let count = take_crit_section_count();
     assert_eq!(err.message(), WAL_FAIL_MSG);
     assert!(
@@ -395,12 +361,7 @@ fn add_leaf_tuple_balances_the_critical_section() {
     let index = index_rel(mcx);
     let mut state = spg_state(mcx);
     let mut leaf = leaf_tuple(ItemPointerData::new(10, 1));
-    let mut current = SPPageDesc {
-        blkno: 4,
-        buffer,
-        offnum: InvalidOffsetNumber,
-        node: 0,
-    };
+    let mut current = SPPageDesc { blkno: 4, buffer, offnum: InvalidOffsetNumber, node: 0, };
     let parent = SPPageDesc {
         blkno: InvalidBlockNumber,
         buffer: InvalidBuffer,
@@ -410,21 +371,9 @@ fn add_leaf_tuple_balances_the_critical_section() {
 
     init_small::globals::SetCritSectionCount(0);
     set_wal_fail(false);
-    addLeafTuple(
-        &index,
-        &mut state,
-        &mut leaf,
-        &mut current,
-        &parent,
-        false,
-        false,
-    )
-    .unwrap_or_else(|e| panic!("addLeafTuple on the fake pool: {e:?}"));
-    assert_eq!(
-        take_crit_section_count(),
-        0,
-        "END_CRIT_SECTION after the WAL record"
-    );
+    addLeafTuple(&index, &mut state, &mut leaf, &mut current, &parent, false, false,)
+        .unwrap_or_else(|e| panic!("addLeafTuple on the fake pool: {e:?}"));
+    assert_eq!(take_crit_section_count(), 0, "END_CRIT_SECTION after the WAL record");
     assert_eq!(current.offnum, 1);
     assert_eq!(buf_page_mut(buffer).as_ref().max_offset_number(), 1);
 }
@@ -441,12 +390,8 @@ fn page_add_new_item_replacement_failure_is_panic_level() {
     // SAFETY: leaked, MAXALIGNed, BLCKSZ-byte page owned by this test.
     let mut pm = unsafe { PageMut::from_raw(core::ptr::NonNull::new_unchecked(addr as *mut u8)) };
     SpGistInitPage(&mut pm, SPGIST_LEAF);
-    let placeholder = spgFormDeadTuple(
-        0,
-        SPGIST_PLACEHOLDER,
-        InvalidBlockNumber,
-        InvalidOffsetNumber,
-    );
+    let placeholder =
+        spgFormDeadTuple(0, SPGIST_PLACEHOLDER, InvalidBlockNumber, InvalidOffsetNumber,);
     assert_eq!(pm.add_item(&placeholder, InvalidOffsetNumber, 0), Some(1));
     page_opaque_update(&mut pm, |op| op.nPlaceholder = 1);
     // A corrupted line pointer: the placeholder's lp_len understates its
@@ -460,15 +405,8 @@ fn page_add_new_item_replacement_failure_is_panic_level() {
     let item = leaf_tuple(ItemPointerData::new(10, 1));
     let err = SpGistPageAddNewItem(&mut pm, &item, None, false)
         .expect_err("the replacement add must fail on the crafted page");
-    assert_eq!(
-        err.level(),
-        PANIC,
-        "spgutils.c:1273 is elog(PANIC): {err:?}"
-    );
-    assert_eq!(
-        err.message(),
-        "failed to add item of size 16 to SPGiST index page"
-    );
+    assert_eq!(err.level(), PANIC, "spgutils.c:1273 is elog(PANIC): {err:?}");
+    assert_eq!(err.message(), "failed to add item of size 16 to SPGiST index page");
     // The placeholder is gone: exactly the torn state C PANICs to contain.
     assert_eq!(pm.as_ref().max_offset_number(), 0);
 }
@@ -487,10 +425,7 @@ fn add_node_out_of_range_offset_errors_not_panics() {
         .expect("offset 3 > nNodes 2 must be rejected");
     assert_eq!(err.level(), ERROR);
     assert_eq!(err.sqlstate(), ERRCODE_INTERNAL_ERROR);
-    assert_eq!(
-        err.message(),
-        "invalid offset for adding node to SPGiST inner tuple"
-    );
+    assert_eq!(err.message(), "invalid offset for adding node to SPGiST inner tuple");
     // In range (append) still works: three nodes come back.
     let grown = addNode(mcx, &mut state, &inner, Datum::from_i32(0), -1)
         .unwrap_or_else(|e| panic!("append: {e:?}"));

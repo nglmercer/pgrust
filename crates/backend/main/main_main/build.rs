@@ -28,11 +28,7 @@ const PACK_RELATIVE_RELOCS_X86_64: bool = false;
 fn main() {
     let manifest_dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
     for sub in ["contrib", "pl", "bin/initdb/share"] {
-        let dir = manifest_dir
-            .join("../../..")
-            .join(sub)
-            .canonicalize()
-            .unwrap();
+        let dir = manifest_dir.join("../../..").join(sub).canonicalize().unwrap();
         println!("cargo:rerun-if-changed={}", dir.display());
     }
 
@@ -51,8 +47,7 @@ fn main() {
     }
     // D4503: DT_RELR on the x86_64 Linux server binary, dormant; see PACK_RELATIVE_RELOCS_X86_64.
     let target_is = |var: &str, want: &str| std::env::var(var).as_deref() == Ok(want);
-    let linux_gnu =
-        target_is("CARGO_CFG_TARGET_OS", "linux") && target_is("CARGO_CFG_TARGET_ENV", "gnu");
+    let linux_gnu = target_is("CARGO_CFG_TARGET_OS", "linux") && target_is("CARGO_CFG_TARGET_ENV", "gnu");
     if PACK_RELATIVE_RELOCS_X86_64 && linux_gnu && target_is("CARGO_CFG_TARGET_ARCH", "x86_64") {
         println!("cargo:rustc-link-arg-bin=postgres=-Wl,-z,pack-relative-relocs");
     }
@@ -73,10 +68,7 @@ fn stamp_build_id(manifest_dir: &Path) {
         Err(_) => checkout_head(manifest_dir).unwrap_or_default(),
     };
     assert!(
-        id.len() <= 40
-            && id
-                .bytes()
-                .all(|b| b.is_ascii_alphanumeric() || b"._+-".contains(&b)),
+        id.len() <= 40 && id.bytes().all(|b| b.is_ascii_alphanumeric() || b"._+-".contains(&b)),
         "PGRUST_BUILD_ID must be at most 40 characters of [0-9A-Za-z._+-], got {id:?}"
     );
     println!("cargo:rustc-env=PGRUST_BUILD_ID={id}");
@@ -85,11 +77,7 @@ fn stamp_build_id(manifest_dir: &Path) {
 /// None outside a git checkout that tracks this tree (e.g. a tarball unpacked inside another repository).
 fn checkout_head(manifest_dir: &Path) -> Option<String> {
     let git = |args: &[&str]| -> Option<String> {
-        let out = std::process::Command::new("git")
-            .args(args)
-            .current_dir(manifest_dir)
-            .output()
-            .ok()?;
+        let out = std::process::Command::new("git").args(args).current_dir(manifest_dir).output().ok()?;
         if !out.status.success() {
             return None;
         }
@@ -103,9 +91,7 @@ fn checkout_head(manifest_dir: &Path) -> Option<String> {
     }
     watch.push(("packed-refs".to_owned(), false));
     for (name, nearest_dir) in watch {
-        let Some(path) = git(&["rev-parse", "--git-path", &name]) else {
-            continue;
-        };
+        let Some(path) = git(&["rev-parse", "--git-path", &name]) else { continue; };
         let path = manifest_dir.join(path);
         let found = match nearest_dir {
             true => path.ancestors().find(|p| p.exists()),

@@ -214,6 +214,7 @@ fn fc_pgrowlocks(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult
     let mut attinmeta = att_in_metadata(&srf.tupdesc)?;
 
     #[allow(clippy::while_let_loop)]
+
     loop {
         let (t_len, t_self, t_table_oid, hdr) =
             match heapam::heap_getnext(&mut hscan, types_scan::sdir::ScanDirection::ForwardScanDirection)? {

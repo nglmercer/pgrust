@@ -35,10 +35,7 @@ fn deep_hole(h: Hint) -> bool {
         let a = take_runs(12, h);
         let b = take_runs(9, h);
         let c = take_runs(11, h);
-        assert!(
-            a / SUPER == b / SUPER && b / SUPER == c / SUPER,
-            "one superpage a decoy"
-        );
+        assert!(a / SUPER == b / SUPER && b / SUPER == c / SUPER, "one superpage a decoy");
         held.push((b, 9));
         freed.push((a, 12));
         freed.push((c, 11));
@@ -64,31 +61,18 @@ fn a_big_take_finds_the_hole_past_the_search() {
     setup();
     let h = Hint::new(Class::Session, Tag::OTHER);
     hooks::hole_fit_switch(false);
-    assert!(
-        !deep_hole(h),
-        "off (listed by used runs): the 23-run take missed S0"
-    );
+    assert!(!deep_hole(h), "off (listed by used runs): the 23-run take missed S0");
     hooks::hole_fit_switch(true);
     assert!(deep_hole(h), "on: the 23-run take found S0's 23 free runs");
     let o = occupancy();
-    assert!(
-        o.used_runs.iter().all(|c| c.iter().all(|&n| n == 0)),
-        "every superpage wholly free again: {o:?}"
-    );
+    assert!(o.used_runs.iter().all(|c| c.iter().all(|&n| n == 0)), "every superpage wholly free again: {o:?}");
 
     // a one-run carve (4 KiB blocks): SA keeps a 2-run hole (hole bin 2), SB a 23-run hole (bin 23); the carve goes to SA
     let sa = take_runs(30, h);
     let sb = take_runs(9, h);
     assert_ne!(sa / SUPER, sb / SUPER, "9 runs do not fit SA's 2-run hole");
-    let blk = take(4096, 16, h)
-        .expect("a 4 KiB block")
-        .cast::<u8>()
-        .as_ptr() as usize;
-    assert_eq!(
-        blk / SUPER,
-        sa / SUPER,
-        "the carve filled the smallest hole (SA), not SB's 23 runs"
-    );
+    let blk = take(4096, 16, h).expect("a 4 KiB block").cast::<u8>().as_ptr() as usize;
+    assert_eq!(blk / SUPER, sa / SUPER, "the carve filled the smallest hole (SA), not SB's 23 runs");
     // SAFETY: taken above, given once.
     unsafe { give(NonNull::new(blk as *mut u8).unwrap(), 4096) };
     give_runs(sa, 30);

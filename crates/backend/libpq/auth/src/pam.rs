@@ -20,9 +20,7 @@ use crate::pam_ffi::{
     self, pam_conv, pam_message, pam_response, PAM_CONV, PAM_CONV_ERR, PAM_ERROR_MSG,
     PAM_MAX_NUM_MSG, PAM_PROMPT_ECHO_OFF, PAM_RHOST, PAM_SUCCESS, PAM_TEXT_INFO, PAM_USER,
 };
-use crate::{
-    loc, sendAuthRequest, set_authn_id, AUTH_REQ_PASSWORD, STATUS_EOF, STATUS_ERROR, STATUS_OK,
-};
+use crate::{loc, sendAuthRequest, set_authn_id, AUTH_REQ_PASSWORD, STATUS_EOF, STATUS_ERROR, STATUS_OK,};
 
 const PGSQL_PAM_SERVICE: &str = "postgresql";
 
@@ -198,9 +196,7 @@ unsafe fn conv_body(
                     let text = if (*m).msg.is_null() {
                         String::new()
                     } else {
-                        std::ffi::CStr::from_ptr((*m).msg)
-                            .to_string_lossy()
-                            .into_owned()
+                        std::ffi::CStr::from_ptr((*m).msg).to_string_lossy().into_owned()
                     };
                     let _ = ereport(LOG)
                         .errmsg(format!("error from underlying PAM layer: {text}"))
@@ -216,9 +212,7 @@ unsafe fn conv_body(
                 let text = if (*m).msg.is_null() {
                     "(none)".to_string()
                 } else {
-                    std::ffi::CStr::from_ptr((*m).msg)
-                        .to_string_lossy()
-                        .into_owned()
+                    std::ffi::CStr::from_ptr((*m).msg).to_string_lossy().into_owned()
                 };
                 let _ = ereport(LOG)
                     .errmsg(format!("unsupported PAM conversation {other}/\"{text}\""))
@@ -361,8 +355,7 @@ pub(crate) fn CheckPAMAuth(port: &Port, user: &str, password: &[u8]) -> PgResult
     // SAFETY: service/user are live NUL-terminated strings; conv outlives
     // every pam_* call below; pamh is released via `pamh_guard` (pam_end) on
     // every path once pam_start succeeds.
-    let retval =
-        unsafe { (api.pam_start)(service_c.as_ptr(), c"pgsql@".as_ptr(), &conv, &mut pamh) };
+    let retval = unsafe { (api.pam_start)(service_c.as_ptr(), c"pgsql@".as_ptr(), &conv, &mut pamh) };
     if retval != PAM_SUCCESS {
         ereport(LOG)
             .errmsg(format!(
@@ -378,11 +371,7 @@ pub(crate) fn CheckPAMAuth(port: &Port, user: &str, password: &[u8]) -> PgResult
     // pam_start succeeded: from here every exit must release `pamh` exactly
     // once. This guard does so on drop (all error/`?`/return paths) unless the
     // success path consumes it via `.end()`. See PamHandle above.
-    let mut pamh_guard = PamHandle {
-        api,
-        pamh,
-        status: retval,
-    };
+    let mut pamh_guard = PamHandle { api, pamh, status: retval, };
 
     // SAFETY: pamh is a live handle; user_c is NUL-terminated.
     let retval = unsafe { (api.pam_set_item)(pamh, PAM_USER, user_c.as_ptr() as *const c_void) };
@@ -435,8 +424,9 @@ pub(crate) fn CheckPAMAuth(port: &Port, user: &str, password: &[u8]) -> PgResult
     }
 
     // SAFETY: pamh live; conv outlives the handle's use.
-    let retval =
-        unsafe { (api.pam_set_item)(pamh, PAM_CONV, &conv as *const pam_conv as *const c_void) };
+    let retval = unsafe {
+        (api.pam_set_item)(pamh, PAM_CONV, &conv as *const pam_conv as *const c_void)
+    };
     pamh_guard.status = retval;
     if retval != PAM_SUCCESS {
         ereport(LOG)
@@ -472,11 +462,7 @@ pub(crate) fn CheckPAMAuth(port: &Port, user: &str, password: &[u8]) -> PgResult
                 ))
                 .finish(loc(2130, "CheckPAMAuth"))?;
         }
-        return Ok(if no_password {
-            STATUS_EOF
-        } else {
-            STATUS_ERROR
-        });
+        return Ok(if no_password { STATUS_EOF } else { STATUS_ERROR });
     }
 
     // SAFETY: pamh live.
@@ -499,11 +485,7 @@ pub(crate) fn CheckPAMAuth(port: &Port, user: &str, password: &[u8]) -> PgResult
                 ))
                 .finish(loc(2143, "CheckPAMAuth"))?;
         }
-        return Ok(if no_password {
-            STATUS_EOF
-        } else {
-            STATUS_ERROR
-        });
+        return Ok(if no_password { STATUS_EOF } else { STATUS_ERROR });
     }
 
     // Success path: release the handle explicitly (status is pam_acct_mgmt's

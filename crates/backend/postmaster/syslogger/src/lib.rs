@@ -10,9 +10,7 @@
 //! Std Vec/String throughout: cold daemon thread, no mcx to charge
 //! (elog-report precedent).
 
-#![allow(non_snake_case)]
-#![allow(non_upper_case_globals)]
-#![allow(clippy::result_large_err)]
+#![allow(clippy::result_large_err, non_snake_case, non_upper_case_globals)]
 
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicI64, AtomicPtr, Ordering::Relaxed};
 use std::sync::Mutex;
@@ -313,11 +311,11 @@ pub fn SysLoggerMain(startup_data: &StartupData) -> ! {
                     ROTATION_REQUESTED.store(true, Relaxed);
                 }
 
-                if ((elog::config::log_destination() & LOG_DESTINATION_CSVLOG) != 0) == CSVLOG_FILE.load(Relaxed).is_null()
+                if ((elog::config::log_destination() & LOG_DESTINATION_CSVLOG) != 0) ==CSVLOG_FILE.load(Relaxed).is_null()
                 {
                     ROTATION_REQUESTED.store(true, Relaxed);
                 }
-                if ((elog::config::log_destination() & LOG_DESTINATION_JSONLOG) != 0) == JSONLOG_FILE.load(Relaxed).is_null()
+                if ((elog::config::log_destination() & LOG_DESTINATION_JSONLOG) != 0) ==JSONLOG_FILE.load(Relaxed).is_null()
                 {
                     ROTATION_REQUESTED.store(true, Relaxed);
                 }

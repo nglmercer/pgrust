@@ -12,7 +12,8 @@ use index_amvalidate::{
 };
 use mcx::MemoryContext;
 use types_core::{InvalidOid, Oid, BOOLOID, CHAROID, INT2OID, INT4OID, INTERNALOID};
-use types_error::{ErrorLocation, PgResult, ERRCODE_INVALID_OBJECT_DEFINITION, INFO};
+use types_error::{ErrorLocation, PgResult, ERRCODE_INVALID_OBJECT_DEFINITION, INFO
+};
 
 fn info(msg: String) -> PgResult<()> {
     ereport(INFO)
@@ -31,17 +32,12 @@ pub fn ginvalidate(opclassoid: Oid) -> PgResult<bool> {
     };
     let opfamilyoid = shape.opcfamily;
     let opcintype = shape.opcintype;
-    let opckeytype = if shape.opckeytype != InvalidOid {
-        shape.opckeytype
-    } else {
-        opcintype
-    };
+    let opckeytype = if shape.opckeytype != InvalidOid { shape.opckeytype } else { opcintype };
     let Some(opclassname_data) = syscache_seams::pg_opclass_opcname::call(opclassoid)? else {
         return Err(index_amvalidate::opclass_lookup_failed(opclassoid));
     };
-    let opclassname = core::str::from_utf8(opclassname_data.name_str())
-        .unwrap_or("")
-        .to_string();
+    let opclassname =
+        core::str::from_utf8(opclassname_data.name_str()).unwrap_or("").to_string();
 
     let opfamilyname = lsyscache::get_opfamily_name(mcx, opfamilyoid, false)?
         .expect("opfamily name")
@@ -91,12 +87,7 @@ pub fn ginvalidate(opclassoid: Oid) -> PgResult<bool> {
                 5,
                 7,
                 &[
-                    opcintype,
-                    INTERNALOID,
-                    INT2OID,
-                    INTERNALOID,
-                    INTERNALOID,
-                    INTERNALOID,
+                    opcintype, INTERNALOID, INT2OID, INTERNALOID, INTERNALOID, INTERNALOID,
                     INTERNALOID,
                 ],
             )?,
@@ -107,14 +98,8 @@ pub fn ginvalidate(opclassoid: Oid) -> PgResult<bool> {
                 6,
                 8,
                 &[
-                    INTERNALOID,
-                    INT2OID,
-                    opcintype,
-                    INT4OID,
-                    INTERNALOID,
-                    INTERNALOID,
-                    INTERNALOID,
-                    INTERNALOID,
+                    INTERNALOID, INT2OID, opcintype, INT4OID, INTERNALOID, INTERNALOID,
+                    INTERNALOID, INTERNALOID,
                 ],
             )?,
             GIN_COMPARE_PARTIAL_PROC => check_amproc_signature(
@@ -132,12 +117,7 @@ pub fn ginvalidate(opclassoid: Oid) -> PgResult<bool> {
                 7,
                 7,
                 &[
-                    INTERNALOID,
-                    INT2OID,
-                    opcintype,
-                    INT4OID,
-                    INTERNALOID,
-                    INTERNALOID,
+                    INTERNALOID, INT2OID, opcintype, INT4OID, INTERNALOID, INTERNALOID,
                     INTERNALOID,
                 ],
             )?,

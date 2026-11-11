@@ -7,13 +7,10 @@ use controldata_utils::{
     PG_CONTROL_FILE_SIZE, PG_CONTROL_VERSION, SIZEOF_CHECKPOINT, XLOG_CONTROL_FILE,
 };
 use elog::{ereport, PCT_M};
-use types_core::{FirstNormalTransactionId, FullTransactionId, InvalidTransactionId, Oid};
+use types_core::{ FirstNormalTransactionId, FullTransactionId, InvalidTransactionId, Oid};
 use types_error::{PgResult, ERRCODE_INTERNAL_ERROR, PANIC};
 
-use crate::control_file::{
-    control_file_update, FirstNormalUnloggedLSN, ReadControlFile, FLOATFORMAT_VALUE,
-    TOAST_MAX_CHUNK_SIZE,
-};
+use crate::control_file::{control_file_update, FirstNormalUnloggedLSN, ReadControlFile, FLOATFORMAT_VALUE, TOAST_MAX_CHUNK_SIZE,};
 use crate::write::XLogFileInit;
 use crate::*;
 
@@ -77,8 +74,7 @@ pub fn BootStrapXLOG(data_checksum_version: u32) -> PgResult<()> {
     let now_us = pg_clock::wall_us();
     let secs = (now_us / 1_000_000) as u64;
     let usecs = (now_us % 1_000_000) as u64;
-    let sysidentifier =
-        (secs << 32) | (usecs << 12) | (init_small::globals::MyProcPid() as u64 & 0xFFF);
+    let sysidentifier = (secs << 32) | (usecs << 12) | (init_small::globals::MyProcPid() as u64 & 0xFFF);
 
     let wal_segsz = wal_segment_size();
     let check_point = CheckPoint {
@@ -87,9 +83,7 @@ pub fn BootStrapXLOG(data_checksum_version: u32) -> PgResult<()> {
         PrevTimeLineID: BOOTSTRAP_TIMELINE_ID,
         fullPageWrites: guc_tables::vars::fullPageWrites.read(),
         wal_level: wal_level(),
-        nextXid: FullTransactionId {
-            value: FirstNormalTransactionId as u64,
-        },
+        nextXid: FullTransactionId { value: FirstNormalTransactionId as u64, },
         nextOid: types_core::FirstGenbkiObjectId,
         nextMulti: FIRST_MULTI_XACT_ID,
         nextMultiOffset: 0,
@@ -103,12 +97,8 @@ pub fn BootStrapXLOG(data_checksum_version: u32) -> PgResult<()> {
         oldestActiveXid: InvalidTransactionId,
     };
 
-    procarray::TransamVariables()
-        .nextXid
-        .store(check_point.nextXid.value, Relaxed);
-    varsup::TransamVariables()
-        .nextOid
-        .store(check_point.nextOid, Relaxed);
+    procarray::TransamVariables().nextXid.store(check_point.nextXid.value, Relaxed);
+    varsup::TransamVariables().nextOid.store(check_point.nextOid, Relaxed);
     varsup::TransamVariables().oidCount.store(0, Relaxed);
     // MultiXactSetNextMXact / SetMultiXactIdLimit / SetCommitTsLimit are the
     varsup::AdvanceOldestClogXid(check_point.oldestXid)?;
@@ -126,8 +116,7 @@ pub fn BootStrapXLOG(data_checksum_version: u32) -> PgResult<()> {
     put_u32(&mut page, 36, XLOG_BLCKSZ as u32);
 
     let rec = SizeOfXLogLongPHD;
-    let tot_len =
-        (SizeOfXLogRecord + SIZE_OF_XLOG_RECORD_DATA_HEADER_SHORT + SIZEOF_CHECKPOINT) as u32;
+    let tot_len = (SizeOfXLogRecord + SIZE_OF_XLOG_RECORD_DATA_HEADER_SHORT + SIZEOF_CHECKPOINT) as u32;
     put_u32(&mut page, rec, tot_len);
     put_u32(&mut page, rec + 4, InvalidTransactionId);
     put_u64(&mut page, rec + 8, 0);
@@ -148,28 +137,16 @@ pub fn BootStrapXLOG(data_checksum_version: u32) -> PgResult<()> {
     let n = fd::pg_pwrite(f, &page, 0);
     write::report_wait_end();
     if n != XLOG_BLCKSZ as isize {
-        return Err(file_panic(
-            fd::get_errno(),
-            "write bootstrap write-ahead log file",
-            None,
-        ));
+        return Err(file_panic(fd::get_errno(), "write bootstrap write-ahead log file", None,));
     }
     write::report_wait_start(WAIT_EVENT_WAL_BOOTSTRAP_SYNC);
     let rc = fd::pg_fsync(f);
     write::report_wait_end();
     if rc != 0 {
-        return Err(file_panic(
-            fd::get_errno(),
-            "fsync bootstrap write-ahead log file",
-            None,
-        ));
+        return Err(file_panic(fd::get_errno(), "fsync bootstrap write-ahead log file", None,));
     }
     if fd::pg_close(f) != 0 {
-        return Err(file_panic(
-            fd::get_errno(),
-            "close bootstrap write-ahead log file",
-            None,
-        ));
+        return Err(file_panic(fd::get_errno(), "close bootstrap write-ahead log file", None,));
     }
 
     let mut cf = init_control_file(sysidentifier, data_checksum_version)?;
@@ -236,43 +213,24 @@ fn write_control_file(cf: &mut ControlFileData) -> PgResult<()> {
     let mut buffer = [0u8; PG_CONTROL_FILE_SIZE];
     buffer[..image.len()].copy_from_slice(&image);
 
-    let f = fd::BasicOpenFile(
-        XLOG_CONTROL_FILE,
-        libc::O_RDWR | libc::O_CREAT | libc::O_EXCL,
-    )?;
+    let f = fd::BasicOpenFile(XLOG_CONTROL_FILE, libc::O_RDWR | libc::O_CREAT | libc::O_EXCL,)?;
     if f < 0 {
-        return Err(file_panic(
-            fd::get_errno(),
-            "create file",
-            Some(XLOG_CONTROL_FILE),
-        ));
+        return Err(file_panic(fd::get_errno(), "create file", Some(XLOG_CONTROL_FILE),));
     }
     write::report_wait_start(WAIT_EVENT_CONTROL_FILE_WRITE);
     let n = fd::pg_pwrite(f, &buffer, 0);
     write::report_wait_end();
     if n != PG_CONTROL_FILE_SIZE as isize {
-        return Err(file_panic(
-            fd::get_errno(),
-            "write to file",
-            Some(XLOG_CONTROL_FILE),
-        ));
+        return Err(file_panic(fd::get_errno(), "write to file", Some(XLOG_CONTROL_FILE),));
     }
     write::report_wait_start(WAIT_EVENT_CONTROL_FILE_SYNC);
     let rc = fd::pg_fsync(f);
     write::report_wait_end();
     if rc != 0 {
-        return Err(file_panic(
-            fd::get_errno(),
-            "fsync file",
-            Some(XLOG_CONTROL_FILE),
-        ));
+        return Err(file_panic(fd::get_errno(), "fsync file", Some(XLOG_CONTROL_FILE),));
     }
     if fd::pg_close(f) != 0 {
-        return Err(file_panic(
-            fd::get_errno(),
-            "close file",
-            Some(XLOG_CONTROL_FILE),
-        ));
+        return Err(file_panic(fd::get_errno(), "close file", Some(XLOG_CONTROL_FILE),));
     }
     Ok(())
 }

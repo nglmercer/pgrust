@@ -1,14 +1,13 @@
+
 use types_error::PgResult;
 use types_nodes::plannodes::GravityRewrite;
 use types_nodes::{Node, NodeTag};
-use types_pathnodes::{
-    PathId, PathNode, RelId, AGGSPLIT_SIMPLE, AGG_HASHED, AGG_SORTED, AMFLAG_PGRCOLUMNAR,
-    COMPARE_GT, COMPARE_LT,
-};
+use types_pathnodes::{PathId, PathNode, RelId, AGGSPLIT_SIMPLE, AGG_HASHED, AGG_SORTED, AMFLAG_PGRCOLUMNAR, COMPARE_GT, COMPARE_LT,};
 
 use crate::run::PlannerRun;
 
 const DEFAULT_LIMIT_BOUND: u64 = 100;
+
 
 /// The census of a zone walk over `ranges` (one `(min, max)` per granule,
 /// `min > max` = an all-null granule, never a survivor) for the first `n`
@@ -28,20 +27,11 @@ pub(crate) struct ZoneCensus {
 /// estimate. A clustered layout's bound is then its first granule's far side, not its n-th edge: a LIMIT of more
 /// than one key per granule no longer reads n granules. The bound is an estimate for the path's cost only;
 /// the walk itself stops at the bound its rows prove.
-pub(crate) fn zone_walk_census(
-    ranges: &[(i64, i64)],
-    n: u64,
-    desc: bool,
-    per_granule: u64,
-) -> Option<ZoneCensus> {
+pub(crate) fn zone_walk_census(ranges: &[(i64, i64)], n: u64, desc: bool, per_granule: u64,) -> Option<ZoneCensus> {
     if n == 0 || ranges.is_empty() {
         return None;
     }
-    let mut keyed: Vec<(i64, i64)> = ranges
-        .iter()
-        .filter(|(lo, hi)| lo <= hi)
-        .map(|&(lo, hi)| if desc { (hi, lo) } else { (lo, hi) })
-        .collect();
+    let mut keyed: Vec<(i64, i64)> = ranges.iter().filter(|(lo, hi)| lo <= hi).map(|&(lo, hi)| if desc { (hi, lo) } else { (lo, hi) }).collect();
     if keyed.is_empty() {
         return None;
     }
@@ -55,25 +45,10 @@ pub(crate) fn zone_walk_census(
     let farther = |a: i64, b: i64| if desc { a.min(b) } else { a.max(b) };
     let nth_edge = keyed[(n as usize).min(keyed.len()) - 1].0;
     let take = n.div_ceil(per_granule.max(1)).min(keyed.len() as u64) as usize;
-    let far = keyed[..take]
-        .iter()
-        .map(|k| k.1)
-        .reduce(farther)
-        .expect("take >= 1");
-    let bound = if take as u64 * per_granule.max(1) >= n {
-        nearer(nth_edge, far)
-    } else {
-        nth_edge
-    };
-    let survivors = keyed
-        .iter()
-        .filter(|k| if desc { k.0 >= bound } else { k.0 <= bound })
-        .count() as u64;
-    Some(ZoneCensus {
-        survivors,
-        keyed: keyed.len() as u64,
-        granules: ranges.len() as u64,
-    })
+    let far = keyed[..take].iter().map(|k| k.1).reduce(farther).expect("take >= 1");
+    let bound = if take as u64 * per_granule.max(1) >= n { nearer(nth_edge, far) } else { nth_edge };
+    let survivors = keyed.iter().filter(|k| if desc { k.0 >= bound } else { k.0 <= bound }).count() as u64;
+    Some(ZoneCensus { survivors, keyed: keyed.len() as u64, granules: ranges.len() as u64, })
 }
 
 /// The census of a NULLS FIRST walk (PL-06's planner half). The walk keys every granule holding a NULL lowest, so it
@@ -86,15 +61,7 @@ pub(crate) fn zone_walk_census(
 /// over the keyed granules would hold a NULL in nearly every one and decline a walk that reads 9 of 128 granules
 /// against a plain top 17x slower; a walk whose every granule does hold a NULL takes the plain claims at run time.
 /// `None` when no granule is keyed.
-pub(crate) fn nulls_first_census(
-    ranges: &[(i64, i64)],
-    n: u64,
-    desc: bool,
-    per_granule: u64,
-    rows: f64,
-    table_nulls: f64,
-    scan_nulls: f64,
-) -> Option<ZoneCensus> {
+pub(crate) fn nulls_first_census(ranges: &[(i64, i64)], n: u64, desc: bool, per_granule: u64, rows: f64, table_nulls: f64, scan_nulls: f64,) -> Option<ZoneCensus> {
     if n == 0 || ranges.is_empty() {
         return None;
     }
@@ -104,46 +71,26 @@ pub(crate) fn nulls_first_census(
     if keyed == 0 {
         return None;
     }
-    let rows = if rows.is_finite() && rows >= 1.0 {
-        rows
-    } else {
-        1.0
-    };
+    let rows = if rows.is_finite() && rows >= 1.0 { rows } else { 1.0 };
     let known = |x: f64| if x.is_finite() && x > 0.0 { x } else { 0.0 };
     let (table_nulls, scan_nulls) = (known(table_nulls), known(scan_nulls));
     let spread = (table_nulls - all_null as f64 * rows).max(0.0);
     let holding = (spread / rows).ceil().min(keyed as f64);
     let left = n.saturating_sub(scan_nulls.floor() as u64);
-    let walked = if left == 0 {
-        0
-    } else {
-        zone_walk_census(ranges, left, desc, per_granule).map_or(0, |c| c.survivors)
-    };
+    let walked = if left == 0 { 0 } else { zone_walk_census(ranges, left, desc, per_granule).map_or(0, |c| c.survivors) };
     let keyed_read = holding + walked as f64 * (1.0 - holding / keyed as f64);
     let survivors = (all_null + keyed_read.ceil() as u64).min(granules);
-    Some(ZoneCensus {
-        survivors,
-        keyed,
-        granules,
-    })
+    Some(ZoneCensus { survivors, keyed, granules, })
 }
 
 /// The rows a granule of `scan_id`'s relation hands a zone walk, estimated: the scan's rows (after its quals) over
 /// its granules, at least 1.
 fn rows_per_granule(run: &PlannerRun<'_>, scan_id: PathId, granules: u64) -> u64 {
     let rows = run.root.path(scan_id).base().rows;
-    if rows.is_finite() && rows >= 1.0 {
-        ((rows / granules.max(1) as f64).floor() as u64).max(1)
-    } else {
-        1
-    }
+    if rows.is_finite() && rows >= 1.0 { ((rows / granules.max(1) as f64).floor() as u64).max(1) } else { 1 }
 }
 
-pub(crate) fn two_pass_passes_cost(
-    input_total: f64,
-    input_rows: f64,
-    cpu_operator_cost: f64,
-) -> f64 {
+pub(crate) fn two_pass_passes_cost(input_total: f64, input_rows: f64, cpu_operator_cost: f64,) -> f64 {
     2.0 * (input_total + cpu_operator_cost * input_rows.max(0.0))
 }
 
@@ -178,11 +125,7 @@ fn once_share(mean: f64) -> f64 {
     let (mut lo, mut hi) = (0.0f64, mean + 1.0);
     for _ in 0..100 {
         let mid = (lo + hi) / 2.0;
-        if mid / -(-mid).exp_m1() < mean {
-            lo = mid
-        } else {
-            hi = mid
-        }
+        if mid / -(-mid).exp_m1() < mean { lo = mid } else { hi = mid }
     }
     let l = (lo + hi) / 2.0;
     (l * (-l).exp() / -(-l).exp_m1()).clamp(0.0, 1.0)
@@ -222,11 +165,7 @@ pub(crate) fn count_candidates(input_rows: f64, n: f64, s: KeySample) -> f64 {
             let (mut lo, mut hi) = (0.0f64, nt);
             for _ in 0..100 {
                 let mid = (lo + hi) / 2.0;
-                if hs(mid) < ndv {
-                    lo = mid
-                } else {
-                    hi = mid
-                }
+                if hs(mid) < ndv { lo = mid } else { hi = mid }
             }
             lo
         };
@@ -295,39 +234,18 @@ impl TopCostIn {
     /// held at W8 and spilled at W4, 2 M spilled at W8; D2078's h top (200 k scattered) spills.
     pub(crate) fn pass1_holds(&self) -> bool {
         let parts = self.width.max(1.0);
-        let together = if self.grant > 0.0 {
-            self.grant
-        } else {
-            self.hash_mem * parts
-        };
+        let together = if self.grant > 0.0 { self.grant } else { self.hash_mem * parts };
         let held = self.keys * self.pass1_record * 8.0 / 7.0 <= together;
-        let Some(corr) = self.key_corr else {
-            return held;
-        };
-        let (room, rec) = (
-            (if self.grant > 0.0 {
-                self.grant / parts
-            } else {
-                self.hash_mem
-            }) as u64,
-            self.pass1_record.ceil() as u64,
-        );
+        let Some(corr) = self.key_corr else { return held; };
+        let (room, rec) = ((if self.grant > 0.0 { self.grant / parts } else { self.hash_mem }) as u64, self.pass1_record.ceil() as u64,);
         let (keys, c2) = (self.keys.min(self.rows), (corr * corr).clamp(0.0, 1.0));
         let inflow = (1.0 - c2) * self.rows / parts + c2 * keys / parts;
         let window = (1.0 - c2) * keys + c2 * keys / parts;
-        held && (inflow
-            <= cost_profile::hash::t1_pool_records(room, rec, 0, cost_profile::machine::host())
-                as f64
-            || window
-                <= cost_profile::hash::t1_fold_records(room, rec, 0, cost_profile::machine::host())
-                    as f64)
+        held && (inflow <= cost_profile::hash::t1_pool_records(room, rec, 0, cost_profile::machine::host()) as f64 || window <= cost_profile::hash::t1_fold_records(room, rec, 0, cost_profile::machine::host()) as f64)
     }
 
     fn window(&self, rows: f64, groups: f64) -> f64 {
-        let (parts, c2) = (
-            self.width.max(1.0),
-            self.key_corr.map_or(0.0, |c| (c * c).clamp(0.0, 1.0)),
-        );
+        let (parts, c2) = (self.width.max(1.0), self.key_corr.map_or(0.0, |c| (c * c).clamp(0.0, 1.0)),);
         let groups = groups.max(1.0);
         c2 * groups / parts + (1.0 - c2) * groups * (1.0 - (-rows / parts / groups).exp())
     }
@@ -337,43 +255,20 @@ impl TopCostIn {
     /// participants)`. Past it the one pass spills its partials and reads them back. A count top's reading above width 0.
     pub(crate) fn one_pass_holds(&self) -> bool {
         let parts = self.width.max(1.0);
-        let room = if self.grant > 0.0 {
-            self.grant / parts
-        } else {
-            self.hash_mem
-        };
+        let room = if self.grant > 0.0 { self.grant / parts } else { self.hash_mem };
         self.groups.min(self.rows / parts) * self.group_bytes <= room
     }
 
     pub(crate) fn group_table_holds(&self) -> bool {
         let parts = self.width.max(1.0);
-        let room = (if self.grant > 0.0 {
-            self.grant / parts
-        } else {
-            self.hash_mem
-        }) as u64;
-        self.window(self.rows, self.groups_met)
-            <= cost_profile::hash::t1_fold_records(
-                room,
-                self.t1_record.ceil() as u64,
-                self.groups as u64,
-                cost_profile::machine::host(),
-            ) as f64
+        let room = (if self.grant > 0.0 { self.grant / parts } else { self.hash_mem }) as u64;
+        self.window(self.rows, self.groups_met) <= cost_profile::hash::t1_fold_records(room, self.t1_record.ceil() as u64, self.groups as u64, cost_profile::machine::host(),) as f64
     }
 
     pub(crate) fn one_table_holds(&self) -> bool {
-        let room = if self.grant > 0.0 {
-            self.grant
-        } else {
-            self.hash_mem
-        };
-        (self.width > 0.0
-            || self.groups.min(self.rows) * (self.group_bytes + self.byref_state_bytes) <= room)
-            && if self.key_corr.is_some() {
-                self.group_table_holds()
-            } else {
-                self.one_pass_holds()
-            }
+        let room = if self.grant > 0.0 { self.grant } else { self.hash_mem };
+        (self.width > 0.0 || self.groups.min(self.rows) * (self.group_bytes + self.byref_state_bytes) <= room)
+            && if self.key_corr.is_some() { self.group_table_holds() } else { self.one_pass_holds() }
     }
 
     pub(crate) fn pass1_spill_mib(&self) -> f64 {
@@ -433,78 +328,35 @@ pub(crate) const TOP_W_FINISH: f64 = 1.0;
 
 pub(crate) fn top_costs(c: &TopCostIn) -> (f64, f64) {
     let held = c.pass1_holds();
-    let (cand, cand_groups) = if held {
-        (c.cand.min(c.rows), c.cand_groups.min(c.groups))
-    } else {
-        (c.rows, c.groups)
-    };
+    let (cand, cand_groups) = if held { (c.cand.min(c.rows), c.cand_groups.min(c.groups)) } else { (c.rows, c.groups) };
     if c.width <= 0.0 {
         // the leader's one table spills past its room as PostgreSQL's hashed Agg does (an extreme top's by the
         // traced fold room, a count top's by its partial groups); pass 2 spills when its candidate groups do not fit
         let room = if c.grant > 0.0 { c.grant } else { c.hash_mem };
-        let one_holds = c.groups.min(c.rows) * (c.group_bytes + c.byref_state_bytes) <= room
-            && if c.key_corr.is_some() {
-                c.group_table_holds()
-            } else {
-                c.one_pass_holds()
-            };
-        let one_spill = if one_holds {
-            0.0
-        } else {
-            c.w0_spill_row * c.rows
-        };
-        let two_spill = if cand_groups.min(cand) * (c.group_bytes + c.byref_state_bytes) <= room {
-            0.0
-        } else {
-            c.w0_spill_row * cand
-        };
+        let one_holds = c.groups.min(c.rows) * (c.group_bytes + c.byref_state_bytes) <= room && if c.key_corr.is_some() { c.group_table_holds() } else { c.one_pass_holds() };
+        let one_spill = if one_holds { 0.0 } else { c.w0_spill_row * c.rows };
+        let two_spill = if cand_groups.min(cand) * (c.group_bytes + c.byref_state_bytes) <= room { 0.0 } else { c.w0_spill_row * cand };
         let one = c.scan + c.fold_row * c.rows + c.fold_group * c.groups + one_spill;
         let pass1_rank = 2.0 * c.cpu_op * c.keys.min(c.rows) * (2.0 * c.n.max(1.0)).log2();
-        let two = two_pass_passes_cost(c.scan, c.rows, c.cpu_op)
-            + c.fold_row * cand
-            + pass1_rank
-            + c.fold_group * cand_groups
-            + two_spill;
+        let two = two_pass_passes_cost(c.scan, c.rows, c.cpu_op) + c.fold_row * cand + pass1_rank + c.fold_group * cand_groups + two_spill;
         return (one, two);
     }
     if c.key_corr.is_none() {
         let parts = c.width;
         let merged = if c.one_pass_holds() { parts } else { 1.0 };
         let merge = |partials: f64| c.merge_row * partials / merged;
-        let one = (c.scan + c.fold_row * c.rows) / parts
-            + merge((c.groups * parts).min(c.rows))
-            + c.fold_group * c.groups;
+        let one = (c.scan + c.fold_row * c.rows) / parts + merge((c.groups * parts).min(c.rows)) + c.fold_group * c.groups;
         let pass1_merge = c.cpu_op * (c.keys * parts).min(c.rows) / parts;
-        let two = (two_pass_passes_cost(c.scan, c.rows, c.cpu_op) + c.fold_row * cand) / parts
-            + pass1_merge
-            + merge((cand_groups * parts).min(cand))
-            + c.fold_group * cand_groups;
+        let two = (two_pass_passes_cost(c.scan, c.rows, c.cpu_op) + c.fold_row * cand) / parts + pass1_merge + merge((cand_groups * parts).min(cand)) + c.fold_group * cand_groups;
         return (one, two);
     }
     let parts = c.width;
     let per_row = TOP_W_KEY * c.fold_key + TOP_W_TRANS * (c.fold_row - c.fold_key).max(0.0);
-    let one_spill = if c.group_table_holds() {
-        0.0
-    } else {
-        TOP_W_SPILL * c.merge_row * c.rows / parts
-    };
-    let one_fold = per_row * c.rows / parts
-        + TOP_W_MERGE * c.fold_key * c.window(c.rows, c.groups_met)
-        + one_spill;
+    let one_spill = if c.group_table_holds() { 0.0 } else { TOP_W_SPILL * c.merge_row * c.rows / parts };
+    let one_fold = per_row * c.rows / parts + TOP_W_MERGE * c.fold_key * c.window(c.rows, c.groups_met) + one_spill;
     let one = c.scan / parts + one_fold + TOP_W_FINISH * c.fold_group * c.groups / parts;
-    let pass2 = if held {
-        per_row * cand / parts
-            + TOP_W_MERGE
-                * c.fold_key
-                * c.window(cand, c.groups_met * cand_groups / c.groups.max(1.0))
-    } else {
-        one_fold
-    };
-    let two = 2.0 * c.scan / parts
-        + TOP_W_HASH * 2.0 * c.cpu_op * c.rows / parts
-        + TOP_W_PASS1 * c.pass1_merge()
-        + pass2
-        + TOP_W_FINISH * c.fold_group * cand_groups / parts;
+    let pass2 = if held { per_row * cand / parts + TOP_W_MERGE * c.fold_key * c.window(cand, c.groups_met * cand_groups / c.groups.max(1.0)) } else { one_fold };
+    let two = 2.0 * c.scan / parts + TOP_W_HASH * 2.0 * c.cpu_op * c.rows / parts + TOP_W_PASS1 * c.pass1_merge() + pass2 + TOP_W_FINISH * c.fold_group * cand_groups / parts;
     (one, two)
 }
 
@@ -520,21 +372,14 @@ pub(crate) struct TopShape {
 /// admits every key, D459, and has no measured price). Only where the measured profile prices the forms (its corpus'
 /// input sizes): the fitted reading has no measured spill and keeps D459.
 pub(crate) fn twopass_spill_priced() -> bool {
-    !pgrust_guc("pgrust.gravity_twopass_spill_priced").is_some_and(|v| {
-        ["off", "false", "0", "no"]
-            .iter()
-            .any(|o| v.trim().eq_ignore_ascii_case(o))
+    !pgrust_guc("pgrust.gravity_twopass_spill_priced").is_some_and(|v| { ["off", "false", "0", "no"].iter().any(|o| v.trim().eq_ignore_ascii_case(o))
     })
 }
 
 pub(crate) fn top_costs_priced(c: &TopCostIn, shape: &TopShape) -> (f64, f64, bool) {
     use cost_profile::walk::Profile;
     #[cfg(test)]
-    let setting = TEST_TOP_PROFILE
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .map(str::to_owned)
-        .or_else(|| pgrust_guc("pgrust.gravity_cost_profile"));
+    let setting = TEST_TOP_PROFILE.lock().unwrap_or_else(|e| e.into_inner()).map(str::to_owned).or_else(|| pgrust_guc("pgrust.gravity_cost_profile"));
     #[cfg(not(test))]
     let setting = pgrust_guc("pgrust.gravity_cost_profile");
     if Profile::parse(setting.as_deref()) == Profile::Measured {
@@ -579,20 +424,13 @@ pub(crate) fn pass1_record_bytes(key_nullable: bool) -> f64 {
 /// An extreme top's pass-1 record, in bytes, as decompose lays it (agg `pass1`, abi `RecordLayout`): the key image (a
 /// NULL flag word too when nullable), the count, the extreme, its column's non-NULL count when that column is
 /// nullable, and the validity word a min / max slot takes; [`TopCostIn::pass1_holds`] sizes its table's slots.
-pub(crate) fn pass1_extreme_record_bytes(
-    key_nullable: bool,
-    arg_nullable: bool,
-    spread: bool,
-) -> f64 {
-    let words =
-        1 + usize::from(key_nullable) + 1 + 1 + usize::from(arg_nullable) + usize::from(spread) + 1;
+pub(crate) fn pass1_extreme_record_bytes(key_nullable: bool, arg_nullable: bool, spread: bool,) -> f64 {
+    let words = 1 + usize::from(key_nullable) + 1 + 1 + usize::from(arg_nullable) + usize::from(spread) + 1;
     (words * 8) as f64
 }
 
 fn walk_price() -> cost_profile::walk::Walk {
-    cost_profile::walk::Walk::of(cost_profile::walk::Profile::parse(
-        pgrust_guc("pgrust.gravity_cost_profile").as_deref(),
-    ))
+    cost_profile::walk::Walk::of(cost_profile::walk::Profile::parse(pgrust_guc("pgrust.gravity_cost_profile").as_deref(),))
 }
 
 /// A `pgrust.*` placeholder GUC's text, `None` when it was never set (or no GUC boot is installed: a unit-test binary):
@@ -601,9 +439,7 @@ fn pgrust_guc(name: &str) -> Option<String> {
     if !guc_seams::get_config_option_missing_ok::is_installed() {
         return None;
     }
-    guc_seams::get_config_option_missing_ok::call(name)
-        .ok()
-        .flatten()
+    guc_seams::get_config_option_missing_ok::call(name).ok().flatten()
 }
 
 pub(crate) fn spread_candidates(input_rows: f64, ndv: f64, n: f64) -> f64 {
@@ -627,49 +463,18 @@ pub(crate) fn extreme_candidates(input_rows: f64, ndv: f64, n: f64) -> f64 {
 
 pub(crate) fn zone_word_type(typid: types_core::Oid) -> PgResult<bool> {
     let (typlen, byval) = lsyscache::get_typlenbyval(typid)?;
-    Ok(gravity_fn::typesem::keysem::word_orders_as_i64(
-        typid, byval, typlen,
-    ))
+    Ok(gravity_fn::typesem::keysem::word_orders_as_i64(typid, byval, typlen,))
 }
 
-pub(crate) fn default_btree_order(
-    pk: &types_pathnodes::PathKey,
-    typid: types_core::Oid,
-) -> PgResult<bool> {
+pub(crate) fn default_btree_order(pk: &types_pathnodes::PathKey, typid: types_core::Oid,) -> PgResult<bool> {
     let tc = typcache::lookup_type_cache(typid, typcache::TYPECACHE_BTREE_OPFAMILY)?;
     Ok(tc.btree_opf() != 0 && tc.btree_opf() == pk.pk_opfamily)
 }
 
 pub(crate) const ORDER_FREE_AGGS: [&str; 29] = [
-    "count",
-    "sum",
-    "avg",
-    "min",
-    "max",
-    "bool_and",
-    "bool_or",
-    "every",
-    "bit_and",
-    "bit_or",
-    "bit_xor",
-    "stddev",
-    "stddev_pop",
-    "stddev_samp",
-    "variance",
-    "var_pop",
-    "var_samp",
-    "corr",
-    "covar_pop",
-    "covar_samp",
-    "regr_avgx",
-    "regr_avgy",
-    "regr_count",
-    "regr_intercept",
-    "regr_r2",
-    "regr_slope",
-    "regr_sxx",
-    "regr_sxy",
-    "regr_syy",
+    "count", "sum", "avg", "min", "max", "bool_and", "bool_or", "every", "bit_and", "bit_or", "bit_xor", "stddev",
+    "stddev_pop", "stddev_samp", "variance", "var_pop", "var_samp", "corr", "covar_pop", "covar_samp", "regr_avgx",
+    "regr_avgy", "regr_count", "regr_intercept", "regr_r2", "regr_slope", "regr_sxx", "regr_sxy", "regr_syy",
 ];
 
 /// C's FirstNormalObjectId: OIDs below it are the bootstrap and initdb objects; a user's aggregate is never order-free
@@ -707,14 +512,10 @@ fn quiet_target(run: &PlannerRun<'_>, target: types_pathnodes::PtId, groups: &[u
         while let Some(r) = e.as_relabel_type() {
             e = r.arg;
         }
-        e.as_var().is_some()
-            || e.as_const().is_some()
-            || e.as_aggref().is_some()
-            || t.sortgrouprefs
-                .get(i)
-                .is_some_and(|r| *r != 0 && groups.contains(r))
+        e.as_var().is_some() || e.as_const().is_some() || e.as_aggref().is_some() || t.sortgrouprefs.get(i).is_some_and(|r| *r != 0 && groups.contains(r))
     })
 }
+
 
 #[cfg(test)]
 pub(crate) struct TestFacts {
@@ -726,54 +527,29 @@ pub(crate) struct TestFacts {
 pub(crate) static TEST_FACTS: std::sync::Mutex<Option<TestFacts>> = std::sync::Mutex::new(None);
 
 #[cfg(test)]
-pub(crate) static TEST_NULL_FRAC: std::sync::Mutex<Option<(i16, f64)>> =
-    std::sync::Mutex::new(None);
+pub(crate) static TEST_NULL_FRAC: std::sync::Mutex<Option<(i16, f64)>> = std::sync::Mutex::new(None);
 
 fn rel_granules(run: &PlannerRun<'_>, rel: RelId) -> Option<u64> {
     #[cfg(test)]
-    if let Some(f) = TEST_FACTS
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .as_ref()
-    {
+    if let Some(f) = TEST_FACTS.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
         return Some(f.granules);
     }
     let r = run.root.rel(rel);
-    (r.amflags & AMFLAG_PGRCOLUMNAR != 0 && r.pgrcolumnar_granules > 0)
-        .then_some(r.pgrcolumnar_granules)
+    (r.amflags & AMFLAG_PGRCOLUMNAR != 0 && r.pgrcolumnar_granules > 0).then_some(r.pgrcolumnar_granules)
 }
 
-fn zone_ranges<'mcx>(
-    run: &PlannerRun<'mcx>,
-    rel: RelId,
-    attno: i16,
-) -> Option<std::borrow::Cow<'mcx, [(i64, i64)]>> {
+fn zone_ranges<'mcx>(run: &PlannerRun<'mcx>, rel: RelId, attno: i16,) -> Option<std::borrow::Cow<'mcx, [(i64, i64)]>> {
     #[cfg(test)]
-    if let Some(f) = TEST_FACTS
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .as_ref()
-    {
-        return f
-            .zones
-            .iter()
-            .find(|(a, _)| *a == attno)
-            .map(|(_, z)| std::borrow::Cow::Owned(z.clone()));
+    if let Some(f) = TEST_FACTS.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
+        return f.zones.iter().find(|(a, _)| *a == attno).map(|(_, z)| std::borrow::Cow::Owned(z.clone()));
     }
-    run.root
-        .rel(rel)
-        .pgrcolumnar_zones
-        .iter()
-        .find(|z| z.attno == attno && !z.ranges.is_empty())
-        .map(|z| std::borrow::Cow::Borrowed(z.ranges))
+    run.root.rel(rel).pgrcolumnar_zones.iter().find(|z| z.attno == attno && !z.ranges.is_empty()).map(|z| std::borrow::Cow::Borrowed(z.ranges))
 }
 
 #[cfg(test)]
-pub(crate) static TEST_TOP_PROFILE: std::sync::Mutex<Option<&'static str>> =
-    std::sync::Mutex::new(None);
+pub(crate) static TEST_TOP_PROFILE: std::sync::Mutex<Option<&'static str>> = std::sync::Mutex::new(None);
 #[cfg(test)]
-pub(crate) static LAST_DECLINE: std::sync::Mutex<Option<&'static str>> =
-    std::sync::Mutex::new(None);
+pub(crate) static LAST_DECLINE: std::sync::Mutex<Option<&'static str>> = std::sync::Mutex::new(None);
 
 fn decline(reason: &'static str) -> PgResult<()> {
     #[cfg(test)]
@@ -784,23 +560,16 @@ fn decline(reason: &'static str) -> PgResult<()> {
     Ok(())
 }
 
+
 /// The LIMIT bound `n = count + offset` from `preprocess_limit`'s estimates:
 /// `None` for `LIMIT 0` or a limit option other than COUNT; a non-constant
 /// count is priced at `DEFAULT_LIMIT_BOUND`.
 fn limit_bound(run: &PlannerRun<'_>, offset_est: i64, count_est: i64) -> Option<u64> {
     let parse = run.parse();
-    if parse.limitOption != types_nodes::nodes_enums::LimitOption::LIMIT_OPTION_COUNT
-        || parse.limitCount.is_none()
-    {
+    if parse.limitOption != types_nodes::nodes_enums::LimitOption::LIMIT_OPTION_COUNT || parse.limitCount.is_none() {
         return None;
     }
-    let count = if count_est > 0 {
-        count_est as u64
-    } else if count_est < 0 {
-        DEFAULT_LIMIT_BOUND
-    } else {
-        return None;
-    };
+    let count = if count_est > 0 { count_est as u64 } else if count_est < 0 { DEFAULT_LIMIT_BOUND } else { return None; };
     let offset = if offset_est > 0 { offset_est as u64 } else { 0 };
     Some(count.saturating_add(offset))
 }
@@ -810,135 +579,65 @@ fn limit_bound(run: &PlannerRun<'_>, offset_est: i64, count_est: i64) -> Option<
 /// holds for a table appended to since its ANALYZE or never analyzed; a cost input only, the run-time walk re-checks);
 /// else the statistics' `stanullfrac` (pgrcolumnar's ANALYZE fold takes it from the same records), else 0 (no
 /// statistics: the NULLS FIRST census counts the all-null granules only).
-fn key_null_fraction<'mcx>(
-    run: &mut PlannerRun<'mcx>,
-    rel: RelId,
-    attno: i16,
-    var: Node<'mcx>,
-) -> PgResult<f64> {
+fn key_null_fraction<'mcx>(run: &mut PlannerRun<'mcx>, rel: RelId, attno: i16, var: Node<'mcx>,) -> PgResult<f64> {
     if crate::relnode::relids_is_member(attno as i32, &run.root.rel(rel).notnullattnums) {
         return Ok(0.0);
     }
     #[cfg(test)]
-    let facts = TEST_NULL_FRAC
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .filter(|t| t.0 == attno)
-        .map(|t| t.1);
+    let facts = TEST_NULL_FRAC.lock().unwrap_or_else(|e| e.into_inner()).filter(|t| t.0 == attno).map(|t| t.1);
     #[cfg(not(test))]
     let facts = None;
-    let facts = facts.or_else(|| {
-        attno.checked_sub(1).and_then(|i| {
-            run.root
-                .rel(rel)
-                .pgrcolumnar_col_null_frac
-                .get(i as usize)
-                .copied()
-                .flatten()
+    let facts = facts.or_else(|| { attno.checked_sub(1).and_then(|i| { run.root.rel(rel).pgrcolumnar_col_null_frac.get(i as usize).copied().flatten()
         })
     });
     if let Some(f) = facts {
-        return Ok(if f.is_finite() {
-            f.clamp(0.0, 1.0)
-        } else {
-            0.0
-        });
+        return Ok(if f.is_finite() { f.clamp(0.0, 1.0) } else { 0.0 });
     }
     let vid = run.intern_expr(var);
     let vardata = crate::selfuncs::examine_variable(run, vid, var, 0)?;
     let f = vardata.nullfrac();
-    Ok(if f.is_finite() {
-        f.clamp(0.0, 1.0)
-    } else {
-        0.0
-    })
+    Ok(if f.is_finite() { f.clamp(0.0, 1.0) } else { 0.0 })
 }
 
 fn scan_correlation(run: &PlannerRun<'_>, relid: i32, attno: i16) -> PgResult<Option<f64>> {
     let rte = run.rte(relid as usize);
-    let Some(bundle) = crate::selfuncs::get_att_stats(run, rte.relid, attno, rte.inh)? else {
-        return Ok(None);
-    };
-    let Some(slot) = bundle
-        .slots
-        .iter()
-        .find(|sl| sl.kind == crate::selfuncs::STATISTIC_KIND_CORRELATION)
-    else {
-        return Ok(None);
-    };
-    Ok(slot
-        .numbers()?
-        .first()
-        .map(|&c| f64::from(c).clamp(-1.0, 1.0)))
+    let Some(bundle) = crate::selfuncs::get_att_stats(run, rte.relid, attno, rte.inh)? else { return Ok(None); };
+    let Some(slot) = bundle.slots.iter().find(|sl| sl.kind == crate::selfuncs::STATISTIC_KIND_CORRELATION) else { return Ok(None); };
+    Ok(slot.numbers()?.first().map(|&c| f64::from(c).clamp(-1.0, 1.0)))
 }
 
 /// What ANALYZE read of range-table index `relid`'s column `attno` ([`KeySample`]): pg_statistic's ndistinct (a
 /// negative one is a share of the relation's rows) and MCV list, the relation's rows, and the sample's rows (300 x the
 /// column's statistics target, else `default_statistics_target`); `None` without statistics or rows.
-fn key_sample(
-    run: &PlannerRun<'_>,
-    relid: i32,
-    rel: RelId,
-    attno: i16,
-) -> PgResult<Option<KeySample>> {
+fn key_sample(run: &PlannerRun<'_>, relid: i32, rel: RelId, attno: i16,) -> PgResult<Option<KeySample>> {
     let rte = run.rte(relid as usize);
-    let Some(bundle) = crate::selfuncs::get_att_stats(run, rte.relid, attno, rte.inh)? else {
-        return Ok(None);
-    };
+    let Some(bundle) = crate::selfuncs::get_att_stats(run, rte.relid, attno, rte.inh)? else { return Ok(None); };
     let rows = run.root.rel(rel).tuples;
     let stadistinct = f64::from(bundle.stadistinct);
-    let ndv = if stadistinct < 0.0 {
-        -stadistinct * rows
-    } else {
-        stadistinct
-    };
+    let ndv = if stadistinct < 0.0 { -stadistinct * rows } else { stadistinct };
     #[allow(clippy::neg_cmp_op_on_partial_ord)]
     if !(rows >= 1.0) || !(ndv >= 1.0) {
         return Ok(None);
     }
     let (mut mcv_keys, mut mcv_freq) = (0.0, 0.0);
-    if let Some(slot) = bundle
-        .slots
-        .iter()
-        .find(|sl| sl.kind == crate::selfuncs::STATISTIC_KIND_MCV)
-    {
+    if let Some(slot) = bundle.slots.iter().find(|sl| sl.kind == crate::selfuncs::STATISTIC_KIND_MCV) {
         let freqs = slot.numbers()?;
         mcv_keys = freqs.len() as f64;
         mcv_freq = freqs.iter().map(|&x| f64::from(x)).sum::<f64>();
     }
-    let column = if syscache_seams::lookup_pg_attribute_stattarget::is_installed() {
-        syscache_seams::lookup_pg_attribute_stattarget::call(rte.relid, attno)?
-    } else {
-        None
-    };
+    let column = if syscache_seams::lookup_pg_attribute_stattarget::is_installed() { syscache_seams::lookup_pg_attribute_stattarget::call(rte.relid, attno)? } else { None };
     let target = match column {
         Some(t) if t >= 0 => f64::from(t),
-        _ if guc_tables::vars::default_statistics_target.installed() => {
-            f64::from(guc_tables::vars::default_statistics_target.read())
+        _ if guc_tables::vars::default_statistics_target.installed() => { f64::from(guc_tables::vars::default_statistics_target.read())
         }
         _ => 100.0,
     };
-    Ok(Some(KeySample {
-        ndv,
-        rows,
-        mcv_keys,
-        mcv_freq,
-        sample: (ANALYZE_ROWS_PER_TARGET * target).max(1.0),
-    }))
+    Ok(Some(KeySample { ndv, rows, mcv_keys, mcv_freq, sample: (ANALYZE_ROWS_PER_TARGET * target).max(1.0), }))
 }
 
-fn peel_projection(
-    run: &PlannerRun<'_>,
-    path_id: PathId,
-) -> (Option<(RelId, types_pathnodes::PtId)>, PathId) {
+fn peel_projection(run: &PlannerRun<'_>, path_id: PathId,) -> (Option<(RelId, types_pathnodes::PtId)>, PathId) {
     if let PathNode::ProjectionPath(pp) = run.root.path(path_id) {
-        return (
-            Some((
-                pp.path.parent,
-                pp.path.pathtarget_id.expect("projection path has a target"),
-            )),
-            pp.subpath.expect("ProjectionPath has a subpath"),
-        );
+        return (Some((pp.path.parent, pp.path.pathtarget_id.expect("projection path has a target"),)), pp.subpath.expect("ProjectionPath has a subpath"),);
     }
     (None, path_id)
 }
@@ -955,39 +654,23 @@ fn facts_scan(run: &PlannerRun<'_>, input: PathId) -> Option<FactsScan> {
     let (proj, scan) = peel_projection(run, input);
     let rel = plain_scan_rel(run, scan)?;
     let granules = rel_granules(run, rel)?;
-    Some(FactsScan {
-        rel,
-        relid: run.root.rel(rel).relid as i32,
-        granules,
-        scan,
-        proj,
-    })
+    Some(FactsScan { rel, relid: run.root.rel(rel).relid as i32, granules, scan, proj, })
 }
 
 fn plain_scan_rel(run: &PlannerRun<'_>, scan: PathId) -> Option<RelId> {
     let b = run.root.path(scan).base();
-    (b.pathtype == types_pathnodes::tag16(NodeTag::T_SeqScan)
-        && matches!(run.root.path(scan), PathNode::Path(_))
-        && b.param_info.is_none())
-    .then_some(b.parent)
+    (b.pathtype == types_pathnodes::tag16(NodeTag::T_SeqScan) && matches!(run.root.path(scan), PathNode::Path(_)) && b.param_info.is_none()).then_some(b.parent)
 }
 
 fn scan_volatile(run: &PlannerRun<'_>, input: PathId) -> PgResult<bool> {
     let (_, scan) = peel_projection(run, input);
-    let Some(rel) = plain_scan_rel(run, scan) else {
-        return Ok(true);
-    };
+    let Some(rel) = plain_scan_rel(run, scan) else { return Ok(true); };
     for &rid in run.root.rel(rel).baserestrictinfo.iter() {
         if clauses::contain_volatile_functions(*run.root.expr_node(run.root.rinfo(rid).clause))? {
             return Ok(true);
         }
     }
-    let target = run
-        .root
-        .path(scan)
-        .base()
-        .pathtarget_id
-        .expect("scan path has a target");
+    let target = run.root.path(scan).base().pathtarget_id.expect("scan path has a target");
     for &id in run.root.pathtarget(target).exprs.iter() {
         if clauses::contain_volatile_functions(*run.root.expr_node(id))? {
             return Ok(true);
@@ -998,12 +681,7 @@ fn scan_volatile(run: &PlannerRun<'_>, input: PathId) -> PgResult<bool> {
 
 fn scan_gated(run: &PlannerRun<'_>, input: PathId) -> bool {
     let (_, scan) = peel_projection(run, input);
-    plain_scan_rel(run, scan).is_none_or(|rel| {
-        run.root
-            .rel(rel)
-            .baserestrictinfo
-            .iter()
-            .any(|&rid| run.root.rinfo(rid).pseudoconstant)
+    plain_scan_rel(run, scan).is_none_or(|rel| { run.root.rel(rel).baserestrictinfo.iter().any(|&rid| run.root.rinfo(rid).pseudoconstant)
     })
 }
 
@@ -1017,17 +695,9 @@ fn scan_var(node: Node<'_>, relid: i32) -> Option<(i16, types_core::Oid)> {
     (v.varno == relid && v.varlevelsup == 0 && v.varattno >= 1).then_some((v.varattno, v.vartype))
 }
 
-fn pathkey_has<'mcx>(
-    run: &PlannerRun<'mcx>,
-    pk: &types_pathnodes::PathKey,
-    mut pred: impl FnMut(Node<'mcx>) -> bool,
-) -> bool {
+fn pathkey_has<'mcx>(run: &PlannerRun<'mcx>, pk: &types_pathnodes::PathKey, mut pred: impl FnMut(Node<'mcx>) -> bool,) -> bool {
     let Some(ec) = pk.pk_eclass else { return false };
-    run.root
-        .ec(ec)
-        .ec_members
-        .iter()
-        .any(|&m| pred(*run.root.expr_node(run.root.em(m).em_expr)))
+    run.root.ec(ec).ec_members.iter().any(|&m| pred(*run.root.expr_node(run.root.em(m).em_expr)))
 }
 
 fn pathkey_order(pk: &types_pathnodes::PathKey) -> Option<(bool, bool)> {
@@ -1038,12 +708,7 @@ fn pathkey_order(pk: &types_pathnodes::PathKey) -> Option<(bool, bool)> {
     }
 }
 
-fn byref_state_bytes<'mcx>(
-    run: &PlannerRun<'mcx>,
-    target: types_pathnodes::PtId,
-    relid: i32,
-    rel: RelId,
-) -> PgResult<f64> {
+fn byref_state_bytes<'mcx>(run: &PlannerRun<'mcx>, target: types_pathnodes::PtId, relid: i32, rel: RelId,) -> PgResult<f64> {
     struct Collect<'m>(Vec<&'m types_nodes::primnodes::Aggref<'m>>);
     impl<'m> nodes_core::NodeWalker<'m> for Collect<'m> {
         fn visit(&mut self, node: Node<'m>) -> PgResult<bool> {
@@ -1055,35 +720,18 @@ fn byref_state_bytes<'mcx>(
         }
     }
     let mut c = Collect(Vec::new());
-    let exprs: Vec<Node<'mcx>> = run
-        .root
-        .pathtarget(target)
-        .exprs
-        .iter()
-        .map(|&id| *run.root.expr_node(id))
-        .collect();
+    let exprs: Vec<Node<'mcx>> = run.root.pathtarget(target).exprs.iter().map(|&id| *run.root.expr_node(id)).collect();
     for e in exprs {
         nodes_core::NodeWalker::visit(&mut c, e)?;
     }
     let r = run.root.rel(rel);
     let mut bytes = 0usize;
     for a in &c.0 {
-        if a.aggtranstype == types_core::catalog::INTERNALOID
-            || lsyscache::get_typlenbyval(a.aggtranstype)?.1
-        {
+        if a.aggtranstype == types_core::catalog::INTERNALOID || lsyscache::get_typlenbyval(a.aggtranstype)?.1 {
             continue;
         }
-        let col = a
-            .args
-            .iter()
-            .next()
-            .and_then(|n| n.as_target_entry())
-            .and_then(|te| scan_var(te.expr, relid))
-            .map(|(c, _)| c);
-        let stat = col
-            .and_then(|c| usize::try_from(i32::from(c) - r.min_attr as i32).ok())
-            .and_then(|i| r.attr_widths.get(i).copied())
-            .filter(|&w| w > 0);
+        let col = a.args.iter().next().and_then(|n| n.as_target_entry()).and_then(|te| scan_var(te.expr, relid)).map(|(c, _)| c);
+        let stat = col.and_then(|c| usize::try_from(i32::from(c) - r.min_attr as i32).ok()).and_then(|i| r.attr_widths.get(i).copied()).filter(|&w| w > 0);
         let width = match stat {
             Some(w) => w as usize,
             None => lsyscache::get_typavgwidth(a.aggtranstype, -1)?.max(0) as usize,
@@ -1093,12 +741,7 @@ fn byref_state_bytes<'mcx>(
     Ok(bytes as f64)
 }
 
-fn nullable_arg_aggregates<'mcx>(
-    run: &PlannerRun<'mcx>,
-    target: types_pathnodes::PtId,
-    relid: i32,
-    rel: RelId,
-) -> PgResult<usize> {
+fn nullable_arg_aggregates<'mcx>(run: &PlannerRun<'mcx>, target: types_pathnodes::PtId, relid: i32, rel: RelId,) -> PgResult<usize> {
     struct Collect<'m>(Vec<&'m types_nodes::primnodes::Aggref<'m>>);
     impl<'m> nodes_core::NodeWalker<'m> for Collect<'m> {
         fn visit(&mut self, node: Node<'m>) -> PgResult<bool> {
@@ -1110,13 +753,7 @@ fn nullable_arg_aggregates<'mcx>(
         }
     }
     let mut c = Collect(Vec::new());
-    let exprs: Vec<Node<'mcx>> = run
-        .root
-        .pathtarget(target)
-        .exprs
-        .iter()
-        .map(|&id| *run.root.expr_node(id))
-        .collect();
+    let exprs: Vec<Node<'mcx>> = run.root.pathtarget(target).exprs.iter().map(|&id| *run.root.expr_node(id)).collect();
     for e in exprs {
         nodes_core::NodeWalker::visit(&mut c, e)?;
     }
@@ -1124,11 +761,7 @@ fn nullable_arg_aggregates<'mcx>(
     let mut n = 0;
     for a in &c.0 {
         for arg in &a.args {
-            if arg
-                .as_target_entry()
-                .and_then(|te| scan_var(te.expr, relid))
-                .is_some_and(|(col, _)| !crate::relnode::relids_is_member(i32::from(col), notnull))
-            {
+            if arg.as_target_entry().and_then(|te| scan_var(te.expr, relid)).is_some_and(|(col, _)| !crate::relnode::relids_is_member(i32::from(col), notnull)) {
                 n += 1;
                 break;
             }
@@ -1143,11 +776,7 @@ fn nullable_arg_aggregates<'mcx>(
 /// `simple_args`) arguments that are `Var` / `Const` / `RelabelType` of those.
 /// Returns `None` when an inadmissible aggregate is present, else the count
 /// of aggregates and whether one of them is `count(*)`.
-fn admissible_aggregates<'mcx>(
-    run: &PlannerRun<'mcx>,
-    target: types_pathnodes::PtId,
-    simple_args: bool,
-) -> PgResult<Option<(usize, bool)>> {
+fn admissible_aggregates<'mcx>(run: &PlannerRun<'mcx>, target: types_pathnodes::PtId, simple_args: bool,) -> PgResult<Option<(usize, bool)>> {
     struct Collect<'m>(Vec<&'m types_nodes::primnodes::Aggref<'m>>);
     impl<'m> nodes_core::NodeWalker<'m> for Collect<'m> {
         fn visit(&mut self, node: Node<'m>) -> PgResult<bool> {
@@ -1159,26 +788,13 @@ fn admissible_aggregates<'mcx>(
         }
     }
     let mut c = Collect(Vec::new());
-    let exprs: Vec<Node<'mcx>> = run
-        .root
-        .pathtarget(target)
-        .exprs
-        .iter()
-        .map(|&id| *run.root.expr_node(id))
-        .collect();
+    let exprs: Vec<Node<'mcx>> = run.root.pathtarget(target).exprs.iter().map(|&id| *run.root.expr_node(id)).collect();
     for e in exprs {
         nodes_core::NodeWalker::visit(&mut c, e)?;
     }
     let mut has_count_star = false;
     for a in &c.0 {
-        if !order_insensitive_agg(a.aggfnoid)?
-            || a.aggfilter.is_some()
-            || !a.aggdistinct.is_nil()
-            || !a.aggorder.is_nil()
-            || !a.aggdirectargs.is_nil()
-            || a.agglevelsup != 0
-            || a.aggsplit != types_nodes::primnodes::AGGSPLIT_SIMPLE
-        {
+        if !order_insensitive_agg(a.aggfnoid)? || a.aggfilter.is_some() || !a.aggdistinct.is_nil() || !a.aggorder.is_nil() || !a.aggdirectargs.is_nil() || a.agglevelsup != 0 || a.aggsplit != types_nodes::primnodes::AGGSPLIT_SIMPLE {
             return Ok(None);
         }
         if a.aggstar {
@@ -1210,31 +826,18 @@ enum TopOrder {
     Extreme(i16, bool),
 }
 
-fn top_order<'mcx>(
-    run: &PlannerRun<'mcx>,
-    pk: &types_pathnodes::PathKey,
-    relid: i32,
-) -> PgResult<Option<TopOrder>> {
-    let Some((desc, _)) = pathkey_order(pk) else {
-        return Ok(None);
-    };
+fn top_order<'mcx>(run: &PlannerRun<'mcx>, pk: &types_pathnodes::PathKey, relid: i32,) -> PgResult<Option<TopOrder>> {
+    let Some((desc, _)) = pathkey_order(pk) else { return Ok(None); };
     let mut aggs: Vec<&'mcx types_nodes::primnodes::Aggref<'mcx>> = Vec::new();
     pathkey_has(run, pk, |e| {
         aggs.extend(e.as_aggref());
         false
     });
     for a in aggs {
-        if a.aggfnoid >= FIRST_NORMAL_OBJECT_ID
-            || a.aggfilter.is_some()
-            || !a.aggdistinct.is_nil()
-            || !a.aggorder.is_nil()
-            || a.agglevelsup != 0
-        {
+        if a.aggfnoid >= FIRST_NORMAL_OBJECT_ID || a.aggfilter.is_some() || !a.aggdistinct.is_nil() || !a.aggorder.is_nil() || a.agglevelsup != 0 {
             continue;
         }
-        let Some(name) = syscache_seams::pg_proc_proname::call(a.aggfnoid)? else {
-            continue;
-        };
+        let Some(name) = syscache_seams::pg_proc_proname::call(a.aggfnoid)? else { continue; };
         let name = name.name_str();
         if a.aggstar && name == b"count" && desc {
             return Ok(Some(TopOrder::Count));
@@ -1242,16 +845,10 @@ fn top_order<'mcx>(
         let (max, avg) = (name == b"max", name == b"avg");
         let spread = avg || ((max || name == b"min") && max != desc);
         #[allow(clippy::nonminimal_bool)]
-        if (max || avg || name == b"min") && a.args.len() == 1 && !(spread && !twopass_spread_on())
-        {
-            let arg = a
-                .args
-                .nth(0)
-                .as_target_entry()
-                .map_or(a.args.nth(0), |t| t.expr);
+        if (max || avg || name == b"min") && a.args.len() == 1 && !(spread && !twopass_spread_on()) {
+            let arg = a.args.nth(0).as_target_entry().map_or(a.args.nth(0), |t| t.expr);
             use types_core::catalog::{BOOLOID, INT2OID, INT4OID, INT8OID};
-            if let Some((col, t)) = scan_var(arg, relid).filter(|&(_, t)| {
-                t != BOOLOID && (!avg || matches!(t, INT2OID | INT4OID | INT8OID))
+            if let Some((col, t)) = scan_var(arg, relid).filter(|&(_, t)| { t != BOOLOID && (!avg || matches!(t, INT2OID | INT4OID | INT8OID))
             }) {
                 if zone_word_type(t)? && default_btree_order(pk, a.aggtype)? {
                     return Ok(Some(TopOrder::Extreme(col, spread)));
@@ -1263,56 +860,35 @@ fn top_order<'mcx>(
 }
 
 fn twopass_keys_any() -> bool {
-    !pgrust_guc("pgrust.gravity_twopass_keys")
-        .is_some_and(|v| v.trim().eq_ignore_ascii_case("leading"))
+    !pgrust_guc("pgrust.gravity_twopass_keys").is_some_and(|v| v.trim().eq_ignore_ascii_case("leading"))
 }
 
 /// `pgrust.gravity_twopass_spread` (GT-1's off switch; on unless `off`): whether min DESC / max ASC / avg tops may take
 /// the two passes.
 fn twopass_spread_on() -> bool {
-    !pgrust_guc("pgrust.gravity_twopass_spread").is_some_and(|v| {
-        matches!(
-            v.trim().to_ascii_lowercase().as_str(),
-            "off" | "false" | "0"
-        )
+    !pgrust_guc("pgrust.gravity_twopass_spread").is_some_and(|v| { matches!(v.trim().to_ascii_lowercase().as_str(), "off" | "false" | "0")
     })
 }
 
 /// `pgrust.gravity_twopass_w0_spill` (D3026's off switch; on unless `off`): whether the width-0 price charges a spilling
 /// form PostgreSQL's hashed-Agg spill.
 fn twopass_w0_spill_on() -> bool {
-    !pgrust_guc("pgrust.gravity_twopass_w0_spill").is_some_and(|v| {
-        matches!(
-            v.trim().to_ascii_lowercase().as_str(),
-            "off" | "false" | "0"
-        )
+    !pgrust_guc("pgrust.gravity_twopass_w0_spill").is_some_and(|v| { matches!(v.trim().to_ascii_lowercase().as_str(), "off" | "false" | "0")
     })
 }
 
 /// `pgrust.gravity_hashagg_pg_spill` (D3142's off switch; off unless `on`): whether a hashed Agg on a query level that
 /// reads a pgrcolumnar relation is charged PostgreSQL's hashed-Agg spill surcharge.
 pub(crate) fn hashagg_pg_spill_on() -> bool {
-    pgrust_guc("pgrust.gravity_hashagg_pg_spill")
-        .is_some_and(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "on" | "true" | "1"))
+    pgrust_guc("pgrust.gravity_hashagg_pg_spill").is_some_and(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "on" | "true" | "1"))
 }
 
-fn leading_group_var(
-    run: &PlannerRun<'_>,
-    agg: &types_pathnodes::AggPath<'_>,
-    relid: i32,
-) -> Option<(i16, types_core::Oid)> {
+fn leading_group_var(run: &PlannerRun<'_>, agg: &types_pathnodes::AggPath<'_>, relid: i32,) -> Option<(i16, types_core::Oid)> {
     scan_var(leading_group_expr(run, agg)?, relid)
 }
 
-fn leading_group_expr<'mcx>(
-    run: &PlannerRun<'mcx>,
-    agg: &types_pathnodes::AggPath<'_>,
-) -> Option<Node<'mcx>> {
-    let sgref = run
-        .root
-        .expr_node(*agg.groupClause.first()?)
-        .as_sort_group_clause()?
-        .tleSortGroupRef;
+fn leading_group_expr<'mcx>(run: &PlannerRun<'mcx>, agg: &types_pathnodes::AggPath<'_>,) -> Option<Node<'mcx>> {
+    let sgref = run.root.expr_node(*agg.groupClause.first()?).as_sort_group_clause()?.tleSortGroupRef;
     run.parse().targetList.iter().find_map(|n| {
         let t = n.as_target_entry()?;
         (t.ressortgroupref == sgref).then_some(t.expr)
@@ -1327,13 +903,7 @@ pub(crate) fn zone_spread(ranges: &[(i64, i64)]) -> f64 {
     cost_profile::walk::key_spread(sum, keyed, lo, hi)
 }
 
-fn scan_over_granules(
-    run: &mut PlannerRun<'_>,
-    scan_id: PathId,
-    rel: RelId,
-    survivors: u64,
-    granules: u64,
-) -> PgResult<PathId> {
+fn scan_over_granules(run: &mut PlannerRun<'_>, scan_id: PathId, rel: RelId, survivors: u64, granules: u64,) -> PgResult<PathId> {
     let plain = run.root.path(scan_id).base().clone();
     let fraction = survivors as f64 / granules.max(1) as f64;
     let mut p = plain.clone();
@@ -1353,82 +923,27 @@ fn scan_over_granules(
     Ok(run.root.alloc_path(PathNode::Path(p)))
 }
 
-fn finish(
-    run: &mut PlannerRun<'_>,
-    final_rel: RelId,
-    top: PathId,
-    proj: Option<(RelId, types_pathnodes::PtId)>,
-    offset_est: i64,
-    count_est: i64,
-) -> PgResult<()> {
+fn finish(run: &mut PlannerRun<'_>, final_rel: RelId, top: PathId, proj: Option<(RelId, types_pathnodes::PtId)>, offset_est: i64, count_est: i64,) -> PgResult<()> {
     let mut top = top;
     if let Some((prel, target)) = proj {
         top = crate::pathnode::apply_projection_to_path(run, prel, top, target)?;
     }
     let parse = run.parse();
-    let limited = crate::pathnode::create_limit_path(
-        run,
-        final_rel,
-        top,
-        parse.limitOffset,
-        parse.limitCount,
-        parse.limitOption,
-        offset_est,
-        count_est,
-    );
+    let limited = crate::pathnode::create_limit_path(run, final_rel, top, parse.limitOffset, parse.limitCount, parse.limitOption, offset_est, count_est,);
     crate::pathnode::add_path(run, final_rel, limited);
     Ok(())
 }
 
-pub(crate) fn add_gravity_paths<'mcx>(
-    run: &mut PlannerRun<'mcx>,
-    final_rel: RelId,
-    pre_limit: PathId,
-    offset_est: i64,
-    count_est: i64,
-    limit_tuples: f64,
-) -> PgResult<()> {
+
+pub(crate) fn add_gravity_paths<'mcx>(run: &mut PlannerRun<'mcx>, final_rel: RelId, pre_limit: PathId, offset_est: i64, count_est: i64, limit_tuples: f64,) -> PgResult<()> {
     let parse = run.parse();
-    if parse.commandType != types_nodes::CmdType::CMD_SELECT
-        || !parse.rowMarks.is_nil()
-        || !parse.groupingSets.is_nil()
-        || parse.hasWindowFuncs
-        || parse.hasTargetSRFs
-        || !parse.distinctClause.is_nil()
-        || parse.setOperations.is_some()
-    {
+    if parse.commandType != types_nodes::CmdType::CMD_SELECT || !parse.rowMarks.is_nil() || !parse.groupingSets.is_nil() || parse.hasWindowFuncs || parse.hasTargetSRFs || !parse.distinctClause.is_nil() || parse.setOperations.is_some() {
         return Ok(());
     }
-    let Some(n) = limit_bound(run, offset_est, count_est) else {
-        return Ok(());
-    };
-    add_zone_topk_path(
-        run,
-        final_rel,
-        pre_limit,
-        n,
-        offset_est,
-        count_est,
-        limit_tuples,
-    )?;
-    add_zone_walk_path(
-        run,
-        final_rel,
-        pre_limit,
-        n,
-        offset_est,
-        count_est,
-        limit_tuples,
-    )?;
-    add_two_pass_path(
-        run,
-        final_rel,
-        pre_limit,
-        n,
-        offset_est,
-        count_est,
-        limit_tuples,
-    )?;
+    let Some(n) = limit_bound(run, offset_est, count_est) else { return Ok(()); };
+    add_zone_topk_path(run, final_rel, pre_limit, n, offset_est, count_est, limit_tuples,)?;
+    add_zone_walk_path(run, final_rel, pre_limit, n, offset_est, count_est, limit_tuples,)?;
+    add_two_pass_path(run, final_rel, pre_limit, n, offset_est, count_est, limit_tuples,)?;
     Ok(())
 }
 
@@ -1436,84 +951,46 @@ fn walk_group_desc_on() -> bool {
     !pgrust_guc("pgrust.gravity_zonetopk").is_some_and(|v| v.trim().eq_ignore_ascii_case("asc"))
 }
 
-pub(crate) fn add_zone_topk_path<'mcx>(
-    run: &mut PlannerRun<'mcx>,
-    final_rel: RelId,
-    pre_limit: PathId,
-    n: u64,
-    offset_est: i64,
-    count_est: i64,
-    limit_tuples: f64,
-) -> PgResult<()> {
+pub(crate) fn add_zone_topk_path<'mcx>(run: &mut PlannerRun<'mcx>, final_rel: RelId, pre_limit: PathId, n: u64, offset_est: i64, count_est: i64, limit_tuples: f64,) -> PgResult<()> {
     let parse = run.parse();
     if parse.groupClause.is_nil() || parse.havingQual.is_some() || !crate::gucs::enable_hashagg() {
         return Ok(());
     }
     let ordered = !parse.sortClause.is_nil();
     let (proj, cur) = peel_projection(run, pre_limit);
-    let (sort, inner_proj, agg_id) =
-        if !ordered {
-            (None, None, cur)
-        } else {
-            match run.root.path(cur) {
-                PathNode::SortPath(sp) => {
-                    let (sort_rel, pathkeys) = (
-                        sp.path.parent,
-                        crate::relnode::pgvec_clone_shallow(run.mcx, &sp.path.pathkeys),
-                    );
-                    let (inner, agg_id) =
-                        peel_projection(run, sp.subpath.expect("SortPath has a subpath"));
-                    (Some((sort_rel, pathkeys)), inner, agg_id)
-                }
-                PathNode::AggPath(ap) if ap.aggstrategy == AGG_SORTED => (
-                    Some((
-                        ap.path.parent,
-                        crate::relnode::pgvec_clone_shallow(run.mcx, &ap.path.pathkeys),
-                    )),
-                    None,
-                    cur,
-                ),
-                _ => return decline(
-                    "zone top-k: the ordered group is neither a Sort over its Agg nor a sorted Agg",
-                ),
+    let (sort, inner_proj, agg_id) = if !ordered {
+        (None, None, cur)
+    } else {
+        match run.root.path(cur) {
+            PathNode::SortPath(sp) => {
+                let (sort_rel, pathkeys) = (sp.path.parent, crate::relnode::pgvec_clone_shallow(run.mcx, &sp.path.pathkeys),);
+                let (inner, agg_id) = peel_projection(run, sp.subpath.expect("SortPath has a subpath"));
+                (Some((sort_rel, pathkeys)), inner, agg_id)
             }
-        };
+            PathNode::AggPath(ap) if ap.aggstrategy == AGG_SORTED => (Some((ap.path.parent, crate::relnode::pgvec_clone_shallow(run.mcx, &ap.path.pathkeys),)), None, cur,),
+            _ => return decline("zone top-k: the ordered group is neither a Sort over its Agg nor a sorted Agg",),
+        }
+    };
     let mut agg = match run.root.path(agg_id) {
         PathNode::AggPath(ap) => ap.clone(),
         _ => return Ok(()),
     };
-    if agg.gravity_rewrite.is_some()
-        || !agg.qual.is_empty()
-        || agg.groupClause.is_empty()
-        || agg.aggsplit != AGGSPLIT_SIMPLE
-    {
+    if agg.gravity_rewrite.is_some() || !agg.qual.is_empty() || agg.groupClause.is_empty() || agg.aggsplit != AGGSPLIT_SIMPLE {
         return Ok(());
     }
     // The walk replaces the plain plan the planner would otherwise take under this Limit, so its price scales the cheapest
     // of the group's (or the ordered group's) paths as the Limit reads them (its startup and the share of its run the
     // first n groups take: create_limit_path's arithmetic): at a width that is the parallel plan, which Gravity runs at
     // that width as well
-    let plain = run
-        .root
-        .rel(run.root.path(cur).base().parent)
-        .pathlist
-        .iter()
-        .copied()
-        .filter(|&p| live(run, p))
-        .chain([cur])
-        .map(|p| limited_cost(run, p, n))
-        .fold(f64::INFINITY, f64::min);
+    let plain = run.root.rel(run.root.path(cur).base().parent).pathlist.iter().copied().filter(|&p| live(run, p)).chain([cur]).map(|p| limited_cost(run, p, n)).fold(f64::INFINITY, f64::min);
     let input_id = match agg.aggstrategy {
         AGG_HASHED => agg.subpath.expect("AggPath has a subpath"),
-        AGG_SORTED
-            if sort.is_some() && crate::grouping::grouping_is_hashable(run, &agg.groupClause) =>
-        {
+        AGG_SORTED if sort.is_some() && crate::grouping::grouping_is_hashable(run, &agg.groupClause) => {
             let mut below = agg.subpath.expect("AggPath has a subpath");
             loop {
                 below = match run.root.path(below) {
                     PathNode::SortPath(sp) => sp.subpath.expect("SortPath has a subpath"),
-                    PathNode::IncrementalSortPath(sp) => {
-                        sp.spath.subpath.expect("IncrementalSortPath has a subpath")
+                    PathNode::IncrementalSortPath(sp) => { sp.spath.subpath.expect("IncrementalSortPath has a subpath")
                     }
                     _ => break,
                 };
@@ -1522,21 +999,15 @@ pub(crate) fn add_zone_topk_path<'mcx>(
         }
         _ => return Ok(()),
     };
-    let Some(fs) = facts_scan(run, input_id) else {
-        return decline("zone top-k: no facts scan under the Agg");
-    };
+    let Some(fs) = facts_scan(run, input_id) else { return decline("zone top-k: no facts scan under the Agg"); };
     let (rel, relid, granules, scan_id) = (fs.rel, fs.relid, fs.granules, fs.scan);
-    let Some((attno, typid)) = leading_group_var(run, &agg, relid) else {
-        return decline("zone top-k: the leading key is not a scan Var");
-    };
+    let Some((attno, typid)) = leading_group_var(run, &agg, relid) else { return decline("zone top-k: the leading key is not a scan Var"); };
     if !zone_word_type(typid)? {
         return decline("zone top-k: the leading key is not a word type");
     }
     let mut desc = false;
     if let Some((_, pathkeys)) = &sort {
-        let leads = pathkeys.first().is_some_and(|pk| {
-            pathkey_has(run, pk, |e| {
-                scan_var(e, relid).is_some_and(|(a, _)| a == attno)
+        let leads = pathkeys.first().is_some_and(|pk| { pathkey_has(run, pk, |e| { scan_var(e, relid).is_some_and(|(a, _)| a == attno)
             })
         });
         let Some((down, _)) = pathkey_order(&pathkeys[0]).filter(|_| leads) else {
@@ -1559,44 +1030,24 @@ pub(crate) fn add_zone_topk_path<'mcx>(
     }
     if sort.is_some() {
         // D451's rule: PostgreSQL's Agg projects every group before the Sort, the walk only the groups it keeps
-        let groups: Vec<u32> = agg
-            .groupClause
-            .iter()
-            .filter_map(|&id| {
-                run.root
-                    .expr_node(id)
-                    .as_sort_group_clause()
-                    .map(|c| c.tleSortGroupRef)
-            })
-            .collect();
-        if !quiet_target(run, target, &groups)
-            || inner_proj.is_some_and(|(_, t)| !quiet_target(run, t, &groups))
-        {
+        let groups: Vec<u32> = agg.groupClause.iter().filter_map(|&id| { run.root.expr_node(id).as_sort_group_clause().map(|c| c.tleSortGroupRef)
+            }).collect();
+        if !quiet_target(run, target, &groups) || inner_proj.is_some_and(|(_, t)| !quiet_target(run, t, &groups)) {
             return decline("zone top-k: a group's projection can raise or act (D451)");
         }
     }
-    let Some(ranges) = zone_ranges(run, rel, attno) else {
-        return decline("zone top-k: no zones for the key");
-    };
-    let Some(c) = zone_walk_census(&ranges, n, desc, 1) else {
-        return decline("zone top-k: no keyed granules");
-    };
+    let Some(ranges) = zone_ranges(run, rel, attno) else { return decline("zone top-k: no zones for the key"); };
+    let Some(c) = zone_walk_census(&ranges, n, desc, 1) else { return decline("zone top-k: no keyed granules"); };
     if c.survivors >= c.granules {
         return decline("zone top-k: every granule survives");
     }
     let ratio = c.survivors as f64 / granules.max(1) as f64;
     let key_expr = leading_group_expr(run, &agg).expect("the leading key was read above");
     let key_id = run.intern_expr(key_expr);
-    let nd1 = crate::selfuncs::estimate_num_groups(
-        run,
-        &[(key_id, key_expr)],
-        run.root.path(scan_id).base().rows.max(1.0),
-    )?
-    .max(1.0);
+    let nd1 = crate::selfuncs::estimate_num_groups(run, &[(key_id, key_expr)], run.root.path(scan_id).base().rows.max(1.0),)?.max(1.0);
     let kept = (n as f64 * (agg.numGroups / nd1).max(1.0)).min(u64::MAX as f64) as u64;
     let plain_groups = agg.numGroups;
-    let presence =
-        cost_profile::walk::key_presence(rows_per_granule(run, scan_id, granules) as f64, nd1);
+    let presence = cost_profile::walk::key_presence(rows_per_granule(run, scan_id, granules) as f64, nd1);
     let spread = zone_spread(&ranges);
     let mut scan2 = scan_over_granules(run, scan_id, rel, c.survivors, granules)?;
     if let Some((prel, ptarget)) = fs.proj {
@@ -1604,18 +1055,11 @@ pub(crate) fn add_zone_topk_path<'mcx>(
     }
     agg.aggstrategy = AGG_HASHED;
     agg.subpath = Some(scan2);
-    agg.gravity_rewrite = Some(GravityRewrite::ZoneTopK {
-        attno,
-        desc,
-        nulls_first: false,
-    });
+    agg.gravity_rewrite = Some(GravityRewrite::ZoneTopK { attno, desc, nulls_first: false, });
     agg.groupClause = crate::relnode::pgvec_clone_shallow(run.mcx, &agg.groupClause);
     agg.qual = crate::relnode::pgvec_clone_shallow(run.mcx, &agg.qual);
     agg.path.pathkeys = mcx::PgVec::new_in(run.mcx);
-    agg.path.rows = (agg.path.rows * ratio)
-        .max(n as f64)
-        .min(agg.path.rows)
-        .max(1.0);
+    agg.path.rows = (agg.path.rows * ratio).max(n as f64).min(agg.path.rows).max(1.0);
     agg.numGroups = agg.numGroups.min(agg.path.rows.max(1.0));
     let mut top = run.root.alloc_path(PathNode::AggPath(agg));
     if let Some((prel, ptarget)) = inner_proj {
@@ -1624,29 +1068,11 @@ pub(crate) fn add_zone_topk_path<'mcx>(
     if let Some((sort_rel, pathkeys)) = sort {
         top = crate::pathnode::create_sort_path(run, sort_rel, top, pathkeys, limit_tuples);
     }
-    let force = pgrust_guc("pgrust.gravity_zonetopk")
-        .is_some_and(|v| v.trim().eq_ignore_ascii_case("force"));
-    let share = if force {
-        f64::MIN_POSITIVE
-    } else {
-        walk_price().group_share_of(
-            c.survivors,
-            granules,
-            n,
-            kept,
-            spread,
-            presence,
-            plain_groups,
-            gravity_width(run),
-        )
-    };
+    let force = pgrust_guc("pgrust.gravity_zonetopk").is_some_and(|v| v.trim().eq_ignore_ascii_case("force"));
+    let share = if force { f64::MIN_POSITIVE } else { walk_price().group_share_of(c.survivors, granules, n, kept, spread, presence, plain_groups, gravity_width(run),) };
     let b = run.root.path_mut(top).base_mut();
     (b.startup_cost, b.total_cost) = (plain * share, plain * share);
-    fires::fire(if ordered {
-        "gravity_paths.zone_topk.ordered"
-    } else {
-        "gravity_paths.zone_topk"
-    });
+    fires::fire(if ordered { "gravity_paths.zone_topk.ordered" } else { "gravity_paths.zone_topk" });
     if desc {
         fires::fire("gravity_paths.zone_topk.desc"); // shapecheck fire signal (GP-1b: the group walk goes down the key maxima)
     }
@@ -1659,15 +1085,12 @@ fn live(run: &PlannerRun<'_>, p: PathId) -> bool {
 
 fn limited_cost(run: &PlannerRun<'_>, p: PathId, n: u64) -> f64 {
     let b = run.root.path(p).base();
-    b.startup_cost
-        + (b.total_cost - b.startup_cost).max(0.0) * (n as f64 / b.rows.max(1.0)).min(1.0)
+    b.startup_cost + (b.total_cost - b.startup_cost).max(0.0) * (n as f64 / b.rows.max(1.0)).min(1.0)
 }
 
 pub(crate) fn nest_sublink(run: &mut PlannerRun<'_>) {
     static SECTIONS: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    if !*SECTIONS
-        .get_or_init(|| std::env::var("PGRUST_GRAVITY_RERUN_SECTIONS").as_deref() != Ok("0"))
-    {
+    if !*SECTIONS.get_or_init(|| std::env::var("PGRUST_GRAVITY_RERUN_SECTIONS").as_deref() != Ok("0")) {
         run.root.gravity_nested = true;
     } else if !run.root.gravity_nested && gravity_width(run) > 0 {
         fires::fire("planner.sublink.width"); // shapecheck fire signal: a SubLink level priced at the statement's width
@@ -1675,17 +1098,8 @@ pub(crate) fn nest_sublink(run: &mut PlannerRun<'_>) {
 }
 
 pub(crate) fn gravity_width(run: &PlannerRun<'_>) -> u32 {
-    let pool = if guc_tables::vars::max_parallel_workers.installed() {
-        guc_tables::vars::max_parallel_workers.read()
-    } else {
-        i32::MAX
-    };
-    let width = u32::try_from(
-        crate::gucs::max_parallel_workers_per_gather()
-            .min(pool)
-            .max(0),
-    )
-    .unwrap_or(0);
+    let pool = if guc_tables::vars::max_parallel_workers.installed() { guc_tables::vars::max_parallel_workers.read() } else { i32::MAX };
+    let width = u32::try_from(crate::gucs::max_parallel_workers_per_gather().min(pool).max(0),).unwrap_or(0);
     if run.root.gravity_nested {
         if width > 0 {
             fires::fire("planner.nested.width0"); // shapecheck fire signal (D2914 (2a)): a nested level priced at width 0 under a wide statement
@@ -1695,39 +1109,20 @@ pub(crate) fn gravity_width(run: &PlannerRun<'_>) -> u32 {
     width
 }
 
-pub(crate) fn add_zone_walk_path<'mcx>(
-    run: &mut PlannerRun<'mcx>,
-    final_rel: RelId,
-    pre_limit: PathId,
-    n: u64,
-    offset_est: i64,
-    count_est: i64,
-    limit_tuples: f64,
-) -> PgResult<()> {
+pub(crate) fn add_zone_walk_path<'mcx>(run: &mut PlannerRun<'mcx>, final_rel: RelId, pre_limit: PathId, n: u64, offset_est: i64, count_est: i64, limit_tuples: f64,) -> PgResult<()> {
     let parse = run.parse();
-    if parse.sortClause.is_nil()
-        || !parse.groupClause.is_nil()
-        || parse.hasAggs
-        || parse.havingQual.is_some()
-    {
+    if parse.sortClause.is_nil() || !parse.groupClause.is_nil() || parse.hasAggs || parse.havingQual.is_some() {
         return Ok(());
     }
     let (proj, cur) = peel_projection(run, pre_limit);
     let (sort_rel, scan_id, pathkeys, rewrite_set) = match run.root.path(cur) {
-        PathNode::SortPath(sp) => (
-            sp.path.parent,
-            sp.subpath.expect("SortPath has a subpath"),
-            crate::relnode::pgvec_clone_shallow(run.mcx, &sp.path.pathkeys),
-            sp.gravity_rewrite.is_some(),
-        ),
+        PathNode::SortPath(sp) => (sp.path.parent, sp.subpath.expect("SortPath has a subpath"), crate::relnode::pgvec_clone_shallow(run.mcx, &sp.path.pathkeys), sp.gravity_rewrite.is_some(),),
         _ => return Ok(()),
     };
     if rewrite_set || pathkeys.is_empty() {
         return decline("zone walk: the Sort is annotated already or has no key");
     }
-    let Some(fs) = facts_scan(run, scan_id) else {
-        return decline("zone walk: no facts scan under the Sort");
-    };
+    let Some(fs) = facts_scan(run, scan_id) else { return decline("zone walk: no facts scan under the Sort"); };
     let (rel, relid, granules, scan_id) = (fs.rel, fs.relid, fs.granules, fs.scan);
     let mut key: Option<(i16, types_core::Oid)> = None;
     let mut key_node: Option<Node<'mcx>> = None;
@@ -1740,44 +1135,25 @@ pub(crate) fn add_zone_walk_path<'mcx>(
     }) {
         return Ok(());
     }
-    let (Some((attno, typid)), Some(key_node)) = (key, key_node) else {
-        return decline("zone walk: the first sort key is not a scan Var");
-    };
+    let (Some((attno, typid)), Some(key_node)) = (key, key_node) else { return decline("zone walk: the first sort key is not a scan Var"); };
     if !zone_word_type(typid)? {
         return decline("zone walk: the first sort key is not a word type");
     }
     if !default_btree_order(&pathkeys[0], typid)? {
         return decline("zone walk: the first sort key is not the key type's default btree order");
     }
-    let Some((desc, nulls_first)) = pathkey_order(&pathkeys[0]) else {
-        return decline("zone walk: the first sort key has no btree order");
-    };
-    let Some(ranges) = zone_ranges(run, rel, attno) else {
-        return decline("zone walk: no zones for the key");
-    };
+    let Some((desc, nulls_first)) = pathkey_order(&pathkeys[0]) else { return decline("zone walk: the first sort key has no btree order"); };
+    let Some(ranges) = zone_ranges(run, rel, attno) else { return decline("zone walk: no zones for the key"); };
     let per_granule = rows_per_granule(run, scan_id, granules);
     let (census, nulls_counted) = if nulls_first {
         let (tuples, scan_rows) = (run.root.rel(rel).tuples, run.root.path(scan_id).base().rows);
         let nullfrac = key_null_fraction(run, rel, attno, key_node)?;
         let rows = tuples / granules.max(1) as f64;
-        (
-            nulls_first_census(
-                &ranges,
-                n,
-                desc,
-                per_granule,
-                rows,
-                nullfrac * tuples,
-                nullfrac * scan_rows,
-            ),
-            nullfrac > 0.0 || ranges.iter().any(|(lo, hi)| lo > hi),
-        )
+        (nulls_first_census(&ranges, n, desc, per_granule, rows, nullfrac * tuples, nullfrac * scan_rows,), nullfrac > 0.0 || ranges.iter().any(|(lo, hi)| lo > hi),)
     } else {
         (zone_walk_census(&ranges, n, desc, per_granule), false)
     };
-    let Some(c) = census else {
-        return decline("zone walk: no keyed granules");
-    };
+    let Some(c) = census else { return decline("zone walk: no keyed granules"); };
     if c.survivors >= c.granules {
         return decline("zone walk: every granule survives");
     }
@@ -1786,16 +1162,7 @@ pub(crate) fn add_zone_walk_path<'mcx>(
     }
     // the walk replaces the plain plan the planner would otherwise take under this Limit: its price scales the cheapest
     // of the ordered rel's paths as the Limit reads them (at a width the parallel plan, which Gravity runs at that width)
-    let plain = run
-        .root
-        .rel(run.root.path(cur).base().parent)
-        .pathlist
-        .iter()
-        .copied()
-        .filter(|&p| live(run, p))
-        .chain([cur])
-        .map(|p| limited_cost(run, p, n))
-        .fold(f64::INFINITY, f64::min);
+    let plain = run.root.rel(run.root.path(cur).base().parent).pathlist.iter().copied().filter(|&p| live(run, p)).chain([cur]).map(|p| limited_cost(run, p, n)).fold(f64::INFINITY, f64::min);
     let mut scan2 = scan_over_granules(run, scan_id, rel, c.survivors, granules)?;
     if let Some((prel, ptarget)) = fs.proj {
         scan2 = crate::pathnode::apply_projection_to_path(run, prel, scan2, ptarget)?;
@@ -1803,36 +1170,16 @@ pub(crate) fn add_zone_walk_path<'mcx>(
     let sort2 = crate::pathnode::create_sort_path(run, sort_rel, scan2, pathkeys, limit_tuples);
     let share = walk_price().share(c.survivors, granules, gravity_width(run), nulls_counted);
     if let PathNode::SortPath(sp) = run.root.path_mut(sort2) {
-        sp.gravity_rewrite = Some(GravityRewrite::ZoneWalk {
-            attno,
-            desc,
-            nulls_first,
-        });
+        sp.gravity_rewrite = Some(GravityRewrite::ZoneWalk { attno, desc, nulls_first, });
         (sp.path.startup_cost, sp.path.total_cost) = (plain * share, plain * share);
     }
-    fires::fire(if desc {
-        "gravity_paths.zone_walk.desc"
-    } else {
-        "gravity_paths.zone_walk"
-    });
+    fires::fire(if desc { "gravity_paths.zone_walk.desc" } else { "gravity_paths.zone_walk" });
     finish(run, final_rel, sort2, proj, offset_est, count_est)
 }
 
-pub(crate) fn add_two_pass_path<'mcx>(
-    run: &mut PlannerRun<'mcx>,
-    final_rel: RelId,
-    pre_limit: PathId,
-    n: u64,
-    offset_est: i64,
-    count_est: i64,
-    limit_tuples: f64,
-) -> PgResult<()> {
+pub(crate) fn add_two_pass_path<'mcx>(run: &mut PlannerRun<'mcx>, final_rel: RelId, pre_limit: PathId, n: u64, offset_est: i64, count_est: i64, limit_tuples: f64,) -> PgResult<()> {
     let parse = run.parse();
-    if parse.sortClause.is_nil()
-        || parse.groupClause.is_nil()
-        || parse.havingQual.is_some()
-        || !crate::gucs::enable_hashagg()
-    {
+    if parse.sortClause.is_nil() || parse.groupClause.is_nil() || parse.havingQual.is_some() || !crate::gucs::enable_hashagg() {
         return decline("two-pass: no ORDER BY, no GROUP BY, a HAVING, or hashagg off");
     }
     // pass 1 exports its admitted keys for a bound fixed when the plan is lowered, so a LIMIT or OFFSET that is
@@ -1842,11 +1189,7 @@ pub(crate) fn add_two_pass_path<'mcx>(
     }
     let (proj, cur) = peel_projection(run, pre_limit);
     let (sort_rel, below_sort, pathkeys) = match run.root.path(cur) {
-        PathNode::SortPath(sp) => (
-            sp.path.parent,
-            sp.subpath.expect("SortPath has a subpath"),
-            crate::relnode::pgvec_clone_shallow(run.mcx, &sp.path.pathkeys),
-        ),
+        PathNode::SortPath(sp) => (sp.path.parent, sp.subpath.expect("SortPath has a subpath"), crate::relnode::pgvec_clone_shallow(run.mcx, &sp.path.pathkeys),),
         _ => return decline("two-pass: no Sort under the Limit"),
     };
     if pathkeys.is_empty() {
@@ -1857,26 +1200,18 @@ pub(crate) fn add_two_pass_path<'mcx>(
         PathNode::AggPath(ap) => ap.clone(),
         _ => return decline("two-pass: no Agg under the Sort"),
     };
-    if agg.gravity_rewrite.is_some()
-        || !agg.qual.is_empty()
-        || agg.groupClause.len() < 2
-        || agg.aggsplit != AGGSPLIT_SIMPLE
-    {
+    if agg.gravity_rewrite.is_some() || !agg.qual.is_empty() || agg.groupClause.len() < 2 || agg.aggsplit != AGGSPLIT_SIMPLE {
         return decline("two-pass: the Agg is not a plain Agg with two or more keys and no HAVING");
     }
     let agg_input = agg.subpath.expect("AggPath has a subpath");
     let (scan_id, agg_own_run) = match agg.aggstrategy {
-        AGG_HASHED => (
-            agg_input,
-            (agg.path.total_cost - agg.path.startup_cost).max(0.0),
-        ),
+        AGG_HASHED => (agg_input, (agg.path.total_cost - agg.path.startup_cost).max(0.0),),
         AGG_SORTED if crate::grouping::grouping_is_hashable(run, &agg.groupClause) => {
             let mut below = agg_input;
             loop {
                 below = match run.root.path(below) {
                     PathNode::SortPath(sp) => sp.subpath.expect("SortPath has a subpath"),
-                    PathNode::IncrementalSortPath(sp) => {
-                        sp.spath.subpath.expect("IncrementalSortPath has a subpath")
+                    PathNode::IncrementalSortPath(sp) => { sp.spath.subpath.expect("IncrementalSortPath has a subpath")
                     }
                     _ => break,
                 };
@@ -1886,22 +1221,13 @@ pub(crate) fn add_two_pass_path<'mcx>(
             } else {
                 let (proj, ordered) = peel_projection(run, below);
                 let rel = run.root.path(ordered).base().parent;
-                let Some(scan) = run
-                    .root
-                    .rel(rel)
-                    .pathlist
-                    .iter()
-                    .copied()
-                    .find(|&p| live(run, p) && plain_scan_relid(run, p).is_some())
-                else {
+                let Some(scan) = run.root.rel(rel).pathlist.iter().copied().find(|&p| live(run, p) && plain_scan_relid(run, p).is_some()) else {
                     return decline("two-pass: a sorted Agg over a relation without a plain scan");
                 };
                 // a fresh ProjectionPath: the shared scan path is never re-targeted in place
                 let scan = match proj {
                     Some((prel, ptarget)) => {
-                        let pp = crate::pathnode::create_projection_path(
-                            run, prel, scan, ptarget, false,
-                        );
+                        let pp = crate::pathnode::create_projection_path(run, prel, scan, ptarget, false,);
                         run.root.alloc_path(pp)
                     }
                     None => scan,
@@ -1913,71 +1239,36 @@ pub(crate) fn add_two_pass_path<'mcx>(
     };
     let agg_own_startup = {
         let input_total = run.root.path(agg_input).base().total_cost;
-        let own = if agg.aggstrategy == AGG_HASHED {
-            agg.path.startup_cost - input_total
-        } else {
-            agg.path.total_cost - input_total
-        };
+        let own = if agg.aggstrategy == AGG_HASHED { agg.path.startup_cost - input_total } else { agg.path.total_cost - input_total };
         own.max(0.0)
     };
     agg.aggstrategy = AGG_HASHED;
     agg.subpath = Some(scan_id);
-    let Some(relid) = plain_scan_relid(run, scan_id) else {
-        return decline("two-pass: no plain scan under the Agg");
-    };
+    let Some(relid) = plain_scan_relid(run, scan_id) else { return decline("two-pass: no plain scan under the Agg"); };
     // pass 1 reads the scan again with its own copy of the WHERE, so a VOLATILE clause (nextval, random()) would
     // run twice per row where PostgreSQL runs it once, and pass 2 would filter on what pass 1 left (a sequence advanced)
     if scan_volatile(run, scan_id)? {
-        return decline(
-            "two-pass: a VOLATILE scan clause or column (pass 1 would run it again, D3573)",
-        );
+        return decline("two-pass: a VOLATILE scan clause or column (pass 1 would run it again, D3573)",);
     }
     if scan_gated(run, scan_id) {
-        return decline(
-            "two-pass: a pseudo-constant scan clause (a gating Result under the Agg, D3589)",
-        );
+        return decline("two-pass: a pseudo-constant scan clause (a gating Result under the Agg, D3589)",);
     }
-    let Some(order) = top_order(run, &pathkeys[0], relid)? else {
-        return decline("two-pass: the first sort key is not count(*) DESC or a min / max / integer avg of a word column");
-    };
+    let Some(order) = top_order(run, &pathkeys[0], relid)? else { return decline("two-pass: the first sort key is not count(*) DESC or a min / max / integer avg of a word column"); };
     let target = agg.path.pathtarget_id.expect("AggPath has a target");
-    let Some((_, has_count_star)) = admissible_aggregates(run, target, true)? else {
-        return decline("two-pass: an aggregate is not admissible (kind, FILTER, DISTINCT, ORDER BY or a non-Var argument)");
-    };
+    let Some((_, has_count_star)) = admissible_aggregates(run, target, true)? else { return decline("two-pass: an aggregate is not admissible (kind, FILTER, DISTINCT, ORDER BY or a non-Var argument)"); };
     if order == TopOrder::Count && !has_count_star {
         return decline("two-pass: no count(*)");
     }
-    let groups: Vec<u32> = agg
-        .groupClause
-        .iter()
-        .filter_map(|&id| {
-            run.root
-                .expr_node(id)
-                .as_sort_group_clause()
-                .map(|c| c.tleSortGroupRef)
-        })
-        .collect();
-    if !quiet_target(run, target, &groups)
-        || inner_proj.is_some_and(|(_, t)| !quiet_target(run, t, &groups))
-    {
+    let groups: Vec<u32> = agg.groupClause.iter().filter_map(|&id| { run.root.expr_node(id).as_sort_group_clause().map(|c| c.tleSortGroupRef)
+        }).collect();
+    if !quiet_target(run, target, &groups) || inner_proj.is_some_and(|(_, t)| !quiet_target(run, t, &groups)) {
         return decline("two-pass: a group's projection can raise (D451)");
     }
     let input_rows = run.root.path(scan_id).base().rows.max(1.0);
-    let scan_target = run
-        .root
-        .path(scan_id)
-        .base()
-        .pathtarget_id
-        .expect("scan path has a target");
+    let scan_target = run.root.path(scan_id).base().pathtarget_id.expect("scan path has a target");
     let scan_parent = run.root.path(scan_id).base().parent;
     let scan_rel = scan_parent;
-    let scan_expr = |run: &PlannerRun<'mcx>, col: i16| {
-        run.root
-            .pathtarget(scan_target)
-            .exprs
-            .iter()
-            .map(|&id| *run.root.expr_node(id))
-            .find(|&e| scan_var(e, relid).is_some_and(|(a, _)| a == col))
+    let scan_expr = |run: &PlannerRun<'mcx>, col: i16| { run.root.pathtarget(scan_target).exprs.iter().map(|&id| *run.root.expr_node(id)).find(|&e| scan_var(e, relid).is_some_and(|(a, _)| a == col))
     };
     // the groups a table can meet: the grouping columns' ndistinct multiplied (PostgreSQL's estimate clamps two columns
     // to a tenth of the rows: D2078's (g, j) reads as g's 331 k groups, 666 k at run time); a column that is not a scan
@@ -1985,12 +1276,7 @@ pub(crate) fn add_two_pass_path<'mcx>(
     let mut groups_met = Some(1.0f64);
     let mut group_cols: Vec<(i16, types_core::Oid)> = Vec::new();
     for &sgref in &groups {
-        let col = run
-            .parse()
-            .targetList
-            .iter()
-            .find_map(|n| n.as_target_entry().filter(|t| t.ressortgroupref == sgref))
-            .and_then(|t| scan_var(t.expr, relid));
+        let col = run.parse().targetList.iter().find_map(|n| n.as_target_entry().filter(|t| t.ressortgroupref == sgref)).and_then(|t| scan_var(t.expr, relid));
         if let Some(c) = col.filter(|c| !group_cols.iter().any(|g| g.0 == c.0)) {
             group_cols.push(c);
         }
@@ -2005,59 +1291,29 @@ pub(crate) fn add_two_pass_path<'mcx>(
         }
     }
     let nullable_args = nullable_arg_aggregates(run, target, relid, scan_rel)?;
-    let aggs = run
-        .root
-        .pathtarget(target)
-        .exprs
-        .len()
-        .saturating_sub(agg.groupClause.len())
-        .max(1);
+    let aggs = run.root.pathtarget(target).exprs.len().saturating_sub(agg.groupClause.len()).max(1);
     // Gravity's price of each form (`top_costs`): the plain Agg's cost scaled by two passes over one, so `add_path`
     // takes the two passes exactly where Gravity's two passes cost less than its one pass at this width and hash memory
     let groups = agg.numGroups.max(1.0);
     let groups_met = groups_met.map_or(groups, |g| g.min(input_rows).max(groups));
     let cpu_op = crate::gucs::cpu_operator_cost();
     let ncols = agg.groupClause.len() as f64;
-    let (mut simple, mut combine) = (
-        types_pathnodes::AggClauseCosts::default(),
-        types_pathnodes::AggClauseCosts::default(),
-    );
+    let (mut simple, mut combine) = (types_pathnodes::AggClauseCosts::default(), types_pathnodes::AggClauseCosts::default(),);
     crate::prepagg::get_agg_clause_costs(run, AGGSPLIT_SIMPLE, &mut simple)?;
-    crate::prepagg::get_agg_clause_costs(
-        run,
-        types_pathnodes::AGGSPLIT_FINAL_DESERIAL,
-        &mut combine,
-    )?;
-    let (credit_startup, credit_total) =
-        crate::grouping::gravity_hash_spill_credit(run, agg_id, &simple);
-    let nullable = |run: &PlannerRun<'mcx>, col: i16| {
-        !crate::relnode::relids_is_member(i32::from(col), &run.root.rel(scan_rel).notnullattnums)
+    crate::prepagg::get_agg_clause_costs(run, types_pathnodes::AGGSPLIT_FINAL_DESERIAL, &mut combine,)?;
+    let (credit_startup, credit_total) = crate::grouping::gravity_hash_spill_credit(run, agg_id, &simple);
+    let nullable = |run: &PlannerRun<'mcx>, col: i16| { !crate::relnode::relids_is_member(i32::from(col), &run.root.rel(scan_rel).notnullattnums)
     };
     let width = gravity_width(run);
     // PostgreSQL's spill price per input row of the plain hashed Agg (width 0 only: above it the weights carry one)
     let w0_spill_row = if width == 0 && twopass_w0_spill_on() {
-        let w = run
-            .root
-            .pathtarget(
-                run.root
-                    .path(scan_id)
-                    .base()
-                    .pathtarget_id
-                    .expect("scan path has a target"),
-            )
-            .width;
-        ::costsize::hashed_agg_spill_surcharge(run, &simple, agg.numGroups.max(1.0), input_rows, w)
-            .1
-            / input_rows
+        let w = run.root.pathtarget(run.root.path(scan_id).base().pathtarget_id.expect("scan path has a target"),).width;
+        ::costsize::hashed_agg_spill_surcharge(run, &simple, agg.numGroups.max(1.0), input_rows, w).1 / input_rows
     } else {
         0.0
     };
-    let hash_mem = init_small::globals::work_mem() as f64
-        * guc_tables::vars::hash_mem_multiplier.read()
-        * 1024.0;
-    let grant = pgrust_guc("pgrust.gravity_grant_mb")
-        .and_then(|v| v.trim().parse::<u64>().ok())
-        .map_or(0.0, |mb| (mb << 20) as f64);
+    let hash_mem = init_small::globals::work_mem() as f64 * guc_tables::vars::hash_mem_multiplier.read() * 1024.0;
+    let grant = pgrust_guc("pgrust.gravity_grant_mb").and_then(|v| v.trim().parse::<u64>().ok()).map_or(0.0, |mb| (mb << 20) as f64);
     let byref = byref_state_bytes(run, target, relid, scan_rel)?;
     // the pass-1 key priced: any group key bounds every group of it (a group's rows are among its key's), so any one
     // is sound. `pgrust.gravity_twopass_keys = leading` keeps the pre-MK-1 key (the first group key); else every word-typed
@@ -2072,12 +1328,7 @@ pub(crate) fn add_two_pass_path<'mcx>(
     }
     let mut sets: Vec<i16> = Vec::new();
     if twopass_keys_any() {
-        sets.extend(
-            group_cols
-                .iter()
-                .filter(|c| word_cols.contains(&c.0))
-                .map(|c| c.0),
-        );
+        sets.extend(group_cols.iter().filter(|c| word_cols.contains(&c.0)).map(|c| c.0),);
     } else {
         match leading_group_var(run, &agg, relid) {
             Some((attno, typid)) if zone_word_type(typid)? => sets.push(attno),
@@ -2091,20 +1342,14 @@ pub(crate) fn add_two_pass_path<'mcx>(
     // its hint's flags are the extreme's own order.
     let tie = match (order, pathkeys.len()) {
         (TopOrder::Count, n) if n >= 2 => {
-            let Some(order) = pathkey_order(&pathkeys[1]) else {
-                return decline("two-pass: the floor key has no btree order");
-            };
-            let Some((col, typid)) = group_cols.iter().copied().find(|&(a, _)| {
-                pathkey_has(run, &pathkeys[1], |e| {
-                    scan_var(e, relid).is_some_and(|(x, _)| x == a)
+            let Some(order) = pathkey_order(&pathkeys[1]) else { return decline("two-pass: the floor key has no btree order"); };
+            let Some((col, typid)) = group_cols.iter().copied().find(|&(a, _)| { pathkey_has(run, &pathkeys[1], |e| { scan_var(e, relid).is_some_and(|(x, _)| x == a)
                 })
             }) else {
                 return decline("two-pass: the second sort key is not a grouping key");
             };
             if !default_btree_order(&pathkeys[1], typid)? {
-                return decline(
-                    "two-pass: the floor key is not the key type's default btree order",
-                );
+                return decline("two-pass: the floor key is not the key type's default btree order",);
             }
             Some((col, order))
         }
@@ -2119,24 +1364,17 @@ pub(crate) fn add_two_pass_path<'mcx>(
         sets.retain(|&s| s == col);
     }
     if sets.is_empty() {
-        return decline(
-            "two-pass: no word-typed group key to key pass 1 (or none leads with the tie key)",
-        );
+        return decline("two-pass: no word-typed group key to key pass 1 (or none leads with the tie key)",);
     }
-    let key_of = |run: &PlannerRun<'mcx>, col: i16| {
-        scan_expr(run, col).unwrap_or(*run.root.expr_node(run.root.pathtarget(target).exprs[0]))
+    let key_of = |run: &PlannerRun<'mcx>, col: i16| { scan_expr(run, col).unwrap_or(*run.root.expr_node(run.root.pathtarget(target).exprs[0]))
     };
     let mut best: Option<(f64, i16, TopCostIn, f64, bool)> = None;
-    let spread_of =
-        |run: &PlannerRun<'mcx>, col: i16| zone_ranges(run, scan_rel, col).map(|r| zone_spread(&r));
+    let spread_of = |run: &PlannerRun<'mcx>, col: i16| zone_ranges(run, scan_rel, col).map(|r| zone_spread(&r));
     let lead = match group_cols.first() {
         Some(&(col, _)) => {
             let e = key_of(run, col);
             let id = run.intern_expr(e);
-            (
-                crate::selfuncs::estimate_num_groups(run, &[(id, e)], input_rows)?,
-                spread_of(run, col),
-            )
+            (crate::selfuncs::estimate_num_groups(run, &[(id, e)], input_rows)?, spread_of(run, col),)
         }
         None => (agg.numGroups.max(1.0), None),
     };
@@ -2168,10 +1406,7 @@ pub(crate) fn add_two_pass_path<'mcx>(
         let key_nullable = nullable(run, attno);
         let (pass1_record, key_corr) = match order {
             TopOrder::Count => (pass1_record_bytes(key_nullable), None),
-            TopOrder::Extreme(col, spread) => (
-                pass1_extreme_record_bytes(key_nullable, nullable(run, col), spread),
-                scan_correlation(run, relid, attno)?,
-            ),
+            TopOrder::Extreme(col, spread) => (pass1_extreme_record_bytes(key_nullable, nullable(run, col), spread), scan_correlation(run, relid, attno)?,),
         };
         let costs = TopCostIn {
             scan: run.root.path(scan_id).base().total_cost,
@@ -2179,10 +1414,7 @@ pub(crate) fn add_two_pass_path<'mcx>(
             groups,
             keys: ndv,
             cand,
-            cand_groups: groups
-                .min(cand)
-                .max((n as f64).min(groups))
-                .max(groups * admitted),
+            cand_groups: groups.min(cand).max((n as f64).min(groups)).max(groups * admitted),
             n: n as f64,
             fold_row: simple.transCost.per_tuple + cpu_op * ncols,
             fold_group: simple.finalCost.per_tuple + crate::gucs::cpu_tuple_cost(),
@@ -2200,14 +1432,7 @@ pub(crate) fn add_two_pass_path<'mcx>(
             w0_spill_row,
             byref_state_bytes: byref,
         };
-        let (one, two, measured) = top_costs_priced(
-            &costs,
-            &TopShape {
-                lead_keys: lead.0,
-                lead_spread: lead.1,
-                key_spread: spread_of(run, attno),
-            },
-        );
+        let (one, two, measured) = top_costs_priced(&costs, &TopShape { lead_keys: lead.0, lead_spread: lead.1, key_spread: spread_of(run, attno), },);
         // MK-1's non-leading pass-1 keys only where the measured price reads them (the fitted one mis-priced them: gtopn's
         // KEYED-04 losses; CC-2b's config A census): else the leading key alone, as before MK-1
         if !measured && group_cols.first().is_some_and(|&(c, _)| c != attno) {
@@ -2218,30 +1443,21 @@ pub(crate) fn add_two_pass_path<'mcx>(
             best = Some((scale, attno, costs, cand, measured));
         }
     }
-    let Some((scale, attno, costs, cand, measured)) = best else {
-        return decline("two-pass: no pass-1 key set priced");
-    };
+    let Some((scale, attno, costs, cand, measured)) = best else { return decline("two-pass: no pass-1 key set priced"); };
     // pgrust.gravity_twopass (a testing and rollback knob, not a tuning one): `cost` (unset) the reading above; `force`
     // the pre-PL-07 gate, PostgreSQL's reading: both passes over the input plus the Agg's own work over the candidate
     // fraction, so `add_path` takes the two passes wherever their shape applies and the one-pass hash aggregate's spill
     // prices above them (e2e files that exist to exercise the form under a grant or width where the cost takes one pass)
-    let pg_reading = pgrust_guc("pgrust.gravity_twopass")
-        .is_some_and(|v| v.trim().eq_ignore_ascii_case("force"))
-        .then(|| {
-            let frac = (cand / input_rows).clamp(0.0, 1.0);
-            let startup =
-                two_pass_passes_cost(costs.scan, input_rows, cpu_op) + agg_own_startup * frac;
-            (startup, startup + agg_own_run * frac)
-        });
+    let pg_reading = pgrust_guc("pgrust.gravity_twopass").is_some_and(|v| v.trim().eq_ignore_ascii_case("force")).then(|| {
+        let frac = (cand / input_rows).clamp(0.0, 1.0);
+        let startup = two_pass_passes_cost(costs.scan, input_rows, cpu_op) + agg_own_startup * frac;
+        (startup, startup + agg_own_run * frac)
+    });
     if pg_reading.is_none() && costs.scattered_one_pass_holds() {
         return decline("two-pass: a scattered key's one pass holds its groups");
     }
     let mut agg2 = agg;
-    agg2.gravity_rewrite = Some(GravityRewrite::TwoPass {
-        attno,
-        floor_desc,
-        floor_nulls_first,
-    });
+    agg2.gravity_rewrite = Some(GravityRewrite::TwoPass { attno, floor_desc, floor_nulls_first, });
     agg2.groupClause = crate::relnode::pgvec_clone_shallow(run.mcx, &agg2.groupClause);
     agg2.qual = crate::relnode::pgvec_clone_shallow(run.mcx, &agg2.qual);
     agg2.path.pathkeys = mcx::PgVec::new_in(run.mcx);
@@ -2253,11 +1469,8 @@ pub(crate) fn add_two_pass_path<'mcx>(
         // and the two passes compare as they do without the credit. Scaling the credited price let the Sort above decide
         // (its rows: every group under the one pass, the candidates under the two): av2/twopassw0's unforced W = 0
         // statement took the two passes, 16.2 ms, over the one pass's 7.6 ms.
-        agg2.path.startup_cost = ((agg2.path.total_cost - agg_own_run + credit_startup) * scale
-            - credit_startup)
-            .max(0.0);
-        agg2.path.total_cost =
-            ((agg2.path.total_cost + credit_total) * scale - credit_total).max(0.0);
+        agg2.path.startup_cost = ((agg2.path.total_cost - agg_own_run + credit_startup) * scale - credit_startup).max(0.0);
+        agg2.path.total_cost = ((agg2.path.total_cost + credit_total) * scale - credit_total).max(0.0);
     }
     if costs.pass1_holds() || pg_reading.is_some() || measured {
         agg2.path.rows = agg2.path.rows.min(cand).max(n as f64).max(1.0);

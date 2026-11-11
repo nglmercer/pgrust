@@ -38,13 +38,14 @@ use std::fs::File;
 use types_error::{PgError, PgResult, ERRCODE_BAD_COPY_FILE_FORMAT, ERRCODE_OUT_OF_MEMORY};
 
 pub(crate) fn oom_in(what: &str) -> Box<PgError> {
-    Box::new(PgError::error(format!("out of memory {what}")).with_sqlstate(ERRCODE_OUT_OF_MEMORY))
-    // alloc: Cold
+    Box::new(PgError::error(format!("out of memory {what}")).with_sqlstate(ERRCODE_OUT_OF_MEMORY)) // alloc: Cold
 }
 
 pub use column::{batches_held, BatchData, ColumnBatch, ColumnCursor, Levels};
 pub use fast::{FastCol, FastRowGroup, FastRun, FastVals};
-pub use meta::{Ancestor, ColumnSchema, FileMeta, FileSpan, Logical, Phys, Repetition, TimeUnit};
+pub use meta::{
+    Ancestor, ColumnSchema, FileMeta, FileSpan, Logical, Phys, Repetition, TimeUnit
+};
 
 /// Parse a bare FileMetaData footer (the bytes between the leading magic and
 /// the trailing length+magic) — footer-inspection tooling.
@@ -81,14 +82,12 @@ fn read_exact_at(file: &File, path: &str, buf: &mut [u8], off: u64) -> PgResult<
     #[cfg(unix)]
     {
         use std::os::unix::fs::FileExt;
-        file.read_exact_at(buf, off)
-            .map_err(|e| io_error(path, "read", e))
+        file.read_exact_at(buf, off).map_err(|e| io_error(path, "read", e))
     }
     #[cfg(not(unix))]
     {
         let _ = (file, buf, off);
-        Err(Box::new(PgError::error(format!(
-            // alloc: Cold
+        Err(Box::new(PgError::error(format!( // alloc: Cold
             "parquet read is not supported on this platform (\"{path}\")"
         ))))
     }
@@ -133,8 +132,7 @@ impl FileReader {
         read_exact_at(&file, path, &mut tail, file_len - 8)?;
         let tail_magic: &[u8; 4] = tail[4..8].try_into().expect("4-byte slice");
         if tail_magic == MAGIC_ENCRYPTED {
-            return Err(meta::unsupported("encrypted parquet file".to_string()));
-            // alloc: Cold
+            return Err(meta::unsupported("encrypted parquet file".to_string())); // alloc: Cold
         }
         if &head != MAGIC || tail_magic != MAGIC {
             return Err(not_parquet(path, "magic bytes missing"));
@@ -146,17 +144,9 @@ impl FileReader {
             return Err(not_parquet(path, "footer length out of range"));
         }
         // the footer bytes: charged while they live (until the parse below is done)
-        let mut footer: memledger::ChargedVec<u8> =
-            memledger::ChargedVec::new(owner, memledger::Kind::Region);
-        footer
-            .resize(footer_len as usize, 0u8)
-            .map_err(|_| oom_in("reading parquet footer"))?;
-        read_exact_at(
-            &file,
-            path,
-            footer.as_mut_slice(),
-            file_len - 8 - footer_len,
-        )?;
+        let mut footer: memledger::ChargedVec<u8> = memledger::ChargedVec::new(owner, memledger::Kind::Region);
+        footer.resize(footer_len as usize, 0u8).map_err(|_| oom_in("reading parquet footer"))?;
+        read_exact_at(&file, path, footer.as_mut_slice(), file_len - 8 - footer_len,)?;
         let meta = meta::parse_file_meta_on(footer.as_slice(), owner)?;
         drop(footer);
 
@@ -170,7 +160,10 @@ impl FileReader {
                 }
                 let start = ch.start_offset();
                 let size = ch.total_compressed_size;
-                if start < 4 || size < 0 || (start as u64).saturating_add(size as u64) > file_len {
+                if start < 4
+                    || size < 0
+                    || (start as u64).saturating_add(size as u64) > file_len
+                {
                     return Err(not_parquet(path, "column chunk offsets out of range"));
                 }
             }
@@ -198,9 +191,7 @@ impl FileReader {
     /// Duplicate the underlying file handle (positioned reads only) for a
     /// parallel driver's worker threads.
     pub fn try_clone_file(&self) -> PgResult<File> {
-        self.file
-            .try_clone()
-            .map_err(|e| io_error(&self.path, "dup", e))
+        self.file.try_clone().map_err(|e| io_error(&self.path, "dup", e))
     }
 
     /// Open one row group, building cursors for the requested columns.
@@ -211,14 +202,7 @@ impl FileReader {
         columns: &[usize],
         validate_utf8: &[bool],
     ) -> PgResult<RowGroupReader> {
-        RowGroupReader::open(
-            &self.file,
-            &self.path,
-            &self.meta,
-            rg_idx,
-            columns,
-            validate_utf8,
-        )
+        RowGroupReader::open(&self.file, &self.path, &self.meta, rg_idx, columns, validate_utf8,)
     }
 
     /// CONVERT wave 3 (cvwrite job 3): [`FileReader::row_group`] with the row group's chunks, pages, levels and
@@ -230,15 +214,7 @@ impl FileReader {
         validate_utf8: &[bool],
         owner: Option<memledger::Owner>,
     ) -> PgResult<RowGroupReader> {
-        RowGroupReader::open_on(
-            &self.file,
-            &self.path,
-            &self.meta,
-            rg_idx,
-            columns,
-            validate_utf8,
-            owner,
-        )
+        RowGroupReader::open_on(&self.file, &self.path, &self.meta, rg_idx, columns, validate_utf8, owner,)
     }
 }
 
@@ -261,9 +237,7 @@ pub(crate) fn chunks_held<'a>(chunks: impl Iterator<Item = &'a column::ChunkByte
 /// Compressed bytes this row group's requested chunks occupy (the
 /// parallel driver's memory-budget input).
 pub fn rg_compressed_bytes(meta: &FileMeta, rg_idx: usize, columns: &[usize]) -> u64 {
-    let Some(rg) = meta.row_groups.get(rg_idx) else {
-        return 0;
-    };
+    let Some(rg) = meta.row_groups.get(rg_idx) else { return 0; };
     columns
         .iter()
         .filter_map(|&col| rg.chunks.iter().find(|c| c.column == col))
@@ -293,11 +267,8 @@ pub(crate) fn load_rg_chunks<'m>(
         .ok_or_else(|| not_parquet(path, "row group index out of range"))?;
     // Resolve the chunk set once; compute the span for the dense test.
     // memsig E-pub t5: the chunk set, on the reader's charge owner while it lives
-    let mut chunks: memledger::ChargedVec<&meta::ChunkMeta> =
-        memledger::ChargedVec::new(charge.owner(), memledger::Kind::Region);
-    chunks
-        .try_reserve(columns.len())
-        .map_err(|_| oom_in("reading row group"))?;
+    let mut chunks: memledger::ChargedVec<&meta::ChunkMeta> = memledger::ChargedVec::new(charge.owner(), memledger::Kind::Region);
+    chunks.try_reserve(columns.len()).map_err(|_| oom_in("reading row group"))?;
     let (mut lo, mut hi, mut sum) = (u64::MAX, 0u64, 0u64);
     for &col in columns.iter() {
         let ch = rg
@@ -321,8 +292,8 @@ pub(crate) fn load_rg_chunks<'m>(
         let mut buf = Vec::new();
         buf.try_reserve(span as usize + codec::PAD) // alloc: Exec charged charge (the reader's)
             .map_err(|_| Box::new(PgError::error("out of memory reading row group")))?; // alloc: Cold
-                                                                                        // cvwrite job 3: charged as reserved, before the zero fill (the w3 view caught 3 decoders' spans, 96 MiB,
-                                                                                        // between the reserve and a sync placed after the fill)
+        // cvwrite job 3: charged as reserved, before the zero fill (the w3 view caught 3 decoders' spans, 96 MiB,
+        // between the reserve and a sync placed after the fill)
         charge.sync(buf.capacity() as u64);
         // the span and one pad for the whole shared buffer (initialized capacity), zeroed at once, the span read over it
         buf.resize(span as usize + codec::PAD, 0); // alloc: Exec charged chunk_charge (the reader's chunks_held)
@@ -335,10 +306,8 @@ pub(crate) fn load_rg_chunks<'m>(
 
     let mut compressed_bytes: u64 = 0;
     let mut held: u64 = shared.as_ref().map_or(0, |b| b.capacity() as u64);
-    let mut out: LoadedChunks<'m> =
-        memledger::ChargedVec::new(charge.owner(), memledger::Kind::Region);
-    out.try_reserve(chunks.len())
-        .map_err(|_| oom_in("reading row group"))?;
+    let mut out: LoadedChunks<'m> = memledger::ChargedVec::new(charge.owner(), memledger::Kind::Region);
+    out.try_reserve(chunks.len()).map_err(|_| oom_in("reading row group"))?;
     for &ch in chunks.iter() {
         let bytes = if ch.num_values == 0 {
             column::ChunkBytes::Owned(Vec::new())
@@ -354,9 +323,8 @@ pub(crate) fn load_rg_chunks<'m>(
             let start = ch.start_offset() as u64;
             let size = ch.total_compressed_size as usize;
             let mut buf = Vec::new();
-            buf.try_reserve(size + codec::PAD)
-                .map_err(|_| Box::new(PgError::error("out of memory reading column chunk")))?; // alloc: Exec charged charge (the reader's)
-                                                                                               // cvwrite job 3: charged as reserved, before the zero fill
+            buf.try_reserve(size + codec::PAD).map_err(|_| Box::new(PgError::error("out of memory reading column chunk")))?; // alloc: Exec charged charge (the reader's)
+            // cvwrite job 3: charged as reserved, before the zero fill
             held += buf.capacity() as u64;
             charge.sync(held);
             buf.resize(size, 0); // alloc: Exec charged chunk_charge (the reader's chunks_held)
@@ -364,8 +332,7 @@ pub(crate) fn load_rg_chunks<'m>(
             compressed_bytes += size as u64;
             column::ChunkBytes::Owned(buf)
         };
-        out.push((ch, bytes))
-            .map_err(|_| oom_in("reading row group"))?;
+        out.push((ch, bytes)).map_err(|_| oom_in("reading row group"))?;
     }
     Ok((out, compressed_bytes))
 }
@@ -415,13 +382,12 @@ impl RowGroupReader {
         owner: Option<memledger::Owner>,
     ) -> PgResult<RowGroupReader> {
         let mut chunk_charge = held::HeldCharge::new(owner);
-        let (mut loaded, compressed_bytes) =
-            load_rg_chunks(file, path, meta, rg_idx, columns, &mut chunk_charge)?;
+        let (mut loaded, compressed_bytes) = load_rg_chunks(file, path, meta, rg_idx, columns, &mut chunk_charge)?;
         let mut cursors = Vec::new();
         cursors
             .try_reserve(columns.len())
             .map_err(|_| Box::new(PgError::error("out of memory opening row group")))?; // alloc: Cold
-                                                                                        // memsig E-pub t5: the chunks move out of their charged list into the cursors (its block stays its until it drops)
+        // memsig E-pub t5: the chunks move out of their charged list into the cursors (its block stays its until it drops)
         loaded.with_vec(|loaded| -> PgResult<()> {
             for ((ch, bytes), &vutf8) in loaded.drain(..).zip(validate_utf8.iter()) {
                 let schema = &meta.columns[ch.column];

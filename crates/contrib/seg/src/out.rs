@@ -47,7 +47,7 @@ pub fn c_format_g(val: f64) -> String {
     let e_form = c_sprintf_e(val, (PREC - 1) as usize);
     let (mant, exp_s) = e_form.split_once('e').unwrap();
     let exp: i32 = exp_s.parse().unwrap();
-    if !(-4..PREC).contains(&exp) {
+    if !( -4.. PREC).contains(&exp) {
         // %e style with trailing zeros stripped from the fraction
         let mut m = mant.to_string();
         if m.contains('.') {

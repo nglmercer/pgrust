@@ -8,8 +8,8 @@ use core::marker::PhantomData;
 use core::ops::Deref;
 use core::ptr::NonNull;
 
-use ::types_error::PgResult;
-use allocator_api2::alloc::Allocator;
+use::types_error::PgResult;
+use allocator_api2 ::alloc::Allocator;
 
 use crate::{Mcx, PgBox};
 
@@ -32,21 +32,11 @@ impl<'mcx, T> PgRc<'mcx, T> {
     }
 
     pub fn try_new_in(value: T, mcx: Mcx<'mcx>) -> PgResult<Self> {
-        let b = PgBox::try_new_in(
-            RcInner {
-                strong: Cell::new(1),
-                value,
-            },
-            mcx,
-        )
-        .map_err(|_| mcx.oom_boxed(core::mem::size_of::<RcInner<T>>()))?;
+        let b = PgBox::try_new_in(RcInner { strong: Cell::new(1), value, }, mcx,)
+            .map_err(|_| mcx.oom_boxed(core::mem::size_of::<RcInner<T>>()))?;
         let (raw, mcx) = allocator_api2::boxed::Box::into_raw_with_allocator(b);
         // SAFETY: Box::into_raw never returns null
-        Ok(PgRc {
-            ptr: unsafe { NonNull::new_unchecked(raw) },
-            mcx,
-            _owns: PhantomData,
-        })
+        Ok(PgRc { ptr: unsafe { NonNull::new_unchecked(raw) }, mcx, _owns: PhantomData, })
     }
 }
 
@@ -62,22 +52,15 @@ impl<'mcx, T: Copy> PgRc<'mcx, [T]> {
         unsafe {
             mem.as_ptr().cast::<Cell<usize>>().write(Cell::new(1));
             core::ptr::copy_nonoverlapping(s.as_ptr(), mem.as_ptr().add(at).cast::<T>(), s.len());
-            let fat = core::ptr::slice_from_raw_parts_mut(mem.as_ptr().cast::<T>(), s.len())
-                as *mut RcInner<[T]>;
-            PgRc {
-                ptr: NonNull::new_unchecked(fat),
-                mcx,
-                _owns: PhantomData,
-            }
+            let fat = core::ptr::slice_from_raw_parts_mut(mem.as_ptr().cast::<T>(), s.len()) as *mut RcInner<[T]>;
+            PgRc { ptr: NonNull::new_unchecked(fat), mcx, _owns: PhantomData, }
         }
     }
 }
 
 fn slice_layout<T>(n: usize) -> (Layout, usize) {
     let (l, at) = Layout::new::<Cell<usize>>()
-        .extend(
-            Layout::array::<T>(n).unwrap_or_else(|_| crate::raise(crate::invalid_alloc_size(n))),
-        )
+        .extend(Layout::array::<T>(n).unwrap_or_else(|_| crate::raise(crate::invalid_alloc_size(n))),)
         .unwrap_or_else(|_| crate::raise(crate::invalid_alloc_size(n)));
     (l.pad_to_align(), at)
 }
@@ -116,11 +99,7 @@ impl<T: ?Sized> Clone for PgRc<'_, T> {
     fn clone(&self) -> Self {
         let s = &self.inner().strong;
         s.set(s.get() + 1);
-        PgRc {
-            ptr: self.ptr,
-            mcx: self.mcx,
-            _owns: PhantomData,
-        }
+        PgRc { ptr: self.ptr, mcx: self.mcx, _owns: PhantomData, }
     }
 }
 

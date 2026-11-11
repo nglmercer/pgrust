@@ -182,9 +182,7 @@ impl<T> SpscRing<T> {
     /// New ring with capacity `cap_pow2` (rounded up to a power of two, min 2).
     pub fn new(cap_pow2: usize) -> SpscRing<T> {
         let cap = cap_pow2.max(2).next_power_of_two();
-        let buf = (0..cap)
-            .map(|_| UnsafeCell::new(MaybeUninit::uninit()))
-            .collect();
+        let buf = (0..cap).map(|_| UnsafeCell::new(MaybeUninit::uninit())).collect();
         SpscRing {
             buf,
             cap,
@@ -339,9 +337,7 @@ impl<T: Send + 'static> RowFunnel<T> {
     /// two). `ring_cap` is the per-worker memory/back-pressure budget.
     pub fn new(nworkers: usize, ring_cap: usize) -> Arc<RowFunnel<T>> {
         Arc::new(RowFunnel {
-            rings: (0..nworkers)
-                .map(|_| Arc::new(SpscRing::new(ring_cap)))
-                .collect(),
+            rings: (0..nworkers).map(|_| Arc::new(SpscRing::new(ring_cap))).collect(),
             done: (0..nworkers).map(|_| AtomicBool::new(false)).collect(),
             demand_closed: AtomicBool::new(false),
             not_empty: ParkLot::new(),
@@ -418,11 +414,7 @@ impl<T: Send + 'static> RowFunnel<T> {
     /// A producer handle bound to worker `w`'s ring. One handle per worker
     /// (SPSC discipline).
     pub fn producer(self: &Arc<Self>, w: usize) -> FunnelProducer<T> {
-        FunnelProducer {
-            funnel: Arc::clone(self),
-            ring: Arc::clone(&self.rings[w]),
-            w,
-        }
+        FunnelProducer { funnel: Arc::clone(self), ring: Arc::clone(&self.rings[w]), w, }
     }
 
     /// regression change 1 (standing-engagement reuse): reset a QUIESCED
@@ -655,13 +647,7 @@ pub struct FunnelDrain<T> {
 impl<T: Send + 'static> FunnelDrain<T> {
     fn new(funnel: Arc<RowFunnel<T>>) -> FunnelDrain<T> {
         let n = funnel.nworkers();
-        FunnelDrain {
-            funnel,
-            active: (0..n).collect(),
-            next: 0,
-            fair_stride: 0,
-            stride_rem: 0,
-        }
+        FunnelDrain { funnel, active: (0..n).collect(), next: 0, fair_stride: 0, stride_rem: 0, }
     }
 
     /// Set the fairness stride (rotate after N consecutive rows from one ring).
@@ -847,11 +833,7 @@ mod tests {
         // Unarmed: steady-state pushes fire NOTHING.
         p.try_push(1).ok().unwrap();
         p.try_push(2).ok().unwrap();
-        assert_eq!(
-            fired.load(StdOrd::SeqCst),
-            0,
-            "unarmed pushes must not fire the hook"
-        );
+        assert_eq!(fired.load(StdOrd::SeqCst), 0, "unarmed pushes must not fire the hook");
         // Armed: the next push fires exactly once and consumes the flag.
         f.arm_drain_wait();
         p.try_push(3).ok().unwrap();
@@ -902,10 +884,7 @@ mod tests {
         let b = d.next();
         match (a, b) {
             (DrainStep::Row(x), DrainStep::Row(y)) => {
-                assert!(
-                    (x < 100) != (y < 100),
-                    "stride should alternate rings: {x},{y}"
-                );
+                assert!((x < 100) != (y < 100), "stride should alternate rings: {x},{y}");
             }
             _ => panic!("expected two rows"),
         }

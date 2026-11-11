@@ -1,3 +1,4 @@
+
 use core::alloc::Layout;
 use core::ptr::NonNull;
 
@@ -35,9 +36,7 @@ impl SendRoot {
 
     fn of(ctx: MemoryContext) -> SendRoot {
         ctx.acct.send_root.set(true);
-        SendRoot(NonNull::from(alloc::boxed::Box::leak(
-            alloc::boxed::Box::new(ctx),
-        )))
+        SendRoot(NonNull::from(alloc::boxed::Box::leak(alloc::boxed::Box::new(ctx),)))
     }
 
     #[cfg(feature = "std")]
@@ -104,11 +103,7 @@ impl Drop for SendRoot {
         let live = self.used();
         if live != 0 {
             // A block outlived its holder (`handle`'s contract broken): leak the context (its owner still shows it).
-            debug_assert!(
-                false,
-                "mcx: SendRoot {:?} dropped with {live} bytes live",
-                self.ctx().name()
-            );
+            debug_assert!(false, "mcx: SendRoot {:?} dropped with {live} bytes live", self.ctx().name());
             return;
         }
         // SAFETY: made by `Box::leak` in `new` and taken back once; nothing borrows it past the root (`mcx` borrows it,
@@ -119,10 +114,7 @@ impl Drop for SendRoot {
 
 impl core::fmt::Debug for SendRoot {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("SendRoot")
-            .field("name", &self.ctx().name())
-            .field("used", &self.used())
-            .finish()
+        f.debug_struct("SendRoot").field("name", &self.ctx().name()).field("used", &self.used()).finish()
     }
 }
 
@@ -175,34 +167,19 @@ unsafe impl Allocator for RootA {
     }
 
     #[inline]
-    unsafe fn grow(
-        &self,
-        ptr: NonNull<u8>,
-        old: Layout,
-        new: Layout,
-    ) -> Result<NonNull<[u8]>, AllocError> {
+    unsafe fn grow(&self, ptr: NonNull<u8>, old: Layout, new: Layout,) -> Result<NonNull<[u8]>, AllocError> {
         // SAFETY: the caller's contract, passed on.
         unsafe { Allocator::grow(&self.mcx(), ptr, old, new) }
     }
 
     #[inline]
-    unsafe fn grow_zeroed(
-        &self,
-        ptr: NonNull<u8>,
-        old: Layout,
-        new: Layout,
-    ) -> Result<NonNull<[u8]>, AllocError> {
+    unsafe fn grow_zeroed(&self, ptr: NonNull<u8>, old: Layout, new: Layout,) -> Result<NonNull<[u8]>, AllocError> {
         // SAFETY: the caller's contract, passed on.
         unsafe { Allocator::grow_zeroed(&self.mcx(), ptr, old, new) }
     }
 
     #[inline]
-    unsafe fn shrink(
-        &self,
-        ptr: NonNull<u8>,
-        old: Layout,
-        new: Layout,
-    ) -> Result<NonNull<[u8]>, AllocError> {
+    unsafe fn shrink(&self, ptr: NonNull<u8>, old: Layout, new: Layout,) -> Result<NonNull<[u8]>, AllocError> {
         // SAFETY: the caller's contract, passed on.
         unsafe { Allocator::shrink(&self.mcx(), ptr, old, new) }
     }

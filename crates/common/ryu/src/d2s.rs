@@ -249,7 +249,7 @@ fn d2d(ieee_mantissa: u64, ieee_exponent: u32) -> FloatingDecimal64 {
             }
         }
 
-        if vr_is_trailing_zeros && last_removed_digit == 5 && vr.is_multiple_of(2) {
+        if vr_is_trailing_zeros && last_removed_digit == 5 && vr.is_multiple_of( 2) {
             // Round even if the exact number is .....50..0.
             last_removed_digit = 4;
         }
@@ -403,7 +403,7 @@ fn to_chars(v: FloatingDecimal64, sign: bool, result: &mut [u8]) -> i32 {
     }
 
     // Fixed-point thresholds chosen to match printf defaults (%.17g shape).
-    if (-4..15).contains(&exp) {
+    if ( -4.. 15).contains(&exp) {
         return to_chars_df(v, olength, &mut result[index as usize..]) + sign as i32;
     }
 

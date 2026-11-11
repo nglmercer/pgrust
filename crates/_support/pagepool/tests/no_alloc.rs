@@ -47,18 +47,7 @@ unsafe impl GlobalAlloc for Counting {
 #[global_allocator]
 static A: Counting = Counting;
 
-const SIZES: [usize; 10] = [
-    1024,
-    3000,
-    8192,
-    65536,
-    131072,
-    200_000,
-    1 << 20,
-    4 * MIB,
-    6 * MIB + 1,
-    40 * MIB,
-];
+const SIZES: [usize; 10] = [1024, 3000, 8192, 65536, 131072, 200_000, 1 << 20, 4 * MIB, 6 * MIB + 1, 40 * MIB,];
 
 fn round() {
     let h = Hint::new(Class::Session, Tag::MCX);
@@ -90,10 +79,6 @@ fn take_and_give_use_no_heap() {
         round();
     }
     ARMED.store(0, Relaxed);
-    assert_eq!(
-        COUNT.load(Relaxed),
-        0,
-        "heap calls on the take / give / flush paths"
-    );
+    assert_eq!(COUNT.load(Relaxed), 0, "heap calls on the take / give / flush paths");
     balanced();
 }

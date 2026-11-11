@@ -6,8 +6,7 @@
 
 use super::{Rng, TestColumn, TestValue};
 use crate::bloom::{
-    bloom_armed, bloom_block_for, bloom_bytes_for, bloom_insert, bloom_k_for, bloom_may_contain,
-    bloom_part_choice, BloomCandidate,
+    bloom_armed, bloom_block_for, bloom_bytes_for, bloom_insert, bloom_k_for, bloom_may_contain, bloom_part_choice, BloomCandidate,
 };
 use crate::builder::ColumnMeta;
 use crate::format::abi::ColumnMetaBuilder;
@@ -298,19 +297,9 @@ fn bloom_arming_end_to_end() {
     let part = b.seal_part();
     assert_eq!(bloom_k_for(int_class()), 6);
     let ndv = part.ndv_est.min(8192);
-    assert!(bloom_part_choice(
-        6,
-        &[Some(BloomCandidate {
-            ndv,
-            own: bloom_bytes_for(ndv, 6),
-            lane_bytes: 8192 * 8
-        })]
-    )
-    .is_none());
+    assert!(bloom_part_choice(6, &[Some(BloomCandidate { ndv, own: bloom_bytes_for(ndv, 6), lane_bytes: 8192 * 8 })]).is_none());
     assert!(
-        !b.aux_sections()
-            .iter()
-            .any(|(k, _)| *k == SectionKind::Bloom),
+        !b.aux_sections().iter().any(|(k, _)| *k == SectionKind::Bloom),
         "a near-unique 8-byte granule keeps no bloom (D3070)"
     );
     // Low-NDV shuffled granule: armed at k = 6 with the block storage pays
@@ -337,22 +326,13 @@ fn bloom_arming_end_to_end() {
         let (k, block) = bloom_block_for(bloom, 1, 0)
             .expect("well-formed")
             .expect("armed");
-        let cand = BloomCandidate {
-            ndv: part.ndv_est,
-            own: bloom_bytes_for(part.ndv_est, k),
-            lane_bytes: 8192 * 8,
-        };
+        let cand = BloomCandidate { ndv: part.ndv_est, own: bloom_bytes_for(part.ndv_est, k), lane_bytes: 8192 * 8, };
         assert_eq!(
             bloom_part_choice(k, &[Some(cand)]),
             Some((block.len() as u32, vec![true])),
             "block priced at NDV {ndv}"
         );
-        assert_eq!(
-            block.len(),
-            bytes,
-            "block sized by NDV {ndv} (estimate {})",
-            part.ndv_est
-        );
+        assert_eq!(block.len(), bytes, "block sized by NDV {ndv} (estimate {})", part.ndv_est);
         for v in 0..ndv as i64 {
             assert!(bloom_may_contain(block, k, &v.to_le_bytes()));
         }
@@ -455,16 +435,8 @@ fn ndv_estimate_equals_the_exp2_reference() {
             }
         }
         let raw = alpha * m * m / sum;
-        let est = if raw <= 2.5 * m && zeros > 0 {
-            m * (m / f64::from(zeros)).ln()
-        } else {
-            raw
-        };
-        if est >= u32::MAX as f64 {
-            u32::MAX
-        } else {
-            est as u32
-        }
+        let est = if raw <= 2.5 * m && zeros > 0 { m * (m / f64::from(zeros)).ln() } else { raw };
+        if est >= u32::MAX as f64 { u32::MAX } else { est as u32 }
     }
     let regs_of = |h: &Hll| {
         let mut b = Vec::new();
@@ -472,12 +444,7 @@ fn ndv_estimate_equals_the_exp2_reference() {
         b[8..].to_vec()
     };
     let body = |regs: &[u8]| {
-        let mut b = vec![
-            crate::ndv::NDV_ALGO_DENSE_HLL,
-            crate::ndv::NDV_PRECISION,
-            0,
-            0,
-        ];
+        let mut b = vec![crate::ndv::NDV_ALGO_DENSE_HLL, crate::ndv::NDV_PRECISION, 0, 0,];
         b.extend_from_slice(&(regs.len() as u32).to_le_bytes());
         b.extend_from_slice(regs);
         b
@@ -490,19 +457,12 @@ fn ndv_estimate_equals_the_exp2_reference() {
     for round in 0..64u32 {
         let regs: Vec<u8> = (0..1usize << crate::ndv::NDV_PRECISION)
             .map(|i| {
-                x = x
-                    .wrapping_mul(6364136223846793005)
-                    .wrapping_add(1442695040888963407);
+                x = x.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
                 match round % 4 {
                     0 => (x >> 59) as u8,
                     1 => (x >> 56) as u8,
                     2 => ((i as u32 + round) % 256) as u8,
-                    _ => {
-                        if x >> 62 == 0 {
-                            (x >> 58) as u8
-                        } else {
-                            0
-                        }
+                    _ => { if x >> 62 == 0 { (x >> 58) as u8 } else { 0 }
                     }
                 }
             })
@@ -562,9 +522,8 @@ fn xc5_census_counts_bloom_and_psma_engagement() {
     // 300 distinct evens (0..598) in runs, the first and last rows swapped: unclustered, so the bloom
     // arms (D3070: a 300-value granule of a 64 KiB lane keeps its block; 8192 distinct keeps none), and
     // each value's rows sit together, so the PSMA narrows.
-    let mut shuffled: Vec<Option<TestValue>> = (0..8192u64)
-        .map(|i| Some(TestValue::Word(i * 300 / 8192 * 2)))
-        .collect();
+    let mut shuffled: Vec<Option<TestValue>> =
+        (0..8192u64).map(|i| Some(TestValue::Word(i * 300 / 8192 * 2))).collect();
     shuffled.swap(0, 8191);
     let mut b = ColumnMeta::new(int_profile());
     let col = TestColumn::new(int_class(), &shuffled);
@@ -662,31 +621,17 @@ fn xc5_census_counts_bloom_and_psma_engagement() {
 #[test]
 fn bloom_part_choice_prices_the_part_block() {
     let k = 6;
-    let c = |ndv: u32, lane: u64| {
-        Some(BloomCandidate {
-            ndv,
-            own: bloom_bytes_for(ndv, k),
-            lane_bytes: lane,
-        })
+    let c = |ndv: u32, lane: u64| { Some(BloomCandidate { ndv, own: bloom_bytes_for(ndv, k), lane_bytes: lane, })
     };
     let mut cands = vec![c(8192, 8192 * 8)];
     cands.extend((0..7).map(|_| c(200, 8192 * 8)));
     cands.push(None);
     let (bpg, armed) = bloom_part_choice(k, &cands).expect("the low granules pay");
-    assert_eq!(
-        bpg, 256,
-        "the low granules' own block, not the near-unique one's 16 KiB"
-    );
-    assert_eq!(
-        armed,
-        [false, true, true, true, true, true, true, true, false]
-    );
+    assert_eq!(bpg, 256, "the low granules' own block, not the near-unique one's 16 KiB");
+    assert_eq!(armed, [false, true, true, true, true, true, true, true, false]);
     assert!(bloom_part_choice(k, &[c(8192, 8192 * 8), c(8000, 8192 * 8)]).is_none());
     assert!(bloom_part_choice(k, &[None, None]).is_none());
     // a mid granule (2000 values) keeps a folded block on a raw 64 KiB lane, none on a 4 KiB stored one
-    assert_eq!(
-        bloom_part_choice(k, &[c(2000, 8192 * 8)]).map(|(b, _)| b),
-        Some(1024)
-    );
+    assert_eq!(bloom_part_choice(k, &[c(2000, 8192 * 8)]).map(|(b, _)| b), Some(1024));
     assert!(bloom_part_choice(k, &[c(2000, 4096)]).is_none());
 }

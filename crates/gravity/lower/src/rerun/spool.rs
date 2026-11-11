@@ -236,7 +236,7 @@ unsafe fn lay(ctx: *mut Ctx, base: *mut u8, bytes: usize, stream: u64) -> u64 {
     if (*ctx).resume != RESUME_NONE && (*rd).magic == MAGIC {
         return base as u64;
     }
-    if bytes < READER_HDR + 16 || !(base as usize).is_multiple_of(8) {
+    if bytes < READER_HDR + 16 || ! (base as usize).is_multiple_of( 8) {
         return unsupported(UNSUPPORTED_SCRATCH) as u64;
     }
     let nruns = spill(ctx, SPILL_RUNS, stream as i64);

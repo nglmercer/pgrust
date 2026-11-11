@@ -283,10 +283,10 @@ impl Fault {
             return true;
         }
         self.asks = self.asks.wrapping_add(1);
-        if self.revoke_every != 0 && self.asks.is_multiple_of(self.revoke_every) {
+        if self.revoke_every != 0 && self.asks.is_multiple_of( self.revoke_every) {
             mcx::revoke::request_self();
         }
-        if self.every == 0 || !self.asks.is_multiple_of(self.every) {
+        if self.every == 0 || ! self.asks.is_multiple_of( self.every) {
             return false;
         }
         FORCED.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
@@ -1397,7 +1397,7 @@ pub(crate) fn room_in(s: &State<'_>) -> u64 {
     // SAFETY: the slot and the reservation belong to the Node this State borrows, read on the leader's thread.
     unsafe {
         let r = &*h.region;
-        let reserved = if r.buf.is_reserved() && std::ptr::eq(r.ptr, r.buf.as_ptr()) { r.buf.reserve() as u64 } else { 0 };
+        let reserved = if r.buf.is_reserved() && std::ptr::eq( r.ptr, r.buf.as_ptr()) { r.buf.reserve() as u64 } else { 0 };
         // under a ceiling `grow_state_in` reopens the slot at most at it (`grow_state_capped`), whatever G has left
         if r.ceil != 0 {
             return reserved.max(ceil_cap(r.ceil));

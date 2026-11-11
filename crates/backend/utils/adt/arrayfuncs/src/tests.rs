@@ -2257,7 +2257,7 @@ mod p1_lanex_builtin_tables {
         }
         // ... and the 8 deconstruct types still work end-to-end.
         {
-            let oid = CSTRINGOID;
+            let oid =CSTRINGOID;
             assert!(deconstruct_builtin_meta(oid).is_ok());
         }
         let ctx = MemoryContext::new_bump("t");

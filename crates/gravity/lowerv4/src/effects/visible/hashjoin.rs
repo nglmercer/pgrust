@@ -261,13 +261,13 @@ fn own_side_with(gx: &Gx<'_, '_>, k: usize, uf: &dyn Fn(Node<'_>) -> bool, by: O
     let of = |n: Node<'_>| if uf(n) { Side::UserFn } else if rf(n) { Side::Safe } else { Side::Raises };
     let ops = &p.ops[..upto.min(p.ops.len())];
     let calls = match &p.source {
-        Source::Values { lists, .. } => lists.iter().filter_map(|l| l.as_list()).flat_map(|l| l.iter()).any(uf),
+        Source::Values { lists, .. } => lists.iter().filter_map(|l| l.as_list()).flat_map(|l| l.iter()).any( uf),
         Source::TableFunc { func: f, .. } => {
             let cols = [&f.colexprs, &f.coldefexprs, &f.colvalexprs].into_iter().flat_map(|l| l.iter().flatten());
-            f.docexpr.into_iter().chain(f.rowexpr).chain(f.passingvalexprs.iter()).chain(cols).any(uf)
+            f.docexpr.into_iter().chain(f.rowexpr).chain(f.passingvalexprs.iter()).chain(cols).any( uf)
         }
-        Source::Index { keys, recheck, .. } => keys.iter().map(|k| k.value).chain(recheck.iter()).any(uf),
-        Source::Bitmap { recheck, .. } => recheck.iter().any(uf),
+        Source::Index { keys, recheck, .. } => keys.iter().map(|k| k.value).chain(recheck.iter()).any( uf),
+        Source::Bitmap { recheck, .. } => recheck.iter().any( uf),
         _ => false,
     };
     // D2063's facts (`initdb_index`): a user table's index whose opclasses and key operators are initdb ones reads as a

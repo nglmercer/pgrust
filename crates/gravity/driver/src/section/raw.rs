@@ -466,7 +466,7 @@ pub(super) fn owner_top<'a>(r: crate::sink::Region) -> &'a OwnerTop {
 /// D3111: an opened one-round owner's state before a partition's fold, its header and kept bytes `[0, end)` (`end` a
 /// multiple of 8 at most its table offset), into `snap`.
 pub(super) fn owner_save(r: crate::sink::Region, end: usize, snap: &mut Vec<u64>) {
-    debug_assert!(end.is_multiple_of(8) && end <= owner_top(r).table_off as usize && end <= r.len);
+    debug_assert!(end.is_multiple_of( 8) && end <= owner_top(r).table_off as usize && end <= r.len);
     snap.clear();
     // SAFETY: the owner's first `end` bytes (its header and kept state, below its table space), this thread's alone and
     // 8-aligned as every owner region (`OwnerTop::view`).
@@ -585,7 +585,7 @@ pub(super) fn copy_frame_words(program: &gravity_program::Program, from: *mut gr
     // SAFETY: both bound ctxs lay site `ws` with `n` key cells (node/image.rs); the leader thread, no worker running yet
     unsafe {
         let (f, t) = ((*gravity_abi::ctx::site_ptr(from, ws)).keys.ptr() as *const u64, (*gravity_abi::ctx::site_ptr(to, ws)).keys.ptr());
-        if !f.is_null() && !t.is_null() && !std::ptr::eq(f, t) {
+        if !f.is_null() && !t.is_null() && !std::ptr::eq( f, t) {
             core::ptr::copy_nonoverlapping(f, t, n);
         }
     }

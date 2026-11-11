@@ -380,7 +380,7 @@ impl<'e, 'b, 'mcx> Em<'e, 'b, 'mcx> {
     /// D3233 (`CaseSelect`): a CASE arm that computes anything in its own block where `guard` holds, as `guarded` runs one
     /// that calls a host; a trivial arm is read and masked as before.
     fn arm(&mut self, guard: Value, id: NodeId) -> Result<Lowered, EmitError> {
-        if CaseSelect::on() && !trivial(self.p, id) && self.b.const_of(guard).is_none() {
+        if CaseSelect::on() && !trivial(self.p, id) &&self.b.const_of(guard).is_none() {
             return self.branch(guard, id);
         }
         self.guarded(guard, id)

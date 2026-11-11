@@ -92,7 +92,7 @@ pub(crate) fn actions<'g, 'p>(px: &mut Px<'g, 'p>, m: &MergeDesc<'p>, ((relid, n
                     if gx.facts.att(relid, te.resno).is_none() && gx.facts.dropped_layout(relid, te.resno).is_some() && te.expr.as_const().is_some_and(|c| c.constisnull) {
                         continue;
                     }
-                    let Some((i, f)) = usize::try_from(te.resno - 1).ok().zip(gx.facts.att(relid, te.resno)) else { shape(node, "MERGE: an INSERT column the target does not have") };
+                    let Some((i, f)) = usize::try_from(te.resno - 1).ok().zip( gx.facts.att(relid, te.resno)) else { shape(node, "MERGE: an INSERT column the target does not have") };
                     let Some(tf) = typefacts::facts_of(gx.facts, f.typid) else { shape(node, "MERGE: a target column type the catalog does not know") };
                     check(te.expr);
                     let out = gx.out_of(te.expr).unwrap_or(ExprOut { rep: Rep::of_storage(f.typlen, f.byval), typid: f.typid, life: ExprLife::Row });

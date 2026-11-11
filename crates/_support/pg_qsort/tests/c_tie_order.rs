@@ -31,12 +31,8 @@ fn cases() -> Vec<Vec<i32>> {
         out.push((0..n).map(|i| (i / 3) as i32).collect()); // presorted with ties
         out.push((0..n).rev().map(|i| (i / 3) as i32).collect()); // reverse
         out.push(vec![42i32; n]); // all-equal
-                                  // Organ-pipe and sawtooth (classic B&M adversary shapes).
-        out.push(
-            (0..n)
-                .map(|i| std::cmp::min(i, n - i.min(n)) as i32)
-                .collect(),
-        );
+        // Organ-pipe and sawtooth (classic B&M adversary shapes).
+        out.push((0..n).map(|i| std::cmp::min(i, n - i.min(n)) as i32).collect(),);
         out.push((0..n).map(|i| (i % 13) as i32).collect());
     }
     out
@@ -68,12 +64,7 @@ fn tie_order_matches_verbatim_c() {
             .stdout(Stdio::piped())
             .spawn()
             .unwrap();
-        child
-            .stdin
-            .take()
-            .unwrap()
-            .write_all(input.as_bytes())
-            .unwrap();
+        child.stdin.take().unwrap().write_all(input.as_bytes()).unwrap();
         let out = child.wait_with_output().unwrap();
         assert!(out.status.success());
         let c_perm: Vec<i32> = String::from_utf8(out.stdout)
@@ -92,8 +83,7 @@ fn tie_order_matches_verbatim_c() {
         let r_perm: Vec<i32> = v.iter().map(|e| e.1).collect();
 
         assert_eq!(
-            c_perm,
-            r_perm,
+            c_perm, r_perm,
             "tie-order divergence vs verbatim C on case {} (n={})",
             ci,
             keys.len()
@@ -104,9 +94,6 @@ fn tie_order_matches_verbatim_c() {
 
 fn manifest_dir() -> &'static std::path::Path {
     static DIR: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
-    DIR.get_or_init(|| {
-        std::env::var_os("CARGO_MANIFEST_DIR")
-            .map(Into::into)
-            .expect("CARGO_MANIFEST_DIR unset: run under cargo test (D793-b)")
+    DIR.get_or_init(|| { std::env::var_os("CARGO_MANIFEST_DIR").map(Into::into).expect("CARGO_MANIFEST_DIR unset: run under cargo test (D793-b)")
     })
 }

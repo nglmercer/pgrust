@@ -12,9 +12,6 @@ fn mcx_and_gravity_default_on_and_zero_turns_one_off() {
     let s = pagepool::switches();
     assert!(s.mcx, "PGRUST_POOL_MCX unset: on in the pool-global build");
     assert!(!s.gravity, "PGRUST_POOL_GRAVITY=0: off");
-    assert!(
-        !s.cache && !s.buffers && !s.keepers && !s.debug,
-        "the other switches still need =1: {s:?}"
-    );
+    assert!(!s.cache && !s.buffers && !s.keepers && !s.debug, "the other switches still need =1: {s:?}");
     assert!(s.any());
 }

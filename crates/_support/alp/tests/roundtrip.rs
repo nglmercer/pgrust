@@ -75,9 +75,7 @@ fn decimal_origin_large_mantissas() {
 #[test]
 fn pure_random_bit_patterns() {
     let mut rng = Rng::new(0xB0);
-    let values: Vec<f64> = (0..300_000)
-        .map(|_| f64::from_bits(rng.next_u64()))
-        .collect();
+    let values: Vec<f64> = (0..300_000).map(|_| f64::from_bits(rng.next_u64())).collect();
     assert_roundtrip(&values);
     let a = analyze(&values);
     // The raw fallback bounds every rowgroup at 8 bytes/value.
@@ -110,11 +108,7 @@ fn signed_zeros_infinities_denormals() {
         match i % 5 {
             0 => values.push(0.0),
             1 => values.push(-0.0),
-            2 => values.push(if i % 2 == 0 {
-                f64::INFINITY
-            } else {
-                f64::NEG_INFINITY
-            }),
+            2 => values.push(if i % 2 == 0 { f64::INFINITY } else { f64::NEG_INFINITY }),
             // Denormals: biased exponent 0, nonzero mantissa.
             3 => values.push(f64::from_bits(rng.below((1 << 52) - 1) + 1)),
             _ => values.push(rng.i64_in(-999, 999) as f64 / 10.0),
@@ -169,12 +163,8 @@ fn sampling_is_deterministic() {
 #[test]
 fn tail_vectors_and_boundary_lengths() {
     let mut rng = Rng::new(0xF0);
-    for &n in &[
-        1usize, 2, 31, 1023, 1024, 1025, 2055, 102_399, 102_400, 102_401, 103_423,
-    ] {
-        let values: Vec<f64> = (0..n)
-            .map(|_| rng.i64_in(-50_000, 50_000) as f64 / 100.0)
-            .collect();
+    for &n in &[1usize, 2, 31, 1023, 1024, 1025, 2055, 102_399, 102_400, 102_401, 103_423,] {
+        let values: Vec<f64> = (0..n).map(|_| rng.i64_in(-50_000, 50_000) as f64 / 100.0).collect();
         assert_roundtrip(&values);
     }
     assert_roundtrip(&[]);
@@ -249,9 +239,7 @@ fn mixed_regimes_split_per_rowgroup() {
 fn throughput_smoke() {
     let mut rng = Rng::new(0x77);
     let n = 8 * 1024 * 1024;
-    let values: Vec<f64> = (0..n)
-        .map(|_| rng.i64_in(-1_000_000, 1_000_000) as f64 / 100.0)
-        .collect();
+    let values: Vec<f64> = (0..n).map(|_| rng.i64_in(-1_000_000, 1_000_000) as f64 / 100.0).collect();
 
     let t0 = std::time::Instant::now();
     let encoded = encode(&values);

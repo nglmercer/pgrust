@@ -1,4 +1,4 @@
-#![allow(non_snake_case, non_upper_case_globals)]
+#![allow(non_snake_case,non_upper_case_globals)]
 
 use std::cell::{Cell, UnsafeCell};
 use std::mem::ManuallyDrop;
@@ -1147,7 +1147,7 @@ pub fn ImportSnapshot(idstr: &str) -> PgResult<()> {
     let mut lines = text.lines();
     let mut field = |prefix: &str| -> PgResult<&str> {
         let line = lines.next().ok_or_else(invalid)?;
-        line.strip_prefix(prefix).ok_or_else(&invalid)
+        line.strip_prefix(prefix).ok_or_else(& invalid)
     };
 
     let vxid_raw = field("vxid:")?;

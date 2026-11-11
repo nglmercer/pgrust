@@ -91,10 +91,7 @@ fn query_walker_covers_targetlist_and_jointree_quals() {
     let p2 = extern_param(mcx, 2);
     let jointree = Node::mk_mut(
         mcx,
-        FromExpr {
-            fromlist: NodeList::nil(),
-            quals: Some(p2),
-        },
+        FromExpr { fromlist: NodeList::nil(), quals: Some(p2), },
     )
     .unwrap()
     .seal_ref();
@@ -127,15 +124,9 @@ fn raw_walker_descends_select_stmt_and_set_op_args() {
     fn leaf_select<'mcx>(mcx: Mcx<'mcx>, paramno: i32) -> SelectStmt<'mcx> {
         let col = Node::mk_column_ref(mcx, NodeList::nil(), -1).unwrap();
         let pref = Node::mk_param_ref(mcx, paramno, -1).unwrap();
-        let aexpr = Node::mk_a_expr(
-            mcx,
-            A_Expr_Kind::AEXPR_OP,
-            NodeList::nil(),
-            Some(col),
-            Some(pref),
-            -1,
-        )
-        .unwrap();
+        let aexpr =
+            Node::mk_a_expr(mcx, A_Expr_Kind::AEXPR_OP, NodeList::nil(), Some(col), Some(pref), -1,)
+                .unwrap();
         let rt = Node::mk_res_target(mcx, None, NodeList::nil(), Some(aexpr), -1).unwrap();
         SelectStmt {
             targetList: NodeList::from_slice(mcx, &[rt]).unwrap(),
@@ -146,20 +137,11 @@ fn raw_walker_descends_select_stmt_and_set_op_args() {
 
     let larg = Node::mk_mut(mcx, leaf_select(mcx, 1)).unwrap().seal_ref();
     let rarg = Node::mk_mut(mcx, leaf_select(mcx, 2)).unwrap().seal_ref();
-    let union = Node::mk(
-        mcx,
-        SelectStmt {
-            larg: Some(larg),
-            rarg: Some(rarg),
-            ..SelectStmt::default()
-        },
-    )
-    .unwrap();
+    let union =
+        Node::mk(mcx, SelectStmt { larg: Some(larg), rarg: Some(rarg), ..SelectStmt::default() },)
+            .unwrap();
 
-    let mut w = CountParams {
-        analyzed: 0,
-        raw: 0,
-    };
+    let mut w = CountParams { analyzed: 0, raw: 0, };
     assert!(!raw_expression_tree_walker(union, &mut w).unwrap());
     assert_eq!(w.raw, 4);
     assert_eq!(w.analyzed, 0);
@@ -171,26 +153,13 @@ fn raw_walker_alias_ref_hook_defaults_to_noop() {
     let mcx = ctx.mcx();
     let alias = Node::mk_mut(
         mcx,
-        types_nodes::primnodes::Alias {
-            aliasname: Some("t"),
-            colnames: NodeList::nil(),
-        },
+        types_nodes::primnodes::Alias { aliasname: Some("t"), colnames: NodeList::nil(), },
     )
     .unwrap()
     .seal_ref();
-    let rv = Node::mk(
-        mcx,
-        RangeVar {
-            alias: Some(alias),
-            ..RangeVar::default()
-        },
-    )
-    .unwrap();
+    let rv = Node::mk(mcx, RangeVar { alias: Some(alias), ..RangeVar::default() },).unwrap();
 
-    let mut w = CountParams {
-        analyzed: 0,
-        raw: 0,
-    };
+    let mut w = CountParams { analyzed: 0, raw: 0, };
     assert!(!raw_expression_tree_walker(rv, &mut w).unwrap());
 
     struct SeesAlias(bool);
@@ -245,10 +214,7 @@ fn raw_walker_range_function_walks_functions_and_coldeflist() {
     let cd = Node::mk_param_ref(mcx, 2, -1).unwrap();
     let alias = Node::mk_mut(
         mcx,
-        types_nodes::primnodes::Alias {
-            aliasname: Some("x"),
-            colnames: NodeList::nil(),
-        },
+        types_nodes::primnodes::Alias { aliasname: Some("x"), colnames: NodeList::nil(), },
     )
     .unwrap()
     .seal_ref();
@@ -262,10 +228,7 @@ fn raw_walker_range_function_walks_functions_and_coldeflist() {
         },
     )
     .unwrap();
-    let mut w = CountParams {
-        analyzed: 0,
-        raw: 0,
-    };
+    let mut w = CountParams { analyzed: 0, raw: 0, };
     assert!(!raw_expression_tree_walker(rf, &mut w).unwrap());
     assert_eq!(w.raw, 2);
 }
@@ -296,10 +259,7 @@ fn raw_walker_case_expr_walks_arg_whens_defresult() {
         },
     )
     .unwrap();
-    let mut w = CountParams {
-        analyzed: 0,
-        raw: 0,
-    };
+    let mut w = CountParams { analyzed: 0, raw: 0, };
     assert!(!raw_expression_tree_walker(case, &mut w).unwrap());
     assert_eq!(w.raw, 4);
 }
@@ -314,18 +274,10 @@ fn raw_walker_unported_vocab_is_loud() {
     let te = Node::mk_target_entry(mcx, p, 1, None, false).unwrap();
     let rt = Node::mk(
         mcx,
-        ResTarget {
-            name: None,
-            indirection: NodeList::nil(),
-            val: Some(te),
-            location: -1,
-        },
+        ResTarget { name: None, indirection: NodeList::nil(), val: Some(te), location: -1, },
     )
     .unwrap();
-    let mut w = CountParams {
-        analyzed: 0,
-        raw: 0,
-    };
+    let mut w = CountParams { analyzed: 0, raw: 0, };
     let err = raw_expression_tree_walker(rt, &mut w).unwrap_err();
     assert_eq!(err.sqlstate(), types_error::ERRCODE_INTERNAL_ERROR);
     assert_eq!(
@@ -354,10 +306,7 @@ fn apply_relabel_type_retypes_const_in_place() {
     )
     .unwrap();
     let out = out.as_const().unwrap();
-    assert_eq!(
-        (out.consttype, out.consttypmod, out.constcollid),
-        (19, -1, 950)
-    );
+    assert_eq!((out.consttype, out.consttypmod, out.constcollid), (19, -1, 950));
     assert_eq!(out.location, -1);
 }
 
@@ -463,30 +412,22 @@ fn walker_and_mutator_cover_saop_array_relabel_case() {
     assert!(!expression_tree_walker(relabel, &mut w).unwrap());
     assert_eq!(w.0, 2);
 
-    assert!(expression_tree_mutator(mcx, relabel, &mut |_| Ok(None))
-        .unwrap()
-        .is_none());
+    assert!(expression_tree_mutator(mcx, relabel, &mut |_| Ok(None)).unwrap().is_none());
     let replacement = extern_param(mcx, 9);
     let out = expression_tree_mutator(mcx, relabel, &mut |n| {
         if n.node_tag() == NodeTag::T_Param && n.as_param().unwrap().paramid == 1 {
             Ok(Some(replacement))
         } else {
             expression_tree_mutator(mcx, n, &mut |n2| {
-                Ok(
-                    (n2.node_tag() == NodeTag::T_Param && n2.as_param().unwrap().paramid == 1)
-                        .then_some(replacement),
-                )
+                Ok((n2.node_tag() == NodeTag::T_Param
+                    && n2.as_param().unwrap().paramid == 1)
+                    .then_some(replacement),)
             })
         }
     })
     .unwrap()
     .expect("substituted param rebuilds the tree");
-    let new_saop = out
-        .as_relabel_type()
-        .unwrap()
-        .arg
-        .as_scalar_array_op_expr()
-        .unwrap();
+    let new_saop = out.as_relabel_type().unwrap().arg.as_scalar_array_op_expr().unwrap();
     assert_eq!(new_saop.args.nth(0).as_param().unwrap().paramid, 9);
     assert!(new_saop.args.nth(1).ptr_eq(arr));
 }
@@ -508,19 +449,15 @@ fn expected_sections() -> Vec<(usize, &'static str, &'static str)> {
     let mut rest = CPRINT_EXPECTED;
     #[allow(clippy::while_let_loop)]
     loop {
-        let Some(start) = rest.find("#ENTRY ") else {
-            break;
-        };
+        let Some(start) = rest.find("#ENTRY ") else { break; };
         let hdr_end = rest[start..].find('\n').map(|p| start + p + 1).unwrap();
         let hdr = &rest[start..hdr_end - 1];
         let mut it = hdr.split(' ');
         it.next();
         let idx: usize = it.next().unwrap().parse().unwrap();
         let kind = it.next().unwrap();
-        let body_end = rest[hdr_end..]
-            .find("#ENTRY ")
-            .map(|p| hdr_end + p)
-            .unwrap_or(rest.len());
+        let body_end =
+            rest[hdr_end..].find("#ENTRY ").map(|p| hdr_end + p).unwrap_or(rest.len());
         out.push((idx, kind, &rest[hdr_end..body_end]));
         rest = &rest[body_end..];
         if rest.is_empty() {
@@ -574,10 +511,7 @@ fn print_corpus_head_matches_node_to_string() {
         location: 7,
     };
     let c42 = Node::mk(mcx, int4_const(42)).unwrap();
-    assert_eq!(
-        outfuncs::nodeToString(mcx, c42).unwrap().as_str(),
-        entries[0]
-    );
+    assert_eq!(outfuncs::nodeToString(mcx, c42).unwrap().as_str(), entries[0]);
     let var = Node::mk(
         mcx,
         Var {
@@ -613,10 +547,7 @@ fn print_corpus_head_matches_node_to_string() {
         },
     )
     .unwrap();
-    assert_eq!(
-        outfuncs::nodeToString(mcx, op).unwrap().as_str(),
-        entries[1]
-    );
+    assert_eq!(outfuncs::nodeToString(mcx, op).unwrap().as_str(), entries[1]);
 }
 
 #[test]
@@ -640,10 +571,7 @@ fn expr_input_collation_arms() {
     )
     .unwrap();
     assert_eq!(expr_input_collation(op), 100);
-    assert_eq!(
-        expr_input_collation(extern_param(mcx, 1)),
-        types_core::InvalidOid
-    );
+    assert_eq!(expr_input_collation(extern_param(mcx, 1)), types_core::InvalidOid);
 }
 
 #[test]
@@ -652,15 +580,9 @@ fn qoe_mutator_non_query_applies_directly() {
     let mcx = ctx.mcx();
     let p = extern_param(mcx, 1);
     let mut m = |n: Node<'_>| {
-        Ok(if n.node_tag() == NodeTag::T_Param {
-            Some(extern_param(mcx, 2))
-        } else {
-            None
-        })
+        Ok(if n.node_tag() == NodeTag::T_Param { Some(extern_param(mcx, 2)) } else { None })
     };
-    let out = query_or_expression_tree_mutator(mcx, p, &mut m, 0)
-        .unwrap()
-        .unwrap();
+    let out = query_or_expression_tree_mutator(mcx, p, &mut m, 0).unwrap().unwrap();
     assert_eq!(out.as_param().unwrap().paramid, 2);
 }
 
@@ -688,14 +610,11 @@ fn on_conflict_expr_walker_reaches_all_five_fields() {
     use types_nodes::primnodes::{InferenceElem, OnConflictAction, OnConflictExpr};
     let ctx = cx();
     let mcx = ctx.mcx();
-    let mk_te = |id| Node::mk_target_entry(mcx, extern_param(mcx, id), 1, None, false).unwrap();
+    let mk_te = |id|
+        Node::mk_target_entry(mcx, extern_param(mcx, id), 1, None, false).unwrap();
     let ie = Node::mk(
         mcx,
-        InferenceElem {
-            expr: Some(extern_param(mcx, 1)),
-            infercollid: 0,
-            inferopclass: 0,
-        },
+        InferenceElem { expr: Some(extern_param(mcx, 1)), infercollid: 0, inferopclass: 0, },
     )
     .unwrap();
     let oc = Node::mk(
@@ -733,7 +652,8 @@ fn on_conflict_expr_mutator_identity_and_rebuild() {
     use types_nodes::primnodes::{OnConflictAction, OnConflictExpr};
     let ctx = cx();
     let mcx = ctx.mcx();
-    let set_te = Node::mk_target_entry(mcx, extern_param(mcx, 1), 1, None, false).unwrap();
+    let set_te =
+        Node::mk_target_entry(mcx, extern_param(mcx, 1), 1, None, false).unwrap();
     let oc = Node::mk(
         mcx,
         OnConflictExpr {
@@ -749,9 +669,7 @@ fn on_conflict_expr_mutator_identity_and_rebuild() {
     )
     .unwrap();
 
-    assert!(expression_tree_mutator(mcx, oc, &mut |_| Ok(None))
-        .unwrap()
-        .is_none());
+    assert!(expression_tree_mutator(mcx, oc, &mut |_| Ok(None)).unwrap().is_none());
 
     let replacement = extern_param(mcx, 9);
     let out = expression_tree_mutator(mcx, oc, &mut |n| {
@@ -760,10 +678,7 @@ fn on_conflict_expr_mutator_identity_and_rebuild() {
     .unwrap()
     .expect("changed onConflictWhere rebuilds the node");
     let new_oc = out.as_on_conflict_expr().unwrap();
-    assert_eq!(
-        new_oc.onConflictWhere.unwrap().as_param().unwrap().paramid,
-        9
-    );
+    assert_eq!(new_oc.onConflictWhere.unwrap().as_param().unwrap().paramid, 9);
     assert_eq!(new_oc.exclRelIndex, 2);
     assert_eq!(new_oc.onConflictSet.len(), 1);
 }
@@ -793,25 +708,11 @@ fn expr_location_covers_c_arms_and_defaults_to_minus_one() {
 
     // C exprLocation: SortBy reports its argument's location (the operator,
     // if any, is ignored).
-    let sb = Node::mk(
-        mcx,
-        SortBy {
-            node: Some(con),
-            ..SortBy::default()
-        },
-    )
-    .unwrap();
+    let sb = Node::mk(mcx, SortBy { node: Some(con), ..SortBy::default() },).unwrap();
     assert_eq!(node_funcs::expr_location(sb), 7);
 
     // WindowDef carries its own location.
-    let wd = Node::mk(
-        mcx,
-        WindowDef {
-            location: 11,
-            ..WindowDef::default()
-        },
-    )
-    .unwrap();
+    let wd = Node::mk(mcx, WindowDef { location: 11, ..WindowDef::default() },).unwrap();
     assert_eq!(node_funcs::expr_location(wd), 11);
 
     // TargetEntry reports its expression's location.
@@ -1079,10 +980,7 @@ fn strip_implicit_coercions_strips_implicit_coerce_to_domain() {
         .unwrap()
     };
     let implicit = domain(c, CoercionForm::COERCE_IMPLICIT_CAST);
-    assert_eq!(
-        strip_implicit_coercions(implicit).node_tag(),
-        NodeTag::T_Const
-    );
+    assert_eq!(strip_implicit_coercions(implicit).node_tag(), NodeTag::T_Const);
     // Stacked implicit coercions strip all the way down (C recurses).
     let relabel = Node::mk(
         mcx,
@@ -1096,21 +994,12 @@ fn strip_implicit_coercions_strips_implicit_coerce_to_domain() {
         },
     )
     .unwrap();
-    assert_eq!(
-        strip_implicit_coercions(relabel).node_tag(),
-        NodeTag::T_Const
-    );
+    assert_eq!(strip_implicit_coercions(relabel).node_tag(), NodeTag::T_Const);
     // Explicit casts and SQL-syntax coercions are kept.
     let explicit = domain(c, CoercionForm::COERCE_EXPLICIT_CAST);
-    assert_eq!(
-        strip_implicit_coercions(explicit).node_tag(),
-        NodeTag::T_CoerceToDomain
-    );
+    assert_eq!(strip_implicit_coercions(explicit).node_tag(), NodeTag::T_CoerceToDomain);
     let sql_syntax = domain(c, CoercionForm::COERCE_SQL_SYNTAX);
-    assert_eq!(
-        strip_implicit_coercions(sql_syntax).node_tag(),
-        NodeTag::T_CoerceToDomain
-    );
+    assert_eq!(strip_implicit_coercions(sql_syntax).node_tag(), NodeTag::T_CoerceToDomain);
 }
 
 fn install_int4_eq_operator_seam() {
@@ -1212,17 +1101,9 @@ fn fix_opfuncids_fills_distinct_nullif_and_scalar_array_ops() {
     .unwrap();
     fix_opfuncids(and).unwrap();
     assert_eq!(op.as_op_expr().unwrap().opfuncid, 65, "OpExpr");
-    assert_eq!(
-        distinct.as_distinct_expr().unwrap().opfuncid,
-        65,
-        "DistinctExpr"
-    );
+    assert_eq!(distinct.as_distinct_expr().unwrap().opfuncid, 65, "DistinctExpr");
     assert_eq!(nullif.as_null_if_expr().unwrap().opfuncid, 65, "NullIfExpr");
-    assert_eq!(
-        saop.as_scalar_array_op_expr().unwrap().opfuncid,
-        65,
-        "ScalarArrayOpExpr"
-    );
+    assert_eq!(saop.as_scalar_array_op_expr().unwrap().opfuncid, 65, "ScalarArrayOpExpr");
 }
 
 // C exprType (nodeFuncs.c:96-130): MULTIEXPR sublinks are RECORD; only
@@ -1236,10 +1117,7 @@ fn expr_accessors_multiexpr_sublink_is_record_and_skip_the_subselect_otherwise()
     let te = Node::mk_target_entry(mcx, int4_const_at(mcx, 1, -1), 1, None, false).unwrap();
     let subselect = Node::mk(
         mcx,
-        Query {
-            targetList: NodeList::from_slice(mcx, &[te]).unwrap(),
-            ..Query::default()
-        },
+        Query { targetList: NodeList::from_slice(mcx, &[te]).unwrap(), ..Query::default() },
     )
     .unwrap();
     let sublink = |kind, subselect| {
@@ -1257,11 +1135,7 @@ fn expr_accessors_multiexpr_sublink_is_record_and_skip_the_subselect_otherwise()
         .unwrap()
     };
     let multi = sublink(SubLinkType::MULTIEXPR_SUBLINK, subselect);
-    assert_eq!(
-        expr_type(multi),
-        2249,
-        "C: MULTIEXPR is always considered to return RECORD"
-    );
+    assert_eq!(expr_type(multi), 2249, "C: MULTIEXPR is always considered to return RECORD");
     assert_eq!(expr_typmod(multi), -1);
     assert_eq!(expr_collation(multi), 0);
 
@@ -1352,11 +1226,7 @@ fn walker_reaches_cte_search_and_cycle_clauses() {
     assert_eq!(count_tag(&w.0, NodeTag::T_Query), 1);
     assert_eq!(count_tag(&w.0, NodeTag::T_CTESearchClause), 1);
     assert_eq!(count_tag(&w.0, NodeTag::T_CTECycleClause), 1);
-    assert_eq!(
-        count_tag(&w.0, NodeTag::T_Const),
-        2,
-        "cycle mark value + default"
-    );
+    assert_eq!(count_tag(&w.0, NodeTag::T_Const), 2, "cycle mark value + default");
 }
 
 // C expression_tree_walker arms (nodeFuncs.c:2399-2412 WindowClause,
@@ -1392,14 +1262,7 @@ fn walker_covers_window_clause_json_constructor_and_planner_arms() {
     assert_eq!(count_tag(&t, NodeTag::T_SortGroupClause), 2);
     assert_eq!(count_tag(&t, NodeTag::T_Const), 2);
 
-    let kv = Node::mk(
-        mcx,
-        JsonKeyValue {
-            key: Some(c(1)),
-            value: Some(c(2)),
-        },
-    )
-    .unwrap();
+    let kv = Node::mk(mcx, JsonKeyValue { key: Some(c(1)), value: Some(c(2)), },).unwrap();
     assert_eq!(count_tag(&trail(kv), NodeTag::T_Const), 2);
     let obj = Node::mk(
         mcx,
@@ -1423,10 +1286,7 @@ fn walker_covers_window_clause_json_constructor_and_planner_arms() {
     assert_eq!(count_tag(&trail(arr), NodeTag::T_Const), 3);
     let arrq = Node::mk(
         mcx,
-        JsonArrayQueryConstructor {
-            query: Some(c(1)),
-            ..JsonArrayQueryConstructor::default()
-        },
+        JsonArrayQueryConstructor { query: Some(c(1)), ..JsonArrayQueryConstructor::default() },
     )
     .unwrap();
     assert_eq!(count_tag(&trail(arrq), NodeTag::T_Const), 1);
@@ -1457,11 +1317,7 @@ fn walker_covers_window_clause_json_constructor_and_planner_arms() {
     assert_eq!(count_tag(&t, NodeTag::T_Const), 5);
     let arragg = Node::mk(
         mcx,
-        JsonArrayAgg {
-            constructor: Some(agg),
-            arg: Some(c(9)),
-            ..JsonArrayAgg::default()
-        },
+        JsonArrayAgg { constructor: Some(agg), arg: Some(c(9)), ..JsonArrayAgg::default() },
     )
     .unwrap();
     assert_eq!(count_tag(&trail(arragg), NodeTag::T_Const), 4);
@@ -1475,11 +1331,8 @@ fn walker_covers_window_clause_json_constructor_and_planner_arms() {
     )
     .unwrap();
     assert_eq!(count_tag(&trail(step), NodeTag::T_Const), 2);
-    let combine = Node::mk(
-        mcx,
-        types_nodes::plannodes::PartitionPruneStepCombine::default(),
-    )
-    .unwrap();
+    let combine =
+        Node::mk(mcx, types_nodes::plannodes::PartitionPruneStepCombine::default(),).unwrap();
     assert!(trail(combine).is_empty());
     let ari = Node::mk(
         mcx,
@@ -1528,10 +1381,7 @@ fn mutator_covers_query_window_cte_json_and_planner_arms() {
 
     let q = Node::mk(
         mcx,
-        Query {
-            targetList: NodeList::from_slice(mcx, &[c(1)]).unwrap(),
-            ..Query::default()
-        },
+        Query { targetList: NodeList::from_slice(mcx, &[c(1)]).unwrap(), ..Query::default() },
     )
     .unwrap();
     assert!(expression_tree_mutator(mcx, q, &mut m).unwrap().is_none());
@@ -1547,9 +1397,7 @@ fn mutator_covers_query_window_cte_json_and_planner_arms() {
         },
     )
     .unwrap();
-    let out = expression_tree_mutator(mcx, wc, &mut m)
-        .unwrap()
-        .expect("startOffset changed");
+    let out = expression_tree_mutator(mcx, wc, &mut m).unwrap().expect("startOffset changed");
     let nwc = out.as_window_clause().unwrap();
     assert!(is99(nwc.startOffset.unwrap()));
     assert!(nwc.endOffset.is_none());
@@ -1566,9 +1414,7 @@ fn mutator_covers_query_window_cte_json_and_planner_arms() {
         },
     )
     .unwrap();
-    let out = expression_tree_mutator(mcx, cycle, &mut m)
-        .unwrap()
-        .expect("marks changed");
+    let out = expression_tree_mutator(mcx, cycle, &mut m).unwrap().expect("marks changed");
     let ncc = out.as_cte_cycle_clause().unwrap();
     assert!(is99(ncc.cycle_mark_value.unwrap()) && is99(ncc.cycle_mark_default.unwrap()));
     assert_eq!(ncc.cycle_mark_column, Some("c"));
@@ -1587,9 +1433,7 @@ fn mutator_covers_query_window_cte_json_and_planner_arms() {
         },
     )
     .unwrap();
-    let out = expression_tree_mutator(mcx, cte, &mut m)
-        .unwrap()
-        .expect("cycle clause changed");
+    let out = expression_tree_mutator(mcx, cte, &mut m).unwrap().expect("cycle clause changed");
     let ncte = out.as_common_table_expr().unwrap();
     assert_eq!(ncte.ctename, Some("g"));
     let ncycle = ncte.cycle_clause.unwrap().as_cte_cycle_clause().unwrap();
@@ -1605,19 +1449,13 @@ fn mutator_covers_query_window_cte_json_and_planner_arms() {
         },
     )
     .unwrap();
-    assert!(expression_tree_mutator(mcx, cte2, &mut m)
-        .unwrap()
-        .is_none());
+    assert!(expression_tree_mutator(mcx, cte2, &mut m).unwrap().is_none());
 
     let fmt = Node::mk(mcx, types_nodes::primnodes::JsonFormat::default()).unwrap();
     assert!(expression_tree_mutator(mcx, fmt, &mut m).unwrap().is_none());
     let ret = Node::mk(
         mcx,
-        types_nodes::primnodes::JsonReturning {
-            format: None,
-            typid: 114,
-            typmod: -1,
-        },
+        types_nodes::primnodes::JsonReturning { format: None, typid: 114, typmod: -1, },
     )
     .unwrap();
     assert!(expression_tree_mutator(mcx, ret, &mut m).unwrap().is_none());
@@ -1631,20 +1469,13 @@ fn mutator_covers_query_window_cte_json_and_planner_arms() {
         },
     )
     .unwrap();
-    let out = expression_tree_mutator(mcx, step, &mut m)
-        .unwrap()
-        .expect("exprs changed");
+    let out = expression_tree_mutator(mcx, step, &mut m).unwrap().expect("exprs changed");
     let nstep = out.as_partition_prune_step_op().unwrap();
     assert_eq!(nstep.step_id, 3);
     assert!(is99(nstep.exprs.nth(0)));
-    let combine = Node::mk(
-        mcx,
-        types_nodes::plannodes::PartitionPruneStepCombine::default(),
-    )
-    .unwrap();
-    assert!(expression_tree_mutator(mcx, combine, &mut m)
-        .unwrap()
-        .is_none());
+    let combine =
+        Node::mk(mcx, types_nodes::plannodes::PartitionPruneStepCombine::default(),).unwrap();
+    assert!(expression_tree_mutator(mcx, combine, &mut m).unwrap().is_none());
     let ari = Node::mk(
         mcx,
         types_nodes::plannodes::AppendRelInfo {
@@ -1670,10 +1501,7 @@ fn expr_location_collate_clause_uses_the_argument_only() {
     let collate = |arg_loc, loc| {
         let arg = Node::mk(
             mcx,
-            types_nodes::rawnodes::ColumnRef {
-                fields: NodeList::nil(),
-                location: arg_loc,
-            },
+            types_nodes::rawnodes::ColumnRef { fields: NodeList::nil(), location: arg_loc, },
         )
         .unwrap();
         Node::mk(
@@ -1702,10 +1530,7 @@ fn walker_and_mutator_report_unrecognized_node_type_as_internal_error() {
     let rv = Node::mk(mcx, RangeVar::default()).unwrap();
     let expected = format!("unrecognized node type: {}", NodeTag::T_RangeVar as u16);
 
-    let mut w = CountParams {
-        analyzed: 0,
-        raw: 0,
-    };
+    let mut w = CountParams { analyzed: 0, raw: 0, };
     let err = expression_tree_walker(rv, &mut w).unwrap_err();
     assert_eq!(err.sqlstate(), types_error::ERRCODE_INTERNAL_ERROR);
     assert_eq!(err.message(), expected);
@@ -1743,12 +1568,7 @@ fn print_expr_invalid_attnum_is_an_internal_error() {
     let rtable = NodeList::from_slice(mcx, &[rte]).unwrap();
     let var = Node::mk(
         mcx,
-        types_nodes::primnodes::Var {
-            varno: 1,
-            varattno: 7,
-            vartype: 23,
-            ..Default::default()
-        },
+        types_nodes::primnodes::Var { varno: 1, varattno: 7, vartype: 23, ..Default::default() },
     )
     .unwrap();
     let err = print::print_expr(mcx, Some(var), &rtable).unwrap_err();
@@ -1775,10 +1595,7 @@ fn qoe_mutator_query_arm_runs_query_tree_mutator() {
     let te = Node::mk_target_entry(mcx, extern_param(mcx, 1), 1, None, false).unwrap();
     let jointree = Node::mk_mut(
         mcx,
-        FromExpr {
-            fromlist: NodeList::nil(),
-            quals: Some(extern_param(mcx, 2)),
-        },
+        FromExpr { fromlist: NodeList::nil(), quals: Some(extern_param(mcx, 2)), },
     )
     .unwrap()
     .seal_ref();
@@ -1795,39 +1612,15 @@ fn qoe_mutator_query_arm_runs_query_tree_mutator() {
         .unwrap_or_else(|e| panic!("Query arm must run query_tree_mutator: {}", e.message()))
         .expect("query_tree_mutator returns the (flat-copied) Query");
     let nq = out.as_query().expect("a Query comes back");
-    let param_of = |te: Node<'_>| {
-        te.as_target_entry()
-            .unwrap()
-            .expr
-            .as_param()
-            .unwrap()
-            .paramid
+    let param_of = |te: Node<'_>| { te.as_target_entry().unwrap().expr.as_param().unwrap().paramid
     };
     assert_eq!(param_of(nq.targetList.nth(0)), 11);
-    assert_eq!(
-        nq.jointree
-            .unwrap()
-            .quals
-            .unwrap()
-            .as_param()
-            .unwrap()
-            .paramid,
-        12
-    );
+    assert_eq!(nq.jointree.unwrap().quals.unwrap().as_param().unwrap().paramid, 12);
     // FLATCOPY(newquery, query, Query): the caller's Query is untouched.
     let oq = q.as_query().unwrap();
     assert!(!core::ptr::eq(oq, nq));
     assert_eq!(param_of(oq.targetList.nth(0)), 1);
-    assert_eq!(
-        oq.jointree
-            .unwrap()
-            .quals
-            .unwrap()
-            .as_param()
-            .unwrap()
-            .paramid,
-        2
-    );
+    assert_eq!(oq.jointree.unwrap().quals.unwrap().as_param().unwrap().paramid, 2);
 }
 
 // ---- audit-18.6 wave 2 w2-018-nodes-1 (nodeFuncs.c query engines) ----
@@ -1843,10 +1636,7 @@ fn query_tree_walker_offers_the_root_jointree_through_the_hook() {
     let te = Node::mk_target_entry(mcx, extern_param(mcx, 1), 1, None, false).unwrap();
     let jointree = Node::mk_mut(
         mcx,
-        FromExpr {
-            fromlist: NodeList::nil(),
-            quals: Some(extern_param(mcx, 2)),
-        },
+        FromExpr { fromlist: NodeList::nil(), quals: Some(extern_param(mcx, 2)), },
     )
     .unwrap()
     .seal_ref();
@@ -1874,10 +1664,7 @@ fn query_tree_walker_offers_the_root_jointree_through_the_hook() {
             Ok(walk_list(&f.fromlist, self)? || walk_opt(f.quals, self)?)
         }
     }
-    let mut w = Roots {
-        roots: 0,
-        params: 0,
-    };
+    let mut w = Roots { roots: 0, params: 0, };
     assert!(!query_tree_walker(&query, &mut w, 0).unwrap());
     assert_eq!((w.roots, w.params), (1, 2));
 
@@ -1930,21 +1717,12 @@ fn query_tree_mutator_covers_rtable_window_offsets_and_flags() {
         }
         expression_tree_mutator(mcx, n, &mut |c| bump(mcx, c))
     }
-    let param_of = |te: Node<'_>| {
-        te.as_target_entry()
-            .unwrap()
-            .expr
-            .as_param()
-            .unwrap()
-            .paramid
+    let param_of = |te: Node<'_>| { te.as_target_entry().unwrap().expr.as_param().unwrap().paramid
     };
     let te = Node::mk_target_entry(mcx, extern_param(mcx, 1), 1, None, false).unwrap();
     let sub = mcx::alloc_leak_in(
         mcx,
-        Query {
-            targetList: NodeList::from_slice(mcx, &[te]).unwrap(),
-            ..Query::default()
-        },
+        Query { targetList: NodeList::from_slice(mcx, &[te]).unwrap(), ..Query::default() },
     )
     .unwrap();
     let rte_sub = Node::mk(
@@ -1956,11 +1734,8 @@ fn query_tree_mutator_covers_rtable_window_offsets_and_flags() {
         },
     )
     .unwrap();
-    let values_row = Node::mk_list(
-        mcx,
-        NodeList::from_slice(mcx, &[extern_param(mcx, 2)]).unwrap(),
-    )
-    .unwrap();
+    let values_row =
+        Node::mk_list(mcx, NodeList::from_slice(mcx, &[extern_param(mcx, 2)]).unwrap(),).unwrap();
     let rte_values = Node::mk(
         mcx,
         RangeTblEntry {
@@ -1972,10 +1747,7 @@ fn query_tree_mutator_covers_rtable_window_offsets_and_flags() {
     .unwrap();
     let wc = Node::mk(
         mcx,
-        WindowClause {
-            startOffset: Some(extern_param(mcx, 3)),
-            ..WindowClause::default()
-        },
+        WindowClause { startOffset: Some(extern_param(mcx, 3)), ..WindowClause::default() },
     )
     .unwrap();
     let q = Node::mk(
@@ -1990,64 +1762,26 @@ fn query_tree_mutator_covers_rtable_window_offsets_and_flags() {
 
     let out = query_tree_mutator(mcx, q, &mut |n| bump(mcx, n), 0).unwrap();
     let nq = out.as_query().unwrap();
-    assert!(
-        !core::ptr::eq(nq, q.as_query().unwrap()),
-        "FLATCOPY: a fresh Query"
-    );
+    assert!(!core::ptr::eq(nq, q.as_query().unwrap()), "FLATCOPY: a fresh Query");
     let rte = |i: usize| nq.rtable.nth(i).as_range_tbl_entry().unwrap();
     assert_eq!(param_of(rte(0).subquery.unwrap().targetList.nth(0)), 11);
     assert_eq!(
-        rte(1)
-            .values_lists
-            .nth(0)
-            .as_list()
-            .unwrap()
-            .nth(0)
-            .as_param()
-            .unwrap()
-            .paramid,
+        rte(1).values_lists.nth(0).as_list().unwrap().nth(0).as_param().unwrap().paramid,
         12
     );
-    let start = nq
-        .windowClause
-        .nth(0)
-        .as_window_clause()
-        .unwrap()
-        .startOffset
-        .unwrap();
+    let start = nq.windowClause.nth(0).as_window_clause().unwrap().startOffset.unwrap();
     assert_eq!(start.as_param().unwrap().paramid, 13);
-    assert_eq!(
-        param_of(sub.targetList.nth(0)),
-        1,
-        "the caller's subquery is untouched"
-    );
+    assert_eq!(param_of(sub.targetList.nth(0)), 1, "the caller's subquery is untouched");
 
     let out = query_tree_mutator(mcx, q, &mut |n| bump(mcx, n), QTW_IGNORE_RT_SUBQUERIES).unwrap();
-    let copied = out
-        .as_query()
-        .unwrap()
-        .rtable
-        .nth(0)
-        .as_range_tbl_entry()
-        .unwrap()
-        .subquery
-        .unwrap();
+    let copied = out.as_query().unwrap().rtable.nth(0).as_range_tbl_entry().unwrap().subquery.unwrap();
     assert!(!core::ptr::eq(copied, sub), "copyObject(rte->subquery)");
     assert_eq!(param_of(copied.targetList.nth(0)), 1);
 
     let out = query_tree_mutator(mcx, q, &mut |n| bump(mcx, n), QTW_DONT_COPY_QUERY).unwrap();
     let oq = q.as_query().unwrap();
-    assert!(
-        core::ptr::eq(out.as_query().unwrap(), oq),
-        "in place: the same Query"
-    );
-    let sub_now = oq
-        .rtable
-        .nth(0)
-        .as_range_tbl_entry()
-        .unwrap()
-        .subquery
-        .unwrap();
+    assert!(core::ptr::eq(out.as_query().unwrap(), oq), "in place: the same Query");
+    let sub_now = oq.rtable.nth(0).as_range_tbl_entry().unwrap().subquery.unwrap();
     assert_eq!(param_of(sub_now.targetList.nth(0)), 11);
 }
 
@@ -2060,20 +1794,13 @@ fn values_rte<'mcx>(mcx: Mcx<'mcx>, alias: &'mcx str, cols: &[&'mcx str]) -> Nod
     }
     let eref = Node::mk_mut(
         mcx,
-        Alias {
-            aliasname: Some(alias),
-            colnames: NodeList::from_slice(mcx, &colnames).unwrap(),
-        },
+        Alias { aliasname: Some(alias), colnames: NodeList::from_slice(mcx, &colnames).unwrap(), },
     )
     .unwrap()
     .seal_ref();
     Node::mk(
         mcx,
-        RangeTblEntry {
-            rtekind: RTEKind::RTE_VALUES,
-            eref: Some(eref),
-            ..RangeTblEntry::default()
-        },
+        RangeTblEntry { rtekind: RTEKind::RTE_VALUES, eref: Some(eref), ..RangeTblEntry::default() },
     )
     .unwrap()
 }
@@ -2092,10 +1819,7 @@ fn print_pathkeys_walks_canonical_eclass_members_in_c_format() {
     let mcx = ctx.mcx();
     let rtable = NodeList::from_slice(
         mcx,
-        &[
-            values_rte(mcx, "t", &["a", "b"]),
-            values_rte(mcx, "u", &["c"]),
-        ],
+        &[values_rte(mcx, "t", &["a", "b"]), values_rte(mcx, "u", &["c"]),],
     )
     .unwrap();
     let mut root = PlannerInfo::new(mcx);
@@ -2109,16 +1833,8 @@ fn print_pathkeys_walks_canonical_eclass_members_in_c_format() {
         let em_expr = if varno == 0 {
             NodeId::default()
         } else {
-            let var = Node::mk(
-                mcx,
-                Var {
-                    varno,
-                    varattno,
-                    vartype: 23,
-                    ..Default::default()
-                },
-            )
-            .unwrap();
+            let var = Node::mk(mcx, Var { varno, varattno, vartype: 23, ..Default::default() },)
+                .unwrap();
             root.alloc_expr_node(var)
         };
         root.alloc_em(EquivalenceMember {
@@ -2152,12 +1868,9 @@ fn print_pathkeys_walks_canonical_eclass_members_in_c_format() {
         pk_nulls_first: false,
     };
 
-    let text =
-        print::format_pathkeys(mcx, &root, &[pathkey(merged), pathkey(second)], &rtable).unwrap();
-    assert_eq!(
-        core::str::from_utf8(&text).unwrap(),
-        "((t.a, u.c), (t.b, <>))\n"
-    );
+    let text = print::format_pathkeys(mcx, &root, &[pathkey(merged), pathkey(second)], &rtable)
+        .unwrap();
+    assert_eq!(core::str::from_utf8(&text).unwrap(), "((t.a, u.c), (t.b, <>))\n");
     let text = print::format_pathkeys(mcx, &root, &[], &rtable).unwrap();
     assert_eq!(core::str::from_utf8(&text).unwrap(), "()\n");
 }
@@ -2202,10 +1915,7 @@ fn expr_collation_next_value_expr_is_invalid_oid() {
     let ctx = cx();
     let nve = Node::mk(
         ctx.mcx(),
-        types_nodes::primnodes::NextValueExpr {
-            seqid: 16385,
-            typeId: 23,
-        },
+        types_nodes::primnodes::NextValueExpr { seqid: 16385, typeId: 23, },
     )
     .unwrap();
     assert_eq!(node_funcs::expr_type(nve), 23);
@@ -2225,10 +1935,7 @@ fn node_dump_wrap_inside_a_multibyte_char_does_not_panic() {
     assert_eq!(lines[0], format!("{}\u{FFFD}", "x".repeat(77)));
     assert_eq!(lines[1], format!("\u{FFFD}{}", "y".repeat(10)));
     let pretty = print::pretty_format_node_dump(mcx, &format!("{{A :b {dump}}}")).unwrap();
-    assert!(
-        pretty.as_str().lines().all(|l| l.len() <= 78 + 3),
-        "{pretty}"
-    );
+    assert!(pretty.as_str().lines().all(|l| l.len() <= 78 + 3), "{pretty}");
 }
 
 // C expression_tree_mutator T_Aggref (nodeFuncs.c:3025-3026) mutates

@@ -44,10 +44,7 @@ fn a_24_run_take_finds_the_24_run_hole_behind_23s() {
         give_runs(a, 23);
     }
     let y = take_runs(24, h);
-    assert_eq!(
-        y, x,
-        "the 24-run take landed on S0's 24 free runs, not a fresh superpage"
-    );
+    assert_eq!(y, x, "the 24-run take landed on S0's 24 free runs, not a fresh superpage");
     give_runs(y, 24);
     give_runs(w, 8);
     for b in held {

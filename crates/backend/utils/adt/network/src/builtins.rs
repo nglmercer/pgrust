@@ -22,7 +22,7 @@ fn arg_inet<'a>(fcinfo: &'a Fcinfo, i: usize) -> InetRef<'a> {
 }
 
 // Raw cstring bytes: C quotes them verbatim in its message (network.c:99).
-fn in_arg(fcinfo: &Fcinfo) -> &[u8] {
+fn in_arg(fcinfo: & Fcinfo) -> & [u8] {
     // SAFETY: catalog arg 0 of inet_in/cidr_in is cstring (typlen -2).
     unsafe { fcinfo.arg_cstring(0) }.to_bytes()
 }

@@ -19,7 +19,7 @@ fn bits_table_answers_the_predicate_per_code_and_per_window() {
         assert_eq!(unsafe { t.get(i as u32) }, w.len() > 3, "{w}");
     }
     let codes: Vec<u32> = (0..130).map(|i| (i * 7 % WORDS.len()) as u32).collect();
-    let mut valid = [!0u64; 3];
+    let mut valid =[!0u64; 3];
     valid[0] &= !0b110;
     let mut out = vec![0u64; 3];
     unsafe { t.gather_mask(codes.as_ptr(), valid.as_ptr(), 130, true, &mut out) }.unwrap();

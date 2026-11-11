@@ -3,7 +3,6 @@
 // types); under --cfg loom they are loom's checked atomics, which is what
 // makes the latch protocol directly loom-modelable (LATCH-LOOM lane).
 use pgsync::atomic::{AtomicBool, AtomicI32, AtomicU64, Ordering};
-
 #[cfg(not(loom))]
 use ::types_core::sig_atomic_t;
 use ::types_core::ProcNumber;
@@ -27,10 +26,7 @@ pub enum LatchKind {
 
 impl LatchHandle {
     pub fn new(id: usize) -> Self {
-        debug_assert!(
-            id & PROC_TAG == 0,
-            "local LatchHandle id overflows PROC_TAG"
-        );
+        debug_assert!(id & PROC_TAG == 0, "local LatchHandle id overflows PROC_TAG");
         LatchHandle(id)
     }
 

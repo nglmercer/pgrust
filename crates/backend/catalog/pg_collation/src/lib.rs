@@ -23,10 +23,8 @@ fn loc(func: &'static str) -> ErrorLocation {
 }
 
 fn existing_oid(collname: &str, encoding: i32, nsp: Oid) -> PgResult<Oid> {
-    Ok(
-        syscache_seams::lookup_pg_collation_by_name_enc_nsp::call(collname, encoding, nsp)?
-            .map_or(InvalidOid, |row| row.oid),
-    )
+    Ok(syscache_seams::lookup_pg_collation_by_name_enc_nsp::call(collname, encoding, nsp)?
+        .map_or(InvalidOid, |row| row.oid),)
 }
 
 pub struct CollationForm<'a> {
@@ -75,9 +73,7 @@ pub fn CollationCreate<'mcx>(
                 format!("collation \"{collname}\" already exists, skipping")
             } else {
                 let encname = mbutils::pg_encoding_to_char(form.collencoding);
-                format!(
-                    "collation \"{collname}\" for encoding \"{encname}\" already exists, skipping"
-                )
+                format!("collation \"{collname}\" for encoding \"{encname}\" already exists, skipping")
             };
             ereport(NOTICE)
                 .errcode(ERRCODE_DUPLICATE_OBJECT)
@@ -98,11 +94,8 @@ pub fn CollationCreate<'mcx>(
 
     let rel = table::table_open(mcx, COLLATION_RELATION_ID, ShareRowExclusiveLock)?;
 
-    let shadow_enc = if form.collencoding == -1 {
-        mbutils::GetDatabaseEncoding()
-    } else {
-        -1
-    };
+    let shadow_enc =
+        if form.collencoding == -1 { mbutils::GetDatabaseEncoding() } else { -1 };
     let oid = existing_oid(collname, shadow_enc, collnamespace)?;
     if OidIsValid(oid) {
         if quiet {
@@ -130,7 +123,8 @@ pub fn CollationCreate<'mcx>(
 
     let mut name = NameData::default();
     name.namestrcpy(collname);
-    let oid = catalog::GetNewOidWithIndex(mcx, &rel, CollationOidIndexId, Anum_pg_collation_oid)?;
+    let oid =
+        catalog::GetNewOidWithIndex(mcx, &rel, CollationOidIndexId, Anum_pg_collation_oid)?;
 
     let mut values = [Datum::null(); Natts_pg_collation];
     let mut nulls = [false; Natts_pg_collation];
@@ -154,8 +148,9 @@ pub fn CollationCreate<'mcx>(
             Some(s) => {
                 let t = varlena::cstring_to_text(mcx, s.as_bytes())?;
                 images[slot] = Some(t);
-                values[i] =
-                    Datum::from_usize(images[slot].as_ref().unwrap().as_bytes().as_ptr() as usize);
+                values[i] = Datum::from_usize(
+                    images[slot].as_ref().unwrap().as_bytes().as_ptr() as usize
+                );
             }
             None => nulls[i] = true,
         }
@@ -203,9 +198,7 @@ mod tests {
     fn fake_pg_collation_rel(mcx: Mcx<'_>) -> Relation<'_> {
         let mut relname = NameData::default();
         relname.namestrcpy("pg_collation");
-        let data = RelationData {
-            rd_locator: Default::default(),
-            rd_smgr: Default::default(),
+        let data = RelationData { rd_locator: Default::default(), rd_smgr: Default::default(),
             rd_id: COLLATION_RELATION_ID,
             rd_backend: INVALID_PROC_NUMBER,
             rd_islocaltemp: false,
@@ -215,10 +208,7 @@ mod tests {
             rd_firstRelfilelocatorSubid: Cell::new(0),
             rd_droppedSubid: Cell::new(0),
             rd_lockInfo: LockInfoData {
-                lockRelId: LockRelId {
-                    relId: COLLATION_RELATION_ID,
-                    dbId: 5,
-                },
+                lockRelId: LockRelId { relId: COLLATION_RELATION_ID, dbId: 5, },
             },
             rd_rel: FormData_pg_class {
                 relname,
@@ -262,17 +252,13 @@ mod tests {
             pgstat_enabled: Cell::new(false),
             pgstat_link: core::cell::Cell::new((0, core::ptr::null_mut())),
             rd_amcache: Default::default(),
-            rd_amcache_hash: Default::default(),
-            rd_amcache_gin: Default::default(),
-            rd_amcache_spgist: Default::default(),
-            rd_amcache_bloom: Default::default(),
+            rd_amcache_hash: Default::default(), rd_amcache_gin: Default::default(), rd_amcache_spgist: Default::default(), rd_amcache_bloom: Default::default(),
             rd_support: PgVec::new_in(mcx),
             rd_supportinfo: Default::default(),
             rd_opcoptions: Default::default(),
             rd_indexlist: Default::default(),
             rd_trigdesc: Default::default(),
-            rd_hastriggers: false,
-            rd_hasrules: false,
+            rd_hastriggers: false, rd_hasrules: false,
         };
         Relation::open(data, None)
     }
@@ -366,10 +352,7 @@ mod tests {
             CollationCreate(ctx.mcx(), "dupe", NSP, OWNER, &libc_form(), true, false)
         })
         .unwrap_err();
-        assert_eq!(
-            e.message,
-            format!("test probe: relation {DEPEND_RELATION_ID} opened")
-        );
+        assert_eq!(e.message, format!("test probe: relation {DEPEND_RELATION_ID} opened"));
     }
 
     // Same gate in the any-encoding duplicate lane (the shadow probe past
@@ -379,20 +362,9 @@ mod tests {
         install_seams();
         let ctx = mcx::MemoryContext::new("t");
         let e = with_extension_script(|| {
-            CollationCreate(
-                ctx.mcx(),
-                "shadowdupe",
-                NSP,
-                OWNER,
-                &libc_form(),
-                true,
-                false,
-            )
+            CollationCreate(ctx.mcx(), "shadowdupe", NSP, OWNER, &libc_form(), true, false,)
         })
         .unwrap_err();
-        assert_eq!(
-            e.message,
-            format!("test probe: relation {DEPEND_RELATION_ID} opened")
-        );
+        assert_eq!(e.message, format!("test probe: relation {DEPEND_RELATION_ID} opened"));
     }
 }

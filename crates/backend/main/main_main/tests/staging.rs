@@ -34,33 +34,13 @@ fn staged_share_carries_c_share_files() {
     ];
     // src/backend/snowball/stopwords, installed into tsearch_data by C.
     for lang in [
-        "danish",
-        "dutch",
-        "english",
-        "finnish",
-        "french",
-        "german",
-        "hungarian",
-        "italian",
-        "nepali",
-        "norwegian",
-        "portuguese",
-        "russian",
-        "spanish",
-        "swedish",
-        "turkish",
+        "danish", "dutch", "english", "finnish", "french", "german", "hungarian", "italian",
+        "nepali", "norwegian", "portuguese", "russian", "spanish", "swedish", "turkish",
     ] {
         want.push(format!("tsearch_data/{lang}.stop"));
     }
     // src/timezone/data/tzdata.zi compiled by C's zic, installed into timezone.
-    for zone in [
-        "UTC",
-        "GMT",
-        "Europe/Dublin",
-        "Eire",
-        "America/New_York",
-        "Etc/GMT+5",
-    ] {
+    for zone in ["UTC", "GMT", "Europe/Dublin", "Eire", "America/New_York", "Etc/GMT+5",] {
         want.push(format!("timezone/{zone}"));
     }
     let missing: Vec<_> = want.iter().filter(|f| !share.join(f).is_file()).collect();

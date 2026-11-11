@@ -17,15 +17,16 @@ use pgrc_write::wvfs::RealVfs;
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 4 {
-        eprintln!(
-            "usage: qa_crash_harness <base> <rounds> <rows_per_round> [salt] [--no-commit-last]"
-        );
+        eprintln!("usage: qa_crash_harness <base> <rounds> <rows_per_round> [salt] [--no-commit-last]");
         std::process::exit(2);
     }
     let base = &args[1];
     let rounds: u64 = args[2].parse().expect("rounds");
     let rows: u64 = args[3].parse().expect("rows_per_round");
-    let salt: u64 = args.get(4).and_then(|s| s.parse().ok()).unwrap_or(0);
+    let salt: u64 = args
+        .get(4)
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
     let commit_last = !args.iter().any(|a| a == "--no-commit-last");
 
     let mut vfs = RealVfs;

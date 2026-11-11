@@ -511,12 +511,7 @@ impl TableScan {
                             }
                         };
                         if let Err(e) = self.process_claim(
-                            &mut guard,
-                            spans,
-                            &mut cache,
-                            &mut census,
-                            shared,
-                            canon,
+                            &mut guard, spans, &mut cache, &mut census, shared, canon,
                         ) {
                             errors.lock().unwrap().push(e);
                             break;
@@ -593,8 +588,8 @@ impl TableScan {
                 shared.drop_state(st);
             }
         }
-        if let std::collections::hash_map::Entry::Vacant(e) = cache.states.entry(pidx) {
-            e.insert(self.enter_part(pidx, shared)?);
+        if let std::collections::hash_map::Entry::Vacant(e) =cache.states.entry(pidx) {
+            e.insert( self.enter_part(pidx, shared)?);
         }
         let st = cache.states.get_mut(&pidx).expect("entered");
         // The claim pin (PC-2.4): taken per claim, attached to the guard,
@@ -621,26 +616,13 @@ impl TableScan {
     ) -> ReadResult<()> {
         let span = guard.span();
         let pidx = self.begin_span(guard, spans, cache, shared)?;
-        let WorkerCache {
-            states,
-            batch,
-            strview_arena,
-        } = cache;
+        let WorkerCache { states, batch, strview_arena, } = cache;
         let st = states.get_mut(&pidx).expect("entered");
         for unit in span.start..span.end {
             let (p2, g) = spans.locate(unit);
             debug_assert_eq!(p2, pidx, "span crossed a part edge");
             let mut bytes = Vec::new();
-            self.process_granule(
-                st,
-                g,
-                unit,
-                batch,
-                strview_arena,
-                census,
-                shared,
-                &mut WindowSink::Canon(&mut bytes),
-            )?;
+            self.process_granule(st, g, unit, batch, strview_arena, census, shared, &mut WindowSink::Canon(&mut bytes),)?;
             // Digest currency (opts.canon_digest): fold BEFORE insert so
             // the full per-granule bytes never accumulate — pruned-marker
             // granules fold uniformly with scanned ones.
@@ -665,7 +647,8 @@ impl TableScan {
             // typed-refusal law (per-part elections — resolution is a
             // part-entry fact, never a table fact).
             let path_ord = resolve_stream_ord(&part, c, ci as u16)?;
-            let cursor = StreamCursor::open(part.clone(), self.binding, attno, path_ord)?;
+            let cursor =
+                StreamCursor::open(part.clone(), self.binding, attno, path_ord)?;
             // Dict-lane gate (v3 enter_part:1786-1826, widened by
             // P-a, nullable dict lanes): dict-coded values stream ∧ an exec flag
             // (`DICT_EXEC` with the zero-null proof / no Validity stream,
@@ -737,17 +720,7 @@ impl TableScan {
         shared: &SharedCounters,
         sink: &mut WindowSink<'_, '_>,
     ) -> ReadResult<()> {
-        self.process_granule_ext(
-            st,
-            g,
-            unit,
-            None,
-            batch,
-            strview_arena,
-            census,
-            shared,
-            sink,
-        )
+        self.process_granule_ext(st, g, unit, None, batch, strview_arena, census, shared, sink,)
     }
 
     /// [`Self::process_granule`] with an EXTERNALLY derived candidate
@@ -768,7 +741,8 @@ impl TableScan {
         shared: &SharedCounters,
         sink: &mut WindowSink<'_, '_>,
     ) -> ReadResult<()> {
-        let rows_g = pgrc_format::geom::rows_in_granule_at(st.part.rows(), st.part.grain(), g);
+        let rows_g =
+            pgrc_format::geom::rows_in_granule_at(st.part.rows(), st.part.grain(), g);
         // Verdict plane (zone + bloom, exact attribution).
         let mut psma_window: Option<(u32, u32)> = ext_window;
         if let (Some(meta), Some((pred, _))) = (&st.meta, &self.predicate) {
@@ -797,7 +771,8 @@ impl TableScan {
                         psma_window = match (psma_window, w) {
                             (None, w) => w,
                             (acc, None) => acc,
-                            (Some((alo, ahi)), Some((lo, hi))) => Some((alo.max(lo), ahi.min(hi))),
+                            (Some((alo, ahi)), Some((lo, hi))) =>
+                                Some((alo.max(lo), ahi.min(hi))),
                         };
                         // Normalize an empty intersection to the (0, 0)
                         // proven-absent sentinel (win_start >= hi skips
@@ -837,18 +812,7 @@ impl TableScan {
                     continue;
                 }
             }
-            self.emit_window(
-                st,
-                g,
-                unit,
-                win_start,
-                win_rows,
-                batch,
-                strview_arena,
-                census,
-                shared,
-                sink,
-            )?;
+            self.emit_window(st, g, unit, win_start, win_rows, batch, strview_arena, census, shared, sink,)?;
         }
         Ok(())
     }
@@ -888,7 +852,7 @@ impl TableScan {
                 // them; a window with no nulls is exactly the old form.
                 let win_has_null = cs.dict_nullable
                     && matches!(cs.verdict, ValidityVerdict::Mixed { .. })
-                    && codes.contains(&pgrc_batch::ESCAPE_CODE_U32);
+                    && codes.contains(& pgrc_batch::ESCAPE_CODE_U32);
                 let bound_demote = if win_has_null {
                     codes
                         .iter()
@@ -997,8 +961,11 @@ impl TableScan {
             let mut col = Column::new(ColRep::RowId);
             col.ensure_rows(win_rows as usize);
             for r in 0..win_rows as usize {
-                col.datums[r] =
-                    datum::Datum::from_u64(pack_rowid(part_no, g, win_start + r as u32));
+                col.datums[r] = datum::Datum::from_u64(pack_rowid(
+                    part_no,
+                    g,
+                    win_start + r as u32
+                ));
                 col.validity.set_valid(r);
             }
             batch.cols.push(col);
@@ -1017,7 +984,8 @@ impl TableScan {
                         batch.sel.push(r);
                     }
                 }
-                census.rows_deleted_skipped += win_rows as u64 - batch.sel.len() as u64;
+                census.rows_deleted_skipped +=
+                    win_rows as u64 - batch.sel.len() as u64;
             }
         }
         // M4-S5 (the LIKE band's staging half): consumer-declared string
@@ -1120,14 +1088,8 @@ impl<'s> ScanWorker<'s> {
         visit: &mut dyn FnMut(&Batch, GuardWord, u64, u32) -> ReadResult<()>,
     ) -> ReadResult<()> {
         let span = guard.span();
-        let pidx = self
-            .scan
-            .begin_span(guard, spans, &mut self.cache, shared)?;
-        let WorkerCache {
-            states,
-            batch,
-            strview_arena,
-        } = &mut self.cache;
+        let pidx = self.scan.begin_span(guard, spans, &mut self.cache, shared)?;
+        let WorkerCache { states, batch, strview_arena, } = &mut self.cache;
         let st = states.get_mut(&pidx).expect("entered");
         for unit in span.start..span.end {
             let (p2, g) = spans.locate(unit);
@@ -1165,21 +1127,16 @@ impl<'s> ScanWorker<'s> {
         shared: &'g SharedCounters,
         visit: &mut dyn FnMut(&Batch, GuardWord, u64, u32) -> ReadResult<()>,
     ) -> ReadResult<()> {
-        let Some(&first) = units.first() else {
-            return Ok(());
-        };
+        let Some(&first) = units.first() else { return Ok(()); };
         let (pidx, _) = spans.locate(first);
         self.scan.begin_part(guard, pidx, &mut self.cache, shared)?;
-        let WorkerCache {
-            states,
-            batch,
-            strview_arena,
-        } = &mut self.cache;
+        let WorkerCache { states, batch, strview_arena, } = &mut self.cache;
         let st = states.get_mut(&pidx).expect("entered");
         for &unit in units {
             let (p2, g) = spans.locate(unit);
             debug_assert_eq!(p2, pidx, "survivor span crossed a part edge");
-            let rows_g = pgrc_format::geom::rows_in_granule_at(st.part.rows(), st.part.grain(), g);
+            let rows_g =
+                pgrc_format::geom::rows_in_granule_at(st.part.rows(), st.part.grain(), g);
             if !admit(pidx, g, rows_g)? {
                 continue;
             }
@@ -1320,10 +1277,8 @@ fn resolve_stream_ord(part: &Arc<OpenPart>, spec: &ScanColumn, ordinal: u16) -> 
 /// The base rep of a storage class (the lane vocabulary mapping).
 fn base_rep_of(class: &StorageClass) -> ColRep {
     match class {
-        StorageClass::ByvalWord { .. }
-        | StorageClass::Bool
-        | StorageClass::F32
-        | StorageClass::F64 => ColRep::ByvalWord,
+        StorageClass::ByvalWord { .. } | StorageClass::Bool | StorageClass::F32 | StorageClass::F64 =>
+            ColRep::ByvalWord,
         StorageClass::Fixed { len } => ColRep::FixedRef {
             width: (*len).min(u16::MAX as u32) as u16,
         },
@@ -1341,9 +1296,7 @@ fn stage_column(spec: &ScanColumn, cs: &mut ColState, g: u32, rows_g: u32) -> Re
             return Ok(());
         }
         pgrc_format::try_resize(&mut cs.codes, rows_g as usize, 0, "scan")?;
-        let n = cs
-            .cursor
-            .decode_codes(g, &mut cs.codes[..rows_g as usize])?;
+        let n = cs.cursor.decode_codes(g, &mut cs.codes[..rows_g as usize])?;
         if n != rows_g {
             return Err(ReadError::Format(FormatError::Corrupt {
                 at: "codes count vs granule rows",
@@ -1359,9 +1312,7 @@ fn stage_column(spec: &ScanColumn, cs: &mut ColState, g: u32, rows_g: u32) -> Re
             // AB-2.3 serviced-escape law's null twin).
             let rows = rows_g as usize;
             cs.vwords.resize(rows.div_ceil(64).max(1), 0);
-            cs.verdict = cs
-                .cursor
-                .validity(g, &mut cs.vwords[..rows.div_ceil(64).max(1)])?;
+            cs.verdict = cs.cursor.validity(g, &mut cs.vwords[..rows.div_ceil(64).max(1)])?;
             if let ValidityVerdict::Mixed { .. } = cs.verdict {
                 for r in 0..rows {
                     if (cs.vwords[r / 64] >> (r % 64)) & 1 == 0 {
@@ -1402,9 +1353,7 @@ fn stage_column(spec: &ScanColumn, cs: &mut ColState, g: u32, rows_g: u32) -> Re
         }
     }
     cs.vwords.resize(rows.div_ceil(64).max(1), 0);
-    cs.verdict = cs
-        .cursor
-        .validity(g, &mut cs.vwords[..rows.div_ceil(64).max(1)])?;
+    cs.verdict = cs.cursor.validity(g, &mut cs.vwords[..rows.div_ceil(64).max(1)])?;
     cs.staged = Some(g);
     let _ = spec;
     Ok(())
@@ -1449,7 +1398,8 @@ fn canonicalize_batch(specs: &[ScanColumn], batch: &Batch, win_rows: u32, out: &
                 }
                 ColRep::FixedRef { width } => {
                     let p = col.datums[r].as_u64() as *const u8;
-                    let bytes = unsafe { core::slice::from_raw_parts(p, width as usize) };
+                    let bytes =
+                        unsafe { core::slice::from_raw_parts(p, width as usize) };
                     out.extend_from_slice(bytes);
                 }
                 _ => {

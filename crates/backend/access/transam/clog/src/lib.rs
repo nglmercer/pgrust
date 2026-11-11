@@ -1,4 +1,4 @@
-#![allow(non_snake_case, non_upper_case_globals)]
+#![allow(non_snake_case,non_upper_case_globals)]
 
 use std::sync::atomic::Ordering::{AcqRel, Acquire, Relaxed, Release};
 use std::sync::OnceLock;
@@ -10,9 +10,9 @@ use lwlock::LW_EXCLUSIVE;
 use slru::{
     check_slru_buffers, LwGuard, SimpleLruAutotuneBuffers, SimpleLruGetBankLock, SimpleLruInit,
     SimpleLruReadPage, SimpleLruReadPage_ReadOnly, SimpleLruShmemSize, SimpleLruTruncate,
-    SimpleLruWriteAll, SimpleLruWritePage, SimpleLruZeroPage, SlruCtlData,
-    SlruPagePrecedesUnitTests, SlruPath, SlruScanDirCbReportPresence, SlruScanDirectory,
-    SlruSyncFileTag, SLRU_MAX_ALLOWED_BUFFERS,
+    SimpleLruWriteAll, SimpleLruWritePage, SimpleLruZeroPage, SlruCtlData, SlruPagePrecedesUnitTests,
+    SlruPath, SlruScanDirCbReportPresence, SlruScanDirectory, SlruSyncFileTag,
+    SLRU_MAX_ALLOWED_BUFFERS,
 };
 use types_core::xact::{
     InvalidXLogRecPtr, XidStatus, TRANSACTION_STATUS_ABORTED, TRANSACTION_STATUS_COMMITTED,
@@ -489,8 +489,8 @@ pub fn TransactionIdGetStatus(xid: TransactionId) -> PgResult<(XidStatus, XLogRe
 
     let (slotno, bank) = SimpleLruReadPage_ReadOnly(ctl, pageno, xid)?;
 
-    let status = ((ctl.page_buffer(slotno, &bank)[byteno] as u32 >> bshift) & CLOG_XACT_BITMASK)
-        as XidStatus;
+    let status =
+        ((ctl.page_buffer(slotno, &bank)[byteno] as u32 >> bshift) & CLOG_XACT_BITMASK) as XidStatus;
 
     let lsnindex = GetLSNIndex(slotno, xid);
     let lsn = ctl.group_lsn(lsnindex, &bank);

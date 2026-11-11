@@ -19,11 +19,7 @@ fn small_part() -> BuiltPart {
     build_part(&PartSpec::new(9_000, vec![seq_i64_col(1, 9_000)]))
 }
 
-fn opener(
-    b: &BuiltPart,
-    dev: u64,
-    ino: u64,
-) -> impl FnOnce() -> crate::ReadResult<Box<dyn PartIo>> {
+fn opener(b: &BuiltPart, dev: u64, ino: u64,) -> impl FnOnce() -> crate::ReadResult<Box<dyn PartIo>> {
     let io = b.mem_io(dev, ino);
     move || Ok(Box::new(io) as Box<dyn PartIo>)
 }
@@ -283,14 +279,8 @@ fn the_registrys_own_bytes_are_on_the_part_cache() {
             let reg = PartRegistry::new(u64::MAX);
             memledger::fold();
             let built = memledger::account_row(a).account_bytes;
-            assert!(
-                (built - before).abs() < 1024,
-                "the in-use buffer is the part cache's: {} B on the builder",
-                built - before
-            );
-            let pin = reg
-                .open_pinned(&PartExpect::none(), opener(&b, 4, 51))
-                .expect("open");
+            assert!((built - before).abs() < 1024, "the in-use buffer is the part cache's: {} B on the builder", built - before);
+            let pin = reg.open_pinned(&PartExpect::none(), opener(&b, 4, 51)).expect("open");
             let key = {
                 let i = pin.part().ident();
                 (i.dev, i.ino, i.len)
@@ -300,10 +290,7 @@ fn the_registrys_own_bytes_are_on_the_part_cache() {
             assert!(reg.invalidate(key));
             memledger::fold();
             let gone = memledger::account_row(a).account_bytes;
-            assert_eq!(
-                gone, open,
-                "the entry's node was the part cache's, and so is its free"
-            );
+            assert_eq!(gone, open, "the entry's node was the part cache's, and so is its free");
             drop(pin);
             drop(reg);
         });
@@ -330,11 +317,7 @@ fn invalidate_and_clear() {
     let _ = reg
         .open_pinned(&PartExpect::none(), opener(&b, 4, 50))
         .expect("reopen");
-    assert_eq!(
-        reg.counters().misses,
-        2,
-        "reopen after invalidate is a miss"
-    );
+    assert_eq!(reg.counters().misses, 2, "reopen after invalidate is a miss");
     reg.clear();
     assert!(reg.is_empty());
 }
@@ -346,47 +329,25 @@ fn forget_drops_only_that_part_and_its_holders_keep_reading() {
     // open put under the same key is not that part and stays.
     let b = small_part();
     let reg = PartRegistry::new(u64::MAX);
-    let pin = reg
-        .open_pinned(&PartExpect::none(), opener(&b, 6, 70))
-        .expect("open");
+    let pin = reg.open_pinned(&PartExpect::none(), opener(&b, 6, 70)).expect("open");
     let part = pin.part().clone();
     let key = {
         let i = part.ident();
         (i.dev, i.ino, i.len)
     };
-    assert!(
-        reg.forget(&part),
-        "the part leaves the registry, pinned or not"
-    );
+    assert!(reg.forget(&part), "the part leaves the registry, pinned or not");
     assert!(reg.get(key).is_none());
     assert!(!reg.forget(&part), "once");
-    let mut cur =
-        StreamCursor::open(part.clone(), reference_binding_leaked(), 1, 0).expect("cursor");
+    let mut cur = StreamCursor::open(part.clone(), reference_binding_leaked(), 1, 0).expect("cursor");
     let mut d = vec![0u64; 8192];
     let mut ab = ArenaBuf::new(1 << 20);
-    let mut out = DecodeOut {
-        datums: &mut d,
-        arena: ByteArena::new(ab.bytes_mut()),
-    };
-    assert_eq!(
-        cur.decode_full(0, &mut out)
-            .expect("a holder decodes after forget"),
-        8192
-    );
+    let mut out = DecodeOut { datums: &mut d, arena: ByteArena::new(ab.bytes_mut()), };
+    assert_eq!(cur.decode_full(0, &mut out).expect("a holder decodes after forget"), 8192);
     drop((cur, pin));
-    assert_eq!(
-        Arc::strong_count(&part),
-        1,
-        "the holder's is the last reference: its drop closes the part"
-    );
-    let other = reg
-        .open_pinned(&PartExpect::none(), opener(&b, 6, 70))
-        .expect("reopen");
+    assert_eq!(Arc::strong_count(&part), 1, "the holder's is the last reference: its drop closes the part");
+    let other = reg.open_pinned(&PartExpect::none(), opener(&b, 6, 70)).expect("reopen");
     assert!(!Arc::ptr_eq(other.part(), &part));
-    assert!(
-        !reg.forget(&part),
-        "an entry under the same key that is another part stays"
-    );
+    assert!(!reg.forget(&part), "an entry under the same key that is another part stays");
     assert!(reg.get(key).is_some());
 }
 
@@ -398,12 +359,8 @@ fn d3003_trim_evicts_contents_of_unused_parts_only() {
     let _serial = EPOCH_TESTS.lock().unwrap_or_else(|e| e.into_inner());
     let b = small_part();
     let reg = PartRegistry::new(u64::MAX);
-    let p1 = reg
-        .open_pinned(&PartExpect::none(), opener(&b, 1, 31))
-        .expect("p1");
-    let p2 = reg
-        .open_pinned(&PartExpect::none(), opener(&b, 1, 32))
-        .expect("p2");
+    let p1 = reg.open_pinned(&PartExpect::none(), opener(&b, 1, 31)).expect("p1");
+    let p2 = reg.open_pinned(&PartExpect::none(), opener(&b, 1, 32)).expect("p2");
     for p in [&p1, &p2] {
         p.part().prefault_all_sections().expect("warm");
         assert!(p.part().cache_bytes() > 0);
@@ -411,35 +368,17 @@ fn d3003_trim_evicts_contents_of_unused_parts_only() {
     let used = p2.part().use_part();
     let held = p1.part().section_bytes(0).expect("section 0");
     let before = held.bytes().to_vec();
-    assert!(
-        p1.part().resident() > held.len() as u64,
-        "more than the held section is cached"
-    );
+    assert!(p1.part().resident() > held.len() as u64, "more than the held section is cached");
     assert!(reg.trim_contents(0) > 0, "the unused part's contents go");
-    assert_eq!(
-        p1.part().resident(),
-        held.len() as u64,
-        "the held section stays cached and counted"
-    );
-    assert!(
-        p2.part().cache_bytes() > 0,
-        "a part in use keeps its contents"
-    );
+    assert_eq!(p1.part().resident(), held.len() as u64, "the held section stays cached and counted");
+    assert!(p2.part().cache_bytes() > 0, "a part in use keeps its contents");
     assert_eq!(held.bytes(), &before[..], "a holder's clone stays valid");
     drop(held);
     reg.trim_contents(0);
-    assert_eq!(
-        p1.part().cache_bytes(),
-        0,
-        "its holder gone: pinned entry, contents evicted"
-    );
+    assert_eq!(p1.part().cache_bytes(), 0, "its holder gone: pinned entry, contents evicted");
     assert_eq!(p1.part().resident(), 0);
     let again = p1.part().section_bytes(0).expect("re-fault");
-    assert_eq!(
-        again.bytes(),
-        &before[..],
-        "a re-fault returns the same bytes"
-    );
+    assert_eq!(again.bytes(), &before[..], "a re-fault returns the same bytes");
     assert!(p1.part().resident() > 0);
     drop(used);
     reg.trim_contents(0);
@@ -454,42 +393,22 @@ fn d4487_a_parts_charge_counts_each_cached_images_block_and_entry() {
     use crate::openpart::{PassKey, IMAGE_FIXED, PASSED_FIXED};
     let b = small_part();
     let reg = PartRegistry::new(u64::MAX);
-    let p = reg
-        .open_pinned(&PartExpect::none(), opener(&b, 1, 4487))
-        .expect("p");
+    let p = reg.open_pinned(&PartExpect::none(), opener(&b, 1, 4487)).expect("p");
     p.part().evict_contents();
-    assert_eq!(
-        p.part().held_and_images(),
-        (0, 0),
-        "nothing cached, nothing charged"
-    );
+    assert_eq!(p.part().held_and_images(), (0, 0), "nothing cached, nothing charged");
     p.part().prefault_all_sections().expect("warm");
     let (held, n) = p.part().held_and_images();
     assert!(n > 0);
-    assert_eq!(
-        held,
-        p.part().resident() + n * IMAGE_FIXED,
-        "the images' bytes and each one's block and entry"
-    );
+    assert_eq!(held, p.part().resident() + n * IMAGE_FIXED, "the images' bytes and each one's block and entry");
     let key = p.part().a_cached_key().expect("a cached segment");
-    p.part()
-        .pass_extents((1, 0, 0), None, &[PassKey { key, g_end: 1 }]);
-    assert_eq!(
-        p.part().held_and_images().0,
-        held + PASSED_FIXED,
-        "a passed extent's entry"
-    );
+    p.part().pass_extents((1, 0, 0), None, &[PassKey { key, g_end: 1 }]);
+    assert_eq!(p.part().held_and_images().0, held + PASSED_FIXED, "a passed extent's entry");
     p.part().unpass(key);
     assert_eq!(p.part().held_and_images().0, held, "gone with the entry");
-    p.part()
-        .pass_extents((1, 0, 0), None, &[PassKey { key, g_end: 1 }]);
+    p.part().pass_extents((1, 0, 0), None, &[PassKey { key, g_end: 1 }]);
     p.part().evict_contents();
     assert_eq!(p.part().resident(), 0);
-    assert_eq!(
-        p.part().held_and_images(),
-        (0, 0),
-        "the eviction takes the blocks', the entries' and the passed entry's bytes off"
-    );
+    assert_eq!(p.part().held_and_images(), (0, 0), "the eviction takes the blocks', the entries' and the passed entry's bytes off");
 }
 
 /// D4834: a registry-opened part's drop gives its charge to this thread first; an image a holder keeps takes its bytes and
@@ -499,19 +418,13 @@ fn d4834_a_registry_parts_drop_hands_a_kept_image_its_bytes() {
     use crate::openpart::IMG_BLOCK;
     let b = small_part();
     let reg = PartRegistry::new(u64::MAX);
-    let p = reg
-        .open_pinned(&PartExpect::none(), opener(&b, 1, 4834))
-        .expect("p");
+    let p = reg.open_pinned(&PartExpect::none(), opener(&b, 1, 4834)).expect("p");
     p.part().prefault_all_sections().expect("warm");
     let kept = p.part().section_bytes(0).expect("section 0");
     assert_eq!(kept.owed_bytes(), 0, "cached: on the part's charge");
     drop(p);
     drop(reg);
-    assert_eq!(
-        kept.owed_bytes(),
-        kept.len() as u64 + IMG_BLOCK,
-        "its bytes and block, off the dropped part's charge"
-    );
+    assert_eq!(kept.owed_bytes(), kept.len() as u64 + IMG_BLOCK, "its bytes and block, off the dropped part's charge");
 }
 
 /// D4487 t3: a reader's image (one no cache keeps) carries its `Arc<Img>` block in its charge beside its bytes, on the
@@ -521,16 +434,9 @@ fn d4487_a_readers_image_carries_its_block_in_its_charge() {
     use crate::openpart::{SegBuf, IMG_BLOCK};
     std::thread::spawn(|| {
         memledger::bind_backend(4489, 9489);
-        let owner = Some((
-            memledger::Owner::Session(memledger::Acct::backend(4489)),
-            memledger::Kind::Region,
-        ));
+        let owner = Some((memledger::Owner::Session(memledger::Acct::backend(4489)), memledger::Kind::Region,));
         let img = SegBuf::from_bytes_for(owner, &[7u8; 5000]).expect("an image");
-        assert_eq!(
-            img.carried_bytes(),
-            img.cap_bytes() + IMG_BLOCK,
-            "its bytes and its block"
-        );
+        assert_eq!(img.carried_bytes(), img.cap_bytes() + IMG_BLOCK, "its bytes and its block");
         drop(img);
         memledger::unbind_backend();
     })
@@ -546,32 +452,21 @@ fn value_counters_count_faults_hits_and_re_misses() {
     use memledger::{value, Consumer::PartCache};
     let b = small_part();
     let reg = PartRegistry::new(u64::MAX);
-    let p = reg
-        .open_pinned(&PartExpect::none(), opener(&b, 1, 61))
-        .expect("p");
+    let p = reg.open_pinned(&PartExpect::none(), opener(&b, 1, 61)).expect("p");
     p.part().evict_contents();
     value::flush();
     let v0 = value::stats(PartCache);
     let n = p.part().section_bytes(0).expect("fault").len() as u64;
     let v1 = value::stats(PartCache);
-    assert!(
-        v1.misses > v0.misses && v1.miss_bytes >= v0.miss_bytes + n,
-        "the fault: a miss of its bytes"
-    );
+    assert!(v1.misses > v0.misses && v1.miss_bytes >= v0.miss_bytes + n, "the fault: a miss of its bytes");
     drop(p.part().section_bytes(0).expect("cached"));
     value::flush();
-    assert!(
-        value::stats(PartCache).hits > v1.hits,
-        "the cached read: a hit"
-    );
+    assert!(value::stats(PartCache).hits > v1.hits, "the cached read: a hit");
     assert!(p.part().evict_contents().0 >= n, "section 0 evicted");
     let r0 = value::stats(PartCache);
     drop(p.part().section_bytes(0).expect("re-fault"));
     let r1 = value::stats(PartCache);
-    assert!(
-        r1.re_misses > r0.re_misses && r1.re_miss_bytes >= r0.re_miss_bytes + n,
-        "the re-fault: a re-miss of the bytes evicted"
-    );
+    assert!(r1.re_misses > r0.re_misses && r1.re_miss_bytes >= r0.re_miss_bytes + n, "the re-fault: a re-miss of the bytes evicted");
 }
 
 /// Broker (b), `broker_value=1`: a content eviction moves the part cache's byte clock and leaves the part's ghost, which its
@@ -585,43 +480,24 @@ fn broker_value_counts_part_ghosts_and_tail_hits() {
     value::set_ext(true);
     let b = small_part();
     let reg = PartRegistry::new(u64::MAX);
-    let p = reg
-        .open_pinned(&PartExpect::none(), opener(&b, 1, 64))
-        .expect("p");
+    let p = reg.open_pinned(&PartExpect::none(), opener(&b, 1, 64)).expect("p");
     drop(p.part().section_bytes(0).expect("fault"));
     let e0 = value::ext_stats(PartCache);
     let (s, d, _) = p.part().evict_contents();
     assert!(s + d > 0, "section 0 evicted");
     let e1 = value::ext_stats(PartCache);
-    assert!(
-        e1.evicted_bytes >= e0.evicted_bytes + s + d,
-        "the byte clock moves by the bytes evicted"
-    );
+    assert!(e1.evicted_bytes >= e0.evicted_bytes + s + d, "the byte clock moves by the bytes evicted");
     drop(p.part().section_bytes(0).expect("re-fault"));
-    assert!(
-        value::ext_stats(PartCache).ghost_hits > e1.ghost_hits,
-        "the re-fault takes the part's ghost"
-    );
+    assert!(value::ext_stats(PartCache).ghost_hits > e1.ghost_hits, "the re-fault takes the part's ghost");
 
     crate::partcache::statement_boundary();
     drop(p.part().use_part_in(0));
     reg.publish_tail();
-    assert_eq!(
-        crate::partcache::tail_stamp(),
-        p.part().cache_used(),
-        "one cached part: the tail is its stamp"
-    );
-    assert_eq!(
-        value::ext_stats(PartCache).tail_bytes,
-        p.part().resident(),
-        "its segment bytes"
-    );
+    assert_eq!(crate::partcache::tail_stamp(), p.part().cache_used(), "one cached part: the tail is its stamp");
+    assert_eq!(value::ext_stats(PartCache).tail_bytes, p.part().resident(), "its segment bytes");
     let t0 = value::ext_stats(PartCache).tail_hits;
     drop(p.part().use_part_in(0));
-    assert!(
-        value::ext_stats(PartCache).tail_hits > t0,
-        "a use of the tail's part: a tail hit"
-    );
+    assert!(value::ext_stats(PartCache).tail_hits > t0, "a use of the tail's part: a tail hit");
 }
 
 /// D3823: the debug poison of a uses-only release evicts as the trim does and fills only the images no holder shares
@@ -631,39 +507,18 @@ fn broker_value_counts_part_ghosts_and_tail_hits() {
 fn d3823_debug_poison_fills_only_the_images_no_holder_shares() {
     let b = small_part();
     let reg = PartRegistry::new(u64::MAX);
-    let p = reg
-        .open_pinned(&PartExpect::none(), opener(&b, 1, 3823))
-        .expect("p");
+    let p = reg.open_pinned(&PartExpect::none(), opener(&b, 1, 3823)).expect("p");
     p.part().prefault_all_sections().expect("warm");
     let held = p.part().section_bytes(0).expect("section 0");
     let kept = held.bytes().to_vec();
-    let other = p
-        .part()
-        .section_bytes(1)
-        .expect("section 1")
-        .bytes()
-        .to_vec();
+    let other = p.part().section_bytes(1).expect("section 1").bytes().to_vec();
     let cached = p.part().resident();
-    assert!(
-        cached > held.len() as u64,
-        "more than the held section is cached"
-    );
+    assert!(cached > held.len() as u64, "more than the held section is cached");
     let poisoned = p.part().debug_poison_contents();
-    assert!(
-        poisoned > 0 && poisoned <= cached - held.len() as u64,
-        "only the sole images: {poisoned} of {cached}"
-    );
-    assert_eq!(
-        p.part().resident(),
-        held.len() as u64,
-        "the held section stays cached and counted"
-    );
+    assert!(poisoned > 0 && poisoned <= cached - held.len() as u64, "only the sole images: {poisoned} of {cached}");
+    assert_eq!(p.part().resident(), held.len() as u64, "the held section stays cached and counted");
     assert_eq!(held.bytes(), &kept[..], "a holder's image keeps its bytes");
-    assert_eq!(
-        p.part().section_bytes(1).expect("re-fault").bytes(),
-        &other[..],
-        "a re-fault reads the part's bytes"
-    );
+    assert_eq!(p.part().section_bytes(1).expect("re-fault").bytes(), &other[..], "a re-fault reads the part's bytes");
 }
 
 /// Memory step 5 (lane membroker): the part cache's floor counts the cached bytes of the parts in use, and only those.
@@ -671,12 +526,8 @@ fn d3823_debug_poison_fills_only_the_images_no_holder_shares() {
 fn memory_budget_floor_is_the_cached_bytes_of_parts_in_use() {
     let b = small_part();
     let reg = PartRegistry::new(u64::MAX);
-    let p1 = reg
-        .open_pinned(&PartExpect::none(), opener(&b, 1, 51))
-        .expect("p1");
-    let p2 = reg
-        .open_pinned(&PartExpect::none(), opener(&b, 1, 52))
-        .expect("p2");
+    let p1 = reg.open_pinned(&PartExpect::none(), opener(&b, 1, 51)).expect("p1");
+    let p2 = reg.open_pinned(&PartExpect::none(), opener(&b, 1, 52)).expect("p2");
     for p in [&p1, &p2] {
         p.part().prefault_all_sections().expect("warm");
     }
@@ -685,10 +536,7 @@ fn memory_budget_floor_is_the_cached_bytes_of_parts_in_use() {
     assert_eq!(reg.in_use_bytes(), p2.part().cache_bytes());
     assert!(reg.in_use_bytes() > 0);
     let both = p1.part().use_part();
-    assert_eq!(
-        reg.in_use_bytes(),
-        p1.part().cache_bytes() + p2.part().cache_bytes()
-    );
+    assert_eq!(reg.in_use_bytes(), p1.part().cache_bytes() + p2.part().cache_bytes());
     drop((used, both));
     assert_eq!(reg.in_use_bytes(), 0);
 }
@@ -702,9 +550,7 @@ fn d4353_the_trimmable_bytes_are_what_a_trim_frees() {
     let b = small_part();
     let reg = PartRegistry::new(u64::MAX);
     let [free, used, deferred, parked] = [61, 62, 63, 64].map(|ino| {
-        let p = reg
-            .open_pinned(&PartExpect::none(), opener(&b, 1, ino))
-            .expect("open");
+        let p = reg.open_pinned(&PartExpect::none(), opener(&b, 1, ino)).expect("open");
         p.part().prefault_all_sections().expect("warm");
         p
     });
@@ -713,22 +559,12 @@ fn d4353_the_trimmable_bytes_are_what_a_trim_frees() {
     d.defer();
     let mut k = parked.part().use_part();
     k.transfer(Owner::Cache(Holder::Parked), Release::Evict);
-    assert_eq!(
-        reg.in_use_bytes(),
-        used.part().cache_bytes(),
-        "the floor: the live claim's part only"
-    );
+    assert_eq!(reg.in_use_bytes(), used.part().cache_bytes(), "the floor: the live claim's part only");
     let (counted, unused) = (reg.trimmable_bytes(), free.part().cache_bytes());
     let freed = reg.trim_contents(0);
     assert_eq!(freed, unused, "the trim evicts the unused part only");
-    assert!(
-        deferred.part().cache_bytes() > 0 && parked.part().cache_bytes() > 0,
-        "the deferred and the parked part stay"
-    );
-    assert_eq!(
-        counted, freed,
-        "R2a counted {counted} bytes, the trim freed {freed}"
-    );
+    assert!(deferred.part().cache_bytes() > 0 && parked.part().cache_bytes() > 0, "the deferred and the parked part stay");
+    assert_eq!(counted, freed, "R2a counted {counted} bytes, the trim freed {freed}");
     drop((u, d, k));
 }
 
@@ -740,34 +576,18 @@ fn d4353_the_trimmable_bytes_are_what_a_trim_frees() {
 fn d4407_an_image_a_holder_clones_is_not_trimmable() {
     let b = small_part();
     let reg = PartRegistry::new(u64::MAX);
-    let p = reg
-        .open_pinned(&PartExpect::none(), opener(&b, 1, 65))
-        .expect("open");
+    let p = reg.open_pinned(&PartExpect::none(), opener(&b, 1, 65)).expect("open");
     p.part().prefault_all_sections().expect("warm");
     let held = p.part().section_bytes(0).expect("section 0");
     let len = held.len() as u64;
-    assert!(
-        len > 0 && p.part().cache_bytes() > len,
-        "the held section is one of the part's cached images"
-    );
+    assert!(len > 0 && p.part().cache_bytes() > len, "the held section is one of the part's cached images");
     let counted = reg.trimmable_bytes();
     let freed = reg.trim_contents(0);
     assert_eq!(p.part().resident(), len, "the trim keeps the held section");
-    assert_eq!(
-        counted, freed,
-        "R2a counted {counted} bytes, the trim freed {freed}"
-    );
-    assert_eq!(
-        reg.trimmable_bytes(),
-        0,
-        "only the held section is left: no trim frees it"
-    );
+    assert_eq!(counted, freed, "R2a counted {counted} bytes, the trim freed {freed}");
+    assert_eq!(reg.trimmable_bytes(), 0, "only the held section is left: no trim frees it");
     drop(held);
-    assert_eq!(
-        reg.trimmable_bytes(),
-        len,
-        "its holder let it go: it counts"
-    );
+    assert_eq!(reg.trimmable_bytes(), len, "its holder let it go: it counts");
     assert_eq!(reg.trim_contents(0), len, "and the trim frees it");
     assert_eq!(p.part().resident(), 0);
 }
@@ -779,12 +599,8 @@ fn d4407_an_image_a_holder_clones_is_not_trimmable() {
 fn d3999_a_part_counts_alone_only_on_its_one_user() {
     let b = small_part();
     let reg = PartRegistry::new(u64::MAX);
-    let shared = reg
-        .open_pinned(&PartExpect::none(), opener(&b, 1, 61))
-        .expect("shared");
-    let own = reg
-        .open_pinned(&PartExpect::none(), opener(&b, 1, 62))
-        .expect("own");
+    let shared = reg.open_pinned(&PartExpect::none(), opener(&b, 1, 61)).expect("shared");
+    let own = reg.open_pinned(&PartExpect::none(), opener(&b, 1, 62)).expect("own");
     for p in [&shared, &own] {
         p.part().prefault_all_sections().expect("warm");
     }
@@ -806,11 +622,7 @@ fn d3999_a_part_counts_alone_only_on_its_one_user() {
     let mut split = vec![(acct(61), sb / 2), (acct(62), sb / 2), (acct(63), ob)];
     split.sort();
     assert_eq!(by(false), split, "the views: a shared part split by uses");
-    assert_eq!(
-        by(true),
-        vec![(acct(63), ob)],
-        "the ranking: only the part one statement alone pins"
-    );
+    assert_eq!(by(true), vec![(acct(63), ob)], "the ranking: only the part one statement alone pins");
     // D4029 (d): the ranking's pass runs on the memory watchdog's thread: no allocation
     let mut got = [(0u32, 0u64); 2];
     let ((), allocs) = super::counted(|| {
@@ -822,22 +634,11 @@ fn d3999_a_part_counts_alone_only_on_its_one_user() {
             }
         });
     });
-    assert_eq!(
-        (allocs, got),
-        (0, [(acct(63), ob), (0, 0)]),
-        "the ranking's pass allocated"
-    );
+    assert_eq!((allocs, got), (0, [(acct(63), ob), (0, 0)]), "the ranking's pass allocated");
     let [a, b2, c] = uses;
     drop(c);
-    assert!(
-        reg.trim_contents(0) >= ob,
-        "the released part's contents evicted"
-    );
-    assert_eq!(
-        (shared.part().cache_bytes(), own.part().cache_bytes()),
-        (sb, 0),
-        "the shared part, still in use, stays"
-    );
+    assert!(reg.trim_contents(0) >= ob, "the released part's contents evicted");
+    assert_eq!((shared.part().cache_bytes(), own.part().cache_bytes()), (sb, 0), "the shared part, still in use, stays");
     drop((a, b2));
 }
 
@@ -851,9 +652,7 @@ fn d4087_the_ranking_counts_only_the_running_owners_parts() {
     let b = small_part();
     let reg = PartRegistry::new(u64::MAX);
     let [kept, parked, own, mine] = [87, 88, 89, 90].map(|ino| {
-        let p = reg
-            .open_pinned(&PartExpect::none(), opener(&b, 1, ino))
-            .expect("open");
+        let p = reg.open_pinned(&PartExpect::none(), opener(&b, 1, ino)).expect("open");
         p.part().prefault_all_sections().expect("warm");
         p
     });
@@ -878,11 +677,7 @@ fn d4087_the_ranking_counts_only_the_running_owners_parts() {
         let m = mine.part().use_part();
         assert_eq!(
             ranked(),
-            sorted(vec![
-                (acct, bytes(&kept)),
-                (acct, bytes(&parked)),
-                (acct, bytes(&mine))
-            ]),
+            sorted(vec![(acct, bytes(&kept)), (acct, bytes(&parked)), (acct, bytes(&mine))]),
             "the running statement's and the portal it executes: their own uses"
         );
         m
@@ -900,16 +695,8 @@ fn d4087_the_ranking_counts_only_the_running_owners_parts() {
     memledger::statement_end();
     assert_eq!(ranked(), vec![], "no statement runs: nothing ranks");
     memledger::statement_begin();
-    let (o, again, again_d) = (
-        own.part().use_part(),
-        kept.part().use_part(),
-        parked.part().use_part(),
-    );
-    assert_eq!(
-        ranked(),
-        vec![(acct, bytes(&own))],
-        "beside a kept or a parked use, its own new use of that part frees nothing"
-    );
+    let (o, again, again_d) = (own.part().use_part(), kept.part().use_part(), parked.part().use_part(),);
+    assert_eq!(ranked(), vec![(acct, bytes(&own))], "beside a kept or a parked use, its own new use of that part frees nothing");
     // D4029 (d): the ranking's pass runs on the memory watchdog's thread: no allocation
     let mut got = [(0u32, 0u64); 2];
     let ((), allocs) = super::counted(|| {
@@ -921,34 +708,18 @@ fn d4087_the_ranking_counts_only_the_running_owners_parts() {
             }
         });
     });
-    assert_eq!(
-        (allocs, got),
-        (0, [(acct, bytes(&own)), (0, 0)]),
-        "the ranking's pass allocated"
-    );
+    assert_eq!((allocs, got), (0, [(acct, bytes(&own)), (0, 0)]), "the ranking's pass allocated");
     drop((o, again, again_d));
     let left = own.part().use_part();
     memledger::statement_end();
     memledger::unbind_backend();
     memledger::bind_backend(187, 9287);
     memledger::statement_begin();
-    assert_eq!(
-        ranked(),
-        vec![],
-        "the next backend on the slot: the exited one's kept and left uses"
-    );
+    assert_eq!(ranked(), vec![], "the next backend on the slot: the exited one's kept and left uses");
     let mut alone = Vec::new();
     reg.in_use_by_account(true, |a, n| alone.push((a, n)));
-    let views = sorted(vec![
-        (acct, bytes(&kept)),
-        (acct, bytes(&own)),
-        (Acct::PARKED.0, bytes(&parked)),
-    ]);
-    assert_eq!(
-        sorted(alone),
-        views,
-        "the views: the kept and the left use on the slot's account, the parked on the depot's"
-    );
+    let views = sorted(vec![(acct, bytes(&kept)), (acct, bytes(&own)), (Acct::PARKED.0, bytes(&parked)),]);
+    assert_eq!(sorted(alone), views, "the views: the kept and the left use on the slot's account, the parked on the depot's");
     memledger::statement_end();
     memledger::unbind_backend();
     drop((k, d, left));
@@ -962,53 +733,22 @@ fn c8_a_use_taken_by_row_is_its_contexts_owners_released_by_row() {
     use memledger::{charge, Acct, Owner, Release};
     let b = small_part();
     let reg = PartRegistry::new(u64::MAX);
-    let p = reg
-        .open_pinned(&PartExpect::none(), opener(&b, 1, 91))
-        .expect("open");
+    let p = reg.open_pinned(&PartExpect::none(), opener(&b, 1, 91)).expect("open");
     memledger::bind_backend(188, 9188);
     memledger::statement_begin();
     let acct = Acct::backend(188);
     let (held, by_row) = (p.part().use_part_in(7), p.part().use_part_by_row(7));
-    assert_eq!(
-        (held.owner(), by_row.owner()),
-        (charge::context().0, charge::context().0)
-    );
-    assert!(
-        matches!(held.owner(), Owner::Statement { .. }),
-        "{:?}",
-        held.owner()
-    );
-    assert_eq!(
-        (held.release(), by_row.release()),
-        (Release::Statement, Release::Row)
-    );
-    assert_eq!(
-        (p.part().users(), charge::owner_row(held.owner()).uses),
-        (2, 2),
-        "both count on the part and on their owner"
-    );
+    assert_eq!((held.owner(), by_row.owner()), (charge::context().0, charge::context().0));
+    assert!(matches!(held.owner(), Owner::Statement { .. }), "{:?}", held.owner());
+    assert_eq!((held.release(), by_row.release()), (Release::Statement, Release::Row));
+    assert_eq!((p.part().users(), charge::owner_row(held.owner()).uses), (2, 2), "both count on the part and on their owner");
     let token = charge::new_owner_id();
     charge::portal_begin(token);
     {
         let _in = charge::enter_portal(token);
         let (held, by_row) = (p.part().use_part_in(7), p.part().use_part_by_row(7));
-        assert_eq!(
-            (held.owner(), by_row.owner()),
-            (
-                Owner::Portal {
-                    acct,
-                    portal: token
-                },
-                Owner::Portal {
-                    acct,
-                    portal: token
-                }
-            )
-        );
-        assert_eq!(
-            (held.release(), by_row.release()),
-            (Release::Portal, Release::Row)
-        );
+        assert_eq!((held.owner(), by_row.owner()), (Owner::Portal { acct, portal: token }, Owner::Portal { acct, portal: token }));
+        assert_eq!((held.release(), by_row.release()), (Release::Portal, Release::Row));
     }
     let _ = charge::portal_end(acct, token);
     drop((held, by_row));
@@ -1025,18 +765,11 @@ fn d3109_trim_order_keeps_a_statements_first_touched_parts() {
     let _epoch = epoch_test();
     let b = small_part();
     let reg = PartRegistry::new(u64::MAX);
-    let pins: Vec<PartPin> = (0..4)
-        .map(|i| {
-            reg.open_pinned(&PartExpect::none(), opener(&b, 3, 40 + i))
-                .expect("open")
-        })
-        .collect();
+    let pins: Vec<PartPin> =
+        (0..4).map(|i| { reg.open_pinned(&PartExpect::none(), opener(&b, 3, 40 + i)).expect("open")
+        }).collect();
     let order = |pins: &[PartPin]| {
-        let mut v: Vec<(u64, usize)> = pins
-            .iter()
-            .enumerate()
-            .map(|(i, p)| (p.part().cache_used(), i))
-            .collect();
+        let mut v: Vec<(u64, usize)> = pins.iter().enumerate().map(|(i, p)| (p.part().cache_used(), i)).collect();
         v.sort();
         v.into_iter().map(|(_, i)| i).collect::<Vec<_>>()
     };
@@ -1045,47 +778,28 @@ fn d3109_trim_order_keeps_a_statements_first_touched_parts() {
     for p in &pins {
         drop(p.part().use_part());
     }
-    assert_eq!(
-        order(&pins),
-        vec![3, 2, 1, 0],
-        "inside a statement the latest-touched part goes first"
-    );
+    assert_eq!(order(&pins), vec![3, 2, 1, 0], "inside a statement the latest-touched part goes first");
     // a second use of the head in the same statement (another lane's cursor, a late read) keeps its first-touch place
     drop(pins[0].part().use_part());
     drop(pins[1].part().use_part());
-    assert_eq!(
-        order(&pins),
-        vec![3, 2, 1, 0],
-        "a later use in the same statement does not move a part"
-    );
+    assert_eq!(order(&pins), vec![3, 2, 1, 0], "a later use in the same statement does not move a part");
     // its repeat touches them in the same order: the same parts stay
     crate::partcache::statement_boundary();
     for p in &pins {
         drop(p.part().use_part());
     }
-    assert_eq!(
-        order(&pins),
-        vec![3, 2, 1, 0],
-        "a repeat keeps the same head"
-    );
+    assert_eq!(order(&pins), vec![3, 2, 1, 0], "a repeat keeps the same head");
     // statement 3 touches part 3 only: the older statement's parts go first (least recently used across statements)
     crate::partcache::statement_boundary();
     drop(pins[3].part().use_part());
-    assert_eq!(
-        order(&pins),
-        vec![2, 1, 0, 3],
-        "an older statement's parts go before a newer one's"
-    );
+    assert_eq!(order(&pins), vec![2, 1, 0, 3], "an older statement's parts go before a newer one's");
     // a trim to 0 still evicts every unused part's contents in that order, and none in use
     for p in &pins {
         p.part().prefault_all_sections().expect("warm");
     }
     let used = pins[0].part().use_part();
     reg.trim_contents(0);
-    assert!(
-        pins[0].part().cache_bytes() > 0,
-        "a part in use keeps its contents"
-    );
+    assert!(pins[0].part().cache_bytes() > 0, "a part in use keeps its contents");
     for p in &pins[1..] {
         assert_eq!(p.part().cache_bytes(), 0, "unused: evicted");
     }
@@ -1097,24 +811,16 @@ fn d3109_trim_order_keeps_a_statements_first_touched_parts() {
 #[test]
 fn d3109_stale_streams_go_first_the_live_column_stays() {
     let _epoch = epoch_test();
-    let b = build_part(&PartSpec::new(
-        9_000,
-        vec![seq_i64_col(1, 9_000), seq_i64_col(2, 9_000)],
-    ));
+    let b = build_part(&PartSpec::new(9_000, vec![seq_i64_col(1, 9_000), seq_i64_col(2, 9_000)],));
     let reg = PartRegistry::new(u64::MAX);
-    let pin = reg
-        .open_pinned(&PartExpect::none(), opener(&b, 3, 60))
-        .expect("open");
+    let pin = reg.open_pinned(&PartExpect::none(), opener(&b, 3, 60)).expect("open");
     let part = pin.part().clone();
     let binding = reference_binding_leaked();
     let mut d = vec![0u64; 8192];
     let mut ab = ArenaBuf::new(1 << 20);
     let mut decode = |attno: u32| {
         let mut cur = StreamCursor::open(part.clone(), binding, attno, 0).expect("cursor");
-        let mut out = DecodeOut {
-            datums: &mut d,
-            arena: ByteArena::new(ab.bytes_mut()),
-        };
+        let mut out = DecodeOut { datums: &mut d, arena: ByteArena::new(ab.bytes_mut()), };
         assert_eq!(cur.decode_full(0, &mut out).expect("decode"), 8192);
     };
     // statement 1 reads columns 1 and 2, statement 2 column 1 only
@@ -1126,23 +832,11 @@ fn d3109_stale_streams_go_first_the_live_column_stays() {
     assert!(one > 0 && both > one, "each column faults its own extents");
     crate::partcache::statement_boundary();
     decode(1);
-    assert_eq!(
-        part.cache_bytes(),
-        both,
-        "column 1 reads its cached extents"
-    );
-    assert_eq!(
-        part.evict_stale_streams(),
-        both - one,
-        "column 2 is stale: its extents go"
-    );
+    assert_eq!(part.cache_bytes(), both, "column 1 reads its cached extents");
+    assert_eq!(part.evict_stale_streams(), both - one, "column 2 is stale: its extents go");
     assert_eq!(part.cache_bytes(), one, "column 1 stays resident");
     decode(1);
-    assert_eq!(
-        part.cache_bytes(),
-        one,
-        "column 1 still reads from the cache"
-    );
+    assert_eq!(part.cache_bytes(), one, "column 1 still reads from the cache");
     assert_eq!(part.evict_stale_streams(), 0, "nothing stale is left");
     drop(pin);
 }
@@ -1182,38 +876,19 @@ fn a_hit_with_another_mtime_is_a_miss() {
         let io = b.mem_io(7, 80);
         move || Ok(Box::new(TimedIo { io, mtime: (m, 0) }) as Box<dyn PartIo>)
     };
-    let p1 = reg
-        .open_pinned(&PartExpect::none(), timed(1))
-        .expect("open 1");
-    let p2 = reg
-        .open_pinned(&PartExpect::none(), timed(1))
-        .expect("open 2");
-    assert!(
-        Arc::ptr_eq(p1.part(), p2.part()),
-        "the same file shares its entry"
-    );
+    let p1 = reg.open_pinned(&PartExpect::none(), timed(1)).expect("open 1");
+    let p2 = reg.open_pinned(&PartExpect::none(), timed(1)).expect("open 2");
+    assert!(Arc::ptr_eq(p1.part(), p2.part()), "the same file shares its entry");
     assert_eq!((reg.counters().hits, reg.counters().misses), (1, 1));
-    let p3 = reg
-        .open_pinned(&PartExpect::none(), timed(2))
-        .expect("open 3");
-    assert!(
-        !Arc::ptr_eq(p1.part(), p3.part()),
-        "another mtime at the same (dev, ino, len) is another file"
-    );
+    let p3 = reg.open_pinned(&PartExpect::none(), timed(2)).expect("open 3");
+    assert!(!Arc::ptr_eq(p1.part(), p3.part()), "another mtime at the same (dev, ino, len) is another file");
     assert_eq!((reg.counters().hits, reg.counters().misses), (1, 2));
-    assert_eq!(
-        reg.len(),
-        1,
-        "the stale entry left; the new file's took its key"
-    );
-    let p4 = reg
-        .open_pinned(&PartExpect::none(), timed(2))
-        .expect("open 4");
+    assert_eq!(reg.len(), 1, "the stale entry left; the new file's took its key");
+    let p4 = reg.open_pinned(&PartExpect::none(), timed(2)).expect("open 4");
     assert!(Arc::ptr_eq(p3.part(), p4.part()));
 }
 
-static D3113_HELD: std::sync::Mutex<Vec<crate::openpart::SegBuf>> =
-    std::sync::Mutex::new(Vec::new());
+static D3113_HELD: std::sync::Mutex<Vec<crate::openpart::SegBuf>> = std::sync::Mutex::new(Vec::new());
 static D3113_RELEASE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 fn d3113_hook() {
@@ -1229,26 +904,17 @@ fn d3113_trim_runs_the_hook_for_shared_images() {
     let _serial = EPOCH_TESTS.lock().unwrap_or_else(|e| e.into_inner());
     let b = small_part();
     let reg = PartRegistry::new(u64::MAX);
-    let p = reg
-        .open_pinned(&PartExpect::none(), opener(&b, 1, 61))
-        .expect("open");
+    let p = reg.open_pinned(&PartExpect::none(), opener(&b, 1, 61)).expect("open");
     p.part().prefault_all_sections().expect("warm");
     let held = p.part().section_bytes(0).expect("section 0");
     let len = held.len() as u64;
     D3113_HELD.lock().unwrap().push(held);
     crate::partcache::set_evicted_hook(d3113_hook);
     reg.trim_contents(0);
-    assert_eq!(
-        p.part().resident(),
-        len,
-        "the owner keeps the section: it stays counted"
-    );
+    assert_eq!(p.part().resident(), len, "the owner keeps the section: it stays counted");
     D3113_RELEASE.store(true, std::sync::atomic::Ordering::Relaxed);
     reg.trim_contents(0);
-    assert!(
-        D3113_HELD.lock().unwrap().is_empty(),
-        "the trim ran the hook"
-    );
+    assert!(D3113_HELD.lock().unwrap().is_empty(), "the trim ran the hook");
     assert_eq!(p.part().resident(), 0, "then the section went");
 }
 
@@ -1265,24 +931,16 @@ fn owner_hook() {
 #[test]
 fn a_trim_runs_the_hook_for_a_stale_streams_image_its_owner_keeps() {
     let _serial = EPOCH_TESTS.lock().unwrap_or_else(|e| e.into_inner());
-    let b = build_part(&PartSpec::new(
-        9_000,
-        vec![seq_i64_col(1, 9_000), seq_i64_col(2, 9_000)],
-    ));
+    let b = build_part(&PartSpec::new(9_000, vec![seq_i64_col(1, 9_000), seq_i64_col(2, 9_000)],));
     let reg = PartRegistry::new(u64::MAX);
-    let pin = reg
-        .open_pinned(&PartExpect::none(), opener(&b, 3, 63))
-        .expect("open");
+    let pin = reg.open_pinned(&PartExpect::none(), opener(&b, 3, 63)).expect("open");
     let part = pin.part().clone();
     let binding = reference_binding_leaked();
     let mut d = vec![0u64; 8192];
     let mut ab = ArenaBuf::new(1 << 20);
     let mut decode = |attno: u32| {
         let mut cur = StreamCursor::open(part.clone(), binding, attno, 0).expect("cursor");
-        let mut out = DecodeOut {
-            datums: &mut d,
-            arena: ByteArena::new(ab.bytes_mut()),
-        };
+        let mut out = DecodeOut { datums: &mut d, arena: ByteArena::new(ab.bytes_mut()), };
         assert_eq!(cur.decode_full(0, &mut out).expect("decode"), 8192);
     };
     // statement 1 reads columns 1 and 2, and the owner keeps column 2's first image; statement 2 reads column 1 only
@@ -1290,28 +948,15 @@ fn a_trim_runs_the_hook_for_a_stale_streams_image_its_owner_keeps() {
     decode(1);
     decode(2);
     let dir = part.stream_directory().expect("stream directory");
-    let ps = dir
-        .lookup(2, 0, StreamRole::Values)
-        .expect("column 2's values");
-    let kept = part
-        .extent_bytes(&ps.entry, &ps.extents[0], 0)
-        .expect("column 2's first image");
+    let ps = dir.lookup(2, 0, StreamRole::Values).expect("column 2's values");
+    let kept = part.extent_bytes(&ps.entry, &ps.extents[0], 0).expect("column 2's first image");
     assert!(kept.is_shared(), "the owner shares the cached image");
-    OWNER_KEPT
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .push(kept);
+    OWNER_KEPT.lock().unwrap_or_else(|e| e.into_inner()).push(kept);
     crate::partcache::statement_boundary();
     decode(1);
     crate::partcache::set_evicted_hook(owner_hook);
     reg.trim_contents(0);
-    assert!(
-        OWNER_KEPT
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .is_empty(),
-        "the trim ran the evicted hook for the owner's image"
-    );
+    assert!(OWNER_KEPT.lock().unwrap_or_else(|e| e.into_inner()).is_empty(), "the trim ran the evicted hook for the owner's image");
     assert_eq!(part.resident(), 0, "both columns left the part");
     drop(pin);
 }
@@ -1323,30 +968,15 @@ fn a_trim_runs_the_hook_for_an_image_owed_before_it() {
     let _serial = EPOCH_TESTS.lock().unwrap_or_else(|e| e.into_inner());
     let b = small_part();
     let reg = PartRegistry::new(u64::MAX);
-    let p = reg
-        .open_pinned(&PartExpect::none(), opener(&b, 1, 64))
-        .expect("open");
+    let p = reg.open_pinned(&PartExpect::none(), opener(&b, 1, 64)).expect("open");
     p.part().prefault_all_sections().expect("warm");
     let kept = p.part().section_bytes(0).expect("section 0");
     let key = (p.part().sections()[0].off, kept.len() as u64);
-    assert_eq!(
-        p.part().evict_extent_images(&[key]),
-        (1, kept.len() as u64),
-        "the map lets it go"
-    );
-    OWNER_KEPT
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .push(kept);
+    assert_eq!(p.part().evict_extent_images(&[key]), (1, kept.len() as u64), "the map lets it go");
+    OWNER_KEPT.lock().unwrap_or_else(|e| e.into_inner()).push(kept);
     crate::partcache::set_evicted_hook(owner_hook);
     reg.trim_contents(0);
-    assert!(
-        OWNER_KEPT
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .is_empty(),
-        "the trim ran the evicted hook for the owed image"
-    );
+    assert!(OWNER_KEPT.lock().unwrap_or_else(|e| e.into_inner()).is_empty(), "the trim ran the evicted hook for the owed image");
     assert_eq!(p.part().resident(), 0);
 }
 
@@ -1368,9 +998,7 @@ fn d4504_a_parts_faces_are_its_contents_and_go_after_its_data() {
     let _one = FACES_TESTS.lock().unwrap_or_else(|p| p.into_inner());
     let b = small_part();
     let reg = PartRegistry::new(u64::MAX);
-    let p = reg
-        .open_pinned(&PartExpect::none(), opener(&b, 1, 64))
-        .expect("open");
+    let p = reg.open_pinned(&PartExpect::none(), opener(&b, 1, 64)).expect("open");
     let part = p.part().clone();
     part.prefault_all_sections().expect("warm");
     let mut off = crate::FaceHold::new(&part, false);
@@ -1378,32 +1006,18 @@ fn d4504_a_parts_faces_are_its_contents_and_go_after_its_data() {
     assert_eq!(part.face_bytes(), 0, "an off-switch hold is charged only");
     let mut h = crate::FaceHold::new(&part, true);
     h.add(4096);
-    assert_eq!(
-        (part.face_bytes(), h.bytes()),
-        (4096, 4096),
-        "a counted hold is its part's faces"
-    );
+    assert_eq!((part.face_bytes(), h.bytes()), (4096, 4096), "a counted hold is its part's faces");
     D4504_HOLDS.lock().unwrap().push(h);
     crate::partcache::set_faces_hook(d4504_hook);
     let used = part.use_part();
     reg.trim_contents(0);
     assert_eq!(part.face_bytes(), 4096, "a part in use keeps its faces");
-    assert!(
-        !D4504_HOLDS.lock().unwrap()[0].stale(),
-        "and its holds stay live"
-    );
+    assert!(!D4504_HOLDS.lock().unwrap()[0].stale(), "and its holds stay live");
     drop(used);
     reg.trim_contents(0);
     assert_eq!(part.resident(), 0, "the unused part's data went");
-    assert_eq!(
-        part.face_bytes(),
-        0,
-        "then its faces: the hook dropped the stale hold"
-    );
-    assert!(
-        D4504_HOLDS.lock().unwrap().is_empty(),
-        "the trim ran the faces hook"
-    );
+    assert_eq!(part.face_bytes(), 0, "then its faces: the hook dropped the stale hold");
+    assert!(D4504_HOLDS.lock().unwrap().is_empty(), "the trim ran the faces hook");
     assert!(!off.stale(), "an off-switch hold is never stale");
     drop(p);
 }
@@ -1417,9 +1031,7 @@ fn d4802_held_faces_are_not_real_evictions() {
     let _one = FACES_TESTS.lock().unwrap_or_else(|p| p.into_inner());
     let b = small_part();
     let reg = PartRegistry::new(u64::MAX);
-    let p = reg
-        .open_pinned(&PartExpect::none(), opener(&b, 1, 66))
-        .expect("open");
+    let p = reg.open_pinned(&PartExpect::none(), opener(&b, 1, 66)).expect("open");
     let part = p.part().clone();
     part.prefault_all_sections().expect("warm");
     crate::partcache::set_faces_hook(d4504_hook);
@@ -1429,45 +1041,21 @@ fn d4802_held_faces_are_not_real_evictions() {
     reg.trim_contents(0);
     assert_eq!(part.resident(), 0, "the unused part's data went first");
     let real = reg.real_evictions();
-    assert_eq!(
-        reg.faces_trims(),
-        (1, 4096, 0),
-        "the faces tier let the held faces go; none left the census"
-    );
+    assert_eq!(reg.faces_trims(), (1, 4096, 0), "the faces tier let the held faces go; none left the census");
     for _ in 0..3 {
-        assert_eq!(
-            reg.trim_contents(0),
-            4096,
-            "each trim returns the held faces again"
-        );
+        assert_eq!(reg.trim_contents(0), 4096, "each trim returns the held faces again");
     }
     assert_eq!(part.face_bytes(), 4096, "they stay");
-    assert_eq!(
-        reg.faces_trims(),
-        (4, 4 * 4096, 0),
-        "the faces tier counts them at every trim"
-    );
+    assert_eq!(reg.faces_trims(), (4, 4 * 4096, 0), "the faces tier counts them at every trim");
     assert_eq!(reg.real_evictions(), real, "the real evictions never");
     // the statement ended: its stale hold goes to the hook's owner, who drops it at the next trim
     D4504_HOLDS.lock().unwrap().push(held);
     assert_eq!(reg.trim_contents(0), 4096);
     assert_eq!(part.face_bytes(), 0, "the hook dropped the hold");
-    assert_eq!(
-        reg.faces_trims(),
-        (5, 5 * 4096, 4096),
-        "they left the census at that trim"
-    );
-    assert_eq!(
-        reg.real_evictions(),
-        (real.0 + 1, real.1 + 4096),
-        "the real evictions count them once"
-    );
+    assert_eq!(reg.faces_trims(), (5, 5 * 4096, 4096), "they left the census at that trim");
+    assert_eq!(reg.real_evictions(), (real.0 + 1, real.1 + 4096), "the real evictions count them once");
     assert_eq!(reg.trim_contents(0), 0, "nothing left to let go");
-    assert_eq!(
-        reg.real_evictions(),
-        (real.0 + 1, real.1 + 4096),
-        "and nothing more"
-    );
+    assert_eq!(reg.real_evictions(), (real.0 + 1, real.1 + 4096), "and nothing more");
     assert!(D4504_HOLDS.lock().unwrap().is_empty());
     drop(p);
 }
@@ -1490,9 +1078,7 @@ fn d4802_trim_real_frees_returns_no_held_faces() {
     set(K::TrimRealFrees, 1);
     let b = small_part();
     let reg = PartRegistry::new(u64::MAX);
-    let p = reg
-        .open_pinned(&PartExpect::none(), opener(&b, 1, 67))
-        .expect("open");
+    let p = reg.open_pinned(&PartExpect::none(), opener(&b, 1, 67)).expect("open");
     let part = p.part().clone();
     part.prefault_all_sections().expect("warm");
     crate::partcache::set_faces_hook(d4504_hook);
@@ -1501,24 +1087,12 @@ fn d4802_trim_real_frees_returns_no_held_faces() {
     let data = reg.trim_contents(0);
     assert!(data > 0, "the unused part's data went");
     assert_eq!(part.resident(), 0);
-    assert_eq!(
-        reg.real_evictions(),
-        (1, data),
-        "the trim returned its real evictions alone (off: the held faces too)"
-    );
+    assert_eq!(reg.real_evictions(), (1, data), "the trim returned its real evictions alone (off: the held faces too)");
     for _ in 0..3 {
-        assert_eq!(
-            reg.trim_contents(0),
-            0,
-            "the held faces free nothing (off: 4096 at every trim)"
-        );
+        assert_eq!(reg.trim_contents(0), 0, "the held faces free nothing (off: 4096 at every trim)");
     }
     assert_eq!(part.face_bytes(), 4096, "they stay");
-    assert_eq!(
-        reg.faces_trims(),
-        (4, 4 * 4096, 0),
-        "the faces tier let them go at every trim; none left"
-    );
+    assert_eq!(reg.faces_trims(), (4, 4 * 4096, 0), "the faces tier let them go at every trim; none left");
     assert_eq!(reg.real_evictions(), (1, data));
     // the statement ended: the hook's owner drops its stale hold at the next trim, which returns the faces once
     D4504_HOLDS.lock().unwrap().push(held);
@@ -1540,22 +1114,14 @@ fn memory_broker_reuse_counts_statements_not_epochs_or_threads() {
     use crate::partcache::{next_stmt_token, reused_evicted_at, set_now_sec};
     let b = small_part();
     let reg = PartRegistry::new(u64::MAX);
-    let p1 = reg
-        .open_pinned(&PartExpect::none(), opener(&b, 1, 61))
-        .expect("p1");
-    let p2 = reg
-        .open_pinned(&PartExpect::none(), opener(&b, 1, 62))
-        .expect("p2");
+    let p1 = reg.open_pinned(&PartExpect::none(), opener(&b, 1, 61)).expect("p1");
+    let p2 = reg.open_pinned(&PartExpect::none(), opener(&b, 1, 62)).expect("p2");
     for p in [&p1, &p2] {
         p.part().prefault_all_sections().expect("warm");
     }
     set_now_sec(0);
     drop(p1.part().use_part_in(next_stmt_token()));
-    assert_eq!(
-        p1.part().reuse_secs(),
-        (0, 0),
-        "the broker off records nothing"
-    );
+    assert_eq!(p1.part().reuse_secs(), (0, 0), "the broker off records nothing");
 
     set_now_sec(1000);
     let a = next_stmt_token();
@@ -1565,11 +1131,7 @@ fn memory_broker_reuse_counts_statements_not_epochs_or_threads() {
     std::thread::scope(|s| {
         s.spawn(|| drop(p1.part().use_part_in(a)));
     });
-    assert_eq!(
-        p1.part().reuse_secs(),
-        (1000, 0),
-        "one statement is never a re-use"
-    );
+    assert_eq!(p1.part().reuse_secs(), (1000, 0), "one statement is never a re-use");
     assert_eq!(reg.reuse_census(1000).reused, [0; 3]);
 
     set_now_sec(1100);
@@ -1578,45 +1140,25 @@ fn memory_broker_reuse_counts_statements_not_epochs_or_threads() {
     let need = p1.part().need_bytes();
     assert!(need > 0 && need == p1.part().cache_bytes());
     let c = reg.reuse_census(1100);
-    assert_eq!(
-        (c.reused, c.reused_parts, c.parts),
-        ([0, need, need], [0, 1, 1], 2),
-        "100 s: inside 300 and 900, not 60"
-    );
+    assert_eq!((c.reused, c.reused_parts, c.parts), ([0, need, need], [0, 1, 1], 2), "100 s: inside 300 and 900, not 60");
     assert_eq!(reg.reuse_census(2000).reused, [0; 3], "past 900 s");
 
     let (s, d, _) = p1.part().evict_contents();
     assert!(s + d > 0);
     assert_eq!(p1.part().cache_bytes(), 0);
-    assert_eq!(
-        p1.part().need_bytes(),
-        s + d,
-        "NEED keeps what the eviction freed"
-    );
-    assert_eq!(
-        reused_evicted_at(),
-        1100,
-        "a re-used part's eviction stamps the no-shrink second"
-    );
+    assert_eq!(p1.part().need_bytes(), s + d, "NEED keeps what the eviction freed");
+    assert_eq!(reused_evicted_at(), 1100, "a re-used part's eviction stamps the no-shrink second");
     assert_eq!(reg.reuse_census(1100).reused[2], s + d);
     set_now_sec(1200);
     drop(p1.part().use_part_in(next_stmt_token()));
-    assert_eq!(
-        p1.part().need_bytes(),
-        0,
-        "a new statement starts NEED over from what is cached"
-    );
+    assert_eq!(p1.part().need_bytes(), 0, "a new statement starts NEED over from what is cached");
 
     let q = p2.part();
     q.note_reuse(0, true, 1300);
     assert_eq!(q.reuse_secs(), (1300, 0));
     q.note_reuse(0, true, 1301);
     q.note_reuse(0, false, 1400);
-    assert_eq!(
-        q.reuse_secs(),
-        (1300, 0),
-        "inside 2 s, or not the epoch's first use: the same statement"
-    );
+    assert_eq!(q.reuse_secs(), (1300, 0), "inside 2 s, or not the epoch's first use: the same statement");
     q.note_reuse(0, true, 1400);
     assert_eq!(q.reuse_secs(), (1400, 1300));
     set_now_sec(0);
@@ -1630,22 +1172,17 @@ fn memory_broker_registry_removals_count_their_bytes() {
     let reg = PartRegistry::new(0);
     reg.set_max_entries(1);
     let held = {
-        let p1 = reg
-            .open_pinned(&PartExpect::none(), opener(&b, 1, 71))
-            .expect("p1");
+        let p1 = reg.open_pinned(&PartExpect::none(), opener(&b, 1, 71)).expect("p1");
         p1.part().prefault_all_sections().expect("warm");
         p1.part().resident()
     };
     assert!(held > 0);
     assert_eq!(reg.removed(), (0, 0));
-    let _p2 = reg
-        .open_pinned(&PartExpect::none(), opener(&b, 1, 72))
-        .expect("p2");
+    let _p2 = reg.open_pinned(&PartExpect::none(), opener(&b, 1, 72)).expect("p2");
     assert_eq!(reg.removed(), (1, held));
 }
 
-static D3268_HELD: std::sync::Mutex<Vec<crate::openpart::PartUse>> =
-    std::sync::Mutex::new(Vec::new());
+static D3268_HELD: std::sync::Mutex<Vec<crate::openpart::PartUse>> = std::sync::Mutex::new(Vec::new());
 
 /// The short hook's owner: it lets go every use it keeps (Gravity's parked worker sets' kept cursors).
 fn d3268_hook() -> bool {
@@ -1661,9 +1198,7 @@ fn d3268_hook() -> bool {
 fn d3268_a_short_trim_runs_the_hook_and_evicts_the_parts_it_let_go() {
     let b = small_part();
     let reg = PartRegistry::new(u64::MAX);
-    let p = reg
-        .open_pinned(&PartExpect::none(), opener(&b, 1, 62))
-        .expect("open");
+    let p = reg.open_pinned(&PartExpect::none(), opener(&b, 1, 62)).expect("open");
     // in use before it is warm: a concurrent test's trim evicts any part no one uses
     D3268_HELD.lock().unwrap().push(p.part().use_part());
     p.part().prefault_all_sections().expect("warm");
@@ -1673,10 +1208,7 @@ fn d3268_a_short_trim_runs_the_hook_and_evicts_the_parts_it_let_go() {
     assert_eq!(p.part().resident(), warm, "in use: the trim stops short");
     crate::partcache::set_short_hook(d3268_hook);
     reg.trim_contents(0);
-    assert!(
-        D3268_HELD.lock().unwrap().is_empty(),
-        "the short trim ran the hook"
-    );
+    assert!(D3268_HELD.lock().unwrap().is_empty(), "the short trim ran the hook");
     assert_eq!(p.part().users(), 0);
     // the hook is process-wide: a concurrent test's short trim may have run it between this trim's passes and its check,
     // so this registry's trim saw the part in use and found it free only after; the next trim's first pass evicts it then
@@ -1695,9 +1227,7 @@ fn d4554_a_dropped_parts_last_running_uses_parked_in_a_group_give_its_contents_b
     use memledger::{Acct, Owner, Release};
     let b = small_part();
     let reg = PartRegistry::new(u64::MAX);
-    let p = reg
-        .open_pinned(&PartExpect::none(), opener(&b, 1, 91))
-        .expect("open");
+    let p = reg.open_pinned(&PartExpect::none(), opener(&b, 1, 91)).expect("open");
     p.part().prefault_all_sections().expect("warm");
     let cached = p.part().cache_bytes();
     assert!(cached > 0, "the part's contents cached");
@@ -1707,36 +1237,17 @@ fn d4554_a_dropped_parts_last_running_uses_parked_in_a_group_give_its_contents_b
     // two kept cursors' uses of the part, the running statement's
     let (mut u1, mut u2) = (p.part().use_part(), p.part().use_part());
     let (_, freed0) = crate::partcache::dropped_counters();
-    assert_eq!(
-        crate::partcache::drop_parts([p.part()]),
-        0,
-        "a running statement uses the dropped part: its contents stay"
-    );
+    assert_eq!(crate::partcache::drop_parts([p.part()]), 0, "a running statement uses the dropped part: its contents stay");
     assert_eq!(p.part().cache_bytes(), cached);
     {
         let mut group = crate::UseMoves::new(p.part());
         u1.transfer_in(&mut group, session, Release::Session);
         u2.transfer_in(&mut group, session, Release::Session);
-        assert_eq!(
-            p.part().cache_bytes(),
-            cached,
-            "inside the group: its parked count moves at its end"
-        );
+        assert_eq!(p.part().cache_bytes(), cached, "inside the group: its parked count moves at its end");
     }
-    assert_eq!(
-        (p.part().users(), p.part().live_users()),
-        (2, 0),
-        "both uses parked"
-    );
-    assert_eq!(
-        p.part().cache_bytes(),
-        0,
-        "the group's end parked the last running use: the dropped part's contents went"
-    );
-    assert!(
-        crate::partcache::dropped_counters().1 - freed0 >= cached,
-        "counted as given back by a running use's end"
-    );
+    assert_eq!((p.part().users(), p.part().live_users()), (2, 0), "both uses parked");
+    assert_eq!(p.part().cache_bytes(), 0, "the group's end parked the last running use: the dropped part's contents went");
+    assert!(crate::partcache::dropped_counters().1 - freed0 >= cached, "counted as given back by a running use's end");
     memledger::statement_end();
     drop((u1, u2));
     memledger::unbind_backend();
@@ -1749,69 +1260,30 @@ fn d4554_a_parts_kept_code_counts_are_cache_bytes_dropped_with_its_contents() {
     use mempolicy::keep::CODE_COUNTS_KEPT;
     let b = small_part();
     let reg = PartRegistry::new(u64::MAX);
-    let p = reg
-        .open_pinned(&PartExpect::none(), opener(&b, 1, 4554))
-        .expect("p");
+    let p = reg.open_pinned(&PartExpect::none(), opener(&b, 1, 4554)).expect("p");
     p.part().evict_contents();
-    assert_eq!(
-        (p.part().resident(), p.part().held_and_images()),
-        (0, (0, 0)),
-        "nothing cached"
-    );
+    assert_eq!((p.part().resident(), p.part().held_and_images()), (0, (0, 0)), "nothing cached");
     let mut out = [0u32; 2];
-    assert!(
-        !p.part().code_counts(1, &[5, 7], &mut out),
-        "nothing kept: a miss"
-    );
+    assert!(!p.part().code_counts(1, &[5, 7], &mut out), "nothing kept: a miss");
     p.part().keep_code_counts(1, &[(5, 10), (7, 20)]);
     assert!(p.part().code_counts(1, &[5, 7], &mut out));
     assert_eq!(out, [10, 20], "the kept rows");
-    assert!(
-        !p.part().code_counts(1, &[5, 8], &mut out),
-        "a code not kept misses"
-    );
-    assert!(
-        !p.part().code_counts(2, &[5], &mut out[..1]),
-        "another column's code misses"
-    );
+    assert!(!p.part().code_counts(1, &[5, 8], &mut out), "a code not kept misses");
+    assert!(!p.part().code_counts(2, &[5], &mut out[..1]), "another column's code misses");
     let kept = p.part().resident();
-    assert!(
-        kept >= 2 * core::mem::size_of::<(i16, u32, u32)>() as u64,
-        "the list's bytes are the cache's ({kept})"
-    );
+    assert!(kept >= 2 * core::mem::size_of::<(i16, u32, u32)>() as u64, "the list's bytes are the cache's ({kept})");
     assert_eq!(p.part().held_and_images(), (kept, 0), "and on its charge");
     p.part().keep_code_counts(1, &[(5, 99)]);
     assert!(p.part().code_counts(1, &[5], &mut out[..1]));
-    assert_eq!(
-        (out[0], p.part().resident()),
-        (10, kept),
-        "a kept code keeps its count: no growth"
-    );
-    let many: Vec<(u32, u32)> = (100..100 + 2 * CODE_COUNTS_KEPT as u32)
-        .map(|c| (c, 1))
-        .collect();
+    assert_eq!((out[0], p.part().resident()), (10, kept), "a kept code keeps its count: no growth");
+    let many: Vec<(u32, u32)> = (100..100 + 2 * CODE_COUNTS_KEPT as u32).map(|c| (c, 1)).collect();
     p.part().keep_code_counts(1, &many);
     let mut last = [0u32; 1];
-    assert!(
-        !p.part()
-            .code_counts(1, &[100 + CODE_COUNTS_KEPT as u32], &mut last),
-        "at most CODE_COUNTS_KEPT kept"
-    );
-    assert_eq!(
-        p.part().held_and_images().0,
-        p.part().resident(),
-        "the charge follows the growth"
-    );
+    assert!(!p.part().code_counts(1, &[100 + CODE_COUNTS_KEPT as u32], &mut last), "at most CODE_COUNTS_KEPT kept");
+    assert_eq!(p.part().held_and_images().0, p.part().resident(), "the charge follows the growth");
     p.part().evict_contents();
-    assert_eq!(
-        (p.part().resident(), p.part().held_and_images()),
-        (0, (0, 0)),
-        "the eviction takes them and their bytes"
-    );
-    assert!(
-        !p.part().code_counts(1, &[5], &mut out[..1]),
-        "gone with the contents"
-    );
+    assert_eq!((p.part().resident(), p.part().held_and_images()), (0, (0, 0)), "the eviction takes them and their bytes");
+    assert!(!p.part().code_counts(1, &[5], &mut out[..1]), "gone with the contents");
 }
 
 /// D4659: N threads trimming one over-budget cache to the same target at the same moment evict the excess once, at worst
@@ -1822,20 +1294,11 @@ fn d4554_a_parts_kept_code_counts_are_cache_bytes_dropped_with_its_contents() {
 fn d4659_concurrent_trims_evict_the_excess_once() {
     const TRIMMERS: usize = 4;
     let _epoch = epoch_test();
-    let b = build_part(&PartSpec::new(
-        80_000,
-        vec![
-            seq_i64_col(1, 80_000),
-            crate::testpart::text_col(2, 80_000, None),
-        ],
-    ));
+    let b = build_part(&PartSpec::new(80_000, vec![seq_i64_col(1, 80_000), crate::testpart::text_col(2, 80_000, None),],));
     let reg = Arc::new(PartRegistry::new(u64::MAX));
-    let pins: Vec<PartPin> = (0..40)
-        .map(|i| {
-            reg.open_pinned(&PartExpect::none(), opener(&b, 46, 5900 + i))
-                .expect("open")
-        })
-        .collect();
+    let pins: Vec<PartPin> =
+        (0..40).map(|i| { reg.open_pinned(&PartExpect::none(), opener(&b, 46, 5900 + i)).expect("open")
+        }).collect();
     let mut worst = 0f64;
     for _round in 0..30 {
         for p in &pins {
@@ -1855,10 +1318,7 @@ fn d4659_concurrent_trims_evict_the_excess_once() {
                 })
             })
             .collect();
-        let freed: u64 = trims
-            .into_iter()
-            .map(|t| t.join().expect("trim thread"))
-            .sum();
+        let freed: u64 = trims.into_iter().map(|t| t.join().expect("trim thread")).sum();
         let ratio = freed as f64 / excess as f64;
         worst = worst.max(ratio);
         assert!(freed <= excess + TRIMMERS as u64 * per, "{TRIMMERS} concurrent trims evicted {freed} bytes for an excess of {excess} ({ratio:.2}x; parts of {per})");

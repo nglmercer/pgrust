@@ -2048,7 +2048,7 @@ mod reserved_tests {
         crate::park::REGIONS.put(r);
         for ask in [start, start + 4096, 4usize << 20] {
             let plain = crate::park::REGIONS.take_parked(ask, None, None);
-            assert!(plain.as_ref().is_none_or(|b| !std::ptr::eq(b.as_ptr(), p)), "a plain take never gets the full laid region");
+            assert!(plain.as_ref().is_none_or(|b| !std::ptr::eq( b.as_ptr(), p)), "a plain take never gets the full laid region");
         }
         let again = crate::park::REGIONS.take_laid(start, reserve).expect("the parked laid region");
         assert_eq!((again.as_ptr(), again.len(), again.is_reserved(), again.is_laid()), (p as *const u8, res, true, true));
@@ -2069,7 +2069,7 @@ mod reserved_tests {
         crate::park::REGIONS.put(r);
         let again = super::laid_region(start, small, start, None, None).expect("a laid region");
         assert!(again.is_laid());
-        if std::ptr::eq(again.as_ptr(), p) {
+        if std::ptr::eq( again.as_ptr(), p) {
             assert_eq!((again.reserve(), again.lay_reserve()), (big, small), "the parked mapping, laid at the ask");
         }
         assert_eq!(again.lay_reserve(), small);
@@ -2097,7 +2097,7 @@ mod reserved_tests {
         assert!(grown > share, "grown past its share");
         crate::park::REGIONS.put(r);
         let short = crate::park::REGIONS.take_laid(start, grown - (1 << 20));
-        assert!(short.as_ref().is_none_or(|b| !std::ptr::eq(b.as_ptr(), p)), "an ask whose reservation it passes never takes it");
+        assert!(short.as_ref().is_none_or(|b| !std::ptr::eq( b.as_ptr(), p)), "an ask whose reservation it passes never takes it");
         drop(short);
         let again = super::laid_region(start, reserve, share, None, None).expect("a laid region");
         assert_eq!((again.as_ptr(), again.len(), again.is_laid(), again.lay_reserve(), again.lay_share()), (p as *const u8, grown, true, reserve, share), "taken back warm, whole, cut by its taker's share");
@@ -2190,7 +2190,7 @@ mod reserved_tests {
         if rw0 < end {
             match super::open_step() {
                 0 => assert_eq!(r.rw, end.next_multiple_of(page)),
-                s => assert!((p + r.rw).is_multiple_of(s) && r.rw >= end && r.rw - end < s, "opened to the next step boundary"),
+                s => assert!((p + r.rw).is_multiple_of( s) && r.rw >= end && r.rw - end < s, "opened to the next step boundary"),
             }
         }
         assert!(r.rw >= end && r.rw <= super::mapped_len(reserve), "the committed bytes writable, within the mapping");
@@ -2218,7 +2218,7 @@ mod reserved_tests {
             assert_eq!((*p, *p.add(share + more - 1)), (0x11, 0x22));
         }
         #[cfg(target_os = "linux")]
-        assert!(r.rw >= share + more && r.rw.is_multiple_of(super::page_sizes().0) && r.rw < reserve, "only the committed pages are writable");
+        assert!(r.rw >= share + more && r.rw.is_multiple_of( super::page_sizes().0) && r.rw < reserve, "only the committed pages are writable");
         crate::park::REGIONS.put(r);
     }
 

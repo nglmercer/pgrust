@@ -192,13 +192,8 @@ fn tree_commit_same_page() {
 
     let xid: TransactionId = 200;
     let subxids = [201, 202, 203];
-    TransactionIdSetTreeStatus(
-        xid,
-        &subxids,
-        TRANSACTION_STATUS_COMMITTED,
-        InvalidXLogRecPtr,
-    )
-    .unwrap();
+    TransactionIdSetTreeStatus(xid, &subxids, TRANSACTION_STATUS_COMMITTED, InvalidXLogRecPtr,)
+        .unwrap();
 
     assert_eq!(status_of(xid), TRANSACTION_STATUS_COMMITTED);
     for sub in subxids {
@@ -220,13 +215,8 @@ fn tree_commit_across_pages() {
     ];
     extend_through(subxids[3]);
 
-    TransactionIdSetTreeStatus(
-        xid,
-        &subxids,
-        TRANSACTION_STATUS_COMMITTED,
-        InvalidXLogRecPtr,
-    )
-    .unwrap();
+    TransactionIdSetTreeStatus(xid, &subxids, TRANSACTION_STATUS_COMMITTED, InvalidXLogRecPtr,)
+        .unwrap();
 
     assert_eq!(status_of(xid), TRANSACTION_STATUS_COMMITTED);
     for sub in subxids {
@@ -235,7 +225,8 @@ fn tree_commit_across_pages() {
 
     let axid: TransactionId = 400;
     let asub = [CLOG_XACTS_PER_PAGE + 100];
-    TransactionIdSetTreeStatus(axid, &asub, TRANSACTION_STATUS_ABORTED, InvalidXLogRecPtr).unwrap();
+    TransactionIdSetTreeStatus(axid, &asub, TRANSACTION_STATUS_ABORTED, InvalidXLogRecPtr)
+        .unwrap();
     assert_eq!(status_of(axid), TRANSACTION_STATUS_ABORTED);
     assert_eq!(status_of(asub[0]), TRANSACTION_STATUS_ABORTED);
 }
@@ -369,10 +360,7 @@ fn clog_redo_pageno_rejects_short_and_negative() {
     // Valid ZEROPAGE payload (8-byte non-negative pageno) passes.
     let mut ok = [0u8; 8];
     ok.copy_from_slice(&5i64.to_ne_bytes());
-    assert_eq!(
-        clog_redo_pageno(&ok, SIZEOF_CLOG_ZEROPAGE, "CLOG_ZEROPAGE").unwrap(),
-        5
-    );
+    assert_eq!(clog_redo_pageno(&ok, SIZEOF_CLOG_ZEROPAGE, "CLOG_ZEROPAGE").unwrap(), 5);
 
     // Valid TRUNCATE payload (16 bytes) passes.
     let mut trunc = [0u8; SIZEOF_XL_CLOG_TRUNCATE];

@@ -1,9 +1,7 @@
 //! Block reference tables: modified-block tracking per relation fork over an
 //! LSN range, with the incremental-backup on-disk serialization format.
 
-#![allow(non_snake_case)]
-#![allow(non_upper_case_globals)]
-#![allow(clippy::result_large_err)]
+#![allow(clippy::result_large_err, non_snake_case, non_upper_case_globals)]
 
 // On-disk format is native-endian in C; hand-pinned test vectors assume LE.
 #[cfg(target_endian = "big")]
@@ -231,7 +229,7 @@ impl<'mcx> BlockRefTableEntry<'mcx> {
 
         let start_chunkno = start_blkno / BLOCKS_PER_CHUNK;
         let mut stop_chunkno = stop_blkno / BLOCKS_PER_CHUNK;
-        if !stop_blkno.is_multiple_of(BLOCKS_PER_CHUNK) {
+        if !stop_blkno.is_multiple_of( BLOCKS_PER_CHUNK) {
             stop_chunkno += 1;
         }
         if stop_chunkno > self.nchunks() {

@@ -27,7 +27,8 @@ pub fn alloc_str<'mcx>(mcx: Mcx<'mcx>, s: &str) -> PgResult<&'mcx str> {
 #[cold]
 fn requires_parameter(name: &str) -> Box<PgError> {
     Box::new(
-        PgError::error(format!("{name} requires a parameter")).with_sqlstate(ERRCODE_SYNTAX_ERROR),
+        PgError::error(format!("{name} requires a parameter"))
+            .with_sqlstate(ERRCODE_SYNTAX_ERROR),
     )
 }
 
@@ -67,7 +68,10 @@ pub fn def_item_from_defelem<'mcx>(
     Ok(DefItem { name, value })
 }
 
-fn join_names<'mcx>(mcx: Mcx<'mcx>, names: &types_nodes::NodeList<'mcx>) -> PgResult<&'mcx str> {
+fn join_names<'mcx>(
+    mcx: Mcx<'mcx>,
+    names: &types_nodes::NodeList<'mcx>
+) -> PgResult<&'mcx str> {
     let mut out: PgVec<'mcx, u8> = PgVec::new_in(mcx);
     for (i, n) in names.iter().enumerate() {
         if i > 0 {
@@ -100,10 +104,7 @@ pub fn serialize_deflist<'mcx>(
     let mut buf: PgVec<'mcx, u8> = PgVec::new_in(mcx);
     for (i, item) in items.iter().enumerate() {
         let val = def_value_string(mcx, item)?;
-        mcx::vec_append_bytes(
-            &mut buf,
-            format_type::quote_identifier(item.name).as_bytes(),
-        )?;
+        mcx::vec_append_bytes(&mut buf, format_type::quote_identifier(item.name).as_bytes(),)?;
         mcx::vec_append_bytes(&mut buf, b" = ")?;
         match item.value {
             Some(DefValue::Int(_)) | Some(DefValue::Float(_)) => {
@@ -150,41 +151,23 @@ fn build_def_item<'mcx>(
     val: &[u8],
     was_quoted: bool,
 ) -> PgResult<DefItem<'mcx>> {
-    let name = alloc_str(
-        mcx,
-        core::str::from_utf8(name).map_err(|_| invalid_list(name))?,
-    )?;
+    let name = alloc_str(mcx, core::str::from_utf8(name).map_err(|_| invalid_list(name))?,)?;
     let sval = core::str::from_utf8(val).map_err(|_| invalid_list(val))?;
     if !was_quoted && !sval.is_empty() {
         if let Ok(v) = sval.parse::<i32>() {
-            return Ok(DefItem {
-                name,
-                value: Some(DefValue::Int(v)),
-            });
+            return Ok(DefItem { name, value: Some(DefValue::Int(v)), });
         }
         if matches!(::adt_float::io::strtod_c(val), Some((_, n, false)) if n == val.len()) {
-            return Ok(DefItem {
-                name,
-                value: Some(DefValue::Float(alloc_str(mcx, sval)?)),
-            });
+            return Ok(DefItem { name, value: Some(DefValue::Float(alloc_str(mcx, sval)?)), });
         }
         if sval == "true" {
-            return Ok(DefItem {
-                name,
-                value: Some(DefValue::Bool(true)),
-            });
+            return Ok(DefItem { name, value: Some(DefValue::Bool(true)), });
         }
         if sval == "false" {
-            return Ok(DefItem {
-                name,
-                value: Some(DefValue::Bool(false)),
-            });
+            return Ok(DefItem { name, value: Some(DefValue::Bool(false)), });
         }
     }
-    Ok(DefItem {
-        name,
-        value: Some(DefValue::Str(alloc_str(mcx, sval)?)),
-    })
+    Ok(DefItem { name, value: Some(DefValue::Str(alloc_str(mcx, sval)?)), })
 }
 
 // deserialize_deflist (tsearchcmds.c): the eight-state scanner, accepting

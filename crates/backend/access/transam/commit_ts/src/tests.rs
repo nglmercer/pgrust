@@ -212,9 +212,7 @@ fn disabled_module_arms_and_error_texts() {
     IN_RECOVERY.store(false, Relaxed);
 
     // Invalid / non-normal xids error or no-op regardless of activation.
-    let err = TransactionIdGetCommitTsData(InvalidTransactionId)
-        .err()
-        .unwrap();
+    let err = TransactionIdGetCommitTsData(InvalidTransactionId).err().unwrap();
     assert_eq!(
         err.message(),
         "cannot retrieve commit timestamp for transaction 0"
@@ -248,19 +246,10 @@ fn activation_state_machine_and_set_get() {
     assert_eq!(tv.newestCommitTsXid.load(Relaxed), xid + 2);
 
     // Cached last-commit hit.
-    assert_eq!(
-        TransactionIdGetCommitTsData(xid).unwrap(),
-        Some((777_000, 3))
-    );
+    assert_eq!(TransactionIdGetCommitTsData(xid).unwrap(), Some((777_000, 3)));
     // SLRU read path for the subxid.
-    assert_eq!(
-        TransactionIdGetCommitTsData(xid + 1).unwrap(),
-        Some((777_000, 3))
-    );
-    assert_eq!(
-        TransactionIdGetCommitTsData(xid + 2).unwrap(),
-        Some((777_000, 3))
-    );
+    assert_eq!(TransactionIdGetCommitTsData(xid + 1).unwrap(), Some((777_000, 3)));
+    assert_eq!(TransactionIdGetCommitTsData(xid + 2).unwrap(), Some((777_000, 3)));
 
     let (last_xid, last_ts, last_node) = GetLatestCommitTsData().unwrap();
     assert_eq!((last_xid, last_ts, last_node), (xid, 777_000, 3));

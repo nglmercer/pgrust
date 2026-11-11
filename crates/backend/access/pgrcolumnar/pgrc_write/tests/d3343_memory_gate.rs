@@ -9,9 +9,8 @@ use pgrc_format::relopt::ShredOptions;
 use pgrc_write::elect::ReferenceCandidates;
 use pgrc_write::ingest::RawDatum;
 use pgrc_write::par::{
-    machine_parts_in_flight, NoDetoastProvider, NoShredProvider, ParEngine, ParIngestOpts,
-    ParProviders, RowChunk, SharedMemVfs, SharedMemVfsProvider, VfsProvider,
-    LEGACY_MAX_PARTS_IN_FLIGHT, PARTS_IN_FLIGHT_ENV,
+    machine_parts_in_flight, NoDetoastProvider, NoShredProvider, ParEngine, ParIngestOpts, ParProviders, RowChunk,
+    SharedMemVfs, SharedMemVfsProvider, VfsProvider, LEGACY_MAX_PARTS_IN_FLIGHT, PARTS_IN_FLIGHT_ENV,
 };
 use pgrc_write::seal::{PartSpec, ReferenceResolver};
 use pgrc_write::writer::PartCutPolicy;
@@ -26,10 +25,7 @@ static GOVERNOR: Mutex<()> = Mutex::new(());
 fn int8_col(attno: u32) -> ColSchema {
     ColSchema {
         attno,
-        class: StorageClass::ByvalWord {
-            width: 8,
-            signed: true,
-        },
+        class: StorageClass::ByvalWord { width: 8, signed: true, },
         typlen: 8,
         typbyval: true,
         typalign: b'd',
@@ -88,16 +84,8 @@ fn engine(vfs: Arc<dyn VfsProvider>) -> Arc<ParEngine> {
             spec,
             DIR.to_string(),
             FXID,
-            PartCutPolicy {
-                max_rows: 128,
-                max_bytes: u64::MAX,
-                cut_granule_rows: 64,
-            },
-            ParIngestOpts {
-                chunk_rows: 64,
-                max_chunks_in_flight: 64,
-                max_parts_in_flight: 64,
-            },
+            PartCutPolicy { max_rows: 128, max_bytes: u64::MAX, cut_granule_rows: 64, },
+            ParIngestOpts { chunk_rows: 64, max_chunks_in_flight: 64, max_parts_in_flight: 64, },
             0,
         )
         .expect("engine"),
@@ -107,8 +95,7 @@ fn engine(vfs: Arc<dyn VfsProvider>) -> Arc<ParEngine> {
 fn chunk(base: i64) -> RowChunk {
     let mut c = RowChunk::new(1, 64);
     for i in 0..64i64 {
-        c.push_row(&[RawDatum::Word((base + i) as u64)])
-            .expect("push");
+        c.push_row(&[RawDatum::Word((base + i) as u64)]).expect("push");
     }
     c
 }
@@ -123,11 +110,7 @@ fn load(held: bool) -> (BTreeMap<String, Vec<u8>>, (u64, u64, u64)) {
     let shared = SharedMemVfs::new(v);
     let released = Arc::new((Mutex::new(!held), Condvar::new()));
     let vfs: Arc<dyn VfsProvider> = match held {
-        true => Arc::new(HeldFirstSeal {
-            inner: shared.clone(),
-            first: AtomicBool::new(true),
-            released: Arc::clone(&released),
-        }),
+        true => Arc::new(HeldFirstSeal { inner: shared.clone(), first: AtomicBool::new(true), released: Arc::clone(&released), }),
         false => Arc::new(SharedMemVfsProvider(shared.clone())),
     };
     let e = engine(vfs);
@@ -173,11 +156,7 @@ fn load(held: bool) -> (BTreeMap<String, Vec<u8>>, (u64, u64, u64)) {
     assert_eq!(e.collect().expect("collect").len(), (CHUNKS / 2) as usize);
     e.release_charge();
     let files = shared.with(|v| {
-        v.list_dir(DIR)
-            .expect("list")
-            .into_iter()
-            .map(|n| (n.clone(), v.read_full(&format!("{DIR}/{n}")).expect("read")))
-            .collect()
+        v.list_dir(DIR).expect("list").into_iter().map(|n| (n.clone(), v.read_full(&format!("{DIR}/{n}")).expect("read"))).collect()
     });
     (files, e.memory_report())
 }
@@ -190,21 +169,13 @@ fn a_load_past_the_governors_bar_passes_one_part_at_a_time_and_writes_the_same_p
     let (open, (peak, waits, _)) = load(false);
     assert!(peak > 0, "the session counts the bytes it holds");
     assert_eq!(waits, 0, "no bar: no gate");
-    assert_eq!(
-        mcx::global_footprint::bytes(),
-        before,
-        "the charge is given back whole"
-    );
+    assert_eq!(mcx::global_footprint::bytes(), before, "the charge is given back whole");
 
     mcx::governor::publish(1, 1 << 40, mcx::global_footprint::bytes());
     let (gated, (_, waits, _)) = load(true);
     mcx::governor::publish(0, 0, 0);
     assert!(waits > 0, "past the bar a chunk waits while a part seals");
-    assert_eq!(
-        mcx::global_footprint::bytes(),
-        before,
-        "the charge is given back whole"
-    );
+    assert_eq!(mcx::global_footprint::bytes(), before, "the charge is given back whole");
     assert_eq!(gated, open, "the gate moves no byte of any part");
 }
 
@@ -218,8 +189,5 @@ fn the_open_parts_bound_reads_the_governed_limit() {
     mcx::governor::publish_limit(1 << 20);
     let parts = machine_parts_in_flight(&policy);
     mcx::governor::publish_limit(0);
-    assert_eq!(
-        parts, LEGACY_MAX_PARTS_IN_FLIGHT,
-        "a limit with no room left takes the floor, whatever the host has free"
-    );
+    assert_eq!(parts, LEGACY_MAX_PARTS_IN_FLIGHT, "a limit with no room left takes the floor, whatever the host has free");
 }

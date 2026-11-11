@@ -28,9 +28,7 @@ fn recording_hook(
             s
         }
     };
-    CALLS.with(|c| {
-        c.borrow_mut()
-            .push((access, class_id, object_id, sub_id, detail))
+    CALLS.with(|c| { c.borrow_mut().push((access, class_id, object_id, sub_id, detail))
     });
     Ok(())
 }
@@ -42,9 +40,7 @@ fn recording_hook_str(
     sub_id: i32,
     _arg: &mut ObjectAccessArg<'_>,
 ) -> PgResult<()> {
-    STR_CALLS.with(|c| {
-        c.borrow_mut()
-            .push((access, class_id, object_name.to_string(), sub_id))
+    STR_CALLS.with(|c| { c.borrow_mut().push((access, class_id, object_name.to_string(), sub_id))
     });
     Ok(())
 }
@@ -89,33 +85,15 @@ fn oid_hook_dispatch_matches_c_events() {
             (OAT_POST_CREATE, 1259, 101, 2, "internal=true".to_string()),
             (OAT_DROP, 1247, 200, 0, "dropflags=0".to_string()),
             (OAT_DROP, 1247, 201, 0, "dropflags=1".to_string()),
-            (
-                OAT_POST_ALTER,
-                1255,
-                300,
-                0,
-                "aux=0 internal=false".to_string()
-            ),
-            (
-                OAT_POST_ALTER,
-                1255,
-                301,
-                1,
-                "aux=777 internal=true".to_string()
-            ),
+            (OAT_POST_ALTER, 1255, 300, 0, "aux=0 internal=false".to_string()),
+            (OAT_POST_ALTER, 1255, 301, 1, "aux=777 internal=true".to_string()),
             // OAT_TRUNCATE fixes classId = RelationRelationId, no arg.
             (OAT_TRUNCATE, 1259, 400, 0, "none".to_string()),
             // OAT_FUNCTION_EXECUTE fixes classId = ProcedureRelationId.
             (OAT_FUNCTION_EXECUTE, 1255, 500, 0, "none".to_string()),
             // OAT_NAMESPACE_SEARCH fixes classId = NamespaceRelationId,
             // ns_arg.result starts true.
-            (
-                OAT_NAMESPACE_SEARCH,
-                2615,
-                600,
-                0,
-                "ereport=true result=true".to_string()
-            ),
+            (OAT_NAMESPACE_SEARCH, 2615, 600, 0, "ereport=true result=true".to_string()),
         ]
     );
 
@@ -157,9 +135,7 @@ fn hook_error_propagates() {
         _: i32,
         _: &mut ObjectAccessArg<'_>,
     ) -> PgResult<()> {
-        Err(Box::new(types_error::PgError::error(
-            "permission denied".to_string(),
-        )))
+        Err(Box::new(types_error::PgError::error("permission denied".to_string(),)))
     }
     set_object_access_hook(Some(failing_hook));
     let err = InvokeObjectDropHook(1259, 42, 0).unwrap_err();

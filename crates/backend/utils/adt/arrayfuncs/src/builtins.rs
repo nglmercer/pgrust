@@ -54,11 +54,11 @@ fn build_meta(element_type: Oid, which: IOFuncSelector, binary: bool) -> PgResul
 
 // Populate/refresh the fn_extra memo for element_type; returns a &mut to it.
 fn cached_meta(
-    flinfo: &mut FmgrInfo,
+    flinfo: & mut FmgrInfo,
     element_type: Oid,
     which: IOFuncSelector,
     binary: bool,
-) -> PgResult<&mut ArrayMetaState> {
+) -> PgResult<& mut ArrayMetaState> {
     let need = match flinfo.fn_extra_ref::<ArrayMetaState>() {
         Some(ams) => ams.meta.element_type != element_type,
         None => true,
@@ -215,7 +215,7 @@ pub fn fc_array_unnest(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> Pg
         let numelems = ::arrayutils::array_get_n_items(ndim, &dims)?;
         let pos = crate::foundation::arr_data_offset(&array);
         let state = ArrayUnnestFctx {
-            image: ::mcx::std_vec_from_slice("adt", array.as_slice())?,
+            image: ::mcx::std_vec_from_slice("adt",array.as_slice())?,
             nextelem: 0,
             numelems,
             pos,

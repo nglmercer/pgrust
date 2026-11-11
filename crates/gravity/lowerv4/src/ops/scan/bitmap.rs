@@ -152,10 +152,10 @@ fn make<'g>(px: &mut Px<'g, '_>, k: usize) -> PgBox<'g, dyn SourceMech + 'g> {
     let params: PgVec<'_, i16> = slots.iter().map(|&w| if w & EXEC_KEY != 0 { -1 } else { w as i16 }).collect_in(px.mcx());
     let mut d = SiteDesc::index_source(px.arena, site.relation, indexid, &attnos, &params[..], &site.out_attnos);
     for l in site.lanes().iter() {
-        if let SiteLane::Attr(_) = l.id {
-            if let Some(i) = d.lane_index(l.id) {
-                d.lanes[i] = *l;
-            }
+        if let
+            SiteLane::Attr(_) = l.id {
+                if let Some(i) = d.lane_index(l.id) {
+                    d.lanes[i] = *l;}
         }
     }
     // a walk reading no column (count(*)) keeps the RowId lane alone: the window's row count drives it, with no by-value

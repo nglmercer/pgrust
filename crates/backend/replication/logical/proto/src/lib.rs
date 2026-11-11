@@ -11,8 +11,7 @@
 //
 // Streaming (stream_*) and two-phase (prepare family) messages: the message
 // type constants exist, the write/read functions refuse loudly (phase-2).
-#![allow(non_snake_case)]
-#![allow(non_upper_case_globals)]
+#![allow(non_snake_case, non_upper_case_globals)]
 
 use datum::Datum;
 use mcx::Mcx;
@@ -695,7 +694,7 @@ fn oid_output_function_call(mcx: Mcx<'_>, typoutput: Oid, val: Datum) -> PgResul
     // SAFETY: output functions return a NUL-terminated cstring datum.
     let bytes =
         unsafe { core::ffi::CStr::from_ptr((d.as_usize() as *const u8).cast()) }.to_bytes();
-    ::mcx::std_vec_from_slice("replication", bytes)
+        ::mcx::std_vec_from_slice("replication",bytes)
 }
 
 // OidSendFunctionCall: returns the bytea payload (without header).

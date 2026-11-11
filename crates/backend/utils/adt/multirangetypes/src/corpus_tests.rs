@@ -161,11 +161,11 @@ fn install() {
     });
 }
 
-fn range_io(fl: &mut FmgrInfo, oid: Oid, f: IOFuncSelector) -> &mut RangeIOData {
+fn range_io(fl: & mut FmgrInfo, oid: Oid, f: IOFuncSelector) -> & mut RangeIOData {
     cached_range_io_data(fl, oid, f).unwrap()
 }
 
-fn mr_io(fl: &mut FmgrInfo, oid: Oid, f: IOFuncSelector) -> &mut MultirangeIOData {
+fn mr_io(fl: & mut FmgrInfo, oid: Oid, f: IOFuncSelector) -> & mut MultirangeIOData {
     cached_multirange_io_data(fl, oid, f).unwrap()
 }
 

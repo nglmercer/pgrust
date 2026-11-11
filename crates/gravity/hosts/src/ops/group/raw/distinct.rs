@@ -210,8 +210,7 @@ impl AggArena {
     /// # Safety — `s` is DISTINCT aggregate `i`'s state slot, `out` a writable zeroed state slot; slot `k` is the caller's.
     pub(crate) unsafe fn fold_sorted(&mut self, k: usize, i: usize, aggno: u32, s: *const u8, out: *mut u8) -> PgResult<()> {
         if self.fed(i) {
-            return {
-                crate::ops::group::raw::presorted::hand_on(s, out);
+            return {crate::ops::group::raw::presorted::hand_on(s, out);
                 Ok(())
             }; // D1596: every row already advanced, in PG's order
         }

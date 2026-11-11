@@ -3,7 +3,7 @@
 //! hashoptions, ginutil.c ginoptions, gistutil.c gistoptions, spgutils.c
 //! spgoptions, brin.c brinoptions): the AM set is closed, so the dispatch is
 //! a match on relam instead of C's IndexAmRoutine fn pointer.
-#![allow(non_snake_case, non_upper_case_globals)]
+#![allow(non_snake_case,non_upper_case_globals)]
 
 #[cfg(test)]
 mod tests;
@@ -20,17 +20,17 @@ use ::types_core::{
     Oid, BRIN_AM_OID, BTREE_AM_OID, GIN_AM_OID, GIST_AM_OID, HASH_AM_OID, SPGIST_AM_OID, TEXTOID,
 };
 use ::types_error::{
-    PgResult, ERRCODE_FEATURE_NOT_SUPPORTED, ERRCODE_INVALID_PARAMETER_VALUE, ERRCODE_SYNTAX_ERROR,
-    ERRCODE_WRONG_OBJECT_TYPE, ERROR,
+    PgResult, ERRCODE_FEATURE_NOT_SUPPORTED, ERRCODE_INVALID_PARAMETER_VALUE,
+    ERRCODE_SYNTAX_ERROR, ERRCODE_WRONG_OBJECT_TYPE, ERROR,
 };
 use ::types_nodes::parsenodes::DefElem;
 use ::types_nodes::NodeList;
 use ::types_rel::{
     AutoVacOpts, BTOptions, BrinOptions, GinOptions, GistOptBufferingMode, GistOptions,
     HashOptions, HnswOptions, RdOptions, SpGistOptions, StdRdOptIndexCleanup, StdRdOptions,
-    ViewOptCheckOption, ViewOptions, LOCKMODE, RELKIND_INDEX, RELKIND_MATVIEW,
-    RELKIND_PARTITIONED_INDEX, RELKIND_PARTITIONED_TABLE, RELKIND_RELATION, RELKIND_TOASTVALUE,
-    RELKIND_VIEW,
+    ViewOptCheckOption,
+    ViewOptions, LOCKMODE, RELKIND_INDEX, RELKIND_MATVIEW, RELKIND_PARTITIONED_INDEX,
+    RELKIND_PARTITIONED_TABLE, RELKIND_RELATION, RELKIND_TOASTVALUE, RELKIND_VIEW,
 };
 
 use ::types_rel::{AccessExclusiveLock, NoLock, ShareUpdateExclusiveLock};
@@ -95,47 +95,21 @@ const VACUUM_INDEX_CLEANUP_VALUES: &[(&str, i32)] = &[
 ];
 
 const GIST_BUFFERING_VALUES: &[(&str, i32)] = &[
-    (
-        "auto",
-        GistOptBufferingMode::GIST_OPTION_BUFFERING_AUTO as i32,
-    ),
+    ("auto", GistOptBufferingMode::GIST_OPTION_BUFFERING_AUTO as i32,),
     ("on", GistOptBufferingMode::GIST_OPTION_BUFFERING_ON as i32),
-    (
-        "off",
-        GistOptBufferingMode::GIST_OPTION_BUFFERING_OFF as i32,
-    ),
+    ("off", GistOptBufferingMode::GIST_OPTION_BUFFERING_OFF as i32,),
 ];
 
 const VIEW_CHECK_OPTION_VALUES: &[(&str, i32)] = &[
-    (
-        "local",
-        ViewOptCheckOption::VIEW_OPTION_CHECK_OPTION_LOCAL as i32,
-    ),
-    (
-        "cascaded",
-        ViewOptCheckOption::VIEW_OPTION_CHECK_OPTION_CASCADED as i32,
-    ),
+    ("local", ViewOptCheckOption::VIEW_OPTION_CHECK_OPTION_LOCAL as i32,),
+    ("cascaded", ViewOptCheckOption::VIEW_OPTION_CHECK_OPTION_CASCADED as i32,),
 ];
 
 pub enum OptData {
-    Bool {
-        default_val: bool,
-    },
-    Int {
-        default_val: i32,
-        min: i32,
-        max: i32,
-    },
-    Real {
-        default_val: f64,
-        min: f64,
-        max: f64,
-    },
-    Enum {
-        members: &'static [(&'static str, i32)],
-        default_val: i32,
-        detailmsg: &'static str,
-    },
+    Bool { default_val: bool, },
+    Int { default_val: i32, min: i32, max: i32, },
+    Real { default_val: f64, min: f64, max: f64, },
+    Enum { members: &'static [(&'static str, i32)], default_val: i32, detailmsg: &'static str, },
 }
 
 pub struct OptDef {
@@ -147,18 +121,8 @@ pub struct OptDef {
 
 use OptData::*;
 
-const fn b(
-    name: &'static str,
-    kinds: relopt_kind,
-    lockmode: LOCKMODE,
-    default_val: bool,
-) -> OptDef {
-    OptDef {
-        name,
-        kinds,
-        lockmode,
-        data: Bool { default_val },
-    }
+const fn b(name: &'static str, kinds: relopt_kind, lockmode: LOCKMODE, default_val: bool,) -> OptDef {
+    OptDef { name, kinds, lockmode, data: Bool { default_val }, }
 }
 const fn i(
     name: &'static str,
@@ -168,16 +132,7 @@ const fn i(
     min: i32,
     max: i32,
 ) -> OptDef {
-    OptDef {
-        name,
-        kinds,
-        lockmode,
-        data: Int {
-            default_val,
-            min,
-            max,
-        },
-    }
+    OptDef { name, kinds, lockmode, data: Int { default_val, min, max, }, }
 }
 const fn r(
     name: &'static str,
@@ -187,16 +142,7 @@ const fn r(
     min: f64,
     max: f64,
 ) -> OptDef {
-    OptDef {
-        name,
-        kinds,
-        lockmode,
-        data: Real {
-            default_val,
-            min,
-            max,
-        },
-    }
+    OptDef { name, kinds, lockmode, data: Real { default_val, min, max, }, }
 }
 
 const HT: relopt_kind = RELOPT_KIND_HEAP | RELOPT_KIND_TOAST;
@@ -214,38 +160,10 @@ static RELOPTS: &[OptDef] = &[
     b("security_invoker", RELOPT_KIND_VIEW, AEL, false),
     b("vacuum_truncate", HT, SUEL, true),
     b("deduplicate_items", RELOPT_KIND_BTREE, SUEL, true),
-    i(
-        "fillfactor",
-        RELOPT_KIND_HEAP,
-        SUEL,
-        HEAP_DEFAULT_FILLFACTOR,
-        HEAP_MIN_FILLFACTOR,
-        100,
-    ),
-    i(
-        "fillfactor",
-        RELOPT_KIND_BTREE,
-        SUEL,
-        BTREE_DEFAULT_FILLFACTOR,
-        BTREE_MIN_FILLFACTOR,
-        100,
-    ),
-    i(
-        "fillfactor",
-        RELOPT_KIND_HASH,
-        SUEL,
-        HASH_DEFAULT_FILLFACTOR,
-        HASH_MIN_FILLFACTOR,
-        100,
-    ),
-    i(
-        "fillfactor",
-        RELOPT_KIND_GIST,
-        SUEL,
-        GIST_DEFAULT_FILLFACTOR,
-        GIST_MIN_FILLFACTOR,
-        100,
-    ),
+    i("fillfactor", RELOPT_KIND_HEAP, SUEL, HEAP_DEFAULT_FILLFACTOR, HEAP_MIN_FILLFACTOR, 100,),
+    i("fillfactor", RELOPT_KIND_BTREE, SUEL, BTREE_DEFAULT_FILLFACTOR, BTREE_MIN_FILLFACTOR, 100,),
+    i("fillfactor", RELOPT_KIND_HASH, SUEL, HASH_DEFAULT_FILLFACTOR, HASH_MIN_FILLFACTOR, 100,),
+    i("fillfactor", RELOPT_KIND_GIST, SUEL, GIST_DEFAULT_FILLFACTOR, GIST_MIN_FILLFACTOR, 100,),
     i(
         "fillfactor",
         RELOPT_KIND_SPGIST,
@@ -291,166 +209,33 @@ static RELOPTS: &[OptDef] = &[
     i("col31", RELOPT_KIND_BLOOM, AEL, 2, 1, 4095),
     i("col32", RELOPT_KIND_BLOOM, AEL, 2, 1, 4095),
     i("autovacuum_vacuum_threshold", HT, SUEL, -1, 0, i32::MAX),
-    i(
-        "autovacuum_vacuum_max_threshold",
-        HT,
-        SUEL,
-        -2,
-        -1,
-        i32::MAX,
-    ),
-    i(
-        "autovacuum_vacuum_insert_threshold",
-        HT,
-        SUEL,
-        -2,
-        -1,
-        i32::MAX,
-    ),
-    i(
-        "autovacuum_analyze_threshold",
-        RELOPT_KIND_HEAP,
-        SUEL,
-        -1,
-        0,
-        i32::MAX,
-    ),
+    i("autovacuum_vacuum_max_threshold", HT, SUEL, -2, -1, i32::MAX,),
+    i("autovacuum_vacuum_insert_threshold", HT, SUEL, -2, -1, i32::MAX,),
+    i("autovacuum_analyze_threshold", RELOPT_KIND_HEAP, SUEL, -1, 0, i32::MAX,),
     i("autovacuum_vacuum_cost_limit", HT, SUEL, -1, 1, 10000),
     i("autovacuum_freeze_min_age", HT, SUEL, -1, 0, 1000000000),
-    i(
-        "autovacuum_multixact_freeze_min_age",
-        HT,
-        SUEL,
-        -1,
-        0,
-        1000000000,
-    ),
-    i(
-        "autovacuum_freeze_max_age",
-        HT,
-        SUEL,
-        -1,
-        100000,
-        2000000000,
-    ),
-    i(
-        "autovacuum_multixact_freeze_max_age",
-        HT,
-        SUEL,
-        -1,
-        10000,
-        2000000000,
-    ),
+    i("autovacuum_multixact_freeze_min_age", HT, SUEL, -1, 0, 1000000000,),
+    i("autovacuum_freeze_max_age", HT, SUEL, -1, 100000, 2000000000,),
+    i("autovacuum_multixact_freeze_max_age", HT, SUEL, -1, 10000, 2000000000,),
     i("autovacuum_freeze_table_age", HT, SUEL, -1, 0, 2000000000),
-    i(
-        "autovacuum_multixact_freeze_table_age",
-        HT,
-        SUEL,
-        -1,
-        0,
-        2000000000,
-    ),
+    i("autovacuum_multixact_freeze_table_age", HT, SUEL, -1, 0, 2000000000,),
     i("log_autovacuum_min_duration", HT, SUEL, -1, -1, i32::MAX),
-    i(
-        "toast_tuple_target",
-        RELOPT_KIND_HEAP,
-        SUEL,
-        TOAST_TUPLE_TARGET,
-        128,
-        TOAST_TUPLE_TARGET_MAIN,
-    ),
+    i("toast_tuple_target", RELOPT_KIND_HEAP, SUEL, TOAST_TUPLE_TARGET, 128, TOAST_TUPLE_TARGET_MAIN,),
     i("pages_per_range", RELOPT_KIND_BRIN, AEL, 128, 1, 131072),
-    i(
-        "gin_pending_list_limit",
-        RELOPT_KIND_GIN,
-        AEL,
-        -1,
-        64,
-        MAX_KILOBYTES,
-    ),
-    i(
-        "effective_io_concurrency",
-        RELOPT_KIND_TABLESPACE,
-        SUEL,
-        -1,
-        0,
-        MAX_IO_CONCURRENCY,
-    ),
-    i(
-        "maintenance_io_concurrency",
-        RELOPT_KIND_TABLESPACE,
-        SUEL,
-        -1,
-        0,
-        MAX_IO_CONCURRENCY,
-    ),
+    i("gin_pending_list_limit", RELOPT_KIND_GIN, AEL, -1, 64, MAX_KILOBYTES,),
+    i("effective_io_concurrency", RELOPT_KIND_TABLESPACE, SUEL, -1, 0, MAX_IO_CONCURRENCY,),
+    i("maintenance_io_concurrency", RELOPT_KIND_TABLESPACE, SUEL, -1, 0, MAX_IO_CONCURRENCY,),
     i("parallel_workers", RELOPT_KIND_HEAP, SUEL, -1, 0, 1024),
     r("autovacuum_vacuum_cost_delay", HT, SUEL, -1.0, 0.0, 100.0),
     r("autovacuum_vacuum_scale_factor", HT, SUEL, -1.0, 0.0, 100.0),
-    r(
-        "autovacuum_vacuum_insert_scale_factor",
-        HT,
-        SUEL,
-        -1.0,
-        0.0,
-        100.0,
-    ),
-    r(
-        "autovacuum_analyze_scale_factor",
-        RELOPT_KIND_HEAP,
-        SUEL,
-        -1.0,
-        0.0,
-        100.0,
-    ),
-    r(
-        "vacuum_max_eager_freeze_failure_rate",
-        HT,
-        SUEL,
-        -1.0,
-        0.0,
-        1.0,
-    ),
-    r(
-        "seq_page_cost",
-        RELOPT_KIND_TABLESPACE,
-        SUEL,
-        -1.0,
-        0.0,
-        f64::MAX,
-    ),
-    r(
-        "random_page_cost",
-        RELOPT_KIND_TABLESPACE,
-        SUEL,
-        -1.0,
-        0.0,
-        f64::MAX,
-    ),
-    r(
-        "n_distinct",
-        RELOPT_KIND_ATTRIBUTE,
-        SUEL,
-        0.0,
-        -1.0,
-        f64::MAX,
-    ),
-    r(
-        "n_distinct_inherited",
-        RELOPT_KIND_ATTRIBUTE,
-        SUEL,
-        0.0,
-        -1.0,
-        f64::MAX,
-    ),
-    r(
-        "vacuum_cleanup_index_scale_factor",
-        RELOPT_KIND_BTREE,
-        SUEL,
-        -1.0,
-        0.0,
-        1e10,
-    ),
+    r("autovacuum_vacuum_insert_scale_factor", HT, SUEL, -1.0, 0.0, 100.0,),
+    r("autovacuum_analyze_scale_factor", RELOPT_KIND_HEAP, SUEL, -1.0, 0.0, 100.0,),
+    r("vacuum_max_eager_freeze_failure_rate", HT, SUEL, -1.0, 0.0, 1.0,),
+    r("seq_page_cost", RELOPT_KIND_TABLESPACE, SUEL, -1.0, 0.0, f64::MAX,),
+    r("random_page_cost", RELOPT_KIND_TABLESPACE, SUEL, -1.0, 0.0, f64::MAX,),
+    r("n_distinct", RELOPT_KIND_ATTRIBUTE, SUEL, 0.0, -1.0, f64::MAX,),
+    r("n_distinct_inherited", RELOPT_KIND_ATTRIBUTE, SUEL, 0.0, -1.0, f64::MAX,),
+    r("vacuum_cleanup_index_scale_factor", RELOPT_KIND_BTREE, SUEL, -1.0, 0.0, 1e10,),
     OptDef {
         name: "vacuum_index_cleanup",
         kinds: HT,
@@ -528,7 +313,7 @@ impl RelOptValue {
     }
 }
 
-fn text_payload(image: &[u8]) -> &[u8] {
+fn text_payload(image: & [u8]) -> & [u8] {
     // Array elements are never toasted; only 1B (packed) or 4B headers occur.
     if image[0] & 0x01 != 0 {
         &image[1..(image[0] >> 1) as usize]
@@ -544,7 +329,8 @@ pub fn text_array_image<'mcx>(mcx: Mcx<'mcx>, d: Datum) -> PgResult<PgVec<'mcx, 
     let p = d.as_usize() as *const u8;
     // SAFETY: caller passes a not-null text[] column datum: a live varlena
     // image readable through its varsize_any extent.
-    let image = unsafe { core::slice::from_raw_parts(p, types_tuple::varatt::varsize_any(p)) };
+    let image =
+        unsafe { core::slice::from_raw_parts(p, types_tuple::varatt::varsize_any(p)) };
     let payload = varlena::open_image(mcx, image)?;
     let body = payload.as_bytes();
     let total = body.len() + 4;
@@ -571,15 +357,15 @@ fn expand_short_image<'mcx>(
     let payload = payload.as_bytes();
     let len = varatt::VARHDRSZ + payload.len();
     let mut out: PgVec<'mcx, u8> = mcx::vec_with_capacity_in(mcx, len)?;
-    mcx::vec_append_bytes(
-        &mut out,
-        &varatt::set_varsize_4b_word(len as u32).to_ne_bytes(),
-    )?;
+    mcx::vec_append_bytes(&mut out, &varatt::set_varsize_4b_word(len as u32).to_ne_bytes(),)?;
     mcx::vec_append_bytes(&mut out, payload)?;
     Ok(Some(out))
 }
 
-fn option_text_strs<'a, 'mcx>(mcx: Mcx<'mcx>, options: &'a [u8]) -> PgResult<PgVec<'mcx, &'a str>> {
+fn option_text_strs<'a, 'mcx>(
+    mcx: Mcx<'mcx>,
+    options: &'a [u8]
+) -> PgResult<PgVec<'mcx, &'a str>> {
     // deconstruct_array_builtin(array, TEXTOID, &optiondatums, NULL, &noptions)
     // (reloptions.c:1365, 1455): any dimensionality; a NULL element is
     // deconstruct_array's 22004 (nullsp == NULL).
@@ -633,16 +419,10 @@ fn parse_rel_options_raw<'mcx>(
     raw.resize(raw_names.len(), None);
     for def in RELOPTS {
         if def.kinds & kind != 0 {
-            values.push(RelOptValue {
-                def,
-                isset: false,
-                val: OptVal::Bool(false),
-            });
+            values.push(RelOptValue { def, isset: false, val: OptVal::Bool(false), });
         }
     }
-    let Some(options) = options else {
-        return Ok((values, raw));
-    };
+    let Some(options) = options else { return Ok((values, raw)); };
     let expanded = expand_short_image(mcx, Some(options))?;
     let options = match &expanded {
         Some(v) => &v[..],
@@ -699,10 +479,7 @@ fn parse_one_reloption(option: &mut RelOptValue, value: &str, validate: bool) ->
     if option.isset && validate {
         return Err(ereport(ERROR)
             .errcode(ERRCODE_INVALID_PARAMETER_VALUE)
-            .errmsg(format!(
-                "parameter \"{}\" specified more than once",
-                option.def.name
-            ))
+            .errmsg(format!("parameter \"{}\" specified more than once", option.def.name))
             .into_error()
             .into());
     }
@@ -730,9 +507,7 @@ fn parse_opt_value(
                 if validate {
                     return Err(ereport(ERROR)
                         .errcode(ERRCODE_INVALID_PARAMETER_VALUE)
-                        .errmsg(format!(
-                            "invalid value for boolean option \"{name}\": {value}"
-                        ))
+                        .errmsg(format!("invalid value for boolean option \"{name}\": {value}"))
                         .into_error()
                         .into());
                 }
@@ -745,7 +520,9 @@ fn parse_opt_value(
                     return Err(ereport(ERROR)
                         .errcode(ERRCODE_INVALID_PARAMETER_VALUE)
                         .errmsg(format!("value {value} out of bounds for option \"{name}\""))
-                        .errdetail(format!("Valid values are between \"{min}\" and \"{max}\"."))
+                        .errdetail(format!(
+                            "Valid values are between \"{min}\" and \"{max}\"."
+                        ))
                         .into_error()
                         .into());
                 }
@@ -755,9 +532,7 @@ fn parse_opt_value(
                 if validate {
                     return Err(ereport(ERROR)
                         .errcode(ERRCODE_INVALID_PARAMETER_VALUE)
-                        .errmsg(format!(
-                            "invalid value for integer option \"{name}\": {value}"
-                        ))
+                        .errmsg(format!("invalid value for integer option \"{name}\": {value}"))
                         .into_error()
                         .into());
                 }
@@ -791,22 +566,21 @@ fn parse_opt_value(
                 None
             }
         },
-        Enum {
-            members, detailmsg, ..
-        } => match members.iter().find(|(s, _)| s.eq_ignore_ascii_case(value)) {
-            Some((_, sym)) => Some(OptVal::Enum(*sym)),
-            None => {
-                if validate {
-                    return Err(ereport(ERROR)
-                        .errcode(ERRCODE_INVALID_PARAMETER_VALUE)
-                        .errmsg(format!("invalid value for enum option \"{name}\": {value}"))
-                        .errdetail(detailmsg.to_string())
-                        .into_error()
-                        .into());
+        Enum { members, detailmsg, .. } =>
+            match members.iter().find(|(s, _)| s.eq_ignore_ascii_case(value)) {
+                Some((_, sym)) => Some(OptVal::Enum(*sym)),
+                None => {
+                    if validate {
+                        return Err(ereport(ERROR)
+                            .errcode(ERRCODE_INVALID_PARAMETER_VALUE)
+                            .errmsg(format!("invalid value for enum option \"{name}\": {value}"))
+                            .errdetail(detailmsg.to_string())
+                            .into_error()
+                            .into());
+                    }
+                    None
                 }
-                None
-            }
-        },
+            },
     })
 }
 
@@ -899,9 +673,7 @@ pub fn transformRelOptions<'mcx>(
             if name.contains('=') {
                 return Err(ereport(ERROR)
                     .errcode(ERRCODE_INVALID_PARAMETER_VALUE)
-                    .errmsg(format!(
-                        "invalid option name \"{name}\": must not contain \"=\""
-                    ))
+                    .errmsg(format!("invalid option name \"{name}\": must not contain \"=\""))
                     .into_error()
                     .into());
             }
@@ -924,9 +696,7 @@ pub fn transformRelOptions<'mcx>(
     if texts.is_empty() {
         return Ok(None);
     }
-    Ok(Some(datum::array_build::construct_array_image(
-        mcx, &texts, TEXTOID, -1, false, b'i',
-    )?))
+    Ok(Some(datum::array_build::construct_array_image(mcx, &texts, TEXTOID, -1, false, b'i',)?))
 }
 
 fn make_text_datum<'mcx>(mcx: Mcx<'mcx>, s: &str) -> PgResult<Datum> {
@@ -995,12 +765,14 @@ fn std_from_values(values: &[RelOptValue], validate: bool) -> PgResult<Option<St
             "autovacuum_freeze_table_age" => av.freeze_table_age = v.int_val(),
             "autovacuum_multixact_freeze_min_age" => av.multixact_freeze_min_age = v.int_val(),
             "autovacuum_multixact_freeze_max_age" => av.multixact_freeze_max_age = v.int_val(),
-            "autovacuum_multixact_freeze_table_age" => av.multixact_freeze_table_age = v.int_val(),
+            "autovacuum_multixact_freeze_table_age" =>
+                av.multixact_freeze_table_age = v.int_val(),
             "log_autovacuum_min_duration" => av.log_min_duration = v.int_val(),
             "toast_tuple_target" => out.toast_tuple_target = v.int_val(),
             "autovacuum_vacuum_cost_delay" => av.vacuum_cost_delay = v.real_val(),
             "autovacuum_vacuum_scale_factor" => av.vacuum_scale_factor = v.real_val(),
-            "autovacuum_vacuum_insert_scale_factor" => av.vacuum_ins_scale_factor = v.real_val(),
+            "autovacuum_vacuum_insert_scale_factor" =>
+                av.vacuum_ins_scale_factor = v.real_val(),
             "autovacuum_analyze_scale_factor" => av.analyze_scale_factor = v.real_val(),
             "user_catalog_table" => out.user_catalog_table = v.bool_val(),
             "parallel_workers" => out.parallel_workers = v.int_val(),
@@ -1053,10 +825,7 @@ pub fn attribute_reloptions<'mcx>(
     if values.is_empty() {
         return Ok(None);
     }
-    let mut out = AttributeOpts {
-        n_distinct: 0.0,
-        n_distinct_inherited: 0.0,
-    };
+    let mut out = AttributeOpts { n_distinct: 0.0, n_distinct_inherited: 0.0, };
     for v in values.iter() {
         match v.def.name {
             "n_distinct" => out.n_distinct = v.real_val(),
@@ -1118,16 +887,8 @@ pub const PGRC_SHRED_PATHS: &str = "pgrc_shred_paths";
 pub const PGRC_SORTED_BY_PARTIAL: &str = "sorted_by_partial";
 
 /// The `sorted_by_partial` DefElem ALTER adds beside a new `sorted_by`.
-pub fn pgrc_sorted_by_partial_def<'mcx>(
-    mcx: Mcx<'mcx>,
-    on: bool,
-) -> PgResult<::types_nodes::Node<'mcx>> {
-    let arg = ::types_nodes::Node::mk(
-        mcx,
-        ::types_nodes::String {
-            sval: if on { "true" } else { "false" },
-        },
-    )?;
+pub fn pgrc_sorted_by_partial_def<'mcx>(mcx: Mcx<'mcx>, on: bool,) -> PgResult<::types_nodes::Node<'mcx>> {
+    let arg = ::types_nodes::Node::mk(mcx, ::types_nodes::String { sval: if on { "true" } else { "false" }, },)?;
     ::types_nodes::Node::mk(
         mcx,
         DefElem {
@@ -1155,21 +916,9 @@ pub fn pgrcolumnar_reloptions<'mcx>(
     validate: bool,
 ) -> PgResult<Option<::types_rel::PgrcolumnarOptions>> {
     use ::types_rel::PgrcolumnarOptions;
-    let (values, raw) = parse_rel_options_raw(
-        mcx,
-        options,
-        validate,
-        RELOPT_KIND_HEAP,
-        &[
-            PGRC_SORTED_BY,
-            PGRC_SHRED_PATHS,
-            PGRC_SORTED_BY_PARTIAL,
-            PGRC_SORT_RUNS,
-        ],
-    )?;
-    let Some(std) = std_from_values(&values, validate)? else {
-        return Ok(None);
-    };
+    let (values, raw) =
+        parse_rel_options_raw(mcx, options, validate, RELOPT_KIND_HEAP, &[PGRC_SORTED_BY, PGRC_SHRED_PATHS, PGRC_SORTED_BY_PARTIAL, PGRC_SORT_RUNS,],)?;
+    let Some(std) = std_from_values(&values, validate)? else { return Ok(None); };
     let mut out = PgrcolumnarOptions::new(std);
     let bad = |msg: String| -> Box<::types_error::PgError> {
         ereport(ERROR)
@@ -1241,9 +990,7 @@ pub fn pgrcolumnar_reloptions<'mcx>(
             None => {}
         }
     }
-    let Some(sorted_by) = raw[0] else {
-        return Ok(Some(out));
-    };
+    let Some(sorted_by) = raw[0] else { return Ok(Some(out)); };
     // Names fold like SQL identifiers: unquoted ASCII-lowercased, a
     // double-quoted name verbatim (quotes stripped, "" unescaped); the
     // canonical spelling is what gets stored, so the relcache read
@@ -1258,8 +1005,8 @@ pub fn pgrcolumnar_reloptions<'mcx>(
     };
     let items: Vec<&str> = ::types_rel::reloptions::split_sorted_by(sorted_by);
     let mut keys: Vec<::types_rel::reloptions::SortedByKey> = Vec::new();
-    keys.try_reserve_exact(items.len()).map_err(|_| {
-        mcx.oom(items.len() * core::mem::size_of::<::types_rel::reloptions::SortedByKey>())
+    keys.try_reserve_exact(items.len())
+        .map_err(|_| { mcx.oom(items.len() * core::mem::size_of::<::types_rel::reloptions::SortedByKey>())
     })?;
     for item in &items {
         let col = item.trim();
@@ -1308,10 +1055,7 @@ pub fn pgrcolumnar_reloptions<'mcx>(
                     .into());
             }
         }
-        keys.push(::types_rel::reloptions::SortedByKey {
-            col: fold(col),
-            path: Vec::new(),
-        });
+        keys.push(::types_rel::reloptions::SortedByKey { col: fold(col), path: Vec::new(), });
     }
     if validate {
         for (i, k) in keys.iter().enumerate() {
@@ -1354,12 +1098,8 @@ fn parse_sorted_by_path(
     item: &str,
 ) -> Result<::types_rel::reloptions::SortedByKey, &'static str> {
     let sql = format!("SELECT {item}");
-    let stmts = ::parser_seams::raw_parser::call(
-        mcx,
-        &sql,
-        ::parser_seams::RawParseMode::RAW_PARSE_DEFAULT,
-    )
-    .map_err(|_| "It does not parse as an expression.")?;
+    let stmts = ::parser_seams::raw_parser::call(mcx, &sql, ::parser_seams::RawParseMode::RAW_PARSE_DEFAULT,)
+        .map_err(|_| "It does not parse as an expression.")?;
     let sel = (stmts.len() == 1)
         .then(|| stmts.first().and_then(|s| s.stmt))
         .flatten()
@@ -1416,10 +1156,7 @@ fn parse_sorted_by_path(
         Some((last, init)) if last.0 && init.iter().all(|s| !s.0) => {}
         _ => return Err("The path must end with ->> (a text value), with -> before it."),
     }
-    Ok(::types_rel::reloptions::SortedByKey {
-        col,
-        path: steps.into_iter().map(|s| s.1).collect(),
-    })
+    Ok(::types_rel::reloptions::SortedByKey { col, path: steps.into_iter().map(|s| s.1).collect(), })
 }
 
 /// What the DDL caller knows about one `sorted_by` name.
@@ -1670,9 +1407,7 @@ fn hashoptions<'mcx>(
     if values.is_empty() {
         return Ok(None);
     }
-    let mut out = HashOptions {
-        fillfactor: HASH_DEFAULT_FILLFACTOR,
-    };
+    let mut out = HashOptions { fillfactor: HASH_DEFAULT_FILLFACTOR, };
     for v in values.iter() {
         match v.def.name {
             "fillfactor" => out.fillfactor = v.int_val(),
@@ -1695,10 +1430,7 @@ fn ginoptions<'mcx>(
     if values.is_empty() {
         return Ok(None);
     }
-    let mut out = GinOptions {
-        use_fast_update: true,
-        pending_list_cleanup_size: -1,
-    };
+    let mut out = GinOptions { use_fast_update: true, pending_list_cleanup_size: -1, };
     for v in values.iter() {
         match v.def.name {
             "fastupdate" => out.use_fast_update = v.bool_val(),
@@ -1756,9 +1488,7 @@ fn spgoptions<'mcx>(
     if values.is_empty() {
         return Ok(None);
     }
-    let mut out = SpGistOptions {
-        fillfactor: SPGIST_DEFAULT_FILLFACTOR,
-    };
+    let mut out = SpGistOptions { fillfactor: SPGIST_DEFAULT_FILLFACTOR, };
     for v in values.iter() {
         match v.def.name {
             "fillfactor" => out.fillfactor = v.int_val(),
@@ -1781,10 +1511,7 @@ fn brinoptions<'mcx>(
     if values.is_empty() {
         return Ok(None);
     }
-    let mut out = BrinOptions {
-        pages_per_range: 128,
-        autosummarize: false,
-    };
+    let mut out = BrinOptions { pages_per_range: 128, autosummarize: false, };
     for v in values.iter() {
         match v.def.name {
             "pages_per_range" => out.pages_per_range = v.int_val(),
@@ -1809,10 +1536,7 @@ fn hnswoptions<'mcx>(
     if values.is_empty() {
         return Ok(None);
     }
-    let mut out = HnswOptions {
-        m: 16,
-        ef_construction: 64,
-    };
+    let mut out = HnswOptions { m: 16, ef_construction: 64, };
     for v in values.iter() {
         match v.def.name {
             "m" => out.m = v.int_val(),
@@ -1843,10 +1567,7 @@ fn bloomoptions<'mcx>(
     for v in values.iter() {
         match v.def.name {
             "length" => length_bits = v.int_val(),
-            name => match name
-                .strip_prefix("col")
-                .and_then(|n| n.parse::<usize>().ok())
-            {
+            name => match name.strip_prefix("col").and_then(|n| n.parse::<usize>().ok()) {
                 Some(n) if (1..=32).contains(&n) => bit_size[n - 1] = v.int_val(),
                 _ => {
                     if validate {
@@ -1856,12 +1577,10 @@ fn bloomoptions<'mcx>(
             },
         }
     }
-    Ok(Some(RdOptions::Bloom(
-        types_rel::reloptions::BloomOptions {
-            bloom_length: (length_bits + 15) / 16,
-            bit_size,
-        },
-    )))
+    Ok(Some(RdOptions::Bloom(types_rel::reloptions::BloomOptions {
+        bloom_length: (length_bits + 15) / 16,
+        bit_size,
+    },)))
 }
 
 // extractRelOptions over the already-fetched reloptions datum; the caller
@@ -1872,9 +1591,7 @@ pub fn extractRelOptions<'mcx>(
     relam: Oid,
     options_datum: Option<Datum>,
 ) -> PgResult<Option<RdOptions>> {
-    let Some(d) = options_datum else {
-        return Ok(None);
-    };
+    let Some(d) = options_datum else { return Ok(None); };
     let image = text_array_image(mcx, d)?;
     let options = Some(image.as_slice());
     match relkind {

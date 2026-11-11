@@ -720,7 +720,7 @@ pub fn parsejsonpath<'mcx>(
                 }
             };
             n += tok;
-            if !(0..=YYLAST).contains(&n) || YYCHECK[n as usize] as i32 != tok {
+            if !( 0..= YYLAST).contains(&n) || YYCHECK[n as usize] as i32 != tok {
                 break 'act YYDEFACT[state as usize] as i32;
             }
             let act = YYTABLE[n as usize];

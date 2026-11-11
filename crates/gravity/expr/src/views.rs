@@ -46,7 +46,7 @@ pub fn payload_view(d: Datum, typlen: i16, region: &mut Region) -> PgResult<View
                     let n = varatt::varsize_1b(p) as usize - 1;
                     // a short-header datum off a page is unaligned: a body that reads words (numeric's digits) gets
                     // an aligned copy, as the row executor's detoast gives it
-                    if !(p as usize + 1).is_multiple_of(2) {
+                    if ! (p as usize + 1).is_multiple_of( 2) {
                         let q = region.reserve(n).ok_or_else(no_space)?;
                         core::ptr::copy_nonoverlapping(p.add(1), q, n);
                         return Ok(View { ptr: q, len: n as u64 });

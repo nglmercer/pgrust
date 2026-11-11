@@ -618,7 +618,7 @@ pub const RUNS_PAR_OFF: usize = RUNS_STATE_OFF + size_of::<EmitState>();
 pub const RUNS_TABLE_BYTES: usize = RUNS_PAR_OFF + size_of::<ParState>();
 /// `RUNS_TABLE_BYTES` in words (exec lays the table as words).
 pub const RUNS_TABLE_WORDS: usize = RUNS_TABLE_BYTES / 8;
-const _: () = assert!(RUNS_TABLE_BYTES.is_multiple_of(8));
+const _: () = assert!(RUNS_TABLE_BYTES.is_multiple_of( 8));
 
 crate::contract::host! {
     /// A sorted wide emit's reader (lowerv4 `TopDrain`): the first `n` records (`u64::MAX`: every one) of the runs its claims
@@ -842,8 +842,7 @@ crate::contract::host! {
 unsafe fn runs_claim(ctx: *const Ctx, table: *const u8, wtbl: *const u64, out: *mut u64) -> i64 {
     use core::sync::atomic::Ordering::Acquire;
     let (lo, hi) = ((*ctx).claim.lo, (*ctx).claim.hi);
-    let set = |a: u64, b: u64, h: u64| {
-        out.write(a); out.add(1).write(b); out.add(2).write(h);
+    let set = |a: u64, b: u64, h: u64| {out.write(a); out.add(1).write(b); out.add(2).write(h);
     };
     if lo >= hi {
         set(u64::MAX, u64::MAX, 0);
@@ -1787,7 +1786,7 @@ unsafe fn generic_by(ctx: *mut Ctx, ptrs: &mut [*const u8], layout: &RecordLayou
 #[inline(never)]
 unsafe fn small_generic(ctx: *mut Ctx, ptrs: &mut [*const u8], layout: &RecordLayout, keys: &[u64], procs: &[u64], nk: Option<usize>, err: &core::cell::Cell<i64>) -> Option<i64> {
     let (n, w) = (ptrs.len(), *keys.first()?);
-    if !(2..=SMALL_SORT_ROWS).contains(&n) || w & (SK_TEXT | SK_SLOT) != SK_TEXT || (w >> SK_TEXT_COLL_SHIFT) as u32 != 0 || w & (SK_HEAP | SK_CMP) == SK_HEAP | SK_CMP {
+    if !( 2..= SMALL_SORT_ROWS).contains(&n) || w & (SK_TEXT | SK_SLOT) != SK_TEXT || (w >> SK_TEXT_COLL_SHIFT) as u32 != 0 || w & (SK_HEAP | SK_CMP) == SK_HEAP | SK_CMP {
         return None;
     }
     let mut dec = [(0u8, 0u64, 0u32); SMALL_SORT_ROWS];

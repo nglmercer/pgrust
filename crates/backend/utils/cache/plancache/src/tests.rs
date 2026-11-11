@@ -29,10 +29,10 @@ thread_local! {
     static USAGE_TITLES: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) };
 }
 
-fn stub_planner<'mcx>(
+fn stub_planner< 'mcx>(
     mcx: mcx::Mcx<'mcx>,
     parse: &'mcx mut Query<'mcx>,
-    _query_string: &str,
+    _query_string: & str,
     _cursor_options: i32,
     _bound_params: ParamListHandle,
 ) -> PgResult<PlannedStmt<'mcx>> {

@@ -11,10 +11,7 @@ fn wal_constants_match_write_side() {
     assert_eq!(XLOG_HEAP_LOCK, heapam::dml::XLOG_HEAP_LOCK);
     assert_eq!(XLOG_HEAP_INIT_PAGE, heapam::dml::XLOG_HEAP_INIT_PAGE);
     assert_eq!(XLOG_HEAP_INPLACE, heapam::dml::XLOG_HEAP_INPLACE);
-    assert_eq!(
-        XLH_INSERT_ALL_VISIBLE_CLEARED,
-        heapam::dml::XLH_INSERT_ALL_VISIBLE_CLEARED
-    );
+    assert_eq!(XLH_INSERT_ALL_VISIBLE_CLEARED, heapam::dml::XLH_INSERT_ALL_VISIBLE_CLEARED);
     assert_eq!(
         XLH_UPDATE_OLD_ALL_VISIBLE_CLEARED,
         heapam::dml::XLH_UPDATE_OLD_ALL_VISIBLE_CLEARED
@@ -23,35 +20,17 @@ fn wal_constants_match_write_side() {
         XLH_UPDATE_NEW_ALL_VISIBLE_CLEARED,
         heapam::dml::XLH_UPDATE_NEW_ALL_VISIBLE_CLEARED
     );
-    assert_eq!(
-        XLH_LOCK_ALL_FROZEN_CLEARED,
-        heapam::dml::XLH_LOCK_ALL_FROZEN_CLEARED
-    );
-    assert_eq!(
-        XLH_DELETE_ALL_VISIBLE_CLEARED,
-        heapam::dml::XLH_DELETE_ALL_VISIBLE_CLEARED
-    );
+    assert_eq!(XLH_LOCK_ALL_FROZEN_CLEARED, heapam::dml::XLH_LOCK_ALL_FROZEN_CLEARED);
+    assert_eq!(XLH_DELETE_ALL_VISIBLE_CLEARED, heapam::dml::XLH_DELETE_ALL_VISIBLE_CLEARED);
     // upstream f581fa729d8e (18.5): the VM block-reference ids redo reads
     // are the ones the write side registers.
     assert_eq!(HEAP_INSERT_BLKREF_VM, heapam::dml::HEAP_INSERT_BLKREF_VM);
-    assert_eq!(
-        HEAP_MULTI_INSERT_BLKREF_VM,
-        heapam::dml::HEAP_MULTI_INSERT_BLKREF_VM
-    );
+    assert_eq!(HEAP_MULTI_INSERT_BLKREF_VM, heapam::dml::HEAP_MULTI_INSERT_BLKREF_VM);
     assert_eq!(HEAP_DELETE_BLKREF_VM, heapam::dml::HEAP_DELETE_BLKREF_VM);
     assert_eq!(HEAP_LOCK_BLKREF_VM, heapam::dml::HEAP_LOCK_BLKREF_VM);
-    assert_eq!(
-        HEAP_UPDATE_BLKREF_VM_NEW,
-        heapam::dml::HEAP_UPDATE_BLKREF_VM_NEW
-    );
-    assert_eq!(
-        HEAP_UPDATE_BLKREF_VM_OLD,
-        heapam::dml::HEAP_UPDATE_BLKREF_VM_OLD
-    );
-    assert_eq!(
-        XLH_DELETE_IS_PARTITION_MOVE,
-        heapam::dml::XLH_DELETE_IS_PARTITION_MOVE
-    );
+    assert_eq!(HEAP_UPDATE_BLKREF_VM_NEW, heapam::dml::HEAP_UPDATE_BLKREF_VM_NEW);
+    assert_eq!(HEAP_UPDATE_BLKREF_VM_OLD, heapam::dml::HEAP_UPDATE_BLKREF_VM_OLD);
+    assert_eq!(XLH_DELETE_IS_PARTITION_MOVE, heapam::dml::XLH_DELETE_IS_PARTITION_MOVE);
     assert_eq!(XLHL_XMAX_IS_MULTI, heapam::dml::XLHL_XMAX_IS_MULTI);
     assert_eq!(XLHL_XMAX_LOCK_ONLY, heapam::dml::XLHL_XMAX_LOCK_ONLY);
     assert_eq!(XLHL_XMAX_EXCL_LOCK, heapam::dml::XLHL_XMAX_EXCL_LOCK);
@@ -67,15 +46,8 @@ fn fix_infomask_from_infobits_bit_mapping() {
     assert_eq!(im2, HEAP_KEYS_UPDATED);
 
     let (mut im, mut im2) = (HEAP_XMAX_EXCL_LOCK, HEAP_KEYS_UPDATED);
-    fix_infomask_from_infobits(
-        XLHL_XMAX_IS_MULTI | XLHL_XMAX_LOCK_ONLY | XLHL_XMAX_KEYSHR_LOCK,
-        &mut im,
-        &mut im2,
-    );
-    assert_eq!(
-        im,
-        HEAP_XMAX_IS_MULTI | HEAP_XMAX_LOCK_ONLY | HEAP_XMAX_KEYSHR_LOCK
-    );
+    fix_infomask_from_infobits(XLHL_XMAX_IS_MULTI | XLHL_XMAX_LOCK_ONLY | XLHL_XMAX_KEYSHR_LOCK, &mut im, &mut im2,);
+    assert_eq!(im, HEAP_XMAX_IS_MULTI | HEAP_XMAX_LOCK_ONLY | HEAP_XMAX_KEYSHR_LOCK);
     assert_eq!(im2, 0);
 }
 
@@ -106,18 +78,14 @@ fn insert_tuple_body_len_validates_bounds() {
     // A record declaring only 4 bytes of block data (< SizeOfHeapHeader == 5),
     // as in the finding's "INSERT with 4-byte block data" repro, must error
     // rather than wrap `newlen` to ~usize::MAX.
-    let e = checked_heap_tuple_body_len(4, "heap_xlog_insert")
-        .err()
-        .unwrap();
+    let e = checked_heap_tuple_body_len(4, "heap_xlog_insert").err().unwrap();
     assert_eq!(e.sqlstate(), types_error::ERRCODE_DATA_CORRUPTED);
     // Exactly SizeOfHeapHeader still leaves a zero-length body -> error.
     assert!(checked_heap_tuple_body_len(SizeOfHeapHeader, "heap_xlog_insert").is_err());
     // Oversized: a body larger than MaxHeapTupleSize would overrun the fixed
     // tuple buffer.
     let too_big = SizeOfHeapHeader + MaxHeapTupleSize + 1;
-    let e = checked_heap_tuple_body_len(too_big, "heap_xlog_insert")
-        .err()
-        .unwrap();
+    let e = checked_heap_tuple_body_len(too_big, "heap_xlog_insert").err().unwrap();
     assert_eq!(e.sqlstate(), types_error::ERRCODE_DATA_CORRUPTED);
     // A well-formed length returns the tuple body size unchanged.
     assert_eq!(
@@ -125,8 +93,7 @@ fn insert_tuple_body_len_validates_bounds() {
         10
     );
     assert_eq!(
-        checked_heap_tuple_body_len(SizeOfHeapHeader + MaxHeapTupleSize, "heap_xlog_insert")
-            .unwrap(),
+        checked_heap_tuple_body_len(SizeOfHeapHeader + MaxHeapTupleSize, "heap_xlog_insert").unwrap(),
         MaxHeapTupleSize
     );
 }
@@ -166,7 +133,7 @@ fn heap_xlog_logical_rewrite_reports_truncate_write_sync_wait_events() {
     init_small::globals::SetDataDir(dir.to_str().unwrap());
 
     // xl_heap_rewrite_mapping (40 bytes, C layout) + one mapping entry.
-    let mut md = [0u8; 40 + LOGICAL_REWRITE_MAPPING_SIZE];
+    let mut md =[0u8; 40 + LOGICAL_REWRITE_MAPPING_SIZE];
     md[0..4].copy_from_slice(&700u32.to_ne_bytes()); // mapped_xid
     md[4..8].copy_from_slice(&5u32.to_ne_bytes()); // mapped_db
     md[8..12].copy_from_slice(&16384u32.to_ne_bytes()); // mapped_rel
@@ -183,17 +150,11 @@ fn heap_xlog_logical_rewrite_reports_truncate_write_sync_wait_events() {
         main_data_len: md.len() as u32,
         ..Default::default()
     };
-    let mut state = XLogReaderState {
-        record: Some(rec),
-        ..Default::default()
-    };
+    let mut state = XLogReaderState { record: Some(rec), ..Default::default() };
     heap_xlog_logical_rewrite(&mut state).unwrap();
 
     let path = dir.join("pg_logical/mappings/map-5-4000-1_10-2bc-384");
-    assert_eq!(
-        std::fs::read(&path).unwrap(),
-        vec![0xABu8; LOGICAL_REWRITE_MAPPING_SIZE]
-    );
+    assert_eq!(std::fs::read(&path).unwrap(), vec![0xABu8; LOGICAL_REWRITE_MAPPING_SIZE]);
     assert_eq!(
         core::mem::take(&mut *LRW_WAIT_EVENTS.lock().unwrap()),
         vec![

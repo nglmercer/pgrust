@@ -31,13 +31,13 @@ fn err(msg: &str, detail: &str, sqlstate: types_error::SqlState) -> Box<PgError>
 // tablefunc.c:979-982/:1057-1061 text_to_cstring → :1230/:1241 quote_literal_cstr / the
 // query template): bytes no &str can carry (a SQL_ASCII database) draw the
 // ratified §11 refusal instead of a panic.
-fn arg_str(fcinfo: &Fcinfo, i: usize) -> PgResult<&str> {
+fn arg_str(fcinfo: & Fcinfo, i: usize) -> PgResult<& str> {
     core::str::from_utf8(arg_bytes(fcinfo, i)?).map_err(|_| crate::non_utf8_query_error())
 }
 
 // A text argument that only travels the value plane (the branch delimiter,
 // tablefunc.c:1006/:1085, used only at :1318/:1335/:1345 appendStringInfo): carried raw as C does.
-fn arg_bytes(fcinfo: &Fcinfo, i: usize) -> PgResult<&[u8]> {
+fn arg_bytes(fcinfo: & Fcinfo, i: usize) -> PgResult<& [u8]> {
     // SAFETY: catalog args are non-null text varlenas (STRICT fns).
     let v = unsafe { fcinfo.arg_varlena_packed(i)? };
     Ok(v.data())
@@ -60,7 +60,7 @@ pub(crate) fn fc_connectby_text(
 ) -> PgResult<Datum> {
     let show_branch = fcinfo.nargs() == 6;
     let branch_delim = if show_branch {
-        ::mcx::std_vec_from_slice("tablefunc", arg_bytes(fcinfo, 5)?)?
+        ::mcx::std_vec_from_slice("tablefunc",arg_bytes(fcinfo, 5)?)?
     } else {
         vec![b'~']
     };
@@ -84,7 +84,7 @@ pub(crate) fn fc_connectby_text_serial(
 ) -> PgResult<Datum> {
     let show_branch = fcinfo.nargs() == 7;
     let branch_delim = if show_branch {
-        ::mcx::std_vec_from_slice("tablefunc", arg_bytes(fcinfo, 6)?)?
+        ::mcx::std_vec_from_slice("tablefunc",arg_bytes(fcinfo, 6)?)?
     } else {
         vec![b'~']
     };
@@ -343,7 +343,7 @@ fn build_tuplestore_recursively(
         // Extend the branch with the current key (tablefunc.c:1345-1346).
         let current_branch: Vec<u8> = match row.current_key.as_deref() {
             Some(ck) => [branch, params.branch_delim.as_slice(), ck].concat(),
-            None => ::mcx::std_vec_from_slice("tablefunc", branch)?,
+            None => ::mcx::std_vec_from_slice("tablefunc",branch)?,
         };
 
         let values = build_values(
@@ -428,5 +428,5 @@ fn quote_literal_cstr(mcx: Mcx<'_>, s: &str) -> PgResult<String> {
     let v = adt_quote::quote_literal(mcx, s.as_bytes())?;
     // quote_literal only adds ASCII (quotes, E, doubled backslashes) to a
     // valid-UTF-8 input; the map_err keeps the path panic-free regardless.
-    String::from_utf8(::mcx::std_vec_from_slice("tablefunc", v.data())?).map_err(|_| crate::non_utf8_query_error())
+    String::from_utf8(::mcx::std_vec_from_slice("tablefunc",v.data())?).map_err(|_| crate::non_utf8_query_error())
 }

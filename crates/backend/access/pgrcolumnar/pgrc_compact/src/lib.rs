@@ -29,10 +29,7 @@ impl RowMapView<'_> {
     /// The IDs of ordinals `ordinal..ordinal + out.len()` (one pass; the caller bounds them by the part's rows).
     pub fn decode(&self, ordinal: u32, out: &mut [u64]) {
         match self {
-            RowMapView::Implicit(base) => out
-                .iter_mut()
-                .enumerate()
-                .for_each(|(i, x)| *x = base + u64::from(ordinal) + i as u64),
+            RowMapView::Implicit(base) => out.iter_mut().enumerate().for_each(|(i, x)| *x = base + u64::from(ordinal) + i as u64),
             RowMapView::Granules(m) => m.decode_ids(ordinal, out),
         }
     }

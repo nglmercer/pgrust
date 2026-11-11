@@ -6,10 +6,7 @@ use types_nodes::parsenodes::Query;
 use types_nodes::plannodes::PlannedStmt;
 use types_nodes::Node;
 use types_pathnodes::run::PlannerRun;
-use types_pathnodes::{
-    AppendRelInfo, EcId, IndexOptInfo, JoinType, NodeId, PathId, PathKey, PlannerInfo, QualCost,
-    RelId, Relids, RinfoId, ScanDirection, SpecialJoinInfo,
-};
+use types_pathnodes::{AppendRelInfo, EcId, IndexOptInfo, JoinType, NodeId, PathId, PathKey, PlannerInfo, QualCost, RelId, Relids, RinfoId, ScanDirection, SpecialJoinInfo,};
 use types_portal::ParamListHandle;
 use types_rel::Relation;
 

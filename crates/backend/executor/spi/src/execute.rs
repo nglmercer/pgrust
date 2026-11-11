@@ -9,18 +9,21 @@ use types_nodes::plannodes::PlannedStmt;
 use types_nodes::NodeTag;
 use types_portal::params::{ParamExternData, ParamFetchHook, PARAM_FLAG_CONST};
 use types_portal::{
-    ParamListHandle, QueryCompletion, QueryDescHandle, CMDTAG_SELECT, CURSOR_OPT_PARALLEL_OK,
+    ParamListHandle, QueryCompletion, QueryDescHandle, CMDTAG_SELECT,
+    CURSOR_OPT_PARALLEL_OK,
 };
 use types_scan::sdir::ForwardScanDirection;
 use types_slot::EXEC_FLAG_SKIP_TRIGGERS;
 
 use crate::plan::{self, SpiErrorContext, SpiPlanPtr, SpiPlanState};
 use crate::{
-    _SPI_begin_call, _SPI_end_call, current_exec_mcx, set_spi_processed, set_spi_tuptable,
-    with_current, TuptabHandle, SPI_ERROR_ARGUMENT, SPI_ERROR_COPY, SPI_ERROR_OPUNKNOWN,
-    SPI_ERROR_PARAM, SPI_ERROR_TRANSACTION, SPI_OK_DELETE, SPI_OK_DELETE_RETURNING, SPI_OK_INSERT,
-    SPI_OK_INSERT_RETURNING, SPI_OK_MERGE, SPI_OK_MERGE_RETURNING, SPI_OK_REWRITTEN, SPI_OK_SELECT,
-    SPI_OK_SELINTO, SPI_OK_UPDATE, SPI_OK_UPDATE_RETURNING, SPI_OK_UTILITY,
+    _SPI_begin_call, _SPI_end_call,
+    current_exec_mcx, set_spi_processed, set_spi_tuptable, with_current,
+    TuptabHandle, SPI_ERROR_ARGUMENT, SPI_ERROR_COPY,
+    SPI_ERROR_OPUNKNOWN, SPI_ERROR_PARAM, SPI_ERROR_TRANSACTION, SPI_OK_DELETE,
+    SPI_OK_DELETE_RETURNING, SPI_OK_INSERT, SPI_OK_INSERT_RETURNING, SPI_OK_MERGE,
+    SPI_OK_MERGE_RETURNING, SPI_OK_REWRITTEN, SPI_OK_SELECT, SPI_OK_SELINTO, SPI_OK_UPDATE,
+    SPI_OK_UPDATE_RETURNING, SPI_OK_UTILITY,
 };
 
 pub struct SpiExecuteOptions {
@@ -150,16 +153,7 @@ pub fn SPI_execute_plan_with_paramlist(
     tcount: i64,
 ) -> PgResult<i32> {
     execute_plan_common(
-        ptr,
-        PlanArgs::List(params),
-        read_only,
-        false,
-        false,
-        tcount,
-        None,
-        None,
-        true,
-        None,
+        ptr, PlanArgs::List(params), read_only, false, false, tcount, None, None, true, None,
     )
 }
 
@@ -218,10 +212,7 @@ pub fn SPI_execute_snapshot(
 }
 
 enum PlanArgs<'a> {
-    Values {
-        values: &'a [Datum],
-        nulls: &'a [bool],
-    },
+    Values { values: &'a [Datum], nulls: &'a [bool], },
     List(SpiParamList<'a>),
 }
 
@@ -259,8 +250,7 @@ fn execute_plan_common(
     }
 
     let params = match args {
-        PlanArgs::Values { values, nulls } => {
-            convert_params(&state.argtypes, values, nulls, false)?
+        PlanArgs::Values { values, nulls } => { convert_params(&state.argtypes, values, nulls, false)?
         }
         PlanArgs::List(l) => register_param_list(l)?,
     };
@@ -271,14 +261,8 @@ fn execute_plan_common(
         must_return_tuples,
         tcount: tcount as u64,
     };
-    let res = _SPI_execute_plan(
-        &state,
-        &options,
-        snapshot,
-        crosscheck_snapshot,
-        fire_triggers,
-        dest,
-    );
+    let res =
+        _SPI_execute_plan(&state, &options, snapshot, crosscheck_snapshot, fire_triggers, dest,);
     if !params.is_null() {
         types_portal::params::free(params);
     }
@@ -300,8 +284,7 @@ pub(crate) fn convert_params(
         return Ok(ParamListHandle::NULL);
     }
     let mcx = current_exec_mcx();
-    let mut v: mcx::PgVec<'static, ParamExternData> =
-        mcx::vec_with_capacity_in(mcx, argtypes.len())?;
+    let mut v: mcx::PgVec<'static, ParamExternData> = mcx::vec_with_capacity_in(mcx, argtypes.len())?;
     for i in 0..argtypes.len() {
         v.push(ParamExternData {
             value: values[i],
@@ -339,13 +322,7 @@ pub(crate) fn command_tag_of(stmt: &PlannedStmt<'_>) -> types_core::CommandTag {
         None => match stmt.commandType {
             CmdType::CMD_SELECT => {
                 use types_nodes::nodes_enums::LockClauseStrength::*;
-                match stmt
-                    .rowMarks
-                    .iter()
-                    .next()
-                    .and_then(|n| n.as_plan_row_mark())
-                    .map(|r| r.strength)
-                {
+                match stmt.rowMarks.iter().next().and_then(|n| n.as_plan_row_mark()).map(|r| r.strength) {
                     Some(LCS_FORKEYSHARE) => utility::consts::CMDTAG_SELECT_FOR_KEY_SHARE,
                     Some(LCS_FORSHARE) => utility::consts::CMDTAG_SELECT_FOR_SHARE,
                     Some(LCS_FORNOKEYUPDATE) => utility::consts::CMDTAG_SELECT_FOR_NO_KEY_UPDATE,
@@ -432,7 +409,8 @@ pub(crate) fn _SPI_execute_plan(
 
             if snapshot.is_none()
                 && (stmt_list.len() > 1
-                    || (stmt_list.len() == 1 && pquery::PlannedStmtRequiresSnapshot(&stmt_list[0])))
+                    || (stmt_list.len() == 1
+                        && pquery::PlannedStmtRequiresSnapshot(&stmt_list[0])))
             {
                 pquery::EnsurePortalSnapshotExists()?;
                 if !options.read_only && !allow_nonatomic {
@@ -700,24 +678,18 @@ fn _SPI_pquery(
         _ => return Ok(SPI_ERROR_OPUNKNOWN),
     };
 
-    let eflags = if fire_triggers {
-        0
-    } else {
-        EXEC_FLAG_SKIP_TRIGGERS
-    };
+    let eflags = if fire_triggers { 0 } else { EXEC_FLAG_SKIP_TRIGGERS };
     let _p8 = execmain_seams::p8ctx::spi_scope();
     execmain_seams::executor_start::call(qd, eflags)?;
     execmain_seams::executor_run::call(qd, ForwardScanDirection, tcount, dest)?;
     with_current(|c| c.processed = execmain_seams::query_desc_es_processed::call(qd));
 
-    if (res == SPI_OK_SELECT || stmt.hasReturning)
-        && dest.mydest() == CommandDest::Spi
-        && _SPI_checktuples()
-    {
-        return Err(ereport(ERROR)
-            .errmsg_internal("consistency check on SPI tuple count failed")
-            .into_error()
-            .into());
+    if (res == SPI_OK_SELECT || stmt.hasReturning) && dest.mydest() == CommandDest::Spi
+        && _SPI_checktuples() {
+            return Err(ereport(ERROR)
+                .errmsg_internal("consistency check on SPI tuple count failed")
+                .into_error()
+                .into());
     }
 
     execmain_seams::executor_finish::call(qd)?;

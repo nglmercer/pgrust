@@ -364,7 +364,7 @@ impl RowShape {
     /// The shape, or `None` when the codec cannot read it (a head not in words, a record word or a slot past the head);
     /// the run is then kept as it lies.
     pub fn new(head: u32, var: Option<VarRows>) -> Option<RowShape> {
-        if head == 0 || !head.is_multiple_of(8) {
+        if head == 0 || ! head.is_multiple_of( 8) {
             return None;
         }
         let mut masks = vec![u64::MAX; head as usize / 8]; // alloc: Exec

@@ -71,9 +71,7 @@ fn pin_self() {
     let errno = std::io::Error::last_os_error().raw_os_error().unwrap_or(0);
     FAILED.fetch_add(1, Relaxed);
     if !WARNED.swap(true, Relaxed) {
-        eprintln!(
-            "pgrust: page pool helper cpu affinity refused (errno {errno}); running unpinned"
-        );
+        eprintln!("pgrust: page pool helper cpu affinity refused (errno {errno}); running unpinned");
     }
 }
 

@@ -87,20 +87,15 @@ fn parse_logical_rewrite_name(name: &str) -> Option<XLogRecPtr> {
             negate = b[i] == b'-';
             i += 1;
         }
-        if i + 1 < b.len()
-            && b[i] == b'0'
-            && (b[i + 1] == b'x' || b[i + 1] == b'X')
-            && i + 2 < b.len()
-            && b[i + 2].is_ascii_hexdigit()
+        if i + 1 < b.len() && b[i] == b'0' && (b[i + 1] == b'x' || b[i + 1] == b'X')
+            && i + 2 < b.len() && b[i + 2].is_ascii_hexdigit()
         {
             i += 2;
         }
         let start = i;
         let mut v: u32 = 0;
         while i < b.len() && b[i].is_ascii_hexdigit() {
-            v = v
-                .wrapping_mul(16)
-                .wrapping_add((b[i] as char).to_digit(16)?);
+            v = v.wrapping_mul(16).wrapping_add((b[i] as char).to_digit(16)?);
             i += 1;
         }
         if i == start {
@@ -226,10 +221,7 @@ pub fn begin_heap_rewrite<'mcx>(
 ) -> PgResult<RewriteState<'mcx>> {
     let mut state = RewriteState {
         mcx,
-        rs_bulkstate: Some(bulkwrite::smgr_bulk_start_rel(
-            new_heap,
-            ForkNumber::MAIN_FORKNUM,
-        )?),
+        rs_bulkstate: Some(bulkwrite::smgr_bulk_start_rel(new_heap, ForkNumber::MAIN_FORKNUM,)?),
         rs_buffer: None,
         rs_blockno: bufmgr::RelationGetNumberOfBlocksInFork(new_heap, ForkNumber::MAIN_FORKNUM)?,
         rs_oldest_xmin: oldest_xmin,
@@ -265,10 +257,7 @@ pub fn begin_heap_rewrite<'mcx>(
 // logical_begin_heap_rewrite (rewriteheap.c:759): prepare mapping-file
 // logging if the rewritten table can be accessed during logical decoding
 // and any decoding slot holds a catalog xmin.
-fn logical_begin_heap_rewrite(
-    state: &mut RewriteState<'_>,
-    old_heap: &Relation<'_>,
-) -> PgResult<()> {
+fn logical_begin_heap_rewrite(state: &mut RewriteState<'_>, old_heap: &Relation<'_>,) -> PgResult<()> {
     state.rs_logical_rewrite = heapam::relation_is_accessible_in_logical_decoding(old_heap);
     if !state.rs_logical_rewrite {
         return Ok(());
@@ -312,12 +301,7 @@ pub fn end_heap_rewrite<'mcx>(
 
     // rewriteheap.c:321-323: the bulk writer's final flush (and its FPIs)
     // precedes the last XLOG_HEAP2_REWRITE mapping records.
-    bulkwrite::smgr_bulk_finish(
-        state
-            .rs_bulkstate
-            .take()
-            .expect("bulk writer finished once"),
-    )?;
+    bulkwrite::smgr_bulk_finish(state.rs_bulkstate.take().expect("bulk writer finished once"),)?;
 
     logical_end_heap_rewrite(&mut state)
 }
@@ -339,10 +323,7 @@ fn logical_heap_rewrite_flush_mappings(state: &mut RewriteState<'_>) -> PgResult
     }
     let _ = elog::elog(
         DEBUG1,
-        format!(
-            "flushing {} logical rewrite mapping entries",
-            state.rs_num_rewrite_mappings
-        ),
+        format!("flushing {} logical rewrite mapping entries", state.rs_num_rewrite_mappings),
     );
 
     let mapped_db = state.rs_mapped_db;
@@ -392,12 +373,8 @@ fn logical_heap_rewrite_flush_mappings(state: &mut RewriteState<'_>) -> PgResult
 // keeps in src->path. Advances src->off on success.
 fn logical_mapping_file_write(src: &mut RewriteMappingFile, waldata: &[u8]) -> PgResult<()> {
     let len = waldata.len();
-    let written = fd::FileWrite(
-        src.vfd,
-        waldata,
-        src.off as i64,
-        WAIT_EVENT_LOGICAL_REWRITE_WRITE,
-    )? as i64;
+    let written =
+        fd::FileWrite(src.vfd, waldata, src.off as i64, WAIT_EVENT_LOGICAL_REWRITE_WRITE,)? as i64;
     if written != len as i64 {
         return ereport(ERROR)
             .errcode_for_file_access()
@@ -423,10 +400,7 @@ fn logical_mapping_file_sync(src: &RewriteMappingFile) -> PgResult<()> {
         // data_sync_retry=off; a failed fsync must never be retried.
         return ereport(fd::data_sync_elevel(ERROR))
             .errcode_for_file_access()
-            .errmsg(format!(
-                "could not fsync file \"{}\": {PCT_M}",
-                mapping_relpath(&src.path)
-            ))
+            .errmsg(format!("could not fsync file \"{}\": {PCT_M}", mapping_relpath(&src.path)))
             .finish(loc(921, "logical_end_heap_rewrite"));
     }
     Ok(())
@@ -466,10 +440,7 @@ fn checkpoint_fsync_mapping_file(file: &std::fs::File, path: &std::path::Path) -
         // lost mapping data.
         return ereport(fd::data_sync_elevel(ERROR))
             .errcode_for_file_access()
-            .errmsg(format!(
-                "could not fsync file \"{}\": {PCT_M}",
-                mapping_relpath(path)
-            ))
+            .errmsg(format!("could not fsync file \"{}\": {PCT_M}", mapping_relpath(path)))
             .finish(loc(1249, "CheckPointLogicalRewriteHeap"));
     }
     Ok(())
@@ -493,26 +464,16 @@ fn logical_end_heap_rewrite(state: &mut RewriteState<'_>) -> PgResult<()> {
 }
 
 fn open_mapping_file(path: PathBuf) -> PgResult<RewriteMappingFile> {
-    let vfd = fd::PathNameOpenFile(
-        &path.to_string_lossy(),
-        libc::O_CREAT | libc::O_EXCL | libc::O_WRONLY,
-    )?;
+    let vfd =
+        fd::PathNameOpenFile(&path.to_string_lossy(), libc::O_CREAT | libc::O_EXCL | libc::O_WRONLY,)?;
     if vfd.0 < 0 {
         ereport(ERROR)
             .with_saved_errno(fd::get_errno())
             .errcode_for_file_access()
-            .errmsg(format!(
-                "could not create file \"{}\": {PCT_M}",
-                mapping_relpath(&path)
-            ))
+            .errmsg(format!("could not create file \"{}\": {PCT_M}", mapping_relpath(&path)))
             .finish(loc(977, "logical_rewrite_log_mapping"))?;
     }
-    Ok(RewriteMappingFile {
-        off: 0,
-        path,
-        vfd,
-        mappings: Vec::new(),
-    })
+    Ok(RewriteMappingFile { off: 0, path, vfd, mappings: Vec::new(), })
 }
 
 // logical_rewrite_log_mapping (rewriteheap.c:935): buffer one (old->new)
@@ -649,10 +610,8 @@ pub fn rewrite_heap_tuple<'mcx>(
         && !(old_tuple.t_self == old_hdr.t_ctid);
 
     if updated {
-        let hashkey = TidHashKey {
-            xmin: HeapTupleHeaderGetUpdateXid(old_hdr)?,
-            tid: old_hdr.t_ctid,
-        };
+        let hashkey =
+            TidHashKey { xmin: HeapTupleHeaderGetUpdateXid(old_hdr)?, tid: old_hdr.t_ctid, };
         if let Some(new_tid) = state.rs_old_new_tid_map.remove(&hashkey) {
             new_tuple.as_tuple_mut().t_data_mut().t_ctid = new_tid;
         } else {
@@ -682,11 +641,7 @@ pub fn rewrite_heap_tuple<'mcx>(
                 Some(t) => t.as_tuple(),
                 None => new_tuple.as_tuple(),
             };
-            (
-                tup.t_self,
-                tup.t_data().t_infomask & HEAP_UPDATED != 0,
-                tup.t_data().xmin(),
-            )
+            (tup.t_self, tup.t_data().t_infomask & HEAP_UPDATED != 0, tup.t_data().xmin(),)
         };
 
         {
@@ -718,10 +673,8 @@ pub fn rewrite_heap_dead_tuple(
     state: &mut RewriteState<'_>,
     old_tuple: &HeapTupleData<'_>,
 ) -> bool {
-    let hashkey = TidHashKey {
-        xmin: old_tuple.t_data().xmin(),
-        tid: old_tuple.t_self,
-    };
+    let hashkey =
+        TidHashKey { xmin: old_tuple.t_data().xmin(), tid: old_tuple.t_self, };
     state.rs_unresolved_tups.remove(&hashkey).is_some()
 }
 
@@ -813,11 +766,7 @@ fn raw_heap_insert<'mcx>(
 
 fn page_mut_of(buf: &mut bulkwrite::BulkWriteBuffer) -> PageMut<'_> {
     // SAFETY: exclusively owned, aligned build page.
-    unsafe {
-        PageMut::from_raw(core::ptr::NonNull::new_unchecked(
-            buf.page_mut().as_mut_ptr(),
-        ))
-    }
+    unsafe { PageMut::from_raw(core::ptr::NonNull::new_unchecked(buf.page_mut().as_mut_ptr(),)) }
 }
 
 // CheckPointLogicalRewriteHeap (rewriteheap.c:1155): remove mapping files no
@@ -847,9 +796,7 @@ pub fn CheckPointLogicalRewriteHeap() -> PgResult<()> {
             return ereport(ERROR)
                 .with_saved_errno(e.raw_os_error().unwrap_or(0))
                 .errcode_for_file_access()
-                .errmsg(format!(
-                    "could not open directory \"{PG_LOGICAL_MAPPINGS_DIR}\": {PCT_M}"
-                ))
+                .errmsg(format!("could not open directory \"{PG_LOGICAL_MAPPINGS_DIR}\": {PCT_M}"))
                 .finish(loc(1177, "CheckPointLogicalRewriteHeap"));
         }
     };
@@ -859,10 +806,7 @@ pub fn CheckPointLogicalRewriteHeap() -> PgResult<()> {
             Err(e) => {
                 return ereport(ERROR)
                     .errcode_for_file_access()
-                    .errmsg(format!(
-                        "could not read directory \"{}\": {e}",
-                        dir.display()
-                    ))
+                    .errmsg(format!("could not read directory \"{}\": {e}", dir.display()))
                     .finish(loc(1178, "CheckPointLogicalRewriteHeap"));
             }
         };
@@ -889,38 +833,25 @@ pub fn CheckPointLogicalRewriteHeap() -> PgResult<()> {
         if lsn < cutoff || cutoff == types_core::InvalidXLogRecPtr {
             let _ = elog::elog(
                 DEBUG1,
-                format!(
-                    "removing logical rewrite file \"{}\"",
-                    mapping_relpath(&path)
-                ),
+                format!("removing logical rewrite file \"{}\"", mapping_relpath(&path)),
             );
             if let Err(e) = std::fs::remove_file(&path) {
                 return ereport(ERROR)
                     .with_saved_errno(e.raw_os_error().unwrap_or(0))
                     .errcode_for_file_access()
-                    .errmsg(format!(
-                        "could not remove file \"{}\": {PCT_M}",
-                        mapping_relpath(&path)
-                    ))
+                    .errmsg(format!("could not remove file \"{}\": {PCT_M}", mapping_relpath(&path)))
                     .finish(loc(1224, "CheckPointLogicalRewriteHeap"));
             }
         } else {
             // The file cannot vanish concurrently: this function is the only
             // remover and one checkpoint runs at a time.
-            let f = match std::fs::OpenOptions::new()
-                .read(true)
-                .write(true)
-                .open(&path)
-            {
+            let f = match std::fs::OpenOptions::new().read(true).write(true).open(&path) {
                 Ok(f) => f,
                 Err(e) => {
                     return ereport(ERROR)
                         .with_saved_errno(e.raw_os_error().unwrap_or(0))
                         .errcode_for_file_access()
-                        .errmsg(format!(
-                            "could not open file \"{}\": {PCT_M}",
-                            mapping_relpath(&path)
-                        ))
+                        .errmsg(format!("could not open file \"{}\": {PCT_M}", mapping_relpath(&path)))
                         .finish(loc(1237, "CheckPointLogicalRewriteHeap"));
                 }
             };
@@ -930,10 +861,7 @@ pub fn CheckPointLogicalRewriteHeap() -> PgResult<()> {
                 fd::set_errno(e.raw_os_error().unwrap_or(0));
                 return ereport(ERROR)
                     .errcode_for_file_access()
-                    .errmsg(format!(
-                        "could not close file \"{}\": {PCT_M}",
-                        mapping_relpath(&path)
-                    ))
+                    .errmsg(format!("could not close file \"{}\": {PCT_M}", mapping_relpath(&path)))
                     .finish(loc(1244, "CheckPointLogicalRewriteHeap"));
             }
         }
@@ -942,8 +870,7 @@ pub fn CheckPointLogicalRewriteHeap() -> PgResult<()> {
     // fsync_fname(PG_LOGICAL_MAPPINGS_DIR, true) — failure raises at
     // data_sync_elevel(ERROR), i.e. PANIC at default data_sync_retry=off.
     fd::fsync_fname(
-        dir.to_str()
-            .expect("pg_logical/mappings path is not valid UTF-8"),
+        dir.to_str().expect("pg_logical/mappings path is not valid UTF-8"),
         true,
     )?;
     Ok(())

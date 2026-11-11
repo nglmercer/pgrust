@@ -131,7 +131,7 @@ fn m6_the_collation_matrix() {
             let t = m6x(&q);
             let cs = collations(&t);
             println!("m6x coll\t{q}\t{cs:?}\t{:?}", verdict(&t));
-            if !cs.iter().any(class) || cs.iter().any(|o| *o != 100 && !class(o)) {
+            if !cs.iter().any( class) || cs.iter().any(|o| *o != 100 && !class(o)) {
                 bad.push(format!("{q}: the plan's collations {cs:?} are not {name}'s: re-capture m6x"));
             }
         }

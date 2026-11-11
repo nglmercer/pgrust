@@ -276,7 +276,7 @@ impl WriteChecks {
 
     /// W6-D1112: the parked call's words (`SUB_*` layout) for the IR; `None` when no qual is parked.
     pub fn sub_call(&mut self) -> Option<*mut u64> {
-        self.parked.is_some().then_some(self.call.as_mut_ptr())
+        self.parked.is_some().then_some( self.call.as_mut_ptr())
     }
 
     /// W6-D1112: a parked qual dropped (a row op that will not resume it): its state re-armed, the slot cleared.

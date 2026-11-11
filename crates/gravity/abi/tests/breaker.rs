@@ -889,7 +889,7 @@ mod phase1 {
         let mut want_all: Vec<i64> = want.concat();
         want_all.extend(0..997i64);
         all.sort_unstable(); want_all.sort_unstable();
-        all.dedup(); want_all.dedup();
+all.dedup(); want_all.dedup();
         assert_eq!(all, want_all, "the kept keys and the new ones (a key evicted and reopened may hold two records)");
         // a bound under every key empties every chain; the pool is whole again and takes appends
         let mut map = vec![0u32; unsafe { (*t).nblocks } as usize];
