@@ -266,7 +266,7 @@ fn datum_image_eq_forged_varlena_length_is_rejected() {
     // real image (and the `avail` bound) is tiny. Without the bound this drove
     // slice::from_raw_parts past the tuple/page; now it is a clean corruption
     // error before any byte is compared.
-    let mut buf = [0u8; 8];
+    let mut buf =[0u8; 8];
     let forged = types_tuple::varatt::set_varsize_4b_word(4096);
     buf[..4].copy_from_slice(&forged.to_ne_bytes());
     let good = mk_varlena(&[0u8; 4]); // total 8, honest header

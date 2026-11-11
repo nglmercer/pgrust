@@ -21,8 +21,8 @@ mod tests;
 
 mod build_scan;
 pub use build_scan::{
-    pgrc_index_check, table_index_build_range_scan, table_index_build_range_scan_with_xmin,
-    table_index_build_scan, table_index_build_scan_parallel, table_index_build_scan_with_snapshot,
+    pgrc_index_check, table_index_build_range_scan, table_index_build_range_scan_with_xmin, table_index_build_scan,
+    table_index_build_scan_parallel, table_index_build_scan_with_snapshot,
 };
 mod validate_scan;
 pub use validate_scan::{table_index_validate_scan, ValidateIndexState};
@@ -174,8 +174,7 @@ pub fn RelationGetIndexExpressions<'mcx>(
     let Some(src) = form.indexprs_src.as_ref() else {
         return Ok(NodeList::nil());
     };
-    if let Some(hit) =
-        with_expr_cache(|st| st.exprs.get(&index.rd_id).map(|l| copy_list_in(mcx, l)))
+    if let Some(hit) = with_expr_cache(|st| st.exprs.get(&index.rd_id).map(|l| copy_list_in(mcx, l)))
     {
         return hit;
     }
@@ -206,8 +205,7 @@ pub fn RelationGetIndexPredicate<'mcx>(
     let Some(src) = form.indpred_src.as_ref() else {
         return Ok(NodeList::nil());
     };
-    if let Some(hit) =
-        with_expr_cache(|st| st.preds.get(&index.rd_id).map(|l| copy_list_in(mcx, l)))
+    if let Some(hit) = with_expr_cache(|st| st.preds.get(&index.rd_id).map(|l| copy_list_in(mcx, l)))
     {
         return hit;
     }
@@ -270,14 +268,7 @@ pub fn RelationGetExclusionInfo(
         strats[i] = strat as u16;
     }
     with_expr_cache(|st| {
-        st.excl.insert(
-            index.rd_id,
-            ExclInfo {
-                ops: *ops,
-                procs: *procs,
-                strats: *strats,
-            },
-        )
+        st.excl.insert(index.rd_id, ExclInfo { ops: *ops, procs: *procs, strats: *strats, },)
     });
     Ok(())
 }
@@ -315,10 +306,7 @@ pub fn RelationGetDummyIndexExpressions<'mcx>(
 }
 
 /// BuildDummyIndexInfo (catalog/index.c): dummy exprs, no predicate.
-pub fn BuildDummyIndexInfo<'mcx>(
-    mcx: Mcx<'mcx>,
-    index: &Relation<'_>,
-) -> PgResult<IndexInfo<'mcx>> {
+pub fn BuildDummyIndexInfo<'mcx>(mcx: Mcx<'mcx>, index: &Relation<'_>,) -> PgResult<IndexInfo<'mcx>> {
     let indexstruct = index.rd_index.as_ref().expect("index relation");
     let numatts = indexstruct.indnatts as i32;
     check_indnatts(numatts, index.rd_id)?;
@@ -483,11 +471,7 @@ pub fn ExecOpenIndices<'mcx>(
         // equality strategy; the exclusion recheck arbitrates instead).
         if speculative
             && ii.ii_Unique
-            && !indexDesc
-                .rd_index
-                .as_ref()
-                .expect("index relation")
-                .indisexclusion
+            && !indexDesc.rd_index.as_ref().expect("index relation").indisexclusion
         {
             BuildSpeculativeIndexInfo(&indexDesc, &mut ii)?;
         }
@@ -561,11 +545,7 @@ pub fn FormIndexDatum<'mcx>(
             let Some(state) = indexpr_item.next() else {
                 return Err(wrong_number_of_index_expressions());
             };
-            let mut slots = execexpr::EvalSlots {
-                scan: Some(slot),
-                inner: None,
-                outer: None,
-            };
+            let mut slots = execexpr::EvalSlots { scan: Some(slot), inner: None, outer: None, };
             let r = execexpr::exec_eval_expr(state, &mut slots)?;
             values[i] = r.value;
             isnull[i] = r.isnull;
@@ -623,11 +603,7 @@ pub fn index_predicate_passes<'mcx>(
         // before the caller resets it.
         unsafe { state.arm_result_mcx_raw(eval_mcx) };
     }
-    let mut slots = execexpr::EvalSlots {
-        scan: Some(slot),
-        inner: None,
-        outer: None,
-    };
+    let mut slots = execexpr::EvalSlots { scan: Some(slot), inner: None, outer: None, };
     execexpr::exec_qual(indexInfo.ii_PredicateState.as_deref_mut(), &mut slots)
 }
 
@@ -683,7 +659,8 @@ pub fn ExecInsertIndexTuples<'mcx>(
         let indexRelation = &state.descs[i];
         let index_form = indexRelation.rd_index.as_ref().expect("index relation");
         let applyNoDupErr = noDupErr
-            && (arbiter_indexes.is_empty() || arbiter_indexes.contains(&index_form.indexrelid));
+            && (arbiter_indexes.is_empty()
+                || arbiter_indexes.contains(&index_form.indexrelid));
         let checkUnique = if !index_form.indisunique {
             IndexUniqueCheck::UNIQUE_CHECK_NO
         } else if applyNoDupErr {
@@ -741,7 +718,8 @@ pub fn ExecInsertIndexTuples<'mcx>(
             )?;
         }
 
-        if (checkUnique == IndexUniqueCheck::UNIQUE_CHECK_PARTIAL || state.infos[i].ii_HasExclusion)
+        if (checkUnique == IndexUniqueCheck::UNIQUE_CHECK_PARTIAL
+            || state.infos[i].ii_HasExclusion)
             && !satisfiesConstraint
         {
             recheck_indexes.push(index_form.indexrelid);
@@ -813,9 +791,7 @@ impl<'mcx> ::nodes_core::NodeWalker<'mcx> for IndexExpressionChangedWalker<'_, '
     fn visit(&mut self, node: ::types_nodes::Node<'mcx>) -> PgResult<bool> {
         const FLIHAN: i32 = ::types_tuple::htup::FirstLowInvalidHeapAttributeNumber;
         if let Some(var) = node.as_var() {
-            return Ok(self
-                .all_updated_cols
-                .is_member(var.varattno as i32 - FLIHAN));
+            return Ok(self.all_updated_cols.is_member(var.varattno as i32 - FLIHAN));
         }
         ::nodes_core::expression_tree_walker(node, self)
     }
@@ -845,12 +821,16 @@ pub fn ExecCheckIndexConstraints<'mcx>(
 
     for i in 0..state.descs.len() {
         let indexInfo = &mut state.infos[i];
-        if (!indexInfo.ii_Unique && !indexInfo.ii_HasExclusion) || !indexInfo.ii_ReadyForInserts {
+        if (!indexInfo.ii_Unique && !indexInfo.ii_HasExclusion)
+            || !indexInfo.ii_ReadyForInserts
+        {
             continue;
         }
         let indexRelation = &state.descs[i];
         let index_form = indexRelation.rd_index.as_ref().expect("index relation");
-        if !arbiter_indexes.is_empty() && !arbiter_indexes.contains(&index_form.indexrelid) {
+        if !arbiter_indexes.is_empty()
+            && !arbiter_indexes.contains(&index_form.indexrelid)
+        {
             continue;
         }
         if !index_form.indimmediate {
@@ -886,9 +866,7 @@ pub fn ExecCheckIndexConstraints<'mcx>(
 
     if !arbiter_indexes.is_empty() && !checked_index {
         // execIndexing.c:657 elog(ERROR): XX000, clean transaction abort.
-        return Err(Box::new(PgError::error(
-            "unexpected failure to find arbiter index",
-        )));
+        return Err(Box::new(PgError::error("unexpected failure to find arbiter index",)));
     }
     Ok(true)
 }
@@ -1045,11 +1023,7 @@ pub fn check_exclusion_or_unique_constraint<'mcx>(
                 dirty.dirty_xmax.get(),
                 dirty.dirty_speculative_token.get(),
             );
-            let xwait = if dirty_xmin != 0 {
-                dirty_xmin
-            } else {
-                dirty_xmax
-            };
+            let xwait = if dirty_xmin != 0 { dirty_xmin } else { dirty_xmax };
             if xwait != 0
                 && (wait_mode == CeoucWaitMode::Wait
                     || (wait_mode == CeoucWaitMode::LivelockPreventingWait
@@ -1161,14 +1135,7 @@ pub fn IndexCheckExclusion<'mcx>(
         {
             continue;
         }
-        FormIndexDatum(
-            mcx,
-            eval_cx.mcx(),
-            index_info,
-            &mut slot,
-            &mut values,
-            &mut isnull,
-        )?;
+        FormIndexDatum(mcx, eval_cx.mcx(), index_info, &mut slot, &mut values, &mut isnull,)?;
         let tupleid = slot.base().tts_tid;
         check_exclusion_or_unique_constraint(
             mcx,
@@ -1387,7 +1354,7 @@ fn deferrable_arbiter(mcx: Mcx<'_>, heap: &Relation<'_>, index: &Relation<'_>) -
 }
 
 fn check_indnatts(numatts: i32, indexoid: Oid) -> PgResult<()> {
-    if !(1..=INDEX_MAX_KEYS).contains(&numatts) {
+    if !( 1..= INDEX_MAX_KEYS).contains(&numatts) {
         return Err(invalid_indnatts(numatts, indexoid));
     }
     Ok(())
@@ -1396,7 +1363,5 @@ fn check_indnatts(numatts: i32, indexoid: Oid) -> PgResult<()> {
 #[cold]
 #[inline(never)]
 fn invalid_indnatts(numatts: i32, indexoid: Oid) -> Box<PgError> {
-    Box::new(PgError::error(format!(
-        "invalid indnatts {numatts} for index {indexoid}"
-    )))
+    Box::new(PgError::error(format!("invalid indnatts {numatts} for index {indexoid}")))
 }

@@ -72,10 +72,7 @@ impl Dst for ChunkDst<'_> {
     #[inline(always)]
     fn span(&mut self, r: u32, off: u32, len: u32) {
         // SAFETY: as word.
-        unsafe {
-            self.ch
-                .fill_bytes(r, self.col, u64::from(off), u64::from(len))
-        }
+        unsafe { self.ch.fill_bytes(r, self.col, u64::from(off), u64::from(len)) }
     }
 }
 
@@ -140,10 +137,7 @@ struct Memo {
 
 impl Memo {
     fn new() -> Memo {
-        Memo {
-            gen: 1,
-            slots: Vec::new(),
-        }
+        Memo { gen: 1, slots: Vec::new(), }
     }
     #[inline]
     fn bump(&mut self) {
@@ -164,13 +158,7 @@ impl Memo {
 /// are instantiated with a CONSTANT conversion so the shared value-level
 /// helper folds to straight-line code.
 #[inline(always)]
-fn fill_run<D: Dst>(
-    conv: Conv,
-    run: &FastRun<'_>,
-    base: u32,
-    dst: &mut D,
-    memo: &mut Memo,
-) -> PgResult<()> {
+fn fill_run<D: Dst>(conv: Conv, run: &FastRun<'_>, base: u32, dst: &mut D, memo: &mut Memo,) -> PgResult<()> {
     macro_rules! slots {
         (|$j:ident, $r:ident| $body:expr) => {{
             match run.present {
@@ -318,9 +306,7 @@ fn fill_col<D: Dst>(
         if notnull {
             if let Some(p) = run.present {
                 if p.iter().any(|&x| !x) {
-                    return Err(fast_err(
-                        "not-null violation (serial replay owns the message)",
-                    ));
+                    return Err(fast_err("not-null violation (serial replay owns the message)",));
                 }
             }
         }
@@ -331,10 +317,7 @@ fn fill_col<D: Dst>(
 }
 
 fn is_text(conv: Conv) -> bool {
-    matches!(
-        conv,
-        Conv::Text | Conv::VarcharN(_) | Conv::Bpchar(_) | Conv::Bytea
-    )
+    matches!(conv, Conv::Text | Conv::VarcharN(_) | Conv::Bpchar(_) | Conv::Bytea)
 }
 
 impl DecodeShared {
@@ -377,26 +360,14 @@ impl DecodeShared {
         Ok(rg)
     }
 
-    fn fill_fragment(
-        &self,
-        rg: &mut FastRowGroup,
-        frag: &mut Fragment,
-        n: usize,
-        memos: &mut [Memo],
-    ) -> PgResult<()> {
+    fn fill_fragment(&self, rg: &mut FastRowGroup, frag: &mut Fragment, n: usize, memos: &mut [Memo],) -> PgResult<()> {
         // CONVERT W3-2b: the fill's growth is charged once it is in
         let r = self.fill_lanes(rg, frag, n, memos);
         frag.sync_charge();
         r
     }
 
-    fn fill_lanes(
-        &self,
-        rg: &mut FastRowGroup,
-        frag: &mut Fragment,
-        n: usize,
-        memos: &mut [Memo],
-    ) -> PgResult<()> {
+    fn fill_lanes(&self, rg: &mut FastRowGroup, frag: &mut Fragment, n: usize, memos: &mut [Memo],) -> PgResult<()> {
         if n == 0 {
             return Ok(());
         }
@@ -409,23 +380,8 @@ impl DecodeShared {
                 Lane::Words { words, nulls } => {
                     fill_col(col, b.conv, nn, 0, n, &mut WordsDst { words, nulls }, memo)?
                 }
-                Lane::Blobs {
-                    arena,
-                    spans,
-                    nulls,
-                } => fill_col(
-                    col,
-                    b.conv,
-                    nn,
-                    0,
-                    n,
-                    &mut BlobsDst {
-                        arena,
-                        spans,
-                        nulls,
-                    },
-                    memo,
-                )?,
+                Lane::Blobs { arena, spans, nulls, } =>
+                    fill_col(col, b.conv, nn, 0, n, &mut BlobsDst { arena, spans, nulls, }, memo,)?,
             }
         }
         frag.rows += n as u32;
@@ -448,8 +404,7 @@ impl DecodeShared {
         let full_end = head_end + (end - head_end) / grain * grain;
         let mut memos: Vec<Memo> = (0..rg.cols.len()).map(|_| Memo::new()).collect();
 
-        let mut chunks: Vec<RowChunk> =
-            ::mcx::stdvec::try_vec(((full_end - head_end) / grain) as usize, "parquet_fast")?;
+        let mut chunks: Vec<RowChunk> = ::mcx::stdvec::try_vec(((full_end - head_end) / grain) as usize, "parquet_fast")?;
         let head_n = (head_end - base) as usize;
         let mut head = Fragment::empty(natts, &self.byval, head_n, self.owner)?;
         self.fill_fragment(&mut rg, &mut head, head_n, &mut memos)?;
@@ -468,10 +423,7 @@ impl DecodeShared {
             while s0 < g {
                 let n = slab.min(g - s0);
                 for b in self.plan.bindings.iter() {
-                    let mut d = ChunkDst {
-                        ch: &mut ch,
-                        col: b.attidx,
-                    };
+                    let mut d = ChunkDst { ch: &mut ch, col: b.attidx, };
                     fill_col(
                         &mut rg.cols[b.batch],
                         b.conv,
@@ -494,8 +446,7 @@ impl DecodeShared {
         let tail_n = (end - full_end) as usize;
         let mut tail = Fragment::empty(natts, &self.byval, tail_n, self.owner)?;
         self.fill_fragment(&mut rg, &mut tail, tail_n, &mut memos)?;
-        self.bytes_read
-            .fetch_add(rg.compressed_bytes, Ordering::Relaxed);
+        self.bytes_read.fetch_add(rg.compressed_bytes, Ordering::Relaxed);
         Ok(DecodedRg { head, chunks, tail })
     }
 }
@@ -511,12 +462,7 @@ mod tests {
 
     /// The pgrcpar fixtures' table (scripts/pgrc-parquet-parallel-e2e.sh):
     /// (name, typid, byval), every column NOT NULL.
-    const ATTS: [(&str, Oid, bool); 4] = [
-        ("id", 20, true),
-        ("v16", 21, true),
-        ("cat", 25, false),
-        ("payload", 25, false),
-    ];
+    const ATTS: [(&str, Oid, bool); 4] = [("id", 20, true), ("v16", 21, true), ("cat", 25, false), ("payload", 25, false),];
 
     /// Content digest of one fragment (column-major lanes), order-stable.
     fn frag_digest(f: &Fragment) -> u64 {
@@ -532,11 +478,7 @@ mod tests {
                         mix(if *n { 0xdead } else { *w });
                     }
                 }
-                Lane::Blobs {
-                    arena,
-                    spans,
-                    nulls,
-                } => {
+                Lane::Blobs { arena, spans, nulls, } => {
                     for (s, n) in spans.iter().zip(nulls.iter()) {
                         if *n {
                             mix(0xdead);
@@ -568,27 +510,16 @@ mod tests {
     fn shared(path: &str) -> PgResult<DecodeShared> {
         let reader = parquet_read::FileReader::open(path)?;
         let meta = reader.meta_arc();
-        let atts: Vec<(String, Oid, i32)> =
-            ATTS.iter().map(|a| (a.0.to_string(), a.1, -1)).collect();
+        let atts: Vec<(String, Oid, i32)> = ATTS.iter().map(|a| (a.0.to_string(), a.1, -1)).collect();
         let plan = Arc::new(resolve_plan_types(&meta, &atts, true)?);
         let file = reader.try_clone_file()?;
         let byval = ATTS.iter().map(|a| a.2).collect();
-        Ok(DecodeShared::standalone(
-            file,
-            path.to_string(),
-            meta,
-            plan,
-            byval,
-            vec![true; ATTS.len()],
-        ))
+        Ok(DecodeShared::standalone(file, path.to_string(), meta, plan, byval, vec![true; ATTS.len()],))
     }
 
     /// Every row group of a file in order through `decode`, folded; the
     /// first error stops the walk (the COPY's rule).
-    fn walk(
-        sh: &DecodeShared,
-        decode: impl Fn(&DecodeShared, u64) -> PgResult<DecodedRg>,
-    ) -> Result<u64, String> {
+    fn walk(sh: &DecodeShared, decode: impl Fn(&DecodeShared, u64) -> PgResult<DecodedRg>,) -> Result<u64, String> {
         let mut fold = 0u64;
         for seq in 0..sh.rg_order.len() as u64 {
             let d = decode(sh, seq).map_err(|e| e.message().to_string())?;
@@ -604,10 +535,7 @@ mod tests {
     /// error — and counts each row group's bytes once.
     #[test]
     fn fused_decode_equals_batch_decode_on_the_pgrcpar_fixtures() {
-        let dir = concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../access/parquet_read/testdata/"
-        );
+        let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../access/parquet_read/testdata/");
         let mut compared = 0;
         for f in [
             "pgrcpar.parquet",
@@ -633,11 +561,7 @@ mod tests {
             let batch_only = shared(&path).expect("reopen");
             let worker = shared(&path).expect("reopen");
             assert_eq!(walk(&batch_only, |s, q| s.decode(q)), old, "{f}");
-            assert_eq!(
-                walk(&worker, |s, q| s.decode_fast(q).or_else(|_| s.decode(q))),
-                old,
-                "{f} worker rule"
-            );
+            assert_eq!(walk(&worker, |s, q| s.decode_fast(q).or_else(|_| s.decode(q))), old, "{f} worker rule");
             if old.is_ok() {
                 assert_eq!(
                     worker.bytes_read.load(Ordering::Relaxed),

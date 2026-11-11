@@ -495,7 +495,7 @@ pub fn numeric_pack_at_scale(payload: &[u8], scale: i32) -> NumericPack {
         };
         (header & NUMERIC_SIGN_MASK == NUMERIC_NEG, w as i16 as i32)
     };
-    if !c.remaining().is_multiple_of(2) {
+    if ! c.remaining().is_multiple_of( 2) {
         return NumericPack::Malformed;
     }
     let ndigits = (c.remaining() / 2) as i32;
@@ -549,7 +549,7 @@ pub fn numeric_pack_at_scale(payload: &[u8], scale: i32) -> NumericPack {
 }
 
 fn checked_pow10(e: i64) -> Option<i128> {
-    if !(0..=38).contains(&e) {
+    if !( 0..= 38).contains(&e) {
         return None;
     }
     let mut p: i128 = 1;

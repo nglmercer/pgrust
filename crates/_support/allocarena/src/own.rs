@@ -16,16 +16,10 @@
 //! and realloc here before anything else. The stacks sit under a spin flag per run length: cache fills are rare next to
 //! the global allocator's traffic, and nothing here allocates, sleeps or calls into mimalloc.
 
-#![cfg_attr(
-    not(all(target_os = "linux", not(target_family = "wasm"))),
-    allow(dead_code)
-)]
+#![cfg_attr(not(all(target_os = "linux", not(target_family = "wasm"))), allow(dead_code))]
 
 use core::cell::Cell;
-use core::sync::atomic::{
-    AtomicBool, AtomicPtr, AtomicU64, AtomicUsize,
-    Ordering::{Acquire, Relaxed, Release},
-};
+use core::sync::atomic::{AtomicBool, AtomicPtr, AtomicU64, AtomicUsize, Ordering::{Acquire, Relaxed, Release},};
 
 use crate::SLICE;
 
@@ -48,25 +42,13 @@ struct Stack {
     cap: AtomicUsize,
 }
 
-static STACKS: [Stack; MAX_RUN] = [const {
-    Stack {
-        lock: AtomicBool::new(false),
-        items: AtomicUsize::new(0),
-        len: AtomicUsize::new(0),
-        cap: AtomicUsize::new(0),
-    }
-}; MAX_RUN];
+static STACKS: [Stack; MAX_RUN] =
+    [const { Stack { lock: AtomicBool::new(false), items: AtomicUsize::new(0), len: AtomicUsize::new(0), cap: AtomicUsize::new(0), } }; MAX_RUN];
 /// Freed runs kept COMMITTED (their pages still present) for the next image of their length: a scan's transient images
 /// (SegBuf's rebuilds) would otherwise fault their pages back in at every reuse (D3892 guard: cold page faults doubled).
 /// At most `hot_cap()` bytes (max(64 MiB, 2 % of B)); past it, and at every give-back (`flush`), a freed run's pages go back.
-static HOT: [Stack; MAX_RUN] = [const {
-    Stack {
-        lock: AtomicBool::new(false),
-        items: AtomicUsize::new(0),
-        len: AtomicUsize::new(0),
-        cap: AtomicUsize::new(0),
-    }
-}; MAX_RUN];
+static HOT: [Stack; MAX_RUN] =
+    [const { Stack { lock: AtomicBool::new(false), items: AtomicUsize::new(0), len: AtomicUsize::new(0), cap: AtomicUsize::new(0), } }; MAX_RUN];
 static HOT_BYTES: AtomicUsize = AtomicUsize::new(0);
 
 /// Runs taken now and in all (information, tests).
@@ -76,14 +58,8 @@ static LIVE: AtomicUsize = AtomicUsize::new(0);
 /// left for the page releaser: still committed (`CACHE_TAKEN` counts them) until `drain_landing` gives them back on the
 /// releaser's thread, and the next take of their length reuses them first. `LANDING_BYTES` is the ladder's landing credit
 /// (`landing_bytes`), counted before each push, so a pass that ends with it above 0 has a run still to find.
-static LANDING: [Stack; MAX_RUN] = [const {
-    Stack {
-        lock: AtomicBool::new(false),
-        items: AtomicUsize::new(0),
-        len: AtomicUsize::new(0),
-        cap: AtomicUsize::new(0),
-    }
-}; MAX_RUN];
+static LANDING: [Stack; MAX_RUN] =
+    [const { Stack { lock: AtomicBool::new(false), items: AtomicUsize::new(0), len: AtomicUsize::new(0), cap: AtomicUsize::new(0), } }; MAX_RUN];
 static LANDING_BYTES: AtomicUsize = AtomicUsize::new(0);
 /// D4692: the releaser's wake (memruntime's `pg:memrelease`), called when the landing count leaves 0; null (no releaser,
 /// the knob off): every thread gives its runs back inline, as before.
@@ -113,10 +89,7 @@ std::thread_local! {
 #[cfg(all(target_os = "linux", not(target_family = "wasm")))]
 fn range_bytes() -> usize {
     // SAFETY: plain sysconf reads.
-    let phys = unsafe {
-        (libc::sysconf(libc::_SC_PHYS_PAGES).max(0) as usize)
-            .saturating_mul(libc::sysconf(libc::_SC_PAGESIZE).max(0) as usize)
-    };
+    let phys = unsafe { (libc::sysconf(libc::_SC_PHYS_PAGES).max(0) as usize).saturating_mul(libc::sysconf(libc::_SC_PAGESIZE).max(0) as usize) };
     phys.clamp(16 << 30, 1 << 40).next_multiple_of(SLICE)
 }
 
@@ -127,9 +100,7 @@ pub(crate) fn install() -> bool {
         return true;
     }
     let bytes = range_bytes();
-    let Some(raw) = map(bytes + SLICE) else {
-        return false;
-    };
+    let Some(raw) = map(bytes + SLICE) else { return false; };
     let start = raw.next_multiple_of(SLICE);
     // SAFETY: advice on our own fresh mapping.
     unsafe { libc::madvise(start as *mut libc::c_void, bytes, libc::MADV_NOHUGEPAGE) };
@@ -137,22 +108,16 @@ pub(crate) fn install() -> bool {
     let slices = bytes / SLICE;
     for (i, (s, h)) in STACKS.iter().zip(HOT.iter()).enumerate() {
         let cap = slices / (i + 1);
-        let Some(items) = map(cap * 4) else {
-            return false;
-        };
+        let Some(items) = map(cap * 4) else { return false; };
         s.items.store(items, Relaxed);
         s.cap.store(cap, Relaxed);
         // D4692: as long as the free stack (never full)
-        let Some(items) = map(cap * 4) else {
-            return false;
-        };
+        let Some(items) = map(cap * 4) else { return false; };
         LANDING[i].items.store(items, Relaxed);
         LANDING[i].cap.store(cap, Relaxed);
         // room for the largest cap B can ask (B <= the range's bytes, which is physical memory or more)
         let hcap = HOT_CAP.max(bytes / 100 * HOT_B_PCT) / ((i + 1) * SLICE) + 1;
-        let Some(items) = map(hcap * 4) else {
-            return false;
-        };
+        let Some(items) = map(hcap * 4) else { return false; };
         h.items.store(items, Relaxed);
         h.cap.store(hcap, Relaxed);
     }
@@ -191,15 +156,11 @@ pub fn owns(p: *const u8) -> bool {
 /// The run length (slices) a request takes here, or None (served elsewhere).
 #[inline]
 pub fn run_of(size: usize, align: usize) -> Option<usize> {
-    ((OWN_MIN..=OWN_MAX).contains(&size) && align <= SLICE).then(|| size.div_ceil(SLICE))
+    (( OWN_MIN..= OWN_MAX).contains(&size) && align <= SLICE).then(|| size.div_ceil(SLICE))
 }
 
 fn locked<R>(s: &Stack, f: impl FnOnce(&Stack) -> R) -> R {
-    while s
-        .lock
-        .compare_exchange_weak(false, true, Acquire, Relaxed)
-        .is_err()
-    {
+    while s.lock.compare_exchange_weak(false, true, Acquire, Relaxed).is_err() {
         core::hint::spin_loop();
     }
     let r = f(s);
@@ -254,14 +215,9 @@ pub fn alloc(k: usize, size: usize, zeroed: bool) -> *mut u8 {
     }
     // D4692: a run left for the releaser is reused before a fresh one (its pages are still present); the count goes up
     // before a push, so at 0 the stack is empty and its lock is not taken (the knob off: always)
-    let landed = || {
-        (LANDING_BYTES.load(Relaxed) != 0)
-            .then(|| pop(&LANDING[k - 1]))
-            .flatten()
+    let landed = || { (LANDING_BYTES.load(Relaxed) != 0).then(|| pop(&LANDING[k - 1])).flatten()
     };
-    let warm = pop(&HOT[k - 1])
-        .map(|i| (i, false))
-        .or_else(|| landed().map(|i| (i, true)));
+    let warm = pop(&HOT[k - 1]).map(|i| (i, false)).or_else(|| landed().map(|i| (i, true)));
     if let Some((i, landed)) = warm {
         if landed {
             // off the REAPING row; the allocator posts the claim on the claimer's account after (once)
@@ -299,9 +255,7 @@ pub fn alloc(k: usize, size: usize, zeroed: bool) -> *mut u8 {
 /// Free a run of `k` slices: kept committed in the hot pool while it has room, else its pages go back at once.
 pub fn free(p: *mut u8, k: usize) {
     let base = BASE.load(Relaxed);
-    debug_assert!(
-        owns(p) && (p as usize - base).is_multiple_of(SLICE) && (1..=MAX_RUN).contains(&k)
-    );
+    debug_assert!(owns(p) && (p as usize - base).is_multiple_of(SLICE) && (1..=MAX_RUN).contains(&k));
     let i = (p as usize - base) / SLICE;
     if HOT_BYTES.fetch_add(k * SLICE, Relaxed) + k * SLICE <= hot_cap() && push(&HOT[k - 1], i) {
         LIVE.fetch_sub(1, Relaxed);

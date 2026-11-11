@@ -726,6 +726,7 @@ impl CmpCtx<'_> {
         }
 
         #[allow(clippy::nonminimal_bool)]
+
         if *enforce_unique && !(!unique_nulls_not_distinct && equal_hasnull) {
             debug_assert!(!core::ptr::eq(tuple1, tuple2));
             if !self.violated.replace(true) {

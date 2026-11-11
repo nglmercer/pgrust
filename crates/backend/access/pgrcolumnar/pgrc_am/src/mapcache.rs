@@ -26,10 +26,7 @@ use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::ffi::CString;
 use std::sync::{Arc, Weak};
 
-use pgrc_format::manifest::{
-    PartRecord, PART_FLAG_ROWMAP, PART_ROWMAP_FORM_MASK, PART_ROWMAP_FORM_SHIFT,
-    PART_ROWMAP_GRANULES,
-};
+use pgrc_format::manifest::{PartRecord, PART_FLAG_ROWMAP, PART_ROWMAP_FORM_MASK, PART_ROWMAP_FORM_SHIFT, PART_ROWMAP_GRANULES,};
 use pgrc_format::rowmap::RevForm;
 use pgrc_read::mem::{Clock, Sweep, Victim};
 use types_error::PgResult;
@@ -103,11 +100,7 @@ pub fn rev_built(ns: u64, rows: u64) {
 /// (an empty ring has nothing to give), then `insert` (the caller's cell takes the page under its own lock; false when
 /// a racing read put it first) and, when it did, a ring slot for `victim`. The bytes stay counted until the caller
 /// gives them back ([`release_other`]: its slot evicted the page, or its cell dropped).
-pub(crate) fn admit_other(
-    bytes: u64,
-    insert: impl FnOnce() -> bool,
-    victim: impl FnOnce() -> Box<dyn Victim>,
-) {
+pub(crate) fn admit_other(bytes: u64, insert: impl FnOnce() -> bool, victim: impl FnOnce() -> Box<dyn Victim>,) {
     let (cache, budget) = (&CACHE, CACHE.budget());
     let mut ring = pgsync::lock(&cache.ring);
     if ring.slots() > 0 {
@@ -133,13 +126,8 @@ pub(crate) fn count_eviction() {
 
 fn budget_setting() -> u64 {
     let seam = guc_seams::get_config_option_missing_ok::is_installed();
-    let set = seam
-        .then(|| {
-            guc_seams::get_config_option_missing_ok::call(BUDGET_GUC)
-                .ok()
-                .flatten()
-        })
-        .flatten();
+    let set = seam.then(|| { guc_seams::get_config_option_missing_ok::call(BUDGET_GUC).ok().flatten()
+        }).flatten();
     set.and_then(|v| parse_bytes(&v)).unwrap_or(DEFAULT_BUDGET)
 }
 
@@ -159,8 +147,7 @@ fn parse_bytes(v: &str) -> Option<u64> {
     n.checked_mul(unit).filter(|&b| b != UNREAD)
 }
 
-const CHARGE_OWNER: memledger::Owner =
-    memledger::Owner::Cache(memledger::Holder::Of(memledger::Consumer::PartCache));
+const CHARGE_OWNER: memledger::Owner = memledger::Owner::Cache(memledger::Holder::Of(memledger::Consumer::PartCache));
 
 /// A map a cell holds; its bytes count in its cache's total while it is held.
 struct Held {
@@ -175,19 +162,8 @@ impl Held {
     fn new(cache: &'static Cache, map: Arc<RowMap>, bytes: u64) -> Held {
         let now = cache.cached.fetch_add(bytes, Ordering::Relaxed) + bytes;
         cache.peak.fetch_max(now, Ordering::Relaxed);
-        let charge = memledger::Charge::open(
-            CHARGE_OWNER,
-            memledger::Release::Evict,
-            memledger::Kind::Region,
-            memledger::charge::Door::Heap,
-            bytes,
-        );
-        Held {
-            map,
-            bytes,
-            cache,
-            _charge: charge,
-        }
+        let charge = memledger::Charge::open(CHARGE_OWNER, memledger::Release::Evict, memledger::Kind::Region, memledger::charge::Door::Heap, bytes,);
+        Held { map, bytes, cache, _charge: charge, }
     }
 }
 
@@ -206,18 +182,11 @@ pub struct MapCell {
 
 impl MapCell {
     /// The part's map: the held one, else `load`'s, admitted to the process's cache (a racing load's map is dropped).
-    pub fn get_or_load(
-        self: &Arc<Self>,
-        load: impl FnOnce() -> PgResult<RowMap>,
-    ) -> PgResult<Arc<RowMap>> {
+    pub fn get_or_load(self: &Arc<Self>, load: impl FnOnce() -> PgResult<RowMap>,) -> PgResult<Arc<RowMap>> {
         self.get_or_load_in(&CACHE, load)
     }
 
-    fn get_or_load_in(
-        self: &Arc<Self>,
-        cache: &'static Cache,
-        load: impl FnOnce() -> PgResult<RowMap>,
-    ) -> PgResult<Arc<RowMap>> {
+    fn get_or_load_in(self: &Arc<Self>, cache: &'static Cache, load: impl FnOnce() -> PgResult<RowMap>,) -> PgResult<Arc<RowMap>> {
         if let Some(h) = pgsync::lock(&self.slot).as_ref() {
             self.referenced.store(true, Ordering::Relaxed);
             return Ok(Arc::clone(&h.map));
@@ -240,10 +209,7 @@ impl MapCell {
         }
         self.referenced.store(true, Ordering::Relaxed);
         drop(slot);
-        ring.register(Box::new(Ring {
-            cell: Arc::downgrade(self),
-            cache,
-        }));
+        ring.register(Box::new(Ring { cell: Arc::downgrade(self), cache, }));
         Ok(m)
     }
 
@@ -268,9 +234,7 @@ impl MapCell {
             ring.sweep(&|| cache.cached.load(Ordering::Relaxed) > budget);
         }
         drop(ring);
-        cache
-            .peak
-            .fetch_max(cache.cached.load(Ordering::Relaxed), Ordering::Relaxed);
+        cache.peak.fetch_max(cache.cached.load(Ordering::Relaxed), Ordering::Relaxed);
     }
 
     /// The bytes of the map the cell holds (0 when it holds none).
@@ -287,9 +251,7 @@ struct Ring {
 
 impl Victim for Ring {
     fn visit(&self) -> Sweep {
-        let Some(cell) = self.cell.upgrade() else {
-            return Sweep::Dead;
-        };
+        let Some(cell) = self.cell.upgrade() else { return Sweep::Dead; };
         let mut slot = pgsync::lock(&cell.slot);
         if slot.is_none() {
             return Sweep::Dead;
@@ -303,9 +265,7 @@ impl Victim for Ring {
     }
 
     fn dead(&self) -> bool {
-        self.cell
-            .upgrade()
-            .is_none_or(|c| pgsync::lock(&c.slot).is_none())
+        self.cell.upgrade().is_none_or(|c| pgsync::lock(&c.slot).is_none())
     }
 }
 
@@ -333,35 +293,15 @@ const FORMS: [(MapForm, &str); 6] = [
 /// other flagged form, or an unflagged sidecar (a seal before ROWMAP2 M1), is retired; without either the map is
 /// implicit; `None` = a part with no row IDs (written before IX0), or a granules map whose sidecar does not read.
 fn disk_form(dir: &str, rec: &PartRecord, ids: &[(u64, u64)]) -> Option<(MapForm, u64, [u32; 4])> {
-    let path = format!(
-        "{dir}/{}",
-        pgrc_format::dirlayout::sidecar_file_name(
-            rec.part_no,
-            pgrc_format::sidecar::SidecarKind::RowIdentMap,
-            1
-        )
-    );
+    let path = format!("{dir}/{}", pgrc_format::dirlayout::sidecar_file_name(rec.part_no, pgrc_format::sidecar::SidecarKind::RowIdentMap, 1));
     let mut info = vfs::FileInfo::zeroed();
-    let disk = CString::new(path)
-        .ok()
-        .filter(|c| vfs::stat(c, &mut info) == 0)
-        .map(|_| info.size.max(0) as u64);
+    let disk = CString::new(path).ok().filter(|c| vfs::stat(c, &mut info) == 0).map(|_| info.size.max(0) as u64);
     let mut grans = [0u32; 4];
     let form = match (rec.flags & PART_ROWMAP_FORM_MASK) >> PART_ROWMAP_FORM_SHIFT {
         PART_ROWMAP_GRANULES => {
             let dirio = pgrc_read::VfsTableDir::new(dir.to_string()); // alloc: Cold
-            let read = pgrc_read::sidecar::read_sidecar(
-                &dirio,
-                rec.part_no,
-                pgrc_format::sidecar::SidecarKind::RowIdentMap,
-                1,
-                None,
-                None,
-            )
-            .ok()?;
-            let pgrc_read::sidecar::SidecarConsult::Hit { payload, .. } = read else {
-                return None;
-            };
+            let read = pgrc_read::sidecar::read_sidecar(&dirio, rec.part_no, pgrc_format::sidecar::SidecarKind::RowIdentMap, 1, None, None,).ok()?;
+            let pgrc_read::sidecar::SidecarConsult::Hit { payload, .. } = read else { return None; };
             let (rev, g) = pgrc_format::rowmap::summary(&payload).ok()?;
             grans = g;
             MapForm::Granules(rev)
@@ -397,26 +337,15 @@ pub fn stats_text(gen: Option<&Generation>, dir: &str) -> String {
                 retired += 1;
                 continue;
             }
-            grans
-                .iter_mut()
-                .zip(gf)
-                .for_each(|(a, b)| *a += u64::from(b));
-            let f = &mut by[FORMS
-                .iter()
-                .position(|(m, _)| *m == form)
-                .expect("every form is listed")];
+            grans.iter_mut().zip(gf).for_each(|(a, b)| *a += u64::from(b));
+            let f = &mut by[FORMS.iter().position(|(m, _)| *m == form).expect("every form is listed")];
             f.0 += 1;
             f.1 += rec.rows;
             f.2 += g.parts.get(i).map_or(0, |p| p.row_map.resident());
             f.3 += disk;
         }
     }
-    let per_row = |b: u64, rows: u64| {
-        if rows == 0 {
-            0.0
-        } else {
-            b as f64 / rows as f64
-        }
+    let per_row = |b: u64, rows: u64| { if rows == 0 { 0.0 } else { b as f64 / rows as f64 }
     };
     let c = &CACHE;
     let mut out = format!(
@@ -447,11 +376,7 @@ pub fn stats_text(gen: Option<&Generation>, dir: &str) -> String {
         c.run_evictions.load(Ordering::Relaxed)
     ));
     let runs = gen.map_or(&[][..], |g| g.runs());
-    out.push_str(&format!(
-        " sorted_runs {} homing_runs {}",
-        runs.len(),
-        runs.iter().filter(|h| h.run.homes()).count()
-    ));
+    out.push_str(&format!(" sorted_runs {} homing_runs {}", runs.len(), runs.iter().filter(|h| h.run.homes()).count()));
     out
 }
 
@@ -469,16 +394,8 @@ mod tests {
     /// A LABELS map of `n` IDs, descending from `2^20 + n - 1`: its bytes grow with `n`.
     fn held(n: u32) -> RowMap {
         let ids: Vec<u64> = (0..u64::from(n)).rev().map(|i| (1 << 20) + i).collect();
-        let body = pgrc_format::rowmap::encode(
-            &ids,
-            pgrc_format::rowmap::Opts {
-                force: Some(RevForm::Labels),
-            },
-        )
-        .unwrap();
-        RowMap::Granules(Arc::new(GranuleMap::new(
-            pgrc_format::rowmap::GranMap::decode(&body, u64::from(n)).unwrap(),
-        )))
+        let body = pgrc_format::rowmap::encode(&ids, pgrc_format::rowmap::Opts { force: Some(RevForm::Labels), },).unwrap();
+        RowMap::Granules(Arc::new(GranuleMap::new(pgrc_format::rowmap::GranMap::decode(&body, u64::from(n)).unwrap(),)))
     }
 
     fn cells(n: usize) -> Vec<Arc<MapCell>> {
@@ -491,36 +408,16 @@ mod tests {
         let cell = Arc::new(MapCell::default());
         assert_eq!(cell.resident(), 0);
         let a = cell.get_or_load_in(c, || Ok(held(1000))).unwrap();
-        let b = cell
-            .get_or_load_in(c, || panic!("a held map is not loaded again"))
-            .unwrap();
+        let b = cell.get_or_load_in(c, || panic!("a held map is not loaded again")).unwrap();
         assert!(Arc::ptr_eq(&a, &b));
         let n = a.mem_bytes();
         assert!(n > 0, "a labels map holds bytes");
-        assert_eq!(
-            (
-                cell.resident(),
-                c.cached.load(Ordering::Relaxed),
-                c.peak.load(Ordering::Relaxed),
-                c.loads.load(Ordering::Relaxed)
-            ),
-            (n, n, n, 1)
-        );
+        assert_eq!((cell.resident(), c.cached.load(Ordering::Relaxed), c.peak.load(Ordering::Relaxed), c.loads.load(Ordering::Relaxed)), (n, n, n, 1));
         let other = Arc::new(MapCell::default());
-        assert!(other
-            .get_or_load_in(c, || Err(Box::new(types_error::PgError::error("no"))))
-            .is_err());
-        assert_eq!(
-            (other.resident(), c.loads.load(Ordering::Relaxed)),
-            (0, 1),
-            "a failed load holds and counts nothing"
-        );
+        assert!(other.get_or_load_in(c, || Err(Box::new(types_error::PgError::error("no")))).is_err());
+        assert_eq!((other.resident(), c.loads.load(Ordering::Relaxed)), (0, 1), "a failed load holds and counts nothing");
         drop(cell);
-        assert_eq!(
-            c.cached.load(Ordering::Relaxed),
-            0,
-            "a dropped cell's bytes leave the total"
-        );
+        assert_eq!(c.cached.load(Ordering::Relaxed), 0, "a dropped cell's bytes leave the total");
     }
 
     /// D4537 T18c: a map a cell holds is the part cache's bytes while it is held, and gone with it.
@@ -533,10 +430,7 @@ mod tests {
         {
             let slot = pgsync::lock(&cell.slot);
             let h = slot.as_ref().expect("held");
-            assert_eq!(
-                (h._charge.owner(), h._charge.committed()),
-                (CHARGE_OWNER, n)
-            );
+            assert_eq!((h._charge.owner(), h._charge.committed()), (CHARGE_OWNER, n));
         }
     }
 
@@ -544,12 +438,7 @@ mod tests {
     fn an_implicit_map_holds_no_bytes() {
         let c = cache(0);
         let cell = Arc::new(MapCell::default());
-        assert_eq!(
-            cell.get_or_load_in(c, || Ok(RowMap::Implicit(582)))
-                .unwrap()
-                .ident(2),
-            584
-        );
+        assert_eq!(cell.get_or_load_in(c, || Ok(RowMap::Implicit(582))).unwrap().ident(2), 584);
         assert_eq!(cell.resident(), 0);
     }
 
@@ -564,23 +453,12 @@ mod tests {
             cell.get_or_load_in(c, || Ok(held(1000))).unwrap();
             assert!(c.cached.load(Ordering::Relaxed) <= budget);
         }
-        assert_eq!(
-            c.cached.load(Ordering::Relaxed),
-            2 * n,
-            "two {n}-byte maps fit"
-        );
+        assert_eq!(c.cached.load(Ordering::Relaxed), 2 * n, "two {n}-byte maps fit");
         assert_eq!(c.evictions.load(Ordering::Relaxed), 3);
-        assert!(
-            c.peak.load(Ordering::Relaxed) <= budget,
-            "room is made before the new map is admitted"
-        );
+        assert!(c.peak.load(Ordering::Relaxed) <= budget, "room is made before the new map is admitted");
         assert_eq!(k[4].resident(), n, "the newest is held");
         assert_eq!(k[0].resident(), 0, "the oldest went first");
-        assert_eq!(
-            first.ident(999),
-            1 << 20,
-            "a holder keeps its map past the eviction"
-        );
+        assert_eq!(first.ident(999), 1 << 20, "a holder keeps its map past the eviction");
         let mut reloaded = false;
         k[0].get_or_load_in(c, || {
             reloaded = true;
@@ -596,13 +474,8 @@ mod tests {
         let k = cells(2);
         k[0].get_or_load_in(c, || Ok(held(10))).unwrap();
         k[1].get_or_load_in(c, || Ok(held(10))).unwrap();
-        assert_eq!(
-            (k[0].resident(), k[1].resident()),
-            (0, held(10).mem_bytes()),
-            "budget 0 keeps only the latest"
-        );
-        k[1].get_or_load_in(c, || panic!("held: no reload"))
-            .unwrap();
+        assert_eq!((k[0].resident(), k[1].resident()), (0, held(10).mem_bytes()), "budget 0 keeps only the latest");
+        k[1].get_or_load_in(c, || panic!("held: no reload")).unwrap();
     }
 
     #[test]
@@ -610,18 +483,12 @@ mod tests {
         let c = cache(1 << 20);
         let cell = Arc::new(MapCell::default());
         cell.get_or_load_in(c, || Ok(held(10))).unwrap();
-        let slot = Ring {
-            cell: Arc::downgrade(&cell),
-            cache: c,
-        };
+        let slot = Ring { cell: Arc::downgrade(&cell), cache: c, };
         assert_eq!(slot.visit(), Sweep::Referenced, "admitted with its bit set");
         assert_eq!(slot.visit(), Sweep::Evicted(held(10).mem_bytes()));
         assert!(slot.dead(), "an evicted cell's slot is dead");
         cell.get_or_load_in(c, || Ok(held(10))).unwrap();
-        let slot = Ring {
-            cell: Arc::downgrade(&cell),
-            cache: c,
-        };
+        let slot = Ring { cell: Arc::downgrade(&cell), cache: c, };
         cell.referenced.store(false, Ordering::Relaxed);
         cell.get_or_load_in(c, || panic!("held")).unwrap();
         assert_eq!(slot.visit(), Sweep::Referenced, "a hit sets the bit");
@@ -640,16 +507,8 @@ mod tests {
             x ^= x << 17;
             ids.swap(i, (x % (i as u64 + 1)) as usize);
         }
-        let body = pgrc_format::rowmap::encode(
-            &ids,
-            pgrc_format::rowmap::Opts {
-                force: Some(RevForm::FrameIx),
-            },
-        )
-        .unwrap();
-        RowMap::Granules(Arc::new(GranuleMap::new(
-            pgrc_format::rowmap::GranMap::decode(&body, n).unwrap(),
-        )))
+        let body = pgrc_format::rowmap::encode(&ids, pgrc_format::rowmap::Opts { force: Some(RevForm::FrameIx), },).unwrap();
+        RowMap::Granules(Arc::new(GranuleMap::new(pgrc_format::rowmap::GranMap::decode(&body, n).unwrap(),)))
     }
 
     #[test]
@@ -662,14 +521,7 @@ mod tests {
         assert_eq!(a.ordinal_of(20_000, a.ident(17)), Some(17));
         let grown = cell.resident();
         assert!(grown > fwd, "the reverse is charged: {fwd} -> {grown}");
-        assert_eq!(
-            (
-                grown,
-                c.cached.load(Ordering::Relaxed),
-                c.peak.load(Ordering::Relaxed)
-            ),
-            (a.mem_bytes(), grown, grown)
-        );
+        assert_eq!((grown, c.cached.load(Ordering::Relaxed), c.peak.load(Ordering::Relaxed)), (a.mem_bytes(), grown, grown));
         assert_eq!(a.ordinal_of(20_000, a.ident(18)), Some(18));
         assert_eq!(cell.resident(), grown, "built and charged once");
         // two such maps fit forward-only, not once one has its reverse: building it evicts one of them
@@ -678,22 +530,10 @@ mod tests {
         let k = cells(2);
         k[0].get_or_load_in(c, || Ok(frameix(20_000, 7))).unwrap();
         let b = k[1].get_or_load_in(c, || Ok(frameix(20_000, 7))).unwrap();
-        assert_eq!(
-            (
-                c.cached.load(Ordering::Relaxed),
-                c.evictions.load(Ordering::Relaxed)
-            ),
-            (2 * fwd, 0)
-        );
+        assert_eq!((c.cached.load(Ordering::Relaxed), c.evictions.load(Ordering::Relaxed)), (2 * fwd, 0));
         assert_eq!(b.ordinal_of(20_000, b.ident(5)), Some(5));
-        let (cached, peak) = (
-            c.cached.load(Ordering::Relaxed),
-            c.peak.load(Ordering::Relaxed),
-        );
-        assert!(
-            cached <= budget && peak <= budget && c.evictions.load(Ordering::Relaxed) == 1,
-            "budget {budget}: cached {cached} peak {peak}"
-        );
+        let (cached, peak) = (c.cached.load(Ordering::Relaxed), c.peak.load(Ordering::Relaxed),);
+        assert!(cached <= budget && peak <= budget && c.evictions.load(Ordering::Relaxed) == 1, "budget {budget}: cached {cached} peak {peak}");
     }
 
     #[test]

@@ -46,65 +46,36 @@ fn present_counts_the_pools_resident_pages_not_its_claim() {
         let c0 = stats().claimed;
         let s = span(16 * MIB, h).expect("a pool span");
         assert!(!s.is_lazy());
-        assert!(
-            stats().claimed >= c0 + 16 * MIB,
-            "taken Cold: claimed at once"
-        );
+        assert!(stats().claimed >= c0 + 16 * MIB, "taken Cold: claimed at once");
         let mut lazy = None;
         let skipped = 'checks: {
             let p1 = refresh_present().expect("present");
-            assert!(
-                p1 < p0 + MIB,
-                "claimed, not written: not present ({p0} -> {p1})"
-            );
+            assert!(p1 < p0 + MIB, "claimed, not written: not present ({p0} -> {p1})");
             touch(s.as_ptr() as usize, 8 * MIB);
             let p2 = refresh_present().expect("present");
             if p2 < p1 + 8 * MIB && swap_moved(sw) {
-                break 'checks Some(format!(
-                    "half written: {} of 8 MiB present ({p1} -> {p2})",
-                    p2.saturating_sub(p1)
-                ));
+                break 'checks Some(format!("half written: {} of 8 MiB present ({p1} -> {p2})", p2.saturating_sub(p1)));
             }
-            assert!(
-                (p1 + 8 * MIB..=p1 + 10 * MIB).contains(&p2),
-                "half written: half present ({p1} -> {p2})"
-            );
+            assert!((p1 + 8 * MIB..=p1 + 10 * MIB).contains(&p2), "half written: half present ({p1} -> {p2})");
 
             let mut l = span(64 * MIB, h).expect("a lazy span");
             assert!(l.is_lazy());
             let c3 = stats().claimed;
             // SAFETY: our own span
             unsafe { commit_to(&mut l, 32 * MIB) };
-            assert!(
-                stats().claimed >= c3 + 32 * MIB,
-                "a declared commit is claimed"
-            );
+            assert!(stats().claimed >= c3 + 32 * MIB, "a declared commit is claimed");
             let p3 = refresh_present().expect("present");
-            assert!(
-                p3 < p2 + MIB,
-                "declared, not written: not present ({p2} -> {p3})"
-            );
+            assert!(p3 < p2 + MIB, "declared, not written: not present ({p2} -> {p3})");
             touch(l.as_ptr() as usize, 4 * MIB);
             let a = l.as_ptr() as usize;
             lazy = Some(l);
             let p4 = refresh_present().expect("present");
             if p4 < p3 + 4 * MIB && swap_moved(sw) {
-                break 'checks Some(format!(
-                    "4 MiB written: {} present ({p3} -> {p4}; the span's own {})",
-                    p4.saturating_sub(p3),
-                    resident(a, 4 * MIB)
-                ));
+                break 'checks Some(format!("4 MiB written: {} present ({p3} -> {p4}; the span's own {})", p4.saturating_sub(p3), resident(a, 4 * MIB)));
             }
-            assert!(
-                (p3 + 4 * MIB..=p3 + 6 * MIB).contains(&p4),
-                "4 MiB written: 4 MiB present ({p3} -> {p4})"
-            );
+            assert!((p3 + 4 * MIB..=p3 + 6 * MIB).contains(&p4), "4 MiB written: 4 MiB present ({p3} -> {p4})");
             assert!(stats().claimed >= p4, "claimed bounds present from above");
-            assert_eq!(
-                present(),
-                Some(p4),
-                "the published read is the last sweep while nothing was released"
-            );
+            assert_eq!(present(), Some(p4), "the published read is the last sweep while nothing was released");
             None
         };
 
@@ -120,18 +91,14 @@ fn present_counts_the_pools_resident_pages_not_its_claim() {
         let p6 = refresh_present().expect("present");
         // p0 itself reads short by what was on swap then and has come back since
         let skipped = match skipped {
-            None if (p5 > p0 + 16 * MIB || p6 > p0 + MIB) && swap_moved(sw) => {
-                Some(format!("released: {p0} -> {p5} / {p6}"))
+            None if (p5 > p0 + 16 * MIB || p6 > p0 + MIB) && swap_moved(sw) => { Some(format!("released: {p0} -> {p5} / {p6}"))
             }
             k => k,
         };
         if skipped.is_none() {
             // pppress (the overshoot fix): before a sweep the release comes off at most the last sweep's free part
             // (these spans were live then), so the published read never rises; the next sweep shows it whole
-            assert!(
-                p5 <= p0 + 16 * MIB,
-                "released: never above the last sweep, before any sweep ({p0} -> {p5})"
-            );
+            assert!(p5 <= p0 + 16 * MIB, "released: never above the last sweep, before any sweep ({p0} -> {p5})");
             assert!(p6 <= p0 + MIB, "released: no longer present ({p0} -> {p6})");
         }
         balanced();
@@ -159,10 +126,7 @@ fn a_present_read_is_published_cheap_and_tracks_a_full_sweep() {
         let read = present().expect("published");
         let full = present_sweep().expect("a full sweep");
         let tol = (full / 50).max(2 * MIB);
-        assert!(
-            read.abs_diff(full) <= tol,
-            "published {read} vs full sweep {full} (tolerance {tol})"
-        );
+        assert!(read.abs_diff(full) <= tol, "published {read} vs full sweep {full} (tolerance {tol})");
         assert_eq!(read, swept, "nothing released since the sweep");
 
         // the cost of a read: two atomic loads under a sequence count, no syscall
@@ -179,10 +143,7 @@ fn a_present_read_is_published_cheap_and_tracks_a_full_sweep() {
         let _ = present_sweep();
         let sweep_ns = t1.elapsed().as_nanos();
         eprintln!("MEASURED present() {per:.1} ns a read; one full sweep {sweep_ns} ns over {} MiB present", full / MIB);
-        assert!(
-            per < 1_000.0,
-            "a present() read costs {per:.1} ns, the bar is < 1 us"
-        );
+        assert!(per < 1_000.0, "a present() read costs {per:.1} ns, the bar is < 1 us");
 
         // a fault after the sweep shows at the next sweep, not before
         let more = 4 * MIB;
@@ -190,10 +151,7 @@ fn a_present_read_is_published_cheap_and_tracks_a_full_sweep() {
         touch(s.as_ptr() as usize + 16 * MIB, more);
         assert_eq!(present(), Some(read), "no sweep yet: the published bytes");
         let after = refresh_present().expect("a sweep");
-        assert!(
-            (read + more..=read + more + 2 * MIB).contains(&after),
-            "the next sweep shows the fault ({read} -> {after})"
-        );
+        assert!((read + more..=read + more + 2 * MIB).contains(&after), "the next sweep shows the fault ({read} -> {after})");
 
         // a release of pages the sweep read free shows at once (the released-bytes count), no sweep. pppress (the
         // overshoot fix): a release comes off at most the sweep's free part, so pages freed since the sweep show at the
@@ -203,10 +161,7 @@ fn a_present_read_is_published_cheap_and_tracks_a_full_sweep() {
         let after = refresh_present().expect("a sweep: the given span's pages read free");
         let _ = purge_now(usize::MAX >> 1, None);
         let gone = present().expect("published");
-        assert!(
-            gone + 20 * MIB <= after + 2 * MIB,
-            "released: the published read drops at once ({after} -> {gone})"
-        );
+        assert!(gone + 20 * MIB <= after + 2 * MIB, "released: the published read drops at once ({after} -> {gone})");
         balanced();
     });
 }
@@ -265,49 +220,33 @@ fn an_idle_pool_is_not_swept_and_a_fresh_read_sweeps_now() {
             std::thread::sleep(std::time::Duration::from_millis(300));
             let (due, ub) = aged(present_due_now);
             if due && ub >= QUIET_MS {
-                break 'checks Some(format!(
-                    "the idle window read up to {ub} ms after its sweep, past QUIET_MS"
-                ));
+                break 'checks Some(format!("the idle window read up to {ub} ms after its sweep, past QUIET_MS"));
             }
             if due && counts() != c0 {
-                break 'checks Some(
-                    "a count this test did not move moved in the idle window".to_string(),
-                );
+                break 'checks Some("a count this test did not move moved in the idle window".to_string(),);
             }
-            assert!(
-                !due,
-                "the period passed, nothing moved: no sweep (read up to {ub} ms after it)"
-            );
+            assert!(!due, "the period passed, nothing moved: no sweep (read up to {ub} ms after it)");
             assert_eq!(present_sweeps(), n0);
             // a first write to a page of a block taken earlier moves no count: a fresh read shows it, the cadence does not
             touch(s.as_ptr() as usize + 4 * MIB, 2 * MIB);
             let (due, ub) = aged(present_due_now);
             if due && ub >= QUIET_MS {
-                break 'checks Some(format!(
-                    "'no count moved' read up to {ub} ms after the sweep, past QUIET_MS"
-                ));
+                break 'checks Some(format!("'no count moved' read up to {ub} ms after the sweep, past QUIET_MS"));
             }
             if due && counts() != c0 {
-                break 'checks Some(
-                    "a count this test did not move moved before 'no count moved'".to_string(),
-                );
+                break 'checks Some("a count this test did not move moved before 'no count moved'".to_string(),);
             }
             assert!(!due, "no count moved");
             assert_eq!(present(), Some(p0), "the published bytes, not swept since");
             let fresh = present_fresh().expect("a fresh read");
-            assert!(
-                (p0 + 2 * MIB..=p0 + 4 * MIB).contains(&fresh),
-                "a fresh read sweeps now ({p0} -> {fresh})"
-            );
+            assert!((p0 + 2 * MIB..=p0 + 4 * MIB).contains(&fresh), "a fresh read sweeps now ({p0} -> {fresh})");
             assert_eq!(present_sweeps(), n0 + 1);
             assert_eq!(present(), Some(fresh), "and publishes");
             // a second fresh read within FRESH_MS shares that sweep
             touch(s.as_ptr() as usize + 6 * MIB, 2 * MIB);
             let (again, ub) = aged(present_fresh);
             if again != Some(fresh) && ub >= FRESH_MS {
-                break 'checks Some(format!(
-                    "the second fresh read came up to {ub} ms after the first, past FRESH_MS"
-                ));
+                break 'checks Some(format!("the second fresh read came up to {ub} ms after the first, past FRESH_MS"));
             }
             assert_eq!(again, Some(fresh), "a sweep this young is shared");
             assert_eq!(present_sweeps(), n0 + 1);
@@ -315,9 +254,7 @@ fn an_idle_pool_is_not_swept_and_a_fresh_read_sweeps_now() {
             t = Some(span(4 * MIB, h).expect("another pool span"));
             let (due, ub) = aged(present_due_now);
             if due && ub >= PRESENT_MS {
-                break 'checks Some(format!(
-                    "'within the period' read up to {ub} ms after the fresh read, past PRESENT_MS"
-                ));
+                break 'checks Some(format!("'within the period' read up to {ub} ms after the fresh read, past PRESENT_MS"));
             }
             assert!(!due, "within the period of the fresh read");
             // the period is PRESENT_MS, or DUTY times the last sweep's cost (`present_sweep_ns`; a sweep a loaded host
@@ -331,14 +268,10 @@ fn an_idle_pool_is_not_swept_and_a_fresh_read_sweeps_now() {
             let c1 = counts();
             let (due, ub) = aged(present_due_now);
             if due && ub >= QUIET_MS {
-                break 'checks Some(format!(
-                    "'none again' read up to {ub} ms after the sweep, past QUIET_MS"
-                ));
+                break 'checks Some(format!("'none again' read up to {ub} ms after the sweep, past QUIET_MS"));
             }
             if due && counts() != c1 {
-                break 'checks Some(
-                    "a count this test did not move moved before 'none again'".to_string(),
-                );
+                break 'checks Some("a count this test did not move moved before 'none again'".to_string(),);
             }
             assert!(!due, "and none again until something moves");
             None
@@ -365,25 +298,12 @@ fn an_idle_pool_is_not_swept_and_a_fresh_read_sweeps_now() {
 #[cfg(target_os = "linux")]
 fn smaps_pool() -> (usize, usize) {
     let (mut pool, mut meta, mut cur) = (0, 0, 0u8);
-    for line in std::fs::read_to_string("/proc/self/smaps")
-        .expect("smaps")
-        .lines()
-    {
+    for line in std::fs::read_to_string("/proc/self/smaps").expect("smaps").lines() {
         let head = line.split(' ').next().unwrap_or("");
         if head.contains('-') && head.bytes().all(|b| b.is_ascii_hexdigit() || b == b'-') {
-            cur = if line.ends_with("[anon:pgrust:pool]") {
-                1
-            } else if line.ends_with("[anon:pgrust:pool-meta]") {
-                2
-            } else {
-                0
-            };
+            cur = if line.ends_with("[anon:pgrust:pool]") { 1 } else if line.ends_with("[anon:pgrust:pool-meta]") { 2 } else { 0 };
         } else if cur != 0 && line.starts_with("Rss:") {
-            let kb: usize = line
-                .split_whitespace()
-                .nth(1)
-                .and_then(|v| v.parse().ok())
-                .unwrap_or(0);
+            let kb: usize = line.split_whitespace().nth(1).and_then(|v| v.parse().ok()).unwrap_or(0);
             if cur == 1 {
                 pool += kb << 10;
             } else {
@@ -403,24 +323,11 @@ fn kernel_names_vmas() -> bool {
     // SAFETY: a private one-page anonymous mapping of our own, named and unmapped here
     unsafe {
         let len = 4096;
-        let p = libc::mmap(
-            core::ptr::null_mut(),
-            len,
-            libc::PROT_READ | libc::PROT_WRITE,
-            libc::MAP_PRIVATE | libc::MAP_ANONYMOUS,
-            -1,
-            0,
-        );
+        let p = libc::mmap(core::ptr::null_mut(), len, libc::PROT_READ | libc::PROT_WRITE, libc::MAP_PRIVATE | libc::MAP_ANONYMOUS, -1, 0,);
         if p == libc::MAP_FAILED {
             return false;
         }
-        let rc = libc::prctl(
-            PR_SET_VMA,
-            PR_SET_VMA_ANON_NAME,
-            p as libc::c_ulong,
-            len as libc::c_ulong,
-            c"pgrust:probe".as_ptr(),
-        );
+        let rc = libc::prctl(PR_SET_VMA, PR_SET_VMA_ANON_NAME, p as libc::c_ulong, len as libc::c_ulong, c"pgrust:probe".as_ptr(),);
         libc::munmap(p, len);
         rc == 0
     }
@@ -450,18 +357,11 @@ fn a_sweep_reads_what_smaps_names_the_pools() {
         let swept = present_sweep().expect("a sweep");
         let (pool, meta) = smaps_pool();
         eprintln!("MEASURED sweep {swept} smaps pool {pool} + meta {meta}; lazy span resident {tail} of its 3 MiB commit's 4 MiB");
-        assert!(
-            swept.abs_diff(pool + meta) <= 256 << 10,
-            "the sweep {swept} vs smaps {} (pool {pool} + meta {meta})",
-            pool + meta
-        );
+        assert!(swept.abs_diff(pool + meta) <= 256 << 10, "the sweep {swept} vs smaps {} (pool {pool} + meta {meta})", pool + meta);
         let _ = refresh_present();
         let m = meta_present().expect("the metadata part");
         let (_, meta_now) = smaps_pool();
-        assert!(
-            m > 0 && m.abs_diff(meta_now) <= 256 << 10,
-            "meta_present {m} vs smaps meta {meta_now} (before the sweep {meta})"
-        );
+        assert!(m > 0 && m.abs_diff(meta_now) <= 256 << 10, "meta_present {m} vs smaps meta {meta_now} (before the sweep {meta})");
         let (lp, llen) = (l.as_ptr() as usize, l.len());
         pagepool::hooks::clear();
         // SAFETY: ours, not used again
@@ -471,17 +371,11 @@ fn a_sweep_reads_what_smaps_names_the_pools() {
         }
         let _ = purge_now(usize::MAX >> 1, None);
         // the warm lazy span's release takes its huge-page tail too, inside the span, through give_back only (CVE-2026-74674)
-        assert_eq!(
-            resident(lp, 4 * MIB),
-            0,
-            "the lazy span's tail past its 3 MiB commit is released"
-        );
+        assert_eq!(resident(lp, 4 * MIB), 0, "the lazy span's tail past its 3 MiB commit is released");
         let (mut tail, mut bad, mut outside) = (false, Vec::new(), Vec::new());
         let complete = pagepool::hooks::each(|op, at, len, arg| match op {
-            pagepool::hooks::Op::Madvise
-                if arg == 4 && at.next_multiple_of(SUPER) + SUPER <= at + len =>
-            {
-                bad.push((at, len))
+            pagepool::hooks::Op::Madvise if arg == 4 && at.next_multiple_of(SUPER) + SUPER <= at + len =>
+            { bad.push((at, len))
             }
             pagepool::hooks::Op::GiveBack if at >= lp && at < lp + llen => {
                 tail |= at == lp && len == 4 * MIB;
@@ -492,18 +386,9 @@ fn a_sweep_reads_what_smaps_names_the_pools() {
             _ => {}
         });
         assert!(complete, "the syscall log overflowed");
-        assert!(
-            bad.is_empty(),
-            "MADV_DONTNEED over a whole 2 MiB range: {bad:x?}"
-        );
-        assert!(
-            outside.is_empty(),
-            "a release past the span's end: {outside:x?}"
-        );
-        assert!(
-            tail,
-            "the lazy span released [base, base + 4 MiB): its commit rounded up to the superpage"
-        );
+        assert!(bad.is_empty(), "MADV_DONTNEED over a whole 2 MiB range: {bad:x?}");
+        assert!(outside.is_empty(), "a release past the span's end: {outside:x?}");
+        assert!(tail, "the lazy span released [base, base + 4 MiB): its commit rounded up to the superpage");
         balanced();
     });
 }

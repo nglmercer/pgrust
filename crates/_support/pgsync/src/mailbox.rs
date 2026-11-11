@@ -112,9 +112,7 @@ pub fn mailbox<T>(cap: Option<usize>) -> (MailboxSender<T>, MailboxReceiver<T>) 
         not_full: ParkLot::new(),
     });
     (
-        MailboxSender {
-            core: Arc::clone(&core),
-        },
+        MailboxSender { core: Arc::clone(&core), },
         MailboxReceiver { core },
     )
 }
@@ -132,7 +130,7 @@ impl<T> MailboxSender<T> {
                 if g.receivers == 0 {
                     return Err(value);
                 }
-                if core.cap.is_none_or(|c| g.queue.len() < c) {
+                if core.cap.is_none_or( |c| g.queue.len() < c) {
                     g.queue.push_back(value);
                     drop(g);
                     core.not_empty.wake_all();
@@ -177,7 +175,7 @@ impl<T> MailboxSender<T> {
                 if g.receivers == 0 {
                     break Ok(Err(value));
                 }
-                if core.cap.is_none_or(|c| g.queue.len() < c) {
+                if core.cap.is_none_or( |c| g.queue.len() < c) {
                     g.queue.push_back(value);
                     drop(g);
                     core.not_empty.wake_all();
@@ -207,7 +205,7 @@ impl<T> MailboxSender<T> {
         if g.receivers == 0 {
             return Err(TrySend::Disconnected(value));
         }
-        if core.cap.is_none_or(|c| g.queue.len() < c) {
+        if core.cap.is_none_or( |c| g.queue.len() < c) {
             g.queue.push_back(value);
             drop(g);
             core.not_empty.wake_all();
@@ -264,18 +262,14 @@ impl<T> MailboxReceiver<T> {
 impl<T> Clone for MailboxSender<T> {
     fn clone(&self) -> Self {
         lock(&self.core.state).senders += 1;
-        MailboxSender {
-            core: Arc::clone(&self.core),
-        }
+        MailboxSender { core: Arc::clone(&self.core), }
     }
 }
 
 impl<T> Clone for MailboxReceiver<T> {
     fn clone(&self) -> Self {
         lock(&self.core.state).receivers += 1;
-        MailboxReceiver {
-            core: Arc::clone(&self.core),
-        }
+        MailboxReceiver { core: Arc::clone(&self.core), }
     }
 }
 
@@ -445,11 +439,7 @@ mod tests {
             assert_eq!(t.join().unwrap(), Ok(Ok(())));
             assert_eq!(WAKES.load(Ordering::SeqCst), 1);
             assert_eq!(rx.recv(), Some(2));
-            assert_eq!(
-                WAKES.load(Ordering::SeqCst),
-                1,
-                "wake called after deregistration"
-            );
+            assert_eq!(WAKES.load(Ordering::SeqCst), 1, "wake called after deregistration");
         }
 
         #[test]

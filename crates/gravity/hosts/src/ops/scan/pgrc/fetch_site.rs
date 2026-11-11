@@ -346,7 +346,7 @@ impl Source for FetchSource {
         #[allow(clippy::needless_range_loop)]
         for k in 0..natts {
             let words = n.div_ceil(64);
-            let all = self.valid[k * VALIDITY_WORDS / 8..][..words].iter().enumerate().all(|(w, &v)| v == if w + 1 == words && !n.is_multiple_of(64) { (1u64 << (n % 64)) - 1 } else { !0 });
+            let all = self.valid[k * VALIDITY_WORDS / 8..][..words].iter().enumerate().all(|(w, &v)| v == if w + 1 == words && ! n.is_multiple_of( 64) { (1u64 << (n % 64)) - 1 } else { !0 });
             let valid = if all { core::ptr::null() } else { self.valid[k * VALIDITY_WORDS / 8..].as_ptr() };
             let mut l = Lane::byval(self.datums[k * MAX_FETCH_ROWS..].as_ptr() as *const u8, valid, 8, lane::REGION_ARENA, lane::id(lane::ID_ATTR, self.recipe.attnos[k] as u32));
             if self.recipe.kinds[k] == KIND_TEXT {

@@ -268,8 +268,7 @@ impl<'mcx> SharedTuplestoreAccessor<'mcx> {
                 size -= written;
                 while size > 0 {
                     self.flush_chunk()?;
-                    let overflow =
-                        size.div_ceil(STS_CHUNK_DATA_SIZE) as i32;
+                    let overflow =size.div_ceil( STS_CHUNK_DATA_SIZE) as i32;
                     let chunk = self.write_chunk.as_mut().expect("chunk allocated");
                     chunk[4..8].copy_from_slice(&overflow.to_ne_bytes());
                     let written_this_chunk = size.min(STS_CHUNK_SIZE - self.write_pointer);

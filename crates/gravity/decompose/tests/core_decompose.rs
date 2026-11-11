@@ -106,7 +106,7 @@ fn coverage_histogram() {
     for k in refused.keys() {
         // Only the lookup matters: the name must be a known kind. (The former `!is_mapped || true` assertion could never
         // fail, so it is dropped rather than kept as if it checked something.)
-        Kind::ALL.iter().find(|x| x.name() == *k).unwrap_or_else(|| panic!("refused kind {k} is unknown"));
+ Kind::ALL.iter().find(|x| x.name() == *k).unwrap_or_else(|| panic!("refused kind {k} is unknown"));
     }
 }
 

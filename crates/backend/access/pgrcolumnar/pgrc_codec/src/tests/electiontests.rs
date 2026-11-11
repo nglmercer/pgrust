@@ -255,7 +255,8 @@ fn sb3_width_cells_elect_byte_for() {
             // ts_family.ts_us_unsorted_22bit: 22-bit seconds at µs grain
             // (range 2^22 × 10^6 ≈ 2^42) → width 6.
             "ts_us_unsorted_22bit",
-            Box::new(move |s: &mut u64| 631_152_000 * us + splitmix(s) % ((1u64 << 22) * us)),
+            Box::new(move |s: &mut u64|
+                631_152_000 * us + splitmix(s) % ((1u64 << 22) * us)),
             6,
         ),
         (
@@ -471,10 +472,7 @@ fn wrapper_election_engages_only_on_wins() {
         pgrc_format::enc::Wrapper::Lz4,
     )
     .expect("price lz4");
-    assert!(
-        z < l,
-        "the election chose Zstd, so its image must be smaller"
-    );
+    assert!(z < l, "the election chose Zstd, so its image must be smaller");
     // Noise stream → wrapper refuses (incompressible guard, both arms).
     let noise = GranuleData {
         rows: 8192,
@@ -653,10 +651,7 @@ fn fused_analyzer_matches_reference() {
             for &(fused, cold) in &[(false, false), (true, false), (false, true), (true, true)] {
                 let want = reference_elect_int(&inputs, 8, signed, fused, cold);
                 let (got, carry) = elect_int_carry(&inputs, 8, signed, fused, cold);
-                assert_eq!(
-                    got, want,
-                    "shape={shape} signed={signed} fused={fused} cold={cold}"
-                );
+                assert_eq!(got, want, "shape={shape} signed={signed} fused={fused} cold={cold}");
                 // One fact per frame of the row-dense stream.
                 assert_eq!(
                     carry.frames.len(),
@@ -672,10 +667,7 @@ fn fused_analyzer_matches_reference() {
         datums: vec![0; 4096],
         validity: Some(vec![0u64; 64]),
     };
-    let class = StorageClass::ByvalWord {
-        width: 8,
-        signed: true,
-    };
+    let class = StorageClass::ByvalWord { width: 8, signed: true, };
     let inputs = [all_null.input(class)];
     let (got, _) = crate::election::elect_int_carry(&inputs, 8, true, true, true);
     assert_eq!(got, reference_elect_int(&inputs, 8, true, true, true));
@@ -725,20 +717,9 @@ fn carried_encoders_emit_identical_bytes() {
                 next: 0,
             });
             let carried = build_stream(&mut carried_enc, &inputs, 0, signed);
-            assert_eq!(
-                plain.buf, carried.buf,
-                "BYTE_FOR shape={shape} signed={signed}"
-            );
+            assert_eq!(plain.buf, carried.buf, "BYTE_FOR shape={shape} signed={signed}");
             // FFOR.
-            let plain = build_stream(
-                &mut FforEncoder {
-                    signed,
-                    carry: None,
-                },
-                &inputs,
-                0,
-                signed,
-            );
+            let plain = build_stream(&mut FforEncoder { signed, carry: None, }, &inputs, 0, signed,);
             let carried = build_stream(
                 &mut FforEncoder {
                     signed,
@@ -765,10 +746,7 @@ fn carried_encoders_emit_identical_bytes() {
                 0,
                 signed,
             );
-            assert_eq!(
-                plain.buf, carried.buf,
-                "DELTA_FOR shape={shape} signed={signed}"
-            );
+            assert_eq!(plain.buf, carried.buf, "DELTA_FOR shape={shape} signed={signed}");
         }
     }
 }
@@ -793,10 +771,7 @@ fn carried_alp_emits_identical_bytes() {
             })
             .collect();
         let plain = build_stream(
-            &mut AlpEncoder {
-                encoding: EncodingId::Alp,
-                carry: None,
-            },
+            &mut AlpEncoder { encoding: EncodingId::Alp, carry: None, },
             &inputs,
             0,
             false,

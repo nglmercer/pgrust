@@ -146,17 +146,14 @@ impl Drop for Chunk {
 
 /// D4487 t3: an image's `Arc<Chunk>` block (trunk's `Arc<Img>`; the two counts beside it), allocated with the image on
 /// the thread that builds it: a reader's image carries it in its charge ([`SegBuf::carry`]).
-pub(crate) const IMG_BLOCK: u64 =
-    (core::mem::size_of::<Chunk>() + 2 * core::mem::size_of::<usize>()) as u64;
+pub(crate) const IMG_BLOCK: u64 = (core::mem::size_of::<Chunk>() + 2 * core::mem::size_of::<usize>()) as u64;
 
 /// D4487 t2: what a cached image holds past its bytes, on the part cache's charge with them: its `Arc<Chunk>` block and its
 /// map entry (key and `SegBuf`).
-pub(crate) const IMAGE_FIXED: u64 =
-    IMG_BLOCK + (core::mem::size_of::<(u64, u64)>() + core::mem::size_of::<SegBuf>()) as u64;
+pub(crate) const IMAGE_FIXED: u64 = IMG_BLOCK + (core::mem::size_of::<(u64, u64)>() + core::mem::size_of::<SegBuf>()) as u64;
 
 /// D4487 t2: a passed extent's map entry (`PartState::passed`), on the part cache's charge while it is listed.
-pub(crate) const PASSED_FIXED: u64 =
-    (core::mem::size_of::<(u64, u64)>() + core::mem::size_of::<Passed>()) as u64;
+pub(crate) const PASSED_FIXED: u64 = (core::mem::size_of::<(u64, u64)>() + core::mem::size_of::<Passed>()) as u64;
 
 /// D4321 step 1 (LADDER-DESIGN section 6, user-approved into class 2): an image is made with this thread's allocations
 /// on the cache arena's heap (a cache scope; the global allocator's road while the heap is not installed): a
@@ -185,17 +182,14 @@ pub(crate) fn release_of(o: memledger::Owner) -> memledger::Release {
         memledger::Owner::Portal { .. } => memledger::Release::Portal,
         memledger::Owner::Session(_) => memledger::Release::Session,
         memledger::Owner::Cache(_) => memledger::Release::Evict,
-        memledger::Owner::Statement { .. }
-        | memledger::Owner::WorkerSet(_)
-        | memledger::Owner::Op { .. } => memledger::Release::Statement,
+        memledger::Owner::Statement { .. } | memledger::Owner::WorkerSet(_) | memledger::Owner::Op { .. } => memledger::Release::Statement,
     }
 }
 
 /// `n` bytes of a block this thread just allocated, onto the reader's owner until the charge drops (before the block).
 pub(crate) fn read_charge(owner: ReadOwner, n: u64) -> memledger::Charge {
     match owner {
-        Some((o, k)) => {
-            memledger::Charge::open(o, release_of(o), k, memledger::charge::Door::Heap, n)
+        Some((o, k)) => { memledger::Charge::open(o, release_of(o), k, memledger::charge::Door::Heap, n)
         }
         None => memledger::Charge::NONE,
     }
@@ -204,10 +198,7 @@ pub(crate) fn read_charge(owner: ReadOwner, n: u64) -> memledger::Charge {
 /// `f` in a cache scope for an image a reader keeps and no cache does (a build, an unwrap's rebuild): its cache-road
 /// blocks charged as they are taken to `owner`, else to the thread's context ([`context_owner`]: no cache scope is
 /// plain), the charge returned for the image to carry ([`SegBuf::carry`]).
-pub(crate) fn charged_for<T>(
-    owner: ReadOwner,
-    f: impl FnOnce() -> T,
-) -> (T, Option<memledger::Charge>) {
+pub(crate) fn charged_for<T>(owner: ReadOwner, f: impl FnOnce() -> T,) -> (T, Option<memledger::Charge>) {
     let (o, k) = owner.unwrap_or_else(|| (memledger::charge::context().0, memledger::Kind::Region));
     let scope = memledger::arena::cache_scope_for(o, k);
     let r = f();
@@ -215,10 +206,7 @@ pub(crate) fn charged_for<T>(
 }
 
 pub(crate) fn read_vec<T>(owner: ReadOwner) -> memledger::ChargedVec<T> {
-    memledger::ChargedVec::new(
-        owner.map(|o| o.0),
-        owner.map_or(memledger::Kind::Region, |o| o.1),
-    )
+    memledger::ChargedVec::new(owner.map(|o| o.0), owner.map_or(memledger::Kind::Region, |o| o.1),)
 }
 
 /// The owner of a read no cursor names: the calling thread's context (`memledger::charge::context`: the portal its
@@ -314,15 +302,8 @@ impl SegBuf {
         // (`in_cache_held`), else in the scope its caller opened for its owner (`charged_for`: `build_for`, `copied_for`)
         // one reservation, run in whichever scope charges it
         let mut reserve = || words.try_reserve_exact(nwords);
-        let (reserved, taken) = if held {
-            in_cache_held(&mut reserve)
-        } else {
-            (reserve(), None)
-        };
-        reserved.map_err(|_| ReadError::Io {
-            at: "extent image allocation",
-            errno: libc::ENOMEM,
-        })?;
+        let (reserved, taken) = if held { in_cache_held(&mut reserve) } else { (reserve(), None) };
+        reserved.map_err(|_| ReadError::Io { at: "extent image allocation", errno: libc::ENOMEM, })?;
         while words.len() < nwords {
             words.resize(nwords.min(words.len() + cancelpoll::PIECE / 8), 0);
             match step.as_mut() {
@@ -333,7 +314,8 @@ impl SegBuf {
         drop(step);
         // SAFETY: u64 → u8 reinterpret of an exclusively owned buffer;
         // alignment only loosens and `len <= words.len() * 8`.
-        let bytes = unsafe { core::slice::from_raw_parts_mut(words.as_mut_ptr() as *mut u8, len) };
+        let bytes =
+            unsafe { core::slice::from_raw_parts_mut(words.as_mut_ptr() as *mut u8, len) };
         fill(bytes)?;
         Ok(SegBuf::chunked(Image::Words(words), len, taken))
     }
@@ -375,7 +357,7 @@ impl SegBuf {
     /// build and the copy into the shared buffer that followed a rebuild's last poll were two more passes over the whole
     /// image. An image whose base is not 8-aligned (the allocator's choice) is copied, polled, as [`Self::try_from_bytes`].
     pub fn adopt(v: Vec<u8>) -> ReadResult<SegBuf> {
-        if !(v.as_ptr() as usize).is_multiple_of(8) {
+        if !( v.as_ptr() as usize).is_multiple_of( 8) {
             return SegBuf::try_from_bytes(&v);
         }
         let len = v.len();
@@ -391,29 +373,17 @@ impl SegBuf {
         let class = core::sync::atomic::AtomicU8::new(crate::mem::HELD);
         let refbit = core::sync::atomic::AtomicBool::new(false);
         let owed = core::sync::atomic::AtomicBool::new(false);
-        SegBuf {
-            chunk: Arc::new(Chunk {
-                taken: Mutex::new(taken),
-                _img: img,
-                len,
-                class,
-                refbit,
-                owed,
-            }),
-            ptr,
-            len,
-        }
+        SegBuf { chunk: Arc::new(Chunk { taken: Mutex::new(taken), _img: img, len, class, refbit, owed, }), ptr, len, }
     }
 
     /// CACHE-CHARGE: `adopt` of a rebuild made in `in_cache_held`, with the charge its blocks took (`taken`). An image
     /// copied instead (its base not 8-aligned) drops `taken` first: the rebuild's bytes go back to this thread, where
     /// `v` is freed, and the copy takes its own (`build_held`).
     fn adopt_held(v: Vec<u8>, taken: Option<memledger::Charge>) -> ReadResult<SegBuf> {
-        if !(v.as_ptr() as usize).is_multiple_of(8) {
+        if !( v.as_ptr() as usize).is_multiple_of( 8) {
             drop(taken);
             let copy = SegBuf::build_held(v.len(), true, |b| {
-                let mut step =
-                    cancelpoll::step("pgrc_read SegBuf::try_from_bytes: an image copied");
+                let mut step = cancelpoll::step("pgrc_read SegBuf::try_from_bytes: an image copied");
                 Ok(step.pieces(v.len(), cancelpoll::PIECE, |r| {
                     b[r.clone()].copy_from_slice(&v[r]);
                     Ok::<(), cancelpoll::Canceled>(())
@@ -460,9 +430,7 @@ impl SegBuf {
     /// D4487 t3 (tests): the bytes the image's carried charge holds.
     #[cfg(test)]
     pub(crate) fn carried_bytes(&self) -> u64 {
-        lock(&self.chunk.taken)
-            .as_ref()
-            .map_or(0, memledger::Charge::committed)
+        lock(&self.chunk.taken).as_ref().map_or(0, memledger::Charge::committed)
     }
 
     /// The image with the reader's charge `c` (`charged_for`) in it; a charge it cannot carry drops here, its bytes back
@@ -517,8 +485,7 @@ impl SegBuf {
     /// sets its CLOCK ref bit, Private changes nothing.
     pub(crate) fn served(&self, res: Residency) -> SegBuf {
         match res {
-            Residency::Shared if self.class() != crate::mem::STICKY => {
-                self.set_class(crate::mem::STICKY)
+            Residency::Shared if self.class() != crate::mem::STICKY => { self.set_class(crate::mem::STICKY)
             }
             Residency::Cached if !self.chunk.refbit.load(Ordering::Relaxed) => {
                 self.chunk.refbit.store(true, Ordering::Relaxed)
@@ -583,9 +550,7 @@ impl SegBuf {
     /// D4834 (tests): the bytes the image's carried charge holds.
     #[cfg(test)]
     pub(crate) fn owed_bytes(&self) -> u64 {
-        lock(&self.chunk.taken)
-            .as_ref()
-            .map_or(0, memledger::Charge::committed)
+        lock(&self.chunk.taken).as_ref().map_or(0, memledger::Charge::committed)
     }
 
     fn addr(&self) -> usize {
@@ -709,18 +674,10 @@ struct PartSlot {
 impl crate::mem::Victim for PartSlot {
     fn visit(&self) -> crate::mem::Sweep {
         use crate::mem::Sweep;
-        let Some(part) = self.part.upgrade() else {
-            return Sweep::Dead;
-        };
+        let Some(part) = self.part.upgrade() else { return Sweep::Dead; };
         let mut st = lock(&part.state);
-        let map = if self.unwrapped {
-            &mut st.unwrapped
-        } else {
-            &mut st.segs
-        };
-        let Some(b) = map.get(&self.key).filter(|b| b.addr() == self.addr) else {
-            return Sweep::Dead;
-        };
+        let map = if self.unwrapped { &mut st.unwrapped } else { &mut st.segs };
+        let Some(b) = map.get(&self.key).filter(|b| b.addr() == self.addr) else { return Sweep::Dead; };
         if b.class() != crate::mem::CACHED {
             return Sweep::Sticky;
         }
@@ -738,17 +695,10 @@ impl crate::mem::Victim for PartSlot {
     }
 
     fn dead(&self) -> bool {
-        let Some(part) = self.part.upgrade() else {
-            return true;
-        };
+        let Some(part) = self.part.upgrade() else { return true; };
         let st = lock(&part.state);
-        let map = if self.unwrapped {
-            &st.unwrapped
-        } else {
-            &st.segs
-        };
-        !map.get(&self.key)
-            .is_some_and(|b| b.addr() == self.addr && b.class() == crate::mem::CACHED)
+        let map = if self.unwrapped { &st.unwrapped } else { &st.segs };
+        !map.get(&self.key).is_some_and(|b| b.addr() == self.addr && b.class() == crate::mem::CACHED)
     }
 }
 
@@ -791,12 +741,7 @@ pub struct FaultEntry {
 }
 
 fn stream_tag(entry: &StreamEntry, extent: u32) -> FaultTag {
-    FaultTag::StreamExtent {
-        attno: entry.attno,
-        path_ord: entry.path_ord,
-        role: entry.role,
-        extent,
-    }
+    FaultTag::StreamExtent { attno: entry.attno, path_ord: entry.path_ord, role: entry.role, extent, }
 }
 
 /// D4487: an open part's fault log, the tests' witness of what it read (`OpenPart::faults`). It keeps its entries only
@@ -853,11 +798,7 @@ impl PartExpect {
     /// The full expectation set for a manifest-listed part; the footer's creating `(spc, db)` is not one (W0-8): a
     /// database copy (CREATE DATABASE .. TEMPLATE, ALTER DATABASE SET TABLESPACE) carries the part files to another
     /// `(spc, db)` unchanged.
-    pub fn from_manifest(
-        rec: &PartRecord,
-        schema_fingerprint: u64,
-        relfilenumber: u64,
-    ) -> PartExpect {
+    pub fn from_manifest(rec: &PartRecord, schema_fingerprint: u64, relfilenumber: u64,) -> PartExpect {
         PartExpect {
             part_no: Some(rec.part_no),
             rows: Some(rec.rows),
@@ -1098,28 +1039,12 @@ pub struct FaceHold {
 impl FaceHold {
     /// A hold of `part`'s faces: `counted` false (the off switch) charges them only, as before D4504.
     pub fn new(part: &Arc<OpenPart>, counted: bool) -> FaceHold {
-        FaceHold {
-            charge: crate::partcache::holder_charge(0),
-            part: Arc::downgrade(part),
-            bytes: 0,
-            census: 0,
-            gov: Default::default(),
-            gen: part.face_gen.load(Ordering::Acquire),
-            counted,
-        }
+        FaceHold { charge: crate::partcache::holder_charge(0), part: Arc::downgrade(part), bytes: 0, census: 0, gov: Default::default(), gen: part.face_gen.load(Ordering::Acquire), counted, }
     }
 
     /// A hold of no part's faces (a list over parts it did not open): charged only, never stale.
     pub fn unpinned() -> FaceHold {
-        FaceHold {
-            charge: crate::partcache::holder_charge(0),
-            part: std::sync::Weak::new(),
-            bytes: 0,
-            census: 0,
-            gov: Default::default(),
-            gen: 0,
-            counted: false,
-        }
+        FaceHold { charge: crate::partcache::holder_charge(0), part: std::sync::Weak::new(), bytes: 0, census: 0, gov: Default::default(), gen: 0, counted: false, }
     }
 
     /// `n` more bytes, just allocated on this thread, held.
@@ -1147,11 +1072,7 @@ impl FaceHold {
     /// Whether a content trim let this part's faces go since the hold was taken, or the part is gone: its holder drops it
     /// (a hold the census does not count is never stale).
     pub fn stale(&self) -> bool {
-        self.counted
-            && self
-                .part
-                .upgrade()
-                .is_none_or(|p| p.face_gen.load(Ordering::Acquire) != self.gen)
+        self.counted && self.part.upgrade().is_none_or(|p| p.face_gen.load(Ordering::Acquire) != self.gen)
     }
 }
 
@@ -1243,11 +1164,7 @@ pub struct UseMoves<'p> {
 impl<'p> UseMoves<'p> {
     /// The group of `part`'s use moves (its caller holds the part).
     pub fn new(part: &'p OpenPart) -> UseMoves<'p> {
-        UseMoves {
-            part,
-            users: None,
-            parked: 0,
-        }
+        UseMoves { part, users: None, parked: 0, }
     }
 
     /// Whether `part` is this group's.
@@ -1268,9 +1185,7 @@ impl Drop for UseMoves<'_> {
                 self.part.running_use_ended();
             }
             n => {
-                self.part
-                    .parked
-                    .fetch_sub(n.unsigned_abs() as u32, Ordering::Relaxed);
+                self.part.parked.fetch_sub(n.unsigned_abs() as u32, Ordering::Relaxed);
             }
         }
     }
@@ -1279,18 +1194,13 @@ impl Drop for UseMoves<'_> {
 /// D3994 (B.1 W): the owners whose uses are parked executors' (a kept cursor between statements): a backend's session,
 /// the slot depot.
 fn parks(o: memledger::Owner) -> bool {
-    matches!(
-        o,
-        memledger::Owner::Session(_) | memledger::Owner::Cache(memledger::Holder::Parked)
-    )
+    matches!(o, memledger::Owner::Session(_) | memledger::Owner::Cache(memledger::Holder::Parked))
 }
 
 /// A use moves from user `from` to user `into` on a part's user list (`OpenPart::user_accts`: an entry per user with its
 /// count): false, nothing moved, when `from` has no entry or the list cannot grow by `into`'s.
 fn move_user(u: &mut Vec<(u32, u64, u32)>, from: (u32, u64), into: (u32, u64)) -> bool {
-    let Some(i) = u.iter().position(|e| (e.0, e.1) == from) else {
-        return false;
-    };
+    let Some(i) = u.iter().position(|e| (e.0, e.1) == from) else { return false; };
     match u.iter().position(|e| (e.0, e.1) == into) {
         Some(j) => u[j].2 += 1,
         None if u.try_reserve(1).is_ok() => u.push((into.0, into.1, 1)),
@@ -1334,12 +1244,10 @@ impl PartUse {
         }
         let (from, into) = (user_key(self.charge.owner()), user_key(to));
         // D4552 (a): the user list grows in the part cache's account (`OpenPart::homed`)
-        if from != into
-            && !{
-                let _pc = self.part.homed();
-                move_user(&mut lock(&self.part.user_accts), from, into)
-            }
-        {
+        if from != into && !{
+            let _pc = self.part.homed();
+            move_user(&mut lock(&self.part.user_accts), from, into)
+        } {
             return;
         }
         self.charge.transfer(to, release);
@@ -1364,33 +1272,17 @@ impl PartUse {
     /// D4554: `transfer` for a run of uses over ONE part (`group`'s), the part's user list locked and its parked count
     /// moved once for the run: a backend moves every kept cursor's use at each statement's bind and end, several cursors
     /// (a source's columns) a part, and each lock and count is a cache line another core touched last.
-    pub fn transfer_in(
-        &mut self,
-        group: &mut UseMoves<'_>,
-        to: memledger::Owner,
-        release: memledger::Release,
-    ) {
-        debug_assert!(
-            core::ptr::eq(&*self.part, group.part),
-            "a use moved in another part's group"
-        );
+    pub fn transfer_in(&mut self, group: &mut UseMoves<'_>, to: memledger::Owner, release: memledger::Release,) {
+        debug_assert!(core::ptr::eq(&*self.part, group.part), "a use moved in another part's group");
         if self.charge.owner() == to && self.charge.release() == release {
             self.undefer();
             return;
         }
         let (from, into) = (user_key(self.charge.owner()), user_key(to));
-        if from != into
-            && !{
-                let _pc = group.part.homed();
-                move_user(
-                    group
-                        .users
-                        .get_or_insert_with(|| lock(&group.part.user_accts)),
-                    from,
-                    into,
-                )
-            }
-        {
+        if from != into && !{
+            let _pc = group.part.homed();
+            move_user(group.users.get_or_insert_with(|| lock(&group.part.user_accts)), from, into,)
+        } {
             return;
         }
         self.charge.transfer(to, release);
@@ -1406,14 +1298,8 @@ impl PartUse {
     /// move (the slot depot's park, else the statement's end to the session); the part sees what `transfer_in` to the
     /// session shows.
     pub fn park_pending_in(&mut self, group: &mut UseMoves<'_>) {
-        debug_assert!(
-            core::ptr::eq(&*self.part, group.part),
-            "a use moved in another part's group"
-        );
-        if !matches!(
-            self.charge.owner(),
-            memledger::Owner::Statement { .. } | memledger::Owner::Portal { .. }
-        ) {
+        debug_assert!(core::ptr::eq(&*self.part, group.part), "a use moved in another part's group");
+        if !matches!(self.charge.owner(), memledger::Owner::Statement { .. } | memledger::Owner::Portal { .. }) {
             return;
         }
         self.undefer();
@@ -1452,9 +1338,7 @@ impl PartUse {
 
     /// D4315: the statement reads the part again (a second pass enters it) or gives it back: its uses count in the floor.
     pub fn undefer(&mut self) {
-        let Some(key) = self.deferred.take() else {
-            return;
-        };
+        let Some(key) = self.deferred.take() else { return; };
         let mut d = lock(&self.part.deferred);
         if let Some(i) = d.iter().position(|e| (e.0, e.1) == key) {
             d[i].2 -= 1;
@@ -1507,32 +1391,14 @@ impl Drop for OpenPart {
                 let st = lock(&self.state);
                 let mut held = lock(&self.held);
                 // bounded("other: one part's state maps, a split per image another holder keeps (a Drop cannot stop)")
-                for b in [&st.segs, &st.unwrapped, &st.staged]
-                    .into_iter()
-                    .flat_map(|m| m.values())
-                    .filter(|b| b.is_shared())
-                {
+                for b in [&st.segs, &st.unwrapped, &st.staged].into_iter().flat_map(|m| m.values()).filter(|b| b.is_shared()) {
                     b.carry_owed(held.split_off(b.len() as u64 + IMG_BLOCK));
                 }
             }
-            drop(core::mem::replace(
-                &mut *lock(&self.held),
-                memledger::Charge::NONE,
-            ));
+            drop(core::mem::replace(&mut *lock(&self.held), memledger::Charge::NONE,));
             let mut st = lock(&self.state);
-            let (segs, unwrapped, staged, passed, inflight) = (
-                core::mem::take(&mut st.segs),
-                core::mem::take(&mut st.unwrapped),
-                core::mem::take(&mut st.staged),
-                core::mem::take(&mut st.passed),
-                core::mem::take(&mut st.inflight),
-            );
-            let (dict_epochs, stream_epochs, stream_secs, dict_blocks) = (
-                core::mem::take(&mut st.dict_epochs),
-                core::mem::take(&mut st.stream_epochs),
-                core::mem::take(&mut st.stream_secs),
-                core::mem::take(&mut st.dict_blocks),
-            );
+            let (segs, unwrapped, staged, passed, inflight) = (core::mem::take(&mut st.segs), core::mem::take(&mut st.unwrapped), core::mem::take(&mut st.staged), core::mem::take(&mut st.passed), core::mem::take(&mut st.inflight),);
+            let (dict_epochs, stream_epochs, stream_secs, dict_blocks) = (core::mem::take(&mut st.dict_epochs), core::mem::take(&mut st.stream_epochs), core::mem::take(&mut st.stream_secs), core::mem::take(&mut st.dict_blocks),);
             let faults = core::mem::take(&mut st.faults);
             drop(st);
             self.drain_nodes(segs);
@@ -1545,6 +1411,7 @@ impl Drop for OpenPart {
             self.drain_nodes(stream_secs);
             self.drain_nodes(dict_blocks);
             let _pc = self.homed();
+            #[allow(clippy::drop_non_drop)]
             drop(faults);
             // the use lists grew there too (`use_by`, a use's move or deferral)
             drop(core::mem::take(&mut *lock(&self.deferred)));
@@ -1560,17 +1427,9 @@ impl Drop for OpenPart {
                 b.carry_owed(held.split_off(b.len() as u64 + IMG_BLOCK));
                 b.len() as u64
             };
-            [&st.segs, &st.unwrapped, &st.staged]
-                .into_iter()
-                .flat_map(|m| m.values())
-                .filter(|b| b.owe_if_shared())
-                .map(owe)
-                .sum()
+            [&st.segs, &st.unwrapped, &st.staged].into_iter().flat_map(|m| m.values()).filter(|b| b.owe_if_shared()).map( owe).sum()
         };
-        crate::partcache::uncount(
-            self.resident.load(Ordering::Relaxed).saturating_sub(owed),
-            &mut lock(&self.gov),
-        );
+        crate::partcache::uncount(self.resident.load(Ordering::Relaxed).saturating_sub(owed), &mut lock(&self.gov),);
         // D4607: counted after its last strong reference went, so a holder that reads the count and then finds this part's
         // weak references dead sees every close the count names
         note_part_closed();
@@ -1646,12 +1505,8 @@ impl OpenPart {
     pub(crate) fn carry_own(&self, c: Option<memledger::Charge>) {
         // a block the general road served (no cache heap, or a full one) took no cache-road charge in the scope: its
         // lists' and its `Arc` block's bytes, counted on this thread, are committed now (`at_least`)
-        let lists = self.sections.capacity() * core::mem::size_of::<SectionEntry>()
-            + self.known.capacity() * core::mem::size_of::<Option<SectionKind>>();
-        if let Some(c) = at_least(
-            c,
-            (core::mem::size_of::<OpenPart>() + 2 * core::mem::size_of::<usize>() + lists) as u64,
-        ) {
+        let lists = self.sections.capacity() * core::mem::size_of::<SectionEntry>() + self.known.capacity() * core::mem::size_of::<Option<SectionKind>>();
+        if let Some(c) = at_least(c, (core::mem::size_of::<OpenPart>() + 2 * core::mem::size_of::<usize>() + lists) as u64,) {
             let _ = self.own.set(c);
         }
     }
@@ -1823,11 +1678,7 @@ impl OpenPart {
             pin_count: AtomicU32::new(0),
             last_used: AtomicU64::new(0),
             resident: AtomicU64::new(0),
-            gov: Mutex::new(crate::partcache::Charged {
-                slot: 0,
-                epoch: 0,
-                bytes: 0,
-            }),
+            gov: Mutex::new(crate::partcache::Charged { slot: 0, epoch: 0, bytes: 0, }),
             users: AtomicU32::new(0),
             parked: AtomicU32::new(0),
             deferred: Mutex::new(Vec::new()),
@@ -1911,43 +1762,26 @@ impl OpenPart {
         let table = match self.zone.get() {
             Some(t) => t,
             None => {
-                let n = self
-                    .sections
-                    .iter()
-                    .zip(&self.known)
+                let n = self.sections.iter().zip(&self.known)
                     // a column's attno (MaxTupleAttributeNumber bounds it; a stray larger one is never a column)
-                    .filter(|(e, k)| {
-                        **k == Some(SectionKind::Stats) && e.path_ord == 0 && e.attno <= 1664
+                    .filter(|(e, k)| { **k == Some(SectionKind::Stats) && e.path_ord == 0 && e.attno <= 1664
                     })
                     .map(|(e, _)| e.attno as usize + 1)
                     .max()
                     .unwrap_or(0);
-                self.keep_zone(
-                    &self.zone,
-                    ZoneMemo::new((0..n).map(|_| ZoneRecordsCell::new()).collect()),
-                );
+                self.keep_zone(&self.zone, ZoneMemo::new((0..n).map(|_| ZoneRecordsCell::new()).collect()),);
                 self.zone.get().expect("zone table just set")
             }
         };
-        let Some(cell) = table.0.get(attno as usize) else {
-            return Ok(None);
-        };
+        let Some(cell) = table.0.get(attno as usize) else { return Ok(None); };
         if let Some(recs) = cell.get() {
             return Ok(recs.as_ref().map(|r| &*r.0));
         }
         let recs: Option<ZoneMemo<Option<StatsRecord>>> = body()?.map(|b| {
-            ZoneMemo::new(
-                b.chunks_exact(STATS_RECORD_LEN)
-                    .map(|r| StatsRecord::decode(&mut Cur::new(r)).ok())
-                    .collect(),
-            )
+            ZoneMemo::new(b.chunks_exact(STATS_RECORD_LEN).map(|r| StatsRecord::decode(&mut Cur::new(r)).ok()).collect(),)
         });
         self.keep_zone(cell, recs);
-        Ok(cell
-            .get()
-            .expect("zone records just set")
-            .as_ref()
-            .map(|r| &*r.0))
+        Ok(cell.get().expect("zone records just set").as_ref().map(|r| &*r.0))
     }
 
     /// ZONEPRUNE F2: set a zone memo cell; the first set's bytes join the part's [`Self::resident`] through
@@ -1963,12 +1797,7 @@ impl OpenPart {
     /// ZONEPRUNE F2: the bytes of this part's zone memo (of [`Self::resident`]).
     pub fn zone_resident(&self) -> u64 {
         let Some(t) = self.zone.get() else { return 0 };
-        t.bytes()
-            + t.0
-                .iter()
-                .filter_map(|c| c.get())
-                .map(|v| v.zone_bytes())
-                .sum::<u64>()
+        t.bytes() + t.0.iter().filter_map(|c| c.get()).map(|v| v.zone_bytes()).sum::<u64>()
     }
 
     /// Bytes resident in the segment cache.
@@ -1980,10 +1809,7 @@ impl OpenPart {
     #[cfg(test)]
     pub(crate) fn held_and_images(&self) -> (u64, u64) {
         let st = lock(&self.state);
-        (
-            lock(&self.held).committed(),
-            (st.segs.len() + st.unwrapped.len() + st.staged.len()) as u64,
-        )
+        (lock(&self.held).committed(), (st.segs.len() + st.unwrapped.len() + st.staged.len()) as u64,)
     }
 
     /// D4487 t2 (tests): a cached segment's key.
@@ -2031,18 +1857,10 @@ impl OpenPart {
         // every image faulted into the cache: the part cache's miss and its bytes (timed where the read `arm`ed it)
         memledger::value::fault(memledger::Consumer::PartCache, self.value_key(), n);
         // cache plan A6: and the bytes it read back, at the key the image's door looks it up by (file offset `off`)
-        memledger::value::reloaded(
-            memledger::Consumer::PartCache,
-            self.value_key() ^ off.rotate_left(32),
-            n,
-        );
+        memledger::value::reloaded(memledger::Consumer::PartCache, self.value_key() ^ off.rotate_left(32), n,);
         if self.owed.load(Ordering::Relaxed) != 0 {
-            if let Ok(owed) = self
-                .owed
-                .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |o| {
-                    (o != 0).then(|| o.saturating_sub(n))
-                })
-            {
+            if let Ok(owed) = self.owed.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |o| { (o != 0).then(|| o.saturating_sub(n))
+                }) {
                 memledger::value::re_miss(memledger::Consumer::PartCache, owed.min(n));
             }
         }
@@ -2059,10 +1877,7 @@ impl OpenPart {
     #[inline]
     fn ghost_mark(&self, bytes: u64) {
         if bytes != 0 && memledger::value::ext() {
-            self.evicted_at.store(
-                memledger::value::evicted(memledger::Consumer::PartCache, bytes),
-                Ordering::Relaxed,
-            );
+            self.evicted_at.store(memledger::value::evicted(memledger::Consumer::PartCache, bytes), Ordering::Relaxed,);
         }
     }
 
@@ -2158,10 +1973,7 @@ impl OpenPart {
         self.users.fetch_add(1, Ordering::Relaxed);
         if memledger::value::ext() {
             // broker (b)'s loss signal: a use of a resident part in the cache's coldest tenth (its stamp before this use)
-            let (was, tail) = (
-                self.cache_used.load(Ordering::Relaxed),
-                crate::partcache::tail_stamp(),
-            );
+            let (was, tail) = (self.cache_used.load(Ordering::Relaxed), crate::partcache::tail_stamp(),);
             if tail != 0 && was != 0 && was <= tail && self.resident() != 0 {
                 memledger::value::tail_hit(memledger::Consumer::PartCache);
             }
@@ -2183,12 +1995,7 @@ impl OpenPart {
         if now != 0 {
             self.note_reuse(token, first, now);
         }
-        PartUse {
-            part: Arc::clone(self),
-            charge: memledger::Charge::use_of(owner, release),
-            parked: false,
-            deferred: None,
-        }
+        PartUse { part: Arc::clone(self), charge: memledger::Charge::use_of(owner, release), parked: false, deferred: None, }
     }
 
     pub(crate) fn note_reuse(&self, token: u64, first_in_epoch: bool, now: u32) {
@@ -2196,21 +2003,13 @@ impl OpenPart {
         let last = secs as u32;
         let new_statement = if token != 0 {
             let had = self.reuse_stmt.load(Ordering::Relaxed);
-            had != token
-                && self
-                    .reuse_stmt
-                    .compare_exchange(had, token, Ordering::Relaxed, Ordering::Relaxed)
-                    .is_ok()
+            had != token && self.reuse_stmt.compare_exchange(had, token, Ordering::Relaxed, Ordering::Relaxed).is_ok()
         } else {
             first_in_epoch && now.saturating_sub(last) >= REUSE_FALLBACK_S
         };
         if new_statement {
             let shifted = (u64::from(last) << 32) | u64::from(now);
-            if self
-                .reuse_secs
-                .compare_exchange(secs, shifted, Ordering::Relaxed, Ordering::Relaxed)
-                .is_ok()
-            {
+            if self.reuse_secs.compare_exchange(secs, shifted, Ordering::Relaxed, Ordering::Relaxed).is_ok() {
                 self.last_evicted.store(0, Ordering::Relaxed);
             }
         }
@@ -2224,8 +2023,7 @@ impl OpenPart {
 
     /// Memory step 6a: the part's NEED: max(its cached bytes, the most an eviction freed since its latest statement).
     pub fn need_bytes(&self) -> u64 {
-        self.cache_bytes()
-            .max(self.last_evicted.load(Ordering::Relaxed))
+        self.cache_bytes().max(self.last_evicted.load(Ordering::Relaxed))
     }
 
     /// D3109: (attno, path_ord) is opened in the current statement epoch (a cursor or a dictionary, never per row).
@@ -2244,15 +2042,10 @@ impl OpenPart {
     /// signal: what the OS must keep cached for the part's re-reads to stay off the disk).
     pub fn stream_file_bytes_since(&self, since: u32) -> u64 {
         let st = lock(&self.state);
-        let Some(dir) = st.stream_dir.as_ref() else {
-            return 0;
-        };
+        let Some(dir) = st.stream_dir.as_ref() else { return 0; };
         dir.streams()
             .iter()
-            .filter(|s| {
-                st.stream_secs
-                    .get(&(s.entry.attno, s.entry.path_ord))
-                    .is_some_and(|&t| t >= since)
+            .filter(|s| { st.stream_secs.get(&(s.entry.attno, s.entry.path_ord)).is_some_and(|&t| t >= since)
             })
             .flat_map(|s| s.extents.iter().map(|r| r.len))
             .sum()
@@ -2281,24 +2074,14 @@ impl OpenPart {
         let last = crate::partcache::epoch_of(self.cache_used());
         let keys: Vec<(u64, u64)> = {
             // D4398: on the memory ladder's pass, nothing while another thread holds the part
-            let Some(st) = memledger::ladder_pass::lock_or_skip(&self.state) else {
-                return 0;
-            };
-            let Some(dir) = st.stream_dir.clone() else {
-                return 0;
-            };
+            let Some(st) = memledger::ladder_pass::lock_or_skip(&self.state) else { return 0; };
+            let Some(dir) = st.stream_dir.clone() else { return 0; };
             dir.streams()
                 .iter()
-                .filter(|s| {
-                    st.stream_epochs
-                        .get(&(s.entry.attno, s.entry.path_ord))
-                        .is_some_and(|&e| e < last)
+                .filter(|s| { st.stream_epochs.get(&(s.entry.attno, s.entry.path_ord)).is_some_and(|&e| e < last)
                 })
                 .flat_map(|s| s.extents.iter().map(|r| (r.file_off, r.len)))
-                .filter(|k| {
-                    st.segs.contains_key(k)
-                        || st.unwrapped.contains_key(k)
-                        || st.staged.contains_key(k)
+                .filter(|k| { st.segs.contains_key(k) || st.unwrapped.contains_key(k) || st.staged.contains_key(k)
                 })
                 .collect()
         };
@@ -2325,20 +2108,9 @@ impl OpenPart {
             }
             // bounded("other: the extents one cursor read past, at most one stream's extents of one part")
             for k in keys {
-                let Some(len) = st
-                    .unwrapped
-                    .get(&k.key)
-                    .or_else(|| st.segs.get(&k.key))
-                    .map(|b| b.len() as u64)
-                else {
-                    continue;
-                };
+                let Some(len) = st.unwrapped.get(&k.key).or_else(|| st.segs.get(&k.key)).map(|b| b.len() as u64) else { continue; };
                 if let std::collections::btree_map::Entry::Vacant(e) = st.passed.entry(k.key) {
-                    e.insert(Passed {
-                        len,
-                        stream,
-                        g_end: k.g_end,
-                    }); // alloc: Exec
+                    e.insert(Passed { len, stream, g_end: k.g_end, }); // alloc: Exec
                     added += len;
                     listed += 1;
                 }
@@ -2361,8 +2133,8 @@ impl OpenPart {
         let id = st.next_reader;
         let cap = st.readers.capacity();
         st.readers.push(LiveReader { id, stream, low: 0 }); // alloc: Exec
-                                                            // D4487 t2: the list keeps its most readers' room for the part's life (a deregister keeps the capacity): its
-                                                            // growth is the part cache's with the part's other bytes
+        // D4487 t2: the list keeps its most readers' room for the part's life (a deregister keeps the capacity): its
+        // growth is the part cache's with the part's other bytes
         let grown = (st.readers.capacity() - cap) * core::mem::size_of::<LiveReader>();
         drop(g);
         if grown > 0 {
@@ -2412,41 +2184,17 @@ impl OpenPart {
     /// holder clones frees nothing when the cache drops its copy (D3113). Under the memory ladder's pass, none while another
     /// thread holds the part (as [`Self::cache_bytes`]).
     pub fn trimmable_now(&self, whole: bool) -> u64 {
-        let Some(st) = memledger::ladder_pass::lock_or_skip(&self.state) else {
-            return 0;
-        };
+        let Some(st) = memledger::ladder_pass::lock_or_skip(&self.state) else { return 0; };
         let sole = |b: &SegBuf| if b.is_shared() { 0 } else { b.len() as u64 };
         if !whole {
-            let PartState {
-                passed,
-                segs,
-                unwrapped,
-                inflight,
-                ..
-            } = &*st;
-            return passed
-                .keys()
-                .filter(|k| !inflight.contains(k))
-                .filter_map(|k| unwrapped.get(k).or_else(|| segs.get(k)))
-                .map(sole)
-                .sum();
+            let PartState { passed, segs, unwrapped, inflight, .. } = &*st;
+            return passed.keys().filter(|k| !inflight.contains(k)).filter_map(|k| unwrapped.get(k).or_else(|| segs.get(k))).map(sole).sum();
         }
         if !st.inflight.is_empty() {
             return 0;
         }
-        let images: u64 = st
-            .segs
-            .values()
-            .chain(st.unwrapped.values())
-            .chain(st.staged.values())
-            .map(sole)
-            .sum();
-        let dicts: u64 = st
-            .dict_blocks
-            .values()
-            .filter(|d| Arc::strong_count(d) == 1)
-            .map(|d| d.resident_bytes())
-            .sum();
+        let images: u64 = st.segs.values().chain(st.unwrapped.values()).chain(st.staged.values()).map(sole).sum();
+        let dicts: u64 = st.dict_blocks.values().filter(|d| Arc::strong_count(d) == 1).map(|d| d.resident_bytes()).sum();
         images + dicts
     }
 
@@ -2479,31 +2227,20 @@ impl OpenPart {
         if self.passed_bytes() == 0 {
             return 0;
         }
-        let mut freed =
-            memledger::ChargedVec::new(Some(crate::partcache::OWNER), memledger::Kind::Region);
+        let mut freed = memledger::ChargedVec::new(Some(crate::partcache::OWNER), memledger::Kind::Region);
         #[allow(unused_assignments)]
         let mut unlisted = 0u64;
         {
             let mut step = cancelpoll::step("pgrc_read evict_passed: a passed image's eviction");
             // D4398: on the memory ladder's pass, nothing while another thread holds the part
-            let Some(mut g) = memledger::ladder_pass::lock_or_skip(&self.state) else {
-                return 0;
-            };
+            let Some(mut g) = memledger::ladder_pass::lock_or_skip(&self.state) else { return 0; };
             let _pc = self.homed();
-            let PartState {
-                passed,
-                segs,
-                unwrapped,
-                inflight,
-                readers,
-                ..
-            } = &mut *g;
+            let PartState { passed, segs, unwrapped, inflight, readers, .. } = &mut *g;
             // D4351: each stream's lowest live reader, sorted by stream (one search per passed extent)
-            let mut lows: memledger::ChargedVec<(StreamTag, u32)> =
-                memledger::ChargedVec::new(Some(crate::partcache::OWNER), memledger::Kind::Region);
+            let mut lows: memledger::ChargedVec<(StreamTag, u32)> = memledger::ChargedVec::new(Some(crate::partcache::OWNER), memledger::Kind::Region);
             if !ahead && !readers.is_empty() {
                 lows.with_vec(|v| v.extend(readers.iter().map(|r| (r.stream, r.low)))); // alloc: Cold charged crate::partcache::OWNER
-                                                                                        // bounded("other: one part's live readers, a cursor each (sessions x read columns)")
+                // bounded("other: one part's live readers, a cursor each (sessions x read columns)")
                 lows.sort_unstable();
                 lows.with_vec(|v| v.dedup_by_key(|e| e.0));
             }
@@ -2533,8 +2270,7 @@ impl OpenPart {
                 }
                 false
             });
-            self.passed_bytes
-                .store(passed.values().map(|p| p.len).sum(), Ordering::Relaxed);
+            self.passed_bytes.store(passed.values().map(|p| p.len).sum(), Ordering::Relaxed);
             unlisted = (listed - passed.len()) as u64;
         }
         self.passed_entries(unlisted, false);
@@ -2578,8 +2314,7 @@ impl OpenPart {
             if c.len() >= mempolicy::keep::CODE_COUNTS_KEPT {
                 break;
             }
-            if !c.iter().any(|e| e.0 == attno && e.1 == code) && c.try_reserve(1).is_ok() {
-                // alloc: Cold charged crate::partcache::OWNER (the part's held charge, below)
+            if !c.iter().any(|e| e.0 == attno && e.1 == code) && c.try_reserve(1).is_ok() { // alloc: Cold charged crate::partcache::OWNER (the part's held charge, below)
                 c.push((attno, code, rows)); // alloc: Cold charged crate::partcache::OWNER (reserved above: no growth)
             }
         }
@@ -2600,8 +2335,7 @@ impl OpenPart {
     /// executors' ([`PartUse::transfer`] to a session or the depot). A part with none is in nobody's read: the trim may
     /// evict it when every use is parked and the memory policy's gate allows.
     pub fn live_users(&self) -> u32 {
-        self.users()
-            .saturating_sub(self.parked.load(Ordering::Relaxed))
+        self.users().saturating_sub(self.parked.load(Ordering::Relaxed))
     }
 
     /// D4315: the part's floor test: some live claim holds it. Of the live uses (`live_users`), those of the owners whose
@@ -2616,10 +2350,7 @@ impl OpenPart {
         let d = lock(&self.deferred);
         let held: u64 = {
             let u = lock(&self.user_accts);
-            u.iter()
-                .filter(|e| d.iter().any(|k| (k.0, k.1) == (e.0, e.1)))
-                .map(|e| e.2 as u64)
-                .sum()
+            u.iter().filter(|e| d.iter().any(|k| (k.0, k.1) == (e.0, e.1))).map(|e| e.2 as u64).sum()
         };
         live as u64 > held
     }
@@ -2641,14 +2372,8 @@ impl OpenPart {
     /// D3003: the part's cached bytes: the segment cache plus its part-grain dictionary images.
     pub fn cache_bytes(&self) -> u64 {
         // D4398: on the memory ladder's pass, none while another thread holds the part (the pass leaves the cache out)
-        let Some(st) = memledger::ladder_pass::lock_or_skip(&self.state) else {
-            return 0;
-        };
-        self.resident()
-            + st.dict_blocks
-                .values()
-                .map(|d| d.resident_bytes())
-                .sum::<u64>()
+        let Some(st) = memledger::ladder_pass::lock_or_skip(&self.state) else { return 0; };
+        self.resident() + st.dict_blocks.values().map(|d| d.resident_bytes()).sum::<u64>()
     }
 
     /// D4504: the bytes of this part's metadata faces its holders keep ([`FaceHold`]).
@@ -2712,12 +2437,7 @@ impl OpenPart {
     pub(crate) fn evict_dropped(&self) -> (u64, u64) {
         // the mark, the running uses' ends and these reads are SeqCst: a use that ends as the part drops sees the mark
         // (and gives the contents back itself), or this read sees it gone
-        if self
-            .users
-            .load(Ordering::SeqCst)
-            .saturating_sub(self.parked.load(Ordering::SeqCst))
-            != 0
-        {
+        if self.users.load(Ordering::SeqCst).saturating_sub(self.parked.load(Ordering::SeqCst)) != 0 {
             return (0, 0);
         }
         let poison = self.users() != 0 && crate::partcache::park_poison();
@@ -2732,13 +2452,7 @@ impl OpenPart {
     /// statement uses any more gives its contents back now. One load while the part is not dropped.
     #[inline]
     fn running_use_ended(&self) {
-        if self.is_dropped()
-            && self
-                .users
-                .load(Ordering::SeqCst)
-                .saturating_sub(self.parked.load(Ordering::SeqCst))
-                == 0
-        {
+        if self.is_dropped() && self.users.load(Ordering::SeqCst).saturating_sub(self.parked.load(Ordering::SeqCst)) == 0 {
             let (bytes, _) = self.evict_dropped();
             crate::partcache::note_dropped(0, bytes);
         }
@@ -2748,9 +2462,7 @@ impl OpenPart {
         let mut unlisted = 0u64;
         let (mut segs, mut unwrapped, mut staged, dicts, kept) = {
             // D4398: on the memory ladder's pass, nothing while another thread holds the part (as a read in flight)
-            let Some(mut st) = memledger::ladder_pass::lock_or_skip(&self.state) else {
-                return ((0, 0, 0), 0);
-            };
+            let Some(mut st) = memledger::ladder_pass::lock_or_skip(&self.state) else { return ((0, 0, 0), 0); };
             if !st.inflight.is_empty() {
                 return ((0, 0, 0), 0);
             }
@@ -2760,33 +2472,16 @@ impl OpenPart {
             let (unwrapped, k2) = st.unwrapped.take_sole();
             let (staged, k3) = st.staged.take_sole();
             if !st.passed.is_empty() {
-                let PartState {
-                    passed,
-                    segs: s,
-                    unwrapped: u,
-                    ..
-                } = &mut *st;
+                let PartState { passed, segs: s, unwrapped: u, .. } = &mut *st;
                 let listed = passed.len();
                 passed.retain(|k, _| s.contains_key(k) || u.contains_key(k));
                 unlisted = (listed - passed.len()) as u64;
-                self.passed_bytes
-                    .store(passed.values().map(|p| p.len).sum(), Ordering::Relaxed);
+                self.passed_bytes.store(passed.values().map(|p| p.len).sum(), Ordering::Relaxed);
             }
-            (
-                segs,
-                unwrapped,
-                staged,
-                core::mem::take(&mut st.dict_blocks),
-                k1 + k2 + k3,
-            )
+            (segs, unwrapped, staged, core::mem::take(&mut st.dict_blocks), k1 + k2 + k3,)
         };
         self.passed_entries(unlisted, false);
-        let seg_bytes: u64 = segs
-            .values()
-            .chain(unwrapped.values())
-            .chain(staged.values())
-            .map(|b| b.len() as u64)
-            .sum();
+        let seg_bytes: u64 = segs.values().chain(unwrapped.values()).chain(staged.values()).map(|b| b.len() as u64).sum();
         let images = (segs.len() + unwrapped.len() + staged.len()) as u64;
         if seg_bytes > 0 || images > 0 {
             self.debit(seg_bytes, images);
@@ -2807,15 +2502,7 @@ impl OpenPart {
         if !dropped {
             self.ghost_mark(seg_bytes + dict_bytes);
         }
-        let poisoned = if poison {
-            segs.values_mut()
-                .chain(unwrapped.values_mut())
-                .chain(staged.values_mut())
-                .map(SegBuf::poison)
-                .sum()
-        } else {
-            0
-        };
+        let poisoned = if poison { segs.values_mut().chain(unwrapped.values_mut()).chain(staged.values_mut()).map(SegBuf::poison).sum() } else { 0 };
         drop((segs, unwrapped, staged));
         self.drain_nodes(dicts);
         if !dropped {
@@ -2871,26 +2558,13 @@ impl OpenPart {
     /// [`Self::section_bytes`] under [`Residency::Cached`] (C1 L5, `crate::mem`): a hit sets the image's ref bit; a
     /// miss is read, CRC-checked and admitted cold if the cap has room (otherwise only the caller holds it).
     pub fn section_bytes_cached(self: &Arc<Self>, idx: usize) -> ReadResult<SegBuf> {
-        let e = *self
-            .sections
-            .get(idx)
-            .ok_or(ReadError::Format(FormatError::Bounds {
-                at: "section index",
-            }))?;
+        let e = *self.sections.get(idx).ok_or(ReadError::Format(FormatError::Bounds { at: "section index", }))?;
         let key = (e.off, e.len);
-        if let Some(b) = lock(&self.state)
-            .segs
-            .get(&key)
-            .map(|b| b.served(Residency::Cached))
-        {
+        if let Some(b) = lock(&self.state).segs.get(&key).map(|b| b.served(Residency::Cached)) {
             return Ok(b);
         }
         let buf = self.section_bytes_uncached(idx)?;
-        let tag = FaultTag::ListedSection {
-            kind: e.kind,
-            attno: e.attno,
-            path_ord: e.path_ord,
-        };
+        let tag = FaultTag::ListedSection { kind: e.kind, attno: e.attno, path_ord: e.path_ord, };
         Ok(self.admit(false, key, buf, tag))
     }
 
@@ -2898,25 +2572,15 @@ impl OpenPart {
     /// read and CRC-checked for the caller alone (nothing inserted, logged or counted). For metadata a caller copies
     /// at once: `pgrc_am`'s `meta_section_body` (the ANALYZE fold, the planner answers).
     pub fn section_bytes_uncached(&self, idx: usize) -> ReadResult<SegBuf> {
-        let e = *self
-            .sections
-            .get(idx)
-            .ok_or(ReadError::Format(FormatError::Bounds {
-                at: "section index",
-            }))?;
+        let e = *self.sections.get(idx).ok_or(ReadError::Format(FormatError::Bounds { at: "section index", }))?;
         if let Some(b) = lock(&self.state).segs.get(&(e.off, e.len)) {
             return Ok(b.clone());
         }
         let at: &'static str = "listed section";
-        if e.off
-            .checked_add(e.len)
-            .map(|end| end > self.io.len())
-            .unwrap_or(true)
-        {
+        if e.off.checked_add(e.len).map(|end| end > self.io.len()).unwrap_or(true) {
             return Err(ReadError::Format(FormatError::Bounds { at }));
         }
-        let buf = SegBuf::build_for(None, e.len as usize, true, |b| {
-            self.io.pread_exact(e.off, b, at)
+        let buf = SegBuf::build_for(None, e.len as usize, true, |b| { self.io.pread_exact(e.off, b, at)
         })?;
         if crc32c(buf.bytes()) != e.crc {
             return Err(ReadError::Format(FormatError::CrcMismatch { at }));
@@ -2949,12 +2613,7 @@ impl OpenPart {
             return Ok(b);
         }
         let buf = self.extent_bytes_uncached_for(owner, entry, rec, extent_idx)?;
-        Ok(self.admit(
-            false,
-            (rec.file_off, rec.len),
-            buf,
-            stream_tag(entry, extent_idx),
-        ))
+        Ok(self.admit(false, (rec.file_off, rec.len), buf, stream_tag(entry, extent_idx),))
     }
 
     /// [`Self::unwrapped_extent_bytes`] under [`Residency::Cached`]; the miss is
@@ -2982,31 +2641,14 @@ impl OpenPart {
         if let Some(b) = self.cached_hit(true, entry, rec, extent_idx) {
             return Ok(b);
         }
-        let buf =
-            self.unwrapped_extent_bytes_uncached_for(owner, entry, rec, extent_idx, rebuild)?;
-        Ok(self.admit(
-            true,
-            (rec.file_off, rec.len),
-            buf,
-            stream_tag(entry, extent_idx),
-        ))
+        let buf = self.unwrapped_extent_bytes_uncached_for(owner, entry, rec, extent_idx, rebuild)?;
+        Ok(self.admit(true, (rec.file_off, rec.len), buf, stream_tag(entry, extent_idx),))
     }
 
-    fn cached_hit(
-        &self,
-        unwrapped: bool,
-        entry: &StreamEntry,
-        rec: &ExtentRecord,
-        extent_idx: u32,
-    ) -> Option<SegBuf> {
+    fn cached_hit(&self, unwrapped: bool, entry: &StreamEntry, rec: &ExtentRecord, extent_idx: u32,) -> Option<SegBuf> {
         let key = (rec.file_off, rec.len);
         let st = lock(&self.state);
-        let b = if unwrapped {
-            st.unwrapped.get(&key)
-        } else {
-            st.segs.get(&key)
-        }?
-        .served(Residency::Cached);
+        let b = if unwrapped { st.unwrapped.get(&key) } else { st.segs.get(&key) }?.served(Residency::Cached);
         drop(st);
         if STREAM_FAULT_OBS_ENABLED.load(Ordering::Relaxed) != 0 {
             observe_stream_fault(&StreamFaultEvent {
@@ -3029,21 +2671,11 @@ impl OpenPart {
     /// Admission (`crate::mem`) of an image a Cached face just read, charged as held: make room with no part lock
     /// held, then insert-if-absent (the first insert wins) and register the ring slot. Over the cap the image is
     /// returned held and uninserted; a later reader faults it again.
-    fn admit(
-        self: &Arc<Self>,
-        unwrapped: bool,
-        key: (u64, u64),
-        buf: SegBuf,
-        tag: FaultTag,
-    ) -> SegBuf {
+    fn admit(self: &Arc<Self>, unwrapped: bool, key: (u64, u64), buf: SegBuf, tag: FaultTag,) -> SegBuf {
         let room = crate::mem::make_room();
         let mut guard = lock(&self.state);
         let st = &mut *guard;
-        let map = if unwrapped {
-            &mut st.unwrapped
-        } else {
-            &mut st.segs
-        };
+        let map = if unwrapped { &mut st.unwrapped } else { &mut st.segs };
         if let Some(b) = map.get(&key) {
             return b.served(Residency::Cached);
         }
@@ -3052,11 +2684,7 @@ impl OpenPart {
         }
         map.insert_cached(key, buf.clone());
         if st.faults.len() < self.fault_cap() {
-            st.faults.push(FaultEntry {
-                tag,
-                off: key.0,
-                len: key.1,
-            });
+            st.faults.push(FaultEntry { tag, off: key.0, len: key.1, });
         } else {
             st.unlogged += 1;
         }
@@ -3066,12 +2694,7 @@ impl OpenPart {
         self.charge_taken(key.0, buf.len() as u64, None);
         drop(guard);
         let part = Arc::downgrade(self);
-        crate::mem::register(Box::new(PartSlot {
-            part,
-            unwrapped,
-            key,
-            addr: buf.addr(),
-        }));
+        crate::mem::register(Box::new(PartSlot { part, unwrapped, key, addr: buf.addr(), }));
         buf
     }
 
@@ -3084,9 +2707,7 @@ impl OpenPart {
         extent_idx: u32,
     ) -> ReadResult<SegBuf> {
         if STREAM_FAULT_OBS_ENABLED.load(Ordering::Relaxed) != 0 {
-            let resident = lock(&self.state)
-                .segs
-                .contains_key(&(rec.file_off, rec.len));
+            let resident = lock(&self.state).segs.contains_key(&(rec.file_off, rec.len));
             observe_stream_fault(&StreamFaultEvent {
                 part: self as *const OpenPart as usize,
                 attno: entry.attno,
@@ -3149,11 +2770,7 @@ impl OpenPart {
         let at: &'static str = "stream extent";
         let key = (rec.file_off, rec.len);
         // cache plan C2 / C5: a private read serves a resident image as any other read does: the same door
-        memledger::value::lookup(
-            memledger::Consumer::PartCache,
-            self.value_key() ^ rec.file_off.rotate_left(32),
-            rec.len,
-        );
+        memledger::value::lookup(memledger::Consumer::PartCache, self.value_key() ^ rec.file_off.rotate_left(32), rec.len,);
         if STREAM_FAULT_OBS_ENABLED.load(Ordering::Relaxed) != 0 {
             let resident = lock(&self.state).segs.contains_key(&key);
             observe_stream_fault(&StreamFaultEvent {
@@ -3203,8 +2820,7 @@ impl OpenPart {
             retire(self);
             return Err(ReadError::Format(FormatError::Bounds { at }));
         }
-        let buf = match SegBuf::build_for(owner, rec.len as usize, true, |b| {
-            pread_polled(&mut step, &*self.io, rec.file_off, b, at)
+        let buf = match SegBuf::build_for(owner, rec.len as usize, true, |b| { pread_polled(&mut step, &*self.io, rec.file_off, b, at)
         }) {
             Ok(b) => b,
             Err(e) => {
@@ -3251,15 +2867,8 @@ impl OpenPart {
         rebuild: &mut dyn FnMut(&[u8]) -> ReadResult<Vec<u8>>,
     ) -> ReadResult<SegBuf> {
         let key = (rec.file_off, rec.len);
-        memledger::value::lookup(
-            memledger::Consumer::PartCache,
-            self.value_key() ^ rec.file_off.rotate_left(32),
-            rec.len,
-        );
-        let hit = lock(&self.state)
-            .unwrapped
-            .get(&key)
-            .map(|b| b.served(Residency::Shared));
+        memledger::value::lookup(memledger::Consumer::PartCache, self.value_key() ^ rec.file_off.rotate_left(32), rec.len,);
+        let hit = lock(&self.state).unwrapped.get(&key).map(|b| b.served(Residency::Shared));
         if STREAM_FAULT_OBS_ENABLED.load(Ordering::Relaxed) != 0 {
             observe_stream_fault(&StreamFaultEvent {
                 part: self as *const OpenPart as usize,
@@ -3301,19 +2910,16 @@ impl OpenPart {
         {
             let _pc = self.homed();
             st.unwrapped.insert(key, buf.clone());
-            st.log_fault(
-                self.fault_cap(),
-                FaultEntry {
-                    tag: FaultTag::StreamExtent {
-                        attno: entry.attno,
-                        path_ord: entry.path_ord,
-                        role: entry.role,
-                        extent: extent_idx,
-                    },
-                    off: rec.file_off,
-                    len: rec.len,
+            st.log_fault(self.fault_cap(), FaultEntry {
+                tag: FaultTag::StreamExtent {
+                    attno: entry.attno,
+                    path_ord: entry.path_ord,
+                    role: entry.role,
+                    extent: extent_idx,
                 },
-            );
+                off: rec.file_off,
+                len: rec.len,
+            },);
         }
         self.charge_seg(rec.file_off, buf.len() as u64, &buf);
         Ok(buf)
@@ -3349,11 +2955,7 @@ impl OpenPart {
     ) -> ReadResult<SegBuf> {
         let key = (rec.file_off, rec.len);
         // cache plan C2 / C5: as `extent_bytes_uncached_for`
-        memledger::value::lookup(
-            memledger::Consumer::PartCache,
-            self.value_key() ^ rec.file_off.rotate_left(32),
-            rec.len,
-        );
+        memledger::value::lookup(memledger::Consumer::PartCache, self.value_key() ^ rec.file_off.rotate_left(32), rec.len,);
         let hit = lock(&self.state).unwrapped.get(&key).cloned();
         if STREAM_FAULT_OBS_ENABLED.load(Ordering::Relaxed) != 0 {
             observe_stream_fault(&StreamFaultEvent {
@@ -3382,7 +2984,7 @@ impl OpenPart {
         let (rebuilt, taken) = charged_for(owner, || rebuild(raw.bytes()));
         let rebuilt = rebuilt?;
         drop(raw);
-        if !(rebuilt.as_ptr() as usize).is_multiple_of(8) {
+        if !( rebuilt.as_ptr() as usize).is_multiple_of( 8) {
             // adopt copies it: the rebuild's bytes go back to this thread, where it frees, and the copy takes its own
             drop(taken);
             return SegBuf::copied_for(owner, &rebuilt);
@@ -3430,11 +3032,7 @@ impl OpenPart {
             return Err(ReadError::Format(FormatError::Bounds { at }));
         }
         let whole_key = (rec.file_off, rec.len);
-        memledger::value::lookup(
-            memledger::Consumer::PartCache,
-            self.value_key() ^ rec.file_off.rotate_left(32),
-            rec.len,
-        );
+        memledger::value::lookup(memledger::Consumer::PartCache, self.value_key() ^ rec.file_off.rotate_left(32), rec.len,);
         let slice_of = |seg: &SegBuf| -> ReadResult<SegBuf> {
             SegBuf::from_bytes_for(
                 owner,
@@ -3452,15 +3050,10 @@ impl OpenPart {
             }
         }
         let off = rec.file_off + off_in_extent;
-        if off
-            .checked_add(len)
-            .map(|end| end > self.io.len())
-            .unwrap_or(true)
-        {
+        if off.checked_add(len).map(|end| end > self.io.len()).unwrap_or(true) {
             return Err(ReadError::Format(FormatError::Bounds { at }));
         }
-        SegBuf::build_for(owner, len as usize, true, |b| {
-            self.io.pread_exact(off, b, at)
+        SegBuf::build_for(owner, len as usize, true, |b| { self.io.pread_exact(off, b, at)
         })
     }
 
@@ -3479,25 +3072,15 @@ impl OpenPart {
         // node inside it
         let make = || {
             let (p, held) = in_cache_held(|| Arc::new(crate::dicthandle::BlockLazyPayload::new()));
-            if let Some(c) = at_least(
-                held,
-                memledger::arc_bytes::<crate::dicthandle::BlockLazyPayload>(),
-            ) {
+            if let Some(c) = at_least(held, memledger::arc_bytes::<crate::dicthandle::BlockLazyPayload>(),) {
                 p.hold(c);
             }
             p
         };
-        let made = if st.dict_blocks.contains_key(&key) {
-            None
-        } else {
-            Some(make())
-        };
+        let made = if st.dict_blocks.contains_key(&key) { None } else { Some(make()) };
         let _pc = self.homed();
         // (absent here only when it was absent above: the same state lock)
-        let p = st
-            .dict_blocks
-            .entry(key)
-            .or_insert_with(|| made.unwrap_or_else(make));
+        let p = st.dict_blocks.entry(key).or_insert_with(|| made.unwrap_or_else(make));
         p.clone()
     }
 
@@ -3509,9 +3092,7 @@ impl OpenPart {
         if lock(&self.state).stream_dir.is_some() {
             return false;
         }
-        let Some(idx) = self.find_section(SectionKind::StreamDir, 0, 0) else {
-            return false;
-        };
+        let Some(idx) = self.find_section(SectionKind::StreamDir, 0, 0) else { return false; };
         let e = self.sections[idx];
         self.io.advise_willneed(e.off, e.len);
         true
@@ -3531,8 +3112,7 @@ impl OpenPart {
         let bytes = self.section_bytes(idx)?;
         // D4552 (a): the directory is the part's (the part cache's holder), whoever parses it, whoever drops it last: its
         // lists and its `Arc` block charged as they are allocated, the charge inside it
-        let (dir, held) = in_cache_held(|| {
-            StreamDirectory::parse(bytes.bytes(), self.footer.stream_count).map(Arc::new)
+        let (dir, held) = in_cache_held(|| { StreamDirectory::parse(bytes.bytes(), self.footer.stream_count).map(Arc::new)
         });
         let dir = dir?;
         if let Some(c) = at_least(held, dir.heap_bytes()) {
@@ -3608,27 +3188,16 @@ impl OpenPart {
             at: "section index",
         });
         let mut out: memledger::ChargedVec<Option<SegBuf>> = read_vec(owner);
-        out.with_vec(|v| v.try_reserve_exact(idxs.len()))
-            .map_err(|_| ReadError::Io {
-                at: "section index reads",
-                errno: libc::ENOMEM,
-            })?; // alloc: Exec charged owner
+        out.with_vec(|v| v.try_reserve_exact(idxs.len())).map_err(|_| ReadError::Io { at: "section index reads", errno: libc::ENOMEM, })?; // alloc: Exec charged owner
         out.with_vec(|v| v.resize(idxs.len(), None)); // alloc: Exec charged owner
         let mut want: memledger::ChargedVec<(u64, u64, usize)> = read_vec(owner);
-        want.try_reserve(idxs.len()).map_err(|_| ReadError::Io {
-            at: "section index reads",
-            errno: libc::ENOMEM,
-        })?; // alloc: Exec charged owner
+        want.try_reserve(idxs.len()).map_err(|_| ReadError::Io { at: "section index reads", errno: libc::ENOMEM, })?; // alloc: Exec charged owner
         {
             let st = lock(&self.state);
             // bounded("catalog-sized: the listed sections, a few meta sections per scanned column; one cache lookup each")
             for (pos, &idx) in idxs.iter().enumerate() {
                 let e = self.sections.get(idx).ok_or(bounds)?;
-                memledger::value::lookup(
-                    memledger::Consumer::PartCache,
-                    self.value_key() ^ e.off.rotate_left(32),
-                    e.len,
-                );
+                memledger::value::lookup(memledger::Consumer::PartCache, self.value_key() ^ e.off.rotate_left(32), e.len,);
                 match st.segs.get(&(e.off, e.len)) {
                     Some(b) => {
                         Self::served();
@@ -3674,29 +3243,22 @@ impl OpenPart {
                 }
                 // CACHE-CHARGE: a kept section's image is the part cache's from its allocation
                 let kept = keep(idx);
-                let buf = if kept {
-                    SegBuf::from_bytes_held(bytes)?
-                } else {
-                    SegBuf::from_bytes_for(owner, bytes)?
-                };
+                let buf = if kept { SegBuf::from_bytes_held(bytes)? } else { SegBuf::from_bytes_for(owner, bytes)? };
                 if kept {
                     let mut st = lock(&self.state);
                     if !st.segs.contains_key(&(off, len)) {
                         {
                             let _pc = self.homed();
                             st.segs.insert((off, len), buf.clone());
-                            st.log_fault(
-                                self.fault_cap(),
-                                FaultEntry {
-                                    tag: FaultTag::ListedSection {
-                                        kind: e.kind,
-                                        attno: e.attno,
-                                        path_ord: e.path_ord,
-                                    },
-                                    off,
-                                    len,
+                            st.log_fault(self.fault_cap(), FaultEntry {
+                                tag: FaultTag::ListedSection {
+                                    kind: e.kind,
+                                    attno: e.attno,
+                                    path_ord: e.path_ord,
                                 },
-                            );
+                                off,
+                                len,
+                            },);
                         }
                         self.charge_seg(off, len, &buf);
                     } else {
@@ -3708,10 +3270,7 @@ impl OpenPart {
             }
             i = j;
         }
-        Ok(out
-            .iter_mut()
-            .map(|b| b.take().expect("every position is filled"))
-            .collect())
+        Ok(out.iter_mut().map(|b| b.take().expect("every position is filled")).collect())
     }
 
     /// The minted u64 dict epoch for (attno, path_ord) — one per open-part
@@ -3802,57 +3361,39 @@ impl OpenPart {
     /// stream's extents are resident as unwrapped images (else as plain segments). Hot (every extent resident): no syscall.
     /// At most `limit` bytes are advised (the caller's in-flight budget; the ranges past it are left to the demand reads).
     /// Returns `(calls, bytes)` advised.
-    pub fn advise_extents_in_pieces<'r>(
-        &self,
-        recs: impl Iterator<Item = &'r ExtentRecord>,
-        wrapped: bool,
-        max_hole: u64,
-        piece: u64,
-        limit: u64,
-    ) -> (u64, u64) {
+    pub fn advise_extents_in_pieces<'r>(&self, recs: impl Iterator<Item = &'r ExtentRecord>, wrapped: bool, max_hole: u64, piece: u64, limit: u64,) -> (u64, u64) {
         let file_len = self.io.len();
         let piece = piece.max(4096);
         let (mut calls, mut bytes) = (0u64, 0u64);
         // advisory: a cancel ends the hints (the bytes not advised are left out of `bytes`), the reads stop on their own
         let mut step = cancelpoll::step("pgrc_read advise_extents_in_pieces: a run's hints");
         // one coalesced range `[off, end)`, clipped to what is left of `limit`, in `piece`-byte calls; false on a cancel
-        let advise =
-            |step: &mut cancelpoll::Step, off: u64, end: u64, calls: &mut u64, bytes: &mut u64| {
-                let end = end.min(off.saturating_add(limit.saturating_sub(*bytes)));
-                let mut o = off;
-                while o < end {
-                    if step.tick().is_err() {
-                        *bytes += o - off;
-                        return false;
-                    }
-                    let n = (end - o).min(piece);
-                    self.io.advise_willneed(o, n);
-                    *calls += 1;
-                    o += n;
+        let advise = |step: &mut cancelpoll::Step, off: u64, end: u64, calls: &mut u64, bytes: &mut u64| {
+            let end = end.min(off.saturating_add(limit.saturating_sub(*bytes)));
+            let mut o = off;
+            while o < end {
+                if step.tick().is_err() {
+                    *bytes += o - off;
+                    return false;
                 }
-                *bytes += end.saturating_sub(off);
-                true
-            };
+                let n = (end - o).min(piece);
+                self.io.advise_willneed(o, n);
+                *calls += 1;
+                o += n;
+            }
+            *bytes += end.saturating_sub(off);
+            true
+        };
         let (mut lo, mut hi) = (0u64, 0u64);
         for r in recs {
             if bytes >= limit || step.tick().is_err() {
                 return (calls, bytes);
             }
-            let Some(end) = r
-                .file_off
-                .checked_add(r.len)
-                .filter(|&e| r.len > 0 && e <= file_len)
-            else {
-                continue;
-            };
+            let Some(end) = r.file_off.checked_add(r.len).filter(|&e| r.len > 0 && e <= file_len) else { continue; };
             let resident = {
                 let key = (r.file_off, r.len);
                 let st = lock(&self.state);
-                if wrapped {
-                    st.unwrapped.contains_key(&key) || st.staged.contains_key(&key)
-                } else {
-                    st.segs.contains_key(&key)
-                }
+                if wrapped { st.unwrapped.contains_key(&key) || st.staged.contains_key(&key) } else { st.segs.contains_key(&key) }
             };
             if resident {
                 continue;
@@ -3913,16 +3454,8 @@ impl OpenPart {
         rebuild: Option<&mut dyn FnMut(&[u8]) -> ReadResult<Vec<u8>>>,
         inserted_log: Option<&mut Vec<(u64, u64)>>,
     ) -> (u64, u64, u64, u64, u64) {
-        let roled: Vec<(u32, ExtentRecord, u8)> =
-            recs.iter().map(|(i, r)| (*i, *r, entry.role)).collect(); // alloc: Exec
-        self.prefetch_extent_run_holes_roles(
-            entry,
-            &roled,
-            max_run,
-            max_hole,
-            rebuild,
-            inserted_log,
-        )
+        let roled: Vec<(u32, ExtentRecord, u8)> = recs.iter().map(|(i, r)| (*i, *r, entry.role)).collect(); // alloc: Exec
+        self.prefetch_extent_run_holes_roles(entry, &roled, max_run, max_hole, rebuild, inserted_log,)
     }
 
     /// `prefetch_extent_run` with a HOLE LIMIT (the Arrow/DuckDB
@@ -3946,15 +3479,7 @@ impl OpenPart {
         rebuild: Option<&mut dyn FnMut(&[u8]) -> ReadResult<Vec<u8>>>,
         inserted_log: Option<&mut Vec<(u64, u64)>>,
     ) -> (u64, u64, u64, u64, u64) {
-        self.prefetch_extent_run_holes_roles_for(
-            None,
-            entry,
-            recs,
-            max_run,
-            max_hole,
-            rebuild,
-            inserted_log,
-        )
+        self.prefetch_extent_run_holes_roles_for(None, entry, recs, max_run, max_hole, rebuild, inserted_log,)
     }
 
     /// [`Self::prefetch_extent_run_holes_roles`] whose run reads are `owner`'s (the reading cursor's).
@@ -3983,17 +3508,15 @@ impl OpenPart {
         let mut run_end = 0u64;
         // D4016 / D4065 (C9): a prefetch is advisory, so a cancel ends it with what it read (true from `flush`): the run in
         // hand retires its keys, the demand reads after it stop on their own steps
-        let mut step =
-            cancelpoll::step("pgrc_read prefetch_extent_run_holes_roles: a claim run's read");
+        let mut step = cancelpoll::step("pgrc_read prefetch_extent_run_holes_roles: a claim run's read");
         let flush = |step: &mut cancelpoll::Step,
-                     run: &mut memledger::ChargedVec<(u32, ExtentRecord, u8)>,
-                     inserted: &mut u64,
-                     inserted_bytes: &mut u64,
-                     io_bytes: &mut u64,
-                     io_runs: &mut u64,
-                     rebuild: &mut Option<&mut dyn FnMut(&[u8]) -> ReadResult<Vec<u8>>>,
-                     inserted_log: &mut Option<&mut Vec<(u64, u64)>>|
-         -> bool {
+                         run: &mut memledger::ChargedVec<(u32, ExtentRecord, u8)>,
+                         inserted: &mut u64,
+                         inserted_bytes: &mut u64,
+                         io_bytes: &mut u64,
+                         io_runs: &mut u64,
+                         rebuild: &mut Option<&mut dyn FnMut(&[u8]) -> ReadResult<Vec<u8>>>,
+                         inserted_log: &mut Option<&mut Vec<(u64, u64)>>| -> bool {
             if run.is_empty() {
                 return false;
             }
@@ -4031,18 +3554,17 @@ impl OpenPart {
             let mut buf: memledger::ChargedVec<u8> = read_vec(owner);
             buf.with_vec(|v| *v = vec![0u8; total]); // alloc: Exec charged owner
             let read = pread_polled(step, &*self.io, off0, &mut buf, "prefetch extent run");
-            let retire =
-                |this: &OpenPart, run: &mut memledger::ChargedVec<(u32, ExtentRecord, u8)>| {
-                    let mut st = lock(&this.state);
-                    let _pc = this.homed();
-                    // bounded("other: one key per record of the run, which max_run bytes of extents bound; a set removal each, all of them, so no key stays in flight")
-                    for (_, r, _) in run.iter() {
-                        st.inflight.remove(&(r.file_off, r.len));
-                    }
-                    drop(st);
-                    this.inflight_cv.notify_all();
-                    run.clear();
-                };
+            let retire = |this: &OpenPart, run: &mut memledger::ChargedVec<(u32, ExtentRecord, u8)>| {
+                let mut st = lock(&this.state);
+                let _pc = this.homed();
+                // bounded("other: one key per record of the run, which max_run bytes of extents bound; a set removal each, all of them, so no key stays in flight")
+                for (_, r, _) in run.iter() {
+                    st.inflight.remove(&(r.file_off, r.len));
+                }
+                drop(st);
+                this.inflight_cv.notify_all();
+                run.clear();
+            };
             if matches!(read, Err(ReadError::Canceled)) {
                 retire(self, run);
                 return true;
@@ -4068,9 +3590,7 @@ impl OpenPart {
                             continue;
                         }
                         // a prefetch: an image the machine cannot hold now is left to the demand read, which reports it typed
-                        let Ok(img) = SegBuf::from_bytes_held(raw) else {
-                            continue;
-                        };
+                        let Ok(img) = SegBuf::from_bytes_held(raw) else { continue; };
                         let taken = img.take_charge();
                         {
                             let _pc = self.homed();
@@ -4084,9 +3604,7 @@ impl OpenPart {
                         continue;
                     }
                     if section_of(*role) {
-                        let Some(e) = self.sections.get(*idx as usize).copied() else {
-                            continue;
-                        };
+                        let Some(e) = self.sections.get(*idx as usize).copied() else { continue; };
                         if (e.off, e.len) != key {
                             continue;
                         }
@@ -4094,25 +3612,12 @@ impl OpenPart {
                         if st.segs.contains_key(&key) {
                             continue;
                         }
-                        let Ok(img) = SegBuf::from_bytes_held(raw) else {
-                            continue;
-                        };
+                        let Ok(img) = SegBuf::from_bytes_held(raw) else { continue; };
                         let taken = img.take_charge();
                         {
                             let _pc = self.homed();
                             st.segs.insert(key, img);
-                            st.log_fault(
-                                self.fault_cap(),
-                                FaultEntry {
-                                    tag: FaultTag::ListedSection {
-                                        kind: e.kind,
-                                        attno: e.attno,
-                                        path_ord: e.path_ord,
-                                    },
-                                    off: e.off,
-                                    len: e.len,
-                                },
-                            );
+                            st.log_fault(self.fault_cap(), FaultEntry { tag: FaultTag::ListedSection { kind: e.kind, attno: e.attno, path_ord: e.path_ord, }, off: e.off, len: e.len, },);
                         }
                         drop(st);
                         self.charge_taken(rec.file_off, rec.len, taken);
@@ -4133,13 +3638,8 @@ impl OpenPart {
                             Err(_) => continue,
                         };
                         // a prefetch: an image the machine cannot hold now is left to the demand read, which reports it typed
-                        crate::partcache::load_gate(
-                            rebuilt.len() as u64,
-                            crate::partcache::Load::Ahead,
-                        );
-                        let Ok(img) = SegBuf::adopt_held(rebuilt, taken) else {
-                            continue;
-                        };
+                        crate::partcache::load_gate(rebuilt.len() as u64, crate::partcache::Load::Ahead,);
+                        let Ok(img) = SegBuf::adopt_held(rebuilt, taken) else { continue; };
                         let img_len = img.len() as u64;
                         let mut st = lock(&self.state);
                         if st.unwrapped.contains_key(&key) {
@@ -4149,14 +3649,7 @@ impl OpenPart {
                         {
                             let _pc = self.homed();
                             st.unwrapped.insert(key, img);
-                            st.log_fault(
-                                self.fault_cap(),
-                                FaultEntry {
-                                    tag,
-                                    off: rec.file_off,
-                                    len: rec.len,
-                                },
-                            );
+                            st.log_fault(self.fault_cap(), FaultEntry { tag, off: rec.file_off, len: rec.len, },);
                         }
                         drop(st);
                         self.charge_taken(rec.file_off, img_len, taken);
@@ -4166,9 +3659,7 @@ impl OpenPart {
                         *inserted += 1;
                         *inserted_bytes += rec.len;
                     } else {
-                        let Ok(img) = SegBuf::from_bytes_held(raw) else {
-                            continue;
-                        };
+                        let Ok(img) = SegBuf::from_bytes_held(raw) else { continue; };
                         let mut st = lock(&self.state);
                         if st.segs.contains_key(&key) {
                             continue;
@@ -4177,14 +3668,7 @@ impl OpenPart {
                         {
                             let _pc = self.homed();
                             st.segs.insert(key, img);
-                            st.log_fault(
-                                self.fault_cap(),
-                                FaultEntry {
-                                    tag,
-                                    off: rec.file_off,
-                                    len: rec.len,
-                                },
-                            );
+                            st.log_fault(self.fault_cap(), FaultEntry { tag, off: rec.file_off, len: rec.len, },);
                         }
                         drop(st);
                         self.charge_taken(rec.file_off, rec.len, taken);
@@ -4210,16 +3694,7 @@ impl OpenPart {
                     .map(|end| end <= file_len)
                     .unwrap_or(false);
             if !in_bounds {
-                if flush(
-                    &mut step,
-                    &mut run,
-                    &mut inserted,
-                    &mut inserted_bytes,
-                    &mut io_bytes,
-                    &mut io_runs,
-                    &mut rebuild,
-                    &mut inserted_log,
-                ) {
+                if flush(&mut step, &mut run, &mut inserted, &mut inserted_bytes, &mut io_bytes, &mut io_runs, &mut rebuild, &mut inserted_log,) {
                     return (inserted, inserted_bytes, already, io_bytes, io_runs);
                 }
                 run_end = 0;
@@ -4241,52 +3716,24 @@ impl OpenPart {
             };
             if resident {
                 already += 1;
-                if flush(
-                    &mut step,
-                    &mut run,
-                    &mut inserted,
-                    &mut inserted_bytes,
-                    &mut io_bytes,
-                    &mut io_runs,
-                    &mut rebuild,
-                    &mut inserted_log,
-                ) {
+                if flush(&mut step, &mut run, &mut inserted, &mut inserted_bytes, &mut io_bytes, &mut io_runs, &mut rebuild, &mut inserted_log,) {
                     return (inserted, inserted_bytes, already, io_bytes, io_runs);
                 }
                 run_end = 0;
                 continue;
             }
-            let near =
-                !run.is_empty() && rec.file_off >= run_end && rec.file_off - run_end <= max_hole;
-            let fits =
-                run.is_empty() || (near && rec.file_off + rec.len - run[0].1.file_off <= max_run);
-            if !fits
-                && flush(
-                    &mut step,
-                    &mut run,
-                    &mut inserted,
-                    &mut inserted_bytes,
-                    &mut io_bytes,
-                    &mut io_runs,
-                    &mut rebuild,
-                    &mut inserted_log,
-                )
-            {
+            let near = !run.is_empty()
+                && rec.file_off >= run_end
+                && rec.file_off - run_end <= max_hole;
+            let fits = run.is_empty()
+                || (near && rec.file_off + rec.len - run[0].1.file_off <= max_run);
+            if !fits && flush(&mut step, &mut run, &mut inserted, &mut inserted_bytes, &mut io_bytes, &mut io_runs, &mut rebuild, &mut inserted_log,) {
                 return (inserted, inserted_bytes, already, io_bytes, io_runs);
             }
             run_end = rec.file_off + rec.len;
             run.with_vec(|v| v.push((*idx, *rec, *role))); // alloc: Exec charged owner
         }
-        flush(
-            &mut step,
-            &mut run,
-            &mut inserted,
-            &mut inserted_bytes,
-            &mut io_bytes,
-            &mut io_runs,
-            &mut rebuild,
-            &mut inserted_log,
-        );
+        flush(&mut step, &mut run, &mut inserted, &mut inserted_bytes, &mut io_bytes, &mut io_runs, &mut rebuild, &mut inserted_log,);
         (inserted, inserted_bytes, already, io_bytes, io_runs)
     }
 
@@ -4321,16 +3768,12 @@ impl OpenPart {
         // to this thread first, then their frees land on it. Freed in place before the debit, a large image's free folded
         // this thread's row below zero on its own (the ledger floor credited UNBOUND, and the debit then left the bytes on
         // this thread's row for its session).
-        let mut freed =
-            memledger::ChargedVec::new(Some(crate::partcache::OWNER), memledger::Kind::Region);
+        let mut freed = memledger::ChargedVec::new(Some(crate::partcache::OWNER), memledger::Kind::Region);
         {
             // cache-only: a cancel leaves the rest resident, as a later pass would find them
-            let mut step =
-                cancelpoll::step("pgrc_read evict_extent_images: a probationary image's eviction");
+            let mut step = cancelpoll::step("pgrc_read evict_extent_images: a probationary image's eviction");
             // D4398: on the memory ladder's pass, nothing while another thread holds the part
-            let Some(mut g) = memledger::ladder_pass::lock_or_skip(&self.state) else {
-                return (0, 0, 0);
-            };
+            let Some(mut g) = memledger::ladder_pass::lock_or_skip(&self.state) else { return (0, 0, 0); };
             let _pc = self.homed();
             let st = &mut *g;
             for (i, k) in keys.iter().enumerate() {
@@ -4405,8 +3848,7 @@ impl OpenPart {
             return Err(ReadError::Format(FormatError::Bounds { at }));
         }
         let mut step = cancelpoll::step("pgrc_read wrapped_raw: a wrapped extent's read");
-        let raw = SegBuf::build_for(owner, rec.len as usize, true, |b| {
-            pread_polled(&mut step, &*self.io, rec.file_off, b, at)
+        let raw = SegBuf::build_for(owner, rec.len as usize, true, |b| { pread_polled(&mut step, &*self.io, rec.file_off, b, at)
         })?;
         if crc32c(raw.bytes()) != rec.crc {
             return Err(ReadError::Format(FormatError::CrcMismatch { at }));
@@ -4417,15 +3859,7 @@ impl OpenPart {
     /// Footer-listed section `idx` as a run record (`ROLE_SECTION`): its offset, length and CRC, `role` its flag.
     pub fn section_run_record(&self, idx: usize) -> Option<(u32, ExtentRecord, u8)> {
         let e = self.sections.get(idx)?;
-        let rec = ExtentRecord {
-            file_off: e.off,
-            len: e.len,
-            values: 0,
-            granule_start: 0,
-            granule_count: 0,
-            crc: e.crc,
-            flags: 0,
-        };
+        let rec = ExtentRecord { file_off: e.off, len: e.len, values: 0, granule_start: 0, granule_count: 0, crc: e.crc, flags: 0, };
         Some((idx as u32, rec, ROLE_SECTION))
     }
 
@@ -4445,8 +3879,7 @@ impl OpenPart {
         if !st.inflight.contains(&key) {
             return Ok(false);
         }
-        let mut step =
-            cancelpoll::step("pgrc_read wait_inflight: a demand read's wait on a run in flight");
+        let mut step = cancelpoll::step("pgrc_read wait_inflight: a demand read's wait on a run in flight");
         while st.inflight.contains(&key) {
             st = self.wait_slice(st);
             step.tick()?;
@@ -4455,14 +3888,8 @@ impl OpenPart {
     }
 
     /// One slice of a wait on `inflight_cv` ([`INFLIGHT_SLICE`]): the waiter ticks its step between slices.
-    fn wait_slice<'a>(
-        &self,
-        st: pgsync::MutexGuard<'a, PartState>,
-    ) -> pgsync::MutexGuard<'a, PartState> {
-        self.inflight_cv
-            .wait_timeout(st, INFLIGHT_SLICE)
-            .map(|(g, _)| g)
-            .unwrap_or_else(|e| e.into_inner().0)
+    fn wait_slice<'a>(&self, st: pgsync::MutexGuard<'a, PartState>,) -> pgsync::MutexGuard<'a, PartState> {
+        self.inflight_cv.wait_timeout(st, INFLIGHT_SLICE).map(|(g, _)| g).unwrap_or_else(|e| e.into_inner().0)
     }
 
     /// The shared fault engine: cache lookup → (outside the lock) bounded
@@ -4478,11 +3905,7 @@ impl OpenPart {
         tag: FaultTag,
     ) -> ReadResult<SegBuf> {
         let key = (off, len);
-        memledger::value::lookup(
-            memledger::Consumer::PartCache,
-            self.value_key() ^ off.rotate_left(32),
-            len,
-        );
+        memledger::value::lookup(memledger::Consumer::PartCache, self.value_key() ^ off.rotate_left(32), len,);
         let mut step = cancelpoll::step("pgrc_read fault_range: a section or region's read");
         // [cold2] Demand faults REGISTER IN FLIGHT before reading (the
         // prefetch runs always did): a racing prefetch run now drops the
@@ -4506,16 +3929,11 @@ impl OpenPart {
                 }
             }
             self.arm();
-            if off
-                .checked_add(len)
-                .map(|end| end > self.io.len())
-                .unwrap_or(true)
-            {
+            if off.checked_add(len).map(|end| end > self.io.len()).unwrap_or(true) {
                 return Err(ReadError::Format(FormatError::Bounds { at }));
             }
             crate::partcache::load_gate(len, crate::partcache::Load::Demand);
-            let buf = SegBuf::build_held(len as usize, true, |b| {
-                pread_polled(&mut step, &*self.io, off, b, at)
+            let buf = SegBuf::build_held(len as usize, true, |b| { pread_polled(&mut step, &*self.io, off, b, at)
             })?;
             if crc32c(buf.bytes()) != crc {
                 return Err(ReadError::Format(FormatError::CrcMismatch { at }));
@@ -4567,8 +3985,7 @@ impl OpenPart {
         }
         // the part cache's LOAD GATE: room for the image before it is read (the key stays in flight across a wait)
         crate::partcache::load_gate(len, crate::partcache::Load::Demand);
-        let buf = match SegBuf::build_held(len as usize, true, |b| {
-            pread_polled(&mut step, &*self.io, off, b, at)
+        let buf = match SegBuf::build_held(len as usize, true, |b| { pread_polled(&mut step, &*self.io, off, b, at)
         }) {
             Ok(b) => b,
             Err(e) => {
@@ -4607,11 +4024,7 @@ impl OpenPart {
 /// (`PGRUST_PGRC_DEMAND_INFLIGHT=0` = the pre-fix racing arm). Read once.
 fn demand_inflight() -> bool {
     static F: pgsync::OnceLock<bool> = pgsync::OnceLock::new();
-    *F.get_or_init(|| {
-        !matches!(
-            std::env::var("PGRUST_PGRC_DEMAND_INFLIGHT").as_deref(),
-            Ok("0")
-        )
+    *F.get_or_init(|| { !matches!(std::env::var("PGRUST_PGRC_DEMAND_INFLIGHT").as_deref(), Ok("0"))
     })
 }
 
@@ -4700,26 +4113,12 @@ fn validate_section_layout(
 
 /// D3973 (C9): `buf` from `off` as `step`'s units, a tick before each piece read (a whole wrapped extent's read held a
 /// dictionary prewarm 530 ms); outside a kernel call it never stops.
-pub(crate) fn pread_polled(
-    step: &mut cancelpoll::Step,
-    io: &dyn PartIo,
-    off: u64,
-    buf: &mut [u8],
-    at: &'static str,
-) -> ReadResult<()> {
+pub(crate) fn pread_polled(step: &mut cancelpoll::Step, io: &dyn PartIo, off: u64, buf: &mut [u8], at: &'static str,) -> ReadResult<()> {
     pread_pieces(step, io, off, buf, at, EXTENT_PIECE)
 }
 
-pub(crate) fn pread_pieces(
-    step: &mut cancelpoll::Step,
-    io: &dyn PartIo,
-    off: u64,
-    buf: &mut [u8],
-    at: &'static str,
-    piece: usize,
-) -> ReadResult<()> {
-    step.pieces(buf.len(), piece, |r| {
-        io.pread_exact(off + r.start as u64, &mut buf[r], at)
+pub(crate) fn pread_pieces(step: &mut cancelpoll::Step, io: &dyn PartIo, off: u64, buf: &mut [u8], at: &'static str, piece: usize,) -> ReadResult<()> {
+    step.pieces(buf.len(), piece, |r| { io.pread_exact(off + r.start as u64, &mut buf[r], at)
     })
 }
 

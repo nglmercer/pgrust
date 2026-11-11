@@ -61,7 +61,7 @@ pub fn prefix_run<'a, E>(ncodes: u32, prefix: &[u8], entry: &mut dyn FnMut(u32) 
         match e[..k].cmp(&stem[..k]) {
             Ordering::Less => true,
             Ordering::Greater => false,
-            Ordering::Equal => e.get(stem.len()).is_none_or(|&x| x < byte),
+            Ordering::Equal => e.get(stem.len()).is_none_or( |&x| x < byte),
         }
     };
     Ok((lo, first_not(lo, ncodes, entry, &before)?))

@@ -2,8 +2,8 @@ use ::datum::Datum;
 
 use crate::htup::{
     HeapTupleData, MaxCommandIdAttributeNumber, MaxTransactionIdAttributeNumber,
-    MinCommandIdAttributeNumber, MinTransactionIdAttributeNumber, SelfItemPointerAttributeNumber,
-    TableOidAttributeNumber,
+    MinCommandIdAttributeNumber, MinTransactionIdAttributeNumber,
+    SelfItemPointerAttributeNumber, TableOidAttributeNumber,
 };
 use crate::tupdesc::TupleDescData;
 use crate::tupmacs::{
@@ -15,10 +15,7 @@ pub fn getmissingattr(tupleDesc: &TupleDescData<'_>, attnum: i32, isnull: &mut b
     debug_assert!(attnum <= tupleDesc.natts && attnum > 0);
     let att = &tupleDesc.compact_attrs[(attnum - 1) as usize];
     if att.atthasmissing {
-        let constr = tupleDesc
-            .constr
-            .as_ref()
-            .expect("atthasmissing without constr");
+        let constr = tupleDesc.constr.as_ref().expect("atthasmissing without constr");
         let attrmiss = &constr.missing[(attnum - 1) as usize];
         if attrmiss.am_present {
             // C's TopMemoryContext missing_cache (lifetime extension) dissolves:
@@ -326,9 +323,7 @@ pub fn heap_deform_tuple(
         // SAFETY: same walk contract; resumes at the cstring attribute's
         // length step with its datum already stored.
         unsafe {
-            deform_cstring_rest(
-                atts_n, values_n, isnull_n, tp, bp, hasnulls, attnum, off, data_len,
-            );
+            deform_cstring_rest(atts_n, values_n, isnull_n, tp, bp, hasnulls, attnum, off, data_len,);
         }
     }
 }
@@ -364,9 +359,7 @@ pub fn heap_deform_tuple_prefix(
     {
         // SAFETY: same walk contract (resume at the cstring attribute).
         unsafe {
-            deform_cstring_rest(
-                atts_n, values_n, isnull_n, tp, bp, hasnulls, attnum, off, data_len,
-            );
+            deform_cstring_rest(atts_n, values_n, isnull_n, tp, bp, hasnulls, attnum, off, data_len,);
         }
     }
 }
@@ -404,9 +397,7 @@ pub fn heap_deform_tuple_prefix_atts(
     {
         // SAFETY: same walk contract (resume at the cstring attribute).
         unsafe {
-            deform_cstring_rest(
-                atts_n, values_n, isnull_n, tp, bp, hasnulls, attnum, off, data_len,
-            );
+            deform_cstring_rest(atts_n, values_n, isnull_n, tp, bp, hasnulls, attnum, off, data_len,);
         }
     }
 }
@@ -594,9 +585,7 @@ fn deform_narrow(
         let (values_n, isnull_n) = (&mut values[..natts], &mut isnull[..natts]);
         // SAFETY: as heap_deform_tuple.
         unsafe {
-            deform_cstring_rest(
-                atts_n, values_n, isnull_n, tp, bp, hasnulls, attnum, off, data_len,
-            );
+            deform_cstring_rest(atts_n, values_n, isnull_n, tp, bp, hasnulls, attnum, off, data_len,);
         }
     }
     deform_missing_tail(tupleDesc, values, isnull, natts);
@@ -817,11 +806,8 @@ mod deform_bounds_tests {
 mod corrupt_tests {
     #[test]
     fn deform_corruption_is_data_corrupted() {
-        let payload =
-            std::panic::catch_unwind(|| super::deform_corrupt()).expect_err("must unwind");
-        let err = payload
-            .downcast::<alloc::boxed::Box<::types_error::PgError>>()
-            .expect("PgError payload");
+        let payload = std::panic::catch_unwind(|| super::deform_corrupt()).expect_err("must unwind");
+        let err = payload.downcast::<alloc::boxed::Box<::types_error::PgError>>().expect("PgError payload");
         assert_eq!(err.sqlstate(), ::types_error::ERRCODE_DATA_CORRUPTED);
         assert!(err.message.contains("heap tuple data is corrupt"));
     }

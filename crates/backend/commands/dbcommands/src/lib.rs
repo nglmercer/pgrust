@@ -1,4 +1,4 @@
-#![allow(clippy::result_large_err, clippy::too_many_arguments, non_snake_case, non_upper_case_globals)]
+#![allow(clippy::result_large_err,clippy::too_many_arguments, non_snake_case, non_upper_case_globals)]
 
 use cache_syscache::cacheinfo::DATABASEOID;
 use cache_syscache::{ReleaseSysCache, SearchSysCache1, SysCacheGetAttrNotNull, SysCacheKey};
@@ -65,9 +65,7 @@ pub(crate) fn loc(funcname: &'static str) -> ErrorLocation {
 #[cold]
 #[inline(never)]
 pub(crate) fn cache_lookup_failed(what: &str, oid: Oid) -> Box<PgError> {
-    Box::new(PgError::error(format!(
-        "cache lookup failed for {what} {oid}"
-    )))
+    Box::new(PgError::error(format!("cache lookup failed for {what} {oid}")))
 }
 
 const ANUM_PG_DATABASE_DATNAME: i32 = 2;
@@ -341,21 +339,15 @@ fn recovery_create_dbdir(path: &str, only_tblspc: bool) -> PgResult<()> {
             .into_error()
             .into());
     }
-    ereport(if reached_consistency {
-        WARNING
-    } else {
-        types_error::DEBUG1
-    })
-    .errmsg(format!("creating missing directory: {path}"))
-    .finish(loc("recovery_create_dbdir"))?;
+    ereport(if reached_consistency { WARNING } else { types_error::DEBUG1 })
+        .errmsg(format!("creating missing directory: {path}"))
+        .finish(loc("recovery_create_dbdir"))?;
     // dbcommands.c:3300: a failed mkdir here halts recovery (PANIC) rather
     // than surfacing as a catchable ERROR over a half-built directory tree.
     fd::pg_mkdir_p(path).map_err(|e| {
         ereport(PANIC)
             .with_saved_errno(e.saved_errno().unwrap_or(0))
-            .errmsg(format!(
-                "could not create missing directory \"{path}\": {PCT_M}"
-            ))
+            .errmsg(format!("could not create missing directory \"{path}\": {PCT_M}"))
             .into_error()
             .into()
     })
@@ -480,12 +472,7 @@ pub fn dbase_redo(record: &mut XLogReaderState) -> PgResult<()> {
         procsignal::WaitForProcSignalBarrier(gen)?;
 
         fd::copydir(src_path.as_str(), dst_path.as_str(), false)?;
-        pgrc_am::dircopy::copy_table_dirs(
-            src_path.as_str(),
-            dst_path.as_str(),
-            tablespace_id,
-            db_id,
-        )?;
+        pgrc_am::dircopy::copy_table_dirs(src_path.as_str(), dst_path.as_str(), tablespace_id, db_id,)?;
     } else if info == XLOG_DBASE_CREATE_WAL_LOG {
         // xl_dbase_create_wal_log_rec: db_id, tablespace_id (2 x u32).
         require_dbase_len(data, 8, "XLOG_DBASE_CREATE_WAL_LOG")?;
@@ -569,10 +556,7 @@ mod tests {
         assert!(dbcommands_seams::dbase_redo::is_installed());
         // Unbooted catcache: a loud stop (the catcache's named "not registered" ERROR), never a fabricated name.
         let r = std::panic::catch_unwind(|| dbcommands_seams::get_database_name::call(1));
-        assert!(
-            matches!(r, Ok(Err(_))),
-            "an unregistered catcache is an ERROR, not a name or a panic"
-        );
+        assert!(matches!(r, Ok(Err(_))), "an unregistered catcache is an ERROR, not a name or a panic");
     }
 
     // Untrusted WAL: a truncated RM_DBASE record must surface as a catchable
@@ -608,9 +592,7 @@ mod tests {
         let err = recovery_create_dbdir(path, false).expect_err("mkdir under /dev/null must fail");
         assert_eq!(err.level(), PANIC);
         assert!(
-            err.message().starts_with(
-                "could not create missing directory \"/dev/null/b097_missing/16384\": "
-            ),
+            err.message().starts_with("could not create missing directory \"/dev/null/b097_missing/16384\": "),
             "{}",
             err.message()
         );
@@ -623,10 +605,7 @@ mod tests {
         static EMITTED: std::sync::Mutex<Vec<(types_error::ErrorLevel, String)>> =
             std::sync::Mutex::new(Vec::new());
         fn capture(err: &types_error::PgError, _output_to_server: &mut bool) {
-            EMITTED
-                .lock()
-                .unwrap()
-                .push((err.level(), err.message().to_string()));
+            EMITTED.lock().unwrap().push((err.level(), err.message().to_string()));
         }
         if !xlogrecovery_seams::reached_consistency::is_installed() {
             xlogrecovery_seams::reached_consistency::set(|| false);

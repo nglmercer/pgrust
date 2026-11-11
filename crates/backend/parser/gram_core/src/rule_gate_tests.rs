@@ -210,7 +210,7 @@ fn every_call_rule_is_handled_or_allowlisted() {
     // rule and still be unhandled.
     for &r in KNOWN_UNPORTED {
         assert!(
-            (1..=YYNRULES).contains(&r) && DISPATCH[r] == 0,
+            ( 1..= YYNRULES).contains(&r) && DISPATCH[r] == 0,
             "KNOWN_UNPORTED {} is not a CALL-dispatch rule; remove it",
             r
         );

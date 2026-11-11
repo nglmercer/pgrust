@@ -41,10 +41,7 @@ pub use validator::JWT_VALIDATOR_NAME;
 pub fn init_seams() {
     #[cfg(not(target_family = "wasm"))]
     {
-        auth_oauth::register_builtin_validator(
-            validator::JWT_VALIDATOR_NAME,
-            &validator::JWT_VALIDATOR,
-        );
+        auth_oauth::register_builtin_validator(validator::JWT_VALIDATOR_NAME, &validator::JWT_VALIDATOR,);
         dfmgr::register_builtin_library(dfmgr::BuiltinLibraryEntry {
             name: validator::JWT_VALIDATOR_NAME,
             lookup: |_| None,
@@ -54,14 +51,8 @@ pub fn init_seams() {
     #[cfg(feature = "test-validator")]
     {
         auth_oauth::register_builtin_validator(testmod::VALIDATOR_NAME, &testmod::TEST_VALIDATOR);
-        auth_oauth::register_builtin_validator(
-            testmod::FAIL_VALIDATOR_NAME,
-            &testmod::FAIL_VALIDATOR,
-        );
-        auth_oauth::register_builtin_validator(
-            testmod::PREFIX_VALIDATOR_NAME,
-            &testmod::PREFIX_VALIDATOR,
-        );
+        auth_oauth::register_builtin_validator(testmod::FAIL_VALIDATOR_NAME, &testmod::FAIL_VALIDATOR,);
+        auth_oauth::register_builtin_validator(testmod::PREFIX_VALIDATOR_NAME, &testmod::PREFIX_VALIDATOR,);
     }
 }
 

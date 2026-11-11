@@ -379,7 +379,7 @@ mod tests {
             for line in pool.iter() {
                 if let Some(rest) = line.strip_prefix("CREATE ROLE ") {
                     let role = rest
-                        .split([' ', ';'])
+                        .split([ ' ', ';'])
                         .next()
                         .unwrap_or("");
                     assert!(!role.is_empty(), "{name}: unparsable CREATE ROLE");
@@ -392,7 +392,7 @@ mod tests {
                 }
                 if let Some(rest) = line.strip_prefix("CREATE SCHEMA ") {
                     let sc = rest
-                        .split([' ', ';'])
+                        .split([ ' ', ';'])
                         .next()
                         .unwrap_or("");
                     let ci = joined.find(&format!("CREATE SCHEMA {sc}")).unwrap();

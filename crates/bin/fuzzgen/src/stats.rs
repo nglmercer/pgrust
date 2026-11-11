@@ -522,7 +522,7 @@ mod tests {
             for s in &group {
                 let sql = s.to_sql();
                 if let Some(rest) = sql.strip_prefix("CREATE TABLE ") {
-                    let name = rest.split([' ', '(']).next().unwrap();
+                    let name = rest.split([ ' ', '(']).next().unwrap();
                     created.push(name.to_string());
                 }
                 if let Some(rest) = sql.strip_prefix("DROP TABLE ") {

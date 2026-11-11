@@ -78,7 +78,7 @@ impl Opcode {
                         rexw,
                     });
                 }
-        }
+            }
         Err(invalid())
     }
 }
@@ -299,7 +299,7 @@ pub fn verify_opcode_desc(opcode: &Opcode, desc: &InstrDesc) -> Result<()> {
             if let Some(tuple_size) = tuple_size
                 && operand_size != tuple_size {
                     return fail(&format!("memory size {operand_size} != {tuple_size}"));
-                }
+            }
         }
     }
     Ok(())

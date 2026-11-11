@@ -45,10 +45,7 @@ fn append_growth_clamps_to_max_alloc_size() {
     assert_eq!(grow_target(1024, 5000), 8192);
     assert_eq!(grow_target(0, 5), 8);
     assert_eq!(grow_target(536_870_912, 536_936_448), MAX_ALLOC_SIZE);
-    assert_eq!(
-        grow_target(MAX_ALLOC_SIZE, MAX_ALLOC_SIZE + 1),
-        MAX_ALLOC_SIZE + 1
-    );
+    assert_eq!(grow_target(MAX_ALLOC_SIZE, MAX_ALLOC_SIZE + 1), MAX_ALLOC_SIZE + 1);
 
     let ctx = MemoryContext::new("t");
     let mut v: PgVec<u8> = PgVec::new_in(ctx.mcx());
@@ -134,10 +131,7 @@ fn bump_context_reset_reclaims_and_reuses() {
         }
         assert!(ctx.used() > 0);
     } // v drops; bump.c model — dealloc is a full no-op, the charge stays
-    assert!(
-        ctx.used() > 0,
-        "bump free is unaccounted; reset releases the charge"
-    );
+    assert!(ctx.used() > 0, "bump free is unaccounted; reset releases the charge");
     let footprint_before = ctx.stats().arena_footprint;
     assert!(footprint_before > 0, "arena retains memory after drops");
     ctx.reset();
@@ -165,11 +159,7 @@ fn alloc_bytes_and_the_keeper_rewind() {
     let keeper = ctx.stats().arena_footprint;
     for _ in 0..1000 {
         ctx.reset();
-        assert_eq!(
-            ctx.mcx().alloc_bytes(12).unwrap().as_ptr() as usize,
-            first,
-            "the row reuses the keeper's first bytes"
-        );
+        assert_eq!(ctx.mcx().alloc_bytes(12).unwrap().as_ptr() as usize, first, "the row reuses the keeper's first bytes");
         assert_eq!(ctx.stats().arena_footprint, keeper);
         assert_eq!(ctx.used(), keeper);
     }
@@ -178,20 +168,12 @@ fn alloc_bytes_and_the_keeper_rewind() {
     }
     assert!(ctx.stats().arena_footprint > keeper);
     ctx.reset();
-    assert_eq!(
-        ctx.stats().arena_footprint,
-        keeper,
-        "the full reset frees the extra blocks"
-    );
+    assert_eq!(ctx.stats().arena_footprint, keeper, "the full reset frees the extra blocks");
     assert_eq!(ctx.used(), keeper);
     let big = ctx.mcx().alloc_bytes(64 << 20).unwrap().as_ptr() as usize;
     assert_eq!(big % 8, 0);
     ctx.reset();
-    assert_eq!(
-        ctx.stats().arena_footprint,
-        keeper,
-        "an oversize chunk goes at the next reset"
-    );
+    assert_eq!(ctx.stats().arena_footprint, keeper, "an oversize chunk goes at the next reset");
 }
 
 // aset.c:537-597 AllocSetReset releases every chunk of the set whether or not
@@ -319,14 +301,10 @@ fn ancestor_limit_caps_descendants() {
 
     let _a = vec_with_capacity_in::<u8>(root.mcx(), 600).unwrap();
     let mut v: PgVec<u8> = PgVec::new_in(child.mcx());
-    assert!(
-        v.try_reserve_exact(500).is_err(),
-        "600+500 exceeds ancestor limit"
-    );
+    assert!(v.try_reserve_exact(500).is_err(), "600+500 exceeds ancestor limit");
     assert_eq!(root.subtree_used(), 600, "failed charge applied nothing");
     assert_eq!(child.subtree_used(), 0);
-    v.try_reserve_exact(400)
-        .expect("exactly at the ancestor limit");
+    v.try_reserve_exact(400).expect("exactly at the ancestor limit");
     assert_eq!(root.subtree_used(), 1000);
 }
 
@@ -411,11 +389,7 @@ fn session_root_retirement_releases_the_keeper() {
     ] {
         let v: PgVec<u8> = vec_with_capacity_in(ctx.mcx(), 64).unwrap();
         drop(v);
-        assert!(
-            ctx.stats().arena_footprint > 0,
-            "{}: keeper retained over a reset",
-            ctx.name()
-        );
+        assert!(ctx.stats().arena_footprint > 0, "{}: keeper retained over a reset", ctx.name());
         ctx.retire_session_root();
         assert_eq!(ctx.stats().arena_footprint, 0, "{}", ctx.name());
         assert_eq!(ctx.stats().nblocks, 0, "{}", ctx.name());
@@ -601,10 +575,7 @@ fn hotpath_invariance_counters_byte_identical() {
     refm.uncharge(2, cap);
     check(&ctxs, &refm);
 
-    assert!(
-        root.subtree_peak() >= 7 + 40 + 500 + 256,
-        "peaks persist after frees"
-    );
+    assert!(root.subtree_peak() >= 7 + 40 + 500 + 256, "peaks persist after frees");
 
     for (i, v) in vecs.iter_mut().enumerate() {
         let cap = v.capacity();
@@ -642,8 +613,7 @@ fn hotpath_limit_flag_lifecycle_and_enforcement() {
 
     let root2 = MemoryContext::new("root2");
     let mut x: PgVec<u8> = PgVec::new_in(root2.mcx());
-    x.try_reserve_exact(1 << 20)
-        .expect("skip path restored after limits drop");
+    x.try_reserve_exact(1 << 20).expect("skip path restored after limits drop");
     assert_eq!(root2.used(), 1 << 20);
 }
 
@@ -669,13 +639,8 @@ mod bumpdrop {
         {
             let mcx = ctx.mcx();
             for _ in 0..5 {
-                let _r: &mut DropCounter = arena_box_in(
-                    mcx,
-                    DropCounter {
-                        drops: drops.clone(),
-                    },
-                )
-                .unwrap();
+                let _r: &mut DropCounter =
+                    arena_box_in(mcx, DropCounter { drops: drops.clone(), },).unwrap();
             }
             assert_eq!(drops.get(), 0, "no per-object Drop ran at allocation");
             assert!(ctx.used() > 0, "values are charged while live");
@@ -684,11 +649,7 @@ mod bumpdrop {
 
         ctx.reset();
         assert_eq!(drops.get(), 5, "all destructors run exactly once at reset");
-        assert_eq!(
-            ctx.used(),
-            ctx.stats().arena_footprint,
-            "only the keeper stays charged"
-        );
+        assert_eq!(ctx.used(), ctx.stats().arena_footprint, "only the keeper stays charged");
 
         ctx.reset();
         assert_eq!(drops.get(), 5, "no destructor runs twice");
@@ -701,13 +662,7 @@ mod bumpdrop {
             let ctx = MemoryContext::new_bumpdrop("arena");
             let mcx = ctx.mcx();
             for _ in 0..3 {
-                let _r = arena_box_in(
-                    mcx,
-                    DropCounter {
-                        drops: drops.clone(),
-                    },
-                )
-                .unwrap();
+                let _r = arena_box_in(mcx, DropCounter { drops: drops.clone(), },).unwrap();
             }
             assert_eq!(drops.get(), 0);
         }
@@ -730,22 +685,11 @@ mod bumpdrop {
         {
             let mcx = ctx.mcx();
             for id in 1..=4u8 {
-                let _r = arena_box_in(
-                    mcx,
-                    OrderRec {
-                        id,
-                        order: order.clone(),
-                    },
-                )
-                .unwrap();
+                let _r = arena_box_in(mcx, OrderRec { id, order: order.clone(), },).unwrap();
             }
         }
         ctx.reset();
-        assert_eq!(
-            &*order.borrow(),
-            &[4, 3, 2, 1],
-            "drop list runs LIFO like C"
-        );
+        assert_eq!(&*order.borrow(), &[4, 3, 2, 1], "drop list runs LIFO like C");
     }
 
     #[test]
@@ -756,16 +700,10 @@ mod bumpdrop {
             let mcx = ctx.mcx();
             let mut v: PgVec<DropCounter> = PgVec::new_in(mcx);
             for _ in 0..10 {
-                v.push(DropCounter {
-                    drops: drops.clone(),
-                });
+                v.push(DropCounter { drops: drops.clone(), });
             }
             let _leaked: &mut PgVec<DropCounter> = arena_vec_in(mcx, v).unwrap();
-            assert_eq!(
-                drops.get(),
-                0,
-                "elements not dropped while vec is live in arena"
-            );
+            assert_eq!(drops.get(), 0, "elements not dropped while vec is live in arena");
         }
         assert_eq!(drops.get(), 0, "vec leaked, elements still live");
         ctx.reset();
@@ -784,11 +722,7 @@ mod bumpdrop {
             assert!(ctx.used() > 0);
         }
         ctx.reset();
-        assert_eq!(
-            ctx.used(),
-            ctx.stats().arena_footprint,
-            "string buffer reclaimed at reset"
-        );
+        assert_eq!(ctx.used(), ctx.stats().arena_footprint, "string buffer reclaimed at reset");
     }
 
     #[test]
@@ -800,13 +734,7 @@ mod bumpdrop {
             {
                 let mcx = arena.mcx();
                 for _ in 0..20 {
-                    let _r = arena_box_in(
-                        mcx,
-                        DropCounter {
-                            drops: drops.clone(),
-                        },
-                    )
-                    .unwrap();
+                    let _r = arena_box_in(mcx, DropCounter { drops: drops.clone(), },).unwrap();
                 }
                 assert!(arena.used() > 0, "round {round}: charged while live");
                 assert_eq!(
@@ -817,21 +745,13 @@ mod bumpdrop {
             }
             arena.reset();
             let keeper = arena.stats().arena_footprint;
-            assert_eq!(
-                arena.used(),
-                keeper,
-                "round {round}: only the keeper stays charged"
-            );
+            assert_eq!(arena.used(), keeper, "round {round}: only the keeper stays charged");
             assert_eq!(
                 root.subtree_used(),
                 keeper,
                 "round {round}: reset propagates to ancestor subtree_used"
             );
-            assert_eq!(
-                drops.get(),
-                20 * (round + 1),
-                "round {round}: 20 more drops"
-            );
+            assert_eq!(drops.get(), 20 * (round + 1), "round {round}: 20 more drops");
         }
     }
 
@@ -841,22 +761,11 @@ mod bumpdrop {
         let drops_inner = Rc::new(Cell::new(0u32));
         {
             let outer = MemoryContext::new_bumpdrop("outer");
-            let _o = arena_box_in(
-                outer.mcx(),
-                DropCounter {
-                    drops: drops_outer.clone(),
-                },
-            )
-            .unwrap();
+            let _o = arena_box_in(outer.mcx(), DropCounter { drops: drops_outer.clone(), },).unwrap();
             let mut inner = outer.new_child_bumpdrop("inner");
             {
-                let _i = arena_box_in(
-                    inner.mcx(),
-                    DropCounter {
-                        drops: drops_inner.clone(),
-                    },
-                )
-                .unwrap();
+                let _i =
+                    arena_box_in(inner.mcx(), DropCounter { drops: drops_inner.clone(), },).unwrap();
                 assert_eq!(outer.subtree_used(), outer.used() + inner.used());
             }
             inner.reset();
@@ -864,11 +773,7 @@ mod bumpdrop {
             assert_eq!(drops_outer.get(), 0, "outer untouched by inner reset");
         }
         assert_eq!(drops_outer.get(), 1, "outer drop runs outer's list once");
-        assert_eq!(
-            drops_inner.get(),
-            1,
-            "inner already drained; no double drop"
-        );
+        assert_eq!(drops_inner.get(), 1, "inner already drained; no double drop");
     }
 
     #[test]
@@ -893,30 +798,9 @@ mod bumpdrop {
         {
             let mcx = ctx.mcx();
             // Registered A(no), B(BOOM), C(no); LIFO drop order C, B, A.
-            let _a = arena_box_in(
-                mcx,
-                PanicOnDrop {
-                    boom: false,
-                    drops: drops.clone(),
-                },
-            )
-            .unwrap();
-            let _b = arena_box_in(
-                mcx,
-                PanicOnDrop {
-                    boom: true,
-                    drops: drops.clone(),
-                },
-            )
-            .unwrap();
-            let _c = arena_box_in(
-                mcx,
-                PanicOnDrop {
-                    boom: false,
-                    drops: drops.clone(),
-                },
-            )
-            .unwrap();
+            let _a = arena_box_in(mcx, PanicOnDrop { boom: false, drops: drops.clone(), },).unwrap();
+            let _b = arena_box_in(mcx, PanicOnDrop { boom: true, drops: drops.clone(), },).unwrap();
+            let _c = arena_box_in(mcx, PanicOnDrop { boom: false, drops: drops.clone(), },).unwrap();
         }
         let n_before = drops.get();
         assert_eq!(n_before, 0);
@@ -926,11 +810,7 @@ mod bumpdrop {
 
         let res2 = catch_unwind(AssertUnwindSafe(|| ctx.reset()));
         assert!(res2.is_ok(), "second reset is clean");
-        assert_eq!(
-            drops.get(),
-            3,
-            "A drained on the 2nd reset; B/C never re-run"
-        );
+        assert_eq!(drops.get(), 3, "A drained on the 2nd reset; B/C never re-run");
     }
 
     #[test]
@@ -959,9 +839,7 @@ mod bumpdrop {
                 let mcx = batch.mcx();
                 let mut v = PgVec::new_in(mcx);
                 for _ in 0..per_batch {
-                    v.push(DropCounter {
-                        drops: drops.clone(),
-                    });
+                    v.push(DropCounter { drops: drops.clone(), });
                 }
                 v
             };
@@ -986,11 +864,7 @@ mod bumpdrop {
 
         drop(batch);
         assert_eq!(drops.get() as usize, total_batches * per_batch);
-        assert_eq!(
-            root.subtree_used(),
-            0,
-            "child charge fully released to parent"
-        );
+        assert_eq!(root.subtree_used(), 0, "child charge fully released to parent");
     }
 
     #[test]
@@ -1001,26 +875,16 @@ mod bumpdrop {
             let mcx = batch.mcx();
             let mut old: PgVec<DropCounter> = PgVec::new_in(mcx);
             for _ in 0..8 {
-                old.push(DropCounter {
-                    drops: drops.clone(),
-                });
+                old.push(DropCounter { drops: drops.clone(), });
             }
             let mut newv: PgVec<DropCounter> = PgVec::new_in(mcx);
             for e in old.into_iter() {
                 newv.push(e);
             }
-            assert_eq!(
-                drops.get(),
-                0,
-                "moved tuples are not dropped during rebatch"
-            );
+            assert_eq!(drops.get(), 0, "moved tuples are not dropped during rebatch");
             newv.clear();
             drop(newv);
-            assert_eq!(
-                drops.get(),
-                8,
-                "elements drop once when the new arena drops"
-            );
+            assert_eq!(drops.get(), 8, "elements drop once when the new arena drops");
         }
         batch.reset();
         assert_eq!(batch.used(), batch.stats().arena_footprint);
@@ -1087,11 +951,8 @@ mod bumpdrop {
              (reclaimed by {} wholesale resets)\n\
              ELIMINATED per-tuple free operations: {}\n\
              ===============================================================",
-            tuples_per_batch,
-            nbatch,
-            old_real_frees,
-            new_real_frees,
-            wholesale_resets,
+            tuples_per_batch, nbatch,
+            old_real_frees, new_real_frees, wholesale_resets,
             old_real_frees - new_real_frees,
         );
 
@@ -1100,8 +961,7 @@ mod bumpdrop {
         assert!(
             old_real_frees >= expected_old,
             "old model frees every box+vec individually every batch (>= {}, got {})",
-            expected_old,
-            old_real_frees,
+            expected_old, old_real_frees,
         );
         // Window-relative, not absolute: the probe counter is global, and the
         // parallel suite's own frees land in both measurement windows — a
@@ -1110,8 +970,7 @@ mod bumpdrop {
         assert!(
             new_real_frees < old_real_frees / 3,
             "new model eliminates the bulk of per-tuple frees (got {}, old {})",
-            new_real_frees,
-            old_real_frees,
+            new_real_frees, old_real_frees,
         );
         assert_eq!(wholesale_resets, nbatch as u64);
     }
@@ -1144,10 +1003,7 @@ mod owned {
         }
         let plan = &mut cache[0];
         assert_eq!(plan.with(|p| p.nodes.iter().sum::<u64>()), 4950);
-        assert!(
-            cache_root.subtree_used() >= 800,
-            "bundle bytes visible from the cache root"
-        );
+        assert!(cache_root.subtree_used() >= 800, "bundle bytes visible from the cache root");
 
         let before = plan.context().used();
         plan.with_mut(|p| {
@@ -1158,11 +1014,7 @@ mod owned {
         assert!(plan.context().used() > before);
 
         drop(cache);
-        assert_eq!(
-            cache_root.subtree_used(),
-            0,
-            "dropping the bundle returns every byte"
-        );
+        assert_eq!(cache_root.subtree_used(), 0, "dropping the bundle returns every byte");
     }
 
     struct Tree<'mcx> {
@@ -1174,9 +1026,7 @@ mod owned {
     fn leak_projection_yields_honest_borrow_reclaimed_by_context_drop() {
         let root = MemoryContext::new("root");
         let mut bundle = McxOwned::<TreeTy>::try_new(root.new_child("ExecutorState"), |mcx| {
-            Ok(Tree {
-                plan_tree: Some(alloc_in(mcx, 42u64)?),
-            })
+            Ok(Tree { plan_tree: Some(alloc_in(mcx, 42u64)?), })
         })
         .unwrap();
 
@@ -1187,11 +1037,7 @@ mod owned {
         assert_eq!(seen, Some(42));
 
         drop(bundle);
-        assert_eq!(
-            root.subtree_used(),
-            0,
-            "context drop reclaims the leaked plan node"
-        );
+        assert_eq!(root.subtree_used(), 0, "context drop reclaims the leaked plan node");
     }
 
     #[test]
@@ -1233,10 +1079,7 @@ mod owned {
         {
             let src = [9u8; 128];
             let v = slice_in(root.mcx(), &src).unwrap();
-            assert!(
-                root.subtree_used() >= 128,
-                "charge reflects the copied bytes"
-            );
+            assert!(root.subtree_used() >= 128, "charge reflects the copied bytes");
             drop(v);
         }
         assert_eq!(root.subtree_used(), 0, "dropping the vec uncharges");
@@ -1292,25 +1135,14 @@ mod bump_pool {
         let footprint = ctx.stats().arena_footprint;
         assert!(footprint > 0);
         ctx.reset();
-        assert_eq!(
-            ctx.stats().arena_footprint,
-            footprint,
-            "keeper retained over reset"
-        );
+        assert_eq!(ctx.stats().arena_footprint, footprint, "keeper retained over reset");
         let again = {
             let mcx = ctx.mcx();
             let v = vec_with_capacity_in::<u8>(mcx, 64).unwrap();
             v.as_ptr() as usize
         };
-        assert_eq!(
-            first, again,
-            "first post-reset chunk starts the retained keeper"
-        );
-        assert_eq!(
-            ctx.stats().arena_footprint,
-            footprint,
-            "no new block malloc'd"
-        );
+        assert_eq!(first, again, "first post-reset chunk starts the retained keeper");
+        assert_eq!(ctx.stats().arena_footprint, footprint, "no new block malloc'd");
     }
 }
 
@@ -1380,11 +1212,7 @@ mod acct_pool {
             (*p1.as_ptr()).weak.set(0);
         }
         acct_give_to(&pool, p1);
-        assert_eq!(
-            pool.try_with(|s| s.len()).unwrap(),
-            1,
-            "allocation parked for reuse"
-        );
+        assert_eq!(pool.try_with(|s| s.len()).unwrap(), 1, "allocation parked for reuse");
 
         let p2 = acct_take_from(&pool);
         assert_eq!(p1.as_ptr(), p2.as_ptr(), "parked allocation reused");
@@ -1414,6 +1242,7 @@ mod acct_pool {
         assert_eq!(root.name(), "root");
     }
 
+
     #[derive(Clone, Copy)]
     #[allow(dead_code)]
     struct Node {
@@ -1432,10 +1261,7 @@ mod acct_pool {
                 assert_eq!(n.oid, 1);
                 let mut v: PgVec<Node> = PgVec::new_in(mcx);
                 for i in 0..100u32 {
-                    v.push(Node {
-                        oid: i,
-                        cost: i as f64,
-                    });
+                    v.push(Node { oid: i, cost: i as f64, });
                 }
                 let leaked: &mut PgVec<Node> = arena_vec_in_forget(mcx, v).unwrap();
                 assert_eq!(leaked.len(), 100);
@@ -1461,14 +1287,7 @@ mod acct_pool {
                 let mut graph: PgVec<Node> = PgVec::new_in(mcx);
                 graph.extend((0..(run + 1) * 10).map(|i| Node { oid: i, cost: 0.0 }));
                 let _leaked = arena_vec_in_forget(mcx, graph).unwrap();
-                let _b = arena_box_in_forget(
-                    mcx,
-                    Node {
-                        oid: run,
-                        cost: 1.0,
-                    },
-                )
-                .unwrap();
+                let _b = arena_box_in_forget(mcx, Node { oid: run, cost: 1.0, },).unwrap();
             }
             ctx.reset();
             assert_eq!(
@@ -1528,10 +1347,7 @@ fn generation_context_fifo_and_reset_roundtrip() {
     assert_eq!(ctx.used(), 0);
     let p = box_new_in(ctx.mcx(), 7u64);
     assert_eq!(*p, 7);
-    assert!(
-        ctx.used() > 0,
-        "keeper re-charged on first post-reset alloc"
-    );
+    assert!(ctx.used() > 0, "keeper re-charged on first post-reset alloc");
 }
 
 #[test]
@@ -1542,30 +1358,19 @@ fn generation_stats_report_block_tail_and_freed_chunks() {
         let boxes: std::vec::Vec<PgBox<'_, [u64; 4]>> =
             (0..10u64).map(|i| box_new_in(mcx, [i; 4])).collect();
         let t = ctx.stats_tree();
-        assert!(
-            t.free_bytes > 0,
-            "GenerationStats counts the block tail as free"
-        );
+        assert!(t.free_bytes > 0, "GenerationStats counts the block tail as free");
         assert_eq!(t.free_chunks, 0);
         let mut boxes = boxes;
         drop(boxes.remove(3));
         drop(boxes.remove(3));
         assert_eq!(ctx.stats_tree().free_chunks, 2);
         drop(boxes);
-        assert_eq!(
-            ctx.stats_tree().free_chunks,
-            0,
-            "an emptied block drops its freed chunks"
-        );
+        assert_eq!(ctx.stats_tree().free_chunks, 0, "an emptied block drops its freed chunks");
     }
     ctx.reset();
     let t = ctx.stats_tree();
     assert_eq!(t.free_chunks, 0);
-    assert_eq!(
-        t.free_bytes + 24,
-        t.arena_footprint,
-        "the retained keeper is free after reset"
-    );
+    assert_eq!(t.free_bytes + 24, t.arena_footprint, "the retained keeper is free after reset");
 }
 
 #[test]
@@ -1598,11 +1403,7 @@ fn slab_context_boxes_roundtrip_and_uncharge() {
             drop(b);
         }
         // Up to 10 empty blocks stay parked; the rest uncharge.
-        assert!(
-            ctx.used() <= 10 * 8 * 1024,
-            "used {} after drain",
-            ctx.used()
-        );
+        assert!(ctx.used() <= 10 * 8 * 1024, "used {} after drain", ctx.used());
         assert!(ctx.used() < peak);
     }
     ctx.reset();
@@ -1616,10 +1417,7 @@ fn slab_stats_tree_reports_free_chunks_and_empty_blocks() {
     {
         let mcx = ctx.mcx();
         let t = ctx.stats_tree();
-        assert_eq!(
-            (t.nblocks, t.empty_blocks, t.free_chunks, t.free_bytes),
-            (0, 0, 0, 0)
-        );
+        assert_eq!((t.nblocks, t.empty_blocks, t.free_chunks, t.free_bytes), (0, 0, 0, 0));
         let mut held: std::vec::Vec<PgBox<'_, [u64; 9]>> = std::vec::Vec::new();
         for i in 0..3u64 {
             held.push(box_new_in(mcx, [i; 9]));
@@ -1630,10 +1428,7 @@ fn slab_stats_tree_reports_free_chunks_and_empty_blocks() {
         assert_eq!(t.free_bytes, t.free_chunks * 80);
         held.clear();
         let t = ctx.stats_tree();
-        assert_eq!(
-            (t.nblocks, t.empty_blocks, t.free_chunks, t.free_bytes),
-            (0, 1, 0, 0)
-        );
+        assert_eq!((t.nblocks, t.empty_blocks, t.free_chunks, t.free_bytes), (0, 1, 0, 0));
     }
     ctx.reset();
     assert_eq!(ctx.stats_tree().empty_blocks, 0);
@@ -1722,6 +1517,7 @@ fn global_footprint_tracks_context_block_bytes() {
     );
 }
 
+
 // LocalStack (the per-thread pool container; the TLS statics themselves are
 // cfg(not(test)) — the integration tests in tests/ exercise those).
 #[cfg(feature = "std")]
@@ -1772,6 +1568,8 @@ mod local_stack {
         drop(s);
         assert_eq!(DISPOSED.load(Ordering::Relaxed), before + 2);
     }
+
+
 }
 
 // ---------------------------------------------------------------------------
@@ -1789,9 +1587,7 @@ fn allocator_rejects_over_ceiling_allocate() {
     for ctx in [MemoryContext::new("t"), MemoryContext::new_bump("t")] {
         let mcx = ctx.mcx();
         let refused = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            Allocator::allocate(&mcx, layout)
-                .map(|_| ())
-                .map_err(|_| ())
+            Allocator::allocate(&mcx, layout).map(|_| ()).map_err(|_| ())
         }));
         assert_ceiling_error(refused, Some(MAX_ALLOC_SIZE + 1));
         assert_eq!(ctx.used(), 0, "the refused request must not be charged");
@@ -1820,10 +1616,7 @@ fn allocator_rejects_over_ceiling_grow() {
     let refused = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         v.resize(MAX_ALLOC_SIZE + 1, 0);
     }));
-    assert!(
-        refused.is_err(),
-        "resize above MaxAllocSize must unwind, not abort"
-    );
+    assert!(refused.is_err(), "resize above MaxAllocSize must unwind, not abort");
 }
 
 // Over-ceiling requests unwind with C's MemoryContextSizeFailure ERROR so
@@ -1835,24 +1628,14 @@ fn assert_ceiling_error<T: core::fmt::Debug>(
     size: Option<usize>,
 ) {
     let payload = r.expect_err("over-ceiling request must unwind, not return");
-    let err = ::types_error::pg_error_from_panic(payload).unwrap_or_else(|_| {
-        panic!("the ceiling's payload is a PgError the statement boundary recovers")
+    let err = ::types_error::pg_error_from_panic(payload)
+        .unwrap_or_else(|_| { panic!("the ceiling's payload is a PgError the statement boundary recovers")
     });
-    assert_eq!(
-        err.sqlstate(),
-        ::types_error::ERRCODE_INTERNAL_ERROR,
-        "elog(ERROR)'s XX000"
-    );
+    assert_eq!(err.sqlstate(), ::types_error::ERRCODE_INTERNAL_ERROR, "elog(ERROR)'s XX000");
     let msg = err.message();
     match size {
-        Some(size) => assert_eq!(
-            msg,
-            alloc::format!("invalid memory alloc request size {size}")
-        ),
-        None => assert!(
-            msg.starts_with("invalid memory alloc request size "),
-            "{msg}"
-        ),
+        Some(size) => assert_eq!(msg, alloc::format!("invalid memory alloc request size {size}")),
+        None => assert!(msg.starts_with("invalid memory alloc request size "), "{msg}"),
     }
 }
 
@@ -1879,13 +1662,9 @@ fn huge_entry_points_bypass_ceiling() {
     // ... but even huge requests are admitted against MaxAllocHugeSize.
     let mut w: PgVec<u64> = vec_with_capacity_in(mcx, 4).unwrap();
     let err = vec_reserve_huge(&mut w, MAX_ALLOC_HUGE_SIZE).unwrap_err();
-    assert!(err
-        .message()
-        .starts_with("invalid memory alloc request size"));
+    assert!(err.message().starts_with("invalid memory alloc request size"));
     let err = vec_with_capacity_huge_in::<u64>(mcx, MAX_ALLOC_HUGE_SIZE).unwrap_err();
-    assert!(err
-        .message()
-        .starts_with("invalid memory alloc request size"));
+    assert!(err.message().starts_with("invalid memory alloc request size"));
 }
 
 // upstream 3f3eefc28892 (18.4): Detect pfree or repalloc of a previously-freed memory chunk.
@@ -2100,15 +1879,8 @@ fn aset_stats_walk_blocks_and_freelists() {
         }
     }
     let t = ctx.stats_tree();
-    assert_eq!(
-        t.nblocks, 3,
-        "AllocSetStats counts the keeper and both overflow blocks"
-    );
-    assert_eq!(
-        t.arena_footprint,
-        4 * aset::INIT_BLOCK_SIZE,
-        "totalspace is the block bytes"
-    );
+    assert_eq!(t.nblocks, 3, "AllocSetStats counts the keeper and both overflow blocks");
+    assert_eq!(t.arena_footprint, 4 * aset::INIT_BLOCK_SIZE, "totalspace is the block bytes");
     // freespace = Σ (endptr - freeptr): only the 16K block's 123 unused slots.
     let tails = 4 * aset::INIT_BLOCK_SIZE - n * 64;
     assert_eq!(t.free_bytes, tails, "block tails are free space");
@@ -2140,11 +1912,7 @@ fn aset_stats_walk_blocks_and_freelists() {
     let t = ctx.stats_tree();
     assert_eq!(t.nblocks, 4, "a single-chunk block is on set->blocks");
     assert_eq!(t.arena_footprint, 4 * aset::INIT_BLOCK_SIZE + 100_000);
-    assert_eq!(
-        t.free_bytes,
-        tails + 9 * 64,
-        "a single-chunk block has no free space"
-    );
+    assert_eq!(t.free_bytes, tails + 9 * 64, "a single-chunk block has no free space");
     unsafe { Allocator::deallocate(&ctx.mcx(), d, big) };
     let t = ctx.stats_tree();
     assert_eq!(t.nblocks, 3, "AllocSetFree unlinks a single-chunk block");
@@ -2160,11 +1928,7 @@ fn aset_stats_walk_blocks_and_freelists() {
     let t = ctx.stats_tree();
     assert_eq!(t.nblocks, 1, "the keeper block survives a reset");
     assert_eq!(t.arena_footprint, aset::INIT_BLOCK_SIZE);
-    assert_eq!(
-        t.free_bytes,
-        aset::INIT_BLOCK_SIZE,
-        "the keeper is entirely free"
-    );
+    assert_eq!(t.free_bytes, aset::INIT_BLOCK_SIZE, "the keeper is entirely free");
     assert_eq!(t.free_chunks, 0, "AllocSetReset empties the freelists");
 }
 
@@ -2182,11 +1946,7 @@ fn start_small_aset_grows_from_one_kilobyte() {
     }
     let t = ctx.stats_tree();
     assert_eq!(t.nblocks, 2);
-    assert_eq!(
-        t.arena_footprint,
-        2 * ALLOCSET_SMALL_INITSIZE,
-        "the next block is 1 kB, then doubles"
-    );
+    assert_eq!(t.arena_footprint, 2 * ALLOCSET_SMALL_INITSIZE, "the next block is 1 kB, then doubles");
     for p in ptrs {
         unsafe { Allocator::deallocate(&ctx.mcx(), p, l) };
     }
@@ -2201,10 +1961,7 @@ fn pinned_context_handle_survives_moves() {
         rows: PgVec<'static, u64>,
         ctx: PinnedContext,
     }
-    for ctx in [
-        MemoryContext::new("pinned aset"),
-        MemoryContext::new_bump("pinned bump"),
-    ] {
+    for ctx in [MemoryContext::new("pinned aset"), MemoryContext::new_bump("pinned bump"),] {
         let ctx = PinnedContext::new(ctx);
         // SAFETY: rows drops before ctx, including while Holder is unwound.
         let mut rows = vec_with_capacity_in(unsafe { ctx.handle() }, 2).unwrap();
@@ -2299,11 +2056,7 @@ fn generation_shrink_to_zero_releases_the_chunk() {
         Allocator::deallocate(&mcx, z1.cast(), zero);
         Allocator::deallocate(&mcx, z2.cast(), zero);
     }
-    assert_eq!(
-        ctx.stats().nblocks,
-        2,
-        "one emptied block parks as the freeblock, the other is released"
-    );
+    assert_eq!(ctx.stats().nblocks, 2, "one emptied block parks as the freeblock, the other is released");
 }
 
 /// Fallible std-Vec helpers (the sanctioned route for ported code that has
@@ -2315,12 +2068,7 @@ fn std_vec_helpers_report_oom_as_error_53200() {
     let err = std_vec_with_capacity::<u64>("TopMemoryContext", usize::MAX / 16).unwrap_err();
     assert_eq!(err.sqlstate(), ERRCODE_OUT_OF_MEMORY);
     assert_eq!(err.message(), "out of memory");
-    assert!(
-        err.detail()
-            .unwrap_or("")
-            .contains("in memory context \"TopMemoryContext\""),
-        "{err:?}"
-    );
+    assert!(err.detail().unwrap_or("").contains("in memory context \"TopMemoryContext\""), "{err:?}");
 
     let mut v: alloc::vec::Vec<u8> = alloc::vec::Vec::new();
     assert!(std_vec_reserve("x", &mut v, usize::MAX).is_err());
@@ -2335,10 +2083,7 @@ fn std_vec_helpers_report_oom_as_error_53200() {
     assert_eq!(std_vec_from_elem("x", 1u16, 2).unwrap(), [1, 1]);
     assert!(std_vec_with_capacity::<u8>("x", 16).unwrap().capacity() >= 16);
     assert_eq!(oom_malloc().sqlstate(), ERRCODE_OUT_OF_MEMORY);
-    assert!(
-        oom_malloc().detail().is_none(),
-        "malloc-shaped OOM carries no DETAIL"
-    );
+    assert!(oom_malloc().detail().is_none(), "malloc-shaped OOM carries no DETAIL");
 }
 
 #[test]
@@ -2352,11 +2097,7 @@ fn thread_freed_since_peak_tracks_block_bytes_per_thread() {
         }
         let freed = crate::global_footprint::thread_freed_since_peak_rebase();
         assert!(freed >= 4 << 20, "freed {freed} misses a 4 MB chunk");
-        assert_eq!(
-            crate::global_footprint::thread_freed_since_peak_rebase(),
-            0,
-            "rebase resets the peak"
-        );
+        assert_eq!(crate::global_footprint::thread_freed_since_peak_rebase(), 0, "rebase resets the peak");
 
         // A statement that only frees memory held from an earlier one (CLOSE of
         // a WITH HOLD cursor) still reports it; one that grows and keeps does not.
@@ -2388,10 +2129,7 @@ fn small_and_lazy_children_size_blocks_like_c() {
         let _b = alloc_leak_in(small.mcx(), [0u8; 1000]).unwrap();
     }
     let s = small.stats();
-    assert!(
-        s.arena_footprint <= s.nblocks * ALLOCSET_SMALL_MAXSIZE,
-        "{s:?}"
-    );
+    assert!(s.arena_footprint <= s.nblocks * ALLOCSET_SMALL_MAXSIZE, "{s:?}");
     let _c = alloc_leak_in(lazy.mcx(), [0u8; 16]).unwrap();
     assert_eq!(lazy.stats().arena_footprint, 8 * 1024);
     let root = MemoryContext::new_small_wholesale("PortalPlanContext");
@@ -2463,21 +2201,10 @@ fn d4812_a_sample_hint_never_waits_on_a_held_registry_or_pins_table() {
             let r = governor::try_hint_stale(1, false);
             let took = t.elapsed();
             let after = governor::sample_hint_counts();
-            assert_eq!(
-                r,
-                Err(governor::Busy),
-                "registry held {registry}, pins held {pins}"
-            );
-            assert!(
-                took < std::time::Duration::from_millis(50),
-                "at once, not after the lock: {took:?}"
-            );
+            assert_eq!(r, Err(governor::Busy), "registry held {registry}, pins held {pins}");
+            assert!(took < std::time::Duration::from_millis(50), "at once, not after the lock: {took:?}");
             assert_eq!(after.busy, before.busy + 1, "the skipped sample is counted");
-            assert_eq!(
-                (after.samples, after.hints),
-                (before.samples, before.hints),
-                "nothing is handed over"
-            );
+            assert_eq!((after.samples, after.hints), (before.samples, before.hints), "nothing is handed over");
         });
     }
 }
@@ -2505,10 +2232,7 @@ fn governor_refuses_armed_block_allocation_past_the_bar() {
         .expect("governor payload must be a PgError");
     assert_eq!(err.message(), "out of memory");
     assert_eq!(err.sqlstate(), ::types_error::ERRCODE_OUT_OF_MEMORY);
-    assert!(
-        !governor::armed(),
-        "firing disarms so the error report can allocate"
-    );
+    assert!(!governor::armed(), "firing disarms so the error report can allocate");
 
     governor::arm(true);
     governor::publish(0, 0, 0);
@@ -2526,33 +2250,13 @@ fn governor_trips_record_the_refusal_and_the_allocators_split() {
     assert!(governor::fits_raw(32 << 20), "under the bar: no trip");
     assert!(!governor::fits_raw(128 << 20), "past the bar");
     let after = governor::trip_counts();
-    assert!(
-        after[3] > before[3],
-        "a raw draw trip: {before:?} -> {after:?}"
-    );
+    assert!(after[3] > before[3], "a raw draw trip: {before:?} -> {after:?}");
     let t = governor::last_trip();
-    assert_eq!(
-        (t.kind, t.name, t.n, t.bar, t.in_use),
-        (
-            governor::TRIP_KINDS[3],
-            "Gravity grant",
-            128 << 20,
-            base + (64 << 20),
-            Some(100 << 20)
-        )
-    );
+    assert_eq!((t.kind, t.name, t.n, t.bar, t.in_use), (governor::TRIP_KINDS[3], "Gravity grant", 128 << 20, base + (64 << 20), Some(100 << 20)));
     let c = governor::allocator_census(150 << 20).expect("counted");
-    assert!(
-        c.starts_with("alloc_in_use=100 alloc_committed=200 live_outside_contexts=")
-            && c.ends_with(" resident_not_live=50"),
-        "{c}"
-    );
+    assert!(c.starts_with("alloc_in_use=100 alloc_committed=200 live_outside_contexts=") && c.ends_with(" resident_not_live=50"), "{c}");
     governor::set_allocator_probes(|| None, || 0);
-    assert_eq!(
-        governor::allocator_census(150 << 20),
-        None,
-        "not counted: no fields"
-    );
+    assert_eq!(governor::allocator_census(150 << 20), None, "not counted: no fields");
     governor::publish(0, 0, 0);
 }
 
@@ -2573,9 +2277,7 @@ fn statement_ledger_limits_blocks_and_charges() {
         std::thread::spawn(move || {
             let _in = governor::enter(Some(l2));
             let c = MemoryContext::new("claim");
-            c.mcx()
-                .alloc_uninit_bytes(Layout::from_size_align(8 << 20, 8).unwrap())
-                .unwrap();
+            c.mcx().alloc_uninit_bytes(Layout::from_size_align(8 << 20, 8).unwrap()).unwrap();
             drop(c);
         })
         .join()
@@ -2591,15 +2293,10 @@ fn statement_ledger_limits_blocks_and_charges() {
             }
         }))
         .unwrap_err();
-        let err = payload
-            .downcast::<alloc::boxed::Box<PgError>>()
-            .expect("a PgError payload");
+        let err = payload.downcast::<alloc::boxed::Box<PgError>>().expect("a PgError payload");
         assert_eq!(err.sqlstate(), ::types_error::ERRCODE_OUT_OF_MEMORY);
         let d = err.detail().unwrap();
-        assert!(
-            d.contains("Statement memory limit of 65536 kB") && d.contains("\"ledgered\""),
-            "{d}"
-        );
+        assert!(d.contains("Statement memory limit of 65536 kB") && d.contains("\"ledgered\""), "{d}");
         drop(grant);
         governor::statement_end();
         assert!(governor::current().is_none());
@@ -2608,28 +2305,16 @@ fn statement_ledger_limits_blocks_and_charges() {
 
         let ctx = MemoryContext::new("hog");
         governor::statement_start(0, true);
-        ctx.mcx()
-            .alloc_uninit_bytes(Layout::from_size_align(48 << 20, 8).unwrap())
-            .unwrap();
+        ctx.mcx().alloc_uninit_bytes(Layout::from_size_align(48 << 20, 8).unwrap()).unwrap();
         assert!(governor::cancel_largest(95, 32 << 20) >= 48 << 20);
-        assert_eq!(
-            governor::cancel_largest(95, 32 << 20),
-            0,
-            "one cancel at a time"
-        );
+        assert_eq!(governor::cancel_largest(95, 32 << 20), 0, "one cancel at a time");
         governor::arm(true);
         let payload = catch_unwind(AssertUnwindSafe(|| {
-            let _ = ctx
-                .mcx()
-                .alloc_uninit_bytes(Layout::from_size_align(1 << 20, 8).unwrap());
+            let _ = ctx.mcx().alloc_uninit_bytes(Layout::from_size_align(1 << 20, 8).unwrap());
         }))
         .unwrap_err();
         let err = payload.downcast::<alloc::boxed::Box<PgError>>().unwrap();
-        assert!(
-            err.detail().unwrap().contains("95% of its limit"),
-            "{:?}",
-            err.detail()
-        );
+        assert!(err.detail().unwrap().contains("95% of its limit"), "{:?}", err.detail());
         governor::statement_end();
         governor::arm(false);
     })
@@ -2654,12 +2339,8 @@ fn statement_ledger_batches_block_charges_per_thread() {
         let half = Layout::from_size_align(512 << 10, 8).unwrap();
         ctx.mcx().alloc_uninit_bytes(half).unwrap();
         let own = l.bytes();
-        assert!((512 << 10..governor::LEDGER_SLACK).contains(&own), "{own}");
-        assert_eq!(
-            elsewhere(&l),
-            0,
-            "under the slack the charge stays on its thread"
-        );
+        assert!(( 512 << 10.. governor::LEDGER_SLACK).contains(&own), "{own}");
+        assert_eq!(elsewhere(&l), 0, "under the slack the charge stays on its thread");
         let block = Layout::from_size_align(64 << 10, 8).unwrap();
         for _ in 0..10_000 {
             let p = row.mcx().alloc_uninit_bytes(block).unwrap();
@@ -2670,27 +2351,18 @@ fn statement_ledger_batches_block_charges_per_thread() {
         assert!(l.bytes() - own < 128 << 10, "{} vs {own}", l.bytes());
         ctx.mcx().alloc_uninit_bytes(half).unwrap();
         let shared = elsewhere(&l);
-        assert!(
-            shared >= 1 << 20 && shared == l.bytes(),
-            "{shared} vs {}",
-            l.bytes()
-        );
+        assert!(shared >= 1 << 20 && shared == l.bytes(), "{shared} vs {}", l.bytes());
         let l2 = l.clone();
         std::thread::spawn(move || {
             let entered = governor::enter(Some(l2));
             let c = MemoryContext::new("claim");
-            c.mcx()
-                .alloc_uninit_bytes(Layout::from_size_align(256 << 10, 8).unwrap())
-                .unwrap();
+            c.mcx().alloc_uninit_bytes(Layout::from_size_align(256 << 10, 8).unwrap()).unwrap();
             drop(entered);
             drop(c);
         })
         .join()
         .unwrap();
-        assert!(
-            elsewhere(&l) >= shared + (256 << 10),
-            "the claim's end flushes its charges"
-        );
+        assert!(elsewhere(&l) >= shared + (256 << 10), "the claim's end flushes its charges");
         assert!(l.peak() >= l.bytes());
         governor::statement_end();
         drop(row);
@@ -2716,11 +2388,7 @@ fn charged_statements_are_listed_under_their_backends_slot() {
         };
         governor::register(4093, 4242);
         governor::statement_start(0, false);
-        assert_eq!(
-            listed(4093),
-            None,
-            "a statement the governor does not charge is not listed"
-        );
+        assert_eq!(listed(4093), None, "a statement the governor does not charge is not listed");
         governor::statement_start(0, true);
         let grant = governor::Charge::new("Gravity grant", 48 << 20);
         let (b, p) = listed(4093).expect("a charged statement is listed under its slot");
@@ -2740,19 +2408,11 @@ fn governor_condemnation_is_consumed_once_by_its_backend() {
     governor::register(7, 4242);
     assert_eq!(governor::take_condemned(), 0);
     governor::condemn(7, 0x1_5a);
-    assert_eq!(
-        governor::take_condemned(),
-        0x1_5a,
-        "the cancel word it names"
-    );
+    assert_eq!(governor::take_condemned(), 0x1_5a, "the cancel word it names");
     assert_eq!(governor::take_condemned(), 0, "one condemnation, one 53200");
     governor::condemn(7, 0x1_5a);
     governor::register(7, 4343);
-    assert_eq!(
-        governor::take_condemned(),
-        0,
-        "a new backend in the slot starts clean"
-    );
+    assert_eq!(governor::take_condemned(), 0, "a new backend in the slot starts clean");
 }
 
 // D3821: the watchdog's cancel lands on the statement it chose. Its condemnation names that statement's cancel word, so
@@ -2770,31 +2430,13 @@ fn a_watchdog_cancel_lands_on_the_statement_it_chose_never_the_next() {
         ctx.mcx().alloc_uninit_bytes(hog).unwrap();
         let v = governor::cancel_largest_victim(90, 32 << 20).expect("the hog is chosen");
         assert!(v.bytes >= 48 << 20, "{v:?}");
-        assert_eq!(
-            v.backend,
-            Some((11, 4711)),
-            "its backend, whose interrupt the watchdog raises"
-        );
-        assert_eq!(
-            governor::cancel_largest_victim(90, 32 << 20),
-            None,
-            "one cancel at a time"
-        );
-        assert!(
-            governor::watchdog_cancel_pending() && !governor::fits_raw(1),
-            "the grow door refuses its draws"
-        );
+        assert_eq!(v.backend, Some((11, 4711)), "its backend, whose interrupt the watchdog raises");
+        assert_eq!(governor::cancel_largest_victim(90, 32 << 20), None, "one cancel at a time");
+        assert!(governor::watchdog_cancel_pending() && !governor::fits_raw(1), "the grow door refuses its draws");
         let e = governor::take_watchdog_cancel().expect("raised while the statement it chose runs");
         assert_eq!(e.sqlstate(), ::types_error::ERRCODE_OUT_OF_MEMORY);
-        assert!(
-            e.detail().unwrap().contains("90% of its limit"),
-            "{:?}",
-            e.detail()
-        );
-        assert!(
-            governor::take_watchdog_cancel().is_none(),
-            "one condemnation, one 53200"
-        );
+        assert!(e.detail().unwrap().contains("90% of its limit"), "{:?}", e.detail());
+        assert!(governor::take_watchdog_cancel().is_none(), "one condemnation, one 53200");
         governor::statement_end();
         drop(ctx);
 
@@ -2805,19 +2447,11 @@ fn a_watchdog_cancel_lands_on_the_statement_it_chose_never_the_next() {
         assert!(governor::cancel_largest_victim(90, 32 << 20).is_some());
         governor::statement_end();
         governor::statement_start(0, true);
-        assert!(
-            !governor::watchdog_cancel_pending(),
-            "the next statement is not canceled"
-        );
-        assert!(
-            governor::take_watchdog_cancel().is_none(),
-            "the stale condemnation is dropped"
-        );
+        assert!(!governor::watchdog_cancel_pending(), "the next statement is not canceled");
+        assert!(governor::take_watchdog_cancel().is_none(), "the stale condemnation is dropped");
         assert!(governor::take_watchdog_cancel().is_none());
         governor::arm(true);
-        ctx.mcx()
-            .alloc_uninit_bytes(Layout::from_size_align(1 << 20, 8).unwrap())
-            .unwrap();
+        ctx.mcx().alloc_uninit_bytes(Layout::from_size_align(1 << 20, 8).unwrap()).unwrap();
         governor::arm(false);
         governor::statement_end();
         drop(ctx);
@@ -2839,9 +2473,7 @@ fn an_unanswered_watchdog_cancel_stops_blocking_at_its_deadline() {
             governor::register(procno, pid);
             let ctx = MemoryContext::new("held");
             governor::statement_start(0, true);
-            ctx.mcx()
-                .alloc_uninit_bytes(Layout::from_size_align(mib << 20, 8).unwrap())
-                .unwrap();
+            ctx.mcx().alloc_uninit_bytes(Layout::from_size_align(mib << 20, 8).unwrap()).unwrap();
             ready_tx.send(()).unwrap();
             done.wait();
             governor::statement_end();
@@ -2854,48 +2486,17 @@ fn an_unanswered_watchdog_cancel_stops_blocking_at_its_deadline() {
     let first = governor::cancel_largest_victim(90, 32 << 20).expect("the larger is chosen");
     assert_eq!(first.backend, Some((12, 5012)));
     // memfuzz (P4): the pick's ranked candidates, largest first, the victim's rank first
-    let ranked = |v: &governor::Victim| {
-        v.top
-            .iter()
-            .filter(|c| c.rank != 0)
-            .map(|c| (c.backend, c.canceled))
-            .collect::<alloc::vec::Vec<_>>()
+    let ranked = |v: &governor::Victim| { v.top.iter().filter(|c| c.rank != 0).map(|c| (c.backend, c.canceled)).collect::<alloc::vec::Vec<_>>()
     };
-    assert_eq!(
-        ranked(&first),
-        [(Some((12, 5012)), false), (Some((13, 5013)), false)],
-        "both ranked, the larger first"
-    );
-    assert_eq!(
-        first.top[0].rank, first.bytes as u64,
-        "the victim's rank is the one it was chosen by"
-    );
+    assert_eq!(ranked(&first), [(Some((12, 5012)), false), (Some((13, 5013)), false)], "both ranked, the larger first");
+    assert_eq!(first.top[0].rank, first.bytes as u64, "the victim's rank is the one it was chosen by");
     assert!(first.top[0].rank > first.top[1].rank);
-    assert_eq!(
-        governor::cancel_largest_victim(90, 32 << 20),
-        None,
-        "a fresh cancel blocks the next"
-    );
-    std::thread::sleep(std::time::Duration::from_millis(
-        mempolicy::watchdog::CANCEL_ACK_MS + 50,
-    ));
-    let next = governor::cancel_largest_victim(90, 32 << 20)
-        .expect("past its deadline the next is chosen");
-    assert_eq!(
-        next.backend,
-        Some((13, 5013)),
-        "the next largest, not the unanswered one again"
-    );
-    assert_eq!(
-        ranked(&next),
-        [(Some((12, 5012)), true), (Some((13, 5013)), false)],
-        "the unanswered one ranked, marked canceled"
-    );
-    assert_eq!(
-        governor::cancel_largest_victim(90, 32 << 20),
-        None,
-        "and that one blocks in turn"
-    );
+    assert_eq!(governor::cancel_largest_victim(90, 32 << 20), None, "a fresh cancel blocks the next");
+    std::thread::sleep(std::time::Duration::from_millis(mempolicy::watchdog::CANCEL_ACK_MS + 50,));
+    let next = governor::cancel_largest_victim(90, 32 << 20).expect("past its deadline the next is chosen");
+    assert_eq!(next.backend, Some((13, 5013)), "the next largest, not the unanswered one again");
+    assert_eq!(ranked(&next), [(Some((12, 5012)), true), (Some((13, 5013)), false)], "the unanswered one ranked, marked canceled");
+    assert_eq!(governor::cancel_largest_victim(90, 32 << 20), None, "and that one blocks in turn");
     done.wait();
     a.join().unwrap();
     b.join().unwrap();
@@ -2914,9 +2515,7 @@ fn pending_acks_tell_r6s_own_cancel_from_another_roads() {
         governor::register(16, 5016);
         let ctx = MemoryContext::new("held");
         governor::statement_start(0, true);
-        ctx.mcx()
-            .alloc_uninit_bytes(Layout::from_size_align(64 << 20, 8).unwrap())
-            .unwrap();
+        ctx.mcx().alloc_uninit_bytes(Layout::from_size_align(64 << 20, 8).unwrap()).unwrap();
         ready_tx2.send(()).unwrap();
         end_rx.recv().unwrap();
         governor::statement_end();
@@ -2925,66 +2524,24 @@ fn pending_acks_tell_r6s_own_cancel_from_another_roads() {
         drop(ctx);
     });
     ready.recv().unwrap();
-    assert_eq!(
-        governor::try_pending_acks(None),
-        Ok(governor::PendingAcks::default()),
-        "no cancel yet"
-    );
+    assert_eq!(governor::try_pending_acks(None), Ok(governor::PendingAcks::default()), "no cancel yet");
     let v = governor::cancel_largest_victim(90, 32 << 20).expect("the holder is chosen");
     let own = Some((v.backend.map(|(slot, _)| slot), v.word));
     let (mine, young, old) = (
-        governor::PendingAcks {
-            own: true,
-            other: false,
-            other_young: false,
-        },
-        governor::PendingAcks {
-            own: false,
-            other: true,
-            other_young: true,
-        },
-        governor::PendingAcks {
-            own: false,
-            other: true,
-            other_young: false,
-        },
+        governor::PendingAcks { own: true, other: false, other_young: false, },
+        governor::PendingAcks { own: false, other: true, other_young: true, },
+        governor::PendingAcks { own: false, other: true, other_young: false, },
     );
-    assert_eq!(
-        governor::try_pending_acks(own),
-        Ok(mine),
-        "R6's own, unanswered"
-    );
-    assert_eq!(
-        governor::try_pending_acks(None),
-        Ok(young),
-        "named by no one: another road's, just raised"
-    );
+    assert_eq!(governor::try_pending_acks(own), Ok(mine), "R6's own, unanswered");
+    assert_eq!(governor::try_pending_acks(None), Ok(young), "named by no one: another road's, just raised");
     let wrong = Some((v.backend.map(|(slot, _)| slot), v.word ^ (1 << 20)));
-    assert_eq!(
-        governor::try_pending_acks(wrong),
-        Ok(young),
-        "another statement's word on that slot"
-    );
-    std::thread::sleep(std::time::Duration::from_millis(
-        mempolicy::ladder::R6_ACK_BOUND_MS + 10,
-    ));
-    assert_eq!(
-        governor::try_pending_acks(None),
-        Ok(old),
-        "past R6's ack bound, inside its ack window: pending, not young"
-    );
-    assert_eq!(
-        governor::try_pending_acks(own),
-        Ok(mine),
-        "R6's own reads the same either way"
-    );
+    assert_eq!(governor::try_pending_acks(wrong), Ok(young), "another statement's word on that slot");
+    std::thread::sleep(std::time::Duration::from_millis(mempolicy::ladder::R6_ACK_BOUND_MS + 10,));
+    assert_eq!(governor::try_pending_acks(None), Ok(old), "past R6's ack bound, inside its ack window: pending, not young");
+    assert_eq!(governor::try_pending_acks(own), Ok(mine), "R6's own reads the same either way");
     end_tx.send(()).unwrap();
     ready.recv().unwrap();
-    assert_eq!(
-        governor::try_pending_acks(own),
-        Ok(governor::PendingAcks::default()),
-        "its statement ended: answered"
-    );
+    assert_eq!(governor::try_pending_acks(own), Ok(governor::PendingAcks::default()), "its statement ended: answered");
     done.wait();
     a.join().unwrap();
 }
@@ -3010,19 +2567,8 @@ fn c3_the_inline_decide_serves_a_crossed_credit_and_cancels_by_fair_share() {
     std::thread::spawn(|| {
         const MIB: u64 = 1 << 20;
         let block = Layout::from_size_align(1 << 20, 8).unwrap();
-        let rise = |b| Rise99 {
-            bytes: b,
-            prior: false,
-        };
-        let inputs = |l: u64, b: u64| governor::DecidePublish {
-            l,
-            b,
-            u: MIB,
-            fast: 0,
-            rise_fast: rise(MIB),
-            rise_slow: rise(16 * MIB),
-            revoke_on: false,
-        };
+        let rise = |b| Rise99 { bytes: b, prior: false, };
+        let inputs = |l: u64, b: u64| governor::DecidePublish { l, b, u: MIB, fast: 0, rise_fast: rise(MIB), rise_slow: rise(16 * MIB), revoke_on: false, };
         governor::register(21, 2121);
         let ctx = MemoryContext::new("grower");
         let grow = |mib: usize| {
@@ -3037,11 +2583,7 @@ fn c3_the_inline_decide_serves_a_crossed_credit_and_cancels_by_fair_share() {
         governor::statement_start(0, true);
         governor::arm(true);
         grow(40);
-        assert_eq!(
-            governor::decide_counts().inline_decides,
-            c0.inline_decides,
-            "threshold: no inline decide"
-        );
+        assert_eq!(governor::decide_counts().inline_decides, c0.inline_decides, "threshold: no inline decide");
         governor::arm(false);
         governor::statement_end();
 
@@ -3051,10 +2593,7 @@ fn c3_the_inline_decide_serves_a_crossed_credit_and_cancels_by_fair_share() {
         let fp = global_footprint::bytes();
         governor::publish(0, 0, fp);
         governor::publish_decide_resident((40 * MIB) as usize, fp);
-        assert!(
-            governor::decide_inputs().r >= 40 * MIB,
-            "D3934: decide's R is not the governor's"
-        );
+        assert!(governor::decide_inputs().r >= 40 * MIB, "D3934: decide's R is not the governor's");
         governor::statement_start(0, true);
         governor::publish_decide(&inputs(4 << 30, 64 * MIB)); // R 40 MiB: F 24 MiB, credit 24 / 4 = 6 MiB
         governor::statement_end();
@@ -3062,14 +2601,8 @@ fn c3_the_inline_decide_serves_a_crossed_credit_and_cancels_by_fair_share() {
         governor::arm(true);
         grow(16);
         let c1 = governor::decide_counts();
-        assert!(
-            c1.inline_decides > c0.inline_decides,
-            "the credit was crossed and served"
-        );
-        assert!(
-            !governor::watchdog_cancel_pending(),
-            "the limit is far: no cancel"
-        );
+        assert!(c1.inline_decides > c0.inline_decides, "the credit was crossed and served");
+        assert!(!governor::watchdog_cancel_pending(), "the limit is far: no cancel");
         assert!(governor::fits_raw(1), "within its share: no spill-self");
         governor::arm(false);
         governor::statement_end();
@@ -3083,39 +2616,21 @@ fn c3_the_inline_decide_serves_a_crossed_credit_and_cancels_by_fair_share() {
         governor::statement_start(0, true);
         governor::arm(true);
         grow(4);
-        assert!(
-            governor::spills_itself() && !governor::fits_raw(1),
-            "F = 0: no draw past its grant"
-        );
-        assert!(
-            governor::fits_raw_admit(1),
-            "D3941: its admission is not refused"
-        );
-        assert!(
-            !governor::watchdog_cancel_pending(),
-            "the limit is far: no cancel"
-        );
+        assert!(governor::spills_itself() && !governor::fits_raw(1), "F = 0: no draw past its grant");
+        assert!(governor::fits_raw_admit(1), "D3941: its admission is not refused");
+        assert!(!governor::watchdog_cancel_pending(), "the limit is far: no cancel");
         governor::arm(false);
         governor::statement_end();
         // D3941: a start waits only on relief that is landing, re-decided every tick: not on flat pressure, while R falls
         // fast enough to close the gap (10 MiB a tick against 13 MiB short), and no longer once it is flat again
         governor::publish_decide_resident((70 * MIB) as usize, global_footprint::bytes());
         let t = governor::decide_tick().expect("projection decides at Tick");
-        assert!(
-            t.inputs.free() < t.inputs.target() && !governor::throttled(),
-            "F < F*, nothing landing: no wait"
-        );
+        assert!(t.inputs.free() < t.inputs.target() && !governor::throttled(), "F < F*, nothing landing: no wait");
         governor::publish_decide_resident((60 * MIB) as usize, global_footprint::bytes());
         let t = governor::decide_tick().expect("projection decides at Tick");
-        assert!(
-            t.inputs.falling && governor::throttled(),
-            "R falls fast enough: a start waits for it"
-        );
+        assert!(t.inputs.falling && governor::throttled(), "R falls fast enough: a start waits for it");
         let t = governor::decide_tick().expect("projection decides at Tick");
-        assert!(
-            t.inputs.free() < t.inputs.target() && !t.inputs.falling && !governor::throttled(),
-            "flat again: no wait"
-        );
+        assert!(t.inputs.free() < t.inputs.target() && !t.inputs.falling && !governor::throttled(), "flat again: no wait");
 
         // projection, F = 0 and R + rise99 past L - margin: the lone grower is the victim, its next block fails at once
         governor::publish(0, 0, global_footprint::bytes());
@@ -3125,59 +2640,29 @@ fn c3_the_inline_decide_serves_a_crossed_credit_and_cancels_by_fair_share() {
         governor::statement_end();
         governor::statement_start(0, true);
         governor::arm(true);
-        let payload = catch_unwind(AssertUnwindSafe(|| grow(48)))
-            .expect_err("the grower is canceled at a block");
+        let payload = catch_unwind(AssertUnwindSafe(|| grow(48))).expect_err("the grower is canceled at a block");
         governor::arm(false);
-        let err = payload
-            .downcast::<alloc::boxed::Box<PgError>>()
-            .expect("a PgError payload");
+        let err = payload.downcast::<alloc::boxed::Box<PgError>>().expect("a PgError payload");
         assert_eq!(err.sqlstate(), ::types_error::ERRCODE_OUT_OF_MEMORY);
-        assert!(
-            err.detail().unwrap().contains("projected to cross it"),
-            "{:?}",
-            err.detail()
-        );
-        assert!(
-            err.hint()
-                .unwrap()
-                .contains("pgrust.memory_cancel_rule = projection"),
-            "{:?}",
-            err.hint()
-        );
+        assert!(err.detail().unwrap().contains("projected to cross it"), "{:?}", err.detail());
+        assert!(err.hint().unwrap().contains("pgrust.memory_cancel_rule = projection"), "{:?}", err.hint());
         let c2 = governor::decide_counts();
-        assert_eq!(
-            (
-                c2.inline_cancels - c1.inline_cancels,
-                c2.self_cancels - c1.self_cancels
-            ),
-            (1, 1)
-        );
-        assert!(
-            governor::watchdog_cancel_pending() && !governor::fits_raw(1),
-            "its draws are refused meanwhile"
-        );
-        assert!(
-            governor::take_watchdog_cancel().is_some(),
-            "its backend raises it once"
-        );
+        assert_eq!((c2.inline_cancels - c1.inline_cancels, c2.self_cancels - c1.self_cancels), (1, 1));
+        assert!(governor::watchdog_cancel_pending() && !governor::fits_raw(1), "its draws are refused meanwhile");
+        assert!(governor::take_watchdog_cancel().is_some(), "its backend raises it once");
         governor::statement_end();
 
         // the backstop's Tick: starts throttle while F < F* and the cancel's bytes are landing, not with room; an idle
         // holder counts in the shares
         let t = governor::decide_tick().expect("projection decides at Tick");
-        assert!(
-            t.inputs.free() < t.inputs.target() && t.inputs.pending != 0 && governor::throttled()
-        );
+        assert!(t.inputs.free() < t.inputs.target() && t.inputs.pending != 0 && governor::throttled());
         let h = governor::decide_inputs().holders;
         governor::idle_holder(true);
         assert_eq!(governor::decide_inputs().holders, h + 1);
         governor::idle_holder(false);
         governor::publish_decide_resident(0, global_footprint::bytes());
         governor::publish_decide(&inputs(64 << 30, 56 << 30));
-        assert!(
-            governor::decide_tick().is_some() && !governor::throttled(),
-            "room: no throttle"
-        );
+        assert!(governor::decide_tick().is_some() && !governor::throttled(), "room: no throttle");
 
         // back to the default: nothing decides
         decide::set_rule(Rule::Threshold);
@@ -3202,57 +2687,32 @@ fn process_cache_faults_charge_the_statement_and_the_footprint() {
         let l2 = l.clone();
         std::thread::spawn(move || {
             let _in = governor::enter(Some(l2));
-            governor::charge_cache(
-                40 << 20,
-                "pgrc part cache",
-                &mut governor::CacheCharge::default(),
-            );
+            governor::charge_cache(40 << 20, "pgrc part cache", &mut governor::CacheCharge::default(),);
         })
         .join()
         .unwrap();
-        assert!(
-            global_footprint::bytes() + (16 << 20) >= fp0 + (40 << 20),
-            "the footprint sees the cache at once"
-        );
+        assert!(global_footprint::bytes() + (16 << 20) >= fp0 + (40 << 20), "the footprint sees the cache at once");
         assert_eq!(governor::cache_bytes(), c0 + (40 << 20));
         assert!(l.bytes() >= 40 << 20, "{}", l.bytes());
         assert_eq!(l.largest(), ("pgrc part cache", 40 << 20));
-        assert!(
-            governor::refusal("pgrc part cache").is_none(),
-            "an unarmed thread's check point never refuses"
-        );
+        assert!(governor::refusal("pgrc part cache").is_none(), "an unarmed thread's check point never refuses");
         governor::arm(true);
-        let e = governor::refusal("pgrc part cache")
-            .expect("an armed check point past the limit returns the error");
+        let e = governor::refusal("pgrc part cache").expect("an armed check point past the limit returns the error");
         assert_eq!(e.sqlstate(), ::types_error::ERRCODE_OUT_OF_MEMORY);
-        assert!(
-            e.detail().unwrap().contains("\"pgrc part cache\""),
-            "{:?}",
-            e.detail()
-        );
+        assert!(e.detail().unwrap().contains("\"pgrc part cache\""), "{:?}", e.detail());
         let payload = catch_unwind(AssertUnwindSafe(|| {
-            let _ = ctx
-                .mcx()
-                .alloc_uninit_bytes(Layout::from_size_align(1 << 20, 8).unwrap());
+            let _ = ctx.mcx().alloc_uninit_bytes(Layout::from_size_align(1 << 20, 8).unwrap());
         }))
         .unwrap_err();
         governor::arm(false);
-        let err = payload
-            .downcast::<alloc::boxed::Box<PgError>>()
-            .expect("a PgError payload");
+        let err = payload.downcast::<alloc::boxed::Box<PgError>>().expect("a PgError payload");
         assert_eq!(err.sqlstate(), ::types_error::ERRCODE_OUT_OF_MEMORY);
         let d = err.detail().unwrap();
-        assert!(
-            d.contains("Statement memory limit of 32768 kB") && d.contains("\"pgrc part cache\""),
-            "{d}"
-        );
+        assert!(d.contains("Statement memory limit of 32768 kB") && d.contains("\"pgrc part cache\""), "{d}");
         governor::statement_end();
         let held = l.bytes();
-        std::thread::spawn(|| {
-            governor::release_cache(40 << 20, &mut governor::CacheCharge::default())
-        })
-        .join()
-        .unwrap();
+        std::thread::spawn(|| { governor::release_cache(40 << 20, &mut governor::CacheCharge::default())
+        }).join().unwrap();
         assert_eq!(l.bytes(), held, "a release never credits a ledger");
         assert_eq!(governor::cache_bytes(), c0);
         assert!(global_footprint::bytes() < fp0 + (24 << 20));
@@ -3317,20 +2777,14 @@ mod d4483_alloc_fast {
         let fast = MemoryContext::new("d4483 fast");
         let slow = MemoryContext::new("d4483 slow").with_limit(usize::MAX / 2);
         assert!(!fast.acct.limited_path.get() && slow.acct.limited_path.get());
-        let sizes = [
-            8usize, 24, 64, 100, 8, 512, 24, 1000, 4000, 9000, 64, 16, 2000, 8, 300, 40, 12000,
-        ];
+        let sizes = [8usize, 24, 64, 100, 8, 512, 24, 1000, 4000, 9000, 64, 16, 2000, 8, 300, 40, 12000,];
         let mut live: Vec<(NonNull<u8>, NonNull<u8>, Layout)> = Vec::new();
         for round in 0..4 {
             for (i, &n) in sizes.iter().enumerate() {
                 let a = fast.mcx().allocate(l(n)).unwrap().cast::<u8>();
                 let b = slow.mcx().allocate(l(n)).unwrap().cast::<u8>();
                 live.push((a, b, l(n)));
-                assert_eq!(
-                    acct_of(&fast),
-                    acct_of(&slow),
-                    "after alloc of {n} (round {round}, step {i})"
-                );
+                assert_eq!(acct_of(&fast), acct_of(&slow), "after alloc of {n} (round {round}, step {i})");
                 if i % 3 == 2 {
                     let (a, b, lay) = live.remove(live.len() / 2);
                     // SAFETY: each pointer came from its own context's allocate with this layout, freed once.
@@ -3338,11 +2792,7 @@ mod d4483_alloc_fast {
                         fast.mcx().deallocate(a, lay);
                         slow.mcx().deallocate(b, lay);
                     }
-                    assert_eq!(
-                        acct_of(&fast),
-                        acct_of(&slow),
-                        "after a free (round {round}, step {i})"
-                    );
+                    assert_eq!(acct_of(&fast), acct_of(&slow), "after a free (round {round}, step {i})");
                 }
             }
         }
@@ -3368,25 +2818,15 @@ mod d4483_alloc_fast {
         let _b = m.allocate(l(64)).unwrap();
         let c = m.allocate(l(64)).unwrap();
         assert_eq!(ctx.used(), 256, "exactly at the limit is fine");
-        assert!(
-            m.allocate(l(8)).is_err(),
-            "byte 257 is refused although the active block has room"
-        );
+        assert!(m.allocate(l(8)).is_err(), "byte 257 is refused although the active block has room");
         // SAFETY: from this context's allocate with this layout, freed once.
         unsafe { m.deallocate(c.cast(), l(64)) };
         let _x = m.allocate(l(8)).unwrap();
         assert_eq!(ctx.used(), 200);
         let parked = ctx.acct.free_chunks.get();
         assert!(parked >= 1, "the freed 64-byte chunk is parked");
-        assert!(
-            m.allocate(l(64)).is_err(),
-            "a parked chunk of the size does not bypass the limit (200 + 64 > 256)"
-        );
-        assert_eq!(
-            (ctx.used(), ctx.acct.free_chunks.get()),
-            (200, parked),
-            "a refusal charges and pops nothing"
-        );
+        assert!(m.allocate(l(64)).is_err(), "a parked chunk of the size does not bypass the limit (200 + 64 > 256)");
+        assert_eq!((ctx.used(), ctx.acct.free_chunks.get()), (200, parked), "a refusal charges and pops nothing");
         let _y = m.allocate(l(56)).unwrap();
         assert_eq!(ctx.used(), 256);
 
@@ -3396,10 +2836,7 @@ mod d4483_alloc_fast {
         let k = kid.mcx();
         let _p = parent.mcx().allocate(l(200)).unwrap();
         let _k1 = k.allocate(l(56)).unwrap();
-        assert!(
-            k.allocate(l(8)).is_err(),
-            "the kid refuses at its parent's limit"
-        );
+        assert!(k.allocate(l(8)).is_err(), "the kid refuses at its parent's limit");
         assert_eq!(kid.used(), 56);
     }
 }
@@ -3417,11 +2854,7 @@ fn freeze_keeps_an_exact_array_until_the_context_goes() {
         }
         let s: &[u32] = freeze(v);
         assert_eq!(s, &[0, 3, 6, 9, 12], "same values in the same order");
-        assert_eq!(
-            ctx.used(),
-            5 * 4,
-            "a frozen array has no Drop: it stays charged, with no slack"
-        );
+        assert_eq!(ctx.used(), 5 * 4, "a frozen array has no Drop: it stays charged, with no slack");
         let empty: &[u32] = freeze(pgvec_exact_in::<u32>(mcx, 0).unwrap());
         assert!(empty.is_empty());
         assert_eq!(ctx.used(), 5 * 4);
@@ -3458,11 +2891,7 @@ fn freeze_fit_gives_back_the_spare_capacity() {
         e.pop();
         let (before, buf) = (ctx.used(), e.capacity() * 8);
         assert!(freeze_fit(e).is_empty());
-        assert_eq!(
-            ctx.used(),
-            before - buf,
-            "an empty array gives its whole buffer back"
-        );
+        assert_eq!(ctx.used(), before - buf, "an empty array gives its whole buffer back");
         let x: &[u64] = freeze_fit(pgvec_exact_in(mcx, 0).unwrap());
         assert!(x.is_empty());
     }
@@ -3488,10 +2917,7 @@ fn idle_trim_runs_unless_the_switch_holds_it_for_ladder_pressure() {
     let (run1, held1) = idle_trim_counts();
     assert_eq!(run1 + held1, run0 + held0 + 2, "both answers counted");
     if !pressed_before && !pressed_after {
-        assert!(
-            !trimmed,
-            "switch on, no ladder pressure: the trims are held"
-        );
+        assert!(!trimmed, "switch on, no ladder pressure: the trims are held");
         assert_eq!(held1, held0 + 1, "counted as held");
     }
     if pressed_before && pressed_after {
@@ -3542,14 +2968,10 @@ fn under_purge_bg_the_idle_release_never_trims_and_the_purgers_trim_runs_the_hoo
 /// installed, which defers a memory safety thread's write, never to a raw stderr write.
 #[test]
 fn d4812_an_mcx_line_goes_to_the_installed_server_log_writer() {
-    static GOT: std::sync::Mutex<std::string::String> =
-        std::sync::Mutex::new(std::string::String::new());
+    static GOT: std::sync::Mutex<std::string::String> = std::sync::Mutex::new(std::string::String::new());
     crate::set_line_sink(|s| GOT.lock().unwrap_or_else(|e| e.into_inner()).push_str(s));
     crate::server_log_line(b"ledger2-shadow: d4812 probe\n");
-    assert!(GOT
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .contains("ledger2-shadow: d4812 probe\n"));
+    assert!(GOT.lock().unwrap_or_else(|e| e.into_inner()).contains("ledger2-shadow: d4812 probe\n"));
 }
 
 // PGRUST_MCX_BUMP_FAST: a bump context's window hit is served inline (Mcx::alloc_fast), everything else by allocate_slow;
@@ -3563,8 +2985,7 @@ mod bump_fast {
     fn force_fast(ctx: &MemoryContext, on: bool) {
         match &ctx.backend {
             // SAFETY: single-statement borrow, never re-entered (bump_mut).
-            Backend::Bump(a) | Backend::BumpDrop(a, _) | Backend::BumpForget(a) => {
-                unsafe { bump_mut(a) }.set_fast(on)
+            Backend::Bump(a) | Backend::BumpDrop(a, _) | Backend::BumpForget(a) => { unsafe { bump_mut(a) }.set_fast(on)
             }
             _ => panic!("not a bump context"),
         }
@@ -3589,17 +3010,11 @@ mod bump_fast {
     fn state(ctx: &MemoryContext) -> (ContextStats, usize, usize, usize) {
         let tail = match &ctx.backend {
             // SAFETY: single-statement borrow.
-            Backend::Bump(a) | Backend::BumpDrop(a, _) | Backend::BumpForget(a) => {
-                unsafe { &*a.get() }.window_tail()
+            Backend::Bump(a) | Backend::BumpDrop(a, _) | Backend::BumpForget(a) => { unsafe { &*a.get() }.window_tail()
             }
             _ => unreachable!(),
         };
-        (
-            ctx.stats(),
-            ctx.mem_allocated(),
-            tail,
-            ctx.acct.window_tail.get(),
-        )
+        (ctx.stats(), ctx.mem_allocated(), tail, ctx.acct.window_tail.get(),)
     }
 
     fn alloc(ctx: &MemoryContext, size: usize, align: usize) -> NonNull<[u8]> {
@@ -3641,53 +3056,23 @@ mod bump_fast {
                 for (i, &(size, align)) in script().iter().enumerate() {
                     let f = alloc(&fast, size, align);
                     let o = alloc(&old, size, align);
-                    assert_eq!(
-                        f.len(),
-                        o.len(),
-                        "kind {kind} round {round} step {i}: length (size {size} align {align})"
-                    );
-                    let (fp, op) = (
-                        f.cast::<u8>().as_ptr() as usize,
-                        o.cast::<u8>().as_ptr() as usize,
-                    );
+                    assert_eq!(f.len(), o.len(), "kind {kind} round {round} step {i}: length (size {size} align {align})");
+                    let (fp, op) = (f.cast::<u8>().as_ptr() as usize, o.cast::<u8>().as_ptr() as usize,);
                     assert_eq!(fp % align, 0, "kind {kind} step {i}: alignment {align}");
                     if size == 0 {
-                        assert_eq!(
-                            (fp, op),
-                            (align, align),
-                            "a ZST is dangling at its alignment"
-                        );
+                        assert_eq!((fp, op), (align, align), "a ZST is dangling at its alignment");
                     }
                     // Both carve contiguously from the previous chunk, or neither does (same refill points).
-                    assert_eq!(
-                        fp == fprev,
-                        op == oprev,
-                        "kind {kind} round {round} step {i}: carving (size {size} align {align})"
-                    );
+                    assert_eq!(fp == fprev, op == oprev, "kind {kind} round {round} step {i}: carving (size {size} align {align})");
                     (fprev, oprev) = (fp + f.len(), op + o.len());
-                    assert_eq!(
-                        state(&fast),
-                        state(&old),
-                        "kind {kind} round {round} step {i}: state after size {size} align {align}"
-                    );
+                    assert_eq!(state(&fast), state(&old), "kind {kind} round {round} step {i}: state after size {size} align {align}");
                 }
                 let (fs, os) = (slow(&fast), slow(&old));
-                assert_eq!(
-                    os,
-                    script().len() as u64,
-                    "switch off: every allocation takes allocate_slow"
-                );
-                assert!(
-                    fs * 4 < os,
-                    "switch on: window hits served inline ({fs} of {os} out of line)"
-                );
+                assert_eq!(os, script().len() as u64, "switch off: every allocation takes allocate_slow");
+                assert!(fs * 4 < os, "switch on: window hits served inline ({fs} of {os} out of line)");
                 fast.reset();
                 old.reset();
-                assert_eq!(
-                    state(&fast),
-                    state(&old),
-                    "kind {kind} round {round}: after reset"
-                );
+                assert_eq!(state(&fast), state(&old), "kind {kind} round {round}: after reset");
             }
         }
     }
@@ -3697,11 +3082,7 @@ mod bump_fast {
         for kind in 0..3u8 {
             let mut ctx = bump_ctx(kind, true);
             let first = alloc(&ctx, 16, 8).cast::<u8>().as_ptr() as usize;
-            assert_eq!(
-                slow(&ctx),
-                1,
-                "the first allocation opens the window out of line"
-            );
+            assert_eq!(slow(&ctx), 1, "the first allocation opens the window out of line");
             let used = ctx.used();
             for i in 1..64usize {
                 let p = alloc(&ctx, 16, 8).cast::<u8>().as_ptr() as usize;
@@ -3711,11 +3092,7 @@ mod bump_fast {
             let _ = alloc(&ctx, 5, 2);
             let _ = alloc(&ctx, 8, 8);
             assert_eq!(slow(&ctx), 0, "window hits are served inline");
-            assert_eq!(
-                ctx.used(),
-                used,
-                "a window hit charges nothing (block transitions only)"
-            );
+            assert_eq!(ctx.used(), used, "a window hit charges nothing (block transitions only)");
             // Out of line: over-aligned, ZST, dedicated.
             let big = alloc(&ctx, 16, 16).cast::<u8>().as_ptr() as usize;
             assert_eq!(big % 16, 0);
@@ -3726,11 +3103,7 @@ mod bump_fast {
             let off = bump_ctx(kind, false);
             let _ = alloc(&off, 16, 8);
             let _ = alloc(&off, 16, 8);
-            assert_eq!(
-                slow(&off),
-                2,
-                "switch off: every allocation takes allocate_slow"
-            );
+            assert_eq!(slow(&off), 2, "switch off: every allocation takes allocate_slow");
         }
     }
 
@@ -3744,11 +3117,7 @@ mod bump_fast {
             ctx.reset();
             slow(&ctx);
             let a = alloc(&ctx, 32, 8).cast::<u8>().as_ptr() as usize;
-            assert_eq!(
-                slow(&ctx),
-                0,
-                "the post-reset window is open: an inline hit"
-            );
+            assert_eq!(slow(&ctx), 0, "the post-reset window is open: an inline hit");
             assert_eq!(a, first, "the reset rewound the keeper");
             ctx.reset();
             let b = alloc(&ctx, 32, 8).cast::<u8>().as_ptr() as usize;
@@ -3822,15 +3191,8 @@ mod bump_fast_witness {
             std::println!("MCX-BUMP-FAST-CHILD slow_calls={seen:?}");
             return;
         }
-        assert!(
-            std::env::var_os("PGRUST_MCX_BUMP_FAST").is_none(),
-            "run the witness without PGRUST_MCX_BUMP_FAST set"
-        );
-        assert_eq!(
-            seen,
-            [0, 0, 0],
-            "(a) default: window hits are served inline, none through allocate_slow"
-        );
+        assert!(std::env::var_os("PGRUST_MCX_BUMP_FAST").is_none(), "run the witness without PGRUST_MCX_BUMP_FAST set");
+        assert_eq!(seen, [0, 0, 0], "(a) default: window hits are served inline, none through allocate_slow");
         let out = std::process::Command::new(std::env::current_exe().unwrap())
             .args([
                 "tests::bump_fast_witness::default_bump_alloc_is_inline_and_env_zero_restores_allocate_slow",
@@ -3844,16 +3206,9 @@ mod bump_fast_witness {
             .output()
             .unwrap();
         let so = alloc::string::String::from_utf8_lossy(&out.stdout);
+        assert!(out.status.success(), "child failed: {so} {}", alloc::string::String::from_utf8_lossy(&out.stderr));
         assert!(
-            out.status.success(),
-            "child failed: {so} {}",
-            alloc::string::String::from_utf8_lossy(&out.stderr)
-        );
-        assert!(
-            so.contains(&alloc::format!(
-                "MCX-BUMP-FAST-CHILD slow_calls={:?}",
-                [N, N, N]
-            )),
+            so.contains(&alloc::format!("MCX-BUMP-FAST-CHILD slow_calls={:?}", [N, N, N])),
             "(b) PGRUST_MCX_BUMP_FAST=0: every window-sized allocation through allocate_slow: {so}"
         );
     }

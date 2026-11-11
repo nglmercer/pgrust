@@ -24,7 +24,7 @@ pub fn fc_boolsend(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgRes
 }
 
 // Raw server-encoding bytes: C quotes the cstring as-is in its message.
-fn in_arg(fcinfo: &Fcinfo) -> &[u8] {
+fn in_arg(fcinfo: & Fcinfo) -> & [u8] {
     // SAFETY: catalog arg 0 of boolin is cstring (typlen -2).
     unsafe { fcinfo.arg_cstring(0) }.to_bytes()
 }

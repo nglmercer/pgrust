@@ -47,11 +47,9 @@ mod tests {
         let mut buf = vec![0u64; (HDR + 24 * keys.len()) / 8 + 1];
         let d = buf.as_mut_ptr() as *mut u8;
         // SAFETY: `buf` holds the header and the 24-byte records.
-        unsafe {
-            wr::<u8>(d, 15, KIND); wr::<u8>(d, PHASE, 2); wr::<u8>(d, FLAGS, flags); wr::<u8>(d, WORDS, 2); wr::<u32>(d, REC, 24); crate::ops::hashjoin::layout::set_pay(d, 0);
-            wr::<u64>(d, N, keys.len() as u64); wr::<i64>(d, LO, keys.iter().copied().min().unwrap_or(0)); wr::<i64>(d, HI, keys.iter().copied().max().unwrap_or(0));
-            for (i, k) in keys.iter().enumerate() {
-                wr::<i64>(d.add(HDR + 24 * i), 0, *k); wr::<u64>(d.add(HDR + 24 * i), 8, 1000 + i as u64);
+        unsafe {wr::<u8>(d, 15, KIND); wr::<u8>(d, PHASE, 2); wr::<u8>(d, FLAGS, flags); wr::<u8>(d, WORDS, 2); wr::<u32>(d, REC, 24); crate::ops::hashjoin::layout::set_pay(d, 0);
+wr::<u64>(d, N, keys.len() as u64); wr::<i64>(d, LO, keys.iter().copied().min().unwrap_or(0)); wr::<i64>(d, HI, keys.iter().copied().max().unwrap_or(0));
+            for (i, k) in keys.iter().enumerate() {wr::<i64>(d.add(HDR + 24 * i), 0, *k); wr::<u64>(d.add(HDR + 24 * i), 8, 1000 + i as u64);
             }
         }
         buf
@@ -93,8 +91,7 @@ mod tests {
         let mut buf = vec![0u64; (HDR + 16) / 8 + 1];
         let d = buf.as_mut_ptr() as *mut u8;
         // SAFETY: `buf` holds the header and two 8-byte records.
-        unsafe {
-            wr::<u8>(d, 15, KIND); wr::<u8>(d, PHASE, 2); wr::<u8>(d, FLAGS, F_COMPACT); wr::<u8>(d, WORDS, 1); wr::<u32>(d, REC, 8); crate::ops::hashjoin::layout::set_pay(d, 0);
+        unsafe {wr::<u8>(d, 15, KIND); wr::<u8>(d, PHASE, 2); wr::<u8>(d, FLAGS, F_COMPACT); wr::<u8>(d, WORDS, 1); wr::<u32>(d, REC, 8); crate::ops::hashjoin::layout::set_pay(d, 0);
             wr::<u64>(d, N, 2);
             wr::<i32>(d.add(HDR), 0, -5); wr::<i32>(d.add(HDR + 8), 0, 9);
         }

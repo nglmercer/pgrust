@@ -33,8 +33,8 @@ use transam_xlog::control_file::{
 };
 use transam_xlog::{XLogRecPtrToBytePos, DB_IN_PRODUCTION, RECOVERY_STATE_DONE};
 use types_core::{
-    BackendType, BlockNumber, Buffer, ForkNumber, Oid, TimeLineID, XLogRecPtr, XLogSegNo, BLCKSZ,
-    INVALID_PROC_NUMBER, RELPERSISTENCE_PERMANENT,
+    BackendType, BlockNumber, Buffer, ForkNumber, Oid, TimeLineID,
+    XLogRecPtr, XLogSegNo, BLCKSZ, INVALID_PROC_NUMBER, RELPERSISTENCE_PERMANENT,
 };
 use types_error::PgResult;
 use types_rel::{FormData_pg_class, LockInfoData, LockRelId, RelationData, RELKIND_RELATION};
@@ -72,11 +72,7 @@ struct Fake {
     locks: Vec<i32>,
 }
 
-static FAKE: Mutex<Fake> = Mutex::new(Fake {
-    bufs: Vec::new(),
-    pins: Vec::new(),
-    locks: Vec::new(),
-});
+static FAKE: Mutex<Fake> = Mutex::new(Fake { bufs: Vec::new(), pins: Vec::new(), locks: Vec::new(), });
 // VM-fork ReadBufferExtended calls (visibilitymap_pin's vm_readbuf); redo
 // reads go through ReadBufferWithoutRelcache instead.
 static VM_RELCACHE_READS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
@@ -106,10 +102,7 @@ fn nblocks(f: &Fake, fork: ForkNumber) -> BlockNumber {
 }
 
 fn zero_lock(mode: ReadBufferMode) -> bool {
-    matches!(
-        mode,
-        ReadBufferMode::ZeroAndLock | ReadBufferMode::ZeroAndCleanupLock
-    )
+    matches!(mode, ReadBufferMode::ZeroAndLock | ReadBufferMode::ZeroAndCleanupLock)
 }
 
 fn install_fake_bufmgr() {
@@ -268,10 +261,7 @@ fn install_fake_bufmgr() {
 
     bufmgr_seams::extend_buffered_rel_to_rel::set(|_rel, fork, strat, flags, extend_to, mode| {
         bufmgr_seams::extend_buffered_rel_to::call(
-            types_storage::RelFileLocatorBackend {
-                locator: RLOC,
-                backend: INVALID_PROC_NUMBER,
-            },
+            types_storage::RelFileLocatorBackend { locator: RLOC, backend: INVALID_PROC_NUMBER, },
             fork,
             strat,
             flags,
@@ -404,7 +394,8 @@ fn install_proc_boot_seams() {
     be_fsstubs_seams::at_eoxact_large_object::set(|_| Ok(()));
     namespace_seams::at_eoxact_namespace::set(|_, _| {});
     catalog_index_seams::reset_reindex_state::set(|_| {});
-    catalog_storage_seams::smgr_get_pending_deletes::set(|mcx, _for_commit| Ok(PgVec::new_in(mcx)));
+    catalog_storage_seams::smgr_get_pending_deletes::set(|mcx, _for_commit|
+        Ok(PgVec::new_in(mcx)));
     catalog_storage_seams::smgr_do_pending_deletes::set(|_| Ok(()));
     catalog_storage_seams::smgr_do_pending_syncs::set(|_, _| Ok(()));
     combocid_seams::at_eoxact_combocid::set(|| {});
@@ -547,20 +538,14 @@ fn test_relation<'mcx>(mcx: Mcx<'mcx>) -> RelationData<'mcx> {
         rd_id: REL_OID,
         rd_backend: INVALID_PROC_NUMBER,
         rd_islocaltemp: false,
-        rd_hastriggers: false,
-        rd_hasrules: false,
+        rd_hastriggers: false, rd_hasrules: false,
         rd_trigdesc: Default::default(),
         rd_isvalid: Cell::new(true),
         rd_createSubid: Cell::new(0),
         rd_newRelfilelocatorSubid: Cell::new(0),
         rd_firstRelfilelocatorSubid: Cell::new(0),
         rd_droppedSubid: Cell::new(0),
-        rd_lockInfo: LockInfoData {
-            lockRelId: LockRelId {
-                relId: REL_OID,
-                dbId: 5,
-            },
-        },
+        rd_lockInfo: LockInfoData { lockRelId: LockRelId { relId: REL_OID, dbId: 5, }, },
         rd_rel,
         rd_att: int4_tupdesc(mcx),
         rd_index: None,
@@ -572,10 +557,7 @@ fn test_relation<'mcx>(mcx: Mcx<'mcx>) -> RelationData<'mcx> {
         pgstat_enabled: Cell::new(false),
         pgstat_link: core::cell::Cell::new((0, core::ptr::null_mut())),
         rd_amcache: Default::default(),
-        rd_amcache_hash: Default::default(),
-        rd_amcache_gin: Default::default(),
-        rd_amcache_spgist: Default::default(),
-        rd_amcache_bloom: Default::default(),
+        rd_amcache_hash: Default::default(), rd_amcache_gin: Default::default(), rd_amcache_spgist: Default::default(), rd_amcache_bloom: Default::default(),
         rd_support: PgVec::new_in(mcx),
         rd_supportinfo: Default::default(),
         rd_opcoptions: Default::default(),
@@ -724,8 +706,8 @@ fn normalize(page: &mut [u8; BLCKSZ]) {
     const HINT_BITS: u16 = 0x0F00; // HEAP_XMIN/XMAX_{COMMITTED,INVALID}
     page[10] &= !0x02; // PD_PAGE_FULL
     page[20..24].fill(0); // pd_prune_xid
-                          // The hole is dead space: the writer leaves stale bytes where
-                          // compactified tuples used to live, FPIs elide it, redo zero-fills.
+    // The hole is dead space: the writer leaves stale bytes where
+    // compactified tuples used to live, FPIs elide it, redo zero-fills.
     let lower = u16::from_ne_bytes(page[12..14].try_into().unwrap()) as usize;
     let upper = u16::from_ne_bytes(page[14..16].try_into().unwrap()) as usize;
     page[lower..upper].fill(0);
@@ -746,7 +728,8 @@ fn normalize(page: &mut [u8; BLCKSZ]) {
 
 #[test]
 fn prune_freeze_visible_redo_rebuilds_pages_byte_exact() {
-    let dir = std::env::temp_dir().join(format!("pgrust_prune_redo_{}", std::process::id()));
+    let dir =
+        std::env::temp_dir().join(format!("pgrust_prune_redo_{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     for sub in ["global", "pg_wal", "pg_xact", "pg_subtrans"] {
         std::fs::create_dir_all(dir.join(sub)).unwrap();
@@ -767,14 +750,10 @@ fn prune_freeze_visible_redo_rebuilds_pages_byte_exact() {
     {
         use std::sync::atomic::Ordering::Relaxed as R;
         let tv = procarray::TransamVariables();
-        tv.nextXid.store(
-            types_core::FullTransactionId::from_epoch_and_xid(0, COMMITTED_XID).value,
-            R,
-        );
-        tv.latestCompletedXid.store(
-            types_core::FullTransactionId::from_epoch_and_xid(0, COMMITTED_XID - 1).value,
-            R,
-        );
+        tv.nextXid
+            .store(types_core::FullTransactionId::from_epoch_and_xid(0, COMMITTED_XID).value, R,);
+        tv.latestCompletedXid
+            .store(types_core::FullTransactionId::from_epoch_and_xid(0, COMMITTED_XID - 1).value, R,);
     }
     subtrans::StartupSUBTRANS(COMMITTED_XID).unwrap();
 
@@ -783,12 +762,8 @@ fn prune_freeze_visible_redo_rebuilds_pages_byte_exact() {
     let ctl = transam_xlog::ctl::XLogCtl();
     ctl.InsertTimeLineID.store(1, Relaxed);
     ctl.PrevTimeLineID.store(1, Relaxed);
-    ctl.Insert
-        .CurrBytePos
-        .store(XLogRecPtrToBytePos(end_of_log), Relaxed);
-    ctl.Insert
-        .PrevBytePos
-        .store(XLogRecPtrToBytePos(prev_rec), Relaxed);
+    ctl.Insert.CurrBytePos.store(XLogRecPtrToBytePos(end_of_log), Relaxed);
+    ctl.Insert.PrevBytePos.store(XLogRecPtrToBytePos(prev_rec), Relaxed);
     ctl.Insert.fullPageWrites.store(true, Relaxed);
     ctl.Insert.RedoRecPtr.store(prev_rec, Relaxed);
     ctl.RedoRecPtr.store(prev_rec, Relaxed);
@@ -853,16 +828,8 @@ fn prune_freeze_visible_redo_rebuilds_pages_byte_exact() {
         assert_eq!(newtup.t_self, ItemPointerData::new(0, 5));
         assert_eq!(update_indexes, TU_UpdateIndexes::TU_None); // HOT
     }
-    let r = heap_delete(
-        &rel,
-        &ItemPointerData::new(0, 3),
-        9,
-        None,
-        true,
-        &mut tmfd,
-        false,
-    )
-    .unwrap();
+    let r =
+        heap_delete(&rel, &ItemPointerData::new(0, 3), 9, None, true, &mut tmfd, false,).unwrap();
     assert_eq!(r, TM_Result::TM_Ok);
     assert_eq!(xact::GetTopTransactionIdIfAny(), UPDATER_XID);
     xact::CommitTransactionCommand().unwrap();
@@ -886,27 +853,15 @@ fn prune_freeze_visible_redo_rebuilds_pages_byte_exact() {
 
     xact::StartTransactionCommand().unwrap();
     for (blk, off) in [(1u32, 2u16), (1, 5), (2, 4)] {
-        let r = heap_delete(
-            &rel,
-            &ItemPointerData::new(blk, off),
-            10,
-            None,
-            true,
-            &mut tmfd,
-            false,
-        )
-        .unwrap();
+        let r = heap_delete(&rel, &ItemPointerData::new(blk, off), 10, None, true, &mut tmfd, false,)
+            .unwrap();
         assert_eq!(r, TM_Result::TM_Ok);
     }
     xact::CommitTransactionCommand().unwrap();
 
     with_fake(|f| {
         assert!(f.pins.iter().all(|p| *p == 0), "leaked pins: {:?}", f.pins);
-        assert!(
-            f.locks.iter().all(|l| *l == 0),
-            "leaked locks: {:?}",
-            f.locks
-        );
+        assert!(f.locks.iter().all(|l| *l == 0), "leaked locks: {:?}", f.locks);
     });
 
     // Advance the horizon through the real procarray: a fresh snapshot moves
@@ -915,10 +870,7 @@ fn prune_freeze_visible_redo_rebuilds_pages_byte_exact() {
         let mut snap = mvcc_snapshot(mcx);
         procarray::GetSnapshotData(&mut snap, mcx).unwrap();
     }
-    assert!(types_core::xact::TransactionIdPrecedes(
-        LAST_XID,
-        procarray::RecentXmin()
-    ));
+    assert!(types_core::xact::TransactionIdPrecedes(LAST_XID, procarray::RecentXmin()));
 
     let vistest = procarray_seams::global_vis_test_for::call(&rel);
 
@@ -1043,12 +995,7 @@ fn prune_freeze_visible_redo_rebuilds_pages_byte_exact() {
             XLOG_HEAP2_PRUNE_VACUUM_SCAN,
             0,
             &[&main],
-            &[XLogRegBuf {
-                block_id: 0,
-                buffer: buf2,
-                flags: REGBUF_STANDARD,
-                bufdata: &[&data],
-            }],
+            &[XLogRegBuf { block_id: 0, buffer: buf2, flags: REGBUF_STANDARD, bufdata: &[&data], }],
         )
         .unwrap();
         page_mut(2).set_lsn(recptr);
@@ -1099,16 +1046,11 @@ fn prune_freeze_visible_redo_rebuilds_pages_byte_exact() {
 
     with_fake(|f| {
         assert!(f.pins.iter().all(|p| *p == 0), "leaked pins: {:?}", f.pins);
-        assert!(
-            f.locks.iter().all(|l| *l == 0),
-            "leaked locks: {:?}",
-            f.locks
-        );
+        assert!(f.locks.iter().all(|l| *l == 0), "leaked locks: {:?}", f.locks);
     });
 
-    let expected: Vec<[u8; BLCKSZ]> = (0..3)
-        .map(|b| page_bytes(ForkNumber::MAIN_FORKNUM, b))
-        .collect();
+    let expected: Vec<[u8; BLCKSZ]> =
+        (0..3).map(|b| page_bytes(ForkNumber::MAIN_FORKNUM, b)).collect();
     let expected_vm = page_bytes(ForkNumber::VISIBILITYMAP_FORKNUM, 0);
     let last_lsn = {
         let vm =
@@ -1131,9 +1073,7 @@ fn prune_freeze_visible_redo_rebuilds_pages_byte_exact() {
     let reader_ctx: &'static MemoryContext = Box::leak(Box::new(MemoryContext::new("reader")));
     let mut reader = xlogreader::XLogReaderState::allocate(reader_ctx.mcx(), SEG).unwrap();
     reader.system_identifier = SYS_ID;
-    let mut routine = SegFileRead {
-        wal_dir: dir.join("pg_wal"),
-    };
+    let mut routine = SegFileRead { wal_dir: dir.join("pg_wal"), };
     reader.XLogBeginRead(end_of_log + 40);
 
     let mut heap2_seen = [0u32; 8];
@@ -1150,46 +1090,18 @@ fn prune_freeze_visible_redo_rebuilds_pages_byte_exact() {
     }
     assert_eq!(reader.v.EndRecPtr, last_lsn);
 
-    assert_eq!(
-        heap2_seen[(XLOG_HEAP2_PRUNE_ON_ACCESS >> 4) as usize],
-        1,
-        "PRUNE_ON_ACCESS"
-    );
-    assert_eq!(
-        heap2_seen[(XLOG_HEAP2_PRUNE_VACUUM_SCAN >> 4) as usize],
-        3,
-        "VACUUM_SCAN x3 (mark-unused-now, lpdead, freeze)"
-    );
-    assert_eq!(
-        heap2_seen[(XLOG_HEAP2_PRUNE_VACUUM_CLEANUP >> 4) as usize],
-        1,
-        "VACUUM_CLEANUP"
-    );
-    assert_eq!(
-        heap2_seen[(XLOG_HEAP2_VISIBLE >> 4) as usize],
-        2,
-        "VISIBLE x2"
-    );
+    assert_eq!(heap2_seen[(XLOG_HEAP2_PRUNE_ON_ACCESS >> 4) as usize], 1, "PRUNE_ON_ACCESS");
+    assert_eq!(heap2_seen[(XLOG_HEAP2_PRUNE_VACUUM_SCAN >> 4) as usize], 3, "VACUUM_SCAN x3 (mark-unused-now, lpdead, freeze)");
+    assert_eq!(heap2_seen[(XLOG_HEAP2_PRUNE_VACUUM_CLEANUP >> 4) as usize], 1, "VACUUM_CLEANUP");
+    assert_eq!(heap2_seen[(XLOG_HEAP2_VISIBLE >> 4) as usize], 2, "VISIBLE x2");
     assert_eq!(heap2_seen[(XLOG_HEAP2_MULTI_INSERT >> 4) as usize], 0);
     // heapam_xlog.c:362: heap_xlog_visible hands its already-pinned VM buffer
     // to visibilitymap_pin; no second read (a pg_stat_io hit) of the VM page.
-    assert_eq!(
-        VM_RELCACHE_READS.load(Relaxed),
-        0,
-        "VISIBLE redo re-read its VM page"
-    );
+    assert_eq!(VM_RELCACHE_READS.load(Relaxed), 0, "VISIBLE redo re-read its VM page");
 
     with_fake(|f| {
-        assert!(
-            f.pins.iter().all(|p| *p == 0),
-            "replay leaked pins: {:?}",
-            f.pins
-        );
-        assert!(
-            f.locks.iter().all(|l| *l == 0),
-            "replay leaked locks: {:?}",
-            f.locks
-        );
+        assert!(f.pins.iter().all(|p| *p == 0), "replay leaked pins: {:?}", f.pins);
+        assert!(f.locks.iter().all(|l| *l == 0), "replay leaked locks: {:?}", f.locks);
     });
 
     // The freeze plan and truncation replayed exactly (asserted before the
@@ -1212,11 +1124,7 @@ fn prune_freeze_visible_redo_rebuilds_pages_byte_exact() {
         normalize(&mut got);
         normalize(&mut want);
         if got != want {
-            let first = got
-                .iter()
-                .zip(want.iter())
-                .position(|(a, b)| a != b)
-                .unwrap();
+            let first = got.iter().zip(want.iter()).position(|(a, b)| a != b).unwrap();
             panic!(
                 "replayed block {blk} differs at byte {first}: got {:02x?} want {:02x?}",
                 &got[first..(first + 16).min(BLCKSZ)],

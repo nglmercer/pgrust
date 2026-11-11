@@ -1,22 +1,14 @@
+
 use std::cell::RefCell;
 use std::sync::Arc;
 
 use pgsync::OnceLock;
 
-use ::bufmgr_seams::{
-    buffer_page_ptr, lock_buffer, read_buffer_without_relcache, release_buffer, BUFFER_LOCK_SHARE,
-    BUFFER_LOCK_UNLOCK,
-};
+use ::bufmgr_seams::{buffer_page_ptr, lock_buffer, read_buffer_without_relcache, release_buffer, BUFFER_LOCK_SHARE, BUFFER_LOCK_UNLOCK,};
 use ::mcx::Mcx;
-use ::types_core::{
-    Buffer, ForkNumber, InvalidOid, Oid, BLCKSZ, INVALID_PROC_NUMBER, RELPERSISTENCE_PERMANENT,
-    RELPERSISTENCE_TEMP,
-};
+use ::types_core::{Buffer, ForkNumber, InvalidOid, Oid, BLCKSZ, INVALID_PROC_NUMBER, RELPERSISTENCE_PERMANENT, RELPERSISTENCE_TEMP,};
 use ::types_error::{PgError, PgResult, ERRCODE_DATA_CORRUPTED, ERRCODE_FEATURE_NOT_SUPPORTED};
-use ::types_nbtree::page::{
-    BTP_DELETED, BTP_HALF_DEAD, BTP_LEAF, BTREE_MAGIC, BT_IS_POSTING, BT_OFFSET_MASK,
-    INDEX_ALT_TID_MASK, P_NONE,
-};
+use ::types_nbtree::page::{BTP_DELETED, BTP_HALF_DEAD, BTP_LEAF, BTREE_MAGIC, BT_IS_POSTING, BT_OFFSET_MASK, INDEX_ALT_TID_MASK, P_NONE,};
 use ::types_snapshot::{SnapshotData, SNAPSHOT_TOAST};
 use ::types_storage::lock::{AccessShareLock, NoLock};
 use ::types_storage::{ReadBufferMode, RelFileLocator, RelFileLocatorBackend};
@@ -77,14 +69,8 @@ fn empty() -> Arc<ToastMap> {
 pub fn resolve<'mcx>(mcx: Mcx<'mcx>, relids: impl IntoIterator<Item = Oid>) -> PgResult<ToastMap> {
     let mut rels: Vec<PublishedToast> = Vec::new();
     for relid in relids {
-        let Some(rel) = relation_seams::try_relation_open::call(mcx, relid, AccessShareLock)?
-        else {
-            continue;
-        };
-        let (toastrelid, temp) = (
-            rel.rd_rel.reltoastrelid,
-            rel.rd_rel.relpersistence == RELPERSISTENCE_TEMP,
-        );
+        let Some(rel) = relation_seams::try_relation_open::call(mcx, relid, AccessShareLock)? else { continue; };
+        let (toastrelid, temp) = (rel.rd_rel.reltoastrelid, rel.rd_rel.relpersistence == RELPERSISTENCE_TEMP,);
         rel.close(NoLock)?;
         if toastrelid == InvalidOid || temp || rels.iter().any(|r| r.toastrelid == toastrelid) {
             continue;
@@ -157,10 +143,7 @@ fn unpublished(p: &VarattExternal) -> Box<PgError> {
 #[cold]
 #[inline(never)]
 fn corrupt(what: &str, rel: &PublishedToast) -> Box<PgError> {
-    Box::new(
-        PgError::error(format!("{what} in toast relation \"{}\"", rel.relname))
-            .with_sqlstate(ERRCODE_DATA_CORRUPTED),
-    )
+    Box::new(PgError::error(format!("{what} in toast relation \"{}\"", rel.relname)).with_sqlstate(ERRCODE_DATA_CORRUPTED),)
 }
 
 /// A pinned, share-locked page; unlocked and unpinned on drop (an error path included).
@@ -171,14 +154,7 @@ struct Pinned {
 
 impl Pinned {
     fn read(locator: RelFileLocator, blk: u32, permanent: bool) -> PgResult<Pinned> {
-        let buf = read_buffer_without_relcache::call(
-            locator,
-            ForkNumber::MAIN_FORKNUM,
-            blk,
-            ReadBufferMode::Normal,
-            None,
-            permanent,
-        )?;
+        let buf = read_buffer_without_relcache::call(locator, ForkNumber::MAIN_FORKNUM, blk, ReadBufferMode::Normal, None, permanent,)?;
         let mut p = Pinned { buf, locked: false };
         lock_buffer::call(buf, BUFFER_LOCK_SHARE)?;
         p.locked = true;
@@ -242,11 +218,7 @@ const LP_NORMAL: u32 = 1;
 /// attribute is minus infinity; an equal pivot is not below, so the descent stays left of every match.
 fn pivot_below(t: &[u8], valueid: Oid, seq: i32, nkeys: usize) -> Option<bool> {
     let (_, posid, info) = itup_head(t)?;
-    let natts = if info & INDEX_ALT_TID_MASK != 0 {
-        (posid & BT_OFFSET_MASK) as usize
-    } else {
-        2
-    };
+    let natts = if info & INDEX_ALT_TID_MASK != 0 { (posid & BT_OFFSET_MASK) as usize } else { 2 };
     if natts == 0 {
         return Some(true);
     }
@@ -267,13 +239,7 @@ const MAX_STEPS: u32 = 1 << 24;
 
 /// The heap TIDs of the value's chunks in index order: (valueid) when `nkeys` is 1, else
 /// (valueid, chunk_seq in lo..=hi) — the scan keys `heap_fetch_toast_slice` gives the systable scan.
-fn chunk_tids(
-    rel: &PublishedToast,
-    valueid: Oid,
-    nkeys: usize,
-    lo: i32,
-    hi: i32,
-) -> PgResult<Vec<(u32, u16)>> {
+fn chunk_tids(rel: &PublishedToast, valueid: Oid, nkeys: usize, lo: i32, hi: i32,) -> PgResult<Vec<(u32, u16)>> {
     let bad = |w: &str| corrupt(w, rel);
     let root = {
         let meta = Pinned::read(rel.index, 0, rel.permanent)?;
@@ -321,8 +287,7 @@ fn chunk_tids(
         let (_, t) = item(page, first).ok_or_else(|| bad("internal index page without items"))?;
         let mut child = itup_head(t).ok_or_else(|| bad("short index tuple"))?.0;
         for off in first + 1..=maxoff {
-            let (_, t) =
-                item(page, off).ok_or_else(|| bad("index line pointer out of the page"))?;
+            let (_, t) = item(page, off).ok_or_else(|| bad("index line pointer out of the page"))?;
             if !pivot_below(t, valueid, lo, nkeys).ok_or_else(|| bad("short index tuple"))? {
                 break;
             }
@@ -345,8 +310,7 @@ fn chunk_tids(
         if flags & (BTP_DELETED | BTP_HALF_DEAD) == 0 {
             let first: u16 = if rightmost { 1 } else { 2 };
             for off in first..=max_offset(page) {
-                let (_, t) =
-                    item(page, off).ok_or_else(|| bad("index line pointer out of the page"))?;
+                let (_, t) = item(page, off).ok_or_else(|| bad("index line pointer out of the page"))?;
                 let (tblk, posid, info) = itup_head(t).ok_or_else(|| bad("short index tuple"))?;
                 if info & INDEX_NULL_MASK != 0 {
                     return Err(bad("null in a toast index tuple"));
@@ -373,13 +337,8 @@ fn chunk_tids(
                     let (at, n) = (tblk as usize, (posid & BT_OFFSET_MASK) as usize);
                     for i in 0..n {
                         let o = at + 6 * i;
-                        let pb = ((u16_at(t, o).ok_or_else(|| bad("short posting list"))? as u32)
-                            << 16)
-                            | u16_at(t, o + 2).ok_or_else(|| bad("short posting list"))? as u32;
-                        tids.push((
-                            pb,
-                            u16_at(t, o + 4).ok_or_else(|| bad("short posting list"))?,
-                        ));
+                        let pb = ((u16_at(t, o).ok_or_else(|| bad("short posting list"))? as u32) << 16) | u16_at(t, o + 2).ok_or_else(|| bad("short posting list"))? as u32;
+                        tids.push((pb, u16_at(t, o + 4).ok_or_else(|| bad("short posting list"))?,));
                     }
                 } else {
                     tids.push((tblk, posid));
@@ -408,23 +367,10 @@ pub(crate) fn fetch_slice<'mcx>(
     let rel = map.get(ptr.va_toastrelid).ok_or_else(|| unpublished(ptr))?;
     let max_chunk = TOAST_MAX_CHUNK_SIZE as i32;
     let totalchunks = (attrsize - 1) / max_chunk + 1;
-    let (startchunk, endchunk) = (
-        sliceoffset / max_chunk,
-        (sliceoffset + slicelength - 1) / max_chunk,
-    );
-    let nkeys = if startchunk == 0 && endchunk == totalchunks - 1 {
-        1
-    } else {
-        2
-    };
+    let (startchunk, endchunk) = (sliceoffset / max_chunk, (sliceoffset + slicelength - 1) / max_chunk,);
+    let nkeys = if startchunk == 0 && endchunk == totalchunks - 1 { 1 } else { 2 };
     let snapshot = SnapshotData::sentinel(mcx, SNAPSHOT_TOAST);
-    let mut sink = ChunkSink::new(
-        ptr.va_valueid,
-        &rel.relname,
-        attrsize,
-        sliceoffset,
-        slicelength,
-    );
+    let mut sink = ChunkSink::new(ptr.va_valueid, &rel.relname, attrsize, sliceoffset, slicelength,);
     let tids = match chunk_tids(rel, ptr.va_valueid, nkeys, startchunk, endchunk) {
         Ok(tids) => tids,
         // `resolve` released the index lock, so a REINDEX that committed since then truncated the
@@ -434,15 +380,7 @@ pub(crate) fn fetch_slice<'mcx>(
             if !index_gone(rel) {
                 return Err(e);
             }
-            return fetch_by_heap(
-                rel,
-                &snapshot,
-                ptr.va_valueid,
-                startchunk,
-                endchunk,
-                &mut sink,
-                result,
-            );
+            return fetch_by_heap(rel, &snapshot, ptr.va_valueid, startchunk, endchunk, &mut sink, result,);
         }
     };
     let mut held: Option<(u32, Pinned)> = None;
@@ -463,10 +401,7 @@ pub(crate) fn fetch_slice<'mcx>(
 /// The published index's main fork is empty or gone: its relation's storage was dropped at a commit since
 /// `resolve` (truncated at the commit, unlinked at the next checkpoint).
 fn index_gone(rel: &PublishedToast) -> bool {
-    let index = RelFileLocatorBackend {
-        locator: rel.index,
-        backend: INVALID_PROC_NUMBER,
-    };
+    let index = RelFileLocatorBackend { locator: rel.index, backend: INVALID_PROC_NUMBER, };
     smgr_seams::smgr_nblocks::call(index, ForkNumber::MAIN_FORKNUM).map_or(true, |n| n == 0)
 }
 
@@ -479,10 +414,7 @@ fn fetch_by_heap(
     sink: &mut ChunkSink<'_>,
     result: &mut [u8],
 ) -> PgResult<()> {
-    let heap = RelFileLocatorBackend {
-        locator: rel.heap,
-        backend: INVALID_PROC_NUMBER,
-    };
+    let heap = RelFileLocatorBackend { locator: rel.heap, backend: INVALID_PROC_NUMBER, };
     let nblocks = smgr_seams::smgr_nblocks::call(heap, ForkNumber::MAIN_FORKNUM)?;
     let mut chunks: Vec<(i32, Vec<u8>)> = Vec::new();
     for blk in 0..nblocks {
@@ -506,20 +438,12 @@ fn fetch_by_heap(
     sink.finish()
 }
 
-fn visible_chunk<'p>(
-    rel: &PublishedToast,
-    snapshot: &SnapshotData,
-    pinned: &'p Pinned,
-    blk: u32,
-    off: u16,
-) -> PgResult<Option<(Oid, i32, &'p [u8])>> {
+fn visible_chunk<'p>(rel: &PublishedToast, snapshot: &SnapshotData, pinned: &'p Pinned, blk: u32, off: u16,) -> PgResult<Option<(Oid, i32, &'p [u8])>> {
     let page = pinned.page();
     if off == 0 || off > max_offset(page) {
         return Ok(None);
     }
-    let Some((flags, tup)) = item(page, off) else {
-        return Err(corrupt("toast line pointer out of the page", rel));
-    };
+    let Some((flags, tup)) = item(page, off) else { return Err(corrupt("toast line pointer out of the page", rel)); };
     if flags != LP_NORMAL {
         return Ok(None);
     }
@@ -527,37 +451,18 @@ fn visible_chunk<'p>(
         return Err(corrupt("short toast tuple", rel));
     }
     // SAFETY: a normal line pointer's item on the pinned, share-locked page (MAXALIGNed, t_len bytes).
-    let mut htup = unsafe {
-        HeapTupleData::from_raw_parts(
-            tup.as_ptr(),
-            tup.len() as u32,
-            ItemPointerData::new(blk, off),
-            rel.toastrelid,
-        )
-    };
-    if !heapam_visibility_seams::heap_tuple_satisfies_visibility::call(
-        &mut htup, snapshot, pinned.buf,
-    )? {
+    let mut htup = unsafe { HeapTupleData::from_raw_parts(tup.as_ptr(), tup.len() as u32, ItemPointerData::new(blk, off), rel.toastrelid,) };
+    if !heapam_visibility_seams::heap_tuple_satisfies_visibility::call(&mut htup, snapshot, pinned.buf,)? {
         return Ok(None);
     }
-    let (infomask2, infomask, hoff) = (
-        u16_at(tup, 18).unwrap_or(0),
-        u16_at(tup, 20).unwrap_or(0),
-        tup[22] as usize,
-    );
-    if infomask & ::types_tuple::HEAP_HASNULL != 0
-        || (infomask2 & ::types_tuple::HEAP_NATTS_MASK) < 3
-    {
+    let (infomask2, infomask, hoff) = (u16_at(tup, 18).unwrap_or(0), u16_at(tup, 20).unwrap_or(0), tup[22] as usize,);
+    if infomask & ::types_tuple::HEAP_HASNULL != 0 || (infomask2 & ::types_tuple::HEAP_NATTS_MASK) < 3 {
         return Err(corrupt("toast tuple without its three columns", rel));
     }
     let id = u32_at(tup, hoff).ok_or_else(|| corrupt("short toast tuple", rel))?;
     let seq = u32_at(tup, hoff + 4).ok_or_else(|| corrupt("short toast tuple", rel))? as i32;
-    let data = tup
-        .get(hoff + 8..)
-        .ok_or_else(|| corrupt("short toast tuple", rel))?;
-    let b0 = *data
-        .first()
-        .ok_or_else(|| corrupt("short toast tuple", rel))?;
+    let data = tup.get(hoff + 8..).ok_or_else(|| corrupt("short toast tuple", rel))?;
+    let b0 = *data.first().ok_or_else(|| corrupt("short toast tuple", rel))?;
     let len = if b0 & 0x03 == 0 {
         (u32_at(data, 0).ok_or_else(|| corrupt("short toast tuple", rel))? >> 2) as usize
     } else if b0 & 0x01 == 0x01 && b0 != 0x01 {
@@ -565,8 +470,6 @@ fn visible_chunk<'p>(
     } else {
         data.len()
     };
-    let chunk = data
-        .get(..len)
-        .ok_or_else(|| corrupt("toast chunk past its tuple", rel))?;
+    let chunk = data.get(..len).ok_or_else(|| corrupt("toast chunk past its tuple", rel))?;
     Ok(Some((id, seq, chunk)))
 }

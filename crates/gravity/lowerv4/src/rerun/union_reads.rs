@@ -217,7 +217,7 @@ pub(crate) fn spool_read(gx: &Gx<'_, '_>, emit: usize) -> bool {
             let calm_in = |x: Node<'_>| {
                 gx.fx(x).quiet_in(&crate::effects::raise_free::Reading::union_arms(&own)) || raise_only_in(gx, x, &own)
             };
-            params.iter().all(|p| p.as_nest_loop_param().is_some_and(|p| calm(p.paramval))) && qual.iter().all(&calm_in) && inner_ok(inner, &calm_in)
+            params.iter().all(|p| p.as_nest_loop_param().is_some_and(|p| calm(p.paramval))) && qual.iter().all(& calm_in) && inner_ok(inner, &calm_in)
         }
         // D3347: a keyed nest over the CTE's other scan (decompose self_spool.rs `keyed`, B6) probes the table its own build
         // pipeline fills from the spool once (`spool_build`), at the first outer row or before it, where PostgreSQL's
@@ -405,8 +405,8 @@ fn whole_reader(gx: &Gx<'_, '_>, x: usize, calm: &dyn Fn(Node<'_>) -> bool) -> b
     let mut owed = false;
     let ops = ps[x].ops.iter().enumerate().all(|(j, op)| match op {
         Op::Filter(n) => calm(*n),
-        Op::Project(l) => l.iter().all(calm),
-        Op::Join(JoinDesc::Build { keys, .. }) => j == last && keys.iter().all(calm),
+        Op::Project(l) => l.iter().all( calm),
+        Op::Join(JoinDesc::Build { keys, .. }) => j == last && keys.iter().all( calm),
         Op::Sort(d) => j == last && d.presorted == 0 && matches!(d.form, SortForm::Runs | SortForm::TopK { .. }) && d.keys.iter().all(|k| builtin(k.opno)) && sort_reads(d, &mut owed),
         _ => false,
     });
@@ -429,7 +429,7 @@ fn probe_reader(gx: &Gx<'_, '_>, x: usize, calm: &dyn Fn(Node<'_>) -> bool, buil
     let Op::Join(JoinDesc::Probe { slot, .. }) = &ops[j1] else { return None };
     let before = ops[..j1].iter().all(|op| match op {
         Op::Filter(n) => calm(*n),
-        Op::Project(l) => l.iter().all(calm),
+        Op::Project(l) => l.iter().all( calm),
         _ => false,
     });
     if !before || !built(*slot) {

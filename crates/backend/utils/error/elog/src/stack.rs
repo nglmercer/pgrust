@@ -426,7 +426,7 @@ pub fn errstart(elevel: ErrorLevel, domain: Option<&str>) -> bool {
             && st.recursion_depth > 2 {
                 // in_error_recursion_trouble(): abandon statement logging.
                 STATEMENT_SUPPRESSED.with(|c| c.set(true));
-            }
+        }
 
         if st.frames.len() >= ERRORDATA_STACK_SIZE {
             st.frames.clear();

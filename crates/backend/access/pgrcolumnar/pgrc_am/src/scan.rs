@@ -27,8 +27,8 @@ use pgrc_format::ident::schema_fingerprint;
 use pgrc_format::manifest::SegState;
 use pgrc_format::part::StreamSectionHdr;
 use pgrc_read::{
-    resolve_effective, CodecBinding, DictHandle, OpenPart, PartExpect, PartPin, ReadError,
-    Residency, SectionUnwrapper, StreamCursor, TableExpect, VfsPartIo, VfsTableDir,
+    resolve_effective, CodecBinding, DictHandle, OpenPart, PartExpect, PartPin, ReadError, Residency,
+    SectionUnwrapper, StreamCursor, TableExpect, VfsPartIo, VfsTableDir,
 };
 use tableam_vocab::TableScanDescData;
 use types_error::{PgError, PgResult};
@@ -53,10 +53,8 @@ use pgrc_read::{CommitCheck, EffectiveManifest};
 /// datums. Valid parts (gcount == closed-form geometry) pass unchanged.
 fn check_decoded_count(attno: u32, g: u32, written: u32, expected: u32) -> PgResult<()> {
     if written != expected {
-        return Err(Box::<PgError>::new(
-            // alloc: Cold
-            PgError::error(format!(
-                // alloc: Cold
+        return Err(Box::<PgError>::new( // alloc: Cold
+            PgError::error(format!( // alloc: Cold
                 "pgrcolumnar: column {} granule {} value-count mismatch \
                  (decoded {} of {} rows)",
                 attno, g, written, expected
@@ -91,22 +89,11 @@ impl SectionUnwrapper for Lz4Unwrapper {
         pgrc_codec::wrapper::unwrap_section(section, &mut out)?;
         Ok(out)
     }
-    fn unwrap_section_until(
-        &self,
-        _hdr: &StreamSectionHdr,
-        section: &[u8],
-        stop: &mut dyn FnMut() -> bool,
-    ) -> pgrc_format::FormatResult<Option<Vec<u8>>> {
+    fn unwrap_section_until(&self, _hdr: &StreamSectionHdr, section: &[u8], stop: &mut dyn FnMut() -> bool,) -> pgrc_format::FormatResult<Option<Vec<u8>>> {
         let mut out = Vec::new();
         Ok(pgrc_codec::wrapper::unwrap_section_until(section, &mut out, stop)?.then_some(out))
     }
-    fn unwrap_dict_payload_section_until(
-        &self,
-        _hdr: &StreamSectionHdr,
-        section: &[u8],
-        _index: &[u8],
-        stop: &mut dyn FnMut() -> bool,
-    ) -> pgrc_format::FormatResult<Option<Vec<u8>>> {
+    fn unwrap_dict_payload_section_until(&self, _hdr: &StreamSectionHdr, section: &[u8], _index: &[u8], stop: &mut dyn FnMut() -> bool,) -> pgrc_format::FormatResult<Option<Vec<u8>>> {
         let mut out = Vec::new();
         Ok(pgrc_codec::wrapper::unwrap_section_until(section, &mut out, stop)?.then_some(out))
     }
@@ -130,22 +117,11 @@ impl SectionUnwrapper for ZstdUnwrapper {
         pgrc_codec::wrapper::unwrap_section(section, &mut out)?;
         Ok(out)
     }
-    fn unwrap_section_until(
-        &self,
-        _hdr: &StreamSectionHdr,
-        section: &[u8],
-        stop: &mut dyn FnMut() -> bool,
-    ) -> pgrc_format::FormatResult<Option<Vec<u8>>> {
+    fn unwrap_section_until(&self, _hdr: &StreamSectionHdr, section: &[u8], stop: &mut dyn FnMut() -> bool,) -> pgrc_format::FormatResult<Option<Vec<u8>>> {
         let mut out = Vec::new();
         Ok(pgrc_codec::wrapper::unwrap_section_until(section, &mut out, stop)?.then_some(out))
     }
-    fn unwrap_dict_payload_section_until(
-        &self,
-        _hdr: &StreamSectionHdr,
-        section: &[u8],
-        _index: &[u8],
-        stop: &mut dyn FnMut() -> bool,
-    ) -> pgrc_format::FormatResult<Option<Vec<u8>>> {
+    fn unwrap_dict_payload_section_until(&self, _hdr: &StreamSectionHdr, section: &[u8], _index: &[u8], stop: &mut dyn FnMut() -> bool,) -> pgrc_format::FormatResult<Option<Vec<u8>>> {
         let mut out = Vec::new();
         Ok(pgrc_codec::wrapper::unwrap_section_until(section, &mut out, stop)?.then_some(out))
     }
@@ -158,6 +134,7 @@ impl SectionUnwrapper for ZstdUnwrapper {
     }
 }
 
+
 /// pgrc format 2.2 dictionary layers (spec §6.4/§7): the front-coded DictPayload
 /// (id 3) expands against the resident index, the packed DictIndex (id 4)
 /// stands alone; both serve the whole-section and block faces.
@@ -169,46 +146,23 @@ impl SectionUnwrapper for FrontZstdUnwrapper {
     fn wrapper(&self) -> pgrc_format::enc::Wrapper {
         self.0
     }
-    fn unwrap_section(
-        &self,
-        _hdr: &StreamSectionHdr,
-        section: &[u8],
-    ) -> pgrc_format::FormatResult<Vec<u8>> {
+    fn unwrap_section(&self, _hdr: &StreamSectionHdr, section: &[u8],) -> pgrc_format::FormatResult<Vec<u8>> {
         let mut out = Vec::new();
         pgrc_codec::wrapper::unwrap_section(section, &mut out)?;
         Ok(out)
     }
-    fn unwrap_section_until(
-        &self,
-        _hdr: &StreamSectionHdr,
-        section: &[u8],
-        stop: &mut dyn FnMut() -> bool,
-    ) -> pgrc_format::FormatResult<Option<Vec<u8>>> {
+    fn unwrap_section_until(&self, _hdr: &StreamSectionHdr, section: &[u8], stop: &mut dyn FnMut() -> bool,) -> pgrc_format::FormatResult<Option<Vec<u8>>> {
         let mut out = Vec::new();
         Ok(pgrc_codec::wrapper::unwrap_section_until(section, &mut out, stop)?.then_some(out))
     }
-    fn unwrap_dict_payload_section(
-        &self,
-        _hdr: &StreamSectionHdr,
-        section: &[u8],
-        index: &[u8],
-    ) -> pgrc_format::FormatResult<Vec<u8>> {
+    fn unwrap_dict_payload_section(&self, _hdr: &StreamSectionHdr, section: &[u8], index: &[u8],) -> pgrc_format::FormatResult<Vec<u8>> {
         let mut out = Vec::new();
         pgrc_codec::wrapper::unwrap_dict_payload_section(section, index, &mut out)?;
         Ok(out)
     }
-    fn unwrap_dict_payload_section_until(
-        &self,
-        _hdr: &StreamSectionHdr,
-        section: &[u8],
-        index: &[u8],
-        stop: &mut dyn FnMut() -> bool,
-    ) -> pgrc_format::FormatResult<Option<Vec<u8>>> {
+    fn unwrap_dict_payload_section_until(&self, _hdr: &StreamSectionHdr, section: &[u8], index: &[u8], stop: &mut dyn FnMut() -> bool,) -> pgrc_format::FormatResult<Option<Vec<u8>>> {
         let mut out = Vec::new();
-        Ok(
-            pgrc_codec::wrapper::unwrap_dict_payload_section_until(section, index, &mut out, stop)?
-                .then_some(out),
-        )
+        Ok(pgrc_codec::wrapper::unwrap_dict_payload_section_until(section, index, &mut out, stop)?.then_some(out),)
     }
     fn decode_side(&self, side: &[u8]) -> pgrc_format::FormatResult<Option<pgrc_read::SideTable>> {
         if !self.0.side_block() {
@@ -216,63 +170,28 @@ impl SectionUnwrapper for FrontZstdUnwrapper {
         }
         let t = pgrc_codec::onpairwrap::decode_side(side)?;
         let bytes = t.bytes();
-        Ok(Some(pgrc_read::SideTable {
-            table: Box::new(t),
-            bytes,
-        }))
+        Ok(Some(pgrc_read::SideTable { table: Box::new(t), bytes, }))
     }
-    fn unwrap_dict_payload_block_side(
-        &self,
-        side: &pgrc_read::SideTable,
-        src: &[u8],
-        dst: &mut [u8],
-        records: &[u8],
-    ) -> pgrc_format::FormatResult<bool> {
-        let Some(t) = side.table.downcast_ref::<pgrc_codec::onpair::DecodeTable>() else {
-            return Ok(false);
-        };
+    fn unwrap_dict_payload_block_side(&self, side: &pgrc_read::SideTable, src: &[u8], dst: &mut [u8], records: &[u8],) -> pgrc_format::FormatResult<bool> {
+        let Some(t) = side.table.downcast_ref::<pgrc_codec::onpair::DecodeTable>() else { return Ok(false); };
         pgrc_codec::onpairwrap::unwrap_frame_block(t, src, dst, records)?;
         Ok(true)
     }
-    fn unwrap_dict_payload_block(
-        &self,
-        src: &[u8],
-        dst: &mut [u8],
-        records: &[u8],
-    ) -> pgrc_format::FormatResult<bool> {
+    fn unwrap_dict_payload_block(&self, src: &[u8], dst: &mut [u8], records: &[u8],) -> pgrc_format::FormatResult<bool> {
         if self.0 != pgrc_format::enc::Wrapper::FrontZstd {
             return Ok(false);
         }
-        pgrc_codec::wrapper::unwrap_dict_payload_block(
-            pgrc_format::enc::Wrapper::FrontZstd,
-            src,
-            dst,
-            records,
-        )?;
+        pgrc_codec::wrapper::unwrap_dict_payload_block(pgrc_format::enc::Wrapper::FrontZstd, src, dst, records,)?;
         Ok(true)
     }
-    fn unwrap_dict_payload_fc_section(
-        &self,
-        _hdr: &StreamSectionHdr,
-        section: &[u8],
-        index: &[u8],
-    ) -> pgrc_format::FormatResult<Vec<u8>> {
+    fn unwrap_dict_payload_fc_section(&self, _hdr: &StreamSectionHdr, section: &[u8], index: &[u8],) -> pgrc_format::FormatResult<Vec<u8>> {
         let mut out = Vec::new();
         pgrc_codec::wrapper::unwrap_dict_payload_fc_section(section, index, &mut out)?;
         Ok(out)
     }
-    fn unwrap_dict_payload_fc_section_until(
-        &self,
-        _hdr: &StreamSectionHdr,
-        section: &[u8],
-        index: &[u8],
-        stop: &mut dyn FnMut() -> bool,
-    ) -> pgrc_format::FormatResult<Option<Vec<u8>>> {
+    fn unwrap_dict_payload_fc_section_until(&self, _hdr: &StreamSectionHdr, section: &[u8], index: &[u8], stop: &mut dyn FnMut() -> bool,) -> pgrc_format::FormatResult<Option<Vec<u8>>> {
         let mut out = Vec::new();
-        Ok(pgrc_codec::wrapper::unwrap_dict_payload_fc_section_until(
-            section, index, &mut out, stop,
-        )?
-        .then_some(out))
+        Ok(pgrc_codec::wrapper::unwrap_dict_payload_fc_section_until(section, index, &mut out, stop,)?.then_some(out))
     }
 }
 
@@ -282,21 +201,12 @@ impl SectionUnwrapper for PackedZstdUnwrapper {
     fn wrapper(&self) -> pgrc_format::enc::Wrapper {
         pgrc_format::enc::Wrapper::PackedZstd
     }
-    fn unwrap_section(
-        &self,
-        _hdr: &StreamSectionHdr,
-        section: &[u8],
-    ) -> pgrc_format::FormatResult<Vec<u8>> {
+    fn unwrap_section(&self, _hdr: &StreamSectionHdr, section: &[u8],) -> pgrc_format::FormatResult<Vec<u8>> {
         let mut out = Vec::new();
         pgrc_codec::wrapper::unwrap_section(section, &mut out)?;
         Ok(out)
     }
-    fn unwrap_section_until(
-        &self,
-        _hdr: &StreamSectionHdr,
-        section: &[u8],
-        stop: &mut dyn FnMut() -> bool,
-    ) -> pgrc_format::FormatResult<Option<Vec<u8>>> {
+    fn unwrap_section_until(&self, _hdr: &StreamSectionHdr, section: &[u8], stop: &mut dyn FnMut() -> bool,) -> pgrc_format::FormatResult<Option<Vec<u8>>> {
         let mut out = Vec::new();
         Ok(pgrc_codec::wrapper::unwrap_section_until(section, &mut out, stop)?.then_some(out))
     }
@@ -313,21 +223,12 @@ impl SectionUnwrapper for IntPreUnwrapper {
     fn wrapper(&self) -> pgrc_format::enc::Wrapper {
         pgrc_format::enc::Wrapper::IntPre
     }
-    fn unwrap_section(
-        &self,
-        _hdr: &StreamSectionHdr,
-        section: &[u8],
-    ) -> pgrc_format::FormatResult<Vec<u8>> {
+    fn unwrap_section(&self, _hdr: &StreamSectionHdr, section: &[u8],) -> pgrc_format::FormatResult<Vec<u8>> {
         let mut out = Vec::new();
         pgrc_codec::wrapper::unwrap_section(section, &mut out)?;
         Ok(out)
     }
-    fn unwrap_section_until(
-        &self,
-        _hdr: &StreamSectionHdr,
-        section: &[u8],
-        stop: &mut dyn FnMut() -> bool,
-    ) -> pgrc_format::FormatResult<Option<Vec<u8>>> {
+    fn unwrap_section_until(&self, _hdr: &StreamSectionHdr, section: &[u8], stop: &mut dyn FnMut() -> bool,) -> pgrc_format::FormatResult<Option<Vec<u8>>> {
         let mut out = Vec::new();
         Ok(pgrc_codec::wrapper::unwrap_section_until(section, &mut out, stop)?.then_some(out))
     }
@@ -339,12 +240,9 @@ impl SectionUnwrapper for IntPreUnwrapper {
 
 static LZ4_UNWRAPPER: Lz4Unwrapper = Lz4Unwrapper;
 static ZSTD_UNWRAPPER: ZstdUnwrapper = ZstdUnwrapper(pgrc_format::enc::Wrapper::Zstd);
-static ONPAIR_VALUES_UNWRAPPER: ZstdUnwrapper =
-    ZstdUnwrapper(pgrc_format::enc::Wrapper::OnPairZstd);
-static FRONT_UNWRAPPER: FrontZstdUnwrapper =
-    FrontZstdUnwrapper(pgrc_format::enc::Wrapper::FrontZstd);
-static FRONT_ONPAIR_UNWRAPPER: FrontZstdUnwrapper =
-    FrontZstdUnwrapper(pgrc_format::enc::Wrapper::FrontOnPairZstd);
+static ONPAIR_VALUES_UNWRAPPER: ZstdUnwrapper = ZstdUnwrapper(pgrc_format::enc::Wrapper::OnPairZstd);
+static FRONT_UNWRAPPER: FrontZstdUnwrapper = FrontZstdUnwrapper(pgrc_format::enc::Wrapper::FrontZstd);
+static FRONT_ONPAIR_UNWRAPPER: FrontZstdUnwrapper = FrontZstdUnwrapper(pgrc_format::enc::Wrapper::FrontOnPairZstd);
 static PACKED_UNWRAPPER: PackedZstdUnwrapper = PackedZstdUnwrapper;
 static INTPRE_UNWRAPPER: IntPreUnwrapper = IntPreUnwrapper;
 static UNWRAPPERS: [&dyn SectionUnwrapper; 7] = [
@@ -383,10 +281,8 @@ pub(crate) fn load_part_deletes(
         return Ok(None);
     }
     let corrupt = |detail: String| {
-        Box::<PgError>::new(
-            // alloc: Cold
-            PgError::error(format!(
-                // alloc: Cold
+        Box::<PgError>::new( // alloc: Cold
+            PgError::error(format!( // alloc: Cold
                 "pgrcolumnar: part {} delete vector (gen {}): {detail}",
                 rec.part_no, rec.dv_gen
             ))
@@ -405,17 +301,14 @@ pub(crate) fn load_part_deletes(
     let payload = match consult {
         pgrc_read::sidecar::SidecarConsult::Hit { payload, .. } => payload,
         pgrc_read::sidecar::SidecarConsult::Absent => {
-            return Err(corrupt(
-                "sidecar file absent (manifest references it)".to_string(),
-            )); // alloc: Cold
+            return Err(corrupt("sidecar file absent (manifest references it)".to_string(),)); // alloc: Cold
         }
         pgrc_read::sidecar::SidecarConsult::Stale(why) => {
             return Err(corrupt(format!("sidecar envelope stale: {why}"))); // alloc: Cold
         }
     };
     if payload.len() as u64 != rec.dv_len {
-        return Err(corrupt(format!(
-            // alloc: Cold
+        return Err(corrupt(format!( // alloc: Cold
             "payload length {} vs manifest dv_len {}",
             payload.len(),
             rec.dv_len
@@ -464,8 +357,7 @@ const ARENA_INITIAL: usize = 256 << 10;
 fn grow_arena(arena: &mut memledger::ChargedVec<u64>, words: usize) -> bool {
     arena.with_vec(|old| {
         let mut v: Vec<u64> = Vec::new();
-        if v.try_reserve_exact(words).is_err() {
-            // alloc: Exec charged arena.owner()
+        if v.try_reserve_exact(words).is_err() { // alloc: Exec charged arena.owner()
             return false;
         }
         v.resize(words, 0); // alloc: Exec charged arena.owner()
@@ -476,11 +368,7 @@ fn grow_arena(arena: &mut memledger::ChargedVec<u64>, words: usize) -> bool {
 
 /// A scan's own buffers' owner: the statement or portal running it (read once, where the scan begins), `Kind::Region`.
 fn stmt_owner_of(o: memledger::Owner) -> Option<(memledger::Owner, memledger::Kind)> {
-    matches!(
-        o,
-        memledger::Owner::Statement { .. } | memledger::Owner::Portal { .. }
-    )
-    .then_some((o, memledger::Kind::Region))
+    matches!(o, memledger::Owner::Statement { .. } | memledger::Owner::Portal { .. }).then_some((o, memledger::Kind::Region))
 }
 
 /// One live segment's rows, deformed into the parent's slot (F1; the heap scan is `pgrc_front::segscan`). No
@@ -518,12 +406,7 @@ pub trait BitmapSource {
 /// A scan's tombstones (F2 L3; built by `pgrc_front::filter`, attached by tableam): the rows they name never surface.
 pub trait DeletionFilter {
     /// ORs view part `part`'s granule `g` deletions into `mask`, allocating it when the granule has any.
-    fn granule_into(
-        &self,
-        part: usize,
-        g: u32,
-        mask: &mut Option<Box<[u64; pgrc_scan::DV_GRANULE_WORDS]>>,
-    );
+    fn granule_into(&self, part: usize, g: u32, mask: &mut Option<Box<[u64; pgrc_scan::DV_GRANULE_WORDS]>>,);
     /// Ring slot `slot`'s deleted segment positions, sorted.
     fn segment_positions(&self, slot: u16) -> &[u32];
     /// SnapshotDirty: the in-progress deleter of view part `part`'s row `row` of granule `g` (a row the mask keeps).
@@ -577,6 +460,7 @@ pub struct ResolvedScan {
     /// The generation the parts are of (F2 L2: the statement's view, which positions name).
     pub gen: Option<Arc<crate::catalog::Generation>>,
 }
+
 
 /// The manifest head a resolve came from: what a caller that keeps the
 /// resolved parts resident needs to re-check currency without re-resolving
@@ -635,17 +519,7 @@ fn resolve_scan_parts_as(
     check.take_error()?;
     let gen = match found {
         crate::catalog::Lookup::Gen(g) => g,
-        crate::catalog::Lookup::Empty => {
-            return Ok(ResolvedScanPinned {
-                scan: ResolvedScan {
-                    schemas,
-                    parts: Vec::new(),
-                    segments: Vec::new(),
-                    gen: None,
-                },
-                head: None,
-                pins: Vec::new(),
-            })
+        crate::catalog::Lookup::Empty => { return Ok(ResolvedScanPinned { scan: ResolvedScan { schemas, parts: Vec::new(), segments: Vec::new(), gen: None, }, head: None, pins: Vec::new(), })
         }
         crate::catalog::Lookup::Unknown => return Err(crate::catalog::not_loaded(rel, &dir)),
     };
@@ -654,12 +528,7 @@ fn resolve_scan_parts_as(
     // D2189: a column dropped with no ALTER publish (a dependency's cascade, an inheritance or partition
     // child, a temp type's cleanup) leaves parts under a stamp no generation describes; the schema book gets it from the
     // dropped attribute PG keeps, or the read fails closed (`schema::book_dropped_stamp`)
-    let book = |part_fp: u64| {
-        if part_fp != fp {
-            crate::schema::book_dropped_stamp(rel, part_fp)
-        } else {
-            Ok(())
-        }
+    let book = |part_fp: u64| { if part_fp != fp { crate::schema::book_dropped_stamp(rel, part_fp) } else { Ok(()) }
     };
     let mut presences = crate::fastadd::Presences::new(&schemas, fp);
     book(gen.schema_fp)?;
@@ -673,38 +542,13 @@ fn resolve_scan_parts_as(
         let ident = p.part.ident();
         crate::inval::record_part_key(rel.rd_id, (ident.dev, ident.ino, ident.len));
         pins.push(PartPin::pin(&p.part));
-        parts.push(ScanPartSpec {
-            path: p.path.clone(),
-            expect: p.expect,
-            rows: rec.rows,
-            granules: rec.granule_count,
-            deletes: p.deletes.clone(),
-            present,
-        });
+        parts.push(ScanPartSpec { path: p.path.clone(), expect: p.expect, rows: rec.rows, granules: rec.granule_count, deletes: p.deletes.clone(), present, });
     }
     // D839 (trunk 4934e25b379): a composed own view is not the generation its number names, so a resident table keyed
     // by (head, publisher) must not keep it (another session would take it for that generation after the commit)
-    let head = (!gen.composed()).then(|| ScanHead {
-        dir,
-        gen: gen.gen,
-        publisher_fxid: gen.publisher_fxid,
-    });
-    let segments = gen
-        .segments
-        .iter()
-        .filter(|r| r.state != SegState::Sealed)
-        .map(|r| (r.slot, r.relid, r.part_no))
-        .collect();
-    Ok(ResolvedScanPinned {
-        scan: ResolvedScan {
-            schemas,
-            parts,
-            segments,
-            gen: Some(gen),
-        },
-        head,
-        pins,
-    })
+    let head = (!gen.composed()).then(|| ScanHead { dir, gen: gen.gen, publisher_fxid: gen.publisher_fxid, });
+    let segments = gen.segments.iter().filter(|r| r.state != SegState::Sealed).map(|r| (r.slot, r.relid, r.part_no)).collect();
+    Ok(ResolvedScanPinned { scan: ResolvedScan { schemas, parts, segments, gen: Some(gen), }, head, pins, })
 }
 
 struct ScanPart {
@@ -766,11 +610,7 @@ impl ColBuf {
 
     /// `unallocated`, its buffers charged to `owner` as they are allocated (the scan's statement).
     fn charged(owner: Option<(memledger::Owner, memledger::Kind)>) -> ColBuf {
-        let buf = || {
-            memledger::ChargedVec::new(
-                owner.map(|o| o.0),
-                owner.map_or(memledger::Kind::Region, |o| o.1),
-            )
+        let buf = || { memledger::ChargedVec::new(owner.map(|o| o.0), owner.map_or(memledger::Kind::Region, |o| o.1),)
         };
         ColBuf {
             datums: buf(),
@@ -786,8 +626,7 @@ impl ColBuf {
 
     fn ensure_allocated(&mut self) {
         if self.datums.is_empty() {
-            self.datums
-                .with_vec(|v| *v = vec![0u64; GRANULE_ROWS as usize]); // alloc: Exec charged self.datums.owner()
+            self.datums.with_vec(|v| *v = vec![0u64; GRANULE_ROWS as usize]); // alloc: Exec charged self.datums.owner()
             self.arena.with_vec(|v| *v = vec![0u64; ARENA_INITIAL / 8]); // alloc: Exec charged self.arena.owner()
             self.validity.with_vec(|v| *v = vec![0u64; VALIDITY_WORDS]); // alloc: Exec charged self.validity.owner()
         }
@@ -823,8 +662,7 @@ impl ColBuf {
 
     /// IX1 L0: the bytes the buffer holds (the column-selective row cache's cap counts them).
     pub(crate) fn mem_bytes(&self) -> usize {
-        (self.datums.capacity() + self.arena.capacity() + self.validity.capacity()) * 8
-            + self.codes.capacity() * 4
+        (self.datums.capacity() + self.arena.capacity() + self.validity.capacity()) * 8 + self.codes.capacity() * 4
     }
 }
 
@@ -1069,23 +907,13 @@ impl<'mcx> PgrcScanDescData<'mcx> {
     }
 
     /// [`Self::begin`] with the rows read under `desc` instead of the relation's (ALTER's rewrite: the old descriptor).
-    pub fn begin_as(
-        rs_base: TableScanDescData<'mcx>,
-        desc: Option<&types_tuple::tupdesc::TupleDescData<'_>>,
-    ) -> PgResult<Box<PgrcScanDescData<'mcx>>> {
+    pub fn begin_as(rs_base: TableScanDescData<'mcx>, desc: Option<&types_tuple::tupdesc::TupleDescData<'_>>,) -> PgResult<Box<PgrcScanDescData<'mcx>>> {
         let (name, d) = (rs_base.rs_rd.name(), &rs_base.rs_rd.rd_att);
         let (schemas, natts) = match desc {
-            Some(d) => (
-                crate::schema::col_schemas_of(name, &d.attrs)?,
-                d.natts as usize,
-            ),
-            None => (
-                crate::schema::col_schemas_of(name, &d.attrs)?,
-                d.natts as usize,
-            ),
+            Some(d) => (crate::schema::col_schemas_of(name, &d.attrs)?, d.natts as usize,),
+            None => (crate::schema::col_schemas_of(name, &d.attrs)?, d.natts as usize,),
         };
-        let resolved =
-            resolve_scan_parts_as(&rs_base.rs_rd, rs_base.rs_snapshot.as_deref(), schemas)?.scan;
+        let resolved = resolve_scan_parts_as(&rs_base.rs_rd, rs_base.rs_snapshot.as_deref(), schemas)?.scan;
         let (schemas, segments, gen) = (resolved.schemas, resolved.segments, resolved.gen);
         let fills = match resolved.parts.iter().any(|p| p.present.is_some()) {
             true => match desc {
@@ -1097,30 +925,18 @@ impl<'mcx> PgrcScanDescData<'mcx> {
         let parts: Vec<ScanPart> = resolved
             .parts
             .into_iter()
-            .map(|s| ScanPart {
-                pin: None,
-                path: s.path,
-                expect: s.expect,
-                rows: s.rows,
-                granules: s.granules,
-                deletes: s.deletes,
-                present: s.present,
-            })
+            .map(|s| ScanPart { pin: None, path: s.path, expect: s.expect, rows: s.rows, granules: s.granules, deletes: s.deletes, present: s.present, })
             .collect();
 
         let ncols = schemas.len();
-        let (rs_base_locator, rs_base_backend) =
-            (rs_base.rs_rd.rd_locator.get(), rs_base.rs_rd.rd_backend);
+        let (rs_base_locator, rs_base_backend) = (rs_base.rs_rd.rd_locator.get(), rs_base.rs_rd.rd_backend);
         let residency = read_residency(parts.iter().map(|p| p.expect.file_len.unwrap_or(0)).sum());
         if residency == Residency::Private {
             crate::rowcache::note_bulk(rs_base.rs_rd.rd_id);
         }
         let mut stats = crate::scanstats::ScanTally::default();
         stats.start(rs_base.rs_flags);
-        let dirty = rs_base
-            .rs_snapshot
-            .as_deref()
-            .is_some_and(|s| s.snapshot_type == types_snapshot::SnapshotType::SNAPSHOT_DIRTY);
+        let dirty = rs_base.rs_snapshot.as_deref().is_some_and(|s| s.snapshot_type == types_snapshot::SnapshotType::SNAPSHOT_DIRTY);
         Ok(Box::new(PgrcScanDescData {
             rs_base,
             rs_temp_snapshot: None,
@@ -1134,9 +950,7 @@ impl<'mcx> PgrcScanDescData<'mcx> {
             rows_in_granule: 0,
             row_cursor: 0,
             cur_dv_mask: None,
-            cols: (0..ncols)
-                .map(|_| ColBuf::charged(stmt_owner_of(memledger::charge::context().0)))
-                .collect(),
+            cols: (0..ncols).map(|_| ColBuf::charged(stmt_owner_of(memledger::charge::context().0))).collect(),
             segments,
             gen,
             fills,
@@ -1179,10 +993,7 @@ impl<'mcx> PgrcScanDescData<'mcx> {
 
     /// IX1 L4: a bitmap heap scan's descriptor: no parts resolved; `source` stages each bitmap page's rows by their IDs
     /// and stores them (`table_scan_bitmap_next_tuple` and the page-batch pair).
-    pub fn begin_bitmap(
-        rs_base: TableScanDescData<'mcx>,
-        source: Box<dyn BitmapSource + 'mcx>,
-    ) -> Box<PgrcScanDescData<'mcx>> {
+    pub fn begin_bitmap(rs_base: TableScanDescData<'mcx>, source: Box<dyn BitmapSource + 'mcx>,) -> Box<PgrcScanDescData<'mcx>> {
         let mut d = Self::by_id(rs_base, 0);
         d.bitmap = Some(source);
         d
@@ -1190,27 +1001,16 @@ impl<'mcx> PgrcScanDescData<'mcx> {
 
     /// D4735: a TABLESAMPLE scan's descriptor, heap's page sampling over the virtual blocks of the IDs below `bound`;
     /// `source` stages each offset the method picks by its ID.
-    pub fn begin_sample(
-        rs_base: TableScanDescData<'mcx>,
-        source: Box<dyn BitmapSource + 'mcx>,
-        bound: u64,
-    ) -> Box<PgrcScanDescData<'mcx>> {
+    pub fn begin_sample(rs_base: TableScanDescData<'mcx>, source: Box<dyn BitmapSource + 'mcx>, bound: u64,) -> Box<PgrcScanDescData<'mcx>> {
         let mut d = Self::by_id(rs_base, bound);
         d.bitmap = Some(source);
         d
     }
 
     /// D4735: heapam's `heap_scan_sample_next_block`: the method's next block, or every block in order; false at the end.
-    pub fn sample_next_block(
-        &mut self,
-        driver: &mut dyn tableam_vocab::SampleScanDriver,
-        donetuples: i64,
-    ) -> PgResult<bool> {
+    pub fn sample_next_block(&mut self, driver: &mut dyn tableam_vocab::SampleScanDriver, donetuples: i64,) -> PgResult<bool> {
         let invalid = types_core::InvalidBlockNumber;
-        let nblocks = self
-            .tid_limit
-            .div_ceil(pgrc_format::rowid::IDS_PER_BLOCK)
-            .min(invalid as u64 - 1) as u32;
+        let nblocks = self.tid_limit.div_ceil(pgrc_format::rowid::IDS_PER_BLOCK).min(invalid as u64 - 1) as u32;
         if nblocks == 0 {
             return Ok(false);
         }
@@ -1260,10 +1060,7 @@ impl<'mcx> PgrcScanDescData<'mcx> {
     /// A descriptor that reads rows by ID only (a TID scan's, a bitmap scan's): no parts, no segments, no tally.
     fn by_id(rs_base: TableScanDescData<'mcx>, limit: u64) -> Box<PgrcScanDescData<'mcx>> {
         let natts = rs_base.rs_rd.rd_att.natts as usize;
-        let dir = crate::dirpath::table_dir_path(
-            rs_base.rs_rd.rd_locator.get(),
-            rs_base.rs_rd.rd_backend,
-        );
+        let dir = crate::dirpath::table_dir_path(rs_base.rs_rd.rd_locator.get(), rs_base.rs_rd.rd_backend,);
         Box::new(PgrcScanDescData {
             rs_base,
             rs_temp_snapshot: None,
@@ -1317,8 +1114,7 @@ impl<'mcx> PgrcScanDescData<'mcx> {
     /// IX1 L0: `table_tuple_tid_valid` of a TID scan: a TID that names an ID ([`pgrc_format::rowid::id_of`]) the
     /// counter handed out before the scan began (heap's `ItemPointerIsValid` and block below its block count).
     pub fn tid_valid(&self, block: u32, off: u16) -> bool {
-        pgrc_format::rowid::id_of(block, off)
-            .is_some_and(|id| id >= pgrc_format::rowid::ROWID_FIRST && id < self.tid_limit)
+        pgrc_format::rowid::id_of(block, off).is_some_and(|id| id >= pgrc_format::rowid::ROWID_FIRST && id < self.tid_limit)
     }
 
     /// IX1 L0 (OC-C c, main 2026-10-06): the ID of the part row this scan last returned (`getnextslot` stores row
@@ -1331,23 +1127,14 @@ impl<'mcx> PgrcScanDescData<'mcx> {
         if forget_cursor_position() || self.row_cursor == 0 || self.cur_part >= self.parts.len() {
             return Ok(None);
         }
-        let Some(gen) = self.gen.as_ref() else {
-            return Ok(None);
-        };
+        let Some(gen) = self.gen.as_ref() else { return Ok(None); };
         let i = self.cur_part;
         let rec = &gen.manifest.parts[i];
         if gen.ids_of(i).is_empty() && rec.flags & pgrc_format::manifest::PART_FLAG_ROWMAP == 0 {
             return Ok(None);
         }
-        let grain = if rec.granule_rows == 0 {
-            pgrc_format::geom::GRANULE_ROWS
-        } else {
-            rec.granule_rows
-        };
-        Ok(Some(
-            gen.row_map(i, &self.dir)?
-                .ident(self.cur_granule * grain + self.row_cursor - 1),
-        ))
+        let grain = if rec.granule_rows == 0 { pgrc_format::geom::GRANULE_ROWS } else { rec.granule_rows };
+        Ok(Some(gen.row_map(i, &self.dir)?.ident(self.cur_granule * grain + self.row_cursor - 1),))
     }
 
     /// The generation this scan reads (the view its positions name); `None` = no committed publish.
@@ -1366,23 +1153,14 @@ impl<'mcx> PgrcScanDescData<'mcx> {
     /// "every attribute past its end is needed".
     pub fn set_needed_attrs(&mut self, needed: &[bool]) {
         let ncols = self.schemas.len();
-        let mask: Vec<bool> = (0..ncols)
-            .map(|c| {
-                needed
-                    .get(self.schemas[c].attno as usize - 1)
-                    .copied()
-                    .unwrap_or(true)
-            })
-            .collect();
+        let mask: Vec<bool> = (0..ncols).map(|c| { needed.get(self.schemas[c].attno as usize - 1).copied().unwrap_or(true)
+            }).collect();
         if mask == self.needed_mask {
             return;
         }
         // A column now needed that the current granule did not decode: the
         // granule is decoded again before its next row is stored.
-        let grew = mask
-            .iter()
-            .zip(&self.needed_mask)
-            .any(|(&now, &was)| now && !was);
+        let grew = mask.iter().zip(&self.needed_mask).any(|(&now, &was)| now && !was);
         if grew && self.cur_part < self.parts.len() && self.rows_in_granule > 0 {
             self.redecode = true;
         }
@@ -1415,43 +1193,21 @@ impl<'mcx> PgrcScanDescData<'mcx> {
         use tableam_vocab::ZoneCmp;
         self.zone.clear();
         for q in quals {
-            let Some(col) = self
-                .schemas
-                .iter()
-                .position(|s| s.attno == u32::from(q.attnum))
-            else {
-                continue;
-            };
+            let Some(col) = self.schemas.iter().position(|s| s.attno == u32::from(q.attnum)) else { continue; };
             let s = &self.schemas[col];
-            let Ok(profile) =
-                pgrc_meta::profile::MetaProfile::derive(s.class, s.collation_class, s.semantics)
-            else {
-                continue;
-            };
+            let Ok(profile) = pgrc_meta::profile::MetaProfile::derive(s.class, s.collation_class, s.semantics) else { continue; };
             let word = match profile.key {
                 KeyDerivation::SignedWord | KeyDerivation::Bool => q.val as u64,
                 // an oid's word: the small unsigned key takes only what its width holds
-                KeyDerivation::UnsignedWordSmall if (0..=i64::from(u32::MAX)).contains(&q.val) => {
-                    q.val as u64
+                KeyDerivation::UnsignedWordSmall if (0..=i64::from(u32::MAX)).contains(&q.val) => { q.val as u64
                 }
                 _ => continue,
             };
             if q.op == ZoneCmp::Ne {
                 continue;
             }
-            let Some(key) =
-                pgrc_meta::lower::lower_const(&profile, pgrc_meta::lower::ConstInput::Word(word))
-                    .lowered()
-            else {
-                continue;
-            };
-            self.zone.push(ZoneProbe {
-                col,
-                attno: s.attno,
-                profile,
-                cmp: q.op,
-                key,
-            });
+            let Some(key) = pgrc_meta::lower::lower_const(&profile, pgrc_meta::lower::ConstInput::Word(word)).lowered() else { continue; };
+            self.zone.push(ZoneProbe { col, attno: s.attno, profile, cmp: q.op, key, });
         }
     }
 
@@ -1465,30 +1221,16 @@ impl<'mcx> PgrcScanDescData<'mcx> {
         use pgrc_meta::key::KeyDerivation;
         self.rowq.clear();
         for q in quals {
-            let Some(col) = self
-                .schemas
-                .iter()
-                .position(|s| s.attno == u32::from(q.attnum))
-            else {
-                continue;
-            };
+            let Some(col) = self.schemas.iter().position(|s| s.attno == u32::from(q.attnum)) else { continue; };
             if !self.needed_mask.get(col).copied().unwrap_or(false) {
                 continue;
             }
             let s = &self.schemas[col];
-            let Ok(profile) =
-                pgrc_meta::profile::MetaProfile::derive(s.class, s.collation_class, s.semantics)
-            else {
-                continue;
-            };
+            let Ok(profile) = pgrc_meta::profile::MetaProfile::derive(s.class, s.collation_class, s.semantics) else { continue; };
             if profile.key != KeyDerivation::SignedWord {
                 continue;
             }
-            self.rowq.push(RowProbe {
-                col,
-                cmp: q.op,
-                val: q.val,
-            }); // alloc: Cold (once per pass, one per qual)
+            self.rowq.push(RowProbe { col, cmp: q.op, val: q.val, }); // alloc: Cold (once per pass, one per qual)
         }
     }
 
@@ -1505,21 +1247,13 @@ impl<'mcx> PgrcScanDescData<'mcx> {
         let p = &self.parts[i];
         let part = p.pin.as_ref().expect("pinned").part();
         let present = p.present.as_deref();
-        let rows = u64::from(pgrc_format::geom::rows_in_granule_at(
-            part.rows(),
-            part.grain(),
-            g,
-        ));
+        let rows = u64::from(pgrc_format::geom::rows_in_granule_at(part.rows(), part.grain(), g,));
         for z in &self.zone {
             if present.is_some_and(|m| !m[z.col]) {
                 continue;
             }
-            let Ok(Some(recs)) = pgrc_scan::meta::zone_records(part, z.attno) else {
-                continue;
-            };
-            let Some(Some(rec)) = recs.get(g as usize) else {
-                continue;
-            };
+            let Ok(Some(recs)) = pgrc_scan::meta::zone_records(part, z.attno) else { continue; };
+            let Some(Some(rec)) = recs.get(g as usize) else { continue; };
             let probe = match z.cmp {
                 ZoneCmp::Eq => ZonePredicate::Eq(z.key),
                 ZoneCmp::Lt => ZonePredicate::Lt(z.key),
@@ -1528,10 +1262,7 @@ impl<'mcx> PgrcScanDescData<'mcx> {
                 ZoneCmp::Ge => ZonePredicate::Ge(z.key),
                 ZoneCmp::Ne => continue,
             };
-            if matches!(
-                evaluate(&z.profile, GrainFacts { rows }, rec, &probe, None),
-                pgrc_format::meta::Verdict::AllFail
-            ) {
+            if matches!(evaluate(&z.profile, GrainFacts { rows }, rec, &probe, None), pgrc_format::meta::Verdict::AllFail) {
                 return Ok(true);
             }
         }
@@ -1575,10 +1306,7 @@ impl<'mcx> PgrcScanDescData<'mcx> {
             Some(pscan) => match self.parked.take() {
                 Some(i) => i,
                 // SAFETY: as in `claim_next_part`.
-                None => unsafe {
-                    pscan.as_ref().phs_nallocated.fetch_add(1, Ordering::SeqCst) as usize
-                        - self.parts.len()
-                },
+                None => unsafe { pscan.as_ref().phs_nallocated.fetch_add(1, Ordering::SeqCst) as usize - self.parts.len() },
             },
             None => {
                 self.next_segment += 1;
@@ -1602,12 +1330,8 @@ impl<'mcx> PgrcScanDescData<'mcx> {
     fn pin(&mut self, idx: usize) -> PgResult<()> {
         if self.parts[idx].pin.is_none() {
             let p = &self.parts[idx];
-            let open_io = || -> pgrc_read::ReadResult<Box<dyn pgrc_read::PartIo>> {
-                Ok(Box::new(VfsPartIo::open(&p.path)?))
-            };
-            let pin = crate::inval::registry()
-                .open_pinned(&p.expect, open_io)
-                .map_err(read_error)?;
+            let open_io = || -> pgrc_read::ReadResult<Box<dyn pgrc_read::PartIo>> { Ok(Box::new(VfsPartIo::open(&p.path)?)) };
+            let pin = crate::inval::registry().open_pinned(&p.expect, open_io).map_err(read_error)?;
             self.parts[idx].pin = Some(pin);
         }
         Ok(())
@@ -1628,8 +1352,12 @@ impl<'mcx> PgrcScanDescData<'mcx> {
             // Part-grain parallel claims over the shared cursor.
             // SAFETY: the parallel descriptor outlives every worker scan
             // (the tableam parallel contract); we only touch the atomic.
-            let idx =
-                unsafe { pscan.as_ref().phs_nallocated.fetch_add(1, Ordering::SeqCst) } as usize;
+            let idx = unsafe {
+                pscan
+                    .as_ref()
+                    .phs_nallocated
+                    .fetch_add(1, Ordering::SeqCst)
+            } as usize;
             if idx < self.parts.len() {
                 Some(idx)
             } else {
@@ -1695,8 +1423,7 @@ impl<'mcx> PgrcScanDescData<'mcx> {
                 continue;
             }
             self.decode_current_granule()?;
-            self.stats
-                .granule(self.rows_in_granule, self.cur_dv_mask.as_deref());
+            self.stats.granule(self.rows_in_granule, self.cur_dv_mask.as_deref());
             // PGRCSERVE M0: a granule decoded under pushed row quals with no passing row is read and left
             if self.rows_in_granule > 0 && !(self.probed && self.pass.is_empty()) {
                 (self.row_cursor, self.pass_at) = (0, 0);
@@ -1721,17 +1448,8 @@ impl<'mcx> PgrcScanDescData<'mcx> {
             return;
         }
         let Some(gen) = &self.gen else { return };
-        let key = crate::rowcache::GranuleKey {
-            gen: gen.view_key(),
-            part: self.cur_part as u32,
-            granule: self.cur_granule,
-        };
-        crate::rowcache::offer(
-            self.rs_base.rs_rd.rd_id,
-            key,
-            self.rows_in_granule,
-            &mut self.cols,
-        );
+        let key = crate::rowcache::GranuleKey { gen: gen.view_key(), part: self.cur_part as u32, granule: self.cur_granule, };
+        crate::rowcache::offer(self.rs_base.rs_rd.rd_id, key, self.rows_in_granule, &mut self.cols,);
         self.rows_in_granule = 0;
     }
 
@@ -1752,14 +1470,9 @@ impl<'mcx> PgrcScanDescData<'mcx> {
         if sel {
             let first = sample_position(self.sample.first[self.cur_part] + g as u64, 0);
             let sp = &self.sample.positions;
-            let (lo, hi) = (
-                sp.partition_point(|&q| q < first),
-                sp.partition_point(|&q| q < first + rows as u64),
-            );
+            let (lo, hi) = (sp.partition_point(|&q| q < first), sp.partition_point(|&q| q < first + rows as u64),);
             self.sample.rows.clear();
-            self.sample
-                .rows
-                .extend(sp[lo..hi].iter().map(|&q| (q - first) as u16));
+            self.sample.rows.extend(sp[lo..hi].iter().map(|&q| (q - first) as u16));
         }
         // PGRCSERVE M0: under pushed row quals the probes' columns decode first (phase 0); the granule's passing live rows
         // are found on them, and the other needed columns decode for those rows alone (phase 1: through the survivor-only
@@ -1805,16 +1518,7 @@ impl<'mcx> PgrcScanDescData<'mcx> {
                     let key = cursor.key();
                     if key.encoding == EncodingId::DictCodes.as_u16()
                         && key.class == CLASS_VARLENA
-                        && decode_col_dict(
-                            cursor,
-                            &mut self.cols[c],
-                            (self.cur_part, &part),
-                            self.binding,
-                            g,
-                            rows,
-                            &self.sample.rows,
-                            attno,
-                        )?
+                        && decode_col_dict(cursor, &mut self.cols[c], (self.cur_part, &part), self.binding, g, rows, &self.sample.rows, attno,)?
                     {
                         continue;
                     }
@@ -1855,14 +1559,9 @@ impl<'mcx> PgrcScanDescData<'mcx> {
                             break;
                         }
                         // D2582: the arena grows while the granule's images do not fit, fallibly
-                        Err(ReadError::Format(pgrc_format::FormatError::ArenaExhausted {
-                            ..
-                        })) => {
+                        Err(ReadError::Format(pgrc_format::FormatError::ArenaExhausted { .. })) => {
                             if !grow_arena(&mut buf.arena, arena_words * 2) {
-                                return Err(read_error(ReadError::Io {
-                                    at: "granule arena",
-                                    errno: libc::ENOMEM,
-                                }));
+                                return Err(read_error(ReadError::Io { at: "granule arena", errno: libc::ENOMEM, }));
                             }
                         }
                         Err(e) => return Err(read_error(e)),
@@ -1922,16 +1621,8 @@ impl<'mcx> PgrcScanDescData<'mcx> {
 
     /// Granule `g` of part `p`'s deletions as the scan applies them: its delete vector, OR'd with the snapshot's
     /// tombstones (F2); `None` when it has neither.
-    fn granule_deletions(
-        &self,
-        p: usize,
-        g: u32,
-    ) -> Option<Box<[u64; pgrc_scan::DV_GRANULE_WORDS]>> {
-        let mut mask = self.parts[p]
-            .deletes
-            .as_ref()
-            .and_then(|d| d.granule_mask(g))
-            .map(|m| Box::new(*m));
+    fn granule_deletions(&self, p: usize, g: u32,) -> Option<Box<[u64; pgrc_scan::DV_GRANULE_WORDS]>> {
+        let mut mask = self.parts[p].deletes.as_ref().and_then(|d| d.granule_mask(g)).map(|m| Box::new(*m));
         if let Some(f) = &self.filter {
             f.granule_into(p, g, &mut mask);
         }
@@ -1992,16 +1683,10 @@ impl<'mcx> PgrcScanDescData<'mcx> {
     /// and as the deleter the in-progress tombstone the filter kept the row visible for.
     #[cold]
     fn report_dirty(&self, row: u32) {
-        let Some(s) = self.rs_base.rs_snapshot.as_deref() else {
-            return;
-        };
-        let busy = self
-            .filter
-            .as_ref()
-            .and_then(|f| f.busy_part(self.cur_part, self.cur_granule, row));
+        let Some(s) = self.rs_base.rs_snapshot.as_deref() else { return; };
+        let busy = self.filter.as_ref().and_then(|f| f.busy_part(self.cur_part, self.cur_granule, row));
         s.dirty_xmin.set(types_core::InvalidTransactionId);
-        s.dirty_xmax
-            .set(busy.unwrap_or(types_core::InvalidTransactionId));
+        s.dirty_xmax.set(busy.unwrap_or(types_core::InvalidTransactionId));
         s.dirty_speculative_token.set(0);
     }
 
@@ -2013,17 +1698,10 @@ impl<'mcx> PgrcScanDescData<'mcx> {
         if self.map.as_ref().is_some_and(|m| m.0 == i) {
             return Ok(());
         }
-        let Some(gen) = self.gen.as_ref() else {
-            return Ok(());
-        };
+        let Some(gen) = self.gen.as_ref() else { return Ok(()); };
         let rec = &gen.manifest.parts[i];
-        let grain = if rec.granule_rows == 0 {
-            pgrc_format::geom::GRANULE_ROWS
-        } else {
-            rec.granule_rows
-        };
-        let ided =
-            !gen.ids_of(i).is_empty() || rec.flags & pgrc_format::manifest::PART_FLAG_ROWMAP != 0;
+        let grain = if rec.granule_rows == 0 { pgrc_format::geom::GRANULE_ROWS } else { rec.granule_rows };
+        let ided = !gen.ids_of(i).is_empty() || rec.flags & pgrc_format::manifest::PART_FLAG_ROWMAP != 0;
         let map = if ided {
             Some(gen.row_map(i, &self.dir)?)
         } else if self.tid_strict {
@@ -2090,11 +1768,7 @@ impl<'mcx> PgrcScanDescData<'mcx> {
     /// SCANSTATS: a stop inside a part granule gives back the live rows it credited and never returned.
     fn stats_stop(&mut self) {
         if self.cur_part < self.parts.len() {
-            self.stats.stop(
-                self.rows_in_granule,
-                self.row_cursor,
-                self.cur_dv_mask.as_deref(),
-            );
+            self.stats.stop(self.rows_in_granule, self.row_cursor, self.cur_dv_mask.as_deref(),);
         }
     }
 
@@ -2104,20 +1778,16 @@ impl<'mcx> PgrcScanDescData<'mcx> {
         self.parts
             .iter()
             .map(|p| {
-                p.rows
-                    .saturating_sub(p.deletes.as_ref().map(|d| d.deleted_rows).unwrap_or(0))
+                p.rows.saturating_sub(
+                    p.deletes.as_ref().map(|d| d.deleted_rows).unwrap_or(0)
+                )
             })
             .sum()
     }
 
     /// D3181: part `p`'s rows and granule grain, the view's open part's (no pin: the generation holds it open).
     fn part_geometry(&self, p: usize) -> (u64, GranuleGrain) {
-        let part = &self
-            .gen
-            .as_ref()
-            .expect("a scan with parts has its view")
-            .parts[p]
-            .part;
+        let part = &self.gen.as_ref().expect("a scan with parts has its view").parts[p].part;
         (part.rows(), part.grain())
     }
 
@@ -2146,18 +1816,13 @@ impl<'mcx> PgrcScanDescData<'mcx> {
         for p in 0..self.parts.len() {
             check_for_interrupts()?;
             let n = match self.filter {
-                None => self.parts[p]
-                    .rows
-                    .saturating_sub(self.parts[p].deletes.as_ref().map_or(0, |d| d.deleted_rows)),
+                None => self.parts[p].rows.saturating_sub(self.parts[p].deletes.as_ref().map_or(0, |d| d.deleted_rows)),
                 Some(_) => {
                     let (rows, grain) = self.part_geometry(p);
                     (0..self.parts[p].granules)
                         .map(|g| {
                             let n = pgrc_format::geom::rows_in_granule_at(rows, grain, g);
-                            n as u64
-                                - self
-                                    .granule_deletions(p, g)
-                                    .map_or(0, |m| masked_count(&m, n, true))
+                            n as u64 - self.granule_deletions(p, g).map_or(0, |m| masked_count(&m, n, true))
                         })
                         .sum()
                 }
@@ -2218,15 +1883,7 @@ impl<'mcx> PgrcScanDescData<'mcx> {
                 check_for_interrupts()?;
                 let (rows, grain) = self.part_geometry(p);
                 let rel: Vec<u64> = ords[i..end].iter().map(|&o| o - base).collect();
-                part_live_positions(
-                    self.sample.first[p],
-                    rows,
-                    grain,
-                    self.parts[p].granules,
-                    |g| self.granule_deletions(p, g),
-                    &rel,
-                    out,
-                );
+                part_live_positions(self.sample.first[p], rows, grain, self.parts[p].granules, |g| self.granule_deletions(p, g), &rel, out,);
                 i = end;
             }
             base += live;
@@ -2245,25 +1902,17 @@ impl<'mcx> PgrcScanDescData<'mcx> {
     /// its sampled rows) when the scan is not on it; false, the slot empty, for a position that is not a sampled live
     /// part row (a segment row is `pgrc_front::sample`'s). Never mixed with `getnextslot`.
     pub fn fetch_sample(&mut self, pos: u64, slot: &mut SlotData<'_>) -> PgResult<bool> {
-        if pos & SEGMENT_POSITION != 0
-            || (!self.sample.positions.is_empty()
-                && self.sample.positions.binary_search(&pos).is_err())
-        {
+        if pos & SEGMENT_POSITION != 0 || (!self.sample.positions.is_empty() && self.sample.positions.binary_search(&pos).is_err()) {
             return not_live(slot);
         }
         self.sample_first();
-        let (granule, row) = (
-            pos / GRANULE_ROWS as u64,
-            (pos % GRANULE_ROWS as u64) as u32,
-        );
+        let (granule, row) = (pos / GRANULE_ROWS as u64, (pos % GRANULE_ROWS as u64) as u32,);
         let p = self.sample.first.partition_point(|&f| f <= granule);
         if p == 0 {
             return not_live(slot);
         }
         let p = p - 1;
-        let Ok(g) = u32::try_from(granule - self.sample.first[p]) else {
-            return not_live(slot);
-        };
+        let Ok(g) = u32::try_from(granule - self.sample.first[p]) else { return not_live(slot); };
         if g >= self.parts[p].granules {
             return not_live(slot);
         }
@@ -2277,12 +1926,7 @@ impl<'mcx> PgrcScanDescData<'mcx> {
             self.cur_granule = g;
             self.decode_current_granule()?;
         }
-        if row >= self.rows_in_granule
-            || self
-                .cur_dv_mask
-                .as_deref()
-                .is_some_and(|m| pgrc_scan::PartDeletes::is_deleted(m, row))
-        {
+        if row >= self.rows_in_granule || self.cur_dv_mask.as_deref().is_some_and(|m| pgrc_scan::PartDeletes::is_deleted(m, row)) {
             return not_live(slot);
         }
         self.store_row(row as usize, slot);
@@ -2366,10 +2010,7 @@ impl<'mcx> PgrcScanDescData<'mcx> {
         }
         let ncols = self.schemas.len();
         let needed = self.needed.clone();
-        let (mut values, mut isnull) = (
-            sample_filled(ncols, datum::Datum::null())?,
-            sample_filled(ncols, true)?,
-        );
+        let (mut values, mut isnull) = (sample_filled(ncols, datum::Datum::null())?, sample_filled(ncols, true)?,);
         // D4372: a window the ladder's gate sent to this thread alone, so the next past the line goes there without a wait
         let mut serial = false;
         for win in plan.chunks(2 * dop) {
@@ -2381,16 +2022,11 @@ impl<'mcx> PgrcScanDescData<'mcx> {
                 let mut granules = sample_vec(gs.len())?;
                 for &(g, lo, hi) in gs {
                     let rows = pgrc_format::geom::rows_in_granule_at(part.rows(), part.grain(), g);
-                    let mask = self.parts[*p]
-                        .deletes
-                        .as_deref()
-                        .and_then(|d| d.granule_mask(g));
+                    let mask = self.parts[*p].deletes.as_deref().and_then(|d| d.granule_mask(g));
                     let mut sel = sample_vec(hi - lo)?;
                     for &q in &positions[lo..hi] {
                         let row = (q % GRANULE_ROWS as u64) as u32;
-                        if row >= rows
-                            || mask.is_some_and(|m| pgrc_scan::PartDeletes::is_deleted(m, row))
-                        {
+                        if row >= rows || mask.is_some_and(|m| pgrc_scan::PartDeletes::is_deleted(m, row)) {
                             bad = Some(q);
                             break 'pin;
                         }
@@ -2398,18 +2034,13 @@ impl<'mcx> PgrcScanDescData<'mcx> {
                     }
                     granules.push(SampleGranule { g, rows, sel });
                 }
-                parts.push(SamplePart {
-                    idx: *p,
-                    part,
-                    granules,
-                });
+                parts.push(SamplePart { idx: *p, part, granules, });
             }
             let cols = match bad {
                 Some(_) => Ok(Vec::new()),
-                None => sample_window_dop(dop, &mut serial, || {
-                    sample_window_ask(&parts, &self.schemas, &needed, dop)
+                None => sample_window_dop(dop, &mut serial, || { sample_window_ask(&parts, &self.schemas, &needed, dop)
                 })
-                .and_then(|dop| sample_tasks(&parts, &self.schemas, &needed, self.binding, dop)),
+                    .and_then(|dop| sample_tasks(&parts, &self.schemas, &needed, self.binding, dop)),
             };
             drop(parts);
             let mut released = false;
@@ -2458,35 +2089,24 @@ fn stored_sample_rows(
     let body = crate::footer::meta_section_body(part, idx)?;
     let mut words: Vec<u64> = sample_filled(body.len().div_ceil(8), 0u64)?;
     // SAFETY: `words` holds at least `body.len()` bytes; u64 has no invalid bit patterns and u8 no alignment.
-    let bytes =
-        unsafe { core::slice::from_raw_parts_mut(words.as_mut_ptr().cast::<u8>(), body.len()) };
+    let bytes = unsafe { core::slice::from_raw_parts_mut(words.as_mut_ptr().cast::<u8>(), body.len()) };
     bytes.copy_from_slice(&body);
     drop(body);
     let s = SampleRef::parse(bytes).map_err(|e| read_error(ReadError::Format(e)))?;
     let mut cols = sample_vec(needed.len())?;
     for &c in needed {
         let sc = &schemas[c];
-        match s
-            .col(sc.attno)
-            .map_err(|e| read_error(ReadError::Format(e)))?
-        {
+        match s.col(sc.attno).map_err(|e| read_error(ReadError::Format(e)))? {
             // a cstring column (typlen -2) is read by the granule path: the section stores varlena and fixed shapes
-            Some(col) if col.byref() != sc.typbyval && sc.typlen != -2 => cols.push(col),
+            Some(col) if col.byref() !=sc.typbyval && sc.typlen != -2 => cols.push(col),
             _ => return Ok(false),
         }
     }
-    let Some(choice) = pick(s.n()) else {
-        return Ok(false);
-    };
-    let (mut values, mut isnull) = (
-        sample_filled(schemas.len(), datum::Datum::null())?,
-        sample_filled(schemas.len(), true)?,
-    );
+    let Some(choice) = pick(s.n()) else { return Ok(false); };
+    let (mut values, mut isnull) = (sample_filled(schemas.len(), datum::Datum::null())?, sample_filled(schemas.len(), true)?,);
     for &i in &choice {
         if i >= s.n() {
-            return Err(read_error(ReadError::Format(
-                pgrc_format::FormatError::Bounds { at: "sample pick" },
-            )));
+            return Err(read_error(ReadError::Format(pgrc_format::FormatError::Bounds { at: "sample pick" },)));
         }
         for (ci, &c) in needed.iter().enumerate() {
             let col = &cols[ci];
@@ -2496,12 +2116,7 @@ fn stored_sample_rows(
                 let img = col.image(i).map_err(|e| read_error(ReadError::Format(e)))?;
                 (datum::Datum::from_u64(img.as_ptr() as u64), false)
             } else {
-                (
-                    datum::Datum::from_u64(
-                        col.word(i).map_err(|e| read_error(ReadError::Format(e)))?,
-                    ),
-                    false,
-                )
+                (datum::Datum::from_u64(col.word(i).map_err(|e| read_error(ReadError::Format(e)))?,), false,)
             };
         }
         emit(&values, &isnull)?;
@@ -2563,20 +2178,14 @@ impl SampleCol {
     unsafe fn push_ref(&mut self, ptr: *const u8, typlen: i16) -> PgResult<()> {
         let len = match typlen {
             -1 => unsafe { types_tuple::varatt::varsize_any(ptr) },
-            -2 => unsafe { std::ffi::CStr::from_ptr(ptr.cast()) }
-                .to_bytes_with_nul()
-                .len(),
+            -2 => unsafe { std::ffi::CStr::from_ptr(ptr.cast()) }.to_bytes_with_nul().len(),
             n => n as usize,
         };
         let (at, words) = (self.bytes.len(), len.div_ceil(8));
-        self.bytes
-            .try_reserve(words)
-            .map_err(|_| sample_worker_oom(len))?;
+        self.bytes.try_reserve(words).map_err(|_| sample_worker_oom(len))?;
         self.bytes.resize(at + words, 0);
         // SAFETY: `bytes` was just grown by `len` rounded up to words past `at`; `ptr` backs `len` bytes (caller).
-        unsafe {
-            core::ptr::copy_nonoverlapping(ptr, self.bytes.as_mut_ptr().add(at).cast::<u8>(), len)
-        };
+        unsafe { core::ptr::copy_nonoverlapping(ptr, self.bytes.as_mut_ptr().add(at).cast::<u8>(), len) };
         self.vals.push(Some(at as u64 * 8));
         Ok(())
     }
@@ -2588,12 +2197,7 @@ const SAMPLE_GATE_POLL: core::time::Duration = core::time::Duration::from_millis
 /// D4372: a sample window's bytes, an estimate: each needed column's kept values of every sampled row (the `Option` word,
 /// and by reference the image, 32 bytes for a varlena), and per thread one granule's decode buffer of the widest needed
 /// column (datums, codes and its arena) and its cursor's reads (1 MiB).
-fn sample_window_ask(
-    parts: &[SamplePart],
-    schemas: &[ColSchema],
-    needed: &[usize],
-    dop: usize,
-) -> u64 {
+fn sample_window_ask(parts: &[SamplePart], schemas: &[ColSchema], needed: &[usize], dop: usize,) -> u64 {
     let width = |s: &ColSchema| -> u64 {
         match (s.typbyval, s.typlen) {
             (true, _) => 0,
@@ -2601,23 +2205,10 @@ fn sample_window_ask(
             _ => 32,
         }
     };
-    let rows: u64 = parts
-        .iter()
-        .flat_map(|p| &p.granules)
-        .map(|g| g.sel.len() as u64)
-        .sum();
-    let kept: u64 = needed
-        .iter()
-        .map(|&c| rows.saturating_mul(size_of::<Option<u64>>() as u64 + width(&schemas[c])))
-        .sum();
-    let widest = needed
-        .iter()
-        .map(|&c| width(&schemas[c]))
-        .max()
-        .unwrap_or(0);
-    let buf = (GRANULE_ROWS as u64)
-        .saturating_mul(8 + 4 + widest)
-        .saturating_add(1 << 20);
+    let rows: u64 = parts.iter().flat_map(|p| &p.granules).map(|g| g.sel.len() as u64).sum();
+    let kept: u64 = needed.iter().map(|&c| rows.saturating_mul(size_of::<Option<u64>>() as u64 + width(&schemas[c]))).sum();
+    let widest = needed.iter().map(|&c| width(&schemas[c])).max().unwrap_or(0);
+    let buf = (GRANULE_ROWS as u64).saturating_mul(8 + 4 + widest).saturating_add(1 << 20);
     kept.saturating_add(buf.saturating_mul(dop as u64))
 }
 
@@ -2627,11 +2218,7 @@ fn sample_window_ask(
 /// wait; still past the line, the window runs on this thread alone (1: one decode buffer, nothing else in flight), and
 /// `serial` sends the next window past the line there without a wait. Never a refusal: ANALYZE has the serial road.
 /// Public for its test (tests/d4372_sample_gate.rs: the ladder is process state, so the test runs in its own binary).
-pub fn sample_window_dop(
-    dop: usize,
-    serial: &mut bool,
-    ask: impl FnOnce() -> u64,
-) -> PgResult<usize> {
+pub fn sample_window_dop(dop: usize, serial: &mut bool, ask: impl FnOnce() -> u64,) -> PgResult<usize> {
     if !mcx::ladder::on() {
         return Ok(dop);
     }
@@ -2647,8 +2234,7 @@ pub fn sample_window_dop(
     let w = mcx::ladder::wait_begin(&mcx::ladder::climb(ask));
     let budget = mempolicy::admit::bytes_wait();
     let waited = |polls: u32, from: u32| SAMPLE_GATE_POLL.saturating_mul(polls - from);
-    let (mut polls, mut since, mut seen, mut handed) =
-        (0u32, 0u32, mcx::ladder::epoch(), None::<u32>);
+    let (mut polls, mut since, mut seen, mut handed) = (0u32, 0u32, mcx::ladder::epoch(), None::<u32>);
     let out = loop {
         if let Err(e) = check_for_interrupts() {
             ep.canceled();
@@ -2662,20 +2248,13 @@ pub fn sample_window_dop(
             (seen, since) = (e, polls);
         }
         match handed {
-            None if mempolicy::ladder::wait_spent(
-                waited(polls, since),
-                waited(polls, 0),
-                budget,
-            ) =>
-            {
+            None if mempolicy::ladder::wait_spent(waited(polls, since), waited(polls, 0), budget,) => {
                 if !mcx::ladder::hand_off(ask) {
                     break Ok(dop);
                 }
                 handed = Some(polls);
             }
-            Some(at)
-                if mempolicy::ladder::wait_spent(waited(polls, at), waited(polls, at), budget) =>
-            {
+            Some(at) if mempolicy::ladder::wait_spent(waited(polls, at), waited(polls, at), budget) => {
                 ep.refused();
                 *serial = true;
                 break Ok(1);
@@ -2698,12 +2277,7 @@ pub trait SamplePool: Send + Sync {
     /// Submit `ntasks` morsels, one task each, as ONE utility resource group (`Runtime::submit_utility`) whose width
     /// is capped at `width` (`WidthRequest::ceiling`; CPU only, no cache bytes: memory is the ledger's). A pool
     /// worker runs task `t` as `run(t)`.
-    fn submit(
-        &self,
-        ntasks: usize,
-        width: usize,
-        run: Arc<dyn Fn(usize) + Send + Sync>,
-    ) -> Box<dyn SampleRg>;
+    fn submit(&self, ntasks: usize, width: usize, run: Arc<dyn Fn(usize) + Send + Sync>,) -> Box<dyn SampleRg>;
 }
 
 /// A submitted sample window: poll it, or abort it.
@@ -2739,16 +2313,7 @@ fn sample_tasks(
     dop: usize,
 ) -> PgResult<Vec<SampleCol>> {
     let pool = SAMPLE_POOL.get().map(|p| &**p).filter(|p| p.available());
-    sample_tasks_on(
-        pool,
-        parts,
-        schemas,
-        needed,
-        binding,
-        dop,
-        SAMPLE_MORSEL_TASKS,
-    )
-    .map(|(cols, _)| cols)
+    sample_tasks_on(pool, parts, schemas, needed, binding, dop, SAMPLE_MORSEL_TASKS,).map(|(cols, _)| cols)
 }
 
 /// One sample morsel's decode state: every buffer a task decodes into, made with the morsel and dropped with it,
@@ -2760,9 +2325,7 @@ struct SampleMorsel {
 
 impl SampleMorsel {
     fn new(owner: memledger::Owner) -> SampleMorsel {
-        SampleMorsel {
-            buf: ColBuf::charged(stmt_owner_of(owner)),
-        }
+        SampleMorsel { buf: ColBuf::charged(stmt_owner_of(owner)), }
     }
 }
 
@@ -2805,11 +2368,7 @@ fn sample_tasks_on(
     // D4372: the statement's owner, read on the backend thread; every morsel runs on it while it decodes, so its
     // buffers and the columns it keeps count where the ledger, R6 and the ladder see them (drawn as they grow)
     // the window's own copies for the pool (fallible: ERROR 53200 in ANALYZE's context); the parts are Arc'd
-    let (mut wparts, mut wschemas, mut wneeded) = (
-        sample_vec(parts.len())?,
-        sample_vec(schemas.len())?,
-        sample_vec(needed.len())?,
-    );
+    let (mut wparts, mut wschemas, mut wneeded) = (sample_vec(parts.len())?, sample_vec(schemas.len())?, sample_vec(needed.len())?,);
     wparts.extend(parts.iter().cloned());
     wschemas.extend(schemas.iter().cloned());
     wneeded.extend_from_slice(needed);
@@ -2861,18 +2420,11 @@ fn sample_tasks_on(
         return Err(e);
     }
     if !completed {
-        return Err(Box::new(PgError::error(
-            "pgrcolumnar: an ANALYZE sample resource group was aborted",
-        ))); // alloc: Cold
+        return Err(Box::new(PgError::error("pgrcolumnar: an ANALYZE sample resource group was aborted",))); // alloc: Cold
     }
     let done = core::mem::take(&mut *work.done.lock().unwrap());
     let peak = work.peak_in_flight.load(Ordering::Relaxed);
-    Ok((
-        done.into_iter()
-            .map(|c| c.expect("every task ran"))
-            .collect(),
-        peak,
-    ))
+    Ok((done.into_iter().map(|c| c.expect("every task ran")).collect(), peak,))
 }
 
 /// (c) tasks per morsel: consecutive tasks (columns of one part, mostly) share the morsel's decode buffers, as a
@@ -2911,14 +2463,7 @@ impl SampleWork {
             }
             // unwind-ok: worker-containment
             let got = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                sample_task(
-                    &self.parts,
-                    &self.schemas,
-                    &self.needed,
-                    self.binding,
-                    t,
-                    &mut m,
-                )
+                sample_task(&self.parts, &self.schemas, &self.needed, self.binding, t, &mut m,)
             }));
             let e = match got {
                 Ok(Ok(col)) => {
@@ -2926,9 +2471,7 @@ impl SampleWork {
                     continue;
                 }
                 Ok(Err(e)) => e,
-                Err(_) => Box::new(PgError::error(
-                    "pgrcolumnar: an ANALYZE sample worker panicked",
-                )), // alloc: Cold
+                Err(_) => Box::new(PgError::error("pgrcolumnar: an ANALYZE sample worker panicked",)), // alloc: Cold
             };
             self.stop.store(true, Ordering::Relaxed);
             self.failed.lock().unwrap().get_or_insert(e);
@@ -2942,16 +2485,14 @@ impl SampleWork {
 /// D3742: an empty vector with room for `n` items, reserved fallibly (ERROR 53200 in ANALYZE's context on failure).
 fn sample_vec<T>(n: usize) -> PgResult<Vec<T>> {
     let mut v = Vec::new();
-    v.try_reserve_exact(n)
-        .map_err(|_| mcx::oom_named("Analyze", n * size_of::<T>()))?;
+    v.try_reserve_exact(n).map_err(|_| mcx::oom_named("Analyze", n * size_of::<T>()))?;
     Ok(v)
 }
 
 /// D3742: `n` copies of `x`, reserved fallibly like [`sample_vec`].
 fn sample_filled<T: Clone>(n: usize, x: T) -> PgResult<Vec<T>> {
     let mut v = Vec::new();
-    v.try_reserve_exact(n)
-        .map_err(|_| mcx::oom_named("Analyze", n * size_of::<T>()))?;
+    v.try_reserve_exact(n).map_err(|_| mcx::oom_named("Analyze", n * size_of::<T>()))?;
     v.resize(n, x);
     Ok(v)
 }
@@ -2959,13 +2500,10 @@ fn sample_filled<T: Clone>(n: usize, x: T) -> PgResult<Vec<T>> {
 /// D3742: a sample worker's failed allocation: `mcx::oom_named`'s ERROR 53200 without its observer hook, which is the
 /// backend thread's to run (the error reaches it after the join).
 fn sample_worker_oom(request: usize) -> Box<PgError> {
-    Box::<PgError>::new(
-        // alloc: Cold
+    Box::<PgError>::new( // alloc: Cold
         PgError::error("out of memory")
             .with_sqlstate(types_error::ERRCODE_OUT_OF_MEMORY)
-            .with_detail(format!(
-                "Failed on request of size {request} in memory context \"Analyze\"."
-            )), // alloc: Cold
+            .with_detail(format!("Failed on request of size {request} in memory context \"Analyze\".")), // alloc: Cold
     )
 }
 
@@ -2975,28 +2513,16 @@ const SAMPLE_ADVISE_GRANULES: usize = 32;
 
 /// One sample task: column `s` of part `sp` over its sampled granules, each decoded as `decode_current_granule`
 /// decodes it for the sample (its own private cursor; `buf` is the worker's, its part state reset here).
-fn sample_column(
-    sp: &SamplePart,
-    s: &ColSchema,
-    binding: &'static CodecBinding<'static>,
-    buf: &mut ColBuf,
-) -> PgResult<SampleCol> {
+fn sample_column(sp: &SamplePart, s: &ColSchema, binding: &'static CodecBinding<'static>, buf: &mut ColBuf,) -> PgResult<SampleCol> {
     buf.sample_dict = None;
-    let mut cursor = StreamCursor::open(Arc::clone(&sp.part), binding, s.attno, 0)
-        .map_err(read_error)?
-        .with_residency(Residency::Private);
+    let mut cursor =
+        StreamCursor::open(Arc::clone(&sp.part), binding, s.attno, 0).map_err(read_error)?.with_residency(Residency::Private);
     let key = cursor.key();
     let dict = key.encoding == EncodingId::DictCodes.as_u16() && key.class == CLASS_VARLENA;
     let n = sp.granules.iter().map(|sg| sg.sel.len()).sum();
     let byref = !s.typbyval;
-    let mut out = SampleCol {
-        byref,
-        vals: Vec::new(),
-        bytes: Vec::new(),
-    };
-    out.vals
-        .try_reserve_exact(n)
-        .map_err(|_| sample_worker_oom(n * size_of::<Option<u64>>()))?;
+    let mut out = SampleCol { byref, vals: Vec::new(), bytes: Vec::new(), };
+    out.vals.try_reserve_exact(n).map_err(|_| sample_worker_oom(n * size_of::<Option<u64>>()))?;
     let mut runs: Vec<(u32, u32)> = Vec::with_capacity(SAMPLE_ADVISE_GRANULES);
     for (i, sg) in sp.granules.iter().enumerate() {
         if i % SAMPLE_ADVISE_GRANULES == 0 {
@@ -3009,18 +2535,7 @@ fn sample_column(
             }
             let _ = cursor.advise_granule_runs(&runs, 256 << 10, 1 << 20, u64::MAX);
         }
-        if !(dict
-            && decode_col_dict(
-                &mut cursor,
-                buf,
-                (sp.idx, &sp.part),
-                binding,
-                sg.g,
-                sg.rows,
-                &sg.sel,
-                s.attno,
-            )?)
-        {
+        if !(dict && decode_col_dict(&mut cursor, buf, (sp.idx, &sp.part), binding, sg.g, sg.rows, &sg.sel, s.attno,)?) {
             decode_sample_rows(&mut cursor, buf, sg.g, &sg.sel[..], s.attno)?;
         }
         for &r in &sg.sel {
@@ -3090,11 +2605,7 @@ fn masked_count(mask: &[u64; pgrc_scan::DV_GRANULE_WORDS], rows: u32, deleted: b
         if lo >= rows {
             break;
         }
-        let valid = if rows - lo >= 64 {
-            !0u64
-        } else {
-            (1u64 << (rows - lo)) - 1
-        };
+        let valid = if rows - lo >= 64 { !0u64 } else { (1u64 << (rows - lo)) - 1 };
         c += ((if deleted { bits } else { !bits }) & valid).count_ones() as u64;
     }
     c
@@ -3107,11 +2618,7 @@ fn nth_live(mask: &[u64; pgrc_scan::DV_GRANULE_WORDS], rows: u32, mut k: u64) ->
         if lo >= rows {
             break;
         }
-        let valid = if rows - lo >= 64 {
-            !0u64
-        } else {
-            (1u64 << (rows - lo)) - 1
-        };
+        let valid = if rows - lo >= 64 { !0u64 } else { (1u64 << (rows - lo)) - 1 };
         let mut live = !bits & valid;
         let c = live.count_ones() as u64;
         if k < c {
@@ -3128,26 +2635,15 @@ fn nth_live(mask: &[u64; pgrc_scan::DV_GRANULE_WORDS], rows: u32, mut k: u64) ->
 /// D3181: rows `sel` (ascending) of granule `g` of `cursor`'s column into `buf`, each at its row's slot (the others not
 /// written), through the reader's survivor-only face (`decode_sel`: equal to `decode_full` then the rows); the arena
 /// grown on typed exhaustion as the whole granule's decode grows it, the validity the granule's.
-fn decode_sample_rows(
-    cursor: &mut StreamCursor<'static>,
-    buf: &mut ColBuf,
-    g: u32,
-    sel: &[u16],
-    attno: u32,
-) -> PgResult<()> {
+fn decode_sample_rows(cursor: &mut StreamCursor<'static>, buf: &mut ColBuf, g: u32, sel: &[u16], attno: u32,) -> PgResult<()> {
     buf.ensure_allocated();
     let want = sel.len() as u32;
     loop {
         let arena_words = buf.arena.len();
         let (datums, arena) = (&mut buf.datums, &mut buf.arena);
         // SAFETY: see ColBuf::arena_bytes (split borrows force the inline form here).
-        let arena_bytes = unsafe {
-            core::slice::from_raw_parts_mut(arena.as_mut_ptr() as *mut u8, arena.len() * 8)
-        };
-        let mut out = DecodeOut {
-            datums: &mut datums[..want as usize],
-            arena: ByteArena::new(arena_bytes),
-        };
+        let arena_bytes = unsafe { core::slice::from_raw_parts_mut(arena.as_mut_ptr() as *mut u8, arena.len() * 8) };
+        let mut out = DecodeOut { datums: &mut datums[..want as usize], arena: ByteArena::new(arena_bytes), };
         match cursor.decode_sel(g, &Selection { rows: sel }, &mut out) {
             // the length-prefix trust law of the whole granule's decode, over the selection
             Ok(n) => {
@@ -3156,10 +2652,7 @@ fn decode_sample_rows(
             }
             Err(ReadError::Format(pgrc_format::FormatError::ArenaExhausted { .. })) => {
                 if !grow_arena(&mut buf.arena, arena_words * 2) {
-                    return Err(read_error(ReadError::Io {
-                        at: "granule arena",
-                        errno: libc::ENOMEM,
-                    }));
+                    return Err(read_error(ReadError::Io { at: "granule arena", errno: libc::ENOMEM, }));
                 }
             }
             Err(e) => return Err(read_error(e)),
@@ -3202,9 +2695,7 @@ fn decode_col_dict(
         }
     }
     crate::alloc::try_resize(&mut buf.codes, rows as usize, 0, "scan")?;
-    let n = cursor
-        .decode_codes(g, &mut buf.codes[..rows as usize])
-        .map_err(read_error)?;
+    let n = cursor.decode_codes(g, &mut buf.codes[..rows as usize]).map_err(read_error)?;
     check_decoded_count(attno, g, n, rows)?;
     buf.all_valid = match cursor.validity(g, &mut buf.validity).map_err(read_error)? {
         ValidityVerdict::AllValid => true,
@@ -3269,11 +2760,7 @@ pub(crate) struct PartCursors {
 
 impl PartCursors {
     pub(crate) fn new(part: &Arc<OpenPart>, residency: Residency) -> PartCursors {
-        PartCursors {
-            part: Arc::clone(part),
-            residency,
-            cursors: Vec::new(),
-        }
+        PartCursors { part: Arc::clone(part), residency, cursors: Vec::new(), }
     }
 
     /// Whether these cursors read `part` under `residency`.
@@ -3291,21 +2778,10 @@ pub(crate) struct Lacks<'a> {
 
 /// Decode granule `g` of `pc`'s part, every column of `schemas`, into `cols` through `pc`'s cursors (the row cache's
 /// and compaction's decode); the granule's row count. FASTADD: a column the part lacks (`lacks`) reads its fill.
-pub(crate) fn decode_granule(
-    pc: &mut PartCursors,
-    binding: &'static CodecBinding<'static>,
-    schemas: &[ColSchema],
-    g: u32,
-    cols: &mut [ColBuf],
-    lacks: Option<Lacks<'_>>,
-) -> PgResult<u32> {
+pub(crate) fn decode_granule(pc: &mut PartCursors, binding: &'static CodecBinding<'static>, schemas: &[ColSchema], g: u32, cols: &mut [ColBuf], lacks: Option<Lacks<'_>>,) -> PgResult<u32> {
     let mut rows: Option<u32> = None;
     let more = schemas.len().saturating_sub(pc.cursors.len());
-    pc.cursors.try_reserve(more).map_err(|_| {
-        mcx::oom_named(
-            "pgrcolumnar",
-            more * size_of::<Option<StreamCursor<'static>>>(),
-        )
+    pc.cursors.try_reserve(more).map_err(|_| { mcx::oom_named("pgrcolumnar", more * size_of::<Option<StreamCursor<'static>>>(),)
     })?;
     pc.cursors.resize_with(schemas.len(), || None);
     for (c, schema) in schemas.iter().enumerate() {
@@ -3313,34 +2789,25 @@ pub(crate) fn decode_granule(
             continue;
         }
         if pc.cursors[c].is_none() {
-            pc.cursors[c] = Some(
-                StreamCursor::open(Arc::clone(&pc.part), binding, schema.attno, 0)
-                    .map_err(read_error)?
-                    .with_residency(pc.residency),
-            );
+            pc.cursors[c] = Some(StreamCursor::open(Arc::clone(&pc.part), binding, schema.attno, 0).map_err(read_error)?.with_residency(pc.residency),);
         }
         let cursor = pc.cursors[c].as_mut().expect("just opened");
         let g_rows = cursor.rows_in_granule(g);
         match rows {
             None => rows = Some(g_rows),
             Some(r) if r != g_rows => {
-                return Err(Box::new(
-                    PgError::error(format!(
-                        "pgrcolumnar: column {} granule {} row skew ({} vs {})",
-                        schema.attno, g, g_rows, r
-                    ))
-                    .with_sqlstate(types_error::ERRCODE_DATA_CORRUPTED),
-                ));
+                return Err(Box::new(PgError::error(format!(
+                    "pgrcolumnar: column {} granule {} row skew ({} vs {})",
+                    schema.attno, g, g_rows, r
+                ))
+                .with_sqlstate(types_error::ERRCODE_DATA_CORRUPTED),));
             }
             Some(_) => {}
         }
         decode_column_granule(cursor, schema, g, &mut cols[c])?;
     }
-    let Some(l) = lacks else {
-        return Ok(rows.unwrap_or(0));
-    };
-    let rows = rows.unwrap_or_else(|| {
-        pgrc_format::geom::rows_in_granule_at(pc.part.rows(), pc.part.grain(), g)
+    let Some(l) = lacks else { return Ok(rows.unwrap_or(0)); };
+    let rows = rows.unwrap_or_else(|| { pgrc_format::geom::rows_in_granule_at(pc.part.rows(), pc.part.grain(), g)
     });
     for (c, buf) in cols.iter_mut().enumerate().filter(|(c, _)| !l.present[*c]) {
         buf.fill_const(rows, &l.fills[c]);
@@ -3351,31 +2818,15 @@ pub(crate) fn decode_granule(
 /// IX1 L0 (choice 6): decode granule `g` of column `c` (`schema`, one of `ncols`) of `pc`'s part into `buf`, through
 /// `pc`'s cursor for that column (opened on first use): the column-selective row cache decodes only the columns a
 /// fetch projects. The granule's row count.
-pub(crate) fn decode_one_column(
-    pc: &mut PartCursors,
-    binding: &'static CodecBinding<'static>,
-    ncols: usize,
-    c: usize,
-    schema: &ColSchema,
-    g: u32,
-    buf: &mut ColBuf,
-) -> PgResult<u32> {
+pub(crate) fn decode_one_column(pc: &mut PartCursors, binding: &'static CodecBinding<'static>, ncols: usize, c: usize, schema: &ColSchema, g: u32, buf: &mut ColBuf,) -> PgResult<u32> {
     if pc.cursors.len() < ncols {
         let more = ncols - pc.cursors.len();
-        pc.cursors.try_reserve(more).map_err(|_| {
-            mcx::oom_named(
-                "pgrcolumnar",
-                more * size_of::<Option<StreamCursor<'static>>>(),
-            )
+        pc.cursors.try_reserve(more).map_err(|_| { mcx::oom_named("pgrcolumnar", more * size_of::<Option<StreamCursor<'static>>>(),)
         })?;
         pc.cursors.resize_with(ncols, || None);
     }
     if pc.cursors[c].is_none() {
-        pc.cursors[c] = Some(
-            StreamCursor::open(Arc::clone(&pc.part), binding, schema.attno, 0)
-                .map_err(read_error)?
-                .with_residency(pc.residency),
-        );
+        pc.cursors[c] = Some(StreamCursor::open(Arc::clone(&pc.part), binding, schema.attno, 0).map_err(read_error)?.with_residency(pc.residency),);
     }
     buf.ensure_allocated();
     decode_column_granule(pc.cursors[c].as_mut().expect("just opened"), schema, g, buf)
@@ -3383,12 +2834,7 @@ pub(crate) fn decode_one_column(
 
 /// Decode granule `g` of `cursor`'s column (`schema`) into `buf`, holding what its datums alias (`hold_datums`); the
 /// granule's row count (K1-MEM: a compaction's column pass keeps one cursor per input).
-pub(crate) fn decode_column_granule(
-    cursor: &mut StreamCursor<'_>,
-    schema: &ColSchema,
-    g: u32,
-    buf: &mut ColBuf,
-) -> PgResult<u32> {
+pub(crate) fn decode_column_granule(cursor: &mut StreamCursor<'_>, schema: &ColSchema, g: u32, buf: &mut ColBuf,) -> PgResult<u32> {
     let g_rows = cursor.rows_in_granule(g);
     // decode_full with arena growth on typed exhaustion.
     loop {
@@ -3397,7 +2843,10 @@ pub(crate) fn decode_column_granule(
         let arena_bytes = unsafe {
             // SAFETY: see ColBuf::arena_bytes (split borrows force
             // the inline form here).
-            core::slice::from_raw_parts_mut(arena.as_mut_ptr() as *mut u8, arena.len() * 8)
+            core::slice::from_raw_parts_mut(
+                arena.as_mut_ptr() as *mut u8,
+                arena.len() * 8
+            )
         };
         let mut out = DecodeOut {
             datums: &mut datums[..g_rows as usize],
@@ -3421,10 +2870,7 @@ pub(crate) fn decode_column_granule(
             // D2582: the arena grows while the granule's images do not fit, fallibly
             Err(ReadError::Format(pgrc_format::FormatError::ArenaExhausted { .. })) => {
                 if !grow_arena(&mut buf.arena, arena_words * 2) {
-                    return Err(read_error(ReadError::Io {
-                        at: "granule arena",
-                        errno: libc::ENOMEM,
-                    }));
+                    return Err(read_error(ReadError::Io { at: "granule arena", errno: libc::ENOMEM, }));
                 }
             }
             Err(e) => return Err(read_error(e)),
@@ -3448,10 +2894,7 @@ pub(crate) struct SliceBuf {
 
 impl SliceBuf {
     pub(crate) fn new() -> SliceBuf {
-        SliceBuf {
-            arena: memledger::ChargedVec::default(),
-            guard: Guard::new(),
-        }
+        SliceBuf { arena: memledger::ChargedVec::default(), guard: Guard::new(), }
     }
 
     /// Let go of what the last slice's datum aliased (the arena stays for the next).
@@ -3469,41 +2912,21 @@ const SLICE_ARENA_INITIAL: usize = 8 << 10;
 /// equal to `decode_full` then the row) instead of the granule's 8,192. The datum may alias `buf` until the column's
 /// next slice.
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn decode_one_row(
-    pc: &mut PartCursors,
-    binding: &'static CodecBinding<'static>,
-    ncols: usize,
-    c: usize,
-    schema: &ColSchema,
-    g: u32,
-    row: u32,
-    buf: &mut SliceBuf,
-) -> PgResult<Option<u64>> {
+pub(crate) fn decode_one_row(pc: &mut PartCursors, binding: &'static CodecBinding<'static>, ncols: usize, c: usize, schema: &ColSchema, g: u32, row: u32, buf: &mut SliceBuf,) -> PgResult<Option<u64>> {
     if pc.cursors.len() < ncols {
         let more = ncols - pc.cursors.len();
-        pc.cursors.try_reserve(more).map_err(|_| {
-            mcx::oom_named(
-                "pgrcolumnar",
-                more * size_of::<Option<StreamCursor<'static>>>(),
-            )
+        pc.cursors.try_reserve(more).map_err(|_| { mcx::oom_named("pgrcolumnar", more * size_of::<Option<StreamCursor<'static>>>(),)
         })?;
         pc.cursors.resize_with(ncols, || None);
     }
     if pc.cursors[c].is_none() {
-        pc.cursors[c] = Some(
-            StreamCursor::open(Arc::clone(&pc.part), binding, schema.attno, 0)
-                .map_err(read_error)?
-                .with_residency(pc.residency),
-        );
+        pc.cursors[c] = Some(StreamCursor::open(Arc::clone(&pc.part), binding, schema.attno, 0).map_err(read_error)?.with_residency(pc.residency),);
     }
     let cursor = pc.cursors[c].as_mut().expect("just opened");
     let Ok(at) = u16::try_from(row) else {
         return Err(Box::new(
-            PgError::error(format!(
-                "pgrcolumnar: row {row} of column {} granule {g} is past a granule",
-                schema.attno
-            ))
-            .with_sqlstate(types_error::ERRCODE_DATA_CORRUPTED),
+            PgError::error(format!("pgrcolumnar: row {row} of column {} granule {g} is past a granule", schema.attno))
+                .with_sqlstate(types_error::ERRCODE_DATA_CORRUPTED),
         ));
     };
     let mut validity = [0u64; VALIDITY_WORDS];
@@ -3515,21 +2938,15 @@ pub(crate) fn decode_one_row(
     let rows = [at];
     let sel = pgrc_format::abi::Selection { rows: &rows };
     if buf.arena.is_empty() {
-        buf.arena
-            .with_vec(|v| *v = vec![0u64; SLICE_ARENA_INITIAL / 8]); // alloc: Exec charged buf.arena.owner()
+        buf.arena.with_vec(|v| *v = vec![0u64; SLICE_ARENA_INITIAL / 8]); // alloc: Exec charged buf.arena.owner()
     }
     loop {
         let arena_words = buf.arena.len();
         // SAFETY: `buf.arena` is a live, uniquely borrowed u64 buffer of `arena_words` words: `arena_words * 8` initialized
         // bytes, 8-aligned (the ByteArena law), borrowed only for this one decode call.
-        let arena_bytes = unsafe {
-            core::slice::from_raw_parts_mut(buf.arena.as_mut_ptr() as *mut u8, arena_words * 8)
-        };
+        let arena_bytes = unsafe { core::slice::from_raw_parts_mut(buf.arena.as_mut_ptr() as *mut u8, arena_words * 8) };
         let mut one = [0u64; 1];
-        let mut out = DecodeOut {
-            datums: &mut one,
-            arena: ByteArena::new(arena_bytes),
-        };
+        let mut out = DecodeOut { datums: &mut one, arena: ByteArena::new(arena_bytes), };
         match cursor.decode_sel(g, &sel, &mut out) {
             Ok(n) => {
                 check_decoded_count(schema.attno, g, n, 1)?;
@@ -3540,10 +2957,7 @@ pub(crate) fn decode_one_row(
             // the arena grows while the row's images do not fit, fallibly, as the granule path's does
             Err(ReadError::Format(pgrc_format::FormatError::ArenaExhausted { .. })) => {
                 if !grow_arena(&mut buf.arena, arena_words * 2) {
-                    return Err(read_error(ReadError::Io {
-                        at: "granule arena",
-                        errno: libc::ENOMEM,
-                    }));
+                    return Err(read_error(ReadError::Io { at: "granule arena", errno: libc::ENOMEM, }));
                 }
             }
             Err(e) => return Err(read_error(e)),
@@ -3552,13 +2966,7 @@ pub(crate) fn decode_one_row(
 }
 
 /// Store row `row` of decoded `cols` into `slot` (`natts` wide: dropped columns are NULL).
-pub(crate) fn store_cols(
-    cols: &[ColBuf],
-    schemas: &[ColSchema],
-    natts: usize,
-    row: usize,
-    slot: &mut SlotData<'_>,
-) {
+pub(crate) fn store_cols(cols: &[ColBuf], schemas: &[ColSchema], natts: usize, row: usize, slot: &mut SlotData<'_>,) {
     let base = slot.base_mut();
     if natts != cols.len() {
         base.tts_isnull[..natts].fill(true);
@@ -3627,9 +3035,7 @@ pub struct EngineScanCol {
 /// rotation), so a visible generation without parts is the empty table too and answers as a never-ingested one: the
 /// engine reads parts only (a table with segment rows never reaches the bridge, sqeshell's `find_columnar` declines
 /// it first), so no row is hidden.
-pub(crate) fn bridge_generation(
-    found: crate::catalog::Lookup,
-) -> Result<Option<Arc<crate::catalog::Generation>>, ()> {
+pub(crate) fn bridge_generation(found: crate::catalog::Lookup,) -> Result<Option<Arc<crate::catalog::Generation>>, ()> {
     match found {
         crate::catalog::Lookup::Gen(g) if !g.manifest.parts.is_empty() => Ok(Some(g)),
         crate::catalog::Lookup::Gen(_) | crate::catalog::Lookup::Empty => Ok(None),
@@ -3676,23 +3082,19 @@ pub fn open_engine_table_scan_cols(
     let check = SnapshotCommitCheck::new(snapshot);
     let found = crate::catalog::resolve(rel, slot, &dir, &check)?;
     check.take_error()?;
-    let Some(gen) = bridge_generation(found).map_err(|()| crate::catalog::not_loaded(rel, &dir))?
-    else {
+    let Some(gen) = bridge_generation(found).map_err(|()| crate::catalog::not_loaded(rel, &dir))? else {
         return Ok(None);
     };
     // FASTADD: the engine reads stored streams only; a generation holding parts written before an ADD/DROP COLUMN
     // (their absent columns are filled by the row scan) is not its to read (SQE declines it first: `served_lock`)
     if gen.schema_fp != fp || gen.lagged() {
-        return Err(read_error(ReadError::OpenMismatch {
-            field: "manifest schema_fingerprint",
-        }));
+        return Err(read_error(ReadError::OpenMismatch { field: "manifest schema_fingerprint", }));
     }
     // The parts are the catalog's open handles (held since server start or
     // since their publish): no file is opened or read here.
     let nparts = gen.parts.len();
     let mut parts: Vec<Arc<OpenPart>> = crate::alloc::try_vec(nparts, "scan")?;
-    let mut deletes: Vec<Option<Arc<pgrc_scan::PartDeletes>>> =
-        crate::alloc::try_vec(nparts, "scan")?;
+    let mut deletes: Vec<Option<Arc<pgrc_scan::PartDeletes>>> = crate::alloc::try_vec(nparts, "scan")?;
     let mut total_rows = 0u64;
     let mut deletion_bearing = false;
     for (p, rec) in gen.parts.iter().zip(&gen.manifest.parts) {
@@ -3712,26 +3114,21 @@ pub fn open_engine_table_scan_cols(
     for c in cols {
         let a = c.attno;
         let Some(s) = all_schemas.iter().find(|s| s.attno == a) else {
-            return Err(Box::new(PgError::error(format!(
-                // alloc: Cold
+            return Err(Box::new(PgError::error(format!( // alloc: Cold
                 "pgrcolumnar engine bridge: staged attno {a} outside the schema"
             ))));
         };
         match &c.shred {
             None => {
                 schemas.push(*s);
-                columns.push(pgrc_scan::ScanColumn::root(
-                    *s,
-                    s.collation_class == pgrc_format::class::CollationClass::C,
-                ));
+                columns.push(pgrc_scan::ScanColumn::root(*s, s.collation_class == pgrc_format::class::CollationClass::C,));
             }
             Some((path, kind)) => {
                 // Lane parents are varlena catalog columns (jsonb images);
                 // any other class cannot carry shred lanes — declaration
                 // error at the bridge, before any part is consulted.
                 if s.class != pgrc_format::class::StorageClass::VarlenaVerbatim {
-                    return Err(Box::new(PgError::error(format!(
-                        // alloc: Cold
+                    return Err(Box::new(PgError::error(format!( // alloc: Cold
                         "pgrcolumnar engine bridge: shred lane declared on non-varlena attno {a}"
                     ))));
                 }
@@ -3800,10 +3197,7 @@ mod value_count_tests {
 /// drops: `decode_granule`'s (the row cache and compaction) and the row scan's part-lived cursors'.
 #[cfg(test)]
 mod dict_region_tests {
-    use super::{
-        check_decoded_count, codec_binding, col_cell, decode_granule, grow_arena, read_error,
-        ColBuf, PartCursors,
-    };
+    use super::{check_decoded_count, codec_binding, col_cell, decode_granule, grow_arena, read_error, ColBuf, PartCursors,};
     use pgrc_format::abi::{ByteArena, DecodeOut, ValidityVerdict};
     use pgrc_format::class::{ColSchema, CollationClass, StorageClass, TypeSemantics};
     use pgrc_format::enc::EncodingId;
@@ -3833,17 +3227,9 @@ mod dict_region_tests {
     /// parameters, so the test runs its cursor and `ColBuf` without a relation. Each column's cursor is dropped when
     /// this returns: what `set_needed_attrs` (a column no longer read), `release_part` and `reset_position` do to the
     /// part-lived cursors while the `ColBuf`s still hold the granule's datums (D777).
-    fn scan_decode_granule(
-        part: &Arc<OpenPart>,
-        binding: &'static pgrc_read::CodecBinding<'static>,
-        schemas: &[ColSchema],
-        g: u32,
-        cols: &mut [ColBuf],
-        residency: Residency,
-    ) -> PgResult<u32> {
+    fn scan_decode_granule(part: &Arc<OpenPart>, binding: &'static pgrc_read::CodecBinding<'static>, schemas: &[ColSchema], g: u32, cols: &mut [ColBuf], residency: Residency,) -> PgResult<u32> {
         let rows = pgrc_format::geom::rows_in_granule_at(part.rows(), part.grain(), g);
-        let mut cursors: Vec<Option<StreamCursor<'static>>> =
-            (0..schemas.len()).map(|_| None).collect();
+        let mut cursors: Vec<Option<StreamCursor<'static>>> = (0..schemas.len()).map(|_| None).collect();
         for c in 0..schemas.len() {
             let attno = schemas[c].attno;
             if cursors[c].is_none() {
@@ -3860,13 +3246,8 @@ mod dict_region_tests {
                 let arena_words = buf.arena.len();
                 let (datums, arena) = (&mut buf.datums, &mut buf.arena);
                 // SAFETY: as decode_current_granule's (u64-backed, 8-aligned, exclusively borrowed).
-                let arena_bytes = unsafe {
-                    core::slice::from_raw_parts_mut(arena.as_mut_ptr() as *mut u8, arena.len() * 8)
-                };
-                let mut out = DecodeOut {
-                    datums: &mut datums[..rows as usize],
-                    arena: ByteArena::new(arena_bytes),
-                };
+                let arena_bytes = unsafe { core::slice::from_raw_parts_mut(arena.as_mut_ptr() as *mut u8, arena.len() * 8) };
+                let mut out = DecodeOut { datums: &mut datums[..rows as usize], arena: ByteArena::new(arena_bytes), };
                 match cursor.decode_full(g, &mut out) {
                     Ok(n) => {
                         check_decoded_count(attno, g, n, rows)?;
@@ -3874,10 +3255,7 @@ mod dict_region_tests {
                     }
                     Err(ReadError::Format(pgrc_format::FormatError::ArenaExhausted { .. })) => {
                         if !grow_arena(&mut buf.arena, arena_words * 2) {
-                            return Err(read_error(ReadError::Io {
-                                at: "granule arena",
-                                errno: libc::ENOMEM,
-                            }));
+                            return Err(read_error(ReadError::Io { at: "granule arena", errno: libc::ENOMEM, }));
                         }
                     }
                     Err(e) => return Err(read_error(e)),
@@ -3931,9 +3309,7 @@ mod dict_region_tests {
     }
 
     fn image(v: &[u8]) -> Vec<u8> {
-        let mut img = pgrc_format::wire::varlena_header_4b_u(v.len() as u32)
-            .to_le_bytes()
-            .to_vec();
+        let mut img = pgrc_format::wire::varlena_header_4b_u(v.len() as u32).to_le_bytes().to_vec();
         img.extend_from_slice(v);
         img
     }
@@ -3955,65 +3331,29 @@ mod dict_region_tests {
         .expect("open");
         let cands = CodecCandidates::new(ColumnPosture {
             cold: true,
-            dict: Some(DictPolicy {
-                ndv_cap: 1 << 24,
-                exec_ok: true,
-                sem: TextSemantics::BytesOnly,
-            }),
+            dict: Some(DictPolicy { ndv_cap: 1 << 24, exec_ok: true, sem: TextSemantics::BytesOnly, }),
             ..Default::default()
         });
         let sources: [&dyn CandidateSource; 1] = [&cands];
         let resolver = CodecResolver;
         let mut shred = NoShred;
         let opts = pgrc_format::relopt::ShredOptions::default();
-        let mut env = SealEnv {
-            vfs: &mut vfs,
-            sources: &sources,
-            resolver: &resolver,
-            shred: &mut shred,
-            shred_opts: &opts,
-        };
+        let mut env = SealEnv { vfs: &mut vfs, sources: &sources, resolver: &resolver, shred: &mut shred, shred_opts: &opts, };
         for r in 0..ROWS {
             let img = image(&vals[r % vals.len()]);
-            w.append_row(&[RawDatum::Bytes(&img)], &mut NoExternalDetoast, &mut env)
-                .expect("append");
+            w.append_row(&[RawDatum::Bytes(&img)], &mut NoExternalDetoast, &mut env).expect("append");
         }
         w.finish(&mut env).expect("finish");
         let out = w.publish(&mut vfs, &AllCommitted).expect("publish");
         assert_eq!(out.part_nos.len(), 1, "one part");
-        vfs.read_full(&format!(
-            "t/{}",
-            pgrc_format::dirlayout::part_file_name(out.part_nos[0])
-        ))
-        .expect("part bytes")
+        vfs.read_full(&format!("t/{}", pgrc_format::dirlayout::part_file_name(out.part_nos[0]))).expect("part bytes")
     }
 
-    type Decode = fn(
-        &Arc<OpenPart>,
-        &'static pgrc_read::CodecBinding<'static>,
-        &[ColSchema],
-        u32,
-        &mut [ColBuf],
-        Residency,
-    ) -> PgResult<u32>;
+    type Decode = fn(&Arc<OpenPart>, &'static pgrc_read::CodecBinding<'static>, &[ColSchema], u32, &mut [ColBuf], Residency,) -> PgResult<u32>;
 
     /// `decode_granule` through cursors dropped when it returns (a refetch's part or a job's input left behind).
-    fn decode_granule_once(
-        part: &Arc<OpenPart>,
-        binding: &'static pgrc_read::CodecBinding<'static>,
-        schemas: &[ColSchema],
-        g: u32,
-        cols: &mut [ColBuf],
-        residency: Residency,
-    ) -> PgResult<u32> {
-        decode_granule(
-            &mut PartCursors::new(part, residency),
-            binding,
-            schemas,
-            g,
-            cols,
-            None,
-        )
+    fn decode_granule_once(part: &Arc<OpenPart>, binding: &'static pgrc_read::CodecBinding<'static>, schemas: &[ColSchema], g: u32, cols: &mut [ColBuf], residency: Residency,) -> PgResult<u32> {
+        decode_granule(&mut PartCursors::new(part, residency), binding, schemas, g, cols, None,)
     }
 
     /// `decode_granule` (the row cache's and compaction's decode, its cursors dropped when it returns), in its bulk
@@ -4028,30 +3368,17 @@ mod dict_region_tests {
         use pgrc_format::sample::{SampleRef, SAMPLE_ROWS};
         let vals = values(NDV);
         let bytes = part_bytes(&vals);
-        let part = Arc::new(
-            OpenPart::open(
-                Box::new(MemPartIo::new(bytes, 0x4D33_4801_0000_0003, 4344)),
-                &PartExpect::none(),
-            )
-            .expect("open part"),
-        );
-        let idx = part
-            .find_section(SectionKind::Sample, 0, 0)
-            .expect("the part has a Sample section");
+        let part = Arc::new(OpenPart::open(Box::new(MemPartIo::new(bytes, 0x4D33_4801_0000_0003, 4344)), &PartExpect::none(),).expect("open part"),);
+        let idx = part.find_section(SectionKind::Sample, 0, 0).expect("the part has a Sample section");
         let entry = part.sections()[idx];
         assert_ne!(entry.flags & SECTION_OPTIONAL, 0, "Sample is OPTIONAL");
         let older = pgrc_format::part::SectionEntry { kind: 63, ..entry };
-        assert_eq!(
-            older.known_kind(),
-            Ok(None),
-            "a reader that does not know the kind skips it"
-        );
+        assert_eq!(older.known_kind(), Ok(None), "a reader that does not know the kind skips it");
 
         let body = crate::footer::meta_section_body(&part, idx).expect("body");
         let mut words = vec![0u64; body.len().div_ceil(8)];
         // SAFETY: `words` holds at least `body.len()` bytes.
-        let b =
-            unsafe { core::slice::from_raw_parts_mut(words.as_mut_ptr().cast::<u8>(), body.len()) };
+        let b = unsafe { core::slice::from_raw_parts_mut(words.as_mut_ptr().cast::<u8>(), body.len()) };
         b.copy_from_slice(&body);
         let sref = SampleRef::parse(b).expect("parse");
         assert_eq!(sref.n(), SAMPLE_ROWS as usize);
@@ -4060,34 +3387,22 @@ mod dict_region_tests {
 
         let pick_every = |n: usize| Some((0..n).collect::<Vec<usize>>());
         let mut got: Vec<Vec<u8>> = Vec::new();
-        let served = super::stored_sample_rows(
-            &part,
-            &[schema()],
-            &[0],
-            &mut |n| pick_every(n),
-            &mut |v, n| {
-                assert!(!n[0]);
-                let p = v[0].as_u64() as *const u8;
-                // SAFETY: a by-reference datum of the stored image: the 4-B header then the payload.
-                let head = unsafe { core::ptr::read_unaligned(p as *const [u8; 4]) };
-                let len = (u32::from_le_bytes(head) >> 2) as usize;
-                got.push(unsafe { core::slice::from_raw_parts(p, len) }.to_vec());
-                Ok(())
-            },
-        )
+        let served = super::stored_sample_rows(&part, &[schema()], &[0], &mut |n| pick_every(n), &mut |v, n| {
+            assert!(!n[0]);
+            let p = v[0].as_u64() as *const u8;
+            // SAFETY: a by-reference datum of the stored image: the 4-B header then the payload.
+            let head = unsafe { core::ptr::read_unaligned(p as *const [u8; 4]) };
+            let len = (u32::from_le_bytes(head) >> 2) as usize;
+            got.push(unsafe { core::slice::from_raw_parts(p, len) }.to_vec());
+            Ok(())
+        },)
         .expect("serve");
         assert!(served);
         assert_eq!(got.len(), ords.len());
         for (i, &o) in ords.iter().enumerate() {
-            assert_eq!(
-                got[i],
-                image(&vals[o as usize % NDV]),
-                "stored row {i} (part row {o})"
-            );
+            assert_eq!(got[i], image(&vals[o as usize % NDV]), "stored row {i} (part row {o})");
         }
-        let declined =
-            super::stored_sample_rows(&part, &[schema()], &[0], &mut |_| None, &mut |_, _| {
-                panic!("emitted")
+        let declined = super::stored_sample_rows(&part, &[schema()], &[0], &mut |_| None, &mut |_, _| { panic!("emitted")
             });
         assert!(!declined.expect("decline"));
     }
@@ -4099,17 +3414,7 @@ mod dict_region_tests {
     #[test]
     fn d4372_the_sample_workers_bytes_count_on_the_statements_account() {
         let vals = values(NDV);
-        let part = Arc::new(
-            OpenPart::open(
-                Box::new(MemPartIo::new(
-                    part_bytes(&vals),
-                    0x4D33_4801_0000_0004,
-                    4345,
-                )),
-                &PartExpect::none(),
-            )
-            .expect("open part"),
-        );
+        let part = Arc::new(OpenPart::open(Box::new(MemPartIo::new(part_bytes(&vals), 0x4D33_4801_0000_0004, 4345,)), &PartExpect::none(),).expect("open part"),);
         let window = |n: usize| -> Vec<super::SamplePart> {
             (0..n)
                 .map(|idx| super::SamplePart {
@@ -4117,13 +3422,8 @@ mod dict_region_tests {
                     part: Arc::clone(&part),
                     granules: (0..2u32)
                         .map(|g| {
-                            let rows =
-                                pgrc_format::geom::rows_in_granule_at(part.rows(), part.grain(), g);
-                            super::SampleGranule {
-                                g,
-                                rows,
-                                sel: (0..rows as u16).collect(),
-                            }
+                            let rows = pgrc_format::geom::rows_in_granule_at(part.rows(), part.grain(), g);
+                            super::SampleGranule { g, rows, sel: (0..rows as u16).collect(), }
                         })
                         .collect(),
                 })
@@ -4138,21 +3438,12 @@ mod dict_region_tests {
             let parts = window(16);
             memledger::fold();
             let before = memledger::account_row(a).account_bytes;
-            let cols =
-                super::sample_tasks(&parts, &[schema()], &[0], codec_binding(), 4).expect("sample");
+            let cols = super::sample_tasks(&parts, &[schema()], &[0], codec_binding(), 4).expect("sample");
             memledger::fold();
             let after = memledger::account_row(a).account_bytes;
-            let kept: i64 = cols
-                .iter()
-                .map(|c| {
-                    (c.vals.capacity() * size_of::<Option<u64>>() + c.bytes.capacity() * 8) as i64
-                })
-                .sum();
-            assert_eq!(
-                cols.iter().map(|c| c.vals.len()).sum::<usize>(),
-                16 * ROWS,
-                "every sampled row"
-            );
+            let kept: i64 = cols.iter().map(|c| { (c.vals.capacity() * size_of::<Option<u64>>() + c.bytes.capacity() * 8) as i64
+                }).sum();
+            assert_eq!(cols.iter().map(|c| c.vals.len()).sum::<usize>(), 16 * ROWS, "every sampled row");
             if after - before < kept {
                 short.push((kept, after - before));
             }
@@ -4160,10 +3451,7 @@ mod dict_region_tests {
         }
         memledger::statement_end();
         memledger::unbind_backend();
-        assert!(
-            short.is_empty(),
-            "(kept by the tasks, counted on the statement) per short window: {short:?}"
-        );
+        assert!(short.is_empty(), "(kept by the tasks, counted on the statement) per short window: {short:?}");
     }
 
     /// (c) a test pool: `width` std threads claim the window's tasks in a SHUFFLED order (a different claim order from
@@ -4188,12 +3476,7 @@ mod dict_region_tests {
         fn available(&self) -> bool {
             true
         }
-        fn submit(
-            &self,
-            ntasks: usize,
-            width: usize,
-            run: Arc<dyn Fn(usize) + Send + Sync>,
-        ) -> Box<dyn super::SampleRg> {
+        fn submit(&self, ntasks: usize, width: usize, run: Arc<dyn Fn(usize) + Send + Sync>,) -> Box<dyn super::SampleRg> {
             self.asked.lock().unwrap().push(width);
             let state = Arc::new(std::sync::atomic::AtomicU8::new(0));
             let mut order: Vec<usize> = (0..ntasks).collect();
@@ -4210,8 +3493,7 @@ mod dict_region_tests {
             std::thread::spawn(move || {
                 std::thread::scope(|s| {
                     for _ in 0..width {
-                        let (order, next, run) =
-                            (Arc::clone(&order), Arc::clone(&next), Arc::clone(&run));
+                        let (order, next, run) = (Arc::clone(&order), Arc::clone(&next), Arc::clone(&run));
                         s.spawn(move || loop {
                             let k = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                             if k >= order.len() {
@@ -4231,30 +3513,15 @@ mod dict_region_tests {
     /// sampled).
     fn pool_parts(n: usize) -> Vec<super::SamplePart> {
         let vals = values(NDV);
-        let part = Arc::new(
-            OpenPart::open(
-                Box::new(MemPartIo::new(
-                    part_bytes(&vals),
-                    0x4D33_4801_0000_0005,
-                    4346,
-                )),
-                &PartExpect::none(),
-            )
-            .expect("open part"),
-        );
+        let part = Arc::new(OpenPart::open(Box::new(MemPartIo::new(part_bytes(&vals), 0x4D33_4801_0000_0005, 4346,)), &PartExpect::none(),).expect("open part"),);
         (0..n)
             .map(|idx| super::SamplePart {
                 idx,
                 part: Arc::clone(&part),
                 granules: (0..2u32)
                     .map(|g| {
-                        let rows =
-                            pgrc_format::geom::rows_in_granule_at(part.rows(), part.grain(), g);
-                        super::SampleGranule {
-                            g,
-                            rows,
-                            sel: (0..rows as u16).collect(),
-                        }
+                        let rows = pgrc_format::geom::rows_in_granule_at(part.rows(), part.grain(), g);
+                        super::SampleGranule { g, rows, sel: (0..rows as u16).collect(), }
                     })
                     .collect(),
             })
@@ -4290,52 +3557,20 @@ mod dict_region_tests {
     #[test]
     fn sample_pool_road_matches_this_thread_and_asks_the_width_cap() {
         let parts = pool_parts(24);
-        let (want, one) =
-            super::sample_tasks_on(None, &parts, &[schema()], &[0], codec_binding(), 8, 1)
-                .expect("serial");
+        let (want, one) = super::sample_tasks_on(None, &parts, &[schema()], &[0], codec_binding(), 8, 1).expect("serial");
         assert_eq!(one, 1);
         assert_eq!(want.iter().map(|c| c.vals.len()).sum::<usize>(), 24 * ROWS);
         let want = sampled(&want);
-        let pool = TestPool {
-            asked: pgsync::Mutex::new(Vec::new()),
-        };
+        let pool = TestPool { asked: pgsync::Mutex::new(Vec::new()), };
         // (dop, tasks a morsel): one task a morsel and several (shared buffers), 24 tasks
         for (dop, per) in [(2usize, 1usize), (3, 1), (8, 1), (64, 1), (3, 5), (8, 4)] {
-            let (got, peak) = super::sample_tasks_on(
-                Some(&pool),
-                &parts,
-                &[schema()],
-                &[0],
-                codec_binding(),
-                dop,
-                per,
-            )
-            .expect("pool");
-            assert!(
-                peak >= 1 && peak <= dop.min(24usize.div_ceil(per)),
-                "dop {dop} per {per}: {peak} morsels in flight"
-            );
-            assert!(
-                sampled(&got) == want,
-                "dop {dop} per {per}: the pool road's table differs from this thread's"
-            );
+            let (got, peak) = super::sample_tasks_on(Some(&pool), &parts, &[schema()], &[0], codec_binding(), dop, per,).expect("pool");
+            assert!(peak >= 1 && peak <= dop.min(24usize.div_ceil(per)), "dop {dop} per {per}: {peak} morsels in flight");
+            assert!(sampled(&got) == want, "dop {dop} per {per}: the pool road's table differs from this thread's");
         }
-        assert_eq!(
-            *pool.asked.lock().unwrap(),
-            vec![2, 3, 8, 24, 3, 6],
-            "the width each window asked the pool for"
-        );
+        assert_eq!(*pool.asked.lock().unwrap(), vec![2, 3, 8, 24, 3, 6], "the width each window asked the pool for");
         // dop 1 (the ladder's serial answer): no pool at all
-        let (got, one) = super::sample_tasks_on(
-            Some(&pool),
-            &parts,
-            &[schema()],
-            &[0],
-            codec_binding(),
-            1,
-            1,
-        )
-        .expect("dop 1");
+        let (got, one) = super::sample_tasks_on(Some(&pool), &parts, &[schema()], &[0], codec_binding(), 1, 1,).expect("dop 1");
         assert_eq!((one, pool.asked.lock().unwrap().len()), (1, 6));
         assert!(sampled(&got) == want);
     }
@@ -4345,50 +3580,24 @@ mod dict_region_tests {
     #[test]
     fn sample_pool_morsels_count_on_the_statement_and_return_to_start() {
         let parts = pool_parts(16);
-        let pool = TestPool {
-            asked: pgsync::Mutex::new(Vec::new()),
-        };
+        let pool = TestPool { asked: pgsync::Mutex::new(Vec::new()), };
         let _serial = crate::session::tests::bind_serial();
         memledger::bind_backend(2, 4373); // its own account: the D4372 test above binds procno 1 and the tests run at once
         memledger::statement_begin();
         let a = memledger::current();
         // one window first: what the part keeps resident once read is the part's, not a window's
-        drop(
-            super::sample_tasks_on(
-                Some(&pool),
-                &parts,
-                &[schema()],
-                &[0],
-                codec_binding(),
-                4,
-                2,
-            )
-            .expect("warm"),
-        );
+        drop(super::sample_tasks_on(Some(&pool), &parts, &[schema()], &[0], codec_binding(), 4, 2,).expect("warm"),);
         memledger::fold();
         let start = memledger::account_row(a).account_bytes;
         let mut short = Vec::new();
         for _ in 0..4 {
             memledger::fold();
             let before = memledger::account_row(a).account_bytes;
-            let (cols, _) = super::sample_tasks_on(
-                Some(&pool),
-                &parts,
-                &[schema()],
-                &[0],
-                codec_binding(),
-                4,
-                2,
-            )
-            .expect("pool");
+            let (cols, _) = super::sample_tasks_on(Some(&pool), &parts, &[schema()], &[0], codec_binding(), 4, 2,).expect("pool");
             memledger::fold();
             let after = memledger::account_row(a).account_bytes;
-            let kept: i64 = cols
-                .iter()
-                .map(|c| {
-                    (c.vals.capacity() * size_of::<Option<u64>>() + c.bytes.capacity() * 8) as i64
-                })
-                .sum();
+            let kept: i64 = cols.iter().map(|c| { (c.vals.capacity() * size_of::<Option<u64>>() + c.bytes.capacity() * 8) as i64
+                }).sum();
             if after - before < kept {
                 short.push((kept, after - before));
             }
@@ -4398,53 +3607,23 @@ mod dict_region_tests {
         let end = memledger::account_row(a).account_bytes;
         memledger::statement_end();
         memledger::unbind_backend();
-        assert!(
-            short.is_empty(),
-            "(kept by the morsels, counted on the statement) per short window: {short:?}"
-        );
+        assert!(short.is_empty(), "(kept by the morsels, counted on the statement) per short window: {short:?}");
         // back to the start but for the pool's own bookkeeping (the test pool's thread handles and claim order, the
         // task closure: small, made here and freed on its threads); one window's columns are ~20 MB
-        assert!(
-            (end - start).abs() < 16 << 10,
-            "the statement's account after the windows' columns are dropped: {start} -> {end}"
-        );
+        assert!((end - start).abs() < 16 << 10, "the statement's account after the windows' columns are dropped: {start} -> {end}");
     }
 
     #[test]
     fn dict_datums_outlive_decode_granule_on_a_multi_extent_payload() {
-        dict_datums_outlive(
-            NDV,
-            decode_granule_once,
-            Residency::Private,
-            ColBuf::new(),
-            "decode_granule",
-        );
-        dict_datums_outlive(
-            NDV,
-            decode_granule_once,
-            Residency::Cached,
-            ColBuf::new(),
-            "decode_granule",
-        );
+        dict_datums_outlive(NDV, decode_granule_once, Residency::Private, ColBuf::new(), "decode_granule",);
+        dict_datums_outlive(NDV, decode_granule_once, Residency::Cached, ColBuf::new(), "decode_granule",);
     }
 
     /// The row scan's part-lived cursors (D777), dropped while the `ColBuf`s still hold the granule.
     #[test]
     fn dict_datums_outlive_the_row_scans_cursors_on_a_multi_extent_payload() {
-        dict_datums_outlive(
-            NDV,
-            scan_decode_granule,
-            Residency::Private,
-            ColBuf::unallocated(),
-            "the row scan's decode",
-        );
-        dict_datums_outlive(
-            NDV,
-            scan_decode_granule,
-            Residency::Cached,
-            ColBuf::unallocated(),
-            "the row scan's decode",
-        );
+        dict_datums_outlive(NDV, scan_decode_granule, Residency::Private, ColBuf::unallocated(), "the row scan's decode",);
+        dict_datums_outlive(NDV, scan_decode_granule, Residency::Cached, ColBuf::unallocated(), "the row scan's decode",);
     }
 
     /// C1 L5b: a one-extent payload under `Residency::Cached` is the part's cached image itself. Only the `ColBuf`'s
@@ -4452,79 +3631,32 @@ mod dict_region_tests {
     /// lets go, it does.
     #[test]
     fn dict_datums_outlive_a_cache_sweep_on_a_one_extent_payload() {
-        dict_datums_outlive(
-            SMALL_NDV,
-            decode_granule_once,
-            Residency::Cached,
-            ColBuf::new(),
-            "decode_granule",
-        );
-        dict_datums_outlive(
-            SMALL_NDV,
-            scan_decode_granule,
-            Residency::Cached,
-            ColBuf::unallocated(),
-            "the row scan's decode",
-        );
+        dict_datums_outlive(SMALL_NDV, decode_granule_once, Residency::Cached, ColBuf::new(), "decode_granule",);
+        dict_datums_outlive(SMALL_NDV, scan_decode_granule, Residency::Cached, ColBuf::unallocated(), "the row scan's decode",);
     }
 
-    fn dict_datums_outlive(
-        ndv: usize,
-        decode: Decode,
-        residency: Residency,
-        fresh: ColBuf,
-        what: &str,
-    ) {
+    fn dict_datums_outlive(ndv: usize, decode: Decode, residency: Residency, fresh: ColBuf, what: &str,) {
         let vals = values(ndv);
         let bytes = part_bytes(&vals);
-        let part = Arc::new(
-            OpenPart::open(
-                Box::new(MemPartIo::new(bytes, 0x4D33_4801_0000_0002, 4343)),
-                &PartExpect::none(),
-            )
-            .expect("open part"),
-        );
+        let part = Arc::new(OpenPart::open(Box::new(MemPartIo::new(bytes, 0x4D33_4801_0000_0002, 4343)), &PartExpect::none(),).expect("open part"),);
 
         // The shape under test: dictionary codes over an unwrapped payload, cut into one extent per frame.
         let sd = part.stream_directory().expect("stream directory");
         let shape: Vec<String> = sd
             .streams()
             .iter()
-            .map(|s| {
-                format!(
-                    "role={} enc={} wrapper={} values={} extents={}",
-                    s.role as u8,
-                    s.entry.encoding,
-                    s.entry.wrapper,
-                    s.entry.values,
-                    s.extents.len()
-                )
+            .map(|s| { format!("role={} enc={} wrapper={} values={} extents={}", s.role as u8, s.entry.encoding, s.entry.wrapper, s.entry.values, s.extents.len())
             })
             .collect();
         let values_stream = sd.lookup(1, 0, StreamRole::Values).expect("values stream");
-        assert_eq!(
-            values_stream.entry.encoding,
-            EncodingId::DictCodes.as_u16(),
-            "the dictionary arm won: {shape:?}"
-        );
-        let payload = sd
-            .lookup(1, 0, StreamRole::DictPayload)
-            .expect("dict payload stream");
-        assert_eq!(
-            payload.entry.wrapper, 0,
-            "the payload stays unwrapped: {shape:?}"
-        );
-        assert_eq!(
-            payload.extents.len() > 1,
-            ndv > 1024,
-            "the payload is cut into one extent per frame: {shape:?}"
-        );
-        let region_words =
-            (payload.extents.iter().map(|e| e.len).sum::<u64>() as usize).div_ceil(8);
+        assert_eq!(values_stream.entry.encoding, EncodingId::DictCodes.as_u16(), "the dictionary arm won: {shape:?}");
+        let payload = sd.lookup(1, 0, StreamRole::DictPayload).expect("dict payload stream");
+        assert_eq!(payload.entry.wrapper, 0, "the payload stays unwrapped: {shape:?}");
+        assert_eq!(payload.extents.len() > 1, ndv > 1024, "the payload is cut into one extent per frame: {shape:?}");
+        let region_words = (payload.extents.iter().map(|e| e.len).sum::<u64>() as usize).div_ceil(8);
 
         let mut cols = vec![fresh];
-        let rows = decode(&part, codec_binding(), &[schema()], 0, &mut cols, residency)
-            .expect("decode granule 0");
+        let rows = decode(&part, codec_binding(), &[schema()], 0, &mut cols, residency).expect("decode granule 0");
         assert_eq!(rows, pgrc_format::geom::GRANULE_ROWS);
         // C1 L5: everything nothing else holds leaves the cache, as if the cap were 0.
         pgrc_read::mem::sweep_all_for_tests();
@@ -4532,9 +3664,7 @@ mod dict_region_tests {
 
         // Reuse whatever the decode freed: same-sized allocations (an exact fit takes the freed chunk back first)
         // filled with a pattern no 4B-U header can have (its low two bits are set).
-        let reuse: Vec<Vec<u64>> = (0..16)
-            .map(|_| vec![0x5A5A_5A5A_5A5A_5A5Bu64; region_words])
-            .collect();
+        let reuse: Vec<Vec<u64>> = (0..16).map(|_| vec![0x5A5A_5A5A_5A5A_5A5Bu64; region_words]).collect();
 
         let mut bad = 0usize;
         let mut first: Option<String> = None;
@@ -4551,8 +3681,7 @@ mod dict_region_tests {
             let head = unsafe { core::ptr::read_unaligned(ptr as *const [u8; 4]) };
             if head[..] != want[..4] {
                 bad += 1;
-                first.get_or_insert_with(|| {
-                    format!("row {r}: header {head:02x?}, want {:02x?}", &want[..4])
+                first.get_or_insert_with(|| { format!("row {r}: header {head:02x?}, want {:02x?}", &want[..4])
                 });
                 continue;
             }
@@ -4569,12 +3698,7 @@ mod dict_region_tests {
         drop(cols);
         pgrc_read::mem::sweep_all_for_tests();
         let cached_payload = ndv <= 1024 && residency == Residency::Cached;
-        assert_eq!(
-            part.resident() < held,
-            cached_payload,
-            "{what} ({residency:?}): resident {} after the guard let go, {held} before",
-            part.resident()
-        );
+        assert_eq!(part.resident() < held, cached_payload, "{what} ({residency:?}): resident {} after the guard let go, {held} before", part.resident());
     }
 }
 
@@ -4636,9 +3760,7 @@ mod slice_arena_tests {
     }
 
     fn image(payload: &[u8]) -> Vec<u8> {
-        let mut img = pgrc_format::wire::varlena_header_4b_u(payload.len() as u32)
-            .to_le_bytes()
-            .to_vec();
+        let mut img = pgrc_format::wire::varlena_header_4b_u(payload.len() as u32).to_le_bytes().to_vec();
         img.extend_from_slice(payload);
         img
     }
@@ -4674,38 +3796,17 @@ mod slice_arena_tests {
         let resolver = CodecResolver;
         let mut shred = NoShred;
         let opts = pgrc_format::relopt::ShredOptions::default();
-        let mut env = SealEnv {
-            vfs: &mut vfs,
-            sources: &sources,
-            resolver: &resolver,
-            shred: &mut shred,
-            shred_opts: &opts,
-        };
-        w.append_row(
-            &[RawDatum::Bytes(&image(b"small"))],
-            &mut NoExternalDetoast,
-            &mut env,
-        )
-        .expect("append small");
+        let mut env = SealEnv { vfs: &mut vfs, sources: &sources, resolver: &resolver, shred: &mut shred, shred_opts: &opts, };
+        w.append_row(&[RawDatum::Bytes(&image(b"small"))], &mut NoExternalDetoast, &mut env,).expect("append small");
         {
             let big = big_image(b);
-            w.append_row(&[RawDatum::Bytes(&big)], &mut NoExternalDetoast, &mut env)
-                .expect("append big");
+            w.append_row(&[RawDatum::Bytes(&big)], &mut NoExternalDetoast, &mut env).expect("append big");
         }
-        w.append_row(
-            &[RawDatum::Bytes(&image(b"tail"))],
-            &mut NoExternalDetoast,
-            &mut env,
-        )
-        .expect("append tail");
+        w.append_row(&[RawDatum::Bytes(&image(b"tail"))], &mut NoExternalDetoast, &mut env,).expect("append tail");
         w.finish(&mut env).expect("finish");
         let out = w.publish(&mut vfs, &AllCommitted).expect("publish");
         assert_eq!(out.part_nos.len(), 1, "one part");
-        vfs.read_full(&format!(
-            "t/{}",
-            pgrc_format::dirlayout::part_file_name(out.part_nos[0])
-        ))
-        .expect("part bytes")
+        vfs.read_full(&format!("t/{}", pgrc_format::dirlayout::part_file_name(out.part_nos[0]))).expect("part bytes")
     }
 
     /// The varlena a by-reference datum word points at: its header, then `len` payload bytes.
@@ -4714,10 +3815,7 @@ mod slice_arena_tests {
     /// the column's next slice.
     unsafe fn varlena<'a>(w: u64, len: usize) -> ([u8; 4], &'a [u8]) {
         let p = w as usize as *const u8;
-        (
-            core::ptr::read_unaligned(p as *const [u8; 4]),
-            core::slice::from_raw_parts(p.add(4), len),
-        )
+        (core::ptr::read_unaligned(p as *const [u8; 4]), core::slice::from_raw_parts(p.add(4), len),)
     }
 
     #[test]
@@ -4725,52 +3823,27 @@ mod slice_arena_tests {
     fn a_slice_past_512_mib_grows_its_arena_and_reads_its_value() {
         let b = block();
         let bytes = part_bytes(&b);
-        let part = Arc::new(
-            OpenPart::open(
-                Box::new(MemPartIo::new(bytes, 0x4D33_4801_0000_0003, 4344)),
-                &PartExpect::none(),
-            )
-            .expect("open part"),
-        );
+        let part = Arc::new(OpenPart::open(Box::new(MemPartIo::new(bytes, 0x4D33_4801_0000_0003, 4344)), &PartExpect::none(),).expect("open part"),);
         let sd = part.stream_directory().expect("stream directory");
-        assert!(
-            sd.lookup(1, 0, StreamRole::DictPayload).is_none(),
-            "verbatim: no dictionary payload the datum could alias"
-        );
+        assert!(sd.lookup(1, 0, StreamRole::DictPayload).is_none(), "verbatim: no dictionary payload the datum could alias");
         let s = schema();
         let mut pc = PartCursors::new(&part, Residency::Cached);
         let mut buf = SliceBuf::new();
 
-        let w = decode_one_row(&mut pc, codec_binding(), 1, 0, &s, 0, 1, &mut buf)
-            .expect("the big row decodes")
-            .expect("not NULL");
-        assert!(
-            buf.arena.len() * 8 > 512 << 20,
-            "the slice arena grew past 512 MiB: {} bytes",
-            buf.arena.len() * 8
-        );
+        let w = decode_one_row(&mut pc, codec_binding(), 1, 0, &s, 0, 1, &mut buf).expect("the big row decodes").expect("not NULL");
+        assert!(buf.arena.len() * 8 > 512 << 20, "the slice arena grew past 512 MiB: {} bytes", buf.arena.len() * 8);
         // SAFETY: the big row's datum, read before the next slice.
         let (head, got) = unsafe { varlena(w, BIG) };
-        assert_eq!(
-            head,
-            pgrc_format::wire::varlena_header_4b_u(BIG as u32).to_le_bytes(),
-            "the big value's header"
-        );
+        assert_eq!(head, pgrc_format::wire::varlena_header_4b_u(BIG as u32).to_le_bytes(), "the big value's header");
         let bad = got.chunks(BLOCK).position(|c| c != &b[..c.len()]);
         assert_eq!(bad, None, "the big value's payload, block by block");
 
         for (row, want) in [(0u32, &b"small"[..]), (2, &b"tail"[..])] {
             buf.release();
-            let w = decode_one_row(&mut pc, codec_binding(), 1, 0, &s, 0, row, &mut buf)
-                .expect("decodes")
-                .expect("not NULL");
+            let w = decode_one_row(&mut pc, codec_binding(), 1, 0, &s, 0, row, &mut buf).expect("decodes").expect("not NULL");
             // SAFETY: this row's datum, read before the next slice.
             let (head, got) = unsafe { varlena(w, want.len()) };
-            assert_eq!(
-                head,
-                pgrc_format::wire::varlena_header_4b_u(want.len() as u32).to_le_bytes(),
-                "row {row}'s header"
-            );
+            assert_eq!(head, pgrc_format::wire::varlena_header_4b_u(want.len() as u32).to_le_bytes(), "row {row}'s header");
             assert_eq!(got, want, "row {row}");
         }
     }
@@ -4785,16 +3858,14 @@ mod live_position_tests {
     type Mask = [u64; DV_GRANULE_WORDS];
 
     fn lcg(s: &mut u64) -> u64 {
-        *s = s
-            .wrapping_mul(6364136223846793005)
-            .wrapping_add(1442695040888963407);
+        *s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
         *s >> 33
     }
 
     fn random_mask(s: &mut u64, n: u32, every: u64) -> Box<Mask> {
         let mut m = Box::new([0u64; DV_GRANULE_WORDS]);
         for r in 0..n {
-            if lcg(s).is_multiple_of(every) {
+            if lcg(s).is_multiple_of( every) {
                 m[(r / 64) as usize] |= 1 << (r % 64);
             }
         }
@@ -4802,19 +3873,11 @@ mod live_position_tests {
     }
 
     /// Every live row's position in `getnextslot` order.
-    fn brute(
-        first: u64,
-        rows: u64,
-        grain: GranuleGrain,
-        granules: u32,
-        masks: &[Option<Box<Mask>>],
-    ) -> Vec<u64> {
+    fn brute(first: u64, rows: u64, grain: GranuleGrain, granules: u32, masks: &[Option<Box<Mask>>],) -> Vec<u64> {
         let mut out = Vec::new();
         for g in 0..granules {
             for r in 0..rows_in_granule_at(rows, grain, g) {
-                let deleted = masks[g as usize]
-                    .as_ref()
-                    .is_some_and(|m| (m[(r / 64) as usize] >> (r % 64)) & 1 == 1);
+                let deleted = masks[g as usize].as_ref().is_some_and(|m| (m[(r / 64) as usize] >> (r % 64)) & 1 == 1);
                 if !deleted {
                     out.push(sample_position(first + g as u64, r));
                 }
@@ -4829,13 +3892,7 @@ mod live_position_tests {
     #[test]
     fn walker_matches_the_row_stream_under_delete_vectors_and_tombstones() {
         let mut s = 7u64;
-        for &(rows, grain_rows, first) in &[
-            (1u64, 8192u32, 0u64),
-            (8192, 8192, 3),
-            (20_000, 8192, 5),
-            (9_000, 1024, 0),
-            (4_097, 4096, 11),
-        ] {
+        for &(rows, grain_rows, first) in &[(1u64, 8192u32, 0u64), (8192, 8192, 3), (20_000, 8192, 5), (9_000, 1024, 0), (4_097, 4096, 11),] {
             let grain = GranuleGrain::from_rows(grain_rows).unwrap();
             let granules = rows.div_ceil(grain_rows as u64) as u32;
             for (dv, tombs) in [(false, false), (true, false), (false, true), (true, true)] {
@@ -4855,31 +3912,15 @@ mod live_position_tests {
                     })
                     .collect();
                 let all = brute(first, rows, grain, granules, &masks);
-                let ords: Vec<u64> = (0..all.len() as u64)
-                    .filter(|_| lcg(&mut s).is_multiple_of(4))
-                    .collect();
+                let ords: Vec<u64> = (0..all.len() as u64).filter(|_| lcg(&mut s).is_multiple_of( 4)).collect();
                 let mut got = Vec::new();
-                part_live_positions(
-                    first,
-                    rows,
-                    grain,
-                    granules,
-                    |g| masks[g as usize].clone(),
-                    &ords,
-                    &mut got,
-                );
+                part_live_positions(first, rows, grain, granules, |g| masks[g as usize].clone(), &ords, &mut got,);
                 let want: Vec<u64> = ords.iter().map(|&o| all[o as usize]).collect();
-                assert_eq!(
-                    got, want,
-                    "rows {rows} grain {grain_rows} dv {dv} tombstones {tombs}"
-                );
+                assert_eq!(got, want, "rows {rows} grain {grain_rows} dv {dv} tombstones {tombs}");
                 let live: u64 = (0..granules)
                     .map(|g| {
                         let n = rows_in_granule_at(rows, grain, g);
-                        n as u64
-                            - masks[g as usize]
-                                .as_deref()
-                                .map_or(0, |m| masked_count(m, n, true))
+                        n as u64 - masks[g as usize].as_deref().map_or(0, |m| masked_count(m, n, true))
                     })
                     .sum();
                 assert_eq!(live, all.len() as u64, "the live count is the walk's");

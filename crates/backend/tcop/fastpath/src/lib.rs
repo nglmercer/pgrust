@@ -604,7 +604,7 @@ mod oat_hook_tests {
     }
 
     fn proc_shape(funcid: Oid) -> PgResult<Option<PgProcShape>> {
-        Ok((funcid == FID).then_some(PgProcShape {
+        Ok((funcid == FID).then_some( PgProcShape {
             pronamespace: NSP,
             prorettype: INT4OID,
             provariadic: InvalidOid,

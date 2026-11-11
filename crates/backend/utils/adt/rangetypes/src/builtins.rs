@@ -56,9 +56,9 @@ std::thread_local! {
 }
 
 fn flinfo_ri(
-    flinfo: Option<&mut FmgrInfo>,
+    flinfo: Option<& mut FmgrInfo>,
     rngtypid: Oid,
-) -> PgResult<&mut RangeInfo> {
+) -> PgResult<& mut RangeInfo> {
     if let Some(fl) = flinfo {
         return cached_range_info(fl, rngtypid);
     }

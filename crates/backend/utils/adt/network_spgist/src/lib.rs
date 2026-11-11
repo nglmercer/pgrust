@@ -1,7 +1,6 @@
 //! network_spgist.c: SP-GiST inet_ops — split by family at the root, then by
 //! common prefix / next bit / masklen (4-node inner tuples).
-#![allow(non_snake_case)]
-#![allow(non_upper_case_globals)]
+#![allow(non_snake_case, non_upper_case_globals)]
 
 use ::adt_network::{bitncmp, bitncommon, cidr_set_masklen_internal, InetRef, PGSQL_AF_INET};
 use ::datum::Datum;
@@ -491,7 +490,7 @@ fn inet_spg_consistent_bitmap(prefix: InetRef<'_>, scankeys: &[ScanKeyData], lea
                 RTNotEqualStrategyNumber
                     if order == 0 => {
                         bitmap = 0;
-                    }
+                }
                 _ => {}
             }
             if bitmap == 0 {

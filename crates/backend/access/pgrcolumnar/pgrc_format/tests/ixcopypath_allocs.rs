@@ -6,10 +6,7 @@ use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 
 use pgrc_format::geom::{band_count, granule_count};
-use pgrc_format::manifest::{
-    flat_ranges, rebuild_ranges, with_next_row_id, with_ranges, IdRanges, Manifest, ManifestHeader,
-    PartRecord, MANIFEST_MAGIC,
-};
+use pgrc_format::manifest::{flat_ranges, rebuild_ranges, with_next_row_id, with_ranges, IdRanges, Manifest, ManifestHeader, PartRecord, MANIFEST_MAGIC,};
 use pgrc_format::rowid::{align_up, ROWID_FIRST};
 use pgrc_format::FORMAT_VERSION;
 
@@ -51,19 +48,7 @@ fn allocs<T>(f: impl FnOnce() -> T) -> (u64, T) {
 const ROWS: u64 = 100_000;
 
 fn part(part_no: u32) -> PartRecord {
-    PartRecord {
-        rows: ROWS,
-        file_len: 4_000_000,
-        footer_off: 3_999_888,
-        dv_gen: 0,
-        dv_len: 0,
-        part_no,
-        flags: 0,
-        granule_count: granule_count(ROWS),
-        band_count: band_count(ROWS),
-        dv_crc: 0,
-        granule_rows: 0,
-    }
+    PartRecord { rows: ROWS, file_len: 4_000_000, footer_off: 3_999_888, dv_gen: 0, dv_len: 0, part_no, flags: 0, granule_count: granule_count(ROWS), band_count: band_count(ROWS), dv_crc: 0, granule_rows: 0, }
 }
 
 /// Part `no`'s bulk range: the table's parts hold consecutive grants.
@@ -103,10 +88,7 @@ fn a_manifest_decode_allocates_the_same_at_any_part_count() {
         k
     };
     let (small, big) = (at(500), at(4_000));
-    assert!(
-        big <= small + 2,
-        "decode allocations: {small} at 500 parts, {big} at 4,000"
-    );
+    assert!(big <= small + 2, "decode allocations: {small} at 500 parts, {big} at 4,000");
 }
 
 #[test]
@@ -121,17 +103,11 @@ fn an_install_only_rebuild_allocates_the_same_at_any_part_count() {
         header.part_count = n + 1;
         header.next_part_no = n + 1;
         let next = Manifest::new(header, parts).with_ext(ext.expect("rebuilds"));
-        assert!(
-            Manifest::decode(&next.encode()).is_ok(),
-            "the new generation decodes"
-        );
+        assert!(Manifest::decode(&next.encode()).is_ok(), "the new generation decodes");
         k
     };
     let (small, big) = (at(500), at(4_000));
-    assert!(
-        big <= small + 2,
-        "rebuild allocations: {small} at 500 parts, {big} at 4,000"
-    );
+    assert!(big <= small + 2, "rebuild allocations: {small} at 500 parts, {big} at 4,000");
 }
 
 /// The catalog's read of a generation's ranges (Generation::linked) is one list, not one per part.
@@ -141,15 +117,9 @@ fn the_flat_ranges_of_a_generation_allocate_the_same_at_any_part_count() {
         let m = generation(n);
         let (k, f) = allocs(|| flat_ranges(&m));
         let f = f.expect("reads");
-        assert_eq!(
-            (f.at.len(), f.of(n as usize - 1)),
-            (n as usize + 1, &ids(n - 1)[..])
-        );
+        assert_eq!((f.at.len(), f.of(n as usize - 1)), (n as usize + 1, &ids(n - 1)[..]));
         k
     };
     let (small, big) = (at(500), at(4_000));
-    assert!(
-        big <= small + 2,
-        "flat_ranges allocations: {small} at 500 parts, {big} at 4,000"
-    );
+    assert!(big <= small + 2, "flat_ranges allocations: {small} at 500 parts, {big} at 4,000");
 }

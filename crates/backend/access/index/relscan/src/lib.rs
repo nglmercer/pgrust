@@ -15,9 +15,7 @@ pub use parallel::{
 
 use ::gin_vocab::GinScanOpaqueData;
 use ::mcx::{Mcx, PgBox, PgVec};
-use ::types_core::{
-    Oid, BRIN_AM_OID, BTREE_AM_OID, GIN_AM_OID, GIST_AM_OID, HASH_AM_OID, SPGIST_AM_OID,
-};
+use ::types_core::{Oid, BRIN_AM_OID, BTREE_AM_OID, GIN_AM_OID, GIST_AM_OID, HASH_AM_OID, SPGIST_AM_OID,};
 use ::types_error::PgResult;
 use ::types_gist::state::GISTScanOpaqueData;
 use ::types_hash::HashScanOpaqueData;
@@ -316,12 +314,10 @@ pub fn set_index_am_resolver(f: fn(Oid) -> Option<IndexAmKind>) {
 #[cold]
 #[inline(never)]
 fn registered_index_am(relam: Oid) -> IndexAmKind {
-    if let Some(k) = REGISTERED_INDEX_AMS.with(|v| {
-        v.borrow()
-            .iter()
-            .find(|&&(o, _)| o == relam)
-            .map(|&(_, k)| k)
-    }) {
+    if let Some(k) = REGISTERED_INDEX_AMS
+        .with(|v| { v.borrow().iter().find(|&&(o, _)| o == relam).map(|&(_, k)| k)
+    })
+    {
         return k;
     }
     let raw = INDEX_AM_RESOLVER.load(std::sync::atomic::Ordering::Relaxed);
@@ -511,9 +507,7 @@ pub struct IndexScanDescData<'mcx> {
 impl<'mcx> IndexScanDescData<'mcx> {
     #[inline]
     pub fn index_rel(&self) -> &Relation<'mcx> {
-        self.indexRelation
-            .as_ref()
-            .expect("index scan parked (skeleton)")
+        self.indexRelation.as_ref().expect("index scan parked (skeleton)")
     }
 }
 
@@ -538,8 +532,7 @@ pub fn relation_get_index_scan<'mcx>(
     let mut scan =
         index_scan_without_relation(mcx, nkeys, norderbys, opaque, xactStartedInRecovery)?;
     scan.indexRelation = Some(indexRelation.alias());
-    scan.xs_pgstat =
-        PgStatRelationCounts::new(indexRelation.rd_id, indexRelation.rd_rel.relisshared);
+    scan.xs_pgstat = PgStatRelationCounts::new(indexRelation.rd_id, indexRelation.rd_rel.relisshared);
     Ok(scan)
 }
 

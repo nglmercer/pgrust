@@ -1,8 +1,8 @@
 #![cfg(not(target_family = "wasm"))]
 
 use crate::wrapper::{
-    is_string_data, level_for, parse_level, unwrap_section, wrap_section_with,
-    zstd_compress_block_at, zstd_level, ZstdAdapt, ADAPT_MIN, ADAPT_SAMPLE,
+    is_string_data, level_for, parse_level, unwrap_section, wrap_section_with, zstd_compress_block_at, zstd_level, ZstdAdapt,
+    ADAPT_MIN, ADAPT_SAMPLE,
 };
 use pgrc_format::enc::Wrapper;
 use pgrc_format::part::{STREAM_SECTION_HDR_LEN, STREAM_SECTION_MAGIC};
@@ -17,20 +17,10 @@ fn mix(s: &mut u64) -> u64 {
 
 fn words(n: usize, seed: u64) -> Vec<u8> {
     let mut s = seed;
-    let vocab: Vec<Vec<u8>> = (0..400)
-        .map(|_| {
-            (0..3 + mix(&mut s) % 12)
-                .map(|_| b'a' + (mix(&mut s) % 26) as u8)
-                .collect()
-        })
-        .collect();
-    let sentences: Vec<Vec<u8>> = (0..300)
-        .map(|_| {
-            (0..4 + mix(&mut s) % 10)
-                .flat_map(|_| [&vocab[(mix(&mut s) % 400) as usize][..], b" "].concat())
-                .collect()
-        })
-        .collect();
+    let vocab: Vec<Vec<u8>> = (0..400).map(|_| { (0..3 + mix(&mut s) % 12).map(|_| b'a' + (mix(&mut s) % 26) as u8).collect()
+        }).collect();
+    let sentences: Vec<Vec<u8>> = (0..300).map(|_| { (0..4 + mix(&mut s) % 10).flat_map(|_| [&vocab[(mix(&mut s) % 400) as usize][..], b" "].concat()).collect()
+        }).collect();
     let mut out = Vec::with_capacity(n + 256);
     while out.len() < n {
         out.extend_from_slice(&sentences[(mix(&mut s) % 300) as usize]);
@@ -62,10 +52,7 @@ fn section_w(payload: &[u8], width: u8) -> Vec<u8> {
 }
 
 fn ends(payload: usize, block: usize) -> Vec<u32> {
-    let mut e: Vec<u32> = (1..)
-        .map(|i| (i * block).min(payload) as u32)
-        .take_while(|&x| (x as usize) < payload)
-        .collect();
+    let mut e: Vec<u32> = (1..).map(|i| (i * block).min(payload) as u32).take_while(|&x| (x as usize) < payload).collect();
     e.push(payload as u32);
     e
 }
@@ -92,18 +79,10 @@ fn assert_blocks_at(sec: &[u8], e: &[u32], wrapped: &[u8], level: i32) {
     }
     let mut scratch = Vec::new();
     unwrap_section(wrapped, &mut scratch).expect("unwrap");
-    assert_eq!(
-        scratch, sec,
-        "the adaptive wrap does not unwrap to the section"
-    );
+    assert_eq!(scratch, sec, "the adaptive wrap does not unwrap to the section");
 }
 
-const A: ZstdAdapt = ZstdAdapt {
-    low: 3,
-    high: 9,
-    permille: 0,
-    gated: false,
-};
+const A: ZstdAdapt = ZstdAdapt { low: 3, high: 9, permille: 0, gated: false, };
 
 #[test]
 fn adaptive_choice_is_a_function_of_the_input() {
@@ -120,10 +99,7 @@ fn adaptive_choice_is_a_function_of_the_input() {
 fn adaptive_picks_high_only_past_the_threshold() {
     let p = words(4 * 40 * 1024, 2);
     let (sec, e) = (section(&p), ends(p.len(), 40 * 1024));
-    let never = ZstdAdapt {
-        permille: 1000,
-        ..A
-    };
+    let never = ZstdAdapt { permille: 1000, ..A };
     let (w, l) = wrap(&sec, &e, Some(&never));
     assert_eq!(l, 3);
     assert_blocks_at(&sec, &e, &w, 3);
@@ -167,28 +143,13 @@ fn high_wins_edge_cases() {
     assert!(!A.high_wins(0, 9, 9), "an empty sample keeps low");
     assert!(A.high_wins(1000, 500, 499));
     let t = ZstdAdapt { permille: 20, ..A };
-    assert!(
-        t.high_wins(1000, 500, 480) && !t.high_wins(1000, 500, 481),
-        "20 per mille of 1000 = 20 bytes"
-    );
-    assert!(
-        !A.high_wins(1000, 900, 850),
-        "unwrapped at both levels saves nothing on disk"
-    );
+    assert!(t.high_wins(1000, 500, 480) && !t.high_wins(1000, 500, 481), "20 per mille of 1000 = 20 bytes");
+    assert!(!A.high_wins(1000, 900, 850), "unwrapped at both levels saves nothing on disk");
     let flip = ZstdAdapt { permille: 200, ..A };
-    assert!(
-        flip.high_wins(1000, 850, 790),
-        "the gate flips at high: 1000 -> 790 on disk"
-    );
+    assert!(flip.high_wins(1000, 850, 790), "the gate flips at high: 1000 -> 790 on disk");
     let g = ZstdAdapt { gated: true, ..A };
-    assert!(
-        !g.high_wins(1000, 850, 790),
-        "gated: low must clear the gate itself"
-    );
-    assert!(
-        g.high_wins(1000, 800, 700) && !g.high_wins(1000, 801, 700),
-        "the gate is 5 x low <= 4 x base"
-    );
+    assert!(!g.high_wins(1000, 850, 790), "gated: low must clear the gate itself");
+    assert!(g.high_wins(1000, 800, 700) && !g.high_wins(1000, 801, 700), "the gate is 5 x low <= 4 x base");
 }
 
 #[test]
@@ -200,41 +161,19 @@ fn adaptive_transformed_first_block_is_reused_verbatim() {
         blk.extend_from_slice(raw);
         Ok(())
     };
-    let l = wrap_section_with(
-        &sec,
-        &e,
-        Wrapper::Zstd,
-        &mut out,
-        Some(&mut ident),
-        Some(&A),
-        None,
-    )
-    .expect("wrap");
+    let l = wrap_section_with(&sec, &e, Wrapper::Zstd, &mut out, Some(&mut ident), Some(&A), None,).expect("wrap");
     let (plain, pl) = wrap(&sec, &e, Some(&A));
-    assert_eq!(
-        (l, out),
-        (pl, plain),
-        "an identity transform changes the adaptive wrap"
-    );
+    assert_eq!((l, out), (pl, plain), "an identity transform changes the adaptive wrap");
 }
 
 #[test]
 fn kept_contexts_switch_levels_like_fresh_ones() {
-    let inputs = [
-        words(70_000, 7),
-        noise(20_000, 8),
-        words(3000, 9),
-        Vec::new(),
-    ];
+    let inputs = [words(70_000, 7), noise(20_000, 8), words(3000, 9), Vec::new(),];
     for (k, level) in [3, 9, 1, 9, 3, 12, 3].into_iter().enumerate() {
         for (i, input) in inputs.iter().enumerate() {
             let mut out = b"x".to_vec();
             zstd_compress_block_at(input, &mut out, level).expect("pooled");
-            assert_eq!(
-                &out[1..],
-                &zstd::bulk::compress(input, level).expect("fresh")[..],
-                "step {k} input {i} level {level}"
-            );
+            assert_eq!(&out[1..], &zstd::bulk::compress(input, level).expect("fresh")[..], "step {k} input {i} level {level}");
         }
     }
 }
@@ -251,31 +190,15 @@ fn text_level_switch_parses_one_to_twenty_two() {
 
 #[test]
 fn text_level_applies_to_string_data_only() {
-    assert!(
-        is_string_data(Wrapper::FrontZstd, 8, 0),
-        "a dictionary payload"
-    );
-    assert!(
-        is_string_data(Wrapper::Zstd, 0, 0),
-        "varlena Verbatim values"
-    );
-    assert!(
-        !is_string_data(Wrapper::Zstd, 0, 8),
-        "fixed-width Verbatim values"
-    );
+    assert!(is_string_data(Wrapper::FrontZstd, 8, 0), "a dictionary payload");
+    assert!(is_string_data(Wrapper::Zstd, 0, 0), "varlena Verbatim values");
+    assert!(!is_string_data(Wrapper::Zstd, 0, 8), "fixed-width Verbatim values");
     assert!(!is_string_data(Wrapper::Zstd, 8, 2), "dictionary codes");
-    assert!(
-        !is_string_data(Wrapper::PackedZstd, 8, 0),
-        "the dictionary index"
-    );
+    assert!(!is_string_data(Wrapper::PackedZstd, 8, 0), "the dictionary index");
     assert_eq!(level_for(Wrapper::FrontZstd, 8, 0, 3, Some(9)), 9);
     assert_eq!(level_for(Wrapper::Zstd, 0, 0, 3, Some(9)), 9);
     assert_eq!(level_for(Wrapper::Zstd, 4, 8, 3, Some(9)), 3);
-    assert_eq!(
-        level_for(Wrapper::FrontZstd, 8, 0, 3, None),
-        3,
-        "unset keeps the base level"
-    );
+    assert_eq!(level_for(Wrapper::FrontZstd, 8, 0, 3, None), 3, "unset keeps the base level");
 }
 
 #[test]
@@ -284,12 +207,8 @@ fn text_level_wraps_string_sections_and_skips_the_adaptive_choice() {
     let e = ends(p.len(), 20 * 1024);
     let (s, n) = (section_w(&p, 0), section_w(&p, 8));
     let mut out = Vec::new();
-    let l =
-        wrap_section_with(&s, &e, Wrapper::Zstd, &mut out, None, Some(&A), Some(1)).expect("wrap");
-    assert_eq!(
-        l, 1,
-        "string data takes the text level, not the adaptive one"
-    );
+    let l = wrap_section_with(&s, &e, Wrapper::Zstd, &mut out, None, Some(&A), Some(1)).expect("wrap");
+    assert_eq!(l, 1, "string data takes the text level, not the adaptive one");
     assert_blocks_at(&s, &e, &out, 1);
     out.clear();
     let l = wrap_section_with(&n, &e, Wrapper::Zstd, &mut out, None, None, Some(1)).expect("wrap");

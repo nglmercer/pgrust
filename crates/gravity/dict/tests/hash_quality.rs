@@ -208,7 +208,7 @@ fn synthetic(n: u64) -> Vec<Set> {
     let top = |s: u32| (0..n.min(1 << (64 - s))).map(|i| i << s).collect::<Vec<u64>>();
     vec![
         one("seq", (1..=n).collect(), Vec::new()),
-        one("orderkey-f7", orders.iter().copied().filter(|&k| splitmix(k).is_multiple_of(7)).collect(), lineitem.clone()),
+        one("orderkey-f7", orders.iter().copied().filter(|&k| splitmix(k).is_multiple_of( 7)).collect(), lineitem.clone()),
         one("orderkey", orders, lineitem),
         one("stride32", (0..n).map(|i| i * 32).collect(), Vec::new()),
         one("stride4096", (0..n).map(|i| i * 4096).collect(), Vec::new()),
@@ -370,7 +370,7 @@ fn hash_quality_report() {
                 let (paths, keep) = rest.split_once('@').map_or((rest, 1), |(p, k)| (p, k.parse::<u64>().expect("@k")));
                 let mut ps = paths.splitn(2, ':');
                 let (mut build, nw) = load_keys(ps.next().unwrap(), max);
-                build.retain(|k| keep <= 1 || splitmix(k[0] ^ k[1].rotate_left(17)).is_multiple_of(keep));
+                build.retain(|k| keep <= 1 || splitmix(k[0] ^ k[1].rotate_left(17)).is_multiple_of( keep));
                 Set { name: name.into(), nw, build, probe: ps.next().map(|p| load_keys(p, max).0).unwrap_or_default() }
             })
             .collect(),

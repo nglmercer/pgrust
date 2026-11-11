@@ -86,8 +86,7 @@ fn statement(reg: &Arc<PartRegistry>, list: &Arc<PartList>, rel: u32, spec: &Tab
             let c = unsafe { *(codes.ptr as *const u32).add(i) };
             fps.insert((p, c), unsafe { table.get(c) });
             vals.entry((p, c)).or_insert_with(|| {
-                let (datum, len) = src.dict_value(p, 0, c).unwrap();
-                unsafe { core::slice::from_raw_parts((datum as *const u8).add(4), len as usize) }.to_vec()
+                let (datum, len) = src.dict_value(p, 0, c).unwrap(); unsafe { core::slice::from_raw_parts((datum as *const u8).add(4), len as usize) }.to_vec()
             });
         }
     })

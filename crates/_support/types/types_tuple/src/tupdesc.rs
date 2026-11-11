@@ -229,10 +229,7 @@ mod compact_attribute_tests {
     // decimal value.
     #[test]
     fn invalid_attalign_message_is_the_character() {
-        let src = FormData_pg_attribute {
-            attalign: b'z' as i8,
-            ..Default::default()
-        };
+        let src = FormData_pg_attribute { attalign: b'z' as i8, ..Default::default() };
         let payload = std::panic::catch_unwind(|| CompactAttribute::populate_from(&src))
             .expect_err("invalid attalign must raise");
         let msg = payload

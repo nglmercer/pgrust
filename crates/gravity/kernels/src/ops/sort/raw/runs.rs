@@ -313,7 +313,7 @@ unsafe fn small_len(run: *const SortRun) -> bool {
 #[inline(never)]
 unsafe fn small_index(run: *mut SortRun, nkey: usize, cmp: &dyn Fn(*const u8, *const u8) -> Ordering, order: Order, at: &mut [u32; SMALL_SORT_ROWS]) -> Option<usize> {
     let (bits, n, rb) = ((*run).pad[2], (*run).len as usize, (*run).row_bytes as usize);
-    if bits & (RUN_HEAP | RUN_ORDERED) != 0 || nkey == 0 || !(2..=SMALL_SORT_ROWS).contains(&n) {
+    if bits & (RUN_HEAP | RUN_ORDERED) != 0 || nkey == 0 || !( 2..= SMALL_SORT_ROWS).contains(&n) {
         return None;
     }
     let base = (*run).row(0);

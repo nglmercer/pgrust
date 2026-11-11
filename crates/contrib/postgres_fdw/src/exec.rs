@@ -990,7 +990,8 @@ fn produce_tuple_asynchronously<'mcx>(
         )
     };
     // Not to be called while our own request is in flight.
-    debug_assert!(connection::pending_fetch(conn_key)?.is_none_or(|p| p.cursor_number != cursor_number));
+    debug_assert!(connection::pending_fetch(conn_key)?
+        .is_none_or(|p| p.cursor_number != cursor_number));
     if !have_tuple {
         return produce_out_of_tuples(node, estate, areq, fetch, eof, conn_key);
     }

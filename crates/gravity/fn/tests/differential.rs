@@ -327,7 +327,7 @@ fn pool_for(t: &str, p: &Pools, name: &str, types: &HashMap<String, common::Ty>,
 /// The cases for a signature: the full product for one and two arguments, a bounded sample past that.
 fn cases(pools: &[usize]) -> Vec<Vec<usize>> {
     let mut out = Vec::new();
-    if pools.contains(&0) {
+    if pools.contains(& 0) {
         return out;
     }
     match pools.len() {
@@ -461,7 +461,7 @@ fn shims_match_the_fmgr_wrapper() {
     let mut per_kind: BTreeMap<&str, usize> = BTreeMap::new();
     let only: Option<u32> = std::env::var("GRAVITY_DIFF_ONLY").ok().and_then(|s| s.parse().ok());
     let trace = std::env::var("GRAVITY_DIFF_TRACE").is_ok();
-    for shim in gravity_fn::SHIMS.iter().filter(|s| only.is_none_or(|o| o == s.oid)) {
+    for shim in gravity_fn::SHIMS.iter().filter(|s| only.is_none_or( |o| o == s.oid)) {
         let proc_ = &procs[&shim.oid];
         let collations: &[u32] = if shim.coll { &[950, 100] } else { &[0] };
         let poly = proc_.args.iter().chain(std::iter::once(&proc_.ret)).any(|t| common::POLY_ELEM.contains(&t.as_str()) || common::POLY_IMG.contains(&t.as_str()));

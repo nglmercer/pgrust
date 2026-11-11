@@ -18,66 +18,34 @@ fn a_session_on_a_reused_thread_never_inherits_the_previous_sessions_bytes() {
         door_heap(-estate + shells);
         park_thread();
         // parked: A's leftover is on UNBOUND already, not waiting in the door for whoever binds next
-        assert_eq!(
-            unbound() - before,
-            shells as i64,
-            "the park folds the door before the wait"
-        );
+        assert_eq!(unbound() - before, shells as i64, "the park folds the door before the wait");
         // session B binds the parked thread T
         bind_backend(4021, 2);
-        assert_eq!(
-            account_row(Acct::backend(4021)).account_bytes,
-            0,
-            "B starts at its base"
-        );
+        assert_eq!(account_row(Acct::backend(4021)).account_bytes, 0, "B starts at its base");
         door_heap(4096);
         unbind_backend();
         door_heap(-4096);
         park_thread();
-        assert_eq!(
-            account_row(Acct::backend(4021)).account_bytes,
-            0,
-            "B's own bytes went with its unbind"
-        );
+        assert_eq!(account_row(Acct::backend(4021)).account_bytes, 0, "B's own bytes went with its unbind");
     })
     .join()
     .unwrap();
-    assert_eq!(
-        account_row(Acct::backend(4020)).account_bytes,
-        0,
-        "A's account ended at its unbind"
-    );
-    assert_eq!(
-        unbound() - before,
-        shells as i64,
-        "A's leftover is on UNBOUND, nowhere else"
-    );
+    assert_eq!(account_row(Acct::backend(4020)).account_bytes, 0, "A's account ended at its unbind");
+    assert_eq!(unbound() - before, shells as i64, "A's leftover is on UNBOUND, nowhere else");
 
     // a session that parks still bound (no unbind ran): its pending bytes stay on its own account, never on the next
     std::thread::spawn(move || {
         bind_backend(4022, 3);
         door_heap(8192);
         park_thread();
-        assert_eq!(
-            account_row(Acct::backend(4022)).account_bytes,
-            8192,
-            "the park folds onto the still-bound account"
-        );
+        assert_eq!(account_row(Acct::backend(4022)).account_bytes, 8192, "the park folds onto the still-bound account");
         bind_backend(4023, 4);
-        assert_eq!(
-            account_row(Acct::backend(4023)).account_bytes,
-            0,
-            "the next session starts at its base"
-        );
+        assert_eq!(account_row(Acct::backend(4023)).account_bytes, 0, "the next session starts at its base");
         unbind_backend();
         park_thread();
     })
     .join()
     .unwrap();
-    assert_eq!(
-        account_row(Acct::backend(4022)).account_bytes,
-        8192,
-        "the still-bound session's bytes stay on it"
-    );
+    assert_eq!(account_row(Acct::backend(4022)).account_bytes, 8192, "the still-bound session's bytes stay on it");
     assert_eq!(account_row(Acct::backend(4023)).account_bytes, 0);
 }

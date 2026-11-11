@@ -323,16 +323,8 @@ fn test_codeword_modes() {
 
             for &x in &values {
                 assert!(set.is_member(x), "bits {bits} member {x}");
-                assert_eq!(
-                    set.is_member(x + 1),
-                    model.contains(&(x + 1)),
-                    "bits {bits} probe"
-                );
-                assert_eq!(
-                    set.is_member(x - 1),
-                    model.contains(&(x - 1)),
-                    "bits {bits} probe"
-                );
+                assert_eq!(set.is_member(x + 1), model.contains(&(x + 1)), "bits {bits} probe");
+                assert_eq!(set.is_member(x - 1), model.contains(&(x - 1)), "bits {bits} probe");
             }
             assert_eq!(collect(set), values, "bits {bits} iteration");
         });
@@ -417,15 +409,9 @@ fn test_add_ordering_errors() {
     with_set(|set| {
         set.add_member(10).unwrap();
         let err = set.add_member(10).unwrap_err();
-        assert_eq!(
-            err.message(),
-            "cannot add value to integer set out of order"
-        );
+        assert_eq!(err.message(), "cannot add value to integer set out of order");
         let err = set.add_member(9).unwrap_err();
-        assert_eq!(
-            err.message(),
-            "cannot add value to integer set out of order"
-        );
+        assert_eq!(err.message(), "cannot add value to integer set out of order");
 
         set.begin_iterate();
         let err = set.add_member(11).unwrap_err();
@@ -480,11 +466,7 @@ fn property_vs_btreeset() {
             let hi = *values.last().unwrap();
             for _ in 0..5000 {
                 let x = prng_range(&mut rng, hi.saturating_add(1000));
-                assert_eq!(
-                    set.is_member(x),
-                    model.contains(&x),
-                    "seed {seed} probe {x}"
-                );
+                assert_eq!(set.is_member(x), model.contains(&x), "seed {seed} probe {x}");
             }
 
             let iterated = collect(set);

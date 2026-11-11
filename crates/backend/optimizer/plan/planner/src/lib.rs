@@ -24,7 +24,8 @@ pub mod groupkey_trim;
 pub mod indxpath;
 mod inherit;
 mod tidpath;
-pub(crate) mod unnest;
+pub(crate)
+mod unnest;
 pub use inherit::{get_rel_all_updated_cols, get_translated_update_targetlist};
 pub mod array_selfuncs;
 pub mod cte;
@@ -98,7 +99,10 @@ use crate::subquery::subquery_planner;
 #[track_caller]
 #[cold]
 #[inline(never)]
-pub(crate) fn cache_lookup_failed(kind: &str, oid: types_core::Oid) -> Box<types_error::PgError> {
+pub(crate) fn cache_lookup_failed(
+    kind: &str,
+    oid: types_core::Oid
+) -> Box<types_error::PgError> {
     Box::new(types_error::PgError::error(format!(
         "cache lookup failed for {kind} {oid}"
     )))
@@ -115,7 +119,7 @@ const PGJIT_DEFORM: i32 = 1 << 4;
 // GUC backing this crate reads (double-install panics flag future homes).
 pub mod gucs {
     guc_tables::session_guc_cluster!(PlannerGucs, PLANNER_GUCS:
-        (cursor_tuple_fraction_cell, f64, cursor_tuple_fraction, set_cursor_tuple_fraction, 0.1_f64),
+        (cursor_tuple_fraction_cell, f64, cursor_tuple_fraction, set_cursor_tuple_fraction,0.1_f64),
         // pgrust copy-and-patch JIT defaults (was C's 100000/500000/500000);
         // must match guc_tables::tables boot_vals. 200 amortizes the WHOLE
         // per-execution compile bill over ONE execution: expression kernels
@@ -126,9 +130,9 @@ pub mod gucs {
         // optimize/inline are inert under copy-and-patch (no LLVM phase) so
         // they equal jit_above_cost. Full derivation in guc_tables/tables.rs
         // + docs/design/jit-parallel-defaults.md.
-        (jit_above_cost_cell, f64, jit_above_cost, set_jit_above_cost, 200.0_f64),
-        (jit_optimize_above_cost_cell, f64, jit_optimize_above_cost, set_jit_optimize_above_cost, 200.0_f64),
-        (jit_inline_above_cost_cell, f64, jit_inline_above_cost, set_jit_inline_above_cost, 200.0_f64),
+        (jit_above_cost_cell, f64, jit_above_cost, set_jit_above_cost,200.0_f64),
+        (jit_optimize_above_cost_cell, f64, jit_optimize_above_cost, set_jit_optimize_above_cost,200.0_f64),
+        (jit_inline_above_cost_cell, f64, jit_inline_above_cost, set_jit_inline_above_cost,200.0_f64),
         (from_collapse_limit_cell, i32, from_collapse_limit, set_from_collapse_limit, 8),
         (join_collapse_limit_cell, i32, join_collapse_limit, set_join_collapse_limit, 8),
         (constraint_exclusion_cell, i32, constraint_exclusion, set_constraint_exclusion, guc_tables::consts::CONSTRAINT_EXCLUSION_PARTITION),
@@ -142,6 +146,19 @@ pub mod gucs {
     );
 
     pub use ::costsize::gucs::*;
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
 }
 
 pub fn init_seams() {
@@ -149,8 +166,7 @@ pub fn init_seams() {
     planner_seams::planner::set(|mcx, parse, query_string, cursor_options, bound_params| {
         planner(mcx, parse, query_string, cursor_options, bound_params)
     });
-    planner_seams::planning_tapped::set(|| {
-        tap_planner_enter::is_installed() || tap_planner_leave::is_installed()
+    planner_seams::planning_tapped::set(|| { tap_planner_enter::is_installed() || tap_planner_leave::is_installed()
     });
     // find_simplified_clause's gate (rangetypes.c): volatile / subplan /
     // >10*cpu_operator_cost elemExprs must not be evaluated twice. Deliberate
@@ -245,14 +261,10 @@ pub fn init_seams() {
         get: gucs::max_parallel_workers_per_gather,
         set: gucs::set_max_parallel_workers_per_gather,
     });
-    guc_tables::vars::jit_enabled.install(GucVarAccessors {
-        get: gucs::jit_enabled,
-        set: gucs::set_jit_enabled,
-    });
-    guc_tables::vars::jit_above_cost.install(GucVarAccessors {
-        get: gucs::jit_above_cost,
-        set: gucs::set_jit_above_cost,
-    });
+    guc_tables::vars::jit_enabled
+        .install(GucVarAccessors { get: gucs::jit_enabled, set: gucs::set_jit_enabled, });
+    guc_tables::vars::jit_above_cost
+        .install(GucVarAccessors { get: gucs::jit_above_cost, set: gucs::set_jit_above_cost, });
     guc_tables::vars::jit_optimize_above_cost.install(GucVarAccessors {
         get: gucs::jit_optimize_above_cost,
         set: gucs::set_jit_optimize_above_cost,
@@ -261,10 +273,8 @@ pub fn init_seams() {
         get: gucs::jit_inline_above_cost,
         set: gucs::set_jit_inline_above_cost,
     });
-    guc_tables::vars::jit_expressions.install(GucVarAccessors {
-        get: gucs::jit_expressions,
-        set: gucs::set_jit_expressions,
-    });
+    guc_tables::vars::jit_expressions
+        .install(GucVarAccessors { get: gucs::jit_expressions, set: gucs::set_jit_expressions, });
     guc_tables::vars::from_collapse_limit.install(GucVarAccessors {
         get: gucs::from_collapse_limit,
         set: gucs::set_from_collapse_limit,
@@ -331,13 +341,7 @@ pub fn planner<'mcx>(
         standard_planner(mcx, parse, query_string, cursor_options, bound_params)
     };
     let leave = tap_planner_leave::call_if_or(Ok(()), |f| {
-        f(
-            result.is_ok(),
-            query_id,
-            stmt_location,
-            stmt_len,
-            query_string,
-        )
+        f(result.is_ok(), query_id, stmt_location, stmt_len, query_string,)
     });
     let result = result?;
     leave?;
@@ -360,8 +364,8 @@ fn plan_query<'mcx>(
     // never builds Gather or parallel paths; max_parallel_workers_per_gather
     // stays readable as the width ceiling of a Gravity section.
     run.assess_parallel = false;
-    subquery_planner(run, parse, false, tuple_fraction, None)?;
-    let final_rel = fetch_final_rel(run);
+    subquery_planner( run, parse, false, tuple_fraction, None)?;
+    let final_rel = fetch_final_rel( run);
     Ok(get_cheapest_fractional_path(run, final_rel, tuple_fraction))
 }
 
@@ -382,8 +386,7 @@ pub fn standard_planner<'mcx>(
     let alternative = decorrelate::alternative(mcx, parse)?;
     let (unnested, restricted) = unnest::alternatives(mcx, parse)?;
     let union = groupingsets_union::alternative(mcx, parse)?;
-    let force_union = union.is_some()
-        && gucs::gravity_groupingsets_rewrite() == guc_tables::consts::GRAVITY_GS_REWRITE_FORCE;
+    let force_union = union.is_some() && gucs::gravity_groupingsets_rewrite() == guc_tables::consts::GRAVITY_GS_REWRITE_FORCE;
     let mut partition_directory: Option<partdesc::PartitionDirectory<'mcx>> = None;
     let mut run_owner = mcx::ArenaForget::new(PlannerRun::new(mcx));
     let mut alt_directory: Option<partdesc::PartitionDirectory<'mcx>> = None;
@@ -394,10 +397,7 @@ pub fn standard_planner<'mcx>(
     let mut restricted_owner: Option<mcx::ArenaForget<PlannerRun<'mcx>>> = None;
     let mut union_directory: Option<partdesc::PartitionDirectory<'mcx>> = None;
     let mut union_owner: Option<mcx::ArenaForget<PlannerRun<'mcx>>> = None;
-    let _ = (
-        cursor_options & CURSOR_OPT_PARALLEL_OK,
-        parse.hasModifyingCTE,
-    );
+    let _ = (cursor_options & CURSOR_OPT_PARALLEL_OK, parse.hasModifyingCTE,);
 
     let tuple_fraction = if (cursor_options & CURSOR_OPT_FAST_PLAN) != 0 {
         let f = gucs::cursor_tuple_fraction();
@@ -412,30 +412,12 @@ pub fn standard_planner<'mcx>(
         0.0
     };
 
-    let best_path = plan_query(
-        &mut run_owner,
-        &mut partition_directory,
-        parse,
-        bound_params,
-        tuple_fraction,
-    )?;
-    let (run, best_path) = match alternative {
+    let best_path = plan_query(&mut run_owner, &mut partition_directory, parse, bound_params, tuple_fraction,)?;
+    let ( run, best_path) = match alternative {
         Some(alt) => {
             let alt_owner = alt_owner.insert(mcx::ArenaForget::new(PlannerRun::new(mcx)));
-            let alt_path = plan_query(
-                alt_owner,
-                &mut alt_directory,
-                alt,
-                bound_params,
-                tuple_fraction,
-            )?;
-            if crate::gravity_width_cost::cheaper(
-                alt_owner,
-                alt_path,
-                &run_owner,
-                best_path,
-                tuple_fraction,
-            ) {
+            let alt_path = plan_query(alt_owner, &mut alt_directory, alt, bound_params, tuple_fraction,)?;
+            if crate::gravity_width_cost::cheaper(alt_owner, alt_path, &run_owner, best_path, tuple_fraction,) {
                 (&mut **alt_owner, alt_path)
             } else {
                 (&mut *run_owner, best_path)
@@ -443,7 +425,7 @@ pub fn standard_planner<'mcx>(
         }
         None => (&mut *run_owner, best_path),
     };
-    let (run, best_path) = match unnested {
+    let ( run, best_path) = match unnested {
         Some(u) => match plan_query(
             unnest_owner.insert(mcx::ArenaForget::new(PlannerRun::new(mcx))),
             &mut unnest_directory,
@@ -451,24 +433,13 @@ pub fn standard_planner<'mcx>(
             bound_params,
             tuple_fraction,
         ) {
-            Err(e)
-                if types_error::errcode_to_category(e.sqlstate())
-                    == types_error::ERRCODE_DATA_EXCEPTION =>
-            {
-                (run, best_path)
+            Err(e) if types_error::errcode_to_category(e.sqlstate()) == types_error::ERRCODE_DATA_EXCEPTION =>
+            { (run, best_path)
             }
             Err(e) => return Err(e),
             Ok(unnest_path) => {
-                let unnest_run = unnest_owner
-                    .as_deref_mut()
-                    .expect("the unnested form's run was built above");
-                if crate::gravity_width_cost::cheaper(
-                    unnest_run,
-                    unnest_path,
-                    run,
-                    best_path,
-                    tuple_fraction,
-                ) {
+                let unnest_run = unnest_owner.as_deref_mut().expect("the unnested form's run was built above");
+                if crate::gravity_width_cost::cheaper(unnest_run, unnest_path, run, best_path, tuple_fraction,) {
                     (unnest_run, unnest_path)
                 } else {
                     (run, best_path)
@@ -479,7 +450,7 @@ pub fn standard_planner<'mcx>(
     };
     // the unnested form with a binding's group restricted to the outer level's keys (unnest.rs restriction), costed against
     // the full grouped pass above
-    let (run, best_path) = match restricted {
+    let ( run, best_path) = match restricted {
         Some(u) => match plan_query(
             restricted_owner.insert(mcx::ArenaForget::new(PlannerRun::new(mcx))),
             &mut restricted_directory,
@@ -487,24 +458,13 @@ pub fn standard_planner<'mcx>(
             bound_params,
             tuple_fraction,
         ) {
-            Err(e)
-                if types_error::errcode_to_category(e.sqlstate())
-                    == types_error::ERRCODE_DATA_EXCEPTION =>
-            {
-                (run, best_path)
+            Err(e) if types_error::errcode_to_category(e.sqlstate()) == types_error::ERRCODE_DATA_EXCEPTION =>
+            { (run, best_path)
             }
             Err(e) => return Err(e),
             Ok(restricted_path) => {
-                let restricted_run = restricted_owner
-                    .as_deref_mut()
-                    .expect("the restricted form's run was built above");
-                if crate::gravity_width_cost::cheaper(
-                    restricted_run,
-                    restricted_path,
-                    run,
-                    best_path,
-                    tuple_fraction,
-                ) {
+                let restricted_run = restricted_owner.as_deref_mut().expect("the restricted form's run was built above");
+                if crate::gravity_width_cost::cheaper(restricted_run, restricted_path, run, best_path, tuple_fraction,) {
                     (restricted_run, restricted_path)
                 } else {
                     (run, best_path)
@@ -513,7 +473,7 @@ pub fn standard_planner<'mcx>(
         },
         None => (run, best_path),
     };
-    let (run, best_path) = match union {
+    let ( run, best_path) = match union {
         Some(u) => match plan_query(
             union_owner.insert(mcx::ArenaForget::new(PlannerRun::new(mcx))),
             &mut union_directory,
@@ -525,26 +485,13 @@ pub fn standard_planner<'mcx>(
             // evaluates (`10 / (coalesce(b, 4) - 4)` with b NULL raises 22012 while planning), where PostgreSQL nulls the
             // column at run time and the expression raises only on a row it reads. A data exception while planning the
             // union is the rewrite's own: the standard plan, planned above, stands.
-            Err(e)
-                if types_error::errcode_to_category(e.sqlstate())
-                    == types_error::ERRCODE_DATA_EXCEPTION =>
-            {
-                (run, best_path)
+            Err(e) if types_error::errcode_to_category(e.sqlstate()) == types_error::ERRCODE_DATA_EXCEPTION =>
+            { (run, best_path)
             }
             Err(e) => return Err(e),
             Ok(union_path) => {
-                let union_run = union_owner
-                    .as_deref_mut()
-                    .expect("the union's run was built above");
-                if force_union
-                    || crate::gravity_width_cost::cheaper(
-                        union_run,
-                        union_path,
-                        run,
-                        best_path,
-                        tuple_fraction,
-                    )
-                {
+                let union_run = union_owner.as_deref_mut().expect("the union's run was built above");
+                if force_union || crate::gravity_width_cost::cheaper(union_run, union_path, run, best_path, tuple_fraction,) {
                     (union_run, union_path)
                 } else {
                     (run, best_path)
@@ -554,7 +501,7 @@ pub fn standard_planner<'mcx>(
         None => (run, best_path),
     };
     crate::gravity_width_cost::trace(run, best_path)?;
-    let mut top_plan = create_plan(run, best_path)?;
+    let mut top_plan = create_plan( run, best_path)?;
 
     // C planner.c:444-451 wraps a SCROLL cursor's plan in Material when
     // !ExecSupportsBackwardScan, so the EXECUTOR can run backwards on demand.
@@ -627,11 +574,7 @@ pub fn standard_planner<'mcx>(
         // the main plan's extParam computation validates against).
         debug_assert_eq!(run.subroots.len(), run.glob.subplans.len());
         for i in 0..run.glob.subplans.len() {
-            let subplan = run
-                .glob
-                .subplans
-                .nth(i)
-                .expect("subplan cells are live until set_plan_references");
+            let subplan = run.glob.subplans.nth(i).expect("subplan cells are live until set_plan_references");
             let subroot = &run.subroots[i].root;
             crate::subselect::ss_finalize_plan(run, subroot, subplan, &subroot.outer_params)?;
         }
@@ -639,7 +582,7 @@ pub fn standard_planner<'mcx>(
     }
 
     debug_assert!(run.glob.finalrtable.is_nil());
-    let top_plan = set_plan_references(run, top_plan)?;
+    let top_plan = set_plan_references( run, top_plan)?;
     // ... and the subplans, each under its own root (C's forboth over
     // glob->subplans/glob->subroots, planner.c:561-567). A cell NULLed by an
     // earlier level's set_plan_references (an unchosen AlternativeSubPlan
@@ -651,7 +594,7 @@ pub fn standard_planner<'mcx>(
             core::mem::swap(&mut run.subroots[i].root, &mut run.root);
             let top_tlist =
                 core::mem::replace(&mut run.processed_tlist, run.subroots[i].processed_tlist);
-            let fixed = crate::setrefs::set_plan_references_opt(run, subplan);
+            let fixed = crate::setrefs::set_plan_references_opt( run, subplan);
             core::mem::swap(&mut run.subroots[i].root, &mut run.root);
             run.processed_tlist = top_tlist;
             run.glob.subplans.as_mut_slice()[i] = fixed?;
@@ -661,7 +604,10 @@ pub fn standard_planner<'mcx>(
     let parse = run.parse();
     let total_cost = top_plan.as_plan().expect("plan node").total_cost;
     let mut jit_flags = 0;
-    if gucs::jit_enabled() && gucs::jit_above_cost() >= 0.0 && total_cost > gucs::jit_above_cost() {
+    if gucs::jit_enabled()
+        && gucs::jit_above_cost() >= 0.0
+        && total_cost > gucs::jit_above_cost()
+    {
         jit_flags |= PGJIT_PERFORM;
         if gucs::jit_optimize_above_cost() >= 0.0 && total_cost > gucs::jit_optimize_above_cost() {
             jit_flags |= PGJIT_OPT3;

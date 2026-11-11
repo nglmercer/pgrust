@@ -22,7 +22,7 @@ use backend_progress::pgstat_progress_update_param;
 use backend_progress::progress::PROGRESS_CREATEIDX_SUBPHASE;
 use execindexing::IndexInfo;
 use tableam::ParallelTableScanDescShared;
-use tuplesort::{Sharedsort, SortCoordinate, Tuplesort, TUPLESORT_NONE};
+use tuplesort::{ Sharedsort, SortCoordinate, Tuplesort, TUPLESORT_NONE};
 
 use crate::{PROGRESS_BTREE_PHASE_PERFORMSORT_1, PROGRESS_BTREE_PHASE_PERFORMSORT_2};
 
@@ -170,10 +170,7 @@ pub(crate) fn bt_begin_parallel<'mcx>(
             return Err(e);
         }
     };
-    parallel::set_private(
-        pcxt,
-        Arc::clone(&btshared) as Arc<dyn std::any::Any + Send + Sync>,
-    );
+    parallel::set_private(pcxt, Arc::clone(&btshared) as Arc<dyn std::any::Any + Send + Sync>,);
 
     parallel::LaunchParallelWorkers(pcxt)?;
     let btleader = BTLeader {
@@ -202,11 +199,7 @@ pub(crate) fn bt_end_parallel(btleader: BTLeader) -> PgResult<()> {
     parallel::WaitForParallelWorkersToFinish(btleader.pcxt)?;
     {
         let launched = parallel::nworkers_launched(btleader.pcxt).max(0) as usize;
-        let usage = btleader
-            .btshared
-            .usage
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let usage = btleader.btshared.usage.lock().unwrap_or_else(|e| e.into_inner());
         for (buf, wal) in usage.iter().take(launched) {
             instrument::instr_accum_parallel_query(buf, wal);
         }
@@ -223,8 +216,7 @@ pub(crate) fn bt_end_parallel(btleader: BTLeader) -> PgResult<()> {
 /// scan and sort, then collect their totals.
 pub(crate) fn bt_parallel_heapscan(btleader: &BTLeader) -> PgResult<ParallelScanResult> {
     let btshared = &btleader.btshared;
-    let latch =
-        init_small::globals::MyLatch().expect("parallel index build leader without MyLatch");
+    let latch = init_small::globals::MyLatch().expect("parallel index build leader without MyLatch");
     loop {
         {
             let m = btshared.mutable.lock().unwrap_or_else(|e| e.into_inner());
@@ -269,10 +261,7 @@ fn bt_parallel_build_main(pshared: &parallel::ParallelShared) -> PgResult<()> {
         .downcast::<BTShared>()
         .unwrap_or_else(|_| panic!("_bt_parallel_build_main private state is not BTShared"));
 
-    let _debug_query = btshared
-        .query_text
-        .as_deref()
-        .map(elog::debug_query_string_scope);
+    let _debug_query = btshared.query_text.as_deref().map(elog::debug_query_string_scope);
     backend_status::pgstat_report_activity(
         backend_status::BackendState::STATE_RUNNING,
         btshared.query_text.as_deref(),
@@ -370,10 +359,7 @@ fn bt_parallel_scan_and_sort<'mcx>(
             } else {
                 havedead = true;
                 #[allow(clippy::unnecessary_unwrap)]
-                spool2
-                    .as_mut()
-                    .expect("spool2")
-                    .putindextuplevalues(*tid, values, isnull)?;
+                spool2.as_mut().expect("spool2").putindextuplevalues(*tid, values, isnull)?;
             }
             indtuples += 1.0;
             Ok(())
@@ -381,10 +367,7 @@ fn bt_parallel_scan_and_sort<'mcx>(
     )?;
 
     if progress {
-        pgstat_progress_update_param(
-            PROGRESS_CREATEIDX_SUBPHASE,
-            PROGRESS_BTREE_PHASE_PERFORMSORT_1,
-        );
+        pgstat_progress_update_param(PROGRESS_CREATEIDX_SUBPHASE, PROGRESS_BTREE_PHASE_PERFORMSORT_1,);
     }
     sortstate.performsort()?;
     if let Some(s2) = spool2.as_mut() {
@@ -415,3 +398,4 @@ fn bt_parallel_scan_and_sort<'mcx>(
     drop(spool2);
     Ok(())
 }
+

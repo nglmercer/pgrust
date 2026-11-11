@@ -35,7 +35,7 @@ fn takes_puts_and_trims_never_wrap_the_depot_count() {
         std::thread::spawn(move || {
             let mut n = 0u64;
             while !stop.load(Ordering::Relaxed) {
-                if n.is_multiple_of(2) { REGIONS.trim_to(REGION_MIN * 4) } else { REGIONS.trim() };
+                if n.is_multiple_of( 2) { REGIONS.trim_to(REGION_MIN * 4) } else { REGIONS.trim() };
                 n += 1;
                 std::thread::yield_now();
             }

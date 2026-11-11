@@ -33,24 +33,12 @@ fn read(lo: usize, hi: usize, _scratch: &mut [u8]) -> Option<usize> {
 /// back.
 fn mapped(n: usize) -> memledger::Charge {
     let (owner, release) = memledger::charge::context();
-    memledger::Charge::open(
-        owner,
-        release,
-        memledger::Kind::Mapped,
-        memledger::charge::Door::Mapped,
-        n as u64,
-    )
+    memledger::Charge::open(owner, release, memledger::Kind::Mapped, memledger::charge::Door::Mapped, n as u64,)
 }
 
 /// A running statement on backend `procno` with `held` bytes on its ledger account; with `region`, those bytes are one
 /// Gravity region on the residency registry, made fresh (none of its pages resident yet).
-fn statement(
-    procno: u32,
-    held: usize,
-    region: bool,
-    ready: mpsc::Sender<()>,
-    done: Arc<Barrier>,
-) -> std::thread::JoinHandle<()> {
+fn statement(procno: u32, held: usize, region: bool, ready: mpsc::Sender<()>, done: Arc<Barrier>,) -> std::thread::JoinHandle<()> {
     std::thread::spawn(move || {
         let pid = 7000 + procno as i32;
         governor::register(procno as i32, pid);
@@ -60,15 +48,7 @@ fn statement(
         let charge = governor::Charge::new("held", held);
         let pages = mapped(held);
         let lo = 0x7000_0000_0000 + ((procno as usize) << 32);
-        let id = region.then(|| {
-            memledger::resident::register(
-                lo,
-                held,
-                held,
-                memledger::Acct::backend(procno),
-                true,
-                true,
-            )
+        let id = region.then(|| { memledger::resident::register(lo, held, held, memledger::Acct::backend(procno), true, true,)
         });
         memledger::fold();
         ready.send(()).unwrap();
@@ -95,10 +75,7 @@ fn the_cancel_issues_within_a_tick_while_the_residency_read_is_slow() {
     ready.recv().unwrap();
     // the pass reads the region before its pages are written: 800 MiB not resident, so it could outrank the pick
     assert!(memledger::resident::pass(read, mempolicy::watchdog::RESIDENCY_READ_BYTES).is_some());
-    assert_eq!(
-        memledger::account_row(memledger::Acct::backend(95)).not_resident_bytes,
-        800 * MIB as i64
-    );
+    assert_eq!(memledger::account_row(memledger::Acct::backend(95)).not_resident_bytes, 800 * MIB as i64);
     // then they are written, with no event of ours, and from here a residency read waits in "reclaim"
     FILLED.store(true, Ordering::Relaxed);
     SLOW.store(true, Ordering::Relaxed);
@@ -116,20 +93,9 @@ fn the_cancel_issues_within_a_tick_while_the_residency_read_is_slow() {
     filled.join().unwrap();
     plain.join().unwrap();
     assert!(v.is_some(), "a victim");
-    assert_eq!(
-        v.and_then(|v| v.backend),
-        Some((96, 7096)),
-        "picked from the last read: the 300 MiB statement: {v:?}"
-    );
-    assert_eq!(
-        (p.picks, p.stale_picks),
-        (1, 1),
-        "the cancel is counted stale: {p:?}"
-    );
-    assert_eq!(
-        hinted, 1,
-        "the filled statement was handed to the residency thread"
-    );
+    assert_eq!(v.and_then(|v| v.backend), Some((96, 7096)), "picked from the last read: the 300 MiB statement: {v:?}");
+    assert_eq!((p.picks, p.stale_picks), (1, 1), "the cancel is counted stale: {p:?}");
+    assert_eq!(hinted, 1, "the filled statement was handed to the residency thread");
     assert_eq!(read_again, 1, "the residency thread read it again");
     assert_eq!(nr_after, 0, "and found it resident");
     assert!(

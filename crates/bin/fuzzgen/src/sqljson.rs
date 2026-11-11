@@ -1002,13 +1002,18 @@ fn gen_jts(g: &mut Gen) -> String {
 fn gen_windup(g: &mut Gen) -> String {
     g.fire("sqljson:windup");
     match g.rng.below(4) {
-        0 => "SELECT count(*) OVER w1, count(*) OVER w2 FROM (VALUES (1), (2), (3)) t(x) WINDOW w1 AS (PARTITION BY JSON_OBJECT('k': x)), w2 AS (PARTITION BY JSON_OBJECT('k': x)) ORDER BY x;".to_string(),
+        0 =>
+            "SELECT count(*) OVER w1, count(*) OVER w2 FROM (VALUES (1), (2), (3)) t(x) WINDOW w1 AS (PARTITION BY JSON_OBJECT('k': x)), w2 AS (PARTITION BY JSON_OBJECT('k': x)) ORDER BY x;".to_string(
+        ),
         1 => format!(
             "SELECT max(x) OVER w1, min(x) OVER w2 FROM (VALUES (1), (2), (3)) t(x) WINDOW w1 AS (ORDER BY JSON_ARRAY(x{r}) ROWS UNBOUNDED PRECEDING), w2 AS (ORDER BY JSON_ARRAY(x{r}) ROWS UNBOUNDED PRECEDING) ORDER BY x;",
             r = *g.rng.pick(&["", " RETURNING jsonb"])
         ),
-        2 => "SELECT sum(x) OVER w1, count(*) OVER w2 FROM (VALUES (1), (2)) t(x) WINDOW w1 AS (PARTITION BY JSON_SCALAR(x)), w2 AS (PARTITION BY JSON_SCALAR(x)) ORDER BY x;".to_string(),
-        _ => "SELECT sum(a) OVER w1, count(*) OVER w2 FROM (SELECT a FROM JSON_TABLE('[{\"a\": 1}, {\"a\": 2}]', '$[*]' COLUMNS (a int PATH '$.a')) jt) s WINDOW w1 AS (ORDER BY a), w2 AS (ORDER BY a) ORDER BY a;".to_string(),
+        2 =>
+            "SELECT sum(x) OVER w1, count(*) OVER w2 FROM (VALUES (1), (2)) t(x) WINDOW w1 AS (PARTITION BY JSON_SCALAR(x)), w2 AS (PARTITION BY JSON_SCALAR(x)) ORDER BY x;".to_string(
+        ),
+        _ => "SELECT sum(a) OVER w1, count(*) OVER w2 FROM (SELECT a FROM JSON_TABLE('[{\"a\": 1}, {\"a\": 2}]', '$[*]' COLUMNS (a int PATH '$.a')) jt) s WINDOW w1 AS (ORDER BY a), w2 AS (ORDER BY a) ORDER BY a;".to_string(
+        ),
     }
 }
 

@@ -4,10 +4,7 @@
 //! sizes; corrupt bodies are refused and never panic.
 
 use crate::rowid::{IDS_PER_BLOCK, ROWID_LIMIT};
-use crate::rowmap::{
-    encode, encode_runs, radix_sort, summary, GranMap, Opts, RevForm, Reverse, GRANULE, G_DELTA,
-    G_DENSE, G_RUNS, G_STRIDED, JUMP,
-};
+use crate::rowmap::{encode, encode_runs, radix_sort, summary, GranMap, Opts, RevForm, Reverse, GRANULE, G_DELTA, G_DENSE, G_RUNS, G_STRIDED, JUMP,};
 
 struct Rng(u64);
 
@@ -31,8 +28,7 @@ fn sealed(rng: &mut Rng, rows: usize, lo: u64, hi: u64, bases: &[u64], dead: u64
     let mut out = Vec::with_capacity(rows);
     let mut block = 0u64;
     while out.len() < rows {
-        let ext = bases[(block / 1024) as usize % bases.len()]
-            + (block / 1024 / bases.len() as u64) * EXT * bases.len() as u64;
+        let ext = bases[(block / 1024) as usize % bases.len()] + (block / 1024 / bases.len() as u64) * EXT * bases.len() as u64;
         let per = lo + rng.below(hi - lo + 1);
         for off in 0..per {
             if out.len() == rows {
@@ -55,11 +51,7 @@ fn envs(rng: &mut Rng, rows: usize, e: u64, late: u64, win: u64) -> Vec<u64> {
         .iter()
         .enumerate()
         .map(|(t, &id)| {
-            let t = if rng.below(1000) < late {
-                (t as u64).saturating_sub(rng.below(win + 1))
-            } else {
-                t as u64
-            };
+            let t = if rng.below(1000) < late { (t as u64).saturating_sub(rng.below(win + 1)) } else { t as u64 };
             (rng.below(e), t, id)
         })
         .collect();
@@ -94,80 +86,33 @@ fn round_trip(ids: &[u64], opts: Opts) -> (RevForm, [u32; 4], GranMap, Option<Re
         assert_eq!(m.ident(a as u32), ids[a], "ident {a}");
     }
     for (o, &id) in ids.iter().enumerate() {
-        assert_eq!(
-            m.ordinal_of(id, rev.as_ref()),
-            Some(o as u32),
-            "ordinal of {id} (row {o}), {:?}",
-            m.rev_form()
-        );
+        assert_eq!(m.ordinal_of(id, rev.as_ref()), Some(o as u32), "ordinal of {id} (row {o}), {:?}", m.rev_form());
     }
     let mut sorted: Vec<u64> = ids.to_vec();
     sorted.sort_unstable();
-    let mut absent: Vec<u64> = vec![
-        0,
-        sorted.first().map_or(0, |x| x.saturating_sub(1)),
-        sorted.last().map_or(0, |x| x + 1),
-        ROWID_LIMIT - 1,
-    ];
-    absent.extend(
-        sorted
-            .windows(2)
-            .filter(|w| w[1] > w[0] + 1)
-            .take(300)
-            .map(|w| w[0] + 1),
-    );
+    let mut absent: Vec<u64> = vec![0, sorted.first().map_or(0, |x| x.saturating_sub(1)), sorted.last().map_or(0, |x| x + 1), ROWID_LIMIT - 1,];
+    absent.extend(sorted.windows(2).filter(|w| w[1] > w[0] + 1).take(300).map(|w| w[0] + 1),);
     for &x in &absent {
         if sorted.binary_search(&x).is_err() {
             assert_eq!(m.ordinal_of(x, rev.as_ref()), None, "absent {x}");
         }
     }
     // the batch call: every ID sorted, a sparse sample, the absent ones
-    let mut by_id: Vec<(u64, u32)> = ids
-        .iter()
-        .enumerate()
-        .map(|(o, &x)| (x, o as u32))
-        .collect();
+    let mut by_id: Vec<(u64, u32)> = ids.iter().enumerate().map(|(o, &x)| (x, o as u32)).collect();
     by_id.sort_unstable();
-    let pos = |x: u64| {
-        by_id
-            .binary_search_by_key(&x, |e| e.0)
-            .ok()
-            .map(|i| by_id[i].1)
+    let pos = |x: u64| { by_id.binary_search_by_key(&x, |e| e.0).ok().map(|i| by_id[i].1)
     };
     let mut out = vec![None; sorted.len()];
     m.ordinals_of(&sorted, rev.as_ref(), &mut out);
-    assert!(
-        sorted
-            .iter()
-            .zip(&out)
-            .all(|(&x, &o)| o.is_some_and(|o| ids[o as usize] == x)),
-        "batch, every ID"
-    );
-    let sample: Vec<u64> = sorted
-        .iter()
-        .step_by(97)
-        .copied()
-        .chain(absent.iter().copied())
-        .collect();
+    assert!(sorted.iter().zip(&out).all(|(&x, &o)| o.is_some_and(|o| ids[o as usize] == x)), "batch, every ID");
+    let sample: Vec<u64> = sorted.iter().step_by(97).copied().chain(absent.iter().copied()).collect();
     let mut out = vec![None; sample.len()];
     m.ordinals_of(&sample, rev.as_ref(), &mut out);
     for (i, &x) in sample.iter().enumerate() {
-        assert_eq!(
-            out[i],
-            if sorted.binary_search(&x).is_ok() {
-                pos(x)
-            } else {
-                None
-            },
-            "batch sample {x}"
-        );
+        assert_eq!(out[i], if sorted.binary_search(&x).is_ok() { pos(x) } else { None }, "batch sample {x}");
     }
     let (rf, forms) = summary(&body).expect("summary");
-    assert_eq!(
-        (rf, forms),
-        (m.rev_form(), m.granule_forms()),
-        "summary agrees"
-    );
+    assert_eq!((rf, forms), (m.rev_form(), m.granule_forms()), "summary agrees");
     (m.rev_form(), m.granule_forms(), m, rev)
 }
 
@@ -183,14 +128,7 @@ fn rowmap_dense_parts_are_header_only() {
 #[test]
 fn rowmap_fixed_width_sealed_parts_are_strided() {
     let mut rng = Rng(7);
-    let ids = sealed(
-        &mut rng,
-        1 << 20,
-        113,
-        113,
-        &[291 * 2048, 291 * 1024 * 40],
-        0,
-    );
+    let ids = sealed(&mut rng, 1 << 20, 113, 113, &[291 * 2048, 291 * 1024 * 40], 0,);
     let (rf, forms, m, _) = round_trip(&ids, Opts::default());
     assert_eq!(rf, RevForm::Mono);
     assert!(forms[G_STRIDED as usize] >= 110, "{forms:?}");
@@ -236,34 +174,18 @@ fn rowmap_mono_delta_granules_next_to_other_forms() {
     }
     let (rf, forms, m, _) = round_trip(&ids, Opts::default());
     assert_eq!(rf, RevForm::Mono);
-    assert_eq!(
-        (
-            forms[G_DELTA as usize],
-            forms[G_DENSE as usize],
-            forms[G_STRIDED as usize]
-        ),
-        (3, 1, 1),
-        "{forms:?}"
-    );
+    assert_eq!((forms[G_DELTA as usize], forms[G_DENSE as usize], forms[G_STRIDED as usize]), (3, 1, 1), "{forms:?}");
     let n = ids.len();
     for gi in 0..n.div_ceil(g) {
         let (a, b) = (gi * g, ((gi + 1) * g).min(n));
         let mut out = vec![0u64; b - a];
         m.decode_ids(a as u32, &mut out);
         assert_eq!(out, &ids[a..b], "granule {gi}");
-        for a in [
-            b.saturating_sub(1),
-            b.saturating_sub(7),
-            b.saturating_sub(300),
-        ] {
+        for a in [b.saturating_sub(1), b.saturating_sub(7), b.saturating_sub(300),] {
             let len = 20.min(n - a);
             let mut out = vec![0u64; len];
             m.decode_ids(a as u32, &mut out);
-            assert_eq!(
-                out,
-                &ids[a..a + len],
-                "rows {a}+{len} across granule {gi}'s end"
-            );
+            assert_eq!(out, &ids[a..a + len], "rows {a}+{len} across granule {gi}'s end");
             assert_eq!(m.ident(a as u32), ids[a], "ident {a}");
         }
     }
@@ -275,10 +197,7 @@ fn rowmap_mono_delta_granules_next_to_other_forms() {
 fn rowmap_sorted_merges_rank_by_bitmap_or_radix() {
     let mut rng = Rng(23);
     for spread in [3u64, 1000] {
-        let ids = shuffled(
-            &mut rng,
-            (0..6000u64).map(|i| 291 * 64 + i * spread).collect(),
-        );
+        let ids = shuffled(&mut rng, (0..6000u64).map(|i| 291 * 64 + i * spread).collect(),);
         for force in [RevForm::Fences, RevForm::Labels, RevForm::FrameIx] {
             let (rf, ..) = round_trip(&ids, Opts { force: Some(force) });
             assert_eq!(rf, force, "spread {spread}");
@@ -297,22 +216,10 @@ fn rowmap_concatenations_out_of_id_order_stay_mono() {
     let (rf, forms, _, _) = round_trip(&ids, Opts::default());
     assert_eq!(rf, RevForm::Mono, "{forms:?}");
     // runs over several ranges (IDBURN's bulk parts, a seal's blocks): the same map as the ID list's
-    let runs: Vec<(u64, u32)> = vec![
-        (291 * 7, 291 * 10),
-        (291 * 500, 13),
-        (291 * 40, 0),
-        (291 * 900, 9000),
-    ];
-    let ids: Vec<u64> = runs
-        .iter()
-        .flat_map(|&(lo, n)| lo..lo + u64::from(n))
-        .collect();
+    let runs: Vec<(u64, u32)> = vec![(291 * 7, 291 * 10), (291 * 500, 13), (291 * 40, 0), (291 * 900, 9000),];
+    let ids: Vec<u64> = runs.iter().flat_map(|&(lo, n)| lo..lo + u64::from(n)).collect();
     let body = encode_runs(&runs, Opts::default()).unwrap();
-    assert_eq!(
-        body,
-        encode(&ids, Opts::default()).unwrap(),
-        "runs and IDs encode alike"
-    );
+    assert_eq!(body, encode(&ids, Opts::default()).unwrap(), "runs and IDs encode alike");
     round_trip(&ids, Opts::default());
 }
 
@@ -344,11 +251,7 @@ fn rowmap_every_reverse_answers_every_permutation() {
         envs(&mut rng, 12_000, 7, 0, 0),
         envs(&mut rng, 12_000, 300, 100, 5_000),
         shuffled(&mut rng, (1..10_001).map(|k| k * 3 + 291).collect()),
-        {
-            let mut v = sealed(&mut rng, 10_000, 100, 100, &[291 * 9], 0);
-            v.reverse();
-            v
-        },
+        { let mut v = sealed(&mut rng, 10_000, 100, 100, &[291 * 9], 0); v.reverse(); v },
     ];
     for ids in &shapes {
         for f in [RevForm::Fences, RevForm::Labels, RevForm::FrameIx] {
@@ -382,12 +285,7 @@ fn rowmap_election_property() {
         let rows = 1 + rng.below(70_000) as usize;
         let ids = match case % 6 {
             0 => {
-                let (lo, hi, b, d) = (
-                    1 + rng.below(200),
-                    200 + rng.below(91),
-                    291 * (1 + rng.below(1 << 20)),
-                    rng.below(500),
-                );
+                let (lo, hi, b, d) = (1 + rng.below(200), 200 + rng.below(91), 291 * (1 + rng.below(1 << 20)), rng.below(500),);
                 sealed(&mut rng, rows, lo, hi, &[b], d)
             }
             1 => {
@@ -401,10 +299,7 @@ fn rowmap_election_property() {
             3 => {
                 let mut v = sealed(&mut rng, rows, 90, 110, &[291 * 3], 0);
                 for _ in 0..rng.below(30) {
-                    let (i, j) = (
-                        rng.below(rows as u64) as usize,
-                        rng.below(rows as u64) as usize,
-                    );
+                    let (i, j) = (rng.below(rows as u64) as usize, rng.below(rows as u64) as usize,);
                     v.swap(i, j);
                 }
                 v
@@ -428,27 +323,15 @@ fn rowmap_election_property() {
             _ => (0..rows as u64).map(|k| 291 * 8 + k * (1 + case)).collect(),
         };
         let (rf, _, m, rev) = round_trip(&ids, Opts::default());
-        assert_eq!(
-            rf == RevForm::Mono,
-            reference_mono(&ids),
-            "case {case}: {rf:?}"
-        );
+        assert_eq!(rf == RevForm::Mono, reference_mono(&ids), "case {case}: {rf:?}");
         if rf != RevForm::Mono && rf != RevForm::Fences {
             // the elected reverse is no larger (within 5 %) than the other in memory
-            let other = if rf == RevForm::Labels {
-                RevForm::FrameIx
-            } else {
-                RevForm::Labels
-            };
+            let other = if rf == RevForm::Labels { RevForm::FrameIx } else { RevForm::Labels };
             let (_, _, m2, rev2) = round_trip(&ids, Opts { force: Some(other) });
-            let size = |m: &GranMap, r: &Option<Reverse>| {
-                m.mem_bytes() + r.as_ref().map_or(0, Reverse::mem_bytes)
+            let size = |m: &GranMap, r: &Option<Reverse>| { m.mem_bytes() + r.as_ref().map_or(0, Reverse::mem_bytes)
             };
             let (a, b) = (size(&m, &rev), size(&m2, &rev2));
-            assert!(
-                a as f64 <= b as f64 * 1.05,
-                "case {case}: elected {rf:?} {a} B vs {other:?} {b} B"
-            );
+            assert!(a as f64 <= b as f64 * 1.05, "case {case}: elected {rf:?} {a} B vs {other:?} {b} B");
         }
     }
 }
@@ -467,10 +350,7 @@ fn rowmap_corrupt_bodies_are_refused_and_never_panic() {
         let body = encode(ids, Opts::default()).unwrap();
         let n = ids.len() as u64;
         assert!(GranMap::decode(&body, n + 1).is_err(), "rows mismatch");
-        assert!(
-            GranMap::decode(&body[..body.len() - 1], n).is_err(),
-            "truncated"
-        );
+        assert!(GranMap::decode(&body[..body.len() - 1], n).is_err(), "truncated");
         let mut long = body.clone();
         long.push(0);
         assert!(GranMap::decode(&long, n).is_err(), "trailing bytes");
@@ -529,9 +409,7 @@ fn rowmap_empty_and_tiny_parts() {
 /// refuses a bit that disagrees with the parts either way.
 #[test]
 fn rowmap_manifest_bit_follows_the_granules_parts() {
-    use crate::manifest::{
-        Manifest, MANIFESTF_ROWMAP2, PART_FLAG_ROWMAP, PART_ROWMAP_FORM_SHIFT, PART_ROWMAP_GRANULES,
-    };
+    use crate::manifest::{Manifest, MANIFESTF_ROWMAP2, PART_FLAG_ROWMAP, PART_ROWMAP_FORM_SHIFT, PART_ROWMAP_GRANULES,};
     use crate::FormatError;
     let base = crate::tests::golden_sample_manifest();
     let with = |flags: u32| {
@@ -545,31 +423,14 @@ fn rowmap_manifest_bit_follows_the_granules_parts() {
         (PART_FLAG_ROWMAP | 1 << PART_ROWMAP_FORM_SHIFT, false),
         // the form bits without the map flag name no map
         (PART_ROWMAP_GRANULES << PART_ROWMAP_FORM_SHIFT, false),
-        (
-            PART_FLAG_ROWMAP | PART_ROWMAP_GRANULES << PART_ROWMAP_FORM_SHIFT,
-            true,
-        ),
+        (PART_FLAG_ROWMAP | PART_ROWMAP_GRANULES << PART_ROWMAP_FORM_SHIFT, true,),
     ] {
         let m = with(flags);
-        assert_eq!(
-            m.header.flags & MANIFESTF_ROWMAP2 != 0,
-            set,
-            "part flags {flags:#x}"
-        );
-        assert_eq!(
-            Manifest::decode(&m.encode()).as_ref(),
-            Ok(&m),
-            "part flags {flags:#x} round trip"
-        );
+        assert_eq!(m.header.flags & MANIFESTF_ROWMAP2 != 0, set, "part flags {flags:#x}");
+        assert_eq!(Manifest::decode(&m.encode()).as_ref(), Ok(&m), "part flags {flags:#x} round trip");
         let mut lie = m.clone();
         lie.header.flags ^= MANIFESTF_ROWMAP2;
-        assert_eq!(
-            Manifest::decode(&lie.encode()),
-            Err(FormatError::Corrupt {
-                at: "ManifestHeader flags vs ROWMAP2 parts"
-            }),
-            "part flags {flags:#x}: the bit flipped"
-        );
+        assert_eq!(Manifest::decode(&lie.encode()), Err(FormatError::Corrupt { at: "ManifestHeader flags vs ROWMAP2 parts" }), "part flags {flags:#x}: the bit flipped");
     }
 }
 
@@ -582,56 +443,25 @@ fn rowmap_publish_sets_the_kind_bit() {
     use crate::wal::{DirLoc, PublishKind, PublishRec, PUBLISH_KIND_ROWMAP2, PUBLISH_KIND_UNDER};
     let at = 12 + 8; // the kind byte follows the dir and the base generation
     let header = crate::tests::golden_sample_manifest().header;
-    let mut rec = PublishRec {
-        dir: DirLoc {
-            spc: 1663,
-            db: 5,
-            relnumber: 16384,
-        },
-        base_gen: 6,
-        kind: PublishKind::Seal,
-        header,
-        upsert: Vec::new(),
-        retire: Vec::new(),
-        ext: Vec::new(),
-        installs: Vec::new(),
-        renames: Vec::new(),
-        manifest_crc: 1,
-    };
+    let mut rec = PublishRec { dir: DirLoc { spc: 1663, db: 5, relnumber: 16384, }, base_gen: 6, kind: PublishKind::Seal, header, upsert: Vec::new(), retire: Vec::new(), ext: Vec::new(), installs: Vec::new(), renames: Vec::new(), manifest_crc: 1, };
     let mut plain = Vec::new();
     rec.encode(&mut plain).unwrap();
-    assert_eq!(
-        plain[at],
-        PublishKind::Seal as u8,
-        "no bit without the flag"
-    );
+    assert_eq!(plain[at], PublishKind::Seal as u8, "no bit without the flag");
     rec.header.flags |= MANIFESTF_ROWMAP2;
     let mut out = Vec::new();
     rec.encode(&mut out).unwrap();
     assert_eq!(out[at], PublishKind::Seal as u8 | PUBLISH_KIND_ROWMAP2);
     assert_eq!(PublishRec::decode(&out).as_ref(), Ok(&rec));
-    assert!(
-        PublishKind::from_u8(out[at] & !PUBLISH_KIND_UNDER).is_none(),
-        "a pre-M1 decode (UNDER masked only) refuses the kind"
-    );
+    assert!(PublishKind::from_u8(out[at] & !PUBLISH_KIND_UNDER).is_none(), "a pre-M1 decode (UNDER masked only) refuses the kind");
     let mut lie = out.clone();
     lie[at] &= !PUBLISH_KIND_ROWMAP2;
-    assert!(
-        PublishRec::decode(&lie).is_err(),
-        "the flag without the bit"
-    );
+    assert!(PublishRec::decode(&lie).is_err(), "the flag without the bit");
     plain[at] |= PUBLISH_KIND_ROWMAP2;
-    assert!(
-        PublishRec::decode(&plain).is_err(),
-        "the bit without the flag"
-    );
+    assert!(PublishRec::decode(&plain).is_err(), "the bit without the flag");
     rec.header.flags |= MANIFESTF_UNDER;
     let mut both = Vec::new();
     rec.encode(&mut both).unwrap();
-    assert_eq!(
-        both[at],
-        PublishKind::Seal as u8 | PUBLISH_KIND_UNDER | PUBLISH_KIND_ROWMAP2
-    );
+    assert_eq!(both[at], PublishKind::Seal as u8 | PUBLISH_KIND_UNDER | PUBLISH_KIND_ROWMAP2);
     assert_eq!(PublishRec::decode(&both).as_ref(), Ok(&rec));
 }
 
@@ -647,38 +477,16 @@ fn rowmap2_rev_bench() {
     let mut rng = Rng(77);
     let sealed_ids = sealed(&mut rng, n, 80, 120, &[291 * 4096], 20);
     let jitter = {
-        let mut k: Vec<(u64, u64)> = sealed_ids
-            .iter()
-            .enumerate()
-            .map(|(t, &id)| (t as u64 + rng.below(50), id))
-            .collect();
+        let mut k: Vec<(u64, u64)> = sealed_ids.iter().enumerate().map(|(t, &id)| (t as u64 + rng.below(50), id)).collect();
         k.sort_unstable();
         k.into_iter().map(|x| x.1).collect::<Vec<_>>()
     };
     let scattered = envs(&mut rng, n, 1000, 0, 0);
     let cases: [(&str, &[u64], Opts); 5] = [
         ("mono sealed", &sealed_ids, Opts::default()),
-        (
-            "fences (key within 50 rows)",
-            &jitter,
-            Opts {
-                force: Some(RevForm::Fences),
-            },
-        ),
-        (
-            "labels (1000 envs)",
-            &scattered,
-            Opts {
-                force: Some(RevForm::Labels),
-            },
-        ),
-        (
-            "frameix (1000 envs)",
-            &scattered,
-            Opts {
-                force: Some(RevForm::FrameIx),
-            },
-        ),
+        ("fences (key within 50 rows)", &jitter, Opts { force: Some(RevForm::Fences), },),
+        ("labels (1000 envs)", &scattered, Opts { force: Some(RevForm::Labels), },),
+        ("frameix (1000 envs)", &scattered, Opts { force: Some(RevForm::FrameIx), },),
         ("elected (1000 envs)", &scattered, Opts::default()),
     ];
     for (name, ids, opts) in cases {
@@ -697,9 +505,7 @@ fn rowmap2_rev_bench() {
             m.decode_ids(o as u32, &mut out[..k]);
         }
         let fwd_ns = t.elapsed().as_nanos() as f64 / ids.len() as f64;
-        let probes: Vec<u64> = (0..1_000_000)
-            .map(|_| ids[rng.below(ids.len() as u64) as usize])
-            .collect();
+        let probes: Vec<u64> = (0..1_000_000).map(|_| ids[rng.below(ids.len() as u64) as usize]).collect();
         let mut hit = 0u64;
         let t = Instant::now();
         for &id in &probes {

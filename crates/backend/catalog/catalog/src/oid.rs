@@ -121,24 +121,14 @@ pub fn GetNewOidWithIndex<'mcx>(
         return varsup::GetNewObjectId();
     }
     let snapshot = Rc::new(SnapshotData::sentinel(mcx, SnapshotType::SNAPSHOT_ANY));
-    get_new_oid_loop(
-        relation.data_rc().name(),
-        varsup::GetNewObjectId,
-        |new_oid| {
-            let key = [oid_eq_key(oidcolumn, new_oid)?];
-            let mut scan = genam::systable_beginscan(
-                mcx,
-                relation,
-                indexId,
-                true,
-                Some(Rc::clone(&snapshot)),
-                &key,
-            )?;
-            let collides = genam::systable_getnext(mcx, &mut scan)?.is_some();
-            genam::systable_endscan(mcx, scan)?;
-            Ok(collides)
-        },
-    )
+    get_new_oid_loop(relation.data_rc().name(), varsup::GetNewObjectId, |new_oid| {
+        let key = [oid_eq_key(oidcolumn, new_oid)?];
+        let mut scan =
+            genam::systable_beginscan(mcx, relation, indexId, true, Some(Rc::clone(&snapshot)), &key,)?;
+        let collides = genam::systable_getnext(mcx, &mut scan)?.is_some();
+        genam::systable_endscan(mcx, scan)?;
+        Ok(collides)
+    },)
 }
 
 /// catalog.c:571-584: the proc number a new relfilenumber is probed under.
@@ -187,8 +177,7 @@ pub fn GetNewRelFileNumber<'mcx>(
         // access(F_OK) relative to the datadir cwd, as C's relpath probe (and a pgrc directory's).
         let rpath = relpath::GetRelationPath(locator, proc_number, ForkNumber::MAIN_FORKNUM);
         if !std::path::Path::new(&rpath).exists()
-            && !std::path::Path::new(&pgrc_am::dirpath::table_dir_path(locator, proc_number))
-                .exists()
+            && !std::path::Path::new(&pgrc_am::dirpath::table_dir_path(locator, proc_number)).exists()
         {
             return Ok(rel_number);
         }

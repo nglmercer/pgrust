@@ -9,7 +9,7 @@ use types_nodes::{Node, NodeTag};
 use crate::catalog::expr_type::type_of;
 
 pub fn kids<'p>(node: Node<'p>, f: &mut dyn FnMut(Node<'p>)) -> bool {
-    let list = |l: &NodeList<'p>, f: &mut dyn FnMut(Node<'p>)| l.iter().for_each(&mut *f);
+    let list = |l: &NodeList<'p>, f: &mut dyn FnMut(Node<'p>)| l.iter().for_each(&mut * f);
     let opt = |n: Option<Node<'p>>, f: &mut dyn FnMut(Node<'p>)| {
         if let Some(n) = n {
             f(n)

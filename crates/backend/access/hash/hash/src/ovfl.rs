@@ -1,25 +1,19 @@
 //! hashovfl.c: overflow-page and bitmap-page management, bucket squeeze.
 
 use ::bufmgr_seams as bm;
-use ::types_core::{
-    BlockNumber, Buffer, ForkNumber, InvalidBlockNumber, InvalidBuffer, OffsetNumber, BLCKSZ,
-};
-use ::types_error::{
-    PgError, PgResult, ERRCODE_INVALID_PARAMETER_VALUE, ERRCODE_PROGRAM_LIMIT_EXCEEDED,
-};
+use ::types_core::{BlockNumber, Buffer, ForkNumber, InvalidBlockNumber, InvalidBuffer, OffsetNumber, BLCKSZ,};
+use ::types_error::{PgError, PgResult, ERRCODE_INVALID_PARAMETER_VALUE, ERRCODE_PROGRAM_LIMIT_EXCEEDED,};
 use ::types_hash::*;
 use ::types_rel::Relation;
 use ::types_storage::buf::BufferAccessStrategy;
 use ::types_storage::bufpage::{PageMut, PageRef, SizeOfPageHeaderData};
-use ::xloginsert_seams::{
-    XLogRegBuf, REGBUF_NO_CHANGE, REGBUF_NO_IMAGE, REGBUF_STANDARD, REGBUF_WILL_INIT,
-};
+use ::xloginsert_seams::{XLogRegBuf, REGBUF_NO_CHANGE, REGBUF_NO_IMAGE, REGBUF_STANDARD, REGBUF_WILL_INIT,};
 use init_small::globals::{EndCriticalSection, StartCriticalSection};
 
 use crate::insert::_hash_pgaddmultitup;
 use crate::page::{
-    _hash_getbuf, _hash_getbuf_with_strategy, _hash_getinitbuf, _hash_getnewbuf, _hash_pageinit,
-    _hash_relbuf, page_mut, page_opaque, page_ref, with_meta, with_meta_mut, write_opaque,
+    _hash_getbuf, _hash_getbuf_with_strategy, _hash_getinitbuf, _hash_getnewbuf,
+    _hash_pageinit, _hash_relbuf, page_mut, page_opaque, page_ref, with_meta, with_meta_mut, write_opaque,
 };
 use crate::{relation_needs_wal, RM_HASH};
 
@@ -47,7 +41,10 @@ fn bitno_to_blkno(metap: &HashMetaPageData, ovflbitnum: u32) -> BlockNumber {
 }
 
 /// _hash_ovflblkno_to_bitno.
-pub fn _hash_ovflblkno_to_bitno(metap: &HashMetaPageData, ovflblkno: BlockNumber) -> PgResult<u32> {
+pub fn _hash_ovflblkno_to_bitno(
+    metap: &HashMetaPageData,
+    ovflblkno: BlockNumber
+) -> PgResult<u32> {
     let splitnum = metap.hashm_ovflpoint;
     for i in 1..=splitnum {
         if ovflblkno <= _hash_get_totalbuckets(i) {
@@ -69,11 +66,7 @@ fn bitmap_word(page: &PageRef<'_>, j: usize) -> u32 {
     // SAFETY: bitmap words live in the page contents region (checked bitmap
     // page under the caller's lock).
     unsafe {
-        page.as_ptr()
-            .add(SizeOfPageHeaderData)
-            .cast::<u32>()
-            .add(j)
-            .read()
+        page.as_ptr().add(SizeOfPageHeaderData).cast::<u32>().add(j).read()
     }
 }
 
@@ -82,13 +75,7 @@ fn set_bitmap_bit(page: &mut PageMut<'_>, bit: u32, set: bool) {
     let mask = 1u32 << (bit % BITS_PER_MAP);
     // SAFETY: exclusive lock held; word within the bitmap region.
     unsafe {
-        let p = page
-            .as_ref()
-            .as_ptr()
-            .cast_mut()
-            .add(SizeOfPageHeaderData)
-            .cast::<u32>()
-            .add(j);
+        let p = page.as_ref().as_ptr().cast_mut().add(SizeOfPageHeaderData).cast::<u32>().add(j);
         let w = p.read();
         p.write(if set { w | mask } else { w & !mask });
     }
@@ -125,7 +112,8 @@ fn chainwalk_step(
     crate::check_for_interrupts()?;
     *visited += 1;
     if *visited > *nblocks {
-        *nblocks = bm::relation_get_number_of_blocks_in_fork::call(rel, ForkNumber::MAIN_FORKNUM)?;
+        *nblocks =
+            bm::relation_get_number_of_blocks_in_fork::call(rel, ForkNumber::MAIN_FORKNUM)?;
         if *visited > *nblocks {
             return Err(crate::util::index_corrupted(
                 format!(
@@ -153,8 +141,7 @@ pub(crate) fn _hash_addovflpage(
     crate::util::_hash_checkpage(rel, buf, LH_BUCKET_PAGE | LH_OVERFLOW_PAGE)?;
 
     // find the current tail page
-    let mut nblocks =
-        bm::relation_get_number_of_blocks_in_fork::call(rel, ForkNumber::MAIN_FORKNUM)?;
+    let mut nblocks = bm::relation_get_number_of_blocks_in_fork::call(rel, ForkNumber::MAIN_FORKNUM)?;
     let mut nvisited: BlockNumber = 0;
     loop {
         // SAFETY: write lock held on buf.
@@ -226,11 +213,7 @@ pub(crate) fn _hash_addovflpage(
         }
         let mapblkno = with_meta(metabuf, |m| m.hashm_mapp[i as usize]);
 
-        let last_inpage = if i == last_page {
-            last_bit
-        } else {
-            bmsize_bits - 1
-        };
+        let last_inpage = if i == last_page { last_bit } else { bmsize_bits - 1 };
 
         bm::lock_buffer::call(metabuf, bm::BUFFER_LOCK_UNLOCK)?;
 
@@ -381,12 +364,7 @@ pub(crate) fn _hash_addovflpage(
             flags: REGBUF_WILL_INIT,
             bufdata: &bucket_data,
         });
-        bufs.push(XLogRegBuf {
-            block_id: 1,
-            buffer: buf,
-            flags: REGBUF_STANDARD,
-            bufdata: &[],
-        });
+        bufs.push(XLogRegBuf { block_id: 1, buffer: buf, flags: REGBUF_STANDARD, bufdata: &[], });
         if mapbuf != InvalidBuffer {
             bufs.push(XLogRegBuf {
                 block_id: 2,
@@ -396,12 +374,7 @@ pub(crate) fn _hash_addovflpage(
             });
         }
         if newmapbuf != InvalidBuffer {
-            bufs.push(XLogRegBuf {
-                block_id: 3,
-                buffer: newmapbuf,
-                flags: REGBUF_WILL_INIT,
-                bufdata: &[],
-            });
+            bufs.push(XLogRegBuf { block_id: 3, buffer: newmapbuf, flags: REGBUF_WILL_INIT, bufdata: &[], });
         }
         bufs.push(XLogRegBuf {
             block_id: 4,
@@ -491,8 +464,13 @@ pub(crate) fn _hash_freeovflpage(
         }
     }
     if nextblkno != InvalidBlockNumber {
-        nextbuf =
-            _hash_getbuf_with_strategy(rel, nextblkno, HASH_WRITE, LH_OVERFLOW_PAGE, bstrategy)?;
+        nextbuf = _hash_getbuf_with_strategy(
+            rel,
+            nextblkno,
+            HASH_WRITE,
+            LH_OVERFLOW_PAGE,
+            bstrategy
+        )?;
     }
 
     let metabuf = _hash_getbuf(rel, HASH_METAPAGE, HASH_READ, LH_META_PAGE)?;
@@ -502,10 +480,7 @@ pub(crate) fn _hash_freeovflpage(
     let bitmapbit = ovflbitno & bmpg_mask(bmshift);
 
     let (nmaps, blkno) = with_meta(metabuf, |m| {
-        (
-            m.hashm_nmaps,
-            m.hashm_mapp.get(bitmappage as usize).copied().unwrap_or(0),
-        )
+        (m.hashm_nmaps, m.hashm_mapp.get(bitmappage as usize).copied().unwrap_or(0),)
     });
     if bitmappage >= nmaps {
         // hashovfl.c:562 elog(ERROR): XX000, the bare message, no HINT.
@@ -630,34 +605,14 @@ pub(crate) fn _hash_freeovflpage(
             } else {
                 mod_wbuf = true;
             }
-            bufs.push(XLogRegBuf {
-                block_id: 1,
-                buffer: wbuf,
-                flags: wbuf_flags,
-                bufdata: &[],
-            });
+            bufs.push(XLogRegBuf { block_id: 1, buffer: wbuf, flags: wbuf_flags, bufdata: &[], });
         }
-        bufs.push(XLogRegBuf {
-            block_id: 2,
-            buffer: ovflbuf,
-            flags: REGBUF_STANDARD,
-            bufdata: &[],
-        });
+        bufs.push(XLogRegBuf { block_id: 2, buffer: ovflbuf, flags: REGBUF_STANDARD, bufdata: &[], });
         if prevbuf != InvalidBuffer && !is_prev_bucket_same_wrt {
-            bufs.push(XLogRegBuf {
-                block_id: 3,
-                buffer: prevbuf,
-                flags: REGBUF_STANDARD,
-                bufdata: &[],
-            });
+            bufs.push(XLogRegBuf { block_id: 3, buffer: prevbuf, flags: REGBUF_STANDARD, bufdata: &[], });
         }
         if nextbuf != InvalidBuffer {
-            bufs.push(XLogRegBuf {
-                block_id: 4,
-                buffer: nextbuf,
-                flags: REGBUF_STANDARD,
-                bufdata: &[],
-            });
+            bufs.push(XLogRegBuf { block_id: 4, buffer: nextbuf, flags: REGBUF_STANDARD, bufdata: &[], });
         }
         let bitmapbit_data: [&[u8]; 1] = [&bitmapbit_bytes];
         let firstfree_data: [&[u8]; 1] = [&firstfree_bytes];
@@ -770,8 +725,7 @@ pub(crate) fn _hash_squeezebucket(
     // Untrusted hasho_nextblkno/hasho_prevblkno links: bound every chain walk
     // in this function against the relation size and keep it interruptible, so
     // a crafted cycle can't spin forever holding buffer locks.
-    let mut nblocks =
-        bm::relation_get_number_of_blocks_in_fork::call(rel, ForkNumber::MAIN_FORKNUM)?;
+    let mut nblocks = bm::relation_get_number_of_blocks_in_fork::call(rel, ForkNumber::MAIN_FORKNUM)?;
     let mut nvisited: BlockNumber = 0;
     let mut rbuf = InvalidBuffer;
     let mut ropaque = wopaque;
@@ -798,8 +752,7 @@ pub(crate) fn _hash_squeezebucket(
     }
 
     let mut tup_storage: Vec<u8> = Vec::with_capacity(BLCKSZ);
-    let mut itups: Vec<(usize, usize)> =
-        ::mcx::std_vec_with_capacity("access", MaxIndexTuplesPerPage)?;
+    let mut itups: Vec<(usize, usize)> = ::mcx::std_vec_with_capacity("access", MaxIndexTuplesPerPage)?;
     let mut itup_offsets = [0 as OffsetNumber; MaxIndexTuplesPerPage];
     let mut deletable = [0 as OffsetNumber; MaxIndexTuplesPerPage];
 
@@ -887,19 +840,16 @@ pub(crate) fn _hash_squeezebucket(
                             let xlrec =
                                 crate::wal::xl_hash_move_page_contents(itups.len() as u16, is_prim);
 
-                            let mut offbytes: Vec<u8> =
-                                ::mcx::std_vec_with_capacity("access", itups.len() * 2)?;
+                            let mut offbytes: Vec<u8> = ::mcx::std_vec_with_capacity("access", itups.len() * 2)?;
                             for &off in &itup_offsets[..itups.len()] {
                                 offbytes.extend_from_slice(&off.to_ne_bytes());
                             }
-                            let mut wbufdata: Vec<&[u8]> =
-                                ::mcx::std_vec_with_capacity("access", 1 + itups.len())?;
+                            let mut wbufdata: Vec<&[u8]> = ::mcx::std_vec_with_capacity("access", 1 + itups.len())?;
                             wbufdata.push(&offbytes);
                             for &(start, len) in &itups {
                                 wbufdata.push(&tup_storage[start..start + len]);
                             }
-                            let mut delbytes: Vec<u8> =
-                                ::mcx::std_vec_with_capacity("access", ndeletable * 2)?;
+                            let mut delbytes: Vec<u8> = ::mcx::std_vec_with_capacity("access", ndeletable * 2)?;
                             for &off in &deletable[..ndeletable] {
                                 delbytes.extend_from_slice(&off.to_ne_bytes());
                             }

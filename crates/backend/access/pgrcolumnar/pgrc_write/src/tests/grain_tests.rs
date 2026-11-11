@@ -131,8 +131,9 @@ fn wide_values_force_a_smaller_grain_and_the_part_round_trips() {
                         let d = datums[r];
                         let hdr = u32::from_le_bytes(unsafe { *(d as *const [u8; 4]) });
                         let total = (hdr >> 2) as usize;
-                        let got =
-                            unsafe { std::slice::from_raw_parts((d + 4) as *const u8, total - 4) };
+                        let got = unsafe {
+                            std::slice::from_raw_parts((d + 4) as *const u8, total - 4)
+                        };
                         assert_eq!(got, wide_payload(row).as_slice(), "text row {row}");
                     }
                 }

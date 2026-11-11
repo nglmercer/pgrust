@@ -40,10 +40,7 @@ fn check_oracle(
     for &blk in probe_blocks {
         let offs: &[OffsetNumber] = oracle.get(&blk).map(|v| v.as_slice()).unwrap_or(&[]);
         for &off in offs {
-            assert!(
-                ts.is_member(&ItemPointerData::new(blk, off)),
-                "({blk},{off})"
-            );
+            assert!(ts.is_member(&ItemPointerData::new(blk, off)), "({blk},{off})");
         }
         for _ in 0..20 {
             let off = 1 + (rng.next() % MAX_OFFSET_IN_BITMAP as u64) as OffsetNumber;
@@ -197,9 +194,7 @@ fn header_only_and_bitmap_entries() {
 fn offset_out_of_range_errors() {
     let ctx = MemoryContext::new("tidstore test");
     let mut ts = TidStore::create_local(ctx.mcx(), 1024 * 1024, true).unwrap();
-    let err = ts
-        .set_block_offsets(1, &[MAX_OFFSET_IN_BITMAP + 1])
-        .unwrap_err();
+    let err = ts.set_block_offsets(1, &[MAX_OFFSET_IN_BITMAP + 1]).unwrap_err();
     assert!(err.message().contains("tuple offset out of range"));
     let big: Vec<OffsetNumber> = (1..=4).chain([MAX_OFFSET_IN_BITMAP + 1]).collect();
     assert!(ts.set_block_offsets(2, &big).is_err());
@@ -335,10 +330,7 @@ fn handle_attach_detach_owner_destroys_last() {
                 for i in 0..per_thread {
                     let blk = t * per_thread + i;
                     let offs = [1, (2 + (blk % 100)) as OffsetNumber];
-                    store
-                        .lock_exclusive()
-                        .set_block_offsets(blk, &offs)
-                        .unwrap();
+                    store.lock_exclusive().set_block_offsets(blk, &offs).unwrap();
                 }
                 // Cross-participant visibility: probe a block another
                 // participant may have inserted; own inserts must be seen.
@@ -368,10 +360,7 @@ fn handle_attach_detach_owner_destroys_last() {
 #[test]
 fn handle_outlives_detach() {
     let owner = SharedTidStore::create_shared(1024 * 1024, 0).unwrap();
-    owner
-        .lock_exclusive()
-        .set_block_offsets(7, &[3, 9])
-        .unwrap();
+    owner.lock_exclusive().set_block_offsets(7, &[3, 9]).unwrap();
 
     let handle = owner.get_handle();
     let p1 = SharedTidStore::attach(&handle);
@@ -416,10 +405,7 @@ fn local_max_block_size_follows_max_bytes() {
         max_step = max_step.max(now - prev);
         prev = now;
     }
-    assert!(
-        max_step <= 64 * 1024 + 3 * 128 * 1024,
-        "leaf block step {max_step}"
-    );
+    assert!(max_step <= 64 * 1024 + 3 * 128 * 1024, "leaf block step {max_step}");
 }
 
 // C: parallel VACUUM at 256kB passes every 16 blocks, at 64kB every block.

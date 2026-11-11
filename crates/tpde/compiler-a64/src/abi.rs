@@ -19,8 +19,7 @@ pub const RESERVED_REGS: u64 = (1 << 31)
     | (1 << 16)
     | (1 << 17)
     | if cfg!(target_os = "macos") { 1 << 18 } else { 0 };
-pub const AAPCS_INFO: CCInfo = CCInfo::new(
-    !RESERVED_REGS,
+pub const AAPCS_INFO: CCInfo = CCInfo::new( !RESERVED_REGS,
     (0x3ff << 19) | (0xff << 40),
     0x1ff | (0xff << 32),
 );

@@ -275,7 +275,7 @@ impl Cells<'_> {
                 let words = &mut self.valid[k * WORDS..(k + 1) * WORDS];
                 words.fill(0);
                 words[..r / 64].fill(u64::MAX);
-                if !r.is_multiple_of(64) {
+                if ! r.is_multiple_of( 64) {
                     words[r / 64] = (1u64 << (r % 64)) - 1;
                 }
             }
@@ -632,7 +632,7 @@ impl AmWalk {
                 (row.attr(attno, &mut null), null)
             };
             if q.heap.contains(&0) {
-                table_row(slot, q.index, att, mcx);
+                table_row(slot, q.index,att, mcx);
                 form(q.heap, q.index, &mut *q.info, slot, &mut self.row, &mut self.ivals, &mut self.inull, mcx)?;
                 exectuples::exec_clear_tuple(slot, mcx);
             }

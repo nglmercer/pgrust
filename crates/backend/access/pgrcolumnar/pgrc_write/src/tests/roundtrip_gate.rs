@@ -36,7 +36,10 @@ impl GranuleEncoder for CorruptingEncoder {
         }
         Ok(())
     }
-    fn finish_stream(&mut self, w: &mut StreamSectionWriter<'_>) -> pgrc_format::FormatResult<()> {
+    fn finish_stream(
+        &mut self,
+        w: &mut StreamSectionWriter<'_>
+    ) -> pgrc_format::FormatResult<()> {
         self.inner.finish_stream(w)
     }
 }
@@ -134,12 +137,8 @@ fn honest_seal_verifies_every_granule() {
             shred_opts: &kit.opts,
         };
         let img = img_4b_u(format!("x{}", i % 100).as_bytes());
-        w.append_row(
-            &[RawDatum::Word(i), RawDatum::Bytes(&img)],
-            &mut kit.ext,
-            &mut env,
-        )
-        .expect("append");
+        w.append_row(&[RawDatum::Word(i), RawDatum::Bytes(&img)], &mut kit.ext, &mut env,)
+            .expect("append");
     }
     let probe = Probe::new(TxnVerdict::InProgress).set(45, TxnVerdict::Committed);
     finish_and_publish(&mut w, &mut vfs, &mut kit, &probe);

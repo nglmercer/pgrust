@@ -30,8 +30,8 @@
 //! writer-built and obey the pointer-class contract).
 
 use crate::bloom::{
-    bloom_armed, bloom_build_bytes, bloom_bytes_for, bloom_fold, bloom_insert_hashed, bloom_k_for,
-    bloom_part_choice, bloom_tile, bloom_value_bytes, BloomCandidate, BLOOM_BYTES_MIN,
+    bloom_armed, bloom_build_bytes, bloom_bytes_for, bloom_fold, bloom_insert_hashed, bloom_k_for, bloom_part_choice,
+    bloom_tile, bloom_value_bytes, BloomCandidate, BLOOM_BYTES_MIN,
 };
 use crate::format::abi::{datum_canonical_bytes, ColumnMetaBuilder, EncodeInput};
 use crate::format::geom::{GRANULES_PER_BAND, GRANULE_ROWS};
@@ -121,10 +121,7 @@ pub(crate) fn bloom_insert_pow2(block: &mut [u8], k: u32, h1: u64, h2: u64) {
 impl CurGranule {
     /// The in-flight granule's heap bytes (capacities): its HLL registers, staged keys, bloom block and staged hashes.
     fn heap_bytes(&self) -> u64 {
-        self.hll.heap_bytes()
-            + self.keybuf.heap_bytes()
-            + self.bloom.as_ref().map_or(0, |v| cap_bytes!(v))
-            + cap_bytes!(self.bloom_hashes)
+        self.hll.heap_bytes() + self.keybuf.heap_bytes() + self.bloom.as_ref().map_or(0, |v| cap_bytes!(v)) + cap_bytes!(self.bloom_hashes)
     }
 
     #[inline]
@@ -144,8 +141,7 @@ impl CurGranule {
     fn bloom_unstage(&mut self, h1: u64, h2: u64) {
         self.bloom_defer = false;
         let bytes = bloom_build_bytes(self.bloom_k) as usize;
-        match pgrc_format::try_filled(bytes, 0u8, "bloom") {
-            // alloc: Node charged kept
+        match pgrc_format::try_filled(bytes, 0u8, "bloom") { // alloc: Node charged kept
             Ok(mut b) => {
                 for &(a, c) in self.bloom_hashes.iter().chain([(h1, h2)].iter()) {
                     bloom_insert_pow2(&mut b, self.bloom_k, a, c);
@@ -159,12 +155,7 @@ impl CurGranule {
 }
 
 impl CurGranule {
-    fn new(
-        granule: u32,
-        profile: &MetaProfile,
-        bloom_populate: bool,
-        staged: Option<Vec<(u64, u64)>>,
-    ) -> CurGranule {
+    fn new(granule: u32, profile: &MetaProfile, bloom_populate: bool, staged: Option<Vec<(u64, u64)>>,) -> CurGranule {
         let bloom_k = bloom_k_for(profile.class);
         let bloom_defer = staged.is_some() && profile.eq_bloomable && bloom_populate;
         CurGranule {
@@ -193,8 +184,7 @@ impl CurGranule {
             keybuf: KeyBuf::default(),
             bloom: if profile.eq_bloomable && bloom_populate && !bloom_defer {
                 let bytes = bloom_build_bytes(bloom_k) as usize;
-                match pgrc_format::try_filled(bytes, 0u8, "bloom") {
-                    // alloc: Node charged kept
+                match pgrc_format::try_filled(bytes, 0u8, "bloom") { // alloc: Node charged kept
                     Ok(b) => Some(b),
                     Err(_) => {
                         // Not built: the granule's bit stays clear and the reader scans it.
@@ -230,9 +220,7 @@ struct SealedGranule {
 impl SealedGranule {
     /// The sealed granule's own blocks (capacities): fixed once sealed, summed in `ColumnMeta::sealed_heap`.
     fn heap_bytes(&self) -> u64 {
-        self.hll.heap_bytes()
-            + self.psma.as_ref().map_or(0, |v| cap_bytes!(v))
-            + self.bloom.as_ref().map_or(0, |v| cap_bytes!(v))
+        self.hll.heap_bytes() + self.psma.as_ref().map_or(0, |v| cap_bytes!(v)) + self.bloom.as_ref().map_or(0, |v| cap_bytes!(v))
     }
 }
 
@@ -339,8 +327,7 @@ impl ColumnMeta {
                     crate::format::class::StorageClass::ByvalWord { .. }
                     | crate::format::class::StorageClass::F32
                     | crate::format::class::StorageClass::F64
-                    | crate::format::class::StorageClass::Bool => {
-                        crate::sketch::DistAcc::for_words()
+                    | crate::format::class::StorageClass::Bool => { crate::sketch::DistAcc::for_words()
                     }
                     _ => crate::sketch::DistAcc::default(),
                 })
@@ -373,10 +360,7 @@ impl ColumnMeta {
     /// Kind::Region), by construction: one door-1 charge fitted to the builder's capacities at each granule's seal and
     /// each part step, on the thread that feeds the builder (lag: at most one granule's growth), given back with the
     /// builder. `None`: [`ColumnMeta::new`].
-    pub fn with_owner(
-        profile: MetaProfile,
-        owner: Option<(memledger::Owner, memledger::Kind)>,
-    ) -> ColumnMeta {
+    pub fn with_owner(profile: MetaProfile, owner: Option<(memledger::Owner, memledger::Kind)>,) -> ColumnMeta {
         let mut m = ColumnMeta::new(profile);
         m.kept = Kept::new(owner);
         // D4539: the accumulator charges its own blocks, before each grow (`sketch.rs`), not at the next fit here.
@@ -394,27 +378,18 @@ impl ColumnMeta {
 
     /// The bytes the builder's charges hold now: its own and its accumulator's (0 uncharged).
     pub fn charged_bytes(&self) -> u64 {
-        self.kept.charged()
-            + self
-                .dist
-                .as_ref()
-                .map_or(0, crate::sketch::DistAcc::charged)
+        self.kept.charged() + self.dist.as_ref().map_or(0, crate::sketch::DistAcc::charged)
     }
 
     /// Everything the builder keeps between calls, in heap bytes (capacities, not lengths).
     fn heap_bytes(&self) -> u64 {
         let size = |n: usize, s: usize| (n as u64).saturating_mul(s as u64);
-        size(
-            self.granules.capacity(),
-            std::mem::size_of::<SealedGranule>(),
-        ) + self.sealed_heap
+        size(self.granules.capacity(), std::mem::size_of::<SealedGranule>(),)
+            + self.sealed_heap
             + self.cur.as_ref().map_or(0, CurGranule::heap_bytes)
             + cap_bytes!(self.lane_stored)
             + cap_bytes!(self.band_records)
-            + self
-                .dist
-                .as_ref()
-                .map_or(0, crate::sketch::DistAcc::unkept_bytes)
+            + self.dist.as_ref().map_or(0, crate::sketch::DistAcc::unkept_bytes)
             + self.feed_heap
             + self.part_hll.as_ref().map_or(0, Hll::heap_bytes)
             + self.scratch.heap_bytes()
@@ -430,9 +405,7 @@ impl ColumnMeta {
     }
 
     fn new_cur(&mut self, granule: u32) -> CurGranule {
-        let staged = self
-            .batch_fold
-            .then(|| std::mem::take(&mut self.bloom_spare));
+        let staged = self.batch_fold.then(|| std::mem::take(&mut self.bloom_spare));
         let mut c = CurGranule::new(granule, &self.profile, self.bloom_populate, staged);
         c.keybuf = std::mem::take(&mut self.keybuf_spare);
         c
@@ -703,14 +676,11 @@ impl ColumnMeta {
         let nonnull_sum: u64 = granules.iter().map(|g| g.rec.nonnull as u64).sum();
         rec.nonnull = nonnull_sum.min(u32::MAX as u64) as u32;
         // Contributing = granules with at least one nonnull value.
-        let (owner, kind) = self
-            .owner()
-            .map_or((None, memledger::Kind::Region), |(o, k)| (Some(o), k));
-        let mut contributing: memledger::ChargedVec<&SealedGranule> =
-            memledger::ChargedVec::new(owner, kind);
+        let (owner, kind) = self.owner().map_or((None, memledger::Kind::Region), |(o, k)| (Some(o), k));
+        let mut contributing: memledger::ChargedVec<&SealedGranule> = memledger::ChargedVec::new(owner, kind);
         contributing.with_vec(|v| v.extend(granules.iter().filter(|g| g.rec.nonnull > 0))); // alloc: Exec charged contributing.owner()
-                                                                                            // Keys: every contributing granule must carry the derivation's
-                                                                                            // kind; anything else (a poisoned granule) degrades the grain.
+        // Keys: every contributing granule must carry the derivation's
+        // kind; anything else (a poisoned granule) degrades the grain.
         let want_kind = profile.key.kind();
         let keys_ok = want_kind != KeyKind::Absent
             && !contributing.is_empty()
@@ -959,8 +929,9 @@ impl ColumnMetaBuilder for ColumnMeta {
                     // contract by construction (the seal driver built them
                     // — the same contract `abi::verify_roundtrip`
                     // documents). Byval classes never reach this arm.
-                    match unsafe { datum_canonical_bytes(self.profile.class, datum, &mut scratch) }
-                    {
+                    match unsafe {
+                        datum_canonical_bytes(self.profile.class, datum, &mut scratch)
+                    } {
                         Ok(bytes) => ValueView::Bytes(bytes),
                         Err(_) => {
                             // Unreadable image: degrade, never guess (and
@@ -988,10 +959,7 @@ impl ColumnMetaBuilder for ColumnMeta {
     fn end_granule_rows(&mut self, rows: u32) {
         let cur = self.cur.as_mut().expect("begin_granule_rows first");
         cur.rows += rows;
-        assert!(
-            cur.rows <= GRANULE_ROWS,
-            "granule overfilled (driver protocol)"
-        );
+        assert!(cur.rows <= GRANULE_ROWS, "granule overfilled (driver protocol)");
     }
 
     fn seal_granule(&mut self, granule: u32) -> StatsRecord {
@@ -1055,12 +1023,7 @@ impl ColumnMetaBuilder for ColumnMeta {
 
     fn set_lane_stored_bytes(&mut self, per_granule: &[u64]) {
         self.lane_stored.clear();
-        if self
-            .lane_stored
-            .try_reserve_exact(per_granule.len())
-            .is_ok()
-        {
-            // alloc: Node charged kept
+        if self.lane_stored.try_reserve_exact(per_granule.len()).is_ok() { // alloc: Node charged kept
             self.lane_stored.extend_from_slice(per_granule); // alloc: Node charged kept
         } else {
             // Empty = price the raw lane; the bloom choice only.
@@ -1074,11 +1037,11 @@ impl ColumnMetaBuilder for ColumnMeta {
         let n = self.granules.len();
         let bitmap_len = n.div_ceil(8);
         let mut out = Vec::new(); // alloc: Exec charged kept until returned
-                                  // Psma (spec §8.2): [armed bitmap][blocks in granule order] and
-                                  // Bloom (spec §8.3): BloomHdr + [armed bitmap][blocks] — built in
-                                  // ONE walk over the granule list (SEAL-FUSION #19: the bitmaps are
-                                  // fixed-offset prefixes, so bits and blocks land in the same pass;
-                                  // section bytes unchanged).
+        // Psma (spec §8.2): [armed bitmap][blocks in granule order] and
+        // Bloom (spec §8.3): BloomHdr + [armed bitmap][blocks] — built in
+        // ONE walk over the granule list (SEAL-FUSION #19: the bitmaps are
+        // fixed-offset prefixes, so bits and blocks land in the same pass;
+        // section bytes unchanged).
         let mut psma_body = vec![0u8; bitmap_len]; // alloc: Exec charged kept until returned
         let mut psma_any = false;
         // One block size per part, every smaller armed block tiled up to it
@@ -1094,12 +1057,7 @@ impl ColumnMetaBuilder for ColumnMeta {
                 g.bloom.as_ref().map(|b| BloomCandidate {
                     ndv: g.rec.ndv_est.min(g.rec.nonnull.max(1)),
                     own: b.len() as u32,
-                    lane_bytes: self
-                        .lane_stored
-                        .get(i)
-                        .copied()
-                        .filter(|&s| s > 0)
-                        .unwrap_or(g.lane_raw),
+                    lane_bytes: self.lane_stored.get(i).copied().filter(|&s| s > 0).unwrap_or(g.lane_raw),
                 })
             })
             .collect(); // alloc: Exec charged kept until returned
@@ -1172,10 +1130,7 @@ impl ColumnMetaBuilder for ColumnMeta {
     /// honestly).
     fn distribution(&mut self) -> Option<crate::format::sidecar::ColDistribution> {
         assert!(self.part_sealed, "distribution before seal_part");
-        assert!(
-            !self.unpinned,
-            "distribution after unpin_inputs (driver protocol)"
-        );
+        assert!(!self.unpinned, "distribution after unpin_inputs (driver protocol)");
         // D4400: read once; the distinct set (the accumulator's slots, entries and value arena, or the feed) goes with it, so
         // the seal, which reads each stream's sketch as soon as the stream is emitted, keeps at most one column's set live
         // instead of every column's to the part's end. `distinct_exact` is read before (inside the stream's own emission).
@@ -1187,11 +1142,7 @@ impl ColumnMetaBuilder for ColumnMeta {
         let order = crate::sketch::HistOrder::of(&self.profile);
         if let Some(feed) = self.dist_feed.take() {
             debug_assert!(self.dist.is_none(), "feed and accumulator both live");
-            let out = crate::sketch::distribution_from_sorted_counts_in_for(
-                &feed,
-                order,
-                self.kept.owner(),
-            );
+            let out = crate::sketch::distribution_from_sorted_counts_in_for(&feed, order, self.kept.owner(),);
             drop(feed);
             self.feed_heap = 0;
             self.fit_kept();
@@ -1216,10 +1167,7 @@ impl ColumnMetaBuilder for ColumnMeta {
     /// exact only with zero long-value residue.
     fn distinct_exact(&self) -> Option<u64> {
         assert!(self.part_sealed, "distinct_exact before seal_part");
-        assert!(
-            !self.unpinned,
-            "distinct_exact after unpin_inputs (driver protocol)"
-        );
+        assert!(!self.unpinned, "distinct_exact after unpin_inputs (driver protocol)");
         if let Some(feed) = &self.dist_feed {
             return Some(feed.len() as u64);
         }
@@ -1264,8 +1212,7 @@ impl ColumnMetaBuilder for ColumnMeta {
             self.dist = None;
             // A3: the feed's blocks join the builder's charge (committed from this thread's account, where the writer
             // built them), counted once: the feed is read, never grown, until `distribution` takes it.
-            self.feed_heap =
-                cap_bytes!(entries) + entries.iter().map(|(b, _)| cap_bytes!(b)).sum::<u64>();
+            self.feed_heap = cap_bytes!(entries) + entries.iter().map(|(b, _)| cap_bytes!(b)).sum::<u64>();
             self.dist_feed = Some(entries);
         }
         self.fit_kept();
@@ -1278,8 +1225,7 @@ impl ColumnMetaBuilder for ColumnMeta {
     fn bank_fold_begin(&mut self) -> bool {
         let byte_class = matches!(
             self.profile.class,
-            crate::format::class::StorageClass::VarlenaVerbatim
-                | crate::format::class::StorageClass::Fixed { .. }
+            crate::format::class::StorageClass::VarlenaVerbatim | crate::format::class::StorageClass::Fixed { .. }
         );
         if !(self.batch_fold && self.profile.hashes_values() && byte_class) {
             return false;
@@ -1328,8 +1274,7 @@ impl ColumnMetaBuilder for ColumnMeta {
         );
         if self.dict_tables.is_none() {
             let feed = self.dist_feed.as_ref().expect("supported implies feed");
-            self.dict_tables = Some(Box::new(crate::batch::build_dict_tables(
-                // alloc: Node charged kept
+            self.dict_tables = Some(Box::new(crate::batch::build_dict_tables( // alloc: Node charged kept
                 &self.profile,
                 feed,
             )));
@@ -1466,19 +1411,13 @@ impl ColumnMeta {
         let mut staged = cur.bloom_hashes;
         let bloom = match cur.bloom {
             Some(block) if bloom_armed(sortedness, rec.ndv_est) => {
-                let own =
-                    bloom_bytes_for(rec.ndv_est.min(cur.nonnull.max(1)), cur.bloom_k) as usize;
-                Some(if own < block.len() {
-                    bloom_fold(&block, own)
-                } else {
-                    block
-                })
+                let own = bloom_bytes_for(rec.ndv_est.min(cur.nonnull.max(1)), cur.bloom_k) as usize;
+                Some(if own < block.len() { bloom_fold(&block, own) } else { block })
             }
             None if cur.bloom_defer && bloom_armed(sortedness, rec.ndv_est) => {
                 let own = bloom_bytes_for(rec.ndv_est.min(cur.nonnull.max(1)), cur.bloom_k);
                 let bytes = own.min(bloom_build_bytes(cur.bloom_k)) as usize;
-                match pgrc_format::try_filled(bytes, 0u8, "bloom") {
-                    // alloc: Node charged kept
+                match pgrc_format::try_filled(bytes, 0u8, "bloom") { // alloc: Node charged kept
                     Ok(mut b) => {
                         for &(h1, h2) in &staged {
                             bloom_insert_pow2(&mut b, cur.bloom_k, h1, h2);

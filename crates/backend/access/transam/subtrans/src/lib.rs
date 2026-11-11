@@ -1,4 +1,4 @@
-#![allow(non_snake_case, non_upper_case_globals)]
+#![allow(non_snake_case,non_upper_case_globals)]
 
 use std::sync::OnceLock;
 
@@ -14,8 +14,8 @@ use slru::{
 };
 use types_core::{
     FirstNormalTransactionId, InvalidTransactionId, MaxTransactionId, Size, TransactionId,
-    TransactionIdEquals, TransactionIdFollows, TransactionIdFollowsOrEquals, TransactionIdIsNormal,
-    TransactionIdIsValid, TransactionIdPrecedes, BLCKSZ,
+    TransactionIdEquals, TransactionIdFollows, TransactionIdFollowsOrEquals,
+    TransactionIdIsNormal, TransactionIdIsValid, TransactionIdPrecedes, BLCKSZ,
 };
 use types_error::{PgResult, ERROR};
 use types_guc::{GucContext::PGC_POSTMASTER, GucSource};
@@ -27,8 +27,9 @@ pub const SUBTRANS_XACTS_PER_PAGE: u32 = (BLCKSZ / core::mem::size_of::<Transact
 static SUB_TRANS_CTL: OnceLock<SlruCtlData> = OnceLock::new();
 
 fn SubTransCtl() -> &'static SlruCtlData {
-    SUB_TRANS_CTL.get().unwrap_or_else(|| {
-        panic!("SUBTRANS accessed before SUBTRANSShmemInit (SubTransCtl is NULL)")
+    SUB_TRANS_CTL
+        .get()
+        .unwrap_or_else(|| { panic!("SUBTRANS accessed before SUBTRANSShmemInit (SubTransCtl is NULL)")
     })
 }
 
@@ -139,6 +140,7 @@ fn SUBTRANSShmemBuffers() -> i32 {
     }
 
     #[allow(clippy::manual_clamp)]
+
     globals::subtransaction_buffers()
         .max(16)
         .min(SLRU_MAX_ALLOWED_BUFFERS)

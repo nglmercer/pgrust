@@ -2,7 +2,9 @@ use ::datum::Datum;
 use ::types_core::AttrNumber;
 use ::types_error::{PgError, PgResult, ERRCODE_FEATURE_NOT_SUPPORTED};
 use ::types_slot::{HeapTupleTableSlot, MinimalTupleTableSlot, SlotBase, SlotData, TTS_FLAG_SLOW};
-use ::types_tuple::tupmacs::{att_isnull, att_nominal_alignby, att_pointer_alignby, fetch_att};
+use ::types_tuple::tupmacs::{
+    att_isnull, att_nominal_alignby, att_pointer_alignby, fetch_att
+};
 use ::types_tuple::{
     heap_getsysattr, CompactAttribute, HeapTupleData, MinimalTupleData,
     SelfItemPointerAttributeNumber, SizeofMinimalTupleHeader, TableOidAttributeNumber,
@@ -516,12 +518,7 @@ fn getsome_narrow(base: &mut SlotBase<'_>, img: TupleImage, offp: &mut u32, attn
 
 #[inline]
 pub(crate) fn heap_getsomeattrs_int(h: &mut HeapTupleTableSlot<'_>, attnum: i32) {
-    let HeapTupleTableSlot {
-        base,
-        tuple,
-        off,
-        jit_deform,
-    } = h;
+    let HeapTupleTableSlot { base, tuple, off, jit_deform, } = h;
     debug_assert!(!base.is_empty());
     check_attnum(base, attnum);
     let img = TupleImage::from_heap(tuple.as_ref().expect("heap slot without tuple"));
@@ -635,12 +632,7 @@ pub fn slot_attisnull(slot: &mut SlotData<'_>, attnum: i32) -> bool {
 // deform kernel is a direct call, no SlotData dispatch (types_slot design).
 #[inline]
 pub fn heap_slot_getattr(h: &mut HeapTupleTableSlot<'_>, attnum: i32, isnull: &mut bool) -> Datum {
-    let HeapTupleTableSlot {
-        base,
-        tuple,
-        off,
-        jit_deform,
-    } = h;
+    let HeapTupleTableSlot { base, tuple, off, jit_deform, } = h;
     base.slot_getattr(attnum, isnull, |b, n| {
         check_attnum(b, n);
         let img = TupleImage::from_heap(tuple.as_ref().expect("heap slot without tuple"));
@@ -746,16 +738,7 @@ mod deform_bounds_tests {
         // img is the crafted image with a matching data_len.
         unsafe {
             deform_internal(
-                &mut values,
-                &mut isnull,
-                &atts,
-                img,
-                0,
-                1,
-                false,
-                false,
-                &mut off,
-                &mut slow,
+                &mut values, &mut isnull, &atts, img, 0, 1, false, false, &mut off, &mut slow,
             );
         }
     }
@@ -800,11 +783,8 @@ mod deform_bounds_tests {
 mod corrupt_tests {
     #[test]
     fn deform_corruption_is_data_corrupted() {
-        let payload =
-            std::panic::catch_unwind(|| super::deform_corrupt()).expect_err("must unwind");
-        let err = payload
-            .downcast::<alloc::boxed::Box<::types_error::PgError>>()
-            .expect("PgError payload");
+        let payload = std::panic::catch_unwind(|| super::deform_corrupt()).expect_err("must unwind");
+        let err = payload.downcast::<alloc::boxed::Box<::types_error::PgError>>().expect("PgError payload");
         assert_eq!(err.sqlstate(), ::types_error::ERRCODE_DATA_CORRUPTED);
         assert!(err.message.contains("heap tuple data is corrupt"));
     }

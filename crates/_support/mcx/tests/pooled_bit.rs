@@ -47,10 +47,7 @@ unsafe fn take(bytes: usize, align: usize, life: Lifetime, zeroed: bool) -> *mut
 }
 
 unsafe fn give(p: *mut u8, bytes: usize, align: usize, life: Option<Lifetime>) {
-    assert!(
-        pagepool::taken(p),
-        "the source gets back only a block it served"
-    );
+    assert!(pagepool::taken(p), "the source gets back only a block it served");
     GIVES.fetch_add(1, Relaxed);
     // SAFETY: BlockSource's contract: a live block of `bytes` at `align` this source served, a some `life` its take's.
     unsafe {
@@ -67,16 +64,10 @@ unsafe fn resize(p: *mut u8, old: usize, new: usize, align: usize) -> *mut u8 {
         return null_mut();
     }
     // SAFETY: as `give`.
-    unsafe { pagepool::resize(NonNull::new_unchecked(p), old, new, align) }
-        .map_or(null_mut(), |b| b.as_ptr().cast())
+    unsafe { pagepool::resize(NonNull::new_unchecked(p), old, new, align) }.map_or(null_mut(), |b| b.as_ptr().cast())
 }
 
-static SOURCE: BlockSource = BlockSource {
-    take,
-    give,
-    resize,
-    usable: pagepool::usable,
-};
+static SOURCE: BlockSource = BlockSource { take, give, resize, usable: pagepool::usable, };
 
 fn chunk(n: usize) -> Layout {
     Layout::from_size_align(n, 8).unwrap()
@@ -89,10 +80,7 @@ fn serial() -> MutexGuard<'static, ()> {
     static TURN: Mutex<()> = Mutex::new(());
     ONCE.call_once(|| {
         let probe = vec![1u8; 8 * KIB];
-        assert!(
-            pagepool::global_on() && pagepool::owns(probe.as_ptr()),
-            "the global allocator serves from the pool's range"
-        );
+        assert!(pagepool::global_on() && pagepool::owns(probe.as_ptr()), "the global allocator serves from the pool's range");
         drop(probe);
         let (lo, len) = pagepool::range();
         set_block_owner(pagepool::taken);
@@ -110,16 +98,8 @@ fn on(procno: u32, f: impl FnOnce() + Send + 'static) {
         f();
         REFUSE.store(false, Relaxed);
         pagepool::flush_shelf();
-        assert_eq!(
-            GIVES.load(Relaxed) - gives0,
-            TAKES.load(Relaxed) - takes0,
-            "the source got back what it took, nothing else"
-        );
-        assert_eq!(
-            pagepool::stats().in_use[Tag::MCX.0 as usize],
-            use0,
-            "every taken block went back"
-        );
+        assert_eq!(GIVES.load(Relaxed) - gives0, TAKES.load(Relaxed) - takes0, "the source got back what it took, nothing else");
+        assert_eq!(pagepool::stats().in_use[Tag::MCX.0 as usize], use0, "every taken block went back");
         memledger::unbind_backend();
     })
     .join()
@@ -139,11 +119,7 @@ fn a_refused_take_records_the_global_allocators_block_and_frees_it_there() {
         for round in 0..20 {
             let mut ctx = MemoryContext::new_wholesale("bit-refused");
             let p = ctx.mcx().allocate(big).unwrap().cast::<u8>();
-            assert_eq!(
-                ctx.dedicated_served(p),
-                Some(true),
-                "the source's take served it"
-            );
+            assert_eq!(ctx.dedicated_served(p), Some(true), "the source's take served it");
             let refused0 = REFUSED.load(Relaxed);
             REFUSE.store(true, Relaxed);
             let q = ctx.mcx().allocate(big).unwrap().cast::<u8>();
@@ -153,19 +129,9 @@ fn a_refused_take_records_the_global_allocators_block_and_frees_it_there() {
                 held.push(ctx.mcx().allocate(chunk(KIB)).unwrap());
             }
             REFUSE.store(false, Relaxed);
-            assert!(
-                REFUSED.load(Relaxed) >= refused0 + 3,
-                "the dedicated chunk and the big blocks were refused"
-            );
-            assert!(
-                global_in_range(q),
-                "the global allocator served the refused chunk from the source's range"
-            );
-            assert_eq!(
-                ctx.dedicated_served(q),
-                Some(false),
-                "a refused take records the global allocator"
-            );
+            assert!(REFUSED.load(Relaxed) >= refused0 + 3, "the dedicated chunk and the big blocks were refused");
+            assert!(global_in_range(q), "the global allocator served the refused chunk from the source's range");
+            assert_eq!(ctx.dedicated_served(q), Some(false), "a refused take records the global allocator");
             // and the blocks after: the source's again
             for _ in 0..600 {
                 held.push(ctx.mcx().allocate(chunk(KIB)).unwrap());
@@ -193,13 +159,7 @@ fn a_dedicated_chunk_records_its_server_across_resizes() {
     let _turn = serial();
     on(4081, || {
         let ctx = MemoryContext::new("bit-resize");
-        let (l32, l128, l256, l512, l40m) = (
-            chunk(32 * KIB),
-            chunk(128 * KIB),
-            chunk(256 * KIB),
-            chunk(512 * KIB),
-            chunk(40 * MIB),
-        );
+        let (l32, l128, l256, l512, l40m) = (chunk(32 * KIB), chunk(128 * KIB), chunk(256 * KIB), chunk(512 * KIB), chunk(40 * MIB),);
         let p = ctx.mcx().allocate(l128).unwrap().cast::<u8>();
         // SAFETY: inside the chunk
         unsafe { p.as_ptr().write(7) };
@@ -207,41 +167,26 @@ fn a_dedicated_chunk_records_its_server_across_resizes() {
         // SAFETY: each resize takes this context's live chunk at its layout, the next one names the chunk it returned
         unsafe {
             let q = ctx.mcx().shrink(p, l128, l32).unwrap().cast::<u8>();
-            assert!(
-                pagepool::taken(q.as_ptr()) && ctx.dedicated_served(q) == Some(true),
-                "under the source's min, still its"
-            );
+            assert!(pagepool::taken(q.as_ptr()) && ctx.dedicated_served(q) == Some(true), "under the source's min, still its");
             let r = ctx.mcx().grow(q, l32, l128).unwrap().cast::<u8>();
             assert_eq!(ctx.dedicated_served(r), Some(true));
             REFUSE.store(true, Relaxed);
             let s = ctx.mcx().grow(r, l128, l512).unwrap().cast::<u8>();
             REFUSE.store(false, Relaxed);
-            assert!(
-                global_in_range(s) && ctx.dedicated_served(s) == Some(false),
-                "refused: moved to the global allocator"
-            );
+            assert!(global_in_range(s) && ctx.dedicated_served(s) == Some(false), "refused: moved to the global allocator");
             let t = ctx.mcx().shrink(s, l512, l32).unwrap().cast::<u8>();
             assert_eq!(ctx.dedicated_served(t), Some(false));
             let u = ctx.mcx().grow(t, l32, l256).unwrap().cast::<u8>();
-            assert!(
-                !pagepool::taken(u.as_ptr()) && ctx.dedicated_served(u) == Some(false),
-                "a resize keeps the global allocator's"
-            );
+            assert!(!pagepool::taken(u.as_ptr()) && ctx.dedicated_served(u) == Some(false), "a resize keeps the global allocator's");
             let v = ctx.mcx().grow(u, l256, l40m).unwrap().cast::<u8>();
-            assert!(
-                !pagepool::owns(v.as_ptr()) && ctx.dedicated_served(v) == Some(false),
-                "its own mapping"
-            );
+            assert!(!pagepool::owns(v.as_ptr()) && ctx.dedicated_served(v) == Some(false), "its own mapping");
             assert_eq!(v.as_ptr().read(), 7);
             let w = ctx.mcx().shrink(v, l40m, l128).unwrap().cast::<u8>();
             assert_eq!(ctx.dedicated_served(w), Some(false));
             ctx.mcx().deallocate(w, l128);
             let x = ctx.mcx().allocate(l512).unwrap().cast::<u8>();
             let y = ctx.mcx().grow(x, l512, l40m).unwrap().cast::<u8>();
-            assert!(
-                pagepool::taken(y.as_ptr()) && ctx.dedicated_served(y) == Some(true),
-                "the source's past the map threshold"
-            );
+            assert!(pagepool::taken(y.as_ptr()) && ctx.dedicated_served(y) == Some(true), "the source's past the map threshold");
             let z = ctx.mcx().shrink(y, l40m, l32).unwrap().cast::<u8>();
             assert_eq!(ctx.dedicated_served(z), Some(pagepool::taken(z.as_ptr())));
         }
@@ -289,11 +234,7 @@ fn with_the_bit_off_nothing_is_recorded_and_every_block_goes_home() {
         REFUSE.store(true, Relaxed);
         let q = ctx.mcx().allocate(big).unwrap().cast::<u8>();
         REFUSE.store(false, Relaxed);
-        assert_eq!(
-            (ctx.dedicated_served(p), ctx.dedicated_served(q)),
-            (None, None),
-            "off: not read"
-        );
+        assert_eq!((ctx.dedicated_served(p), ctx.dedicated_served(q)), (None, None), "off: not read");
         assert!(pagepool::taken(p.as_ptr()) && global_in_range(q));
         for _ in 0..1000 {
             let _ = ctx.mcx().allocate(chunk(KIB)).unwrap();

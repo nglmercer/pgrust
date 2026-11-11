@@ -360,7 +360,7 @@ fn label_match_with<F: Fn(&[u8]) -> Vec<u8>>(
         return pred
             .iter()
             .zip(label)
-            .all(|(p, l)| p.eq_ignore_ascii_case(l));
+            .all(|(p, l)| p.eq_ignore_ascii_case( l));
     }
 
     let fpred = fold(pred);
@@ -534,7 +534,7 @@ fn checkcondition_str(t_names: &[&[u8]], operand: &[u8], it: &Item) -> bool {
             if compare_subnode(name, op, prefix, ci) {
                 return true;
             }
-        } else if ltree_label_match(op, name, prefix, ci) {
+        } else if ltree_label_match(op,name, prefix, ci) {
             return true;
         }
     }

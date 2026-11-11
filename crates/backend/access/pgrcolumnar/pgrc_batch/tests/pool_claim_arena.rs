@@ -14,14 +14,8 @@ fn pool_bytes(a: Acct) -> i64 {
 #[test]
 fn a_claim_arenas_chunks_are_the_pools_on_the_threads_account() {
     std::env::set_var("PGRUST_POOL_GRAVITY", "1");
-    assert!(
-        pagepool::switches().gravity,
-        "the switch, read at its first call"
-    );
-    assert!(
-        pagepool::init(&pagepool::Config::from_policy()),
-        "the pool reserves its zones"
-    );
+    assert!(pagepool::switches().gravity, "the switch, read at its first call");
+    assert!(pagepool::init(&pagepool::Config::from_policy()), "the pool reserves its zones");
     std::thread::spawn(|| {
         memledger::bind_backend(4801, 9000 + 4801);
         let a = Acct::backend(4801);
@@ -32,23 +26,12 @@ fn a_claim_arenas_chunks_are_the_pools_on_the_threads_account() {
         assert_eq!(p.as_ptr() as usize % 8, 0, "the alignment law");
         let big = arena.alloc(3 << 20);
         assert!(pagepool::owns(big.as_ptr()));
-        assert_eq!(
-            unsafe { core::slice::from_raw_parts(p.as_ptr(), 3) },
-            &[1, 2, 3],
-            "values unmoved by growth"
-        );
+        assert_eq!(unsafe { core::slice::from_raw_parts(p.as_ptr(), 3) }, &[1, 2, 3], "values unmoved by growth");
         let held = pool_bytes(a) - q0;
-        assert!(
-            held >= arena.retained_capacity() as i64,
-            "on the thread's account: {held}"
-        );
+        assert!(held >= arena.retained_capacity() as i64, "on the thread's account: {held}");
         let kept = arena.retained_capacity();
         arena.reset();
-        assert_eq!(
-            (arena.retained_capacity(), pool_bytes(a) - q0),
-            (kept, held),
-            "chunks kept across a reset"
-        );
+        assert_eq!((arena.retained_capacity(), pool_bytes(a) - q0), (kept, held), "chunks kept across a reset");
         drop(arena);
         assert_eq!(pool_bytes(a), q0, "off at the drop");
         pagepool::flush_shelf();

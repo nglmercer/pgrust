@@ -739,7 +739,7 @@ pub fn anytime_typmod_check(istz: bool, typmod: i32) -> PgResult<i32> {
 }
 
 pub fn AdjustTimeForTypmod(time: &mut TimeADT, typmod: i32) {
-    if (0..=MAX_TIME_PRECISION).contains(&typmod) {
+    if ( 0..= MAX_TIME_PRECISION).contains(&typmod) {
         let scale = TIME_SCALES[typmod as usize];
         let offset = TIME_OFFSETS[typmod as usize];
         if *time >= 0 {
@@ -985,7 +985,7 @@ pub fn date_send<'mcx>(mcx: Mcx<'mcx>, date: DateADT) -> PgResult<Bytea<'mcx>> {
 
 pub fn time_recv(buf: &mut StringInfo<'_>, typmod: i32) -> PgResult<TimeADT> {
     let mut result = pqformat::pq_getmsgint64(buf)?;
-    if !(0..=USECS_PER_DAY).contains(&result) {
+    if !( 0..= USECS_PER_DAY).contains(&result) {
         return Err(datetime_out_of_range("time out of range"));
     }
     AdjustTimeForTypmod(&mut result, typmod);
@@ -1000,7 +1000,7 @@ pub fn time_send<'mcx>(mcx: Mcx<'mcx>, time: TimeADT) -> PgResult<Bytea<'mcx>> {
 
 pub fn timetz_recv(buf: &mut StringInfo<'_>, typmod: i32) -> PgResult<TimeTzADT> {
     let mut time = pqformat::pq_getmsgint64(buf)?;
-    if !(0..=USECS_PER_DAY).contains(&time) {
+    if !( 0..= USECS_PER_DAY).contains(&time) {
         return Err(datetime_out_of_range("time out of range"));
     }
     let zone = pqformat::pq_getmsgint(buf, 4)? as i32;

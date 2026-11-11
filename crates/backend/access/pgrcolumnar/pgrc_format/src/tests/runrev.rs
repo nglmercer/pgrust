@@ -43,15 +43,7 @@ fn crc_of(payload: &[u8], no: u64) -> u32 {
 
 /// A run reverse over `ranges` (the run's homes) whose IDs `present` take `place`; `groups` (LABELS) or `prefix`
 /// (FRAMEIX, the slots' first global frames and the total); ranks DENSE or SET.
-fn build(
-    form: RunRevForm,
-    rank: RankForm,
-    ranges: &[(u64, u64)],
-    present: &[(u64, Place)],
-    groups: &[(u16, u32, u32)],
-    prefix: &[u32],
-    members: u32,
-) -> Built {
+fn build(form: RunRevForm, rank: RankForm, ranges: &[(u64, u64)], present: &[(u64, Place)], groups: &[(u16, u32, u32)], prefix: &[u32], members: u32,) -> Built {
     let nsym = match form {
         RunRevForm::Labels => groups.len() as u32,
         _ => *prefix.last().unwrap(),
@@ -82,53 +74,15 @@ fn build(
             }
         }
     }
-    let exceptions: Vec<(u64, u16, u32)> = by_id
-        .iter()
-        .filter_map(|(&id, &p)| {
-            if let Place::Exc(s, f) = p {
-                Some((id, s, f))
-            } else {
-                None
-            }
-        })
-        .collect();
+    let exceptions: Vec<(u64, u16, u32)> = by_id.iter().filter_map(|(&id, &p)| { if let Place::Exc(s, f) = p { Some((id, s, f)) } else { None }
+        }).collect();
     let span: u64 = ranges.iter().map(|r| r.1 - r.0).sum();
     let rows = present.len() as u64;
-    let spec = Spec {
-        run_id: 41,
-        form,
-        rank,
-        ranks: if rank == RankForm::Dense { span } else { rows },
-        rows,
-        nsym,
-        members,
-    };
-    let (file, fin) = encode(
-        spec,
-        &s_runs,
-        &labels,
-        groups,
-        &exceptions,
-        if form == RunRevForm::FrameIx {
-            prefix
-        } else {
-            &[]
-        },
-    )
-    .expect("encode");
+    let spec = Spec { run_id: 41, form, rank, ranks: if rank == RankForm::Dense { span } else { rows }, rows, nsym, members, };
+    let (file, fin) = encode(spec, &s_runs, &labels, groups, &exceptions, if form == RunRevForm::FrameIx { prefix } else { &[] },).expect("encode");
     assert_eq!(file.len() as u64, fin.rev_len);
     assert_eq!(&file[..PAGE], &fin.page0[..]);
-    let run = SortRun {
-        run_id: 41,
-        level: 1,
-        rev: form,
-        rank,
-        rows,
-        rev_len: fin.rev_len,
-        rev_crc: fin.rev_crc,
-        members: (1..=members).collect(),
-        ranges: ranges.to_vec(),
-    };
+    let run = SortRun { run_id: 41, level: 1, rev: form, rank, rows, rev_len: fin.rev_len, rev_crc: fin.rev_crc, members: (1..=members).collect(), ranges: ranges.to_vec(), };
     let mut want = BTreeMap::new();
     for (&id, &p) in &by_id {
         let h = match p {
@@ -139,10 +93,7 @@ fn build(
             Place::Exc(slot, vframe) => Hit::Frame { slot, vframe },
             Place::Frame(f) => {
                 let slot = prefix.partition_point(|&x| x <= f) - 1;
-                Hit::Frame {
-                    slot: slot as u16,
-                    vframe: f - prefix[slot],
-                }
+                Hit::Frame { slot: slot as u16, vframe: f - prefix[slot], }
             }
         };
         want.insert(id, h);
@@ -154,12 +105,7 @@ fn build(
     probe.extend([0, 1, B - 1, u64::MAX >> 24]);
     probe.sort_unstable();
     probe.dedup();
-    Built {
-        run,
-        file,
-        want,
-        probe,
-    }
+    Built { run, file, want, probe, }
 }
 
 fn expect(b: &Built, id: u64) -> Hit {
@@ -176,11 +122,7 @@ struct Cached<'a> {
 
 impl<'a> Cached<'a> {
     fn new(file: &'a [u8]) -> Cached<'a> {
-        Cached {
-            src: BytePages(file),
-            pages: RefCell::new(BTreeMap::new()),
-            seen: RefCell::new(BTreeSet::new()),
-        }
+        Cached { src: BytePages(file), pages: RefCell::new(BTreeMap::new()), seen: RefCell::new(BTreeSet::new()), }
     }
 }
 
@@ -200,11 +142,7 @@ fn check_all(b: &Built) {
     let src = Cached::new(&b.file);
     let rr = RunRev::open(&b.run, &src).expect("open");
     for &id in &b.probe {
-        assert_eq!(
-            rr.lookup(id, &src).expect("lookup"),
-            expect(b, id),
-            "id {id}"
-        );
+        assert_eq!(rr.lookup(id, &src).expect("lookup"), expect(b, id), "id {id}");
     }
 }
 
@@ -229,12 +167,7 @@ fn probes(b: &Built, per: usize) -> Probes {
             }
         }
     }
-    let sample = b
-        .probe
-        .iter()
-        .copied()
-        .step_by(b.probe.len() / 64 + 1)
-        .collect();
+    let sample = b.probe.iter().copied().step_by(b.probe.len() / 64 + 1).collect();
     Probes { by_page, sample }
 }
 
@@ -247,13 +180,7 @@ enum Reach {
 }
 
 /// The IDs case `p` looks up, and its page source over the damaged file `f`.
-fn reach<'a>(
-    b: &Built,
-    pr: &Probes,
-    how: Reach,
-    p: usize,
-    f: &'a [u8],
-) -> (Vec<u64>, Box<dyn Pages + 'a>) {
+fn reach<'a>(b: &Built, pr: &Probes, how: Reach, p: usize, f: &'a [u8],) -> (Vec<u64>, Box<dyn Pages + 'a>) {
     match how {
         Reach::Exhaustive => (b.probe.clone(), Box::new(BytePages(f))),
         Reach::Targeted => {
@@ -277,22 +204,13 @@ fn damaged_pages_are_refused(b: &Built, how: Reach) {
             let mut f = b.file.clone();
             f[p * PAGE + at] ^= 0x10;
             let (ids, src) = reach(b, &pr, how, p, &f);
-            let Ok(rr) = RunRev::open(&b.run, &*src) else {
-                continue;
-            };
+            let Ok(rr) = RunRev::open(&b.run, &*src) else { continue; };
             let mut refused = 0;
             for &id in &ids {
                 match rr.lookup(id, &*src) {
-                    Ok(h) => assert_eq!(
-                        h,
-                        expect(b, id),
-                        "page {p} byte {at}: id {id} answered wrong"
-                    ),
+                    Ok(h) => assert_eq!(h, expect(b, id), "page {p} byte {at}: id {id} answered wrong"),
                     Err(e) => {
-                        assert!(
-                            matches!(e, FormatError::CrcMismatch { .. }),
-                            "page {p} byte {at}: {e:?}"
-                        );
+                        assert!(matches!(e, FormatError::CrcMismatch { .. }), "page {p} byte {at}: {e:?}");
                         refused += 1;
                     }
                 }
@@ -314,15 +232,11 @@ fn bad_structure_is_refused(b: &Built, how: Reach) {
     };
     for p in 1..pages {
         let mut f = b.file.clone();
-        f[p * PAGE..p * PAGE + PAYLOAD / 2]
-            .iter_mut()
-            .for_each(|x| *x = 0xff);
+        f[p * PAGE..p * PAGE + PAYLOAD / 2].iter_mut().for_each(|x| *x = 0xff);
         f[p * PAGE + PAYLOAD - 1] = 0x5a;
         reseal(&mut f, p);
         let (ids, src) = reach(b, &pr, how, p, &f);
-        let Ok(rr2) = RunRev::open(&b.run, &*src) else {
-            continue;
-        };
+        let Ok(rr2) = RunRev::open(&b.run, &*src) else { continue; };
         for &id in &ids {
             if let Ok(h) = rr2.lookup(id, &*src) {
                 assert_eq!(h, expect(b, id), "page {p}: id {id} answered wrong");
@@ -335,47 +249,27 @@ fn bad_structure_is_refused(b: &Built, how: Reach) {
 /// ~750 exceptions (3 pages).
 fn labels_run(rank: RankForm) -> Built {
     let ranges = [(B, 61 * B), (100 * B, 105 * B)];
-    let groups: Vec<(u16, u32, u32)> = (0..1000u32)
-        .map(|g| ((g % 7) as u16, g * 3, g * 3 + 1 + g % 4))
-        .collect();
+    let groups: Vec<(u16, u32, u32)> = (0..1000u32).map(|g| ((g % 7) as u16, g * 3, g * 3 + 1 + g % 4)).collect();
     let mut present = Vec::new();
     let mut k = 0u32;
     for &(lo, hi) in &ranges {
         for id in lo..hi {
             k += 1;
-            if k.is_multiple_of(11) {
+            if k.is_multiple_of( 11) {
                 continue; // a hole: no row took this ID
             }
-            present.push((
-                id,
-                if k % 25 == 7 {
-                    Place::Exc((k % 7) as u16, k % 97)
-                } else {
-                    Place::Group(k / 17 % 1000)
-                },
-            ));
+            present.push((id, if k % 25 == 7 { Place::Exc((k % 7) as u16, k % 97) } else { Place::Group(k / 17 % 1000) },));
         }
     }
     let b = build(RunRevForm::Labels, rank, &ranges, &present, &groups, &[], 7);
-    assert!(
-        b.want
-            .values()
-            .filter(|h| matches!(h, Hit::Frame { .. }))
-            .count()
-            > 2 * 255,
-        "exceptions on several pages"
-    );
+    assert!(b.want.values().filter(|h| matches!(h, Hit::Frame { .. })).count() > 2 * 255, "exceptions on several pages");
     b
 }
 
 #[test]
 fn runrev_labels_dense_answers_every_id() {
     let b = labels_run(RankForm::Dense);
-    assert!(
-        b.file.len() / PAGE >= 13,
-        "every section spans pages: {}",
-        b.file.len() / PAGE
-    );
+    assert!(b.file.len() / PAGE >= 13, "every section spans pages: {}", b.file.len() / PAGE);
     check_all(&b);
 }
 
@@ -398,26 +292,14 @@ fn runrev_set_over_many_runs_spans_pages() {
     let total = present.len() as u32 / 128 + 1;
     let prefix = vec![0, total / 3, total / 2, total];
     let ranges = [(5 * B, id.div_ceil(B) * B)];
-    let b = build(
-        RunRevForm::FrameIx,
-        RankForm::Set,
-        &ranges,
-        &present,
-        &[],
-        &prefix,
-        3,
-    );
+    let b = build(RunRevForm::FrameIx, RankForm::Set, &ranges, &present, &[], &prefix, 3,);
     check_all(&b);
     let src = BytePages(&b.file);
     let rr = RunRev::open(&b.run, &src).unwrap();
     assert_eq!(rr.rank_form(), RankForm::Set);
     assert_eq!(rr.ranks(), present.len() as u64);
     for (i, &(id, _)) in present.iter().enumerate().step_by(97) {
-        assert_eq!(
-            rr.rank_of(id, &src).unwrap(),
-            Some(i as u64),
-            "rank of {id}"
-        );
+        assert_eq!(rr.rank_of(id, &src).unwrap(), Some(i as u64), "rank of {id}");
     }
 }
 
@@ -425,39 +307,16 @@ fn runrev_set_over_many_runs_spans_pages() {
 fn runrev_frameix_dense_answers_every_id() {
     let ranges = [(B, 41 * B)];
     let n = 40 * B;
-    let present: Vec<(u64, Place)> = (B..B + n)
-        .filter(|id| id % 13 != 0)
-        .map(|id| (id, Place::Frame(((id * 7919) % n / 128) as u32)))
-        .collect();
+    let present: Vec<(u64, Place)> = (B..B + n).filter(|id| id % 13 != 0).map(|id| (id, Place::Frame(((id * 7919) % n / 128) as u32))).collect();
     let frames = (n / 128 + 1) as u32;
     let prefix = vec![0, 10, frames / 2, frames - 3, frames];
-    check_all(&build(
-        RunRevForm::FrameIx,
-        RankForm::Dense,
-        &ranges,
-        &present,
-        &[],
-        &prefix,
-        4,
-    ));
+    check_all(&build(RunRevForm::FrameIx, RankForm::Dense, &ranges, &present, &[], &prefix, 4,));
 }
 
 #[test]
 fn runrev_a_one_row_run() {
-    let b = build(
-        RunRevForm::Labels,
-        RankForm::Dense,
-        &[(B, 2 * B)],
-        &[(B + 3, Place::Group(0))],
-        &[(0, 0, 1)],
-        &[],
-        1,
-    );
-    assert_eq!(
-        b.file.len(),
-        3 * PAGE,
-        "page 0, one label page, one group page"
-    );
+    let b = build(RunRevForm::Labels, RankForm::Dense, &[(B, 2 * B)], &[(B + 3, Place::Group(0))], &[(0, 0, 1)], &[], 1,);
+    assert_eq!(b.file.len(), 3 * PAGE, "page 0, one label page, one group page");
     check_all(&b);
 }
 
@@ -485,19 +344,10 @@ fn runrev_a_page_at_another_place_is_refused() {
     f[y..y + PAGE].copy_from_slice(&tmp);
     let src = BytePages(&f);
     let rr = RunRev::open(&b.run, &src).expect("page 0 and the tops are intact");
-    assert!(b
-        .probe
-        .iter()
-        .any(|&id| matches!(rr.lookup(id, &src), Err(FormatError::CrcMismatch { .. }))));
-    assert!(
-        Page::check(2, f[x..x + PAGE].into()).is_err(),
-        "page 3's bytes at page 2"
-    );
+    assert!(b.probe.iter().any(|&id| matches!(rr.lookup(id, &src), Err(FormatError::CrcMismatch { .. }))));
+    assert!(Page::check(2, f[x..x + PAGE].into()).is_err(), "page 3's bytes at page 2");
     assert!(Page::check(3, f[x..x + PAGE].into()).is_ok());
-    assert!(
-        Page::check(0, vec![0u8; PAGE - 1].into()).is_err(),
-        "a short page"
-    );
+    assert!(Page::check(0, vec![0u8; PAGE - 1].into()).is_err(), "a short page");
 }
 
 #[test]
@@ -506,78 +356,21 @@ fn runrev_a_file_other_than_the_named_one_is_refused() {
     let src = BytePages(&b.file);
     let r = &b.run;
     for (why, run) in [
-        (
-            "page 0 crc",
-            SortRun {
-                rev_crc: r.rev_crc ^ 1,
-                ..r.clone()
-            },
-        ),
-        (
-            "length",
-            SortRun {
-                rev_len: r.rev_len + PAGE as u64,
-                ..r.clone()
-            },
-        ),
-        (
-            "form",
-            SortRun {
-                rev: RunRevForm::FrameIx,
-                ..r.clone()
-            },
-        ),
-        (
-            "rank",
-            SortRun {
-                rank: RankForm::Set,
-                ..r.clone()
-            },
-        ),
-        (
-            "run id",
-            SortRun {
-                run_id: 42,
-                ..r.clone()
-            },
-        ),
-        (
-            "members",
-            SortRun {
-                members: vec![1, 2],
-                ..r.clone()
-            },
-        ),
-        (
-            "rows",
-            SortRun {
-                rows: r.rows - 1,
-                ..r.clone()
-            },
-        ),
-        (
-            "ranges",
-            SortRun {
-                ranges: vec![(B, 61 * B)],
-                ..r.clone()
-            },
-        ),
-        (
-            "a self-homed run",
-            SortRun {
-                rev: RunRevForm::None,
-                ..r.clone()
-            },
-        ),
+        ("page 0 crc", SortRun { rev_crc: r.rev_crc ^ 1, ..r.clone() },),
+        ("length", SortRun { rev_len: r.rev_len + PAGE as u64, ..r.clone() },),
+        ("form", SortRun { rev: RunRevForm::FrameIx, ..r.clone() },),
+        ("rank", SortRun { rank: RankForm::Set, ..r.clone() },),
+        ("run id", SortRun { run_id: 42, ..r.clone() },),
+        ("members", SortRun { members: vec![1, 2], ..r.clone() },),
+        ("rows", SortRun { rows: r.rows - 1, ..r.clone() },),
+        ("ranges", SortRun { ranges: vec![(B, 61 * B)], ..r.clone() },),
+        ("a self-homed run", SortRun { rev: RunRevForm::None, ..r.clone() },),
     ] {
         assert!(RunRev::open(&run, &src).is_err(), "{why}");
     }
     let short = &b.file[..b.file.len() - PAGE];
     assert!(RunRev::open(r, &BytePages(short)).is_err(), "truncated");
-    assert!(
-        RunRev::open(r, &BytePages(&b.file[..PAGE])).is_err(),
-        "page 0 alone"
-    );
+    assert!(RunRev::open(r, &BytePages(&b.file[..PAGE])).is_err(), "page 0 alone");
 }
 
 /// Pages whose crc holds but whose structure does not (a writer bug), every page but page 0: refused as `Corrupt`,
@@ -596,40 +389,12 @@ fn runrev_bad_structure_under_a_good_crc_is_refused_exhaustive() {
 
 #[test]
 fn runrev_writer_refuses_misuse() {
-    let spec = Spec {
-        run_id: 3,
-        form: RunRevForm::Labels,
-        rank: RankForm::Dense,
-        ranks: 4,
-        rows: 3,
-        nsym: 2,
-        members: 2,
-    };
+    let spec = Spec { run_id: 3, form: RunRevForm::Labels, rank: RankForm::Dense, ranks: 4, rows: 3, nsym: 2, members: 2, };
     assert!(Writer::new(Spec { nsym: 0, ..spec }).is_err(), "no symbol");
-    assert!(
-        Writer::new(Spec { members: 0, ..spec }).is_err(),
-        "no member"
-    );
-    assert!(
-        Writer::new(Spec { rows: 5, ..spec }).is_err(),
-        "more rows than ranks"
-    );
-    assert!(
-        Writer::new(Spec {
-            form: RunRevForm::None,
-            ..spec
-        })
-        .is_err(),
-        "a NONE run has no reverse"
-    );
-    assert!(
-        Writer::new(Spec {
-            rank: RankForm::Set,
-            ..spec
-        })
-        .is_err(),
-        "SET: rows are the ranks"
-    );
+    assert!(Writer::new(Spec { members: 0, ..spec }).is_err(), "no member");
+    assert!(Writer::new(Spec { rows: 5, ..spec }).is_err(), "more rows than ranks");
+    assert!(Writer::new(Spec { form: RunRevForm::None, ..spec }).is_err(), "a NONE run has no reverse");
+    assert!(Writer::new(Spec { rank: RankForm::Set, ..spec }).is_err(), "SET: rows are the ranks");
     let mut w = Writer::new(spec).unwrap();
     assert!(w.push_s_run(10, 1).is_err(), "DENSE has no ID set");
     assert!(w.push_label(3).is_err(), "past the exception symbol");
@@ -642,18 +407,9 @@ fn runrev_writer_refuses_misuse() {
     w.push_group(0, 0, 1).unwrap();
     w.push_exception(100, 1, 0).unwrap();
     assert!(w.push_group(1, 0, 2).is_err(), "groups after exceptions");
-    assert!(
-        w.push_exception(100, 1, 0).is_err(),
-        "exceptions not ascending"
-    );
+    assert!(w.push_exception(100, 1, 0).is_err(), "exceptions not ascending");
     assert!(w.finish(&[]).is_err(), "one group short");
-    let mut s = Writer::new(Spec {
-        rank: RankForm::Set,
-        ranks: 3,
-        rows: 3,
-        ..spec
-    })
-    .unwrap();
+    let mut s = Writer::new(Spec { rank: RankForm::Set, ranks: 3, rows: 3, ..spec }).unwrap();
     s.push_s_run(10, 2).unwrap();
     assert!(s.push_s_run(11, 1).is_err(), "overlapping runs");
     s.push_s_run(12, 1).unwrap();
@@ -664,9 +420,5 @@ fn runrev_writer_refuses_misuse() {
     s.push_group(0, 0, 1).unwrap();
     s.push_group(1, 0, 2).unwrap();
     let (tail, fin) = s.finish(&[]).unwrap();
-    assert_eq!(
-        tail.len() + fin.page0.len(),
-        fin.rev_len as usize,
-        "adjacent runs merged: one S page, one label page, one group page"
-    );
+    assert_eq!(tail.len() + fin.page0.len(), fin.rev_len as usize, "adjacent runs merged: one S page, one label page, one group page");
 }

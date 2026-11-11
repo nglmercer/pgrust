@@ -27,20 +27,17 @@
 //!
 //! Null slots encode delta 0 (the frame ref — spec §6.6).
 
-use crate::bytefor::{
-    dec_full_for, dec_sel_at_for, dec_sel_for, encode_i64_frames, sel_at_framed, Framed,
-};
+use crate::bytefor::{dec_full_for, dec_sel_at_for, dec_sel_for, encode_i64_frames, sel_at_framed, Framed,};
 use crate::section::{frame_base, frame_start, open_section, payload_region, varlena_payload};
 use adt_numeric::{fixed_scale_fit, fixed_scale_unpack, Num, FIXED_SCALE_MANT_ABS_MAX};
 use pgrc_format::abi::{
-    refuse_decode_codes, refuse_decode_narrow, refuse_dict_handle, validity_from_ctx, ByteArena,
-    CodecVtable, DecodeOut, EncodeInput, GranuleEncoder, KernelCtx, KernelKey, Selection,
-    ValidityVerdict,
+    refuse_decode_codes, refuse_decode_narrow, refuse_dict_handle, validity_from_ctx, ByteArena, CodecVtable, DecodeOut,
+    EncodeInput, GranuleEncoder, KernelCtx, KernelKey, Selection, ValidityVerdict,
 };
 use pgrc_format::class::{StorageClass, CLASS_VARLENA};
 use pgrc_format::enc::EncodingId;
 use pgrc_format::geom::GRANULE_ROWS;
-use pgrc_format::meta::{MetaProbe, ProbeAnswer};
+use pgrc_format::meta::{ MetaProbe, ProbeAnswer};
 use pgrc_format::part::{OverflowSink, StreamSectionWriter};
 use pgrc_format::{FormatError, FormatResult};
 
@@ -165,11 +162,9 @@ fn scale_before(payload: &[u8], first: usize) -> FormatResult<i32> {
             at: "packed-numeric scale header",
         });
     }
-    let sh = payload
-        .get(first - SCALE_HDR_LEN..first)
-        .ok_or(FormatError::Bounds {
-            at: "packed-numeric scale header",
-        })?;
+    let sh = payload.get(first - SCALE_HDR_LEN..first).ok_or(FormatError::Bounds {
+        at: "packed-numeric scale header",
+    })?;
     let scale = i32::from_le_bytes(sh[..4].try_into().expect("len 4"));
     if !(0..=DSCALE_MAX).contains(&scale) {
         return Err(FormatError::Corrupt {
@@ -311,22 +306,14 @@ pub fn mantissa_full(ctx: &KernelCtx<'_>, width: u8, out: &mut [u64]) -> FormatR
         6 => dec_full_for::<6>(ctx, enc, out)?,
         7 => dec_full_for::<7>(ctx, enc, out)?,
         8 => dec_full_for::<8>(ctx, enc, out)?,
-        _ => {
-            return Err(FormatError::Corrupt {
-                at: "packed-numeric width",
-            })
+        _ => { return Err(FormatError::Corrupt { at: "packed-numeric width", })
         }
     };
     Ok((scale, n))
 }
 
 /// `mantissa_full ∘ select`: the selected rows' mantissas, dense in selection order.
-pub fn mantissa_sel(
-    ctx: &KernelCtx<'_>,
-    width: u8,
-    sel: &Selection<'_>,
-    out: &mut [u64],
-) -> FormatResult<(i32, u32)> {
+pub fn mantissa_sel(ctx: &KernelCtx<'_>, width: u8, sel: &Selection<'_>, out: &mut [u64],) -> FormatResult<(i32, u32)> {
     let scale = granule_scale(ctx)?;
     let enc = EncodingId::PackedNumeric.as_u16();
     let n = match width {
@@ -338,10 +325,7 @@ pub fn mantissa_sel(
         6 => dec_sel_for::<6>(ctx, enc, sel, out)?,
         7 => dec_sel_for::<7>(ctx, enc, sel, out)?,
         8 => dec_sel_for::<8>(ctx, enc, sel, out)?,
-        _ => {
-            return Err(FormatError::Corrupt {
-                at: "packed-numeric width",
-            })
+        _ => { return Err(FormatError::Corrupt { at: "packed-numeric width", })
         }
     };
     Ok((scale, n))
@@ -349,12 +333,7 @@ pub fn mantissa_sel(
 
 /// `mantissa_sel` with each selected row's mantissa at its own row (`out[r]`; `out` spans the rows up to the last
 /// selected one, the others untouched): the gather and a lane's scatter in one pass.
-pub fn mantissa_sel_at(
-    ctx: &KernelCtx<'_>,
-    width: u8,
-    sel: &Selection<'_>,
-    out: &mut [u64],
-) -> FormatResult<(i32, u32)> {
+pub fn mantissa_sel_at(ctx: &KernelCtx<'_>, width: u8, sel: &Selection<'_>, out: &mut [u64],) -> FormatResult<(i32, u32)> {
     let scale = granule_scale(ctx)?;
     let enc = EncodingId::PackedNumeric.as_u16();
     let n = match width {
@@ -366,10 +345,7 @@ pub fn mantissa_sel_at(
         6 => dec_sel_at_for::<6>(ctx, enc, sel, out)?,
         7 => dec_sel_at_for::<7>(ctx, enc, sel, out)?,
         8 => dec_sel_at_for::<8>(ctx, enc, sel, out)?,
-        _ => {
-            return Err(FormatError::Corrupt {
-                at: "packed-numeric width",
-            })
+        _ => { return Err(FormatError::Corrupt { at: "packed-numeric width", })
         }
     };
     Ok((scale, n))
@@ -384,17 +360,10 @@ pub fn framed_scale(f: &Framed<'_>) -> FormatResult<i32> {
 /// `mantissa_sel_at` over a resolved granule (bytefor `Framed`, from pgrc_read `StreamCursor::framed`): the scale header
 /// before its first frame and the selected mantissas at their rows, with no ctx and no section header parse (TH14's source
 /// lever, main 09-24).
-pub fn mantissa_sel_at_framed(
-    f: &Framed<'_>,
-    width: u8,
-    sel: &Selection<'_>,
-    out: &mut [u64],
-) -> FormatResult<(i32, u32)> {
+pub fn mantissa_sel_at_framed(f: &Framed<'_>, width: u8, sel: &Selection<'_>, out: &mut [u64],) -> FormatResult<(i32, u32)> {
     let scale = scale_before(f.payload, frame_start(Some(f.frame_table), f.fbase)?)?;
     if !(1..=8).contains(&width) {
-        return Err(FormatError::Corrupt {
-            at: "packed-numeric width",
-        });
+        return Err(FormatError::Corrupt { at: "packed-numeric width", });
     }
     Ok((scale, sel_at_framed(f, width, sel, out)?))
 }

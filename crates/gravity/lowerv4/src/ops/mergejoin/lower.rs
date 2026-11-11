@@ -314,7 +314,7 @@ pub(crate) fn make<'g>(px: &mut Px<'g, '_>, k: usize, j: usize) -> PgBox<'g, dyn
             };
             held_ahead.extend_in(accepted.iter().flatten().copied());
             let ahead = ahead || accepted.is_some();
-            return if ahead { None } else { shape(node, "a merge join whose inner side can raise or calls a user or volatile function (PG runs it only once an outer row needs it: D1236)") };
+            return if ahead {None } else { shape(node, "a merge join whose inner side can raise or calls a user or volatile function (PG runs it only once an outer row needs it: D1236)") };
         };
         group.into_iter().for_each(|x| px.lazy.push((x, k))); // alloc: Program
         Some((consumed, lz))

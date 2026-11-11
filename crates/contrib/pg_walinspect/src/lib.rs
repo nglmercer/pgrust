@@ -176,7 +176,7 @@ fn GetWALRecordInfo(
     values[6] = Datum::from_u32(reader.XLogRecGetTotalLen());
     values[7] = Datum::from_u32(reader.XLogRecGetDataLen());
     values[8] = Datum::from_u32(fpi_len);
-    if !rec_desc.is_empty() {
+    if ! rec_desc.is_empty() {
         values[9] = text_datum(mcx, rec_desc.as_bytes())?;
     } else {
         nulls[9] = true;
@@ -576,7 +576,7 @@ fn GetWALBlockInfo(
         }
         i += 1;
 
-        if !rec_desc.is_empty() {
+        if ! rec_desc.is_empty() {
             values[i] = text_datum(mcx, rec_desc.as_bytes())?;
         } else {
             nulls[i] = true;
@@ -585,7 +585,7 @@ fn GetWALBlockInfo(
 
         match reader.XLogRecGetBlockData(block_id) {
             Some(data) if show_data => {
-                let owned = ::mcx::std_vec_from_slice("pg_walinspect", data)?;
+                let owned = ::mcx::std_vec_from_slice("pg_walinspect",data)?;
                 values[i] = bytea_datum(mcx, &owned)?;
             }
             _ => nulls[i] = true,

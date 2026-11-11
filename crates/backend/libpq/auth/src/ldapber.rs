@@ -22,8 +22,8 @@ use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, TcpStream, ToSocketAddrs};
 use foreign_types::ForeignTypeRef;
 use openssl::nid::Nid;
 use openssl::ssl::{
-    HandshakeError, Ssl, SslContext, SslContextBuilder, SslFiletype, SslMethod, SslOptions, SslRef,
-    SslStream, SslVerifyMode,
+    HandshakeError, Ssl, SslContext, SslContextBuilder, SslFiletype, SslMethod, SslOptions,
+    SslRef, SslStream, SslVerifyMode,
 };
 use openssl::x509::verify::X509VerifyFlags;
 use openssl::x509::{X509Crl, X509VerifyResult};
@@ -205,11 +205,7 @@ fn encode_filter(f: &Filter) -> Vec<u8> {
     }
     match f {
         Filter::And(fs) | Filter::Or(fs) => {
-            let tag = if matches!(f, Filter::And(_)) {
-                0xa0
-            } else {
-                0xa1
-            };
+            let tag = if matches!(f, Filter::And(_)) { 0xa0 } else { 0xa1 };
             let mut c = Vec::new();
             for sub in fs {
                 c.extend_from_slice(&encode_filter(sub));
@@ -222,12 +218,7 @@ fn encode_filter(f: &Filter) -> Vec<u8> {
         Filter::Le(a, v) => ava(0xa6, a, v),
         Filter::Approx(a, v) => ava(0xa8, a, v),
         Filter::Present(a) => tlv(0x87, a.as_bytes()),
-        Filter::Extensible {
-            attr,
-            rule,
-            value,
-            dn_attrs,
-        } => {
+        Filter::Extensible { attr, rule, value, dn_attrs, } => {
             let mut c = Vec::new();
             if let Some(r) = rule {
                 c.extend_from_slice(&tlv(0x81, r.as_bytes()));
@@ -266,12 +257,8 @@ fn unescape_value(s: &str) -> Result<Vec<u8>, ()> {
     let mut i = 0;
     while i < b.len() {
         if b[i] == b'\\' {
-            let h = char::from(*b.get(i + 1).ok_or(())?)
-                .to_digit(16)
-                .ok_or(())?;
-            let l = char::from(*b.get(i + 2).ok_or(())?)
-                .to_digit(16)
-                .ok_or(())?;
+            let h = char::from(*b.get(i + 1).ok_or(())?).to_digit(16).ok_or(())?;
+            let l = char::from(*b.get(i + 2).ok_or(())?).to_digit(16).ok_or(())?;
             out.push(((h << 4) | l) as u8);
             i += 3;
         } else {
@@ -371,8 +358,8 @@ impl<'a> FilterParser<'a> {
             }
             self.pos += 1;
         }
-        let raw =
-            std::str::from_utf8(&self.b[vstart..self.pos.min(self.b.len())]).map_err(|_| ())?;
+        let raw = std::str::from_utf8(&self.b[vstart..self.pos.min(self.b.len())])
+            .map_err(|_| ())?;
         match op {
             b'>' => Ok(Filter::Ge(attr, unescape_value(raw)?)),
             b'<' => Ok(Filter::Le(attr, unescape_value(raw)?)),
@@ -468,8 +455,7 @@ impl Read for LdapSocket {
             if remaining == 0 {
                 return Err(std::io::ErrorKind::TimedOut.into());
             }
-            self.tcp
-                .set_read_timeout(Some(std::time::Duration::from_nanos(remaining)))?;
+            self.tcp.set_read_timeout(Some(std::time::Duration::from_nanos(remaining)))?;
         }
         self.tcp.read(buf)
     }
@@ -603,13 +589,8 @@ impl LdapConn {
         }
         let hosts = self.hosts.clone();
         for (host, port) in hosts {
-            let Ok(tcp) = self.connect_to_host(&host, port) else {
-                continue;
-            };
-            let tcp = LdapSocket {
-                tcp,
-                deadline: None,
-            };
+            let Ok(tcp) = self.connect_to_host(&host, port) else { continue; };
+            let tcp = LdapSocket { tcp, deadline: None, };
             if self.ldaps {
                 match self.tls_start(tcp, &host) {
                     Ok(tls) => {
@@ -651,8 +632,7 @@ impl LdapConn {
         }
         match (&o.tls_certfile, &o.tls_keyfile) {
             (Some(cf), Some(kf)) => {
-                b.set_private_key_file(kf, SslFiletype::PEM)
-                    .map_err(|_| ())?;
+                b.set_private_key_file(kf, SslFiletype::PEM).map_err(|_| ())?;
                 b.set_certificate_chain_file(cf).map_err(|_| ())?;
             }
             (None, None) => {}
@@ -676,9 +656,7 @@ impl LdapConn {
             if !any {
                 return Err(());
             }
-            store
-                .set_flags(X509VerifyFlags::CRL_CHECK)
-                .map_err(|_| ())?;
+            store.set_flags(X509VerifyFlags::CRL_CHECK).map_err(|_| ())?;
         }
         b.set_verify(SslVerifyMode::NONE);
         Ok(b.build())
@@ -903,8 +881,7 @@ impl LdapConn {
             return Err(LDAP_DECODING_ERROR);
         }
         let at = msg.len();
-        msg.try_reserve_exact(content_len)
-            .map_err(|_| LDAP_DECODING_ERROR)?;
+        msg.try_reserve_exact(content_len).map_err(|_| LDAP_DECODING_ERROR)?;
         msg.resize(at + content_len, 0);
         if let Err(e) = stream.read_exact(&mut msg[at..]) {
             if is_timeout(&e) {
@@ -922,11 +899,7 @@ impl LdapConn {
         let deadline = self.opts.tm_api.map(|timeout| {
             pg_clock::mono_ns().saturating_add(timeout.as_nanos().min(u64::MAX as u128) as u64)
         });
-        self.stream
-            .as_mut()
-            .ok_or(LDAP_SERVER_DOWN)?
-            .socket_mut()
-            .deadline = deadline;
+        self.stream.as_mut().ok_or(LDAP_SERVER_DOWN)?.socket_mut().deadline = deadline;
         let result = self.read_op_inner(msgid);
         if let Some(stream) = self.stream.as_mut() {
             let socket = stream.socket_mut();
@@ -1048,9 +1021,7 @@ impl LdapConn {
                     if t != TAG_OCTET_STRING {
                         return Err(LDAP_DECODING_ERROR);
                     }
-                    entries.push(
-                        ::mcx::std_vec_from_slice("auth", dn).map_err(|_| LDAP_DECODING_ERROR)?,
-                    );
+                    entries.push(::mcx::std_vec_from_slice("auth", dn).map_err(|_| LDAP_DECODING_ERROR)?,);
                 }
                 TAG_SEARCH_REFERENCE => {
                     // SearchResultReference ::= SEQUENCE SIZE (1..MAX) OF uri
@@ -1068,9 +1039,9 @@ impl LdapConn {
                             return Err(LDAP_DECODING_ERROR);
                         }
                         let url = String::from_utf8_lossy(url).into_owned();
-                        entries.extend(
-                            self.chase_reference(&url, base, scope, filter, attrs, hops, visited)?,
-                        );
+                        entries.extend(self.chase_reference(
+                            &url, base, scope, filter, attrs, hops, visited
+                        )?,);
                     }
                 }
                 TAG_SEARCH_DONE => {
@@ -1132,11 +1103,7 @@ impl LdapConn {
             return Err(rc);
         }
         let base = desc.dn.as_deref().filter(|d| !d.is_empty()).unwrap_or(base);
-        let scope = if ldap_url_has_scope(url) {
-            desc.scope
-        } else {
-            scope
-        };
+        let scope = if ldap_url_has_scope(url) { desc.scope } else { scope };
         let parsed;
         let filter = match desc.filter.as_deref() {
             Some(f) => {
@@ -1169,10 +1136,8 @@ impl LdapConn {
 
 // libcrypto's X509_STORE_add_crl (the openssl crate wraps add_cert only).
 extern "C" {
-    fn X509_STORE_add_crl(
-        store: *mut openssl_sys::X509_STORE,
-        x: *mut openssl_sys::X509_CRL,
-    ) -> libc::c_int;
+    fn X509_STORE_add_crl(store: *mut openssl_sys::X509_STORE, x: *mut openssl_sys::X509_CRL,)
+        -> libc::c_int;
 }
 
 // gnutls.h error codes tlsg_session_errmsg can render here.
@@ -1264,9 +1229,7 @@ fn apply_gnutls_priority(b: &mut SslContextBuilder, suites: &str) -> Result<(), 
         if KEYWORDS.iter().any(|k| element.eq_ignore_ascii_case(k)) {
             continue;
         }
-        let Some(op) = element.chars().next() else {
-            continue;
-        };
+        let Some(op) = element.chars().next() else { continue; };
         if op != '+' && op != '-' && op != '!' {
             return Err(());
         }
@@ -1409,9 +1372,10 @@ fn session_chkhost(ssl: &SslRef, name_in: &str, chk_san: i32) -> Result<(), i32>
                 // does not match: "hostname does not match subjectAltName"
                 return Err(LDAP_CONNECT_ERROR);
             }
-            LDAP_OPT_X_TLS_TRY if got_san => {
-                return Err(LDAP_CONNECT_ERROR);
-            }
+            LDAP_OPT_X_TLS_TRY
+                if got_san => {
+                    return Err(LDAP_CONNECT_ERROR);
+                }
             _ => {} // LDAP_OPT_X_TLS_ALLOW
         }
     }
@@ -1471,11 +1435,7 @@ mod tls_glue_tests {
     fn gnutls_priority_strings_are_recognized_like_gnutls_priority_init() {
         let mut b = SslContextBuilder::new(SslMethod::tls_client()).unwrap();
         assert!(apply_gnutls_priority(&mut b, "NORMAL").is_ok());
-        assert!(apply_gnutls_priority(
-            &mut b,
-            "normal:-VERS-TLS1.0:-VERS-TLS1.1:%SERVER_PRECEDENCE"
-        )
-        .is_ok());
+        assert!(apply_gnutls_priority(&mut b, "normal:-VERS-TLS1.0:-VERS-TLS1.1:%SERVER_PRECEDENCE").is_ok());
         assert!(apply_gnutls_priority(&mut b, "@SYSTEM").is_ok());
         assert!(apply_gnutls_priority(&mut b, "SECURE256:+VERS-TLS1.3:!AES-128-CBC").is_ok());
         // OpenSSL cipher-list grammar is not a GnuTLS priority string
@@ -1490,10 +1450,7 @@ mod tls_glue_tests {
     fn gnutls_strerror_texts() {
         assert_eq!(gnutls_strerror(-1), "(unknown error code)");
         assert_eq!(gnutls_strerror(LDAP_CONNECT_ERROR), "(unknown error code)");
-        assert_eq!(
-            gnutls_strerror(GNUTLS_E_PREMATURE_TERMINATION),
-            "The TLS connection was non-properly terminated."
-        );
+        assert_eq!(gnutls_strerror(GNUTLS_E_PREMATURE_TERMINATION), "The TLS connection was non-properly terminated.");
         assert_eq!(pem_blocks(b"junk-----BEGIN X509 CRL-----\nAA\n-----END X509 CRL-----\n-----BEGIN X509 CRL-----\nBB\n-----END X509 CRL-----\n", b"-----END X509 CRL-----").len(), 2);
     }
 }

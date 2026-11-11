@@ -6,24 +6,24 @@ use backend_progress::progress::{
     PROGRESS_CREATEIDX_PHASE_WAIT_2, PROGRESS_CREATEIDX_PHASE_WAIT_3,
 };
 use cache_syscache::{ReleaseSysCache, SearchSysCache1, SysCacheGetAttr, SysCacheKey, INDEXRELID};
-use catalog_index::{IndexCreateExtra, INDEX_CREATE_ADD_CONSTRAINT, INDEX_CREATE_IS_PRIMARY};
+use catalog_index::{
+    IndexCreateExtra,
+    INDEX_CREATE_ADD_CONSTRAINT, INDEX_CREATE_IS_PRIMARY
+};
 use datum::Datum;
 use execindexing::IndexInfo;
 use mcx::{Mcx, PgString, PgVec};
 use types_core::{
-    AttrNumber, InvalidOid, Oid, RegProcedure, INDEX_MAX_KEYS, NAMEDATALEN, RELATION_RELATION_ID,
+    AttrNumber, InvalidOid, Oid, RegProcedure, INDEX_MAX_KEYS, NAMEDATALEN,
+    RELATION_RELATION_ID,
 };
 use types_error::{
     PgError, PgResult, ERRCODE_DATATYPE_MISMATCH, ERRCODE_INDETERMINATE_COLLATION,
-    ERRCODE_INSUFFICIENT_PRIVILEGE, ERRCODE_INTERNAL_ERROR, ERRCODE_INVALID_OBJECT_DEFINITION,
-    ERRCODE_TOO_MANY_COLUMNS, ERRCODE_UNDEFINED_COLUMN, ERRCODE_UNDEFINED_OBJECT,
+    ERRCODE_INSUFFICIENT_PRIVILEGE, ERRCODE_INTERNAL_ERROR, ERRCODE_INVALID_OBJECT_DEFINITION, ERRCODE_TOO_MANY_COLUMNS, ERRCODE_UNDEFINED_COLUMN, ERRCODE_UNDEFINED_OBJECT,
     ERRCODE_WRONG_OBJECT_TYPE, ERROR,
 };
 use types_nodes::rawnodes::{IndexElem, IndexStmt, SortByDir, SortByNulls};
-use types_rel::{
-    InplaceUpdateTupleLock, Relation, ShareLock, RELKIND_MATVIEW, RELKIND_PARTITIONED_TABLE,
-    RELKIND_RELATION,
-};
+use types_rel::{InplaceUpdateTupleLock, Relation, ShareLock, RELKIND_MATVIEW, RELKIND_PARTITIONED_TABLE, RELKIND_RELATION,};
 use types_scan::scankey::{BTEqualStrategyNumber, ScanKeyData};
 
 use crate::{cache_lookup_failed, GetDefaultOpClass};
@@ -91,8 +91,7 @@ pub(crate) fn define_index_for_alter<'mcx>(
     if stmt.oldNumber != types_core::InvalidRelFileNumber {
         let irel = indexam::index_open(mcx, index_oid, types_rel::NoLock)?;
         irel.rd_createSubid.set(stmt.oldCreateSubid);
-        irel.rd_firstRelfilelocatorSubid
-            .set(stmt.oldFirstRelfilelocatorSubid);
+        irel.rd_firstRelfilelocatorSubid.set(stmt.oldFirstRelfilelocatorSubid);
         catalog_storage::RelationPreserveStorage(irel.rd_locator.get(), true);
         indexam::index_close(irel, types_rel::NoLock)?;
     }
@@ -367,7 +366,9 @@ pub fn GetOperatorFromCompareType<'mcx>(
     let amid = lsyscache::get_opclass_method(opclass)?;
     let mut opid = InvalidOid;
     let mut strat: u16 = 0;
-    let cannot_identify = |opcintype: Oid, detail: String| -> PgResult<Box<types_error::PgError>> {
+    let cannot_identify = |opcintype: Oid,
+                           detail: String|
+     -> PgResult<Box<types_error::PgError>> {
         let msg = match cmptype {
             lsyscache::COMPARE_EQ => format!(
                 "could not identify an equality operator for type {}",
@@ -382,17 +383,15 @@ pub fn GetOperatorFromCompareType<'mcx>(
                 format_type::format_type_be(opcintype)?
             ),
         };
-        Ok(Box::new(
-            (*err(msg, ERRCODE_UNDEFINED_OBJECT)).with_detail(detail),
-        ))
+        Ok(Box::new((*err(msg, ERRCODE_UNDEFINED_OBJECT)).with_detail(detail),))
     };
     let mut opcintype = InvalidOid;
     if let Some((opfamily, intype)) = lsyscache::get_opclass_opfamily_and_input_type(opclass)? {
         opcintype = intype;
         strat = amapi::IndexAmTranslateCompareType(cmptype, amid, opfamily, true)?;
         if strat == 0 {
-            let famname =
-                lsyscache::get_opfamily_name(mcx, opfamily, false)?.expect("opfamily name");
+            let famname = lsyscache::get_opfamily_name(mcx, opfamily, false)?
+                .expect("opfamily name");
             return Err(cannot_identify(
                 opcintype,
                 format!(
@@ -404,11 +403,7 @@ pub fn GetOperatorFromCompareType<'mcx>(
         }
         // rhstype parameterized so FKs can ask for a <@ whose rhs matches the
         // aggregate (range_agg returns anymultirange).
-        let rhstype = if rhstype == InvalidOid {
-            opcintype
-        } else {
-            rhstype
-        };
+        let rhstype = if rhstype == InvalidOid { opcintype } else { rhstype };
         opid = lsyscache::get_opfamily_member(opfamily, opcintype, rhstype, strat as i16)?;
     }
     if opid == InvalidOid {
@@ -461,8 +456,8 @@ pub fn DefineIndex<'mcx>(
             false,
         )?;
     }
-    let concurrent =
-        stmt.concurrent && lsyscache::get_rel_persistence(tableId)? != RELPERSISTENCE_TEMP;
+    let concurrent = stmt.concurrent
+        && lsyscache::get_rel_persistence(tableId)? != RELPERSISTENCE_TEMP;
 
     if parentIndexId == InvalidOid {
         backend_progress::pgstat_progress_start_command(
@@ -488,10 +483,7 @@ pub fn DefineIndex<'mcx>(
     allIndexParams.concat(mcx, &stmt.indexIncludingParams)?;
     let numberOfAttributes = allIndexParams.len();
     if numberOfKeyAttributes == 0 {
-        return Err(err(
-            "must specify at least one column".into(),
-            ERRCODE_INVALID_OBJECT_DEFINITION,
-        ));
+        return Err(err("must specify at least one column".into(), ERRCODE_INVALID_OBJECT_DEFINITION,));
     }
     if numberOfAttributes > INDEX_MAX_KEYS as usize {
         return Err(err(
@@ -500,11 +492,7 @@ pub fn DefineIndex<'mcx>(
         ));
     }
 
-    let lockmode = if concurrent {
-        types_rel::ShareUpdateExclusiveLock
-    } else {
-        ShareLock
-    };
+    let lockmode = if concurrent { types_rel::ShareUpdateExclusiveLock } else { ShareLock };
     let rel = table::table_open(mcx, tableId, lockmode)?;
     let (root_save_userid, root_save_sec_context) = miscinit::GetUserIdAndSecContext();
     let guard = miscinit::SecContextGuard::security_restricted(rel.rd_rel.relowner);
@@ -519,9 +507,7 @@ pub fn DefineIndex<'mcx>(
                     format!("cannot create index on relation \"{}\"", rel.name()),
                     ERRCODE_WRONG_OBJECT_TYPE,
                 ))
-                .with_detail(
-                    pg_class_seams::errdetail_relkind_not_supported::call(other)?,
-                ),
+                .with_detail(pg_class_seams::errdetail_relkind_not_supported::call(other)?,),
             ))
         }
     }
@@ -576,8 +562,11 @@ pub fn DefineIndex<'mcx>(
             }
             oid
         }
-        None => {
-            commands_tablespace::GetDefaultTablespace(mcx, rel.rd_rel.relpersistence, partitioned)?
+        None => { commands_tablespace::GetDefaultTablespace(
+            mcx,
+            rel.rd_rel.relpersistence,
+            partitioned
+        )?
         }
     };
     if check_rights
@@ -596,9 +585,7 @@ pub fn DefineIndex<'mcx>(
             aclchk::aclcheck_error(
                 aclresult,
                 types_nodes::parsenodes::ObjectType::OBJECT_TABLESPACE,
-                name.as_ref()
-                    .map(|n| std::str::from_utf8(n.name_str()).unwrap_or(""))
-                    .unwrap_or(""),
+                name.as_ref().map(|n| std::str::from_utf8(n.name_str()).unwrap_or("")).unwrap_or(""),
             )?;
         }
     }
@@ -625,19 +612,8 @@ pub fn DefineIndex<'mcx>(
                 ChooseRelationName(mcx, rel.name(), None, "pkey", namespaceId, true)?
             } else if stmt.isconstraint {
                 let addition = ChooseIndexNameAddition(mcx, &indexColNames)?;
-                let suffix = if !stmt.excludeOpNames.is_nil() {
-                    "excl"
-                } else {
-                    "key"
-                };
-                ChooseRelationName(
-                    mcx,
-                    rel.name(),
-                    Some(&addition[..]),
-                    suffix,
-                    namespaceId,
-                    true,
-                )?
+                let suffix = if !stmt.excludeOpNames.is_nil() { "excl" } else { "key" };
+                ChooseRelationName(mcx, rel.name(), Some(&addition[..]), suffix, namespaceId, true,)?
             } else {
                 ChooseIndexName(mcx, rel.name(), namespaceId, &indexColNames)?
             };
@@ -663,16 +639,8 @@ pub fn DefineIndex<'mcx>(
     // catalog work: CREATE INDEX, ALTER TABLE ADD PRIMARY KEY / UNIQUE / EXCLUDE, CREATE TABLE's constraints and the
     // per-leaf recursion from a partitioned parent (whose relam is only its partitions' default: the check is on the
     // leaves). The build scan asks again for the rebuild paths.
-    if rel.rd_rel.relkind != RELKIND_PARTITIONED_TABLE
-        && tableam_vocab::is_pgrcolumnar_am_oid(rel.rd_rel.relam)
-    {
-        execindexing::pgrc_index_check(
-            am.kind,
-            amname,
-            stmt.unique || stmt.primary,
-            exclusion,
-            concurrent,
-        )?;
+    if rel.rd_rel.relkind != RELKIND_PARTITIONED_TABLE && tableam_vocab::is_pgrcolumnar_am_oid(rel.rd_rel.relam) {
+        execindexing::pgrc_index_check(am.kind, amname, stmt.unique || stmt.primary, exclusion, concurrent,)?;
     }
     if stmt.unique && !stmt.iswithoutoverlaps && !amcanunique {
         return Err(err(
@@ -827,9 +795,7 @@ pub fn DefineIndex<'mcx>(
                 return Err(Box::new(
                     PgError::error(format!(
                         "missing operator {}({},{}) in partition opfamily {}",
-                        eq_strategy,
-                        key.partopcintype[i],
-                        key.partopcintype[i],
+                        eq_strategy, key.partopcintype[i], key.partopcintype[i],
                         key.partopfamily[i]
                     ))
                     .with_sqlstate(ERRCODE_INTERNAL_ERROR),
@@ -900,8 +866,8 @@ pub fn DefineIndex<'mcx>(
                         let opname_pg = lsyscache::get_opname(mcx, idx_eqop)?.expect("opname");
                         let opname = opname_pg.as_str();
                         let att = rel.rd_att.attr(key.partattrs[i] as usize - 1);
-                        let attname =
-                            core::str::from_utf8(att.attname.name_str()).expect("attname");
+                        let attname = core::str::from_utf8(att.attname.name_str())
+                            .expect("attname");
                         return Err(err(
                             format!(
                                 "cannot match partition key to index on column \"{attname}\" \
@@ -982,7 +948,8 @@ pub fn DefineIndex<'mcx>(
             }
             let attno = j + types_tuple::htup::FirstLowInvalidHeapAttributeNumber;
             if attno > 0
-                && rel.rd_att.attr(attno as usize - 1).attgenerated == ATTRIBUTE_GENERATED_VIRTUAL
+                && rel.rd_att.attr(attno as usize - 1).attgenerated
+                    == ATTRIBUTE_GENERATED_VIRTUAL
             {
                 return Err(virtual_generated_err(false, stmt.isconstraint));
             }
@@ -994,7 +961,8 @@ pub fn DefineIndex<'mcx>(
         colname_refs.push(&n[..]);
     }
 
-    let safe_index = indexInfo.ii_Expressions.is_nil() && indexInfo.ii_Predicate.is_nil();
+    let safe_index =
+        indexInfo.ii_Expressions.is_nil() && indexInfo.ii_Predicate.is_nil();
 
     if stmt.isconstraint && !quiet {
         let constraint_type = if stmt.primary {
@@ -1011,11 +979,7 @@ pub fn DefineIndex<'mcx>(
                 types_error::DEBUG1,
                 format!(
                     "{} {} will create implicit index \"{}\" for table \"{}\"",
-                    if is_alter_table {
-                        "ALTER TABLE / ADD"
-                    } else {
-                        "CREATE TABLE /"
-                    },
+                    if is_alter_table { "ALTER TABLE / ADD" } else { "CREATE TABLE /" },
                     constraint_type,
                     String::from_utf8_lossy(indexRelationName),
                     rel.name()
@@ -1025,15 +989,8 @@ pub fn DefineIndex<'mcx>(
         )?;
     }
 
-    let mut flags = (if stmt.primary {
-        INDEX_CREATE_IS_PRIMARY
-    } else {
-        0
-    }) | (if stmt.isconstraint {
-        INDEX_CREATE_ADD_CONSTRAINT
-    } else {
-        0
-    });
+    let mut flags = (if stmt.primary { INDEX_CREATE_IS_PRIMARY } else { 0 })
+        | (if stmt.isconstraint { INDEX_CREATE_ADD_CONSTRAINT } else { 0 });
     if stmt.if_not_exists {
         flags |= catalog_index::INDEX_CREATE_IF_NOT_EXISTS;
     }
@@ -1072,18 +1029,18 @@ pub fn DefineIndex<'mcx>(
         &IndexCreateExtra {
             flags,
             constr_flags: (if stmt.deferrable {
-                catalog_index::INDEX_CONSTR_CREATE_DEFERRABLE
-            } else {
-                0
-            }) | (if stmt.initdeferred {
-                catalog_index::INDEX_CONSTR_CREATE_INIT_DEFERRED
-            } else {
-                0
-            }) | (if stmt.iswithoutoverlaps {
-                catalog_index::INDEX_CONSTR_CREATE_WITHOUT_OVERLAPS
-            } else {
-                0
-            }),
+            catalog_index::INDEX_CONSTR_CREATE_DEFERRABLE
+        } else {
+            0
+        }) | (if stmt.initdeferred {
+            catalog_index::INDEX_CONSTR_CREATE_INIT_DEFERRED
+        } else {
+            0
+        }) | (if stmt.iswithoutoverlaps {
+            catalog_index::INDEX_CONSTR_CREATE_WITHOUT_OVERLAPS
+        } else {
+            0
+        }),
             // Passes the allowSystemTableMods GUC through, lifting index_create's system-relation refusal.
             allow_system_table_mods: init_small::globals::allowSystemTableMods(),
             is_internal: !check_rights,
@@ -1236,8 +1193,13 @@ pub fn DefineIndex<'mcx>(
                 childrel.close(types_rel::NoLock)?;
 
                 if !found {
-                    let childStmt =
-                        parse_utilcmd::generateClonedIndexStmt(mcx, None, &parentIndex, &attmap)?.0;
+                    let childStmt = parse_utilcmd::generateClonedIndexStmt(
+                        mcx,
+                        None,
+                        &parentIndex,
+                        &attmap
+                    )?
+                    .0;
                     // Recurse as the starting user ID; callee re-restricts.
                     let _ = (child_save_userid, child_save_sec_context);
                     let recurse_guard =
@@ -1296,10 +1258,7 @@ pub fn DefineIndex<'mcx>(
 
     // Session lock on the table pins it across the mid-command commits.
     let heaprelid = rel.rd_lockInfo.lockRelId;
-    let heaplocktag = [types_storage::lock::LOCKTAG::relation(
-        heaprelid.dbId,
-        heaprelid.relId,
-    )];
+    let heaplocktag = [types_storage::lock::LOCKTAG::relation(heaprelid.dbId, heaprelid.relId,)];
     rel.close(types_rel::NoLock)?;
 
     lmgr::LockRelationIdForSession(&heaprelid, types_rel::ShareUpdateExclusiveLock)?;
@@ -1382,15 +1341,17 @@ pub(crate) fn ResolveOpClass(
     accessMethodId: Oid,
 ) -> PgResult<Oid> {
     // DeconstructQualifiedName's default arm raises the improper-qualified-name error itself for 0 or >3 parts; collect every part so it can.
-    let names: Vec<&str> = opclass
-        .iter()
-        .map(|n| n.as_string().expect("opclass holds Strings").sval)
-        .collect();
+    let names: Vec<&str> =
+        opclass.iter().map(|n| n.as_string().expect("opclass holds Strings").sval).collect();
     let (schemaname, opcname) = catalog_namespace::DeconstructQualifiedName(&names)?;
 
     let opClassId = if let Some(schemaname) = schemaname {
         let namespaceId = catalog_namespace::LookupExplicitNamespace(schemaname, false)?;
-        syscache_seams::lookup_pg_opclass_oid_by_name::call(accessMethodId, opcname, namespaceId)?
+        syscache_seams::lookup_pg_opclass_oid_by_name::call(
+            accessMethodId,
+            opcname,
+            namespaceId
+        )?
     } else {
         catalog_namespace::OpclassnameGetOpcid(accessMethodId, opcname)?
     };
@@ -1398,11 +1359,7 @@ pub(crate) fn ResolveOpClass(
         return Err(err(
             format!(
                 "operator class \"{}\" does not exist for access method \"{}\"",
-                if schemaname.is_some() {
-                    names.join(".")
-                } else {
-                    opcname.to_string()
-                },
+                if schemaname.is_some() { names.join(".") } else { opcname.to_string() },
                 accessMethodName
             ),
             ERRCODE_UNDEFINED_OBJECT,
@@ -1465,9 +1422,10 @@ pub fn IndexSetParentIndex<'mcx>(
         Some(tup) => {
             let mut isnull = false;
             // SAFETY: inhparent (2) is a fixed NOT NULL pg_inherits column.
-            let inhparent =
-                unsafe { types_tuple::heap_getattr(tup, 2, pg_inherits_rel.descr(), &mut isnull) }
-                    .as_oid();
+            let inhparent = unsafe {
+                types_tuple::heap_getattr(tup, 2, pg_inherits_rel.descr(), &mut isnull)
+            }
+            .as_oid();
             if inhparent != parentOid {
                 return Err(Box::new(
                     PgError::error(format!(
@@ -1539,7 +1497,14 @@ fn update_relispartition<'mcx>(mcx: Mcx<'mcx>, relationId: Oid, newval: bool) ->
     const ClassOidIndexId: Oid = 2662;
     let class_rel = table::table_open(mcx, RELATION_RELATION_ID, types_rel::RowExclusiveLock)?;
     let keys = [eq_key(1, F_OIDEQ, Datum::from_oid(relationId))];
-    let mut scan = genam::systable_beginscan(mcx, &class_rel, ClassOidIndexId, true, None, &keys)?;
+    let mut scan = genam::systable_beginscan(
+        mcx,
+        &class_rel,
+        ClassOidIndexId,
+        true,
+        None,
+        &keys
+    )?;
     let tup = genam::systable_getnext(mcx, &mut scan)?
         .ok_or_else(|| cache_lookup_failed("relation", relationId))?;
     let otid = tup.t_self;
@@ -1548,18 +1513,10 @@ fn update_relispartition<'mcx>(mcx: Mcx<'mcx>, relationId: Oid, newval: bool) ->
         let mut isnull = false;
         // SAFETY: relispartition is a fixed NOT NULL pg_class column.
         let cur = unsafe {
-            types_tuple::heap_getattr(
-                tup,
-                Anum_pg_class_relispartition as i32,
-                class_rel.descr(),
-                &mut isnull,
-            )
+            types_tuple::heap_getattr(tup, Anum_pg_class_relispartition as i32, class_rel.descr(), &mut isnull,)
         }
         .as_bool();
-        debug_assert!(
-            cur != newval,
-            "update_relispartition: no-op write for relation {relationId}"
-        );
+        debug_assert!(cur != newval, "update_relispartition: no-op write for relation {relationId}");
     }
     let desc = class_rel.descr();
     let natts = desc.natts as usize;
@@ -1584,7 +1541,8 @@ fn set_pg_index_invalid<'mcx>(mcx: Mcx<'mcx>, indexRelationId: Oid) -> PgResult<
     const Anum_pg_index_indisvalid: usize = 11;
     let pg_index = table::table_open(mcx, IndexRelationId, types_rel::RowExclusiveLock)?;
     let keys = [eq_key(1, F_OIDEQ, Datum::from_oid(indexRelationId))];
-    let mut scan = genam::systable_beginscan(mcx, &pg_index, IndexRelidIndexId, true, None, &keys)?;
+    let mut scan =
+        genam::systable_beginscan(mcx, &pg_index, IndexRelidIndexId, true, None, &keys)?;
     let tup = genam::systable_getnext(mcx, &mut scan)?
         .ok_or_else(|| cache_lookup_failed("index", indexRelationId))?;
     let desc = pg_index.descr();
@@ -1652,9 +1610,7 @@ fn ComputeIndexAttrs<'mcx>(
     debug_assert!(exclusionOpNames.is_nil() || exclusionOpNames.len() == nkeycols);
     // indexcmds.c:1939: WITHOUT OVERLAPS ignores exclusionOpNames (cloned
     // index statements carry both) and derives its operators instead.
-    let mut excl_iter = exclusionOpNames
-        .iter()
-        .take(if iswithoutoverlaps { 0 } else { nkeycols });
+    let mut excl_iter = exclusionOpNames.iter().take(if iswithoutoverlaps { 0 } else { nkeycols });
     for (attn, node) in attList.iter().enumerate() {
         let attribute = node
             .as_variant::<IndexElem>()
@@ -1808,8 +1764,8 @@ fn ComputeIndexAttrs<'mcx>(
             let opfamily = lsyscache::get_opclass_family(opclassIds[attn])?;
             let strat = lsyscache::get_op_opfamily_strategy(opid, opfamily)?;
             if strat == 0 {
-                let famname =
-                    lsyscache::get_opfamily_name(mcx, opfamily, false)?.expect("opfamily name");
+                let famname = lsyscache::get_opfamily_name(mcx, opfamily, false)?
+                    .expect("opfamily name");
                 return Err(Box::new(
                     (*err(
                         format!(
@@ -1865,7 +1821,9 @@ fn ComputeIndexAttrs<'mcx>(
             }
             if attribute.nulls_ordering != SortByNulls::SORTBY_NULLS_DEFAULT {
                 return Err(err(
-                    format!("access method \"{amname}\" does not support NULLS FIRST/LAST options"),
+                    format!(
+                        "access method \"{amname}\" does not support NULLS FIRST/LAST options"
+                    ),
                     types_error::ERRCODE_FEATURE_NOT_SUPPORTED,
                 ));
             }
@@ -1952,7 +1910,10 @@ fn ChooseIndexColumnNames<'mcx>(
     let mut result: PgVec<'mcx, PgVec<'mcx, u8>> = PgVec::new_in(mcx);
     for node in indexElems.iter() {
         let ielem = node.as_variant::<IndexElem>().expect("IndexElem");
-        let origname = ielem.indexcolname.or(ielem.name).unwrap_or("expr");
+        let origname = ielem
+            .indexcolname
+            .or(ielem.name)
+            .unwrap_or("expr");
         let mut curname: PgVec<'mcx, u8> = PgVec::new_in(mcx);
         mcx::vec_append_bytes(&mut curname, origname.as_bytes())?;
         let mut i = 1;
@@ -1998,16 +1959,8 @@ pub(crate) fn ChooseRelationName<'mcx>(
             pg_constraint::make_object_name(mcx, name1.as_bytes(), name2, modlabel.as_str())?;
         let cname = name_arg(mcx, &relname[..])?;
         let keys = [
-            eq_key(
-                Anum_pg_class_relname,
-                F_NAMEEQ,
-                Datum::from_usize(cname.as_ptr() as usize),
-            ),
-            eq_key(
-                Anum_pg_class_relnamespace,
-                F_OIDEQ,
-                Datum::from_oid(namespaceid),
-            ),
+            eq_key(Anum_pg_class_relname, F_NAMEEQ, Datum::from_usize(cname.as_ptr() as usize),),
+            eq_key(Anum_pg_class_relnamespace, F_OIDEQ, Datum::from_oid(namespaceid),),
         ];
         let mut scan = genam::systable_beginscan(
             mcx,
@@ -2061,10 +2014,7 @@ fn constraint_name_exists(mcx: Mcx<'_>, name: &[u8], namespaceid: Oid) -> PgResu
 
 fn name_arg<'mcx>(mcx: Mcx<'mcx>, name: &[u8]) -> PgResult<PgVec<'mcx, u8>> {
     let n = NAMEDATALEN as usize;
-    assert!(
-        name.len() < n,
-        "makeObjectName truncation unported: {name:?}"
-    );
+    assert!(name.len() < n, "makeObjectName truncation unported: {name:?}");
     let mut buf: PgVec<'mcx, u8> = mcx::vec_with_capacity_in(mcx, n)?;
     mcx::vec_append_bytes(&mut buf, name)?;
     mcx::vec_append_bytes(&mut buf, &[0u8; 64][..n - name.len()])?;
@@ -2088,15 +2038,11 @@ mod tests {
 
     #[test]
     fn pgrc_index_check_serves_five_ams_and_refuses_the_rest() {
-        let check = |am, name: &str, unique, exclusion, concurrent| {
-            execindexing::pgrc_index_check(am, name, unique, exclusion, concurrent)
+        let check = |am, name: &str, unique, exclusion, concurrent| { execindexing::pgrc_index_check(am, name, unique, exclusion, concurrent)
         };
         // IX1 L4: GIN joins once pgrc serves bitmap scans (its only scan)
         for am in [Btree, Hash, Gist, Spgist, Gin] {
-            assert!(
-                check(am, "x", false, false, false).is_ok(),
-                "{am:?} is served"
-            );
+            assert!(check(am, "x", false, false, false).is_ok(), "{am:?} is served");
         }
         let refused = |r: types_error::PgResult<()>| {
             let e = r.expect_err("refused");
@@ -2105,37 +2051,16 @@ mod tests {
         };
         assert_eq!(
             refused(check(Brin, "brin", false, false, false)),
-            (
-                "pgrcolumnar does not support BRIN indexes".into(),
-                Some("Zone maps already prune block ranges of pgrcolumnar tables.".into())
-            )
+            ("pgrcolumnar does not support BRIN indexes".into(), Some("Zone maps already prune block ranges of pgrcolumnar tables.".into()))
         );
-        assert_eq!(
-            refused(check(Bloom, "bloom", false, false, false)).0,
-            "pgrcolumnar does not support index access method \"bloom\""
-        );
-        assert_eq!(
-            refused(check(Btree, "btree", true, false, false)).0,
-            "pgrcolumnar does not support unique indexes yet"
-        );
+        assert_eq!(refused(check(Bloom, "bloom", false, false, false)).0, "pgrcolumnar does not support index access method \"bloom\"");
+        assert_eq!(refused(check(Btree, "btree", true, false, false)).0, "pgrcolumnar does not support unique indexes yet");
         // a PRIMARY KEY ... WITHOUT OVERLAPS is unique and an exclusion: the unique refusal names it
-        assert_eq!(
-            refused(check(Gist, "gist", true, true, false)).0,
-            "pgrcolumnar does not support unique indexes yet"
-        );
-        assert_eq!(
-            refused(check(Gist, "gist", false, true, false)).0,
-            "pgrcolumnar does not support exclusion constraints yet"
-        );
-        assert_eq!(
-            refused(check(Btree, "btree", false, false, true)).0,
-            "pgrcolumnar does not support CREATE INDEX CONCURRENTLY"
-        );
+        assert_eq!(refused(check(Gist, "gist", true, true, false)).0, "pgrcolumnar does not support unique indexes yet");
+        assert_eq!(refused(check(Gist, "gist", false, true, false)).0, "pgrcolumnar does not support exclusion constraints yet");
+        assert_eq!(refused(check(Btree, "btree", false, false, true)).0, "pgrcolumnar does not support CREATE INDEX CONCURRENTLY");
         // the AM's refusal outranks the statement's: BRIN is never served, whatever else the statement asks
-        assert_eq!(
-            refused(check(Brin, "brin", true, false, true)).0,
-            "pgrcolumnar does not support BRIN indexes"
-        );
+        assert_eq!(refused(check(Brin, "brin", true, false, true)).0, "pgrcolumnar does not support BRIN indexes");
     }
 
     #[test]
@@ -2147,10 +2072,7 @@ mod tests {
         SetUserIdAndSecContext(issuer, 0);
         let mut nestlevel = guc::NewGUCNestLevel();
         let restricted = SecContextGuard::security_restricted(owner);
-        assert_eq!(
-            GetUserIdAndSecContext(),
-            (owner, SECURITY_RESTRICTED_OPERATION)
-        );
+        assert_eq!(GetUserIdAndSecContext(), (owner, SECURITY_RESTRICTED_OPERATION));
         let mut ddl = Some(super::DdlIdentity {
             userid: issuer,
             sec_context: 0,
@@ -2158,22 +2080,13 @@ mod tests {
         });
         let seen = super::as_ddl_user(&mut ddl, || Ok(GetUserIdAndSecContext())).unwrap();
         assert_eq!(seen, (issuer, 0));
-        assert_eq!(
-            GetUserIdAndSecContext(),
-            (owner, SECURITY_RESTRICTED_OPERATION)
-        );
+        assert_eq!(GetUserIdAndSecContext(), (owner, SECURITY_RESTRICTED_OPERATION));
         let err = super::as_ddl_user(&mut ddl, || -> super::PgResult<()> {
-            Err(super::err(
-                "lookup failed".into(),
-                types_error::ERRCODE_UNDEFINED_OBJECT,
-            ))
+            Err(super::err("lookup failed".into(), types_error::ERRCODE_UNDEFINED_OBJECT,))
         })
         .unwrap_err();
         assert_eq!(err.sqlstate(), types_error::ERRCODE_UNDEFINED_OBJECT);
-        assert_eq!(
-            GetUserIdAndSecContext(),
-            (owner, SECURITY_RESTRICTED_OPERATION)
-        );
+        assert_eq!(GetUserIdAndSecContext(), (owner, SECURITY_RESTRICTED_OPERATION));
         #[allow(clippy::drop_non_drop)]
         drop(ddl);
         assert_eq!(nestlevel, guc::NewGUCNestLevel() - 1);
@@ -2198,9 +2111,7 @@ mod tests {
 
     #[test]
     fn choose_index_name_addition_stops_at_namedatalen() {
-        let cx = Box::leak(Box::new(::mcx::MemoryContext::new(
-            "indexcmds-addition-test",
-        )));
+        let cx = Box::leak(Box::new(::mcx::MemoryContext::new("indexcmds-addition-test",)));
         let mcx = cx.mcx();
         let bytes = |s: &str| {
             let mut v: ::mcx::PgVec<'_, u8> = ::mcx::PgVec::new_in(mcx);
@@ -2208,10 +2119,7 @@ mod tests {
             v
         };
         let short = [bytes("a"), bytes("b")];
-        assert_eq!(
-            &super::ChooseIndexNameAddition(mcx, &short).unwrap()[..],
-            b"a_b"
-        );
+        assert_eq!(&super::ChooseIndexNameAddition(mcx, &short).unwrap()[..], b"a_b");
 
         let long1 = "x".repeat(40);
         let long2 = "y".repeat(40);
@@ -2224,9 +2132,7 @@ mod tests {
     #[test]
     fn choose_index_column_names_truncates_like_c() {
         setup_mbcliplen();
-        let cx = Box::leak(Box::new(::mcx::MemoryContext::new(
-            "indexcmds-colnames-test",
-        )));
+        let cx = Box::leak(Box::new(::mcx::MemoryContext::new("indexcmds-colnames-test",)));
         let mcx = cx.mcx();
         let long = "c".repeat(63);
         let mut elems = ::types_nodes::NodeList::nil();
@@ -2245,9 +2151,7 @@ mod tests {
     #[test]
     fn choose_index_column_names_backs_off_to_char_boundary_under_utf8() {
         setup_mbcliplen();
-        let cx = Box::leak(Box::new(::mcx::MemoryContext::new(
-            "indexcmds-colnames-mb-test",
-        )));
+        let cx = Box::leak(Box::new(::mcx::MemoryContext::new("indexcmds-colnames-mb-test",)));
         let mcx = cx.mcx();
         let long = format!("{}é", "c".repeat(61));
         assert_eq!(long.len(), 63);

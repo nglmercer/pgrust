@@ -32,10 +32,7 @@ use types_rel::{AccessShareLock, Relation};
 use types_slot::SlotData;
 use types_snapshot::{SnapshotData, SnapshotType};
 use types_tuple::tupdesc::FormData_pg_attribute;
-use types_tuple::{
-    ItemPointerData, ItemPointerGetBlockNumberNoCheck, ItemPointerGetOffsetNumberNoCheck,
-    ItemPointerSet,
-};
+use types_tuple::{ItemPointerData, ItemPointerGetBlockNumberNoCheck, ItemPointerGetOffsetNumberNoCheck, ItemPointerSet,};
 
 use crate::position::{self, Located};
 
@@ -59,10 +56,7 @@ pub fn kind_of(snapshot: &Snapshot<'_>) -> PgResult<Kind> {
         Some(SnapshotType::SNAPSHOT_NON_VACUUMABLE) => Kind::NonVacuumable,
         Some(t) => {
             return Err(Box::new(
-                PgError::error(format!(
-                    "pgrcolumnar: a row fetch under snapshot type {t:?} is not supported"
-                ))
-                .with_sqlstate(types_error::ERRCODE_FEATURE_NOT_SUPPORTED),
+                PgError::error(format!("pgrcolumnar: a row fetch under snapshot type {t:?} is not supported")).with_sqlstate(types_error::ERRCODE_FEATURE_NOT_SUPPORTED),
             ))
         }
     })
@@ -83,16 +77,8 @@ pub(crate) struct Verdict {
 }
 
 impl Verdict {
-    const GONE: Verdict = Verdict {
-        visible: false,
-        all_dead: false,
-        busy: None,
-    };
-    const LIVE: Verdict = Verdict {
-        visible: true,
-        all_dead: false,
-        busy: None,
-    };
+    const GONE: Verdict = Verdict { visible: false, all_dead: false, busy: None, };
+    const LIVE: Verdict = Verdict { visible: true, all_dead: false, busy: None, };
 }
 
 pub(crate) trait Facts {
@@ -101,29 +87,17 @@ pub(crate) trait Facts {
     fn tomb(&mut self, at: &Located<'_>) -> PgResult<Tomb>;
 }
 
-pub(crate) fn decide(
-    kind: Kind,
-    at: Option<&Located<'_>>,
-    facts: &mut dyn Facts,
-) -> PgResult<Verdict> {
-    let Some(at) = at else {
-        return Ok(Verdict::GONE);
-    };
+pub(crate) fn decide(kind: Kind, at: Option<&Located<'_>>, facts: &mut dyn Facts,) -> PgResult<Verdict> {
+    let Some(at) = at else { return Ok(Verdict::GONE); };
     match at {
         Located::Segment { relid, tid, .. } => {
             if !facts.segment_visible(*relid, tid)? {
                 return Ok(Verdict::GONE);
             }
         }
-        Located::Part {
-            part, granule, row, ..
-        } => {
+        Located::Part { part, granule, row, .. } => {
             if facts.dv(*part, *granule, *row) {
-                return Ok(Verdict {
-                    visible: false,
-                    all_dead: true,
-                    busy: None,
-                });
+                return Ok(Verdict { visible: false, all_dead: true, busy: None, });
             }
         }
     }
@@ -133,27 +107,14 @@ pub(crate) fn decide(
     Ok(match facts.tomb(at)? {
         Tomb::Clear => Verdict::LIVE,
         Tomb::Deleted { removable } if kind == Kind::NonVacuumable && !removable => Verdict::LIVE,
-        Tomb::Deleted { removable } => Verdict {
-            visible: false,
-            all_dead: removable,
-            busy: None,
-        },
-        Tomb::Busy { xmax } if kind == Kind::Dirty => Verdict {
-            visible: true,
-            all_dead: false,
-            busy: Some(xmax),
-        },
+        Tomb::Deleted { removable } => Verdict { visible: false, all_dead: removable, busy: None, },
+        Tomb::Busy { xmax } if kind == Kind::Dirty => Verdict { visible: true, all_dead: false, busy: Some(xmax), },
         Tomb::Busy { .. } => Verdict::LIVE,
     })
 }
 
-pub(crate) fn tomb_of_hit(
-    hit: Option<&TombHit>,
-    removable: &mut dyn FnMut(TransactionId) -> PgResult<bool>,
-) -> PgResult<Tomb> {
-    let Some(hit) = hit else {
-        return Ok(Tomb::Clear);
-    };
+pub(crate) fn tomb_of_hit(hit: Option<&TombHit>, removable: &mut dyn FnMut(TransactionId) -> PgResult<bool>,) -> PgResult<Tomb> {
+    let Some(hit) = hit else { return Ok(Tomb::Clear); };
     // a LOCK row deletes nothing, as a lock-only xmax hides nothing from HeapTupleSatisfiesDirty (and sets no xmax); a
     // deleter of a locked row inserts its own tombstone, which outranks the LOCK row
     if hit.is_lock() {
@@ -162,11 +123,10 @@ pub(crate) fn tomb_of_hit(
     Ok(match hit.state {
         TombState::InProgress => Tomb::Busy { xmax: hit.xmin },
         TombState::Own => Tomb::Deleted { removable: false },
-        TombState::Committed => Tomb::Deleted {
-            removable: removable(hit.xmin)?,
-        },
+        TombState::Committed => Tomb::Deleted { removable: removable(hit.xmin)?, },
     })
 }
+
 
 struct Memo<'mcx> {
     snap: Snapshot<'mcx>,
@@ -196,8 +156,7 @@ impl<'mcx> Io<'mcx> {
         let i = match self.segs.iter().position(|(r, ..)| *r == relid) {
             Some(i) => i,
             None => {
-                self.segs
-                    .push((relid, table::table_open(mcx, relid, AccessShareLock)?, 0));
+                self.segs.push((relid, table::table_open(mcx, relid, AccessShareLock)?, 0));
                 self.segs.len() - 1
             }
         };
@@ -209,23 +168,14 @@ impl<'mcx> Io<'mcx> {
     /// only past the last one seen: the heap only grows under this fetch's AccessShareLock.
     fn segment_has(&mut self, mcx: Mcx<'mcx>, relid: Oid, blk: u32) -> PgResult<bool> {
         self.segment(mcx, relid)?;
-        let Some(s) = self.segs.iter_mut().find(|s| s.0 == relid) else {
-            return Ok(false);
-        };
+        let Some(s) = self.segs.iter_mut().find(|s| s.0 == relid) else { return Ok(false); };
         if blk >= s.2 {
-            s.2 = bufmgr::RelationGetNumberOfBlocksInFork(
-                &s.1,
-                types_core::ForkNumber::MAIN_FORKNUM,
-            )?;
+            s.2 = bufmgr::RelationGetNumberOfBlocksInFork(&s.1, types_core::ForkNumber::MAIN_FORKNUM,)?;
         }
         Ok(blk < s.2)
     }
 
-    fn tomb_heaps(
-        &mut self,
-        mcx: Mcx<'mcx>,
-        parent: Oid,
-    ) -> PgResult<&[crate::tombs::Opened<'mcx>]> {
+    fn tomb_heaps(&mut self, mcx: Mcx<'mcx>, parent: Oid,) -> PgResult<&[crate::tombs::Opened<'mcx>]> {
         if self.tombs.is_none() {
             self.tombs = Some(crate::tombs::open_existing_cached(mcx, parent)?);
         }
@@ -249,12 +199,7 @@ pub fn begin<'mcx>(rel: &Relation<'mcx>) -> PgrcIndexFetch<'mcx> {
         needed: None,
         schemas: None,
         memo: None,
-        io: Io {
-            segs: Vec::new(),
-            tombs: None,
-            mask: Mask::Unbuilt,
-            last_mask: None,
-        },
+        io: Io { segs: Vec::new(), tombs: None, mask: Mask::Unbuilt, last_mask: None, },
         one_off: false,
         touches: rowcache::Touches::new(),
     }
@@ -301,13 +246,7 @@ impl<'mcx> PgrcIndexFetch<'mcx> {
             _ => (crate::ring::newest(&self.rel)?, Vec::new()),
         };
         let path = crate::pathcache::path(&self.rel)?;
-        self.memo = Some(Memo {
-            snap: snapshot.clone(),
-            curcid,
-            gen,
-            newer,
-            path,
-        });
+        self.memo = Some(Memo { snap: snapshot.clone(), curcid, gen, newer, path, });
         self.io.mask = Mask::Unbuilt;
         self.io.last_mask = None;
         Ok(())
@@ -321,15 +260,14 @@ const HEAD_CHECKED_POINT: &str = "pgrc-ixfetch-head-checked";
 /// snapshot.
 fn newer_than(rel: &Relation<'_>, view: Option<&Generation>) -> PgResult<Vec<SegmentRecord>> {
     if let Some(v) = view {
-        if injection_point::is_attached(NAIVE_HEAD_POINT)
-            || (!v.composed() && crate::ring::head_is(rel, v.gen))
-        {
+        if injection_point::is_attached(NAIVE_HEAD_POINT) || (!v.composed() && crate::ring::head_is(rel, v.gen)) {
             injection_point::injection_point(HEAD_CHECKED_POINT)?;
             return Ok(Vec::new());
         }
     }
     crate::ring::newer_segments(rel, view)
 }
+
 
 pub(crate) struct SchemaSet {
     pub(crate) schemas: Vec<ColSchema>,
@@ -351,16 +289,7 @@ struct AttSig {
 
 impl AttSig {
     fn of(a: &FormData_pg_attribute) -> AttSig {
-        AttSig {
-            attnum: a.attnum,
-            typid: a.atttypid,
-            typmod: a.atttypmod,
-            len: a.attlen,
-            byval: a.attbyval,
-            align: a.attalign,
-            collation: a.attcollation,
-            dropped: a.attisdropped,
-        }
+        AttSig { attnum: a.attnum, typid: a.atttypid, typmod: a.atttypmod, len: a.attlen, byval: a.attbyval, align: a.attalign, collation: a.attcollation, dropped: a.attisdropped, }
     }
 }
 
@@ -374,15 +303,9 @@ struct SchemaCache {
 }
 
 impl SchemaCache {
-    fn hit(
-        &self,
-        key: (Oid, Oid),
-        atts: &[FormData_pg_attribute],
-        stale: bool,
-    ) -> Option<Rc<SchemaSet>> {
+    fn hit(&self, key: (Oid, Oid), atts: &[FormData_pg_attribute], stale: bool,) -> Option<Rc<SchemaSet>> {
         let (_, sig, set) = self.entries.iter().find(|e| e.0 == key)?;
-        let same =
-            sig.len() == atts.len() && sig.iter().zip(atts).all(|(s, a)| *s == AttSig::of(a));
+        let same = sig.len() == atts.len() && sig.iter().zip(atts).all(|(s, a)| *s == AttSig::of(a));
         (same || stale).then(|| Rc::clone(set))
     }
 
@@ -428,12 +351,10 @@ const MASK_NAIVE_POINT: &str = "pgrc-ixfetch-mask-naive";
 /// slot 0 without a heap holds nothing (named before its first tombstone makes it, [`crate::tombs::open_read`]); any
 /// other slot without one is not known empty: the full build waits for its heap.
 pub(crate) fn heaps_empty(slots: &[u8], blocks: &[(u8, u32)]) -> bool {
-    slots
-        .iter()
-        .all(|&s| match blocks.iter().find(|b| b.0 == s) {
-            Some(&(_, n)) => n == 0,
-            None => s == 0,
-        })
+    slots.iter().all(|&s| match blocks.iter().find(|b| b.0 == s) {
+        Some(&(_, n)) => n == 0,
+        None => s == 0,
+    })
 }
 
 thread_local! {
@@ -453,30 +374,15 @@ pub(crate) fn deform_width(needed: Option<&[bool]>, natts: usize) -> usize {
     }
 }
 
-fn deform_segment_row<'s>(
-    mcx: Mcx<'s>,
-    seg: &Relation<'_>,
-    tup: &types_tuple::HeapTupleData<'_>,
-    needed: Option<&[bool]>,
-    slot: &mut SlotData<'s>,
-) -> PgResult<()> {
+fn deform_segment_row<'s>(mcx: Mcx<'s>, seg: &Relation<'_>, tup: &types_tuple::HeapTupleData<'_>, needed: Option<&[bool]>, slot: &mut SlotData<'s>,) -> PgResult<()> {
     exectuples::exec_clear_tuple(slot, mcx);
     let base = slot.base_mut();
     let natts = seg.rd_att.natts as usize;
     if natts > base.tts_values.len() {
-        return Err(Box::new(PgError::error(format!(
-            "pgrcolumnar: segment {} has more columns than its table",
-            seg.rd_id
-        ))));
+        return Err(Box::new(PgError::error(format!("pgrcolumnar: segment {} has more columns than its table", seg.rd_id))));
     }
     let want = deform_width(needed, natts);
-    types_tuple::heap_deform_tuple_prefix(
-        tup,
-        &seg.rd_att,
-        &mut base.tts_values[..natts],
-        &mut base.tts_isnull[..natts],
-        want,
-    );
+    types_tuple::heap_deform_tuple_prefix(tup, &seg.rd_att, &mut base.tts_values[..natts], &mut base.tts_isnull[..natts], want,);
     base.tts_isnull[want..].fill(true);
     base.tts_nvalid = base.tts_values.len() as types_core::AttrNumber;
     base.mark_not_empty();
@@ -508,10 +414,7 @@ impl<'mcx> Facts for Live<'_, 'mcx> {
                 &any
             }
         };
-        if !self
-            .io
-            .segment_has(mcx, relid, ItemPointerGetBlockNumberNoCheck(tid))?
-        {
+        if !self.io.segment_has(mcx, relid, ItemPointerGetBlockNumberNoCheck(tid))? {
             return Ok(false);
         }
         let seg = self.io.segment(mcx, relid)?;
@@ -530,13 +433,7 @@ impl<'mcx> Facts for Live<'_, 'mcx> {
     }
 
     fn dv(&self, part: usize, granule: u32, row: u32) -> bool {
-        let mask = self
-            .memo
-            .gen
-            .as_ref()
-            .and_then(|g| g.parts.get(part))
-            .and_then(|p| p.deletes.as_ref())
-            .and_then(|d| d.granule_mask(granule));
+        let mask = self.memo.gen.as_ref().and_then(|g| g.parts.get(part)).and_then(|p| p.deletes.as_ref()).and_then(|d| d.granule_mask(granule));
         mask.is_some_and(|m| m[row as usize / 64] >> (row % 64) & 1 == 1)
     }
 
@@ -546,11 +443,7 @@ impl<'mcx> Facts for Live<'_, 'mcx> {
                 // a kill hint asks whether a delete the mask reports is dead to everyone: the probe judges its
                 // deleter (it finds the tombstone the mask did, under the same snapshot)
                 if !(deleted && self.want_dead) {
-                    return Ok(if deleted {
-                        Tomb::Deleted { removable: false }
-                    } else {
-                        Tomb::Clear
-                    });
+                    return Ok(if deleted { Tomb::Deleted { removable: false } } else { Tomb::Clear });
                 }
             }
         }
@@ -570,21 +463,11 @@ impl<'mcx> Live<'_, 'mcx> {
         };
         Ok(Some(match at {
             Located::Segment { slot, tid, .. } => {
-                let local = seg_local(
-                    ItemPointerGetBlockNumberNoCheck(tid),
-                    ItemPointerGetOffsetNumberNoCheck(tid),
-                );
+                let local = seg_local(ItemPointerGetBlockNumberNoCheck(tid), ItemPointerGetOffsetNumberNoCheck(tid),);
                 local.is_some_and(|l| f.segment_positions(*slot).binary_search(&l).is_ok())
             }
-            Located::Part {
-                part, granule, row, ..
-            } => {
-                if !self
-                    .io
-                    .last_mask
-                    .as_ref()
-                    .is_some_and(|(p, g, _)| p == part && g == granule)
-                {
+            Located::Part { part, granule, row, .. } => {
+                if !self.io.last_mask.as_ref().is_some_and(|(p, g, _)| p == part && g == granule) {
                     let mut m = None;
                     f.granule_into(*part, *granule, &mut m);
                     self.io.last_mask = Some((*part, *granule, m));
@@ -597,13 +480,8 @@ impl<'mcx> Live<'_, 'mcx> {
 
     fn build_mask(&mut self) -> PgResult<Mask> {
         let snapshot = self.snapshot;
-        let Some(snap) = snapshot.as_deref() else {
-            return Ok(Mask::Probe);
-        };
-        if self.one_off
-            || probe_arm_forced()
-            || !pgrc_front_seams::statement_deletes::is_installed()
-        {
+        let Some(snap) = snapshot.as_deref() else { return Ok(Mask::Probe); };
+        if self.one_off || probe_arm_forced() || !pgrc_front_seams::statement_deletes::is_installed() {
             return Ok(Mask::Probe);
         }
         let m = self.memo;
@@ -611,27 +489,12 @@ impl<'mcx> Live<'_, 'mcx> {
             stats(|s| s.mask_clear += 1);
             return Ok(Mask::Clear);
         }
-        let segs: Vec<SegmentRecord> = m
-            .gen
-            .iter()
-            .flat_map(|g| g.segments.iter())
-            .filter(|r| r.state != SegState::Sealed)
-            .chain(&m.newer)
-            .copied()
-            .collect();
+        let segs: Vec<SegmentRecord> = m.gen.iter().flat_map(|g| g.segments.iter()).filter(|r| r.state != SegState::Sealed).chain(&m.newer).copied().collect();
         stats(|s| s.mask_builds += 1);
-        Ok(
-            match pgrc_front_seams::statement_deletes::call(
-                self.mcx,
-                self.rel,
-                m.gen.as_ref(),
-                &segs,
-                snap,
-            )? {
-                Some(f) => Mask::Built(f),
-                None => Mask::Probe,
-            },
-        )
+        Ok(match pgrc_front_seams::statement_deletes::call(self.mcx, self.rel, m.gen.as_ref(), &segs, snap,)? {
+            Some(f) => Mask::Built(f),
+            None => Mask::Probe,
+        },)
     }
 
     /// A tombstone or LOCK row any snapshot can see, its own included, was inserted (its heap extended) before its
@@ -654,13 +517,7 @@ impl<'mcx> Live<'_, 'mcx> {
         let mut blocks = ::mcx::stdvec::try_vec(slots.len(), "pgrc index fetch")?;
         for h in self.io.tomb_heaps(mcx, parent)? {
             if slots.contains(&h.slot) {
-                blocks.push((
-                    h.slot,
-                    bufmgr::RelationGetNumberOfBlocksInFork(
-                        &h.rel,
-                        types_core::ForkNumber::MAIN_FORKNUM,
-                    )?,
-                ));
+                blocks.push((h.slot, bufmgr::RelationGetNumberOfBlocksInFork(&h.rel, types_core::ForkNumber::MAIN_FORKNUM,)?,));
             }
         }
         Ok(heaps_empty(&slots, &blocks))
@@ -679,10 +536,7 @@ impl<'mcx> Live<'_, 'mcx> {
             // not the caller's to overwrite
             let snap: Snapshot<'mcx> = match kind {
                 Kind::Mvcc | Kind::SelfSnapshot => snapshot.clone(),
-                _ => Some(Rc::new(SnapshotData::sentinel(
-                    mcx,
-                    SnapshotType::SNAPSHOT_DIRTY,
-                ))),
+                _ => Some(Rc::new(SnapshotData::sentinel(mcx, SnapshotType::SNAPSHOT_DIRTY,))),
             };
             match pgrc_front_seams::tomb_probe::call(mcx, &h.rel, id, &snap)? {
                 // a tombstone in any heap outranks a LOCK row in another (stageb::probe_all)
@@ -699,12 +553,7 @@ impl<'mcx> Live<'_, 'mcx> {
         let rel = self.rel;
         // SnapshotNonVacuumable's visibility is the horizon's: judged whether or not `all_dead` is asked
         let want = self.want_dead || kind == Kind::NonVacuumable;
-        tomb_of_hit(hit.as_ref(), &mut |xid| {
-            if want {
-                procarray::GlobalVisTestIsRemovableXid(procarray::GlobalVisTestFor(rel), xid)
-            } else {
-                Ok(false)
-            }
+        tomb_of_hit(hit.as_ref(), &mut |xid| { if want { procarray::GlobalVisTestIsRemovableXid(procarray::GlobalVisTestFor(rel), xid) } else { Ok(false) }
         })
     }
 }
@@ -784,33 +633,12 @@ pub fn stats_text() -> String {
     )
 }
 
-fn fetch_id<'mcx>(
-    mcx: Mcx<'mcx>,
-    f: &mut PgrcIndexFetch<'mcx>,
-    id: u64,
-    kind: Kind,
-    snapshot: &Snapshot<'mcx>,
-    mut slot: Option<&mut SlotData<'mcx>>,
-    want_dead: bool,
-) -> PgResult<Verdict> {
+fn fetch_id<'mcx>(mcx: Mcx<'mcx>, f: &mut PgrcIndexFetch<'mcx>, id: u64, kind: Kind, snapshot: &Snapshot<'mcx>, mut slot: Option<&mut SlotData<'mcx>>, want_dead: bool,) -> PgResult<Verdict> {
     stats(|s| s.fetches += 1);
     f.memo_for(kind, snapshot)?;
-    let PgrcIndexFetch {
-        rel,
-        needed,
-        schemas,
-        memo,
-        io,
-        one_off,
-        touches,
-    } = f;
+    let PgrcIndexFetch { rel, needed, schemas, memo, io, one_off, touches, } = f;
     let m = memo.as_ref().expect("memo_for set it");
-    let map_of = |p: usize| -> PgResult<Arc<RowMap>> {
-        m.gen
-            .as_ref()
-            .expect("a part home has a generation")
-            .row_map(p, &m.path.dir)
-    };
+    let map_of = |p: usize| -> PgResult<Arc<RowMap>> { m.gen.as_ref().expect("a part home has a generation").row_map(p, &m.path.dir) };
     let at = position::home_in(m.gen.as_ref(), &m.newer, &m.path.ext, id, &map_of)?;
     match &at {
         None => stats(|s| s.no_home += 1),
@@ -818,24 +646,12 @@ fn fetch_id<'mcx>(
         Some(Located::Segment { .. }) => {}
     }
     let mut v = {
-        let mut facts = Live {
-            mcx,
-            rel,
-            memo: m,
-            io: &mut *io,
-            kind,
-            snapshot,
-            slot: slot.as_deref_mut(),
-            needed: needed.as_deref(),
-            one_off: *one_off,
-            want_dead,
-        };
+        let mut facts = Live { mcx, rel, memo: m, io: &mut *io, kind, snapshot, slot: slot.as_deref_mut(), needed: needed.as_deref(), one_off: *one_off, want_dead, };
         decide(kind, at.as_ref(), &mut facts)?
     };
     if want_dead && !v.visible && !v.all_dead {
         if let Some(Located::Segment { relid, tid, .. }) = &at {
-            v.all_dead =
-                crate::ixclean::segment_dead(mcx, io.segment(mcx, *relid)?, tid)?.is_some();
+            v.all_dead = crate::ixclean::segment_dead(mcx, io.segment(mcx, *relid)?, tid)?.is_some();
         }
     }
     let Some(slot) = slot else { return Ok(v) };
@@ -844,30 +660,12 @@ fn fetch_id<'mcx>(
         return Ok(v);
     }
     stats(|s| s.visible += 1);
-    if let Some(Located::Part {
-        gen,
-        part,
-        granule,
-        row,
-        ..
-    }) = &at
-    {
+    if let Some(Located::Part { gen, part, granule, row, .. }) = &at {
         if schemas.is_none() {
             *schemas = Some(shared_schemas(rel)?);
         }
         let set = schemas.as_deref().expect("just read");
-        rowcache::fetch_cols(
-            mcx,
-            &gen.parts[*part],
-            &set.schemas,
-            set.fp,
-            &rel.rd_att,
-            *granule,
-            *row,
-            needed.as_deref(),
-            touches,
-            slot,
-        )?;
+        rowcache::fetch_cols(mcx, &gen.parts[*part], &set.schemas, set.fp, &rel.rd_att, *granule, *row, needed.as_deref(), touches, slot,)?;
     }
     let (block, off) = tid_of(id);
     let base = slot.base_mut();
@@ -878,17 +676,8 @@ fn fetch_id<'mcx>(
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Hit {
-    Segment {
-        relid: Oid,
-        tid: ItemPointerData,
-        id: u64,
-    },
-    Part {
-        part: usize,
-        granule: u32,
-        row: u32,
-        id: u64,
-    },
+    Segment { relid: Oid, tid: ItemPointerData, id: u64, },
+    Part { part: usize, granule: u32, row: u32, id: u64, },
 }
 
 impl Hit {
@@ -900,30 +689,12 @@ impl Hit {
 }
 
 impl<'mcx> PgrcIndexFetch<'mcx> {
-    pub(crate) fn stage_id(
-        &mut self,
-        mcx: Mcx<'mcx>,
-        id: u64,
-        kind: Kind,
-        snapshot: &Snapshot<'mcx>,
-    ) -> PgResult<Option<Hit>> {
+    pub(crate) fn stage_id(&mut self, mcx: Mcx<'mcx>, id: u64, kind: Kind, snapshot: &Snapshot<'mcx>,) -> PgResult<Option<Hit>> {
         stats(|s| s.fetches += 1);
         self.memo_for(kind, snapshot)?;
-        let PgrcIndexFetch {
-            rel,
-            needed,
-            memo,
-            io,
-            one_off,
-            ..
-        } = self;
+        let PgrcIndexFetch { rel, needed, memo, io, one_off, .. } = self;
         let m = memo.as_ref().expect("memo_for set it");
-        let map_of = |p: usize| -> PgResult<Arc<RowMap>> {
-            m.gen
-                .as_ref()
-                .expect("a part home has a generation")
-                .row_map(p, &m.path.dir)
-        };
+        let map_of = |p: usize| -> PgResult<Arc<RowMap>> { m.gen.as_ref().expect("a part home has a generation").row_map(p, &m.path.dir) };
         let at = position::home_in(m.gen.as_ref(), &m.newer, &m.path.ext, id, &map_of)?;
         match &at {
             None => stats(|s| s.no_home += 1),
@@ -931,18 +702,7 @@ impl<'mcx> PgrcIndexFetch<'mcx> {
             Some(Located::Segment { .. }) => {}
         }
         let v = {
-            let mut facts = Live {
-                mcx,
-                rel,
-                memo: m,
-                io: &mut *io,
-                kind,
-                snapshot,
-                slot: None,
-                needed: needed.as_deref(),
-                one_off: *one_off,
-                want_dead: false,
-            };
+            let mut facts = Live { mcx, rel, memo: m, io: &mut *io, kind, snapshot, slot: None, needed: needed.as_deref(), one_off: *one_off, want_dead: false, };
             decide(kind, at.as_ref(), &mut facts)?
         };
         if !v.visible {
@@ -951,18 +711,7 @@ impl<'mcx> PgrcIndexFetch<'mcx> {
         stats(|s| s.visible += 1);
         Ok(at.map(|at| match at {
             Located::Segment { relid, tid, id, .. } => Hit::Segment { relid, tid, id },
-            Located::Part {
-                part,
-                granule,
-                row,
-                id,
-                ..
-            } => Hit::Part {
-                part,
-                granule,
-                row,
-                id,
-            },
+            Located::Part { part, granule, row, id, .. } => Hit::Part { part, granule, row, id, },
         }))
     }
 
@@ -980,26 +729,13 @@ impl<'mcx> PgrcIndexFetch<'mcx> {
         slot: &mut SlotData<'s>,
     ) -> PgResult<()> {
         match *hit {
-            Hit::Part {
-                part, granule, row, ..
-            } => {
+            Hit::Part { part, granule, row, .. } => {
                 let gen = gen.expect("a part row was staged in a generation");
                 if self.schemas.is_none() {
                     self.schemas = Some(shared_schemas(&self.rel)?);
                 }
                 let set = self.schemas.as_deref().expect("just read");
-                rowcache::fetch_cols(
-                    mcx,
-                    &gen.parts[part],
-                    &set.schemas,
-                    set.fp,
-                    &self.rel.rd_att,
-                    granule,
-                    row,
-                    self.needed.as_deref(),
-                    &mut self.touches,
-                    slot,
-                )?;
+                rowcache::fetch_cols(mcx, &gen.parts[part], &set.schemas, set.fp, &self.rel.rd_att, granule, row, self.needed.as_deref(), &mut self.touches, slot,)?;
             }
             Hit::Segment { relid, tid, id } => {
                 let any;
@@ -1040,18 +776,12 @@ pub fn tid_bound(rel: &Relation<'_>) -> PgResult<u64> {
 
 /// D4735: a sample draws row IDs, so the rows of a part written before row IDs would never be drawn.
 pub fn sample_ids_cover(rel: &Relation<'_>) -> PgResult<()> {
-    for gen in [crate::ring::statement_view(rel)?, crate::ring::newest(rel)?]
-        .into_iter()
-        .flatten()
-    {
+    for gen in [crate::ring::statement_view(rel)?, crate::ring::newest(rel)?].into_iter().flatten() {
         if crate::compact::idless_job(&gen).is_some() {
             return Err(Box::new(
-                PgError::error(format!(
-                    "pgrcolumnar: TABLESAMPLE over \"{}\" reads a part written before row IDs",
-                    rel.name()
-                ))
-                .with_sqlstate(types_error::ERRCODE_FEATURE_NOT_SUPPORTED)
-                .with_hint("Compaction or VACUUM FULL gives the part row IDs."),
+                PgError::error(format!("pgrcolumnar: TABLESAMPLE over \"{}\" reads a part written before row IDs", rel.name()))
+                    .with_sqlstate(types_error::ERRCODE_FEATURE_NOT_SUPPORTED)
+                    .with_hint("Compaction or VACUUM FULL gives the part row IDs."),
             ));
         }
     }
@@ -1059,11 +789,7 @@ pub fn sample_ids_cover(rel: &Relation<'_>) -> PgResult<()> {
 }
 
 pub(crate) fn id_at(tid: &ItemPointerData) -> Option<u64> {
-    id_of(
-        ItemPointerGetBlockNumberNoCheck(tid),
-        ItemPointerGetOffsetNumberNoCheck(tid),
-    )
-    .filter(|&id| id >= ROWID_FIRST)
+    id_of(ItemPointerGetBlockNumberNoCheck(tid), ItemPointerGetOffsetNumberNoCheck(tid),).filter(|&id| id >= ROWID_FIRST)
 }
 
 /// `SnapshotDirty`'s out-fields start clear, as `HeapTupleSatisfiesDirty` clears them.
@@ -1111,13 +837,7 @@ pub fn fetch<'mcx>(
     Ok(v.visible)
 }
 
-pub fn fetch_once<'mcx>(
-    mcx: Mcx<'mcx>,
-    rel: &Relation<'mcx>,
-    tid: &ItemPointerData,
-    snapshot: &Snapshot<'mcx>,
-    slot: &mut SlotData<'mcx>,
-) -> PgResult<bool> {
+pub fn fetch_once<'mcx>(mcx: Mcx<'mcx>, rel: &Relation<'mcx>, tid: &ItemPointerData, snapshot: &Snapshot<'mcx>, slot: &mut SlotData<'mcx>,) -> PgResult<bool> {
     let mut f = begin(rel);
     f.one_off = true;
     let out = fetch(mcx, &mut f, tid, snapshot, slot, &mut false, None);
@@ -1125,16 +845,9 @@ pub fn fetch_once<'mcx>(
     out
 }
 
-fn successor<'mcx>(
-    mcx: Mcx<'mcx>,
-    heaps: &[crate::tombs::Opened<'mcx>],
-    id: u64,
-) -> PgResult<Option<u64>> {
+fn successor<'mcx>(mcx: Mcx<'mcx>, heaps: &[crate::tombs::Opened<'mcx>], id: u64,) -> PgResult<Option<u64>> {
     for h in heaps {
-        let dirty: Snapshot<'mcx> = Some(Rc::new(SnapshotData::sentinel(
-            mcx,
-            SnapshotType::SNAPSHOT_DIRTY,
-        )));
+        let dirty: Snapshot<'mcx> = Some(Rc::new(SnapshotData::sentinel(mcx, SnapshotType::SNAPSHOT_DIRTY,)));
         if let Some(hit) = pgrc_front_seams::tomb_probe::call(mcx, &h.rel, id, &dirty)? {
             if hit.is_lock() {
                 continue;
@@ -1148,15 +861,8 @@ fn successor<'mcx>(
     Ok(None)
 }
 
-pub fn latest_tid<'mcx>(
-    mcx: Mcx<'mcx>,
-    rel: &Relation<'mcx>,
-    snapshot: &Snapshot<'mcx>,
-    tid: &mut ItemPointerData,
-) -> PgResult<()> {
-    let Some(mut id) = id_at(tid) else {
-        return Ok(());
-    };
+pub fn latest_tid<'mcx>(mcx: Mcx<'mcx>, rel: &Relation<'mcx>, snapshot: &Snapshot<'mcx>, tid: &mut ItemPointerData,) -> PgResult<()> {
+    let Some(mut id) = id_at(tid) else { return Ok(()); };
     let kind = kind_of(snapshot)?;
     let mut f = begin(rel);
     f.one_off = true;
@@ -1187,10 +893,7 @@ pub fn latest_tid<'mcx>(
 mod tests {
     use super::*;
     use pgrc_am::rowid_alloc::Extents;
-    use pgrc_format::manifest::{
-        encode_segments, with_next_row_id, with_ranges, IdRanges, Manifest, ManifestHeader,
-        PartRecord,
-    };
+    use pgrc_format::manifest::{encode_segments, with_next_row_id, with_ranges, IdRanges, Manifest, ManifestHeader, PartRecord,};
     use pgrc_format::rowid::{seg_id, SegExtent, SEG_EXTENT_IDS};
     use std::collections::HashMap;
 
@@ -1198,59 +901,20 @@ mod tests {
 
     fn part(part_no: u32, rows: u64) -> PartRecord {
         let granule_count = rows.div_ceil(u64::from(GRANULE_ROWS)) as u32;
-        PartRecord {
-            rows,
-            file_len: 0,
-            footer_off: 0,
-            dv_gen: 0,
-            dv_len: 0,
-            part_no,
-            flags: 0,
-            granule_count,
-            band_count: 1,
-            dv_crc: 0,
-            granule_rows: 0,
-        }
+        PartRecord { rows, file_len: 0, footer_off: 0, dv_gen: 0, dv_len: 0, part_no, flags: 0, granule_count, band_count: 1, dv_crc: 0, granule_rows: 0, }
     }
 
     fn seg(slot: u16, part_no: u32, state: SegState) -> SegmentRecord {
-        SegmentRecord {
-            slot,
-            part_no,
-            relid: 16000 + u32::from(slot),
-            state,
-            fxid: 1,
-        }
+        SegmentRecord { slot, part_no, relid: 16000 + u32::from(slot), state, fxid: 1, }
     }
 
-    fn gen(
-        g: u64,
-        parts: Vec<PartRecord>,
-        ranges: &[(u32, IdRanges)],
-        segs: &[SegmentRecord],
-    ) -> Arc<Generation> {
-        let header = ManifestHeader {
-            gen: g,
-            prev_gen: 0,
-            publisher_fxid: 1,
-            relfilenumber: 9,
-            schema_fingerprint: 1,
-            magic: 0,
-            format_version: 0,
-            spc: 1663,
-            db: 5,
-            part_count: parts.len() as u32,
-            next_part_no: 100,
-            flags: 0,
-            reserved: 0,
-        };
+    fn gen(g: u64, parts: Vec<PartRecord>, ranges: &[(u32, IdRanges)], segs: &[SegmentRecord],) -> Arc<Generation> {
+        let header = ManifestHeader { gen: g, prev_gen: 0, publisher_fxid: 1, relfilenumber: 9, schema_fingerprint: 1, magic: 0, format_version: 0, spc: 1663, db: 5, part_count: parts.len() as u32, next_part_no: 100, flags: 0, reserved: 0, };
         let mut ext = with_next_row_id(&with_ranges(&[], ranges).unwrap(), 1 << 36).unwrap();
         if !segs.is_empty() {
             encode_segments(segs, &mut ext);
         }
-        Arc::new(
-            Generation::detached(Manifest::new(header, parts).with_ext(ext)).expect("generation"),
-        )
+        Arc::new(Generation::detached(Manifest::new(header, parts).with_ext(ext)).expect("generation"),)
     }
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -1266,17 +930,7 @@ mod tests {
         Unpublished,
     }
 
-    const KINDS: [RowKind; 9] = [
-        RowKind::Segment,
-        RowKind::NewerSegment,
-        RowKind::Sealed,
-        RowKind::Bulk,
-        RowKind::Runs,
-        RowKind::Pairs,
-        RowKind::UnderSeen,
-        RowKind::UnderHidden,
-        RowKind::Unpublished,
-    ];
+    const KINDS: [RowKind; 9] = [RowKind::Segment, RowKind::NewerSegment, RowKind::Sealed, RowKind::Bulk, RowKind::Runs, RowKind::Pairs, RowKind::UnderSeen, RowKind::UnderHidden, RowKind::Unpublished,];
 
     struct World {
         reader: Arc<Generation>,
@@ -1288,59 +942,22 @@ mod tests {
     }
 
     fn world() -> World {
-        let (s5, s7, s9, s11) = (
-            291 * 5_000u64,
-            291 * 20_000u64,
-            291 * 100u64,
-            291 * 40_000u64,
-        );
+        let (s5, s7, s9, s11) = (291 * 5_000u64, 291 * 20_000u64, 291 * 100u64, 291 * 40_000u64,);
         let (runs_lo, pairs_lo, under_lo) = (291 * 60_000u64, 291 * 70_000u64, 291 * 80_000u64);
         let ext = Extents::new(vec![
-            SegExtent {
-                part_no: 5,
-                idx: 0,
-                base: s5,
-            },
-            SegExtent {
-                part_no: 7,
-                idx: 0,
-                base: s7,
-            },
-            SegExtent {
-                part_no: 9,
-                idx: 0,
-                base: s9,
-            },
-            SegExtent {
-                part_no: 11,
-                idx: 0,
-                base: s11,
-            },
+            SegExtent { part_no: 5, idx: 0, base: s5, },
+            SegExtent { part_no: 7, idx: 0, base: s7, },
+            SegExtent { part_no: 9, idx: 0, base: s9, },
+            SegExtent { part_no: 11, idx: 0, base: s11, },
         ]);
-        let parts = vec![
-            part(0, 3),
-            part(9, 2),
-            part(20, 2),
-            part(21, 2),
-            part(30, 4),
-        ];
-        let ranges = vec![
-            (0, vec![(291, 291 + 600)]),
-            (9, vec![(s9, s9 + E)]),
-            (20, vec![(runs_lo, runs_lo + 291)]),
-            (21, vec![(pairs_lo, pairs_lo + 291)]),
-            (30, vec![(under_lo, under_lo + 291)]),
-        ];
+        let parts = vec![part(0, 3), part(9, 2), part(20, 2), part(21, 2), part(30, 4),];
+        let ranges = vec![(0, vec![(291, 291 + 600)]), (9, vec![(s9, s9 + E)]), (20, vec![(runs_lo, runs_lo + 291)]), (21, vec![(pairs_lo, pairs_lo + 291)]), (30, vec![(under_lo, under_lo + 291)]),];
         let segs = [seg(1, 5, SegState::Active), seg(3, 9, SegState::Sealed)];
         let reader = gen(10, parts.clone(), &ranges, &segs);
         let hidden = gen(10, parts[..4].to_vec(), &ranges[..4], &segs);
         let granules = |ids: &[u64]| {
-            let body = pgrc_format::rowmap::encode(ids, pgrc_format::rowmap::Opts::default())
-                .expect("the map");
-            RowMap::Granules(Arc::new(pgrc_am::catalog::GranuleMap::new(
-                pgrc_format::rowmap::GranMap::decode(&body, ids.len() as u64)
-                    .expect("the map decodes"),
-            )))
+            let body = pgrc_format::rowmap::encode(ids, pgrc_format::rowmap::Opts::default()).expect("the map");
+            RowMap::Granules(Arc::new(pgrc_am::catalog::GranuleMap::new(pgrc_format::rowmap::GranMap::decode(&body, ids.len() as u64).expect("the map decodes"),)))
         };
         let runs = granules(&[runs_lo, runs_lo + 1]);
         let pairs = granules(&[pairs_lo + 9, pairs_lo + 4]);
@@ -1352,10 +969,7 @@ mod tests {
             Arc::new(RowMap::Implicit(under_lo)),
         ];
         let ids = HashMap::from([
-            (
-                RowKind::Segment,
-                seg_id(&[s5], seg_local(2, 7).unwrap()).unwrap(),
-            ),
+            (RowKind::Segment, seg_id(&[s5], seg_local(2, 7).unwrap()).unwrap(),),
             (RowKind::NewerSegment, s7 + 3),
             (RowKind::Sealed, s9 + 8),
             (RowKind::Bulk, 292),
@@ -1365,32 +979,15 @@ mod tests {
             (RowKind::UnderHidden, under_lo + 2),
             (RowKind::Unpublished, 291 * 30_000 + 17),
         ]);
-        World {
-            reader,
-            maps,
-            hidden,
-            newer: vec![seg(2, 7, SegState::Active)],
-            ext,
-            ids,
-        }
+        World { reader, maps, hidden, newer: vec![seg(2, 7, SegState::Active)], ext, ids, }
     }
 
     impl World {
         fn home(&self, kind: RowKind) -> Option<Located<'_>> {
-            let g = if kind == RowKind::UnderHidden {
-                &self.hidden
-            } else {
-                &self.reader
-            };
-            let newer: &[SegmentRecord] = if kind == RowKind::NewerSegment {
-                &self.newer
-            } else {
-                &[]
-            };
-            position::home_in(Some(g), newer, &self.ext, self.ids[&kind], &|p| {
-                Ok(Arc::clone(&self.maps[p]))
-            })
-            .unwrap()
+            let g = if kind == RowKind::UnderHidden { &self.hidden } else { &self.reader };
+            let newer: &[SegmentRecord] = if kind == RowKind::NewerSegment { &self.newer } else { &[] };
+            position::home_in(Some(g), newer, &self.ext, self.ids[&kind], &|p| { Ok(Arc::clone(&self.maps[p]))
+            }).unwrap()
         }
     }
 
@@ -1405,27 +1002,10 @@ mod tests {
         Locked,
     }
 
-    const DELS: [Del; 7] = [
-        Del::None,
-        Del::Dv,
-        Del::TombInProgress,
-        Del::TombCommitted,
-        Del::TombRemovable,
-        Del::TombOwn,
-        Del::Locked,
-    ];
+    const DELS: [Del; 7] = [Del::None, Del::Dv, Del::TombInProgress, Del::TombCommitted, Del::TombRemovable, Del::TombOwn, Del::Locked,];
 
     fn hit(del: Del, kind: Kind) -> Option<TombHit> {
-        let mk = |state, succ, xmin| TombHit {
-            tid: ItemPointerData::default(),
-            succ,
-            xmin,
-            cmin: 0,
-            state,
-            spec_token: 0,
-            xmax: 0,
-            own_unfrozen: false,
-        };
+        let mk = |state, succ, xmin| TombHit { tid: ItemPointerData::default(), succ, xmin, cmin: 0, state, spec_token: 0, xmax: 0, own_unfrozen: false, };
         let dirty = !matches!(kind, Kind::Mvcc | Kind::SelfSnapshot);
         match del {
             Del::None | Del::Dv => None,
@@ -1464,20 +1044,12 @@ mod tests {
         }
         let gone = Verdict::GONE;
         let live = Verdict::LIVE;
-        let dead = Verdict {
-            visible: false,
-            all_dead: true,
-            busy: None,
-        };
+        let dead = Verdict { visible: false, all_dead: true, busy: None, };
         match (del, kind) {
             (Del::Dv, _) => dead,
             (Del::None | Del::Locked, _) => live,
             (_, Kind::Any) => live,
-            (Del::TombInProgress, Kind::Dirty) => Verdict {
-                visible: true,
-                all_dead: false,
-                busy: Some(700),
-            },
+            (Del::TombInProgress, Kind::Dirty) => Verdict { visible: true, all_dead: false, busy: Some(700), },
             (Del::TombInProgress, _) => live,
             (Del::TombCommitted, Kind::NonVacuumable) => live,
             (Del::TombCommitted, _) => gone,
@@ -1494,52 +1066,21 @@ mod tests {
         for row in KINDS {
             let at = w.home(row);
             let homed = !matches!(row, RowKind::UnderHidden | RowKind::Unpublished);
-            assert_eq!(
-                at.is_some(),
-                homed,
-                "{row:?}: home {}",
-                if at.is_some() { "found" } else { "missing" }
-            );
+            assert_eq!(at.is_some(), homed, "{row:?}: home {}", if at.is_some() { "found" } else { "missing" });
             if let Some(at) = &at {
-                assert_eq!(
-                    position::rowident(at).unwrap(),
-                    w.ids[&row],
-                    "{row:?}: the home is the ID's"
-                );
+                assert_eq!(position::rowident(at).unwrap(), w.ids[&row], "{row:?}: the home is the ID's");
                 let segment = matches!(at, Located::Segment { .. });
-                assert_eq!(
-                    segment,
-                    matches!(row, RowKind::Segment | RowKind::NewerSegment),
-                    "{row:?}"
-                );
+                assert_eq!(segment, matches!(row, RowKind::Segment | RowKind::NewerSegment), "{row:?}");
             }
             for del in DELS {
                 if del == Del::Dv && matches!(row, RowKind::Segment | RowKind::NewerSegment) {
                     continue;
                 }
-                for kind in [
-                    Kind::Mvcc,
-                    Kind::Dirty,
-                    Kind::SelfSnapshot,
-                    Kind::Any,
-                    Kind::NonVacuumable,
-                ] {
-                    let mut f = Fake {
-                        del,
-                        kind,
-                        seg_heap: true,
-                        segment_asks: 0,
-                    };
+                for kind in [Kind::Mvcc, Kind::Dirty, Kind::SelfSnapshot, Kind::Any, Kind::NonVacuumable,] {
+                    let mut f = Fake { del, kind, seg_heap: true, segment_asks: 0, };
                     let got = decide(kind, at.as_ref(), &mut f).unwrap();
                     assert_eq!(got, heap_twin(row, del, kind), "{row:?} {del:?} {kind:?}");
-                    assert_eq!(
-                        f.segment_asks,
-                        u32::from(
-                            at.as_ref()
-                                .is_some_and(|a| matches!(a, Located::Segment { .. }))
-                        ),
-                        "{row:?}: the segment heap is asked exactly for a segment home"
-                    );
+                    assert_eq!(f.segment_asks, u32::from(at.as_ref().is_some_and(|a| matches!(a, Located::Segment { .. }))), "{row:?}: the segment heap is asked exactly for a segment home");
                     checked += 1;
                 }
             }
@@ -1589,23 +1130,9 @@ mod tests {
             }
         }
         let w = world();
-        for row in [
-            RowKind::Sealed,
-            RowKind::Bulk,
-            RowKind::Runs,
-            RowKind::Pairs,
-            RowKind::UnderSeen,
-        ] {
+        for row in [RowKind::Sealed, RowKind::Bulk, RowKind::Runs, RowKind::Pairs, RowKind::UnderSeen,] {
             let mut f = Dv(0);
-            assert_eq!(
-                decide(Kind::Mvcc, w.home(row).as_ref(), &mut f).unwrap(),
-                Verdict {
-                    visible: false,
-                    all_dead: true,
-                    busy: None
-                },
-                "{row:?}"
-            );
+            assert_eq!(decide(Kind::Mvcc, w.home(row).as_ref(), &mut f).unwrap(), Verdict { visible: false, all_dead: true, busy: None }, "{row:?}");
             assert_eq!(f.0, 0, "{row:?}");
         }
     }
@@ -1613,32 +1140,11 @@ mod tests {
     #[test]
     fn compacted_rows_resolve_through_their_maps() {
         let w = world();
-        let Some(Located::Part {
-            part: 2,
-            granule: 0,
-            row: 1,
-            ..
-        }) = w.home(RowKind::Runs)
-        else {
-            panic!("runs ordinal 1")
-        };
-        let Some(Located::Part {
-            part: 3,
-            granule: 0,
-            row: 1,
-            ..
-        }) = w.home(RowKind::Pairs)
-        else {
-            panic!("pairs ordinal 1: the second row of the merge holds the smaller ID")
-        };
-        let lacks = position::home_in(Some(&w.reader), &[], &w.ext, 291 * 70_000 + 5, &|p| {
-            Ok(Arc::clone(&w.maps[p]))
-        })
-        .unwrap();
-        assert!(
-            lacks.is_none(),
-            "an ID inside the pairs part's range its map lacks"
-        );
+        let Some(Located::Part { part: 2, granule: 0, row: 1, .. }) = w.home(RowKind::Runs) else { panic!("runs ordinal 1") };
+        let Some(Located::Part { part: 3, granule: 0, row: 1, .. }) = w.home(RowKind::Pairs) else { panic!("pairs ordinal 1: the second row of the merge holds the smaller ID") };
+        let lacks = position::home_in(Some(&w.reader), &[], &w.ext, 291 * 70_000 + 5, &|p| { Ok(Arc::clone(&w.maps[p]))
+        }).unwrap();
+        assert!(lacks.is_none(), "an ID inside the pairs part's range its map lacks");
     }
 
     #[test]
@@ -1651,11 +1157,7 @@ mod tests {
         assert_eq!(id_at(&tid(1, 1)), Some(291));
         assert_eq!(id_at(&tid(1, 0)), None);
         assert_eq!(id_at(&tid(1, 292)), None);
-        assert_eq!(
-            id_at(&tid(0, 5)),
-            None,
-            "virtual block 0 is never handed out"
-        );
+        assert_eq!(id_at(&tid(0, 5)), None, "virtual block 0 is never handed out");
         assert_eq!(id_at(&tid(u32::MAX, 0)), None, "the invalid TID");
     }
 
@@ -1668,16 +1170,8 @@ mod tests {
         assert_eq!(of(SnapshotType::SNAPSHOT_MVCC).unwrap(), Kind::Mvcc);
         assert_eq!(of(SnapshotType::SNAPSHOT_SELF).unwrap(), Kind::SelfSnapshot);
         assert_eq!(of(SnapshotType::SNAPSHOT_DIRTY).unwrap(), Kind::Dirty);
-        assert_eq!(
-            of(SnapshotType::SNAPSHOT_NON_VACUUMABLE).unwrap(),
-            Kind::NonVacuumable
-        );
-        assert_eq!(
-            of(SnapshotType::SNAPSHOT_HISTORIC_MVCC)
-                .unwrap_err()
-                .sqlstate(),
-            types_error::ERRCODE_FEATURE_NOT_SUPPORTED
-        );
+        assert_eq!(of(SnapshotType::SNAPSHOT_NON_VACUUMABLE).unwrap(), Kind::NonVacuumable);
+        assert_eq!(of(SnapshotType::SNAPSHOT_HISTORIC_MVCC).unwrap_err().sqlstate(), types_error::ERRCODE_FEATURE_NOT_SUPPORTED);
     }
 
     #[test]
@@ -1687,14 +1181,8 @@ mod tests {
         assert!(heaps_empty(&[0, 1], &[(0, 0), (1, 0)]));
         assert!(!heaps_empty(&[0], &[(0, 1)]));
         assert!(!heaps_empty(&[0, 1], &[(0, 0), (1, 3)]));
-        assert!(
-            !heaps_empty(&[1], &[(0, 0)]),
-            "a switch's slot 1 the filed set lacks: the full build waits for it"
-        );
-        assert!(
-            heaps_empty(&[1], &[(1, 0)]),
-            "a folded retired slot 0 is not read"
-        );
+        assert!(!heaps_empty(&[1], &[(0, 0)]), "a switch's slot 1 the filed set lacks: the full build waits for it");
+        assert!(heaps_empty(&[1], &[(1, 0)]), "a folded retired slot 0 is not read");
     }
 
     #[test]
@@ -1702,40 +1190,18 @@ mod tests {
         assert_eq!(deform_width(None, 20), 20);
         assert_eq!(deform_width(Some(&[true, false, false, true, false]), 5), 4);
         assert_eq!(deform_width(Some(&[false, false, true]), 3), 3);
-        assert_eq!(
-            deform_width(Some(&[false; 4]), 4),
-            0,
-            "a visibility-only fetch deforms nothing"
-        );
-        assert_eq!(
-            deform_width(Some(&[true, false]), 3),
-            3,
-            "attribute 3 is past the mask: needed"
-        );
-        assert_eq!(
-            deform_width(Some(&[false, false, false, false, true]), 3),
-            0
-        );
+        assert_eq!(deform_width(Some(&[false; 4]), 4), 0, "a visibility-only fetch deforms nothing");
+        assert_eq!(deform_width(Some(&[true, false]), 3), 3, "attribute 3 is past the mask: needed");
+        assert_eq!(deform_width(Some(&[false, false, false, false, true]), 3), 0);
         assert_eq!(deform_width(Some(&[false, true, false, false, true]), 3), 2);
     }
 
     fn att(attnum: i16, typid: Oid) -> FormData_pg_attribute {
-        FormData_pg_attribute {
-            attnum,
-            atttypid: typid,
-            attlen: 4,
-            attbyval: true,
-            attalign: b'i' as i8,
-            atttypmod: -1,
-            ..Default::default()
-        }
+        FormData_pg_attribute { attnum, atttypid: typid, attlen: 4, attbyval: true, attalign: b'i' as i8, atttypmod: -1, ..Default::default() }
     }
 
     fn set(fp: u64) -> Rc<SchemaSet> {
-        Rc::new(SchemaSet {
-            schemas: Vec::new(),
-            fp,
-        })
+        Rc::new(SchemaSet { schemas: Vec::new(), fp, })
     }
 
     #[test]
@@ -1755,18 +1221,9 @@ mod tests {
         dropped[1].attisdropped = true;
         let mut added = atts.clone();
         added.push(att(3, 23));
-        for (what, other) in [
-            ("type", &typed),
-            ("typmod", &typmod),
-            ("drop", &dropped),
-            ("add", &added),
-        ] {
+        for (what, other) in [("type", &typed), ("typmod", &typmod), ("drop", &dropped), ("add", &added),] {
             assert!(c.hit((1, 9), other, false).is_none(), "{what}");
-            assert_eq!(
-                c.hit((1, 9), other, true).map(|s| s.fp),
-                Some(1),
-                "{what}: the teeth answer on the OID"
-            );
+            assert_eq!(c.hit((1, 9), other, true).map(|s| s.fp), Some(1), "{what}: the teeth answer on the OID");
         }
         c.file((1, 9), &added, &set(2));
         assert_eq!(c.hit((1, 9), &added, false).map(|s| s.fp), Some(2));
@@ -1775,10 +1232,7 @@ mod tests {
             c.file((1, r), &atts, &set(u64::from(r)));
         }
         assert_eq!(c.entries.len(), SCHEMA_SLOTS);
-        assert!(
-            c.hit((1, 9), &added, false).is_none(),
-            "the clock's slot went first"
-        );
+        assert!(c.hit((1, 9), &added, false).is_none(), "the clock's slot went first");
         assert_eq!(c.hit((1, 115), &atts, false).map(|s| s.fp), Some(115));
     }
 }

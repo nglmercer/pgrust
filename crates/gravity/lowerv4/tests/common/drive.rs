@@ -60,7 +60,7 @@ pub(super) fn run(entry: &mut Entry, exec: &mut Exec, b: &mut Binding<'_>, call:
                 Some(owner) => entry.skip_rerun(exec, owner)?,
                 // M8 (RT-2f, nest.cte CT-2): a pulled CTE's plan keeps its store edge, opened zeroed for its readers
                 None => match lives.iter().find_map(|l| l.pull_readers(p)) {
-                    Some(r) => entry.skip_pulled(exec, r)?,
+                    Some(r) => entry.skip_pulled(exec,r)?,
                     None => entry.skip_deferred(exec),
                 },
             }

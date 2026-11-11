@@ -220,10 +220,7 @@ fn exclusive_guard_blocks_readers() {
     let reader = std::thread::spawn(move || {
         claim_proc();
         let e = t2.find_shared(&5).unwrap().unwrap();
-        assert!(
-            RELEASED.load(Ordering::Acquire),
-            "reader got in under the exclusive guard"
-        );
+        assert!(RELEASED.load(Ordering::Acquire), "reader got in under the exclusive guard");
         e.value
     });
 
@@ -252,9 +249,7 @@ fn stress_increment_no_lost_updates() {
                 let mut tally = [0u64; KEYS as usize];
                 let mut rng = 0x9e3779b97f4a7c15u64.wrapping_mul(ti as u64 + 1);
                 for _ in 0..OPS {
-                    rng = rng
-                        .wrapping_mul(6364136223846793005)
-                        .wrapping_add(1442695040888963407);
+                    rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
                     let key = (rng >> 33) % KEYS;
                     let (mut e, _) = t.find_or_insert(&key).unwrap();
                     e.value += 1;
@@ -302,9 +297,7 @@ fn stress_insert_delete_churn() {
                 claim_proc();
                 let mut rng = 0xdeadbeefcafef00du64.wrapping_mul(ti as u64 + 3);
                 for _ in 0..OPS {
-                    rng = rng
-                        .wrapping_mul(6364136223846793005)
-                        .wrapping_add(1442695040888963407);
+                    rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
                     let key = ((rng >> 33) as usize) % KEYS;
                     if rng & 1 == 0 {
                         let (_, found) = t.find_or_insert(&(key as u64)).unwrap();
@@ -389,10 +382,7 @@ fn drop_frees_all_entries() {
 #[test]
 fn hash_helpers_match_hashfn() {
     assert_eq!(dshash_memhash(b"abcd"), hashfn::tag_hash(b"abcd", 4));
-    assert_eq!(
-        dshash_strhash(b"ab\0cd", 5),
-        hashfn::string_hash(b"ab\0cd", 5)
-    );
+    assert_eq!(dshash_strhash(b"ab\0cd", 5), hashfn::string_hash(b"ab\0cd", 5));
 }
 
 // dshash.c:778 dshash_dump: shared-lock every partition in order, print
@@ -412,10 +402,7 @@ fn dump_reports_partitions_and_bucket_chains() {
     let mut out = Vec::new();
     t.dump_to(&mut out).unwrap();
     for i in 0..DSHASH_NUM_PARTITIONS {
-        assert!(
-            !lwlock::LWLockHeldByMe(t.lock(i)),
-            "dump left partition {i} locked"
-        );
+        assert!(!lwlock::LWLockHeldByMe(t.lock(i)), "dump left partition {i} locked");
     }
     // dump() still works afterwards (locks were released, not leaked).
     let mut again = Vec::new();
@@ -424,10 +411,7 @@ fn dump_reports_partitions_and_bucket_chains() {
 
     let text = String::from_utf8(out).unwrap();
     let mut lines = text.lines();
-    assert_eq!(
-        lines.next(),
-        Some(format!("hash table size = {nbuckets}").as_str())
-    );
+    assert_eq!(lines.next(), Some(format!("hash table size = {nbuckets}").as_str()));
 
     let per_partition = nbuckets / DSHASH_NUM_PARTITIONS;
     let mut total = 0usize;
@@ -446,10 +430,7 @@ fn dump_reports_partitions_and_bucket_chains() {
             chained += line[expect.len()..line.len() - 1].parse::<usize>().unwrap();
             next_bucket += 1;
         }
-        assert_eq!(
-            chained, pcount,
-            "partition {i}: bucket chains != partition count"
-        );
+        assert_eq!(chained, pcount, "partition {i}: bucket chains != partition count");
         total += pcount;
     }
     assert_eq!(lines.next(), None, "trailing output after the last bucket");
@@ -462,9 +443,7 @@ fn dump_reports_partitions_and_bucket_chains() {
     let text = String::from_utf8(out).unwrap();
     assert_eq!(text.lines().count(), 1 + 3 * DSHASH_NUM_PARTITIONS);
     assert!(text.starts_with("hash table size = 128\n  partition 0\n    active buckets (key count = 0)\n      bucket 0 (key count = 0)\n  partition 1\n"));
-    assert!(text.ends_with(
-        "  partition 127\n    active buckets (key count = 0)\n      bucket 127 (key count = 0)\n"
-    ));
+    assert!(text.ends_with("  partition 127\n    active buckets (key count = 0)\n      bucket 127 (key count = 0)\n"));
     e.dump().unwrap();
 }
 

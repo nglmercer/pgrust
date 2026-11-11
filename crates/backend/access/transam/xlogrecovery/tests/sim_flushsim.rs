@@ -136,10 +136,7 @@ const MIX_ENV: &str = "PGRUST_FLUSHSIM_MIX";
 const HOLD_ENV: &str = "PGRUST_FLUSHSIM_HOLD";
 
 fn env_u32(name: &str, default: u32) -> u32 {
-    std::env::var(name)
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(default)
+    std::env::var(name).ok().and_then(|v| v.parse().ok()).unwrap_or(default)
 }
 
 // ---------------------------------------------------------------------------
@@ -168,16 +165,8 @@ fn vfs_mkdir_p(path: &str) {
 }
 
 fn vfs_write_file(path: &str, data: &[u8]) {
-    let fd = vfs::open(
-        &cpath(path),
-        libc::O_RDWR | libc::O_CREAT | libc::O_TRUNC,
-        0o600,
-    );
-    assert!(
-        fd >= 0,
-        "vfs_write_file open({path}): errno {}",
-        vfs::get_errno()
-    );
+    let fd = vfs::open(&cpath(path), libc::O_RDWR | libc::O_CREAT | libc::O_TRUNC, 0o600,);
+    assert!(fd >= 0, "vfs_write_file open({path}): errno {}", vfs::get_errno());
     if !data.is_empty() {
         assert_eq!(vfs::pwrite(fd, data, 0), data.len() as isize, "{path}");
     }
@@ -186,11 +175,7 @@ fn vfs_write_file(path: &str, data: &[u8]) {
 
 fn vfs_read_range(path: &str, off: i64, len: usize) -> Vec<u8> {
     let fd = vfs::open(&cpath(path), libc::O_RDONLY, 0);
-    assert!(
-        fd >= 0,
-        "vfs_read_range open({path}): errno {}",
-        vfs::get_errno()
-    );
+    assert!(fd >= 0, "vfs_read_range open({path}): errno {}", vfs::get_errno());
     let mut buf = vec![0u8; len];
     let n = vfs::pread(fd, &mut buf, off);
     assert!(n >= 0, "{path}");
@@ -240,10 +225,7 @@ fn durable_tree_digest() -> u32 {
 }
 
 fn import_tree_into_sim(src: &std::path::Path, sim_base: &str) {
-    let mut entries: Vec<_> = std::fs::read_dir(src)
-        .unwrap()
-        .map(|e| e.unwrap())
-        .collect();
+    let mut entries: Vec<_> = std::fs::read_dir(src).unwrap().map(|e| e.unwrap()).collect();
     entries.sort_by_key(|e| e.file_name());
     for e in entries {
         let name = e.file_name().into_string().unwrap();
@@ -314,11 +296,7 @@ struct Trigger {
     seen: AtomicU32,
 }
 
-static TRIGGER: Trigger = Trigger {
-    kind: "",
-    n: 0,
-    seen: AtomicU32::new(0),
-};
+static TRIGGER: Trigger = Trigger { kind: "", n: 0, seen: AtomicU32::new(0), };
 static TRIGGER_KIND: pgsync::OnceLock<String> = pgsync::OnceLock::new();
 static TRIGGER_N: AtomicU32 = AtomicU32::new(0);
 
@@ -338,10 +316,7 @@ fn ev_kind_name(k: &EvKind) -> &'static str {
 
 fn violation(msg: String) {
     eprintln!("FLUSHSIM-VIOLATION: {msg}");
-    VIOLATIONS_G
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .push(msg);
+    VIOLATIONS_G.lock().unwrap_or_else(|e| e.into_inner()).push(msg);
 }
 
 /// Append an event (permit-ordered), run the live invariants L1/L2, and
@@ -456,10 +431,7 @@ thread_local! {
 
 fn deliver_pending_notify() -> PgResult<()> {
     if let Some((actor, j, xid, sync)) = CURRENT_COMMIT.with(|c| c.get()) {
-        NOTIFY_BOX_G
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .push((actor, j, xid, sync));
+        NOTIFY_BOX_G.lock().unwrap_or_else(|e| e.into_inner()).push((actor, j, xid, sync));
     }
     Ok(())
 }
@@ -546,7 +518,8 @@ fn install_stub_seams() {
     be_fsstubs_seams::at_eoxact_large_object::set(|_| Ok(()));
     namespace_seams::at_eoxact_namespace::set(|_, _| {});
     catalog_index_seams::reset_reindex_state::set(|_| {});
-    catalog_storage_seams::smgr_get_pending_deletes::set(|mcx, _for_commit| Ok(PgVec::new_in(mcx)));
+    catalog_storage_seams::smgr_get_pending_deletes::set(|mcx, _for_commit|
+        Ok(PgVec::new_in(mcx)));
     catalog_storage_seams::smgr_do_pending_deletes::set(|_| Ok(()));
     catalog_storage_seams::smgr_do_pending_syncs::set(|_, _| Ok(()));
     catalog_storage_seams::rel_file_locator_skipping_wal::set(|_| false);
@@ -815,12 +788,8 @@ fn mint_and_boot_writer() {
     let ctl = transam_xlog::ctl::XLogCtl();
     ctl.InsertTimeLineID.store(1, Relaxed);
     ctl.PrevTimeLineID.store(1, Relaxed);
-    ctl.Insert
-        .CurrBytePos
-        .store(XLogRecPtrToBytePos(end_of_log), Relaxed);
-    ctl.Insert
-        .PrevBytePos
-        .store(XLogRecPtrToBytePos(CKPT_LOC), Relaxed);
+    ctl.Insert.CurrBytePos.store(XLogRecPtrToBytePos(end_of_log), Relaxed);
+    ctl.Insert.PrevBytePos.store(XLogRecPtrToBytePos(CKPT_LOC), Relaxed);
     ctl.Insert.fullPageWrites.store(true, Relaxed);
     ctl.Insert.RedoRecPtr.store(CKPT_LOC, Relaxed);
     ctl.RedoRecPtr.store(CKPT_LOC, Relaxed);
@@ -830,8 +799,7 @@ fn mint_and_boot_writer() {
     ctl.logFlushResult.store(end_of_log, Relaxed);
     ctl.LogwrtRqstWrite.store(end_of_log, Relaxed);
     ctl.LogwrtRqstFlush.store(end_of_log, Relaxed);
-    ctl.SharedRecoveryState
-        .store(transam_xlog::RECOVERY_STATE_DONE, Relaxed);
+    ctl.SharedRecoveryState.store(transam_xlog::RECOVERY_STATE_DONE, Relaxed);
     ctl.InstallXLogFileSegmentActive.store(true, Relaxed);
     {
         let page_begin = end_of_log - end_of_log % 8192;
@@ -852,20 +820,16 @@ fn mint_and_boot_writer() {
         ctl.InitializedUpTo.store(page_begin + 8192, Relaxed);
     }
     xlogutils::set_in_recovery(false);
-    procarray::TransamVariables().nextXid.store(
-        types_core::FullTransactionId::from_epoch_and_xid(0, BASE_XID).value,
-        Relaxed,
-    );
+    procarray::TransamVariables()
+        .nextXid
+        .store(types_core::FullTransactionId::from_epoch_and_xid(0, BASE_XID).value, Relaxed,);
     varsup::SetTransactionIdLimit(BASE_XID, 5).unwrap();
     subtrans::StartupSUBTRANS(BASE_XID).unwrap();
     assert!(transam_xlog::XLogInsertAllowed());
 
     smgr::smgropen(RLOC, INVALID_PROC_NUMBER).unwrap();
     smgr::smgrcreate(
-        types_storage::RelFileLocatorBackend {
-            locator: RLOC,
-            backend: INVALID_PROC_NUMBER,
-        },
+        types_storage::RelFileLocatorBackend { locator: RLOC, backend: INVALID_PROC_NUMBER, },
         ForkNumber::MAIN_FORKNUM,
         false,
     )
@@ -941,12 +905,7 @@ fn test_relation<'mcx>(mcx: Mcx<'mcx>, oid: Oid) -> RelationData<'mcx> {
         rd_newRelfilelocatorSubid: Cell::new(0),
         rd_firstRelfilelocatorSubid: Cell::new(0),
         rd_droppedSubid: Cell::new(0),
-        rd_lockInfo: LockInfoData {
-            lockRelId: LockRelId {
-                relId: oid,
-                dbId: 5,
-            },
-        },
+        rd_lockInfo: LockInfoData { lockRelId: LockRelId { relId: oid, dbId: 5, }, },
         rd_rel,
         rd_att: int4_tupdesc(mcx),
         rd_index: None,
@@ -1008,9 +967,11 @@ fn enter_backend_world(actor: u32) {
     lmgr_proc::InitProcess(BackendType::Backend).unwrap();
     aio_core::pgaio_init_backend().expect("pgaio_init_backend");
     procarray::ProcArrayAdd(lmgr_proc::MyProc().unwrap()).unwrap();
-    let owner =
-        resowner::ResourceOwnerCreate(types_resowner::ResourceOwner::NULL, "flushsim-actor")
-            .unwrap();
+    let owner = resowner::ResourceOwnerCreate(
+        types_resowner::ResourceOwner::NULL,
+        "flushsim-actor"
+    )
+    .unwrap();
     resowner::SetCurrentResourceOwner(owner);
     // Consume the deliberate SwitchToSharedLatch startup set (the real
     // session loop's WaitLatch would have). Without this every actor's
@@ -1203,11 +1164,11 @@ fn reader_body(actor: u32, n_committers: u32) {
 
 /// Snapshot fold: every visible row's value, grouped; asserts per-txn
 /// all-or-nothing (I3's live form) and returns the observed (actor, j) set.
-fn scan_observed<'m>(rel: &RelationData<'m>, snap: &SnapshotData<'m>) -> PgResult<Vec<(u32, u32)>> {
-    let key = types_storage::RelFileLocatorBackend {
-        locator: RLOC,
-        backend: INVALID_PROC_NUMBER,
-    };
+fn scan_observed<'m>(
+    rel: &RelationData<'m>,
+    snap: &SnapshotData<'m>
+) -> PgResult<Vec<(u32, u32)>> {
+    let key = types_storage::RelFileLocatorBackend { locator: RLOC, backend: INVALID_PROC_NUMBER, };
     smgr::smgropen(RLOC, INVALID_PROC_NUMBER)?;
     let nblocks = smgr::smgrnblocks(key, ForkNumber::MAIN_FORKNUM)?;
     let mut counts: std::collections::BTreeMap<i32, u32> = std::collections::BTreeMap::new();
@@ -1272,11 +1233,8 @@ fn listener_body(actor: u32, n_committers: u32) {
         if SimVfs::cut_count() > 0 {
             break;
         }
-        let msgs: Vec<(u32, u32, TransactionId, bool)> = NOTIFY_BOX_G
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .drain(..)
-            .collect();
+        let msgs: Vec<(u32, u32, TransactionId, bool)> =
+            NOTIFY_BOX_G.lock().unwrap_or_else(|e| e.into_inner()).drain(..).collect();
         for (from_actor, j, xid, sync) in msgs {
             ledger_append(Event {
                 kind: EvKind::NotifyDelivered,
@@ -1291,10 +1249,7 @@ fn listener_body(actor: u32, n_committers: u32) {
             });
         }
         if COMMITTERS_DONE.load(Relaxed) >= n_committers
-            && NOTIFY_BOX_G
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .is_empty()
+            && NOTIFY_BOX_G.lock().unwrap_or_else(|e| e.into_inner()).is_empty()
         {
             break;
         }
@@ -1550,10 +1505,8 @@ fn flushsim_writer_child() {
         stats.backstop_self_served.load(Relaxed),
         stats.retry_rearm.load(Relaxed),
     );
-    let (handoff, laps) = (
-        stats.handoff_leads.load(Relaxed),
-        stats.chain_laps.load(Relaxed),
-    );
+    let (handoff, laps) =
+        (stats.handoff_leads.load(Relaxed), stats.chain_laps.load(Relaxed),);
     // L4 conservation: every registration resolves exactly once (a `handoff`
     // lead verdict resolves it too: the waiter retakes the leader path).
     if reg != comp + selfs + backstop + retry + handoff {
@@ -1579,10 +1532,7 @@ fn flushsim_writer_child() {
     let _ = std::fs::remove_dir_all(&pack);
     std::fs::create_dir_all(pack.join("root")).unwrap();
     export_sim_tree(&pack.join("root"));
-    let violations = VIOLATIONS_G
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .clone();
+    let violations = VIOLATIONS_G.lock().unwrap_or_else(|e| e.into_inner()).clone();
     let mut meta = String::new();
     meta.push_str(&format!("k={k}\n"));
     meta.push_str(&format!("profile={profile}\n"));
@@ -1655,9 +1605,7 @@ fn parse_ledger(text: &str) -> Vec<LEvent> {
             observed: Vec::new(),
         };
         for f in line.split('|').skip(1) {
-            let Some((key, val)) = f.split_once('=') else {
-                continue;
-            };
+            let Some((key, val)) = f.split_once('=') else { continue; };
             match key {
                 "cut" => ev.cut = val.parse().unwrap(),
                 "kind" => ev.kind = val.to_string(),
@@ -1695,12 +1643,7 @@ fn flushsim_recover_child() {
             .map(|l| l.splitn(2, '=').nth(1).unwrap().to_string())
             .unwrap_or_default()
     };
-    let tag = format!(
-        "k={} trigger={} mutation={}",
-        get("k"),
-        get("trigger"),
-        get("mutation")
-    );
+    let tag = format!("k={} trigger={} mutation={}", get("k"), get("trigger"), get("mutation"));
     let mut violations: Vec<String> = Vec::new();
 
     SimVfs::reset();
@@ -1761,7 +1704,8 @@ fn flushsim_recover_child() {
             struct P([u8; BLCKSZ]);
             let mut pg = P([0u8; BLCKSZ]);
             for b in 0..nblocks {
-                smgr::smgrreadv(key, ForkNumber::MAIN_FORKNUM, b, &mut [&mut pg.0[..]]).unwrap();
+                smgr::smgrreadv(key, ForkNumber::MAIN_FORKNUM, b, &mut [&mut pg.0[..]])
+                    .unwrap();
                 // Never-written (all-zero) page image: valid, empty.
                 let pd_lower = u16::from_ne_bytes([pg.0[12], pg.0[13]]);
                 if pd_lower == 0 {
@@ -1795,15 +1739,14 @@ fn flushsim_recover_child() {
 
             // Ledger indexes (pre-cut events only: post-cut appends were
             // never delivered to anyone).
-            let attempts: std::collections::BTreeMap<(u32, u32), (TransactionId, bool)> = ledger
-                .iter()
-                .filter(|e| e.kind == "attempt")
-                .map(|e| ((e.actor, e.j), (e.xid, e.sync)))
-                .collect();
-            let acks: Vec<&LEvent> = ledger
-                .iter()
-                .filter(|e| e.kind == "ack" && e.cut == 0)
-                .collect();
+            let attempts: std::collections::BTreeMap<(u32, u32), (TransactionId, bool)> =
+                ledger
+                    .iter()
+                    .filter(|e| e.kind == "attempt")
+                    .map(|e| ((e.actor, e.j), (e.xid, e.sync)))
+                    .collect();
+            let acks: Vec<&LEvent> =
+                ledger.iter().filter(|e| e.kind == "ack" && e.cut == 0).collect();
 
             // I1a: durability of sync acks.
             for a in acks.iter().filter(|a| a.sync) {
@@ -1847,10 +1790,7 @@ fn flushsim_recover_child() {
             // I1c likewise binds on sync claims (C delivers notifications
             // post-commit regardless of sync_commit; async notifiers may
             // legally vanish).
-            for nev in ledger
-                .iter()
-                .filter(|e| e.kind == "notify" && e.cut == 0 && e.sync)
-            {
+            for nev in ledger.iter().filter(|e| e.kind == "notify" && e.cut == 0 && e.sync) {
                 if !committed(nev.xid) {
                     violations.push(format!(
                         "{tag}: I1c NOTIFY-DELIVERED-LOST from xid {} (j {})",
@@ -1925,13 +1865,7 @@ fn flushsim_recover_child() {
 
 fn spawn_child(test_name: &str, envs: &[(&str, String)]) -> (bool, String) {
     let mut cmd = std::process::Command::new(std::env::current_exe().unwrap());
-    cmd.args([
-        test_name,
-        "--exact",
-        "--ignored",
-        "--test-threads=1",
-        "--nocapture",
-    ]);
+    cmd.args([test_name, "--exact", "--ignored", "--test-threads=1", "--nocapture",]);
     for (key, v) in envs {
         cmd.env(key, v);
     }
@@ -2027,11 +1961,7 @@ fn writer_envs(spec: &RunSpec, pack: &std::path::Path) -> Vec<(&'static str, Str
 
 /// Run one writer(+recover) trajectory; returns (writer text, meta text,
 /// ledger text, recover text or empty when the writer never cut).
-fn run_traj(
-    base: &std::path::Path,
-    name: &str,
-    spec: &RunSpec,
-) -> (String, String, String, String) {
+fn run_traj(base: &std::path::Path, name: &str, spec: &RunSpec,) -> (String, String, String, String) {
     let pack = base.join(name);
     let (ok, wtext) = spawn_child("flushsim_writer_child", &writer_envs(spec, &pack));
     assert!(
@@ -2049,10 +1979,7 @@ fn run_traj(
     let rtext = if cuts > 0 {
         let (ok, rtext) = spawn_child(
             "flushsim_recover_child",
-            &[
-                (ROLE_ENV, "recover".to_string()),
-                (PACK_ENV, pack.to_str().unwrap().to_string()),
-            ],
+            &[(ROLE_ENV, "recover".to_string()), (PACK_ENV, pack.to_str().unwrap().to_string()),],
         );
         assert!(
             ok && rtext.contains("FLUSHSIM_RECOVER_DONE"),
@@ -2084,10 +2011,8 @@ fn recover_violations(rtext: &str) -> usize {
     rtext
         .lines()
         .filter_map(|l| {
-            l.find("FLUSHSIM_RECOVER_DONE violations=").map(|i| {
-                l[i + "FLUSHSIM_RECOVER_DONE violations=".len()..]
-                    .trim()
-                    .to_string()
+            l.find("FLUSHSIM_RECOVER_DONE violations=")
+                .map(|i| { l[i + "FLUSHSIM_RECOVER_DONE violations=".len()..].trim().to_string()
             })
         })
         .next()
@@ -2187,11 +2112,7 @@ fn flushsim_liveness_and_control() {
         assert!(wv.is_empty(), "{name}: writer violations: {wv:?}\n{wtext}");
         // Missed-wake tripwire: NEVER fires with the real latch routing.
         if pipe {
-            assert_eq!(
-                stats_field(&meta, "backstop"),
-                0,
-                "{name}: missed-wake tripwire"
-            );
+            assert_eq!(stats_field(&meta, "backstop"), 0, "{name}: missed-wake tripwire");
         }
         // Liveness re-arm witness: recorded, NOT asserted zero — FINDING-1:
         // wait_for_flush re-arms on ANY uncovered latch wake (the WaitLatch
@@ -2212,11 +2133,7 @@ fn flushsim_liveness_and_control() {
             );
         }
         // Quiescent-cut recovery must be perfectly clean.
-        assert_eq!(
-            recover_violations(&rtext),
-            0,
-            "{name}: recovery violations\n{rtext}"
-        );
+        assert_eq!(recover_violations(&rtext), 0, "{name}: recovery violations\n{rtext}");
     }
     let _ = std::fs::remove_dir_all(&base);
 }
@@ -2241,12 +2158,7 @@ fn flushsim_crash_smoke() {
     // Stratified op sweep (CI-sized): 8 points spread over the run.
     for i in 1..=8u64 {
         let k = (ops * i) / 9;
-        let spec = RunSpec {
-            seed: 21,
-            k: k.max(1),
-            hold: "4:40".into(),
-            ..Default::default()
-        };
+        let spec = RunSpec { seed: 21, k: k.max(1), hold: "4:40".into(), ..Default::default() };
         let name = format!("crash-k{k}");
         let (_, meta, _, rtext) = run_traj(&base, &name, &spec);
         if meta_field(&meta, "cuts") == "0" {
@@ -2259,18 +2171,10 @@ fn flushsim_crash_smoke() {
 
     // Event-trigger cuts: right after the i-th ack / first notify / second
     // read completion.
-    for (trigger, seed) in [
-        ("ack:1", 31u64),
-        ("ack:5", 31),
-        ("ack:9", 33),
-        ("notify:1", 35),
-        ("read:2", 37),
-    ] {
-        let spec = RunSpec {
-            seed,
-            trigger: trigger.into(),
-            ..Default::default()
-        };
+    for (trigger, seed) in
+        [("ack:1", 31u64), ("ack:5", 31), ("ack:9", 33), ("notify:1", 35), ("read:2", 37),]
+    {
+        let spec = RunSpec { seed, trigger: trigger.into(), ..Default::default() };
         let name = format!("crash-{}", trigger.replace(':', "-"));
         let (_, meta, _, rtext) = run_traj(&base, &name, &spec);
         if meta_field(&meta, "cuts") == "0" {
@@ -2300,19 +2204,13 @@ fn flushsim_mutation_battery() {
                 ..Default::default()
             };
             let (_, meta, _, _) = run_traj(&base, &format!("mut-a-{seed}"), &spec);
-            if writer_violations(&meta)
-                .iter()
-                .any(|v| v.contains("L1 at-ack"))
-            {
+            if writer_violations(&meta).iter().any(|v| v.contains("L1 at-ack")) {
                 println!("MUTATION-CAUGHT a=ack-early tier=L1 seed={seed}");
                 caught_live = true;
                 break;
             }
         }
-        assert!(
-            caught_live,
-            "mutation (a) ack-early NOT caught by L1 within seed budget"
-        );
+        assert!(caught_live, "mutation (a) ack-early NOT caught by L1 within seed budget");
 
         let mut caught_crash = false;
         for seed in 101..=108u64 {
@@ -2325,7 +2223,9 @@ fn flushsim_mutation_battery() {
                 };
                 let (_, meta, _, rtext) =
                     run_traj(&base, &format!("mut-a-crash-{seed}-{ack_n}"), &spec);
-                if meta_field(&meta, "cuts") != "0" && rtext.contains("I1a ACKED-LOST") {
+                if meta_field(&meta, "cuts") != "0"
+                    && rtext.contains("I1a ACKED-LOST")
+                {
                     println!(
                         "MUTATION-CAUGHT a=ack-early tier=I1a seed={seed} trigger=ack:{ack_n}"
                     );
@@ -2337,10 +2237,7 @@ fn flushsim_mutation_battery() {
                 break;
             }
         }
-        assert!(
-            caught_crash,
-            "mutation (a) ack-early NOT caught by the crash ledger"
-        );
+        assert!(caught_crash, "mutation (a) ack-early NOT caught by the crash ledger");
     }
 
     // (b) wake-drop: every directed completion wake aimed at committer 0
@@ -2363,19 +2260,13 @@ fn flushsim_mutation_battery() {
                 hold: "4:40".into(),
                 ..Default::default()
             };
-            let control = RunSpec {
-                mutation: String::new(),
-                ..spec_clone(&spec)
-            };
+            let control = RunSpec { mutation: String::new(), ..spec_clone(&spec) };
             let (_, cmeta, _, _) = run_traj(&base, &format!("mut-b-ctl-{seed}"), &control);
             let ctl_ms: u64 = meta_field(&cmeta, "max_commit_ms").parse().unwrap();
             if stats_field(&cmeta, "reg") == 0 || ctl_ms >= BUDGET_MS {
                 continue; // this schedule never engages cleanly: not a probe cell
             }
-            let mutated = RunSpec {
-                mutation: "wake-drop".into(),
-                ..spec_clone(&spec)
-            };
+            let mutated = RunSpec { mutation: "wake-drop".into(), ..spec_clone(&spec) };
             let (_, meta, _, _) = run_traj(&base, &format!("mut-b-{seed}"), &mutated);
             let mut_ms: u64 = meta_field(&meta, "max_commit_ms").parse().unwrap();
             if mut_ms >= BUDGET_MS
@@ -2389,10 +2280,7 @@ fn flushsim_mutation_battery() {
                 break;
             }
         }
-        assert!(
-            caught,
-            "mutation (b) wake-drop NOT caught by the latency budget"
-        );
+        assert!(caught, "mutation (b) wake-drop NOT caught by the latency budget");
     }
 
     // (c) notify-early: a cut at the first delivered notification must show
@@ -2419,10 +2307,7 @@ fn flushsim_mutation_battery() {
                 break;
             }
         }
-        assert!(
-            caught,
-            "mutation (c) notify-early NOT caught by the notify ledger"
-        );
+        assert!(caught, "mutation (c) notify-early NOT caught by the notify ledger");
     }
 
     // (d) wrong-lsn: the overclaimed flush word blinds L1 by construction;
@@ -2442,10 +2327,10 @@ fn flushsim_mutation_battery() {
                     hold: "4:40".into(),
                     ..Default::default()
                 };
-                let (_, meta, _, rtext) = run_traj(&base, &format!("mut-d-{seed}-{ack_n}"), &spec);
-                let live_l2 = writer_violations(&meta)
-                    .iter()
-                    .any(|v| v.contains("L2 monotonicity"));
+                let (_, meta, _, rtext) =
+                    run_traj(&base, &format!("mut-d-{seed}-{ack_n}"), &spec);
+                let live_l2 =
+                    writer_violations(&meta).iter().any(|v| v.contains("L2 monotonicity"));
                 let crash_i1a =
                     meta_field(&meta, "cuts") != "0" && rtext.contains("I1a ACKED-LOST");
                 if live_l2 || crash_i1a {
@@ -2461,10 +2346,7 @@ fn flushsim_mutation_battery() {
                 break;
             }
         }
-        assert!(
-            caught,
-            "mutation (d) wrong-lsn NOT caught within seed budget"
-        );
+        assert!(caught, "mutation (d) wrong-lsn NOT caught within seed budget");
     }
 
     let _ = std::fs::remove_dir_all(&base);
@@ -2485,9 +2367,7 @@ fn flushsim_deep_sweep() {
         eprintln!("set PGRUST_FLUSHSIM_DEEP=<seed_base>:<n_seeds> to run");
         return;
     };
-    let (sbase, nseeds) = spec
-        .split_once(':')
-        .expect("PGRUST_FLUSHSIM_DEEP=<base>:<n>");
+    let (sbase, nseeds) = spec.split_once(':').expect("PGRUST_FLUSHSIM_DEEP=<base>:<n>");
     let sbase: u64 = sbase.parse().unwrap();
     let nseeds: u64 = nseeds.parse().unwrap();
     let stride: u64 = std::env::var("PGRUST_FLUSHSIM_STRIDE")
@@ -2498,12 +2378,9 @@ fn flushsim_deep_sweep() {
     let mut trajectories = 0u64;
     let mut reds = 0u64;
     for seed in sbase..sbase + nseeds {
-        for &(profile, pipe) in &[
-            ("normal", true),
-            ("stalled", true),
-            ("hyper", true),
-            ("normal", false),
-        ] {
+        for &(profile, pipe) in
+            &[("normal", true), ("stalled", true), ("hyper", true), ("normal", false),]
+        {
             // Baseline for the op budget of this (seed, profile) cell.
             let spec0 = RunSpec {
                 seed,
@@ -2533,18 +2410,15 @@ fn flushsim_deep_sweep() {
                 let (_, meta, _, rtext) = run_traj(&base, "deep-point", &spec);
                 trajectories += 1;
                 if meta_field(&meta, "cuts") != "0"
-                    && (recover_violations(&rtext) != 0 || !writer_violations(&meta).is_empty())
+                    && (recover_violations(&rtext) != 0
+                        || !writer_violations(&meta).is_empty())
                 {
                     reds += 1;
                     println!(
                         "DEEP-RED seed={seed} profile={profile} pipe={pipe} k={k} — repro: \
                          PGRUST_SIM_SEED={seed} PGRUST_SIM_SCHED=1 {K_ENV}={k} \
                          {PROFILE_ENV}={profile} {}",
-                        if pipe {
-                            "PGRUST_FLUSH_PIPELINE=1"
-                        } else {
-                            "PGRUST_FLUSH_PIPELINE=0"
-                        }
+                        if pipe { "PGRUST_FLUSH_PIPELINE=1" } else { "PGRUST_FLUSH_PIPELINE=0" }
                     );
                 }
                 k += stride;
@@ -2553,9 +2427,6 @@ fn flushsim_deep_sweep() {
         println!("DEEP-PROGRESS seed={seed} trajectories={trajectories} reds={reds}");
     }
     println!("DEEP-DONE trajectories={trajectories} reds={reds}");
-    assert_eq!(
-        reds, 0,
-        "deep sweep found {reds} red trajectories (see DEEP-RED lines)"
-    );
+    assert_eq!(reds, 0, "deep sweep found {reds} red trajectories (see DEEP-RED lines)");
     let _ = std::fs::remove_dir_all(&base);
 }

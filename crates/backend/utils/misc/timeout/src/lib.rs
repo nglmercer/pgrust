@@ -1,5 +1,4 @@
-#![allow(non_snake_case)]
-#![allow(non_upper_case_globals)]
+#![allow(non_snake_case, non_upper_case_globals)]
 
 // Thread-model SIGALRM: a shared timer thread posts + wakes the backend,
 // which runs handle_sig_alarm synchronously at drain points; same-thread
@@ -198,7 +197,7 @@ fn timer_thread(shared: &'static TimerShared) -> ! {
                 if dl.expired() {
                     post_abort(slot);
                     fired = true;
-                } else if nearest.is_none_or(|n| dl < n) {
+                } else if nearest.is_none_or( |n| dl < n) {
                     nearest = Some(dl);
                 }
             }
@@ -211,7 +210,7 @@ fn timer_thread(shared: &'static TimerShared) -> ! {
                     // disabled timeout can never raise the abort byte.
                     let _ = post(slot);
                     fired = true;
-                } else if nearest.is_none_or(|n| dl < n) {
+                } else if nearest.is_none_or( |n| dl < n) {
                     nearest = Some(dl);
                 }
             }

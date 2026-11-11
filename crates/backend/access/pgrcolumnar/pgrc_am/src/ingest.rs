@@ -42,9 +42,7 @@ use pgrc_write::seal::{CodecResolver, ColumnPool};
 use pgrc_write::shred_jsonb::JsonbShredSource;
 use pgrc_write::structural::StructuralPolicy;
 use pgrc_write::walsink::{NoWal, WalSink};
-use pgrc_write::writer::{
-    PartCutPolicy, SealEnv, SealPool, SubxactEvidence, TableWriter, TxnStamp,
-};
+use pgrc_write::writer::{PartCutPolicy, SealEnv, SealPool, SubxactEvidence, TableWriter, TxnStamp,};
 use pgrc_write::wvfs::RealVfs;
 use types_error::{PgError, PgResult};
 use types_rel::Relation;
@@ -69,20 +67,12 @@ const DICT_NDV_CAP_GUC: &str = "pgrust.pgrc_dict_ndv_cap";
 /// every posture build (the postures are cached per relfilenumber in the session block).
 pub(crate) fn dict_ndv_cap() -> u64 {
     let from_guc = if guc_seams::get_config_option_missing_ok::is_installed() {
-        guc_seams::get_config_option_missing_ok::call(DICT_NDV_CAP_GUC)
-            .ok()
-            .flatten()
-            .and_then(|v| v.trim().parse::<u64>().ok())
+        guc_seams::get_config_option_missing_ok::call(DICT_NDV_CAP_GUC).ok().flatten().and_then(|v| v.trim().parse::<u64>().ok())
     } else {
         None
     };
-    from_guc
-        .or_else(|| {
-            std::env::var("PGRUST_PGRC_DICT_NDV_CAP")
-                .ok()
-                .and_then(|v| v.trim().parse::<u64>().ok())
-        })
-        .unwrap_or(DICT_NDV_CAP)
+    from_guc.or_else(|| { std::env::var("PGRUST_PGRC_DICT_NDV_CAP").ok().and_then(|v| v.trim().parse::<u64>().ok())
+        }).unwrap_or(DICT_NDV_CAP)
 }
 
 /// Full-registry election postures from catalog facts (pure function of
@@ -249,12 +239,9 @@ fn open_writer(rel: &Relation<'_>, stamp: TxnStamp) -> PgResult<TableWriter> {
         crate::refuse_v1_format(rel)?;
         // P304: the directory is made with the relfilenumber, so a write that finds none meets damage: C's 58P01 for a
         // relation file that is gone, as the read (`catalog::resolve`)
-        return Err(Box::new(
-            // alloc: Cold
-            types_error::PgError::error(format!(
-                "could not open directory \"{dir}\": No such file or directory"
-            )) // alloc: Cold
-            .with_sqlstate(types_error::ERRCODE_UNDEFINED_FILE),
+        return Err(Box::new( // alloc: Cold
+            types_error::PgError::error(format!("could not open directory \"{dir}\": No such file or directory")) // alloc: Cold
+                .with_sqlstate(types_error::ERRCODE_UNDEFINED_FILE),
         ));
     }
     let schemas = crate::schema::col_schemas(rel)?;
@@ -322,13 +309,7 @@ impl Placement {
 
 fn hold_placements(relfilenumber: u64, fxid: u64, parts: Vec<pgrc_write::writer::Placed>) {
     if !parts.is_empty() {
-        session::with_placed(|p| {
-            p.extend(parts.into_iter().map(|part| Placement {
-                relfilenumber,
-                fxid,
-                part,
-                placed: 0,
-            }))
+        session::with_placed(|p| { p.extend(parts.into_iter().map(|part| Placement { relfilenumber, fxid, part, placed: 0, }))
         });
     }
 }
@@ -338,11 +319,7 @@ fn hold_placements(relfilenumber: u64, fxid: u64, parts: Vec<pgrc_write::writer:
 pub fn placements_waiting(rel: &Relation<'_>) -> bool {
     let relfilenumber = rel.rd_locator.get().relNumber as u64;
     session::with_placed(|p| {
-        p.retain(|e| {
-            live(TxnStamp {
-                fxid: e.fxid,
-                cid: 0,
-            })
+        p.retain(|e| { live(TxnStamp { fxid: e.fxid, cid: 0, })
         });
         p.iter().any(|e| e.relfilenumber == relfilenumber)
     })
@@ -353,11 +330,7 @@ pub fn placements_waiting(rel: &Relation<'_>) -> bool {
 pub fn place(rel: &Relation<'_>, handed: u64) -> Option<u64> {
     let relfilenumber = rel.rd_locator.get().relNumber as u64;
     session::with_placed(|p| {
-        let (i, id) = p
-            .iter()
-            .enumerate()
-            .filter(|(_, e)| e.relfilenumber == relfilenumber)
-            .find_map(|(i, e)| e.part.place(handed).map(|id| (i, id)))?;
+        let (i, id) = p.iter().enumerate().filter(|(_, e)| e.relfilenumber == relfilenumber).find_map(|(i, e)| e.part.place(handed).map(|id| (i, id)))?;
         p[i].placed += 1;
         if p[i].placed >= p[i].part.rows() {
             p.remove(i);
@@ -409,7 +382,7 @@ fn checked_varlena_len(avail: &[u8]) -> PgResult<usize> {
 /// image: the bytes from `p` to the end of the image. Returns a typed
 /// corruption error when the datum points outside the image (a corrupt or
 /// aliased offset), or `None` when no image witness was supplied.
-fn datum_window(p: *const u8, tuple_image: Option<&[u8]>) -> PgResult<Option<&[u8]>> {
+fn datum_window(p: *const u8, tuple_image: Option<& [u8]>) -> PgResult<Option<& [u8]>> {
     let Some(img) = tuple_image else {
         return Ok(None);
     };
@@ -455,19 +428,14 @@ pub fn raw_row<'a>(
 ) -> PgResult<Vec<RawDatum<'a>>> {
     let atts = &rel.rd_att.attrs;
     if values.len() < atts.len() || isnull.len() < atts.len() {
-        return Err(Box::new(PgError::error(
-            // alloc: Cold
+        return Err(Box::new(PgError::error( // alloc: Cold
             "pgrcolumnar: slot narrower than relation descriptor".to_string(),
         )));
     }
     let mut out = Vec::with_capacity(atts.len());
     // A dropped attribute has no column (`col_schemas`).
     for (i, att) in atts.iter().enumerate().filter(|(_, a)| !a.attisdropped) {
-        out.push(if isnull[i] {
-            RawDatum::Null
-        } else {
-            raw_att(att, &values[i], tuple_image)?
-        });
+        out.push(if isnull[i] { RawDatum::Null } else { raw_att(att, &values[i], tuple_image)? });
     }
     Ok(out)
 }
@@ -552,12 +520,7 @@ fn shred_source_for(rel: &Relation<'_>) -> PgResult<JsonbShredSource> {
     // column at its kind, then every `sorted_by` path key no declaration names, at the lane its values elect (so its
     // zones hold in every part; a numeric key forced to Text forfeited its lane in every part and q3-q5 read time_us
     // from the image)
-    let typed = rel
-        .rd_options
-        .as_ref()
-        .and_then(|o| o.pgrcolumnar())
-        .map(|o| o.shred_path_decls())
-        .unwrap_or_default();
+    let typed = rel.rd_options.as_ref().and_then(|o| o.pgrcolumnar()).map(|o| o.shred_path_decls()).unwrap_or_default();
     for d in typed {
         use types_rel::reloptions::ShredPathKind;
         // jsonb_shred::Lane's bytes: Text 0, Uuid16 1, NumericFs 2, Bool 3
@@ -603,10 +566,7 @@ pub fn ingest_row(
 ) -> PgResult<Option<RowId>> {
     session::ensure_session_hooks();
     crate::inval::ensure_inval_registered()?;
-    let stamp = TxnStamp {
-        fxid: xact::GetCurrentFullTransactionId()?.value,
-        cid,
-    };
+    let stamp = TxnStamp { fxid: xact::GetCurrentFullTransactionId()?.value, cid, };
     let relfilenumber = rel.rd_locator.get().relNumber as u64;
     let row = raw_row(rel, values, isnull, tuple_image)?;
     let mut vfs = RealVfs;
@@ -622,14 +582,9 @@ pub fn ingest_row(
     let res = with_rel_candidates(rel, relfilenumber, |cands| {
         let sources: [&dyn CandidateSource; 1] = [cands];
         session::with_writers(|w| {
-            if let Some(open) = w
-                .stamp_of(relfilenumber)
-                .filter(|&open| open != stamp && live(open))
-            {
+            if let Some(open) = w.stamp_of(relfilenumber).filter(|&open| open != stamp && live(open)) {
                 outer = Some(open);
-                return Err(pgrc_write::WriteError::Contract {
-                    detail: "outer statement's writer (published first)",
-                });
+                return Err(pgrc_write::WriteError::Contract { detail: "outer statement's writer (published first)", });
             }
             let writer = match w.get_or_open(&mut vfs, relfilenumber, stamp, || {
                 open_writer(rel, stamp).map_err(|e| {
@@ -649,16 +604,11 @@ pub fn ingest_row(
                     Ok(r) => writer.grant_ids(r.lo, r.hi)?,
                     Err(e) => {
                         open_err = Some(e);
-                        return Err(pgrc_write::WriteError::Contract {
-                            detail: "row-ID reservation failed (see raised error)",
-                        });
+                        return Err(pgrc_write::WriteError::Contract { detail: "row-ID reservation failed (see raised error)", });
                     }
                 }
             }
-            id = writer.next_id().map(|id| RowId {
-                id,
-                handed: writer.keeps_placements(),
-            });
+            id = writer.next_id().map(|id| RowId { id, handed: writer.keeps_placements(), });
             let mut env = SealEnv {
                 vfs: &mut vfs,
                 sources: &sources,
@@ -728,14 +678,8 @@ fn publish_serialized<R, T>(
     let lock = crate::inval::publish_lock(slot.2);
     loop {
         let guard = pgsync::lock(&lock);
-        let probe = if stack {
-            ClogTxnProbe::stacking()
-        } else {
-            ClogTxnProbe::new()
-        };
-        let base = crate::catalog::generations(slot)
-            .and_then(|(gens, head)| gens.into_iter().find(|g| g.gen == head))
-            .map(|g| g.base_hold());
+        let probe = if stack { ClogTxnProbe::stacking() } else { ClogTxnProbe::new() };
+        let base = crate::catalog::generations(slot).and_then(|(gens, head)| gens.into_iter().find(|g| g.gen == head)).map(|g| g.base_hold());
         match publish(&probe, base.as_ref().map_or(BaseStats::None, |b| b.stats())) {
             Err(pgrc_write::WriteError::PublishBusy { holder_fxid }) => {
                 drop(guard);
@@ -758,13 +702,9 @@ const DEFERRED: &str = "publish deferred: another transaction's publish is in pr
 /// defers, and its table is due again.
 fn background() -> bool {
     use types_storage::storage::{PROC_IS_AUTOVACUUM, PROC_IS_DB_MAINT_WORKER};
-    let flags = |p| {
-        lmgr_proc::GetPGProcByNumber(p)
-            .statusFlags
-            .load(std::sync::atomic::Ordering::Relaxed)
+    let flags = |p| { lmgr_proc::GetPGProcByNumber(p).statusFlags.load(std::sync::atomic::Ordering::Relaxed)
     };
-    lmgr_proc::MyProc()
-        .is_some_and(|p| flags(p) & (PROC_IS_AUTOVACUUM | PROC_IS_DB_MAINT_WORKER) != 0)
+    lmgr_proc::MyProc().is_some_and(|p| flags(p) & (PROC_IS_AUTOVACUUM | PROC_IS_DB_MAINT_WORKER) != 0)
 }
 
 /// TOMB: [`background`] for pgrc_front's compile (a background compile never holds off a writer).
@@ -775,12 +715,7 @@ pub fn is_background() -> bool {
 /// AUTOSTATS: an autovacuum worker (`PROC_IS_AUTOVACUUM`; its VACUUM of a pgrcolumnar table does not flush).
 pub fn is_autovacuum() -> bool {
     use types_storage::storage::PROC_IS_AUTOVACUUM;
-    lmgr_proc::MyProc().is_some_and(|p| {
-        lmgr_proc::GetPGProcByNumber(p)
-            .statusFlags
-            .load(std::sync::atomic::Ordering::Relaxed)
-            & PROC_IS_AUTOVACUUM
-            != 0
+    lmgr_proc::MyProc().is_some_and(|p| { lmgr_proc::GetPGProcByNumber(p).statusFlags.load(std::sync::atomic::Ordering::Relaxed) & PROC_IS_AUTOVACUUM != 0
     })
 }
 
@@ -798,34 +733,23 @@ fn wait_for_publisher(rel: &Relation<'_>, holder_fxid: u64) -> PgResult<()> {
     }
     let xid = crate::probe::holder_xid(holder_fxid)?;
     if xact_seams::transaction_id_is_current_transaction_id::call(xid) {
-        return Err(crate::corrupt(&format!(
-            "publish of \"{}\" would wait for its own transaction {xid}",
-            rel.name()
-        )));
+        return Err(crate::corrupt(&format!("publish of \"{}\" would wait for its own transaction {xid}", rel.name())));
     }
-    lmgr::XactLockTableWait(xid, None, None, types_storage::lock::XLTW_Oper::None).map_err(
-        |mut e| {
-            e.add_context_line(format!("while publishing to relation \"{}\"", rel.name()));
-            e
-        },
-    )
+    lmgr::XactLockTableWait(xid, None, None, types_storage::lock::XLTW_Oper::None).map_err(|mut e| {
+        e.add_context_line(format!("while publishing to relation \"{}\"", rel.name()));
+        e
+    },)
 }
 
 /// Another transaction's publish heads `rel`'s chain now (the process catalog's head): a background publisher defers
 /// before it feeds or reads ([`defer_if_busy`]; compaction asks [`compaction_blocked`]).
 pub fn publish_in_progress(rel: &Relation<'_>) -> PgResult<bool> {
     let l = rel.rd_locator.get();
-    let Some((gens, head)) = crate::catalog::generations((l.spcOid, l.dbOid, l.relNumber as u64))
-    else {
-        return Ok(false);
-    };
+    let Some((gens, head)) = crate::catalog::generations((l.spcOid, l.dbOid, l.relNumber as u64)) else { return Ok(false); };
     let probe = ClogTxnProbe::new();
     // SEAL-OFFHEAD: a creator still in progress under a stacked head holds it as the head it was
     let foreign = |x: u64| probe.verdict(x) == TxnVerdict::InProgress && !probe.is_own(x, 0);
-    let busy = gens
-        .iter()
-        .find(|g| g.gen == head)
-        .is_some_and(|g| foreign(g.publisher_fxid) || g.under().iter().any(|e| foreign(e.fxid)));
+    let busy = gens.iter().find(|g| g.gen == head).is_some_and(|g| foreign(g.publisher_fxid) || g.under().iter().any(|e| foreign(e.fxid)));
     probe.take_error()?;
     Ok(busy)
 }
@@ -836,15 +760,9 @@ pub fn publish_in_progress(rel: &Relation<'_>) -> PgResult<bool> {
 /// catalog's manifests): a bulk load's or a seal's head does not; a rotation's or a compile's does.
 pub fn compaction_blocked(rel: &Relation<'_>) -> PgResult<bool> {
     let l = rel.rd_locator.get();
-    let Some((gens, head)) = crate::catalog::generations((l.spcOid, l.dbOid, l.relNumber as u64))
-    else {
-        return Ok(false);
-    };
+    let Some((gens, head)) = crate::catalog::generations((l.spcOid, l.dbOid, l.relNumber as u64)) else { return Ok(false); };
     let probe = ClogTxnProbe::stacking();
-    let mut read = |g: u64| {
-        gens.iter()
-            .find(|x| x.gen == g)
-            .map(|x| (*x.manifest).clone())
+    let mut read = |g: u64| { gens.iter().find(|x| x.gen == g).map(|x| (*x.manifest).clone())
     };
     let ok = pgrc_write::publish::stacks_on(head, &mut read, &probe, 0).map_err(write_error);
     probe.take_error()?;
@@ -856,15 +774,9 @@ pub fn compaction_blocked(rel: &Relation<'_>) -> PgResult<bool> {
 /// publishes then.
 pub fn unsettled(rel: &Relation<'_>) -> PgResult<bool> {
     let l = rel.rd_locator.get();
-    let Some((gens, head)) = crate::catalog::generations((l.spcOid, l.dbOid, l.relNumber as u64))
-    else {
-        return Ok(false);
-    };
+    let Some((gens, head)) = crate::catalog::generations((l.spcOid, l.dbOid, l.relNumber as u64)) else { return Ok(false); };
     let probe = ClogTxnProbe::new();
-    let due = gens.iter().find(|g| g.gen == head).is_some_and(|g| {
-        g.under()
-            .iter()
-            .any(|e| probe.verdict(e.fxid) != TxnVerdict::InProgress)
+    let due = gens.iter().find(|g| g.gen == head).is_some_and(|g| { g.under().iter().any(|e| probe.verdict(e.fxid) != TxnVerdict::InProgress)
     });
     probe.take_error()?;
     Ok(due)
@@ -880,10 +792,7 @@ pub fn defer_if_busy(rel: &Relation<'_>) -> PgResult<()> {
 }
 
 fn deferral(rel: &Relation<'_>) -> Box<PgError> {
-    Box::new(
-        PgError::error(format!("pgrcolumnar: {DEFERRED} \"{}\"", rel.name()))
-            .with_sqlstate(types_error::ERRCODE_LOCK_NOT_AVAILABLE),
-    )
+    Box::new(PgError::error(format!("pgrcolumnar: {DEFERRED} \"{}\"", rel.name())).with_sqlstate(types_error::ERRCODE_LOCK_NOT_AVAILABLE),)
 }
 
 /// COMPACTP item 4: this transaction holds a bulk writer of `rel` with rows [`finish_bulk`] publishes (the L0 cap
@@ -891,9 +800,7 @@ fn deferral(rel: &Relation<'_>) -> Box<PgError> {
 pub fn bulk_open(rel: &Relation<'_>) -> bool {
     let cur = xact::GetCurrentFullTransactionIdIfAny();
     let relfilenumber = rel.rd_locator.get().relNumber as u64;
-    cur.is_valid()
-        && session::with_writers(|w| w.stamp_of(relfilenumber))
-            .is_some_and(|open| open.fxid == cur.value)
+    cur.is_valid() && session::with_writers(|w| w.stamp_of(relfilenumber)).is_some_and(|open| open.fxid == cur.value)
 }
 
 /// Statement-end publish (the `table_finish_bulk_insert` arm body): seal
@@ -914,14 +821,7 @@ pub fn finish_bulk(rel: &Relation<'_>) -> PgResult<u64> {
     if !cur.is_valid() || (open.fxid != cur.value && live(open)) {
         return Ok(0);
     }
-    publish_taken(
-        rel,
-        relfilenumber,
-        TxnStamp {
-            fxid: cur.value,
-            cid: open.cid,
-        },
-    )
+    publish_taken(rel, relfilenumber, TxnStamp { fxid: cur.value, cid: open.cid, },)
 }
 
 /// The registered writer of `relfilenumber` published, if its stamp is `stamp` (else aborted as stale).
@@ -938,13 +838,7 @@ fn publish_taken(rel: &Relation<'_>, relfilenumber: u64, stamp: TxnStamp) -> PgR
         // seal (its wait for another transaction's publish cancelled, timed out or a deadlock victim) unlinks its temp
         // parts here, under a `RECLAIM`.
         if let Err(e) = writer.abort(&mut vfs) {
-            let _ = elog::elog(
-                types_error::WARNING,
-                format!(
-                    "pgrc: temp parts of \"{}\" not reclaimed: {e:?}",
-                    rel.name()
-                ),
-            );
+            let _ = elog::elog(types_error::WARNING, format!("pgrc: temp parts of \"{}\" not reclaimed: {e:?}", rel.name()),);
         }
     }
     out
@@ -962,17 +856,10 @@ fn give_ids(rel: &Relation<'_>, parts: &mut [pgrc_write::seal::SealedPart]) -> P
 
 /// A registered writer whose (sub)transaction is still in progress in this backend: its rows are not stale.
 fn live(stamp: TxnStamp) -> bool {
-    xact::TransactionIdIsCurrentTransactionId(
-        types_core::xact::FullTransactionId::from_u64(stamp.fxid).xid(),
-    )
+    xact::TransactionIdIsCurrentTransactionId(types_core::xact::FullTransactionId::from_u64(stamp.fxid).xid(),)
 }
 
-fn finish_and_publish(
-    rel: &Relation<'_>,
-    writer: &mut TableWriter,
-    vfs: &mut RealVfs,
-    relfilenumber: u64,
-) -> PgResult<u64> {
+fn finish_and_publish(rel: &Relation<'_>, writer: &mut TableWriter, vfs: &mut RealVfs, relfilenumber: u64,) -> PgResult<u64> {
     let resolver = CodecResolver;
     let mut shred = shred_source_for(rel)?;
     let shred_opts = ShredOptions::default();
@@ -1003,12 +890,7 @@ fn finish_and_publish(
     let dir = crate::dirpath::table_dir_path(locator, rel.rd_backend);
     // CONCLOAD: a bulk load stacks on another load in progress instead of waiting for it (PostgreSQL's COPYs into one
     // heap never wait for each other)
-    publish_serialized(
-        rel,
-        true,
-        &mut |probe, base| writer.publish_with_gen(&mut *vfs, probe, base),
-        &mut |outcome| catalog_publish(rel, slot, &dir, outcome, t0),
-    )?;
+    publish_serialized(rel, true, &mut |probe, base| writer.publish_with_gen(&mut *vfs, probe, base), &mut |outcome| catalog_publish(rel, slot, &dir, outcome, t0),)?;
     // CONCLOAD test hook (the pgrc-catalog-order isolation spec): published and recorded, the lock released
     injection_point::injection_point("pgrc-bulk-published")?;
     Ok(rows)
@@ -1027,10 +909,7 @@ fn catch_up_dropped_stamp(rel: &Relation<'_>, slot: crate::catalog::RelSlot) -> 
     if !rel.rd_att.attrs.iter().any(|a| a.attisdropped) {
         return Ok(());
     }
-    let Some(head_fp) = crate::catalog::generations(slot)
-        .and_then(|(gens, head)| gens.into_iter().find(|g| g.gen == head))
-        .map(|g| g.schema_fp)
-    else {
+    let Some(head_fp) = crate::catalog::generations(slot).and_then(|(gens, head)| gens.into_iter().find(|g| g.gen == head)).map(|g| g.schema_fp) else {
         return Ok(());
     };
     let live = pgrc_format::ident::schema_fingerprint(&crate::schema::col_schemas(rel)?);
@@ -1038,13 +917,8 @@ fn catch_up_dropped_stamp(rel: &Relation<'_>, slot: crate::catalog::RelSlot) -> 
         return Ok(());
     }
     crate::schema::book_dropped_stamp(rel, head_fp)?;
-    let Some(old) = crate::fastadd::schema_of(head_fp) else {
-        return Ok(());
-    };
-    publish_schema(
-        rel,
-        ::mcx::stdvec::try_to_vec(&old[..], "pgrc schema publish")?,
-    )?;
+    let Some(old) = crate::fastadd::schema_of(head_fp) else { return Ok(()); };
+    publish_schema(rel, ::mcx::stdvec::try_to_vec(&old[..], "pgrc schema publish")?,)?;
     Ok(())
 }
 
@@ -1053,46 +927,19 @@ fn catch_up_dropped_stamp(rel: &Relation<'_>, slot: crate::catalog::RelSlot) -> 
 /// the stats runs written and their bytes, the microseconds in the publisher's stats, in the catalog and in the whole
 /// publish (from `started`, before the publish lock: base, plan, stage, log, apply, catalog), and whether the base was
 /// the catalog's (the P-1 bench reads the line).
-pub(crate) fn catalog_publish(
-    rel: &Relation<'_>,
-    slot: crate::catalog::RelSlot,
-    dir: &str,
-    outcome: PublishOutcome,
-    started: pg_clock::MonoStamp,
-) -> PgResult<Arc<crate::catalog::Generation>> {
+pub(crate) fn catalog_publish(rel: &Relation<'_>, slot: crate::catalog::RelSlot, dir: &str, outcome: PublishOutcome, started: pg_clock::MonoStamp,) -> PgResult<Arc<crate::catalog::Generation>> {
     let t0 = pg_clock::MonoStamp::now();
-    let PublishOutcome {
-        gen,
-        kind,
-        part_nos,
-        manifest,
-        pointer,
-        stats,
-        runs_written,
-        run_bytes,
-        stats_us,
-        base_given,
-        legacy_parts,
-        stacked_over,
-        dropped,
-        ..
-    } = outcome;
-    let kind_name = pgrc_write::publish::counters::KINDS
-        .iter()
-        .find(|k| k.0 == kind)
-        .map_or("?", |k| k.1);
+    let PublishOutcome { gen, kind, part_nos, manifest, pointer, stats, runs_written, run_bytes, stats_us, base_given, legacy_parts, stacked_over, dropped, .. } = outcome;
+    let kind_name = pgrc_write::publish::counters::KINDS.iter().find(|k| k.0 == kind).map_or("?", |k| k.1);
     if !stacked_over.is_empty() {
-        let _ = elog::elog(types_error::DEBUG1, format!("pgrcolumnar: stacked {kind_name} of \"{}\" gen {gen} over in-progress {stacked_over:?}", rel.name()));
-        // alloc: Cold
+        let _ = elog::elog(types_error::DEBUG1, format!("pgrcolumnar: stacked {kind_name} of \"{}\" gen {gen} over in-progress {stacked_over:?}", rel.name())); // alloc: Cold
     }
     if !dropped.is_empty() {
-        let _ = elog::elog(types_error::DEBUG1, format!("pgrcolumnar: settled \"{}\" gen {gen} ({kind_name}): dropped parts {dropped:?} of rolled-back writers", rel.name()));
-        // alloc: Cold
+        let _ = elog::elog(types_error::DEBUG1, format!("pgrcolumnar: settled \"{}\" gen {gen} ({kind_name}): dropped parts {dropped:?} of rolled-back writers", rel.name())); // alloc: Cold
     }
     let parts = manifest.parts.len();
     if legacy_parts > 0 {
-        let _ = elog::elog(types_error::LOG, format!("pgrcolumnar: publish of \"{}\" gen {gen} wrote the legacy stats run of its base's {legacy_parts} parts (a generation written before P-1, stats from its sections file or its parts)", rel.name()));
-        // alloc: Cold
+        let _ = elog::elog(types_error::LOG, format!("pgrcolumnar: publish of \"{}\" gen {gen} wrote the legacy stats run of its base's {legacy_parts} parts (a generation written before P-1, stats from its sections file or its parts)", rel.name())); // alloc: Cold
     }
     let prev_gen = manifest.header.prev_gen;
     let g = crate::catalog::publish(slot, dir, manifest, stats, &crate::footer::fold_generation)?;
@@ -1101,9 +948,7 @@ pub(crate) fn catalog_publish(
     // a snapshot taken before it (a cursor declared earlier in this transaction) does not see it and the next command's
     // snapshot does (`SnapshotCommitCheck::sees_command`). A maintenance publish of another transaction, or one with no
     // xid, records nothing.
-    if xact_seams::transaction_id_is_current_transaction_id::call(
-        types_core::xact::FullTransactionId::from_u64(g.publisher_fxid).xid(),
-    ) {
+    if xact_seams::transaction_id_is_current_transaction_id::call(types_core::xact::FullTransactionId::from_u64(g.publisher_fxid).xid(),) {
         let cid = xact_seams::get_current_command_id::call(true)?;
         session::record_publish_cid(slot, g.gen, cid);
     }
@@ -1113,38 +958,21 @@ pub(crate) fn catalog_publish(
     // stacked bulk load always does (COMPACTP: and a stacked compaction). At its commit the readers that do not see a
     // creator under it move from the generation below that creator to this one without its parts, which neither whole
     // generation's claim measures
-    let stacked = matches!(
-        kind,
-        pgrc_format::wal::PublishKind::Bulk | pgrc_format::wal::PublishKind::Compact
-    ) && !stacked_over.is_empty();
+    let stacked = matches!(kind, pgrc_format::wal::PublishKind::Bulk | pgrc_format::wal::PublishKind::Compact) && !stacked_over.is_empty();
     crate::reloptions::inval_on_claim_change(rel, slot, prev_gen, &g, stacked)?;
     // D4804: a publish that moves what the lowering-time election reads answer (Gravity's `shred_election` /
     // `shred_dict` / `shred_object_roots`, whose readers hold the relation's `Dep::Stats`) sends a storage-scoped relcache
     // message, when the publish becomes visible (commit; locally at the command's end, undone with a rolled-back
     // savepoint), which leaves the entry's program generation. Any kind can install or retire a part (a rolled-back
     // writer's settles under any); a stacked publish's base is not settled, so it always sends
-    let elections = if stacked_over.is_empty() {
-        elections_moved(slot, prev_gen, &g)
-    } else {
-        Elections::Send("stacked, storage message")
-    };
+    let elections = if stacked_over.is_empty() { elections_moved(slot, prev_gen, &g) } else { Elections::Send("stacked, storage message") };
     if let Elections::Send(_) = elections {
-        inval::with_relcache_scope(inval::REL_SCOPE_STORAGE, || {
-            inval::invalidate::CacheInvalidateRelcache(rel)
+        inval::with_relcache_scope(inval::REL_SCOPE_STORAGE, || { inval::invalidate::CacheInvalidateRelcache(rel)
         })?;
     }
     if !matches!(elections, Elections::SameParts) {
-        let what = match elections {
-            Elections::Send(why) => why,
-            _ => "unchanged, no message",
-        };
-        let _ = elog::elog(
-            types_error::DEBUG1,
-            format!(
-                "pgrc elections: rel={} gen={gen} base={prev_gen} {kind_name}: {what}",
-                rel.name()
-            ),
-        ); // alloc: Cold
+        let what = match elections { Elections::Send(why) => why, _ => "unchanged, no message", };
+        let _ = elog::elog(types_error::DEBUG1, format!("pgrc elections: rel={} gen={gen} base={prev_gen} {kind_name}: {what}", rel.name()),); // alloc: Cold
     }
     let end = pg_clock::MonoStamp::now();
     let publish_us = end.since_ns(started) / 1000;
@@ -1176,20 +1004,10 @@ enum Elections {
 
 /// D4804: generation `g`'s election reads against its base `prev_gen`'s: a moved digest sends, and so does one that
 /// cannot be told (a first publish, a base the catalog no longer holds, a digest that did not read).
-fn elections_moved(
-    slot: crate::catalog::RelSlot,
-    prev_gen: u64,
-    g: &crate::catalog::Generation,
-) -> Elections {
-    let base = (prev_gen != 0)
-        .then(|| {
-            crate::catalog::generations(slot)
-                .and_then(|(gens, _)| gens.into_iter().find(|x| x.gen == prev_gen))
-        })
-        .flatten();
-    let Some(base) = base else {
-        return Elections::Send("untold, storage message");
-    };
+fn elections_moved(slot: crate::catalog::RelSlot, prev_gen: u64, g: &crate::catalog::Generation,) -> Elections {
+    let base = (prev_gen != 0).then(|| { crate::catalog::generations(slot).and_then(|(gens, _)| gens.into_iter().find(|x| x.gen == prev_gen))
+        }).flatten();
+    let Some(base) = base else { return Elections::Send("untold, storage message"); };
     if crate::catalog::same_parts(&base, g) {
         return Elections::SameParts;
     }
@@ -1202,10 +1020,7 @@ fn elections_moved(
 
 /// A publish of the extension block only (F1 rotation, design §4.5), in this transaction under the table's publish
 /// lock: `edit` gets the base generation and the plan; the catalog records the generation like any publish.
-pub fn publish_ext(
-    rel: &Relation<'_>,
-    edit: pgrc_write::publish::Edit<'_>,
-) -> PgResult<Arc<crate::catalog::Generation>> {
+pub fn publish_ext(rel: &Relation<'_>, edit: pgrc_write::publish::Edit<'_>,) -> PgResult<Arc<crate::catalog::Generation>> {
     publish_ext_as(rel, false, edit)
 }
 
@@ -1213,14 +1028,9 @@ pub fn publish_ext(
 /// its AccessExclusiveLock: a generation of the relation's new schema (the header's fingerprint) whose parts keep the
 /// schemas they were written with, `old` (the table's before the ALTER) described. No part is read or written; the
 /// generation is effective iff the ALTER commits.
-pub fn publish_schema(
-    rel: &Relation<'_>,
-    old: Vec<pgrc_format::class::ColSchema>,
-) -> PgResult<Arc<crate::catalog::Generation>> {
+pub fn publish_schema(rel: &Relation<'_>, old: Vec<pgrc_format::class::ColSchema>,) -> PgResult<Arc<crate::catalog::Generation>> {
     crate::fastadd::note(&old);
-    let mut edit = |_: Option<&pgrc_format::manifest::Manifest>,
-                    b: &mut pgrc_write::plan::PlanBuilder<'_>|
-     -> pgrc_write::WriteResult<()> {
+    let mut edit = |_: Option<&pgrc_format::manifest::Manifest>, b: &mut pgrc_write::plan::PlanBuilder<'_>| -> pgrc_write::WriteResult<()> {
         b.describe(old.clone());
         Ok(())
     };
@@ -1254,141 +1064,59 @@ impl Drop for SchemaPublish {
 
 /// SEAL-OFFHEAD: [`publish_ext`] of a maintenance step (a rotation, a freed segment, a settle): it chains on another
 /// transaction's in-progress head instead of waiting ([`publish_serialized`]'s `stack`).
-pub fn publish_ext_maint(
-    rel: &Relation<'_>,
-    edit: pgrc_write::publish::Edit<'_>,
-) -> PgResult<Arc<crate::catalog::Generation>> {
+pub fn publish_ext_maint(rel: &Relation<'_>, edit: pgrc_write::publish::Edit<'_>,) -> PgResult<Arc<crate::catalog::Generation>> {
     publish_ext_as(rel, true, edit)
 }
 
-fn publish_ext_as(
-    rel: &Relation<'_>,
-    stack: bool,
-    edit: pgrc_write::publish::Edit<'_>,
-) -> PgResult<Arc<crate::catalog::Generation>> {
+fn publish_ext_as(rel: &Relation<'_>, stack: bool, edit: pgrc_write::publish::Edit<'_>,) -> PgResult<Arc<crate::catalog::Generation>> {
     let stamp = current_stamp()?;
     let locator = rel.rd_locator.get();
     let dir = crate::dirpath::table_dir_path(locator, rel.rd_backend);
     let relfilenumber = locator.relNumber as u64;
-    let schema_fingerprint =
-        pgrc_format::ident::schema_fingerprint(&crate::schema::col_schemas(rel)?);
-    let spec = pgrc_write::seal::PartSpec {
-        spc: locator.spcOid,
-        db: locator.dbOid,
-        relfilenumber,
-        schema_fingerprint,
-    };
+    let schema_fingerprint = pgrc_format::ident::schema_fingerprint(&crate::schema::col_schemas(rel)?);
+    let spec = pgrc_write::seal::PartSpec { spc: locator.spcOid, db: locator.dbOid, relfilenumber, schema_fingerprint, };
     let slot: crate::catalog::RelSlot = (locator.spcOid, locator.dbOid, relfilenumber);
     let mut sink = pgrc_wal_seams::sink_for::call(rel);
     let t0 = pg_clock::MonoStamp::now();
-    publish_serialized(
-        rel,
-        stack,
-        &mut |probe, base| {
-            pgrc_write::publish::publish_ext(
-                &mut RealVfs,
-                &mut *sink,
-                &dir,
-                &spec,
-                stamp.fxid,
-                probe,
-                base,
-                &mut *edit,
-            )
-        },
-        &mut |outcome| catalog_publish(rel, slot, &dir, outcome, t0),
-    )
+    publish_serialized(rel, stack, &mut |probe, base| { pgrc_write::publish::publish_ext(&mut RealVfs, &mut *sink, &dir, &spec, stamp.fxid, probe, base, &mut *edit,)
+        }, &mut |outcome| catalog_publish(rel, slot, &dir, outcome, t0),)
 }
 
 /// A compile (F2 L7) in this transaction under the table's publish lock: each `(part_no, rows)` folds its
 /// `(granule, row)` deletions into the part's DV at the generation this publishes. `None` when no part gains a row
 /// (nothing is published); the caller heap-deletes the folded tombstones in the same transaction either way.
-pub fn publish_compile(
-    rel: &Relation<'_>,
-    marks: &[(u32, &[(u32, u16)])],
-) -> PgResult<Option<Arc<crate::catalog::Generation>>> {
+pub fn publish_compile(rel: &Relation<'_>, marks: &[(u32, &[(u32, u16)])],) -> PgResult<Option<Arc<crate::catalog::Generation>>> {
     let stamp = current_stamp()?;
     let locator = rel.rd_locator.get();
     let dir = crate::dirpath::table_dir_path(locator, rel.rd_backend);
     let relfilenumber = locator.relNumber as u64;
-    let schema_fingerprint =
-        pgrc_format::ident::schema_fingerprint(&crate::schema::col_schemas(rel)?);
-    let spec = pgrc_write::seal::PartSpec {
-        spc: locator.spcOid,
-        db: locator.dbOid,
-        relfilenumber,
-        schema_fingerprint,
-    };
+    let schema_fingerprint = pgrc_format::ident::schema_fingerprint(&crate::schema::col_schemas(rel)?);
+    let spec = pgrc_write::seal::PartSpec { spc: locator.spcOid, db: locator.dbOid, relfilenumber, schema_fingerprint, };
     let slot: crate::catalog::RelSlot = (locator.spcOid, locator.dbOid, relfilenumber);
     let mut sink = pgrc_wal_seams::sink_for::call(rel);
     let t0 = pg_clock::MonoStamp::now();
-    publish_serialized(
-        rel,
-        false,
-        &mut |probe, base| {
-            pgrc_write::publish::publish_compile(
-                &mut RealVfs,
-                &mut *sink,
-                &dir,
-                &spec,
-                marks,
-                stamp.fxid,
-                probe,
-                base,
-            )
-        },
-        &mut |outcome| {
-            outcome
-                .map(|o| catalog_publish(rel, slot, &dir, o, t0))
-                .transpose()
-        },
-    )
+    publish_serialized(rel, false, &mut |probe, base| { pgrc_write::publish::publish_compile(&mut RealVfs, &mut *sink, &dir, &spec, marks, stamp.fxid, probe, base,)
+        }, &mut |outcome| {
+        outcome.map(|o| catalog_publish(rel, slot, &dir, o, t0)).transpose()
+    },)
 }
 
 /// TOMB: [`publish_compile`] with `edit` in the same plan (the tombstone heaps' state beside the DVs of the heap it
 /// folds). `None` when no part gains a row: nothing is published.
-pub fn publish_compile_ext(
-    rel: &Relation<'_>,
-    marks: &[(u32, &[(u32, u16)])],
-    edit: pgrc_write::publish::Edit<'_>,
-) -> PgResult<Option<Arc<crate::catalog::Generation>>> {
+pub fn publish_compile_ext(rel: &Relation<'_>, marks: &[(u32, &[(u32, u16)])], edit: pgrc_write::publish::Edit<'_>,) -> PgResult<Option<Arc<crate::catalog::Generation>>> {
     let stamp = current_stamp()?;
     let locator = rel.rd_locator.get();
     let dir = crate::dirpath::table_dir_path(locator, rel.rd_backend);
     let relfilenumber = locator.relNumber as u64;
-    let schema_fingerprint =
-        pgrc_format::ident::schema_fingerprint(&crate::schema::col_schemas(rel)?);
-    let spec = pgrc_write::seal::PartSpec {
-        spc: locator.spcOid,
-        db: locator.dbOid,
-        relfilenumber,
-        schema_fingerprint,
-    };
+    let schema_fingerprint = pgrc_format::ident::schema_fingerprint(&crate::schema::col_schemas(rel)?);
+    let spec = pgrc_write::seal::PartSpec { spc: locator.spcOid, db: locator.dbOid, relfilenumber, schema_fingerprint, };
     let slot: crate::catalog::RelSlot = (locator.spcOid, locator.dbOid, relfilenumber);
     let mut sink = pgrc_wal_seams::sink_for::call(rel);
     let t0 = pg_clock::MonoStamp::now();
-    publish_serialized(
-        rel,
-        false,
-        &mut |probe, base| {
-            pgrc_write::publish::publish_compile_ext(
-                &mut RealVfs,
-                &mut *sink,
-                &dir,
-                &spec,
-                marks,
-                stamp.fxid,
-                probe,
-                base,
-                &mut *edit,
-            )
-        },
-        &mut |outcome| {
-            outcome
-                .map(|o| catalog_publish(rel, slot, &dir, o, t0))
-                .transpose()
-        },
-    )
+    publish_serialized(rel, false, &mut |probe, base| { pgrc_write::publish::publish_compile_ext(&mut RealVfs, &mut *sink, &dir, &spec, marks, stamp.fxid, probe, base, &mut *edit,)
+        }, &mut |outcome| {
+        outcome.map(|o| catalog_publish(rel, slot, &dir, o, t0)).transpose()
+    },)
 }
 
 /// A segment's seal (F1, design §4.5): rows in the caller's order into one unsorted part, published under the
@@ -1402,25 +1130,11 @@ pub struct SealWriter {
 /// Rows per staged chunk: eight default granules (a compaction's column feed stages the same chunks, K1-MEM).
 pub(crate) const SEAL_CHUNK_ROWS: u32 = 65_536;
 
-fn seal_env<R>(
-    rel: &Relation<'_>,
-    f: &mut dyn FnMut(&mut SealEnv<'_>) -> pgrc_write::WriteResult<R>,
-) -> PgResult<R> {
-    let (mut vfs, resolver, mut shred, shred_opts) = (
-        RealVfs,
-        CodecResolver,
-        shred_source_for(rel)?,
-        ShredOptions::default(),
-    );
+fn seal_env<R>(rel: &Relation<'_>, f: &mut dyn FnMut(&mut SealEnv<'_>) -> pgrc_write::WriteResult<R>,) -> PgResult<R> {
+    let (mut vfs, resolver, mut shred, shred_opts) = (RealVfs, CodecResolver, shred_source_for(rel)?, ShredOptions::default(),);
     with_rel_candidates(rel, rel.rd_locator.get().relNumber as u64, |cands| {
         let sources: [&dyn CandidateSource; 1] = [cands];
-        f(&mut SealEnv {
-            vfs: &mut vfs,
-            sources: &sources,
-            resolver: &resolver,
-            shred: &mut shred,
-            shred_opts: &shred_opts,
-        })
+        f(&mut SealEnv { vfs: &mut vfs, sources: &sources, resolver: &resolver, shred: &mut shred, shred_opts: &shred_opts, })
     })?
     .map_err(write_error)
 }
@@ -1446,11 +1160,7 @@ impl SealWriter {
         SealWriter::open_with(rel, pool, WriterKind::Seal)
     }
 
-    fn open_with(
-        rel: &Relation<'_>,
-        pool: Option<Arc<dyn ColumnPool>>,
-        kind: WriterKind,
-    ) -> PgResult<SealWriter> {
+    fn open_with(rel: &Relation<'_>, pool: Option<Arc<dyn ColumnPool>>, kind: WriterKind,) -> PgResult<SealWriter> {
         session::ensure_session_hooks();
         crate::inval::ensure_inval_registered()?;
         let mut w = open_writer(rel, current_stamp()?)?;
@@ -1458,37 +1168,19 @@ impl SealWriter {
             w.bytes_only();
         }
         w.set_structural(StructuralPolicy::new());
-        w.set_policy(PartCutPolicy {
-            max_rows: u64::MAX,
-            max_bytes: u64::MAX,
-            ..PartCutPolicy::default()
-        });
+        w.set_policy(PartCutPolicy { max_rows: u64::MAX, max_bytes: u64::MAX, ..PartCutPolicy::default() });
         session::with_writers(|r| r.share_seq(rel.rd_locator.get().relNumber as u64, &mut w));
         if let Some(pool) = pool {
             // The same candidates `seal_env` elects with: a pure function of the schema.
-            w.set_pool(SealPool {
-                pool,
-                sources: vec![Arc::new(codec_candidates(rel)?)],
-                resolver: Arc::new(CodecResolver),
-            });
+            w.set_pool(SealPool { pool, sources: vec![Arc::new(codec_candidates(rel)?)], resolver: Arc::new(CodecResolver), });
         }
         let ncols = crate::schema::col_schemas(rel)?.len();
-        Ok(SealWriter {
-            w,
-            chunk: RowChunk::new(ncols, SEAL_CHUNK_ROWS),
-        })
+        Ok(SealWriter { w, chunk: RowChunk::new(ncols, SEAL_CHUNK_ROWS), })
     }
 
     /// One row; external values detoasted by the caller.
-    pub fn append(
-        &mut self,
-        rel: &Relation<'_>,
-        values: &[datum::Datum],
-        isnull: &[bool],
-    ) -> PgResult<()> {
-        self.chunk
-            .push_row(&raw_row(rel, values, isnull, None)?)
-            .map_err(write_error)?;
+    pub fn append(&mut self, rel: &Relation<'_>, values: &[datum::Datum], isnull: &[bool],) -> PgResult<()> {
+        self.chunk.push_row(&raw_row(rel, values, isnull, None)?).map_err(write_error)?;
         if self.chunk.rows() >= SEAL_CHUNK_ROWS {
             self.flush()?;
         }
@@ -1510,61 +1202,31 @@ impl SealWriter {
     }
 
     pub fn rows(&self) -> u64 {
-        self.chunk.rows() as u64
-            + self.w.buffered_rows()
-            + self.w.sealed_parts().iter().map(|s| s.rows).sum::<u64>()
+        self.chunk.rows() as u64 + self.w.buffered_rows() + self.w.sealed_parts().iter().map(|s| s.rows).sum::<u64>()
     }
 
     /// Seal and publish in this transaction under the publish lock; `rowmap` is the part's `RowIdentMap` payload and
     /// `ids` the row IDs it homes (IX0: the segment's extents).
     /// On an error the part temp is unlinked here (the seal writer is in no registry the transaction end purges).
-    pub fn publish(
-        mut self,
-        rel: &Relation<'_>,
-        part_no: u32,
-        rowmap: &[u8],
-        ids: &[(u64, u64)],
-        edit: pgrc_write::publish::Edit<'_>,
-    ) -> PgResult<Arc<crate::catalog::Generation>> {
+    pub fn publish(mut self, rel: &Relation<'_>, part_no: u32, rowmap: &[u8], ids: &[(u64, u64)], edit: pgrc_write::publish::Edit<'_>,) -> PgResult<Arc<crate::catalog::Generation>> {
         let out = self.seal_and_publish(rel, part_no, rowmap, ids, edit);
         if out.is_err() {
             if let Err(e) = self.w.abort(&mut RealVfs) {
-                let _ = elog::elog(
-                    types_error::WARNING,
-                    format!(
-                        "pgrc: seal temp part of \"{}\" not reclaimed: {e:?}",
-                        rel.name()
-                    ),
-                );
+                let _ = elog::elog(types_error::WARNING, format!("pgrc: seal temp part of \"{}\" not reclaimed: {e:?}", rel.name()),);
             }
         }
         out
     }
 
-    fn seal_and_publish(
-        &mut self,
-        rel: &Relation<'_>,
-        part_no: u32,
-        rowmap: &[u8],
-        ids: &[(u64, u64)],
-        edit: pgrc_write::publish::Edit<'_>,
-    ) -> PgResult<Arc<crate::catalog::Generation>> {
+    fn seal_and_publish(&mut self, rel: &Relation<'_>, part_no: u32, rowmap: &[u8], ids: &[(u64, u64)], edit: pgrc_write::publish::Edit<'_>,) -> PgResult<Arc<crate::catalog::Generation>> {
         self.flush()?;
         seal_env(rel, &mut |env| self.w.finish(env))?;
         let locator = rel.rd_locator.get();
-        let slot: crate::catalog::RelSlot =
-            (locator.spcOid, locator.dbOid, locator.relNumber as u64);
+        let slot: crate::catalog::RelSlot = (locator.spcOid, locator.dbOid, locator.relNumber as u64);
         let t0 = pg_clock::MonoStamp::now();
         let dir = crate::dirpath::table_dir_path(locator, rel.rd_backend);
-        publish_serialized(
-            rel,
-            true,
-            &mut |probe, base| {
-                self.w
-                    .publish_seal(&mut RealVfs, probe, base, part_no, rowmap, ids, &mut *edit)
-            },
-            &mut |outcome| catalog_publish(rel, slot, &dir, outcome, t0),
-        )
+        publish_serialized(rel, true, &mut |probe, base| { self.w.publish_seal(&mut RealVfs, probe, base, part_no, rowmap, ids, &mut *edit)
+            }, &mut |outcome| catalog_publish(rel, slot, &dir, outcome, t0),)
     }
 
     /// The error path: unlink the part temp under a `RECLAIM`.
@@ -1574,21 +1236,13 @@ impl SealWriter {
 }
 
 /// The newest generation every snapshot sees (design §4.7): committed, its publisher before the vacuum `horizon`.
-pub fn keep_generation(
-    rel: &Relation<'_>,
-    horizon: u32,
-) -> PgResult<Option<Arc<crate::catalog::Generation>>> {
+pub fn keep_generation(rel: &Relation<'_>, horizon: u32,) -> PgResult<Option<Arc<crate::catalog::Generation>>> {
     let l = rel.rd_locator.get();
-    let Some((gens, _)) = crate::catalog::generations((l.spcOid, l.dbOid, l.relNumber as u64))
-    else {
-        return Ok(None);
-    };
+    let Some((gens, _)) = crate::catalog::generations((l.spcOid, l.dbOid, l.relNumber as u64)) else { return Ok(None); };
     let probe = ClogTxnProbe::new();
     let publishers: Vec<u64> = gens.iter().map(|g| g.publisher_fxid).collect();
-    let keep = keep_at(&publishers, horizon, &mut |p| {
-        probe.verdict(p) == TxnVerdict::Committed
-    })
-    .map(|i| gens[i].clone());
+    let keep = keep_at(&publishers, horizon, &mut |p| { probe.verdict(p) == TxnVerdict::Committed
+    }).map(|i| gens[i].clone());
     probe.take_error()?;
     Ok(keep)
 }
@@ -1597,14 +1251,8 @@ pub fn keep_generation(
 /// before `horizon` in `TransactionIdPrecedes`'s order, which puts the frozen and bootstrap publishers before every
 /// normal xid (VACUUM's freeze republishes a generation every snapshot already sees under the frozen publisher), and
 /// `committed`.
-pub(crate) fn keep_at(
-    publishers: &[u64],
-    horizon: u32,
-    committed: &mut dyn FnMut(u64) -> bool,
-) -> Option<usize> {
-    publishers
-        .iter()
-        .rposition(|&p| types_core::xact::TransactionIdPrecedes(p as u32, horizon) && committed(p))
+pub(crate) fn keep_at(publishers: &[u64], horizon: u32, committed: &mut dyn FnMut(u64) -> bool,) -> Option<usize> {
+    publishers.iter().rposition(|&p| types_core::xact::TransactionIdPrecedes(p as u32, horizon) && committed(p))
 }
 
 /// FREEZEKEEP: a `RECLAIM`'s conflict xid for a keep published by `publisher`: its xid, or none (0) for a frozen or
@@ -1622,55 +1270,26 @@ pub(crate) fn reclaim_xid(publisher: u64) -> u32 {
 /// below it are past every snapshot that survives the conflict. When the seal's own generation already left the
 /// catalog, the oldest one held stands in: a later publisher, so more readers conflict than need to (the safe side).
 /// A frozen publisher is seen by every snapshot: no conflict (xid 0).
-pub fn seal_horizon(
-    rel: &Relation<'_>,
-    keep: &crate::catalog::Generation,
-    freed: &[SegmentRecord],
-) -> PgResult<(u32, u64)> {
+pub fn seal_horizon(rel: &Relation<'_>, keep: &crate::catalog::Generation, freed: &[SegmentRecord],) -> PgResult<(u32, u64)> {
     let l = rel.rd_locator.get();
-    let held = crate::catalog::generations((l.spcOid, l.dbOid, l.relNumber as u64))
-        .map_or_else(Vec::new, |(g, _)| g);
-    let held: Vec<(u64, u64, &[SegmentRecord])> = held
-        .iter()
-        .map(|g| (g.gen, g.publisher_fxid, &g.segments[..]))
-        .collect();
+    let held = crate::catalog::generations((l.spcOid, l.dbOid, l.relNumber as u64)).map_or_else(Vec::new, |(g, _)| g);
+    let held: Vec<(u64, u64, &[SegmentRecord])> = held.iter().map(|g| (g.gen, g.publisher_fxid, &g.segments[..])).collect();
     let probe = ClogTxnProbe::new();
-    let found = oldest_sealed(&held, keep.gen, freed, &|p| {
-        probe.verdict(p) == TxnVerdict::Committed
+    let found = oldest_sealed(&held, keep.gen, freed, &|p| { probe.verdict(p) == TxnVerdict::Committed
     });
     probe.take_error()?;
     let (publisher, gen) = found.unwrap_or((keep.publisher_fxid, keep.gen));
-    Ok((
-        if publisher == pgrc_write::publish::FROZEN_PUBLISHER_FXID {
-            0
-        } else {
-            publisher as u32
-        },
-        gen,
-    ))
+    Ok((if publisher == pgrc_write::publish::FROZEN_PUBLISHER_FXID { 0 } else { publisher as u32 }, gen,))
 }
 
 /// The first of `held` (`(gen, publisher, segments)`, ascending) up to `keep_gen` with a committed publisher that lists
 /// every one of `freed` Sealed, as (publisher, gen).
-fn oldest_sealed(
-    held: &[(u64, u64, &[SegmentRecord])],
-    keep_gen: u64,
-    freed: &[SegmentRecord],
-    committed: &dyn Fn(u64) -> bool,
-) -> Option<(u64, u64)> {
-    let sealed = |recs: &[SegmentRecord]| {
-        freed.iter().all(|f| {
-            recs.iter().any(|r| {
-                r.state == SegState::Sealed
-                    && r.slot == f.slot
-                    && r.part_no == f.part_no
-                    && r.relid == f.relid
+fn oldest_sealed(held: &[(u64, u64, &[SegmentRecord])], keep_gen: u64, freed: &[SegmentRecord], committed: &dyn Fn(u64) -> bool,) -> Option<(u64, u64)> {
+    let sealed = |recs: &[SegmentRecord]| { freed.iter().all(|f| { recs.iter().any(|r| { r.state == SegState::Sealed && r.slot == f.slot && r.part_no == f.part_no && r.relid == f.relid
             })
         })
     };
-    held.iter()
-        .find(|g| g.0 <= keep_gen && sealed(g.2) && committed(g.1))
-        .map(|g| (g.1, g.0))
+    held.iter().find(|g| g.0 <= keep_gen && sealed(g.2) && committed(g.1)).map(|g| (g.1, g.0))
 }
 
 /// The conflict of freed segments alone (K1 L5, OC-7 a): a `RECLAIM` with no names that a hot standby resolves at `xid`
@@ -1679,20 +1298,9 @@ fn oldest_sealed(
 /// [`reclaim_below`], deferred.
 pub fn log_segment_conflict(rel: &Relation<'_>, xid: u32, keep_from: u64) -> PgResult<()> {
     let l = rel.rd_locator.get();
-    let dir = pgrc_format::wal::DirLoc {
-        spc: l.spcOid,
-        db: l.dbOid,
-        relnumber: l.relNumber,
-    };
-    let rec = pgrc_format::wal::ReclaimRec {
-        dir,
-        xid,
-        retire_below: Some(pgrc_format::wal::Retire::Conflict(keep_from)),
-        names: Vec::new(),
-    };
-    pgrc_wal_seams::sink_for::call(rel)
-        .reclaim(&rec, &mut || Ok(()))
-        .map_err(write_error)
+    let dir = pgrc_format::wal::DirLoc { spc: l.spcOid, db: l.dbOid, relnumber: l.relNumber, };
+    let rec = pgrc_format::wal::ReclaimRec { dir, xid, retire_below: Some(pgrc_format::wal::Retire::Conflict(keep_from)), names: Vec::new(), };
+    pgrc_wal_seams::sink_for::call(rel).reclaim(&rec, &mut || Ok(())).map_err(write_error)
 }
 
 /// Unlink every generation's files below `keep` under one `RECLAIM` that retires them (on a hot standby, once its own
@@ -1716,12 +1324,7 @@ pub fn log_segment_conflict(rel: &Relation<'_>, xid: u32, keep_from: u64) -> PgR
 /// DELAY_CHKPT_START window, under the caller's locks); one that fails there leaves the next reclaim a sweep
 /// ([`crate::catalog::sweep_after`]). Any other reclaim unlinks under the lock, as before. The retirement's
 /// part-registry walk and its drops run last, with no lock held ([`crate::catalog::Retirement::finish`]).
-pub fn reclaim_below(
-    rel: &Relation<'_>,
-    keep: &crate::catalog::Generation,
-    serialized: bool,
-    keep_now: &mut dyn FnMut() -> PgResult<Option<Arc<crate::catalog::Generation>>>,
-) -> PgResult<usize> {
+pub fn reclaim_below(rel: &Relation<'_>, keep: &crate::catalog::Generation, serialized: bool, keep_now: &mut dyn FnMut() -> PgResult<Option<Arc<crate::catalog::Generation>>>,) -> PgResult<usize> {
     let locator = rel.rd_locator.get();
     let dir = crate::dirpath::table_dir_path(locator, rel.rd_backend);
     let slot: crate::catalog::RelSlot = (locator.spcOid, locator.dbOid, locator.relNumber as u64);
@@ -1775,19 +1378,9 @@ pub fn reclaim_below(
         return Ok(0);
     }
     hold.planned(inc);
-    let spec = pgrc_write::seal::PartSpec {
-        spc: locator.spcOid,
-        db: locator.dbOid,
-        relfilenumber: slot.2,
-        schema_fingerprint: keep.schema_fp,
-    };
+    let spec = pgrc_write::seal::PartSpec { spc: locator.spcOid, db: locator.dbOid, relfilenumber: slot.2, schema_fingerprint: keep.schema_fp, };
     let retire = pgrc_format::wal::Retire::Deferred(keep.gen);
-    let rec = pgrc_format::wal::ReclaimRec {
-        dir: pgrc_write::plan::dir_loc(&spec),
-        xid: reclaim_xid(keep.publisher_fxid),
-        retire_below: Some(retire),
-        names: std::mem::take(&mut p.names),
-    };
+    let rec = pgrc_format::wal::ReclaimRec { dir: pgrc_write::plan::dir_loc(&spec), xid: reclaim_xid(keep.publisher_fxid), retire_below: Some(retire), names: std::mem::take(&mut p.names), };
     let n = rec.names.len();
     // K1 L4: `keep`'s commit (an asynchronous one too) is durable before anything below it is unlinked; else a crash
     // rolls the table back to a generation whose files are gone. K1 L6: the insert END pointer: at a page boundary
@@ -1883,57 +1476,24 @@ pub(crate) struct Planned {
 }
 
 /// K1-RECLAIM's plan below `keep` from `seen` ([`plan_reclaim`]; a sweep lists the directory).
-fn plan_from(
-    rel: &Relation<'_>,
-    dir: &str,
-    keep: &crate::catalog::Generation,
-    seen: Seen,
-) -> PgResult<Planned> {
+fn plan_from(rel: &Relation<'_>, dir: &str, keep: &crate::catalog::Generation, seen: Seen,) -> PgResult<Planned> {
     use pgrc_write::wvfs::WriteVfs;
-    let Seen {
-        gens: held,
-        all_dead,
-        dead_files,
-        sweep,
-    } = seen;
-    let manifests: Vec<(u64, &[pgrc_format::manifest::PartRecord])> = held
-        .iter()
-        .map(|g| (g.gen, &g.manifest.parts[..]))
-        .collect();
+    let Seen { gens: held, all_dead, dead_files, sweep, } = seen;
+    let manifests: Vec<(u64, &[pgrc_format::manifest::PartRecord])> = held.iter().map(|g| (g.gen, &g.manifest.parts[..])).collect();
     // GENID-2: rolled-back generations' parts (no reader ever needs an aborted publisher's), none a held one names
-    let named = |n: u32| {
-        manifests
-            .iter()
-            .any(|g| g.1.binary_search_by_key(&n, |p| p.part_no).is_ok())
+    let named = |n: u32| { manifests.iter().any(|g| g.1.binary_search_by_key(&n, |p| p.part_no).is_ok())
     };
     let dead: Vec<u32> = all_dead.iter().copied().filter(|&n| !named(n)).collect();
     let sweep = sweep.map(|pending| sweep_pending(&manifests, keep.gen, pending));
-    let below: Vec<&crate::catalog::Generation> = held
-        .iter()
-        .filter(|g| g.gen < keep.gen)
-        .map(|g| &**g)
-        .collect();
+    let below: Vec<&crate::catalog::Generation> = held.iter().filter(|g| g.gen < keep.gen).map(|g| &**g).collect();
     let mut vfs = RealVfs;
     let listing = match sweep.is_some() || reclaim_check() {
         true => Some(vfs.list_dir(dir).map_err(write_error)?),
         false => None,
     };
-    let facts = ReclaimFacts {
-        manifests: &manifests,
-        below: &below,
-        keep,
-        dead: &dead,
-        dead_files: &dead_files,
-        natts: rel.rd_att.natts.max(0) as u32,
-        runs: kept_runs(keep),
-        run_revs: run_revs(&keep.manifest),
-    };
-    let plan = plan_reclaim(
-        &facts,
-        sweep.as_deref().unwrap_or(&[]),
-        listing.as_deref().filter(|_| sweep.is_some()),
-        &mut |n| vfs.exists_path(&format!("{dir}/{n}")).unwrap_or(true),
-    );
+    let facts = ReclaimFacts { manifests: &manifests, below: &below, keep, dead: &dead, dead_files: &dead_files, natts: rel.rd_att.natts.max(0) as u32, runs: kept_runs(keep), run_revs: run_revs(&keep.manifest), };
+    let plan = plan_reclaim(&facts, sweep.as_deref().unwrap_or(&[]), listing.as_deref().filter(|_| sweep.is_some()), &mut |n|
+        vfs.exists_path(&format!("{dir}/{n}")).unwrap_or(true),);
     if sweep.is_none() {
         if let Some(all) = &listing {
             check_incremental(rel, &facts, all, &plan.names);
@@ -1942,45 +1502,18 @@ fn plan_from(
     let facts_inc = incremental_facts(&all_dead, &dead_files, sweep.is_some(), true);
     let oldest = held.first().map_or(keep.gen, |g| g.gen);
     let below = held.iter().filter(|g| g.gen < keep.gen).cloned().collect();
-    Ok(Planned {
-        keep_gen: keep.gen,
-        below,
-        names: plan.names,
-        retired: plan.retired,
-        dead,
-        oldest,
-        sweep: sweep.is_some(),
-        facts_inc,
-    })
+    Ok(Planned { keep_gen: keep.gen, below, names: plan.names, retired: plan.retired, dead, oldest, sweep: sweep.is_some(), facts_inc, })
 }
 
 /// K1-RECLAIM: the sweep's pending parts ([`crate::catalog::sweep_due`]) but those a held generation from `keep_gen` on
 /// names (`manifests`: every held generation's parts, ascending by `gen`), which no reclaim below `keep_gen` may unlink.
 /// One that only a generation below `keep_gen` names is retired by this reclaim anyway ([`retired_parts`]), so only the
 /// generations from keep on are searched; all of them when keep is not held (then `retired_parts` retires nothing).
-fn sweep_pending(
-    manifests: &[(u64, &[pgrc_format::manifest::PartRecord])],
-    keep_gen: u64,
-    pending: Vec<u32>,
-) -> Vec<u32> {
-    let from = if manifests.iter().any(|g| g.0 == keep_gen) {
-        keep_gen
-    } else {
-        0
-    };
-    let live: Vec<&[pgrc_format::manifest::PartRecord]> = manifests
-        .iter()
-        .filter(|g| g.0 >= from)
-        .map(|g| g.1)
-        .collect();
-    pending
-        .into_iter()
-        .filter(|&n| {
-            !live
-                .iter()
-                .any(|ps| ps.binary_search_by_key(&n, |p| p.part_no).is_ok())
-        })
-        .collect()
+fn sweep_pending(manifests: &[(u64, &[pgrc_format::manifest::PartRecord])], keep_gen: u64, pending: Vec<u32>,) -> Vec<u32> {
+    let from = if manifests.iter().any(|g| g.0 == keep_gen) { keep_gen } else { 0 };
+    let live: Vec<&[pgrc_format::manifest::PartRecord]> = manifests.iter().filter(|g| g.0 >= from).map(|g| g.1).collect();
+    pending.into_iter().filter(|&n| { !live.iter().any(|ps| ps.binary_search_by_key(&n, |p| p.part_no).is_ok())
+        }).collect()
 }
 
 /// RECLAIMDEFER (i′): under the publish lock, a hint made without it stands when the table still looks incremental
@@ -1989,10 +1522,7 @@ fn sweep_pending(
 /// planned from (the same `Arc`s, in order): a publish since only added generations above them.
 pub(crate) fn hint_stands(h: &Planned, now: &Seen, keep_gen: u64) -> bool {
     let below = now.gens.iter().filter(|g| g.gen < h.keep_gen);
-    now.incremental()
-        && keep_gen == h.keep_gen
-        && below.clone().count() == h.below.len()
-        && below.zip(&h.below).all(|(a, b)| Arc::ptr_eq(a, b))
+    now.incremental() && keep_gen == h.keep_gen && below.clone().count() == h.below.len() && below.zip(&h.below).all(|(a, b)| Arc::ptr_eq(a, b))
 }
 
 /// A reclaim's retirement finished ([`crate::catalog::Retirement::finish`]), counted when it ran under the publish lock.
@@ -2012,24 +1542,12 @@ fn finish_retirement(hold: &crate::holds::Hold<'_>, retired: crate::catalog::Ret
 /// until the reclaim returns (every caller: a worker step's or a flush's relation lock, VACUUM's session lock), so the
 /// directory cannot be emptied and refilled under the unlinks.
 #[allow(dead_code)]
-fn incremental(
-    rel: &Relation<'_>,
-    dead: &[u32],
-    dead_files: &[String],
-    sweep: bool,
-    logged: bool,
-) -> bool {
-    incremental_facts(dead, dead_files, sweep, logged)
-        && lmgr::CheckRelationLockedByMe(rel, types_rel::AccessShareLock, true)
+fn incremental(rel: &Relation<'_>, dead: &[u32], dead_files: &[String], sweep: bool, logged: bool,) -> bool {
+    incremental_facts(dead, dead_files, sweep, logged) && lmgr::CheckRelationLockedByMe(rel, types_rel::AccessShareLock, true)
 }
 
 /// [`incremental`] but the relation lock.
-pub(crate) fn incremental_facts(
-    dead: &[u32],
-    dead_files: &[String],
-    sweep: bool,
-    logged: bool,
-) -> bool {
+pub(crate) fn incremental_facts(dead: &[u32], dead_files: &[String], sweep: bool, logged: bool,) -> bool {
     dead.is_empty() && dead_files.is_empty() && !sweep && logged
 }
 
@@ -2060,14 +1578,8 @@ fn run_revs(m: &pgrc_format::manifest::Manifest) -> std::collections::BTreeSet<u
     if !pgrc_format::sortrun::has_runs(&m.ext) {
         return std::collections::BTreeSet::new();
     }
-    pgrc_format::sortrun::runs_in(&m.ext)
-        .map(|r| {
-            r.into_iter()
-                .filter(|r| r.homes())
-                .map(|r| r.run_id)
-                .collect()
-        })
-        .unwrap_or_default()
+    pgrc_format::sortrun::runs_in(&m.ext).map(|r| { r.into_iter().filter(|r| r.homes()).map(|r| r.run_id).collect()
+        }).unwrap_or_default()
 }
 
 /// K1-RECLAIM: a reclaim's unlinks (sorted), and the parts among them whose optional sidecars an incremental plan did
@@ -2083,16 +1595,8 @@ struct ReclaimPlan {
 /// and the part file, row map, stats sidecar, `fp128` sidecars and DVs of each part they retire), judged by the same
 /// rules, that `exists` finds. A part's other optional sidecars (predicate cache, memo, trigram: no writer names one
 /// yet) wait for the sweep.
-fn plan_reclaim(
-    f: &ReclaimFacts<'_>,
-    pending: &[u32],
-    listing: Option<&[String]>,
-    exists: &mut dyn FnMut(&str) -> bool,
-) -> ReclaimPlan {
-    use pgrc_format::dirlayout::{
-        classify, manifest_file_name, part_file_name, run_file_name, sections_file_name,
-        sidecar_file_name, FileClass,
-    };
+fn plan_reclaim(f: &ReclaimFacts<'_>, pending: &[u32], listing: Option<&[String]>, exists: &mut dyn FnMut(&str) -> bool,) -> ReclaimPlan {
+    use pgrc_format::dirlayout::{classify, manifest_file_name, part_file_name, run_file_name, sections_file_name, sidecar_file_name, FileClass,};
     use pgrc_format::sidecar::SidecarKind;
     let keep = f.keep;
     let mut retired = retired_parts(f.manifests, keep.gen);
@@ -2101,21 +1605,15 @@ fn plan_reclaim(
     if listing.is_some() {
         retired.extend(pending.iter().copied());
     }
-    let keeps_dv = |pn: u32, g: u64| {
-        keep.manifest
-            .parts
-            .binary_search_by_key(&pn, |p| p.part_no)
-            .is_ok_and(|i| keep.manifest.parts[i].dv_gen == g)
+    let keeps_dv = |pn: u32, g: u64| { keep.manifest.parts.binary_search_by_key(&pn, |p| p.part_no).is_ok_and(|i| keep.manifest.parts[i].dv_gen == g)
     };
     let doomed = |n: &str| match classify(n) {
         Some(FileClass::Part(pn) | FileClass::Sidecar(pn, _, _)) if retired.contains(&pn) => true,
-        Some(FileClass::Manifest(g) | FileClass::Sections(g) | FileClass::BankStats(g)) => {
-            g < keep.gen
+        Some(FileClass::Manifest(g) | FileClass::Sections(g) | FileClass::BankStats(g)) => { g < keep.gen
         }
         Some(FileClass::Sidecar(pn, SidecarKind::Dv, g)) => g < keep.gen && !keeps_dv(pn, g),
         // P-1: a stats run written below `keep` that `keep` does not reference (see `kept_runs`)
-        Some(FileClass::Run(g, seq)) => {
-            g < keep.gen && f.runs.as_ref().is_some_and(|r| !r.contains(&(g, seq)))
+        Some(FileClass::Run(g, seq)) => { g < keep.gen && f.runs.as_ref().is_some_and(|r| !r.contains(&(g, seq)))
         }
         // SORTRUNS-E0: a run's reverse once `keep` no longer names its run (the run retired); never a member rewrite's
         Some(FileClass::RunRev(r)) => r <= keep.gen && !f.run_revs.contains(&r),
@@ -2124,10 +1622,7 @@ fn plan_reclaim(
     if let Some(all) = listing {
         let mut names: Vec<String> = all.iter().filter(|n| doomed(n)).cloned().collect();
         names.sort_unstable();
-        return ReclaimPlan {
-            names,
-            retired: Vec::new(),
-        };
+        return ReclaimPlan { names, retired: Vec::new(), };
     }
     let mut cand: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
     for &pn in &incremental {
@@ -2143,12 +1638,7 @@ fn plan_reclaim(
         cand.insert(manifest_file_name(g.gen));
         cand.insert(sections_file_name(g.gen));
         cand.insert(pgrc_format::bankstats::bankstats_file_name(g.gen));
-        for p in g
-            .manifest
-            .parts
-            .iter()
-            .filter(|p| p.dv_gen != 0 || p.dv_len != 0)
-        {
+        for p in g.manifest.parts.iter().filter(|p| p.dv_gen != 0 || p.dv_len != 0) {
             cand.insert(sidecar_file_name(p.part_no, SidecarKind::Dv, p.dv_gen));
         }
         if let Some(st) = &g.stats {
@@ -2160,14 +1650,8 @@ fn plan_reclaim(
             cand.insert(pgrc_format::dirlayout::runrev_file_name(r));
         }
     }
-    let names = cand
-        .into_iter()
-        .filter(|n| doomed(n) && exists(n))
-        .collect();
-    ReclaimPlan {
-        names,
-        retired: incremental,
-    }
+    let names = cand.into_iter().filter(|n| doomed(n) && exists(n)).collect();
+    ReclaimPlan { names, retired: incremental, }
 }
 
 /// K1-RECLAIM: `PGRUST_PGRC_RECLAIM_CHECK=1` (the gates): every incremental reclaim also lists the directory and
@@ -2185,26 +1669,14 @@ fn check_incremental(rel: &Relation<'_>, f: &ReclaimFacts<'_>, all: &[String], n
     let retired = retired_parts(f.manifests, f.keep.gen);
     let waits = |n: &str| match classify(n) {
         #[allow(clippy::nonminimal_bool)]
-        Some(FileClass::Sidecar(pn, k, g)) => {
-            !matches!(
-                k,
-                SidecarKind::Dv | SidecarKind::RowIdentMap | SidecarKind::Stats
-            ) && !(k == SidecarKind::Fp128 && g >= 1 && g <= f.natts as u64)
-                && (retired.contains(&pn) || f.dead.contains(&pn))
+        Some(FileClass::Sidecar(pn, k, g)) => { !matches!(k, SidecarKind::Dv | SidecarKind::RowIdentMap | SidecarKind::Stats) && !(k == SidecarKind::Fp128 && g >= 1 && g <= f.natts as u64) && (retired.contains(&pn) || f.dead.contains(&pn))
         }
         _ => false,
     };
-    let missed: Vec<&String> = full
-        .iter()
-        .filter(|n| names.binary_search(n).is_err() && !waits(n))
-        .collect();
-    let extra: Vec<&String> = names
-        .iter()
-        .filter(|n| full.binary_search(n).is_err())
-        .collect();
+    let missed: Vec<&String> = full.iter().filter(|n| names.binary_search(n).is_err() && !waits(n)).collect();
+    let extra: Vec<&String> = names.iter().filter(|n| full.binary_search(n).is_err()).collect();
     if !missed.is_empty() || !extra.is_empty() {
-        let _ = elog::elog(types_error::WARNING, format!("pgrcolumnar: reclaim check of \"{}\" below gen {}: missed {missed:?} extra {extra:?}", rel.name(), f.keep.gen));
-        // alloc: Cold
+        let _ = elog::elog(types_error::WARNING, format!("pgrcolumnar: reclaim check of \"{}\" below gen {}: missed {missed:?} extra {extra:?}", rel.name(), f.keep.gen)); // alloc: Cold
     }
 }
 
@@ -2214,17 +1686,8 @@ fn check_incremental(rel: &Relation<'_>, f: &ReclaimFacts<'_>, all: &[String], n
 /// the catalog does not hold (its stats were refused and it was completed from its parts).
 fn kept_runs(keep: &crate::catalog::Generation) -> Option<std::collections::BTreeSet<(u64, u32)>> {
     let root = pgrc_format::manifest::stats_ref(&keep.manifest).ok()?;
-    let Some(stats) = &keep.stats else {
-        return root.is_none().then(Default::default);
-    };
-    Some(
-        stats
-            .root
-            .iter()
-            .chain(stats.runs.iter().map(|r| &r.rref))
-            .map(|r| (r.gen, r.seq))
-            .collect(),
-    )
+    let Some(stats) = &keep.stats else { return root.is_none().then(Default::default); };
+    Some(stats.root.iter().chain(stats.runs.iter().map(|r| &r.rref)).map(|r| (r.gen, r.seq)).collect(),)
 }
 
 /// K1 L4: the parts (with every sidecar of theirs) that only generations below `keep_from` name, out of the catalog's
@@ -2232,18 +1695,10 @@ fn kept_runs(keep: &crate::catalog::Generation) -> Option<std::collections::BTre
 /// `keep_from` or newer, and a publish not yet in the catalog names its base's parts (a generation from `keep_from`
 /// on) or new ones, so none of these is read again. Nothing without `keep_from`. K1-RECLAIM: each generation below is
 /// merged against `keep_from`'s parts, and only the parts it lacks are looked up in the newer ones.
-fn retired_parts<T: PartNo>(
-    gens: &[(u64, &[T])],
-    keep_from: u64,
-) -> std::collections::BTreeSet<u32> {
+fn retired_parts<T: PartNo>(gens: &[(u64, &[T])], keep_from: u64,) -> std::collections::BTreeSet<u32> {
     let mut out = std::collections::BTreeSet::new();
-    let Some(&(_, keep)) = gens.iter().find(|g| g.0 == keep_from) else {
-        return out;
-    };
-    let newer = |n: u32| {
-        gens.iter()
-            .filter(|g| g.0 > keep_from)
-            .any(|g| g.1.binary_search_by_key(&n, |p| p.part_no()).is_ok())
+    let Some(&(_, keep)) = gens.iter().find(|g| g.0 == keep_from) else { return out; };
+    let newer = |n: u32| { gens.iter().filter(|g| g.0 > keep_from).any(|g| g.1.binary_search_by_key(&n, |p| p.part_no()).is_ok())
     };
     for (_, parts) in gens.iter().filter(|g| g.0 < keep_from) {
         let mut k = keep.iter().map(|p| p.part_no()).peekable();
@@ -2280,9 +1735,7 @@ struct LeaderWal(pgsync::Mutex<Option<Box<dyn WalSink + Send>>>);
 
 impl WalProvider for LeaderWal {
     fn leader(&self) -> Box<dyn WalSink + Send> {
-        pgsync::lock(&self.0)
-            .take()
-            .unwrap_or_else(|| Box::new(NoWal))
+        pgsync::lock(&self.0).take().unwrap_or_else(|| Box::new(NoWal))
     }
 }
 
@@ -2334,9 +1787,7 @@ pub fn with_parallel_copy_writer<R>(
         // yet — the parallel seal elects exactly as serial with the
         // default (none) policy; the structural planes wire at S3b.
         structural: Default::default(),
-        wal: Arc::new(LeaderWal(pgsync::Mutex::new(Some(
-            pgrc_wal_seams::sink_for::call(rel),
-        )))),
+        wal: Arc::new(LeaderWal(pgsync::Mutex::new(Some(pgrc_wal_seams::sink_for::call(rel),)))),
     };
     let mut vfs = RealVfs;
     let mut open_err: Option<Box<PgError>> = None;
@@ -2366,16 +1817,10 @@ pub fn with_parallel_copy_writer<R>(
 /// K1 (design §4.9): a compaction writes through a seal writer (cut off, on the seal pool), which for a sorted merge
 /// carries the table's `sorted_by` key: its feed is presorted, so the seal only verifies and attests the order.
 impl SealWriter {
-    pub fn open_compact(
-        rel: &Relation<'_>,
-        pool: Option<Arc<dyn ColumnPool>>,
-        sorted: bool,
-    ) -> PgResult<SealWriter> {
+    pub fn open_compact(rel: &Relation<'_>, pool: Option<Arc<dyn ColumnPool>>, sorted: bool,) -> PgResult<SealWriter> {
         let mut s = SealWriter::open_with(rel, pool, WriterKind::Compact)?;
         if sorted {
-            s.w.set_structural(
-                StructuralPolicy::new().with_cluster_key(crate::reloptions::cluster_key(rel)),
-            );
+            s.w.set_structural(StructuralPolicy::new().with_cluster_key(crate::reloptions::cluster_key(rel)),);
         }
         Ok(s)
     }
@@ -2384,20 +1829,13 @@ impl SealWriter {
     /// (`TableWriter::seal_streamed`; the bytes are the ones `append` then the publish's seal write). `fill(c, out)`
     /// appends the output's `rows` rows of column `c` (the schema's `c`-th) to `out`. `Ok(false)`: the output needs a
     /// grain finer than the default; nothing was sealed and the caller appends the rows instead.
-    pub fn seal_columns(
-        &mut self,
-        rel: &Relation<'_>,
-        rows: u64,
-        fill: &mut dyn FnMut(usize, &mut pgrc_write::ingest::ColBuffer) -> PgResult<()>,
-    ) -> PgResult<bool> {
+    pub fn seal_columns(&mut self, rel: &Relation<'_>, rows: u64, fill: &mut dyn FnMut(usize, &mut pgrc_write::ingest::ColBuffer) -> PgResult<()>,) -> PgResult<bool> {
         let mut failed: Option<Box<PgError>> = None;
         let out = seal_env(rel, &mut |env| {
             self.w.seal_streamed(env, rows, &mut |c, out| {
                 fill(c, out).map_err(|e| {
                     failed = Some(e);
-                    pgrc_write::WriteError::Refused {
-                        what: "a compaction's column feed failed",
-                    }
+                    pgrc_write::WriteError::Refused { what: "a compaction's column feed failed", }
                 })
             })
         });
@@ -2410,23 +1848,11 @@ impl SealWriter {
     /// Seal and publish the compaction in this transaction under the publish lock: the output (when a row survived)
     /// with its `RowIdentMap` `map` = `(form, body)` homing `ids` (IX0), the inputs `retire` = `(part_no, dv_gen)` retired.
     /// The generation and the output's part number; on an error the part temp is unlinked.
-    pub fn publish_compact(
-        mut self,
-        rel: &Relation<'_>,
-        retire: &[(u32, u64)],
-        map: (u32, &[u8]),
-        ids: &[(u64, u64)],
-    ) -> PgResult<(Arc<crate::catalog::Generation>, Option<u32>)> {
+    pub fn publish_compact(mut self, rel: &Relation<'_>, retire: &[(u32, u64)], map: (u32, &[u8]), ids: &[(u64, u64)],) -> PgResult<(Arc<crate::catalog::Generation>, Option<u32>)> {
         let out = self.compact_publish(rel, retire, map, ids);
         if out.is_err() {
             if let Err(e) = self.w.abort(&mut RealVfs) {
-                let _ = elog::elog(
-                    types_error::WARNING,
-                    format!(
-                        "pgrc: compaction temp part of \"{}\" not reclaimed: {e:?}",
-                        rel.name()
-                    ),
-                );
+                let _ = elog::elog(types_error::WARNING, format!("pgrc: compaction temp part of \"{}\" not reclaimed: {e:?}", rel.name()),);
             }
         }
         out
@@ -2440,16 +1866,8 @@ impl SealWriter {
     }
 
     /// SORTRUNS-E0 L2: a run job's staged file (its reverse) through the writer's WAL ([`TableWriter::write_file`]).
-    pub fn write_file(
-        &mut self,
-        k: u32,
-        fill: &mut dyn FnMut(
-            &mut dyn FnMut(&[u8]) -> pgrc_write::WriteResult<()>,
-        ) -> pgrc_write::WriteResult<()>,
-    ) -> PgResult<String> {
-        self.w
-            .write_file(&mut RealVfs, k, fill)
-            .map_err(write_error)
+    pub fn write_file(&mut self, k: u32, fill: &mut dyn FnMut(&mut dyn FnMut(&[u8]) -> pgrc_write::WriteResult<()>,) -> pgrc_write::WriteResult<()>,) -> PgResult<String> {
+        self.w.write_file(&mut RealVfs, k, fill).map_err(write_error)
     }
 
     /// SORTRUNS-E0 L2: publish a run merge in this transaction under the publish lock: every part sealed so far a
@@ -2471,13 +1889,7 @@ impl SealWriter {
         let out = self.runs_publish(rel, maps, retire, run, start_gen, staged, carry);
         if out.is_err() {
             if let Err(e) = self.w.abort(&mut RealVfs) {
-                let _ = elog::elog(
-                    types_error::WARNING,
-                    format!(
-                        "pgrc: run merge temps of \"{}\" not reclaimed: {e:?}",
-                        rel.name()
-                    ),
-                );
+                let _ = elog::elog(types_error::WARNING, format!("pgrc: run merge temps of \"{}\" not reclaimed: {e:?}", rel.name()),);
             }
         }
         out
@@ -2497,8 +1909,7 @@ impl SealWriter {
         self.flush()?;
         seal_env(rel, &mut |env| self.w.finish(env))?;
         let locator = rel.rd_locator.get();
-        let slot: crate::catalog::RelSlot =
-            (locator.spcOid, locator.dbOid, locator.relNumber as u64);
+        let slot: crate::catalog::RelSlot = (locator.spcOid, locator.dbOid, locator.relNumber as u64);
         let t0 = pg_clock::MonoStamp::now();
         let dir = crate::dirpath::table_dir_path(locator, rel.rd_backend);
         // the carry's own error, kept across the writer's (which only says the carry failed)
@@ -2510,25 +1921,12 @@ impl SealWriter {
                 let mut routed = |m: &pgrc_format::manifest::Manifest| {
                     carry(m).map_err(|e| {
                         failed = Some(e);
-                        pgrc_write::WriteError::Refused {
-                            what: "a run merge's DV carry failed",
-                        }
+                        pgrc_write::WriteError::Refused { what: "a run merge's DV carry failed", }
                     })
                 };
-                self.w.publish_runs(
-                    &mut RealVfs,
-                    probe,
-                    base,
-                    maps,
-                    retire,
-                    run.clone(),
-                    start_gen,
-                    staged,
-                    &mut routed,
-                )
+                self.w.publish_runs(&mut RealVfs, probe, base, maps, retire, run.clone(), start_gen, staged, &mut routed,)
             },
-            &mut |(outcome, nos)| {
-                catalog_publish(rel, slot, &dir, outcome, t0).map(|gen| (gen, nos))
+            &mut |(outcome, nos)| { catalog_publish(rel, slot, &dir, outcome, t0).map(|gen| (gen, nos))
             },
         );
         match (out, failed) {
@@ -2541,43 +1939,22 @@ impl SealWriter {
     /// every part sealed so far a member of a self-homed run of `level` with its map `maps[k]` and dense ranges
     /// `ranges[k]`; the inputs `retire` retired ([`pgrc_write::publish::publish_self_run`]). The generation and the
     /// members' part numbers; on an error the temps are unlinked.
-    pub fn publish_self_run(
-        mut self,
-        rel: &Relation<'_>,
-        maps: &[(u32, Vec<u8>)],
-        ranges: &[pgrc_format::manifest::IdRanges],
-        retire: &[(u32, u64)],
-        level: u8,
-    ) -> PgResult<(Arc<crate::catalog::Generation>, Vec<u32>)> {
+    pub fn publish_self_run(mut self, rel: &Relation<'_>, maps: &[(u32, Vec<u8>)], ranges: &[pgrc_format::manifest::IdRanges], retire: &[(u32, u64)], level: u8,) -> PgResult<(Arc<crate::catalog::Generation>, Vec<u32>)> {
         let out = (|| -> PgResult<(Arc<crate::catalog::Generation>, Vec<u32>)> {
             self.flush()?;
             seal_env(rel, &mut |env| self.w.finish(env))?;
             let locator = rel.rd_locator.get();
-            let slot: crate::catalog::RelSlot =
-                (locator.spcOid, locator.dbOid, locator.relNumber as u64);
+            let slot: crate::catalog::RelSlot = (locator.spcOid, locator.dbOid, locator.relNumber as u64);
             let t0 = pg_clock::MonoStamp::now();
             let dir = crate::dirpath::table_dir_path(locator, rel.rd_backend);
-            publish_serialized(
-                rel,
-                true,
-                &mut |probe, base| {
-                    self.w
-                        .publish_self_run(&mut RealVfs, probe, base, maps, ranges, retire, level)
-                },
-                &mut |(outcome, nos)| {
-                    catalog_publish(rel, slot, &dir, outcome, t0).map(|gen| (gen, nos))
-                },
-            )
+            publish_serialized(rel, true, &mut |probe, base| { self.w.publish_self_run(&mut RealVfs, probe, base, maps, ranges, retire, level)
+                }, &mut |(outcome, nos)| {
+                catalog_publish(rel, slot, &dir, outcome, t0).map(|gen| (gen, nos))
+            },)
         })();
         if out.is_err() {
             if let Err(e) = self.w.abort(&mut RealVfs) {
-                let _ = elog::elog(
-                    types_error::WARNING,
-                    format!(
-                        "pgrc: run renumber temps of \"{}\" not reclaimed: {e:?}",
-                        rel.name()
-                    ),
-                );
+                let _ = elog::elog(types_error::WARNING, format!("pgrc: run renumber temps of \"{}\" not reclaimed: {e:?}", rel.name()),);
             }
         }
         out
@@ -2588,40 +1965,21 @@ impl SealWriter {
     /// member's ordinals whose rows `from`'s DV marked since the job read it
     /// ([`pgrc_write::publish::publish_member_swap`]). The generation and the part number installed; on an error the
     /// temps are unlinked.
-    pub fn publish_member_swap(
-        mut self,
-        rel: &Relation<'_>,
-        map: &[u8],
-        from: u32,
-        carry: &mut dyn FnMut(&pgrc_format::manifest::Manifest) -> PgResult<Vec<u32>>,
-    ) -> PgResult<(Arc<crate::catalog::Generation>, u32)> {
+    pub fn publish_member_swap(mut self, rel: &Relation<'_>, map: &[u8], from: u32, carry: &mut dyn FnMut(&pgrc_format::manifest::Manifest) -> PgResult<Vec<u32>>,) -> PgResult<(Arc<crate::catalog::Generation>, u32)> {
         let out = self.swap_publish(rel, map, from, carry);
         if out.is_err() {
             if let Err(e) = self.w.abort(&mut RealVfs) {
-                let _ = elog::elog(
-                    types_error::WARNING,
-                    format!(
-                        "pgrc: member swap temps of \"{}\" not reclaimed: {e:?}",
-                        rel.name()
-                    ),
-                );
+                let _ = elog::elog(types_error::WARNING, format!("pgrc: member swap temps of \"{}\" not reclaimed: {e:?}", rel.name()),);
             }
         }
         out
     }
 
-    fn swap_publish(
-        &mut self,
-        rel: &Relation<'_>,
-        map: &[u8],
-        from: u32,
-        carry: &mut dyn FnMut(&pgrc_format::manifest::Manifest) -> PgResult<Vec<u32>>,
-    ) -> PgResult<(Arc<crate::catalog::Generation>, u32)> {
+    fn swap_publish(&mut self, rel: &Relation<'_>, map: &[u8], from: u32, carry: &mut dyn FnMut(&pgrc_format::manifest::Manifest) -> PgResult<Vec<u32>>,) -> PgResult<(Arc<crate::catalog::Generation>, u32)> {
         self.flush()?;
         seal_env(rel, &mut |env| self.w.finish(env))?;
         let locator = rel.rd_locator.get();
-        let slot: crate::catalog::RelSlot =
-            (locator.spcOid, locator.dbOid, locator.relNumber as u64);
+        let slot: crate::catalog::RelSlot = (locator.spcOid, locator.dbOid, locator.relNumber as u64);
         let t0 = pg_clock::MonoStamp::now();
         let dir = crate::dirpath::table_dir_path(locator, rel.rd_backend);
         let mut failed: Option<Box<PgError>> = None;
@@ -2632,13 +1990,10 @@ impl SealWriter {
                 let mut routed = |m: &pgrc_format::manifest::Manifest| {
                     carry(m).map_err(|e| {
                         failed = Some(e);
-                        pgrc_write::WriteError::Refused {
-                            what: "a member swap's DV carry failed",
-                        }
+                        pgrc_write::WriteError::Refused { what: "a member swap's DV carry failed", }
                     })
                 };
-                self.w
-                    .publish_member_swap(&mut RealVfs, probe, base, map, from, &mut routed)
+                self.w.publish_member_swap(&mut RealVfs, probe, base, map, from, &mut routed)
             },
             &mut |(outcome, no)| catalog_publish(rel, slot, &dir, outcome, t0).map(|gen| (gen, no)),
         );
@@ -2648,33 +2003,19 @@ impl SealWriter {
         }
     }
 
-    fn compact_publish(
-        &mut self,
-        rel: &Relation<'_>,
-        retire: &[(u32, u64)],
-        map: (u32, &[u8]),
-        ids: &[(u64, u64)],
-    ) -> PgResult<(Arc<crate::catalog::Generation>, Option<u32>)> {
+    fn compact_publish(&mut self, rel: &Relation<'_>, retire: &[(u32, u64)], map: (u32, &[u8]), ids: &[(u64, u64)],) -> PgResult<(Arc<crate::catalog::Generation>, Option<u32>)> {
         self.flush()?;
         seal_env(rel, &mut |env| self.w.finish(env))?;
         let locator = rel.rd_locator.get();
-        let slot: crate::catalog::RelSlot =
-            (locator.spcOid, locator.dbOid, locator.relNumber as u64);
+        let slot: crate::catalog::RelSlot = (locator.spcOid, locator.dbOid, locator.relNumber as u64);
         let t0 = pg_clock::MonoStamp::now();
         let dir = crate::dirpath::table_dir_path(locator, rel.rd_backend);
         // COMPACTP item 2 (b): it stacks on a foreign head in progress whose run only added parts (a bulk load's)
         // instead of deferring to it: its inputs are committed parts, never the run's
-        publish_serialized(
-            rel,
-            true,
-            &mut |probe, base| {
-                self.w
-                    .publish_compact(&mut RealVfs, probe, base, retire, map, ids)
-            },
-            &mut |(outcome, part_no)| {
-                catalog_publish(rel, slot, &dir, outcome, t0).map(|gen| (gen, part_no))
-            },
-        )
+        publish_serialized(rel, true, &mut |probe, base| { self.w.publish_compact(&mut RealVfs, probe, base, retire, map, ids)
+            }, &mut |(outcome, part_no)| {
+            catalog_publish(rel, slot, &dir, outcome, t0).map(|gen| (gen, part_no))
+        },)
     }
 }
 
@@ -2691,14 +2032,7 @@ mod tests {
         assert!(dict_eligible(true, v, CollationClass::OtherDeterministic));
         assert!(!dict_eligible(true, v, CollationClass::Nondeterministic));
         assert!(!dict_eligible(false, v, CollationClass::C));
-        assert!(!dict_eligible(
-            true,
-            StorageClass::ByvalWord {
-                width: 8,
-                signed: true
-            },
-            CollationClass::C
-        ));
+        assert!(!dict_eligible(true, StorageClass::ByvalWord { width: 8, signed: true }, CollationClass::C));
     }
 
     /// D4710: a publish that unwinds out of `publish_schema` leaves `SCHEMA_PUBLISH` as it found it.
@@ -2712,10 +2046,7 @@ mod tests {
             })
         });
         assert!(r.is_err());
-        assert!(
-            !SCHEMA_PUBLISH.with(|f| f.get()),
-            "D4710: SCHEMA_PUBLISH stayed set after the publish unwound"
-        );
+        assert!(!SCHEMA_PUBLISH.with(|f| f.get()), "D4710: SCHEMA_PUBLISH stayed set after the publish unwound");
     }
 
     /// FREEZEKEEP: a generation VACUUM froze (its publisher `FROZEN_PUBLISHER_FXID`, which every snapshot sees) is a keep
@@ -2726,33 +2057,13 @@ mod tests {
         use super::keep_at;
         use pgrc_write::publish::FROZEN_PUBLISHER_FXID as FROZEN;
         let all = &mut |_| true;
-        assert_eq!(
-            keep_at(&[600, 700, FROZEN], 800, all),
-            Some(2),
-            "the freeze over 700 heads the chain"
-        );
-        assert_eq!(
-            keep_at(&[FROZEN], 800, all),
-            Some(0),
-            "a restart's catalog: the frozen head alone"
-        );
-        assert_eq!(
-            keep_at(&[FROZEN, 800], 800, all),
-            Some(0),
-            "800 is not before the horizon 800"
-        );
+        assert_eq!(keep_at(&[600, 700, FROZEN], 800, all), Some(2), "the freeze over 700 heads the chain");
+        assert_eq!(keep_at(&[FROZEN], 800, all), Some(0), "a restart's catalog: the frozen head alone");
+        assert_eq!(keep_at(&[FROZEN, 800], 800, all), Some(0), "800 is not before the horizon 800");
         assert_eq!(keep_at(&[FROZEN, 799], 800, all), Some(1));
         assert_eq!(keep_at(&[1], 800, all), Some(0), "the bootstrap publisher");
-        assert_eq!(
-            keep_at(&[700, 750], 800, &mut |p| p != 750),
-            Some(0),
-            "never an uncommitted one"
-        );
-        assert_eq!(
-            keep_at(&[(1u64 << 32) | 4_000_000_000], 10, all),
-            Some(0),
-            "the xid order wraps"
-        );
+        assert_eq!(keep_at(&[700, 750], 800, &mut |p| p != 750), Some(0), "never an uncommitted one");
+        assert_eq!(keep_at(&[(1u64 << 32) | 4_000_000_000], 10, all), Some(0), "the xid order wraps");
         assert_eq!(keep_at(&[700], 0, all), None, "no horizon, no keep");
     }
 
@@ -2779,99 +2090,38 @@ mod tests {
     #[test]
     fn a_freed_segments_horizon_is_the_oldest_committed_generation_listing_it_sealed() {
         use pgrc_format::manifest::{SegState, SegmentRecord};
-        let seg = |slot: u16, part_no: u32, state: SegState| SegmentRecord {
-            slot,
-            part_no,
-            relid: 500 + slot as u32,
-            state,
-            fxid: 7,
-        };
+        let seg = |slot: u16, part_no: u32, state: SegState| SegmentRecord { slot, part_no, relid: 500 + slot as u32, state, fxid: 7, };
         let (y, z) = (seg(1, 40, SegState::Sealed), seg(2, 41, SegState::Active));
         let active = [seg(1, 40, SegState::Active)];
         let sealing = [seg(1, 40, SegState::Sealing), z];
         let sealed = [y, z];
         let reused = [seg(1, 50, SegState::Sealed), z];
-        let held: Vec<(u64, u64, &[SegmentRecord])> = vec![
-            (3, 100, &active[..]),
-            (4, 101, &sealing[..]),
-            (5, 102, &sealed[..]),
-            (6, 103, &sealed[..]),
-            (7, 104, &sealed[..]),
-        ];
+        let held: Vec<(u64, u64, &[SegmentRecord])> = vec![(3, 100, &active[..]), (4, 101, &sealing[..]), (5, 102, &sealed[..]), (6, 103, &sealed[..]), (7, 104, &sealed[..]),];
         let all = |_: u64| true;
-        assert_eq!(
-            super::oldest_sealed(&held, 7, &[y], &all),
-            Some((102, 5)),
-            "the seal, not keep (7)"
-        );
-        assert_eq!(
-            super::oldest_sealed(&held, 7, &[y], &|p| p != 102),
-            Some((103, 6)),
-            "a rolled-back seal is no horizon"
-        );
-        assert_eq!(
-            super::oldest_sealed(&held[3..], 7, &[y], &all),
-            Some((103, 6)),
-            "the seal left the catalog: the oldest held"
-        );
-        assert_eq!(
-            super::oldest_sealed(&held, 4, &[y], &all),
-            None,
-            "only up to keep"
-        );
-        let held2: Vec<(u64, u64, &[SegmentRecord])> =
-            vec![(3, 100, &reused[..]), (5, 102, &sealed[..])];
-        assert_eq!(
-            super::oldest_sealed(&held2, 5, &[y], &all),
-            Some((102, 5)),
-            "another part of the slot is not this segment"
-        );
+        assert_eq!(super::oldest_sealed(&held, 7, &[y], &all), Some((102, 5)), "the seal, not keep (7)");
+        assert_eq!(super::oldest_sealed(&held, 7, &[y], &|p| p != 102), Some((103, 6)), "a rolled-back seal is no horizon");
+        assert_eq!(super::oldest_sealed(&held[3..], 7, &[y], &all), Some((103, 6)), "the seal left the catalog: the oldest held");
+        assert_eq!(super::oldest_sealed(&held, 4, &[y], &all), None, "only up to keep");
+        let held2: Vec<(u64, u64, &[SegmentRecord])> = vec![(3, 100, &reused[..]), (5, 102, &sealed[..])];
+        assert_eq!(super::oldest_sealed(&held2, 5, &[y], &all), Some((102, 5)), "another part of the slot is not this segment");
         let w = seg(3, 42, SegState::Sealed);
         let both = [y, w];
-        let held3: Vec<(u64, u64, &[SegmentRecord])> =
-            vec![(5, 102, &sealed[..]), (8, 105, &both[..])];
-        assert_eq!(
-            super::oldest_sealed(&held3, 8, &[y, w], &all),
-            Some((105, 8)),
-            "every freed segment sealed"
-        );
+        let held3: Vec<(u64, u64, &[SegmentRecord])> = vec![(5, 102, &sealed[..]), (8, 105, &both[..])];
+        assert_eq!(super::oldest_sealed(&held3, 8, &[y, w], &all), Some((105, 8)), "every freed segment sealed");
     }
 
     #[test]
     fn k1_retired_parts_are_named_only_below_keep() {
-        let owned: Vec<(u64, Vec<u32>)> = vec![
-            (3, vec![0, 1, 2]),
-            (4, vec![0, 1, 2, 3]),
-            (5, vec![3, 4]),
-            (6, vec![3, 4, 5]),
-        ];
+        let owned: Vec<(u64, Vec<u32>)> = vec![(3, vec![0, 1, 2]), (4, vec![0, 1, 2, 3]), (5, vec![3, 4]), (6, vec![3, 4, 5]),];
         let gens: Vec<(u64, &[u32])> = owned.iter().map(|g| (g.0, &g.1[..])).collect();
-        assert_eq!(
-            super::retired_parts(&gens, 5)
-                .into_iter()
-                .collect::<Vec<_>>(),
-            vec![0, 1, 2],
-            "the compaction's inputs"
-        );
-        assert!(
-            super::retired_parts(&gens, 4).is_empty(),
-            "keep still names them"
-        );
-        assert!(
-            super::retired_parts(&gens, 7).is_empty(),
-            "keep is not in the catalog: nothing"
-        );
+        assert_eq!(super::retired_parts(&gens, 5).into_iter().collect::<Vec<_>>(), vec![0, 1, 2], "the compaction's inputs");
+        assert!(super::retired_parts(&gens, 4).is_empty(), "keep still names them");
+        assert!(super::retired_parts(&gens, 7).is_empty(), "keep is not in the catalog: nothing");
         assert!(super::retired_parts(&gens[..2], 3).is_empty());
         // a part keep lacks but a newer generation names stays
-        let owned: Vec<(u64, Vec<u32>)> =
-            vec![(3, vec![1, 2, 7]), (4, vec![2]), (5, vec![2, 7, 9])];
+        let owned: Vec<(u64, Vec<u32>)> = vec![(3, vec![1, 2, 7]), (4, vec![2]), (5, vec![2, 7, 9])];
         let gens: Vec<(u64, &[u32])> = owned.iter().map(|g| (g.0, &g.1[..])).collect();
-        assert_eq!(
-            super::retired_parts(&gens, 4)
-                .into_iter()
-                .collect::<Vec<_>>(),
-            vec![1]
-        );
+        assert_eq!(super::retired_parts(&gens, 4).into_iter().collect::<Vec<_>>(), vec![1]);
     }
 
     /// RECLAIMDEFER (i′): the sweep's pending parts leave out what a generation from keep on names (judged in the plan,
@@ -2880,46 +2130,20 @@ mod tests {
     /// every pending part any held generation names.
     #[test]
     fn a_sweeps_pending_parts_leave_out_what_keep_or_a_newer_generation_names() {
-        let (g3, g4, g5) = (
-            gen_of(3, &[(1, 0), (2, 0), (7, 0)]),
-            gen_of(4, &[(2, 0), (8, 0)]),
-            gen_of(5, &[(2, 0), (9, 0)]),
-        );
-        let manifests: Vec<(u64, &[pgrc_format::manifest::PartRecord])> = [&g3, &g4, &g5]
-            .iter()
-            .map(|g| (g.gen, &g.manifest.parts[..]))
-            .collect();
+        let (g3, g4, g5) = (gen_of(3, &[(1, 0), (2, 0), (7, 0)]), gen_of(4, &[(2, 0), (8, 0)]), gen_of(5, &[(2, 0), (9, 0)]),);
+        let manifests: Vec<(u64, &[pgrc_format::manifest::PartRecord])> = [&g3, &g4, &g5].iter().map(|g| (g.gen, &g.manifest.parts[..])).collect();
         let pending = vec![1, 2, 6, 7, 8, 9];
-        assert_eq!(
-            super::sweep_pending(&manifests, 4, pending.clone()),
-            vec![1, 6, 7],
-            "keep (4) names 2 and 8, a newer one 9"
-        );
-        assert_eq!(
-            super::sweep_pending(&manifests, 6, pending.clone()),
-            vec![6],
-            "keep not held: every held generation is searched"
-        );
+        assert_eq!(super::sweep_pending(&manifests, 4, pending.clone()), vec![1, 6, 7], "keep (4) names 2 and 8, a newer one 9");
+        assert_eq!(super::sweep_pending(&manifests, 6, pending.clone()), vec![6], "keep not held: every held generation is searched");
         // the old filter (sweep_due's, under CATALOG): every pending part any held generation names left out
         let held_any = |n: u32| manifests.iter().any(|g| g.1.iter().any(|p| p.part_no == n));
         let old: Vec<u32> = pending.iter().copied().filter(|&n| !held_any(n)).collect();
         assert_eq!(old, vec![6]);
         let retired = super::retired_parts(&manifests, 4);
-        assert_eq!(
-            retired.iter().copied().collect::<Vec<_>>(),
-            vec![1, 7],
-            "1 and 7: pending parts only a generation below keep (3) names"
-        );
-        let doomed = |pend: &[u32]| {
-            (0..10)
-                .filter(|n| retired.contains(n) || pend.contains(n))
-                .collect::<Vec<u32>>()
+        assert_eq!(retired.iter().copied().collect::<Vec<_>>(), vec![1, 7], "1 and 7: pending parts only a generation below keep (3) names");
+        let doomed = |pend: &[u32]| { (0..10).filter(|n| retired.contains(n) || pend.contains(n)).collect::<Vec<u32>>()
         };
-        assert_eq!(
-            doomed(&super::sweep_pending(&manifests, 4, pending.clone())),
-            doomed(&old),
-            "the same files doomed"
-        );
+        assert_eq!(doomed(&super::sweep_pending(&manifests, 4, pending.clone())), doomed(&old), "the same files doomed");
         assert_eq!(doomed(&old), vec![1, 6, 7]);
         // keep not held: retired_parts retires nothing, and the full search leaves exactly the old filter's
         assert!(super::retired_parts(&manifests, 6).is_empty());
@@ -2929,37 +2153,8 @@ mod tests {
     /// A detached generation of `(part_no, dv_gen)` parts.
     fn gen_of(g: u64, parts: &[(u32, u64)]) -> crate::catalog::Generation {
         use pgrc_format::manifest::{Manifest, ManifestHeader, PartRecord};
-        let recs: Vec<PartRecord> = parts
-            .iter()
-            .map(|&(part_no, dv_gen)| PartRecord {
-                rows: 3,
-                file_len: 64,
-                footer_off: 0,
-                dv_gen,
-                dv_len: 0,
-                part_no,
-                flags: 0,
-                granule_count: 1,
-                band_count: 1,
-                dv_crc: 0,
-                granule_rows: 0,
-            })
-            .collect();
-        let header = ManifestHeader {
-            gen: g,
-            prev_gen: g - 1,
-            publisher_fxid: 10 + g,
-            relfilenumber: 9,
-            schema_fingerprint: 1,
-            magic: 0,
-            format_version: 0,
-            spc: 1663,
-            db: 5,
-            part_count: recs.len() as u32,
-            next_part_no: 16,
-            flags: 0,
-            reserved: 0,
-        };
+        let recs: Vec<PartRecord> = parts.iter().map(|&(part_no, dv_gen)| PartRecord { rows: 3, file_len: 64, footer_off: 0, dv_gen, dv_len: 0, part_no, flags: 0, granule_count: 1, band_count: 1, dv_crc: 0, granule_rows: 0, }).collect();
+        let header = ManifestHeader { gen: g, prev_gen: g - 1, publisher_fxid: 10 + g, relfilenumber: 9, schema_fingerprint: 1, magic: 0, format_version: 0, spc: 1663, db: 5, part_count: recs.len() as u32, next_part_no: 16, flags: 0, reserved: 0, };
         crate::catalog::Generation::detached(Manifest::new(header, recs)).unwrap()
     }
 
@@ -2971,52 +2166,20 @@ mod tests {
         use std::sync::Arc;
         let g = |n: u64| Arc::new(gen_of(n, &[(n as u32, 0)]));
         let (g1, g2, g3, g4) = (g(1), g(2), g(3), g(4));
-        let seen = |gens: &[&Arc<crate::catalog::Generation>]| super::Seen {
-            gens: gens.iter().map(|g| Arc::clone(g)).collect(),
-            all_dead: vec![],
-            dead_files: vec![],
-            sweep: None,
-        };
-        let hint = super::Planned {
-            keep_gen: 3,
-            below: vec![Arc::clone(&g1), Arc::clone(&g2)],
-            names: vec![],
-            retired: vec![],
-            dead: vec![],
-            oldest: 1,
-            sweep: false,
-            facts_inc: true,
-        };
+        let seen = |gens: &[&Arc<crate::catalog::Generation>]| super::Seen { gens: gens.iter().map(|g| Arc::clone(g)).collect(), all_dead: vec![], dead_files: vec![], sweep: None, };
+        let hint = super::Planned { keep_gen: 3, below: vec![Arc::clone(&g1), Arc::clone(&g2)], names: vec![], retired: vec![], dead: vec![], oldest: 1, sweep: false, facts_inc: true, };
         assert!(super::hint_stands(&hint, &seen(&[&g1, &g2, &g3]), 3));
-        assert!(
-            super::hint_stands(&hint, &seen(&[&g1, &g2, &g3, &g4]), 3),
-            "a publish since: a generation above"
-        );
+        assert!(super::hint_stands(&hint, &seen(&[&g1, &g2, &g3, &g4]), 3), "a publish since: a generation above");
         let twin = Arc::new(gen_of(2, &[(2, 0)]));
-        assert!(
-            !super::hint_stands(&hint, &seen(&[&g1, &twin, &g3]), 3),
-            "a below generation replaced (its number, another object)"
-        );
-        assert!(
-            !super::hint_stands(&hint, &seen(&[&g2, &g3]), 3),
-            "a below generation gone"
-        );
-        assert!(
-            !super::hint_stands(&hint, &seen(&[&g1, &g2, &g3]), 2),
-            "the horizon's keep is lower under the lock"
-        );
+        assert!(!super::hint_stands(&hint, &seen(&[&g1, &twin, &g3]), 3), "a below generation replaced (its number, another object)");
+        assert!(!super::hint_stands(&hint, &seen(&[&g2, &g3]), 3), "a below generation gone");
+        assert!(!super::hint_stands(&hint, &seen(&[&g1, &g2, &g3]), 2), "the horizon's keep is lower under the lock");
         let mut s = seen(&[&g1, &g2, &g3]);
         s.all_dead = vec![9];
-        assert!(
-            !super::hint_stands(&hint, &s, 3),
-            "a rolled-back generation's part since"
-        );
+        assert!(!super::hint_stands(&hint, &s, 3), "a rolled-back generation's part since");
         let mut s = seen(&[&g1, &g2, &g3]);
         s.dead_files = vec!["manifest-7.pgrcm".into()];
-        assert!(
-            !super::hint_stands(&hint, &s, 3),
-            "a rolled-back generation's file since"
-        );
+        assert!(!super::hint_stands(&hint, &s, 3), "a rolled-back generation's file since");
         let mut s = seen(&[&g1, &g2, &g3]);
         s.sweep = Some(vec![]);
         assert!(!super::hint_stands(&hint, &s, 3), "a sweep due since");
@@ -3027,22 +2190,11 @@ mod tests {
     /// sidecars of the parts it retired) wait for, and are unlinked by, the full sweep.
     #[test]
     fn k1_reclaim_incremental_names_the_retired_files_and_the_sweep_takes_the_strays() {
-        use pgrc_format::dirlayout::{
-            manifest_file_name as man, part_file_name as part, run_file_name, sections_file_name,
-            sidecar_file_name as side,
-        };
+        use pgrc_format::dirlayout::{manifest_file_name as man, part_file_name as part, run_file_name, sections_file_name, sidecar_file_name as side,};
         use pgrc_format::sidecar::SidecarKind::{Dv, Fp128, Memo, RowIdentMap as Rm, Stats};
         use std::collections::BTreeSet;
-        let (g3, g4, g5, g6) = (
-            gen_of(3, &[(0, 0), (1, 3), (2, 0)]),
-            gen_of(4, &[(0, 0), (1, 4), (2, 0), (3, 0)]),
-            gen_of(5, &[(1, 4), (3, 0), (4, 0)]),
-            gen_of(6, &[(1, 4), (3, 0), (4, 0), (5, 0)]),
-        );
-        let manifests: Vec<(u64, &[pgrc_format::manifest::PartRecord])> = [&g3, &g4, &g5, &g6]
-            .iter()
-            .map(|g| (g.gen, &g.manifest.parts[..]))
-            .collect();
+        let (g3, g4, g5, g6) = (gen_of(3, &[(0, 0), (1, 3), (2, 0)]), gen_of(4, &[(0, 0), (1, 4), (2, 0), (3, 0)]), gen_of(5, &[(1, 4), (3, 0), (4, 0)]), gen_of(6, &[(1, 4), (3, 0), (4, 0), (5, 0)]),);
+        let manifests: Vec<(u64, &[pgrc_format::manifest::PartRecord])> = [&g3, &g4, &g5, &g6].iter().map(|g| (g.gen, &g.manifest.parts[..])).collect();
         let below = [&g3, &g4];
         let mut dir: BTreeSet<String> = BTreeSet::new();
         for pn in 0..6 {
@@ -3052,123 +2204,42 @@ mod tests {
         for g in 3..7 {
             dir.insert(man(g));
         }
-        dir.extend([
-            sections_file_name(3),
-            side(1, Dv, 3),
-            side(1, Dv, 4),
-            "CURRENT".to_string(),
-        ]);
-        let strays = [
-            man(2),
-            run_file_name(2, 0),
-            side(3, Dv, 4),
-            part(7),
-            side(7, Rm, 1),
-            side(0, Memo, 2),
-        ];
+        dir.extend([sections_file_name(3), side(1, Dv, 3), side(1, Dv, 4), "CURRENT".to_string(),]);
+        let strays = [man(2), run_file_name(2, 0), side(3, Dv, 4), part(7), side(7, Rm, 1), side(0, Memo, 2),];
         dir.extend([side(0, Fp128, 2), side(2, Stats, 1), side(4, Stats, 1)]);
         dir.extend(strays.iter().cloned());
-        let facts = super::ReclaimFacts {
-            manifests: &manifests,
-            below: &below,
-            keep: &g5,
-            dead: &[7],
-            dead_files: &[],
-            natts: 2,
-            runs: super::kept_runs(&g5),
-            run_revs: super::run_revs(&g5.manifest),
-        };
+        let facts = super::ReclaimFacts { manifests: &manifests, below: &below, keep: &g5, dead: &[7], dead_files: &[], natts: 2, runs: super::kept_runs(&g5), run_revs: super::run_revs(&g5.manifest), };
         fn exists(d: &BTreeSet<String>) -> impl FnMut(&str) -> bool + '_ {
             move |n: &str| d.contains(n)
         }
         let inc = super::plan_reclaim(&facts, &[], None, &mut exists(&dir));
-        let expect: Vec<String> = [
-            part(0),
-            part(2),
-            part(7),
-            side(0, Rm, 1),
-            side(2, Rm, 1),
-            side(7, Rm, 1),
-            side(0, Fp128, 2),
-            side(2, Stats, 1),
-            side(1, Dv, 3),
-            man(3),
-            man(4),
-            sections_file_name(3),
-        ]
-        .into_iter()
-        .collect::<BTreeSet<_>>()
-        .into_iter()
-        .collect();
+        let expect: Vec<String> = [part(0), part(2), part(7), side(0, Rm, 1), side(2, Rm, 1), side(7, Rm, 1), side(0, Fp128, 2), side(2, Stats, 1), side(1, Dv, 3), man(3), man(4), sections_file_name(3),].into_iter().collect::<BTreeSet<_>>().into_iter().collect();
         assert_eq!(inc.names, expect);
         assert_eq!(inc.retired, vec![0, 2, 7]);
         // a rolled-back generation's own files (the catalog's dead files) are named without a listing, once below keep
         let dead_files = [man(2), run_file_name(2, 0), man(8)];
-        let with_dead = super::ReclaimFacts {
-            dead_files: &dead_files,
-            ..facts
-        };
+        let with_dead = super::ReclaimFacts { dead_files: &dead_files, ..facts };
         let inc_dead = super::plan_reclaim(&with_dead, &[], None, &mut exists(&dir));
-        assert!(
-            inc_dead.names.contains(&man(2))
-                && inc_dead.names.contains(&run_file_name(2, 0))
-                && !inc_dead.names.contains(&man(8))
-        );
+        assert!(inc_dead.names.contains(&man(2)) && inc_dead.names.contains(&run_file_name(2, 0)) && !inc_dead.names.contains(&man(8)));
         let facts = with_dead;
-        let facts = super::ReclaimFacts {
-            dead_files: &[],
-            ..facts
-        };
+        let facts = super::ReclaimFacts { dead_files: &[], ..facts };
         let all: Vec<String> = dir.iter().cloned().collect();
         let full = super::plan_reclaim(&facts, &[], Some(&all), &mut |_| true);
         let mut union: BTreeSet<String> = inc.names.iter().cloned().collect();
         union.extend(strays.iter().cloned());
-        assert_eq!(
-            full.names,
-            union.into_iter().collect::<Vec<_>>(),
-            "the full rules: the incremental names and every stray"
-        );
+        assert_eq!(full.names, union.into_iter().collect::<Vec<_>>(), "the full rules: the incremental names and every stray");
         // the directory after the incremental reclaim; the next generation's reclaim (keep 6) sweeps with the pending parts
-        let after: Vec<String> = dir
-            .iter()
-            .filter(|n| inc.names.binary_search(n).is_err())
-            .cloned()
-            .collect();
+        let after: Vec<String> = dir.iter().filter(|n| inc.names.binary_search(n).is_err()).cloned().collect();
         let manifests6 = &manifests[2..];
         let below6 = [&g5];
-        let facts6 = super::ReclaimFacts {
-            manifests: manifests6,
-            below: &below6,
-            keep: &g6,
-            dead: &[],
-            dead_files: &[],
-            natts: 2,
-            runs: super::kept_runs(&g6),
-            run_revs: super::run_revs(&g6.manifest),
-        };
-        let inc6 = super::plan_reclaim(
-            &facts6,
-            &[],
-            None,
-            &mut exists(&after.iter().cloned().collect()),
-        );
-        assert_eq!(
-            inc6.names,
-            vec![man(5)],
-            "an incremental reclaim leaves the strays"
-        );
+        let facts6 = super::ReclaimFacts { manifests: manifests6, below: &below6, keep: &g6, dead: &[], dead_files: &[], natts: 2, runs: super::kept_runs(&g6), run_revs: super::run_revs(&g6.manifest), };
+        let inc6 = super::plan_reclaim(&facts6, &[], None, &mut exists(&after.iter().cloned().collect()),);
+        assert_eq!(inc6.names, vec![man(5)], "an incremental reclaim leaves the strays");
         let sweep = super::plan_reclaim(&facts6, &inc.retired, Some(&after), &mut |_| true);
-        let mut want: Vec<String> = strays
-            .iter()
-            .filter(|n| **n != part(7) && **n != side(7, Rm, 1))
-            .cloned()
-            .collect();
+        let mut want: Vec<String> = strays.iter().filter(|n| **n != part(7) && **n != side(7, Rm, 1)).cloned().collect();
         want.push(man(5));
         want.sort();
-        assert_eq!(
-            sweep.names, want,
-            "the sweep takes the strays and the retired parts' optional sidecars"
-        );
+        assert_eq!(sweep.names, want, "the sweep takes the strays and the retired parts' optional sidecars");
     }
 
     /// SORTRUNS-E0 D2 lifecycle: a run's reverse is unlinked once `keep` no longer names its run (the run retired), by
@@ -3177,23 +2248,11 @@ mod tests {
     /// or below `keep` that no generation names goes with the sweep.
     #[test]
     fn sortruns_reclaim_unlinks_a_reverse_only_once_its_run_retired() {
-        use pgrc_format::dirlayout::{
-            manifest_file_name as man, part_file_name as part, runrev_file_name as rr,
-        };
+        use pgrc_format::dirlayout::{manifest_file_name as man, part_file_name as part, runrev_file_name as rr,};
         use pgrc_format::sortrun::{with_runs, RankForm, RunRevForm, SortRun};
         use std::collections::BTreeSet;
         use std::sync::Arc;
-        let run = |id: u64, members: &[u32]| SortRun {
-            run_id: id,
-            level: 1,
-            rev: RunRevForm::Labels,
-            rank: RankForm::Dense,
-            rows: 291,
-            rev_len: 4096,
-            rev_crc: 1,
-            members: members.to_vec(),
-            ranges: vec![(291 * id, 291 * (id + 1))],
-        };
+        let run = |id: u64, members: &[u32]| SortRun { run_id: id, level: 1, rev: RunRevForm::Labels, rank: RankForm::Dense, rows: 291, rev_len: 4096, rev_crc: 1, members: members.to_vec(), ranges: vec![(291 * id, 291 * (id + 1))], };
         let with = |mut g: crate::catalog::Generation, runs: &[SortRun]| {
             let m = (*g.manifest).clone();
             let ext = with_runs(&m.ext, runs).unwrap();
@@ -3202,70 +2261,23 @@ mod tests {
         };
         // g3: run 2 (parts 0, 1) and run 3 (part 2); g4 and g5 (keep): part 1 rewritten as part 3 in run 2's slot, run
         // 3 retired with part 2
-        let g3 = with(
-            gen_of(3, &[(0, 0), (1, 0), (2, 0)]),
-            &[run(2, &[0, 1]), run(3, &[2])],
-        );
+        let g3 = with(gen_of(3, &[(0, 0), (1, 0), (2, 0)]), &[run(2, &[0, 1]), run(3, &[2])],);
         let g4 = with(gen_of(4, &[(0, 0), (3, 0)]), &[run(2, &[0, 3])]);
         let g5 = with(gen_of(5, &[(0, 0), (3, 0)]), &[run(2, &[0, 3])]);
-        let manifests: Vec<(u64, &[pgrc_format::manifest::PartRecord])> = [&g3, &g4, &g5]
-            .iter()
-            .map(|g| (g.gen, &g.manifest.parts[..]))
-            .collect();
+        let manifests: Vec<(u64, &[pgrc_format::manifest::PartRecord])> = [&g3, &g4, &g5].iter().map(|g| (g.gen, &g.manifest.parts[..])).collect();
         let below = [&g3, &g4];
-        let dir: BTreeSet<String> = [
-            part(0),
-            part(1),
-            part(2),
-            part(3),
-            man(3),
-            man(4),
-            man(5),
-            rr(1),
-            rr(2),
-            rr(3),
-            rr(6),
-        ]
-        .into_iter()
-        .collect();
-        let facts = super::ReclaimFacts {
-            manifests: &manifests,
-            below: &below,
-            keep: &g5,
-            dead: &[],
-            dead_files: &[],
-            natts: 2,
-            runs: super::kept_runs(&g5),
-            run_revs: super::run_revs(&g5.manifest),
-        };
+        let dir: BTreeSet<String> = [part(0), part(1), part(2), part(3), man(3), man(4), man(5), rr(1), rr(2), rr(3), rr(6),].into_iter().collect();
+        let facts = super::ReclaimFacts { manifests: &manifests, below: &below, keep: &g5, dead: &[], dead_files: &[], natts: 2, runs: super::kept_runs(&g5), run_revs: super::run_revs(&g5.manifest), };
         assert_eq!(facts.run_revs.iter().copied().collect::<Vec<_>>(), vec![2]);
         let inc = super::plan_reclaim(&facts, &[], None, &mut |n| dir.contains(n));
-        assert!(
-            inc.names.contains(&rr(3)),
-            "run 3 retired below keep: {:?}",
-            inc.names
-        );
+        assert!(inc.names.contains(&rr(3)), "run 3 retired below keep: {:?}", inc.names);
         assert!(!inc.names.contains(&rr(2)), "keep names run 2");
-        assert!(
-            !inc.names.contains(&rr(6)) && !inc.names.contains(&rr(1)),
-            "no held generation names 6 or 1"
-        );
-        assert!(
-            inc.names.contains(&part(1)) && inc.names.contains(&part(2)),
-            "the retired members' parts go"
-        );
+        assert!(!inc.names.contains(&rr(6)) && !inc.names.contains(&rr(1)), "no held generation names 6 or 1");
+        assert!(inc.names.contains(&part(1)) && inc.names.contains(&part(2)), "the retired members' parts go");
         let all: Vec<String> = dir.iter().cloned().collect();
         let full = super::plan_reclaim(&facts, &[], Some(&all), &mut |_| true);
-        let revs: Vec<&String> = full
-            .names
-            .iter()
-            .filter(|n| n.starts_with("runrev-"))
-            .collect();
-        assert_eq!(
-            revs,
-            vec![&rr(1), &rr(3)],
-            "the sweep: the retired run's and the stray at or below keep"
-        );
+        let revs: Vec<&String> = full.names.iter().filter(|n| n.starts_with("runrev-")).collect();
+        assert_eq!(revs, vec![&rr(1), &rr(3)], "the sweep: the retired run's and the stray at or below keep");
     }
 
     use super::checked_varlena_len;

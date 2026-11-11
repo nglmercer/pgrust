@@ -264,7 +264,7 @@ pub(crate) fn add_relation_new_constraints_ext<'mcx>(
 
         let ccname = match cdef.conname {
             Some(name) => {
-                if checknames.contains(&name.as_bytes()) {
+                if checknames.contains(& name.as_bytes()) {
                     return Err(check_constraint_exists(name));
                 }
                 checknames.push(name.as_bytes());
@@ -492,7 +492,7 @@ pub(crate) fn add_relation_not_null_constraints<'mcx>(
         // names (givennames); system-chosen collisions just pick another.
         let name = match given_name {
             Some(given) => {
-                if givennames.contains(&given) {
+                if givennames.contains(& given) {
                     return Err(Box::new(
                         PgError::new(
                             types_error::ERROR,
@@ -545,7 +545,7 @@ pub(crate) fn add_relation_not_null_constraints<'mcx>(
             }
         }
         if let Some(n) = conname {
-            if nnnames.contains(&n.as_bytes()) {
+            if nnnames.contains(& n.as_bytes()) {
                 conname = None;
             }
         }
@@ -814,7 +814,7 @@ fn store_rel_check<'mcx>(
     let mut att_nos: PgVec<'mcx, i16> = PgVec::new_in(mcx);
     for v in var_list.iter() {
         let attno = v.as_var().expect("pull_var_clause").varattno;
-        if !att_nos.contains(&attno) {
+        if !att_nos.contains(& attno) {
             att_nos.push(attno);
         }
     }

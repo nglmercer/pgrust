@@ -311,10 +311,7 @@ impl Charge {
     pub fn new(len: usize) -> Charge {
         charge(len);
         EXT_BYTES.fetch_add(len as u64, Ordering::Relaxed);
-        Charge {
-            len: len as u64,
-            class: pgsync::Mutex::new(HELD),
-        }
+        Charge { len: len as u64, class: pgsync::Mutex::new(HELD), }
     }
 
     /// Its map published it: held → cached (a no-op when already cached).

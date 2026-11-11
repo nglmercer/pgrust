@@ -1,13 +1,11 @@
+
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
 fn repo_root() -> PathBuf {
     let dir = std::env::var_os("CARGO_MANIFEST_DIR").expect("cargo test sets CARGO_MANIFEST_DIR");
-    Path::new(&dir)
-        .join("../../..")
-        .canonicalize()
-        .expect("repo root")
+    Path::new(&dir).join("../../..").canonicalize().expect("repo root")
 }
 
 fn production_files(dir: &Path, out: &mut Vec<PathBuf>) {
@@ -15,16 +13,9 @@ fn production_files(dir: &Path, out: &mut Vec<PathBuf>) {
     let mut ents: Vec<_> = rd.filter_map(Result::ok).map(|e| e.path()).collect();
     ents.sort();
     for p in ents {
-        let name = p
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("")
-            .to_string();
+        let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("").to_string();
         if p.is_dir() {
-            if !matches!(
-                name.as_str(),
-                "tests" | "test" | "benches" | "examples" | "target"
-            ) {
+            if !matches!(name.as_str(), "tests" | "test" | "benches" | "examples" | "target") {
                 production_files(&p, out);
             }
         } else if name.ends_with(".rs")
@@ -69,10 +60,7 @@ fn strip(text: &str) -> String {
             i += 2;
             continue;
         }
-        if c == b'r'
-            && (b.get(i + 1) == Some(&b'"')
-                || (b.get(i + 1) == Some(&b'#')
-                    && b.get(i + 2).is_some_and(|&x| x == b'"' || x == b'#')))
+        if c == b'r' && (b.get(i + 1) == Some(&b'"') || (b.get(i + 1) == Some(&b'#') && b.get(i + 2).is_some_and(|&x| x == b'"' || x == b'#')))
             && (i == 0 || !(b[i - 1].is_ascii_alphanumeric() || b[i - 1] == b'_'))
         {
             let mut j = i + 1;
@@ -88,14 +76,7 @@ fn strip(text: &str) -> String {
                     if j >= b.len() {
                         break;
                     }
-                    if b[j] == b'"'
-                        && b[j + 1..]
-                            .iter()
-                            .take(hashes)
-                            .filter(|&&x| x == b'#')
-                            .count()
-                            == hashes
-                    {
+                    if b[j] == b'"' && b[j + 1..].iter().take(hashes).filter(|&&x| x == b'#').count() == hashes {
                         j += 1 + hashes;
                         break;
                     }
@@ -134,15 +115,12 @@ fn strip(text: &str) -> String {
                 out.push_str("' '");
                 i += 3;
                 continue;
-            } else if let Some(k) = std::str::from_utf8(&b[i + 1..(i + 6).min(b.len())])
-                .ok()
-                .and_then(|s| {
-                    let mut it = s.char_indices();
-                    let (_, ch) = it.next()?;
-                    let (n, q) = it.next()?;
-                    (q == '\'' && !ch.is_ascii()).then_some(n)
-                })
-            {
+            } else if let Some(k) = std::str::from_utf8(&b[i + 1..(i + 6).min(b.len())]).ok().and_then(|s| {
+                let mut it = s.char_indices();
+                let (_, ch) = it.next()?;
+                let (n, q) = it.next()?;
+                (q == '\'' && !ch.is_ascii()).then_some(n)
+            }) {
                 out.push_str("' '");
                 i += k + 2;
                 continue;
@@ -257,20 +235,14 @@ fn scan(root: &Path) -> (usize, BTreeMap<String, Vec<usize>>) {
     production_files(&root.join("crates"), &mut files);
     let mut hits = BTreeMap::new();
     for f in &files {
-        let Ok(text) = fs::read_to_string(f) else {
-            continue;
-        };
+        let Ok(text) = fs::read_to_string(f) else { continue; };
         if !text.contains("spawn") {
             continue;
         }
         let lines = production_lines(&strip(&text));
         let u = unpinned(&lines);
         if !u.is_empty() {
-            let rel = f
-                .strip_prefix(root)
-                .unwrap_or(f)
-                .to_string_lossy()
-                .replace('\\', "/");
+            let rel = f.strip_prefix(root).unwrap_or(f).to_string_lossy().replace('\\', "/");
             hits.insert(rel, u);
         }
     }
@@ -286,19 +258,9 @@ fn allowlist(root: &Path) -> BTreeMap<String, usize> {
             continue;
         }
         let w: Vec<&str> = l.split('\t').collect();
-        assert!(
-            w.len() == 3 && !w[2].trim().is_empty(),
-            "pinned-spawn.allow:{}: want path TAB count TAB reason",
-            n + 1
-        );
-        let c: usize = w[1]
-            .parse()
-            .unwrap_or_else(|_| panic!("pinned-spawn.allow:{}: bad count", n + 1));
-        assert!(
-            m.insert(w[0].to_string(), c).is_none(),
-            "pinned-spawn.allow:{}: duplicate path",
-            n + 1
-        );
+        assert!(w.len() == 3 && !w[2].trim().is_empty(), "pinned-spawn.allow:{}: want path TAB count TAB reason", n + 1);
+        let c: usize = w[1].parse().unwrap_or_else(|_| panic!("pinned-spawn.allow:{}: bad count", n + 1));
+        assert!(m.insert(w[0].to_string(), c).is_none(), "pinned-spawn.allow:{}: duplicate path", n + 1);
     }
     m
 }
@@ -307,28 +269,19 @@ fn allowlist(root: &Path) -> BTreeMap<String, usize> {
 fn every_production_spawn_is_pinned() {
     let root = repo_root();
     let (nfiles, hits) = scan(&root);
-    assert!(
-        nfiles > 1000,
-        "scanned only {nfiles} files under {}",
-        root.display()
-    );
+    assert!(nfiles > 1000, "scanned only {nfiles} files under {}", root.display());
     let allow = allowlist(&root);
     let mut bad = Vec::new();
     for (path, lines) in &hits {
         match allow.get(path) {
             Some(&n) if n == lines.len() => {}
-            Some(&n) => bad.push(format!(
-                "{path}: {} unpinned spawn call(s) (lines {lines:?}), allowlist budget {n}",
-                lines.len()
-            )),
+            Some(&n) => bad.push(format!("{path}: {} unpinned spawn call(s) (lines {lines:?}), allowlist budget {n}", lines.len())),
             None => bad.push(format!("{path}: unpinned spawn call(s) at lines {lines:?}")),
         }
     }
     for (path, n) in &allow {
         if !hits.contains_key(path) {
-            bad.push(format!(
-                "{path}: stale allowlist row (budget {n}, 0 unpinned spawn calls): delete it"
-            ));
+            bad.push(format!("{path}: stale allowlist row (budget {n}, 0 unpinned spawn calls): delete it"));
         }
     }
     assert!(

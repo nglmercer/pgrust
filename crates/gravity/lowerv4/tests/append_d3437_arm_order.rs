@@ -4,7 +4,7 @@
 //! (the planner's grouping-set rewrite: CUBE (a, b) as a UNION ALL of GROUP BYs under count(*)) and regress-full
 //! partition_aggregate-002 (a partition-wise aggregate under a sort) take arm order; in graph order every child ran before
 //! the first arm.
-#[allow(dead_code, unused_imports)]
+#[allow( dead_code, unused_imports)]
 use gravity_lowerv4_it as common;
 
 #[allow(dead_code)]

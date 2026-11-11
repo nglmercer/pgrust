@@ -118,11 +118,7 @@ impl<T, E, I: Iterator<Item = Result<T, E>>> TryCollectResultIn<T, E> for I {}
 
 /// `Iterator::partition` into two `PgVec`s of one context: the first holds the items `f` accepts, in order.
 pub trait PartitionIn: Iterator + Sized {
-    fn partition_in<'m>(
-        self,
-        mcx: Mcx<'m>,
-        mut f: impl FnMut(&Self::Item) -> bool,
-    ) -> (PgVec<'m, Self::Item>, PgVec<'m, Self::Item>) {
+    fn partition_in<'m>(self, mcx: Mcx<'m>, mut f: impl FnMut(&Self::Item) -> bool,) -> (PgVec<'m, Self::Item>, PgVec<'m, Self::Item>) {
         let (mut yes, mut no) = (PgVec::new_in(mcx), PgVec::new_in(mcx));
         for x in self {
             if f(&x) {
@@ -194,17 +190,12 @@ pub fn format_in<'m>(mcx: Mcx<'m>, args: fmt::Arguments<'_>) -> PgString<'m> {
             })
         }
     }
-    let mut w = W {
-        s: &mut s,
-        err: None,
-    };
+    let mut w = W { s: &mut s, err: None, };
     let r = fmt::write(&mut w, args);
     if let Some(e) = w.err {
         raise(e);
     }
-    r.expect(
-        "a formatting trait implementation returned an error when the underlying stream did not",
-    );
+    r.expect("a formatting trait implementation returned an error when the underlying stream did not",);
     s
 }
 
@@ -263,9 +254,7 @@ mod tests {
         let ctx = MemoryContext::new("PlanLimit").with_limit(64);
         let r = catch_unwind(AssertUnwindSafe(|| f(ctx.mcx())));
         let p = r.expect_err(what);
-        let e = p
-            .downcast_ref::<alloc::boxed::Box<PgError>>()
-            .unwrap_or_else(|| panic!("{what}: not a PgError"));
+        let e = p.downcast_ref::<alloc::boxed::Box<PgError>>().unwrap_or_else(|| panic!("{what}: not a PgError"));
         assert_eq!(e.sqlstate(), ERRCODE_OUT_OF_MEMORY, "{what}");
     }
 
@@ -273,8 +262,7 @@ mod tests {
     fn each_helper_raises_at_the_limit() {
         let big = [7u64; 64];
         raises("collect_in", |m| drop((0..64u64).collect_in(m)));
-        raises("collect_in, no hint", |m| {
-            drop((0..64u64).filter(|_| true).collect_in(m))
+        raises("collect_in, no hint", |m| { drop((0..64u64).filter(|_| true).collect_in(m))
         });
         raises("to_vec_in", |m| drop(to_vec_in(&big[..], m)));
         raises("concat_in", |m| drop(concat_in(&[&big[..], &big[..]], m)));
@@ -282,16 +270,13 @@ mod tests {
         raises("vec_array_in", |m| drop(vec_array_in(m, big)));
         raises("reserved_in", |m| drop(reserved_in::<u64>(64, m)));
         raises("box_in", |m| drop(box_in(big, m)));
-        raises("pg_box_dyn", |m| {
-            drop(crate::pg_box_dyn!(m, big => dyn core::fmt::Debug))
+        raises("pg_box_dyn", |m| { drop(crate::pg_box_dyn!(m, big => dyn core::fmt::Debug))
         });
         raises("PgRc::new_in", |m| drop(PgRc::new_in(big, m)));
-        raises("PgRc::from_slice_in", |m| {
-            drop(PgRc::from_slice_in(&big[..], m))
+        raises("PgRc::from_slice_in", |m| { drop(PgRc::from_slice_in(&big[..], m))
         });
         raises("pg_format", |m| drop(crate::pg_format!(m, "{:?}", big)));
-        raises("PgString::push_str", |m| {
-            PgString::new_in(m).push_str(&"x".repeat(200))
+        raises("PgString::push_str", |m| { PgString::new_in(m).push_str(&"x".repeat(200))
         });
         raises("push_in", |m| {
             let mut v = PgVec::new_in(m);
@@ -300,8 +285,7 @@ mod tests {
             }
         });
         raises("extend_in", |m| PgVec::new_in(m).extend_in(0..64u64));
-        raises("extend_from_slice_in", |m| {
-            PgVec::new_in(m).extend_from_slice_in(&big[..])
+        raises("extend_from_slice_in", |m| { PgVec::new_in(m).extend_from_slice_in(&big[..])
         });
         raises("resize_in", |m| PgVec::new_in(m).resize_in(64, 0u64));
     }
@@ -325,33 +309,24 @@ mod tests {
         let m = ctx.mcx();
         let ok = [Some(1u32), Some(2)].into_iter().try_collect_in(m);
         assert_eq!(ok.as_deref(), Some(&[1, 2][..]));
-        assert!([Some(1u32), None, Some(3)]
-            .into_iter()
-            .try_collect_in(m)
-            .is_none());
+        assert!([Some(1u32), None, Some(3)].into_iter().try_collect_in(m).is_none());
         let r: Result<_, &str> = [Ok(1u32), Ok(2)].into_iter().try_collect_res_in(m);
         assert_eq!(&r.unwrap()[..], &[1, 2]);
-        let r: Result<PgVec<'_, u32>, &str> = [Ok(1u32), Err("x"), Ok(3)]
-            .into_iter()
-            .try_collect_res_in(m);
+        let r: Result<PgVec<'_, u32>, &str> = [Ok(1u32), Err("x"), Ok(3)].into_iter().try_collect_res_in(m);
         assert_eq!(r.err(), Some("x"));
         let (even, odd) = (1..8u32).partition_in(m, |x| x % 2 == 0);
         assert_eq!((&even[..], &odd[..]), (&[2, 4, 6][..], &[1, 3, 5, 7][..]));
-        let (a, b): (alloc::vec::Vec<u32>, alloc::vec::Vec<u32>) =
-            (1..8u32).partition(|x| x % 2 == 0);
+        let (a, b): (alloc::vec::Vec<u32>, alloc::vec::Vec<u32>) = (1..8u32).partition(|x| x % 2 == 0);
         assert_eq!((&even[..], &odd[..]), (&a[..], &b[..]));
     }
 
     #[test]
     fn try_collect_and_partition_raise_at_the_limit() {
-        raises("try_collect_in", |m| {
-            drop((0..64u64).map(Some).try_collect_in(m))
+        raises("try_collect_in", |m| { drop((0..64u64).map(Some).try_collect_in(m))
         });
-        raises("try_collect_res_in", |m| {
-            drop((0..64u64).map(Ok::<_, ()>).try_collect_res_in(m))
+        raises("try_collect_res_in", |m| { drop((0..64u64).map(Ok::<_, ()>).try_collect_res_in(m))
         });
-        raises("partition_in", |m| {
-            drop((0..64u64).partition_in(m, |x| x % 2 == 0))
+        raises("partition_in", |m| { drop((0..64u64).partition_in(m, |x| x % 2 == 0))
         });
     }
 }

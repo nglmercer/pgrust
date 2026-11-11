@@ -17,9 +17,7 @@ use super::open_built;
 
 fn dict_entries(n: usize) -> Vec<Vec<u8>> {
     // Byte-rank-sorted by construction (zero-padded numeric suffix).
-    (0..n)
-        .map(|i| format!("entry-{i:05}").into_bytes())
-        .collect()
+    (0..n).map(|i| format!("entry-{i:05}").into_bytes()).collect()
 }
 
 pub(super) fn dict_part(entries: usize, nulls: bool) -> BuiltPart {
@@ -208,10 +206,7 @@ fn whole_fault_kill_switch_reproduces_the_pre_fix_arm() {
                 if role == StreamRole::DictPayload.as_u8())
         })
         .count();
-    assert_eq!(
-        payload_faults, 5,
-        "whole-fault arm faults every frame extent"
-    );
+    assert_eq!(payload_faults, 5, "whole-fault arm faults every frame extent");
     // And the frame-lazy arm on the same part stays strictly below it.
     let lazy = DictHandle::open(part, None, &[], 1, 0).expect("lazy");
     lazy.entry(0).expect("entry");
@@ -393,11 +388,7 @@ fn publishability_facts_for_the_o6_posture() {
     // P-a: a NULL-bearing stream without `STREAMF_DICT_EXEC_NULLABLE` (every part sealed before the flag) stays
     // storage-only: `DICT_EXEC` beside a Validity stream is a contradiction that never serves.
     assert!(!h.exec_nullable(), "no nullable flag on a pre-flag part");
-    assert_eq!(
-        h.exec_form(),
-        None,
-        "a pre-flag nulled stream never executes as codes"
-    );
+    assert_eq!(h.exec_form(), None, "a pre-flag nulled stream never executes as codes");
 }
 
 /// P-a: the exec form of the zero-null part is the `DICT_EXEC` form, never the nullable one.
@@ -406,10 +397,7 @@ fn exec_form_of_a_zero_null_part_is_the_dict_exec_form() {
     let clean = dict_part(64, false);
     let part = open_built(&clean, 215, 1);
     let h = DictHandle::open(part, None, &[], 1, 0).expect("handle");
-    assert!(
-        !h.exec_nullable(),
-        "a null-free stream never carries the nullable flag"
-    );
+    assert!(!h.exec_nullable(), "a null-free stream never carries the nullable flag");
     assert_eq!(h.exec_form(), Some(false), "zero-null DICT_EXEC form");
 }
 
@@ -562,13 +550,8 @@ fn in_range_code_with_out_of_range_offset_is_typed_not_panic() {
     // The code is in range (below ncodes) yet its entry is dishonest: the
     // resolver must refuse TYPED, not panic.
     assert!(h.ncodes() > 3, "code 3 is in range");
-    let err = h
-        .entry(3)
-        .expect_err("out-of-range offset must refuse typed");
-    assert!(
-        matches!(err, ReadError::Format(_)),
-        "typed corruption: {err}"
-    );
+    let err = h.entry(3).expect_err("out-of-range offset must refuse typed");
+    assert!(matches!(err, ReadError::Format(_)), "typed corruption: {err}");
 }
 
 #[test]
@@ -613,10 +596,7 @@ fn a_wrapped_payload_opens_whole_unless_its_touch_is_sparse() {
     {
         return;
     }
-    assert!(
-        crate::wrapped_payload_whole(None),
-        "an undeclared touch opens the payload whole"
-    );
+    assert!(crate::wrapped_payload_whole(None), "an undeclared touch opens the payload whole");
     assert!(
         crate::wrapped_payload_whole(Some(crate::DictTouch::Dense)),
         "a dense touch opens the payload whole"

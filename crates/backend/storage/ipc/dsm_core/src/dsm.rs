@@ -50,7 +50,7 @@ struct DsmControlHeader {
 
 const ITEM_OFFSET: usize = {
     let a = std::mem::align_of::<DsmControlItem>();
-    std::mem::size_of::<DsmControlHeader>().div_ceil(a) * a
+    std::mem::size_of::<DsmControlHeader>().div_ceil( a) * a
 };
 
 unsafe fn control_item(control: *mut DsmControlHeader, i: u32) -> *mut DsmControlItem {

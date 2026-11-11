@@ -93,8 +93,8 @@ impl Trie {
     }
 
     fn register_kind(&mut self, kind: Kind) {
-        if let std::collections::btree_map::Entry::Vacant(e) = self.kinds.entry(kind) {
-            e.insert(Vec::new());
+        if let std::collections::btree_map::Entry::Vacant(e) =self.kinds.entry(kind) {
+            e.insert( Vec::new());
             self.kind_order.push(kind);
         }
     }
@@ -311,7 +311,7 @@ impl Trie {
                             && let Some(synonym) = synonyms.get(&value.value) {
                                 *element = *synonym;
                             }
-                }
+                        }
                 if table.iter().all(|element| *element == table[0]) {
                     synonyms.insert(index, table[0]);
                     self.tables[index] = None;
@@ -341,7 +341,7 @@ impl Trie {
                     length = length
                         .checked_add((table.len() + 3) & !3)
                         .ok_or_else(|| "table size overflow".to_string())?;
-                }
+            }
         }
         if length >= 0x8000 {
             return Err(format!("maximum table size exceeded: {length:#x}"));

@@ -7,9 +7,9 @@ use backend_progress::progress::{
     PROGRESS_CREATEIDX_PHASE_WAIT_4, PROGRESS_CREATEIDX_PHASE_WAIT_5,
 };
 use catalog_index::{
-    reindex_index, reindex_relation, ReindexParams, REINDEXOPT_CONCURRENTLY, REINDEXOPT_MISSING_OK,
-    REINDEXOPT_REPORT_PROGRESS, REINDEXOPT_VERBOSE, REINDEX_REL_CHECK_CONSTRAINTS,
-    REINDEX_REL_PROCESS_TOAST,
+    reindex_index, reindex_relation, ReindexParams, REINDEXOPT_CONCURRENTLY,
+    REINDEXOPT_MISSING_OK, REINDEXOPT_REPORT_PROGRESS, REINDEXOPT_VERBOSE,
+    REINDEX_REL_CHECK_CONSTRAINTS, REINDEX_REL_PROCESS_TOAST,
 };
 use mcx::Mcx;
 use pg_depend::ObjectAddress;
@@ -61,9 +61,7 @@ pub fn ExecReindex<'mcx>(
     let mut verbose = false;
     let mut tablespacename: Option<&str> = None;
     for opt_node in stmt.params.iter() {
-        let opt = opt_node
-            .as_def_elem()
-            .expect("ReindexStmt option is DefElem");
+        let opt = opt_node.as_def_elem().expect("ReindexStmt option is DefElem");
         match opt.defname.unwrap_or("") {
             "verbose" => verbose = explain::defGetBoolean(opt)?,
             "concurrently" => concurrently = explain::defGetBoolean(opt)?,
@@ -74,13 +72,11 @@ pub fn ExecReindex<'mcx>(
                         format!("unrecognized REINDEX option \"{name}\""),
                         ERRCODE_SYNTAX_ERROR,
                     ))
-                    .with_cursor_position(
-                        parser_small1::parser_errposition_source(
-                            Some(source_text.as_bytes()),
-                            opt.location,
-                            mbutils::GetDatabaseEncoding(),
-                        ),
-                    ),
+                    .with_cursor_position(parser_small1::parser_errposition_source(
+                        Some(source_text.as_bytes()),
+                        opt.location,
+                        mbutils::GetDatabaseEncoding(),
+                    ),),
                 ));
             }
         }
@@ -92,11 +88,7 @@ pub fn ExecReindex<'mcx>(
 
     let mut params = ReindexParams {
         options: (if verbose { REINDEXOPT_VERBOSE } else { 0 })
-            | (if concurrently {
-                REINDEXOPT_CONCURRENTLY
-            } else {
-                0
-            }),
+            | (if concurrently { REINDEXOPT_CONCURRENTLY } else { 0 }),
         tablespace_oid: InvalidOid,
     };
     if let Some(name) = tablespacename {
@@ -105,11 +97,9 @@ pub fn ExecReindex<'mcx>(
     }
 
     match stmt.kind {
-        ReindexObjectType::REINDEX_OBJECT_INDEX => {
-            ReindexIndex(mcx, stmt, &mut params, is_top_level)
+        ReindexObjectType::REINDEX_OBJECT_INDEX => { ReindexIndex(mcx, stmt, &mut params, is_top_level)
         }
-        ReindexObjectType::REINDEX_OBJECT_TABLE => {
-            ReindexTable(mcx, stmt, &mut params, is_top_level)
+        ReindexObjectType::REINDEX_OBJECT_TABLE => { ReindexTable(mcx, stmt, &mut params, is_top_level)
         }
         ReindexObjectType::REINDEX_OBJECT_SCHEMA
         | ReindexObjectType::REINDEX_OBJECT_SYSTEM
@@ -128,7 +118,8 @@ pub fn ExecReindex<'mcx>(
 }
 
 fn check_tablespace_create_acl(tablespace_oid: Oid, name: &str) -> PgResult<()> {
-    if tablespace_oid != InvalidOid && tablespace_oid != init_small::globals::MyDatabaseTableSpace()
+    if tablespace_oid != InvalidOid
+        && tablespace_oid != init_small::globals::MyDatabaseTableSpace()
     {
         let aclresult = aclchk::object_aclcheck(
             TableSpaceRelationId,
@@ -147,7 +138,7 @@ fn check_tablespace_create_acl(tablespace_oid: Oid, name: &str) -> PgResult<()> 
     Ok(())
 }
 
-fn stmt_range_var<'mcx>(stmt: &ReindexStmt<'mcx>) -> rel_vocab::RangeVar<'mcx> {
+fn stmt_range_var< 'mcx>(stmt: & ReindexStmt<'mcx>) -> rel_vocab::RangeVar<'mcx> {
     let rv = stmt
         .relation
         .and_then(|n| n.as_range_var())
@@ -173,22 +164,11 @@ fn ReindexIndex<'mcx>(
 
     let mut locked_table_oid = InvalidOid;
     let mut cb = |rv2: &rel_vocab::RangeVar<'_>, rel_id: Oid, old_rel_id: Oid| -> PgResult<()> {
-        RangeVarCallbackForReindexIndex(
-            mcx,
-            rv2,
-            rel_id,
-            old_rel_id,
-            concurrent,
-            &mut locked_table_oid,
-        )
+        RangeVarCallbackForReindexIndex(mcx, rv2, rel_id, old_rel_id, concurrent, &mut locked_table_oid,)
     };
     let ind_oid = catalog_namespace::RangeVarGetRelidExtended(
         &rv,
-        if concurrent {
-            ShareUpdateExclusiveLock
-        } else {
-            AccessExclusiveLock
-        },
+        if concurrent { ShareUpdateExclusiveLock } else { AccessExclusiveLock },
         0,
         Some(&mut cb),
     )?;
@@ -205,14 +185,7 @@ fn ReindexIndex<'mcx>(
         let mut newparams = *params;
         newparams.options |= REINDEXOPT_REPORT_PROGRESS;
         let mut collect = collect_reindex_cb();
-        reindex_index(
-            mcx,
-            ind_oid,
-            false,
-            persistence,
-            &newparams,
-            Some(&mut collect),
-        )
+        reindex_index(mcx, ind_oid, false, persistence, &newparams, Some(&mut collect),)
     }
 }
 
@@ -225,11 +198,7 @@ fn RangeVarCallbackForReindexIndex(
     locked_table_oid: &mut Oid,
 ) -> PgResult<()> {
     // Table lock level must match reindex_index / index_concurrently_*.
-    let table_lockmode = if concurrent {
-        ShareUpdateExclusiveLock
-    } else {
-        ShareLock
-    };
+    let table_lockmode = if concurrent { ShareUpdateExclusiveLock } else { ShareLock };
 
     if relId != oldRelId && oldRelId != InvalidOid {
         lmgr::UnlockRelationOid(*locked_table_oid, table_lockmode)?;
@@ -283,11 +252,7 @@ fn ReindexTable<'mcx>(
     };
     let heap_oid = catalog_namespace::RangeVarGetRelidExtended(
         &rv,
-        if concurrent {
-            ShareUpdateExclusiveLock
-        } else {
-            ShareLock
-        },
+        if concurrent { ShareUpdateExclusiveLock } else { ShareLock },
         0,
         Some(&mut cb),
     )?;
@@ -303,11 +268,7 @@ fn ReindexTable<'mcx>(
                     "table \"{}\" has no indexes that can be reindexed concurrently",
                     rv.relname
                 ))
-                .finish(types_error::ErrorLocation::new(
-                    file!(),
-                    line!() as i32,
-                    "ReindexTable",
-                ))?;
+                .finish(types_error::ErrorLocation::new(file!(), line!() as i32, "ReindexTable",))?;
         }
         return Ok(());
     }
@@ -323,15 +284,8 @@ fn ReindexTable<'mcx>(
     )?;
     if !result {
         elog::ereport(types_error::NOTICE)
-            .errmsg(format!(
-                "table \"{}\" has no indexes to reindex",
-                rv.relname
-            ))
-            .finish(types_error::ErrorLocation::new(
-                file!(),
-                line!() as i32,
-                "ReindexTable",
-            ))?;
+            .errmsg(format!("table \"{}\" has no indexes to reindex", rv.relname))
+            .finish(types_error::ErrorLocation::new(file!(), line!() as i32, "ReindexTable",))?;
     }
     Ok(())
 }
@@ -376,7 +330,8 @@ fn ReindexMultipleTables<'mcx>(
         }
     } else {
         object_oid = init_small::globals::MyDatabaseId();
-        let dbname = dbcommands_seams::get_database_name::call(object_oid)?.unwrap_or_default();
+        let dbname = dbcommands_seams::get_database_name::call(object_oid)?
+            .unwrap_or_default();
         if let Some(name) = object_name {
             if name != dbname {
                 return Err(err(
@@ -401,11 +356,7 @@ fn ReindexMultipleTables<'mcx>(
     let mut relids: mcx::PgVec<'mcx, Oid> = mcx::PgVec::new_in(mcx);
 
     {
-        let pg_class = table::table_open(
-            mcx,
-            types_core::RELATION_RELATION_ID,
-            types_rel::AccessShareLock,
-        )?;
+        let pg_class = table::table_open(mcx, types_core::RELATION_RELATION_ID, types_rel::AccessShareLock,)?;
         let key;
         let keys: &[types_scan::scankey::ScanKeyData] =
             if object_kind == ReindexObjectType::REINDEX_OBJECT_SCHEMA {
@@ -457,7 +408,8 @@ fn ReindexMultipleTables<'mcx>(
                     elog_seams::ereport::call(
                         PgError::new(
                             WARNING,
-                            "cannot reindex system catalogs concurrently, skipping all".to_string(),
+                            "cannot reindex system catalogs concurrently, skipping all"
+                                .to_string(),
                         )
                         .with_sqlstate(ERRCODE_FEATURE_NOT_SUPPORTED),
                     )?;
@@ -465,10 +417,7 @@ fn ReindexMultipleTables<'mcx>(
                 concurrent_warning = true;
                 continue;
             }
-            if concurrent
-                && get(Anum_pg_class_relhasindex).as_bool()
-                && pgrc_relam(get(Anum_pg_class_relam).as_oid())?
-            {
+            if concurrent && get(Anum_pg_class_relhasindex).as_bool() && pgrc_relam(get(Anum_pg_class_relam).as_oid())? {
                 elog_seams::ereport::call(
                     PgError::new(
                         WARNING,
@@ -486,8 +435,8 @@ fn ReindexMultipleTables<'mcx>(
             if params.tablespace_oid != InvalidOid {
                 let relfilenode = get(Anum_pg_class_relfilenode).as_oid();
                 let mapped = types_rel::RELKIND_HAS_STORAGE(relkind) && relfilenode == InvalidOid;
-                let system =
-                    catalog::IsCatalogRelationOid(relid) || catalog::IsToastNamespace(relnamespace);
+                let system = catalog::IsCatalogRelationOid(relid)
+                    || catalog::IsToastNamespace(relnamespace);
                 if mapped || system {
                     if !tablespace_warning {
                         elog_seams::ereport::call(
@@ -510,10 +459,7 @@ fn ReindexMultipleTables<'mcx>(
     }
 
     // pg_class first so its own indexes are sane before anything else.
-    if let Some(pos) = relids
-        .iter()
-        .position(|&r| r == types_core::RELATION_RELATION_ID)
-    {
+    if let Some(pos) = relids.iter().position(|&r| r == types_core::RELATION_RELATION_ID) {
         relids[..=pos].rotate_right(1);
     }
 
@@ -543,21 +489,14 @@ fn ReindexPartitions<'mcx>(
 
     xact::PreventInTransactionBlock(
         is_top_level,
-        if relkind == RELKIND_PARTITIONED_TABLE {
-            "REINDEX TABLE"
-        } else {
-            "REINDEX INDEX"
-        },
+        if relkind == RELKIND_PARTITIONED_TABLE { "REINDEX TABLE" } else { "REINDEX INDEX" },
     )
     .map_err(|mut e| -> Box<types_error::PgError> {
-        let ns = lsyscache::get_namespace_name(
-            mcx,
-            lsyscache::get_rel_namespace(relid).unwrap_or(InvalidOid),
-        )
-        .ok()
-        .flatten()
-        .map(|s| s.as_str().to_string())
-        .unwrap_or_default();
+        let ns = lsyscache::get_namespace_name(mcx, lsyscache::get_rel_namespace(relid).unwrap_or(InvalidOid),)
+            .ok()
+            .flatten()
+            .map(|s| s.as_str().to_string())
+            .unwrap_or_default();
         let name = lsyscache::get_rel_name(mcx, relid)
             .ok()
             .flatten()
@@ -565,11 +504,7 @@ fn ReindexPartitions<'mcx>(
             .unwrap_or_default();
         e.add_context_line(format!(
             "while reindexing partitioned {} \"{ns}.{name}\"",
-            if relkind == RELKIND_PARTITIONED_TABLE {
-                "table"
-            } else {
-                "index"
-            }
+            if relkind == RELKIND_PARTITIONED_TABLE { "table" } else { "index" }
         ));
         e
     })?;
@@ -604,11 +539,7 @@ fn ReindexMultipleInternal<'mcx>(
         let snap = snapmgr::GetTransactionSnapshot()?;
         snapmgr::PushActiveSnapshot(&snap)?;
 
-        if lsyscache::get_rel_relkind(relid)
-            .map(|k| k as u8)
-            .unwrap_or(0)
-            == 0
-        {
+        if lsyscache::get_rel_relkind(relid).map(|k| k as u8).unwrap_or(0) == 0 {
             snapmgr::PopActiveSnapshot()?;
             xact::CommitTransactionCommand()?;
             continue;
@@ -639,7 +570,9 @@ fn ReindexMultipleInternal<'mcx>(
         let relpersistence = lsyscache::get_rel_persistence(relid)?;
         debug_assert!(relkind != RELKIND_PARTITIONED_INDEX && relkind != RELKIND_PARTITIONED_TABLE);
 
-        if params.options & REINDEXOPT_CONCURRENTLY != 0 && relpersistence != RELPERSISTENCE_TEMP {
+        if params.options & REINDEXOPT_CONCURRENTLY != 0
+            && relpersistence != RELPERSISTENCE_TEMP
+        {
             let mut newparams = *params;
             newparams.options |= REINDEXOPT_MISSING_OK;
             ReindexRelationConcurrently(mcx, relid, &newparams)?;
@@ -650,14 +583,7 @@ fn ReindexMultipleInternal<'mcx>(
             let mut newparams = *params;
             newparams.options |= REINDEXOPT_REPORT_PROGRESS | REINDEXOPT_MISSING_OK;
             let mut collect = collect_reindex_cb();
-            reindex_index(
-                mcx,
-                relid,
-                false,
-                relpersistence as u8,
-                &newparams,
-                Some(&mut collect),
-            )?;
+            reindex_index(mcx, relid, false, relpersistence as u8, &newparams, Some(&mut collect),)?;
             snapmgr::PopActiveSnapshot()?;
         } else {
             let mut newparams = *params;
@@ -1080,12 +1006,7 @@ fn ReindexRelationConcurrently<'mcx>(
         let snap = snapmgr::GetTransactionSnapshot()?;
         snapmgr::PushActiveSnapshot(&snap)?;
 
-        catalog_index::index_concurrently_swap(
-            mcx,
-            newidx.index_id,
-            oldidx.index_id,
-            &old_name[..],
-        )?;
+        catalog_index::index_concurrently_swap(mcx, newidx.index_id, oldidx.index_id, &old_name[..],)?;
 
         snapmgr::PopActiveSnapshot()?;
 

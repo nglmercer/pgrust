@@ -291,11 +291,7 @@ fn crash_test_park() -> PgResult<()> {
     init_small::globals::set_crash_test_park_pid(0);
     for _ in 0..600 {
         postgres_seams::check_for_interrupts::call()?;
-        latch_seams::wait_latch_my_latch::call(
-            WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
-            100,
-            0,
-        );
+        latch_seams::wait_latch_my_latch::call(WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH, 100, 0,);
         latch_seams::reset_latch_my_latch::call();
     }
     Ok(())
@@ -465,19 +461,10 @@ pub fn heap_insert(
                     info,
                     XLOG_INCLUDE_ORIGIN,
                     &[&xlrec],
-                    &[
-                        heap,
-                        crate::wal::reg_vm_block(HEAP_INSERT_BLKREF_VM, rloc, &vmb),
-                    ],
+                    &[heap, crate::wal::reg_vm_block(HEAP_INSERT_BLKREF_VM, rloc, &vmb),],
                 )?
             } else {
-                crate::wal::insert_record(
-                    RM_HEAP_ID,
-                    info,
-                    XLOG_INCLUDE_ORIGIN,
-                    &[&xlrec],
-                    &[heap],
-                )?
+                crate::wal::insert_record(RM_HEAP_ID, info, XLOG_INCLUDE_ORIGIN, &[&xlrec], &[heap],)?
             };
             // SAFETY: pinned + exclusively locked since RelationGetBufferForTuple.
             let mut pm =
@@ -573,7 +560,8 @@ pub fn heap_multi_insert<'mcx>(
     let need_cids = relation_is_accessible_in_logical_decoding(relation);
     let xid = xact_seams::get_current_transaction_id::call()?;
     let needwal = relation_needs_wal(relation);
-    let save_free_space = relation.get_target_page_free_space(crate::hio::HEAP_DEFAULT_FILLFACTOR);
+    let save_free_space =
+        relation.get_target_page_free_space(crate::hio::HEAP_DEFAULT_FILLFACTOR);
     let ntuples = slots.len();
 
     // std Vecs: droppy owners (contexts) and per-call scratch views — neither
@@ -590,15 +578,10 @@ pub fn heap_multi_insert<'mcx>(
         // is written back below, as C does.
         let mut copied: Option<HeapTupleData<'_>> = None;
         let tuple = match &mut **slot {
-            SlotData::Heap(h) => h
-                .tuple
-                .as_mut()
-                .expect("materialized heap slot holds a tuple"),
-            SlotData::BufferHeap(b) => b
-                .base
-                .tuple
-                .as_mut()
-                .expect("materialized heap slot holds a tuple"),
+            SlotData::Heap(h) =>
+                h.tuple.as_mut().expect("materialized heap slot holds a tuple"),
+            SlotData::BufferHeap(b) =>
+                b.base.tuple.as_mut().expect("materialized heap slot holds a tuple"),
             other => {
                 let copy_ctx = ::mcx::MemoryContext::new("heap_multi_insert_copy");
                 let mut t = exectuples::exec_copy_slot_heap_tuple(other, mcx, copy_ctx.mcx())?;
@@ -751,8 +734,7 @@ pub fn heap_multi_insert<'mcx>(
             }
             let mut nthispage = 1usize;
             while ndone + nthispage < ntuples {
-                let need =
-                    ((heaptuples[ndone + nthispage].t_len as usize + 7) & !7) + save_free_space;
+                let need = ((heaptuples[ndone + nthispage].t_len as usize + 7) & !7) + save_free_space;
                 if pin.page().heap_free_space() < need {
                     break;
                 }
@@ -871,19 +853,10 @@ pub fn heap_multi_insert<'mcx>(
                         info,
                         XLOG_INCLUDE_ORIGIN,
                         &main_data,
-                        &[
-                            heap,
-                            crate::wal::reg_vm_block(HEAP_MULTI_INSERT_BLKREF_VM, rloc, &vmb),
-                        ],
+                        &[heap, crate::wal::reg_vm_block(HEAP_MULTI_INSERT_BLKREF_VM, rloc, &vmb),],
                     )?
                 } else {
-                    crate::wal::insert_record(
-                        RM_HEAP2_ID,
-                        info,
-                        XLOG_INCLUDE_ORIGIN,
-                        &main_data,
-                        &[heap],
-                    )?
+                    crate::wal::insert_record(RM_HEAP2_ID, info, XLOG_INCLUDE_ORIGIN, &main_data, &[heap],)?
                 };
                 // SAFETY: pinned + exclusively locked since RelationGetBufferForTuple.
                 let mut pm =
@@ -1814,10 +1787,7 @@ pub fn heap_delete(
                     XLOG_HEAP_DELETE,
                     XLOG_INCLUDE_ORIGIN,
                     &main_data[..n_main],
-                    &[
-                        heap,
-                        crate::wal::reg_vm_block(HEAP_DELETE_BLKREF_VM, rloc, &vmb),
-                    ],
+                    &[heap, crate::wal::reg_vm_block(HEAP_DELETE_BLKREF_VM, rloc, &vmb),],
                 )?
             } else {
                 crate::wal::insert_record(
@@ -2188,8 +2158,10 @@ pub fn heap_lock_tuple(
                             LockWaitPolicy::LockWaitError => {
                                 // heapam.c:5232: log_lock_failures reaches
                                 // ConditionalXactLockTableWait.
-                                if !lmgr::ConditionalXactLockTableWait(xwait, log_lock_failures())?
-                                {
+                                if !lmgr::ConditionalXactLockTableWait(
+                                    xwait,
+                                    log_lock_failures()
+                                )? {
                                     return Err(could_not_obtain_row_lock(relation));
                                 }
                             }
@@ -2350,10 +2322,7 @@ pub fn heap_lock_tuple(
                     XLOG_HEAP_LOCK,
                     0,
                     &[&xlrec],
-                    &[
-                        heap,
-                        crate::wal::reg_vm_block(HEAP_LOCK_BLKREF_VM, rloc, &vmb),
-                    ],
+                    &[heap, crate::wal::reg_vm_block(HEAP_LOCK_BLKREF_VM, rloc, &vmb),],
                 )?
             } else {
                 crate::wal::insert_record(RM_HEAP_ID, XLOG_HEAP_LOCK, 0, &[&xlrec], &[heap])?
@@ -2605,11 +2574,7 @@ fn log_heap_update(
             )
         };
         let minlen = oldp.len().min(newp.len());
-        prefixlen = oldp[..minlen]
-            .iter()
-            .zip(&newp[..minlen])
-            .take_while(|(a, b)| a == b)
-            .count();
+        prefixlen = oldp[..minlen].iter().zip(&newp[..minlen]).take_while(|(a, b)| a == b).count();
         if prefixlen < 3 {
             prefixlen = 0;
         }
@@ -3120,10 +3085,8 @@ pub fn heap_update(
             if relation_needs_wal(relation) {
                 let mut xlrec = [0u8; 8];
                 xlrec[0..4].copy_from_slice(&xmax_lock_old_tuple.to_ne_bytes());
-                xlrec[4..6]
-                    .copy_from_slice(&ItemPointerGetOffsetNumber(&oldtup.t_self).to_ne_bytes());
-                xlrec[6] =
-                    compute_infobits(oldtup.t_data().t_infomask, oldtup.t_data().t_infomask2);
+                xlrec[4..6].copy_from_slice(&ItemPointerGetOffsetNumber(&oldtup.t_self).to_ne_bytes());
+                xlrec[6] = compute_infobits(oldtup.t_data().t_infomask, oldtup.t_data().t_infomask2);
                 xlrec[7] = if cleared_all_frozen {
                     XLH_LOCK_ALL_FROZEN_CLEARED
                 } else {
@@ -3144,10 +3107,7 @@ pub fn heap_update(
                         XLOG_HEAP_LOCK,
                         0,
                         &[&xlrec],
-                        &[
-                            heap,
-                            crate::wal::reg_vm_block(HEAP_LOCK_BLKREF_VM, rloc, &lock_vmb),
-                        ],
+                        &[heap, crate::wal::reg_vm_block(HEAP_LOCK_BLKREF_VM, rloc, &lock_vmb),],
                     )?
                 } else {
                     crate::wal::insert_record(RM_HEAP_ID, XLOG_HEAP_LOCK, 0, &[&xlrec], &[heap])?
@@ -3221,8 +3181,14 @@ pub fn heap_update(
         loop {
             if newtupsize > pagefree {
                 // It doesn't fit, must use RelationGetBufferForTuple.
-                let np =
-                    RelationGetBufferForTuple(relation, ht_len as usize, Some(&pin), 0, None, 0)?;
+                let np = RelationGetBufferForTuple(
+                    relation,
+                    ht_len as usize,
+                    Some(&pin),
+                    0,
+                    None,
+                    0
+                )?;
                 // hio.c:635: the old page itself is handed back (newbuf ==
                 // buffer), which is a same-page update.
                 newpin = (np.block_number() != pin.block_number()).then_some(np);
@@ -3328,7 +3294,9 @@ pub fn heap_update(
             clear_all_visible.then_some(&vmb),
             clear_all_visible_new.then_some(&vmb_new),
         ];
-        if clear_all_visible && clear_all_visible_new && vmb.block_number() > vmb_new.block_number()
+        if clear_all_visible
+            && clear_all_visible_new
+            && vmb.block_number() > vmb_new.block_number()
         {
             vmbuffers.swap(0, 1);
         }
@@ -3660,12 +3628,8 @@ pub(crate) fn datum_is_equal(
         },
         -2 => unsafe {
             (
-                core::ffi::CStr::from_ptr(p1.cast())
-                    .to_bytes_with_nul()
-                    .len(),
-                core::ffi::CStr::from_ptr(p2.cast())
-                    .to_bytes_with_nul()
-                    .len(),
+                core::ffi::CStr::from_ptr(p1.cast()).to_bytes_with_nul().len(),
+                core::ffi::CStr::from_ptr(p2.cast()).to_bytes_with_nul().len(),
             )
         },
         other => panic!("datumGetSize (datum.c:96): invalid typLen {other}"),
@@ -3960,10 +3924,7 @@ fn heap_lock_updated_tuple_rec(
                                 XLOG_HEAP2_LOCK_UPDATED,
                                 0,
                                 &[&xlrec],
-                                &[
-                                    heap,
-                                    crate::wal::reg_vm_block(HEAP_LOCK_BLKREF_VM, rloc, &vmb),
-                                ],
+                                &[heap, crate::wal::reg_vm_block(HEAP_LOCK_BLKREF_VM, rloc, &vmb),],
                             )?
                         } else {
                             crate::wal::insert_record(

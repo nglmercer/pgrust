@@ -1,6 +1,4 @@
-#![allow(non_snake_case)]
-#![allow(non_upper_case_globals)]
-#![allow(non_camel_case_types)]
+#![allow(non_camel_case_types, non_snake_case, non_upper_case_globals)]
 
 use elog::{elog, ereport};
 use logical::{filter_by_origin_cb_wrapper, LogicalDecodingContext};
@@ -1581,13 +1579,14 @@ fn pgrc_decode(ctx: &mut LogicalDecodingContext, buf: XLogRecordBuffer) -> PgRes
                 .snapshot_builder
                 .process_change(&mut ctx.reorder, xid, buf.origptr)
                 && !ctx.fast_forward
-            => {
+            =>
+            {
                 if info == XLOG_PGRC_BULK_ROWS {
                     decode_pgrc_bulk_rows(ctx, buf)?;
                 } else {
                     decode_pgrc_row(ctx, buf, info)?;
-                }
             }
+        }
         _ => {}
     }
     Ok(())

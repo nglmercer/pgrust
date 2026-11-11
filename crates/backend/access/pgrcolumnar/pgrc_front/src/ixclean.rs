@@ -35,10 +35,7 @@ use types_core::{ForkNumber, Oid, TransactionId};
 use types_error::PgResult;
 use types_rel::{AccessShareLock, NoLock, Relation, RelationData};
 use types_snapshot::{SnapshotData, SnapshotType};
-use types_tuple::{
-    FirstOffsetNumber, HeapTupleHeaderData, ItemPointerData, ItemPointerGetBlockNumberNoCheck,
-    ItemPointerGetOffsetNumberNoCheck, ItemPointerSet,
-};
+use types_tuple::{FirstOffsetNumber, HeapTupleHeaderData, ItemPointerData, ItemPointerGetBlockNumberNoCheck, ItemPointerGetOffsetNumberNoCheck, ItemPointerSet,};
 
 use crate::position::{self, Located};
 
@@ -104,25 +101,8 @@ impl<'mcx> Check<'mcx> {
         }
         let gen = crate::ring::newest(rel)?;
         let ext = rowid_alloc::extents(&dir)?;
-        let h_fold = crate::tombs::state(gen.as_deref())?
-            .ret
-            .map_or(0, |r| r.folded);
-        Ok(Check {
-            mcx,
-            mode,
-            rel: rel.alias(),
-            flights,
-            gen,
-            dir,
-            ext,
-            h_fold,
-            segs: Vec::new(),
-            pending: None,
-            tombs: None,
-            ahead: Vec::new(),
-            read: Vec::new(),
-            window: AHEAD_FIRST,
-        })
+        let h_fold = crate::tombs::state(gen.as_deref())?.ret.map_or(0, |r| r.folded);
+        Ok(Check { mcx, mode, rel: rel.alias(), flights, gen, dir, ext, h_fold, segs: Vec::new(), pending: None, tombs: None, ahead: Vec::new(), read: Vec::new(), window: AHEAD_FIRST, })
     }
 
     pub(crate) fn end(self) -> PgResult<()> {
@@ -145,27 +125,13 @@ impl<'mcx> Check<'mcx> {
     fn home(&self, id: u64) -> PgResult<Home> {
         let gen = self.gen.as_ref();
         let dir = &self.dir;
-        let map_of = |p: usize| -> PgResult<Arc<RowMap>> {
-            gen.expect("a part home has a generation").row_map(p, dir)
-        };
+        let map_of = |p: usize| -> PgResult<Arc<RowMap>> { gen.expect("a part home has a generation").row_map(p, dir) };
         Ok(match position::home_in(gen, &[], &self.ext, id, &map_of)? {
             None => Home::None,
             Some(Located::Segment { relid, tid, .. }) => Home::Segment { relid, tid },
-            Some(Located::Part {
-                gen,
-                part,
-                granule,
-                row,
-                ..
-            }) => {
-                let mask = gen
-                    .parts
-                    .get(part)
-                    .and_then(|p| p.deletes.as_ref())
-                    .and_then(|d| d.granule_mask(granule));
-                Home::Part {
-                    dv: mask.is_some_and(|m| m[row as usize / 64] >> (row % 64) & 1 == 1),
-                }
+            Some(Located::Part { gen, part, granule, row, .. }) => {
+                let mask = gen.parts.get(part).and_then(|p| p.deletes.as_ref()).and_then(|d| d.granule_mask(granule));
+                Home::Part { dv: mask.is_some_and(|m| m[row as usize / 64] >> (row % 64) & 1 == 1), }
             }
         })
     }
@@ -190,35 +156,22 @@ impl<'mcx> Check<'mcx> {
                 if gen.is_some_and(|g| g.home(id).is_some()) {
                     return Ok(Some(Why::Fold));
                 }
-                let Some((p, _)) = self.ext.seg_of(id) else {
-                    return Ok(Some(Why::Fold));
-                };
+                let Some((p, _)) = self.ext.seg_of(id) else { return Ok(Some(Why::Fold)); };
                 if gen.is_some_and(|g| g.segments.iter().any(|r| r.part_no == p)) {
                     return Ok(Some(Why::Fold));
                 }
                 Ok((!self.pending()?.contains(&p)).then_some(Why::Fold))
             }
             Home::Part { dv: true } => Ok(Some(Why::Fold)),
-            Home::Part { dv: false } => {
-                if tombs {
-                    self.deleted(id)
-                } else {
-                    Ok(None)
-                }
+            Home::Part { dv: false } => { if tombs { self.deleted(id) } else { Ok(None) }
             }
             Home::Segment { relid, tid } => {
                 let mcx = self.mcx;
-                let Some(seg) = self.segment(relid)? else {
-                    return Ok(None);
-                };
+                let Some(seg) = self.segment(relid)? else { return Ok(None); };
                 if let Some(h) = segment_dead(mcx, seg, &tid)? {
                     return Ok(Some(Why::Segment(h)));
                 }
-                if tombs {
-                    self.deleted(id)
-                } else {
-                    Ok(None)
-                }
+                if tombs { self.deleted(id) } else { Ok(None) }
             }
         }
     }
@@ -227,15 +180,12 @@ impl<'mcx> Check<'mcx> {
         if self.pending.is_none() {
             let l = self.rel.rd_locator.get();
             let check = pgrc_am::probe::UnabortedCheck::new();
-            let segs =
-                match pgrc_am::catalog::visible((l.spcOid, l.dbOid, l.relNumber as u64), &check)? {
-                    pgrc_am::catalog::Lookup::Gen(g) => {
-                        g.segments.iter().map(|r| r.part_no).collect()
+            let segs = match pgrc_am::catalog::visible((l.spcOid, l.dbOid, l.relNumber as u64), &check)? {
+                pgrc_am::catalog::Lookup::Gen(g) => { g.segments.iter().map(|r| r.part_no).collect()
                     }
-                    pgrc_am::catalog::Lookup::Empty | pgrc_am::catalog::Lookup::Unknown => {
-                        Vec::new()
+                pgrc_am::catalog::Lookup::Empty | pgrc_am::catalog::Lookup::Unknown => { Vec::new()
                     }
-                };
+            };
             self.pending = Some(segs);
         }
         Ok(self.pending.as_deref().expect("just read"))
@@ -261,8 +211,7 @@ impl<'mcx> Check<'mcx> {
                 true => table::table_open(self.mcx, relid, NoLock).map(Some),
                 false => Ok(None),
             },
-            Mode::Collect | Mode::Vacuum => {
-                table::table_open(self.mcx, relid, AccessShareLock).map(Some)
+            Mode::Collect | Mode::Vacuum => { table::table_open(self.mcx, relid, AccessShareLock).map(Some)
             }
         }
     }
@@ -304,29 +253,18 @@ impl<'mcx> Check<'mcx> {
         if hit.state != TombState::Committed {
             return Ok(None);
         }
-        let removable = procarray::GlobalVisTestIsRemovableXid(
-            procarray::GlobalVisTestFor(&self.rel),
-            hit.xmin,
-        )?;
+        let removable = procarray::GlobalVisTestIsRemovableXid(procarray::GlobalVisTestFor(&self.rel), hit.xmin,)?;
         Ok(removable.then_some(Why::Deleter(hit.xmin)))
     }
 
     fn read_ahead(&mut self, id: u64) -> PgResult<Option<TombHit>> {
         let mut ids = vec![id];
-        for k in self
-            .ahead
-            .iter()
-            .position(|&x| x == id)
-            .map_or(self.ahead.len(), |p| p + 1)..self.ahead.len()
-        {
+        for k in self.ahead.iter().position(|&x| x == id).map_or(self.ahead.len(), |p| p + 1)..self.ahead.len() {
             if ids.len() >= self.window {
                 break;
             }
             let x = self.ahead[k];
-            if matches!(
-                self.home(x)?,
-                Home::Part { dv: false } | Home::Segment { .. }
-            ) {
+            if matches!(self.home(x)?, Home::Part { dv: false } | Home::Segment { .. }) {
                 ids.push(x);
             }
         }
@@ -335,24 +273,15 @@ impl<'mcx> Check<'mcx> {
         self.window = (self.window * 2).min(AHEAD_MAX);
         let mcx = self.mcx;
         let mut hits: Vec<Option<TombHit>> = Vec::new();
-        hits.try_reserve(ids.len())
-            .map_err(|_| mcx.oom(ids.len() * core::mem::size_of::<Option<TombHit>>()))?;
+        hits.try_reserve(ids.len()).map_err(|_| mcx.oom(ids.len() * core::mem::size_of::<Option<TombHit>>()))?;
         hits.resize(ids.len(), None);
         let heaps = self.tomb_heaps()?.expect("deleted() opened them");
         for h in heaps {
-            let todo: Vec<u64> = ids
-                .iter()
-                .zip(&hits)
-                .filter(|(_, f)| f.is_none())
-                .map(|(&x, _)| x)
-                .collect();
+            let todo: Vec<u64> = ids.iter().zip(&hits).filter(|(_, f)| f.is_none()).map(|(&x, _)| x).collect();
             if todo.is_empty() {
                 break;
             }
-            let dirty: Snapshot<'mcx> = Some(Rc::new(SnapshotData::sentinel(
-                mcx,
-                SnapshotType::SNAPSHOT_DIRTY,
-            )));
+            let dirty: Snapshot<'mcx> = Some(Rc::new(SnapshotData::sentinel(mcx, SnapshotType::SNAPSHOT_DIRTY,)));
             crate::ixfetch::stats(|s| s.delete_tomb_scans += 1);
             pgrc_front_seams::tomb_probe_many::call(mcx, &h.rel, &todo, &dirty, &mut |r, f| {
                 if !f.is_lock() {
@@ -362,26 +291,19 @@ impl<'mcx> Check<'mcx> {
                 }
             })?;
         }
-        let first = hits[ids
-            .binary_search(&id)
-            .expect("the asked ID is in its window")];
+        let first = hits[ids.binary_search(&id).expect("the asked ID is in its window")];
         self.read = ids.into_iter().zip(hits).collect();
         Ok(first)
     }
 }
 
 /// A TID past the heap, an unused or redirect item names no row: not dead.
-pub(crate) fn segment_dead<'mcx>(
-    mcx: Mcx<'mcx>,
-    seg: &Relation<'mcx>,
-    tid: &ItemPointerData,
-) -> PgResult<Option<TransactionId>> {
+pub(crate) fn segment_dead<'mcx>(mcx: Mcx<'mcx>, seg: &Relation<'mcx>, tid: &ItemPointerData,) -> PgResult<Option<TransactionId>> {
     let blk = ItemPointerGetBlockNumberNoCheck(tid);
     if blk >= bufmgr::RelationGetNumberOfBlocksInFork(seg, ForkNumber::MAIN_FORKNUM)? {
         return Ok(None);
     }
-    let pin = BufferPin::adopt(bufmgr_seams::read_buffer::call(seg, blk)?)
-        .expect("ReadBuffer returned InvalidBuffer");
+    let pin = BufferPin::adopt(bufmgr_seams::read_buffer::call(seg, blk)?).expect("ReadBuffer returned InvalidBuffer");
     if let Err(e) = bufmgr_seams::lock_buffer::call(pin.buffer(), BUFFER_LOCK_SHARE) {
         pin.release();
         return Err(e);
@@ -394,12 +316,7 @@ pub(crate) fn segment_dead<'mcx>(
     Ok(out)
 }
 
-fn segment_item_dead<'mcx>(
-    mcx: Mcx<'mcx>,
-    seg: &Relation<'mcx>,
-    pin: &BufferPin,
-    tid: &ItemPointerData,
-) -> PgResult<Option<TransactionId>> {
+fn segment_item_dead<'mcx>(mcx: Mcx<'mcx>, seg: &Relation<'mcx>, pin: &BufferPin, tid: &ItemPointerData,) -> PgResult<Option<TransactionId>> {
     let page = pin.page();
     let off = ItemPointerGetOffsetNumberNoCheck(tid);
     if off < FirstOffsetNumber || off > page.max_offset_number() {
@@ -426,11 +343,7 @@ fn segment_item_dead<'mcx>(
 }
 
 fn later(a: TransactionId, b: TransactionId) -> TransactionId {
-    if !TransactionIdIsValid(a) || (TransactionIdIsValid(b) && TransactionIdPrecedes(a, b)) {
-        b
-    } else {
-        a
-    }
+    if !TransactionIdIsValid(a) || (TransactionIdIsValid(b) && TransactionIdPrecedes(a, b)) { b } else { a }
 }
 
 /// A full xid's 32-bit horizon: none for 0, or for one 2^31 or more xids back (every snapshot that can run is newer).
@@ -439,11 +352,7 @@ fn xid_of_full(full: u64) -> PgResult<TransactionId> {
         return Ok(InvalidTransactionId);
     }
     let now = varsup::ReadNextFullTransactionId()?.value;
-    Ok(if now.saturating_sub(full) >= 1 << 31 {
-        InvalidTransactionId
-    } else {
-        full as TransactionId
-    })
+    Ok(if now.saturating_sub(full) >= 1 << 31 { InvalidTransactionId } else { full as TransactionId })
 }
 
 /// A recent 32-bit xid's full xid (0 for none): the epoch of the next xid, or the one before for an xid past it.
@@ -453,11 +362,7 @@ fn full_of_xid(xid: TransactionId) -> PgResult<u64> {
     }
     let next = varsup::ReadNextFullTransactionId()?.value;
     let full = (next & !0xffff_ffff) | u64::from(xid);
-    Ok(if full > next {
-        full.saturating_sub(1 << 32)
-    } else {
-        full
-    })
+    Ok(if full > next { full.saturating_sub(1 << 32) } else { full })
 }
 
 fn id_at(tid: &ItemPointerData) -> Option<u64> {
@@ -474,25 +379,15 @@ fn tid_at(id: u64) -> ItemPointerData {
 /// The standby conflict record ahead of a removal (`xl_btree_reuse_page` on the table's first index, a pure conflict
 /// point, as a fold's reset logs it): standby snapshots at or before `horizon` (a full xid) are cancelled.
 fn log_conflict<'mcx>(mcx: Mcx<'mcx>, rel: &Relation<'mcx>, horizon: u64) -> PgResult<()> {
-    if horizon == 0 || !rel.is_permanent() || !transam_xlog_seams::xlog_standby_info_active::call()
-    {
+    if horizon == 0 || !rel.is_permanent() || !transam_xlog_seams::xlog_standby_info_active::call() {
         return Ok(());
     }
     let indexes = relcache_seams::relation_get_index_list::call(mcx, rel.rd_id)?;
-    let Some(&idx) = indexes.first() else {
-        return Ok(());
-    };
+    let Some(&idx) = indexes.first() else { return Ok(()); };
     let index = relation_seams::relation_open::call(mcx, idx, NoLock)?;
     let body = crate::compile::reuse_page(index.rd_locator.get(), horizon);
     index.close(NoLock)?;
-    xloginsert_seams::xlog_insert_record::call(
-        types_core::RmgrIds::RM_BTREE_ID as u8,
-        types_nbtree::XLOG_BTREE_REUSE_PAGE,
-        0,
-        &[&body],
-        &[],
-    )
-    .map(drop)
+    xloginsert_seams::xlog_insert_record::call(types_core::RmgrIds::RM_BTREE_ID as u8, types_nbtree::XLOG_BTREE_REUSE_PAGE, 0, &[&body], &[],).map(drop)
 }
 
 pub fn vacuum_dead<'mcx>(
@@ -563,11 +458,7 @@ fn vacuum_dead_in<'mcx>(
 /// gets the newest horizon for it. A bottom-up pass stops at the free space it asked for, after
 /// [`BOTTOMUP_MAX_CHECKS`] TIDs, or after a [`BOTTOMUP_GROUP`] of the TIDs that need a tombstone read that freed
 /// nothing, and keeps those it checked (`ndeltids`), as heap's.
-pub fn index_delete_tuples<'mcx>(
-    mcx: Mcx<'mcx>,
-    rel: &Relation<'mcx>,
-    delstate: &mut TM_IndexDeleteOp<'mcx>,
-) -> PgResult<TransactionId> {
+pub fn index_delete_tuples<'mcx>(mcx: Mcx<'mcx>, rel: &Relation<'mcx>, delstate: &mut TM_IndexDeleteOp<'mcx>,) -> PgResult<TransactionId> {
     let n = delstate.ndeltids as usize;
     if n == 0 {
         return Ok(InvalidTransactionId);
@@ -577,33 +468,17 @@ pub fn index_delete_tuples<'mcx>(
         let parts = match delstate.bottomup {
             true => bottomup_order(&chk, delstate, n)?,
             false => {
-                delstate.deltids[..n].sort_unstable_by_key(|d| {
-                    (
-                        ItemPointerGetBlockNumberNoCheck(&d.tid),
-                        ItemPointerGetOffsetNumberNoCheck(&d.tid),
-                    )
+                delstate.deltids[..n].sort_unstable_by_key(|d| { (ItemPointerGetBlockNumberNoCheck(&d.tid), ItemPointerGetOffsetNumberNoCheck(&d.tid),)
                 });
                 n
             }
         };
-        let asked = if delstate.bottomup {
-            n.min(BOTTOMUP_MAX_CHECKS)
-        } else {
-            n
-        };
-        let mut ahead_to = if delstate.bottomup {
-            asked.min(parts + BOTTOMUP_GROUP)
-        } else {
-            asked
-        };
-        chk.ahead = delstate.deltids[..ahead_to]
-            .iter()
-            .filter_map(|d| id_at(&d.tid))
-            .collect();
+        let asked = if delstate.bottomup { n.min(BOTTOMUP_MAX_CHECKS) } else { n };
+        let mut ahead_to = if delstate.bottomup { asked.min(parts + BOTTOMUP_GROUP) } else { asked };
+        chk.ahead = delstate.deltids[..ahead_to].iter().filter_map(|d| id_at(&d.tid)).collect();
         chk.ahead.dedup();
         let h_fold = xid_of_full(chk.h_fold)?;
-        let (mut horizon, mut freed, mut done, mut deletable, mut at_group) =
-            (InvalidTransactionId, 0i32, n, 0u64, 0u64);
+        let (mut horizon, mut freed, mut done, mut deletable, mut at_group) = (InvalidTransactionId, 0i32, n, 0u64, 0u64);
         for i in 0..n {
             if delstate.bottomup && i >= parts && (i - parts) % BOTTOMUP_GROUP == 0 {
                 if i > parts && deletable == at_group {
@@ -613,11 +488,7 @@ pub fn index_delete_tuples<'mcx>(
                 at_group = deletable;
                 let to = asked.min(i + BOTTOMUP_GROUP);
                 if to > ahead_to {
-                    chk.ahead.extend(
-                        delstate.deltids[ahead_to..to]
-                            .iter()
-                            .filter_map(|d| id_at(&d.tid)),
-                    );
+                    chk.ahead.extend(delstate.deltids[ahead_to..to].iter().filter_map(|d| id_at(&d.tid)),);
                     ahead_to = to;
                 }
             }
@@ -631,13 +502,10 @@ pub fn index_delete_tuples<'mcx>(
                 Some(w) => {
                     st.knowndeletable = true;
                     deletable += 1;
-                    horizon = later(
-                        horizon,
-                        match w {
-                            Why::Fold => h_fold,
-                            Why::Deleter(x) | Why::Segment(x) => x,
-                        },
-                    );
+                    horizon = later(horizon, match w {
+                        Why::Fold => h_fold,
+                        Why::Deleter(x) | Why::Segment(x) => x,
+                    },);
                     if delstate.bottomup {
                         freed += i32::from(st.freespace);
                     }
@@ -649,9 +517,7 @@ pub fn index_delete_tuples<'mcx>(
                 }
                 None => {}
             }
-            if delstate.bottomup
-                && (freed >= delstate.bottomupfreespace || i + 1 >= BOTTOMUP_MAX_CHECKS)
-            {
+            if delstate.bottomup && (freed >= delstate.bottomupfreespace || i + 1 >= BOTTOMUP_MAX_CHECKS) {
                 done = i + 1;
                 break;
             }
@@ -677,34 +543,18 @@ pub fn index_delete_tuples<'mcx>(
 /// judges (no home, a DV bit, a segment row), then the part rows that need one, then a TID that names no ID; within
 /// each, nbtree's promising TIDs, then the newest IDs (a rolled-back statement's versions). Only the order the budget is
 /// spent in changes, never what is deletable. Returns how many TIDs come before the part rows.
-fn bottomup_order(
-    chk: &Check<'_>,
-    delstate: &mut TM_IndexDeleteOp<'_>,
-    n: usize,
-) -> PgResult<usize> {
+fn bottomup_order(chk: &Check<'_>, delstate: &mut TM_IndexDeleteOp<'_>, n: usize,) -> PgResult<usize> {
     let mut keyed: Vec<((u8, bool, std::cmp::Reverse<u64>), TM_IndexDelete)> = Vec::new();
-    keyed.try_reserve(n).map_err(|_| {
-        chk.mcx
-            .oom(n * core::mem::size_of::<((u8, bool, std::cmp::Reverse<u64>), TM_IndexDelete)>())
+    keyed.try_reserve(n).map_err(|_| { chk.mcx.oom(n * core::mem::size_of::<((u8, bool, std::cmp::Reverse<u64>), TM_IndexDelete)>())
     })?;
     let mut cheap = 0;
     for &d in &delstate.deltids[..n] {
         let (class, id) = match id_at(&d.tid) {
-            Some(id) => (
-                u8::from(matches!(chk.home(id)?, Home::Part { dv: false })),
-                id,
-            ),
+            Some(id) => (u8::from(matches!(chk.home(id)?, Home::Part { dv: false })), id,),
             None => (2, 0),
         };
         cheap += usize::from(class == 0);
-        keyed.push((
-            (
-                class,
-                !delstate.status[d.id as usize].promising,
-                std::cmp::Reverse(id),
-            ),
-            d,
-        ));
+        keyed.push(((class, !delstate.status[d.id as usize].promising, std::cmp::Reverse(id),), d,));
     }
     keyed.sort_unstable_by_key(|&(k, _)| k);
     for (slot, (_, d)) in delstate.deltids[..n].iter_mut().zip(keyed) {

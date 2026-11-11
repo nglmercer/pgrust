@@ -20,45 +20,22 @@ fn page() -> usize {
 /// The kernel's (major, minor).
 fn kernel() -> (u32, u32) {
     let r = std::fs::read_to_string("/proc/sys/kernel/osrelease").unwrap_or_default();
-    let mut it = r
-        .trim()
-        .split(|c: char| !c.is_ascii_digit())
-        .filter_map(|x| x.parse().ok());
+    let mut it = r.trim().split(|c: char| !c.is_ascii_digit()).filter_map(|x| x.parse().ok());
     (it.next().unwrap_or(0), it.next().unwrap_or(0))
 }
 
 fn thp_host() -> bool {
-    std::fs::read_to_string("/sys/kernel/mm/transparent_hugepage/enabled")
-        .is_ok_and(|s| !s.contains("[never]"))
+    std::fs::read_to_string("/sys/kernel/mm/transparent_hugepage/enabled").is_ok_and(|s| !s.contains("[never]"))
 }
 
 /// An anonymous private mapping of `len` bytes, its start aligned to `align`.
 fn map(len: usize, align: usize, huge: bool) -> usize {
     // SAFETY: a fresh private anonymous mapping, ours until the process ends.
-    let p = unsafe {
-        libc::mmap(
-            core::ptr::null_mut(),
-            len + align,
-            libc::PROT_READ | libc::PROT_WRITE,
-            libc::MAP_PRIVATE | libc::MAP_ANONYMOUS,
-            -1,
-            0,
-        )
-    };
+    let p = unsafe { libc::mmap(core::ptr::null_mut(), len + align, libc::PROT_READ | libc::PROT_WRITE, libc::MAP_PRIVATE | libc::MAP_ANONYMOUS, -1, 0,) };
     assert_ne!(p, libc::MAP_FAILED);
     let a = (p as usize).next_multiple_of(align);
     // SAFETY: advice over our own mapping.
-    unsafe {
-        libc::madvise(
-            a as *mut libc::c_void,
-            len,
-            if huge {
-                libc::MADV_HUGEPAGE
-            } else {
-                libc::MADV_NOHUGEPAGE
-            },
-        )
-    };
+    unsafe { libc::madvise(a as *mut libc::c_void, len, if huge { libc::MADV_HUGEPAGE } else { libc::MADV_NOHUGEPAGE },) };
     a
 }
 
@@ -84,9 +61,7 @@ fn pagemap(at: usize, pages: usize) -> Vec<u64> {
     f.seek(SeekFrom::Start((at / page() * 8) as u64)).unwrap();
     let mut b = vec![0u8; pages * 8];
     f.read_exact(&mut b).unwrap();
-    b.chunks_exact(8)
-        .map(|c| u64::from_le_bytes(c.try_into().unwrap()))
-        .collect()
+    b.chunks_exact(8).map(|c| u64::from_le_bytes(c.try_into().unwrap())).collect()
 }
 
 /// Root's count over every readable pgrust:pool mapping (the pool's zones and its metadata): (present pages not the
@@ -101,17 +76,10 @@ fn root_count(zp: u64) -> (usize, usize) {
             continue;
         }
         let (a, b) = range.split_once('-').unwrap();
-        let (a, b) = (
-            usize::from_str_radix(a, 16).unwrap(),
-            usize::from_str_radix(b, 16).unwrap(),
-        );
+        let (a, b) = (usize::from_str_radix(a, 16).unwrap(), usize::from_str_radix(b, 16).unwrap(),);
         for e in pagemap(a, (b - a) / page()) {
             if e >> 63 != 0 {
-                if e & ((1 << 55) - 1) == zp {
-                    zero += page()
-                } else {
-                    res += page()
-                }
+                if e & ((1 << 55) - 1) == zp { zero += page() } else { res += page() }
             }
         }
     }
@@ -131,32 +99,17 @@ fn present_leaves_out_zero_pages() {
     (0..10).for_each(|i| write(p + i * pg));
     (10..30).for_each(|i| assert_eq!(read(p + i * pg), 0));
     let (r, z, scanned) = residency_seam(p, 64 * pg, false).expect("a reading");
-    assert_eq!(
-        scanned, scan_kernel,
-        "PAGEMAP_SCAN read it, unprivileged, from 6.7 on"
-    );
+    assert_eq!(scanned, scan_kernel, "PAGEMAP_SCAN read it, unprivileged, from 6.7 on");
     if scanned {
-        assert!(
-            z == 20 * pg && whole_but_swap(r, 10 * pg, sw0),
-            "written pages resident, zero-page reads apart: {r} {z}"
-        );
+        assert!(z == 20 * pg && whole_but_swap(r, 10 * pg, sw0), "written pages resident, zero-page reads apart: {r} {z}");
     } else {
-        assert!(
-            z == 0 && whole_but_swap(r, 30 * pg, sw0),
-            "mincore: zero-page reads counted resident: {r}"
-        );
+        assert!(z == 0 && whole_but_swap(r, 30 * pg, sw0), "mincore: zero-page reads counted resident: {r}");
     }
     let (m, mz, ms) = residency_seam(p, 64 * pg, true).expect("a mincore reading");
-    assert!(
-        mz == 0 && !ms && whole_but_swap(m, 30 * pg, sw0),
-        "mincore as before: {m}"
-    );
+    assert!(mz == 0 && !ms && whole_but_swap(m, 30 * pg, sw0), "mincore as before: {m}");
     // D4877: a give-back's read (bytes in RAM) is the default reader's where nothing is swapped or in migration
     let (g, gz) = in_ram_seam(p, 64 * pg).expect("a give-back reading");
-    assert!(
-        gz == z && whole_but_swap(g, if scanned { 10 } else { 30 } * pg, sw0),
-        "the give-back read: {g} {gz}"
-    );
+    assert!(gz == z && whole_but_swap(g, if scanned { 10 } else { 30 } * pg, sw0), "the give-back read: {g} {gz}");
 
     // a THP split remaps the all-zero subpages to the zero page (6.12 on)
     if thp_host() {
@@ -167,16 +120,10 @@ fn present_leaves_out_zero_pages() {
             // SAFETY: advice over our own mapping (one page: the kernel splits the folio it covers in part).
             unsafe { libc::madvise(h as *mut libc::c_void, pg, 20) };
             let (r, z, scanned) = residency_seam(h, SUPER, false).unwrap();
-            assert!(
-                whole_but_swap(r + z, SUPER, sw0),
-                "the split frees nothing it was not asked to: {r} + {z}"
-            );
+            assert!(whole_but_swap(r + z, SUPER, sw0), "the split frees nothing it was not asked to: {r} + {z}");
             // a split the kernel refused (the folio busy, a host under load) remaps nothing
             if scanned && z > 0 {
-                assert!(
-                    z == SUPER - pg && whole_but_swap(r, pg, sw0),
-                    "the split's zero subpages read 0: {r} {z}"
-                );
+                assert!(z == SUPER - pg && whole_but_swap(r, pg, sw0), "the split's zero subpages read 0: {r} {z}");
             }
             println!("split: resident {r} zero {z} (kernel {:?})", kernel());
         } else {
@@ -194,9 +141,7 @@ fn present_leaves_out_zero_pages() {
         let mut held: Vec<NonNull<u8>> = Vec::new();
         let mut n = 0u64;
         while !s2.load(Relaxed) {
-            let b = take(SUPER, 64, hint)
-                .expect("a superpage block")
-                .cast::<u8>();
+            let b = take(SUPER, 64, hint).expect("a superpage block").cast::<u8>();
             let a = b.as_ptr() as usize;
             (0..SUPER / 2).step_by(64 << 10).for_each(|o| write(a + o));
             // SAFETY: the block's second half: ours, dead.
@@ -213,7 +158,7 @@ fn present_leaves_out_zero_pages() {
                 purge_now(usize::MAX, None);
             }
             // bursts of 4, then a gap a bracketed read fits in (root's pagemap read takes tens of ms)
-            if n.is_multiple_of(4) {
+            if n.is_multiple_of( 4) {
                 std::thread::sleep(std::time::Duration::from_millis(250));
             }
         }
@@ -224,10 +169,7 @@ fn present_leaves_out_zero_pages() {
     let mut seen = first;
     while ok < 3 {
         tries += 1;
-        assert!(
-            tries < 400,
-            "no stable bracket in {tries} tries ({ok} taken)"
-        );
+        assert!(tries < 400, "no stable bracket in {tries} tries ({ok} taken)");
         std::thread::sleep(std::time::Duration::from_millis(70));
         // each read after a burst of splits since the last one
         if thp_partial_counts().3 == seen {
@@ -240,21 +182,11 @@ fn present_leaves_out_zero_pages() {
         if (a1, z1) != (a2, z2) {
             continue;
         }
-        assert!(
-            s1 == scan_kernel && !ms && mz == 0,
-            "readers: scan {s1} mincore {ms}"
-        );
+        assert!(s1 == scan_kernel && !ms && mz == 0, "readers: scan {s1} mincore {ms}");
         // mincore also counts a page in the swap cache, which the scan reads as not present
-        assert!(
-            whole_but_swap(a1 + z1, m, sw0),
-            "mincore = resident + zero-page bytes: {m} vs {a1} + {z1}"
-        );
+        assert!(whole_but_swap(a1 + z1, m, sw0), "mincore = resident + zero-page bytes: {m} vs {a1} + {z1}");
         if let Some((r, z)) = root {
-            assert_eq!(
-                (a1, z1),
-                (r, z),
-                "root's pagemap: present and not the zero page, to the byte"
-            );
+            assert_eq!((a1, z1), (r, z), "root's pagemap: present and not the zero page, to the byte");
         }
         println!("read {ok}: present {a1} zero {z1} mincore {m} root {root:?} sweep {ns} ns (mincore {mns} ns)");
         seen = thp_partial_counts().3;
@@ -262,9 +194,5 @@ fn present_leaves_out_zero_pages() {
     }
     stop.store(true, Relaxed);
     let taken = splitter.join().unwrap();
-    println!(
-        "{ok} reads in {tries} tries, {taken} blocks, {} split asks, root witness {}",
-        seen - first,
-        zp != 0
-    );
+    println!("{ok} reads in {tries} tries, {taken} blocks, {} split asks, root witness {}", seen - first, zp != 0);
 }

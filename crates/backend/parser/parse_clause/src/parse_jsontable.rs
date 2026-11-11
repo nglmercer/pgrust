@@ -185,7 +185,7 @@ fn CheckDuplicateColumnOrPathNames<'mcx>(
 }
 
 fn LookupPathOrColumnName(cxt: &JsonTableParseContext<'_>, name: &str) -> bool {
-    cxt.path_names.contains(&name)
+    cxt.path_names.contains(& name)
 }
 
 fn generateJsonTablePathName<'mcx>(

@@ -31,26 +31,12 @@ fn fit_tail_commits_the_page() {
     let p = take(ask, 64, h).expect("a base span");
     assert_eq!(p.len(), want, "take hands out what usable says");
     let a = p.cast::<u8>().as_ptr() as usize;
-    assert!(
-        matches!(
-            run_of(a as *const u8).map(|i| i.kind),
-            Some(Kind::Span { superpages: 3 })
-        ),
-        "{:?}",
-        run_of(a as *const u8)
-    );
+    assert!(matches!(run_of(a as *const u8).map(|i| i.kind), Some(Kind::Span { superpages: 3 })), "{:?}", run_of(a as *const u8));
     assert_eq!(in_use() - u0, want, "in_use: the commit, not 6 MiB");
     #[cfg(feature = "global")]
-    assert_eq!(
-        usable_size(a as *const u8),
-        want,
-        "usable_size by pointer: the commit"
-    );
+    assert_eq!(usable_size(a as *const u8), want, "usable_size by pointer: the commit");
     touch(a, ask);
-    assert!(
-        resident(a + want, 3 * SUPER - want) == 0,
-        "the tail past the commit is untouched"
-    );
+    assert!(resident(a + want, 3 * SUPER - want) == 0, "the tail past the commit is untouched");
 
     // a realloc within its superpages: in place, the commit follows
     let grow = ask + 300_000;
@@ -58,27 +44,13 @@ fn fit_tail_commits_the_page() {
     let q = unsafe { resize(p.cast(), ask, grow, 64) }.expect("in place within the superpages");
     assert_eq!(q.cast::<u8>().as_ptr() as usize, a);
     assert_eq!(q.len(), grow.next_multiple_of(page));
-    assert_eq!(
-        in_use() - u0,
-        grow.next_multiple_of(page),
-        "in_use follows the grow"
-    );
+    assert_eq!(in_use() - u0, grow.next_multiple_of(page), "in_use follows the grow");
     // past its superpages, or under its commit: moved (the caller copies)
     // SAFETY: as above, `grow` bytes now.
-    assert!(
-        unsafe { resize(NonNull::new(a as *mut u8).unwrap(), grow, 7 * MIB, 64) }.is_none(),
-        "a base span does not grow past its superpages"
-    );
+    assert!(unsafe { resize(NonNull::new(a as *mut u8).unwrap(), grow, 7 * MIB, 64) }.is_none(), "a base span does not grow past its superpages");
     // SAFETY: as above.
-    assert!(
-        unsafe { resize(NonNull::new(a as *mut u8).unwrap(), grow, ask - 600_000, 64) }.is_none(),
-        "a shrink under the commit moves"
-    );
-    assert_eq!(
-        in_use() - u0,
-        grow.next_multiple_of(page),
-        "a refused resize leaves the commit"
-    );
+    assert!(unsafe { resize(NonNull::new(a as *mut u8).unwrap(), grow, ask - 600_000, 64) }.is_none(), "a shrink under the commit moves");
+    assert_eq!(in_use() - u0, grow.next_multiple_of(page), "a refused resize leaves the commit");
     // SAFETY: ours, freed once.
     unsafe { give(NonNull::new(a as *mut u8).unwrap(), grow) };
     flush_shelf();
@@ -100,20 +72,10 @@ fn fit_tail_commits_the_page() {
         let q = take(small, 64, h).expect("a base span");
         let b = q.cast::<u8>().as_ptr() as usize;
         assert_eq!(q.len(), small.next_multiple_of(page));
-        assert!(matches!(
-            run_of(b as *const u8).map(|i| i.kind),
-            Some(Kind::Span { superpages: 3 })
-        ));
-        assert_eq!(
-            resident(b + q.len(), 3 * SUPER - q.len()),
-            0,
-            "pages past the commit resident (purged: {purge})"
-        );
+        assert!(matches!(run_of(b as *const u8).map(|i| i.kind), Some(Kind::Span { superpages: 3 })));
+        assert_eq!(resident(b + q.len(), 3 * SUPER - q.len()), 0, "pages past the commit resident (purged: {purge})");
         if !purge {
-            assert_ne!(
-                b, a,
-                "a dirty base span's slots are not re-taken before the purge"
-            );
+            assert_ne!(b, a, "a dirty base span's slots are not re-taken before the purge");
         }
         // SAFETY: ours, freed once.
         unsafe { give(q.cast(), small) };

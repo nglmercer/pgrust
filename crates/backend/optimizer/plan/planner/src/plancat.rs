@@ -24,10 +24,7 @@ const RELKIND_SEQUENCE: u8 = b'S';
 pub(crate) const AMFLAG_HAS_TID_RANGE: u32 = types_pathnodes::AMFLAG_HAS_TID_RANGE;
 
 fn relkind_has_table_am(relkind: u8) -> bool {
-    matches!(
-        relkind,
-        RELKIND_RELATION | RELKIND_MATVIEW | RELKIND_TOASTVALUE
-    )
+    matches!(relkind, RELKIND_RELATION | RELKIND_MATVIEW | RELKIND_TOASTVALUE)
 }
 
 // IsSystemRelation (catalog.c:105) -> IsSystemClass: a catalog relation
@@ -117,7 +114,8 @@ pub fn get_relation_info<'mcx>(
     };
     let mut indexinfos: PgVec<'mcx, &'mcx IndexOptInfo<'mcx>> = PgVec::new_in(mcx);
     if hasindex {
-        let indexoidlist = relcache_seams::relation_get_index_list::call(mcx, relation_object_id)?;
+        let indexoidlist =
+            relcache_seams::relation_get_index_list::call(mcx, relation_object_id)?;
         let lmode = run.rte(varno as usize).rellockmode;
 
         for &indexoid in indexoidlist.iter() {
@@ -136,7 +134,8 @@ pub fn get_relation_info<'mcx>(
             // does not precede TransactionXmin -- README.HOT) is ignored and
             // the plan marked transient, so the plancache re-plans it once
             // the horizon moves (plancache.c BuildCachedPlan saved_xmin).
-            if ind.indcheckxmin && !TransactionIdPrecedes(ind.indxmin, procarray::TransactionXmin())
+            if ind.indcheckxmin
+                && !TransactionIdPrecedes(ind.indxmin, procarray::TransactionXmin())
             {
                 run.glob.transient_plan = true;
                 indexam::index_close(index_rel, NoLock)?;
@@ -277,10 +276,7 @@ pub fn get_relation_info<'mcx>(
             for i in 0..ncols {
                 let indexkey = info.indexkeys[i];
                 let expr = if indexkey != 0 {
-                    assert!(
-                        indexkey > 0,
-                        "build_index_tlist: system-attribute index key"
-                    );
+                    assert!(indexkey > 0, "build_index_tlist: system-attribute index key");
                     let att = relation.rd_att.attrs[indexkey as usize - 1];
                     types_nodes::Node::mk_var(
                         mcx,
@@ -361,22 +357,11 @@ pub fn get_relation_info<'mcx>(
         r.fdwroutine = Some(routine);
     } else {
         let is_pgrc = tableam_vocab::is_pgrcolumnar_am_oid(relation.rd_rel.relam);
-        let qual_cols = if is_pgrc {
-            qual_attnos(run, rel)?
-        } else {
-            (Vec::new(), Vec::new())
-        };
+        let qual_cols = if is_pgrc { qual_attnos(run, rel)? } else { (Vec::new(), Vec::new()) };
         // D4469 road 2: the declared key (a merged scan keeps it at any part count), unless the switch is off or the
         // estimate puts more streams in the merge than K_PLAN (the plan sorts; correctness never reads the estimate)
-        let parts = if is_pgrc {
-            ::tableam::pgrc_footer_part_count(&relation)?.unwrap_or(0)
-        } else {
-            0
-        };
-        let sorted2_attnos = if is_pgrc
-            && guc_tables::backing::pgrust_pgrc_merge_scan()
-            && parts <= costsize::pgrc_merge::K_PLAN
-        {
+        let parts = if is_pgrc { ::tableam::pgrc_footer_part_count(&relation)?.unwrap_or(0) } else { 0 };
+        let sorted2_attnos = if is_pgrc && guc_tables::backing::pgrust_pgrc_merge_scan() && parts <= costsize::pgrc_merge::K_PLAN {
             let mut pv: PgVec<'_, i16> = PgVec::new_in(run.mcx);
             for a in ::tableam::pgrc_planner_sorted_attnos(&relation)? {
                 pv.push(a);
@@ -385,16 +370,9 @@ pub fn get_relation_info<'mcx>(
         } else {
             PgVec::new_in(run.mcx)
         };
-        let front_rows = if is_pgrc {
-            pgrc_front_rows(mcx, &relation)?
-        } else {
-            0.0
-        };
+        let front_rows = if is_pgrc { pgrc_front_rows(mcx, &relation)? } else { 0.0 };
         if is_pgrc && ::costsize::gucs::pgrc_census_trace() {
-            eprintln!(
-                "pgrc front: rel={} front_rows={}",
-                relation.rd_id, front_rows
-            );
+            eprintln!("pgrc front: rel={} front_rows={}", relation.rd_id, front_rows);
         }
         let r = run.root.rel_mut(rel);
         r.serverid = 0;
@@ -462,9 +440,7 @@ pub fn get_relation_info<'mcx>(
             }
             if let Some((rows, nonnull)) = ::tableam::pgrc_footer_nonnull(&relation)? {
                 let mut pv: PgVec<'_, Option<f64>> = PgVec::new_in(run.mcx);
-                pv.extend(nonnull.iter().map(|n| {
-                    n.filter(|&n| rows > 0 && n <= rows)
-                        .map(|n| (rows - n) as f64 / rows as f64)
+                pv.extend(nonnull.iter().map(|n| { n.filter(|&n| rows > 0 && n <= rows).map(|n| (rows - n) as f64 / rows as f64)
                 }));
                 r.pgrcolumnar_col_null_frac = pv;
             }
@@ -481,18 +457,10 @@ pub fn get_relation_info<'mcx>(
             let trace = ::costsize::gucs::pgrc_census_trace();
             let copy = ::costsize::gucs::pgrc_zone_copy();
             let (qual_cols, walk_cols) = &qual_cols;
-            for &attno in qual_cols
-                .iter()
-                .chain(walk_cols.iter().filter(|a| !qual_cols.contains(a)))
-                .filter(|&&a| a >= 1 && a <= natts)
-            {
+            for &attno in qual_cols.iter().chain(walk_cols.iter().filter(|a| !qual_cols.contains(a))).filter(|&&a| a >= 1 && a <= natts) {
                 if let Some(z) = ::tableam::pgrc_footer_zone_column(&relation, attno as u32)? {
                     let walk = trace || walk_cols.contains(&attno);
-                    let zc = if copy {
-                        zone_col_copy(run.mcx, attno as i16, &z, walk)?
-                    } else {
-                        zone_col_pinned(run.mcx, attno as i16, z, walk)
-                    };
+                    let zc = if copy { zone_col_copy(run.mcx, attno as i16, &z, walk)? } else { zone_col_pinned(run.mcx, attno as i16, z, walk) };
                     r.pgrcolumnar_zones.push(zc);
                 }
             }
@@ -540,9 +508,7 @@ fn get_relation_foreign_keys<'mcx>(
         }
         for (idx, rte_node) in run.parse().rtable.iter().enumerate() {
             let rti = idx as u32 + 1;
-            let rte = rte_node
-                .as_range_tbl_entry()
-                .expect("rtable cell is a RangeTblEntry");
+            let rte = rte_node.as_range_tbl_entry().expect("rtable cell is a RangeTblEntry");
             if rte.rtekind != types_nodes::parsenodes::RTEKind::RTE_RELATION
                 || rte.relid != cachedfk.confrelid
             {
@@ -560,8 +526,7 @@ fn get_relation_foreign_keys<'mcx>(
             info.nkeys = cachedfk.nkeys;
             info.conkey.extend_from_slice(&cachedfk.conkey[..nkeys]);
             info.confkey.extend_from_slice(&cachedfk.confkey[..nkeys]);
-            info.conpfeqop
-                .extend_from_slice(&cachedfk.conpfeqop[..nkeys]);
+            info.conpfeqop.extend_from_slice(&cachedfk.conpfeqop[..nkeys]);
             for _ in 0..nkeys {
                 info.eclass.push(None);
                 info.fk_eclass_member.push(None);
@@ -604,11 +569,7 @@ fn zone_col_copy<'mcx>(
         max_lt: slice_borrow_in(mcx, &sm.max_lt)?,
         max_le: slice_borrow_in(mcx, &sm.max_le)?,
         eq_whole: slice_borrow_in(mcx, &sm.eq_whole)?,
-        ranges: if walk {
-            slice_borrow_in(mcx, &z.ranges()[..])?
-        } else {
-            &[]
-        },
+        ranges: if walk { slice_borrow_in(mcx, &z.ranges()[..])? } else { &[] },
     })
 }
 
@@ -669,11 +630,8 @@ pub(crate) fn partition_directory<'a, 'mcx>(
     // an `Option<PartitionDirectory<'mcx>>` local of the frame owning `run`,
     // which outlives every use of the run; `run` is exclusively borrowed for
     // 'a, so no other reference to the slot is live meanwhile.
-    let slot: &'a mut Option<partdesc::PartitionDirectory<'mcx>> = unsafe {
-        &mut *slot
-            .cast::<Option<partdesc::PartitionDirectory<'mcx>>>()
-            .as_ptr()
-    };
+    let slot: &'a mut Option<partdesc::PartitionDirectory<'mcx>> =
+        unsafe { &mut *slot.cast::<Option<partdesc::PartitionDirectory<'mcx>>>().as_ptr() };
     slot.get_or_insert_with(|| partdesc::CreatePartitionDirectory(mcx, true))
 }
 
@@ -752,9 +710,7 @@ fn find_partition_scheme<'mcx>(
         .iter()
         .any(|ps| ps.as_ref().is_some_and(|ps| **ps == fresh));
     if !found {
-        run.root
-            .part_schemes
-            .push(Some(mcx::alloc_in(mcx, build(mcx)?)?));
+        run.root.part_schemes.push(Some(mcx::alloc_in(mcx, build(mcx)?)?));
     }
     mcx::alloc_in(mcx, fresh)
 }
@@ -788,11 +744,7 @@ fn copy_boundinfo_for_planner<'mcx>(
         ::mcx::pgvec_reserve(&mut row, width)?;
         let mut krow: PgVec<'mcx, i8> = PgVec::new_in(mcx);
         for j in 0..width {
-            let kind = if has_kind {
-                bi.kind_at(i, j)
-            } else {
-                partbounds::KIND_VALUE
-            };
+            let kind = if has_kind { bi.kind_at(i, j) } else { partbounds::KIND_VALUE };
             if has_kind {
                 krow.push(kind);
             }
@@ -800,11 +752,8 @@ fn copy_boundinfo_for_planner<'mcx>(
                 row.push(DatumImage::ByVal(0));
                 continue;
             }
-            let (byval, typlen) = if hash {
-                (true, 4i16)
-            } else {
-                (key.parttypbyval[j], key.parttyplen[j])
-            };
+            let (byval, typlen) =
+                if hash { (true, 4i16) } else { (key.parttypbyval[j], key.parttyplen[j]) };
             let d = bi.datum(i, j);
             if byval {
                 row.push(DatumImage::ByVal(d.as_u64()));
@@ -860,7 +809,9 @@ fn copy_boundinfo_for_planner<'mcx>(
             let mut last_index = -1;
             for i in 0..out.indexes.len() {
                 let index = out.indexes[i];
-                if index < last_index || (bi.null_index != -1 && index == bi.null_index) {
+                if index < last_index
+                    || (bi.null_index != -1 && index == bi.null_index)
+                {
                     types_pathnodes::relids::relids_add_member_mut(
                         mcx,
                         &mut out.interleaved_parts,
@@ -885,9 +836,7 @@ fn copy_boundinfo_for_planner<'mcx>(
 // before, or is not exhausted by, the expression columns is elog(ERROR,
 // "wrong number of index expressions") (XX000), never a panic.
 pub(crate) fn next_index_expression<T: Copy>(indexprs: &[T], next: &mut usize) -> PgResult<T> {
-    let id = *indexprs
-        .get(*next)
-        .ok_or_else(wrong_number_of_index_expressions)?;
+    let id = *indexprs.get(*next).ok_or_else(wrong_number_of_index_expressions)?;
     *next += 1;
     Ok(id)
 }
@@ -901,9 +850,7 @@ pub(crate) fn check_index_expressions_consumed(next: usize, nexprs: usize) -> Pg
 }
 
 fn wrong_number_of_index_expressions() -> Box<types_error::PgError> {
-    Box::new(types_error::PgError::error(
-        "wrong number of index expressions",
-    ))
+    Box::new(types_error::PgError::error("wrong number of index expressions",))
 }
 
 // set_baserel_partition_key_exprs (plancat.c:2629): partexprs running out
@@ -911,9 +858,7 @@ fn wrong_number_of_index_expressions() -> Box<types_error::PgError> {
 // partition key expressions") (XX000), never a panic.
 pub(crate) fn next_partition_key_expression<T>(it: &mut impl Iterator<Item = T>) -> PgResult<T> {
     it.next().ok_or_else(|| {
-        Box::new(types_error::PgError::error(
-            "wrong number of partition key expressions",
-        ))
+        Box::new(types_error::PgError::error("wrong number of partition key expressions",))
     })
 }
 
@@ -1076,8 +1021,7 @@ fn pgrc_front_rows<'mcx>(mcx: mcx::Mcx<'mcx>, relation: &Relation<'mcx>) -> PgRe
         } else if let Some(d) = width_density {
             d
         } else {
-            let tuple_width =
-                get_rel_data_width(relation, None, 1)? as usize + HEAP_OVERHEAD_BYTES_PER_TUPLE;
+            let tuple_width = get_rel_data_width(relation, None, 1)? as usize + HEAP_OVERHEAD_BYTES_PER_TUPLE;
             let d = ((HEAP_USABLE_BYTES_PER_PAGE / tuple_width) as f64).max(1.0);
             width_density = Some(d);
             d
@@ -1115,8 +1059,8 @@ pub fn estimate_rel_size(
             let density = if reltuples >= 0.0 && relpages > 0 {
                 reltuples / relpages as f64
             } else {
-                let tuple_width =
-                    get_rel_data_width(rel, None, 1)? as usize + HEAP_OVERHEAD_BYTES_PER_TUPLE;
+                let tuple_width = get_rel_data_width(rel, None, 1)? as usize
+                    + HEAP_OVERHEAD_BYTES_PER_TUPLE;
                 (HEAP_USABLE_BYTES_PER_PAGE / tuple_width) as f64
             };
             let tuples = (density * curpages as f64).round_ties_even();
@@ -1136,11 +1080,7 @@ pub fn estimate_rel_size(
             // C foreign-table + final else arms: just use whatever's in
             // pg_class (partitioned tables are storageless; reached with
             // ONLY / zero partitions).
-            return Ok((
-                rel.rd_rel.relpages as BlockNumber,
-                rel.rd_rel.reltuples as f64,
-                0.0,
-            ));
+            return Ok((rel.rd_rel.relpages as BlockNumber, rel.rd_rel.reltuples as f64, 0.0,));
         }
         panic!("estimate_rel_size (plancat.c): relkind {relkind}; M2 lane");
     }
@@ -1288,7 +1228,8 @@ fn restriction_estimator<'mcx>(
             };
             match jsonb {
                 Some(s) => s,
-                None => crate::selfuncs::matchingsel(run, operatorid, args, varrelid, inputcollid)?,
+                None =>
+                    crate::selfuncs::matchingsel(run, operatorid, args, varrelid, inputcollid)?,
             }
         }
         F_NEQSEL => crate::selfuncs::neqsel(run, operatorid, args, varrelid, inputcollid)?,
@@ -1296,13 +1237,7 @@ fn restriction_estimator<'mcx>(
             let isgt = oprrest == F_SCALARGTSEL || oprrest == F_SCALARGESEL;
             let iseq = oprrest == F_SCALARLESEL || oprrest == F_SCALARGESEL;
             crate::selfuncs::scalarineqsel_wrapper(
-                run,
-                operatorid,
-                args,
-                varrelid,
-                inputcollid,
-                isgt,
-                iseq,
+                run, operatorid, args, varrelid, inputcollid, isgt, iseq,
             )?
         }
         F_REGEXEQSEL | F_ICREGEXEQSEL | F_LIKESEL | F_ICLIKESEL | F_PREFIXSEL | F_REGEXNESEL
@@ -1319,13 +1254,7 @@ fn restriction_estimator<'mcx>(
                 _ => (PatternType::LikeIc, true),
             };
             crate::like_support::patternsel(
-                run,
-                operatorid,
-                args,
-                varrelid,
-                inputcollid,
-                ptype,
-                negate,
+                run, operatorid, args, varrelid, inputcollid, ptype, negate,
             )?
         }
         3169 => crate::rangetypes_selfuncs::rangesel(run, operatorid, args, varrelid)?,
@@ -1381,15 +1310,7 @@ pub fn join_selectivity<'mcx>(
     if oprjoin == 0 {
         return Ok(0.5);
     }
-    let result = join_estimator(
-        run,
-        oprjoin,
-        operatorid,
-        args,
-        inputcollid,
-        jointype,
-        sjinfo,
-    )?;
+    let result = join_estimator(run, oprjoin, operatorid, args, inputcollid, jointype, sjinfo,)?;
     check_selectivity_range(result, "join")
 }
 
@@ -1442,8 +1363,9 @@ fn join_estimator<'mcx>(
             Some("_int_contains_joinsel") => crate::array_selfuncs::arraycontjoinsel(2751),
             Some("_int_contained_joinsel") => crate::array_selfuncs::arraycontjoinsel(2752),
             prosrc => match builtin_estimator_alias(other, prosrc) {
-                Some(foid) => {
-                    join_estimator(run, foid, operatorid, args, inputcollid, jointype, sjinfo)?
+                Some(foid) => { join_estimator(
+                    run, foid, operatorid, args, inputcollid, jointype, sjinfo
+                )?
                 }
                 None => return Err(unsupported_estimator("join", other)),
             },
@@ -1541,14 +1463,7 @@ pub fn function_selectivity<'mcx>(
         return Ok(crate::selfuncs::DEFAULT_MATCH_SEL);
     }
     crate::like_support::patternsel_common(
-        run,
-        0,
-        funcid,
-        args,
-        varrelid,
-        inputcollid,
-        ptype,
-        false,
+        run, 0, funcid, args, varrelid, inputcollid, ptype, false,
     )
 }
 
@@ -1565,12 +1480,7 @@ pub fn add_function_cost(funcid: Oid, cost: &mut types_pathnodes::QualCost) -> P
         let mut req = types_nodes::supportnodes::SupportRequestCost::new(funcid, None);
         let addr = core::ptr::from_mut(&mut req) as usize;
         let call_cx = mcx::MemoryContext::new_bump("prosupport");
-        let result = fmgr_core::oid_function_call1_coll_in(
-            shape.prosupport,
-            0,
-            call_cx.mcx(),
-            datum::Datum::from_usize(addr),
-        )?;
+        let result = fmgr_core::oid_function_call1_coll_in(shape.prosupport, 0, call_cx.mcx(), datum::Datum::from_usize(addr),)?;
         if result.as_usize() == addr {
             cost.startup += req.startup;
             cost.per_tuple += req.per_tuple;
@@ -1603,12 +1513,7 @@ pub fn get_function_rows(
             .with_bound_params_raw(bound_params.0);
         let addr = core::ptr::from_mut(&mut req) as usize;
         let call_cx = mcx::MemoryContext::new_bump("prosupport");
-        let result = fmgr_core::oid_function_call1_coll_in(
-            shape.prosupport,
-            0,
-            call_cx.mcx(),
-            datum::Datum::from_usize(addr),
-        )?;
+        let result = fmgr_core::oid_function_call1_coll_in(shape.prosupport, 0, call_cx.mcx(), datum::Datum::from_usize(addr),)?;
         if result.as_usize() == addr {
             return Ok(req.rows);
         }
@@ -1649,10 +1554,8 @@ pub fn infer_arbiter_indexes<'mcx>(
                         .with_sqlstate(types_error::ERRCODE_FEATURE_NOT_SUPPORTED),
                     ));
                 }
-                infer_attrs.add_member(
-                    mcx,
-                    var.varattno as i32 - FirstLowInvalidHeapAttributeNumber,
-                )?;
+                infer_attrs
+                    .add_member(mcx, var.varattno as i32 - FirstLowInvalidHeapAttributeNumber,)?;
             }
         }
     }
@@ -1677,10 +1580,7 @@ pub fn infer_arbiter_indexes<'mcx>(
     for &indexoid in indexoidlist.iter() {
         let idx_rel = indexam::index_open(mcx, indexoid, rte.rellockmode)?;
         let _matched = 'matched: {
-            let ind = idx_rel
-                .rd_index
-                .as_ref()
-                .expect("index relation carries rd_index");
+            let ind = idx_rel.rd_index.as_ref().expect("index relation carries rd_index");
             if !ind.indisvalid {
                 break 'matched false;
             }
@@ -1755,11 +1655,7 @@ pub fn infer_arbiter_indexes<'mcx>(
             }
             let mut arbiter_where: Vec<types_nodes::Node<'mcx>> = Vec::new();
             if let Some(w) = oc.arbiterWhere {
-                for e in w
-                    .as_list()
-                    .expect("preprocessed arbiterWhere is a List")
-                    .iter()
-                {
+                for e in w.as_list().expect("preprocessed arbiterWhere is a List").iter() {
                     arbiter_where.push(e);
                 }
             }
@@ -1803,10 +1699,7 @@ fn infer_collation_opclass_match<'mcx>(
         inferopfamily = lsyscache::get_opclass_family(elem.inferopclass)?;
         inferopcinputtype = lsyscache::get_opclass_input_type(elem.inferopclass)?;
     }
-    let ind = idx_rel
-        .rd_index
-        .as_ref()
-        .expect("index relation carries rd_index");
+    let ind = idx_rel.rd_index.as_ref().expect("index relation carries rd_index");
     let elem_expr = elem.expr.expect("InferenceElem has expr");
     let mut nplain = 0usize;
     for natt in 1..=idx_rel.rd_att.natts as usize {
@@ -2057,40 +1950,20 @@ fn qual_attnos(run: &mut PlannerRun<'_>, rel: RelId) -> PgResult<(Vec<i32>, Vec<
     }
     let parse = run.parse();
     let mut walk: Vec<i32> = Vec::new();
-    for clause in [
-        parse.groupClause.iter().next(),
-        parse.sortClause.iter().next(),
-    ]
-    .into_iter()
-    .flatten()
-    {
-        let Some(sgc) = clause.as_sort_group_clause() else {
-            continue;
-        };
+    for clause in [parse.groupClause.iter().next(), parse.sortClause.iter().next(),].into_iter().flatten() {
+        let Some(sgc) = clause.as_sort_group_clause() else { continue; };
         for n in &parse.targetList {
-            let Some(t) = n.as_target_entry() else {
-                continue;
-            };
+            let Some(t) = n.as_target_entry() else { continue; };
             if t.ressortgroupref == sgc.tleSortGroupRef {
                 if let Some(v) = t.expr.as_var() {
-                    if v.varno == varno
-                        && v.varlevelsup == 0
-                        && v.varattno >= 1
-                        && !walk.contains(&(v.varattno as i32))
-                    {
+                    if v.varno == varno && v.varlevelsup == 0 && v.varattno >= 1 && !walk.contains(&(v.varattno as i32)) {
                         walk.push(v.varattno as i32);
                     }
                 }
             }
         }
     }
-    Ok((
-        attrs
-            .iter()
-            .map(|m| m + FirstLowInvalidHeapAttributeNumber)
-            .collect(),
-        walk,
-    ))
+    Ok((attrs.iter().map(|m| m + FirstLowInvalidHeapAttributeNumber).collect(), walk,))
 }
 
 // plancat.c:143-151: a relation without a table AM can be planned only if it
@@ -2109,9 +1982,7 @@ pub(crate) fn check_relation_has_table_am(relkind: u8, relname: &str) -> PgResul
     Err(Box::new(
         types_error::PgError::error(format!("cannot open relation \"{relname}\""))
             .with_sqlstate(types_error::ERRCODE_WRONG_OBJECT_TYPE)
-            .with_detail(pg_class_seams::errdetail_relkind_not_supported::call(
-                relkind,
-            )?),
+            .with_detail(pg_class_seams::errdetail_relkind_not_supported::call(relkind,)?),
     ))
 }
 
@@ -2121,7 +1992,7 @@ pub(crate) fn check_relation_has_table_am(relkind: u8, relname: &str) -> PgResul
 pub(crate) fn check_selectivity_range(result: f64, kind: &str) -> PgResult<f64> {
     // C tests `result < 0.0 || result > 1.0`, so a NaN estimate passes.
     #[allow(clippy::nonminimal_bool)]
-    if !!(0.0..=1.0).contains(&result) {
+    if !!( 0.0..= 1.0).contains(&result) {
         return Ok(result);
     }
     Err(Box::new(types_error::PgError::error(format!(

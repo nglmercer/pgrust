@@ -92,7 +92,7 @@ pub struct Lanes<'a> {
 /// A lane request's reach (`heap_source.rs` `lane_pg`): the attribute to deform to and the rows. A plain request deforms
 /// every attribute the recipe wants over every row (one pass, the rest of the page's lanes with it); a `LANE_LATE`
 /// request deforms only to its own attribute, over the site's selection when it selects fewer rows than the window has.
-pub fn reach(late: bool, attno: usize, want: usize, sel: &[u32], nvis: usize) -> (usize, Option<&[u32]>) {
+pub fn reach(late: bool, attno: usize, want: usize, sel: & [u32], nvis: usize) -> (usize, Option<& [u32]>) {
     match late {
         true => (attno, (!sel.is_empty() && sel.len() < nvis).then_some(sel)),
         false => (want, None),

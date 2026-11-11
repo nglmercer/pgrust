@@ -250,6 +250,7 @@ pub fn statext_mcv_serialize<'mcx>(
     let mut cmps: Vec<MultiSort> = ::mcx::std_vec_with_capacity("statistics", ndims)?;
 
     #[allow(clippy::needless_range_loop)]
+
     for dim in 0..ndims {
         let mut mss = MultiSort::init(1)?;
         mss.add_dimension(stats[dim].attrtypid, stats[dim].attrcollid)?;

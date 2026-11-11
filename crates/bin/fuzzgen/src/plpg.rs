@@ -297,11 +297,12 @@ fn body_exc(g: &mut Gen) -> (&'static str, String) {
     } else {
         // Inner handler catches div0, converts to unique_violation; the
         // outer handler catches that by name.
-        "DECLARE v int4 := 0; BEGIN BEGIN v := a / b; \
+            "DECLARE v int4 := 0; BEGIN BEGIN v := a / b; \
              EXCEPTION WHEN division_by_zero THEN \
              RAISE EXCEPTION 'fz dup' USING ERRCODE = 'unique_violation'; END; \
              RETURN 'ok:' || v::text; \
-             EXCEPTION WHEN unique_violation THEN RETURN 'U:' || SQLSTATE || ':' || SQLERRM; END".to_string()
+             EXCEPTION WHEN unique_violation THEN RETURN 'U:' || SQLSTATE || ':' || SQLERRM; END".to_string(
+        )
     };
     ("text", body)
 }

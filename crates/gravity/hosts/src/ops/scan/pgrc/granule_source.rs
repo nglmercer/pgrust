@@ -102,7 +102,7 @@ const NULLS_SOME: u8 = 2;
 const NULLS_UNKNOWN: u8 = 3;
 /// A lane's `PackedFrames` in `datums` words.
 const PF_WORDS: usize = core::mem::size_of::<PackedFrames>() / 8;
-const _: () = assert!(PACKED_FRAMES == FRAMES_PER_GRANULE as usize && core::mem::size_of::<PackedFrames>().is_multiple_of(8));
+const _: () = assert!(PACKED_FRAMES == FRAMES_PER_GRANULE as usize && core::mem::size_of::<PackedFrames>().is_multiple_of( 8));
 
 /// The datum words a `lw`-byte by-value lane holds, as i64 (`[lo, hi]`): sign-extended, or zero-extended for an unsigned
 /// stream (oid: `StorageClass::ByvalWord { signed: false }`; an 8-byte one only up to i64::MAX), so a packed frame's
@@ -3027,7 +3027,7 @@ fn advise_piece() -> Option<u64> {
 fn advise_knobs(max_io: u64, queue: u64) -> (u64, u64) {
     let derived = ["max_sectors_kb", "read_ahead_kb"].into_iter().filter_map(crate::ops::scan::heap_window::device_attr).max().map(u64::from).filter(|&kb| kb > 0).unwrap_or(max_io >> 10);
     let piece = knob_kb("pgrust.gravity_read_advise_kb", "PGRUST_GRAVITY_READ_ADVISE_KB", derived);
-    let budget = if piece == 0 { 0 } else { knob_kb("pgrust.gravity_read_advise_budget_kb", "PGRUST_GRAVITY_READ_ADVISE_BUDGET_KB", (queue * piece) >> 10) };
+    let budget = if piece == 0 { 0 } else { knob_kb("pgrust.gravity_read_advise_budget_kb", "PGRUST_GRAVITY_READ_ADVISE_BUDGET_KB", ( queue * piece) >> 10) };
     (piece, budget)
 }
 
@@ -3820,7 +3820,7 @@ mod mask_ne_tests {
         let mut next = || { seed ^= seed << 13; seed ^= seed >> 7; seed ^= seed << 17; seed };
         for &(from, to) in &[(0usize, 64usize), (0, 200), (64, 320), (3, 3), (128, 128 + 64 * 5 + 17), (0, 1024)] {
             let codes: Vec<u32> = (0..to.max(1)).map(|_| (next() % 5) as u32).collect();
-            let words = (to - from).div_ceil(64);
+            let words = (to - from).div_ceil( 64);
             let init: Vec<u64> = (0..words).map(|_| next()).collect();
             for c in 0..5u32 {
                 let (mut got, mut want) = (init.clone(), init.clone());
@@ -6047,7 +6047,7 @@ impl GranuleRangeSource {
             let v = &mut self.valid[k * VALIDITY_WORDS..(k + 1) * VALIDITY_WORDS];
             v.fill(0);
             v[..nv / 64].fill(u64::MAX);
-            if !nv.is_multiple_of(64) {
+            if ! nv.is_multiple_of( 64) {
                 v[nv / 64] = (1u64 << (nv % 64)) - 1;
             }
         }
@@ -6202,7 +6202,7 @@ impl GranuleRangeSource {
                 let v = &mut self.valid[j * VALIDITY_WORDS..(j + 1) * VALIDITY_WORDS];
                 v.fill(0);
                 v[..nj / 64].fill(u64::MAX);
-                if !nj.is_multiple_of(64) {
+                if ! nj.is_multiple_of( 64) {
                     v[nj / 64] = (1u64 << (nj % 64)) - 1;
                 }
             }
@@ -6969,7 +6969,7 @@ impl GranuleRangeSource {
                 // answers or skips a whole part before its lookup and pin, which a part the records decide never reads
                 late_pin = self.faces_known(list, p);
                 if !late_pin {
-                    self.pin_part_step(&mut step, list, p)?;
+                    self.pin_part_step(&mut step,list, p)?;
                 }
                 // PS1-22: a text key's runtime filter over the whole part from its dictionary's fingerprints (pinned first)
                 let mut text_cut = false;
@@ -6980,7 +6980,7 @@ impl GranuleRangeSource {
                         continue;
                     }
                     if late_pin {
-                        self.pin_part_step(&mut step, list, p)?;
+                        self.pin_part_step(&mut step,list, p)?;
                         late_pin = false;
                     }
                     let cut = self.rt_text_cuts(k, p)?;
@@ -7012,7 +7012,7 @@ impl GranuleRangeSource {
                 step.tick().map_err(|_| err(WALK_CANCELED))?;
             }
             if late_pin {
-                self.pin_part_step(&mut step, list, p)?;
+                self.pin_part_step(&mut step,list, p)?;
             }
             // P5-03 (the code verdict, `VERDICT_CODE_TABLE`): a part whose dictionary holds no code the leading code qual's
             // table may pass holds no survivor; the rest of the claim's granules in it are skipped before any lane opens
@@ -7162,7 +7162,7 @@ impl GranuleRangeSource {
         // bounded("small-fixed: the mask words of one granule, at most VALIDITY_WORDS (128)")
         for w in (0..nw).filter(|_| stored.is_none()) {
             let mut m = if self.cond_mixed { self.cond_words[w] } else { !0 };
-            if w + 1 == nw && !rows.is_multiple_of(64) {
+            if w + 1 == nw && ! rows.is_multiple_of( 64) {
                 m &= (1u64 << (rows % 64)) - 1;
             }
             if let Some(d) = dv {
@@ -7603,7 +7603,7 @@ impl GranuleRangeSource {
             if cur.key().width != w {
                 None
             } else {
-                cur.verbatim_body(lg, IN_PLACE_SLACK).map_err(read_err)?.filter(|b| b.len() == rows * w as usize && (b.as_ptr() as usize).is_multiple_of(w as usize)).map(|b| b.as_ptr())
+                cur.verbatim_body(lg, IN_PLACE_SLACK).map_err(read_err)?.filter(|b| b.len() == rows * w as usize && ( b.as_ptr() as usize).is_multiple_of( w as usize)).map(|b| b.as_ptr())
             }
         };
         self.tally.in_place[got.is_some() as usize] += 1;

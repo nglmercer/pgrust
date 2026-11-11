@@ -30,8 +30,7 @@ impl<'mcx> StringInfo<'mcx> {
         // release-effective ceiling, not a debug assertion.
         mcx::check_alloc_size(initsize)?;
         let mut data = PgVec::new_in(mcx);
-        data.try_reserve_exact(initsize)
-            .map_err(|_| mcx.oom_boxed(initsize))?;
+        data.try_reserve_exact(initsize).map_err(|_| mcx.oom_boxed(initsize))?;
         // SAFETY: capacity >= initsize >= 1.
         unsafe { *data.as_mut_ptr() = 0 };
         Ok(StringInfo { data, cursor: 0 })
@@ -40,8 +39,7 @@ impl<'mcx> StringInfo<'mcx> {
     pub fn from_vec(mut data: PgVec<'mcx, u8>) -> PgResult<Self> {
         if data.capacity() == data.len() {
             let mcx = *data.allocator();
-            data.try_reserve_exact(1)
-                .map_err(|_| mcx.oom_boxed(data.len() + 1))?;
+            data.try_reserve_exact(1).map_err(|_| mcx.oom_boxed(data.len() + 1))?;
         }
         // SAFETY: capacity > len after the reserve above.
         unsafe { *data.as_mut_ptr().add(data.len()) = 0 };
@@ -235,10 +233,7 @@ impl<'mcx> StringInfo<'mcx> {
         // SAFETY: capacity >= len + extra + 1 after enlarge; `f`'s contract
         // (checked below) bounds its writes to `extra` bytes at the cursor.
         let wrote = f(unsafe { self.data.as_mut_ptr().add(len) });
-        assert!(
-            wrote <= extra,
-            "append_written: writer overran its reservation"
-        );
+        assert!(wrote <= extra, "append_written: writer overran its reservation");
         // SAFETY: wrote <= extra, so len + wrote + 1 <= capacity; the first
         // `wrote` bytes were just written by `f`.
         unsafe {
@@ -288,8 +283,7 @@ pub fn vec_append_binary(buf: &mut PgVec<'_, u8>, bytes: &[u8]) -> PgResult<()> 
     if buf.capacity() - buf.len() <= n {
         let target = enlarge_target(buf.len(), buf.capacity(), n)?;
         let mcx = *buf.allocator();
-        buf.try_reserve_exact(target - buf.len())
-            .map_err(|_| mcx.oom_boxed(target))?;
+        buf.try_reserve_exact(target - buf.len()).map_err(|_| mcx.oom_boxed(target))?;
     }
     buf.extend_from_slice(bytes);
     Ok(())
@@ -316,9 +310,7 @@ pub fn enlarge_target(len: usize, maxlen: usize, needed: usize) -> PgResult<usiz
 #[cold]
 #[inline(never)]
 fn formatted_out_of_memory() -> alloc::boxed::Box<PgError> {
-    PgError::error("out of memory")
-        .with_sqlstate(ERRCODE_PROGRAM_LIMIT_EXCEEDED)
-        .into()
+    PgError::error("out of memory").with_sqlstate(ERRCODE_PROGRAM_LIMIT_EXCEEDED).into()
 }
 
 #[cold]

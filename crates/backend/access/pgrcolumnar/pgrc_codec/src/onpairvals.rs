@@ -9,9 +9,7 @@ use crate::onpair::{self, DecodeTable, Dict};
 use crate::onpairwrap::{inflate, onpair_verbatim_on, payload_end, varint, MIN_IMAGE, PARAMS};
 use crate::wrapper::{level_for, zstd_compress_block_at, zstd_level, zstd_level_text, FILL_PIECE};
 use pgrc_format::enc::{EncodingId, Wrapper};
-use pgrc_format::part::{
-    StreamSectionHdr, OVERFLOW_MARK, STREAM_SECTION_HDR_LEN, STREAM_SECTION_MAGIC,
-};
+use pgrc_format::part::{StreamSectionHdr, OVERFLOW_MARK, STREAM_SECTION_HDR_LEN, STREAM_SECTION_MAGIC,};
 use pgrc_format::wire::varlena_header_4b_u;
 use pgrc_format::{FormatError, FormatResult};
 
@@ -50,15 +48,11 @@ fn put_varint(mut v: u64, out: &mut impl Sink) {
 }
 
 fn u32_at(b: &[u8], at: usize) -> Option<u32> {
-    Some(u32::from_le_bytes(
-        b.get(at..at.checked_add(4)?)?.try_into().ok()?,
-    ))
+    Some(u32::from_le_bytes(b.get(at..at.checked_add(4)?)?.try_into().ok()?,))
 }
 
 fn put_u32(dst: &mut [u8], at: usize, v: u32) -> FormatResult<()> {
-    dst.get_mut(at..at.checked_add(4).ok_or(BAD)?)
-        .ok_or(BAD)?
-        .copy_from_slice(&v.to_le_bytes());
+    dst.get_mut(at..at.checked_add(4).ok_or(BAD)?).ok_or(BAD)?.copy_from_slice(&v.to_le_bytes());
     Ok(())
 }
 
@@ -74,14 +68,10 @@ fn split(payload: &[u8], starts: &[u32], meta: &mut impl Sink, text: &mut impl S
         let fe = starts.get(j + 1).map_or(payload.len(), |&s| s as usize);
         let fr = payload.get(fs..fe)?;
         let eb = u32_at(fr, 0)? as usize;
-        if eb < 8 || !eb.is_multiple_of(8) {
+        if eb < 8 || ! eb.is_multiple_of( 8) {
             return None;
         }
-        let vif = if u32_at(fr, eb - 4)? == 0 {
-            eb / 4 - 2
-        } else {
-            eb / 4 - 1
-        };
+        let vif = if u32_at(fr, eb - 4)? == 0 { eb / 4 - 2 } else { eb / 4 - 1 };
         put_varint(((fs - at) / 8) as u64, meta);
         put_varint(vif as u64, meta);
         for i in 0..vif {
@@ -89,10 +79,7 @@ fn split(payload: &[u8], starts: &[u32], meta: &mut impl Sink, text: &mut impl S
             let h = u32_at(fr, off)?;
             if h == OVERFLOW_MARK {
                 put_varint((u32_at(fr, off + 4)? as u64) << 1 | 1, meta);
-                put_varint(
-                    u64::from_le_bytes(fr.get(off + 8..off + 16)?.try_into().ok()?),
-                    meta,
-                );
+                put_varint(u64::from_le_bytes(fr.get(off + 8..off + 16)?.try_into().ok()?), meta,);
             } else {
                 if h & 3 != 0 || h >> 2 < 4 {
                     return None;
@@ -118,14 +105,7 @@ enum Src<'a> {
 
 /// One frame from `meta[*m..]` (its value count, then its entries) and the entry bytes from `t` on, into `dst`
 /// at the 8-aligned `fs`; pads written as zeros. The frame's end (its entries' end).
-fn rebuild_frame(
-    meta: &[u8],
-    m: &mut usize,
-    src: Src<'_>,
-    t: &mut usize,
-    dst: &mut [u8],
-    fs: usize,
-) -> FormatResult<usize> {
+fn rebuild_frame(meta: &[u8], m: &mut usize, src: Src<'_>, t: &mut usize, dst: &mut [u8], fs: usize,) -> FormatResult<usize> {
     let vif = varint(meta, m)?;
     let slots = vif.checked_add(1).ok_or(BAD)?.checked_mul(4).ok_or(BAD)?;
     let mut e = fs.checked_add(slots.next_multiple_of(8)).ok_or(BAD)?;
@@ -140,9 +120,7 @@ fn rebuild_frame(
             let ovf = varint(meta, m)? as u64;
             put_u32(dst, e, OVERFLOW_MARK)?;
             put_u32(dst, e + 4, u32::try_from(v >> 1).map_err(|_| BAD)?)?;
-            dst.get_mut(e + 8..e + 16)
-                .ok_or(BAD)?
-                .copy_from_slice(&ovf.to_le_bytes());
+            dst.get_mut(e + 8..e + 16).ok_or(BAD)?.copy_from_slice(&ovf.to_le_bytes());
             e += 16;
         } else {
             let len = v >> 1;
@@ -151,10 +129,7 @@ fn rebuild_frame(
             }
             put_u32(dst, e, varlena_header_4b_u(len as u32))?;
             match src {
-                Src::Apart(text) => dst
-                    .get_mut(e + 4..e + 4 + len)
-                    .ok_or(BAD)?
-                    .copy_from_slice(text.get(*t..*t + len).ok_or(BAD)?),
+                Src::Apart(text) => dst.get_mut(e + 4..e + 4 + len).ok_or(BAD)?.copy_from_slice(text.get(*t..*t + len).ok_or(BAD)?),
                 Src::Tail(r0) => {
                     if r0 + *t + len > dst.len() || e + 4 + len > dst.len() {
                         return Err(BAD);
@@ -172,23 +147,14 @@ fn rebuild_frame(
 
 /// The payload image from its varints and the entry bytes into `dst` (the payload's length); `Ok(false)` when
 /// `stop` said stop.
-fn rebuild(
-    meta: &[u8],
-    src: Src<'_>,
-    text_len: usize,
-    dst: &mut [u8],
-    stop: &mut dyn FnMut() -> bool,
-) -> FormatResult<bool> {
+fn rebuild(meta: &[u8], src: Src<'_>, text_len: usize, dst: &mut [u8], stop: &mut dyn FnMut() -> bool,) -> FormatResult<bool> {
     let (mut m, mut t, mut end, mut frames) = (0usize, 0usize, 0usize, 0u32);
     while m < meta.len() {
         frames = frames.wrapping_add(1);
         if frames % 256 == 0 && stop() {
             return Ok(false);
         }
-        let fs = end
-            .next_multiple_of(8)
-            .checked_add(varint(meta, &mut m)?.checked_mul(8).ok_or(BAD)?)
-            .ok_or(BAD)?;
+        let fs = end.next_multiple_of(8).checked_add(varint(meta, &mut m)?.checked_mul(8).ok_or(BAD)?).ok_or(BAD)?;
         dst.get_mut(end..fs).ok_or(BAD)?.fill(0);
         end = rebuild_frame(meta, &mut m, src, &mut t, dst, fs)?;
     }
@@ -201,54 +167,32 @@ fn rebuild(
 
 /// Whether [`rebuild`] gives back `payload` byte for byte, checked a frame at a time (`starts` = its frame
 /// starts): the arm is offered only then.
-fn rebuilds_exactly(
-    payload: &[u8],
-    starts: &[u32],
-    meta: &[u8],
-    text: &[u8],
-) -> FormatResult<bool> {
+fn rebuilds_exactly(payload: &[u8], starts: &[u32], meta: &[u8], text: &[u8],) -> FormatResult<bool> {
     let (mut m, mut t, mut end) = (0usize, 0usize, 0usize);
     let mut scratch: Vec<u8> = Vec::new();
-    if starts.first().is_some_and(|&f| {
-        payload[..(f as usize).min(payload.len())]
-            .iter()
-            .any(|&b| b != 0)
+    if starts.first().is_some_and(|&f| { payload[..(f as usize).min(payload.len())].iter().any(|&b| b != 0)
     }) {
         return Ok(false);
     }
     for (j, &fs) in starts.iter().enumerate() {
         let fs = fs as usize;
         let fe = starts.get(j + 1).map_or(payload.len(), |&s| s as usize);
-        let Ok(gap) = varint(meta, &mut m) else {
-            return Ok(false);
-        };
+        let Ok(gap) = varint(meta, &mut m) else { return Ok(false); };
         if fe < fs || fe > payload.len() || end.next_multiple_of(8) + gap * 8 != fs {
             return Ok(false);
         }
         scratch.clear();
         pgrc_format::try_resize(&mut scratch, fe - fs, 0, AT)?;
-        let Ok(used) = rebuild_frame(meta, &mut m, Src::Apart(text), &mut t, &mut scratch, 0)
-        else {
-            return Ok(false);
-        };
+        let Ok(used) = rebuild_frame(meta, &mut m, Src::Apart(text), &mut t, &mut scratch, 0) else { return Ok(false); };
         if scratch.as_slice() != &payload[fs..fe] {
             return Ok(false);
         }
         end = fs + used;
     }
-    Ok(m == meta.len()
-        && t == text.len()
-        && (!starts.is_empty() || payload.iter().all(|&b| b == 0)))
+    Ok(m == meta.len() && t == text.len() && (!starts.is_empty() || payload.iter().all(|&b| b == 0)))
 }
 
-fn put_header(
-    out: &mut [u8],
-    hdr: &StreamSectionHdr,
-    wrapper: Wrapper,
-    frame_table_off: u32,
-    gcount_table_off: u32,
-    unc_len: u32,
-) {
+fn put_header(out: &mut [u8], hdr: &StreamSectionHdr, wrapper: Wrapper, frame_table_off: u32, gcount_table_off: u32, unc_len: u32,) {
     let h = &mut out[..STREAM_SECTION_HDR_LEN];
     h[0..4].copy_from_slice(&STREAM_SECTION_MAGIC.to_le_bytes());
     h[4..6].copy_from_slice(&hdr.encoding.to_le_bytes());
@@ -264,18 +208,10 @@ fn put_header(
 
 /// The table offsets of a section whose tables start at `tables_start` (the source's order kept).
 fn table_offs(hdr: &StreamSectionHdr, pend: usize, tables_start: u32) -> FormatResult<(u32, u32)> {
-    let ft = if hdr.frame_table_off != 0 {
-        tables_start
-    } else {
-        0
-    };
+    let ft = if hdr.frame_table_off != 0 { tables_start } else { 0 };
     let gc = match hdr.gcount_table_off {
         0 => 0,
-        g => {
-            tables_start
-                + g.checked_sub(pend as u32).ok_or(FormatError::Corrupt {
-                    at: "gcount table offset",
-                })?
+        g => { tables_start + g.checked_sub(pend as u32).ok_or(FormatError::Corrupt { at: "gcount table offset", })?
         }
     };
     Ok((ft, gc))
@@ -300,9 +236,7 @@ pub fn wrap_values(section: &[u8]) -> FormatResult<Option<Vec<u8>>> {
     if pend < STREAM_SECTION_HDR_LEN + MIN_IMAGE || pend > section.len() {
         return Ok(None);
     }
-    let Some(starts) = hdr.frame_table(section)? else {
-        return Ok(None);
-    };
+    let Some(starts) = hdr.frame_table(section)? else { return Ok(None); };
     let payload = &section[STREAM_SECTION_HDR_LEN..pend];
     let (mut meta_len, mut text_len) = (0usize, 0usize);
     if split(payload, &starts, &mut meta_len, &mut text_len).is_none() {
@@ -332,66 +266,39 @@ pub fn wrap_values(section: &[u8]) -> FormatResult<Option<Vec<u8>>> {
     let tables = &section[pend..];
     let mut out = Vec::new();
     pgrc_format::try_resize(&mut out, STREAM_SECTION_HDR_LEN + BTAB, 0, AT)?;
-    let level = level_for(
-        Wrapper::OnPairZstd,
-        hdr.encoding,
-        hdr.width,
-        zstd_level(),
-        zstd_level_text(),
-    );
+    let level = level_for(Wrapper::OnPairZstd, hdr.encoding, hdr.width, zstd_level(), zstd_level_text(),);
     zstd_compress_block_at(&blk, &mut out, level)?;
     let o1 = (out.len() - STREAM_SECTION_HDR_LEN) as u32;
     zstd_compress_block_at(&side, &mut out, level)?;
     let o2 = (out.len() - STREAM_SECTION_HDR_LEN) as u32;
     for (i, o) in [BTAB as u32, o1, o2].iter().enumerate() {
-        out[STREAM_SECTION_HDR_LEN + i * 4..STREAM_SECTION_HDR_LEN + i * 4 + 4]
-            .copy_from_slice(&o.to_le_bytes());
+        out[STREAM_SECTION_HDR_LEN + i * 4..STREAM_SECTION_HDR_LEN + i * 4 + 4].copy_from_slice(&o.to_le_bytes());
     }
     let (ft, gc) = table_offs(&hdr, pend, out.len() as u32)?;
     pgrc_format::try_reserve_more(&mut out, tables.len(), AT)?;
     out.extend_from_slice(tables); // alloc: Exec charged caller
-    put_header(
-        &mut out,
-        &hdr,
-        Wrapper::OnPairZstd,
-        ft,
-        gc,
-        payload.len() as u32,
-    );
+    put_header(&mut out, &hdr, Wrapper::OnPairZstd, ft, gc, payload.len() as u32,);
     out.shrink_to_fit();
     Ok(Some(out))
 }
 
 /// The whole-section unwrap into the verbatim image (`scratch` cleared first); `Ok(false)` when `stop` said
 /// stop, `scratch` then empty.
-pub fn unwrap_values(
-    hdr: &StreamSectionHdr,
-    section: &[u8],
-    scratch: &mut Vec<u8>,
-    stop: &mut dyn FnMut() -> bool,
-) -> FormatResult<bool> {
+pub fn unwrap_values(hdr: &StreamSectionHdr, section: &[u8], scratch: &mut Vec<u8>, stop: &mut dyn FnMut() -> bool,) -> FormatResult<bool> {
     scratch.clear();
     let pend = payload_end(hdr, section);
     if pend < STREAM_SECTION_HDR_LEN + BTAB || pend > section.len() {
-        return Err(FormatError::Bounds {
-            at: "payload region",
-        });
+        return Err(FormatError::Bounds { at: "payload region", });
     }
     let wrapped = &section[STREAM_SECTION_HDR_LEN..pend];
     let tables = &section[pend..];
     let offs = [0, 1, 2].map(|i| u32_at(wrapped, i * 4).unwrap_or(0) as usize);
     if offs[0] != BTAB || offs[1] < offs[0] || offs[2] < offs[1] || offs[2] > wrapped.len() {
-        return Err(FormatError::Corrupt {
-            at: "wrapper block offsets",
-        });
+        return Err(FormatError::Corrupt { at: "wrapper block offsets", });
     }
     let img_len = hdr.uncompressed_len as usize;
     let mut side = Vec::new();
-    let n = inflate(
-        &wrapped[offs[1]..offs[2]],
-        4 + 2 + 4 * (onpair::MAX_IDS - 256),
-        &mut side,
-    )?;
+    let n = inflate(&wrapped[offs[1]..offs[2]], 4 + 2 + 4 * (onpair::MAX_IDS - 256), &mut side,)?;
     let blen = u32_at(&side[..n], 0).ok_or(FormatError::Truncated { at: AT })? as usize;
     let (table, used): (DecodeTable, usize) = DecodeTable::read(&side[4..n])?;
     if 4 + used != n || blen < 4 || blen > 3 * img_len + 64 {
@@ -403,9 +310,7 @@ pub fn unwrap_values(
         return Err(BAD);
     }
     let ml = u32_at(&blk, 0).ok_or(BAD)? as usize;
-    let meta = blk
-        .get(4..4usize.checked_add(ml).ok_or(BAD)?)
-        .ok_or(FormatError::Truncated { at: AT })?;
+    let meta = blk.get(4..4usize.checked_add(ml).ok_or(BAD)?).ok_or(FormatError::Truncated { at: AT })?;
     let stream = &blk[4 + ml..blen];
     let (_, text_len, _, _) = onpair::stream_header(stream)?;
     if text_len > img_len {
@@ -415,11 +320,7 @@ pub fn unwrap_values(
         return Ok(false);
     }
     let need = STREAM_SECTION_HDR_LEN + img_len + tables.len();
-    scratch
-        .try_reserve_exact(need)
-        .map_err(|_| FormatError::Bounds {
-            at: "unwrapped section reservation",
-        })?;
+    scratch.try_reserve_exact(need).map_err(|_| FormatError::Bounds { at: "unwrapped section reservation", })?;
     while scratch.len() < need {
         scratch.resize(need.min(scratch.len() + FILL_PIECE), 0);
         if scratch.len() < need && stop() {

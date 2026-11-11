@@ -1,3 +1,4 @@
+
 use std::ffi::CString;
 
 use datum::Datum;
@@ -42,9 +43,7 @@ fn str_in<'mcx>(mcx: Mcx<'mcx>, s: &str) -> PgResult<&'mcx str> {
 
 fn copy_byref_datum<'mcx>(mcx: Mcx<'mcx>, d: Datum, typlen: i16) -> PgResult<Datum> {
     if d.as_usize() == 0 {
-        return Err(err(
-            "input function returned a NULL pointer for a non-null value",
-        ));
+        return Err(err("input function returned a NULL pointer for a non-null value",));
     }
     let bytes: &[u8] = if typlen > 0 {
         // SAFETY: a non-null pointer to typlen readable bytes (the input
@@ -84,10 +83,7 @@ fn typ_lookup<R>(f: impl FnOnce(Option<&Vec<TypMap>>) -> R) -> R {
 pub fn boot_get_type_io_data(typid: Oid) -> PgResult<bootstrap_seams::BootTypeIoData> {
     typ_lookup(|typ| {
         if let Some(list) = typ {
-            let t = list
-                .iter()
-                .find(|t| t.oid == typid)
-                .ok_or_else(|| err(format!("type OID {typid} not found in Typ list")))?;
+            let t = list.iter().find(|t| t.oid == typid).ok_or_else(|| err(format!("type OID {typid} not found in Typ list")))?;
             return Ok(bootstrap_seams::BootTypeIoData {
                 typlen: t.len,
                 typbyval: t.byval,
@@ -98,10 +94,7 @@ pub fn boot_get_type_io_data(typid: Oid) -> PgResult<bootstrap_seams::BootTypeIo
                 typoutput: t.output,
             });
         }
-        let t = TYP_INFO
-            .iter()
-            .find(|t| t.oid == typid)
-            .ok_or_else(|| err(format!("type OID {typid} not found in TypInfo")))?;
+        let t = TYP_INFO.iter().find(|t| t.oid == typid).ok_or_else(|| err(format!("type OID {typid} not found in TypInfo")))?;
         Ok(bootstrap_seams::BootTypeIoData {
             typlen: t.len,
             typbyval: t.byval,
@@ -125,14 +118,7 @@ pub struct Boot<'mcx> {
 
 impl<'mcx> Boot<'mcx> {
     pub fn new(mcx: Mcx<'mcx>) -> Self {
-        Boot {
-            mcx,
-            reldesc: None,
-            attrs: Vec::new(),
-            inputs: std::collections::BTreeMap::new(),
-            values: Vec::new(),
-            nulls: Vec::new(),
-        }
+        Boot { mcx, reldesc: None, attrs: Vec::new(), inputs: std::collections::BTreeMap::new(), values: Vec::new(), nulls: Vec::new(), }
     }
 
     pub fn run(&mut self, stmt: &Stmt) -> PgResult<()> {
@@ -146,11 +132,7 @@ impl<'mcx> Boot<'mcx> {
                 Stmt::DeclareIndex { name, oid, on, .. } => {
                     format!("boot stmt: declare index {name} {oid} on {on}")
                 }
-                Stmt::DeclareToast {
-                    toast_oid,
-                    index_oid,
-                    on,
-                } => {
+                Stmt::DeclareToast { toast_oid, index_oid, on, } => {
                     format!("boot stmt: declare toast {toast_oid} {index_oid} on {on}")
                 }
                 Stmt::BuildIndices => "boot stmt: build indices".to_string(),
@@ -159,28 +141,13 @@ impl<'mcx> Boot<'mcx> {
         match stmt {
             Stmt::Open(name) => self.openrel(name),
             Stmt::Close(name) => self.closerel(Some(name)),
-            Stmt::Create {
-                name,
-                oid,
-                bootstrap,
-                shared,
-                rowtype_oid,
-                columns,
-            } => self.create(name, *oid, *bootstrap, *shared, *rowtype_oid, columns),
+            Stmt::Create { name, oid, bootstrap, shared, rowtype_oid, columns, } =>
+                self.create(name, *oid, *bootstrap, *shared, *rowtype_oid, columns),
             Stmt::Insert(vals) => self.insert(vals),
-            Stmt::DeclareIndex {
-                unique,
-                name,
-                oid,
-                on,
-                using,
-                params,
-            } => self.declare_index(*unique, name, *oid, on, using, params),
-            Stmt::DeclareToast {
-                toast_oid,
-                index_oid,
-                on,
-            } => catalog_toasting::BootstrapToastTable(self.mcx, on, *toast_oid, *index_oid),
+            Stmt::DeclareIndex { unique, name, oid, on, using, params, } =>
+                self.declare_index(*unique, name, *oid, on, using, params),
+            Stmt::DeclareToast { toast_oid, index_oid, on, } =>
+                catalog_toasting::BootstrapToastTable(self.mcx, on, *toast_oid, *index_oid),
             Stmt::BuildIndices => self.build_indices(),
         }
     }
@@ -191,6 +158,7 @@ impl<'mcx> Boot<'mcx> {
         }
         Ok(())
     }
+
 
     fn openrel(&mut self, relname: &str) -> PgResult<()> {
         if typ_lookup(|t| t.is_none()) {
@@ -203,8 +171,7 @@ impl<'mcx> Boot<'mcx> {
         let rel = table::table_openrv(self.mcx, &range_var(relname), NoLock)?;
         let desc = rel.descr();
         self.attrs.clear();
-        self.attrs
-            .extend_from_slice(&desc.attrs[..desc.natts as usize]);
+        self.attrs.extend_from_slice(&desc.attrs[..desc.natts as usize]);
         self.reldesc = Some(rel);
         Ok(())
     }
@@ -216,10 +183,7 @@ impl<'mcx> Boot<'mcx> {
             (Some(rel), name) => {
                 if let Some(n) = name {
                     if rel.name() != n {
-                        return Err(err(format!(
-                            "close of {n} when {} was expected",
-                            rel.name()
-                        )));
+                        return Err(err(format!("close of {n} when {} was expected", rel.name())));
                     }
                 }
                 let _ = elog::elog(DEBUG4, format!("close relation {}", rel.name()));
@@ -262,9 +226,7 @@ impl<'mcx> Boot<'mcx> {
             Nullness::ForceNull => a.attnotnull = false,
             Nullness::Auto => {
                 if a.attlen > 0 {
-                    let prefix_ok = self.attrs[..attnum]
-                        .iter()
-                        .all(|p| p.attlen > 0 && p.attnotnull);
+                    let prefix_ok = self.attrs[..attnum].iter().all(|p| p.attlen > 0 && p.attnotnull);
                     if prefix_ok {
                         a.attnotnull = true;
                     }
@@ -275,20 +237,9 @@ impl<'mcx> Boot<'mcx> {
         Ok(())
     }
 
-    fn create(
-        &mut self,
-        name: &str,
-        oid: Oid,
-        bootstrap: bool,
-        shared: bool,
-        rowtype_oid: Oid,
-        columns: &[Column],
-    ) -> PgResult<()> {
+    fn create(&mut self, name: &str, oid: Oid, bootstrap: bool, shared: bool, rowtype_oid: Oid, columns: &[Column],) -> PgResult<()> {
         if self.reldesc.is_some() {
-            let _ = elog::elog(
-                DEBUG4,
-                "create: warning, open relation exists, closing first",
-            );
+            let _ = elog::elog(DEBUG4, "create: warning, open relation exists, closing first",);
             self.closerel(None)?;
         }
         self.attrs.clear();
@@ -356,6 +307,7 @@ impl<'mcx> Boot<'mcx> {
         Ok(())
     }
 
+
     fn insert(&mut self, vals: &[Option<String>]) -> PgResult<()> {
         let numattr = self.attrs.len();
         if vals.len() != numattr {
@@ -365,10 +317,7 @@ impl<'mcx> Boot<'mcx> {
             )));
         }
         let Some(rel) = self.reldesc.as_ref() else {
-            return Err(Box::new(PgError::new(
-                types_error::FATAL,
-                "relation not open",
-            )));
+            return Err(Box::new(PgError::new(types_error::FATAL, "relation not open",)));
         };
         self.values.clear();
         self.nulls.clear();
@@ -391,28 +340,17 @@ impl<'mcx> Boot<'mcx> {
                     let io = boot_get_type_io_data(att.atttypid)?;
                     let flinfo = match self.inputs.entry(io.typinput) {
                         std::collections::btree_map::Entry::Occupied(e) => e.into_mut(),
-                        std::collections::btree_map::Entry::Vacant(v) => {
-                            v.insert(fmgr_seams::fmgr_info::call(io.typinput)?)
+                        std::collections::btree_map::Entry::Vacant(v) => { v.insert(fmgr_seams::fmgr_info::call(io.typinput)?)
                         }
                     };
                     let cstr = CString::new(text.as_bytes())
                         .map_err(|_| err("embedded NUL in BKI value"))?;
-                    let d = types_fmgr::input_function_call(
-                        flinfo,
-                        Some(cstr.as_c_str()),
-                        io.typioparam,
-                        -1,
-                        self.mcx,
-                    )?;
+                    let d = types_fmgr::input_function_call(flinfo, Some(cstr.as_c_str()), io.typioparam, -1, self.mcx,)?;
                     // C's input functions palloc their results in the caller's
                     // context; pgrust's may hand back FmgrInfo-scratch pointers
                     // (namein), so every by-reference value is copied into the
                     // interpreter context before the tuple is formed.
-                    let d = if io.typbyval {
-                        d
-                    } else {
-                        copy_byref_datum(self.mcx, d, io.typlen)?
-                    };
+                    let d = if io.typbyval { d } else { copy_byref_datum(self.mcx, d, io.typlen)? };
                     self.values.push(d);
                     self.nulls.push(false);
                 }
@@ -423,6 +361,7 @@ impl<'mcx> Boot<'mcx> {
         heapam::simple_heap_insert(rel, tuple.as_tuple_mut())?;
         Ok(())
     }
+
 
     fn populate_typ_list(&mut self) -> PgResult<()> {
         let mcx = self.mcx;
@@ -440,10 +379,7 @@ impl<'mcx> Boot<'mcx> {
             let name_d = att(ANUM_PG_TYPE_TYPNAME);
             // SAFETY: a NameData column: NAMEDATALEN NUL-padded bytes.
             let bytes = unsafe {
-                core::slice::from_raw_parts(
-                    name_d.as_usize() as *const u8,
-                    types_core::fmgr::NAMEDATALEN as usize,
-                )
+                core::slice::from_raw_parts(name_d.as_usize() as *const u8, types_core::fmgr::NAMEDATALEN as usize,)
             };
             let end = bytes.iter().position(|&b| b == 0).unwrap_or(bytes.len());
             list.push(TypMap {
@@ -468,16 +404,7 @@ impl<'mcx> Boot<'mcx> {
 
     fn gettype(&mut self, name: &str) -> PgResult<(Oid, i16, bool, i8, i8, Oid, Oid)> {
         let from_list = |list: &Vec<TypMap>| {
-            list.iter().find(|t| t.name == name).map(|t| {
-                (
-                    t.oid,
-                    t.len,
-                    t.byval,
-                    t.align,
-                    t.storage,
-                    t.collation,
-                    t.elem,
-                )
+            list.iter().find(|t| t.name == name).map(|t| { (t.oid, t.len, t.byval, t.align, t.storage, t.collation, t.elem,)
             })
         };
         if typ_lookup(|t| t.is_some()) {
@@ -485,42 +412,20 @@ impl<'mcx> Boot<'mcx> {
                 return Ok(r);
             }
             self.populate_typ_list()?;
-            return typ_lookup(|t| t.and_then(from_list))
-                .ok_or_else(|| err(format!("unrecognized type \"{name}\"")));
+            return typ_lookup(|t| t.and_then(from_list)).ok_or_else(|| err(format!("unrecognized type \"{name}\"")));
         }
         if let Some(t) = TYP_INFO.iter().find(|t| t.name == name) {
-            return Ok((
-                t.oid,
-                t.len,
-                t.byval,
-                t.align,
-                t.storage,
-                t.collation,
-                t.elem,
-            ));
+            return Ok((t.oid, t.len, t.byval, t.align, t.storage, t.collation, t.elem,));
         }
         let _ = elog::elog(DEBUG4, format!("external type: {name}"));
         self.populate_typ_list()?;
         self.gettype(name)
     }
 
-    fn declare_index(
-        &mut self,
-        unique: bool,
-        name: &str,
-        oid: Oid,
-        on: &str,
-        using: &str,
-        params: &[(String, String)],
-    ) -> PgResult<()> {
+
+    fn declare_index(&mut self, unique: bool, name: &str, oid: Oid, on: &str, using: &str, params: &[(String, String)],) -> PgResult<()> {
         let mcx = self.mcx;
-        let _ = elog::elog(
-            DEBUG4,
-            format!(
-                "creating {}index \"{name}\"",
-                if unique { "unique " } else { "" }
-            ),
-        );
+        let _ = elog::elog(DEBUG4, format!("creating {}index \"{name}\"", if unique { "unique " } else { "" }),);
         let mut index_params = NodeList::nil();
         for (col, opclass) in params {
             let mut opclass_list = NodeList::with_capacity(mcx, 1)?;
@@ -546,9 +451,7 @@ impl<'mcx> Boot<'mcx> {
             alias: None,
             location: -1,
         };
-        let rv_ref = Node::mk(mcx, rv)?
-            .as_variant::<types_nodes::primnodes::RangeVar>()
-            .expect("fresh RangeVar node");
+        let rv_ref = Node::mk(mcx, rv)?.as_variant::<types_nodes::primnodes::RangeVar>().expect("fresh RangeVar node");
         let stmt = IndexStmt {
             idxname: Some(str_in(mcx, name)?),
             relation: Some(rv_ref),
@@ -577,19 +480,7 @@ impl<'mcx> Boot<'mcx> {
             reset_default_tblspc: false,
         };
         let relation_id = catalog_namespace::RangeVarGetRelid(&range_var(on), NoLock, false)?;
-        indexcmds::DefineIndex(
-            mcx,
-            relation_id,
-            &stmt,
-            oid,
-            InvalidOid,
-            InvalidOid,
-            false,
-            false,
-            false,
-            true,
-            false,
-        )?;
+        indexcmds::DefineIndex(mcx, relation_id, &stmt, oid, InvalidOid, InvalidOid, false, false, false, true, false,)?;
         Ok(())
     }
 

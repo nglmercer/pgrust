@@ -54,7 +54,7 @@ pub(crate) fn reader(gx: &Gx<'_, '_>, k: usize) -> Option<usize> {
     if stopped || ps.iter().any(crate::lifetime::material::locks) || !crate::frame::iface::run_holds_rows(gx, k) {
         return None;
     }
-    if !crate::rerun::spool::form::lazy_exact(gx, &p.source, p.desc.consumes, before) {
+    if !crate::rerun::spool::form::lazy_exact(gx, &p.source,p.desc.consumes, before) {
         return None;
     }
     // the run's one reader: a graph pipeline reading it as its source (no other pipeline, no embedded inner, reads it)

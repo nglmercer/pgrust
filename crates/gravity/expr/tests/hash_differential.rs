@@ -1,5 +1,4 @@
-#![cfg(feature = "wasmtime-oracle")]
-//! The IR half of the one key hash equals the runtime half bit for bit (lowerv4 M0): `gravity_expr::emit::hash` against
+#![cfg(feature = "wasmtime-oracle")]//! The IR half of the one key hash equals the runtime half bit for bit (lowerv4 M0): `gravity_expr::emit::hash` against
 //! `gravity_abi::hash` on the interpreter, TPDE and wasm, over images of 0..=4 words (random and structured words: zero,
 //! all-ones, the sign bit, top-bits-only, small ints), run-time and lowering-time bit counts, nullable images with their
 //! flags word, and image equality in registers and against stored words.

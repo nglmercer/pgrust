@@ -1,6 +1,7 @@
 use mcx::Mcx;
 use nodes_core::{
-    expression_tree_walker, query_or_expression_tree_walker, query_tree_walker, NodeWalker,
+    expression_tree_walker, query_or_expression_tree_walker, query_tree_walker,
+    NodeWalker,
 };
 use types_error::{PgError, PgResult};
 use types_nodes::parsenodes::Query;
@@ -173,11 +174,7 @@ pub fn pull_varattnos<'mcx>(
     varno: i32,
     varattnos: &mut Bitmapset<'mcx>,
 ) -> PgResult<()> {
-    let mut cx = PullVarattnos {
-        mcx,
-        varattnos,
-        varno,
-    };
+    let mut cx = PullVarattnos { mcx, varattnos, varno, };
     cx.visit(node)?;
     Ok(())
 }
@@ -230,11 +227,7 @@ pub fn pull_vars_of_level<'mcx>(
     node: Node<'mcx>,
     levelsup: i32,
 ) -> PgResult<NodeList<'mcx>> {
-    let mut cx = PullVars {
-        mcx,
-        vars: NodeList::nil(),
-        sublevels_up: levelsup as i64,
-    };
+    let mut cx = PullVars { mcx, vars: NodeList::nil(), sublevels_up: levelsup as i64, };
     match node.as_query() {
         Some(q) => {
             query_tree_walker(q, &mut cx, 0)?;
@@ -305,9 +298,7 @@ impl<'mcx> NodeWalker<'mcx> for ContainVarsOfLevel {
 }
 
 pub fn contain_vars_of_level(node: Node<'_>, levelsup: i32) -> PgResult<bool> {
-    let mut cx = ContainVarsOfLevel {
-        sublevels_up: levelsup as i64,
-    };
+    let mut cx = ContainVarsOfLevel { sublevels_up: levelsup as i64, };
     query_or_expression_tree_walker(node, &mut cx, 0)
 }
 
@@ -412,10 +403,7 @@ impl<'mcx> NodeWalker<'mcx> for LocateVarOfLevel {
 }
 
 pub fn locate_var_of_level(node: Node<'_>, levelsup: i32) -> PgResult<i32> {
-    let mut cx = LocateVarOfLevel {
-        var_location: -1,
-        sublevels_up: levelsup as i64,
-    };
+    let mut cx = LocateVarOfLevel { var_location: -1, sublevels_up: levelsup as i64, };
     query_or_expression_tree_walker(node, &mut cx, 0)?;
     Ok(cx.var_location)
 }
@@ -423,9 +411,7 @@ pub fn locate_var_of_level(node: Node<'_>, levelsup: i32) -> PgResult<i32> {
 #[track_caller]
 #[cold]
 fn upper_level_error(what: &str) -> Box<PgError> {
-    Box::new(PgError::error(format!(
-        "Upper-level {what} found where not expected"
-    )))
+    Box::new(PgError::error(format!("Upper-level {what} found where not expected")))
 }
 
 struct PullVarClause<'mcx> {
@@ -521,11 +507,7 @@ pub fn pull_var_clause<'mcx>(
         flags & (PVC_INCLUDE_PLACEHOLDERS | PVC_RECURSE_PLACEHOLDERS)
             != (PVC_INCLUDE_PLACEHOLDERS | PVC_RECURSE_PLACEHOLDERS)
     );
-    let mut cx = PullVarClause {
-        mcx,
-        flags,
-        varlist: NodeList::nil(),
-    };
+    let mut cx = PullVarClause { mcx, flags, varlist: NodeList::nil(), };
     cx.visit(node)?;
     Ok(cx.varlist)
 }
@@ -613,8 +595,7 @@ fn fjav_mutate<'mcx>(
                     // cell (skipped here). This port marks it with an
                     // InvalidOid-typed null Const sentinel (AcquireRewriteLocks);
                     // a real NULL Const (subquery pull-up) stays a row field.
-                    if matches!(av.as_const(), Some(c) if c.constisnull && c.consttype == types_core::InvalidOid)
-                    {
+                    if matches!(av.as_const(), Some(c) if c.constisnull && c.consttype == types_core::InvalidOid) {
                         continue;
                     }
                     let newvar = fjav_shift_copy(ctx, av, v.location)?;
@@ -670,8 +651,7 @@ fn fjav_mutate<'mcx>(
                 None => None,
                 Some(te) => fjav_mutate(ctx, te)?,
             };
-            let new_sub =
-                fjav_query_descend(ctx, sl.subselect.as_query().expect("SubLink holds a Query"))?;
+            let new_sub = fjav_query_descend(ctx, sl.subselect.as_query().expect("SubLink holds a Query"))?;
             if new_test.is_none() && new_sub.is_none() {
                 return Ok(None);
             }
@@ -709,11 +689,8 @@ fn fjav_query_has_join_alias_vars<'mcx>(
             if let Some(phv) = node.as_place_holder_var() {
                 if phv.phlevelsup as i32 == self.sublevels_up
                     && phv.phrels.iter().any(|rti| {
-                        self.rtable
-                            .nth(rti as usize - 1)
-                            .as_range_tbl_entry()
-                            .expect("rtable cell")
-                            .rtekind
+                        self.rtable.nth(rti as usize - 1).as_range_tbl_entry()
+                            .expect("rtable cell").rtekind
                             == types_nodes::parsenodes::RTEKind::RTE_JOIN
                     })
                 {
@@ -789,9 +766,7 @@ fn fjav_query_inplace<'mcx>(ctx: &mut FjavCtx<'_, 'mcx>, qnode: Node<'mcx>) -> P
         fjav_onconflict_inplace(ctx, oc)?;
     }
     for wco_node in &q.withCheckOptions {
-        let wco = wco_node
-            .as_with_check_option()
-            .expect("withCheckOptions cell");
+        let wco = wco_node.as_with_check_option().expect("withCheckOptions cell");
         if let Some(new_qual) = fjav_opt(ctx, wco.qual)? {
             // SAFETY: exclusive copy from fjav_query_descend.
             unsafe {
@@ -953,8 +928,8 @@ fn fjav_query_inplace<'mcx>(ctx: &mut FjavCtx<'_, 'mcx>, qnode: Node<'mcx>) -> P
         if let Some(l) = fjav_list(ctx, &rte.securityQuals)? {
             // SAFETY: exclusive copy from fjav_query_descend.
             unsafe {
-                rte_node
-                    .with_mut::<types_nodes::parsenodes::RangeTblEntry, _>(|r| r.securityQuals = l)
+                rte_node.with_mut::<types_nodes::parsenodes::RangeTblEntry, _>(|r|
+                    r.securityQuals = l)
             }
             .expect("RangeTblEntry");
         }
@@ -1026,7 +1001,10 @@ fn fjav_opt<'mcx>(
     }
 }
 
-fn fjav_onconflict_inplace<'mcx>(ctx: &mut FjavCtx<'_, 'mcx>, oc_node: Node<'mcx>) -> PgResult<()> {
+fn fjav_onconflict_inplace<'mcx>(
+    ctx: &mut FjavCtx<'_, 'mcx>,
+    oc_node: Node<'mcx>
+) -> PgResult<()> {
     let oc = oc_node.as_on_conflict_expr().expect("OnConflictExpr");
     let arbiter_elems = fjav_list(ctx, &oc.arbiterElems)?;
     let arbiter_where = fjav_opt(ctx, oc.arbiterWhere)?;
@@ -1067,10 +1045,7 @@ fn alias_relid_set<'mcx>(
 ) -> PgResult<Bitmapset<'mcx>> {
     let mut out = Bitmapset::empty();
     for rti in relids.iter() {
-        let rte = rtable
-            .nth(rti as usize - 1)
-            .as_range_tbl_entry()
-            .expect("rtable cell");
+        let rte = rtable.nth(rti as usize - 1).as_range_tbl_entry().expect("rtable cell");
         if rte.rtekind == types_nodes::parsenodes::RTEKind::RTE_JOIN {
             let Some(jt) = jointree else {
                 panic!(
@@ -1085,7 +1060,8 @@ fn alias_relid_set<'mcx>(
                     break;
                 }
             }
-            let jtnode = jtnode.unwrap_or_else(|| panic!("could not find join node {rti}"));
+            let jtnode =
+                jtnode.unwrap_or_else(|| panic!("could not find join node {rti}"));
             join_relids_no_inner(mcx, jtnode, &mut out)?;
         } else {
             out.add_member(mcx, rti)?;
@@ -1267,9 +1243,7 @@ fn fjav_copy<'mcx>(mcx: Mcx<'mcx>, node: Node<'mcx>) -> PgResult<Node<'mcx>> {
 // add_nullingrels_if_needed (var.c). Parser path (root=None) ereports on a
 // non-standard alias; planner wraps it in a PlaceHolderVar.
 fn unsupported_join_alias() -> Box<PgError> {
-    Box::new(PgError::error(
-        "unsupported join alias expression".to_string(),
-    ))
+    Box::new(PgError::error("unsupported join alias expression".to_string(),))
 }
 
 fn add_nullingrels_if_needed<'mcx>(
@@ -1332,7 +1306,9 @@ fn is_standard_join_alias_expression(newnode: Node<'_>, oldvar: &types_nodes::Va
             let f = newnode.as_func_expr().unwrap();
             // Implicit coercions never make non-NULL from NULL; examine only
             // the first argument (the rest are coercion constants).
-            if f.funcformat != types_nodes::CoercionForm::COERCE_IMPLICIT_CAST || f.args.is_nil() {
+            if f.funcformat != types_nodes::CoercionForm::COERCE_IMPLICIT_CAST
+                || f.args.is_nil()
+            {
                 return false;
             }
             is_standard_join_alias_expression(f.args.nth(0), oldvar)
@@ -1350,9 +1326,7 @@ fn is_standard_join_alias_expression(newnode: Node<'_>, oldvar: &types_nodes::Va
         NodeTag::T_CoalesceExpr => {
             let c = newnode.as_coalesce_expr().unwrap();
             debug_assert!(!c.args.is_nil());
-            c.args
-                .iter()
-                .all(|a| is_standard_join_alias_expression(a, oldvar))
+            c.args.iter().all(|a| is_standard_join_alias_expression(a, oldvar))
         }
         _ => false,
     }
@@ -1423,11 +1397,7 @@ pub fn flatten_group_exprs<'mcx>(
     query: &Query<'mcx>,
     node: Node<'mcx>,
 ) -> PgResult<Node<'mcx>> {
-    let mut ctx = FgeCtx {
-        mcx,
-        query,
-        sublevels_up: 0,
-    };
+    let mut ctx = FgeCtx { mcx, query, sublevels_up: 0, };
     Ok(fge_mutate(&mut ctx, node)?.unwrap_or(node))
 }
 
@@ -1437,17 +1407,11 @@ pub fn flatten_group_exprs_list<'mcx>(
     query: &Query<'mcx>,
     list: &NodeList<'mcx>,
 ) -> PgResult<Option<&'mcx NodeList<'mcx>>> {
-    let mut ctx = FgeCtx {
-        mcx,
-        query,
-        sublevels_up: 0,
-    };
+    let mut ctx = FgeCtx { mcx, query, sublevels_up: 0, };
     match fge_list(&mut ctx, list)? {
         None => Ok(None),
         Some(new) => Ok(Some(
-            Node::mk_list(mcx, new)?
-                .as_list()
-                .expect("mk_list yields a List"),
+            Node::mk_list(mcx, new)?.as_list().expect("mk_list yields a List"),
         )),
     }
 }
@@ -1496,7 +1460,10 @@ fn fge_opt<'mcx>(
 }
 
 // flatten_group_exprs_mutator (var.c:993-1101); None = unchanged.
-fn fge_mutate<'mcx>(ctx: &mut FgeCtx<'_, 'mcx>, node: Node<'mcx>) -> PgResult<Option<Node<'mcx>>> {
+fn fge_mutate<'mcx>(
+    ctx: &mut FgeCtx<'_, 'mcx>,
+    node: Node<'mcx>
+) -> PgResult<Option<Node<'mcx>>> {
     use types_nodes::primnodes as pn;
     use types_nodes::RTEKind;
     let mcx = ctx.mcx;
@@ -1526,7 +1493,8 @@ fn fge_mutate<'mcx>(ctx: &mut FgeCtx<'_, 'mcx>, node: Node<'mcx>) -> PgResult<Op
                 if copy.node_tag() == NodeTag::T_Var {
                     let location = var.location;
                     // SAFETY: copy is the fresh exclusive tree made above.
-                    unsafe { copy.with_mut::<pn::Var, _>(|v| v.location = location) }.expect("Var");
+                    unsafe { copy.with_mut::<pn::Var, _>(|v| v.location = location) }
+                        .expect("Var");
                 }
                 return Ok(Some(copy));
             }
@@ -1563,7 +1531,8 @@ fn fge_mutate<'mcx>(ctx: &mut FgeCtx<'_, 'mcx>, node: Node<'mcx>) -> PgResult<Op
                 return Ok(None);
             }
             if agglevelsup < ctx.sublevels_up {
-                return nodes_core::expression_tree_mutator(mcx, node, &mut |n| fge_mutate(ctx, n));
+                return nodes_core::expression_tree_mutator(mcx, node, &mut |n|
+                    fge_mutate(ctx, n));
             }
             // C: at the agg's own level only aggdirectargs can hold grouped
             // Vars; args/order/filter are not recursed into.
@@ -1620,7 +1589,8 @@ fn fge_mutate<'mcx>(ctx: &mut FgeCtx<'_, 'mcx>, node: Node<'mcx>) -> PgResult<Op
                 },
             )?))
         }
-        NodeTag::T_Query => fge_query_descend(ctx, node.as_query().expect("Query")),
+        NodeTag::T_Query =>
+            fge_query_descend(ctx, node.as_query().expect("Query")),
         _ => nodes_core::expression_tree_mutator(mcx, node, &mut |n| fge_mutate(ctx, n)),
     }
 }
@@ -1680,11 +1650,7 @@ fn fge_query_has_grouped_vars<'mcx>(
             r
         }
     }
-    let mut w = W {
-        parse: ctx.query,
-        sublevels_up: ctx.sublevels_up + 1,
-        found: false,
-    };
+    let mut w = W { parse: ctx.query, sublevels_up: ctx.sublevels_up + 1, found: false, };
     query_tree_walker(q, &mut w, 0)?;
     Ok(w.found)
 }
@@ -1732,9 +1698,7 @@ fn fge_query_inplace<'mcx>(ctx: &mut FgeCtx<'_, 'mcx>, qnode: Node<'mcx>) -> PgR
         .expect("OnConflictExpr");
     }
     for wco_node in &q.withCheckOptions {
-        let wco = wco_node
-            .as_with_check_option()
-            .expect("withCheckOptions cell");
+        let wco = wco_node.as_with_check_option().expect("withCheckOptions cell");
         if let Some(new_qual) = fge_opt(ctx, wco.qual)? {
             // SAFETY: exclusive copy from fge_query_descend.
             unsafe {
@@ -1834,7 +1798,8 @@ fn fge_query_inplace<'mcx>(ctx: &mut FgeCtx<'_, 'mcx>, qnode: Node<'mcx>) -> PgR
                         let newsub = newsub.as_query().expect("Query");
                         // SAFETY: rte_node is part of the exclusive copy.
                         unsafe {
-                            rte_node.with_mut::<RangeTblEntry, _>(|r| r.subquery = Some(newsub))
+                            rte_node
+                                .with_mut::<RangeTblEntry, _>(|r| r.subquery = Some(newsub))
                         }
                         .expect("RangeTblEntry");
                     }
@@ -1936,7 +1901,10 @@ impl<'mcx> NodeWalker<'mcx> for ContainNoopPhv {
     }
 }
 
-fn strip_noop_phvs_mutator<'mcx>(mcx: Mcx<'mcx>, node: Node<'mcx>) -> PgResult<Option<Node<'mcx>>> {
+fn strip_noop_phvs_mutator<'mcx>(
+    mcx: Mcx<'mcx>,
+    node: Node<'mcx>
+) -> PgResult<Option<Node<'mcx>>> {
     if let Some(phv) = node.as_place_holder_var() {
         if phv.phnullingrels.is_empty() {
             return Ok(Some(

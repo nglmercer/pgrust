@@ -4,7 +4,7 @@ fn ascii_caseless_eq(a: &str, b: &str) -> bool {
     a.len() == b.len()
         && a.bytes()
             .zip(b.bytes())
-            .all(|(x, y)| x.eq_ignore_ascii_case(&y))
+            .all(|(x, y)| x.eq_ignore_ascii_case(& y))
 }
 
 // C elog(ERROR)s on an unknown value; None lets the caller surface that.

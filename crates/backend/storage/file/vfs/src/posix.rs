@@ -72,7 +72,7 @@ impl PosixVfs {
         let getrlimit_errno = if getrlimit_status != 0 { get_errno() } else { 0 };
 
         loop {
-            if getrlimit_status == 0 && highestfd as u64 >= rlim.rlim_cur.wrapping_sub(1)
+            if getrlimit_status == 0 && highestfd as u64 >=rlim.rlim_cur.wrapping_sub(1)
             {
                 break;
             }

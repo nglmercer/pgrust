@@ -14,9 +14,7 @@ use pgrc_format::part::{ExtentRecord, StreamEntry, StreamRole};
 use crate::cursor::{reference_binding_leaked, Residency, StreamCursor};
 use crate::mem::{self, Clock, Guard, Sweep, Victim, CACHED, FUTILE_SKIP, HELD, STICKY};
 use crate::openpart::{OpenPart, SegBuf};
-use crate::testpart::{
-    build_part, seq_i64_col, text_col, BuiltPart, CellValue, ColSpec, DictSpec, PartSpec,
-};
+use crate::testpart::{build_part, seq_i64_col, text_col, BuiltPart, CellValue, ColSpec, DictSpec, PartSpec,};
 
 use super::decode_props::assert_granule;
 use super::{open_built, ArenaBuf};
@@ -87,15 +85,8 @@ impl Victim for TvSlot {
 }
 
 fn tvs(n: usize, bytes: u64) -> Vec<Arc<Mutex<Tv>>> {
-    (0..n)
-        .map(|_| {
-            Arc::new(Mutex::new(Tv {
-                present: true,
-                bytes,
-                ..Tv::default()
-            }))
-        })
-        .collect()
+    (0..n).map(|_| { Arc::new(Mutex::new(Tv { present: true, bytes, ..Tv::default() }))
+        }).collect()
 }
 
 fn ring_of(v: &[Arc<Mutex<Tv>>]) -> Clock {
@@ -107,11 +98,7 @@ fn ring_of(v: &[Arc<Mutex<Tv>>]) -> Clock {
 }
 
 fn used(v: &[Arc<Mutex<Tv>>]) -> u64 {
-    v.iter()
-        .map(|t| t.lock().unwrap())
-        .filter(|t| t.present)
-        .map(|t| t.bytes)
-        .sum()
+    v.iter().map(|t| t.lock().unwrap()).filter(|t| t.present).map(|t| t.bytes).sum()
 }
 
 fn present(v: &[Arc<Mutex<Tv>>]) -> Vec<bool> {
@@ -126,10 +113,7 @@ fn clock_gives_a_second_chance_and_keeps_its_hand() {
     // 30 bytes over a cap of 20: A's bit is cleared, B goes.
     assert!(c.sweep(&|| used(&v[..3]) > 20));
     assert_eq!(present(&v), [true, false, true, true]);
-    assert!(
-        !v[0].lock().unwrap().refbit,
-        "a referenced entry loses its bit, not its place"
-    );
+    assert!(!v[0].lock().unwrap().refbit, "a referenced entry loses its bit, not its place");
     // D arrives: the hand resumes at C, not at A.
     c.register(Box::new(TvSlot(v[3].clone())));
     assert!(c.sweep(&|| used(&v) > 20));
@@ -143,16 +127,9 @@ fn clock_never_evicts_pinned_or_sticky_entries() {
     let mut c = ring_of(&v);
     v[0].lock().unwrap().pinned = true;
     v[1].lock().unwrap().sticky = true;
-    assert!(
-        !c.sweep(&|| used(&v) > 0),
-        "cap 0 cannot be met while A is pinned"
-    );
+    assert!(!c.sweep(&|| used(&v) > 0), "cap 0 cannot be met while A is pinned");
     assert_eq!(present(&v), [true, true, false]);
-    assert_eq!(
-        c.slots(),
-        1,
-        "the sticky slot is freed; the pinned one stays"
-    );
+    assert_eq!(c.slots(), 1, "the sticky slot is freed; the pinned one stays");
 }
 
 #[test]
@@ -168,10 +145,7 @@ fn a_futile_sweep_backs_off_for_64_admissions() {
     }
     assert_eq!(visits(), 4, "backed off: no visits");
     v[1].lock().unwrap().pinned = false;
-    assert!(
-        c.sweep(&|| used(&v) > 10),
-        "the backoff spent, the sweep runs again"
-    );
+    assert!(c.sweep(&|| used(&v) > 10), "the backoff spent, the sweep runs again");
     assert_eq!(present(&v), [true, false]);
 }
 
@@ -183,11 +157,7 @@ fn the_janitor_frees_dead_slots_on_admission() {
     for t in tvs(5, 1) {
         c.register(Box::new(TvSlot(t)));
     }
-    assert_eq!(
-        (c.slots(), c.admitted),
-        (5, 15),
-        "five admissions free ten dead slots"
-    );
+    assert_eq!((c.slots(), c.admitted), (5, 15), "five admissions free ten dead slots");
 }
 
 // ---------------------------------------------------------------------------
@@ -205,9 +175,7 @@ fn five_extent_part() -> BuiltPart {
 
 fn values(part: &OpenPart, attno: u32) -> (StreamEntry, Vec<ExtentRecord>) {
     let dir = part.stream_directory().expect("stream directory");
-    let ps = dir
-        .lookup(attno, 0, StreamRole::Values)
-        .expect("values stream");
+    let ps = dir.lookup(attno, 0, StreamRole::Values).expect("values stream");
     (ps.entry, ps.extents.clone())
 }
 
@@ -226,28 +194,15 @@ fn each_face_puts_its_image_in_its_class() {
     let shared = part.extent_bytes(&e, &x[0], 0).unwrap();
     let cached = part.extent_bytes_cached(&e, &x[1], 1).unwrap();
     let private = part.extent_bytes_uncached(&e, &x[2], 2).unwrap();
-    assert_eq!(
-        (shared.class(), cached.class(), private.class()),
-        (STICKY, CACHED, HELD)
-    );
-    assert_eq!(
-        part.resident(),
-        r0 + x[0].len + x[1].len,
-        "a Private read admits nothing"
-    );
+    assert_eq!((shared.class(), cached.class(), private.class()), (STICKY, CACHED, HELD));
+    assert_eq!(part.resident(), r0 + x[0].len + x[1].len, "a Private read admits nothing");
     for (buf, r) in [(&shared, &x[0]), (&cached, &x[1]), (&private, &x[2])] {
         assert_eq!(buf.bytes(), file_bytes(&b, r));
     }
     // Hits: Cached and Private faces leave a sticky image sticky; a Shared face makes a cached image sticky.
-    assert!(part
-        .extent_bytes_cached(&e, &x[0], 0)
-        .unwrap()
-        .same(&shared));
+    assert!(part.extent_bytes_cached(&e, &x[0], 0).unwrap().same(&shared));
     assert_eq!(shared.class(), STICKY);
-    assert!(part
-        .extent_bytes_uncached(&e, &x[1], 1)
-        .unwrap()
-        .same(&cached));
+    assert!(part.extent_bytes_uncached(&e, &x[1], 1).unwrap().same(&cached));
     assert_eq!(cached.class(), CACHED, "a Private hit changes nothing");
     assert!(part.extent_bytes(&e, &x[1], 1).unwrap().same(&cached));
     assert_eq!(cached.class(), STICKY);
@@ -256,11 +211,7 @@ fn each_face_puts_its_image_in_its_class() {
     assert_eq!(shared.class(), HELD);
     let late = part.extent_bytes_cached(&e, &x[3], 3).unwrap();
     drop(part);
-    assert_eq!(
-        late.class(),
-        HELD,
-        "a dropped part's images are held by their holders"
-    );
+    assert_eq!(late.class(), HELD, "a dropped part's images are held by their holders");
 }
 
 /// The length of the image whose releases [`watch_account`] counts (0: none), and the count.
@@ -282,19 +233,9 @@ fn a_key_evicted_image_stays_charged_until_its_last_holder_drops_it() {
     let _s = serial();
     let _cap = Cap::set(1 << 40);
     // one extent of a length no other test's image has, so a concurrent test's release cannot count here
-    let vals = (0..1009u64).map(|r| {
-        Some(CellValue::Bytes(
-            format!("d3113-owed-{r:05}-{}", "y".repeat((r % 29) as usize)).into_bytes(),
-        ))
+    let vals = (0..1009u64).map(|r| { Some(CellValue::Bytes(format!("d3113-owed-{r:05}-{}", "y".repeat((r % 29) as usize)).into_bytes(),))
     });
-    let b = build_part(&PartSpec::new(
-        1009,
-        vec![ColSpec::new(
-            1,
-            StorageClass::VarlenaVerbatim,
-            vals.collect(),
-        )],
-    ));
+    let b = build_part(&PartSpec::new(1009, vec![ColSpec::new(1, StorageClass::VarlenaVerbatim, vals.collect(),)],));
     let part = open_built(&b, 91, 1);
     let (e, x) = values(&part, 1);
     crate::partcache::set_account_hook(watch_account);
@@ -303,30 +244,14 @@ fn a_key_evicted_image_stays_charged_until_its_last_holder_drops_it() {
     let resident = part.resident();
     RELEASED.store(0, Ordering::SeqCst);
     WATCHED.store(len, Ordering::SeqCst);
-    assert_eq!(
-        part.evict_extent_images(&[(x[0].file_off, x[0].len)]),
-        (1, len),
-        "the map lets it go"
-    );
+    assert_eq!(part.evict_extent_images(&[(x[0].file_off, x[0].len)]), (1, len), "the map lets it go");
     assert_eq!(held.class(), HELD, "held by its holder (the chunk census)");
     assert_eq!(part.resident(), resident - len, "the part holds it no more");
-    assert_eq!(
-        RELEASED.load(Ordering::SeqCst),
-        0,
-        "still charged to the account while a holder keeps it"
-    );
+    assert_eq!(RELEASED.load(Ordering::SeqCst), 0, "still charged to the account while a holder keeps it");
     drop(held);
-    assert_eq!(
-        RELEASED.load(Ordering::SeqCst),
-        1,
-        "released at its last holder's drop"
-    );
+    assert_eq!(RELEASED.load(Ordering::SeqCst), 1, "released at its last holder's drop");
     drop(part);
-    assert_eq!(
-        RELEASED.load(Ordering::SeqCst),
-        1,
-        "once: the part's drop does not release it again"
-    );
+    assert_eq!(RELEASED.load(Ordering::SeqCst), 1, "once: the part's drop does not release it again");
     WATCHED.store(0, Ordering::SeqCst);
 }
 
@@ -336,19 +261,9 @@ fn a_key_evicted_image_stays_charged_until_its_last_holder_drops_it() {
 fn a_dropped_parts_image_stays_charged_until_its_last_holder_drops_it() {
     let _s = serial();
     let _cap = Cap::set(1 << 40);
-    let vals = (0..1013u64).map(|r| {
-        Some(CellValue::Bytes(
-            format!("d3113-part-{r:05}-{}", "z".repeat((r % 31) as usize)).into_bytes(),
-        ))
+    let vals = (0..1013u64).map(|r| { Some(CellValue::Bytes(format!("d3113-part-{r:05}-{}", "z".repeat((r % 31) as usize)).into_bytes(),))
     });
-    let b = build_part(&PartSpec::new(
-        1013,
-        vec![ColSpec::new(
-            1,
-            StorageClass::VarlenaVerbatim,
-            vals.collect(),
-        )],
-    ));
+    let b = build_part(&PartSpec::new(1013, vec![ColSpec::new(1, StorageClass::VarlenaVerbatim, vals.collect(),)],));
     let part = open_built(&b, 91, 2);
     let (e, x) = values(&part, 1);
     crate::partcache::set_account_hook(watch_account);
@@ -358,17 +273,9 @@ fn a_dropped_parts_image_stays_charged_until_its_last_holder_drops_it() {
     WATCHED.store(len, Ordering::SeqCst);
     drop(part);
     assert_eq!(held.class(), HELD, "held by its holder (the chunk census)");
-    assert_eq!(
-        RELEASED.load(Ordering::SeqCst),
-        0,
-        "still charged to the account while a holder keeps it"
-    );
+    assert_eq!(RELEASED.load(Ordering::SeqCst), 0, "still charged to the account while a holder keeps it");
     drop(held);
-    assert_eq!(
-        RELEASED.load(Ordering::SeqCst),
-        1,
-        "released at its last holder's drop, once"
-    );
+    assert_eq!(RELEASED.load(Ordering::SeqCst), 1, "released at its last holder's drop, once");
     WATCHED.store(0, Ordering::SeqCst);
 }
 
@@ -380,56 +287,24 @@ fn d4834_an_owed_image_takes_its_bytes_off_the_parts_charge() {
     use crate::openpart::IMG_BLOCK;
     let _s = serial();
     let _cap = Cap::set(1 << 40);
-    let vals = (0..1019u64).map(|r| {
-        Some(CellValue::Bytes(
-            format!("d4834-owed-{r:05}-{}", "w".repeat((r % 23) as usize)).into_bytes(),
-        ))
+    let vals = (0..1019u64).map(|r| { Some(CellValue::Bytes(format!("d4834-owed-{r:05}-{}", "w".repeat((r % 23) as usize)).into_bytes(),))
     });
-    let b = build_part(&PartSpec::new(
-        1019,
-        vec![ColSpec::new(
-            1,
-            StorageClass::VarlenaVerbatim,
-            vals.collect(),
-        )],
-    ));
+    let b = build_part(&PartSpec::new(1019, vec![ColSpec::new(1, StorageClass::VarlenaVerbatim, vals.collect(),)],));
     let part = open_built(&b, 91, 4);
     let (e, x) = values(&part, 1);
     let h0 = part.held_and_images().0;
     let kept = part.extent_bytes(&e, &x[0], 0).unwrap();
     let len = kept.len() as u64;
-    assert!(
-        part.held_and_images().0 > h0 + len,
-        "cached: on the part's charge"
-    );
-    assert_eq!(
-        part.evict_extent_images(&[(x[0].file_off, x[0].len)]),
-        (1, len)
-    );
-    assert_eq!(
-        part.held_and_images().0,
-        h0,
-        "evicted while a holder keeps it: off the part's charge"
-    );
-    assert_eq!(
-        kept.owed_bytes(),
-        len + IMG_BLOCK,
-        "its bytes and block go with the image"
-    );
+    assert!(part.held_and_images().0 > h0 + len, "cached: on the part's charge");
+    assert_eq!(part.evict_extent_images(&[(x[0].file_off, x[0].len)]), (1, len));
+    assert_eq!(part.held_and_images().0, h0, "evicted while a holder keeps it: off the part's charge");
+    assert_eq!(kept.owed_bytes(), len + IMG_BLOCK, "its bytes and block go with the image");
     let again = part.extent_bytes(&e, &x[0], 0).unwrap();
     let h1 = part.held_and_images().0;
     drop(kept);
-    assert_eq!(
-        part.held_and_images().0,
-        h1,
-        "the evicted copy's drop leaves the part's charge alone"
-    );
+    assert_eq!(part.held_and_images().0, h1, "the evicted copy's drop leaves the part's charge alone");
     drop(part);
-    assert_eq!(
-        again.owed_bytes(),
-        len + IMG_BLOCK,
-        "the part's drop: a kept image takes its bytes and block too"
-    );
+    assert_eq!(again.owed_bytes(), len + IMG_BLOCK, "the part's drop: a kept image takes its bytes and block too");
     drop(again);
 }
 
@@ -446,25 +321,12 @@ fn the_sweep_spares_pinned_and_sticky_images() {
     drop(part.extent_bytes(&e, &x[2], 2).unwrap());
     let (r, ev) = (part.resident(), mem::stats().evicted);
     mem::sweep_all_for_tests();
-    assert_eq!(
-        part.resident(),
-        r - x[1].len,
-        "only the unpinned cached image goes"
-    );
+    assert_eq!(part.resident(), r - x[1].len, "only the unpinned cached image goes");
     assert_eq!(mem::stats().evicted, ev + 1);
-    assert!(
-        part.extent_bytes_cached(&e, &x[0], 0)
-            .unwrap()
-            .same(&pinned),
-        "the pinned image stayed resident"
-    );
+    assert!(part.extent_bytes_cached(&e, &x[0], 0).unwrap().same(&pinned), "the pinned image stayed resident");
     drop(pinned);
     mem::sweep_all_for_tests();
-    assert_eq!(
-        part.resident(),
-        r - x[1].len - x[0].len,
-        "its holder gone, the next sweep takes it"
-    );
+    assert_eq!(part.resident(), r - x[1].len - x[0].len, "its holder gone, the next sweep takes it");
 }
 
 #[test]
@@ -478,10 +340,7 @@ fn cap_zero_admits_nothing() {
     let a = part.extent_bytes_cached(&e, &x[0], 0).unwrap();
     let a2 = part.extent_bytes_cached(&e, &x[0], 0).unwrap();
     assert_eq!(a.class(), HELD);
-    assert!(
-        !a.same(&a2),
-        "nothing resident: each read is its caller's own"
-    );
+    assert!(!a.same(&a2), "nothing resident: each read is its caller's own");
     assert_eq!((part.resident(), mem::stats().slots), (r0, slots0));
 }
 
@@ -497,23 +356,13 @@ fn the_fault_log_is_capped_for_refaults() {
     let rounds = cap / x.len() + 2;
     for _ in 0..rounds {
         for (i, r) in x.iter().enumerate() {
-            assert_eq!(
-                part.extent_bytes_cached(&e, r, i as u32).unwrap().bytes(),
-                file_bytes(&b, r)
-            );
+            assert_eq!(part.extent_bytes_cached(&e, r, i as u32).unwrap().bytes(), file_bytes(&b, r));
         }
         mem::sweep_all_for_tests();
     }
-    assert!(
-        part.faults().len() <= cap,
-        "{} entries over a cap of {cap}",
-        part.faults().len()
-    );
+    assert!(part.faults().len() <= cap, "{} entries over a cap of {cap}", part.faults().len());
     assert!(part.faults_unlogged() > 0);
-    assert_eq!(
-        part.faults().len() as u64 + part.faults_unlogged(),
-        opened + (rounds * x.len()) as u64
-    );
+    assert_eq!(part.faults().len() as u64 + part.faults_unlogged(), opened + (rounds * x.len()) as u64);
 }
 
 /// Six granules: an i64 column in five extents, a text column with NULLs (a validity stream) in three, and a
@@ -524,39 +373,18 @@ fn wide_part() -> BuiltPart {
     let mut text = text_col(2, ROWS, Some(9));
     text.extent_cuts = vec![2, 4];
     let mut dict = text_col(3, ROWS, Some(5));
-    dict.dict = Some(DictSpec {
-        entries: (0..300)
-            .map(|i| format!("entry-{i:05}").into_bytes())
-            .collect(),
-    });
+    dict.dict = Some(DictSpec { entries: (0..300).map(|i| format!("entry-{i:05}").into_bytes()).collect(), });
     dict.dict_exec_flag = true;
     build_part(&PartSpec::new(ROWS, vec![words, text, dict]))
 }
 
 /// Decode granule `g` of `cur` into `datums` (backed by `ab`) and check it against the builder's expectation.
-fn decode_checked(
-    b: &BuiltPart,
-    cur: &mut StreamCursor<'_>,
-    attno: u32,
-    g: u32,
-    base: usize,
-    ab: &mut ArenaBuf,
-) -> Vec<u64> {
-    let exp = b
-        .expected
-        .iter()
-        .find(|e| e.attno == attno && e.path_ord == 0)
-        .expect("expected col");
+fn decode_checked(b: &BuiltPart, cur: &mut StreamCursor<'_>, attno: u32, g: u32, base: usize, ab: &mut ArenaBuf,) -> Vec<u64> {
+    let exp = b.expected.iter().find(|e| e.attno == attno && e.path_ord == 0).expect("expected col");
     let n = cur.values_in_granule(g).expect("values") as usize;
     let mut datums = vec![0u64; n.max(1)];
-    let mut out = DecodeOut {
-        datums: &mut datums,
-        arena: ByteArena::new(ab.bytes_mut()),
-    };
-    assert_eq!(
-        cur.decode_full(g, &mut out).expect("decode_full") as usize,
-        n
-    );
+    let mut out = DecodeOut { datums: &mut datums, arena: ByteArena::new(ab.bytes_mut()), };
+    assert_eq!(cur.decode_full(g, &mut out).expect("decode_full") as usize, n);
     assert_granule(exp.class, &datums, &exp.valid, &exp.canon, base, n);
     datums.truncate(n);
     datums
@@ -570,9 +398,7 @@ fn cached_cursors_decode_like_shared_while_the_ring_sweeps() {
     let binding = reference_binding_leaked();
     for attno in 1..=3u32 {
         let part = open_built(&b, 94, attno as u64);
-        let mut cur = StreamCursor::open(part.clone(), binding, attno, 0)
-            .unwrap()
-            .with_residency(Residency::Cached);
+        let mut cur = StreamCursor::open(part.clone(), binding, attno, 0).unwrap().with_residency(Residency::Cached);
         let mut base = 0usize;
         for g in 0..cur.granule_count() {
             let mut ab = ArenaBuf::new(4 << 20);
@@ -580,10 +406,7 @@ fn cached_cursors_decode_like_shared_while_the_ring_sweeps() {
             let mut vw = vec![0u64; 8192usize.div_ceil(64)];
             cur.validity(g, &mut vw).expect("validity");
             let (v, val) = cur.loaded_extents();
-            assert!(
-                v <= 1 && val <= 1,
-                "attno {attno}: one extent per stream, held {v} / {val}"
-            );
+            assert!(v <= 1 && val <= 1, "attno {attno}: one extent per stream, held {v} / {val}");
             // Everything nothing holds goes; the cursor's own extents are pinned.
             mem::sweep_all_for_tests();
         }
@@ -611,20 +434,14 @@ fn a_guard_pins_what_it_holds_until_release() {
     let r = part.resident();
     mem::sweep_all_for_tests();
     assert_eq!(part.resident(), r, "a guard pins what it holds");
-    let cur = StreamCursor::open(part.clone(), reference_binding_leaked(), 1, 0)
-        .unwrap()
-        .with_residency(Residency::Cached);
+    let cur = StreamCursor::open(part.clone(), reference_binding_leaked(), 1, 0).unwrap().with_residency(Residency::Cached);
     let mut h = Guard::new();
     cur.hold_datums(&mut h);
     assert_eq!(h.bytes(), 0, "a word column's datums alias nothing");
     g.release();
     assert_eq!(g.bytes(), 0);
     mem::sweep_all_for_tests();
-    assert_eq!(
-        part.resident(),
-        r - x[0].len - x[1].len,
-        "released, both go"
-    );
+    assert_eq!(part.resident(), r - x[0].len - x[1].len, "released, both go");
 }
 
 /// Eight threads under a cap below their working set: Cached faults and hits (plain and unwrapped), Private reads, Cached
@@ -651,8 +468,7 @@ fn stress_eight_threads_under_a_tiny_cap() {
                 let (b, parts, e, x) = (b.clone(), parts.clone(), e, x.clone());
                 std::thread::spawn(move || {
                     let binding = reference_binding_leaked();
-                    let mut rng =
-                        0x9E37_79B9_7F4A_7C15u64 ^ (t + 1).wrapping_mul(0xD1B5_4A32_D192_ED03);
+                    let mut rng = 0x9E37_79B9_7F4A_7C15u64 ^ (t + 1).wrapping_mul(0xD1B5_4A32_D192_ED03);
                     let mut next = || {
                         rng ^= rng << 13;
                         rng ^= rng >> 7;
@@ -667,12 +483,8 @@ fn stress_eight_threads_under_a_tiny_cap() {
                         let r = x[i];
                         let got = match next() % 8 {
                             0..=3 => Some(p.extent_bytes_cached(&e, &r, i as u32).unwrap()),
-                            4 => Some(
-                                p.unwrapped_extent_bytes_cached(&e, &r, i as u32, &mut |raw| {
-                                    Ok(raw.to_vec())
-                                })
-                                .unwrap(),
-                            ),
+                            4 => Some(p.unwrapped_extent_bytes_cached(&e, &r, i as u32, &mut |raw| { Ok(raw.to_vec())
+                                }).unwrap(),),
                             5 => Some(p.extent_bytes_uncached(&e, &r, i as u32).unwrap()),
                             6 => {
                                 if !held.is_empty() {
@@ -681,9 +493,7 @@ fn stress_eight_threads_under_a_tiny_cap() {
                                 None
                             }
                             _ => {
-                                let mut cur = StreamCursor::open(p.clone(), binding, 1, 0)
-                                    .unwrap()
-                                    .with_residency(Residency::Cached);
+                                let mut cur = StreamCursor::open(p.clone(), binding, 1, 0).unwrap().with_residency(Residency::Cached);
                                 let g = (next() % u64::from(cur.granule_count())) as u32;
                                 let mut ab = ArenaBuf::new(1 << 20);
                                 decode_checked(&b, &mut cur, 1, g, g as usize * 8192, &mut ab);
@@ -699,21 +509,13 @@ fn stress_eight_threads_under_a_tiny_cap() {
                         peak_cached = peak_cached.max(mem::stats().cached);
                     }
                     for (buf, r) in &held {
-                        assert_eq!(
-                            buf.bytes(),
-                            file_bytes(&b, r),
-                            "thread {t}: a held image moved"
-                        );
+                        assert_eq!(buf.bytes(), file_bytes(&b, r), "thread {t}: a held image moved");
                     }
                     peak_cached
                 })
             })
             .collect();
-        let peak = threads
-            .into_iter()
-            .map(|h| h.join().expect("stress thread"))
-            .max()
-            .unwrap();
+        let peak = threads.into_iter().map(|h| h.join().expect("stress thread")).max().unwrap();
         let s1 = mem::stats();
         eprintln!(
             "mem stress: cap {cap} peak cached {peak} admitted {} evicted {} ({} B) over_cap {} futile {}",
@@ -723,23 +525,13 @@ fn stress_eight_threads_under_a_tiny_cap() {
             s1.over_cap - s0.over_cap,
             s1.futile - s0.futile
         );
-        assert!(
-            peak <= cap + 8 * max,
-            "cached {peak} over cap {cap} by more than one admission per thread"
-        );
-        assert!(
-            s1.evicted + s1.over_cap > s0.evicted + s0.over_cap,
-            "the cap was reached"
-        );
+        assert!(peak <= cap + 8 * max, "cached {peak} over cap {cap} by more than one admission per thread");
+        assert!(s1.evicted + s1.over_cap > s0.evicted + s0.over_cap, "the cap was reached");
     }
     drop(parts);
     mem::sweep_all_for_tests();
     let s2 = mem::stats();
-    assert_eq!(
-        (s2.cached, s2.slots),
-        (0, 0),
-        "every admitted byte and slot is gone with its parts"
-    );
+    assert_eq!((s2.cached, s2.slots), (0, 0), "every admitted byte and slot is gone with its parts");
 }
 
 /// The L5a decode microbench (`cargo test --release -p pgrc_read --lib tests::mem::microbench -- --ignored
@@ -780,11 +572,7 @@ fn microbench() {
         let (part, x) = (part.clone(), x.clone());
         move || {
             for (i, r) in x.iter().enumerate() {
-                let img = if cached {
-                    part.extent_bytes_cached(&e, r, i as u32)
-                } else {
-                    part.extent_bytes(&e, r, i as u32)
-                };
+                let img = if cached { part.extent_bytes_cached(&e, r, i as u32) } else { part.extent_bytes(&e, r, i as u32) };
                 std::hint::black_box(img.unwrap().bytes()[0]);
             }
         }
@@ -795,17 +583,12 @@ fn microbench() {
     let cached_hit = best(2000, &mut hit(&cpart, true)) / G as f64;
     let binding = reference_binding_leaked();
     let walk = |part: &Arc<OpenPart>, res: Residency| {
-        let mut cur = StreamCursor::open(part.clone(), binding, 1, 0)
-            .unwrap()
-            .with_residency(res);
+        let mut cur = StreamCursor::open(part.clone(), binding, 1, 0).unwrap().with_residency(res);
         let mut datums = vec![0u64; 8192];
         let mut ab = ArenaBuf::new(1 << 16);
         move || {
             for g in 0..G as u32 {
-                let mut out = DecodeOut {
-                    datums: &mut datums,
-                    arena: ByteArena::new(ab.bytes_mut()),
-                };
+                let mut out = DecodeOut { datums: &mut datums, arena: ByteArena::new(ab.bytes_mut()), };
                 std::hint::black_box(cur.decode_full(g, &mut out).unwrap());
             }
         }

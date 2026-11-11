@@ -138,11 +138,7 @@ impl<'mcx> BbsinkOps<'mcx> for BbsinkCopystream<'mcx> {
         Ok(())
     }
 
-    fn begin_manifest(
-        &mut self,
-        _sink: &mut Bbsink<'mcx>,
-        _state: &mut BbsinkState,
-    ) -> PgResult<()> {
+    fn begin_manifest(&mut self, _sink: &mut Bbsink<'mcx>, _state: &mut BbsinkState,) -> PgResult<()> {
         let mut buf = pq_beginmessage(self.mcx, PQ_MSG_COPY_DATA)?;
         pq_sendbyte(&mut buf, b'm')?;
         pq_endmessage(buf)
@@ -194,14 +190,8 @@ fn send_copy_done() -> PgResult<()> {
 fn send_xlog_rec_ptr_result(mcx: Mcx<'_>, ptr: XLogRecPtr, tli: TimeLineID) -> PgResult<()> {
     let dest = seam::create_dest_remote_simple::call();
     let columns = vec![
-        ResultColumn {
-            name: "recptr".to_string(),
-            typ: TEXTOID,
-        },
-        ResultColumn {
-            name: "tli".to_string(),
-            typ: INT8OID,
-        },
+        ResultColumn { name: "recptr".to_string(), typ: TEXTOID, },
+        ResultColumn { name: "tli".to_string(), typ: INT8OID, },
     ];
     let tstate = seam::begin_tup_output_tupdesc::call(dest, columns);
     let values = vec![
@@ -216,18 +206,9 @@ fn send_xlog_rec_ptr_result(mcx: Mcx<'_>, ptr: XLogRecPtr, tli: TimeLineID) -> P
 fn send_tablespace_list(state: &BbsinkState) -> PgResult<()> {
     let dest = seam::create_dest_remote_simple::call();
     let columns = vec![
-        ResultColumn {
-            name: "spcoid".to_string(),
-            typ: OIDOID,
-        },
-        ResultColumn {
-            name: "spclocation".to_string(),
-            typ: TEXTOID,
-        },
-        ResultColumn {
-            name: "size".to_string(),
-            typ: INT8OID,
-        },
+        ResultColumn { name: "spcoid".to_string(), typ: OIDOID, },
+        ResultColumn { name: "spclocation".to_string(), typ: TEXTOID, },
+        ResultColumn { name: "size".to_string(), typ: INT8OID, },
     ];
     let tstate = seam::begin_tup_output_tupdesc::call(dest, columns);
 

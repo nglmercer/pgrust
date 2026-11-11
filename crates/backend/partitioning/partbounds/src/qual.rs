@@ -1221,7 +1221,7 @@ pub fn fc_satisfies_hash_partition(
     let is_variadic = funcapi::get_fn_expr_variadic(Some(flinfo));
 
     let stale =
-        flinfo.fn_extra_ref::<ColumnsHashData>().is_none_or(|x| x.relid != parent_id);
+        flinfo.fn_extra_ref::<ColumnsHashData>().is_none_or( |x| x.relid != parent_id);
     if stale {
         let mcx = fcinfo.result_mcx();
         let parent = relation_seams::relation_open::call(mcx, parent_id, AccessShareLock)?;

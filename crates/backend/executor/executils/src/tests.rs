@@ -277,10 +277,7 @@ fn deferred_foreign_insert_error_follows_the_batch_flush() {
         es.defer_foreign_insert_error(a, Box::new(PgError::error("first")));
         es.defer_foreign_insert_error(a, Box::new(PgError::error("second")));
         let err = es.flush_pending_foreign_inserts().unwrap_err();
-        assert_eq!(
-            es.es_processed, 2,
-            "the batch reaches the remote before the error"
-        );
+        assert_eq!(es.es_processed, 2, "the batch reaches the remote before the error");
         assert_eq!(err.message(), "first");
         es.es_insert_pending_result_relations.clear();
         es.register_pending_foreign_insert(a);

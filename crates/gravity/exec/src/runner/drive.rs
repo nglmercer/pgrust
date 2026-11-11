@@ -75,7 +75,7 @@ pub fn drive(mcx: Mcx<'static>, entry: &mut gravity_driver::Entry, scratch: &mut
             } else {
                 dctx = gravity_driver::mem::root::Root::new("GravityDestSink");
                 let mcx: Mcx<'static> = super::raw::sink_mcx(&dctx);
-                Receiver::Dest(DestSink::new(mcx, desc_of(mcx, a), dest))
+                Receiver::Dest(DestSink::new(mcx, desc_of(mcx,a), dest))
             };
             byref = a.program.out.iter().map(|c| !c.typbyval).collect(); // alloc: Exec
             keys = g.merge().to_vec(); // alloc: Exec
@@ -216,7 +216,7 @@ fn run_parallel(mcx: Mcx<'static>, entry: &mut gravity_driver::Entry, scratch: &
     } else {
         dctx = gravity_driver::mem::root::Root::new("GravityDestSink");
         let mcx: Mcx<'static> = super::raw::sink_mcx(&dctx);
-        let desc = desc_of(mcx, a);
+        let desc = desc_of(mcx,a);
         Receiver::Dest(DestSink::new(mcx, desc, dest))
     };
     let natts = a.program.out.len();
@@ -884,7 +884,7 @@ fn run_once(mcx: Mcx<'static>, entry: &mut gravity_driver::Entry, a: &mut Admitt
     } else {
         dctx = gravity_driver::mem::root::Root::new("GravityDestSink");
         let mcx: Mcx<'static> = super::raw::sink_mcx(&dctx);
-        let desc = desc_of(mcx, a);
+        let desc = desc_of(mcx,a);
         Receiver::Dest(DestSink::new(mcx, desc, dest))
     };
     let mut binding = Binding::new(parts, &mut sink);

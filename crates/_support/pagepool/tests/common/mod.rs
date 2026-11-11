@@ -84,29 +84,19 @@ pub fn touch(p: usize, len: usize) {
 /// small pages, as on a host whose memory is fragmented.
 pub fn thp_fallbacks() -> u64 {
     let v = std::fs::read_to_string("/proc/vmstat").unwrap_or_default();
-    v.lines()
-        .find_map(|l| l.strip_prefix("thp_fault_fallback "))
-        .and_then(|n| n.trim().parse().ok())
-        .unwrap_or(0)
+    v.lines().find_map(|l| l.strip_prefix("thp_fault_fallback ")).and_then(|n| n.trim().parse().ok()).unwrap_or(0)
 }
 
 /// Pages the host has swapped out so far (/proc/vmstat pswpout; 0 where there is none).
 pub fn swapped_out() -> u64 {
     let v = std::fs::read_to_string("/proc/vmstat").unwrap_or_default();
-    v.lines()
-        .find_map(|l| l.strip_prefix("pswpout "))
-        .and_then(|n| n.trim().parse().ok())
-        .unwrap_or(0)
+    v.lines().find_map(|l| l.strip_prefix("pswpout ")).and_then(|n| n.trim().parse().ok()).unwrap_or(0)
 }
 
 /// The host's (pswpin, pswpout) page counts (/proc/vmstat; 0 where unreadable).
 pub fn swap_counts() -> (u64, u64) {
     let v = std::fs::read_to_string("/proc/vmstat").unwrap_or_default();
-    let get = |k: &str| {
-        v.lines()
-            .find_map(|l| l.strip_prefix(k))
-            .and_then(|n| n.trim().parse().ok())
-            .unwrap_or(0)
+    let get = |k: &str| { v.lines().find_map(|l| l.strip_prefix(k)).and_then(|n| n.trim().parse().ok()).unwrap_or(0)
     };
     (get("pswpin "), get("pswpout "))
 }
@@ -153,11 +143,7 @@ pub fn whole_but_swap(got: usize, want: usize, since: u64) -> bool {
     let ok = got < want && want - got <= out;
     eprintln!(
         "{got} of {want} bytes counted, the host swapped out {out} bytes meanwhile: {}",
-        if ok {
-            "short by swap, allowed"
-        } else {
-            "NOT explained by swap"
-        }
+        if ok { "short by swap, allowed" } else { "NOT explained by swap" }
     );
     ok
 }
@@ -190,20 +176,13 @@ pub fn cpu_list(s: &str) -> Vec<usize> {
 #[cfg(target_os = "linux")]
 pub fn current_cpus() -> Vec<usize> {
     let s = std::fs::read_to_string("/proc/thread-self/status").expect("/proc/thread-self/status");
-    cpu_list(
-        s.lines()
-            .find_map(|l| l.strip_prefix("Cpus_allowed_list:"))
-            .expect("Cpus_allowed_list"),
-    )
+    cpu_list(s.lines().find_map(|l| l.strip_prefix("Cpus_allowed_list:")).expect("Cpus_allowed_list"),)
 }
 
 #[cfg(target_os = "linux")]
 pub fn threads_cpus(comm: &str) -> Vec<(String, Vec<usize>)> {
     let mut out = Vec::new();
-    for e in std::fs::read_dir("/proc/self/task")
-        .expect("/proc/self/task")
-        .flatten()
-    {
+    for e in std::fs::read_dir("/proc/self/task").expect("/proc/self/task").flatten() {
         let p = e.path();
         if std::fs::read_to_string(p.join("comm")).is_ok_and(|c| c.trim() == comm) {
             if let Ok(s) = std::fs::read_to_string(p.join("status")) {
@@ -221,16 +200,10 @@ pub fn wait_helpers_on(comms: &[&str], want: &[usize]) {
     let t0 = std::time::Instant::now();
     loop {
         let seen: Vec<_> = comms.iter().map(|c| (*c, threads_cpus(c))).collect();
-        if seen
-            .iter()
-            .all(|(_, t)| !t.is_empty() && t.iter().all(|(_, cpus)| cpus == want))
-        {
+        if seen.iter().all(|(_, t)| !t.is_empty() && t.iter().all(|(_, cpus)| cpus == want)) {
             return;
         }
-        assert!(
-            t0.elapsed() < std::time::Duration::from_secs(10),
-            "the helpers are not on {want:?}: {seen:?}"
-        );
+        assert!(t0.elapsed() < std::time::Duration::from_secs(10), "the helpers are not on {want:?}: {seen:?}");
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
 }
@@ -240,9 +213,5 @@ pub fn wait_pins(want: (u32, u32)) {
     while pagepool::helper_pins() != want && t0.elapsed() < std::time::Duration::from_secs(10) {
         std::thread::sleep(std::time::Duration::from_millis(5));
     }
-    assert_eq!(
-        pagepool::helper_pins(),
-        want,
-        "the helpers' pins (applied, refused)"
-    );
+    assert_eq!(pagepool::helper_pins(), want, "the helpers' pins (applied, refused)");
 }

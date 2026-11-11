@@ -31,22 +31,12 @@ fn mix(s: &mut u64) -> u64 {
 
 /// The fixture's one column under `plan`, values in a band of `span` around zero, every seventh row null.
 fn check(name: &'static str, relf: u64, plan: ForcedPlan, span: u64, framed: bool) {
-    let fx = int8_fixture(
-        name,
-        relf,
-        ROWS,
-        vec![plan],
-        PartCutPolicy::default(),
-        |i| {
-            let mut s = i ^ relf;
-            (i % 7 != 3).then(|| (mix(&mut s) % span) as i64 - (span / 2) as i64)
-        },
-    );
+    let fx = int8_fixture(name, relf, ROWS, vec![plan], PartCutPolicy::default(), |i| {
+        let mut s = i ^ relf;
+        (i % 7 != 3).then(|| (mix(&mut s) % span) as i64 - (span / 2) as i64)
+    },);
     let built = build_fixture(fx);
-    let bytes = built
-        .files
-        .get(&part_file_name(built.manifest.parts[0].part_no))
-        .expect("part");
+    let bytes = built.files.get(&part_file_name(built.manifest.parts[0].part_no)).expect("part");
     let part = open_part_bytes(bytes, relf).expect("open");
     let mut cur = StreamCursor::open(Arc::clone(&part), full_binding(), 1, 0).expect("cursor");
     let width = cur.key().width;
@@ -55,112 +45,46 @@ fn check(name: &'static str, relf: u64, plan: ForcedPlan, span: u64, framed: boo
     for g in 0..cur.granule_count() {
         let rows = cur.rows_in_granule(g) as usize;
         // another encoding than the stream's never has a view
-        assert!(
-            cur.framed(g, EncodingId::PackedNumeric as u16)
-                .expect("framed")
-                .is_none(),
-            "{name} g{g}: packed numeric asked"
-        );
+        assert!(cur.framed(g, EncodingId::PackedNumeric as u16).expect("framed").is_none(), "{name} g{g}: packed numeric asked");
         let mine = cur
             .framed(g, EncodingId::ByteFor as u16)
             .expect("framed")
-            .map(|f| {
-                (
-                    f.payload.as_ptr() as usize,
-                    f.payload.len(),
-                    f.frame_table.to_vec(),
-                    f.fbase,
-                    f.values,
-                )
+            .map(|f| { (f.payload.as_ptr() as usize, f.payload.len(), f.frame_table.to_vec(), f.fbase, f.values,)
             });
         if !framed {
-            assert!(
-                mine.is_none(),
-                "{name} g{g}: a {:?} stream has no BYTE_FOR view",
-                cur.key()
-            );
+            assert!(mine.is_none(), "{name} g{g}: a {:?} stream has no BYTE_FOR view", cur.key());
             continue;
         }
-        let mine =
-            mine.expect("a BYTE_FOR root stream has a framed view, its first touch included");
+        let mine = mine.expect("a BYTE_FOR root stream has a framed view, its first touch included");
         let theirs = cur
             .granule_ctx(g, |ctx| {
-                Framed::of_ctx(ctx, EncodingId::ByteFor as u16).map(|v| {
-                    (
-                        v.payload.as_ptr() as usize,
-                        v.payload.len(),
-                        v.frame_table.to_vec(),
-                        v.fbase,
-                        v.values,
-                    )
+                Framed::of_ctx(ctx, EncodingId::ByteFor as u16)
+                    .map(|v| { (v.payload.as_ptr() as usize, v.payload.len(), v.frame_table.to_vec(), v.fbase, v.values,)
                 })
             })
             .expect("ctx view");
-        assert_eq!(
-            mine, theirs,
-            "{name} g{g}: the cursor's view is the ctx's view"
-        );
-        assert_eq!(
-            mine.4 as usize, rows,
-            "{name} g{g}: a root stream's values are its rows"
-        );
+        assert_eq!(mine, theirs, "{name} g{g}: the cursor's view is the ctx's view");
+        assert_eq!(mine.4 as usize, rows, "{name} g{g}: a root stream's values are its rows");
         for keep in [1u64, 3, 97] {
-            let sel_rows: Vec<u16> = (0..rows as u16)
-                .filter(|_| mix(&mut seed).is_multiple_of(keep))
-                .collect();
+            let sel_rows: Vec<u16> = (0..rows as u16).filter(|_| mix(&mut seed).is_multiple_of( keep)).collect();
             let (sel, n) = (Selection { rows: &sel_rows }, sel_rows.len());
             let mut want = vec![0u64; n.max(1)];
             let mut arena = [0u8; 64];
-            let out = &mut DecodeOut {
-                datums: &mut want[..n],
-                arena: ByteArena::new(&mut arena),
-            };
+            let out = &mut DecodeOut { datums: &mut want[..n], arena: ByteArena::new(&mut arena), };
             assert_eq!(cur.decode_sel(g, &sel, out).expect("decode_sel"), n as u32);
-            let f = cur
-                .framed(g, EncodingId::ByteFor as u16)
-                .expect("framed")
-                .expect("view");
-            let f = Framed {
-                payload: f.payload,
-                frame_table: f.frame_table,
-                fbase: f.fbase,
-                values: f.values,
-            };
-            let (mut at, mut at32, mut at16) = (
-                vec![!0u64; rows],
-                vec![0x5A5A_5A5Ai32; rows],
-                vec![0x5A5Ai16; rows],
-            );
-            assert_eq!(
-                sel_at_framed(&f, width, &sel, &mut at).expect("u64"),
-                n as u32
-            );
-            assert_eq!(
-                sel_at_framed(&f, width, &sel, &mut at32).expect("i32"),
-                n as u32
-            );
-            assert_eq!(
-                sel_at_framed(&f, width, &sel, &mut at16).expect("i16"),
-                n as u32
-            );
+            let f = cur.framed(g, EncodingId::ByteFor as u16).expect("framed").expect("view");
+            let f = Framed { payload: f.payload, frame_table: f.frame_table, fbase: f.fbase, values: f.values, };
+            let (mut at, mut at32, mut at16) = (vec![!0u64; rows], vec![0x5A5A_5A5Ai32; rows], vec![0x5A5Ai16; rows],);
+            assert_eq!(sel_at_framed(&f, width, &sel, &mut at).expect("u64"), n as u32);
+            assert_eq!(sel_at_framed(&f, width, &sel, &mut at32).expect("i32"), n as u32);
+            assert_eq!(sel_at_framed(&f, width, &sel, &mut at16).expect("i16"), n as u32);
             let mut picked = vec![usize::MAX; rows];
-            sel_rows
-                .iter()
-                .enumerate()
-                .for_each(|(i, &r)| picked[r as usize] = i);
+            sel_rows.iter().enumerate().for_each(|(i, &r)| picked[r as usize] = i);
             for r in 0..rows {
                 let got = (at[r], at32[r], at16[r]);
                 match picked[r] {
-                    usize::MAX => assert_eq!(
-                        got,
-                        (!0, 0x5A5A_5A5A, 0x5A5A),
-                        "{name} g{g} row {r}: untouched"
-                    ),
-                    i => assert_eq!(
-                        got,
-                        (want[i], want[i] as i32, want[i] as i16),
-                        "{name} g{g} row {r}: == decode_sel"
-                    ),
+                    usize::MAX => assert_eq!(got, (!0, 0x5A5A_5A5A, 0x5A5A), "{name} g{g} row {r}: untouched"),
+                    i => assert_eq!(got, (want[i], want[i] as i32, want[i] as i16), "{name} g{g} row {r}: == decode_sel"),
                 }
             }
         }
@@ -169,36 +93,9 @@ fn check(name: &'static str, relf: u64, plan: ForcedPlan, span: u64, framed: boo
 
 #[test]
 fn byte_for_view_is_the_ctx_view_at_each_delta_width() {
-    check(
-        "framed_bf1",
-        9401,
-        ForcedPlan::ByteFor {
-            delta_width: 1,
-            signed: true,
-        },
-        200,
-        true,
-    );
-    check(
-        "framed_bf2",
-        9402,
-        ForcedPlan::ByteFor {
-            delta_width: 2,
-            signed: true,
-        },
-        50_000,
-        true,
-    );
-    check(
-        "framed_bf4",
-        9403,
-        ForcedPlan::ByteFor {
-            delta_width: 4,
-            signed: true,
-        },
-        3_000_000_000,
-        true,
-    );
+    check("framed_bf1", 9401, ForcedPlan::ByteFor { delta_width: 1, signed: true, }, 200, true,);
+    check("framed_bf2", 9402, ForcedPlan::ByteFor { delta_width: 2, signed: true, }, 50_000, true,);
+    check("framed_bf4", 9403, ForcedPlan::ByteFor { delta_width: 4, signed: true, }, 3_000_000_000, true,);
 }
 
 #[test]

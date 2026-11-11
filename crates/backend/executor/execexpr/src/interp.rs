@@ -908,12 +908,7 @@ fn run_program<'mcx>(
                 let p = unsafe { prm.read() };
                 write_out(*out, p.value, p.isnull);
             }
-            Step::ParamExternMissing {
-                paramid,
-                paramtype,
-                fetch,
-                out,
-            } => {
+            Step::ParamExternMissing { paramid, paramtype, fetch, out, } => {
                 let nd = crate::compile::fetch_missing_param(*fetch, *paramid, *paramtype)?;
                 write_out(*out, nd.value, nd.isnull);
             }
@@ -2048,7 +2043,7 @@ fn run_program<'mcx>(
 }
 
 #[inline(always)]
-fn need_slot<'a, 'mcx>(slot: &'a mut Option<&mut SlotData<'mcx>>) -> &'a mut SlotData<'mcx> {
+fn need_slot<'a, 'mcx>(slot: &'a mut Option<& mut SlotData<'mcx>>) -> &'a mut SlotData<'mcx> {
     match slot {
         Some(s) => s,
         None => missing_slot_hoisted(),
@@ -3352,11 +3347,9 @@ fn convert_rowtype_tupdesc(
     let entry = ::typcache::lookup_type_cache(oid, ::typcache::TYPECACHE_TUPDESC)?;
     let Some(desc) = entry.tupdesc() else {
         let name = format_type::format_type_be(oid).unwrap_or_else(|_| format!("{oid}"));
-        return Err(
-            ::types_error::PgError::error(format!("type {name} is not composite"))
-                .with_sqlstate(::types_error::ERRCODE_WRONG_OBJECT_TYPE)
-                .into(),
-        );
+        return Err(::types_error::PgError::error(format!("type {name} is not composite"))
+            .with_sqlstate(::types_error::ERRCODE_WRONG_OBJECT_TYPE)
+            .into(),);
     };
     Ok((desc, entry.tupdesc_identifier()))
 }
@@ -3376,20 +3369,14 @@ fn field_store_tupdesc(
         let Some(td) = e.tupdesc() else {
             let name = format_type::format_type_be(st.resulttype)
                 .unwrap_or_else(|_| format!("{}", st.resulttype));
-            return Err(
-                ::types_error::PgError::error(format!("type {name} is not composite"))
-                    .with_sqlstate(::types_error::ERRCODE_WRONG_OBJECT_TYPE)
-                    .into(),
-            );
+            return Err(::types_error::PgError::error(format!("type {name} is not composite"))
+                .with_sqlstate(::types_error::ERRCODE_WRONG_OBJECT_TYPE)
+                .into(),);
         };
         st.tupdesc_id = e.tupdesc_identifier();
         st.cached = Some(core::mem::ManuallyDrop::new(td));
     }
-    Ok(st
-        .cached
-        .as_deref()
-        .map(|rc| &**rc)
-        .expect("refreshed above"))
+    Ok(st.cached.as_deref().map(|rc| &**rc).expect("refreshed above"))
 }
 
 fn eval_field_store_deform(
@@ -3741,22 +3728,12 @@ pub unsafe fn agg_datum_free(mcx: ::mcx::Mcx<'_>, value: Datum, typlen: i16) {
     };
     let layout = core::alloc::Layout::from_size_align(size, 8).expect("datumCopy layout");
     // SAFETY: allocated by agg_datum_copy with exactly this layout.
-    unsafe {
-        ::mcx::Allocator::deallocate(
-            &mcx,
-            core::ptr::NonNull::new_unchecked(p.cast_mut()),
-            layout,
-        )
-    };
+    unsafe { ::mcx::Allocator::deallocate(&mcx, core::ptr::NonNull::new_unchecked(p.cast_mut()), layout,) };
 }
 
 /// # Safety
 /// As [`agg_datum_copy`].
-pub unsafe fn agg_trans_value_copy(
-    agg: &::types_fmgr::AggStateNode,
-    value: Datum,
-    typlen: i16,
-) -> PgResult<Datum> {
+pub unsafe fn agg_trans_value_copy(agg: &::types_fmgr::AggStateNode, value: Datum, typlen: i16,) -> PgResult<Datum> {
     if typlen == -1 && agg.expanded_trans() {
         // SAFETY: forwarded caller contract (a live by-ref datum); an RW expanded pointer embeds a live header.
         unsafe {
@@ -4091,13 +4068,10 @@ fn row_cache_desc(
         if rn.named.is_none() || rn.tup_type != tup_type || rn.tupdesc_id != e.tupdesc_identifier()
         {
             let Some(td) = e.tupdesc() else {
-                let name =
-                    format_type::format_type_be(tup_type).unwrap_or_else(|_| format!("{tup_type}"));
-                return Err(
-                    ::types_error::PgError::error(format!("type {name} is not composite"))
-                        .with_sqlstate(::types_error::ERRCODE_WRONG_OBJECT_TYPE)
-                        .into(),
-                );
+                let name = format_type::format_type_be(tup_type).unwrap_or_else(|_| format!("{tup_type}"));
+                return Err(::types_error::PgError::error(format!("type {name} is not composite"))
+                    .with_sqlstate(::types_error::ERRCODE_WRONG_OBJECT_TYPE)
+                    .into(),);
             };
             rn.tupdesc_id = e.tupdesc_identifier();
             rn.named = Some(td);
@@ -4129,9 +4103,9 @@ fn row_cache_desc(
                 ::types_tuple::TupleDescData<'static>,
             >(desc));
         }
-        rn.seen.try_reserve(1).map_err(|_| {
-            rn.mcx
-                .oom(core::mem::size_of::<(i32, core::ptr::NonNull<u8>)>())
+        rn.seen
+            .try_reserve(1)
+            .map_err(|_| { rn.mcx.oom(core::mem::size_of::<(i32, core::ptr::NonNull<u8>)>())
         })?;
         rn.seen.push((tup_typmod, desc_ptr));
         rn.desc = Some(desc_ptr);

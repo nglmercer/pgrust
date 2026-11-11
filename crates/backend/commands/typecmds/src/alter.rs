@@ -13,7 +13,7 @@ use types_error::{
     ERRCODE_WRONG_OBJECT_TYPE, ERROR, NOTICE, PG_DIAG_COLUMN_NAME,
 };
 use types_nodes::parsenodes::{AlterDomainStmt, ObjectType, RenameStmt};
-use types_nodes::rawnodes::{ConstrType, Constraint, TypeName};
+use types_nodes::rawnodes::{ ConstrType, Constraint, TypeName};
 use types_nodes::{Node, NodeList, NodeTag};
 use types_rel::{
     AccessShareLock, NoLock, Relation, RowExclusiveLock, ShareLock, LOCKMODE, RELKIND_MATVIEW,
@@ -23,8 +23,8 @@ use types_rel::{
 use pg_type::TypeOidIndexId;
 
 use crate::{
-    cache_lookup_failed, domainAddCheckConstraint, domainAddNotNullConstraint, type_name_to_string,
-    TYPTYPE_COMPOSITE, TYPTYPE_MULTIRANGE, TYPTYPE_RANGE,
+    cache_lookup_failed, domainAddCheckConstraint, domainAddNotNullConstraint,
+    type_name_to_string, TYPTYPE_COMPOSITE, TYPTYPE_MULTIRANGE, TYPTYPE_RANGE,
 };
 use pg_type::TYPTYPE_DOMAIN;
 
@@ -134,11 +134,10 @@ fn fetch_type_row<'mcx>(mcx: Mcx<'mcx>, typeoid: Oid) -> PgResult<TypeRow> {
     let mut isnull = false;
     let namedatum = get(Anum_pg_type_typname, &mut isnull);
     // SAFETY: NameData column is a 64-byte NUL-padded in-tuple buffer.
-    let namebytes = unsafe { core::slice::from_raw_parts(namedatum.as_usize() as *const u8, 64) };
+    let namebytes =
+        unsafe { core::slice::from_raw_parts(namedatum.as_usize() as *const u8, 64) };
     let end = namebytes.iter().position(|&b| b == 0).unwrap_or(64);
-    let typname = core::str::from_utf8(&namebytes[..end])
-        .expect("typname UTF-8")
-        .to_string();
+    let typname = core::str::from_utf8(&namebytes[..end]).expect("typname UTF-8").to_string();
     let mut acl_isnull = false;
     let acl_datum = get(Anum_pg_type_typacl, &mut acl_isnull);
     let typacl_payload = if acl_isnull {
@@ -147,10 +146,7 @@ fn fetch_type_row<'mcx>(mcx: Mcx<'mcx>, typeoid: Oid) -> PgResult<TypeRow> {
         let p = acl_datum.as_usize() as *const u8;
         // SAFETY: live aclitem[] varlena image through its extent.
         let image = unsafe { core::slice::from_raw_parts(p, types_tuple::varatt::varsize_any(p)) };
-        Some(::mcx::std_vec_from_slice(
-            "typecmds",
-            varlena::open_image(mcx, image)?.as_bytes(),
-        )?)
+        Some(::mcx::std_vec_from_slice("typecmds",varlena::open_image(mcx, image)?.as_bytes(),)?)
     };
     let mut bin_isnull = false;
     let bin_datum = get(Anum_pg_type_typdefaultbin, &mut bin_isnull);
@@ -161,11 +157,7 @@ fn fetch_type_row<'mcx>(mcx: Mcx<'mcx>, typeoid: Oid) -> PgResult<TypeRow> {
         // SAFETY: live text varlena image through its extent.
         let image = unsafe { core::slice::from_raw_parts(p, types_tuple::varatt::varsize_any(p)) };
         let payload = varlena::open_image(mcx, image)?;
-        Some(
-            core::str::from_utf8(payload.as_bytes())
-                .expect("typdefaultbin UTF-8")
-                .to_string(),
-        )
+        Some(core::str::from_utf8(payload.as_bytes()).expect("typdefaultbin UTF-8").to_string(),)
     };
     let row = TypeRow {
         typname,
@@ -239,12 +231,7 @@ fn cache_inval_type_tuple<'mcx>(mcx: Mcx<'mcx>, typeoid: Oid) -> PgResult<()> {
 }
 
 fn typename_from_list<'mcx>(mcx: Mcx<'mcx>, names: &NodeList<'mcx>) -> PgResult<TypeName<'mcx>> {
-    Ok(TypeName {
-        names: names.clone_in(mcx)?,
-        typemod: -1,
-        location: -1,
-        ..Default::default()
-    })
+    Ok(TypeName { names: names.clone_in(mcx)?, typemod: -1, location: -1, ..Default::default() })
 }
 
 pub fn checkDomainOwner(typtype: i8, type_oid: Oid) -> PgResult<()> {
@@ -257,7 +244,10 @@ pub fn checkDomainOwner(typtype: i8, type_oid: Oid) -> PgResult<()> {
     Ok(())
 }
 
-pub fn AlterDomain<'mcx>(mcx: Mcx<'mcx>, stmt: &AlterDomainStmt<'mcx>) -> PgResult<ObjectAddress> {
+pub fn AlterDomain<'mcx>(
+    mcx: Mcx<'mcx>,
+    stmt: &AlterDomainStmt<'mcx>
+) -> PgResult<ObjectAddress> {
     match stmt.subtype {
         b'T' => AlterDomainDefault(mcx, &stmt.typeName, stmt.def),
         b'N' => AlterDomainNotNull(mcx, &stmt.typeName, false),
@@ -276,8 +266,11 @@ pub fn AlterDomain<'mcx>(mcx: Mcx<'mcx>, stmt: &AlterDomainStmt<'mcx>) -> PgResu
             stmt.behavior,
             stmt.missing_ok,
         ),
-        b'V' => {
-            AlterDomainValidateConstraint(mcx, &stmt.typeName, stmt.name.expect("constraint name"))
+        b'V' => { AlterDomainValidateConstraint(
+            mcx,
+            &stmt.typeName,
+            stmt.name.expect("constraint name")
+        )
         }
         other => panic!("unrecognized alter domain type: {other}"),
     }
@@ -316,13 +309,8 @@ fn AlterDomainDefault<'mcx>(
             // upstream 2780538433fc (18.5): Check for USAGE privilege on types used by stored expressions.
             // The below GenerateTypeDependencies rebuild creates the
             // dependencies on types. We are responsible for checking USAGE.
-            catalog_dependency::CheckUsageOnTypesInExpr(
-                expr,
-                &NodeList::nil(),
-                miscinit::GetUserId(),
-            )?;
-            let default_value =
-                ruleutils::deparse_expression_pretty(mcx, expr, InvalidOid, false, 0)?;
+            catalog_dependency::CheckUsageOnTypesInExpr(expr, &NodeList::nil(), miscinit::GetUserId(),)?;
+            let default_value = ruleutils::deparse_expression_pretty(mcx, expr, InvalidOid, false, 0)?;
             let binstr = outfuncs::nodeToString(mcx, expr)?;
             defaultbin_text = Some(varlena::cstring_to_text(mcx, binstr.as_str().as_bytes())?);
             default_text = Some(varlena::cstring_to_text(mcx, default_value.as_bytes())?);
@@ -534,9 +522,7 @@ fn alter_domain_add_constraint_impl<'mcx>(
             new_constraint.node_tag() as i32
         ))));
     }
-    let constr = new_constraint
-        .as_variant::<Constraint>()
-        .expect("Constraint");
+    let constr = new_constraint.as_variant::<Constraint>().expect("Constraint");
 
     match constr.contype {
         ConstrType::CONSTR_CHECK => {
@@ -649,9 +635,7 @@ fn AlterDomainValidateConstraint<'mcx>(
     // SAFETY: live text varlena image through its extent.
     let image = unsafe { core::slice::from_raw_parts(p, types_tuple::varatt::varsize_any(p)) };
     let payload = varlena::open_image(mcx, image)?;
-    let conbin = core::str::from_utf8(payload.as_bytes())
-        .expect("conbin UTF-8")
-        .to_string();
+    let conbin = core::str::from_utf8(payload.as_bytes()).expect("conbin UTF-8").to_string();
 
     let n = desc.natts as usize;
     let mut values: PgVec<'_, Datum> = mcx::vec_with_capacity_in(mcx, n)?;
@@ -746,10 +730,7 @@ fn get_rels_with_domain<'mcx>(
                 rel.close(lockmode)?;
                 continue;
             }
-            result.push(RelToCheck {
-                rel,
-                atts: PgVec::new_in(mcx),
-            });
+            result.push(RelToCheck { rel, atts: PgVec::new_in(mcx), });
             rtc_ix = Some(result.len() - 1);
         }
         let rtc = &mut result[rtc_ix.expect("entry exists")];
@@ -819,8 +800,7 @@ fn validateDomainCheckConstraint<'mcx>(
     let planned = clauses::eval_const_expressions(mcx, expr)?;
     // typecmds.c:3297 ResetExprContext per scanned tuple: call results
     // (detoasts, concatenations) live one row, not the whole scan.
-    let mut per_tuple =
-        ::mcx::MemoryContext::new_wholesale("validateDomainCheckConstraint per-tuple");
+    let mut per_tuple = ::mcx::MemoryContext::new_wholesale("validateDomainCheckConstraint per-tuple");
     let mut program = execexpr::domain::prepare_domain_check_expr(mcx, planned)?;
     // SAFETY: per_tuple is declared before program and outlives every eval.
     unsafe { program.arm_result_mcx_raw(per_tuple.mcx()) };
@@ -872,9 +852,7 @@ fn domain_column_violation<'mcx>(
     sqlstate: types_error::SqlState,
     tail: &str,
 ) -> PgResult<Box<PgError>> {
-    let colname = core::str::from_utf8(attname_bytes)
-        .expect("attname UTF-8")
-        .to_string();
+    let colname = core::str::from_utf8(attname_bytes).expect("attname UTF-8").to_string();
     let relname = rel.name().to_string();
     let schema = lsyscache::get_namespace_name(mcx, rel.rd_rel.relnamespace)?
         .map(|s| s.as_str().to_string())
@@ -894,11 +872,7 @@ fn domain_column_violation<'mcx>(
 // RenameType (typecmds.c): returns the type's address for the event-trigger
 // collection tail.
 pub fn RenameType<'mcx>(mcx: Mcx<'mcx>, stmt: &RenameStmt<'mcx>) -> PgResult<ObjectAddress> {
-    let names = stmt
-        .object
-        .expect("RenameStmt.object")
-        .as_list()
-        .expect("name list");
+    let names = stmt.object.expect("RenameStmt.object").as_list().expect("name list");
     let new_type_name = stmt.newname.expect("RenameStmt.newname");
     let typename = typename_from_list(mcx, names)?;
     let (type_oid, _) = parse_utilcmd::typenameTypeIdAndMod(mcx, None, &typename)?;
@@ -912,7 +886,9 @@ pub fn RenameType<'mcx>(mcx: Mcx<'mcx>, stmt: &RenameStmt<'mcx>) -> PgResult<Obj
     }
     // A composite type must be free-standing, not a table's rowtype; use
     // ALTER TABLE for that.
-    if row.typtype == TYPTYPE_COMPOSITE && lsyscache::get_rel_relkind(row.typrelid)? != b'c' as i8 {
+    if row.typtype == TYPTYPE_COMPOSITE
+        && lsyscache::get_rel_relkind(row.typrelid)? != b'c' as i8
+    {
         return Err(is_a_table_row_type(type_oid)?);
     }
     if row.typelem != InvalidOid && row.typsubscript == F_ARRAY_SUBSCRIPT_HANDLER {
@@ -941,11 +917,7 @@ pub fn RenameDomainConstraint<'mcx>(
     mcx: Mcx<'mcx>,
     stmt: &RenameStmt<'mcx>,
 ) -> PgResult<ObjectAddress> {
-    let names = stmt
-        .object
-        .expect("RenameStmt.object")
-        .as_list()
-        .expect("name list");
+    let names = stmt.object.expect("RenameStmt.object").as_list().expect("name list");
     let typename = typename_from_list(mcx, names)?;
     let (typid, _) = parse_utilcmd::typenameTypeIdAndMod(mcx, None, &typename)?;
     let row = fetch_type_row(mcx, typid)?;
@@ -976,7 +948,9 @@ pub fn AlterTypeOwner<'mcx>(
     if objecttype == ObjectType::OBJECT_DOMAIN && row.typtype != TYPTYPE_DOMAIN {
         return Err(not_a_domain(type_oid)?);
     }
-    if row.typtype == TYPTYPE_COMPOSITE && lsyscache::get_rel_relkind(row.typrelid)? != b'c' as i8 {
+    if row.typtype == TYPTYPE_COMPOSITE
+        && lsyscache::get_rel_relkind(row.typrelid)? != b'c' as i8
+    {
         return Err(is_a_table_row_type(type_oid)?);
     }
     if row.typelem != InvalidOid && row.typsubscript == F_ARRAY_SUBSCRIPT_HANDLER {
@@ -1133,8 +1107,7 @@ pub fn AlterTypeNamespace<'mcx>(
 ) -> PgResult<ObjectAddress> {
     let typename = typename_from_list(mcx, names)?;
     let (type_oid, _) = parse_utilcmd::typenameTypeIdAndMod(mcx, None, &typename)?;
-    if objecttype == ObjectType::OBJECT_DOMAIN
-        && lsyscache::get_typtype(type_oid)? != TYPTYPE_DOMAIN
+    if objecttype == ObjectType::OBJECT_DOMAIN && lsyscache::get_typtype(type_oid)? != TYPTYPE_DOMAIN
     {
         return Err(not_a_domain(type_oid)?);
     }
@@ -1161,15 +1134,7 @@ pub fn AlterTypeNamespace_oid<'mcx>(
         }
         return Err(cannot_alter_array_type(type_oid, elem_oid)?);
     }
-    AlterTypeNamespaceInternal(
-        mcx,
-        type_oid,
-        nsp_oid,
-        false,
-        ignore_dependent,
-        true,
-        objs_moved,
-    )
+    AlterTypeNamespaceInternal(mcx, type_oid, nsp_oid, false, ignore_dependent, true, objs_moved,)
 }
 
 pub fn AlterTypeNamespaceInternal<'mcx>(
@@ -1182,10 +1147,7 @@ pub fn AlterTypeNamespaceInternal<'mcx>(
     objs_moved: &mut PgVec<'mcx, ObjectAddress>,
 ) -> PgResult<Oid> {
     let thisobj = ObjectAddress::set(TYPE_RELATION_ID, type_oid);
-    if objs_moved
-        .iter()
-        .any(|a| a.classId == thisobj.classId && a.objectId == thisobj.objectId)
-    {
+    if objs_moved.iter().any(|a| a.classId == thisobj.classId && a.objectId == thisobj.objectId) {
         return Ok(InvalidOid);
     }
     let row = fetch_type_row(mcx, type_oid)?;
@@ -1211,8 +1173,8 @@ pub fn AlterTypeNamespaceInternal<'mcx>(
         }
     }
 
-    let is_composite_type =
-        row.typtype == TYPTYPE_COMPOSITE && lsyscache::get_rel_relkind(row.typrelid)? == b'c' as i8;
+    let is_composite_type = row.typtype == TYPTYPE_COMPOSITE
+        && lsyscache::get_rel_relkind(row.typrelid)? == b'c' as i8;
     if row.typtype == TYPTYPE_COMPOSITE && !is_composite_type {
         if ignore_dependent {
             return Ok(InvalidOid);
@@ -1234,7 +1196,8 @@ pub fn AlterTypeNamespaceInternal<'mcx>(
     if is_composite_type {
         // typecmds.c: relocate the composite type's pg_class entry (no
         // pg_depend entry of its own).
-        let class_rel = table::table_open(mcx, types_core::RELATION_RELATION_ID, RowExclusiveLock)?;
+        let class_rel =
+            table::table_open(mcx, types_core::RELATION_RELATION_ID, RowExclusiveLock)?;
         tablecmds::AlterRelationNamespaceInternal(
             mcx,
             &class_rel,
@@ -1303,11 +1266,7 @@ pub(crate) fn must_be_owner_of_type(type_oid: Oid) -> PgResult<Box<PgError>> {
     // aclcheck_error_type (aclchk.c:2974): an array type is reported by its
     // element type.
     let element_type = lsyscache::get_element_type(type_oid)?;
-    let shown = if element_type != InvalidOid {
-        element_type
-    } else {
-        type_oid
-    };
+    let shown = if element_type != InvalidOid { element_type } else { type_oid };
     let name = format_type::format_type_be(shown)?;
     Ok(Box::new(
         PgError::new(ERROR, format!("must be owner of type {name}"))
@@ -1407,9 +1366,7 @@ pub fn AlterType<'mcx>(
                     return Err(param_err(format!("storage \"{a}\" not recognized")));
                 };
                 if p.storage != TYPSTORAGE_PLAIN && row.typlen != -1 {
-                    return Err(objdef_err(
-                        "fixed-size types must have storage PLAIN".into(),
-                    ));
+                    return Err(objdef_err("fixed-size types must have storage PLAIN".into(),));
                 }
                 if p.storage != TYPSTORAGE_PLAIN && row.typstorage == TYPSTORAGE_PLAIN {
                     require_super = true;
@@ -1589,7 +1546,9 @@ fn AlterTypeRecurse<'mcx>(
 
     objectaccess::InvokeObjectPostAlterHook(TYPE_RELATION_ID, type_oid, 0)?;
 
-    if !is_implicit_array && (p.update_typmodin || p.update_typmodout) && row.typarray != InvalidOid
+    if !is_implicit_array
+        && (p.update_typmodin || p.update_typmodout)
+        && row.typarray != InvalidOid
     {
         let mut arrparams = AlterTypeRecurseParams {
             update_typmodin: p.update_typmodin,
@@ -1617,20 +1576,13 @@ fn AlterTypeRecurse<'mcx>(
     loop {
         let desc = rel.descr();
         let (domain_oid, typtype) = {
-            let Some(tup) = genam::systable_getnext(mcx, &mut scan)? else {
-                break;
-            };
+            let Some(tup) = genam::systable_getnext(mcx, &mut scan)? else { break; };
             let mut isnull = false;
             // SAFETY: fixed NOT NULL pg_type columns under its descriptor.
             unsafe {
                 (
-                    types_tuple::heap_getattr(
-                        tup,
-                        pg_type::Anum_pg_type_oid as i32,
-                        desc,
-                        &mut isnull,
-                    )
-                    .as_oid(),
+                    types_tuple::heap_getattr(tup, pg_type::Anum_pg_type_oid as i32, desc, &mut isnull,)
+                        .as_oid(),
                     types_tuple::heap_getattr(tup, Anum_pg_type_typtype as i32, desc, &mut isnull)
                         .as_i8(),
                 )

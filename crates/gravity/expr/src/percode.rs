@@ -380,7 +380,7 @@ fn extern_param(p: &Program<'_>, mut id: NodeId) -> Option<(i32, Oid)> {
 /// path to it), and no call of the range is volatile (the sweep would run it once per entry). Anything else (another
 /// column: `GREATEST(t, 'v' || i::text) = t`) keeps the subtree off the per-code form; the island runs per row.
 fn scan_island<C: Cols + ?Sized>(p: &Program<'_>, isl: &Island, codes: &C, st: &mut Scan) -> bool {
-    let volatile = |s: SiteId| p.sites.get(s.0 as usize).is_none_or(|c| c.volatile);
+    let volatile = |s: SiteId| p.sites.get(s.0 as usize).is_none_or( |c| c.volatile);
     for n in &p.nodes[isl.first.0 as usize..=isl.root.0 as usize] {
         match n {
             ExprNode::Var(v) => {
@@ -854,8 +854,8 @@ fn nullable<'m, C: Cols + ?Sized>(p: &Program<'_>, id: NodeId, codes: &C, m: Mcx
         Some(c0) => {
             let d = const_bytes_in(c0, m)?;
             match &known {
-                Known::Eq { values, negated } => values.contains(&d) != *negated,
-                Known::Range { from, to } => *from <= d && to.as_ref().is_none_or(|t| d < *t),
+                Known::Eq { values, negated } => values.contains(& d) != *negated,
+                Known::Range { from, to } => *from <= d && to.as_ref().is_none_or( |t| d < *t),
                 _ => return None,
             }
         }

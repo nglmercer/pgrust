@@ -14,8 +14,7 @@ fn lsn_fmt(lsn: XLogRecPtr) -> String {
 }
 
 fn exists(vfs: &mut dyn WriteVfs, p: &str) -> PgResult<bool> {
-    vfs.exists_path(p)
-        .map_err(|e| Box::new(PgError::new(PANIC, format!("pgrc redo of FILE_REF: {e}"))))
+    vfs.exists_path(p).map_err(|e| Box::new(PgError::new(PANIC, format!("pgrc redo of FILE_REF: {e}"))))
 }
 
 pub fn not_available(lsn: XLogRecPtr, rec: &FileRefRec<'_>, dir: &str) -> Box<PgError> {
@@ -38,35 +37,19 @@ pub fn not_available(lsn: XLogRecPtr, rec: &FileRefRec<'_>, dir: &str) -> Box<Pg
 }
 
 /// Returns the spool entry's name for the caller's sync registration.
-pub fn materialize(
-    vfs: &mut dyn WriteVfs,
-    spool: &Spool,
-    lsn: XLogRecPtr,
-    rec: &FileRefRec<'_>,
-    dir: &str,
-) -> PgResult<String> {
+pub fn materialize(vfs: &mut dyn WriteVfs, spool: &Spool, lsn: XLogRecPtr, rec: &FileRefRec<'_>, dir: &str,) -> PgResult<String> {
     let entry = spool.path(lsn);
     let pending = spool.pending_path(rec.dir, rec.name);
     if !exists(vfs, &entry)? && exists(vfs, &pending)? {
-        spool.name_final(&pending, lsn).map_err(|e| {
-            Box::new(PgError::new(
-                PANIC,
-                format!("pgrc redo of FILE_REF: rename {pending}: {e}"),
-            ))
+        spool.name_final(&pending, lsn).map_err(|e| { Box::new(PgError::new(PANIC, format!("pgrc redo of FILE_REF: rename {pending}: {e}"),))
         })?;
     }
-    let src = if exists(vfs, &entry)? {
-        RefSource::Spool(entry.clone())
-    } else {
-        RefSource::InPlace
-    };
+    let src = if exists(vfs, &entry)? { RefSource::Spool(entry.clone()) } else { RefSource::InPlace };
     let in_place = src == RefSource::InPlace;
     match plan::apply_file_ref(vfs, dir, rec, src) {
         Ok(()) => {}
         Err(WriteError::Format(_)) if in_place => {
-            let Some(restored) = restore_from_archive(lsn, rec.len)? else {
-                return Err(not_available(lsn, rec, dir));
-            };
+            let Some(restored) = restore_from_archive(lsn, rec.len)? else { return Err(not_available(lsn, rec, dir)); };
             let r = plan::apply_file_ref(vfs, dir, rec, RefSource::Archive(restored.clone()));
             let _ = vfs.unlink_path(&restored);
             match r {
@@ -84,21 +67,13 @@ pub fn materialize(
                 Err(e) => return Err(Box::new(PgError::new(PANIC, format!("pgrc redo of FILE_REF at {}: {e}", lsn_fmt(lsn))))),
             }
         }
-        Err(e) => {
-            return Err(Box::new(PgError::new(
-                PANIC,
-                format!("pgrc redo of FILE_REF at {}: {e}", lsn_fmt(lsn)),
-            )))
+        Err(e) => { return Err(Box::new(PgError::new(PANIC, format!("pgrc redo of FILE_REF at {}: {e}", lsn_fmt(lsn)),)))
         }
     }
     if in_place {
         spool
             .link_final(&format!("{dir}/{}", rec.name), lsn)
-            .map_err(|e| {
-                Box::new(PgError::new(
-                    PANIC,
-                    format!("pgrc redo of FILE_REF: link into pg_pgrc_spool: {e}"),
-                ))
+            .map_err(|e| { Box::new(PgError::new(PANIC, format!("pgrc redo of FILE_REF: link into pg_pgrc_spool: {e}"),))
             })?;
     }
     // A cascading walsender on this standby lists the spool only past the newest entry it knows of.
@@ -117,24 +92,12 @@ fn restore_from_archive(lsn: XLogRecPtr, len: u64) -> PgResult<Option<String>> {
     let seg_size = transam_xlog::wal_segment_size();
     let segno = transam_xlog::XLByteToSeg(lsn, seg_size);
     let history_cx = mcx::MemoryContext::new("pgrc timeline history");
-    let tles = timeline_seams::read_timeline_history::call(
-        history_cx.mcx(),
-        xlogrecovery_seams::recovery_target_tli::call(),
-    )?;
+    let tles = timeline_seams::read_timeline_history::call(history_cx.mcx(), xlogrecovery_seams::recovery_target_tli::call(),)?;
     let first = timeline_seams::tli_of_point_in_history::call(lsn, &tles)?;
     let older = tles.iter().map(|t| t.tli).filter(|&t| t < first);
     for tli in std::iter::once(first).chain(older) {
-        let name = archive_name(
-            &transam_xlog::XLogFileName(tli, segno, seg_size),
-            lsn,
-            seg_size as u64,
-        );
-        if let Some(p) = xlogarchive_seams::restore_archived_file::call(
-            &name,
-            "RECOVERYPGRC",
-            len as i64,
-            false,
-        )? {
+        let name = archive_name(&transam_xlog::XLogFileName(tli, segno, seg_size), lsn, seg_size as u64,);
+        if let Some(p) = xlogarchive_seams::restore_archived_file::call(&name, "RECOVERYPGRC", len as i64, false,)? {
             return Ok(Some(p));
         }
     }
@@ -149,9 +112,6 @@ pub fn remove_spool_debris() {
         0
     };
     if let Err(e) = Spool::data().remove_debris(end) {
-        let _ = elog::elog(
-            WARNING,
-            format!("pgrcolumnar: end-of-recovery cleanup of pg_pgrc_spool failed: {e}"),
-        );
+        let _ = elog::elog(WARNING, format!("pgrcolumnar: end-of-recovery cleanup of pg_pgrc_spool failed: {e}"),);
     }
 }

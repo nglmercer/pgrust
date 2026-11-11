@@ -26,41 +26,20 @@ fn a_missed_fit_names_its_excess() {
     let p = take(ask, 64, h).expect("a pool span");
     let a = p.cast::<u8>().as_ptr() as usize;
     assert_eq!(p.len(), want, "handed out to the page");
-    assert!(
-        matches!(
-            run_of(a as *const u8).map(|i| i.kind),
-            Some(Kind::Span { superpages: 3 })
-        ),
-        "{:?}",
-        run_of(a as *const u8)
-    );
+    assert!(matches!(run_of(a as *const u8).map(|i| i.kind), Some(Kind::Span { superpages: 3 })), "{:?}", run_of(a as *const u8));
     assert_eq!(in_use() - u0, want, "in_use: what door 1 charges");
     assert_eq!(stats().waste - w0, excess, "the excess: named in waste");
     assert_eq!(fit_tail(), (true, 1, excess, 0));
     #[cfg(feature = "global")]
-    assert_eq!(
-        usable_size(a as *const u8),
-        want,
-        "usable_size by pointer: what it handed out, less the excess"
-    );
+    assert_eq!(usable_size(a as *const u8), want, "usable_size by pointer: what it handed out, less the excess");
     balanced();
     touch(a, want);
     // a missed span moves on any resize (the caller copies)
     // SAFETY: ours, `ask` bytes.
-    assert!(
-        unsafe { resize(p.cast(), ask, ask + 4096, 64) }.is_none(),
-        "no grow in place"
-    );
+    assert!(unsafe { resize(p.cast(), ask, ask + 4096, 64) }.is_none(), "no grow in place");
     // SAFETY: as above.
-    assert!(
-        unsafe { resize(p.cast(), ask, ask - 600_000, 64) }.is_none(),
-        "no shrink in place"
-    );
-    assert_eq!(
-        (in_use() - u0, stats().waste - w0),
-        (want, excess),
-        "a refused resize moves nothing"
-    );
+    assert!(unsafe { resize(p.cast(), ask, ask - 600_000, 64) }.is_none(), "no shrink in place");
+    assert_eq!((in_use() - u0, stats().waste - w0), (want, excess), "a refused resize moves nothing");
     // a whole-superpage ask is no fit and no miss: a pool span, its size
     let whole = take(4 * MIB, 64, h).expect("a pool span");
     assert_eq!(whole.len(), 4 * MIB);
@@ -69,11 +48,7 @@ fn a_missed_fit_names_its_excess() {
     // SAFETY: ours, freed once.
     unsafe { give(p.cast(), ask) };
     flush_shelf();
-    assert_eq!(
-        (in_use(), stats().waste),
-        (u0, w0),
-        "given: in_use and waste back"
-    );
+    assert_eq!((in_use(), stats().waste), (u0, w0), "given: in_use and waste back");
     assert_eq!(fit_tail(), (true, 1, 0, 0));
     purge_now(usize::MAX, None);
     balanced();

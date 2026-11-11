@@ -1211,7 +1211,7 @@ where
     }
     let counts = CLASSES.iter().zip(r.miss_class).chain(SIZES.iter().zip(r.miss_size)).chain(BINS.iter().zip(r.populate_us));
     for (class, v) in counts.chain([(&"takes_zero", r.zero_takes), (&"takes_dirty", r.dirty_takes), (&"refills", r.refills)]) {
-        put("counter", "pool_reserve", class, [n(v), None, None, None], None, None, None)?;
+        put("counter", "pool_reserve",class, [n(v), None, None, None], None, None, None)?;
     }
     put("counter", "pool_reserve", "populate", [n(r.populate_n), n(r.populate_ns), n(r.populate_max_ns), None], None, None, None)?;
     put("counter", "pool_reserve", "shed", [n(r.shed_runs), n(r.shed), None, None], None, None, None)?;

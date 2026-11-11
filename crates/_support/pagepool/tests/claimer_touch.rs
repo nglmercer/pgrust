@@ -21,29 +21,17 @@ fn the_claimer_prefaults_by_touch() {
         std::thread::sleep(Duration::from_millis(10));
     }
     let s = stats();
-    assert!(
-        s.warm_zero >= 8 * MIB && s.prefaulted >= 8 * MIB as u64,
-        "the claimer met its target by touch: {s:?}"
-    );
+    assert!(s.warm_zero >= 8 * MIB && s.prefaulted >= 8 * MIB as u64, "the claimer met its target by touch: {s:?}");
     hooks::claimer_hold(true);
     let h = Hint::new(Class::Task, Tag::OTHER);
     let sp = span(SUPER, h).expect("a span from the warm-zero list");
     let a = sp.as_ptr() as usize;
     assert_eq!(resident(a, SUPER), SUPER, "prefaulted: every page resident");
     // SAFETY: ours.
-    assert!(
-        unsafe { core::slice::from_raw_parts(a as *const u8, SUPER) }
-            .iter()
-            .all(|&b| b == 0),
-        "and zero"
-    );
+    assert!(unsafe { core::slice::from_raw_parts(a as *const u8, SUPER) }.iter().all(|&b| b == 0), "and zero");
     let f0 = minflt();
     touch(a, SUPER);
-    assert!(
-        minflt() - f0 <= HOST_SLACK,
-        "a write faults nothing more: {} faults",
-        minflt() - f0
-    );
+    assert!(minflt() - f0 <= HOST_SLACK, "a write faults nothing more: {} faults", minflt() - f0);
     // SAFETY: ours, not used again.
     unsafe { give_span(sp) };
     hooks::claimer_hold(false);

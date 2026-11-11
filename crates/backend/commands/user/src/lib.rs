@@ -151,14 +151,7 @@ fn run_check_password_hook(
     let hooks = CHECK_PASSWORD_HOOKS.with(|h| h.borrow().clone());
     let password_type = crypt::get_password_type(password);
     for hook in hooks.iter().rev() {
-        hook(
-            mcx,
-            username,
-            password,
-            password_type,
-            validuntil_time,
-            validuntil_null,
-        )?;
+        hook(mcx, username, password, password_type, validuntil_time, validuntil_null,)?;
     }
     Ok(())
 }
@@ -185,11 +178,7 @@ fn take_next_pg_authid_oid() -> Option<Oid> {
 }
 
 fn err_detail(msg: &str, detail: String, sqlstate: SqlState) -> Box<PgError> {
-    Box::new(
-        PgError::error(msg.to_string())
-            .with_sqlstate(sqlstate)
-            .with_detail(detail),
-    )
+    Box::new(PgError::error(msg.to_string()).with_sqlstate(sqlstate).with_detail(detail),)
 }
 
 #[track_caller]
@@ -225,9 +214,7 @@ fn name_attr(cache_id: i32, tuple: &CatCTuple, attnum: i32) -> PgResult<String> 
 fn authid_tuple(roleid: Oid) -> PgResult<CatCTuple> {
     match SearchSysCache1(AUTHOID, SysCacheKey::Value(Datum::from_oid(roleid)))? {
         Some(t) => Ok(t),
-        None => Err(Box::new(PgError::error(format!(
-            "cache lookup failed for role {roleid}"
-        )))),
+        None => Err(Box::new(PgError::error(format!("cache lookup failed for role {roleid}")))),
     }
 }
 
@@ -285,10 +272,8 @@ fn get_rolespec_oid(role: &RoleSpec<'_>, missing_ok: bool) -> PgResult<Oid> {
         ROLESPEC_CSTRING => adt_acl::get_role_oid(role.rolename.unwrap_or_default(), missing_ok),
         ROLESPEC_CURRENT_ROLE | ROLESPEC_CURRENT_USER => Ok(miscinit::GetUserId()),
         ROLESPEC_SESSION_USER => Ok(miscinit::GetSessionUserId()),
-        ROLESPEC_PUBLIC => Err(err(
-            "role \"public\" does not exist".into(),
-            ERRCODE_UNDEFINED_OBJECT,
-        )),
+        ROLESPEC_PUBLIC =>
+            Err(err("role \"public\" does not exist".into(), ERRCODE_UNDEFINED_OBJECT,)),
     }
 }
 
@@ -300,18 +285,14 @@ fn get_rolespec_tuple(role: &RoleSpec<'_>) -> PgResult<CatCTuple> {
             let name = role.rolename.unwrap_or_default();
             match SearchSysCache1(AUTHNAME, SysCacheKey::Str(name))? {
                 Some(t) => Ok(t),
-                None => Err(err(
-                    format!("role \"{name}\" does not exist"),
-                    ERRCODE_UNDEFINED_OBJECT,
-                )),
+                None =>
+                    Err(err(format!("role \"{name}\" does not exist"), ERRCODE_UNDEFINED_OBJECT,)),
             }
         }
         ROLESPEC_CURRENT_ROLE | ROLESPEC_CURRENT_USER => authid_tuple(miscinit::GetUserId()),
         ROLESPEC_SESSION_USER => authid_tuple(miscinit::GetSessionUserId()),
-        ROLESPEC_PUBLIC => Err(err(
-            "role \"public\" does not exist".into(),
-            ERRCODE_UNDEFINED_OBJECT,
-        )),
+        ROLESPEC_PUBLIC =>
+            Err(err("role \"public\" does not exist".into(), ERRCODE_UNDEFINED_OBJECT,)),
     }
 }
 
@@ -340,27 +321,15 @@ fn check_rolespec_name(role: &RoleSpec<'_>, detail_msg: &str) -> PgResult<()> {
 }
 
 fn bool_arg(d: &DefElem<'_>) -> bool {
-    d.arg
-        .expect("DefElem Boolean arg")
-        .as_boolean()
-        .expect("Boolean")
-        .boolval
+    d.arg.expect("DefElem Boolean arg").as_boolean().expect("Boolean").boolval
 }
 
 fn int_arg(d: &DefElem<'_>) -> i32 {
-    d.arg
-        .expect("DefElem Integer arg")
-        .as_integer()
-        .expect("Integer")
-        .ival
+    d.arg.expect("DefElem Integer arg").as_integer().expect("Integer").ival
 }
 
 fn str_arg<'a>(d: &DefElem<'a>) -> &'a str {
-    d.arg
-        .expect("DefElem String arg")
-        .as_string()
-        .expect("String")
-        .sval
+    d.arg.expect("DefElem String arg").as_string().expect("String").sval
 }
 
 fn list_arg<'a>(d: &DefElem<'a>) -> &'a NodeList<'a> {
@@ -371,22 +340,16 @@ fn list_arg<'a>(d: &DefElem<'a>) -> &'a NodeList<'a> {
 fn def_get_string(def: &DefElem<'_>) -> PgResult<String> {
     let defname = def.defname.unwrap_or("");
     let Some(arg) = def.arg else {
-        return Err(err(
-            format!("{defname} requires a parameter"),
-            ERRCODE_SYNTAX_ERROR,
-        ));
+        return Err(err(format!("{defname} requires a parameter"), ERRCODE_SYNTAX_ERROR,));
     };
     Ok(match arg.node_tag() {
         NodeTag::T_Integer => arg.as_integer().unwrap().ival.to_string(),
         NodeTag::T_Float => arg.as_float().unwrap().fval.to_string(),
-        NodeTag::T_Boolean => (if arg.as_boolean().unwrap().boolval {
-            "true"
-        } else {
-            "false"
-        })
-        .to_string(),
+        NodeTag::T_Boolean =>
+            (if arg.as_boolean().unwrap().boolval { "true" } else { "false" }).to_string(),
         NodeTag::T_String => arg.as_string().unwrap().sval.to_string(),
-        NodeTag::T_TypeName => define::type_name_string(arg.as_type_name().expect("TypeName")),
+        NodeTag::T_TypeName =>
+            define::type_name_string(arg.as_type_name().expect("TypeName")),
         NodeTag::T_List => define::name_list_string(arg.as_list().expect("List"))?,
         NodeTag::T_A_Star => "*".to_string(),
         // C: elog(ERROR, "unrecognized node type: %d") — catchable.
@@ -412,10 +375,7 @@ fn cursor_at(pstate: Option<&ParseState<'_, '_>>, location: i32) -> Option<i32> 
 // user.c:662 (AlterRole).
 #[cold]
 fn conflicting_def_elem(pstate: Option<&ParseState<'_, '_>>, defel: &DefElem<'_>) -> Box<PgError> {
-    let mut e = err(
-        "conflicting or redundant options".into(),
-        ERRCODE_SYNTAX_ERROR,
-    );
+    let mut e = err("conflicting or redundant options".into(), ERRCODE_SYNTAX_ERROR,);
     e.cursor_position = cursor_at(pstate, defel.location);
     e
 }
@@ -473,12 +433,7 @@ fn authmem_rows_for_role<'mcx>(mcx: Mcx<'mcx>, roleid: Oid) -> PgResult<PgVec<'m
 }
 
 pub fn InitGrantRoleOptions() -> GrantRoleOptions {
-    GrantRoleOptions {
-        specified: 0,
-        admin: false,
-        inherit: false,
-        set: true,
-    }
+    GrantRoleOptions { specified: 0, admin: false, inherit: false, set: true, }
 }
 
 pub fn createrole_self_grant_enabled() -> bool {
@@ -515,9 +470,7 @@ pub fn CreateRole<'mcx, 'a>(
     let mut dbypassRLS: Option<&'a DefElem<'a>> = None;
 
     for cell in stmt.options.iter() {
-        let defel = cell
-            .as_def_elem()
-            .expect("CreateRole options: DefElem list");
+        let defel = cell.as_def_elem().expect("CreateRole options: DefElem list");
         let slot: &mut Option<&'a DefElem<'a>> = match defel.defname.unwrap_or("") {
             "password" => &mut dpassword,
             "sysid" => {
@@ -548,9 +501,7 @@ pub fn CreateRole<'mcx, 'a>(
         *slot = Some(defel);
     }
 
-    let password = dpassword
-        .and_then(|d| d.arg)
-        .map(|a| a.as_string().expect("String").sval);
+    let password = dpassword.and_then(|d| d.arg).map(|a| a.as_string().expect("String").sval);
     let issuper = dissuper.map(bool_arg).unwrap_or(false);
     let inherit = dinherit.map(bool_arg).unwrap_or(true);
     let createrole = dcreaterole.map(bool_arg).unwrap_or(false);
@@ -625,17 +576,11 @@ pub fn CreateRole<'mcx, 'a>(
     let pg_authid_rel = table::table_open(mcx, catalog::AuthIdRelationId, RowExclusiveLock)?;
 
     if adt_acl::get_role_oid(role, true)? != InvalidOid {
-        return Err(err(
-            format!("role \"{role}\" already exists"),
-            ERRCODE_DUPLICATE_OBJECT,
-        ));
+        return Err(err(format!("role \"{role}\" already exists"), ERRCODE_DUPLICATE_OBJECT,));
     }
 
     let (validUntil_datum, validUntil_null) = match validUntil {
-        Some(s) => (
-            Datum::from_i64(adt_timestamp::timestamptz_in(s, -1, None)?),
-            false,
-        ),
+        Some(s) => (Datum::from_i64(adt_timestamp::timestamptz_in(s, -1, None)?), false,),
         None => (Datum::null(), true),
     };
 
@@ -723,11 +668,8 @@ pub fn CreateRole<'mcx, 'a>(
     let mut popt = InitGrantRoleOptions();
 
     if !addroleto.is_nil() {
-        let thisrole = RoleSpec {
-            roletype: RoleSpecType::ROLESPEC_CSTRING,
-            rolename: Some(role),
-            location: -1,
-        };
+        let thisrole =
+            RoleSpec { roletype: RoleSpecType::ROLESPEC_CSTRING, rolename: Some(role), location: -1, };
         for cell in addroleto.iter() {
             let oldrole = cell.as_role_spec().expect("RoleSpec");
             let oldroletup = get_rolespec_tuple(oldrole)?;
@@ -754,11 +696,8 @@ pub fn CreateRole<'mcx, 'a>(
     }
 
     if !superuser::superuser()? {
-        let current_role = RoleSpec {
-            roletype: RoleSpecType::ROLESPEC_CURRENT_ROLE,
-            rolename: None,
-            location: -1,
-        };
+        let current_role =
+            RoleSpec { roletype: RoleSpecType::ROLESPEC_CURRENT_ROLE, rolename: None, location: -1, };
         let poptself = GrantRoleOptions {
             specified: GRANT_ROLE_SPECIFIED_ADMIN
                 | GRANT_ROLE_SPECIFIED_INHERIT
@@ -797,31 +736,13 @@ pub fn CreateRole<'mcx, 'a>(
 
     let member_specs = role_spec_refs(mcx, rolemembers)?;
     let member_ids = roleSpecsToIds(mcx, rolemembers)?;
-    AddRoleMems(
-        mcx,
-        currentUserId,
-        role,
-        roleid,
-        &member_specs,
-        &member_ids,
-        InvalidOid,
-        &popt,
-    )?;
+    AddRoleMems(mcx, currentUserId, role, roleid, &member_specs, &member_ids, InvalidOid, &popt,)?;
 
     popt.specified |= GRANT_ROLE_SPECIFIED_ADMIN;
     popt.admin = true;
     let admin_specs = role_spec_refs(mcx, adminmembers)?;
     let admin_ids = roleSpecsToIds(mcx, adminmembers)?;
-    AddRoleMems(
-        mcx,
-        currentUserId,
-        role,
-        roleid,
-        &admin_specs,
-        &admin_ids,
-        InvalidOid,
-        &popt,
-    )?;
+    AddRoleMems(mcx, currentUserId, role, roleid, &admin_specs, &admin_ids, InvalidOid, &popt,)?;
 
     // user.c:600: post creation hook for the new role.
     objectaccess::InvokeObjectPostCreateHook(catalog::AuthIdRelationId, roleid, 0)?;
@@ -880,9 +801,7 @@ pub fn AlterRole<'mcx, 'a>(
         *slot = Some(defel);
     }
 
-    let password = dpassword
-        .and_then(|d| d.arg)
-        .map(|a| a.as_string().expect("String").sval);
+    let password = dpassword.and_then(|d| d.arg).map(|a| a.as_string().expect("String").sval);
     let mut connlimit = -1;
     if let Some(d) = dconnlimit {
         connlimit = int_arg(d);
@@ -906,8 +825,7 @@ pub fn AlterRole<'mcx, 'a>(
     if !superuser::superuser()? && rolsuper {
         return Err(err_detail(
             "permission denied to alter role",
-            "Only roles with the SUPERUSER attribute may alter roles with the SUPERUSER attribute."
-                .into(),
+            "Only roles with the SUPERUSER attribute may alter roles with the SUPERUSER attribute.".into(),
             ERRCODE_INSUFFICIENT_PRIVILEGE,
         ));
     }
@@ -956,16 +874,14 @@ pub fn AlterRole<'mcx, 'a>(
         if disreplication.is_some() && !has_rolreplication(currentUserId)? {
             return Err(err_detail(
                 "permission denied to alter role",
-                "Only roles with the REPLICATION attribute may change the REPLICATION attribute."
-                    .into(),
+                "Only roles with the REPLICATION attribute may change the REPLICATION attribute.".into(),
                 ERRCODE_INSUFFICIENT_PRIVILEGE,
             ));
         }
         if dbypassRLS.is_some() && !has_bypassrls_privilege(currentUserId)? {
             return Err(err_detail(
                 "permission denied to alter role",
-                "Only roles with the BYPASSRLS attribute may change the BYPASSRLS attribute."
-                    .into(),
+                "Only roles with the BYPASSRLS attribute may change the BYPASSRLS attribute.".into(),
                 ERRCODE_INSUFFICIENT_PRIVILEGE,
             ));
         }
@@ -982,10 +898,7 @@ pub fn AlterRole<'mcx, 'a>(
     }
 
     let (validUntil_datum, validUntil_null) = match validUntil {
-        Some(s) => (
-            Datum::from_i64(adt_timestamp::timestamptz_in(s, -1, None)?),
-            false,
-        ),
+        Some(s) => (Datum::from_i64(adt_timestamp::timestamptz_in(s, -1, None)?), false,),
         None => SysCacheGetAttr(cache_id, &tuple, Anum_pg_authid_rolvaliduntil)?,
     };
 
@@ -1044,7 +957,8 @@ pub fn AlterRole<'mcx, 'a>(
         // CVE-2017-7546 arm: a supplied verifier OF the empty string also clears.
         Some(p) => {
             if p.is_empty()
-                || crypt::plain_crypt_verify(mcx, &rolename, p, b"", &mut None)? == crypt::STATUS_OK
+                || crypt::plain_crypt_verify(mcx, &rolename, p, b"", &mut None)?
+                    == crypt::STATUS_OK
             {
                 notice(
                     "empty string is not a valid password, clearing password".into(),
@@ -1181,18 +1095,10 @@ pub fn AlterRoleSet<'mcx>(mcx: Mcx<'mcx>, stmt: &AlterRoleSetStmt<'_>) -> PgResu
 
     if let Some(database) = stmt.database {
         databaseid = dbcommands_seams::get_database_oid::call(mcx, database, false)?;
-        pg_shdepend::shdepLockAndCheckObject(
-            mcx,
-            types_core::catalog::DATABASE_RELATION_ID,
-            databaseid,
-        )?;
+        pg_shdepend::shdepLockAndCheckObject(mcx, types_core::catalog::DATABASE_RELATION_ID, databaseid,)?;
 
         if stmt.role.is_none()
-            && !aclchk::object_ownercheck(
-                types_core::catalog::DATABASE_RELATION_ID,
-                databaseid,
-                miscinit::GetUserId(),
-            )?
+            && !aclchk::object_ownercheck(types_core::catalog::DATABASE_RELATION_ID, databaseid, miscinit::GetUserId(),)?
         {
             aclchk::aclcheck_error(
                 aclchk::ACLCHECK_NOT_OWNER,
@@ -1220,10 +1126,7 @@ pub fn RenameRole<'mcx>(mcx: Mcx<'mcx>, oldname: &str, newname: &str) -> PgResul
     let rel = table::table_open(mcx, catalog::AuthIdRelationId, RowExclusiveLock)?;
 
     let Some(oldtuple) = SearchSysCache1(AUTHNAME, SysCacheKey::Str(oldname))? else {
-        return Err(err(
-            format!("role \"{oldname}\" does not exist"),
-            ERRCODE_UNDEFINED_OBJECT,
-        ));
+        return Err(err(format!("role \"{oldname}\" does not exist"), ERRCODE_UNDEFINED_OBJECT,));
     };
 
     let roleid = SysCacheGetAttrNotNull(AUTHNAME, &oldtuple, Anum_pg_authid_oid)?.as_oid();
@@ -1231,16 +1134,10 @@ pub fn RenameRole<'mcx>(mcx: Mcx<'mcx>, oldname: &str, newname: &str) -> PgResul
     let curname = name_attr(AUTHNAME, &oldtuple, Anum_pg_authid_rolname)?;
 
     if roleid == miscinit::GetSessionUserId() {
-        return Err(err(
-            "session user cannot be renamed".into(),
-            ERRCODE_FEATURE_NOT_SUPPORTED,
-        ));
+        return Err(err("session user cannot be renamed".into(), ERRCODE_FEATURE_NOT_SUPPORTED,));
     }
     if roleid == miscinit::GetOuterUserId() {
-        return Err(err(
-            "current user cannot be renamed".into(),
-            ERRCODE_FEATURE_NOT_SUPPORTED,
-        ));
+        return Err(err("current user cannot be renamed".into(), ERRCODE_FEATURE_NOT_SUPPORTED,));
     }
 
     if catalog::IsReservedName(&curname) {
@@ -1259,10 +1156,7 @@ pub fn RenameRole<'mcx>(mcx: Mcx<'mcx>, oldname: &str, newname: &str) -> PgResul
     }
 
     if adt_acl::get_role_oid(newname, true)? != InvalidOid {
-        return Err(err(
-            format!("role \"{newname}\" already exists"),
-            ERRCODE_DUPLICATE_OBJECT,
-        ));
+        return Err(err(format!("role \"{newname}\" already exists"), ERRCODE_DUPLICATE_OBJECT,));
     }
 
     if rolsuper {
@@ -1308,10 +1202,7 @@ pub fn RenameRole<'mcx>(mcx: Mcx<'mcx>, oldname: &str, newname: &str) -> PgResul
         if crypt::get_password_type(shadow_pass) == crypt::PasswordType::Md5 {
             repl_repl[(Anum_pg_authid_rolpassword - 1) as usize] = true;
             repl_null[(Anum_pg_authid_rolpassword - 1) as usize] = true;
-            notice(
-                "MD5 password cleared because of role rename".into(),
-                "RenameRole",
-            )?;
+            notice("MD5 password cleared because of role rename".into(), "RenameRole",)?;
         }
     }
 
@@ -1368,10 +1259,7 @@ pub fn DropRole<'mcx>(mcx: Mcx<'mcx>, stmt: &DropRoleStmt<'_>) -> PgResult<()> {
                     ERRCODE_UNDEFINED_OBJECT,
                 ));
             }
-            notice(
-                format!("role \"{role}\" does not exist, skipping"),
-                "DropRole",
-            )?;
+            notice(format!("role \"{role}\" does not exist, skipping"), "DropRole",)?;
             continue;
         };
 
@@ -1380,16 +1268,10 @@ pub fn DropRole<'mcx>(mcx: Mcx<'mcx>, stmt: &DropRoleStmt<'_>) -> PgResult<()> {
         let rolname = name_attr(AUTHNAME, &tuple, Anum_pg_authid_rolname)?;
 
         if roleid == miscinit::GetUserId() || roleid == miscinit::GetOuterUserId() {
-            return Err(err(
-                "current user cannot be dropped".into(),
-                ERRCODE_OBJECT_IN_USE,
-            ));
+            return Err(err("current user cannot be dropped".into(), ERRCODE_OBJECT_IN_USE,));
         }
         if roleid == miscinit::GetSessionUserId() {
-            return Err(err(
-                "session user cannot be dropped".into(),
-                ERRCODE_OBJECT_IN_USE,
-            ));
+            return Err(err("session user cannot be dropped".into(), ERRCODE_OBJECT_IN_USE,));
         }
 
         if rolsuper && !superuser::superuser()? {
@@ -1433,10 +1315,7 @@ pub fn DropRole<'mcx>(mcx: Mcx<'mcx>, stmt: &DropRoleStmt<'_>) -> PgResult<()> {
                         ERRCODE_UNDEFINED_OBJECT,
                     ));
                 }
-                notice(
-                    format!("role \"{role}\" does not exist, skipping"),
-                    "DropRole",
-                )?;
+                notice(format!("role \"{role}\" does not exist, skipping"), "DropRole",)?;
                 continue;
             }
         }
@@ -1518,9 +1397,10 @@ fn delete_auth_members<'mcx>(
     while let Some(tup) = genam::systable_getnext(mcx, &mut scan)? {
         let mut isnull = false;
         // SAFETY: pg_auth_members oid column under the relation's descriptor.
-        let oid =
-            unsafe { types_tuple::heap_getattr(tup, Anum_pg_auth_members_oid, desc, &mut isnull) }
-                .as_oid();
+        let oid = unsafe {
+            types_tuple::heap_getattr(tup, Anum_pg_auth_members_oid, desc, &mut isnull)
+        }
+        .as_oid();
         debug_assert!(!isnull);
         let tid = tup.t_self;
         pg_shdepend::deleteSharedDependencyRecordsFor(mcx, catalog::AuthMemRelationId, oid, 0)?;
@@ -1775,12 +1655,7 @@ fn AddRoleMems<'mcx>(
 
     let pg_authmem_rel = table::table_open(mcx, catalog::AuthMemRelationId, RowExclusiveLock)?;
 
-    lmgr::LockSharedObject(
-        catalog::AuthIdRelationId,
-        roleid,
-        0,
-        ShareUpdateExclusiveLock,
-    )?;
+    lmgr::LockSharedObject(catalog::AuthIdRelationId, roleid, 0, ShareUpdateExclusiveLock,)?;
 
     for (memberRole, &memberid) in memberSpecs.iter().zip(memberIds) {
         // pg_database_owner is never a role member.
@@ -1824,7 +1699,9 @@ fn AddRoleMems<'mcx>(
         }
 
         let grantor_survives = members.iter().enumerate().any(|(i, m)| {
-            actions[i] == RevokeRoleGrantAction::Noop && m.member == grantorId && m.admin_option
+            actions[i] == RevokeRoleGrantAction::Noop
+                && m.member == grantorId
+                && m.admin_option
         });
         if !grantor_survives {
             return Err(err(
@@ -1851,24 +1728,18 @@ fn AddRoleMems<'mcx>(
         )?;
 
         if let Some(authmem_tuple) = existing {
-            let cur_admin = SysCacheGetAttrNotNull(
-                AUTHMEMROLEMEM,
-                &authmem_tuple,
-                Anum_pg_auth_members_admin_option,
-            )?
-            .as_bool();
+            let cur_admin =
+                SysCacheGetAttrNotNull(AUTHMEMROLEMEM, &authmem_tuple, Anum_pg_auth_members_admin_option,)?
+                    .as_bool();
             let cur_inherit = SysCacheGetAttrNotNull(
                 AUTHMEMROLEMEM,
                 &authmem_tuple,
                 Anum_pg_auth_members_inherit_option,
             )?
             .as_bool();
-            let cur_set = SysCacheGetAttrNotNull(
-                AUTHMEMROLEMEM,
-                &authmem_tuple,
-                Anum_pg_auth_members_set_option,
-            )?
-            .as_bool();
+            let cur_set =
+                SysCacheGetAttrNotNull(AUTHMEMROLEMEM, &authmem_tuple, Anum_pg_auth_members_set_option,)?
+                    .as_bool();
 
             let mut at_least_one_change = false;
             if popt.specified & GRANT_ROLE_SPECIFIED_ADMIN != 0 && cur_admin != popt.admin {
@@ -1918,7 +1789,8 @@ fn AddRoleMems<'mcx>(
         } else {
             new_record[(Anum_pg_auth_members_admin_option - 1) as usize] =
                 Datum::from_bool(popt.admin);
-            new_record[(Anum_pg_auth_members_set_option - 1) as usize] = Datum::from_bool(popt.set);
+            new_record[(Anum_pg_auth_members_set_option - 1) as usize] =
+                Datum::from_bool(popt.set);
 
             // Unspecified INHERIT defaults to the member's role-level
             // rolinherit property.
@@ -1986,12 +1858,7 @@ fn DelRoleMems<'mcx>(
 
     let pg_authmem_rel = table::table_open(mcx, catalog::AuthMemRelationId, RowExclusiveLock)?;
 
-    lmgr::LockSharedObject(
-        catalog::AuthIdRelationId,
-        roleid,
-        0,
-        ShareUpdateExclusiveLock,
-    )?;
+    lmgr::LockSharedObject(catalog::AuthIdRelationId, roleid, 0, ShareUpdateExclusiveLock,)?;
 
     let members = authmem_rows_for_role(mcx, roleid)?;
     let mut actions = initialize_revoke_actions(mcx, members.len())?;
@@ -2238,7 +2105,9 @@ pub fn plan_recursive_revoke(
     }
 
     for i in 0..members.len() {
-        if members[i].grantor == target.member && actions[i] != RevokeRoleGrantAction::DeleteGrant {
+        if members[i].grantor == target.member
+            && actions[i] != RevokeRoleGrantAction::DeleteGrant
+        {
             if behavior == DropBehavior::DROP_RESTRICT {
                 return Err(Box::new(
                     PgError::error("dependent privileges exist".to_string())
@@ -2281,8 +2150,7 @@ pub fn check_createrole_self_grant(
         } else {
             // user.c:2547 "%s": the (byte-truncated) key word verbatim.
             let mut detail = Vec::new();
-            let _ =
-                detail.try_reserve(b"Unrecognized key word: \"".len() + tok.len() + b"\".".len());
+            let _ = detail.try_reserve(b"Unrecognized key word: \"".len() + tok.len() + b"\".".len());
             detail.extend_from_slice(b"Unrecognized key word: \"");
             detail.extend_from_slice(tok);
             detail.extend_from_slice(b"\".");
@@ -2300,10 +2168,7 @@ pub fn assign_createrole_self_grant(
     _newval: Option<&str>,
     extra: Option<&guc_tables::GucHookExtra>,
 ) {
-    let options = extra
-        .and_then(|e| e.downcast_ref::<u32>())
-        .copied()
-        .unwrap_or(0);
+    let options = extra.and_then(|e| e.downcast_ref::<u32>()).copied().unwrap_or(0);
     CREATEROLE_SELF_GRANT_ENABLED.set(options != 0);
     CREATEROLE_SELF_GRANT_OPTIONS.set(GrantRoleOptions {
         specified: GRANT_ROLE_SPECIFIED_ADMIN

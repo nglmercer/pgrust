@@ -34,32 +34,16 @@ pub fn freeze(rel: &Relation<'_>, oldest_xmin: TransactionId) -> PgResult<Option
     }
     let cutoff = crate::probe::full_xid_at_now(oldest_xmin)?;
     let relfilenumber = locator.relNumber as u64;
-    let schema_fingerprint =
-        pgrc_format::ident::schema_fingerprint(&crate::schema::col_schemas(rel)?);
-    let spec = PartSpec {
-        spc: locator.spcOid,
-        db: locator.dbOid,
-        relfilenumber,
-        schema_fingerprint,
-    };
+    let schema_fingerprint = pgrc_format::ident::schema_fingerprint(&crate::schema::col_schemas(rel)?);
+    let spec = PartSpec { spc: locator.spcOid, db: locator.dbOid, relfilenumber, schema_fingerprint, };
     let slot: RelSlot = (locator.spcOid, locator.dbOid, relfilenumber);
     let mut sink = pgrc_wal_seams::sink_for::call(rel);
     let t0 = pg_clock::MonoStamp::now();
     let lock = crate::inval::publish_lock(relfilenumber);
     let guard = pgsync::lock(&lock);
     let probe = ClogTxnProbe::new();
-    let base = crate::catalog::generations(slot)
-        .and_then(|(gens, head)| gens.into_iter().find(|g| g.gen == head))
-        .map(|g| g.base_hold());
-    let out = publish_freeze(
-        &mut RealVfs,
-        &mut *sink,
-        &dir,
-        &spec,
-        &probe,
-        base.as_ref().map_or(BaseStats::None, |b| b.stats()),
-        cutoff,
-    );
+    let base = crate::catalog::generations(slot).and_then(|(gens, head)| gens.into_iter().find(|g| g.gen == head)).map(|g| g.base_hold());
+    let out = publish_freeze(&mut RealVfs, &mut *sink, &dir, &spec, &probe, base.as_ref().map_or(BaseStats::None, |b| b.stats()), cutoff,);
     let (outcome, floor) = out.map_err(crate::write_error)?;
     probe.take_error()?;
     match outcome {

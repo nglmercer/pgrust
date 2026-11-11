@@ -114,7 +114,7 @@ pub fn fmt_sec_g02(v: f64) -> String {
         // digits (rounding can carry, e.g. 999999.5 → 1e+06).
         let e_str = format!("{:.*e}", (P - 1) as usize, v);
         let x: i32 = e_str[e_str.rfind('e').unwrap() + 1..].parse().unwrap();
-        if !(-4..P).contains(&x) {
+        if !( -4.. P).contains(&x) {
             // %e style: mantissa with P-1 decimals, exponent 'e±NN' (>= 2
             // digits), trailing zeros stripped from the mantissa.
             let (mant, _) = e_str.split_at(e_str.rfind('e').unwrap());

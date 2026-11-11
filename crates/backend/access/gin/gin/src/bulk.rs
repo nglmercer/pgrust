@@ -257,10 +257,11 @@ impl<'s> BuildAccumulator<'s> {
         } else {
             Datum::null()
         };
-        let mut list: PgVec<'s, ItemPointerData> = mcx::vec_with_capacity_in(self.mcx, DEF_NPTR)?;
+        let mut list: PgVec<'s, ItemPointerData> =
+            mcx::vec_with_capacity_in(self.mcx, DEF_NPTR)?;
         list.push(*heapptr);
         self.allocated_memory += chunk_space(DEF_NPTR * 6);
-        if self.entries.len().is_multiple_of(DEF_NENTRY) {
+        if self.entries.len().is_multiple_of( DEF_NENTRY) {
             // C's entryallocator chunks.
             self.allocated_memory += chunk_space(DEF_NENTRY * SIZEOF_C_ENTRY_ACCUMULATOR);
         }
@@ -355,8 +356,7 @@ impl<'s> BuildAccumulator<'s> {
                 let b = &self.entries[idx];
                 if ginCompareAttEntries(
                     &state, a.attnum, a.key, a.category, b.attnum, b.key, b.category,
-                )? == 0
-                {
+                )? == 0 {
                     // The index tie-break retains C's first-inserted key image.
                     let (before, after) = self.entries.split_at_mut(idx);
                     let dst = &mut before[previous];
@@ -366,8 +366,8 @@ impl<'s> BuildAccumulator<'s> {
                         let additional = src.list.len().max(dst.list.capacity());
                         ::mcx::vec_reserve_huge(&mut dst.list, additional)?;
                     }
-                    self.allocated_memory +=
-                        chunk_space(dst.list.capacity() * 6) - chunk_space(old_capacity * 6);
+                    self.allocated_memory += chunk_space(dst.list.capacity() * 6)
+                        - chunk_space(old_capacity * 6);
                     crate::vec_append(&mut dst.list, src.list.as_slice())?;
                     dst.should_sort = true;
                     src.list.clear();
@@ -417,11 +417,9 @@ fn check_posting_list_grow(capacity: usize) -> PgResult<()> {
 #[cold]
 #[inline(never)]
 fn posting_list_too_long() -> Box<PgError> {
-    Box::new(
-        PgError::error("posting list is too long")
-            .with_sqlstate(ERRCODE_PROGRAM_LIMIT_EXCEEDED)
-            .with_hint("Reduce \"maintenance_work_mem\"."),
-    )
+    Box::new(PgError::error("posting list is too long")
+        .with_sqlstate(ERRCODE_PROGRAM_LIMIT_EXCEEDED)
+        .with_hint("Reduce \"maintenance_work_mem\"."),)
 }
 
 #[cfg(test)]

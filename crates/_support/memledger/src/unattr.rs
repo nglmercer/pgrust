@@ -115,10 +115,7 @@ pub fn measure(a: Acct) -> Option<(i64, i64)> {
         let held = crate::charge::acct_held(a);
         let after = crate::account_net(a);
         if after.wrapping_sub(before).unsigned_abs() as i64 <= bound(before.max(after)) / 2 {
-            return Some((
-                after.wrapping_sub(held).wrapping_sub(crate::keepers(a)),
-                after,
-            ));
+            return Some((after.wrapping_sub(held).wrapping_sub(crate::keepers(a)), after,));
         }
     }
     None
@@ -196,23 +193,10 @@ pub fn end_report() -> Option<Report> {
         return None;
     }
     let end = measure(a).map(|(u, total)| (u, bound(total)));
-    let (checks, skips) = (
-        st.checks.load(Relaxed) + 1,
-        st.skips.load(Relaxed) + end.is_none() as u32,
-    );
-    let peak = (st.worst() > 0).then(|| {
-        (
-            st.worst_unattr.load(Relaxed),
-            st.worst_bound.load(Relaxed),
-            st.worst_level.load(Relaxed),
-        )
+    let (checks, skips) = (st.checks.load(Relaxed) + 1, st.skips.load(Relaxed) + end.is_none() as u32,);
+    let peak = (st.worst() > 0).then(|| { (st.worst_unattr.load(Relaxed), st.worst_bound.load(Relaxed), st.worst_level.load(Relaxed),)
     });
-    (end.is_some_and(|(u, b)| u > b) || peak.is_some()).then_some(Report {
-        end,
-        peak,
-        checks,
-        skips,
-    })
+    (end.is_some_and(|(u, b)| u > b) || peak.is_some()).then_some(Report { end, peak, checks, skips, })
 }
 
 #[cfg(test)]
@@ -224,23 +208,17 @@ mod tests {
     #[cfg(target_os = "linux")]
     #[test]
     fn the_state_table_is_in_bss() {
-        let last = core::ptr::addr_of!(STATE[ACCOUNT_SLOTS - 1]) as usize
-            + core::mem::size_of::<State>()
-            - 1;
+        let last = core::ptr::addr_of!(STATE[ACCOUNT_SLOTS - 1]) as usize + core::mem::size_of::<State>() - 1;
         let maps = std::fs::read_to_string("/proc/self/maps").unwrap();
         let line = maps
             .lines()
             .find(|l| {
                 let (a, z) = l.split(' ').next().unwrap().split_once('-').unwrap();
-                (usize::from_str_radix(a, 16).unwrap()..usize::from_str_radix(z, 16).unwrap())
-                    .contains(&last)
+                (usize::from_str_radix(a, 16).unwrap()..usize::from_str_radix(z, 16).unwrap()).contains(&last)
             })
             .unwrap_or_else(|| panic!("no mapping holds {last:#x}"));
         let f: Vec<&str> = line.split_whitespace().collect();
-        assert!(
-            f[1].starts_with("rw") && (f.len() == 5 || f[5] == "[heap]"),
-            "the unattributed check's table is mapped from the binary (.data), not .bss: {line}"
-        );
+        assert!(f[1].starts_with("rw") && (f.len() == 5 || f[5] == "[heap]"), "the unattributed check's table is mapped from the binary (.data), not .bss: {line}");
     }
 
     /// D4512: `prev` and `worst` round-trip every value through the biased words: a fresh slot and `clear_prev_worst` read

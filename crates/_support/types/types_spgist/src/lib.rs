@@ -1,6 +1,6 @@
 //! SP-GiST vocabulary (spgist.h + spgist_private.h + spgxlog.h): on-disk
 //! tuple/page codecs, state carriers, opclass call frames, xlog records.
-#![allow(non_snake_case, non_upper_case_globals)]
+#![allow(non_snake_case,non_upper_case_globals)]
 
 pub mod state;
 pub mod xlog;
@@ -132,7 +132,7 @@ fn special_off(bytes: *const u8) -> usize {
     // SAFETY: pd_special is at a 2-aligned in-page offset (page contract).
     let off = unsafe { bytes.add(PD_SPECIAL_OFF).cast::<u16>().read() } as usize;
     debug_assert!(
-        (SizeOfPageHeaderData..=BLCKSZ).contains(&off),
+        ( SizeOfPageHeaderData..= BLCKSZ).contains(&off),
         "corrupt pd_special"
     );
     off.min(BLCKSZ - core::mem::size_of::<SpGistPageOpaqueData>())
@@ -478,11 +478,7 @@ pub fn read_item_pointer(b: &[u8]) -> ItemPointerData {
 pub fn write_item_pointer(b: &mut [u8], ip: &ItemPointerData) {
     debug_assert!(b.len() >= 6);
     // SAFETY: 6 bytes checked; unaligned write of a 6-byte POD.
-    unsafe {
-        b.as_mut_ptr()
-            .cast::<ItemPointerData>()
-            .write_unaligned(*ip)
-    }
+    unsafe { b.as_mut_ptr().cast::<ItemPointerData>().write_unaligned(*ip) }
 }
 
 // ---------------------------------------------------------------------------
@@ -576,11 +572,7 @@ pub fn spgPageIndexMultiDelete(
     let mut tuple: Option<([u8; SGDTSIZE], u8)> = None;
 
     for &itemno in &sortednos[..nitems] {
-        let tupstate = if itemno == first_item {
-            firststate
-        } else {
-            reststate
-        };
+        let tupstate = if itemno == first_item { firststate } else { reststate };
         let img = match tuple {
             Some((img, st)) if st == tupstate => img,
             _ => {
@@ -624,10 +616,7 @@ mod node_link_tests {
         assert_eq!(tid, ItemPointerData::new(11, 2));
 
         let e = spgUpdateNodeLink(&mut img, 1, 11, 2).expect_err("node 1 does not exist");
-        assert_eq!(
-            e.message(),
-            "failed to find requested node 1 in SPGiST inner tuple"
-        );
+        assert_eq!(e.message(), "failed to find requested node 1 in SPGiST inner tuple");
         assert_eq!(e.sqlstate(), ::types_error::ERRCODE_INTERNAL_ERROR);
     }
 }

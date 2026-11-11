@@ -1,6 +1,4 @@
-#![allow(non_snake_case)]
-#![allow(clippy::result_large_err)]
-#![allow(clippy::too_many_arguments)]
+#![allow(clippy::result_large_err, clippy::too_many_arguments, non_snake_case)]
 
 use elog::{ereport, PCT_M};
 use mcx::Mcx;
@@ -990,7 +988,7 @@ fn process_startup_options(am_superuser: bool) -> PgResult<()> {
     });
 
     if let Some(cmdline_options) = cmdline_options {
-        let maxac = 2 + cmdline_options.len().div_ceil(2);
+        let maxac = 2 +cmdline_options.len().div_ceil( 2);
         let mut av: Vec<String> = Vec::new();
         let _ = av.try_reserve(maxac);
         av.push("postgres".to_string());

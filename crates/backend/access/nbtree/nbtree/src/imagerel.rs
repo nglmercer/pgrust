@@ -1,3 +1,4 @@
+
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
@@ -149,6 +150,8 @@ impl<'img, 'mcx> ImageRel<'img, 'mcx> {
         self.procs.borrow_mut().push((proc, fi.clone()));
         Ok(fi)
     }
+
+
 }
 
 #[cold]
@@ -250,11 +253,7 @@ impl BtReadRel for ImageRel<'_, '_> {
         self.read_buffer(blkno)
     }
 
-    fn predicate_lock_page(
-        &self,
-        _blkno: BlockNumber,
-        _snapshot: &SnapshotData<'_>,
-    ) -> PgResult<()> {
+    fn predicate_lock_page(&self, _blkno: BlockNumber, _snapshot: &SnapshotData<'_>,) -> PgResult<()> {
         serializable_refusal(self.img)
     }
 
@@ -335,12 +334,7 @@ impl BtReadRel for ImageRel<'_, '_> {
         opcintype: Oid,
         reverse: bool,
     ) -> PgResult<Option<SkipSupportData>> {
-        let Some((_, sk)) = self
-            .img
-            .skip
-            .iter()
-            .find(|(k, _)| *k == (opfamily, opcintype))
-        else {
+        let Some((_, sk)) = self.img.skip.iter().find(|(k, _)| *k == (opfamily, opcintype)) else {
             return Err(image_error(
                 self.img,
                 &format!("index image: no skip support entry for ({opfamily},{opcintype})"),
@@ -358,10 +352,7 @@ impl BtReadRel for ImageRel<'_, '_> {
 
 fn serializable_refusal(img: &IndexImage) -> PgResult<()> {
     if ::xact::IsolationIsSerializable() {
-        return Err(image_error(
-            img,
-            "index image: scan under SERIALIZABLE isolation",
-        ));
+        return Err(image_error(img, "index image: scan under SERIALIZABLE isolation",));
     }
     Ok(())
 }

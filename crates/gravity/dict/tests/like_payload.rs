@@ -146,7 +146,7 @@ fn the_rechecked_pair_takes_the_payloads_rare_bytes() {
                 Step::Hit(j) => Some(j),
                 Step::End => None,
                 Step::Recheck(at) => {
-                    assert!(rejected >= 3 && at > from && want.is_none_or(|w| w >= at), "recheck at {at} from {from} want {want:?}");
+                    assert!(rejected >= 3 && at > from && want.is_none_or( |w| w >= at), "recheck at {at} from {from} want {want:?}");
                     b.find(needle, h, at)
                 }
             };

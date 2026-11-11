@@ -8,7 +8,8 @@ use ::types_fmgr::{FmgrInfo, FunctionCallInfoBaseData};
 use ::types_nodes::list::NodeList;
 use ::types_nodes::node_tree::Node;
 use ::types_nodes::nodes_enums::CmdType;
-use ::types_nodes::parsenodes::{DeclareCursorStmt, FetchStmt, Query};
+use ::types_nodes::parsenodes::{ DeclareCursorStmt, FetchStmt, Query
+};
 #[allow(unused_imports)]
 use ::types_nodes::plannodes::PlannedStmt;
 #[allow(unused_imports)]
@@ -126,8 +127,7 @@ fn install_fixtures() {
         parser_seams::raw_parser::set(|mcx, q, mode| {
             let list = gram_core::raw_parser(mcx, q, mode)?;
             let mut v = mcx::PgVec::new_in(mcx);
-            v.try_reserve_exact(list.len())
-                .map_err(|_| mcx.oom(list.len()))?;
+            v.try_reserve_exact(list.len()).map_err(|_| mcx.oom(list.len()))?;
             for n in list.iter() {
                 let rs = n.as_raw_stmt().expect("raw_parser yields RawStmt");
                 v.push(::types_nodes::rawnodes::RawStmt {
@@ -222,24 +222,12 @@ fn leaked_mcx() -> Mcx<'static> {
 
 // The analyzer's output for `SELECT 1` (pquery e2e's fixture shape).
 fn select_1_query(mcx: Mcx<'static>) -> Query<'static> {
-    let konst = Node::mk_const(
-        mcx,
-        INT4OID,
-        -1,
-        0,
-        4,
-        datum::Datum::from_i32(1),
-        false,
-        true,
-    )
-    .unwrap();
+    let konst =
+        Node::mk_const(mcx, INT4OID, -1, 0, 4, datum::Datum::from_i32(1), false, true,).unwrap();
     let tle = Node::mk_target_entry(mcx, konst, 1, Some("?column?"), false).unwrap();
     let jointree = mcx::alloc_leak_in(
         mcx,
-        ::types_nodes::primnodes::FromExpr {
-            fromlist: NodeList::nil(),
-            quals: None,
-        },
+        ::types_nodes::primnodes::FromExpr { fromlist: NodeList::nil(), quals: None, },
     )
     .unwrap();
     Query {
@@ -284,10 +272,7 @@ fn select_param_query(mcx: Mcx<'static>) -> Query<'static> {
     let tle = Node::mk_target_entry(mcx, param, 1, Some("?column?"), false).unwrap();
     let jointree = mcx::alloc_leak_in(
         mcx,
-        ::types_nodes::primnodes::FromExpr {
-            fromlist: NodeList::nil(),
-            quals: None,
-        },
+        ::types_nodes::primnodes::FromExpr { fromlist: NodeList::nil(), quals: None, },
     )
     .unwrap();
     Query {
@@ -438,7 +423,8 @@ fn copy_query_covers_join_subquery_param_shapes() {
     let q_node = Node::mk(mcx, query).unwrap();
     let src = q_node.as_query().unwrap();
 
-    let ctx: &'static MemoryContext = Box::leak(Box::new(MemoryContext::new_bump("copy-fidelity")));
+    let ctx: &'static MemoryContext =
+        Box::leak(Box::new(MemoryContext::new_bump("copy-fidelity")));
     let copied = copyfuncs::copy_query(ctx.mcx(), src).unwrap();
     let copied_node = Node::mk(ctx.mcx(), copied).unwrap();
 
@@ -461,10 +447,7 @@ fn declare_requires_transaction_block_at_top_level() {
         true,
     )
     .unwrap_err();
-    assert_eq!(
-        err.sqlstate(),
-        types_error::ERRCODE_NO_ACTIVE_SQL_TRANSACTION
-    );
+    assert_eq!(err.sqlstate(), types_error::ERRCODE_NO_ACTIVE_SQL_TRANSACTION);
     snapmgr::PopActiveSnapshot().unwrap();
 }
 
@@ -478,14 +461,11 @@ fn cursor_name_errors_match_c_sqlstates() {
         d.portalname = Some("");
         d.seal_ref()
     };
-    let err = PerformCursorOpen(mcx, cstmt, "DECLARE", ParamListHandle::NULL, false).unwrap_err();
+    let err = PerformCursorOpen(mcx, cstmt, "DECLARE", ParamListHandle::NULL, false)
+        .unwrap_err();
     assert_eq!(err.sqlstate(), types_error::ERRCODE_INVALID_CURSOR_NAME);
 
-    let stmt = FetchStmt {
-        portalname: Some("no-such"),
-        howMany: 1,
-        ..FetchStmt::default()
-    };
+    let stmt = FetchStmt { portalname: Some("no-such"), howMany: 1, ..FetchStmt::default() };
     let mut none = tcop_dest::DestReceiver::DoNothing;
     let err = PerformPortalFetch(&stmt, &mut none, None).unwrap_err();
     assert_eq!(err.sqlstate(), types_error::ERRCODE_UNDEFINED_CURSOR);
@@ -513,7 +493,9 @@ mod scanfix {
     use std::sync::Mutex;
 
     use ::mcx::{Mcx, PgVec};
-    use ::types_core::{Buffer, Oid, BLCKSZ, INVALID_PROC_NUMBER, RELPERSISTENCE_PERMANENT};
+    use ::types_core::{
+        Buffer, Oid, BLCKSZ, INVALID_PROC_NUMBER, RELPERSISTENCE_PERMANENT
+    };
     use ::types_rel::{
         FormData_pg_class, LockInfoData, LockRelId, Relation, RelationData, LOCKMODE,
         RELKIND_RELATION,
@@ -753,12 +735,7 @@ mod scanfix {
             rd_newRelfilelocatorSubid: std::cell::Cell::new(0),
             rd_firstRelfilelocatorSubid: std::cell::Cell::new(0),
             rd_droppedSubid: std::cell::Cell::new(0),
-            rd_lockInfo: LockInfoData {
-                lockRelId: LockRelId {
-                    relId: relid,
-                    dbId: 5,
-                },
-            },
+            rd_lockInfo: LockInfoData { lockRelId: LockRelId { relId: relid, dbId: 5, }, },
             rd_rel,
             rd_att: int4_tupdesc(mcx),
             rd_index: None,
@@ -770,17 +747,13 @@ mod scanfix {
             pgstat_enabled: std::cell::Cell::new(true),
             pgstat_link: core::cell::Cell::new((0, core::ptr::null_mut())),
             rd_amcache: Default::default(),
-            rd_amcache_hash: Default::default(),
-            rd_amcache_gin: Default::default(),
-            rd_amcache_spgist: Default::default(),
-            rd_amcache_bloom: Default::default(),
+            rd_amcache_hash: Default::default(), rd_amcache_gin: Default::default(), rd_amcache_spgist: Default::default(), rd_amcache_bloom: Default::default(),
             rd_support: PgVec::new_in(mcx),
             rd_supportinfo: Default::default(),
             rd_opcoptions: Default::default(),
             rd_indexlist: Default::default(),
             rd_trigdesc: Default::default(),
-            rd_hastriggers: false,
-            rd_hasrules: false,
+            rd_hastriggers: false, rd_hasrules: false,
         };
         Ok(Relation::open(data, Some(record_close)))
     }

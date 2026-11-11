@@ -444,9 +444,7 @@ pub fn sbsref_assign(
     }
     // SAFETY: cparam_arg is what the list owner armed for this evaluation.
     let expanded = !cur.isnull
-        && st
-            .container_param
-            .is_some_and(|(f, id)| unsafe { f(cparam_arg, id) });
+        && st.container_param.is_some_and(|(f, id)| unsafe { f(cparam_arg, id) });
 
     if st.refattrlength > 0 && (cur.isnull || st.replace.isnull) {
         // Fixed-length arrays: punt and return the original (C shape).

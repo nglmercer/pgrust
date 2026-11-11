@@ -1,6 +1,6 @@
 //! tablespace.c: tablespace DDL, directory/symlink management, tblspc rmgr.
 
-#![allow(non_snake_case, non_upper_case_globals)]
+#![allow(non_snake_case,non_upper_case_globals)]
 
 use std::cell::Cell;
 
@@ -12,9 +12,9 @@ use types_error::{
     ErrorLocation, PgError, PgResult, ERRCODE_DEPENDENT_OBJECTS_STILL_EXIST,
     ERRCODE_DUPLICATE_OBJECT, ERRCODE_FEATURE_NOT_SUPPORTED, ERRCODE_INSUFFICIENT_PRIVILEGE,
     ERRCODE_INVALID_NAME, ERRCODE_INVALID_OBJECT_DEFINITION, ERRCODE_INVALID_PARAMETER_VALUE,
-    ERRCODE_OBJECT_IN_USE, ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE, ERRCODE_RESERVED_NAME,
-    ERRCODE_UNDEFINED_FILE, ERRCODE_UNDEFINED_OBJECT, ERRCODE_WRONG_OBJECT_TYPE, ERROR, LOG,
-    NOTICE, WARNING,
+    ERRCODE_OBJECT_IN_USE,
+    ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE, ERRCODE_RESERVED_NAME, ERRCODE_UNDEFINED_FILE,
+    ERRCODE_UNDEFINED_OBJECT, ERRCODE_WRONG_OBJECT_TYPE, ERROR, LOG, NOTICE, WARNING,
 };
 use types_nodes::parsenodes::{
     AlterTableSpaceOptionsStmt, CreateTableSpaceStmt, DropTableSpaceStmt, ObjectType,
@@ -106,11 +106,7 @@ pub fn TablespaceCreateDbspace(spc_oid: Oid, db_oid: Oid, is_redo: bool) -> PgRe
         }
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
             let lock = lwlock::main_lock(TABLESPACE_CREATE_LOCK);
-            lwlock::LWLockAcquire(
-                lock,
-                lwlock::LW_EXCLUSIVE,
-                init_small::globals::MyProcNumber(),
-            )?;
+            lwlock::LWLockAcquire(lock, lwlock::LW_EXCLUSIVE, init_small::globals::MyProcNumber(),)?;
             let result = (|| -> PgResult<()> {
                 if std::fs::metadata(dir).map(|m| m.is_dir()).unwrap_or(false) {
                     return Ok(());
@@ -150,9 +146,7 @@ pub fn CreateTableSpace<'mcx>(mcx: Mcx<'mcx>, stmt: &CreateTableSpaceStmt<'mcx>)
     if !superuser::superuser()? {
         return Err(ereport(ERROR)
             .errcode(ERRCODE_INSUFFICIENT_PRIVILEGE)
-            .errmsg(format!(
-                "permission denied to create tablespace \"{tablespacename}\""
-            ))
+            .errmsg(format!("permission denied to create tablespace \"{tablespacename}\""))
             .errhint("Must be superuser to create a tablespace.".to_string())
             .into_error()
             .into());
@@ -183,17 +177,8 @@ pub fn CreateTableSpace<'mcx>(mcx: Mcx<'mcx>, stmt: &CreateTableSpaceStmt<'mcx>)
             .into());
     }
 
-    if location.len()
-        + 1
-        + TABLESPACE_VERSION_DIRECTORY.len()
-        + 1
-        + OIDCHARS
-        + 1
-        + OIDCHARS
-        + 1
-        + FORKNAMECHARS
-        + 1
-        + OIDCHARS
+    if location.len() + 1 + TABLESPACE_VERSION_DIRECTORY.len() + 1 + OIDCHARS + 1 + OIDCHARS + 1
+        + FORKNAMECHARS + 1 + OIDCHARS
         > MAXPGPATH
     {
         return Err(ereport(ERROR)
@@ -253,8 +238,7 @@ pub fn CreateTableSpace<'mcx>(mcx: Mcx<'mcx>, stmt: &CreateTableSpaceStmt<'mcx>)
     let mut spcname = NameData::default();
     spcname.namestrcpy(tablespacename);
 
-    let new_options =
-        reloptions::transformRelOptions(mcx, None, &stmt.options, None, &[], false, false)?;
+    let new_options = reloptions::transformRelOptions(mcx, None, &stmt.options, None, &[], false, false)?;
     reloptions::tablespace_reloptions(mcx, new_options.as_deref(), true)?;
 
     let mut values = [Datum::null(); Natts_pg_tablespace];
@@ -364,9 +348,7 @@ pub fn DropTableSpace<'mcx>(mcx: Mcx<'mcx>, stmt: &DropTableSpaceStmt<'mcx>) -> 
                 .into());
         }
         ereport(NOTICE)
-            .errmsg(format!(
-                "tablespace \"{tablespacename}\" does not exist, skipping"
-            ))
+            .errmsg(format!("tablespace \"{tablespacename}\" does not exist, skipping"))
             .finish(loc("DropTableSpace"))?;
         return Ok(());
     };
@@ -374,30 +356,17 @@ pub fn DropTableSpace<'mcx>(mcx: Mcx<'mcx>, stmt: &DropTableSpaceStmt<'mcx>) -> 
     let mut isnull = false;
     // SAFETY: oid is a fixed NOT NULL pg_tablespace column.
     let tablespaceoid = unsafe {
-        types_tuple::heap_getattr(
-            tuple,
-            Anum_pg_tablespace_oid as i32,
-            rel.descr(),
-            &mut isnull,
-        )
+        types_tuple::heap_getattr(tuple, Anum_pg_tablespace_oid as i32, rel.descr(), &mut isnull,)
     }
     .as_oid();
     let t_self = tuple.t_self;
 
     if !aclchk::object_ownercheck(TableSpaceRelationId, tablespaceoid, miscinit::GetUserId())? {
-        aclchk::aclcheck_error(
-            aclchk::ACLCHECK_NOT_OWNER,
-            ObjectType::OBJECT_TABLESPACE,
-            tablespacename,
-        )?;
+        aclchk::aclcheck_error(aclchk::ACLCHECK_NOT_OWNER, ObjectType::OBJECT_TABLESPACE, tablespacename,)?;
     }
 
     if catalog::IsPinnedObject(TableSpaceRelationId, tablespaceoid) {
-        aclchk::aclcheck_error(
-            aclchk::ACLCHECK_NO_PRIV,
-            ObjectType::OBJECT_TABLESPACE,
-            tablespacename,
-        )?;
+        aclchk::aclcheck_error(aclchk::ACLCHECK_NO_PRIV, ObjectType::OBJECT_TABLESPACE, tablespacename,)?;
     }
 
     if let Some((detail, detail_log)) =
@@ -490,11 +459,7 @@ struct CreateLockHold<'a> {
 
 impl<'a> CreateLockHold<'a> {
     fn acquire(lock: &'a lwlock::LWLock) -> PgResult<Self> {
-        lwlock::LWLockAcquire(
-            lock,
-            lwlock::LW_EXCLUSIVE,
-            init_small::globals::MyProcNumber(),
-        )?;
+        lwlock::LWLockAcquire(lock, lwlock::LW_EXCLUSIVE, init_small::globals::MyProcNumber(),)?;
         Ok(Self { lock, held: true })
     }
 
@@ -504,11 +469,7 @@ impl<'a> CreateLockHold<'a> {
     }
 
     fn reacquire(&mut self) -> PgResult<()> {
-        lwlock::LWLockAcquire(
-            self.lock,
-            lwlock::LW_EXCLUSIVE,
-            init_small::globals::MyProcNumber(),
-        )?;
+        lwlock::LWLockAcquire(self.lock, lwlock::LW_EXCLUSIVE, init_small::globals::MyProcNumber(),)?;
         self.held = true;
         Ok(())
     }
@@ -535,16 +496,16 @@ fn create_tablespace_directories_path(location: &fd::PgPath, tablespaceoid: Oid)
     let in_place = location.is_empty();
 
     if in_place && fd::MakePGDirectory(&linkloc) < 0 {
-        let e = std::io::Error::last_os_error();
-        if e.kind() != std::io::ErrorKind::AlreadyExists {
-            return Err(ereport(ERROR)
-                .with_saved_errno(e.raw_os_error().unwrap_or(0))
-                .errcode_for_file_access()
-                .errmsg(format!("could not create directory \"{linkloc}\": {PCT_M}"))
-                .into_error()
-                .into());
+            let e = std::io::Error::last_os_error();
+            if e.kind() != std::io::ErrorKind::AlreadyExists {
+                return Err(ereport(ERROR)
+                    .with_saved_errno(e.raw_os_error().unwrap_or(0))
+                    .errcode_for_file_access()
+                    .errmsg(format!("could not create directory \"{linkloc}\": {PCT_M}"))
+                    .into_error()
+                    .into());
+            }
         }
-    }
 
     let location_with_version_dir = if in_place {
         fd::PgPath::from(linkloc.as_str())
@@ -582,9 +543,7 @@ fn create_tablespace_directories_path(location: &fd::PgPath, tablespaceoid: Oid)
             return Err(ereport(ERROR)
                 .with_saved_errno(e.raw_os_error().unwrap_or(0))
                 .errcode_for_file_access()
-                .errmsg(format!(
-                    "could not set permissions on directory \"{location}\": {PCT_M}"
-                ))
+                .errmsg(format!("could not set permissions on directory \"{location}\": {PCT_M}"))
                 .into_error()
                 .into());
         }
@@ -610,9 +569,7 @@ fn create_tablespace_directories_path(location: &fd::PgPath, tablespaceoid: Oid)
             return Err(ereport(ERROR)
                 .with_saved_errno(e.raw_os_error().unwrap_or(0))
                 .errcode_for_file_access()
-                .errmsg(format!(
-                    "could not stat directory \"{location_with_version_dir}\": {PCT_M}"
-                ))
+                .errmsg(format!("could not stat directory \"{location_with_version_dir}\": {PCT_M}"))
                 .into_error()
                 .into());
         }
@@ -655,9 +612,7 @@ fn create_tablespace_directories_path(location: &fd::PgPath, tablespaceoid: Oid)
             return Err(ereport(ERROR)
                 .with_saved_errno(e.raw_os_error().unwrap_or(0))
                 .errcode_for_file_access()
-                .errmsg(format!(
-                    "could not create symbolic link \"{linkloc}\": {PCT_M}"
-                ))
+                .errmsg(format!("could not create symbolic link \"{linkloc}\": {PCT_M}"))
                 .into_error()
                 .into());
         }
@@ -777,31 +732,19 @@ fn destroy_tablespace_directories(tablespaceoid: Oid, redo: bool) -> PgResult<bo
 
     match std::fs::symlink_metadata(&linkloc) {
         Err(e) => {
-            file_err(
-                redo,
-                &e,
-                format!("could not stat file \"{linkloc}\": {PCT_M}"),
-                "destroy_tablespace_directories",
-            )?;
+            file_err(redo, &e, format!("could not stat file \"{linkloc}\": {PCT_M}"),
+                "destroy_tablespace_directories",)?;
         }
         Ok(md) if md.is_dir() => {
             if let Err(e) = std::fs::remove_dir(&linkloc) {
-                file_err(
-                    redo,
-                    &e,
-                    format!("could not remove directory \"{linkloc}\": {PCT_M}"),
-                    "destroy_tablespace_directories",
-                )?;
+                file_err(redo, &e, format!("could not remove directory \"{linkloc}\": {PCT_M}"),
+                    "destroy_tablespace_directories",)?;
             }
         }
         Ok(md) if md.file_type().is_symlink() => {
             if let Err(e) = std::fs::remove_file(&linkloc) {
-                file_err(
-                    redo,
-                    &e,
-                    format!("could not remove symbolic link \"{linkloc}\": {PCT_M}"),
-                    "destroy_tablespace_directories",
-                )?;
+                file_err(redo, &e, format!("could not remove symbolic link \"{linkloc}\": {PCT_M}"),
+                    "destroy_tablespace_directories",)?;
             }
         }
         Ok(_) => {
@@ -847,9 +790,7 @@ pub fn remove_tablespace_symlink(linkloc: &str) -> PgResult<()> {
                 return Err(ereport(ERROR)
                     .with_saved_errno(e.raw_os_error().unwrap_or(0))
                     .errcode_for_file_access()
-                    .errmsg(format!(
-                        "could not remove symbolic link \"{linkloc}\": {PCT_M}"
-                    ))
+                    .errmsg(format!("could not remove symbolic link \"{linkloc}\": {PCT_M}"))
                     .into_error()
                     .into());
             }
@@ -888,18 +829,14 @@ pub fn RenameTableSpace(mcx: Mcx<'_>, oldname: &str, newname: &str) -> PgResult<
     let mut values = [Datum::null(); Natts_pg_tablespace];
     let nullsv = [false; Natts_pg_tablespace];
     let mut replace = [false; Natts_pg_tablespace];
-    values[Anum_pg_tablespace_spcname - 1] = Datum::from_usize(newname_nd.data.as_ptr() as usize);
+    values[Anum_pg_tablespace_spcname - 1] =
+        Datum::from_usize(newname_nd.data.as_ptr() as usize);
     replace[Anum_pg_tablespace_spcname - 1] = true;
-    let mut newtuple =
-        heaptuple::heap_modify_tuple(mcx, tup, rel.descr(), &values, &nullsv, &replace)?;
+    let mut newtuple = heaptuple::heap_modify_tuple(mcx, tup, rel.descr(), &values, &nullsv, &replace)?;
     genam::systable_endscan(mcx, scan)?;
 
     if !aclchk::object_ownercheck(TableSpaceRelationId, tsp_id, miscinit::GetUserId())? {
-        aclchk::aclcheck_error(
-            aclchk::ACLCHECK_NO_PRIV,
-            ObjectType::OBJECT_TABLESPACE,
-            oldname,
-        )?;
+        aclchk::aclcheck_error(aclchk::ACLCHECK_NO_PRIV, ObjectType::OBJECT_TABLESPACE, oldname,)?;
     }
 
     if !init_small::globals::allowSystemTableMods() && catalog::IsReservedName(newname) {
@@ -1001,8 +938,7 @@ pub fn AlterTableSpaceOptions<'mcx>(
     }
     replace[Anum_pg_tablespace_spcoptions - 1] = true;
     let otid = tup.t_self;
-    let mut newtuple =
-        heaptuple::heap_modify_tuple(mcx, tup, rel.descr(), &values, &nullsv, &replace)?;
+    let mut newtuple = heaptuple::heap_modify_tuple(mcx, tup, rel.descr(), &values, &nullsv, &replace)?;
     genam::systable_endscan(mcx, scan)?;
 
     catalog_indexing::CatalogTupleUpdate(mcx, &rel, &otid, &mut newtuple)?;
@@ -1078,10 +1014,7 @@ pub fn AlterTableSpaceOwner(mcx: Mcx<'_>, name: &str, new_owner_id: Oid) -> PgRe
                     .expect("noerr=false yields a name");
                 return Err(ereport(ERROR)
                     .errcode(ERRCODE_INSUFFICIENT_PRIVILEGE)
-                    .errmsg(format!(
-                        "must be able to SET ROLE \"{}\"",
-                        rolename.as_str()
-                    ))
+                    .errmsg(format!("must be able to SET ROLE \"{}\"", rolename.as_str()))
                     .into_error()
                     .into());
             }
@@ -1118,12 +1051,7 @@ pub fn AlterTableSpaceOwner(mcx: Mcx<'_>, name: &str, new_owner_id: Oid) -> PgRe
         genam::systable_endscan(mcx, scan)?;
         catalog_indexing::CatalogTupleUpdate(mcx, &rel, &otid, &mut newtup)?;
 
-        pg_shdepend::changeDependencyOnOwner(
-            mcx,
-            TableSpaceRelationId,
-            tablespaceoid,
-            new_owner_id,
-        )?;
+        pg_shdepend::changeDependencyOnOwner(mcx, TableSpaceRelationId, tablespaceoid, new_owner_id,)?;
     } else {
         genam::systable_endscan(mcx, scan)?;
     }
@@ -1185,12 +1113,7 @@ pub fn check_default_tablespace(
     Ok(true)
 }
 
-fn temp_tablespace_oids(
-    mcx: Mcx<'_>,
-    namelist: &[std::vec::Vec<u8>],
-    check_perms: bool,
-    source: types_guc::GucSource,
-) -> PgResult<std::vec::Vec<Oid>> {
+fn temp_tablespace_oids(mcx: Mcx<'_>, namelist: &[std::vec::Vec<u8>], check_perms: bool, source: types_guc::GucSource,) -> PgResult<std::vec::Vec<Oid>> {
     let mut spcs = ::mcx::std_vec_with_capacity("commands", namelist.len())?;
     for curname in namelist {
         if curname.is_empty() {
@@ -1203,8 +1126,7 @@ fn temp_tablespace_oids(
         // echoes the bytes verbatim.
         let Ok(curname) = core::str::from_utf8(curname) else {
             let mut msg = Vec::new();
-            let _ = msg
-                .try_reserve(b"tablespace \"".len() + curname.len() + b"\" does not exist".len());
+            let _ = msg.try_reserve(b"tablespace \"".len() + curname.len() + b"\" does not exist".len());
             msg.extend_from_slice(b"tablespace \"");
             msg.extend_from_slice(curname);
             msg.extend_from_slice(b"\" does not exist");
@@ -1260,12 +1182,8 @@ pub fn check_temp_tablespaces(
     let raw = newval.clone().unwrap_or_default();
     let ctx = MemoryContext::new("check_temp_tablespaces");
     let mcx = ctx.mcx();
-    let Some(namelist) = varlena::split_identifier_string_bytes(
-        mcx,
-        raw.as_bytes(),
-        b',',
-        mbutils::GetDatabaseEncoding(),
-    )?
+    let Some(namelist) =
+        varlena::split_identifier_string_bytes(mcx, raw.as_bytes(), b',', mbutils::GetDatabaseEncoding(),)?
     else {
         guc_seams::guc_check_errdetail::call("List syntax is invalid.".to_string());
         return Ok(false);
@@ -1292,15 +1210,9 @@ pub fn PrepareTempTablespaces(mcx: Mcx<'_>) -> PgResult<()> {
     if !xact::IsTransactionState() {
         return Ok(());
     }
-    let raw = guc_tables::vars::temp_tablespaces
-        .read()
-        .unwrap_or_default();
-    let Some(namelist) = varlena::split_identifier_string_bytes(
-        mcx,
-        raw.as_bytes(),
-        b',',
-        mbutils::GetDatabaseEncoding(),
-    )?
+    let raw = guc_tables::vars::temp_tablespaces.read().unwrap_or_default();
+    let Some(namelist) =
+        varlena::split_identifier_string_bytes(mcx, raw.as_bytes(), b',', mbutils::GetDatabaseEncoding(),)?
     else {
         fd::SetTempTablespaces(&[])?;
         return Ok(());
@@ -1319,11 +1231,8 @@ pub fn get_tablespace_oid(mcx: Mcx<'_>, tablespacename: &str, missing_ok: bool) 
             return Ok(InvalidOid);
         }
         return Err(Box::new(
-            PgError::new(
-                ERROR,
-                format!("tablespace \"{tablespacename}\" does not exist"),
-            )
-            .with_sqlstate(types_error::ERRCODE_UNDEFINED_OBJECT),
+            PgError::new(ERROR, format!("tablespace \"{tablespacename}\" does not exist"),)
+                .with_sqlstate(types_error::ERRCODE_UNDEFINED_OBJECT),
         ));
     }
     let rel = table::table_open(mcx, TableSpaceRelationId, AccessShareLock)?;
@@ -1396,10 +1305,7 @@ pub fn get_tablespace_name(mcx: Mcx<'_>, spc_oid: Oid) -> PgResult<Option<NameDa
 }
 
 pub fn tblspc_redo(record: &mut xlogreader_seams::XLogReaderState) -> PgResult<()> {
-    let decoded = record
-        .record
-        .as_ref()
-        .expect("tblspc_redo with no decoded record");
+    let decoded = record.record.as_ref().expect("tblspc_redo with no decoded record");
     let info = decoded.xl_info & !XLR_INFO_MASK;
     // SAFETY: the decoded record's main data lives for the redo call.
     let data = unsafe { decoded.main_data_bytes() };
@@ -1436,9 +1342,7 @@ pub fn tblspc_redo(record: &mut xlogreader_seams::XLogReaderState) -> PgResult<(
             if !destroy_tablespace_directories(ts_id, true)? {
                 ereport(LOG)
                     .errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE)
-                    .errmsg(format!(
-                        "directories for tablespace {ts_id} could not be removed"
-                    ))
+                    .errmsg(format!("directories for tablespace {ts_id} could not be removed"))
                     .errhint("You can remove the directories manually if necessary.".to_string())
                     .finish(loc("tblspc_redo"))?;
             }
@@ -1559,12 +1463,9 @@ mod redo_dispatch_tests {
     fn unknown_opcode_is_a_panic_level_error() {
         let mut rec = xlogreader_seams::DecodedXLogRecord::default();
         rec.xl_info = 0xE0;
-        let mut record = xlogreader_seams::XLogReaderState {
-            record: Some(rec),
-            ..Default::default()
-        };
-        let err =
-            tblspc_redo(&mut record).expect_err("unknown tblspc opcode must not redo silently");
+        let mut record =
+            xlogreader_seams::XLogReaderState { record: Some(rec), ..Default::default() };
+        let err = tblspc_redo(&mut record).expect_err("unknown tblspc opcode must not redo silently");
         assert_eq!(err.message, "tblspc_redo: unknown op code 224");
         assert_eq!(err.level, types_error::PANIC);
     }
@@ -1581,8 +1482,8 @@ mod directory_tests {
     }
 
     fn scratch_root(name: &str) -> std::path::PathBuf {
-        let root =
-            std::env::temp_dir().join(format!("pgrust-tablespace-{name}-{}", std::process::id()));
+        let root = std::env::temp_dir()
+            .join(format!("pgrust-tablespace-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).unwrap();
         root
@@ -1609,10 +1510,7 @@ mod directory_tests {
         assert_eq!(err.sqlstate(), ERRCODE_OBJECT_IN_USE);
         assert_eq!(
             err.message,
-            format!(
-                "directory \"{}\" already in use as a tablespace",
-                version_dir.display()
-            )
+            format!("directory \"{}\" already in use as a tablespace", version_dir.display())
         );
         let _ = std::fs::remove_dir_all(&root);
     }
@@ -1651,28 +1549,20 @@ mod directory_tests {
         rec.xl_info = XLOG_TBLSPC_CREATE;
         rec.main_data = data.as_ptr();
         rec.main_data_len = data.len() as u32;
-        let mut record = xlogreader_seams::XLogReaderState {
-            record: Some(rec),
-            ..Default::default()
-        };
+        let mut record =
+            xlogreader_seams::XLogReaderState { record: Some(rec), ..Default::default() };
         let result = tblspc_redo(&mut record);
         std::env::set_current_dir(saved_cwd).unwrap();
         result.expect("XLOG_TBLSPC_CREATE redo over a non-UTF-8 location");
 
         let link = root.join(PG_TBLSPC_DIR).join(oid.to_string());
         let target = std::fs::read_link(&link).unwrap();
-        assert_eq!(
-            target.as_os_str().as_bytes(),
-            &raw[..],
-            "symlink target must be the record's raw bytes"
-        );
+        assert_eq!(target.as_os_str().as_bytes(), &raw[..], "symlink target must be the record's raw bytes");
         let mut version_dir = raw.clone();
         version_dir.push(b'/');
         version_dir.extend_from_slice(TABLESPACE_VERSION_DIRECTORY.as_bytes());
         assert!(
-            std::fs::symlink_metadata(std::ffi::OsStr::from_bytes(&version_dir))
-                .unwrap()
-                .is_dir(),
+            std::fs::symlink_metadata(std::ffi::OsStr::from_bytes(&version_dir)).unwrap().is_dir(),
             "version directory must be created under the raw-byte location"
         );
         let _ = std::fs::remove_dir_all(&root);
@@ -1694,10 +1584,7 @@ mod directory_tests {
         assert_eq!(err.sqlstate(), ERRCODE_WRONG_OBJECT_TYPE);
         assert_eq!(
             err.message,
-            format!(
-                "\"{}\" exists but is not a directory",
-                version_dir.display()
-            )
+            format!("\"{}\" exists but is not a directory", version_dir.display())
         );
         let _ = std::fs::remove_dir_all(&root);
     }

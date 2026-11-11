@@ -1,6 +1,6 @@
 //! brin_xlog.c: BRIN rmgr redo. All six ops are live; brin_mask stays with
 //! the wal-consistency lane (loud in rmgr, as every AM's).
-#![allow(non_snake_case, non_upper_case_globals)]
+#![allow(non_snake_case,non_upper_case_globals)]
 
 use types_brin::*;
 use types_core::{BlockNumber, Buffer, InvalidBuffer};
@@ -29,17 +29,14 @@ pub mod sim_red {
     }
 }
 
-fn main_data(record: &XLogReaderState) -> &[u8] {
-    let rec = record
-        .record
-        .as_ref()
-        .expect("brin redo with no decoded record");
+fn main_data(record: & XLogReaderState) -> & [u8] {
+    let rec = record.record.as_ref().expect("brin redo with no decoded record");
     // SAFETY: points into the reader's decode buffer, valid for the redo
     // callback's duration.
     unsafe { rec.main_data_bytes() }
 }
 
-fn block_data(record: &XLogReaderState, block_id: u8) -> &[u8] {
+fn block_data(record: & XLogReaderState, block_id: u8) -> & [u8] {
     // SAFETY: same decode-buffer lifetime as main_data.
     unsafe { record.block(block_id).data_bytes() }
 }
@@ -137,9 +134,7 @@ fn brin_xlog_insert_update(
         }
         let off = page.add_item(tuple, offnum, types_storage::bufpage::PAI_OVERWRITE);
         if off.is_none() {
-            return Err(panic_err(
-                "brin_xlog_insert_update: failed to add tuple".into(),
-            ));
+            return Err(panic_err("brin_xlog_insert_update: failed to add tuple".into(),));
         }
         page.set_lsn(lsn);
         bufmgr_seams::mark_buffer_dirty::call(buffer)?;
@@ -296,12 +291,8 @@ fn brin_xlog_desummarize_page(record: &XLogReaderState) -> PgResult<()> {
 }
 
 pub fn brin_redo(record: &mut XLogReaderState) -> PgResult<()> {
-    let info = record
-        .record
-        .as_ref()
-        .expect("brin_redo with no decoded record")
-        .xl_info
-        & !XLR_INFO_MASK;
+    let info =
+        record.record.as_ref().expect("brin_redo with no decoded record").xl_info & !XLR_INFO_MASK;
     let init_page = info & XLOG_BRIN_INIT_PAGE != 0;
     match info & XLOG_BRIN_OPMASK {
         XLOG_BRIN_CREATE_INDEX => brin_xlog_createidx(record),
@@ -383,10 +374,7 @@ mod redo_dispatch_tests {
     fn unknown_opcode_reports_the_unmasked_info_byte() {
         let mut rec = xlogreader_seams::DecodedXLogRecord::default();
         rec.xl_info = 0xE0;
-        let mut record = XLogReaderState {
-            record: Some(rec),
-            ..Default::default()
-        };
+        let mut record = XLogReaderState { record: Some(rec), ..Default::default() };
         let err = brin_redo(&mut record).expect_err("unknown brin opcode must not redo silently");
         assert_eq!(err.message, "brin_redo: unknown op code 224");
         assert_eq!(err.level, types_error::PANIC);

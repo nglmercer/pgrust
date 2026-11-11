@@ -19,11 +19,7 @@ pub enum Rule {
 
 impl Rule {
     pub const fn from_index(i: i32) -> Rule {
-        if i == 1 {
-            Rule::Projection
-        } else {
-            Rule::Threshold
-        }
+        if i == 1 { Rule::Projection } else { Rule::Threshold }
     }
 
     pub const fn name(self) -> &'static str {
@@ -38,11 +34,7 @@ static RULE: AtomicU8 = AtomicU8::new(Rule::Threshold as u8);
 
 #[inline]
 pub fn rule() -> Rule {
-    if RULE.load(Ordering::Relaxed) == Rule::Projection as u8 {
-        Rule::Projection
-    } else {
-        Rule::Threshold
-    }
+    if RULE.load(Ordering::Relaxed) == Rule::Projection as u8 { Rule::Projection } else { Rule::Threshold }
 }
 
 #[inline]
@@ -58,11 +50,7 @@ pub const SAMPLE_MS: u64 = 100;
 pub const PRESSED_MS: u64 = 10;
 
 pub fn sample_period_ms(projection: bool, r: u64, b: u64) -> u64 {
-    if projection && b != 0 && r > b / 2 {
-        PRESSED_MS
-    } else {
-        SAMPLE_MS
-    }
+    if projection && b != 0 && r > b / 2 { PRESSED_MS } else { SAMPLE_MS }
 }
 
 pub fn fast_landed(bytes: u64) -> u64 {
@@ -99,18 +87,12 @@ pub struct Rise99 {
 
 impl Rise {
     pub const fn new() -> Rise {
-        Rise {
-            r: [0; RING],
-            ua: [0; RING],
-            at: 0,
-            n: 0,
-        }
+        Rise { r: [0; RING], ua: [0; RING], at: 0, n: 0, }
     }
 
     pub fn push(&mut self, r: u64, unattributed: i64) {
         self.r[self.at] = (r / MIB).min(u32::MAX as u64) as u32;
-        self.ua[self.at] =
-            (unattributed / MIB as i64).clamp(i32::MIN as i64, i32::MAX as i64) as i32;
+        self.ua[self.at] = (unattributed / MIB as i64).clamp(i32::MIN as i64, i32::MAX as i64) as i32;
         self.at = (self.at + 1) % RING;
         self.n = (self.n + 1).min(RING);
     }
@@ -130,10 +112,7 @@ impl Rise {
     /// The p99 rise over windows of `h_ms`, at least max(`rise_floor_min`, B / `rise_floor_div` per s x h); else `prior`.
     pub fn rise99(&self, h_ms: u64, b: u64) -> Rise99 {
         if self.n < RING {
-            return Rise99 {
-                bytes: prior(h_ms, b),
-                prior: true,
-            };
+            return Rise99 { bytes: prior(h_ms, b), prior: true, };
         }
         let k = ((h_ms / SAMPLE_MS) as usize).clamp(1, RING - 1);
         let mut rises = [0u32; RING];
@@ -144,12 +123,8 @@ impl Rise {
         let rises = &mut rises[..m];
         rises.sort_unstable();
         let p99 = rises[(m * 99 / 100).min(m - 1)] as u64 * MIB;
-        let floor =
-            get(K::RiseFloorMin).max(b / get(K::RiseFloorDiv).max(1) * h_ms.max(SAMPLE_MS) / 1000);
-        Rise99 {
-            bytes: p99.max(floor),
-            prior: false,
-        }
+        let floor = get(K::RiseFloorMin).max(b / get(K::RiseFloorDiv).max(1) * h_ms.max(SAMPLE_MS) / 1000);
+        Rise99 { bytes: p99.max(floor), prior: false, }
     }
 
     /// D4389 (the ladder's measured margin): the p99 rise (bytes) of R over windows of `h_ms` among the samples held, with
@@ -189,17 +164,12 @@ impl Rise {
 /// rise99's cold-start prior (condition 4, never 0): through `prior_100ms_pct` of B at 100 ms, `prior_1s_pct` at 1 s,
 /// then `prior_per_s_pct` per s, at most B.
 pub fn prior(h_ms: u64, b: u64) -> u64 {
-    let (p100, p1s, per_s) = (
-        get(K::Prior100msPct) as u128,
-        get(K::Prior1sPct) as u128,
-        get(K::PriorPerSPct) as u128,
-    );
+    let (p100, p1s, per_s) = (get(K::Prior100msPct) as u128, get(K::Prior1sPct) as u128, get(K::PriorPerSPct) as u128,);
     let h = h_ms.max(1) as u128;
     let milli = if h <= SAMPLE_MS as u128 {
         p100 * 1000 * h / SAMPLE_MS as u128
     } else if h < 1000 {
-        p100 * 1000
-            + p1s.saturating_sub(p100) * 1000 * (h - SAMPLE_MS as u128) / (1000 - SAMPLE_MS as u128)
+        p100 * 1000 + p1s.saturating_sub(p100) * 1000 * (h - SAMPLE_MS as u128) / (1000 - SAMPLE_MS as u128)
     } else {
         p1s * 1000 + per_s * (h - 1000)
     };
@@ -237,9 +207,7 @@ impl Inputs {
     }
 
     pub fn crosses(&self) -> bool {
-        self.relief_pending()
-            .projected(self.r.saturating_add(self.rise_slow.bytes))
-            > self.l.saturating_sub(self.margin())
+        self.relief_pending().projected(self.r.saturating_add(self.rise_slow.bytes)) > self.l.saturating_sub(self.margin())
     }
 
     /// H4: the governor's pending bytes (D4023) as relief (`crate::relief`).
@@ -258,9 +226,7 @@ impl Inputs {
 
     /// The bytes the projection is past L - margin: what a cancel must take out of R.
     pub fn overshoot(&self) -> u64 {
-        self.relief_pending()
-            .projected(self.r.saturating_add(self.rise_slow.bytes))
-            .saturating_sub(self.l.saturating_sub(self.margin()))
+        self.relief_pending().projected(self.r.saturating_add(self.rise_slow.bytes)).saturating_sub(self.l.saturating_sub(self.margin()))
     }
 }
 
@@ -312,11 +278,7 @@ pub fn decide(ev: Event, i: &Inputs) -> Plan {
     let (f, target) = (i.free(), i.target());
     let short = f < target;
     let empty = i.b <= i.r && i.fast == 0;
-    let mut p = Plan {
-        reclaim_fast: short && i.fast != 0,
-        tranche: tranche(f, i.holders),
-        ..Plan::default()
-    };
+    let mut p = Plan { reclaim_fast: short && i.fast != 0, tranche: tranche(f, i.holders), ..Plan::default() };
     if short && i.revoke_on && !matches!(ev, Event::Start) {
         p.revoke = target - f;
     }
@@ -335,11 +297,7 @@ pub fn decide(ev: Event, i: &Inputs) -> Plan {
                 p.spill_self = true;
                 p.reason = "F < F* and past its fair share";
             } else if p.reason.is_empty() {
-                p.reason = if short {
-                    "F < F* within its fair share"
-                } else {
-                    "F >= F*"
-                };
+                p.reason = if short { "F < F* within its fair share" } else { "F >= F*" };
             }
         }
         Event::Start => {
@@ -374,13 +332,8 @@ pub fn throttle_cap(bound: core::time::Duration) -> core::time::Duration {
 
 /// T, the credit between checks: clamp(F / (`tranche_k` x holders), `tranche_min`, `tranche_max`).
 pub fn tranche(f: u64, holders: u32) -> u64 {
-    let k = get(K::TrancheK)
-        .max(1)
-        .saturating_mul(holders.max(1) as u64);
-    (f / k).clamp(
-        get(K::TrancheMin),
-        get(K::TrancheMax).max(get(K::TrancheMin)),
-    )
+    let k = get(K::TrancheK).max(1).saturating_mul(holders.max(1) as u64);
+    (f / k).clamp(get(K::TrancheMin), get(K::TrancheMax).max(get(K::TrancheMin)),)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -395,8 +348,7 @@ pub struct Cand {
 /// `cancel_min` and `least`, D3934 / D3941). Never an idle holder or a condemned one.
 pub fn victim(cands: impl IntoIterator<Item = Cand>, share: u64, least: u64) -> Option<usize> {
     let least = get(K::CancelMin).max(1).max(least);
-    let (mut over_best, mut held_best): (Option<(usize, u64, u64)>, Option<(usize, u64, u64)>) =
-        (None, None);
+    let (mut over_best, mut held_best): (Option<(usize, u64, u64)>, Option<(usize, u64, u64)>) = (None, None);
     let better = |best: Option<(usize, u64, u64)>, v: u64, e: u64| !matches!(best, Some((_, o, b)) if v < o || v == o && e >= b);
     for (n, c) in cands.into_iter().enumerate() {
         if c.idle || c.canceled {
@@ -453,23 +405,8 @@ mod tests {
     const GIB: u64 = 1 << 30;
 
     fn inputs(r: u64) -> Inputs {
-        let rise = |b| Rise99 {
-            bytes: b,
-            prior: false,
-        };
-        Inputs {
-            l: 16 * GIB,
-            b: 14 * GIB,
-            r,
-            u: 256 * MIB,
-            fast: 0,
-            pending: 0,
-            rise_fast: rise(512 * MIB),
-            rise_slow: rise(3 * GIB),
-            holders: 8,
-            revoke_on: false,
-            falling: false,
-        }
+        let rise = |b| Rise99 { bytes: b, prior: false, };
+        Inputs { l: 16 * GIB, b: 14 * GIB, r, u: 256 * MIB, fast: 0, pending: 0, rise_fast: rise(512 * MIB), rise_slow: rise(3 * GIB), holders: 8, revoke_on: false, falling: false, }
     }
 
     #[test]
@@ -477,14 +414,7 @@ mod tests {
         let _one = pgsync::lock(&crate::consts::TEST_LOCK);
         assert_eq!(rule(), Rule::Threshold);
         assert!(!projection());
-        assert_eq!(
-            (
-                Rule::from_index(0),
-                Rule::from_index(1),
-                Rule::from_index(7)
-            ),
-            (Rule::Threshold, Rule::Projection, Rule::Threshold)
-        );
+        assert_eq!((Rule::from_index(0), Rule::from_index(1), Rule::from_index(7)), (Rule::Threshold, Rule::Projection, Rule::Threshold));
         set_rule(Rule::Projection);
         assert!(projection());
         set_rule(Rule::Threshold);
@@ -497,33 +427,16 @@ mod tests {
         assert!(!decide(Event::Grow { held: 8 * GIB }, &roomy).spill_self);
         assert!(!decide(Event::Start, &roomy).throttle);
         let mut short = inputs(12 * GIB); // F = 2 GiB < F* = 3.25 GiB
-        assert!(
-            !decide(Event::Start, &short).throttle,
-            "D3941: nothing is landing, so the start does not wait"
-        );
+        assert!(!decide(Event::Start, &short).throttle, "D3941: nothing is landing, so the start does not wait");
         short.pending = GIB;
-        assert!(
-            decide(Event::Start, &short).throttle,
-            "a cancel's bytes are landing: the start waits for them"
-        );
+        assert!(decide(Event::Start, &short).throttle, "a cancel's bytes are landing: the start waits for them");
         (short.pending, short.falling) = (0, true);
-        assert!(
-            decide(Event::Start, &short).throttle,
-            "R is falling: the start waits"
-        );
+        assert!(decide(Event::Start, &short).throttle, "R is falling: the start waits");
         let floor = crate::admit::GRANT_FLOOR;
-        assert!(
-            !start_holds(true, floor) && start_holds(true, floor + 1) && !start_holds(false, GIB)
-        );
+        assert!(!start_holds(true, floor) && start_holds(true, floor + 1) && !start_holds(false, GIB));
         short.falling = false;
-        assert!(
-            !decide(Event::Grow { held: GIB }, &short).spill_self,
-            "within its share (14 / 8 GiB)"
-        );
-        assert!(
-            decide(Event::Grow { held: 2 * GIB }, &short).spill_self,
-            "past its share"
-        );
+        assert!(!decide(Event::Grow { held: GIB }, &short).spill_self, "within its share (14 / 8 GiB)");
+        assert!(decide(Event::Grow { held: 2 * GIB }, &short).spill_self, "past its share");
         let empty = inputs(14 * GIB);
         assert!(decide(Event::Grow { held: MIB }, &empty).spill_self);
     }
@@ -534,83 +447,38 @@ mod tests {
         let mut i = inputs(14 * GIB); // R = B; R + 3 GiB = 17 GiB > 16 - 0.75 GiB
         assert_eq!(decide(Event::Tick, &i).cancel, Cancel::Victim);
         assert_eq!(decide(Event::Grow { held: 0 }, &i).cancel, Cancel::Victim);
-        assert_eq!(
-            decide(Event::Start, &i).cancel,
-            Cancel::None,
-            "a start throttles, never cancels"
-        );
+        assert_eq!(decide(Event::Start, &i).cancel, Cancel::None, "a start throttles, never cancels");
         i.pending = 2 * GIB; // 17 - 2 = 15 GiB < 15.25 GiB
-        assert_eq!(
-            decide(Event::Tick, &i).cancel,
-            Cancel::None,
-            "pending bytes land first"
-        );
+        assert_eq!(decide(Event::Tick, &i).cancel, Cancel::None, "pending bytes land first");
         let mut j = inputs(14 * GIB);
         j.fast = 64 * MIB;
         let p = decide(Event::Tick, &j);
-        assert_eq!(
-            (p.cancel, p.reclaim_fast),
-            (Cancel::None, true),
-            "F > 0: the fast rungs run, no cancel"
-        );
+        assert_eq!((p.cancel, p.reclaim_fast), (Cancel::None, true), "F > 0: the fast rungs run, no cancel");
         let mut k = inputs(14 * GIB);
         k.rise_slow.bytes = 256 * MIB; // 14.25 GiB < 15.25
-        assert_eq!(
-            decide(Event::Tick, &k).cancel,
-            Cancel::None,
-            "the projection stays under L - margin"
-        );
+        assert_eq!(decide(Event::Tick, &k).cancel, Cancel::None, "the projection stays under L - margin");
     }
 
     #[test]
     fn the_sampler_quickens_past_half_of_b_under_projection_only() {
-        assert_eq!(
-            (
-                sample_period_ms(true, 51, 100),
-                sample_period_ms(true, 50, 100),
-                sample_period_ms(false, 99, 100),
-                sample_period_ms(true, 9, 0)
-            ),
-            (10, 100, 100, 100)
-        );
+        assert_eq!((sample_period_ms(true, 51, 100), sample_period_ms(true, 50, 100), sample_period_ms(false, 99, 100), sample_period_ms(true, 9, 0)), (10, 100, 100, 100));
     }
 
     #[test]
     fn falling_closes_the_gap_within_the_wait() {
         let _one = pgsync::lock(&crate::consts::TEST_LOCK);
-        assert!(
-            falling(10 * GIB, 10 * GIB - 200 * MIB, 3 * GIB),
-            "200 MiB per tick x 20 >= 3 GiB"
-        );
-        assert!(
-            !falling(10 * GIB, 10 * GIB - 100 * MIB, 3 * GIB),
-            "100 MiB per tick x 20 < 3 GiB"
-        );
-        assert!(
-            !falling(10 * GIB, 10 * GIB, 0) && !falling(10 * GIB, 11 * GIB, GIB),
-            "flat or rising: never"
-        );
+        assert!(falling(10 * GIB, 10 * GIB - 200 * MIB, 3 * GIB), "200 MiB per tick x 20 >= 3 GiB");
+        assert!(!falling(10 * GIB, 10 * GIB - 100 * MIB, 3 * GIB), "100 MiB per tick x 20 < 3 GiB");
+        assert!(!falling(10 * GIB, 10 * GIB, 0) && !falling(10 * GIB, 11 * GIB, GIB), "flat or rising: never");
     }
 
     #[test]
     fn the_backstop_takes_no_small_statement_unless_the_kill_is_next() {
         let _one = pgsync::lock(&crate::consts::TEST_LOCK);
         let i = inputs(14 * GIB); // L 16 GiB, B 14 GiB, margin 0.75 GiB
-        assert_eq!(
-            backstop_least(&i, 14 * GIB + 512 * MIB),
-            512 * MIB,
-            "R past B by 512 MiB"
-        );
-        assert_eq!(
-            backstop_least(&i, 14 * GIB),
-            32 * MIB,
-            "cancel_min at least"
-        );
-        assert_eq!(
-            backstop_least(&i, 15 * GIB + 512 * MIB),
-            32 * MIB,
-            "past L - margin: any statement past cancel_min"
-        );
+        assert_eq!(backstop_least(&i, 14 * GIB + 512 * MIB), 512 * MIB, "R past B by 512 MiB");
+        assert_eq!(backstop_least(&i, 14 * GIB), 32 * MIB, "cancel_min at least");
+        assert_eq!(backstop_least(&i, 15 * GIB + 512 * MIB), 32 * MIB, "past L - margin: any statement past cancel_min");
         let mut j = inputs(14 * GIB); // R + rise99 3 GiB - L + margin 0.75 GiB = 1.75 GiB
         assert_eq!(j.overshoot(), GIB + 768 * MIB);
         j.pending = 2 * GIB;
@@ -626,40 +494,24 @@ mod tests {
         for _ in 0..RISE_MIN_SAMPLES - 1 {
             ring.push(GIB, 0);
         }
-        assert_eq!(
-            ring.rise_p99_scaled(2850),
-            None,
-            "under a second of samples"
-        );
+        assert_eq!(ring.rise_p99_scaled(2850), None, "under a second of samples");
         ring.push(GIB, 0);
         assert_eq!(ring.rise_p99_scaled(2850), Some(0), "flat");
         let mut g = Rise::new();
         for i in 0..20u64 {
             g.push(GIB + i * 10 * MIB, 0);
         }
-        assert_eq!(
-            g.rise_p99_scaled(2800),
-            Some(280 * MIB),
-            "19 samples of history, scaled to the window's 28"
-        );
+        assert_eq!(g.rise_p99_scaled(2800), Some(280 * MIB), "19 samples of history, scaled to the window's 28");
         for i in 20..100u64 {
             g.push(GIB + i * 10 * MIB, 0);
         }
-        assert_eq!(
-            g.rise_p99_scaled(2800),
-            Some(280 * MIB),
-            "the whole window held"
-        );
+        assert_eq!(g.rise_p99_scaled(2800), Some(280 * MIB), "the whole window held");
         let mut b = Rise::new();
         for _ in 0..RING {
             b.push(GIB, 0);
         }
         b.push(2 * GIB, 0);
-        assert_eq!(
-            b.rise_p99_scaled(100),
-            Some(0),
-            "one 1 GiB step in 599 one-sample windows: under the p99"
-        );
+        assert_eq!(b.rise_p99_scaled(100), Some(0), "one 1 GiB step in 599 one-sample windows: under the p99");
     }
 
     #[test]
@@ -675,77 +527,17 @@ mod tests {
     #[test]
     fn the_victim_is_the_furthest_over_its_share() {
         let _one = pgsync::lock(&crate::consts::TEST_LOCK);
-        let c = |held, elapsed_ms, idle, canceled| Cand {
-            held,
-            elapsed_ms,
-            idle,
-            canceled,
-        };
+        let c = |held, elapsed_ms, idle, canceled| Cand { held, elapsed_ms, idle, canceled, };
         let share = GIB;
-        assert_eq!(
-            victim(
-                [c(2 * GIB, 10, false, false), c(3 * GIB, 10, false, false)],
-                share,
-                0
-            ),
-            Some(1)
-        );
-        assert_eq!(
-            victim(
-                [c(3 * GIB, 50, false, false), c(3 * GIB, 10, false, false)],
-                share,
-                0
-            ),
-            Some(1),
-            "ties: the youngest"
-        );
-        assert_eq!(
-            victim(
-                [c(9 * GIB, 10, true, false), c(2 * GIB, 10, false, false)],
-                share,
-                0
-            ),
-            Some(1),
-            "an idle holder is skipped"
-        );
-        assert_eq!(
-            victim(
-                [c(9 * GIB, 10, false, true), c(2 * GIB, 10, false, false)],
-                share,
-                0
-            ),
-            Some(1),
-            "a condemned one is skipped"
-        );
-        assert_eq!(
-            victim(
-                [c(GIB, 10, false, false), c(GIB / 2, 5, false, false)],
-                share,
-                0
-            ),
-            Some(0),
-            "none past its share: the most held"
-        );
-        assert_eq!(
-            victim([c(GIB, 10, true, false), c(GIB, 10, false, true)], share, 0),
-            None,
-            "idle or condemned: never"
-        );
-        assert_eq!(
-            victim([c(1, 10, false, false)], share, 0),
-            None,
-            "under cancel_min: none"
-        );
-        assert_eq!(
-            victim([c(GIB, 10, false, false)], share, 2 * GIB),
-            None,
-            "D3941: under the overshoot, none past its share: none"
-        );
-        assert_eq!(
-            victim([c(2 * GIB, 10, false, false)], GIB, 4 * GIB),
-            Some(0),
-            "past its share: the overshoot does not apply"
-        );
+        assert_eq!(victim([c(2 * GIB, 10, false, false), c(3 * GIB, 10, false, false)], share, 0), Some(1));
+        assert_eq!(victim([c(3 * GIB, 50, false, false), c(3 * GIB, 10, false, false)], share, 0), Some(1), "ties: the youngest");
+        assert_eq!(victim([c(9 * GIB, 10, true, false), c(2 * GIB, 10, false, false)], share, 0), Some(1), "an idle holder is skipped");
+        assert_eq!(victim([c(9 * GIB, 10, false, true), c(2 * GIB, 10, false, false)], share, 0), Some(1), "a condemned one is skipped");
+        assert_eq!(victim([c(GIB, 10, false, false), c(GIB / 2, 5, false, false)], share, 0), Some(0), "none past its share: the most held");
+        assert_eq!(victim([c(GIB, 10, true, false), c(GIB, 10, false, true)], share, 0), None, "idle or condemned: never");
+        assert_eq!(victim([c(1, 10, false, false)], share, 0), None, "under cancel_min: none");
+        assert_eq!(victim([c(GIB, 10, false, false)], share, 2 * GIB), None, "D3941: under the overshoot, none past its share: none");
+        assert_eq!(victim([c(2 * GIB, 10, false, false)], GIB, 4 * GIB), Some(0), "past its share: the overshoot does not apply");
     }
 
     #[test]
@@ -753,20 +545,9 @@ mod tests {
         let _one = pgsync::lock(&crate::consts::TEST_LOCK);
         let b = 14 * GIB;
         let mut r = Rise::new();
-        assert_eq!(
-            r.rise99(1000, b),
-            Rise99 {
-                bytes: prior(1000, b),
-                prior: true
-            }
-        );
+        assert_eq!(r.rise99(1000, b), Rise99 { bytes: prior(1000, b), prior: true });
         assert!(prior(100, b) > 0 && prior(1000, b) > prior(100, b) && prior(10_000, b) <= b);
-        assert!(
-            (1..20_000)
-                .step_by(37)
-                .all(|h| prior(h + 37, b) >= prior(h, b)),
-            "never falls as h grows"
-        );
+        assert!((1..20_000).step_by(37).all(|h| prior(h + 37, b) >= prior(h, b)), "never falls as h grows");
         assert_eq!(prior(1000, b), b * 35 / 100);
         assert_eq!(prior(5000, b), b * 55 / 100, "sub-linear past 1 s");
         assert_eq!(prior(100, b), b * 9 / 100);
@@ -789,10 +570,7 @@ mod tests {
         let _one = pgsync::lock(&crate::consts::TEST_LOCK);
         crate::consts::reset();
         let ms = core::time::Duration::from_millis;
-        assert_eq!(
-            (throttle_cap(ms(500)), throttle_cap(ms(60_000))),
-            (ms(500), ms(2_000))
-        );
+        assert_eq!((throttle_cap(ms(500)), throttle_cap(ms(60_000))), (ms(500), ms(2_000)));
         crate::consts::set(K::ThrottleMaxMs, 100);
         assert_eq!(throttle_cap(ms(500)), ms(100));
         crate::consts::reset();

@@ -39,8 +39,7 @@ pub(crate) fn nodes() -> u8 {
 }
 
 /// The reservation, kept reachable from a static (Miri's leak check).
-static BASE: core::sync::atomic::AtomicPtr<u8> =
-    core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
+static BASE: core::sync::atomic::AtomicPtr<u8> = core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
 
 pub(crate) unsafe fn reserve(len: usize, _align: usize) -> Option<usize> {
     let layout = std::alloc::Layout::from_size_align(len, crate::superpage::SUPER).ok()?;

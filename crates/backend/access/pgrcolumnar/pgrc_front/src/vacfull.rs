@@ -30,35 +30,21 @@ const RESET: u32 = 5;
 
 const COMPILE_STEPS: u32 = 6;
 
-pub fn step<'mcx>(
-    mcx: Mcx<'mcx>,
-    parent: &RelationData<'mcx>,
-    params: &VacuumParams,
-    bstrategy: BufferAccessStrategy,
-    st: &mut PgrcVacFull,
-) -> PgResult<bool> {
+pub fn step<'mcx>(mcx: Mcx<'mcx>, parent: &RelationData<'mcx>, params: &VacuumParams, bstrategy: BufferAccessStrategy, st: &mut PgrcVacFull,) -> PgResult<bool> {
     let rel = table::table_open(mcx, parent.rd_id, NoLock)?;
     let out = step_on(mcx, &rel, parent, params, bstrategy, st);
     rel.close(NoLock)?;
     out
 }
 
-fn step_on<'mcx>(
-    mcx: Mcx<'mcx>,
-    rel: &Relation<'mcx>,
-    parent: &RelationData<'mcx>,
-    params: &VacuumParams,
-    bstrategy: BufferAccessStrategy,
-    st: &mut PgrcVacFull,
-) -> PgResult<bool> {
+fn step_on<'mcx>(mcx: Mcx<'mcx>, rel: &Relation<'mcx>, parent: &RelationData<'mcx>, params: &VacuumParams, bstrategy: BufferAccessStrategy, st: &mut PgrcVacFull,) -> PgResult<bool> {
     // Every holder of the maintenance or front lock holds a lock on the table first, so under the AccessExclusiveLock
     // this never waits; it keeps a worker that reaches the table after the command from interleaving mid-step.
     maint::lock(rel.rd_id)?;
     match st.phase {
         SEAL => {
             st.parts_before = parts(rel)?.0;
-            st.renumber = params.options & VACOPT_RENUMBER != 0
-                || pgrc_am::rowid_alloc::marks(rel)?.0 > pgrc_format::rowid::ROWID_LIMIT / 2;
+            st.renumber = params.options & VACOPT_RENUMBER != 0 || pgrc_am::rowid_alloc::marks(rel)?.0 > pgrc_format::rowid::ROWID_LIMIT / 2;
             match st.renumber {
                 true => rotate::retire_active(mcx, rel)?,
                 false => rotate::rotate(mcx, rel, 1)?,
@@ -74,40 +60,37 @@ fn step_on<'mcx>(
                 next(st, JOBS);
             }
         }
-        JOBS => {
-            match crate::compact::run_full(mcx, rel)? {
-                Some((_, out)) => {
-                    (st.jobs, st.removed, st.steps) =
-                        (st.jobs + 1, st.removed + out.dropped, st.steps + 1);
+        JOBS => { match crate::compact::run_full(mcx, rel)? {
+            Some((_, out)) => {
+                (st.jobs, st.removed, st.steps) = (st.jobs + 1, st.removed + out.dropped, st.steps + 1);
+                if u64::from(st.steps) > 2 * (st.parts_before + st.sealed) + 2 {
+                    elog::elog(types_error::LOG, format!("pgrcolumnar: VACUUM FULL of \"{}\" stopped after {} compaction jobs", rel.name(), st.steps))?;
+                    next(st, VACUUM);
+                }
+            }
+            None => match crate::compact::member_pass_forced(mcx, rel)? {
+                Some(out) => {
+                    (st.jobs, st.removed, st.steps) = (st.jobs + 1, st.removed + out.dropped, st.steps + 1);
                     if u64::from(st.steps) > 2 * (st.parts_before + st.sealed) + 2 {
                         elog::elog(types_error::LOG, format!("pgrcolumnar: VACUUM FULL of \"{}\" stopped after {} compaction jobs", rel.name(), st.steps))?;
                         next(st, VACUUM);
                     }
                 }
-                None => match crate::compact::member_pass_forced(mcx, rel)? {
-                    Some(out) => {
-                        (st.jobs, st.removed, st.steps) =
-                            (st.jobs + 1, st.removed + out.dropped, st.steps + 1);
-                        if u64::from(st.steps) > 2 * (st.parts_before + st.sealed) + 2 {
-                            elog::elog(types_error::LOG, format!("pgrcolumnar: VACUUM FULL of \"{}\" stopped after {} compaction jobs", rel.name(), st.steps))?;
+                None => match st.renumber {
+                    false => next(st, VACUUM),
+                    true => match compile::unfolded(mcx, rel)? {
+                        (0, 0) => {
+                            st.cursor = pgrc_format::rowid::ROWID_FIRST;
+                            next(st, RENUMBER);
+                        }
+                        (deletes, locks) => {
+                            skipped(rel, st, deletes + locks)?;
                             next(st, VACUUM);
                         }
-                    }
-                    None => match st.renumber {
-                        false => next(st, VACUUM),
-                        true => match compile::unfolded(mcx, rel)? {
-                            (0, 0) => {
-                                st.cursor = pgrc_format::rowid::ROWID_FIRST;
-                                next(st, RENUMBER);
-                            }
-                            (deletes, locks) => {
-                                skipped(rel, st, deletes + locks)?;
-                                next(st, VACUUM);
-                            }
-                        },
                     },
                 },
-            }
+            },
+        }
         }
         RENUMBER => {
             if st.steps > 0 {
@@ -132,45 +115,22 @@ fn step_on<'mcx>(
         }
         RESET => {
             // after the renumber's publishes and the flush committed: nothing at or above the cursor is in use
-            let Some(gen) = ring::newest(rel)? else {
-                return Ok(false);
-            };
+            let Some(gen) = ring::newest(rel)? else { return Ok(false); };
             let keep: Vec<u32> = ring::records(&gen).iter().map(|r| r.part_no).collect();
-            let top = (0..gen.manifest.parts.len())
-                .flat_map(|i| gen.ids_of(i).last().map(|r| r.1))
-                .max()
-                .unwrap_or(0);
-            let top = gen
-                .runs()
-                .iter()
-                .filter_map(|h| h.run.ranges.last().map(|r| r.1))
-                .max()
-                .unwrap_or(0)
-                .max(top);
-            st.next_id =
-                pgrc_am::rowid_alloc::reset(rel, st.cursor.max(top), &|p| keep.contains(&p))?;
+            let top = (0..gen.manifest.parts.len()).flat_map(|i| gen.ids_of(i).last().map(|r| r.1)).max().unwrap_or(0);
+            let top = gen.runs().iter().filter_map(|h| h.run.ranges.last().map(|r| r.1)).max().unwrap_or(0).max(top);
+            st.next_id = pgrc_am::rowid_alloc::reset(rel, st.cursor.max(top), &|p| keep.contains(&p))?;
             let floor = st.next_id;
             pgrc_am::ingest::publish_ext_maint(rel, &mut |base, b| {
-                b.ext(pgrc_format::manifest::with_next_row_id(
-                    base.map_or(&[][..], |m| &m.ext),
-                    floor,
-                )?);
+                b.ext(pgrc_format::manifest::with_next_row_id(base.map_or(&[][..], |m| &m.ext), floor,)?);
                 Ok(())
             })?;
-            pgrc_am::rowid_alloc::note_renumber(
-                rel,
-                pgrc_am::rowid_alloc::Renumbered::Done {
-                    rewritten: st.rewritten,
-                },
-            );
+            pgrc_am::rowid_alloc::note_renumber(rel, pgrc_am::rowid_alloc::Renumbered::Done { rewritten: st.rewritten, },);
             return Ok(false);
         }
         _ => {
             crate::builtins::flush_locked(mcx, rel)?;
-            let lazy = VacuumParams {
-                options: params.options & !(VACOPT_FULL | VACOPT_VERBOSE | VACOPT_RENUMBER),
-                ..*params
-            };
+            let lazy = VacuumParams { options: params.options & !(VACOPT_FULL | VACOPT_VERBOSE | VACOPT_RENUMBER), ..*params };
             tableam_seams::table_relation_vacuum::call(mcx, parent, &lazy, bstrategy)?;
             (st.parts_after, st.rows_after) = parts(rel)?;
             st.held_bytes = held_bytes(mcx, rel)?;
@@ -199,45 +159,26 @@ fn next(st: &mut PgrcVacFull, phase: u32) {
 }
 
 fn parts(rel: &Relation<'_>) -> PgResult<(u64, u64)> {
-    let Some(gen) = ring::newest(rel)? else {
-        return Ok((0, 0));
-    };
-    let deleted: u64 = gen
-        .parts
-        .iter()
-        .map(|p| p.deletes.as_ref().map_or(0, |d| d.deleted_rows))
-        .sum();
+    let Some(gen) = ring::newest(rel)? else { return Ok((0, 0)); };
+    let deleted: u64 = gen.parts.iter().map(|p| p.deletes.as_ref().map_or(0, |d| d.deleted_rows)).sum();
     let rows: u64 = gen.manifest.parts.iter().map(|r| r.rows).sum();
-    Ok((
-        gen.manifest.parts.len() as u64,
-        rows.saturating_sub(deleted),
-    ))
+    Ok((gen.manifest.parts.len() as u64, rows.saturating_sub(deleted),))
 }
 
 fn held_bytes<'mcx>(mcx: Mcx<'mcx>, rel: &Relation<'mcx>) -> PgResult<u64> {
-    let Some(gen) = ring::newest(rel)? else {
-        return Ok(0);
-    };
+    let Some(gen) = ring::newest(rel)? else { return Ok(0); };
     let l = rel.rd_locator.get();
     let mut counted: Vec<u32> = gen.manifest.parts.iter().map(|p| p.part_no).collect();
     let mut bytes = 0u64;
-    if let Some((held, _)) = pgrc_am::catalog::generations((l.spcOid, l.dbOid, l.relNumber as u64))
-    {
-        for p in held
-            .iter()
-            .filter(|g| g.gen < gen.gen)
-            .flat_map(|g| g.manifest.parts.iter())
-        {
+    if let Some((held, _)) = pgrc_am::catalog::generations((l.spcOid, l.dbOid, l.relNumber as u64)) {
+        for p in held.iter().filter(|g| g.gen < gen.gen).flat_map(|g| g.manifest.parts.iter()) {
             if !counted.contains(&p.part_no) {
                 counted.push(p.part_no);
                 bytes += p.file_len;
             }
         }
     }
-    for r in ring::records(&gen)
-        .iter()
-        .filter(|r| r.state == SegState::Sealed)
-    {
+    for r in ring::records(&gen).iter().filter(|r| r.state == SegState::Sealed) {
         let seg = table::table_open(mcx, r.relid, NoLock)?;
         let n = bufmgr::RelationGetNumberOfBlocksInFork(&seg, ForkNumber::MAIN_FORKNUM);
         seg.close(NoLock)?;

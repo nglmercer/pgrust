@@ -381,7 +381,7 @@ fn partitioned_freelists_spread_lock_and_borrow() {
         let mut hit_nonzero_freelist = false;
         for i in 0u32..24 {
             let hv = get_hash_value(table, i.to_ne_bytes().as_ptr());
-            hit_nonzero_freelist |= !(hv as usize).is_multiple_of(NUM_FREELISTS);
+            hit_nonzero_freelist |= ! (hv as usize).is_multiple_of( NUM_FREELISTS);
             let (p, found) =
                 search_hv(table, i.to_ne_bytes().as_ptr(), hv, HASH_ENTER)
                     .unwrap();

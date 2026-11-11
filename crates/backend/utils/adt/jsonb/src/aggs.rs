@@ -74,9 +74,9 @@ fn new_state<'a>(
 }
 
 fn cats(
-    flinfo: &mut FmgrInfo,
+    flinfo: & mut FmgrInfo,
     build: impl FnOnce() -> PgResult<AggCats>,
-) -> PgResult<&mut AggCats> {
+) -> PgResult<& mut AggCats> {
     if flinfo.fn_extra_ref::<AggCats>().is_none() {
         let c = build()?;
         flinfo.set_fn_extra(c);

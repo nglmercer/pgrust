@@ -10,11 +10,12 @@ use ::types_error::PgResult;
 use ::types_rel::Relation;
 use ::types_storage::bufpage::PageMut;
 use ::xloginsert_seams::{XLogRegBuf, REGBUF_STANDARD, REGBUF_WILL_INIT};
+
 use core::cmp::Ordering;
 
 use crate::{
-    meta_of, opclass, page_bytes_mut, page_mut, page_ref, relation_needs_wal, write_meta_to,
-    write_opaque_to, RM_GIN,
+    meta_of, opclass, page_bytes_mut, page_mut, page_ref, relation_needs_wal,
+    write_meta_to, write_opaque_to, RM_GIN,
 };
 
 /// initGinState (ginutil.c:101-215): one resolved support proc per slot and
@@ -106,12 +107,10 @@ fn secdef_proc(proc_oid: ::types_core::Oid) -> PgResult<::types_core::Oid> {
     if proc_oid < ::types_core::catalog::FirstNormalObjectId {
         return Ok(InvalidOid);
     }
-    Ok(
-        match ::syscache_seams::lookup_pg_proc_fmgr::call(proc_oid)? {
-            Some(row) if row.prosecdef || !row.proconfig_isnull => proc_oid,
-            _ => InvalidOid,
-        },
-    )
+    Ok(match ::syscache_seams::lookup_pg_proc_fmgr::call(proc_oid)? {
+        Some(row) if row.prosecdef || !row.proconfig_isnull => proc_oid,
+        _ => InvalidOid,
+    },)
 }
 
 /// pg_language.dat: the `c` language's oid.
@@ -122,10 +121,7 @@ const C_LANGUAGE_ID: ::types_core::Oid = 13;
 /// tree's set, which no loadable function can be (C-language functions
 /// resolve to in-tree symbols, SQL / PL functions cannot take `internal`).
 #[cold]
-fn unsupported_support_proc(
-    slot: &str,
-    proc_oid: ::types_core::Oid,
-) -> Box<::types_error::PgError> {
+fn unsupported_support_proc(slot: &str, proc_oid: ::types_core::Oid,) -> Box<::types_error::PgError> {
     crate::unsupported(format!(
         "GIN operator class with {slot} support function {proc_oid} is not supported"
     ))
@@ -297,8 +293,8 @@ fn resolve_compare_partial(proc_oid: ::types_core::Oid) -> PgResult<GinComparePa
 fn init_gin_col(rel: &Relation<'_>, i: usize) -> PgResult<GinColState> {
     let opcintype = rel.rd_opcintype[i];
     let opfamily = rel.rd_opfamily[i];
-    let proc_of =
-        |procnum: u16| lsyscache::get_opfamily_proc(opfamily, opcintype, opcintype, procnum as i16);
+    let proc_of = |procnum: u16|
+        lsyscache::get_opfamily_proc(opfamily, opcintype, opcintype, procnum as i16);
 
     // ginutil.c:139-158: the compare proc, or the index key type's default
     // btree comparator from the typcache when the opclass omits it.
@@ -472,7 +468,7 @@ pub(crate) fn gin_page_is_recyclable(buf: Buffer) -> PgResult<bool> {
 /// GinNewBuffer: recycle via FSM or extend; returned pinned + exclusive.
 pub fn GinNewBuffer(rel: &Relation<'_>) -> PgResult<Buffer> {
     loop {
-        let blkno = freespace_seams::get_page_with_free_space::call(rel, BLCKSZ / 2)?;
+        let blkno = freespace_seams::get_page_with_free_space::call(rel,BLCKSZ / 2)?;
         if blkno == InvalidBlockNumber {
             break;
         }
@@ -503,8 +499,7 @@ pub fn GinNewBuffer(rel: &Relation<'_>) -> PgResult<Buffer> {
 pub(crate) fn gin_init_page_bytes(bytes: &mut [u8], flags: u16) {
     // PageInit(page, BLCKSZ, sizeof(GinPageOpaqueData)).
     // SAFETY: BLCKSZ image with exclusive access.
-    let mut page =
-        unsafe { PageMut::from_raw(core::ptr::NonNull::new(bytes.as_mut_ptr()).unwrap()) };
+    let mut page = unsafe { PageMut::from_raw(core::ptr::NonNull::new(bytes.as_mut_ptr()).unwrap()) };
     page.init(core::mem::size_of::<GinPageOpaqueData>());
     write_opaque_to(
         bytes,
@@ -575,8 +570,7 @@ pub fn ginCompareEntries(
         return Ok(0);
     }
     let col = state.col(attnum);
-    crate::secdef::call(col.secdef_proc(GIN_COMPARE_PROC), || {
-        opclass::compare(col, a, b)
+    crate::secdef::call(col.secdef_proc(GIN_COMPARE_PROC), || { opclass::compare(col, a, b)
     })
 }
 
@@ -607,7 +601,7 @@ pub(crate) fn try_sort_by<T: Copy>(
     if n < 2 {
         return Ok(());
     }
-    let mut buf: Vec<T> = ::mcx::std_vec_from_slice("access", items)?;
+    let mut buf: Vec<T> = ::mcx::std_vec_from_slice("access",items)?;
     let mut width = 1;
     while width < n {
         let mut lo = 0;
@@ -656,10 +650,9 @@ pub fn ginExtractEntries<'mcx>(
     }
 
     let col = state.col(attnum);
-    let (mut entries, null_flags) =
-        crate::secdef::call(col.secdef_proc(GIN_EXTRACTVALUE_PROC), || {
-            opclass::extract_value(mcx, col, value)
-        })?;
+    let (mut entries, null_flags) = crate::secdef::call(col.secdef_proc(GIN_EXTRACTVALUE_PROC), || {
+        opclass::extract_value(mcx, col, value)
+    })?;
 
     if entries.is_empty() {
         entries.try_reserve(1).map_err(|_| crate::oom(8))?;
@@ -677,11 +670,7 @@ pub fn ginExtractEntries<'mcx>(
     } else {
         debug_assert!(null_flags.len() == entries.len());
         for &f in null_flags.iter() {
-            categories.push(if f {
-                GIN_CAT_NULL_KEY
-            } else {
-                GIN_CAT_NORM_KEY
-            });
+            categories.push(if f { GIN_CAT_NULL_KEY } else { GIN_CAT_NORM_KEY });
         }
     }
 
@@ -703,14 +692,8 @@ pub fn ginExtractEntries<'mcx>(
         if have_dups {
             let mut j = 0usize;
             for i in 1..keydata.len() {
-                if ginCompareEntries(
-                    state,
-                    attnum,
-                    keydata[j].0,
-                    keydata[j].1,
-                    keydata[i].0,
-                    keydata[i].1,
-                )? != 0
+                if ginCompareEntries(state, attnum, keydata[j].0, keydata[j].1, keydata[i].0, keydata[i].1,)?
+                    != 0
                 {
                     j += 1;
                     keydata[j] = keydata[i];

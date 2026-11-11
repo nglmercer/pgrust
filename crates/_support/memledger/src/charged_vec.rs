@@ -32,33 +32,19 @@ impl<T> ChargedVec<T> {
     /// Empty, charged to `owner` on kind lane `kind` as it grows; `None`: uncharged.
     pub fn new(owner: Option<Owner>, kind: Kind) -> ChargedVec<T> {
         match owner {
-            Some(o) => ChargedVec {
-                charge: Charge::open(o, release_of(o), kind, Door::Heap, 0),
-                on: true,
-                charged: 0,
-                v: Vec::new(),
-            },
+            Some(o) => ChargedVec { charge: Charge::open(o, release_of(o), kind, Door::Heap, 0), on: true, charged: 0, v: Vec::new(), },
             None => ChargedVec::none(),
         }
     }
 
     /// Empty and uncharged (`Default`; usable in a `const fn`).
     pub const fn none() -> ChargedVec<T> {
-        ChargedVec {
-            charge: Charge::NONE,
-            on: false,
-            charged: 0,
-            v: Vec::new(),
-        }
+        ChargedVec { charge: Charge::NONE, on: false, charged: 0, v: Vec::new(), }
     }
 
     /// `it`'s items in a vec charged to `owner` on `kind` (`None`: uncharged): one reservation for its lower size hint, then a
     /// fallible push per item; a refusal (capacity overflow, the allocator's) drops what was built and returns it.
-    pub fn try_from_iter(
-        owner: Option<Owner>,
-        kind: Kind,
-        it: impl IntoIterator<Item = T>,
-    ) -> Result<ChargedVec<T>, TryReserveError> {
+    pub fn try_from_iter(owner: Option<Owner>, kind: Kind, it: impl IntoIterator<Item = T>,) -> Result<ChargedVec<T>, TryReserveError> {
         let it = it.into_iter();
         let mut v = ChargedVec::new(owner, kind);
         v.try_reserve(it.size_hint().0)?;
@@ -141,10 +127,7 @@ impl<T> ChargedVec<T> {
     /// charged one); nothing double counts as long as each growth is synced before the next. The guard is neither Send
     /// nor Sync: its syncs run on the thread whose growth door 1 counted.
     pub fn vec_mut(&mut self) -> ChargedVecMut<'_, T> {
-        ChargedVecMut {
-            cv: self,
-            _one_thread: core::marker::PhantomData,
-        }
+        ChargedVecMut { cv: self, _one_thread: core::marker::PhantomData, }
     }
 
     /// The owner the block is charged to (`None`: uncharged).
@@ -154,11 +137,7 @@ impl<T> ChargedVec<T> {
 
     /// The bytes the charge holds committed (the block's capacity at the last re-sync; 0 uncharged).
     pub fn charged_bytes(&self) -> u64 {
-        if self.on {
-            self.charged
-        } else {
-            0
-        }
+        if self.on { self.charged } else { 0 }
     }
 }
 

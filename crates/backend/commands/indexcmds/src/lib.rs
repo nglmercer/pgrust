@@ -63,7 +63,8 @@ pub fn WaitForOlderSnapshots(
             continue;
         }
         if i > 0 {
-            let newer = procarray::GetCurrentVirtualXIDs(mcx, limit_xmin, true, false, exclude)?;
+            let newer =
+                procarray::GetCurrentVirtualXIDs(mcx, limit_xmin, true, false, exclude)?;
             for j in i..old_snapshots.len() {
                 if old_snapshots[j].localTransactionId == InvalidLocalTransactionId {
                     continue;
@@ -163,7 +164,8 @@ pub fn GetDefaultOpClass(type_id: Oid, am_id: Oid) -> PgResult<Oid> {
         return Err(multiple_default_opclasses(type_id));
     }
 
-    if nexact == 1 || ncompatiblepreferred == 1 || (ncompatiblepreferred == 0 && ncompatible == 1) {
+    if nexact == 1 || ncompatiblepreferred == 1 || (ncompatiblepreferred == 0 && ncompatible == 1)
+    {
         debug_assert!(OidIsValid(result));
         return Ok(result);
     }
@@ -182,9 +184,7 @@ fn multiple_default_opclasses(type_id: Oid) -> Box<PgError> {
     Box::new(
         elog::ereport(ERROR)
             .errcode(ERRCODE_DUPLICATE_OBJECT)
-            .errmsg(format!(
-                "there are multiple default operator classes for data type {name}"
-            ))
+            .errmsg(format!("there are multiple default operator classes for data type {name}"))
             .into_error()
             .with_error_location(types_error::ErrorLocation::new(
                 "indexcmds.c",
@@ -199,9 +199,7 @@ fn multiple_default_opclasses(type_id: Oid) -> Box<PgError> {
 #[cold]
 #[inline(never)]
 pub(crate) fn cache_lookup_failed(what: &str, oid: Oid) -> Box<PgError> {
-    Box::new(PgError::error(format!(
-        "cache lookup failed for {what} {oid}"
-    )))
+    Box::new(PgError::error(format!("cache lookup failed for {what} {oid}")))
 }
 
 #[cfg(test)]

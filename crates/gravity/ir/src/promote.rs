@@ -1114,20 +1114,20 @@ pub(crate) fn op_values_mut(op: &mut Op, f: &mut impl FnMut(&mut Value)) {
 
 pub(crate) fn term_values_mut(t: &mut Terminator, f: &mut impl FnMut(&mut Value)) {
     match t {
-        Terminator::Br(e) => e.args.iter_mut().for_each(&mut *f),
+        Terminator::Br(e) => e.args.iter_mut().for_each(&mut * f),
         Terminator::CondBr { cond, then_edge, else_edge } => {
             f(cond);
-            then_edge.args.iter_mut().for_each(&mut *f);
-            else_edge.args.iter_mut().for_each(&mut *f);
+            then_edge.args.iter_mut().for_each(&mut * f);
+            else_edge.args.iter_mut().for_each(&mut * f);
         }
         Terminator::Switch { value, cases, default } => {
             f(value);
             for c in cases.iter_mut() {
-                c.edge.args.iter_mut().for_each(&mut *f);
+                c.edge.args.iter_mut().for_each(&mut * f);
             }
-            default.args.iter_mut().for_each(&mut *f);
+            default.args.iter_mut().for_each(&mut * f);
         }
-        Terminator::Return(vs) => vs.iter_mut().for_each(f),
+        Terminator::Return(vs) => vs.iter_mut().for_each( f),
         Terminator::Unreachable => {}
     }
 }

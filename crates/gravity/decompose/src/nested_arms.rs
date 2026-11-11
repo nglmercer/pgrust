@@ -292,7 +292,7 @@ fn source<'p>(s: &Source<'p>) -> Option<Source<'p>> {
         Source::Range { site, am, scanrelid, relid } => Source::Range { site: site.clone(), am: *am, scanrelid: *scanrelid, relid: *relid },
         Source::Index { site, am, scanrelid, relid, indexid, keys, only, backward, recheck, iam } => {
             #[allow(clippy::redundant_field_names)]
-            Source::Index { site: site.clone(), am: *am, scanrelid: *scanrelid, relid: *relid, indexid: *indexid, keys: keys.clone(), only: *only, backward: *backward, recheck: recheck, iam: *iam }
+            Source::Index { site: site.clone(), am: *am, scanrelid: *scanrelid, relid: *relid, indexid: *indexid, keys: keys.clone(), only: *only, backward: *backward, recheck:recheck, iam: *iam }
         }
         Source::Const => Source::Const,
         _ => return None,

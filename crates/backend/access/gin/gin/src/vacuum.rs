@@ -22,18 +22,20 @@ use ::types_tuple::itemptr::{
 use ::xloginsert_seams::{XLogRegBuf, REGBUF_FORCE_IMAGE, REGBUF_STANDARD};
 
 use crate::datapage::{
-    ginVacuumPostingTreeLeaf, gin_data_leaf_page_is_empty, gin_page_delete_posting_item,
+    ginVacuumPostingTreeLeaf,
+    gin_data_leaf_page_is_empty, gin_page_delete_posting_item,
     nonleaf_maxoff_checked, posting_item_at,
 };
 use crate::entrypage::{
-    ginReadTuple, gin_get_downlink, gin_get_nposting, gin_is_posting_tree, gintuple_get_attrnum,
+    ginReadTuple,
+    gin_get_downlink, gin_get_nposting, gin_is_posting_tree, gintuple_get_attrnum,
     gintuple_get_key, GinFormTuple, ITup,
 };
 use crate::fast::ginInsertCleanup;
-use crate::util::{ginUpdateStats, gin_page_is_recyclable, initGinState};
+use crate::util::{ginUpdateStats,gin_page_is_recyclable, initGinState};
 use crate::{
-    page_bytes, page_mut, page_opaque, page_ref, relation_needs_wal, GinPageIsData, GinPageIsLeaf,
-    GinPageIsList, GinPageRightMost, GIN_EXCLUSIVE, GIN_SHARE, GIN_UNLOCK, RM_GIN,
+    page_bytes, page_mut, page_opaque, page_ref, relation_needs_wal, GinPageIsData,
+    GinPageIsLeaf, GinPageIsList, GinPageRightMost, GIN_EXCLUSIVE, GIN_SHARE, GIN_UNLOCK, RM_GIN,
 };
 
 pub use ::nbtree::IndexVacuumInfo;
@@ -62,7 +64,8 @@ pub(crate) fn vacuum_delay_point() -> PgResult<()> {
     // vacuum.c:2444 runs unconditionally (an autovacuum worker's pending
     // config reload is processed there); the gate only spares rigs without
     // seams_init.
-    if init_small::globals::VacuumCostActive() || vacuum_seams::vacuum_delay_point::is_installed() {
+    if init_small::globals::VacuumCostActive() || vacuum_seams::vacuum_delay_point::is_installed()
+    {
         vacuum_seams::vacuum_delay_point::call(false)?;
     }
     Ok(())
@@ -195,7 +198,9 @@ pub(crate) fn ginDeletePage(
         let mut ppage = unsafe { page_mut(p_buffer) };
         // SAFETY: borrow confined here.
         let bytes = unsafe { crate::page_bytes_mut(&mut ppage) };
-        debug_assert!(PostingItemGetBlockNumber(&posting_item_at(bytes, myoff)) == delete_blkno);
+        debug_assert!(
+            PostingItemGetBlockNumber(&posting_item_at(bytes, myoff)) == delete_blkno
+        );
         gin_page_delete_posting_item(bytes, myoff);
     }
     let delete_xid = varsup_seams::read_next_transaction_id::call()?;
@@ -222,24 +227,9 @@ pub(crate) fn ginDeletePage(
             0,
             &[&data],
             &[
-                XLogRegBuf {
-                    block_id: 0,
-                    buffer: d_buffer,
-                    flags: 0,
-                    bufdata: &[],
-                },
-                XLogRegBuf {
-                    block_id: 1,
-                    buffer: p_buffer,
-                    flags: REGBUF_STANDARD,
-                    bufdata: &[],
-                },
-                XLogRegBuf {
-                    block_id: 2,
-                    buffer: l_buffer,
-                    flags: 0,
-                    bufdata: &[],
-                },
+                XLogRegBuf { block_id: 0, buffer: d_buffer, flags: 0, bufdata: &[], },
+                XLogRegBuf { block_id: 1, buffer: p_buffer, flags: REGBUF_STANDARD, bufdata: &[], },
+                XLogRegBuf { block_id: 2, buffer: l_buffer, flags: 0, bufdata: &[], },
             ],
         )?;
         // SAFETY: pins + exclusive locks held.
@@ -320,7 +310,8 @@ fn ginScanToDelete(
         }
         // SAFETY: as above.
         let rightmost = { GinPageRightMost(&page_opaque(&unsafe { page_ref(buffer) })) };
-        if rightmost && levels.len() > depth + 1 && levels[depth + 1].left_buffer != InvalidBuffer {
+        if rightmost && levels.len() > depth + 1 && levels[depth + 1].left_buffer != InvalidBuffer
+        {
             let lb = levels[depth + 1].left_buffer;
             bm::lock_buffer::call(lb, GIN_UNLOCK)?;
             bm::release_buffer::call(lb)?;
@@ -505,7 +496,8 @@ fn ginVacuumEntryPage<'s>(
                 let mut items: PgVec<'_, ItemPointerData> = mcx::vec_new_in(scratch);
                 ginReadTuple(scratch, itup, &mut items)?;
 
-                let Some(cleaned) = ginVacuumItemPointers(scratch, gvs, items.as_slice())? else {
+                let Some(cleaned) = ginVacuumItemPointers(scratch, gvs, items.as_slice())?
+                else {
                     i += 1;
                     continue;
                 };
@@ -527,11 +519,12 @@ fn ginVacuumEntryPage<'s>(
 
                 let (plist, nitems) = if !cleaned.is_empty() {
                     let n = cleaned.len();
-                    let (packed, npacked) = crate::postinglist::ginCompressPostingList(
-                        scratch,
-                        cleaned.as_slice(),
-                        GinMaxItemSize,
-                    )?;
+                    let (packed, npacked) =
+                        crate::postinglist::ginCompressPostingList(
+                            scratch,
+                            cleaned.as_slice(),
+                            GinMaxItemSize,
+                        )?;
                     debug_assert!(npacked == n);
                     (packed, n)
                 } else {
@@ -562,10 +555,8 @@ fn ginVacuumEntryPage<'s>(
                     core::ptr::NonNull::new(t.as_mut_bytes().as_mut_ptr()).unwrap(),
                 );
                 pm.index_tuple_delete(i);
-                let bytes = core::slice::from_raw_parts(
-                    newtup.as_ptr(),
-                    itup::index_tuple_size(newtup.as_ptr()),
-                );
+                let bytes =
+                    core::slice::from_raw_parts(newtup.as_ptr(), itup::index_tuple_size(newtup.as_ptr()),);
                 if pm.add_item(bytes, i, 0) != Some(i) {
                     return Err(Box::new(PgError::error(format!(
                         "failed to add item to index page in \"{}\"",
@@ -658,7 +649,8 @@ fn ginbulkdelete_guts<'mcx>(
             bm::lock_buffer::call(buffer, GIN_EXCLUSIVE)?;
             if blkno == GIN_ROOT_BLKNO {
                 // SAFETY: pin + exclusive lock held.
-                let still_leaf = { GinPageIsLeaf(&page_opaque(&unsafe { page_ref(buffer) })) };
+                let still_leaf =
+                    { GinPageIsLeaf(&page_opaque(&unsafe { page_ref(buffer) })) };
                 if !still_leaf {
                     bm::lock_buffer::call(buffer, GIN_UNLOCK)?;
                     continue;
@@ -692,6 +684,7 @@ fn ginbulkdelete_guts<'mcx>(
         vacuum_delay_point()?;
 
         #[allow(clippy::needless_range_loop)]
+
         for ri in 0..roots.len() {
             ginVacuumPostingTree(&mut gvs, roots[ri])?;
             vacuum_delay_point()?;

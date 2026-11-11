@@ -9,7 +9,9 @@ use ::types_scan::scankey::{
 use ::types_scan::sdir::ForwardScanDirection;
 use ::types_storage::lock::AccessShareLock;
 use ::types_tuple::heap_getattr;
-use ::types_tuple::varatt::{set_varsize_4b_c_word, set_varsize_4b_word, VARHDRSZ, VARHDRSZ_SHORT};
+use ::types_tuple::varatt::{
+    set_varsize_4b_c_word, set_varsize_4b_word, VARHDRSZ, VARHDRSZ_SHORT
+};
 use toastdesc::VarattExternal;
 
 use crate::helper::va_slice;
@@ -63,13 +65,7 @@ pub(crate) struct ChunkSink<'a> {
 }
 
 impl<'a> ChunkSink<'a> {
-    pub(crate) fn new(
-        valueid: Oid,
-        relname: &'a str,
-        attrsize: i32,
-        sliceoffset: i32,
-        slicelength: i32,
-    ) -> Self {
+    pub(crate) fn new(valueid: Oid, relname: &'a str, attrsize: i32, sliceoffset: i32, slicelength: i32,) -> Self {
         let max_chunk = TOAST_MAX_CHUNK_SIZE as i32;
         let startchunk = sliceoffset / max_chunk;
         ChunkSink {
@@ -89,9 +85,7 @@ impl<'a> ChunkSink<'a> {
     pub(crate) fn put(&mut self, curchunk: i32, chunk: &[u8], result: &mut [u8]) -> PgResult<()> {
         let max_chunk = TOAST_MAX_CHUNK_SIZE as i32;
         let (valueid, relname) = (self.valueid, self.relname);
-        let first = *chunk
-            .first()
-            .ok_or_else(|| toasted_toast_chunk(valueid, relname))?;
+        let first = *chunk.first().ok_or_else(|| toasted_toast_chunk(valueid, relname))?;
         let chunkdata: &[u8] = if (first & 0x03) == 0 && chunk.len() >= VARHDRSZ {
             &chunk[VARHDRSZ..]
         } else if (first & 0x01) == 0x01 && first != 0x01 {
@@ -101,8 +95,7 @@ impl<'a> ChunkSink<'a> {
             return Err(toasted_toast_chunk(valueid, relname));
         };
         let chunksize = chunkdata.len() as i32;
-        let (startchunk, endchunk, totalchunks) =
-            (self.startchunk, self.endchunk, self.totalchunks);
+        let (startchunk, endchunk, totalchunks) = (self.startchunk, self.endchunk, self.totalchunks);
 
         if curchunk != self.expectedchunk {
             return Err(corrupted(format!(
@@ -176,11 +169,7 @@ pub fn heap_fetch_toast_slice<'mcx>(
     let endchunk = (sliceoffset + slicelength - 1) / max_chunk;
     debug_assert!(endchunk <= totalchunks);
 
-    let mut toastkey = [
-        valueid_scan_key(valueid),
-        ScanKeyData::empty(),
-        ScanKeyData::empty(),
-    ];
+    let mut toastkey = [valueid_scan_key(valueid), ScanKeyData::empty(), ScanKeyData::empty(),];
     let nscankeys: usize = if startchunk == 0 && endchunk == totalchunks - 1 {
         1
     } else if startchunk == endchunk {
@@ -274,15 +263,7 @@ pub fn toast_fetch_datum<'mcx>(mcx: Mcx<'mcx>, attr: &[u8]) -> PgResult<PgVec<'m
     }
 
     if let Some(map) = crate::worker::entered() {
-        crate::worker::fetch_slice(
-            mcx,
-            &map,
-            &toast_pointer,
-            attrsize,
-            0,
-            attrsize,
-            &mut result,
-        )?;
+        crate::worker::fetch_slice(mcx, &map, &toast_pointer, attrsize, 0, attrsize, &mut result,)?;
         return Ok(result);
     }
     let toastrel = open_toast_relation(mcx, toast_pointer.va_toastrelid, AccessShareLock)?;
@@ -350,15 +331,7 @@ pub fn toast_fetch_datum_slice<'mcx>(
     }
 
     if let Some(map) = crate::worker::entered() {
-        crate::worker::fetch_slice(
-            mcx,
-            &map,
-            &toast_pointer,
-            attrsize,
-            sliceoffset,
-            slicelength,
-            &mut result,
-        )?;
+        crate::worker::fetch_slice(mcx, &map, &toast_pointer, attrsize, sliceoffset, slicelength, &mut result,)?;
         return Ok(result);
     }
     let toastrel = open_toast_relation(mcx, toast_pointer.va_toastrelid, AccessShareLock)?;

@@ -81,15 +81,8 @@ impl Eq for Hold {}
 impl Hold {
     /// `bytes` committed on the part cache.
     fn open(bytes: u64) -> Hold {
-        const OWNER: memledger::Owner =
-            memledger::Owner::Cache(memledger::Holder::Of(memledger::Consumer::PartCache));
-        let mut c = memledger::Charge::open(
-            OWNER,
-            memledger::Release::Evict,
-            memledger::Kind::Region,
-            memledger::charge::Door::Heap,
-            0,
-        );
+        const OWNER: memledger::Owner = memledger::Owner::Cache(memledger::Holder::Of(memledger::Consumer::PartCache));
+        let mut c = memledger::Charge::open(OWNER, memledger::Release::Evict, memledger::Kind::Region, memledger::charge::Door::Heap, 0,);
         c.commit(bytes);
         Hold(Some(c))
     }
@@ -103,19 +96,14 @@ impl Hold {
 const ARC: usize = 2 * core::mem::size_of::<usize>();
 
 fn facts_heap(i: &FactsImage) -> usize {
-    i.cols.capacity() * core::mem::size_of::<pgrc_format::facts::ColFacts>()
-        + i.cols
-            .iter()
-            .map(|c| c.ndv_body.capacity() + ARC + c.zones.bytes().len())
-            .sum::<usize>()
+    i.cols.capacity() * core::mem::size_of::<pgrc_format::facts::ColFacts>() + i.cols.iter().map(|c| c.ndv_body.capacity() + ARC + c.zones.bytes().len()).sum::<usize>()
 }
 
 impl PartStats {
     /// The object's heap bytes (it and its `Arc` block excluded).
     fn heap_bytes(&self) -> usize {
         facts_heap(&self.facts)
-            + self.answers.capacity()
-                * core::mem::size_of::<(u32, Vec<u8>, Option<[u8; DIGEST_LEN]>)>()
+            + self.answers.capacity() * core::mem::size_of::<(u32, Vec<u8>, Option<[u8; DIGEST_LEN]>)>()
             + self.answers.iter().map(|a| a.1.capacity()).sum::<usize>()
             + self.ext.capacity() * core::mem::size_of::<(u16, Vec<u8>)>()
             + self.ext.iter().map(|e| e.1.capacity()).sum::<usize>()
@@ -191,9 +179,7 @@ impl HeldCell {
 
 impl Clone for HeldCell {
     fn clone(&self) -> HeldCell {
-        HeldCell(std::sync::atomic::AtomicU8::new(
-            self.0.load(std::sync::atomic::Ordering::Relaxed),
-        ))
+        HeldCell(std::sync::atomic::AtomicU8::new(self.0.load(std::sync::atomic::Ordering::Relaxed),))
     }
 }
 
@@ -221,20 +207,12 @@ pub struct FullTest {
 impl FullTest {
     pub fn new(cols: Vec<ColSize>) -> FullTest {
         let cut = PartCutPolicy::default();
-        FullTest {
-            cols,
-            max_rows: cut.max_rows,
-            max_bytes: cut.max_bytes,
-        }
+        FullTest { cols, max_rows: cut.max_rows, max_bytes: cut.max_bytes, }
     }
 
     /// A test's or a tool's cut (the server's is always `PartCutPolicy::default()`, K1's target).
     pub fn with_cut(cols: Vec<ColSize>, max_rows: u64, max_bytes: u64) -> FullTest {
-        FullTest {
-            cols,
-            max_rows,
-            max_bytes,
-        }
+        FullTest { cols, max_rows, max_bytes, }
     }
 
     /// The columns of one of the table's parts (a directory's parts share its schema).
@@ -249,22 +227,11 @@ impl FullTest {
         }
         let stats = |c: &ColSize| {
             let body = record(c.attno);
-            let r = (c.heap() && !body.is_empty())
-                .then(|| {
-                    pgrc_format::meta::StatsRecord::decode(&mut pgrc_format::wire::Cur::new(body))
-                        .ok()
-                })
-                .flatten();
+            let r = (c.heap() && !body.is_empty()).then(|| { pgrc_format::meta::StatsRecord::decode(&mut pgrc_format::wire::Cur::new(body)).ok()
+                }).flatten();
             r.filter(|r| r.flags & pgrc_format::meta::STATSF_COMPUTED != 0)
         };
-        let cols: Vec<ColSize> = self
-            .cols
-            .iter()
-            .map(|c| ColSize {
-                stats: stats(c),
-                ..*c
-            })
-            .collect();
+        let cols: Vec<ColSize> = self.cols.iter().map(|c| ColSize { stats: stats(c), ..*c }).collect();
         cut_bytes(rows, &cols) >= self.max_bytes
     }
 
@@ -283,10 +250,7 @@ impl FullTest {
     pub fn run_holds(&self, run: &Run) -> bool {
         run.held.verdict(|| {
             let src = Src::Run(run);
-            run.parts
-                .iter()
-                .enumerate()
-                .any(|(i, p)| !self.full(p.rows, &|a| src.record(a, i).0))
+            run.parts.iter().enumerate().any(|(i, p)| !self.full(p.rows, &|a| src.record(a, i).0))
         })
     }
 }
@@ -302,13 +266,7 @@ pub struct StatsState {
 
 /// A manifest record's identity as the stats see it.
 pub fn ident_of(p: &PartRecord) -> PartIdent {
-    PartIdent {
-        part_no: p.part_no,
-        granule_count: p.granule_count,
-        band_count: p.band_count,
-        rows: p.rows,
-        footer_off: p.footer_off,
-    }
+    PartIdent { part_no: p.part_no, granule_count: p.granule_count, band_count: p.band_count, rows: p.rows, footer_off: p.footer_off, }
 }
 
 fn corrupt(at: &'static str) -> WriteError {
@@ -319,11 +277,7 @@ fn corrupt(at: &'static str) -> WriteError {
 pub fn read_error(e: ReadError) -> WriteError {
     match e {
         ReadError::Format(f) => WriteError::Format(f),
-        ReadError::Io { at, errno } => WriteError::Io {
-            op: at,
-            path: String::new(),
-            errno,
-        },
+        ReadError::Io { at, errno } => WriteError::Io { op: at, path: String::new(), errno, },
         _ => corrupt("stats: part open refused"),
     }
 }
@@ -365,11 +319,7 @@ impl<'a> Src<'a> {
             Src::Run(r) => match r.answers.binary_search_by_key(&attno, |a| a.0) {
                 Ok(k) => {
                     let col = ColumnAnswers::validated(&r.answers[k].1, r.parts.len());
-                    (
-                        col.stats_body(i).unwrap_or(&[]),
-                        col.digest(i)
-                            .and_then(|d| <[u8; DIGEST_LEN]>::try_from(d).ok()),
-                    )
+                    (col.stats_body(i).unwrap_or(&[]), col.digest(i).and_then(|d| <[u8; DIGEST_LEN]>::try_from(d).ok()),)
                 }
                 Err(_) => (&[], None),
             },
@@ -386,23 +336,14 @@ impl<'a> Src<'a> {
                 let pn = r.parts[i].part_no;
                 r.ext.iter().filter(|e| e.0 == pn).cloned().collect()
             }
-            Src::Part(p) => p
-                .ext
-                .iter()
-                .map(|(t, b)| (p.ident.part_no, *t, b.clone()))
-                .collect(),
+            Src::Part(p) => p.ext.iter().map(|(t, b)| (p.ident.part_no, *t, b.clone())).collect(),
         }
     }
 }
 
 /// The facts image and (when `attnos` is given) the answers of the parts `order` names, in that order: `order[k] =
 /// (source, index within the source)`. Every source must be wholly named (its accumulator is merged whole).
-fn assemble(
-    srcs: &[Src<'_>],
-    order: &[(u32, u32)],
-    key: (u64, u64, u64),
-    attnos: Option<&[u32]>,
-) -> FormatResult<(FactsImage, Vec<(u32, Vec<u8>)>)> {
+fn assemble(srcs: &[Src<'_>], order: &[(u32, u32)], key: (u64, u64, u64), attnos: Option<&[u32]>,) -> FormatResult<(FactsImage, Vec<(u32, Vec<u8>)>)> {
     let mut acc = FactsAcc::new();
     for s in srcs {
         acc.merge(&FactsAcc::from_image(s.facts())?)?;
@@ -419,29 +360,18 @@ fn assemble(
             Ok(off)
         })
         .collect::<FormatResult<_>>()?;
-    let slices: Vec<(u32, u32, u32)> = order
-        .iter()
-        .map(|&(s, i)| {
-            (
-                s,
-                offsets[s as usize][i as usize],
-                srcs[s as usize].parts()[i as usize].granule_count,
-            )
-        })
-        .collect();
+    let slices: Vec<(u32, u32, u32)> = order.iter().map(|&(s, i)| { (s, offsets[s as usize][i as usize], srcs[s as usize].parts()[i as usize].granule_count,)
+        }).collect();
     let images: Vec<&FactsImage> = srcs.iter().map(|s| s.facts()).collect();
     acc.assemble_zones(&images, &slices)?;
     let image = acc.into_image(key.0, key.1, key.2)?;
     if image.header.parts != order.len() as u64 {
-        return Err(FormatError::Corrupt {
-            at: "stats: assembled part count",
-        });
+        return Err(FormatError::Corrupt { at: "stats: assembled part count", });
     }
     let mut answers = Vec::new();
     for &attno in attnos.unwrap_or(&[]) {
         let mut bodies: Vec<&[u8]> = pgrc_format::try_vec(order.len(), "stats")?;
-        let mut digests: Vec<Option<[u8; DIGEST_LEN]>> =
-            pgrc_format::try_vec(order.len(), "stats")?;
+        let mut digests: Vec<Option<[u8; DIGEST_LEN]>> = pgrc_format::try_vec(order.len(), "stats")?;
         for &(s, i) in order {
             let (b, d) = srcs[s as usize].record(attno, i as usize);
             bodies.push(b);
@@ -456,47 +386,20 @@ fn assemble(
 fn run_of_sources(srcs: &[Src<'_>]) -> FormatResult<Run> {
     let mut order: Vec<(u32, u32, u32)> = Vec::new();
     for (s, src) in srcs.iter().enumerate() {
-        order.extend(
-            src.parts()
-                .iter()
-                .enumerate()
-                .map(|(i, p)| (p.part_no, s as u32, i as u32)),
-        );
+        order.extend(src.parts().iter().enumerate().map(|(i, p)| (p.part_no, s as u32, i as u32)),);
     }
     order.sort_unstable();
     if order.windows(2).any(|w| w[0].0 == w[1].0) {
-        return Err(FormatError::Corrupt {
-            at: "stats: a part in two sources",
-        });
+        return Err(FormatError::Corrupt { at: "stats: a part in two sources", });
     }
     let mut attnos: Vec<u32> = srcs.iter().flat_map(|s| s.attnos()).collect();
     attnos.sort_unstable();
     attnos.dedup();
     let pairs: Vec<(u32, u32)> = order.iter().map(|o| (o.1, o.2)).collect();
     let (facts, answers) = assemble(srcs, &pairs, (0, 0, 0), Some(&attnos))?;
-    let parts = order
-        .iter()
-        .map(|o| srcs[o.1 as usize].parts()[o.2 as usize])
-        .collect();
-    let ext = order
-        .iter()
-        .flat_map(|o| srcs[o.1 as usize].ext(o.2 as usize))
-        .collect();
-    Ok(Run {
-        hold: Hold::default(),
-        rref: RunRef {
-            gen: 0,
-            seq: 0,
-            nparts: 0,
-            len: 0,
-            crc: 0,
-        },
-        parts,
-        facts,
-        answers,
-        ext,
-        held: HeldCell::default(),
-    })
+    let parts = order.iter().map(|o| srcs[o.1 as usize].parts()[o.2 as usize]).collect();
+    let ext = order.iter().flat_map(|o| srcs[o.1 as usize].ext(o.2 as usize)).collect();
+    Ok(Run { hold: Hold::default(), rref: RunRef { gen: 0, seq: 0, nparts: 0, len: 0, crc: 0, }, parts, facts, answers, ext, held: HeldCell::default(), })
 }
 
 // ---------------------------------------------------------------------------
@@ -505,11 +408,7 @@ fn run_of_sources(srcs: &[Src<'_>]) -> FormatResult<Run> {
 
 impl StatsState {
     fn sources(&self) -> Vec<Src<'_>> {
-        self.runs
-            .iter()
-            .map(|r| Src::Run(r))
-            .chain(self.loose.iter().map(|p| Src::Part(p)))
-            .collect()
+        self.runs.iter().map(|r| Src::Run(r)).chain(self.loose.iter().map(|p| Src::Part(p))).collect()
     }
 
     /// Manifest position → (source, index), or why the state is not this manifest's. One walk of the manifest merging
@@ -518,9 +417,7 @@ impl StatsState {
     fn order(&self, m: &Manifest) -> Result<Vec<(u32, u32)>, OrderError> {
         let srcs = self.sources();
         if srcs.iter().map(|s| s.parts().len()).sum::<usize>() != m.parts.len() {
-            return Err(OrderError::Mismatch(
-                "stats: runs and loose parts do not cover the manifest",
-            ));
+            return Err(OrderError::Mismatch("stats: runs and loose parts do not cover the manifest",));
         }
         match merge_order(&srcs, m).map_err(OrderError::Alloc)? {
             Some(out) => Ok(out),
@@ -575,35 +472,20 @@ impl OrderError {
 fn merge_order(srcs: &[Src<'_>], m: &Manifest) -> FormatResult<Option<Vec<(u32, u32)>>> {
     use std::cmp::Reverse;
     let mut next = pgrc_format::try_filled(srcs.len(), 0usize, "stats order")?; // alloc: Cold
-    let mut heads: std::collections::BinaryHeap<Reverse<(u32, usize)>> = srcs
-        .iter()
-        .enumerate()
-        .filter_map(|(s, src)| src.parts().first().map(|p| Reverse((p.part_no, s))))
-        .collect(); // alloc: Cold
+    let mut heads: std::collections::BinaryHeap<Reverse<(u32, usize)>> = srcs.iter().enumerate().filter_map(|(s, src)| src.parts().first().map(|p| Reverse((p.part_no, s)))).collect(); // alloc: Cold
     let mut cur: Option<usize> = None;
     let mut out = pgrc_format::try_vec(m.parts.len(), "stats order")?; // alloc: Cold
     for rec in &m.parts {
         let s = match cur {
-            Some(c)
-                if srcs[c]
-                    .parts()
-                    .get(next[c])
-                    .is_some_and(|p| p.part_no == rec.part_no) =>
-            {
-                c
+            Some(c) if srcs[c].parts().get(next[c]).is_some_and(|p| p.part_no == rec.part_no) =>
+            { c
             }
             _ => {
-                if let Some(p) = cur.and_then(|c| {
-                    srcs[c]
-                        .parts()
-                        .get(next[c])
-                        .map(|p| Reverse((p.part_no, c)))
+                if let Some(p) = cur.and_then(|c| { srcs[c].parts().get(next[c]).map(|p| Reverse((p.part_no, c)))
                 }) {
                     heads.push(p);
                 }
-                let Some(Reverse((part_no, s))) = heads.pop() else {
-                    return Ok(None);
-                };
+                let Some(Reverse((part_no, s))) = heads.pop() else { return Ok(None); };
                 if part_no != rec.part_no {
                     return Ok(None);
                 }
@@ -623,28 +505,18 @@ fn merge_order(srcs: &[Src<'_>], m: &Manifest) -> FormatResult<Option<Vec<(u32, 
 
 /// [`StatsState::order`] by a sort of every part (the walk declined): decides the order or why there is none.
 fn sorted_order(srcs: &[Src<'_>], m: &Manifest) -> Result<Vec<(u32, u32)>, OrderError> {
-    let mut all: Vec<(u32, u32, u32)> =
-        pgrc_format::try_vec(m.parts.len(), "stats order").map_err(OrderError::Alloc)?;
+    let mut all: Vec<(u32, u32, u32)> = pgrc_format::try_vec(m.parts.len(), "stats order").map_err(OrderError::Alloc)?;
     for (s, src) in srcs.iter().enumerate() {
-        all.extend(
-            src.parts()
-                .iter()
-                .enumerate()
-                .map(|(i, p)| (p.part_no, s as u32, i as u32)),
-        );
+        all.extend(src.parts().iter().enumerate().map(|(i, p)| (p.part_no, s as u32, i as u32)),);
     }
     all.sort_unstable();
     if all.len() != m.parts.len() {
-        return Err(OrderError::Mismatch(
-            "stats: runs and loose parts do not cover the manifest",
-        ));
+        return Err(OrderError::Mismatch("stats: runs and loose parts do not cover the manifest",));
     }
     let mut out = pgrc_format::try_vec(all.len(), "stats order").map_err(OrderError::Alloc)?;
     for (rec, &(pn, s, i)) in m.parts.iter().zip(&all) {
         if pn != rec.part_no || srcs[s as usize].parts()[i as usize] != ident_of(rec) {
-            return Err(OrderError::Mismatch(
-                "stats: a run or loose part differs from its manifest record",
-            ));
+            return Err(OrderError::Mismatch("stats: a run or loose part differs from its manifest record",));
         }
         out.push((s, i));
     }
@@ -677,40 +549,18 @@ impl StatsState {
     /// The columns a generation's answers carry: those some part of it carries a record for. D4783 (FASTADD): a part
     /// written before an ADD COLUMN has no record of it and a later part has one; each part answers from its own.
     pub fn answer_attnos(&self, index: &[(u32, u32)]) -> Vec<u32> {
-        let mut attnos: Vec<u32> = self
-            .runs
-            .iter()
-            .flat_map(|r| r.answers.iter().map(|a| a.0))
-            .chain(
-                self.loose
-                    .iter()
-                    .flat_map(|p| p.answers.iter().map(|a| a.0)),
-            )
-            .collect();
+        let mut attnos: Vec<u32> = self.runs.iter().flat_map(|r| r.answers.iter().map(|a| a.0))
+            .chain(self.loose.iter().flat_map(|p| p.answers.iter().map(|a| a.0)),).collect();
         attnos.sort_unstable();
         attnos.dedup();
-        attnos
-            .into_iter()
-            .filter(|&a| {
-                index
-                    .iter()
-                    .any(|&at| !self.part_answer(at, a).0.is_empty())
-            })
-            .collect()
+        attnos.into_iter().filter(|&a| { index.iter().any(|&at| !self.part_answer(at, a).0.is_empty())
+            }).collect()
     }
 
     /// Bytes of part-grain answers held (runs' columns and loose records), for the catalog's census.
     pub fn answer_bytes(&self) -> u64 {
-        let runs: usize = self
-            .runs
-            .iter()
-            .flat_map(|r| r.answers.iter().map(|a| a.1.len()))
-            .sum();
-        let loose: usize = self
-            .loose
-            .iter()
-            .flat_map(|p| p.answers.iter().map(|a| a.1.len() + 24))
-            .sum();
+        let runs: usize = self.runs.iter().flat_map(|r| r.answers.iter().map(|a| a.1.len())).sum();
+        let loose: usize = self.loose.iter().flat_map(|p| p.answers.iter().map(|a| a.1.len() + 24)).sum();
         (runs + loose) as u64
     }
 
@@ -720,19 +570,12 @@ impl StatsState {
         if let Some(k) = self.loose.iter().position(|p| p.ident.part_no == part_no) {
             return Some(((self.runs.len() + k) as u32, 0));
         }
-        self.runs.iter().enumerate().find_map(|(s, r)| {
-            r.parts
-                .binary_search_by_key(&part_no, |p| p.part_no)
-                .ok()
-                .map(|i| (s as u32, i as u32))
+        self.runs.iter().enumerate().find_map(|(s, r)| { r.parts.binary_search_by_key(&part_no, |p| p.part_no).ok().map(|i| (s as u32, i as u32))
         })
     }
 
     pub fn run_of(&self, part_no: u32) -> Option<&Arc<Run>> {
-        self.runs.iter().find(|r| {
-            r.parts
-                .binary_search_by_key(&part_no, |p| p.part_no)
-                .is_ok()
+        self.runs.iter().find(|r| { r.parts.binary_search_by_key(&part_no, |p| p.part_no).is_ok()
         })
     }
 
@@ -742,30 +585,18 @@ impl StatsState {
     }
 
     /// The image and the answers columns of `m` (the columns the first part carries, `build_from_parts`'s rule).
-    pub fn generation(
-        &self,
-        m: &Manifest,
-        with_answers: bool,
-    ) -> FormatResult<(FactsImage, Vec<(u32, Vec<u8>)>)> {
+    pub fn generation(&self, m: &Manifest, with_answers: bool,) -> FormatResult<(FactsImage, Vec<(u32, Vec<u8>)>)> {
         let order = self.order(m).map_err(OrderError::or_corrupt)?;
         let srcs = self.sources();
         let attnos: Option<Vec<u32>> = with_answers.then(|| match order.first() {
             None => Vec::new(),
             Some(&(s, i)) => {
                 let src = &srcs[s as usize];
-                src.attnos()
-                    .into_iter()
-                    .filter(|&a| !src.record(a, i as usize).0.is_empty())
-                    .collect()
+                src.attnos().into_iter().filter(|&a| !src.record(a, i as usize).0.is_empty()).collect()
             }
         });
         let h = m.header;
-        assemble(
-            &srcs,
-            &order,
-            (h.gen, h.publisher_fxid, h.schema_fingerprint),
-            attnos.as_deref(),
-        )
+        assemble(&srcs, &order, (h.gen, h.publisher_fxid, h.schema_fingerprint), attnos.as_deref(),)
     }
 
     /// A generation's state from disk: the root carrier and the runs it lists (reusing `carried`'s `Arc<Run>` with an
@@ -782,17 +613,10 @@ impl StatsState {
         // binds the schema its parts keep, which the generation describes (EXT_SCHEMAS)
         let mut fps = vec![m.header.schema_fingerprint];
         if m.header.flags & pgrc_format::manifest::MANIFESTF_SCHEMAS != 0 {
-            fps.extend(
-                pgrc_format::manifest::schema_entries(&m.ext)?
-                    .iter()
-                    .map(|e| e.fingerprint),
-            );
+            fps.extend(pgrc_format::manifest::schema_entries(&m.ext)?.iter().map(|e| e.fingerprint),);
         }
         let fp = &fps[..];
-        let mut state = StatsState {
-            root: stats_ref(m)?,
-            ..StatsState::default()
-        };
+        let mut state = StatsState { root: stats_ref(m)?, ..StatsState::default() };
         if let Some(c) = carried.filter(|c| state.root.is_some() && c.root == state.root) {
             // the same root names the same run set (a run's ref binds its bytes): no file is read
             state.runs = c.runs.clone();
@@ -801,26 +625,17 @@ impl StatsState {
             let list = list.ok_or(corrupt("stats: the root carrier has no run list"))?;
             // the runs to read are hinted first, so a cold load reads them in parallel, not one round trip per run
             // (P-1 L4b: 70 ms of a 2,000-part table's cold load)
-            for r in list
-                .iter()
-                .filter(|r| !carried.is_some_and(|c| c.runs.iter().any(|x| x.rref == **r)))
-            {
+            for r in list.iter().filter(|r| !carried.is_some_and(|c| c.runs.iter().any(|x| x.rref == **r))) {
                 vfs.willneed(&format!("{dir}/{}", run_file_name(r.gen, r.seq)), 0, r.len);
             }
             for r in &list {
-                state
-                    .runs
-                    .push(read_run(vfs, dir, r, fp, carried, false)?.0);
+                state.runs.push(read_run(vfs, dir, r, fp, carried, false)?.0);
             }
             if !carrier.parts.is_empty() {
                 state.runs.push(carrier);
             }
         }
-        let held: BTreeSet<u32> = state
-            .runs
-            .iter()
-            .flat_map(|r| r.parts.iter().map(|p| p.part_no))
-            .collect();
+        let held: BTreeSet<u32> = state.runs.iter().flat_map(|r| r.parts.iter().map(|p| p.part_no)).collect();
         for rec in m.parts.iter().filter(|p| !held.contains(&p.part_no)) {
             let ident = ident_of(rec);
             let kept = carried.and_then(|c| c.loose.iter().find(|p| p.ident == ident));
@@ -829,47 +644,25 @@ impl StatsState {
                 None => loose(vfs, rec)?.into_arc(),
             });
         }
-        state.check(m).map_err(|e| match e {
-            OrderError::Mismatch(at) => corrupt(at),
-            OrderError::Alloc(e) => e.into(),
-        })?;
+        state.check(m).map_err(|e| match e { OrderError::Mismatch(at) => corrupt(at), OrderError::Alloc(e) => e.into(), })?;
         Ok(state)
     }
 }
 
 /// One run by reference: the carried `Arc` when a carried state holds this ref and no list is wanted, else its file,
 /// parsed and checked against the table's schema. Returns the run and, for `want_list`, its root list.
-fn read_run(
-    vfs: &mut dyn WriteVfs,
-    dir: &str,
-    r: &RunRef,
-    fp: &[u64],
-    carried: Option<&StatsState>,
-    want_list: bool,
-) -> WriteResult<(Arc<Run>, Option<Vec<RunRef>>)> {
+fn read_run(vfs: &mut dyn WriteVfs, dir: &str, r: &RunRef, fp: &[u64], carried: Option<&StatsState>, want_list: bool,) -> WriteResult<(Arc<Run>, Option<Vec<RunRef>>)> {
     let held = carried.and_then(|c| c.runs.iter().find(|x| x.rref == *r));
     if let (Some(run), false) = (held, want_list) {
         return Ok((Arc::clone(run), None));
     }
-    let f = RunFile::parse(
-        vfs.read_full(&format!("{dir}/{}", run_file_name(r.gen, r.seq)))?,
-        r,
-    )?;
+    let f = RunFile::parse(vfs.read_full(&format!("{dir}/{}", run_file_name(r.gen, r.seq)))?, r,)?;
     if !fp.iter().any(|&f2| f.binds_schema(f2)) {
         return Err(corrupt("stats: a run of another schema"));
     }
     let run = match held {
         Some(run) => Arc::clone(run),
-        None => Run {
-            hold: Hold::default(),
-            rref: *r,
-            parts: f.parts.clone(),
-            facts: f.facts()?,
-            answers: f.answers()?,
-            ext: f.partext()?,
-            held: HeldCell::default(),
-        }
-        .into_arc(),
+        None => Run { hold: Hold::default(), rref: *r, parts: f.parts.clone(), facts: f.facts()?, answers: f.answers()?, ext: f.partext()?, held: HeldCell::default(), }.into_arc(),
     };
     Ok((run, f.root))
 }
@@ -885,29 +678,17 @@ fn one_part_image(acc: FactsAcc) -> FormatResult<FactsImage> {
 /// A sealed part's stats from its seal's captured slices (no file read). `Err` when the seal captured none.
 pub fn part_stats_from_sealed(s: &SealedPart, part_no: u32) -> WriteResult<PartStats> {
     if s.facts_slices.is_empty() || s.plane_slices.is_empty() {
-        return Err(WriteError::Contract {
-            detail: "stats: the seal captured no facts slices",
-        });
+        return Err(WriteError::Contract { detail: "stats: the seal captured no facts slices", });
     }
     let mut acc = FactsAcc::new();
     acc.fold_part(&part_facts_from_sealed(s)?)?;
     let mut answers = pgrc_format::try_vec(s.plane_slices.len(), "stats")?;
     for p in &s.plane_slices {
-        answers.push((
-            p.attno,
-            pgrc_format::try_to_vec(crate::bankplane::part_record(&p.stats_body), "stats")?,
-            p.digest,
-        ));
+        answers.push((p.attno, pgrc_format::try_to_vec(crate::bankplane::part_record(&p.stats_body), "stats")?, p.digest,));
     }
     Ok(PartStats {
         hold: Hold::default(),
-        ident: PartIdent {
-            part_no,
-            granule_count: s.granule_count,
-            band_count: s.band_count,
-            rows: s.rows,
-            footer_off: s.footer_off,
-        },
+        ident: PartIdent { part_no, granule_count: s.granule_count, band_count: s.band_count, rows: s.rows, footer_off: s.footer_off, },
         facts: one_part_image(acc)?,
         answers,
         ext: Vec::new(),
@@ -929,69 +710,32 @@ fn meta_body(part: &OpenPart, idx: usize) -> ReadResult<Vec<u8>> {
 pub fn part_stats_from_open(part: &OpenPart, rec: &PartRecord) -> ReadResult<PartStats> {
     let owned = part_facts_from_open(part, rec.file_len)?;
     let mut acc = FactsAcc::new();
-    acc.fold_part(&owned.as_facts())
-        .map_err(ReadError::Format)?;
+    acc.fold_part(&owned.as_facts()).map_err(ReadError::Format)?;
     let mut answers = Vec::new();
     for c in owned.cols.iter().filter(|c| c.stats_body.is_some()) {
-        let record = pgrc_format::try_to_vec(
-            crate::bankplane::part_record(c.stats_body.as_deref().unwrap_or(&[])),
-            "stats",
-        )?;
+        let record = pgrc_format::try_to_vec(crate::bankplane::part_record(c.stats_body.as_deref().unwrap_or(&[])), "stats",)?;
         let digest = match part.find_section(SectionKind::PartDigest, c.attno, 0) {
             Some(idx) => <[u8; DIGEST_LEN]>::try_from(meta_body(part, idx)?.as_slice()).ok(),
             None => None,
         };
         answers.push((c.attno, record, digest));
     }
-    Ok(PartStats {
-        hold: Hold::default(),
-        ident: ident_of(rec),
-        facts: one_part_image(acc)?,
-        answers,
-        ext: Vec::new(),
-    })
+    Ok(PartStats { hold: Hold::default(), ident: ident_of(rec), facts: one_part_image(acc)?, answers, ext: Vec::new(), })
 }
 
 /// OC-5: one run of every base part from a root-less generation's in-memory image and answers (the catalog's copy,
 /// or a completion's). Its image must be `m`'s and cover every part.
-pub fn legacy_run(
-    m: &Manifest,
-    image: &FactsImage,
-    answers: &[(u32, Vec<u8>)],
-) -> WriteResult<Run> {
+pub fn legacy_run(m: &Manifest, image: &FactsImage, answers: &[(u32, Vec<u8>)],) -> WriteResult<Run> {
     let h = image.header;
-    if (h.gen, h.publisher_fxid, h.schema_fingerprint, h.parts)
-        != (
-            m.header.gen,
-            m.header.publisher_fxid,
-            m.header.schema_fingerprint,
-            m.parts.len() as u64,
-        )
-    {
-        return Err(WriteError::Contract {
-            detail: "stats: the legacy image is not the base generation's",
-        });
+    if (h.gen, h.publisher_fxid, h.schema_fingerprint, h.parts) != (m.header.gen, m.header.publisher_fxid, m.header.schema_fingerprint, m.parts.len() as u64,) {
+        return Err(WriteError::Contract { detail: "stats: the legacy image is not the base generation's", });
     }
     for (_, payload) in answers {
         ColumnAnswers::parse(payload, m.parts.len())?;
     }
     let mut sorted = pgrc_format::try_to_vec(answers, "stats")?;
     sorted.sort_unstable_by_key(|a| a.0);
-    Ok(Run {
-        hold: Hold::default(),
-        rref: RunRef {
-            gen: 0,
-            seq: 0,
-            nparts: 0,
-            len: 0,
-            crc: 0,
-        },
-        parts: m.parts.iter().map(ident_of).collect(),
-        facts: image.clone(),
-        answers: sorted,
-        ext: Vec::new(),
-        held: HeldCell::default(),
-    })
+    Ok(Run { hold: Hold::default(), rref: RunRef { gen: 0, seq: 0, nparts: 0, len: 0, crc: 0, }, parts: m.parts.iter().map(ident_of).collect(), facts: image.clone(), answers: sorted, ext: Vec::new(), held: HeldCell::default(), })
 }
 
 /// OC-5 without an image: one run of every part from the parts' own stats (a walk).
@@ -1059,17 +803,7 @@ pub fn plan_stats_legacy(
     refold: &mut dyn FnMut(&[PartIdent]) -> WriteResult<Vec<PartStats>>,
     hold: &dyn Fn(&Run) -> bool,
 ) -> WriteResult<StatsPlan> {
-    plan_with(
-        &StatsState::default(),
-        Some(legacy),
-        gen,
-        fxid,
-        fp,
-        installs,
-        retired,
-        refold,
-        hold,
-    )
+    plan_with(&StatsState::default(), Some(legacy), gen, fxid, fp, installs, retired, refold, hold,)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1085,18 +819,9 @@ fn plan_with(
     hold: &dyn Fn(&Run) -> bool,
 ) -> WriteResult<StatsPlan> {
     let gone: BTreeSet<u32> = retired.iter().copied().collect();
-    let mut slots: Vec<Slot> = base
-        .runs
-        .iter()
-        .map(|r| Slot::Carried(Arc::clone(r)))
-        .collect();
+    let mut slots: Vec<Slot> = base.runs.iter().map(|r| Slot::Carried(Arc::clone(r))).collect();
     slots.extend(legacy.map(Slot::Fresh));
-    let mut loose: Vec<Arc<PartStats>> = base
-        .loose
-        .iter()
-        .filter(|p| !gone.contains(&p.ident.part_no))
-        .cloned()
-        .collect();
+    let mut loose: Vec<Arc<PartStats>> = base.loose.iter().filter(|p| !gone.contains(&p.ident.part_no)).cloned().collect();
 
     // 1. retire cuts: a run losing every part goes; one losing some is rewritten from its survivors' footers
     let mut kept: Vec<Slot> = pgrc_format::try_vec(slots.len(), "stats")?;
@@ -1106,27 +831,13 @@ fn plan_with(
         if hit == 0 {
             kept.push(slot);
         } else if hit < r.parts.len() {
-            let survivors: Vec<PartIdent> = r
-                .parts
-                .iter()
-                .filter(|p| !gone.contains(&p.part_no))
-                .copied()
-                .collect();
+            let survivors: Vec<PartIdent> = r.parts.iter().filter(|p| !gone.contains(&p.part_no)).copied().collect();
             let mut stats = refold(&survivors)?;
-            if stats.len() != survivors.len()
-                || stats.iter().zip(&survivors).any(|(s, p)| s.ident != *p)
-            {
-                return Err(WriteError::Contract {
-                    detail: "stats: a refold returned other parts",
-                });
+            if stats.len() != survivors.len() || stats.iter().zip(&survivors).any(|(s, p)| s.ident != *p) {
+                return Err(WriteError::Contract { detail: "stats: a refold returned other parts", });
             }
             for s in &mut stats {
-                s.ext = r
-                    .ext
-                    .iter()
-                    .filter(|e| e.0 == s.ident.part_no)
-                    .map(|e| (e.1, e.2.clone()))
-                    .collect();
+                s.ext = r.ext.iter().filter(|e| e.0 == s.ident.part_no).map(|e| (e.1, e.2.clone())).collect();
             }
             let srcs: Vec<Src<'_>> = stats.iter().map(Src::Part).collect();
             kept.push(Slot::Fresh(run_of_sources(&srcs)?));
@@ -1166,11 +877,7 @@ fn plan_with(
         if all_small.len() < SMALL_RUNS_MAX {
             break;
         }
-        let free: Vec<usize> = all_small
-            .iter()
-            .copied()
-            .filter(|&i| !hold(slots[i].run()))
-            .collect();
+        let free: Vec<usize> = all_small.iter().copied().filter(|&i| !hold(slots[i].run())).collect();
         let small: Vec<usize> = if free.len() >= SMALL_RUNS_MAX {
             pgrc_format::try_to_vec(&free[..SMALL_RUNS_MAX], "stats")?
         } else if all_small.len() - free.len() > HELD_SMALL_MAX {
@@ -1189,35 +896,17 @@ fn plan_with(
     }
 
     // 5. the root: unchanged when the run set is; else carried by the last run written (a zero-part carrier if none)
-    let carried_refs: BTreeSet<(u64, u32)> = slots
-        .iter()
-        .filter(|&s| matches!(s, Slot::Carried(_)))
-        .map(|s| s.run().rref.key())
-        .collect();
+    let carried_refs: BTreeSet<(u64, u32)> = slots.iter().filter(|&s| matches!(s, Slot::Carried(_))).map(|s| s.run().rref.key()).collect();
     let base_refs: BTreeSet<(u64, u32)> = base.runs.iter().map(|r| r.rref.key()).collect();
     let fresh = slots.iter().filter(|s| matches!(s, Slot::Fresh(_))).count();
     let mut plan = StatsPlan::default();
     if fresh == 0 && carried_refs == base_refs {
-        plan.state = StatsState {
-            root: base.root,
-            runs: slots
-                .into_iter()
-                .map(|s| match s {
-                    Slot::Carried(r) => r,
-                    Slot::Fresh(_) => unreachable!(),
-                })
-                .collect(),
-            loose,
-        };
+        plan.state = StatsState { root: base.root, runs: slots.into_iter().map(|s| match s { Slot::Carried(r) => r, Slot::Fresh(_) => unreachable!(), }).collect(), loose, };
         return Ok(plan);
     }
     plan.root_changed = true;
     if slots.is_empty() {
-        plan.state = StatsState {
-            root: None,
-            runs: Vec::new(),
-            loose,
-        };
+        plan.state = StatsState { root: None, runs: Vec::new(), loose, };
         return Ok(plan);
     }
     let mut runs: Vec<Arc<Run>> = pgrc_format::try_vec(slots.len(), "stats")?;
@@ -1230,21 +919,7 @@ fn plan_with(
     }
     let carrier_empty = fresh_runs.is_empty();
     if carrier_empty {
-        fresh_runs.push(Run {
-            hold: Hold::default(),
-            rref: RunRef {
-                gen: 0,
-                seq: 0,
-                nparts: 0,
-                len: 0,
-                crc: 0,
-            },
-            parts: Vec::new(),
-            facts: FactsImage::default(),
-            answers: Vec::new(),
-            ext: Vec::new(),
-            held: HeldCell::default(),
-        });
+        fresh_runs.push(Run { hold: Hold::default(), rref: RunRef { gen: 0, seq: 0, nparts: 0, len: 0, crc: 0, }, parts: Vec::new(), facts: FactsImage::default(), answers: Vec::new(), ext: Vec::new(), held: HeldCell::default(), });
     }
     let last = fresh_runs.len() - 1;
     for (seq, mut run) in fresh_runs.into_iter().enumerate() {
@@ -1256,27 +931,9 @@ fn plan_with(
         run.facts.header.gen = gen;
         run.facts.header.publisher_fxid = fxid;
         run.facts.header.schema_fingerprint = fp;
-        let answers: Vec<(u32, &[u8])> = run
-            .answers
-            .iter()
-            .map(|(a, b)| (*a, b.as_slice()))
-            .collect();
-        let ext: Vec<(u32, u16, &[u8])> = run
-            .ext
-            .iter()
-            .map(|(p, t, b)| (*p, *t, b.as_slice()))
-            .collect();
-        let bytes = encode_run(&RunImage {
-            gen,
-            publisher_fxid: fxid,
-            schema_fingerprint: fp,
-            parts: &run.parts,
-            facts: &run.facts,
-            answers: &answers,
-            root: root.as_deref(),
-            partext: &ext,
-        })
-        .map_err(WriteError::Format)?;
+        let answers: Vec<(u32, &[u8])> = run.answers.iter().map(|(a, b)| (*a, b.as_slice())).collect();
+        let ext: Vec<(u32, u16, &[u8])> = run.ext.iter().map(|(p, t, b)| (*p, *t, b.as_slice())).collect();
+        let bytes = encode_run(&RunImage { gen, publisher_fxid: fxid, schema_fingerprint: fp, parts: &run.parts, facts: &run.facts, answers: &answers, root: root.as_deref(), partext: &ext, }).map_err(WriteError::Format)?;
         run.rref = RunRef::of(gen, seq as u32, run.parts.len() as u32, &bytes);
         plan.stage.push((run.rref, bytes));
         if seq == last {

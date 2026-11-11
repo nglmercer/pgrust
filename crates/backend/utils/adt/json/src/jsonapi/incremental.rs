@@ -634,7 +634,7 @@ impl<'src, 'mcx> JsonIncrementalChunk<'_, 'src, 'mcx> {
             for &c in input.iter() {
                 push_partial(ptok, c)?;
                 added += 1;
-                if c == b'"' && escapes.is_multiple_of(2) {
+                if c == b'"' && escapes.is_multiple_of( 2) {
                     tok_done = true;
                     break;
                 }

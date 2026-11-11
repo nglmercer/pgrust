@@ -814,11 +814,7 @@ pub struct JsonReturning<'mcx> {
 
 impl Default for JsonReturning<'_> {
     fn default() -> Self {
-        JsonReturning {
-            format: None,
-            typid: 0,
-            typmod: -1,
-        }
+        JsonReturning { format: None, typid: 0, typmod: -1, }
     }
 }
 
@@ -1010,13 +1006,7 @@ pub struct JsonTablePathScan<'mcx> {
 
 impl Default for JsonTablePathScan<'_> {
     fn default() -> Self {
-        JsonTablePathScan {
-            path: None,
-            errorOnError: false,
-            child: None,
-            colMin: -1,
-            colMax: -1,
-        }
+        JsonTablePathScan { path: None, errorOnError: false, child: None, colMin: -1, colMax: -1, }
     }
 }
 

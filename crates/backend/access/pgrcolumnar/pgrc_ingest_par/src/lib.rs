@@ -95,11 +95,7 @@ impl ParSession<'_> {
     /// D4399: one non-blocking step of the engine's publish gate for `bytes`
     /// the leader plans to hold outside the engine (a text COPY's parse
     /// window), before it hands them to its helpers.
-    pub fn ahead_step(
-        &self,
-        g: &mut pgrc_write::par::AheadGate,
-        bytes: u64,
-    ) -> pgrc_write::par::AheadStep {
+    pub fn ahead_step(&self, g: &mut pgrc_write::par::AheadGate, bytes: u64,) -> pgrc_write::par::AheadStep {
         self.engine.ahead_step(g, bytes)
     }
 
@@ -200,9 +196,7 @@ struct Drain<'a> {
 impl Drop for Drain<'_> {
     fn drop(&mut self) {
         if let Some(w) = self.waiter.take() {
-            self.engine.fail(WriteError::Contract {
-                detail: "parallel ingest leader unwound",
-            });
+            self.engine.fail(WriteError::Contract { detail: "parallel ingest leader unwound", });
             self.stream.close();
             self.rt.notify_source_progress();
             let _ = w.wait();
@@ -245,12 +239,7 @@ pub fn run_parallel<R>(
         published: 0,
         ncols,
     };
-    let mut drain = Drain {
-        engine: &engine,
-        stream: &stream,
-        rt,
-        waiter: Some(waiter),
-    };
+    let mut drain = Drain { engine: &engine, stream: &stream, rt, waiter: Some(waiter), };
     // Feed; flush the tail; on ANY failure record it (first-wins) and fall
     // through to the drain — the stream must close regardless so the RG
     // completes and no task is left holding a claim.
@@ -315,20 +304,18 @@ pub fn parallel_ingest<R>(
     // behavior across the serial/parallel arms.
     let mut providers = providers;
     providers.structural = facts.structural.clone();
-    let engine = Arc::new(
-        ParEngine::new(
-            providers,
-            facts.schema,
-            facts.spec,
-            facts.table_dir,
-            facts.fxid,
-            facts.policy,
-            opts,
-            facts.base_seq,
-        )?
-        // CONVERT W3-2b: the writer's statement owner (read once on this leader at the writer's open) charges the session
-        .with_owner(w.owner()),
-    );
+    let engine = Arc::new(ParEngine::new(
+        providers,
+        facts.schema,
+        facts.spec,
+        facts.table_dir,
+        facts.fxid,
+        facts.policy,
+        opts,
+        facts.base_seq,
+    )?
+    // CONVERT W3-2b: the writer's statement owner (read once on this leader at the writer's open) charges the session
+    .with_owner(w.owner()),);
     let (parts, reports, r) = run_parallel(rt, engine, feed)?;
     w.deposit_sealed_parts(parts, reports)?;
     Ok(r)
@@ -390,30 +377,15 @@ impl RtColumnPool {
     /// `f(i)` for every `i < n` on the pool while the caller runs `beside` (nothing, for `run`); the calls the group
     /// never ran run on the caller after it drained.
     fn run_group(&self, n: usize, f: &(dyn Fn(usize) + Sync), beside: &mut dyn FnMut()) {
-        use std::sync::atomic::{
-            AtomicBool,
-            Ordering::{Acquire, Relaxed},
-        };
+        use std::sync::atomic::{AtomicBool, Ordering::{Acquire, Relaxed},};
         // SAFETY: lifetime erasure only; `f` is not called after `waiter.wait()` returns (the drain).
-        let f: *const (dyn Fn(usize) + Sync + 'static) =
-            unsafe { std::mem::transmute(f as *const (dyn Fn(usize) + Sync)) };
-        let lanes = if self.lanes == 0 {
-            n
-        } else {
-            self.lanes.min(n)
-        };
-        let work = Arc::new(ColumnWork {
-            f,
-            lanes,
-            done: (0..n).map(|_| AtomicBool::new(false)).collect(),
-            panicked: AtomicBool::new(false),
-        });
+        let f: *const (dyn Fn(usize) + Sync + 'static) = unsafe { std::mem::transmute(f as *const (dyn Fn(usize) + Sync)) };
+        let lanes = if self.lanes == 0 { n } else { self.lanes.min(n) };
+        let work = Arc::new(ColumnWork { f, lanes, done: (0..n).map(|_| AtomicBool::new(false)).collect(), panicked: AtomicBool::new(false), });
         let (_rg, waiter) = self.rt.submit(QuerySpec {
             query_id: 0,
             tasksets: vec![TaskSetSpec {
-                source: Arc::new(
-                    runtime::SyntheticMorselSource::with_boundaries(lanes as u64, 1).with_c0(1),
-                ),
+                source: Arc::new(runtime::SyntheticMorselSource::with_boundaries(lanes as u64, 1).with_c0(1),),
                 work: Arc::clone(&work) as Arc<dyn TaskSetWork>,
                 deps: Vec::new(),
             }],
@@ -428,10 +400,7 @@ impl RtColumnPool {
         if let Err(p) = caller {
             std::panic::resume_unwind(p);
         }
-        assert!(
-            !work.panicked.load(Relaxed),
-            "pgrcolumnar: a pooled seal call panicked"
-        );
+        assert!(!work.panicked.load(Relaxed), "pgrcolumnar: a pooled seal call panicked");
     }
 }
 

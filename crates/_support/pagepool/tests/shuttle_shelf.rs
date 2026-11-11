@@ -49,14 +49,8 @@ fn setup() {
 type Live = Arc<Mutex<HashSet<usize>>>;
 
 fn take(live: &Live, who: u64, seq: u64) -> usize {
-    let p = pagepool::take(BLOCK, 16, Hint::new(Class::Task, Tag::OTHER))
-        .expect("take")
-        .cast::<u8>()
-        .as_ptr() as usize;
-    assert!(
-        live.lock().unwrap().insert(p),
-        "block {p:#x} handed out twice"
-    );
+    let p = pagepool::take(BLOCK, 16, Hint::new(Class::Task, Tag::OTHER)).expect("take").cast::<u8>().as_ptr() as usize;
+    assert!(live.lock().unwrap().insert(p), "block {p:#x} handed out twice");
     // SAFETY: a block we hold, past its 16 link bytes.
     unsafe { ((p + 64) as *mut u64).write(who << 32 | seq) };
     p
@@ -65,11 +59,7 @@ fn take(live: &Live, who: u64, seq: u64) -> usize {
 fn give(live: &Live, p: usize, who: u64, seq: u64) {
     // SAFETY: a block we hold.
     let stamp = unsafe { ((p + 64) as *const u64).read() };
-    assert_eq!(
-        stamp,
-        who << 32 | seq,
-        "block {p:#x} written by another holder"
-    );
+    assert_eq!(stamp, who << 32 | seq, "block {p:#x} written by another holder");
     assert!(live.lock().unwrap().remove(&p));
     // SAFETY: taken with BLOCK bytes, not used again.
     unsafe { pagepool::give(NonNull::new(p as *mut u8).unwrap(), BLOCK) };
@@ -104,10 +94,7 @@ fn one_round() {
     });
     let t3 = thread::spawn(|| {
         pagepool::flush_shelf();
-        PURGED.fetch_add(
-            pagepool::purge_now(2 << 20, None),
-            std::sync::atomic::Ordering::Relaxed,
-        );
+        PURGED.fetch_add(pagepool::purge_now(2 << 20, None), std::sync::atomic::Ordering::Relaxed,);
     });
     t1.join().unwrap();
     t2.join().unwrap();
@@ -126,15 +113,8 @@ fn one_round() {
 
 #[test]
 fn shelves_and_central_across_threads() {
-    let iters = std::env::var("SHUTTLE_ITERS")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(2000);
+    let iters = std::env::var("SHUTTLE_ITERS").ok().and_then(|v| v.parse().ok()).unwrap_or(2000);
     shuttle::check_random(one_round, iters);
     shuttle::check_pct(one_round, iters, 3);
-    eprintln!(
-        "MODEL shelves: {} rounds, the racing purge gave {} bytes",
-        2 * iters,
-        PURGED.load(std::sync::atomic::Ordering::Relaxed)
-    );
+    eprintln!("MODEL shelves: {} rounds, the racing purge gave {} bytes", 2 * iters, PURGED.load(std::sync::atomic::Ordering::Relaxed));
 }

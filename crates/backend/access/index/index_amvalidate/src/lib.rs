@@ -87,12 +87,7 @@ pub fn identify_opfamily_groups<'mcx>(
         } else {
             (proclist[ip].amproclefttype, proclist[ip].amprocrighttype)
         };
-        result.push(OpFamilyOpFuncGroup {
-            lefttype,
-            righttype,
-            operatorset: 0,
-            functionset: 0,
-        });
+        result.push(OpFamilyOpFuncGroup { lefttype, righttype, operatorset: 0, functionset: 0, });
         this = Some(result.len() - 1);
     }
     Ok(result)
@@ -148,12 +143,7 @@ fn operator_lookup_failed(opno: Oid) -> Box<types_error::PgError> {
     )))
 }
 
-pub fn check_amop_signature(
-    opno: Oid,
-    restype: Oid,
-    lefttype: Oid,
-    righttype: Oid,
-) -> PgResult<bool> {
+pub fn check_amop_signature(opno: Oid, restype: Oid, lefttype: Oid, righttype: Oid,) -> PgResult<bool> {
     let Some(shape) = syscache_seams::lookup_pg_operator_shape::call(opno)? else {
         return Err(operator_lookup_failed(opno));
     };
@@ -164,11 +154,7 @@ pub fn check_amop_signature(
         && shape.oprright != InvalidOid)
 }
 
-pub fn opclass_for_family_datatype(
-    amoid: Oid,
-    opfamilyoid: Oid,
-    datatypeoid: Oid,
-) -> PgResult<Oid> {
+pub fn opclass_for_family_datatype(amoid: Oid, opfamilyoid: Oid, datatypeoid: Oid,) -> PgResult<Oid> {
     let scratch = mcx::MemoryContext::new("opclass_for_family_datatype");
     let rows = syscache_seams::lookup_pg_opclass_rows_by_am::call(scratch.mcx(), amoid)?;
     for &(oid, opcfamily, opcintype, _opcdefault, _name) in rows.iter() {

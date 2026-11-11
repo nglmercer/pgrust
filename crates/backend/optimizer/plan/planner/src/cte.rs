@@ -24,9 +24,7 @@ pub fn ss_process_ctes<'mcx>(run: &mut PlannerRun<'mcx>, parse: &Query<'mcx>) ->
         let cte = cte_node.as_common_table_expr().expect("cteList cell");
         let ctename = cte.ctename.expect("CTE has a name");
         let ctequery_node = cte.ctequery.expect("CTE has a ctequery");
-        let ctequery = ctequery_node
-            .as_query()
-            .expect("CTE ctequery is an analyzed Query");
+        let ctequery = ctequery_node.as_query().expect("CTE ctequery is an analyzed Query");
         let cmd_type = ctequery.commandType;
 
         if cte.cterefcount == 0 && cmd_type == types_nodes::CmdType::CMD_SELECT {
@@ -40,10 +38,8 @@ pub fn ss_process_ctes<'mcx>(run: &mut PlannerRun<'mcx>, parse: &Query<'mcx>) ->
             continue;
         }
 
-        let subquery = mcx::leak_in(mcx::alloc_in(
-            mcx,
-            crate::subselect::query_cells_copy(mcx, ctequery)?,
-        )?);
+        let subquery =
+            mcx::leak_in(mcx::alloc_in(mcx, crate::subselect::query_cells_copy(mcx, ctequery)?,)?);
         // D3342 (pgrust.gravity_cte_pushdown): the OR of the readers' filters, when every reader filters this CTE
         crate::cte_or::push_readers_or(mcx, parse, cte, ctequery, subquery)?;
         let gravity_fill = crate::cte_or::fill_admits(cte, ctequery)?;
@@ -68,13 +64,12 @@ pub fn ss_process_ctes<'mcx>(run: &mut PlannerRun<'mcx>, parse: &Query<'mcx>) ->
 
         run.glob.subplans.lappend(mcx, Some(plan))?;
         let plan_id = run.glob.subplans.len() as i32;
-        run.cte_subpath_infos
-            .push(types_pathnodes::run::CteSubpathInfo {
-                plan_id,
-                pathkey_descs,
-                tlist,
-                gravity_fill,
-            });
+        run.cte_subpath_infos.push(types_pathnodes::run::CteSubpathInfo {
+            plan_id,
+            pathkey_descs,
+            tlist,
+            gravity_fill,
+        });
         // >= not ==: ancestors' parked subroots may be in flight (build_subplan).
         debug_assert!(run.subroots.len() >= run.glob.subplans.len());
 
@@ -113,14 +108,9 @@ pub(crate) fn cte_inlines(cte: &types_nodes::parsenodes::CommonTableExpr<'_>) ->
         && (cte.cterefcount <= 1 || !contain_outer_selfref(ctequery_node)?))
 }
 
-pub(crate) fn cte_plain_select(
-    cte: &types_nodes::parsenodes::CommonTableExpr<'_>,
-) -> PgResult<bool> {
+pub(crate) fn cte_plain_select(cte: &types_nodes::parsenodes::CommonTableExpr<'_>,) -> PgResult<bool> {
     let ctequery_node = cte.ctequery.expect("CTE has a ctequery");
-    let cmd_type = ctequery_node
-        .as_query()
-        .expect("CTE ctequery is an analyzed Query")
-        .commandType;
+    let cmd_type = ctequery_node.as_query().expect("CTE ctequery is an analyzed Query").commandType;
     Ok(!cte.cterecursive
         && cmd_type == types_nodes::CmdType::CMD_SELECT
         && !contain_dml(ctequery_node)?
@@ -167,7 +157,8 @@ fn contain_outer_selfref(node: Node<'_>) -> PgResult<bool> {
         }
         fn visit_query_ref(&mut self, q: &'mcx Query<'mcx>) -> PgResult<bool> {
             self.depth += 1;
-            let r = nodes_core::query_tree_walker(q, self, nodes_core::QTW_EXAMINE_RTES_BEFORE)?;
+            let r =
+                nodes_core::query_tree_walker(q, self, nodes_core::QTW_EXAMINE_RTES_BEFORE)?;
             self.depth -= 1;
             Ok(r)
         }
@@ -200,7 +191,11 @@ impl<'a, 'mcx> nodes_core::NodeWalker<'mcx> for InlineCteWalker<'a, 'mcx> {
                 // several RTEs and each gets IncrementVarSublevelsUp.
                 let newquery_node = copyfuncs::copy_object(self.mcx, self.ctequery)?;
                 if self.levelsup > 0 {
-                    rewrite_manip::IncrementVarSublevelsUp(newquery_node, self.levelsup as i32, 1)?;
+                    rewrite_manip::IncrementVarSublevelsUp(
+                        newquery_node,
+                        self.levelsup as i32,
+                        1
+                    )?;
                 }
                 let newquery = newquery_node.as_query().expect("CTE ctequery is a Query");
                 // FOR UPDATE never extends into CTEs, so no rowmark pushdown.
@@ -250,18 +245,21 @@ fn inline_cte<'mcx>(
         levelsup: 0,
         ctequery,
     };
-    let visit_all = |w: &mut InlineCteWalker<'_, 'mcx>, list: &NodeList<'mcx>| -> PgResult<()> {
+    let visit_all = |w: &mut InlineCteWalker<'_, 'mcx>,
+                     list: &NodeList<'mcx>|
+     -> PgResult<()> {
         for n in list {
             nodes_core::NodeWalker::visit(w, n)?;
         }
         Ok(())
     };
-    let visit_opt = |w: &mut InlineCteWalker<'_, 'mcx>, n: Option<Node<'mcx>>| -> PgResult<()> {
-        if let Some(n) = n {
-            nodes_core::NodeWalker::visit(w, n)?;
-        }
-        Ok(())
-    };
+    let visit_opt =
+        |w: &mut InlineCteWalker<'_, 'mcx>, n: Option<Node<'mcx>>| -> PgResult<()> {
+            if let Some(n) = n {
+                nodes_core::NodeWalker::visit(w, n)?;
+            }
+            Ok(())
+        };
     visit_all(&mut w, &parse.targetList)?;
     visit_all(&mut w, &parse.withCheckOptions)?;
     visit_opt(&mut w, parse.onConflict)?;
@@ -303,13 +301,11 @@ pub fn set_cte_pathlist(run: &mut PlannerRun<'_>, rel: RelId, rti: usize) -> PgR
     let (plan_id, cte_param) = resolve_cte_plan(run, rte);
     // createplan can't re-run the resolve: the suspended_roots chain this
     // level walked is unwound before its plan is created.
-    run.root
-        .cte_scan_params
-        .push(types_pathnodes::CteScanParam {
-            rti: rti as u32,
-            plan_id,
-            cte_param,
-        });
+    run.root.cte_scan_params.push(types_pathnodes::CteScanParam {
+        rti: rti as u32,
+        plan_id,
+        cte_param,
+    });
     let cteplan = run
         .glob
         .subplans
@@ -363,23 +359,17 @@ pub fn set_worktable_pathlist(run: &mut PlannerRun<'_>, rel: RelId, rti: usize) 
             up <= run.suspended_roots.len(),
             "bad levelsup for CTE \"{ctename}\""
         );
-        let cteroot: &PlannerInfo<'_> = &run.suspended_roots[run.suspended_roots.len() - up].root;
+        let cteroot: &PlannerInfo<'_> =
+            &run.suspended_roots[run.suspended_roots.len() - up].root;
         (cteroot.wt_param_id, cteroot.non_recursive_path)
     };
-    assert!(
-        wt_param >= 0,
-        "could not find param ID for CTE \"{ctename}\""
-    );
+    assert!(wt_param >= 0, "could not find param ID for CTE \"{ctename}\"");
     let nr_rows = {
         let pid = nr_path.unwrap_or_else(|| panic!("could not find path for CTE \"{ctename}\""));
         if up == 0 {
             run.root.path(pid).base().rows
         } else {
-            run.suspended_roots[run.suspended_roots.len() - up]
-                .root
-                .path(pid)
-                .base()
-                .rows
+            run.suspended_roots[run.suspended_roots.len() - up].root.path(pid).base().rows
         }
     };
     run.root.self_ref_wt_params.push((rti as u32, wt_param));
@@ -409,7 +399,8 @@ fn resolve_cte_plan(run: &PlannerRun<'_>, rte: &RangeTblEntry<'_>) -> (i32, i32)
     let ndx = cteroot
         .cte_list
         .iter()
-        .position(|c| c.as_common_table_expr().expect("cteList cell").ctename == Some(ctename))
+        .position(|c|
+            c.as_common_table_expr().expect("cteList cell").ctename == Some(ctename))
         .unwrap_or_else(|| panic!("could not find CTE \"{ctename}\""));
     assert!(
         ndx < cteroot.cte_plan_ids.len(),

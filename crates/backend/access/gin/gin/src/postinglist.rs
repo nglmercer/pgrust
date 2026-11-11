@@ -3,7 +3,8 @@
 //! zero padding).
 
 use ::gin_vocab::{
-    ginCompareItemPointers, gin_item_pointer_block, gin_item_pointer_offset,
+    ginCompareItemPointers,
+    gin_item_pointer_block, gin_item_pointer_offset,
     size_of_gin_posting_list, SizeOfGinPostingListHeader, SHORTALIGN,
 };
 use ::mcx::{vec_append_bytes, Mcx, PgVec};
@@ -61,6 +62,7 @@ fn decode_varbyte(p: &[u8], pos: &mut usize) -> Option<u64> {
         shift += 7;
     }
 }
+
 
 #[inline]
 pub fn seg_first(seg: &[u8]) -> ItemPointerData {
@@ -131,9 +133,7 @@ pub(crate) fn ginCompressPostingList<'mcx>(
     vec_append_bytes(&mut out, &[0u8; SizeOfGinPostingListHeader])?;
     // SAFETY: 8-byte header written above.
     unsafe {
-        out.as_mut_ptr()
-            .cast::<ItemPointerData>()
-            .write_unaligned(first);
+        out.as_mut_ptr().cast::<ItemPointerData>().write_unaligned(first);
     }
 
     let mut prev = itemptr_to_uint64(&first);
@@ -187,8 +187,7 @@ pub fn ginPostingListDecodeAllSegments(
         debug_assert!(out.is_empty() || ginCompareItemPointers(&first, out.last().unwrap()) > 0);
 
         let nbytes = seg_nbytes(seg);
-        out.try_reserve(nbytes + 1)
-            .map_err(|_| mcx.oom(nbytes + 1))?;
+        out.try_reserve(nbytes + 1).map_err(|_| mcx.oom(nbytes + 1))?;
         out.push(first);
 
         let mut val = itemptr_to_uint64(&first);
@@ -224,7 +223,8 @@ pub(crate) fn ginMergeItemPointers<'mcx>(
     a: &[ItemPointerData],
     b: &[ItemPointerData],
 ) -> PgResult<PgVec<'mcx, ItemPointerData>> {
-    let mut dst: PgVec<'mcx, ItemPointerData> = mcx::vec_with_capacity_in(mcx, a.len() + b.len())?;
+    let mut dst: PgVec<'mcx, ItemPointerData> =
+        mcx::vec_with_capacity_in(mcx, a.len() + b.len())?;
 
     if a.is_empty() || b.is_empty() || ginCompareItemPointers(&a[a.len() - 1], &b[0]) < 0 {
         vec_append(&mut dst, a)?;

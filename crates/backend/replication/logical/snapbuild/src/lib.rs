@@ -1,6 +1,4 @@
-#![allow(non_snake_case)]
-#![allow(non_upper_case_globals)]
-#![allow(clippy::result_large_err)]
+#![allow(clippy::result_large_err, non_snake_case, non_upper_case_globals)]
 
 pub mod ondisk;
 #[cfg(test)]
@@ -463,7 +461,7 @@ impl SnapBuild {
     ) -> PgResult<()> {
         // C fetches the committing xid's invalidations per iteration; the list
         // is loop-invariant, so it is hoisted (and copied out of rb's borrow).
-        let msgs = ::mcx::std_vec_from_slice("replication", rb.get_invalidations(xid))?;
+        let msgs = ::mcx::std_vec_from_slice("replication",rb.get_invalidations(xid))?;
         let txns: Vec<reorderbuffer::TxnId> = rb.toplevel_txns().collect();
 
         for id in txns {

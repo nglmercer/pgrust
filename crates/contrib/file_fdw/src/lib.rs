@@ -787,7 +787,8 @@ fn file_rescan_foreign_scan<'mcx>(
     if let Some(cstate) = f.cstate.take() {
         copy_cmd::EndCopyFrom(cstate)?;
     }
-    *f.copycx = mcx.context().new_child_wholesale("COPY");
+    *
+    f.copycx =mcx.context().new_child_wholesale("COPY");
     // SAFETY: undoes the begin-time 'static restamp (same es_query_cxt).
     let options =
         unsafe { core::mem::transmute::<&NodeList<'static>, &NodeList<'mcx>>(&f.options) };

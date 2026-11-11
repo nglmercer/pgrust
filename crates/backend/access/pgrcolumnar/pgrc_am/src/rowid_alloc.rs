@@ -39,11 +39,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use pgrc_format::dirlayout::{ROWID_FILE_NAME, SEGEXT_FILE_NAME};
-use pgrc_format::rowid::{
-    align_up, decode_rowid_file, decode_segext, encode_rowid_file, encode_segext, SegExtent,
-    IDS_PER_BLOCK, ROWID_FIRST, ROWID_LIMIT, SEGEXT_MAX_ENTRIES, SEG_EXTENT_IDS, SEG_MAX_EXTENTS,
-    SEG_SOFT_EXTENTS,
-};
+use pgrc_format::rowid::{align_up, decode_rowid_file, decode_segext, encode_rowid_file, encode_segext, SegExtent, IDS_PER_BLOCK, ROWID_FIRST, ROWID_LIMIT, SEGEXT_MAX_ENTRIES, SEG_EXTENT_IDS, SEG_MAX_EXTENTS, SEG_SOFT_EXTENTS,};
 use pgrc_write::wvfs::WriteVfs;
 use pgrc_write::{WriteError, WriteResult};
 use types_error::{PgError, PgResult};
@@ -52,10 +48,7 @@ use types_rel::RelationData;
 /// A row's ctid from its ID (re-exported for the AM dispatch, which does not see the format crate).
 pub use pgrc_format::rowid::tid_of;
 
-const _: () = assert!(
-    IDS_PER_BLOCK == types_storage::bufpage::MaxHeapTuplesPerPage as u64,
-    "a virtual block is a heap page's offsets"
-);
+const _: () = assert!(IDS_PER_BLOCK == types_storage::bufpage::MaxHeapTuplesPerPage as u64, "a virtual block is a heap page's offsets");
 
 /// The smallest batch a reservation raises the durable mark by (the `VAR_OID_PREFETCH` pattern).
 pub const PREFETCH: u64 = align_up(64 * 1024);
@@ -131,11 +124,7 @@ impl Extents {
         let mut by_base: Vec<u32> = (0..table.len() as u32).collect();
         by_base.sort_unstable_by_key(|&i| table[i as usize].base);
         let widest = table.iter().map(|e| e.idx + 1).max().unwrap_or(0);
-        Extents {
-            table,
-            by_base,
-            widest,
-        }
+        Extents { table, by_base, widest, }
     }
 
     /// The most extents any one segment has (the soft per-segment cap's check, `rowid::SEG_SOFT_EXTENTS`).
@@ -150,10 +139,7 @@ impl Extents {
 
     /// The base of extent `idx` of segment `part_no`, if reserved.
     pub fn base(&self, part_no: u32, idx: u32) -> Option<u64> {
-        self.table
-            .binary_search_by_key(&(part_no, idx), |e| (e.part_no, e.idx))
-            .ok()
-            .map(|i| self.table[i].base)
+        self.table.binary_search_by_key(&(part_no, idx), |e| (e.part_no, e.idx)).ok().map(|i| self.table[i].base)
     }
 
     pub fn table(&self) -> &[SegExtent] {
@@ -170,71 +156,45 @@ impl Extents {
 
     /// The segment `id` belongs to and its local position there: `(part_no, local)`.
     pub fn seg_of(&self, id: u64) -> Option<(u32, u32)> {
-        let at = self
-            .by_base
-            .partition_point(|&i| self.table[i as usize].base <= id)
-            .checked_sub(1)?;
+        let at = self.by_base.partition_point(|&i| self.table[i as usize].base <= id).checked_sub(1)?;
         let e = self.table[self.by_base[at] as usize];
-        (id - e.base < SEG_EXTENT_IDS).then(|| {
-            (
-                e.part_no,
-                (u64::from(e.idx) * SEG_EXTENT_IDS + (id - e.base)) as u32,
-            )
+        (id - e.base < SEG_EXTENT_IDS).then(|| { (e.part_no, (u64::from(e.idx) * SEG_EXTENT_IDS + (id - e.base)) as u32,)
         })
     }
 
     /// The bases of segment `part_no`'s extents, in extent order (`rowid::seg_id`'s `bases`).
     pub fn bases(&self, part_no: u32) -> Vec<u64> {
         let at = self.table.partition_point(|e| e.part_no < part_no);
-        self.table[at..]
-            .iter()
-            .take_while(|e| e.part_no == part_no)
-            .map(|e| e.base)
-            .collect()
+        self.table[at..].iter().take_while(|e| e.part_no == part_no).map(|e| e.base).collect()
     }
 
     /// Segment `part_no`'s extent count.
     pub fn count(&self, part_no: u32) -> u32 {
         let at = self.table.partition_point(|e| e.part_no < part_no);
-        self.table[at..]
-            .iter()
-            .take_while(|e| e.part_no == part_no)
-            .count() as u32
+        self.table[at..].iter().take_while(|e| e.part_no == part_no).count() as u32
     }
 }
 
 /// Segment `part_no`'s extents as the sealed part's `EXT_RANGES` entry: one range per extent, in extent order (the
 /// counter is monotone, so that is ID order; a table whose extents are not is refused).
 pub fn extent_ranges(bases: &[u64]) -> Option<pgrc_format::manifest::IdRanges> {
-    bases
-        .windows(2)
-        .all(|w| w[0] + SEG_EXTENT_IDS <= w[1])
-        .then(|| bases.iter().map(|&b| (b, b + SEG_EXTENT_IDS)).collect())
+    bases.windows(2).all(|w| w[0] + SEG_EXTENT_IDS <= w[1]).then(|| bases.iter().map(|&b| (b, b + SEG_EXTENT_IDS)).collect())
 }
 
 fn too_many_extents(name: &str) -> Box<PgError> {
     Box::new(
-        PgError::error(format!(
-            "pgrc table \"{name}\" has {SEGEXT_MAX_ENTRIES} live segment extents"
-        ))
-        .with_sqlstate(types_error::ERRCODE_PROGRAM_LIMIT_EXCEEDED)
-        .with_hint("Its segments are waiting to be sealed; retry once they are."),
+        PgError::error(format!("pgrc table \"{name}\" has {SEGEXT_MAX_ENTRIES} live segment extents"))
+            .with_sqlstate(types_error::ERRCODE_PROGRAM_LIMIT_EXCEEDED)
+            .with_hint("Its segments are waiting to be sealed; retry once they are."),
     )
 }
 
 /// D4537 T18c: `charge` fitted to `bytes` on the part cache (opened at the first bytes, closed at 0): the row-ID bookkeeping
 /// of a table directory leaves with the directory (`forget`, `forget_under`).
 fn fit(charge: &mut memledger::Charge, bytes: usize) {
-    const OWNER: memledger::Owner =
-        memledger::Owner::Cache(memledger::Holder::Of(memledger::Consumer::PartCache));
+    const OWNER: memledger::Owner = memledger::Owner::Cache(memledger::Holder::Of(memledger::Consumer::PartCache));
     if charge.owner() != OWNER {
-        *charge = memledger::Charge::open(
-            OWNER,
-            memledger::Release::Evict,
-            memledger::Kind::Region,
-            memledger::charge::Door::Heap,
-            0,
-        );
+        *charge = memledger::Charge::open(OWNER, memledger::Release::Evict, memledger::Kind::Region, memledger::charge::Door::Heap, 0,);
     }
     charge.fit_committed(bytes as u64);
 }
@@ -258,11 +218,7 @@ impl Default for Counters {
 
 impl Counters {
     fn refit(&mut self) {
-        let bytes = self
-            .by_dir
-            .keys()
-            .map(|k| size_of::<(String, State)>() + NODE + k.capacity())
-            .sum();
+        let bytes = self.by_dir.keys().map(|k| size_of::<(String, State)>() + NODE + k.capacity()).sum();
         fit(&mut self.charge, bytes);
     }
 
@@ -312,18 +268,11 @@ impl<K: Copy + PartialEq> Default for Flights<K> {
 
 impl<K: Copy + PartialEq> Flights<K> {
     pub const fn new() -> Flights<K> {
-        Flights {
-            all: Vec::new(),
-            charge: memledger::Charge::NONE,
-        }
+        Flights { all: Vec::new(), charge: memledger::Charge::NONE, }
     }
 
     fn refit(&mut self) {
-        let bytes = self
-            .all
-            .iter()
-            .map(|f| size_of::<Flight<K>>() + f.dir.capacity())
-            .sum();
+        let bytes = self.all.iter().map(|f| size_of::<Flight<K>>() + f.dir.capacity()).sum();
         fit(&mut self.charge, bytes);
     }
 
@@ -342,32 +291,15 @@ impl<K: Copy + PartialEq> Flights<K> {
     }
 
     /// `[lo, hi)` of the table in `dir`, granted to `owner`'s transaction `xid`, is in flight.
-    pub fn register(
-        &mut self,
-        dir: &str,
-        owner: K,
-        xid: types_core::TransactionId,
-        lo: u64,
-        hi: u64,
-    ) {
-        self.all.push(Flight {
-            dir: dir.to_string(),
-            owner: Some(owner),
-            xid,
-            lo,
-            hi,
-        }); // alloc: Cold
+    pub fn register(&mut self, dir: &str, owner: K, xid: types_core::TransactionId, lo: u64, hi: u64,) {
+        self.all.push(Flight { dir: dir.to_string(), owner: Some(owner), xid, lo, hi, }); // alloc: Cold
         self.refit();
     }
 
     /// `owner`'s transaction ended: its entries go, or (`detach`) stay ownerless.
     pub fn end(&mut self, owner: K, detach: bool) {
         match detach {
-            true => self
-                .all
-                .iter_mut()
-                .filter(|f| f.owner == Some(owner))
-                .for_each(|f| f.owner = None),
+            true => self.all.iter_mut().filter(|f| f.owner == Some(owner)).for_each(|f| f.owner = None),
             false => self.all.retain(|f| f.owner != Some(owner)),
         }
         self.refit();
@@ -375,11 +307,7 @@ impl<K: Copy + PartialEq> Flights<K> {
 
     /// The ranges of `dir` in flight, sorted by start: every owned entry, and every detached one whose transaction
     /// `in_progress` says still is (the others go).
-    pub fn of(
-        &mut self,
-        dir: &str,
-        in_progress: &mut dyn FnMut(types_core::TransactionId) -> PgResult<bool>,
-    ) -> PgResult<Vec<(u64, u64)>> {
+    pub fn of(&mut self, dir: &str, in_progress: &mut dyn FnMut(types_core::TransactionId) -> PgResult<bool>,) -> PgResult<Vec<(u64, u64)>> {
         let mut gone = Vec::new();
         let mut out = Vec::new();
         for (i, f) in self.all.iter().enumerate() {
@@ -420,17 +348,8 @@ pgsync::process_global! {
 }
 
 fn extents_bytes(m: &BTreeMap<String, Arc<Extents>>) -> usize {
-    m.iter()
-        .map(|(d, e)| {
-            size_of::<(String, Arc<Extents>)>()
-                + NODE
-                + d.capacity()
-                + 2 * size_of::<usize>()
-                + size_of::<Extents>()
-                + e.table.capacity() * size_of::<SegExtent>()
-                + e.by_base.capacity() * size_of::<u32>()
-        })
-        .sum()
+    m.iter().map(|(d, e)| { size_of::<(String, Arc<Extents>)>() + NODE + d.capacity() + 2 * size_of::<usize>() + size_of::<Extents>() + e.table.capacity() * size_of::<SegExtent>() + e.by_base.capacity() * size_of::<u32>()
+        }).sum()
 }
 
 fn refit_extents(m: &BTreeMap<String, Arc<Extents>>) {
@@ -477,10 +396,7 @@ pub fn out_of_ids(name: &str) -> Box<PgError> {
 
 impl Counters {
     pub const fn new() -> Counters {
-        Counters {
-            by_dir: BTreeMap::new(),
-            charge: memledger::Charge::NONE,
-        }
+        Counters { by_dir: BTreeMap::new(), charge: memledger::Charge::NONE, }
     }
 
     fn state(&self, dir: &str, io: &mut dyn Io) -> PgResult<State> {
@@ -489,12 +405,7 @@ impl Counters {
             None => {
                 let h = io.load(dir)?.max(ROWID_FIRST);
                 if h > ROWID_LIMIT {
-                    return Err(Box::new(
-                        PgError::error(format!(
-                            "pgrc row-ID mark {h} of \"{dir}\" is past the ID space"
-                        ))
-                        .with_sqlstate(types_error::ERRCODE_DATA_CORRUPTED),
-                    ));
+                    return Err(Box::new(PgError::error(format!("pgrc row-ID mark {h} of \"{dir}\" is past the ID space")).with_sqlstate(types_error::ERRCODE_DATA_CORRUPTED),));
                 }
                 State { next: h, high: h }
             }
@@ -502,17 +413,9 @@ impl Counters {
     }
 
     /// Reserves `align_up(n)` IDs of the table in `dir` (`name` for messages): `1 <= n <= 2^40`.
-    pub fn reserve(
-        &mut self,
-        dir: &str,
-        name: &str,
-        n: u64,
-        io: &mut dyn Io,
-    ) -> PgResult<Reserved> {
+    pub fn reserve(&mut self, dir: &str, name: &str, n: u64, io: &mut dyn Io,) -> PgResult<Reserved> {
         if n == 0 || n > ROWID_LIMIT {
-            return Err(invalid(format!(
-                "pgrc row-ID reservation of {n} IDs is out of range"
-            )));
+            return Err(invalid(format!("pgrc row-ID reservation of {n} IDs is out of range")));
         }
         let st = self.state(dir, io)?;
         let lo = st.next;
@@ -536,12 +439,7 @@ impl Counters {
     /// durable `high` stays. Whether it went back (else it is burned).
     pub fn give_back(&mut self, dir: &str, from: u64, to: u64) -> bool {
         match self.by_dir.get_mut(dir) {
-            Some(st)
-                if st.next == to
-                    && ROWID_FIRST <= from
-                    && from < to
-                    && from.is_multiple_of(IDS_PER_BLOCK) =>
-            {
+            Some(st) if st.next == to && ROWID_FIRST <= from && from < to && from.is_multiple_of( IDS_PER_BLOCK) => {
                 st.next = from;
                 true
             }
@@ -569,16 +467,8 @@ impl Counters {
         Ok(publish_extents(dir, Extents::new(io.load_extents(dir)?)))
     }
 
-    fn store_extents(
-        &mut self,
-        dir: &str,
-        table: Vec<SegExtent>,
-        io: &mut dyn Io,
-    ) -> PgResult<Arc<Extents>> {
-        let image = encode_segext(&table).map_err(|e| {
-            Box::new(PgError::error(format!(
-                "pgrc segment extent table of \"{dir}\": {e}"
-            )))
+    fn store_extents(&mut self, dir: &str, table: Vec<SegExtent>, io: &mut dyn Io,) -> PgResult<Arc<Extents>> {
+        let image = encode_segext(&table).map_err(|e| { Box::new(PgError::error(format!("pgrc segment extent table of \"{dir}\": {e}")))
         })?;
         io.persist_extents(dir, &image)?;
         Ok(publish_extents(dir, Extents::new(table)))
@@ -587,14 +477,7 @@ impl Counters {
     /// Extents `0..=idx` of segment `part_no` reserved (DV-1): the missing ones in order, each [`SEG_EXTENT_IDS`] IDs
     /// of the counter, then the table made durable once. The base of extent `idx`. Refused past
     /// [`SEGEXT_MAX_ENTRIES`] entries (the inserter's backpressure waits at the soft cap well before).
-    pub fn extend(
-        &mut self,
-        dir: &str,
-        name: &str,
-        part_no: u32,
-        idx: u32,
-        io: &mut dyn Io,
-    ) -> PgResult<u64> {
+    pub fn extend(&mut self, dir: &str, name: &str, part_no: u32, idx: u32, io: &mut dyn Io,) -> PgResult<u64> {
         let cur = self.extents(dir, io)?;
         let have = cur.count(part_no);
         if idx < have {
@@ -606,11 +489,7 @@ impl Counters {
         let mut table = crate::alloc::try_to_vec(cur.table(), "rowid_alloc")?;
         for k in have..=idx {
             let r = self.reserve(dir, name, SEG_EXTENT_IDS, io)?;
-            table.push(SegExtent {
-                part_no,
-                idx: k,
-                base: r.lo,
-            });
+            table.push(SegExtent { part_no, idx: k, base: r.lo, });
         }
         table.sort_unstable_by_key(|e| (e.part_no, e.idx));
         let base = self.store_extents(dir, table, io)?.bases(part_no)[idx as usize];
@@ -622,19 +501,9 @@ impl Counters {
 
     /// The extent table keeping only the segments `keep` names (DV-1's prune, at a slot's activation). Nothing is
     /// written when nothing goes. How many entries went.
-    pub fn prune(
-        &mut self,
-        dir: &str,
-        keep: &dyn Fn(u32) -> bool,
-        io: &mut dyn Io,
-    ) -> PgResult<usize> {
+    pub fn prune(&mut self, dir: &str, keep: &dyn Fn(u32) -> bool, io: &mut dyn Io,) -> PgResult<usize> {
         let cur = self.extents(dir, io)?;
-        let table: Vec<SegExtent> = cur
-            .table()
-            .iter()
-            .filter(|e| keep(e.part_no))
-            .copied()
-            .collect();
+        let table: Vec<SegExtent> = cur.table().iter().filter(|e| keep(e.part_no)).copied().collect();
         let gone = cur.len() - table.len();
         if gone > 0 {
             self.store_extents(dir, table, io)?;
@@ -686,10 +555,7 @@ pub fn file_path(dir: &str) -> String {
 pub fn read_file(vfs: &mut dyn WriteVfs, dir: &str) -> WriteResult<Option<u64>> {
     match vfs.read_full(&file_path(dir)) {
         Ok(b) => decode_rowid_file(&b).map(Some).map_err(WriteError::Format),
-        Err(WriteError::Io {
-            errno: libc::ENOENT,
-            ..
-        }) => Ok(None),
+        Err(WriteError::Io { errno: libc::ENOENT, .. }) => Ok(None),
         Err(e) => Err(e),
     }
 }
@@ -700,10 +566,7 @@ pub fn read_file(vfs: &mut dyn WriteVfs, dir: &str) -> WriteResult<Option<u64>> 
 pub fn write_file(vfs: &mut dyn WriteVfs, dir: &str, high: u64) -> WriteResult<()> {
     let path = file_path(dir);
     let fd = match vfs.open_rw(&path) {
-        Err(WriteError::Io {
-            errno: libc::ENOENT,
-            ..
-        }) => vfs.create_rw(&path)?,
+        Err(WriteError::Io { errno: libc::ENOENT, .. }) => vfs.create_rw(&path)?,
         r => r?,
     };
     let w = vfs.pwrite_at(&fd, 0, &encode_rowid_file(high));
@@ -740,10 +603,7 @@ pub fn segext_path(dir: &str) -> String {
 pub fn read_segext(vfs: &mut dyn WriteVfs, dir: &str) -> WriteResult<Vec<SegExtent>> {
     match vfs.read_full(&segext_path(dir)) {
         Ok(b) => decode_segext(&b).map_err(WriteError::Format),
-        Err(WriteError::Io {
-            errno: libc::ENOENT,
-            ..
-        }) => Ok(Vec::new()),
+        Err(WriteError::Io { errno: libc::ENOENT, .. }) => Ok(Vec::new()),
         Err(e) => Err(e),
     }
 }
@@ -753,10 +613,7 @@ pub fn read_segext(vfs: &mut dyn WriteVfs, dir: &str) -> WriteResult<Vec<SegExte
 pub fn write_segext(vfs: &mut dyn WriteVfs, dir: &str, image: &[u8]) -> WriteResult<()> {
     let path = segext_path(dir);
     let fd = match vfs.open_rw(&path) {
-        Err(WriteError::Io {
-            errno: libc::ENOENT,
-            ..
-        }) => vfs.create_rw(&path)?,
+        Err(WriteError::Io { errno: libc::ENOENT, .. }) => vfs.create_rw(&path)?,
         r => r?,
     };
     let w = vfs.pwrite_at(&fd, 0, image);
@@ -829,14 +686,11 @@ struct RelIo<'a, 'mcx> {
 
 impl Io for RelIo<'_, '_> {
     fn load(&mut self, dir: &str) -> PgResult<u64> {
-        let file = read_file(&mut pgrc_write::wvfs::RealVfs, dir)
-            .map_err(crate::write_error)?
-            .unwrap_or(0);
+        let file = read_file(&mut pgrc_write::wvfs::RealVfs, dir).map_err(crate::write_error)?.unwrap_or(0);
         let l = self.rel.rd_locator.get();
         let floor = match crate::catalog::generations((l.spcOid, l.dbOid, l.relNumber as u64)) {
             Some((gens, _)) => match gens.last() {
-                Some(g) => pgrc_format::manifest::next_row_id(&g.manifest)
-                    .map_err(|e| crate::write_error(WriteError::Format(e)))?,
+                Some(g) => pgrc_format::manifest::next_row_id(&g.manifest).map_err(|e| crate::write_error(WriteError::Format(e)))?,
                 None => 0,
             },
             None => 0,
@@ -866,16 +720,9 @@ impl Io for RelIo<'_, '_> {
 
     fn warn(&mut self, left: u64) -> PgResult<()> {
         elog::ereport(types_error::WARNING)
-            .errmsg(format!(
-                "pgrc table \"{}\" has {left} row IDs left",
-                self.rel.name()
-            ))
+            .errmsg(format!("pgrc table \"{}\" has {left} row IDs left", self.rel.name()))
             .errhint("VACUUM FULL renumbers the table.")
-            .finish(types_error::ErrorLocation::new(
-                file!(),
-                line!() as i32,
-                "rowid_alloc::reserve",
-            ))
+            .finish(types_error::ErrorLocation::new(file!(), line!() as i32, "rowid_alloc::reserve",))
     }
 }
 
@@ -945,13 +792,7 @@ pub fn extend(rel: &RelationData<'_>, part_no: u32, idx: u32) -> PgResult<u64> {
     extend_with(&dir_of(rel), rel.name(), part_no, idx, &mut RelIo { rel })
 }
 
-pub fn extend_with(
-    dir: &str,
-    name: &str,
-    part_no: u32,
-    idx: u32,
-    io: &mut dyn Io,
-) -> PgResult<u64> {
+pub fn extend_with(dir: &str, name: &str, part_no: u32, idx: u32, io: &mut dyn Io,) -> PgResult<u64> {
     if let Some(b) = published(dir).and_then(|e| e.base(part_no, idx)) {
         return Ok(b);
     }
@@ -985,12 +826,7 @@ pub fn reset(rel: &RelationData<'_>, next: u64, keep: &dyn Fn(u32) -> bool) -> P
     let mut io = RelIo { rel };
     let mut c = pgsync::lock(&COUNTERS);
     c.prune(&dir, keep, &mut io)?;
-    let next = c
-        .extents(&dir, &mut io)?
-        .table()
-        .iter()
-        .map(|e| e.base + SEG_EXTENT_IDS)
-        .fold(align_up(next.max(ROWID_FIRST)), u64::max);
+    let next = c.extents(&dir, &mut io)?.table().iter().map(|e| e.base + SEG_EXTENT_IDS).fold(align_up(next.max(ROWID_FIRST)), u64::max);
     pgrc_wal_seams::log_rowid_set::call(rel, &dir, next)?;
     c.set(&dir, next);
     Ok(next)
@@ -1031,24 +867,13 @@ fn dense(rows: u64, ids: &[(u64, u64)]) -> bool {
 /// rewritten at the lowest place at or above the cursor that no other part's ranges touch. `None`: every part is dense
 /// below the cursor. Each step leaves one more part dense below the cursor, so `parts.len()` steps finish.
 pub fn renumber_next(cursor: u64, parts: &[(u32, u64, &[(u64, u64)])]) -> Option<RenumberStep> {
-    let done =
-        |rows: u64, ids: &[(u64, u64)]| rows == 0 || (dense(rows, ids) && ids[0].1 <= cursor);
-    let (part_no, rows, ids) = *parts
-        .iter()
-        .filter(|p| !done(p.1, p.2))
-        .min_by_key(|p| (p.2.first().map_or(0, |r| r.0), p.0))?;
-    let mut taken: Vec<(u64, u64)> = parts
-        .iter()
-        .filter(|p| p.0 != part_no)
-        .flat_map(|p| p.2.iter().copied())
-        .collect();
+    let done = |rows: u64, ids: &[(u64, u64)]| rows == 0 || (dense(rows, ids) && ids[0].1 <= cursor);
+    let (part_no, rows, ids) = *parts.iter().filter(|p| !done(p.1, p.2)).min_by_key(|p| (p.2.first().map_or(0, |r| r.0), p.0))?;
+    let mut taken: Vec<(u64, u64)> = parts.iter().filter(|p| p.0 != part_no).flat_map(|p| p.2.iter().copied()).collect();
     taken.sort_unstable();
     let base = renumber_place(cursor, align_up(rows), &taken);
     Some(match dense(rows, ids) && ids[0].0 == base {
-        true => RenumberStep::Keep {
-            part_no,
-            hi: ids[0].1,
-        },
+        true => RenumberStep::Keep { part_no, hi: ids[0].1, },
         false => RenumberStep::Rewrite { part_no, base },
     })
 }
@@ -1069,9 +894,7 @@ pgsync::process_global! {
 }
 
 fn renumbered_bytes(m: &BTreeMap<String, Renumbered>) -> usize {
-    m.keys()
-        .map(|d| size_of::<(String, Renumbered)>() + NODE + d.capacity())
-        .sum()
+    m.keys().map(|d| size_of::<(String, Renumbered)>() + NODE + d.capacity()).sum()
 }
 
 pub fn note_renumber(rel: &RelationData<'_>, r: Renumbered) {
@@ -1094,11 +917,9 @@ pub fn forget_renumbered(gone: impl Fn(&str) -> bool) {
 pub fn renumber_text(rel: &RelationData<'_>) -> String {
     match pgsync::lock(&RENUMBERED).get(&dir_of(rel)) {
         None => "renumber none rewritten 0 visible 0".to_string(),
-        Some(Renumbered::Done { rewritten }) => {
-            format!("renumber done rewritten {rewritten} visible 0")
+        Some(Renumbered::Done { rewritten }) => { format!("renumber done rewritten {rewritten} visible 0")
         }
-        Some(Renumbered::Skipped { visible }) => {
-            format!("renumber skipped rewritten 0 visible {visible}")
+        Some(Renumbered::Skipped { visible }) => { format!("renumber skipped rewritten 0 visible {visible}")
         }
     }
 }
@@ -1108,14 +929,10 @@ struct FileIo;
 
 impl Io for FileIo {
     fn load(&mut self, _dir: &str) -> PgResult<u64> {
-        Err(Box::new(PgError::error(
-            "pgrc row-ID counter: a reader's load",
-        )))
+        Err(Box::new(PgError::error("pgrc row-ID counter: a reader's load",)))
     }
     fn persist(&mut self, _dir: &str, _high: u64) -> PgResult<()> {
-        Err(Box::new(PgError::error(
-            "pgrc row-ID counter: a reader's persist",
-        )))
+        Err(Box::new(PgError::error("pgrc row-ID counter: a reader's persist",)))
     }
     fn warn(&mut self, _left: u64) -> PgResult<()> {
         Ok(())
@@ -1124,9 +941,7 @@ impl Io for FileIo {
         read_segext(&mut pgrc_write::wvfs::RealVfs, dir).map_err(crate::write_error)
     }
     fn persist_extents(&mut self, _dir: &str, _image: &[u8]) -> PgResult<()> {
-        Err(Box::new(PgError::error(
-            "pgrc segment extents: a reader's persist",
-        )))
+        Err(Box::new(PgError::error("pgrc segment extents: a reader's persist",)))
     }
     fn warn_wide(&mut self, _part_no: u32, _extents: u32) -> PgResult<()> {
         Ok(())
@@ -1142,37 +957,24 @@ mod tests {
     fn removed_directories_take_their_renumber_notes() {
         let note = |d: &str| (d.to_string(), Renumbered::Done { rewritten: 1 });
         let (kept, sibling) = ("/d4742/base/1/pgrc_5", "/d4742/base/20/pgrc_5");
-        pgsync::lock(&RENUMBERED).extend([
-            note("/d4742/base/2/pgrc_5"),
-            note("/d4742/base/2/pgrc_6"),
-            note(kept),
-            note(sibling),
-        ]);
+        pgsync::lock(&RENUMBERED).extend([note("/d4742/base/2/pgrc_5"), note("/d4742/base/2/pgrc_6"), note(kept), note(sibling),]);
         forget_renumbered(|d| d == "/d4742/base/2/pgrc_6");
         assert!(!pgsync::lock(&RENUMBERED).contains_key("/d4742/base/2/pgrc_6"));
         forget_under("/d4742/base/2");
         let m = pgsync::lock(&RENUMBERED);
         assert!(!m.keys().any(|d| d.starts_with("/d4742/base/2/")));
-        assert!(
-            m.contains_key(kept) && m.contains_key(sibling),
-            "another database's notes stay"
-        );
+        assert!(m.contains_key(kept) && m.contains_key(sibling), "another database's notes stay");
     }
 
     #[test]
     fn a_reservation_is_in_flight_until_its_owner_ends_and_a_detached_one_while_its_xid_runs() {
         let mut f: Flights<u32> = Flights::new();
-        let never = &mut |_: types_core::TransactionId| -> PgResult<bool> {
-            panic!("an owned entry asks no xid")
-        };
+        let never = &mut |_: types_core::TransactionId| -> PgResult<bool> { panic!("an owned entry asks no xid") };
         f.register("t1", 1, 700, 291, 582);
         f.register("t1", 2, 701, 1164, 1455);
         f.register("t2", 1, 700, 873, 1164);
         f.register("t1", 1, 700, 0, 291);
-        assert_eq!(
-            f.of("t1", never).unwrap(),
-            vec![(0, 291), (291, 582), (1164, 1455)]
-        );
+        assert_eq!(f.of("t1", never).unwrap(), vec![(0, 291), (291, 582), (1164, 1455)]);
         assert_eq!(f.of("t2", never).unwrap(), vec![(873, 1164)]);
         // owner 1 commits: its entries of both tables go
         f.end(1, false);
@@ -1204,12 +1006,7 @@ mod tests {
 
     impl Io for Mock {
         fn load(&mut self, dir: &str) -> PgResult<u64> {
-            Ok(self
-                .files
-                .get(dir)
-                .copied()
-                .unwrap_or(0)
-                .max(self.floor.get(dir).copied().unwrap_or(0)))
+            Ok(self.files.get(dir).copied().unwrap_or(0).max(self.floor.get(dir).copied().unwrap_or(0)))
         }
         fn persist(&mut self, dir: &str, high: u64) -> PgResult<()> {
             self.persisted.push((dir.to_string(), high));
@@ -1221,11 +1018,7 @@ mod tests {
             Ok(())
         }
         fn load_extents(&mut self, dir: &str) -> PgResult<Vec<SegExtent>> {
-            Ok(self
-                .segext
-                .get(dir)
-                .map(|b| decode_segext(b).unwrap())
-                .unwrap_or_default())
+            Ok(self.segext.get(dir).map(|b| decode_segext(b).unwrap()).unwrap_or_default())
         }
         fn persist_extents(&mut self, dir: &str, image: &[u8]) -> PgResult<()> {
             self.extents_logged += 1;
@@ -1242,35 +1035,14 @@ mod tests {
     fn a_new_table_starts_at_291_and_persists_before_handing_out() {
         let (mut c, mut io) = (Counters::new(), Mock::default());
         let r = c.reserve("d", "t", 1, &mut io).unwrap();
-        assert_eq!(
-            r,
-            Reserved {
-                lo: ROWID_FIRST,
-                hi: ROWID_FIRST + 291
-            }
-        );
-        assert_eq!(
-            io.persisted,
-            vec![("d".to_string(), r.hi + PREFETCH)],
-            "one prefetch batch past the end"
-        );
+        assert_eq!(r, Reserved { lo: ROWID_FIRST, hi: ROWID_FIRST + 291 });
+        assert_eq!(io.persisted, vec![("d".to_string(), r.hi + PREFETCH)], "one prefetch batch past the end");
         let r2 = c.reserve("d", "t", 292, &mut io).unwrap();
-        assert_eq!(
-            r2,
-            Reserved {
-                lo: r.hi,
-                hi: r.hi + 582
-            },
-            "aligned, contiguous"
-        );
+        assert_eq!(r2, Reserved { lo: r.hi, hi: r.hi + 582 }, "aligned, contiguous");
         assert_eq!(io.persisted.len(), 1, "inside the batch: no new WAL");
         let big = c.reserve("d", "t", 2 * PREFETCH, &mut io).unwrap();
         assert_eq!(big.lo, r2.hi);
-        assert_eq!(
-            io.persisted.last(),
-            Some(&("d".to_string(), big.hi + PREFETCH)),
-            "a request past the batch persists its own end plus a batch"
-        );
+        assert_eq!(io.persisted.last(), Some(&("d".to_string(), big.hi + PREFETCH)), "a request past the batch persists its own end plus a batch");
         for w in [r, r2, big] {
             assert!(w.lo % 291 == 0 && w.hi % 291 == 0 && w.lo < w.hi);
         }
@@ -1284,11 +1056,7 @@ mod tests {
         let r = c.reserve("d", "t", 1, &mut io).unwrap();
         assert_eq!(io.persisted, vec![("d".to_string(), r.hi + PREFETCH)]);
         let big = c.reserve("d", "t", 4 * PREFETCH, &mut io).unwrap();
-        assert_eq!(
-            io.persisted.last(),
-            Some(&("d".to_string(), big.hi + PREFETCH)),
-            "a grant larger than a batch"
-        );
+        assert_eq!(io.persisted.last(), Some(&("d".to_string(), big.hi + PREFETCH)), "a grant larger than a batch");
         let n = io.persisted.len();
         c.reserve("d", "t", PREFETCH - 291, &mut io).unwrap();
         assert_eq!(io.persisted.len(), n, "inside the slack: no new WAL");
@@ -1303,35 +1071,18 @@ mod tests {
         let a = c.reserve("d", "t", 1164, &mut io).unwrap();
         let high = io.files["d"];
         assert!(c.give_back("d", a.lo + 291, a.hi), "nothing came after it");
-        assert_eq!(
-            c.marks("d", &mut io).unwrap(),
-            (a.lo + 291, high),
-            "next back at the used end; high unchanged"
-        );
+        assert_eq!(c.marks("d", &mut io).unwrap(), (a.lo + 291, high), "next back at the used end; high unchanged");
         let b = c.reserve("d", "t", 1164, &mut io).unwrap();
         assert_eq!(b.lo, a.lo + 291, "the tail is handed out again");
         let other = c.reserve("d", "t", 291, &mut io).unwrap();
-        assert!(
-            !c.give_back("d", b.lo + 291, b.hi),
-            "another grant came after: the tail is burned"
-        );
+        assert!(!c.give_back("d", b.lo + 291, b.hi), "another grant came after: the tail is burned");
         assert_eq!(c.marks("d", &mut io).unwrap().0, other.hi);
-        assert!(
-            !c.give_back("d", other.lo + 1, other.hi),
-            "a tail starts on a block"
-        );
-        assert!(
-            !c.give_back("e", 291, 582),
-            "no counter held: nothing to give back to"
-        );
+        assert!(!c.give_back("d", other.lo + 1, other.hi), "a tail starts on a block");
+        assert!(!c.give_back("e", 291, 582), "no counter held: nothing to give back to");
         assert!(!c.held("e"));
         assert_eq!(io.persisted.len(), 1, "every grant inside the first batch");
         let mut after = Counters::new();
-        assert_eq!(
-            after.reserve("d", "t", 1, &mut io).unwrap().lo,
-            high,
-            "a restart starts at high"
-        );
+        assert_eq!(after.reserve("d", "t", 1, &mut io).unwrap().lo, high, "a restart starts at high");
     }
 
     #[test]
@@ -1342,23 +1093,12 @@ mod tests {
         assert!(r.hi < high);
         let mut after = Counters::new();
         let r2 = after.reserve("d", "t", 10, &mut io).unwrap();
-        assert_eq!(
-            r2.lo, high,
-            "IDs between the handed-out end and the mark are never handed out again"
-        );
+        assert_eq!(r2.lo, high, "IDs between the handed-out end and the mark are never handed out again");
         io.floor.insert("e".into(), 10 * 291);
-        assert_eq!(
-            after.reserve("e", "t", 1, &mut io).unwrap().lo,
-            10 * 291,
-            "the manifest floor counts"
-        );
+        assert_eq!(after.reserve("e", "t", 1, &mut io).unwrap().lo, 10 * 291, "the manifest floor counts");
         io.files.insert("f".into(), 5 * 291);
         io.floor.insert("f".into(), 3 * 291);
-        assert_eq!(
-            after.reserve("f", "t", 1, &mut io).unwrap().lo,
-            5 * 291,
-            "the larger of file and floor"
-        );
+        assert_eq!(after.reserve("f", "t", 1, &mut io).unwrap().lo, 5 * 291, "the larger of file and floor");
     }
 
     #[test]
@@ -1366,11 +1106,7 @@ mod tests {
         let (mut c, mut io) = (Counters::new(), Mock::default());
         for n in [0, ROWID_LIMIT + 1, u64::MAX] {
             let e = c.reserve("d", "t", n, &mut io).unwrap_err();
-            assert_eq!(
-                e.sqlstate(),
-                types_error::ERRCODE_INVALID_PARAMETER_VALUE,
-                "{n}"
-            );
+            assert_eq!(e.sqlstate(), types_error::ERRCODE_INVALID_PARAMETER_VALUE, "{n}");
         }
         assert!(io.persisted.is_empty() && !c.held("d"));
     }
@@ -1384,11 +1120,7 @@ mod tests {
         let (mut c, mut io) = (Counters::new(), Mock::default());
         io.files.insert("d".into(), align_up(WARN_AT));
         let r = c.reserve("d", "t", 1, &mut io).unwrap();
-        assert_eq!(
-            io.warned,
-            vec![ROWID_LIMIT - r.hi],
-            "a WARNING per reservation past 90 %"
-        );
+        assert_eq!(io.warned, vec![ROWID_LIMIT - r.hi], "a WARNING per reservation past 90 %");
         // Burn to just under the refusal point, then one more is refused and changes nothing.
         let to_edge = REFUSE_AT / 291 * 291 - r.hi;
         let edge = c.reserve("d", "t", to_edge, &mut io).unwrap();
@@ -1398,15 +1130,8 @@ mod tests {
         assert_eq!(e.sqlstate(), types_error::ERRCODE_PROGRAM_LIMIT_EXCEEDED);
         assert!(e.message().contains("out of row IDs"), "{}", e.message());
         assert_eq!(io.persisted.len(), before);
-        assert_eq!(
-            c.reserve("d", "t", 1, &mut io).unwrap_err().sqlstate(),
-            types_error::ERRCODE_PROGRAM_LIMIT_EXCEEDED,
-            "refused, not advanced"
-        );
-        assert!(
-            io.files["d"] <= ROWID_LIMIT,
-            "the prefetch never passes the ID space"
-        );
+        assert_eq!(c.reserve("d", "t", 1, &mut io).unwrap_err().sqlstate(), types_error::ERRCODE_PROGRAM_LIMIT_EXCEEDED, "refused, not advanced");
+        assert!(io.files["d"] <= ROWID_LIMIT, "the prefetch never passes the ID space");
     }
 
     #[test]
@@ -1424,11 +1149,7 @@ mod tests {
         let n = io.persisted.len();
         let again = reserve_with(dir, "t", 1, &mut io).unwrap();
         assert_eq!(again.lo, ROWID_FIRST);
-        assert_eq!(
-            io.persisted.len(),
-            n + 1,
-            "the new directory's first reservation is persisted (WAL + file)"
-        );
+        assert_eq!(io.persisted.len(), n + 1, "the new directory's first reservation is persisted (WAL + file)");
         assert_eq!(io.files[dir], again.hi + PREFETCH);
         forget_under("t/ix0-recreate-db");
         assert!(!held(dir), "a removed database forgets its tables");
@@ -1445,11 +1166,8 @@ mod tests {
                     s.spawn(move || {
                         let mut io = Mock::default();
                         io.files.insert(dir.to_string(), ROWID_LIMIT / 2);
-                        (0..500u64)
-                            .map(|i| {
-                                reserve_with(dir, "t", 1 + (t * 7 + i) % 900, &mut io).unwrap()
-                            })
-                            .collect::<Vec<_>>()
+                        (0..500u64).map(|i| { reserve_with(dir, "t", 1 + (t * 7 + i) % 900, &mut io).unwrap()
+                            }).collect::<Vec<_>>()
                     })
                 })
                 .collect();
@@ -1484,25 +1202,15 @@ mod tests {
         assert_eq!(b2, mid.hi + SEG_EXTENT_IDS);
         assert_eq!(e.seg_of(b0 + 5), Some((7, 5)));
         assert_eq!(e.seg_of(b2 + 1), Some((7, 2 * SEG_EXTENT_IDS as u32 + 1)));
-        assert_eq!(
-            e.seg_of(mid.lo),
-            None,
-            "an ID of another reservation is no segment's"
-        );
+        assert_eq!(e.seg_of(mid.lo), None, "an ID of another reservation is no segment's");
         assert_eq!(e.seg_of(b2 + SEG_EXTENT_IDS), None);
-        assert_eq!(
-            extent_ranges(&e.bases(7)).unwrap()[1],
-            (mid.hi, mid.hi + SEG_EXTENT_IDS)
-        );
+        assert_eq!(extent_ranges(&e.bases(7)).unwrap()[1], (mid.hi, mid.hi + SEG_EXTENT_IDS));
         let b9 = c.extend(dir, "t", 9, 0, &mut io).unwrap();
         // a new process: the counter and the table come back from the files
         forget(dir);
         let mut again = Counters::new();
         assert_eq!(again.extents(dir, &mut io).unwrap().bases(9), vec![b9]);
-        assert!(
-            again.extend(dir, "t", 9, 1, &mut io).unwrap() >= b9 + SEG_EXTENT_IDS,
-            "never below a reserved extent"
-        );
+        assert!(again.extend(dir, "t", 9, 1, &mut io).unwrap() >= b9 + SEG_EXTENT_IDS, "never below a reserved extent");
         forget(dir);
     }
 
@@ -1518,33 +1226,18 @@ mod tests {
             f();
             extents_version() > v
         };
-        assert!(
-            moved(&mut || drop(c.extend(dir, "t", 3, 0, &mut io).unwrap())),
-            "the first extent"
-        );
+        assert!(moved(&mut || drop(c.extend(dir, "t", 3, 0, &mut io).unwrap())), "the first extent");
         #[allow(unused_attributes)]
         let before = published(dir).unwrap();
-        assert!(
-            moved(&mut || drop(c.extend(dir, "t", 3, 1, &mut io).unwrap())),
-            "a new extent"
-        );
+        assert!(moved(&mut || drop(c.extend(dir, "t", 3, 1, &mut io).unwrap())), "a new extent");
         let after = published(dir).unwrap();
         assert!(!Arc::ptr_eq(&before, &after) && after.count(3) == 2);
         c.extend(dir, "t", 3, 1, &mut io).unwrap();
-        assert!(
-            Arc::ptr_eq(&after, &published(dir).unwrap()),
-            "an extent already reserved publishes nothing"
-        );
-        assert!(
-            moved(&mut || drop(c.prune(dir, &|p| p != 3, &mut io).unwrap())),
-            "a prune that drops entries"
-        );
+        assert!(Arc::ptr_eq(&after, &published(dir).unwrap()), "an extent already reserved publishes nothing");
+        assert!(moved(&mut || drop(c.prune(dir, &|p| p != 3, &mut io).unwrap())), "a prune that drops entries");
         #[allow(unused_attributes)]
         assert!(moved(&mut || forget(dir)), "a forgotten directory");
-        assert!(
-            moved(&mut || drop(extents(dir).unwrap())),
-            "a load from the file"
-        );
+        assert!(moved(&mut || drop(extents(dir).unwrap())), "a load from the file");
         forget(dir);
     }
 
@@ -1580,8 +1273,7 @@ mod tests {
         assert_eq!(full, SEGEXT_MAX_ENTRIES / 64 * 64);
         let left = SEGEXT_MAX_ENTRIES - full;
         if left > 0 {
-            c.extend(dir, "t", 100_000, left as u32 - 1, &mut io)
-                .unwrap();
+            c.extend(dir, "t", 100_000, left as u32 - 1, &mut io).unwrap();
         }
         let n = io.extents_logged;
         let e = c.extend(dir, "t", 100_001, 0, &mut io).unwrap_err();
@@ -1597,77 +1289,32 @@ mod tests {
         let mut vfs = pgrc_write::wvfs::MemVfs::new();
         vfs.mkdir_path("s").unwrap();
         assert_eq!(read_segext(&mut vfs, "s").unwrap(), vec![]);
-        let long: Vec<SegExtent> = (0..5)
-            .map(|k| SegExtent {
-                part_no: 1,
-                idx: k,
-                base: ROWID_FIRST + u64::from(k) * SEG_EXTENT_IDS,
-            })
-            .collect();
+        let long: Vec<SegExtent> = (0..5).map(|k| SegExtent { part_no: 1, idx: k, base: ROWID_FIRST + u64::from(k) * SEG_EXTENT_IDS, }).collect();
         write_segext(&mut vfs, "s", &encode_segext(&long).unwrap()).unwrap();
         assert_eq!(read_segext(&mut vfs, "s").unwrap(), long);
         let short = long[..2].to_vec();
         write_segext(&mut vfs, "s", &encode_segext(&short).unwrap()).unwrap();
-        assert_eq!(
-            read_segext(&mut vfs, "s").unwrap(),
-            short,
-            "a shorter table over a longer file"
-        );
+        assert_eq!(read_segext(&mut vfs, "s").unwrap(), short, "a shorter table over a longer file");
         let fd = vfs.open_rw("s/segext").unwrap();
         vfs.pwrite_at(&fd, 14, &[0xee]).unwrap();
         vfs.close_file(fd).unwrap();
-        assert!(
-            read_segext(&mut vfs, "s").is_err(),
-            "a torn live region is an error, never a truncation"
-        );
+        assert!(read_segext(&mut vfs, "s").is_err(), "a torn live region is an error, never a truncation");
         redo_extents(&mut vfs, "s", &encode_segext(&short).unwrap()).unwrap();
-        assert_eq!(
-            read_segext(&mut vfs, "s").unwrap(),
-            short,
-            "redo repairs it from the record"
-        );
-        assert_eq!(
-            published("s").unwrap().bases(1),
-            vec![long[0].base, long[1].base],
-            "and a hot standby's readers see it"
-        );
+        assert_eq!(read_segext(&mut vfs, "s").unwrap(), short, "redo repairs it from the record");
+        assert_eq!(published("s").unwrap().bases(1), vec![long[0].base, long[1].base], "and a hot standby's readers see it");
         forget("s");
     }
 
     #[test]
     fn stats_read_used_left_and_percent() {
         let none = Extents::default();
-        assert_eq!(
-            stats_text(291, 291 + PREFETCH, &none),
-            format!(
-                "next 291 high {} used 291 left {} pct 0.0000 extents 0 widest 0 wide 0 past64 0",
-                291 + PREFETCH,
-                ROWID_LIMIT - 291
-            )
-        );
+        assert_eq!(stats_text(291, 291 + PREFETCH, &none), format!("next 291 high {} used 291 left {} pct 0.0000 extents 0 widest 0 wide 0 past64 0", 291 + PREFETCH, ROWID_LIMIT - 291));
         assert!(stats_text(ROWID_LIMIT / 2, ROWID_LIMIT / 2, &none).contains("pct 50.0000 "));
         assert!(stats_text(ROWID_LIMIT, ROWID_LIMIT, &none).contains("left 0 pct 100.0000"));
-        let ext = |part_no: u32, n: u32| {
-            (0..n).map(move |idx| SegExtent {
-                part_no,
-                idx,
-                base: 0,
-            })
+        let ext = |part_no: u32, n: u32| { (0..n).map(move |idx| SegExtent { part_no, idx, base: 0, })
         };
-        let e = Extents::new(
-            ext(1, 3)
-                .chain(ext(2, SEG_SOFT_EXTENTS))
-                .chain(ext(3, SEG_MAX_EXTENTS + 2))
-                .collect(),
-        );
-        assert!(
-            stats_text(291, 291, &e).ends_with(&format!(
-                "extents {} widest 66 wide 2 past64 1",
-                3 + 63 + 66
-            )),
-            "{}",
-            stats_text(291, 291, &e)
-        );
+        let e = Extents::new(ext(1, 3).chain(ext(2, SEG_SOFT_EXTENTS)).chain(ext(3, SEG_MAX_EXTENTS + 2)).collect(),);
+        assert!(stats_text(291, 291, &e).ends_with(&format!("extents {} widest 66 wide 2 past64 1", 3 + 63 + 66)), "{}", stats_text(291, 291, &e));
     }
 
     #[test]
@@ -1678,75 +1325,32 @@ mod tests {
         write_file(&mut vfs, "t", 582).unwrap();
         assert_eq!(read_file(&mut vfs, "t").unwrap(), Some(582));
         write_file(&mut vfs, "t", 873).unwrap();
-        assert_eq!(
-            read_file(&mut vfs, "t").unwrap(),
-            Some(873),
-            "rewritten in place"
-        );
+        assert_eq!(read_file(&mut vfs, "t").unwrap(), Some(873), "rewritten in place");
         redo_reserve(&mut vfs, "t", 291).unwrap();
-        assert_eq!(
-            read_file(&mut vfs, "t").unwrap(),
-            Some(873),
-            "redo never lowers the mark"
-        );
+        assert_eq!(read_file(&mut vfs, "t").unwrap(), Some(873), "redo never lowers the mark");
         redo_reserve(&mut vfs, "t", 1 << 20).unwrap();
         assert_eq!(read_file(&mut vfs, "t").unwrap(), Some(1 << 20));
         let fd = vfs.open_rw("t/rowid").unwrap();
         vfs.pwrite_at(&fd, 0, &[0xff; 4]).unwrap();
         vfs.close_file(fd).unwrap();
-        assert!(
-            read_file(&mut vfs, "t").is_err(),
-            "a damaged file is an error"
-        );
+        assert!(read_file(&mut vfs, "t").is_err(), "a damaged file is an error");
         redo_reserve(&mut vfs, "t", 1 << 21).unwrap();
-        assert_eq!(
-            read_file(&mut vfs, "t").unwrap(),
-            Some(1 << 21),
-            "redo repairs a damaged file from WAL"
-        );
+        assert_eq!(read_file(&mut vfs, "t").unwrap(), Some(1 << 21), "redo repairs a damaged file from WAL");
     }
 
     /// IX0 L4: the placement skips every range it would touch, and lands on 291-aligned IDs at or above the cursor.
     #[test]
     fn renumber_place_takes_the_lowest_clear_aligned_spot() {
         const B: u64 = IDS_PER_BLOCK;
-        assert_eq!(
-            renumber_place(0, 2 * B, &[]),
-            ROWID_FIRST,
-            "never below ROWID_FIRST"
-        );
+        assert_eq!(renumber_place(0, 2 * B, &[]), ROWID_FIRST, "never below ROWID_FIRST");
         assert_eq!(renumber_place(B + 5, B, &[]), 2 * B, "aligned up");
         let taken = [(2 * B, 3 * B), (5 * B, 6 * B), (100 * B, 200 * B)];
-        assert_eq!(
-            renumber_place(B, B, &taken),
-            B,
-            "fits before the first range"
-        );
-        assert_eq!(
-            renumber_place(B, 2 * B, &taken),
-            3 * B,
-            "touches [2B, 3B): moved past it, and [3B, 5B) is clear"
-        );
-        assert_eq!(
-            renumber_place(B, 3 * B, &taken),
-            6 * B,
-            "too wide for the gap before 5B"
-        );
-        assert_eq!(
-            renumber_place(B, 95 * B, &taken),
-            200 * B,
-            "too wide for [6B, 100B)"
-        );
-        assert_eq!(
-            renumber_place(150 * B, B, &taken),
-            200 * B,
-            "inside a range: past it"
-        );
-        assert_eq!(
-            renumber_place(300 * B, B, &taken),
-            300 * B,
-            "past every range"
-        );
+        assert_eq!(renumber_place(B, B, &taken), B, "fits before the first range");
+        assert_eq!(renumber_place(B, 2 * B, &taken), 3 * B, "touches [2B, 3B): moved past it, and [3B, 5B) is clear");
+        assert_eq!(renumber_place(B, 3 * B, &taken), 6 * B, "too wide for the gap before 5B");
+        assert_eq!(renumber_place(B, 95 * B, &taken), 200 * B, "too wide for [6B, 100B)");
+        assert_eq!(renumber_place(150 * B, B, &taken), 200 * B, "inside a range: past it");
+        assert_eq!(renumber_place(300 * B, B, &taken), 300 * B, "past every range");
     }
 
     /// IX0 L4: a renumber walks the parts from the lowest IDs (a part without IDs first), rewrites each to the lowest
@@ -1758,19 +1362,8 @@ mod tests {
         let ext = SEG_EXTENT_IDS;
         // a sealed segment's part (sparse: 2 extents for 700 rows), a bulk part, a part without IDs, an empty part
         let mut parts: Vec<(u32, u64, Vec<(u64, u64)>)> = vec![
-            (
-                3,
-                700,
-                vec![
-                    (ROWID_FIRST + ext, ROWID_FIRST + 2 * ext),
-                    (ROWID_FIRST + 5 * ext, ROWID_FIRST + 6 * ext),
-                ],
-            ),
-            (
-                7,
-                300,
-                vec![(ROWID_FIRST + 3 * ext, ROWID_FIRST + 3 * ext + 2 * B)],
-            ),
+            (3, 700, vec![(ROWID_FIRST + ext, ROWID_FIRST + 2 * ext), (ROWID_FIRST + 5 * ext, ROWID_FIRST + 6 * ext),],),
+            (7, 300, vec![(ROWID_FIRST + 3 * ext, ROWID_FIRST + 3 * ext + 2 * B)],),
             (9, 50, vec![]),
             (11, 0, vec![]),
         ];
@@ -1780,9 +1373,7 @@ mod tests {
         let (mut cursor, mut rewritten, mut steps) = (ROWID_FIRST, Vec::new(), 0);
         #[allow(clippy::while_let_loop)]
         loop {
-            let Some(step) = renumber_next(cursor, &view(&parts)) else {
-                break;
-            };
+            let Some(step) = renumber_next(cursor, &view(&parts)) else { break; };
             steps += 1;
             assert!(steps <= parts.len(), "one step per part at most");
             match step {
@@ -1797,37 +1388,19 @@ mod tests {
             }
             let mut all: Vec<(u64, u64)> = parts.iter().flat_map(|p| p.2.iter().copied()).collect();
             all.sort_unstable();
-            assert!(
-                all.windows(2).all(|w| w[0].1 <= w[1].0),
-                "one home per ID after every step: {all:?}"
-            );
+            assert!(all.windows(2).all(|w| w[0].1 <= w[1].0), "one home per ID after every step: {all:?}");
         }
-        assert_eq!(
-            rewritten,
-            vec![9, 3, 7],
-            "the part without IDs first, then by lowest ID"
-        );
-        assert_eq!(
-            cursor,
-            ROWID_FIRST + B + align_up(700) + align_up(300),
-            "dense: 50 + 700 + 300 rows, each aligned"
-        );
+        assert_eq!(rewritten, vec![9, 3, 7], "the part without IDs first, then by lowest ID");
+        assert_eq!(cursor, ROWID_FIRST + B + align_up(700) + align_up(300), "dense: 50 + 700 + 300 rows, each aligned");
         assert!(renumber_next(cursor, &view(&parts)).is_none());
-        assert!(
-            renumber_next(ROWID_FIRST, &view(&parts))
-                .is_some_and(|s| matches!(s, RenumberStep::Keep { .. })),
-            "a second walk keeps"
-        );
+        assert!(renumber_next(ROWID_FIRST, &view(&parts)).is_some_and(|s| matches!(s, RenumberStep::Keep { .. })), "a second walk keeps");
         let (mut c2, mut kept) = (ROWID_FIRST, 0);
         #[allow(clippy::while_let_loop)]
         loop {
-            let Some(step) = renumber_next(c2, &view(&parts)) else {
-                break;
-            };
+            let Some(step) = renumber_next(c2, &view(&parts)) else { break; };
             match step {
                 RenumberStep::Keep { hi, .. } => (c2, kept) = (hi, kept + 1),
-                RenumberStep::Rewrite { part_no, .. } => {
-                    panic!("a second walk rewrote part {part_no}")
+                RenumberStep::Rewrite { part_no, .. } => { panic!("a second walk rewrote part {part_no}")
                 }
             }
         }
@@ -1838,38 +1411,20 @@ mod tests {
     #[test]
     fn a_reset_counter_hands_out_from_its_new_mark() {
         let (mut c, mut io) = (Counters::new(), Mock::default());
-        c.reserve(
-            "d",
-            "t",
-            REFUSE_AT - ROWID_FIRST - 2 * SEG_EXTENT_IDS,
-            &mut io,
-        )
-        .unwrap();
-        assert!(
-            c.reserve("d", "t", 4 * SEG_EXTENT_IDS, &mut io).is_err(),
-            "refused near the end"
-        );
+        c.reserve("d", "t", REFUSE_AT - ROWID_FIRST - 2 * SEG_EXTENT_IDS, &mut io,).unwrap();
+        assert!(c.reserve("d", "t", 4 * SEG_EXTENT_IDS, &mut io).is_err(), "refused near the end");
         c.set("d", 10 * IDS_PER_BLOCK);
         let r = c.reserve("d", "t", 1, &mut io).unwrap();
         assert_eq!(r.lo, 10 * IDS_PER_BLOCK, "from the lowered mark");
-        assert_eq!(
-            io.persisted.last(),
-            Some(&("d".to_string(), r.hi + PREFETCH)),
-            "the mark set is the durable one: the next batch persists"
-        );
+        assert_eq!(io.persisted.last(), Some(&("d".to_string(), r.hi + PREFETCH)), "the mark set is the durable one: the next batch persists");
         let mut vfs = pgrc_write::wvfs::MemVfs::new();
         vfs.mkdir_path("t").unwrap();
         write_file(&mut vfs, "t", 1 << 30).unwrap();
         redo_set(&mut vfs, "t", 582).unwrap();
-        assert_eq!(
-            read_file(&mut vfs, "t").unwrap(),
-            Some(582),
-            "ROWID_SET lowers the file"
-        );
+        assert_eq!(read_file(&mut vfs, "t").unwrap(), Some(582), "ROWID_SET lowers the file");
     }
 
-    const PART_CACHE: memledger::Owner =
-        memledger::Owner::Cache(memledger::Holder::Of(memledger::Consumer::PartCache));
+    const PART_CACHE: memledger::Owner = memledger::Owner::Cache(memledger::Holder::Of(memledger::Consumer::PartCache));
 
     /// D4537 T18c: the per-directory counters are the part cache's bytes, refit when a directory enters and when it leaves.
     #[test]
@@ -1886,11 +1441,7 @@ mod tests {
         assert_eq!(c.charge.owner(), PART_CACHE);
         c.forget("t/t18c-counters-a");
         c.forget("t/t18c-counters-b");
-        assert_eq!(
-            c.charged(),
-            0,
-            "forgotten directories give their bytes back"
-        );
+        assert_eq!(c.charged(), 0, "forgotten directories give their bytes back");
     }
 
     /// D4537 T18c: the in-flight reservations are the part cache's bytes while they are in flight.
@@ -1904,44 +1455,22 @@ mod tests {
         f.register("t/t18c-flights", 1, 8, 30, 40);
         assert!(f.charged() > one);
         f.end(1, false);
-        assert_eq!(
-            f.charged(),
-            0,
-            "a transaction's end gives its reservations' bytes back"
-        );
+        assert_eq!(f.charged(), 0, "a transaction's end gives its reservations' bytes back");
     }
 
     /// D4537 T18c: the extent tables (and the renumber notes) are the part cache's bytes, refit under their maps' locks.
     #[test]
     fn the_extent_tables_are_on_the_part_cache() {
         let dir = "t/t18c-extents";
-        publish_extents(
-            dir,
-            Extents::new(
-                (0..512u32)
-                    .map(|i| SegExtent {
-                        part_no: i,
-                        idx: 0,
-                        base: 1_000 + u64::from(i),
-                    })
-                    .collect(),
-            ),
-        );
+        publish_extents(dir, Extents::new((0..512u32).map(|i| SegExtent { part_no: i, idx: 0, base: 1_000 + u64::from(i), }).collect(),),);
         {
             let m = pgsync::lock(&EXTENTS);
             let c = pgsync::lock(&EXTENTS_CHARGE);
-            assert_eq!(
-                (c.owner(), c.committed()),
-                (PART_CACHE, extents_bytes(&m) as u64)
-            );
+            assert_eq!((c.owner(), c.committed()), (PART_CACHE, extents_bytes(&m) as u64));
             assert!(c.committed() >= 512 * size_of::<SegExtent>() as u64);
         }
         forget(dir);
         let m = pgsync::lock(&EXTENTS);
-        assert_eq!(
-            pgsync::lock(&EXTENTS_CHARGE).committed(),
-            extents_bytes(&m) as u64,
-            "the forgotten table's bytes went"
-        );
+        assert_eq!(pgsync::lock(&EXTENTS_CHARGE).committed(), extents_bytes(&m) as u64, "the forgotten table's bytes went");
     }
 }

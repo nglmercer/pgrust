@@ -30,9 +30,7 @@ fn install_seams(tag: &str) -> MutexGuard<'static, ()> {
         ipc_seams::on_shmem_exit::set(|_cb, _arg| {});
         resowner::init_seams();
     });
-    let guard = CWD
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let guard = CWD.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let dir = format!(
         "{}/pgrust-manifest-{}-{tag}",
         std::env::temp_dir().display(),
@@ -130,14 +128,8 @@ fn manifest_counts_against_temp_file_limit() {
     guc_tables::vars::temp_file_limit.write(saved);
 
     let err = result.unwrap_err();
-    assert_eq!(
-        err.sqlstate(),
-        ::types_error::ERRCODE_CONFIGURATION_LIMIT_EXCEEDED
-    );
-    assert_eq!(
-        err.message(),
-        "temporary file size exceeds \"temp_file_limit\" (1kB)"
-    );
+    assert_eq!(err.sqlstate(), ::types_error::ERRCODE_CONFIGURATION_LIMIT_EXCEEDED);
+    assert_eq!(err.message(), "temporary file size exceeds \"temp_file_limit\" (1kB)");
 }
 
 #[test]
@@ -187,15 +179,7 @@ fn crc32c_is_default_and_renders() {
 
     let mut cc = PgChecksumContext::init(PgChecksumType::Crc32c);
     cc.update(b"123456789");
-    AddFileToBackupManifest(
-        &mut m,
-        0,
-        b"global/pg_control",
-        8192,
-        1_700_000_000,
-        &mut cc,
-    )
-    .unwrap();
+    AddFileToBackupManifest(&mut m, 0, b"global/pg_control", 8192, 1_700_000_000, &mut cc,).unwrap();
     AddWALInfoToBackupManifest(mcx, &mut m, 0x016B3D50, 1, 0x016C0000, 1).unwrap();
     let bytes = send_all(&mut m, 32768);
     let text = std::str::from_utf8(&bytes).unwrap();
@@ -217,10 +201,7 @@ fn tablespace_path_prefix() {
     AddFileToBackupManifest(&mut m, 16400, b"16401/12345", 100, 1_700_000_000, &mut cc).unwrap();
     let bytes = send_all(&mut m, 32768);
     let text = String::from_utf8(bytes).unwrap();
-    assert!(
-        text.contains("\"Path\": \"pg_tblspc/16400/16401/12345\""),
-        "{text}"
-    );
+    assert!(text.contains("\"Path\": \"pg_tblspc/16400/16401/12345\""), "{text}");
 }
 
 #[test]

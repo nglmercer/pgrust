@@ -322,7 +322,7 @@ pub(crate) fn plan<'p>(b: &mut Builder<'p, '_>, nl: &'p NestLoop<'p>, params: &'
                 _ => bad = true,
             });
             if let Some(r) = recheck_mut(s) {
-                let r: &'p NodeList<'p> = r;
+                let r: &'p NodeList<'p> =r;
                 for c in r.iter() {
                     match recheck_value(c) {
                         Ok(Some(v)) => oom = add(mcx, &mut values, v, false).err().or(oom.take()),

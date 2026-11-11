@@ -50,17 +50,11 @@ unsafe fn take(bytes: usize, align: usize, life: Lifetime, _zeroed: bool) -> *mu
 /// A give that names a class names its take's.
 unsafe fn give(p: *mut u8, bytes: usize, _align: usize, life: Option<Lifetime>) {
     let mut taken = TAKEN.lock().unwrap();
-    let i = taken
-        .iter()
-        .position(|&(a, _)| a == p as usize)
-        .expect("a give of a block the stand-in served");
+    let i = taken.iter().position(|&(a, _)| a == p as usize).expect("a give of a block the stand-in served");
     let (_, took) = taken.swap_remove(i);
     drop(taken);
     if let Some(l) = life {
-        assert_eq!(
-            l, took,
-            "a hinted give names the class its block was taken in"
-        );
+        assert_eq!(l, took, "a hinted give names the class its block was taken in");
         HINTED.fetch_add(1, Relaxed);
     }
     LIVE.fetch_sub(bytes as i64, Relaxed);
@@ -75,12 +69,7 @@ fn usable(bytes: usize, _: usize) -> usize {
     bytes
 }
 
-static SOURCE: BlockSource = BlockSource {
-    take,
-    give,
-    resize,
-    usable,
-};
+static SOURCE: BlockSource = BlockSource { take, give, resize, usable, };
 
 /// The source installed once, and this test alone on it (the stand-in's counters are process-wide).
 fn serial() -> MutexGuard<'static, ()> {
@@ -133,10 +122,7 @@ fn fill(ctx: &MemoryContext, out: &mut Vec<(NonNull<u8>, Layout)>) {
     for _ in 0..40 {
         out.push((ctx.mcx().allocate(chunk(KIB)).unwrap().cast(), chunk(KIB)));
     }
-    out.push((
-        ctx.mcx().allocate(chunk(64 * KIB)).unwrap().cast(),
-        chunk(64 * KIB),
-    ));
+    out.push((ctx.mcx().allocate(chunk(64 * KIB)).unwrap().cast(), chunk(64 * KIB),));
 }
 
 fn free(ctx: &MemoryContext, out: &mut Vec<(NonNull<u8>, Layout)>) {
@@ -161,20 +147,9 @@ fn a_reset_keeps_a_pooled_keeper_on_its_owner_and_a_drop_gives_it_back() {
         free(&ctx, &mut held);
         ctx.reset();
         assert_eq!(ctx.mem_allocated(), 8 * KIB);
-        assert_eq!(
-            (
-                owner_ctx(s).0 - n0,
-                acct_bytes(a) - acct0,
-                LIVE.load(Relaxed) - live0
-            ),
-            (8 * KIB as i64, 8 * KIB as i64, 8 * KIB as i64)
-        );
+        assert_eq!((owner_ctx(s).0 - n0, acct_bytes(a) - acct0, LIVE.load(Relaxed) - live0), (8 * KIB as i64, 8 * KIB as i64, 8 * KIB as i64));
         drop(ctx);
-        assert_eq!(
-            (owner_ctx(s).0, acct_bytes(a), LIVE.load(Relaxed)),
-            (n0, acct0, live0),
-            "given back, not parked"
-        );
+        assert_eq!((owner_ctx(s).0, acct_bytes(a), LIVE.load(Relaxed)), (n0, acct0, live0), "given back, not parked");
         // pagepool P2 (E3b): every block a session's, keeper included: each give named the class
         assert_eq!(HINTED.load(Relaxed) - hinted0, TAKES.load(Relaxed) - takes0);
     });
@@ -200,15 +175,9 @@ fn a_send_root_dropped_on_another_thread_returns_its_owners_account() {
         // SAFETY: as above
         unsafe { r.mcx().deallocate(big, chunk(256 * KIB)) };
         let footprint = r.allocated() as i64;
-        assert_eq!(
-            (owner_ctx(s).0 - n0, acct_bytes(a) - acct0),
-            (footprint, footprint)
-        );
+        assert_eq!((owner_ctx(s).0 - n0, acct_bytes(a) - acct0), (footprint, footprint));
         std::thread::spawn(move || drop(r)).join().unwrap();
-        assert_eq!(
-            (owner_ctx(s).0, acct_bytes(a), LIVE.load(Relaxed)),
-            (n0, acct0, live0)
-        );
+        assert_eq!((owner_ctx(s).0, acct_bytes(a), LIVE.load(Relaxed)), (n0, acct0, live0));
         // pagepool P2 (E3b): the drop on another thread names the class too (the AllocSet's own copy, no Led there)
         assert_eq!(HINTED.load(Relaxed) - hinted0, TAKES.load(Relaxed) - takes0);
     });

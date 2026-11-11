@@ -267,7 +267,10 @@ pub fn elect_int_carry(
             any_part |= any;
             let (refw, range) = if any {
                 if signed {
-                    (min_s as u64, (max_s as u64).wrapping_sub(min_s as u64))
+                    (
+                        min_s as u64,
+                        (max_s as u64).wrapping_sub(min_s as u64)
+                    )
                 } else {
                     (min_u, max_u - min_u)
                 }
@@ -392,14 +395,8 @@ pub struct SampleFamilies {
 }
 
 impl SampleFamilies {
-    pub const NONE: SampleFamilies = SampleFamilies {
-        int: false,
-        float: false,
-    };
-    pub const ALL: SampleFamilies = SampleFamilies {
-        int: true,
-        float: true,
-    };
+    pub const NONE: SampleFamilies = SampleFamilies { int: false, float: false, };
+    pub const ALL: SampleFamilies = SampleFamilies { int: true, float: true, };
 
     /// Parse the `PGRUST_SEAL_SAMPLE_ELECT` vocabulary: `0`/unset = census
     /// (the exact/control arm), `1` = all sampled families, else a comma
@@ -458,18 +455,13 @@ pub fn elect_int_sampled_carry(
     let total_frames = frames.len();
     if total_frames == 0 {
         return (
-            Election::Demoted {
-                reason: Demotion::NoValues,
-                baseline_bytes: baseline,
-            },
+            Election::Demoted { reason: Demotion::NoValues, baseline_bytes: baseline, },
             IntCarry { frames: Vec::new() },
         );
     }
 
     // ---- full facts pass: min/max + constancy (EXACT; no DF chain) --------
-    let mut carry = IntCarry {
-        frames: Vec::with_capacity(total_frames),
-    };
+    let mut carry = IntCarry { frames: Vec::with_capacity(total_frames), };
     let mut any_part = false;
     let mut seen: Option<u64> = None;
     let mut constant = true;
@@ -519,20 +511,11 @@ pub fn elect_int_sampled_carry(
             let bw = if any { ffor::bits_for(range) } else { 0 };
             ffor_bytes_acc += ffor::FRAME_HDR_LEN + alp::bitpack::packed_words(bw) * 8;
         }
-        carry.frames.push(IntFrameFact {
-            refw,
-            range,
-            df_width: 1,
-            df_first: 0,
-            any,
-        });
+        carry.frames.push(IntFrameFact { refw, range, df_width: 1, df_first: 0, any, });
     }
     if !any_part {
         return (
-            Election::Demoted {
-                reason: Demotion::NoValues,
-                baseline_bytes: baseline,
-            },
+            Election::Demoted { reason: Demotion::NoValues, baseline_bytes: baseline, },
             carry,
         );
     }
@@ -640,10 +623,7 @@ pub fn elect_int_sampled_carry(
             baseline_bytes: baseline,
         }
     } else {
-        Election::Demoted {
-            reason: Demotion::BelowWinGate,
-            baseline_bytes: baseline,
-        }
+        Election::Demoted { reason: Demotion::BelowWinGate, baseline_bytes: baseline, }
     };
     (e, carry)
 }
@@ -938,10 +918,7 @@ pub fn elect_float_sampled_carry(
     let baseline = word_baseline(granules, stride);
     if !any_values(granules) {
         return (
-            Election::Demoted {
-                reason: Demotion::NoValues,
-                baseline_bytes: baseline,
-            },
+            Election::Demoted { reason: Demotion::NoValues, baseline_bytes: baseline, },
             None,
         );
     }
@@ -985,10 +962,7 @@ pub fn elect_float_sampled_carry(
     };
     if !wins_by_ten_percent(est, baseline) {
         return (
-            Election::Demoted {
-                reason: Demotion::BelowWinGate,
-                baseline_bytes: baseline,
-            },
+            Election::Demoted { reason: Demotion::BelowWinGate, baseline_bytes: baseline, },
             None,
         );
     }
@@ -1035,10 +1009,7 @@ pub fn elect_float_sampled_carry(
         )
     } else {
         (
-            Election::Demoted {
-                reason: Demotion::BelowWinGate,
-                baseline_bytes: baseline,
-            },
+            Election::Demoted { reason: Demotion::BelowWinGate, baseline_bytes: baseline, },
             None,
         )
     }

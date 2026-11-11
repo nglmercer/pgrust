@@ -13,7 +13,7 @@
 //! stale one: the separators stay in ascending order, and any set of ascending boundaries still covers the whole key
 //! space, so a stale one only skews the ranges' sizes. Half-dead and deleted pages are skipped (`P_IGNORE`).
 use ::types_error::PgResult;
-use ::types_nbtree::{BT_READ, P_FIRSTDATAKEY, P_HIKEY, P_IGNORE, P_RIGHTMOST};
+use ::types_nbtree::{BT_READ,P_FIRSTDATAKEY, P_HIKEY, P_IGNORE, P_RIGHTMOST};
 
 use crate::itup::index_tuple_size;
 use crate::page::{bt_relandgetbuf, bt_relbuf, page_item, page_opaque};
@@ -33,9 +33,7 @@ pub struct Pivots {
 /// least `min - 1`), else those of level 1 (every leaf's lower boundary). Empty when the index is empty or its root is
 /// a leaf (one page: no separator).
 pub fn bt_pivots<R: BtReadRel + ?Sized>(rel: &R, min: usize) -> PgResult<Pivots> {
-    let Some(root) = crate::page::bt_gettrueroot(rel)? else {
-        return Ok(Pivots::default());
-    };
+    let Some(root) = crate::page::bt_gettrueroot(rel)? else { return Ok(Pivots::default()); };
     let top = page_opaque(&root.page()).btpo_level;
     bt_relbuf(rel, root)?;
     let mut level = top;
@@ -51,9 +49,7 @@ pub fn bt_pivots<R: BtReadRel + ?Sized>(rel: &R, min: usize) -> PgResult<Pivots>
 
 /// Level `level`'s separators, left to right.
 fn level_separators<R: BtReadRel + ?Sized>(rel: &R, level: u32) -> PgResult<Vec<Vec<u8>>> {
-    let Some(mut pin) = crate::search::bt_get_endpoint(rel, level, false)? else {
-        return Ok(Vec::new());
-    };
+    let Some(mut pin) = crate::search::bt_get_endpoint(rel, level, false)? else { return Ok(Vec::new()); };
     let mut out: Vec<Vec<u8>> = Vec::new();
     loop {
         let next = {
@@ -85,8 +81,7 @@ fn copy(itup: crate::itup::ITup) -> PgResult<Vec<u8>> {
     // SAFETY: `itup` points at a live index tuple of the pinned, locked page; its size is its own header's
     let src = unsafe { core::slice::from_raw_parts(itup, index_tuple_size(itup)) };
     let mut out: Vec<u8> = Vec::new();
-    out.try_reserve_exact(src.len())
-        .map_err(|_| ::mcx::oom_named("nbtree", src.len()))?;
+    out.try_reserve_exact(src.len()).map_err(|_| ::mcx::oom_named("nbtree", src.len()))?;
     out.extend_from_slice(src);
     Ok(out)
 }

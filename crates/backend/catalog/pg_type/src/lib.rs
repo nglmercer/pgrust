@@ -1,7 +1,7 @@
 // pg_type.c TypeCreate insert/shell-replace arms + TypeShellMake (+
 // AssignTypeArrayOid from typecmds.c and makeObjectName from indexcmds.c).
 // Loud: typdefaultbin defaults, RenameTypeInternal.
-#![allow(non_snake_case, non_upper_case_globals)]
+#![allow(non_snake_case,non_upper_case_globals)]
 
 use std::cell::Cell;
 
@@ -63,9 +63,7 @@ fn oid_not_set(loc_fn: &'static str, what: &str) -> Box<PgError> {
     Box::new(
         ereport(ERROR)
             .errcode(ERRCODE_INVALID_PARAMETER_VALUE)
-            .errmsg(format!(
-                "{what} OID value not set when in binary upgrade mode"
-            ))
+            .errmsg(format!("{what} OID value not set when in binary upgrade mode"))
             .into_error()
             .with_error_location(ErrorLocation::new(file!(), line!() as i32, loc_fn)),
     )
@@ -154,9 +152,7 @@ fn err(msg: String, sqlstate: types_error::SqlState) -> Box<PgError> {
 #[cold]
 #[inline(never)]
 fn type_lookup_failed(typeOid: Oid) -> Box<PgError> {
-    Box::new(PgError::error(format!(
-        "cache lookup failed for type {typeOid}"
-    )))
+    Box::new(PgError::error(format!("cache lookup failed for type {typeOid}")))
 }
 
 fn validate_shape(p: &TypeCreateParams<'_>) -> PgResult<()> {
@@ -291,9 +287,10 @@ pub fn TypeCreate<'mcx>(mcx: Mcx<'mcx>, p: &TypeCreateParams<'_>) -> PgResult<Ob
         let desc = pg_type_desc.descr();
         let mut isnull = false;
         // SAFETY (both): fixed NOT NULL pg_type columns under its descriptor.
-        let isdefined =
-            unsafe { types_tuple::heap_getattr(tup, Anum_pg_type_typisdefined, desc, &mut isnull) }
-                .as_bool();
+        let isdefined = unsafe {
+            types_tuple::heap_getattr(tup, Anum_pg_type_typisdefined, desc, &mut isnull)
+        }
+        .as_bool();
         let typowner =
             unsafe { types_tuple::heap_getattr(tup, Anum_pg_type_typowner, desc, &mut isnull) }
                 .as_oid();
@@ -317,7 +314,8 @@ pub fn TypeCreate<'mcx>(mcx: Mcx<'mcx>, p: &TypeCreateParams<'_>) -> PgResult<Ob
         }
         let mut replaces = [true; Natts_pg_type];
         replaces[0] = false;
-        let mut newtup = heaptuple::heap_modify_tuple(mcx, tup, desc, &values, &nulls, &replaces)?;
+        let mut newtup =
+            heaptuple::heap_modify_tuple(mcx, tup, desc, &values, &nulls, &replaces)?;
         let otid = tup.t_self;
         genam::systable_endscan(mcx, scan)?;
         catalog_indexing::CatalogTupleUpdate(mcx, &pg_type_desc, &otid, &mut newtup)?;
@@ -338,14 +336,7 @@ pub fn TypeCreate<'mcx>(mcx: Mcx<'mcx>, p: &TypeCreateParams<'_>) -> PgResult<Ob
     };
 
     if !miscinit_seams::is_bootstrap_processing_mode::call() {
-        GenerateTypeDependencies(
-            mcx,
-            typeObjectId,
-            p,
-            isDependentType,
-            typacl.as_deref(),
-            rebuildDeps,
-        )?;
+        GenerateTypeDependencies(mcx, typeObjectId, p, isDependentType, typacl.as_deref(), rebuildDeps,)?;
     }
 
     // Post creation hook for new type (pg_type.c:513).
@@ -590,7 +581,11 @@ fn make_array_object_name(typeName: &str, label: Option<&str>) -> NameData {
 // a multibyte character.  C stores those bytes as-is; pgrust carries
 // identifiers as UTF-8 only (docs/design/carve-ratifications.md §11), so the
 // unrepresentable name is a typed refusal instead of a panic.
-fn derived_name_utf8<'n>(name: &'n [u8], source: &str, hint: &'static str) -> PgResult<&'n str> {
+fn derived_name_utf8<'n>(
+    name: &'n [u8],
+    source: &str,
+    hint: &'static str
+) -> PgResult<&'n str> {
     core::str::from_utf8(name).map_err(|_| {
         Box::new(
             PgError::new(
@@ -647,14 +642,18 @@ pub fn makeMultirangeTypeName(rangeTypeName: &str, typeNamespace: Oid) -> PgResu
             // Deliberate divergence from pg_type.c:973 (pnstrdup at NAMEDATALEN-12
             // can split a multibyte character and store an invalidly encoded
             // name): clip on a character boundary instead.
-            let n = mbutils_seams::pg_mbcliplen::call(b, b.len() as i32, NAMEDATALEN - 12) as usize;
+            let n = mbutils_seams::pg_mbcliplen::call(b, b.len() as i32, NAMEDATALEN - 12)
+                as usize;
             buf[..n].copy_from_slice(&b[..n]);
             buf[n..n + 11].copy_from_slice(b"_multirange");
             n + 11
         }
     };
-    let clipped =
-        mbutils_seams::pg_mbcliplen::call(&buf[..len], len as i32, NAMEDATALEN - 1) as usize;
+    let clipped = mbutils_seams::pg_mbcliplen::call(
+        &buf[..len],
+        len as i32,
+        NAMEDATALEN - 1
+    ) as usize;
     let candidate = derived_name_utf8(&buf[..clipped], rangeTypeName, MULTIRANGE_NAME_HINT)?;
     if syscache_seams::lookup_pg_type_oid_by_name::call(candidate, typeNamespace)? != InvalidOid {
         return Err(multirange_name_taken(candidate, rangeTypeName));
@@ -709,9 +708,10 @@ pub fn RenameTypeInternal<'mcx>(
     let desc = pg_type_rel.descr();
     let mut isnull = false;
     // SAFETY: fixed NOT NULL pg_type column under its descriptor.
-    let arrayOid =
-        unsafe { types_tuple::heap_getattr(tup, Anum_pg_type_typarray, desc, &mut isnull) }
-            .as_oid();
+    let arrayOid = unsafe {
+        types_tuple::heap_getattr(tup, Anum_pg_type_typarray, desc, &mut isnull)
+    }
+    .as_oid();
 
     // C: namestrcpy(&typ->typname, newTypeName) on the syscache copy --
     // NAMEDATALEN-1 truncation, never a failure.
@@ -857,3 +857,4 @@ mod pg_upgrade_oid_tests {
         assert_eq!(take_next_mrng_array_pg_type_oid(), None);
     }
 }
+

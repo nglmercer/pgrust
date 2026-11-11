@@ -566,10 +566,8 @@ impl EncoderFactory for FforFactory {
     fn make_at(&self, g0: u32, grain_rows: u32) -> Box<dyn GranuleEncoder> {
         Box::new(pgrc_codec::ffor::FforEncoder {
             signed: self.signed,
-            carry: self
-                .carry
-                .as_ref()
-                .map(|facts| pgrc_codec::bytefor::IntCarryCursor {
+            carry: self.carry.as_ref().map(|facts|
+                pgrc_codec::bytefor::IntCarryCursor {
                     facts: facts.clone(),
                     next: first_frame_of(g0, grain_rows),
                 }),
@@ -594,10 +592,8 @@ impl EncoderFactory for DeltaForFactory {
     }
     fn make_at(&self, g0: u32, grain_rows: u32) -> Box<dyn GranuleEncoder> {
         Box::new(pgrc_codec::deltafor::DeltaForEncoder {
-            carry: self
-                .carry
-                .as_ref()
-                .map(|facts| pgrc_codec::bytefor::IntCarryCursor {
+            carry: self.carry.as_ref().map(|facts|
+                pgrc_codec::bytefor::IntCarryCursor {
                     facts: facts.clone(),
                     next: first_frame_of(g0, grain_rows),
                 }),
@@ -779,8 +775,7 @@ pub fn dict_exec_flags(exec_ok: bool, has_null: bool) -> u16 {
 impl CodecCandidates {
     /// D4537 T18c: the heap bytes this holds (the two posture lists), for the session that keeps it.
     pub fn heap_bytes(&self) -> usize {
-        self.per_column.capacity() * size_of::<((u32, u32), ColumnPosture)>()
-            + self.per_lane.capacity() * size_of::<(u32, ColumnPosture)>()
+        self.per_column.capacity() * size_of::<((u32, u32), ColumnPosture)>() + self.per_lane.capacity() * size_of::<(u32, ColumnPosture)>()
     }
 }
 
@@ -795,7 +790,10 @@ impl CodecCandidates {
     }
 
     /// D3: pick the sampled-election families (per-family adoption law).
-    pub fn with_sampling(mut self, f: pgrc_codec::election::SampleFamilies) -> CodecCandidates {
+    pub fn with_sampling(
+        mut self,
+        f: pgrc_codec::election::SampleFamilies
+    ) -> CodecCandidates {
         self.sample = f;
         self
     }
@@ -814,11 +812,7 @@ impl CodecCandidates {
     }
 
     /// What a seal under these candidates elects stream `(attno, path_ord)` from: its posture and the sampled families.
-    pub fn election_inputs(
-        &self,
-        attno: u32,
-        path_ord: u32,
-    ) -> (ColumnPosture, pgrc_codec::election::SampleFamilies) {
+    pub fn election_inputs(&self, attno: u32, path_ord: u32,) -> (ColumnPosture, pgrc_codec::election::SampleFamilies) {
         (self.posture(attno, path_ord), self.sample)
     }
 
@@ -910,12 +904,8 @@ impl CodecCandidates {
                 };
                 self.word_outcome(input, e, false, carry)
             }
-            StorageClass::Bool => self.word_outcome(
-                input,
-                ce::elect_bool(input.granules),
-                false,
-                ElectCarry::None,
-            ),
+            StorageClass::Bool =>
+                self.word_outcome(input, ce::elect_bool(input.granules), false, ElectCarry::None,),
             StorageClass::Fixed { .. } => None,
             StorageClass::VarlenaVerbatim => {
                 if p.numeric {
@@ -1097,8 +1087,7 @@ impl CodecCandidates {
         // 10% gate, the arm demotes here: the decision `elect_text_dict` reaches, without the build, the codes or the
         // images (on a near-unique text column the images are the column over again). The gate knob keeps the full arm.
         let gated = !ce::dict_gate_disabled();
-        let floor = b.distinct_bytes() as usize
-            + ndv as usize * (pgrc_format::dict::DICT_INDEX_ENTRY_LEN + 4);
+        let floor = b.distinct_bytes() as usize + ndv as usize * (pgrc_format::dict::DICT_INDEX_ENTRY_LEN + 4);
         if gated && !ce::wins_by_ten_percent(floor, baseline as usize) {
             return Ok(None);
         }
@@ -1111,10 +1100,9 @@ impl CodecCandidates {
         // validity IS the column's bitset), so the k-th observed row here
         // is the k-th observed row there.
         let mut codes: Vec<Vec<u64>> = Vec::with_capacity(input.granules.len()); // alloc: Exec charged charge (DictPlan.charge)
-                                                                                 // CONVERT W3-2a: the code arrays on the part's owner as they are built (declared after them: drops first); the
-                                                                                 // plan takes the charge over
-                                                                                 // The section images go on the same charge (declared before it: the charge drops first).
-
+        // CONVERT W3-2a: the code arrays on the part's owner as they are built (declared after them: drops first); the
+        // plan takes the charge over
+        // The section images go on the same charge (declared before it: the charge drops first).
         let mut charge = HeldCharge::new(col.owner());
         let mut codes_held = cap_bytes(codes.capacity(), &codes);
         charge.sync(codes_held);
@@ -1128,11 +1116,11 @@ impl CodecCandidates {
             charge.sync(codes_held);
             for r in 0..gi.rows {
                 let code = if gi.valid(r) {
-                    let c = built
-                        .code_of_observed(observed)
-                        .ok_or(crate::WriteError::Contract {
+                    let c = built.code_of_observed(observed).ok_or(
+                        crate::WriteError::Contract {
                             detail: "dict build lost a value",
-                        })? as u64;
+                        }
+                    )? as u64;
                     observed += 1;
                     c
                 } else {
@@ -1154,11 +1142,8 @@ impl CodecCandidates {
         if gated && !ce::wins_by_ten_percent(floor + code_bytes, baseline as usize) {
             return Ok(None);
         }
-        let images: DictSectionImages = built.emit_sections_on(
-            pgrc_format::dict::DictCharLenForm::Absolute,
-            &mut charge,
-            codes_held,
-        )?;
+        let
+        images: DictSectionImages = built.emit_sections_on(pgrc_format::dict::DictCharLenForm::Absolute, &mut charge, codes_held,)?;
         built.verify_sections(&images)?;
         let dict_bytes = images.index_section.len() + images.payload_section.len();
         // FORMAT-LAYOUT lever A: payload-ratio demotion (see
@@ -1204,18 +1189,15 @@ impl CodecCandidates {
             aux32: 0,
             extra_flags,
             offer_wrapper: true,
-            plan: ElectPlan::Dict(
-                DictPlan {
-                    charge,
-                    entry_count: images.entry_count,
-                    images,
-                    max_width,
-                    codes,
-                    dist_feed,
-                    byte_align,
-                }
-                .synced(),
-            ),
+            plan: ElectPlan::Dict(DictPlan {
+                charge,
+                entry_count: images.entry_count,
+                images,
+                max_width,
+                codes,
+                dist_feed,
+                byte_align,
+            }.synced(),),
             witness: ElectionWitness {
                 attno: input.attno,
                 path_ord: input.path_ord,
@@ -1303,13 +1285,11 @@ impl CodecCandidates {
         // ---- (3) merge + dedup during the byte-rank sort -----------------
         // Item = (bytes, provenance). Provenance: source ordinal + code for
         // remap fill; u32::MAX marks a plain-hashed value.
-        let mut items: memledger::ChargedVec<(&[u8], u32, u32)> =
-            memledger::ChargedVec::new(col.owner(), memledger::Kind::Region);
+        let mut items: memledger::ChargedVec<(&[u8], u32, u32)> = memledger::ChargedVec::new(col.owner(), memledger::Kind::Region);
         for (si, (s, lane)) in side.sources.iter().zip(used.iter()).enumerate() {
             for (code, &u) in lane.iter().enumerate() {
                 if u {
-                    items.with_vec(|w| w.push((s.entry(code as u32), si as u32, code as u32)));
-                    // alloc: Exec charged col.owner()
+                    items.with_vec(|w| w.push((s.entry(code as u32), si as u32, code as u32))); // alloc: Exec charged col.owner()
                 }
             }
         }
@@ -1365,10 +1345,9 @@ impl CodecCandidates {
         // inequality is unreachable without a decoder defect, and the twin
         // gates (round-trip verify + serial-rebuild dirsha) stand behind.
         let mut codes: Vec<Vec<u64>> = Vec::with_capacity(input.granules.len()); // alloc: Exec charged charge (DictPlan.charge)
-                                                                                 // CONVERT W3-2a: the code arrays on the part's owner as they are built (declared after them: drops first); the
-                                                                                 // plan takes the charge over
-                                                                                 // The section images go on the same charge (declared before it: the charge drops first).
-
+        // CONVERT W3-2a: the code arrays on the part's owner as they are built (declared after them: drops first); the
+        // plan takes the charge over
+        // The section images go on the same charge (declared before it: the charge drops first).
         let mut charge = HeldCharge::new(col.owner());
         let mut codes_held = cap_bytes(codes.capacity(), &codes);
         charge.sync(codes_held);
@@ -1417,11 +1396,8 @@ impl CodecCandidates {
         }
 
         // ---- emit + verify + decide: the rebuild path verbatim -----------
-        let images: DictSectionImages = built.emit_sections_on(
-            pgrc_format::dict::DictCharLenForm::Absolute,
-            &mut charge,
-            codes_held,
-        )?;
+        let
+        images: DictSectionImages = built.emit_sections_on(pgrc_format::dict::DictCharLenForm::Absolute, &mut charge, codes_held,)?;
         built.verify_sections(&images)?;
         let dict_bytes = images.index_section.len() + images.payload_section.len();
         // FORMAT-LAYOUT lever A: payload-ratio demotion (see
@@ -1455,23 +1431,20 @@ impl CodecCandidates {
             aux32: 0,
             extra_flags,
             offer_wrapper: true,
-            plan: ElectPlan::Dict(
-                DictPlan {
-                    charge,
-                    entry_count: images.entry_count,
-                    images,
-                    max_width,
-                    codes,
-                    // Count-free by construction (the merge never walks rows);
-                    // the meta accumulator serves this part's distribution —
-                    // the same sidecar bytes (pure function of the data), so
-                    // the D2 inherit arm's bank identity with the rebuild is
-                    // untouched.
-                    dist_feed: None,
-                    byte_align,
-                }
-                .synced(),
-            ),
+            plan: ElectPlan::Dict(DictPlan {
+                charge,
+                entry_count: images.entry_count,
+                images,
+                max_width,
+                codes,
+                // Count-free by construction (the merge never walks rows);
+                // the meta accumulator serves this part's distribution —
+                // the same sidecar bytes (pure function of the data), so
+                // the D2 inherit arm's bank identity with the rebuild is
+                // untouched.
+                dist_feed: None,
+                byte_align,
+            }.synced(),),
             witness: ElectionWitness {
                 attno: input.attno,
                 path_ord: input.path_ord,

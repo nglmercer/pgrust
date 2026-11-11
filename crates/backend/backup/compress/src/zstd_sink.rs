@@ -44,7 +44,8 @@ mod imp {
     use ::types_core::{Size, TimeLineID, XLogRecPtr};
     use ::types_error::{PgResult, ERRCODE_INVALID_PARAMETER_VALUE, ERROR};
     use compression::{
-        PgCompressSpecification, PG_COMPRESSION_OPTION_LONG_DISTANCE, PG_COMPRESSION_OPTION_WORKERS,
+        PgCompressSpecification, PG_COMPRESSION_OPTION_LONG_DISTANCE,
+        PG_COMPRESSION_OPTION_WORKERS,
     };
     use zstd::zstd_safe::{
         compress_bound, get_error_name, zstd_sys::ZSTD_EndDirective, CCtx, CParameter, InBuffer,
@@ -112,7 +113,9 @@ mod imp {
                 // and trying to set it will fail; similarly for newer
                 // versions compiled without threading support (which is what
                 // the vendored build is — see the module WORKERS NOTE).
-                if let Err(e) = cctx.set_parameter(CParameter::NbWorkers(compress.workers as u32)) {
+                if let Err(e) =
+                    cctx.set_parameter(CParameter::NbWorkers(compress.workers as u32))
+                {
                     return ereport(ERROR)
                         .errcode(ERRCODE_INVALID_PARAMETER_VALUE)
                         .errmsg(format!(
@@ -148,8 +151,7 @@ mod imp {
             sink.set_buffer(self.mcx, buffer_length)?;
             let output_buffer_bound = round_up_blcksz(compress_bound(buffer_length));
             bbsink_begin_backup(
-                sink.next_mut()
-                    .expect("compression sink must have next sink"),
+                sink.next_mut().expect("compression sink must have next sink"),
                 state,
                 output_buffer_bound,
             )
@@ -164,20 +166,18 @@ mod imp {
             // At the start of each archive, reset the state to start a new
             // compression operation. The parameters are sticky
             // (ZSTD_reset_session_only).
-            let cctx = self
-                .cctx
-                .as_mut()
-                .expect("zstd cctx created in begin_backup");
+            let cctx = self.cctx.as_mut().expect("zstd cctx created in begin_backup");
             if let Err(e) = cctx.reset(ResetDirective::SessionOnly) {
-                return zstd_error(format!("could not compress data: {}", get_error_name(e)));
+                return zstd_error(format!(
+                    "could not compress data: {}",
+                    get_error_name(e)
+                ));
             }
             self.out_pos = 0;
 
             // Add ".zst" to the archive name.
             let zstd_archive_name = format!("{archive_name}.zst");
-            let next = sink
-                .next_mut()
-                .expect("compression sink must have next sink");
+            let next = sink.next_mut().expect("compression sink must have next sink");
             ::sink::bbsink_begin_archive(next, state, &zstd_archive_name)
         }
 
@@ -187,10 +187,7 @@ mod imp {
             state: &mut BbsinkState,
             len: Size,
         ) -> PgResult<()> {
-            let cctx = self
-                .cctx
-                .as_mut()
-                .expect("zstd cctx created in begin_backup");
+            let cctx = self.cctx.as_mut().expect("zstd cctx created in begin_backup");
             let (input, next) = sink.own_buffer_and_next(len);
             let next_len = next.buffer_length();
             let mut in_pos = 0usize;
@@ -208,10 +205,7 @@ mod imp {
                 let res = {
                     let out = next.buffer_slice_mut(next_len);
                     let mut out_buf = OutBuffer::around_pos(out, self.out_pos);
-                    let mut in_buf = InBuffer {
-                        src: input,
-                        pos: in_pos,
-                    };
+                    let mut in_buf = InBuffer { src: input, pos: in_pos, };
                     let res = cctx.compress_stream2(
                         &mut out_buf,
                         &mut in_buf,
@@ -222,26 +216,20 @@ mod imp {
                     res
                 };
                 if let Err(e) = res {
-                    return zstd_error(format!("could not compress data: {}", get_error_name(e)));
+                    return zstd_error(format!(
+                        "could not compress data: {}",
+                        get_error_name(e)
+                    ));
                 }
             }
             Ok(())
         }
 
-        fn end_archive(
-            &mut self,
-            sink: &mut Bbsink<'mcx>,
-            state: &mut BbsinkState,
-        ) -> PgResult<()> {
+        fn end_archive(&mut self, sink: &mut Bbsink<'mcx>, state: &mut BbsinkState,) -> PgResult<()> {
             // Flush anything inside zstd's internal buffers and end the
             // frame, then forward whatever remains to the successor.
-            let cctx = self
-                .cctx
-                .as_mut()
-                .expect("zstd cctx created in begin_backup");
-            let next = sink
-                .next_mut()
-                .expect("compression sink must have next sink");
+            let cctx = self.cctx.as_mut().expect("zstd cctx created in begin_backup");
+            let next = sink.next_mut().expect("compression sink must have next sink");
             let next_len = next.buffer_length();
 
             loop {
@@ -307,11 +295,7 @@ mod imp {
             bbsink_manifest_contents(next, state, len)
         }
 
-        fn end_manifest(
-            &mut self,
-            sink: &mut Bbsink<'mcx>,
-            state: &mut BbsinkState,
-        ) -> PgResult<()> {
+        fn end_manifest(&mut self, sink: &mut Bbsink<'mcx>, state: &mut BbsinkState,) -> PgResult<()> {
             bbsink_forward_end_manifest(sink, state)
         }
 

@@ -164,7 +164,7 @@ fn dup<'p>(op: &Op<'p>) -> Option<Op<'p>> {
         Op::Project(l) => Op::Project(l),
         Op::Limit { count, offset, ties } => Op::Limit { count: *count, offset: *offset, ties: ties.as_ref().map(|t| crate::ops::TieDesc { keys: t.keys.clone(), colls: t.colls.clone(), rows: t.rows.clone(), over: t.over }) },
         #[allow(clippy::redundant_field_names)]
-        Op::Join(JoinDesc::Probe { slot, jointype, clauses, keys, qual, unique, marks, decls, inner_node, outer_first, catalog }) => Op::Join(JoinDesc::Probe { slot: *slot, jointype: *jointype, clauses: clauses, keys: keys, qual: qual, unique: *unique, marks: *marks, decls: decls.clone(), inner_node: *inner_node, outer_first: *outer_first, catalog: *catalog }),
+        Op::Join(JoinDesc::Probe { slot, jointype, clauses, keys, qual, unique, marks, decls, inner_node, outer_first, catalog }) => Op::Join(JoinDesc::Probe { slot: *slot, jointype: *jointype, clauses:clauses, keys:keys, qual:qual, unique: *unique, marks: *marks, decls: decls.clone(), inner_node: *inner_node, outer_first: *outer_first, catalog: *catalog }),
         Op::SubPlan(d) => {
             let form = match d.form {
                 SubForm::Build => SubForm::Build,
@@ -348,7 +348,7 @@ fn bare_rel(b: &Builder<'_, '_>, s: &SeqScan<'_>) -> bool {
 
 /// No system column and no whole row in `n`, every node of a kind the expression walk knows.
 fn plain_columns(n: Node<'_>) -> bool {
-    crate::expr::walk(n, &mut |x| x.as_var().is_none_or(|v| v.varattno > 0))
+    crate::expr::walk(n, &mut |x|x.as_var().is_none_or(|v| v.varattno > 0))
 }
 
 /// D3681: `plain_columns`, but scan `varno`'s own `ctid` (-1) and `tableoid` (-6), a write's row identity, read too.

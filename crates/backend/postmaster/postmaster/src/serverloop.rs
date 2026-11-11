@@ -709,7 +709,7 @@ pub fn LaunchMissingBackgroundProcesses() {
                     pm.wal_receiver_requested = false;
                 }
             });
-        }
+    }
 
     if guc_tables::vars::summarize_wal.read()
         && with_pm(|pm| {

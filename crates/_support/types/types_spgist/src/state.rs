@@ -84,10 +84,7 @@ impl SpGistState<'_> {
     /// spgdoinsert.c:1934: choose is looked up lazily, before a non-null key.
     pub fn require_choose(&self) -> PgResult<()> {
         if self.missingProcIndex.is_some() && self.chooseFn.fn_oid == 0 {
-            return Err(missing_support_function(
-                crate::SPGIST_CHOOSE_PROC,
-                self.missingProcIndex.as_deref(),
-            ));
+            return Err(missing_support_function(crate::SPGIST_CHOOSE_PROC, self.missingProcIndex.as_deref(),));
         }
         Ok(())
     }
@@ -132,18 +129,13 @@ impl SpGistState<'_> {
         out: &mut spgPickSplitOut,
     ) -> PgResult<()> {
         if self.missingProcIndex.is_some() && self.picksplitFn.fn_oid == 0 {
-            return Err(missing_support_function(
-                crate::SPGIST_PICKSPLIT_PROC,
-                self.missingProcIndex.as_deref(),
-            ));
+            return Err(missing_support_function(crate::SPGIST_PICKSPLIT_PROC, self.missingProcIndex.as_deref(),));
         }
         self.frame2.rearm(self.indexCollation);
         // SAFETY: as call_compress.
         unsafe { self.frame2.set_result_mcx(mcx) };
-        self.frame2.set_arg(
-            0,
-            Datum::from_usize(input as *const spgPickSplitIn as usize),
-        );
+        self.frame2
+            .set_arg(0, Datum::from_usize(input as *const spgPickSplitIn as usize),);
         self.frame2
             .set_arg(1, Datum::from_usize(out as *mut spgPickSplitOut as usize));
         self.picksplitFn.invoke(&mut self.frame2)?;
@@ -380,10 +372,8 @@ pub fn spg_search_item_cmp(a: &SpGistSearchItem, b: &SpGistSearchItem) -> i32 {
     0
 }
 
-pub type SpGistScanQueue = ::types_gist::pairingheap::PairingHeap<
-    SpGistSearchItem,
-    fn(&SpGistSearchItem, &SpGistSearchItem) -> i32,
->;
+pub type SpGistScanQueue =
+    ::types_gist::pairingheap::PairingHeap<SpGistSearchItem, fn(&SpGistSearchItem, &SpGistSearchItem) -> i32,>;
 
 pub struct SpGistScanOpaqueData<'mcx> {
     pub state: SpGistState<'mcx>,

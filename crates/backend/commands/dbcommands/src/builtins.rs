@@ -52,33 +52,18 @@ pub fn fc_pg_database_collation_actual_version(
             .to_owned()
     };
     match pg_locale::get_collation_actual_version(row.datlocprovider, &locale)? {
-        Some(v) => Ok(types_fmgr::varlena_result(varlena::cstring_to_text(
-            mcx,
-            v.as_bytes(),
-        )?)),
+        Some(v) => Ok(types_fmgr::varlena_result(varlena::cstring_to_text(mcx, v.as_bytes(),)?)),
         None => Ok(fcinfo.return_null()),
     }
 }
 
 const fn b(foid: types_core::Oid, name: &'static str, nargs: i16, func: PGFunction) -> FmgrBuiltin {
-    FmgrBuiltin {
-        foid,
-        name,
-        nargs,
-        strict: true,
-        retset: false,
-        func,
-    }
+    FmgrBuiltin { foid, name, nargs, strict: true, retset: false, func, }
 }
 
 pub const DBCOMMANDS_BUILTINS: &[FmgrBuiltin] = &[
     b(861, "current_database", 0, fc_current_database),
-    b(
-        6249,
-        "pg_database_collation_actual_version",
-        1,
-        fc_pg_database_collation_actual_version,
-    ),
+    b(6249, "pg_database_collation_actual_version", 1, fc_pg_database_collation_actual_version,),
 ];
 
 #[cfg(test)]

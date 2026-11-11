@@ -90,10 +90,7 @@ pub(crate) fn pushdown_quals_into_subquery<'mcx>(
 /// may be pushed into it at all.
 pub(crate) struct CteSafety<'mcx>(PushdownSafetyInfo<'mcx>);
 
-pub(crate) fn cte_safety<'mcx>(
-    mcx: Mcx<'mcx>,
-    body: &'mcx Query<'mcx>,
-) -> PgResult<Option<CteSafety<'mcx>>> {
+pub(crate) fn cte_safety<'mcx>(mcx: Mcx<'mcx>, body: &'mcx Query<'mcx>,) -> PgResult<Option<CteSafety<'mcx>>> {
     let mut safety = PushdownSafetyInfo {
         unsafe_flags: mcx::vec_from_elem_in(mcx, 0u8, body.targetList.len() + 1),
         unsafe_volatile: false,
@@ -119,23 +116,15 @@ pub(crate) fn cte_clause_safe<'mcx>(
     }
     let vars_list = vars::pull_var_clause(mcx, clause, vars::PVC_INCLUDE_PLACEHOLDERS)?;
     for v in vars_list.iter() {
-        let Some(var) = v.as_var() else {
-            return Ok(false);
-        };
-        if var.varno != rti as i32
-            || var.varattno <= 0
-            || var.varattno as usize >= safety.0.unsafe_flags.len()
-        {
+        let Some(var) = v.as_var() else { return Ok(false); };
+        if var.varno != rti as i32 || var.varattno <= 0 || var.varattno as usize >= safety.0.unsafe_flags.len() {
             return Ok(false);
         }
         if safety.0.unsafe_flags[var.varattno as usize] != 0 {
             return Ok(false);
         }
     }
-    if body.hasWindowFuncs
-        || !body.distinctClause.is_nil()
-        || body.setOperations.is_some_and(setop_has_grouping)
-    {
+    if body.hasWindowFuncs || !body.distinctClause.is_nil() || body.setOperations.is_some_and( setop_has_grouping) {
         let conflict = clauses::expression_has_grouping_conflict(clause, &mut |var| {
             if var.varlevelsup != 0 {
                 return Ok(types_core::InvalidOid);
@@ -176,9 +165,7 @@ pub(crate) fn cte_qual_implied<'mcx>(
     match body.setOperations {
         Some(setop) => cte_leaves_imply(mcx, setop, body, rte, rti, qual),
         None => {
-            let Some(where_) = body.jointree.and_then(|j| j.quals) else {
-                return Ok(false);
-            };
+            let Some(where_) = body.jointree.and_then(|j| j.quals) else { return Ok(false); };
             let mut has_sublinks = body.hasSubLinks;
             let q = rewrite_manip::ReplaceVarsFromTargetList(
                 mcx,
@@ -213,20 +200,12 @@ fn cte_leaves_imply<'mcx>(
     qual: Node<'mcx>,
 ) -> PgResult<bool> {
     if let Some(r) = set_op.as_range_tbl_ref() {
-        let Some(sub) = top
-            .rtable
-            .nth(r.rtindex as usize - 1)
-            .as_range_tbl_entry()
-            .and_then(|e| e.subquery)
-        else {
-            return Ok(false);
-        };
+        let Some(sub) = top.rtable.nth(r.rtindex as usize - 1).as_range_tbl_entry().and_then(|e| e.subquery) else { return Ok(false); };
         return cte_qual_implied(mcx, sub, rte, rti, qual);
     }
     match set_op.as_set_operation_stmt() {
         Some(op) => match (op.larg, op.rarg) {
-            (Some(l), Some(r)) => Ok(cte_leaves_imply(mcx, l, top, rte, rti, qual)?
-                && cte_leaves_imply(mcx, r, top, rte, rti, qual)?),
+            (Some(l), Some(r)) => Ok(cte_leaves_imply(mcx, l, top, rte, rti, qual)? && cte_leaves_imply(mcx, r, top, rte, rti, qual)?),
             _ => Ok(false),
         },
         None => Ok(false),
@@ -315,26 +294,18 @@ fn check_output_expressions<'mcx>(
     let mut flattened: PgVec<'mcx, Node<'mcx>> = PgVec::new_in(mcx);
     if subquery.hasGroupRTE {
         for tle_node in subquery.targetList.iter() {
-            let tle = tle_node
-                .as_target_entry()
-                .expect("tlist cell is a TargetEntry");
+            let tle = tle_node.as_target_entry().expect("tlist cell is a TargetEntry");
             flattened.push(vars::flatten_group_exprs(mcx, subquery, tle.expr)?);
         }
     }
 
     for (i, tle_node) in subquery.targetList.iter().enumerate() {
-        let tle = tle_node
-            .as_target_entry()
-            .expect("tlist cell is a TargetEntry");
+        let tle = tle_node.as_target_entry().expect("tlist cell is a TargetEntry");
         if tle.resjunk {
             continue;
         }
         let resno = tle.resno as usize;
-        let texpr = if subquery.hasGroupRTE {
-            flattened[i]
-        } else {
-            tle.expr
-        };
+        let texpr = if subquery.hasGroupRTE { flattened[i] } else { tle.expr };
 
         if subquery.hasTargetSRFs
             && safety.unsafe_flags[resno] & UNSAFE_HAS_SET_FUNC == 0
@@ -377,9 +348,7 @@ fn compare_tlist_datatypes<'mcx>(
 ) {
     let mut col_iter = col_types.iter();
     for tle_node in tlist.iter() {
-        let tle = tle_node
-            .as_target_entry()
-            .expect("tlist cell is a TargetEntry");
+        let tle = tle_node.as_target_entry().expect("tlist cell is a TargetEntry");
         if tle.resjunk {
             continue;
         }
@@ -395,9 +364,7 @@ fn compare_tlist_datatypes<'mcx>(
 
 fn target_is_in_all_partition_lists(tle: &TargetEntry<'_>, query: &Query<'_>) -> bool {
     for wc_node in query.windowClause.iter() {
-        let wc = wc_node
-            .as_window_clause()
-            .expect("windowClause cell is a WindowClause");
+        let wc = wc_node.as_window_clause().expect("windowClause cell is a WindowClause");
         if !target_is_in_sort_list(tle, &wc.partitionClause) {
             return false;
         }
@@ -412,9 +379,7 @@ fn target_is_in_sort_list(tle: &TargetEntry<'_>, sort_list: &NodeList<'_>) -> bo
         return false;
     }
     sort_list.iter().any(|n| {
-        n.as_sort_group_clause()
-            .expect("sortlist cell is a SortGroupClause")
-            .tleSortGroupRef
+        n.as_sort_group_clause().expect("sortlist cell is a SortGroupClause").tleSortGroupRef
             == tle_ref
     })
 }
@@ -482,7 +447,7 @@ fn qual_is_pushdown_safe<'mcx>(
     if matches!(safe, PushdownSafe::Safe)
         && (subquery.hasWindowFuncs
             || !subquery.distinctClause.is_nil()
-            || subquery.setOperations.is_some_and(setop_has_grouping))
+            || subquery.setOperations.is_some_and( setop_has_grouping))
     {
         let conflict = clauses::expression_has_grouping_conflict(clause, &mut |var| {
             if var.varlevelsup != 0 {
@@ -505,7 +470,10 @@ fn qual_is_pushdown_safe<'mcx>(
 // subquery_column_grouping_eqop (allpaths.c): the eqop the subquery groups the
 // output column under via distinctClause, every window's partitionClause, or
 // a grouping set-op node; InvalidOid when the column is not grouping-relevant.
-fn subquery_column_grouping_eqop(subquery: &Query<'_>, attno: i16) -> PgResult<types_core::Oid> {
+fn subquery_column_grouping_eqop(
+    subquery: &Query<'_>,
+    attno: i16
+) -> PgResult<types_core::Oid> {
     if attno <= 0 || attno as usize > subquery.targetList.len() {
         return Ok(types_core::InvalidOid);
     }
@@ -578,8 +546,8 @@ fn setop_has_grouping(setop: Node<'_>) -> bool {
         return false;
     };
     !op.groupClauses.is_nil()
-        || op.larg.is_some_and(setop_has_grouping)
-        || op.rarg.is_some_and(setop_has_grouping)
+        || op.larg.is_some_and( setop_has_grouping)
+        || op.rarg.is_some_and( setop_has_grouping)
 }
 
 // contain_volatile_functions((Node *) rinfo): the walker's RestrictInfo arm
@@ -591,11 +559,8 @@ pub(crate) fn rinfo_contains_volatile(run: &mut PlannerRun<'_>, rid: RinfoId) ->
         _ => {
             let clause = *run.root.expr_node(run.root.rinfo(rid).clause);
             let volatil = clauses::contain_volatile_functions(clause)?;
-            run.root.rinfo_mut(rid).has_volatile = if volatil {
-                VOLATILITY_VOLATILE
-            } else {
-                VOLATILITY_NOVOLATILE
-            };
+            run.root.rinfo_mut(rid).has_volatile =
+                if volatil { VOLATILITY_VOLATILE } else { VOLATILITY_NOVOLATILE };
             Ok(volatil)
         }
     }
@@ -636,20 +601,14 @@ fn subquery_push_qual<'mcx>(
         || !subquery.groupingSets.is_nil()
         || subquery.havingQual.is_some()
     {
-        subquery.havingQual = Some(rewrite_manip::make_and_qual(
-            mcx,
-            subquery.havingQual,
-            new_qual,
-        )?);
+        subquery.havingQual =
+            Some(rewrite_manip::make_and_qual(mcx, subquery.havingQual, new_qual,)?);
     } else {
         let jt = subquery.jointree.expect("subquery has a jointree");
         let quals = rewrite_manip::make_and_qual(mcx, jt.quals, new_qual)?;
         subquery.jointree = Some(mcx::alloc_leak_in(
             mcx,
-            FromExpr {
-                fromlist: jt.fromlist.clone_in(mcx)?,
-                quals: Some(quals),
-            },
+            FromExpr { fromlist: jt.fromlist.clone_in(mcx)?, quals: Some(quals), },
         )?);
     }
     Ok(())
@@ -794,7 +753,8 @@ fn find_window_run_conditions<'mcx>(
 ) -> PgResult<bool> {
     use types_nodes::primnodes::{
         RelabelType, SupportRequestWFuncMonotonic, WindowFunc, WindowFuncRunCondition,
-        MONOTONICFUNC_BOTH, MONOTONICFUNC_DECREASING, MONOTONICFUNC_INCREASING, MONOTONICFUNC_NONE,
+        MONOTONICFUNC_BOTH, MONOTONICFUNC_DECREASING, MONOTONICFUNC_INCREASING,
+        MONOTONICFUNC_NONE,
     };
     let mcx = run.mcx;
     *keep_original = true;
@@ -1080,14 +1040,7 @@ mod check_output_expressions_tests {
         let var = Node::mk_var(mcx, 1, 1, 23, -1, 0, 0).unwrap();
         let tle = Node::mk_target_entry(mcx, var, 1, Some("x"), false).unwrap();
         // One window with an empty PARTITION BY: no tlist column is in it.
-        let wc = Node::mk(
-            mcx,
-            WindowClause {
-                winref: 1,
-                ..WindowClause::default()
-            },
-        )
-        .unwrap();
+        let wc = Node::mk(mcx, WindowClause { winref: 1, ..WindowClause::default() },).unwrap();
         let subquery = mcx::alloc_leak_in(
             mcx,
             Query {

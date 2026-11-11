@@ -44,8 +44,9 @@ fn setup_process() {
 fn setup_thread() {
     fd::vfd::InitFileAccess();
     fd::vfd::InitTemporaryFileAccess().unwrap();
-    let owner = resowner::ResourceOwnerCreate(types_resowner::ResourceOwner::NULL, "spillset-test")
-        .unwrap();
+    let owner =
+        resowner::ResourceOwnerCreate(types_resowner::ResourceOwner::NULL, "spillset-test")
+            .unwrap();
     resowner_seams::set_current_resource_owner::call(owner);
 }
 
@@ -77,9 +78,7 @@ fn scratch_datadirs_leave_nothing_behind() {
 
 fn scratch_datadir(tag: &str) -> (Scratch, std::sync::MutexGuard<'static, ()>) {
     static COUNTER: AtomicU32 = AtomicU32::new(0);
-    let guard = CWD
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let guard = CWD.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let n = COUNTER.fetch_add(1, Ordering::Relaxed);
     let dir = std::env::temp_dir().join(format!(
         "pgrust_spillset_test_{}_{tag}_{n}",
@@ -175,26 +174,14 @@ fn read_part_at_reads_the_bytes_past_any_offset() {
     }
     let n = whole.len() as u64;
     for at in [0u64, 1, 8999, 9000, 9001, 9099, 9100, 9101, 30000, n - 1] {
-        let mut r = f
-            .read_part_at(ctx.mcx(), 2, at)
-            .unwrap()
-            .expect("bytes past the offset");
+        let mut r = f.read_part_at(ctx.mcx(), 2, at).unwrap().expect("bytes past the offset");
         let got = r.read_to_end().unwrap();
         r.close().unwrap();
         assert_eq!(got, whole[at as usize..], "from byte {at}");
     }
-    assert!(
-        f.read_part_at(ctx.mcx(), 2, n).unwrap().is_none(),
-        "nothing past the end"
-    );
-    assert!(
-        f.read_part_at(ctx.mcx(), 2, n + 5).unwrap().is_none(),
-        "nothing past the end"
-    );
-    assert!(
-        f.read_part_at(ctx.mcx(), 3, 0).unwrap().is_none(),
-        "an empty part"
-    );
+    assert!(f.read_part_at(ctx.mcx(), 2, n).unwrap().is_none(), "nothing past the end");
+    assert!(f.read_part_at(ctx.mcx(), 2, n + 5).unwrap().is_none(), "nothing past the end");
+    assert!(f.read_part_at(ctx.mcx(), 3, 0).unwrap().is_none(), "an empty part");
 }
 
 #[test]
@@ -218,11 +205,7 @@ fn abandoned_epoch_is_not_committed_and_tail_is_overwritten() {
         w.write_part(0, &pattern(9, 9, 20_000)).unwrap();
         // dropped un-finished
     }
-    assert_eq!(
-        f.spilled_bytes(),
-        committed,
-        "abandoned epoch commits nothing"
-    );
+    assert_eq!(f.spilled_bytes(), committed, "abandoned epoch commits nothing");
     assert_eq!(f.epochs(), 1);
 
     // The next epoch lands at the committed offset, overwriting the tail.
@@ -260,7 +243,8 @@ fn cross_thread_write_then_read_by_name() {
             handles.push(s.spawn(move || {
                 setup_thread(); // each thread arms its own fd substrate
                 let ctx = mcx::MemoryContext::new("spillset-writer");
-                let mut f = SpillFile::new(set, SpillSet::file_name("dst", 7, worker), 4);
+                let mut f =
+                    SpillFile::new(set, SpillSet::file_name("dst", 7, worker), 4);
                 for e in 0..2u32 {
                     let mut w = f.begin_epoch(ctx.mcx()).unwrap();
                     for part in 0..4u32 {
@@ -314,10 +298,7 @@ fn spillset_drop_deletes_files() {
 
     let tmpdir = format!("{dir}/base/pgsql_tmp");
     let count_entries = || std::fs::read_dir(&tmpdir).map(|d| d.count()).unwrap_or(0);
-    assert!(
-        count_entries() > 0,
-        "fileset dir exists while the set lives"
-    );
+    assert!(count_entries() > 0, "fileset dir exists while the set lives");
 
     drop(f);
     drop(set); // last Arc: FileSet::drop → delete_all
@@ -356,10 +337,7 @@ fn extent_claims_roundtrip() {
     }
     let mut expect = pattern(2, 0, 12_000);
     expect.extend(pattern(2, 2, 12_000));
-    assert_eq!(
-        got, expect,
-        "extent claims concatenate to the partition image"
-    );
+    assert_eq!(got, expect, "extent claims concatenate to the partition image");
     // And they agree with the whole-partition reader.
     let mut r = f.read_part(ctx.mcx(), 2).unwrap().unwrap();
     assert_eq!(r.read_to_end().unwrap(), expect);
@@ -422,17 +400,9 @@ fn temp_file_limit_counts_a_closed_spill_file_once() {
     let mut b = SpillFile::new(Arc::clone(&set), b_name.clone(), 1);
     epoch(ctx.mcx(), &mut a, 300_000).unwrap();
     epoch(ctx.mcx(), &mut a, 300_000).unwrap();
-    assert_eq!(
-        charged(),
-        600_000,
-        "closed between its epochs, A stays charged, each byte once"
-    );
+    assert_eq!(charged(), 600_000, "closed between its epochs, A stays charged, each byte once");
     epoch(ctx.mcx(), &mut a, 100_000).unwrap();
-    assert_eq!(
-        charged(),
-        700_000,
-        "reopened, A's first 600 kB are not charged again (they would pass 1 MB)"
-    );
+    assert_eq!(charged(), 700_000, "reopened, A's first 600 kB are not charged again (they would pass 1 MB)");
 
     std::thread::scope(|s| {
         s.spawn(|| {
@@ -450,11 +420,7 @@ fn temp_file_limit_counts_a_closed_spill_file_once() {
                 "closed A's 700 kB + B's 400 kB pass 1 MB"
             );
             #[cfg(target_os = "linux")]
-            assert_eq!(
-                open_descriptors_on(&b_name),
-                0,
-                "the failed epoch closed its file"
-            );
+            assert_eq!(open_descriptors_on(&b_name), 0, "the failed epoch closed its file");
             fd::vfd::charge_temp_to(prev);
             guc_tables::vars::temp_file_limit.write(own_limit);
         });
@@ -462,10 +428,7 @@ fn temp_file_limit_counts_a_closed_spill_file_once() {
     guc_tables::vars::temp_file_limit.write(saved);
 
     let b_bytes = charged() - 700_000;
-    assert!(
-        b_bytes >= 200_000,
-        "B's committed epoch and the failed one's written blocks stay charged"
-    );
+    assert!(b_bytes >= 200_000, "B's committed epoch and the failed one's written blocks stay charged");
     a.delete().unwrap();
     assert_eq!(charged(), b_bytes, "A's delete credits it");
     b.delete().unwrap();
@@ -488,12 +451,7 @@ fn long_spans_bypass_the_buffer_and_read_back_exact() {
     // per epoch, per part: spans written one after another (small, long, unaligned long, small)
     // epoch 0 by `write_part`, the others by `write_parts` (epoch 3: 450 short spans, past PG_IOV_MAX per gathered write)
     let many = [500usize; 150];
-    let spans: [&[usize]; 4] = [
-        &[100, 40_000, 70_001, 9],
-        &[65_536, 3, 32_768],
-        &[8191, 8193, 200_000],
-        &many,
-    ];
+    let spans: [&[usize]; 4] = [&[100, 40_000, 70_001, 9], &[65_536, 3, 32_768], &[8191, 8193, 200_000], &many,];
     let mut expect: Vec<Vec<u8>> = vec![Vec::new(); 4];
     for (e, sizes) in spans.iter().enumerate() {
         let mut w = f.begin_epoch(ctx.mcx()).unwrap();
@@ -523,9 +481,7 @@ fn long_spans_bypass_the_buffer_and_read_back_exact() {
         }
         for bufsize in [7usize, 8192, 33_000, 100_000, 1 << 20] {
             for start in [0u64, 1, 8191, 40_100, 110_101] {
-                let Some(mut r) = f.read_part_at(ctx.mcx(), part, start).unwrap() else {
-                    panic!("part {part} past {start}")
-                };
+                let Some(mut r) = f.read_part_at(ctx.mcx(), part, start).unwrap() else { panic!("part {part} past {start}") };
                 let mut got = Vec::new();
                 let mut buf = vec![0u8; bufsize];
                 loop {
@@ -536,10 +492,7 @@ fn long_spans_bypass_the_buffer_and_read_back_exact() {
                     got.extend_from_slice(&buf[..n]);
                 }
                 r.close().unwrap();
-                assert!(
-                    got == want[start as usize..],
-                    "part {part} buffer {bufsize} from {start}"
-                );
+                assert!(got == want[start as usize..], "part {part} buffer {bufsize} from {start}");
             }
         }
     }

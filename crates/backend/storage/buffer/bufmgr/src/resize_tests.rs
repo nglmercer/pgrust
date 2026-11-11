@@ -495,7 +495,7 @@ fn bp1_thrash_under_concurrent_readers() {
                 let blk = (x % UNIVERSE as u64) as u32;
                 let b = read_blk(9700 + t % 2, blk);
                 assert_eq!(page_block_stamp(b), blk, "page content under thrash");
-                if x.is_multiple_of(7) {
+                if x.is_multiple_of( 7) {
                     LockBuffer(b, BUFFER_LOCK_EXCLUSIVE).unwrap();
                     MarkBufferDirty(b).unwrap();
                     LockBuffer(b, BUFFER_LOCK_UNLOCK).unwrap();

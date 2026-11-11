@@ -11,9 +11,7 @@
 //! global allocator reads `in_cache_scope`), so a cache image shares its pages only with other cache images and an
 //! evicted image empties whole pages the arena can purge.
 
-use core::sync::atomic::{
-    AtomicBool, AtomicI64, AtomicPtr, AtomicU32, AtomicU64, AtomicUsize, Ordering::Relaxed,
-};
+use core::sync::atomic::{AtomicBool, AtomicI64, AtomicPtr, AtomicU32, AtomicU64, AtomicUsize, Ordering::Relaxed,};
 
 use crate::charge::{Charge, Door, Owner};
 use crate::Kind;
@@ -62,20 +60,13 @@ pub fn cache_heap_ready() -> bool {
 /// one futex wake only.
 #[inline]
 pub fn note_taken(cache: bool, delta: i64) {
-    let (mine, other) = if cache {
-        (&CACHE_TAKEN, &ALLOC_TAKEN)
-    } else {
-        (&ALLOC_TAKEN, &CACHE_TAKEN)
-    };
+    let (mine, other) = if cache { (&CACHE_TAKEN, &ALLOC_TAKEN) } else { (&ALLOC_TAKEN, &CACHE_TAKEN) };
     let now = mine.fetch_add(delta, Relaxed).wrapping_add(delta);
     if delta <= 0 {
         return;
     }
     let line = LINE.load(Relaxed);
-    if line != 0
-        && now.saturating_add(other.load(Relaxed)).max(0) as u64 > line
-        && !LADDER_DUE.swap(true, Relaxed)
-    {
+    if line != 0 && now.saturating_add(other.load(Relaxed)).max(0) as u64 > line && !LADDER_DUE.swap(true, Relaxed) {
         DUE_COUNT.fetch_add(1, Relaxed);
         wake_ladder();
     }
@@ -93,10 +84,7 @@ pub fn note_due() {
 /// committed slices a general heap holds (`set_reused_probe`) count as the general arenas' (their blocks are no cache's).
 pub fn taken() -> Option<(u64, u64)> {
     active().then(|| {
-        let (general, cache) = (
-            ALLOC_TAKEN.load(Relaxed).max(0) as u64,
-            CACHE_TAKEN.load(Relaxed).max(0) as u64,
-        );
+        let (general, cache) = (ALLOC_TAKEN.load(Relaxed).max(0) as u64, CACHE_TAKEN.load(Relaxed).max(0) as u64,);
         let reused = reused().min(cache);
         (general.saturating_add(reused), cache - reused)
     })
@@ -104,8 +92,7 @@ pub fn taken() -> Option<(u64, u64)> {
 
 /// REUSE BEFORE RELEASE: the bytes of the cache arena general heaps hold now (allocarena's probe,
 /// installed with the switch); 0 when none is installed.
-static REUSED_PROBE: core::sync::atomic::AtomicPtr<()> =
-    core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
+static REUSED_PROBE: core::sync::atomic::AtomicPtr<()> = core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
 
 pub fn set_reused_probe(f: fn() -> u64) {
     REUSED_PROBE.store(f as *mut (), core::sync::atomic::Ordering::Release);
@@ -152,13 +139,7 @@ fn wake_ladder() {
     #[cfg(target_os = "linux")]
     // SAFETY: FUTEX_WAKE on a static word; no memory is touched past the word.
     unsafe {
-        libc::syscall(
-            libc::SYS_futex,
-            LADDER_WORD.as_ptr(),
-            libc::FUTEX_WAKE | libc::FUTEX_PRIVATE_FLAG,
-            i32::MAX,
-            core::ptr::null::<libc::timespec>(),
-        );
+        libc::syscall(libc::SYS_futex, LADDER_WORD.as_ptr(), libc::FUTEX_WAKE | libc::FUTEX_PRIVATE_FLAG, i32::MAX, core::ptr::null::<libc::timespec>(),);
     }
     let p = WAKE_HOOK.load(Relaxed);
     if !p.is_null() {
@@ -179,19 +160,10 @@ pub fn park_ladder(ms: u64) {
         if LADDER_DUE.load(Relaxed) {
             return;
         }
-        let ts = libc::timespec {
-            tv_sec: (ms / 1000) as libc::time_t,
-            tv_nsec: ((ms % 1000) * 1_000_000) as libc::c_long,
-        };
+        let ts = libc::timespec { tv_sec: (ms / 1000) as libc::time_t, tv_nsec: ((ms % 1000) * 1_000_000) as libc::c_long, };
         // SAFETY: FUTEX_WAIT on a static word with a relative timeout; returns at once if the word moved.
         unsafe {
-            libc::syscall(
-                libc::SYS_futex,
-                LADDER_WORD.as_ptr(),
-                libc::FUTEX_WAIT | libc::FUTEX_PRIVATE_FLAG,
-                seen,
-                &ts as *const libc::timespec,
-            );
+            libc::syscall(libc::SYS_futex, LADDER_WORD.as_ptr(), libc::FUTEX_WAIT | libc::FUTEX_PRIVATE_FLAG, seen, &ts as *const libc::timespec,);
         }
     }
     #[cfg(not(target_os = "linux"))]
@@ -211,9 +183,7 @@ static RETAINED_AT: AtomicU32 = AtomicU32::new(0);
 /// `not_resident_heap`: door 1's bytes the residency pass found not resident). Never below 0. ONE formula for the view's
 /// `allocator_retained` row and the snapshot's `retained` term.
 pub fn retained_of(alloc_resident: i64, charged_live: i64, not_resident_heap: i64) -> i64 {
-    alloc_resident
-        .wrapping_sub(charged_live.wrapping_sub(not_resident_heap))
-        .max(0)
+    alloc_resident.wrapping_sub(charged_live.wrapping_sub(not_resident_heap)).max(0)
 }
 
 /// A fresh reading of the retained bytes.
@@ -324,15 +294,12 @@ impl Road {
     /// Live cache-road bytes no cache holder's charge covers. Below 0 when a holder charges bytes it keeps off the
     /// cache road.
     pub fn unheld(&self) -> i64 {
-        self.arena_live
-            .wrapping_add(self.own_live)
-            .wrapping_sub(self.holders_heap)
+        self.arena_live.wrapping_add(self.own_live).wrapping_sub(self.holders_heap)
     }
 
     /// The cache arena's committed bytes no live block uses (free pages not purged yet, and block rounding).
     pub fn retention(&self) -> Option<i64> {
-        self.committed
-            .map(|c| (c as i64).wrapping_sub(self.arena_live))
+        self.committed.map(|c| (c as i64).wrapping_sub(self.arena_live))
     }
 }
 
@@ -360,19 +327,11 @@ pub fn road() -> Road {
 #[must_use]
 pub fn cache_scope_for(owner: Owner, kind: Kind) -> CacheScope {
     // the record first: its block is the general road's (no scope is open yet), never the holder's
-    let mut rec = Box::new(ScopeRec {
-        charge: Charge::open(owner, crate::charge::release_of(owner), kind, Door::Heap, 0),
-        pending: 0,
-        prev: core::ptr::null_mut(),
-    });
+    let mut rec = Box::new(ScopeRec { charge: Charge::open(owner, crate::charge::release_of(owner), kind, Door::Heap, 0), pending: 0, prev: core::ptr::null_mut(), });
     let at: *mut ScopeRec = &mut *rec;
     HOLDER.with(|h| rec.prev = h.replace(at));
     crate::door_cache_step(1);
-    CacheScope {
-        rec: Some(rec),
-        open: true,
-        _not_send: core::marker::PhantomData,
-    }
+    CacheScope { rec: Some(rec), open: true, _not_send: core::marker::PhantomData, }
 }
 
 impl CacheScope {
@@ -398,10 +357,7 @@ impl CacheScope {
         let mut rec = self.rec.take()?;
         fold(&mut rec);
         HOLDER.with(|h| {
-            debug_assert!(
-                core::ptr::eq(h.get(), &*rec),
-                "cache scopes end in the order they opened"
-            );
+            debug_assert!(core::ptr::eq(h.get(), &*rec), "cache scopes end in the order they opened");
             h.set(rec.prev)
         });
         let ScopeRec { charge, .. } = *rec;
@@ -467,16 +423,8 @@ mod tests {
     #[test]
     fn retained_is_resident_less_the_charged_live_and_its_floor_is_the_least_of_three() {
         assert_eq!(retained_of(10 << 20, 8 << 20, 0), 2 << 20);
-        assert_eq!(
-            retained_of(10 << 20, 8 << 20, 1 << 20),
-            3 << 20,
-            "not-resident heap is no live page"
-        );
-        assert_eq!(
-            retained_of(6 << 20, 8 << 20, 0),
-            0,
-            "accounts above resident: none, never below 0"
-        );
+        assert_eq!(retained_of(10 << 20, 8 << 20, 1 << 20), 3 << 20, "not-resident heap is no live page");
+        assert_eq!(retained_of(6 << 20, 8 << 20, 0), 0, "accounts above resident: none, never below 0");
         assert_eq!(retained_floor(), 0, "no reading yet");
         note_retained(500);
         assert_eq!((retained(), retained_floor()), (500, 500));
@@ -490,11 +438,7 @@ mod tests {
     #[test]
     fn scopes_nest_and_close() {
         set_cache_heap_ready();
-        let scope = || {
-            cache_scope_for(
-                Owner::Cache(crate::Holder::Of(crate::Consumer::ZoneStore)),
-                Kind::Region,
-            )
+        let scope = || { cache_scope_for(Owner::Cache(crate::Holder::Of(crate::Consumer::ZoneStore)), Kind::Region,)
         };
         assert!(!in_cache_scope());
         {
@@ -507,32 +451,19 @@ mod tests {
             assert!(in_cache_scope(), "the outer scope is still open");
         }
         assert!(!in_cache_scope());
-        let t = std::thread::spawn(in_cache_scope);
+        let t = std::thread::spawn( in_cache_scope);
         let _c = scope();
         assert!(!t.join().unwrap(), "a scope is the thread's own");
     }
 
     #[test]
     fn d4536_a_scope_absorbs_a_charge_onto_its_owner() {
-        let (pool, fp) = (
-            Owner::Cache(crate::Holder::Of(crate::Consumer::BuildPool)),
-            Owner::Cache(crate::Holder::Of(crate::Consumer::FpTables)),
-        );
-        let kept = Charge::open(
-            pool,
-            crate::charge::release_of(pool),
-            Kind::Region,
-            Door::Heap,
-            1 << 20,
-        );
+        let (pool, fp) = (Owner::Cache(crate::Holder::Of(crate::Consumer::BuildPool)), Owner::Cache(crate::Holder::Of(crate::Consumer::FpTables)),);
+        let kept = Charge::open(pool, crate::charge::release_of(pool), Kind::Region, Door::Heap, 1 << 20,);
         let mut s = cache_scope_for(fp, Kind::Region);
         s.absorb(kept);
         let c = s.finish().expect("its charge");
-        assert_eq!(
-            (c.owner(), c.committed()),
-            (fp, 1 << 20),
-            "the pool's bytes are the scope owner's"
-        );
+        assert_eq!((c.owner(), c.committed()), (fp, 1 << 20), "the pool's bytes are the scope owner's");
     }
 
     #[test]

@@ -14,21 +14,10 @@ const MIB: usize = 1 << 20;
 /// them back.
 fn mapped(n: usize) -> memledger::Charge {
     let (owner, release) = memledger::charge::context();
-    memledger::Charge::open(
-        owner,
-        release,
-        memledger::Kind::Mapped,
-        memledger::charge::Door::Mapped,
-        n as u64,
-    )
+    memledger::Charge::open(owner, release, memledger::Kind::Mapped, memledger::charge::Door::Mapped, n as u64,)
 }
 
-fn statement(
-    procno: u32,
-    resident: usize,
-    ready: mpsc::Sender<()>,
-    done: Arc<Barrier>,
-) -> std::thread::JoinHandle<bool> {
+fn statement(procno: u32, resident: usize, ready: mpsc::Sender<()>, done: Arc<Barrier>,) -> std::thread::JoinHandle<bool> {
     std::thread::spawn(move || {
         let pid = 7000 + procno as i32;
         governor::register(procno as i32, pid);
@@ -62,11 +51,7 @@ fn a_victims_bytes_stay_pending_after_it_answers() {
     assert_eq!(v.bytes, 400 * MIB);
     done.wait();
     assert!(big.join().unwrap(), "it answered and ended");
-    assert_eq!(
-        governor::decide_inputs().pending,
-        400 * MIB as u64,
-        "its bytes are still landing"
-    );
+    assert_eq!(governor::decide_inputs().pending, 400 * MIB as u64, "its bytes are still landing");
     consts::set(K::CancelLandingMs, 1);
     let (tx, ready) = mpsc::channel();
     let done = Arc::new(Barrier::new(2));
@@ -76,9 +61,5 @@ fn a_victims_bytes_stay_pending_after_it_answers() {
     done.wait();
     assert!(next.join().unwrap());
     std::thread::sleep(std::time::Duration::from_millis(5));
-    assert_eq!(
-        governor::decide_inputs().pending,
-        400 * MIB as u64,
-        "the first still lands; the second (1 ms) has landed"
-    );
+    assert_eq!(governor::decide_inputs().pending, 400 * MIB as u64, "the first still lands; the second (1 ms) has landed");
 }

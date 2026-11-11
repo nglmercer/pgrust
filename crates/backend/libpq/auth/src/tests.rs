@@ -60,8 +60,10 @@ fn install() {
                 ),
                 // Verifier over a NON-UTF-8 password byte string (b046).
                 "rawbytes" => Some(
-                    String::from_utf8(pg_md5::pg_md5_encrypt(b"pencil\xe9", b"rawbytes").to_vec())
-                        .unwrap(),
+                    String::from_utf8(
+                        pg_md5::pg_md5_encrypt(b"pencil\xe9", b"rawbytes").to_vec()
+                    )
+                    .unwrap(),
                 ),
                 "nopass" => None,
                 _ => return Ok(None),
@@ -129,11 +131,7 @@ fn a_run_leaves_nothing_behind() {
         return;
     }
     let child = std::process::Command::new(std::env::current_exe().unwrap())
-        .args([
-            "--exact",
-            "tests::a_run_leaves_nothing_behind",
-            "--nocapture",
-        ])
+        .args(["--exact", "tests::a_run_leaves_nothing_behind", "--nocapture",])
         .env(CHILD, "1")
         .stdout(std::process::Stdio::piped())
         .spawn()
@@ -347,10 +345,7 @@ fn port_probes_do_not_panic_under_port_borrow() {
     std::thread::spawn(|| {
         g::SetMyProcPort(unix_port("alice", "postgres"));
         assert!(g::HaveMyProcPort());
-        assert_eq!(
-            g::TryWithMyProcPort(|p| p.user_name.clone()),
-            Some(Some("alice".to_string()))
-        );
+        assert_eq!(g::TryWithMyProcPort(|p| p.user_name.clone()), Some(Some("alice".to_string())));
         // the trunk's WithMyProcPort is a shared borrow; main's test is about the mutable section
         g::WithMyProcPortMut(|_| {
             assert!(g::HaveMyProcPort());
@@ -456,6 +451,7 @@ fn password_failed_is_28P01() {
     .unwrap();
 }
 
+
 #[test]
 fn eof_status_exits_quietly() {
     let result = std::thread::spawn(|| {
@@ -524,10 +520,7 @@ fn scram_client(stream: &mut UnixStream, password: &str, correct: bool) -> (u8, 
     assert_eq!((t, code), (b'R', AUTH_REQ_SASL));
     let mechs = String::from_utf8(payload).unwrap();
     assert!(mechs.contains("SCRAM-SHA-256\0"));
-    assert!(
-        !mechs.contains("SCRAM-SHA-256-PLUS"),
-        "PLUS without SSL: {mechs}"
-    );
+    assert!(!mechs.contains("SCRAM-SHA-256-PLUS"), "PLUS without SSL: {mechs}");
 
     let client_first_bare = "n=,r=clientnonce0123456789";
     let mut body = b"SCRAM-SHA-256\0".to_vec();
@@ -540,21 +533,10 @@ fn scram_client(stream: &mut UnixStream, password: &str, correct: bool) -> (u8, 
     assert_eq!((t, code), (b'R', AUTH_REQ_SASL_CONT));
     let server_first = String::from_utf8(payload).unwrap();
     let mut parts = server_first.split(',');
-    let full_nonce = parts
-        .next()
-        .unwrap()
-        .strip_prefix("r=")
-        .unwrap()
-        .to_string();
+    let full_nonce = parts.next().unwrap().strip_prefix("r=").unwrap().to_string();
     assert!(full_nonce.starts_with("clientnonce0123456789"));
     let salt = b64d(parts.next().unwrap().strip_prefix("s=").unwrap());
-    let iterations: i32 = parts
-        .next()
-        .unwrap()
-        .strip_prefix("i=")
-        .unwrap()
-        .parse()
-        .unwrap();
+    let iterations: i32 = parts.next().unwrap().strip_prefix("i=").unwrap().parse().unwrap();
 
     let salted = scram_salted_password(password.as_bytes(), &salt, iterations).unwrap();
     let client_key = scram_client_key(&salted);
@@ -571,10 +553,7 @@ fn scram_client(stream: &mut UnixStream, password: &str, correct: bool) -> (u8, 
     if !correct {
         proof[0] ^= 0xff;
     }
-    send_password_msg(
-        stream,
-        format!("{without_proof},p={}", b64e(&proof)).as_bytes(),
-    );
+    send_password_msg(stream, format!("{without_proof},p={}", b64e(&proof)).as_bytes(),);
 
     let (t, code, payload) = read_server_msg(stream);
     if t == b'R' && code == AUTH_REQ_SASL_FIN {
@@ -612,13 +591,7 @@ impl SocketAuth {
         )
         .unwrap();
         assert_eq!(status, 0);
-        (
-            Self {
-                listen_sockets,
-                dir,
-            },
-            sock_path,
-        )
+        (Self { listen_sockets, dir, }, sock_path,)
     }
 
     fn accept_port(&self, user: &str) -> Port {
@@ -648,10 +621,7 @@ fn expect_client_auth_fatal(port: &mut Port) -> PgError {
     }));
     elog::config::set_where_to_send_output(types_dest::CommandDest::Debug);
     elog::set_emit_log_hook(prev);
-    assert_eq!(
-        payload_str(&result.expect_err("expected FATAL")),
-        "proc_exit(1)"
-    );
+    assert_eq!(payload_str(&result.expect_err("expected FATAL")), "proc_exit(1)");
     let err = CAPTURED
         .with(|c| c.borrow().last().cloned())
         .expect("FATAL report was emitted");
@@ -922,27 +892,17 @@ fn gss_bad_keytab_fails_after_reading_client_token() {
         // First (garbage) AP-REQ token; C reads it before anything can fail.
         send_password_msg(&mut stream, b"\x60\x10not-a-gss-token");
         let (t, _, body) = read_server_msg(&mut stream);
-        assert_eq!(
-            t,
-            b'E',
-            "expected FATAL, got {:?}",
-            String::from_utf8_lossy(&body)
-        );
+        assert_eq!(t, b'E', "expected FATAL, got {:?}", String::from_utf8_lossy(&body));
     });
 
     let mut port = ta.accept_port("gssuser");
     let err = expect_client_auth_fatal(&mut port);
     guc_tables::vars::pg_krb_server_keyfile.write(prev_keyfile);
-    assert_eq!(
-        err.message(),
-        "GSSAPI authentication failed for user \"gssuser\""
-    );
+    assert_eq!(err.message(), "GSSAPI authentication failed for user \"gssuser\"");
     let logged: Vec<String> =
         CAPTURED.with(|c| c.borrow().iter().map(|e| e.message().to_string()).collect());
     assert!(
-        logged
-            .iter()
-            .any(|m| m == "accepting GSS security context failed"),
+        logged.iter().any(|m| m == "accepting GSS security context failed"),
         "keytab failure must surface from the context-accept step (C auth.c:1049): {logged:?}"
     );
     assert!(
@@ -1002,7 +962,7 @@ fn interpret_ident_response_cases() {
     );
     // User name is capped at IDENT_USERNAME_MAX bytes.
     let mut long = b"1,2:USERID:UNIX:".to_vec();
-    long.extend(std::iter::repeat_n(b'a', IDENT_USERNAME_MAX + 50));
+    long.extend(std::iter::repeat_n(b'a',IDENT_USERNAME_MAX + 50));
     long.extend(b"\r\n");
     let got = interpret_ident_response(&long).unwrap();
     assert_eq!(got.len(), IDENT_USERNAME_MAX);
@@ -1032,7 +992,7 @@ unsafe extern "C" fn mock_pam_start(
     pamh: *mut *mut pam_ffi::pam_handle_t,
 ) -> c_int {
     MOCK_CONV.with(|c| *c.borrow_mut() = conv as usize);
-    *pamh = std::ptr::dangling_mut::<pam_ffi::pam_handle_t>();
+    *pamh = std::ptr::dangling_mut::< pam_ffi::pam_handle_t>();
     pam_ffi::PAM_SUCCESS
 }
 
@@ -1069,16 +1029,17 @@ unsafe extern "C" fn mock_pam_authenticate(
         return rc;
     }
     assert!(!resp.is_null());
-    let got = std::ffi::CStr::from_ptr((*resp).resp)
-        .to_string_lossy()
-        .into_owned();
+    let got = std::ffi::CStr::from_ptr((*resp).resp).to_string_lossy().into_owned();
     libc::free((*resp).resp as *mut c_void);
     libc::free(resp as *mut c_void);
     MOCK_SEEN_PASSWORD.with(|p| *p.borrow_mut() = Some(got));
     pam_ffi::PAM_SUCCESS
 }
 
-unsafe extern "C" fn mock_pam_acct_mgmt(_pamh: *mut pam_ffi::pam_handle_t, _flags: c_int) -> c_int {
+unsafe extern "C" fn mock_pam_acct_mgmt(
+    _pamh: *mut pam_ffi::pam_handle_t,
+    _flags: c_int
+) -> c_int {
     pam_ffi::PAM_SUCCESS
 }
 
@@ -1156,18 +1117,9 @@ fn pam_mock_authenticate_failure_is_status_error() {
 fn pam_conv_proc_message_styles() {
     install();
     let passwd = std::ffi::CString::new("pw").unwrap();
-    let m1 = pam_message {
-        msg_style: pam_ffi::PAM_PROMPT_ECHO_OFF,
-        msg: c"Password:".as_ptr(),
-    };
-    let m2 = pam_message {
-        msg_style: pam_ffi::PAM_TEXT_INFO,
-        msg: c"info".as_ptr(),
-    };
-    let m3 = pam_message {
-        msg_style: pam_ffi::PAM_ERROR_MSG,
-        msg: c"boom".as_ptr(),
-    };
+    let m1 = pam_message { msg_style: pam_ffi::PAM_PROMPT_ECHO_OFF, msg: c"Password:".as_ptr(), };
+    let m2 = pam_message { msg_style: pam_ffi::PAM_TEXT_INFO, msg: c"info".as_ptr(), };
+    let m3 = pam_message { msg_style: pam_ffi::PAM_ERROR_MSG, msg: c"boom".as_ptr(), };
     let mut msgs: [*const pam_message; 3] = [&m1, &m2, &m3];
     let mut resp: *mut pam_response = core::ptr::null_mut();
     // SAFETY: valid message array and out-pointer.
@@ -1186,13 +1138,9 @@ fn pam_conv_proc_message_styles() {
         let r0 = std::ffi::CStr::from_ptr((*resp).resp).to_str().unwrap();
         assert_eq!(r0, "pw");
         assert_eq!((*resp).resp_retcode, pam_ffi::PAM_SUCCESS);
-        let r1 = std::ffi::CStr::from_ptr((*resp.add(1)).resp)
-            .to_str()
-            .unwrap();
+        let r1 = std::ffi::CStr::from_ptr((*resp.add(1)).resp).to_str().unwrap();
         assert_eq!(r1, "");
-        let r2 = std::ffi::CStr::from_ptr((*resp.add(2)).resp)
-            .to_str()
-            .unwrap();
+        let r2 = std::ffi::CStr::from_ptr((*resp.add(2)).resp).to_str().unwrap();
         assert_eq!(r2, "");
         for i in 0..3 {
             libc::free((*resp.add(i)).resp as *mut c_void);
@@ -1201,10 +1149,7 @@ fn pam_conv_proc_message_styles() {
     }
 
     // Unsupported style fails the whole conversation.
-    let bad = pam_message {
-        msg_style: 99,
-        msg: core::ptr::null(),
-    };
+    let bad = pam_message { msg_style: 99, msg: core::ptr::null(), };
     let mut msgs: [*const pam_message; 1] = [&bad];
     let mut resp: *mut pam_response = core::ptr::null_mut();
     // SAFETY: valid message array and out-pointer.
@@ -1270,9 +1215,9 @@ pub(crate) mod ldap_fakes {
     use openssl::x509::{X509NameBuilder, X509};
 
     use crate::ldapber::{
-        ber_int, decode_int, tlv, BerReader, TAG_BIND_REQUEST, TAG_BIND_RESPONSE, TAG_ENUMERATED,
-        TAG_INTEGER, TAG_OCTET_STRING, TAG_SEARCH_DONE, TAG_SEARCH_ENTRY, TAG_SEARCH_REFERENCE,
-        TAG_SEARCH_REQUEST, TAG_SEQUENCE, TAG_UNBIND_REQUEST,
+        ber_int, decode_int, tlv, BerReader, TAG_BIND_REQUEST, TAG_BIND_RESPONSE,
+        TAG_ENUMERATED, TAG_INTEGER, TAG_OCTET_STRING, TAG_SEARCH_DONE, TAG_SEARCH_ENTRY,
+        TAG_SEARCH_REFERENCE, TAG_SEARCH_REQUEST, TAG_SEQUENCE, TAG_UNBIND_REQUEST,
     };
 
     pub const STARTTLS_OID: &[u8] = b"1.3.6.1.4.1.1466.20037";
@@ -1401,10 +1346,8 @@ pub(crate) mod ldap_fakes {
         b.set_subject_name(&name).unwrap();
         b.set_issuer_name(&name).unwrap();
         b.set_pubkey(&key).unwrap();
-        b.set_not_before(&Asn1Time::days_from_now(0).unwrap())
-            .unwrap();
-        b.set_not_after(&Asn1Time::days_from_now(30).unwrap())
-            .unwrap();
+        b.set_not_before(&Asn1Time::days_from_now(0).unwrap()).unwrap();
+        b.set_not_after(&Asn1Time::days_from_now(30).unwrap()).unwrap();
         b.append_extension(BasicConstraints::new().critical().ca().build().unwrap())
             .unwrap();
         if !dns.is_empty() || !ips.is_empty() {
@@ -1526,12 +1469,7 @@ pub(crate) mod ldap_fakes {
         serve_entries: bool,
     }
 
-    fn serve(
-        tcp: TcpStream,
-        mode: LdapMode,
-        users: Arc<Users>,
-        acceptor: Option<Arc<SslAcceptor>>,
-    ) {
+    fn serve(tcp: TcpStream, mode: LdapMode, users: Arc<Users>, acceptor: Option<Arc<SslAcceptor>>,) {
         let mut s = if mode == LdapMode::Ldaps {
             match acceptor.as_ref().unwrap().accept(tcp) {
                 Ok(t) => FakeStream::Tls(t),
@@ -1541,13 +1479,9 @@ pub(crate) mod ldap_fakes {
             FakeStream::Plain(tcp)
         };
         loop {
-            let Some(msg) = read_ber_message(&mut s) else {
-                return;
-            };
+            let Some(msg) = read_ber_message(&mut s) else { return; };
             let mut r = BerReader::new(&msg);
-            let Ok((_, content)) = r.read_tlv() else {
-                return;
-            };
+            let Ok((_, content)) = r.read_tlv() else { return; };
             let mut r = BerReader::new(content);
             let Ok((_, id)) = r.read_tlv() else { return };
             let Ok(msgid) = decode_int(id) else { return };
@@ -1569,10 +1503,7 @@ pub(crate) mod ldap_fakes {
                             .any(|(dn, p)| dn.as_bytes() == name && p.as_bytes() == pw)
                     };
                     let rc = if ok { 0 } else { 49 };
-                    let _ = s.write_all(&envelope(
-                        msgid,
-                        &ldap_result(TAG_BIND_RESPONSE, rc, "", &[]),
-                    ));
+                    let _ = s.write_all(&envelope(msgid, &ldap_result(TAG_BIND_RESPONSE, rc, "", &[]),));
                 }
                 TAG_SEARCH_REQUEST => {
                     for (dn, _) in users.entries.iter().filter(|_| users.serve_entries) {
@@ -1592,8 +1523,7 @@ pub(crate) mod ldap_fakes {
                         }
                         let _ = s.write_all(&envelope(msgid, &tlv(TAG_SEARCH_REFERENCE, &refs)));
                     }
-                    let _ =
-                        s.write_all(&envelope(msgid, &ldap_result(TAG_SEARCH_DONE, 0, "", &[])));
+                    let _ = s.write_all(&envelope(msgid, &ldap_result(TAG_SEARCH_DONE, 0, "", &[])));
                 }
                 TAG_EXTENDED_REQUEST => {
                     let mut b = BerReader::new(op);
@@ -1602,12 +1532,7 @@ pub(crate) mod ldap_fakes {
                     if t != 0x80 || oid != STARTTLS_OID {
                         let _ = s.write_all(&envelope(
                             msgid,
-                            &ldap_result(
-                                TAG_EXTENDED_RESPONSE,
-                                2,
-                                "unsupported extended operation",
-                                &[],
-                            ),
+                            &ldap_result(TAG_EXTENDED_RESPONSE, 2, "unsupported extended operation", &[],),
                         ));
                     } else if is_tls {
                         let _ = s.write_all(&envelope(
@@ -1624,8 +1549,7 @@ pub(crate) mod ldap_fakes {
                             msgid,
                             &ldap_result(TAG_EXTENDED_RESPONSE, 0, "", &tlv(0x8a, STARTTLS_OID)),
                         ));
-                        let FakeStream::Plain(tcp) = std::mem::replace(&mut s, FakeStream::Gone)
-                        else {
+                        let FakeStream::Plain(tcp) = std::mem::replace(&mut s, FakeStream::Gone) else {
                             return;
                         };
                         match acceptor.as_ref().unwrap().accept(tcp) {
@@ -1866,18 +1790,8 @@ mod ldap_witness {
         let bad = FakeLdap::start(LdapMode::Plain, vec![], false, None);
         let dns = FakeDns::start(
             vec![
-                SrvRec {
-                    priority: 10,
-                    weight: 0,
-                    port: bad.port,
-                    target: "localhost",
-                },
-                SrvRec {
-                    priority: 0,
-                    weight: 0,
-                    port: good.port,
-                    target: "localhost",
-                },
+                SrvRec { priority: 10, weight: 0, port: bad.port, target: "localhost", },
+                SrvRec { priority: 0, weight: 0, port: good.port, target: "localhost", },
             ],
             true,
         );
@@ -1900,22 +1814,12 @@ mod ldap_witness {
     fn ldaps_with_configured_ca_authenticates() {
         setup_backend(4262);
         let _g = GUC_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        let cert = test_cert(
-            "ldaps_ok",
-            "ldap.example.test",
-            &["ldap.example.test"],
-            &["127.0.0.1"],
-        );
+        let cert = test_cert("ldaps_ok", "ldap.example.test", &["ldap.example.test"], &["127.0.0.1"],);
         set_ldap_env(&ldap_conf(
             "ldaps_ok",
             &format!("TLS_CACERT {}\n", cert.cert_pem.display()),
         ));
-        let srv = FakeLdap::start(
-            LdapMode::Ldaps,
-            vec![(ALICE_DN, "secret")],
-            true,
-            Some(&cert),
-        );
+        let srv = FakeLdap::start(LdapMode::Ldaps, vec![(ALICE_DN, "secret")], true, Some(&cert),);
         load_hba_content_locked(
             "ldaps_ok.conf",
             &format!(
@@ -1934,16 +1838,8 @@ mod ldap_witness {
         setup_backend(4263);
         let _g = GUC_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let cert = test_cert("ldaps_sb", "ldap.example.test", &[], &["127.0.0.1"]);
-        set_ldap_env(&ldap_conf(
-            "ldaps_sb",
-            &format!("TLS_CACERT {}\n", cert.cert_pem.display()),
-        ));
-        let srv = FakeLdap::start(
-            LdapMode::Ldaps,
-            vec![(ALICE_DN, "secret")],
-            true,
-            Some(&cert),
-        );
+        set_ldap_env(&ldap_conf("ldaps_sb", &format!("TLS_CACERT {}\n", cert.cert_pem.display()),));
+        let srv = FakeLdap::start(LdapMode::Ldaps, vec![(ALICE_DN, "secret")], true, Some(&cert),);
         load_hba_content_locked(
             "ldaps_sb.conf",
             &format!(
@@ -1975,10 +1871,7 @@ mod ldap_witness {
             vec![(ALICE_DN, "secret")],
             true,
             None,
-            vec![format!(
-                "ldap://127.0.0.1:{}/dc=example,dc=test??sub",
-                referenced.port
-            )],
+            vec![format!("ldap://127.0.0.1:{}/dc=example,dc=test??sub", referenced.port)],
             false,
         );
         load_hba_content_locked(
@@ -2039,12 +1932,7 @@ mod ldap_witness {
         let _g = GUC_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let cert = test_cert("ldaps_untrusted", "ldap.example.test", &[], &["127.0.0.1"]);
         set_ldap_env(&ldap_conf("ldaps_untrusted", "TLS_REQCERT demand\n"));
-        let srv = FakeLdap::start(
-            LdapMode::Ldaps,
-            vec![(ALICE_DN, "secret")],
-            true,
-            Some(&cert),
-        );
+        let srv = FakeLdap::start(LdapMode::Ldaps, vec![(ALICE_DN, "secret")], true, Some(&cert),);
         load_hba_content_locked(
             "ldaps_untrusted.conf",
             &format!(
@@ -2069,12 +1957,7 @@ mod ldap_witness {
         let _g = GUC_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let cert = test_cert("ldaps_never", "other.example.test", &[], &[]);
         set_ldap_env(&ldap_conf("ldaps_never", "TLS_REQCERT never\n"));
-        let srv = FakeLdap::start(
-            LdapMode::Ldaps,
-            vec![(ALICE_DN, "secret")],
-            true,
-            Some(&cert),
-        );
+        let srv = FakeLdap::start(LdapMode::Ldaps, vec![(ALICE_DN, "secret")], true, Some(&cert),);
         load_hba_content_locked(
             "ldaps_never.conf",
             &format!(
@@ -2095,22 +1978,9 @@ mod ldap_witness {
     fn ldaps_localhost_checks_the_fqdn_against_the_certificate() {
         setup_backend(4266);
         let _g = GUC_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        let cert = test_cert(
-            "ldaps_host",
-            "ldap.example.test",
-            &["ldap.example.test"],
-            &["127.0.0.1"],
-        );
-        set_ldap_env(&ldap_conf(
-            "ldaps_host",
-            &format!("TLS_CACERT {}\n", cert.cert_pem.display()),
-        ));
-        let srv = FakeLdap::start(
-            LdapMode::Ldaps,
-            vec![(ALICE_DN, "secret")],
-            true,
-            Some(&cert),
-        );
+        let cert = test_cert("ldaps_host", "ldap.example.test", &["ldap.example.test"], &["127.0.0.1"],);
+        set_ldap_env(&ldap_conf("ldaps_host", &format!("TLS_CACERT {}\n", cert.cert_pem.display()),));
+        let srv = FakeLdap::start(LdapMode::Ldaps, vec![(ALICE_DN, "secret")], true, Some(&cert),);
         load_hba_content_locked(
             "ldaps_host.conf",
             &format!(
@@ -2136,16 +2006,8 @@ mod ldap_witness {
         setup_backend(4267);
         let _g = GUC_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let cert = test_cert("starttls_ok", "ldap.example.test", &[], &["127.0.0.1"]);
-        set_ldap_env(&ldap_conf(
-            "starttls_ok",
-            &format!("TLS_CACERT {}\n", cert.cert_pem.display()),
-        ));
-        let srv = FakeLdap::start(
-            LdapMode::Plain,
-            vec![(ALICE_DN, "secret")],
-            true,
-            Some(&cert),
-        );
+        set_ldap_env(&ldap_conf("starttls_ok", &format!("TLS_CACERT {}\n", cert.cert_pem.display()),));
+        let srv = FakeLdap::start(LdapMode::Plain, vec![(ALICE_DN, "secret")], true, Some(&cert),);
         load_hba_content_locked(
             "starttls_ok.conf",
             &format!(

@@ -14,10 +14,7 @@ const NORESERVE: c_int = 0;
 
 pub(crate) fn phys_bytes() -> usize {
     // SAFETY: plain sysconf reads.
-    unsafe {
-        (libc::sysconf(libc::_SC_PHYS_PAGES).max(0) as usize)
-            .saturating_mul(libc::sysconf(libc::_SC_PAGESIZE).max(0) as usize)
-    }
+    unsafe { (libc::sysconf(libc::_SC_PHYS_PAGES).max(0) as usize).saturating_mul(libc::sysconf(libc::_SC_PAGESIZE).max(0) as usize) }
 }
 
 pub(crate) fn env_is_one(name: &CStr) -> bool {
@@ -34,11 +31,7 @@ pub(crate) fn env_str(name: &CStr) -> Option<&'static str> {
     // SAFETY: getenv with a NUL-terminated name; the value is read before anything can change it.
     unsafe {
         let v = libc::getenv(name.as_ptr());
-        if v.is_null() {
-            None
-        } else {
-            CStr::from_ptr(v).to_str().ok()
-        }
+        if v.is_null() { None } else { CStr::from_ptr(v).to_str().ok() }
     }
 }
 
@@ -50,10 +43,7 @@ pub(crate) fn page_size() -> usize {
         return p;
     }
     // SAFETY: a plain sysconf read.
-    let p = usize::try_from(unsafe { libc::sysconf(libc::_SC_PAGESIZE) })
-        .ok()
-        .filter(|p| p.is_power_of_two())
-        .unwrap_or(4096);
+    let p = usize::try_from(unsafe { libc::sysconf(libc::_SC_PAGESIZE) }).ok().filter(|p| p.is_power_of_two()).unwrap_or(4096);
     PAGE.store(p, Relaxed);
     p
 }
@@ -102,9 +92,7 @@ pub(crate) fn nodes() -> u8 {
     let mut count = 0u32;
     for part in buf[..n].split(|&b| b == b',') {
         let part = part.trim_ascii();
-        let num = |s: &[u8]| {
-            s.iter().try_fold(0u32, |a, &d| {
-                d.is_ascii_digit().then(|| a * 10 + (d - b'0') as u32)
+        let num = |s: &[u8]| { s.iter().try_fold(0u32, |a, &d| { d.is_ascii_digit().then(|| a * 10 + (d - b'0') as u32)
             })
         };
         let mut it = part.splitn(2, |&b| b == b'-');
@@ -134,10 +122,7 @@ pub(crate) fn swap_on() -> bool {
     let n = read_small(c"/proc/swaps", &mut buf);
     let s = &buf[..n];
     // the header line alone: no device; anything past it is one
-    let on = n == 0
-        || s.iter()
-            .position(|&b| b == b'\n')
-            .is_none_or(|nl| s.len() > nl + 1);
+    let on = n == 0 || s.iter().position(|&b| b == b'\n').is_none_or(|nl| s.len() > nl + 1);
     SWAP.store(if on { 2 } else { 1 }, Relaxed);
     on
 }
@@ -185,16 +170,14 @@ fn read_small(path: &CStr, buf: &mut [u8]) -> usize {
 pub(crate) fn map_headroom() -> Option<usize> {
     let mut buf = [0u8; 32];
     let n = read_small(c"/proc/sys/vm/max_map_count", &mut buf);
-    let max = buf[..n].trim_ascii().iter().try_fold(0usize, |a, &d| {
-        d.is_ascii_digit().then(|| a * 10 + (d - b'0') as usize)
+    let max = buf[..n].trim_ascii().iter().try_fold(0usize, |a, &d| { d.is_ascii_digit().then(|| a * 10 + (d - b'0') as usize)
     })?;
     if n == 0 {
         return None;
     }
     let mut lines = 0;
     let mut page = [0u8; 4096];
-    read_each(c"/proc/self/maps", &mut page, |c| {
-        lines += c.iter().filter(|&&b| b == b'\n').count()
+    read_each(c"/proc/self/maps", &mut page, |c| { lines += c.iter().filter(|&&b| b == b'\n').count()
     });
     Some(max.saturating_sub(lines))
 }
@@ -205,16 +188,7 @@ pub(crate) fn map_headroom() -> Option<usize> {
 pub(crate) unsafe fn reserve(len: usize, align: usize) -> Option<usize> {
     let total = len.checked_add(align)?;
     // SAFETY: a fresh private anonymous mapping.
-    let raw = unsafe {
-        libc::mmap(
-            core::ptr::null_mut(),
-            total,
-            libc::PROT_NONE,
-            libc::MAP_PRIVATE | libc::MAP_ANON | NORESERVE,
-            -1,
-            0,
-        )
-    };
+    let raw = unsafe { libc::mmap(core::ptr::null_mut(), total, libc::PROT_NONE, libc::MAP_PRIVATE | libc::MAP_ANON | NORESERVE, -1, 0,) };
     log::note(log::Op::Mmap, raw as usize, total, libc::PROT_NONE);
     if raw == libc::MAP_FAILED {
         return None;
@@ -240,14 +214,7 @@ pub(crate) unsafe fn reserve(len: usize, align: usize) -> Option<usize> {
 pub(crate) unsafe fn open(at: usize, len: usize, huge: bool, name: &CStr) -> bool {
     // SAFETY: the caller's contract: MAP_FIXED replaces only our own range.
     let p = unsafe {
-        libc::mmap(
-            at as *mut c_void,
-            len,
-            libc::PROT_READ | libc::PROT_WRITE,
-            libc::MAP_PRIVATE | libc::MAP_ANON | libc::MAP_FIXED | NORESERVE,
-            -1,
-            0,
-        )
+        libc::mmap(at as *mut c_void, len, libc::PROT_READ | libc::PROT_WRITE, libc::MAP_PRIVATE | libc::MAP_ANON | libc::MAP_FIXED | NORESERVE, -1, 0,)
     };
     log::note(log::Op::Mmap, at, len, libc::PROT_READ | libc::PROT_WRITE);
     if p as usize != at {
@@ -260,11 +227,7 @@ pub(crate) unsafe fn open(at: usize, len: usize, huge: bool, name: &CStr) -> boo
 
 #[cfg(target_os = "linux")]
 fn advise_huge(at: usize, len: usize, huge: bool) {
-    let advice = if huge {
-        libc::MADV_HUGEPAGE
-    } else {
-        libc::MADV_NOHUGEPAGE
-    };
+    let advice = if huge { libc::MADV_HUGEPAGE } else { libc::MADV_NOHUGEPAGE };
     // SAFETY: advice only, over our own mapping; a refusal leaves base pages.
     unsafe { libc::madvise(at as *mut c_void, len, advice) };
     log::note(log::Op::Madvise, at, len, advice);
@@ -278,15 +241,7 @@ fn set_name(at: usize, len: usize, name: &CStr) {
     const PR_SET_VMA: c_int = 0x5356_4d41;
     const PR_SET_VMA_ANON_NAME: libc::c_ulong = 0;
     // SAFETY: names our own mapping; the kernel copies the name; a kernel without names refuses harmlessly.
-    unsafe {
-        libc::prctl(
-            PR_SET_VMA,
-            PR_SET_VMA_ANON_NAME,
-            at as libc::c_ulong,
-            len as libc::c_ulong,
-            name.as_ptr(),
-        )
-    };
+    unsafe { libc::prctl(PR_SET_VMA, PR_SET_VMA_ANON_NAME, at as libc::c_ulong, len as libc::c_ulong, name.as_ptr(),) };
 }
 
 #[cfg(not(target_os = "linux"))]
@@ -297,16 +252,7 @@ fn set_name(_at: usize, _len: usize, _name: &CStr) {}
 /// As `open`.
 pub(crate) unsafe fn guard(at: usize, len: usize) -> bool {
     // SAFETY: the caller's contract.
-    let p = unsafe {
-        libc::mmap(
-            at as *mut c_void,
-            len,
-            libc::PROT_NONE,
-            libc::MAP_PRIVATE | libc::MAP_ANON | libc::MAP_FIXED | NORESERVE,
-            -1,
-            0,
-        )
-    };
+    let p = unsafe { libc::mmap(at as *mut c_void, len, libc::PROT_NONE, libc::MAP_PRIVATE | libc::MAP_ANON | libc::MAP_FIXED | NORESERVE, -1, 0,) };
     log::note(log::Op::Mmap, at, len, libc::PROT_NONE);
     p as usize == at
 }
@@ -332,9 +278,7 @@ pub(crate) unsafe fn populate(at: usize, len: usize) -> bool {
     while p < at + len {
         // SAFETY: inside the caller's open range, which only its owner writes; the byte is stored back unchanged with a
         // plain store (an atomic first touch faults twice on arm64).
-        unsafe {
-            core::ptr::write_volatile(p as *mut u8, core::ptr::read_volatile(p as *const u8))
-        };
+        unsafe { core::ptr::write_volatile(p as *mut u8, core::ptr::read_volatile(p as *const u8)) };
         p += page;
     }
     true
@@ -375,21 +319,10 @@ pub(crate) unsafe fn release_with(at: usize, len: usize, split: bool) -> c_int {
         let _ = split;
         // SAFETY: the caller's contract: MAP_FIXED replaces only our own dead range.
         let p = unsafe {
-            libc::mmap(
-                at as *mut c_void,
-                len,
-                libc::PROT_READ | libc::PROT_WRITE,
-                libc::MAP_PRIVATE | libc::MAP_ANON | libc::MAP_FIXED,
-                -1,
-                0,
-            )
+            libc::mmap(at as *mut c_void, len, libc::PROT_READ | libc::PROT_WRITE, libc::MAP_PRIVATE | libc::MAP_ANON | libc::MAP_FIXED, -1, 0,)
         };
         log::note(log::Op::Mmap, at, len, libc::PROT_READ | libc::PROT_WRITE);
-        if p as usize == at {
-            0
-        } else {
-            -1
-        }
+        if p as usize == at { 0 } else { -1 }
     }
 }
 
@@ -404,13 +337,13 @@ pub(crate) fn split_partial(at: usize, len: usize) {
     const MADV_COLD: c_int = 20;
     const SUPER: usize = crate::superpage::SUPER;
     let end = at + len;
-    if len == 0 || (at.is_multiple_of(SUPER) && end.is_multiple_of(SUPER)) {
+    if len == 0 || (at.is_multiple_of( SUPER) && end.is_multiple_of( SUPER)) {
         return;
     }
     let t0 = pg_clock::mono_ns();
     let page = page_size();
     let mut n = 0u64;
-    let head = !at.is_multiple_of(SUPER);
+    let head = ! at.is_multiple_of( SUPER);
     if head {
         // SAFETY: advice only, over one page of the caller's own range, whose bytes are dead (`release`'s contract).
         unsafe { libc::madvise(at as *mut c_void, page, MADV_COLD) };
@@ -420,7 +353,7 @@ pub(crate) fn split_partial(at: usize, len: usize) {
     // the last superpage the range covers in part, unless the head's call split it already
     let tail = (end / SUPER * SUPER).max(at);
     #[allow(clippy::nonminimal_bool)]
-    if !end.is_multiple_of(SUPER) && !(head && tail / SUPER == at / SUPER) {
+    if ! end.is_multiple_of( SUPER) && !(head && tail / SUPER == at / SUPER) {
         // SAFETY: as above: `tail` lies inside the range (at <= tail < end).
         unsafe { libc::madvise(tail as *mut c_void, page, MADV_COLD) };
         log::note(log::Op::Madvise, tail, page, MADV_COLD);
@@ -447,9 +380,7 @@ pub(crate) fn mapped_of(at: usize, len: usize) -> Option<(usize, bool)> {
     if fd == -2 {
         let f = open_ro(c"/proc/self/pagemap").max(-1);
         // a racing opener's descriptor stays open (one, once)
-        fd = PAGEMAP
-            .compare_exchange(-2, f, Relaxed, Relaxed)
-            .unwrap_or_else(|cur| cur);
+        fd = PAGEMAP.compare_exchange(-2, f, Relaxed, Relaxed).unwrap_or_else(|cur| cur);
     }
     if fd < 0 {
         return None;
@@ -462,14 +393,7 @@ pub(crate) fn mapped_of(at: usize, len: usize) -> Option<(usize, bool)> {
         let n = ((end - a) / page).clamp(1, buf.len());
         let want = n * core::mem::size_of::<u64>();
         // SAFETY: pread of `want` bytes into our own buffer of `n` entries.
-        let got = unsafe {
-            libc::pread(
-                fd,
-                buf.as_mut_ptr().cast(),
-                want,
-                ((a / page) * 8) as libc::off_t,
-            )
-        };
+        let got = unsafe { libc::pread(fd, buf.as_mut_ptr().cast(), want, ((a / page) * 8) as libc::off_t,) };
         if got != want as isize {
             return None;
         }
@@ -553,11 +477,7 @@ pub(crate) unsafe fn clear_nonresident(at: usize, len: usize) -> c_int {
     let (end, mut cur) = (at + len, at);
     while cur < end {
         let p = cur.next_multiple_of(PMD);
-        let stop = if p <= end && end - p >= PMD {
-            p + PMD / 2
-        } else {
-            end
-        };
+        let stop = if p <= end && end - p >= PMD { p + PMD / 2 } else { end };
         log::note(log::Op::Madvise, cur, stop - cur, ADVICE_DONTNEED);
         cur = stop;
     }
@@ -590,9 +510,7 @@ pub(crate) unsafe fn release_base(at: usize, len: usize) -> c_int {
 pub(crate) unsafe fn move_pages(from: usize, to: usize, len: usize, keep_from: bool) -> bool {
     #[cfg(target_os = "linux")]
     {
-        let flags = libc::MREMAP_MAYMOVE
-            | libc::MREMAP_FIXED
-            | if keep_from { MREMAP_DONTUNMAP } else { 0 };
+        let flags = libc::MREMAP_MAYMOVE | libc::MREMAP_FIXED | if keep_from { MREMAP_DONTUNMAP } else { 0 };
         // SAFETY: the caller's contract; MREMAP_FIXED replaces only our own target range.
         let p = unsafe { libc::mremap(from as *mut c_void, len, len, flags, to as *mut c_void) };
         log::note(log::Op::Mremap, from, len, flags);
@@ -609,11 +527,7 @@ pub(crate) unsafe fn move_pages(from: usize, to: usize, len: usize, keep_from: b
 /// # Safety
 /// The range is the pool's own, page-aligned; nothing live is read there while it is PROT_NONE.
 pub(crate) unsafe fn set_prot(at: usize, len: usize, rw: bool) -> bool {
-    let prot = if rw {
-        libc::PROT_READ | libc::PROT_WRITE
-    } else {
-        libc::PROT_NONE
-    };
+    let prot = if rw { libc::PROT_READ | libc::PROT_WRITE } else { libc::PROT_NONE };
     log::note(log::Op::Mprotect, at, len, prot);
     // SAFETY: the caller's contract.
     unsafe { libc::mprotect(at as *mut c_void, len, prot) == 0 }
@@ -640,13 +554,7 @@ pub mod log {
             pub(super) at: AtomicUsize,
             pub(super) len: AtomicUsize,
         }
-        pub(super) static RING: [Entry; N] = [const {
-            Entry {
-                head: AtomicU64::new(0),
-                at: AtomicUsize::new(0),
-                len: AtomicUsize::new(0),
-            }
-        }; N];
+        pub(super) static RING: [Entry; N] = [const { Entry { head: AtomicU64::new(0), at: AtomicUsize::new(0), len: AtomicUsize::new(0), } }; N];
         pub(super) static NEXT: AtomicUsize = AtomicUsize::new(0);
         pub(super) static FROM: AtomicUsize = AtomicUsize::new(0);
 
@@ -656,10 +564,7 @@ pub mod log {
             e.head.store(0, Release);
             e.at.store(at, Relaxed);
             e.len.store(len, Relaxed);
-            e.head.store(
-                (((i as u64 + 1) & 0xff_ffff) << 40) | ((op as u64) << 32) | arg as u32 as u64,
-                Release,
-            );
+            e.head.store((((i as u64 + 1) & 0xff_ffff) << 40) | ((op as u64) << 32) | arg as u32 as u64, Release,);
         }
     }
 

@@ -187,9 +187,7 @@ fn mq_send_loop(handle: &mut ShmMqHandle, buf: &[u8]) -> PgResult<ShmMqResult> {
 }
 
 fn mq_putmessage_noblock(_msgtype: u8, _s: &[u8]) -> PgResult<()> {
-    Err(Box::new(PgError::error(
-        "not currently supported".to_string(),
-    )))
+    Err(Box::new(PgError::error("not currently supported".to_string(),)))
 }
 
 fn elog_error(msg: String) -> Box<PgError> {

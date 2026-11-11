@@ -24,7 +24,7 @@ const QUERY: &str = "select ssl::text from pg_stat_ssl where pid = pg_backend_pi
 fn oracle_bin() -> Option<PathBuf> {
     let mut cands: Vec<PathBuf> = ["PGRUST_C_ORACLE", "PGINSTALL", "PG_BINDIR"]
         .iter()
-        .filter_map(std::env::var_os)
+        .filter_map( std::env::var_os)
         .map(PathBuf::from)
         .collect();
     if let Some(h) = std::env::var_os("HOME") {

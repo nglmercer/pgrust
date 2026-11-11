@@ -373,10 +373,7 @@ pub fn heap_create<'mcx>(
     // `shared_relation`); afterwards IsSharedRelation() is a fixed set.
     if shared_relation && !miscinit_seams::is_bootstrap_processing_mode::call() {
         return Err(err(
-            format!(
-                "cannot create shared relation \"{}\"",
-                String::from_utf8_lossy(relname)
-            ),
+            format!("cannot create shared relation \"{}\"", String::from_utf8_lossy(relname)),
             types_error::ERRCODE_FEATURE_NOT_SUPPORTED,
         )
         .with_detail("Creating shared relations after initdb is not supported.")
@@ -1100,7 +1097,10 @@ pub fn StoreAttrMissingVal<'mcx>(
         crate::drop::oid_scankey(1, rel.rd_id),
         crate::drop::int2_scankey(5, attnum),
     ];
-    let mut scan = genam::systable_beginscan(mcx, &attrrel, 2659, true, None, &keys)?;
+    let mut scan = genam::systable_beginscan(
+        mcx, &attrrel, 2659,
+        true, None, &keys
+    )?;
     let Some(tup) = genam::systable_getnext(mcx, &mut scan)? else {
         return Err(crate::attribute_lookup_failed(attnum, rel.rd_id));
     };

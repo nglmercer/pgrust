@@ -142,9 +142,9 @@ fn fetch_array_image<'mcx>(
 }
 
 fn array_out_cache(
-    flinfo: &mut FmgrInfo,
+    flinfo: & mut FmgrInfo,
     element_type: Oid,
-) -> PgResult<&mut ArrayOutCache> {
+) -> PgResult<& mut ArrayOutCache> {
     let need = match flinfo.fn_extra_ref::<ArrayOutCache>() {
         Some(c) => c.element_type != element_type,
         None => true,

@@ -46,7 +46,7 @@ pub fn mantissa(payload: &[u8]) -> Option<Mantissa> {
 
 /// `mantissa`; `fast` false sums every digit's term in an i128 (the reference its u64 path is tested against).
 fn read(payload: &[u8], fast: bool) -> Option<Mantissa> {
-    if !payload.len().is_multiple_of(2) {
+    if ! payload.len().is_multiple_of( 2) {
         return None;
     }
     let rd = |i: usize| payload.get(2 * i..2 * i + 2).map(|b| u16::from_le_bytes([b[0], b[1]]));
@@ -103,7 +103,7 @@ fn read(payload: &[u8], fast: bool) -> Option<Mantissa> {
             10i128.checked_pow(e as u32).and_then(|p| p.checked_mul(d as i128))
         } else {
             let p = 10u32.checked_pow(e.unsigned_abs()).unwrap_or(u32::MAX);
-            if !(d as u32).is_multiple_of(p) {
+            if !( d as u32).is_multiple_of( p) {
                 return None;
             }
             Some((d as u32 / p) as i128)
@@ -200,7 +200,7 @@ fn key_at(v: i64, d: i64, n: i64) -> i64 {
     let a = v.unsigned_abs();
     let c = if n > 16 {
         let p = 10u64.pow((n - 16) as u32);
-        if !a.is_multiple_of(p) {
+        if ! a.is_multiple_of( p) {
             return NO_KEY;
         }
         a / p

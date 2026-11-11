@@ -112,7 +112,7 @@ pub(crate) fn claim<'g>(px: &mut Px<'g, '_>, k: usize, relid: u32, natts: u16, p
         Cmd::Update | Cmd::Delete | Cmd::Merge => {
             // D3605: or a producer's nest inner's (nest_write.rs `producer_inners`)
             let inners = w.is_some_and(|w| super::nest_ref::chain(px.gx, k, w) || super::nest_write::dml_chain(px.gx, k, w) || super::nest_write::producer_inners(px.gx, k, w));
-            let marks = crate::rerun::epq::marks::sites_in(px, k, node, w.map_or(&[][..], |w| w.mark_descs), &|rti| w.is_some_and(|w| w.targets.iter().any(|t| t.rti == rti)), inners);
+            let marks = crate::rerun::epq::marks::sites_in(px, k, node, w.map_or(&[][..], |w|w.mark_descs), &|rti| w.is_some_and(|w| w.targets.iter().any(|t| t.rti == rti)), inners);
             if let Some(w) = w {
                 let targets: PgVec<'_, u32> = w.targets.iter().map(|t| t.rti).collect_in(px.mcx());
                 crate::rerun::epq::write_road::admit(px, k, node, w.mark_descs, &targets[..]);

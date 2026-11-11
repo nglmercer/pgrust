@@ -10,8 +10,7 @@ use ::types_brin::{
 };
 use ::types_core::Oid;
 use ::types_error::{PgError, PgResult, ERRCODE_INVALID_OBJECT_DEFINITION};
-use ::types_scan::scankey::{
-    BTEqualStrategyNumber, BTGreaterEqualStrategyNumber, BTGreaterStrategyNumber,
+use ::types_scan::scankey::{ BTEqualStrategyNumber, BTGreaterEqualStrategyNumber, BTGreaterStrategyNumber,
     BTLessEqualStrategyNumber, BTLessStrategyNumber, BTMaxStrategyNumber, ScanKeyData, SK_ISNULL,
 };
 use ::types_storage::bufpage::MaxHeapTuplesPerPage;
@@ -116,9 +115,7 @@ pub fn brin_minmax_multi_add_value(
 
     if column.bv_allnulls {
         let target_maxvalues = minmax_multi_get_values_per_range(
-            bdesc.bd_info[attno as usize - 1]
-                .oi_opclass_options
-                .as_deref(),
+            bdesc.bd_info[attno as usize - 1].oi_opclass_options.as_deref(),
         );
         let maxvalues = clamp_buffer_size(target_maxvalues, bdesc.bd_pages_per_range);
 
@@ -148,10 +145,8 @@ pub fn brin_minmax_multi_add_value(
         column.bv_mem_value = Some(Box::new(ranges));
     }
 
-    let ranges: &mut MinMaxMultiRanges = column
-        .bv_mem_value
-        .as_deref_mut()
-        .expect("initialized above");
+    let ranges: &mut MinMaxMultiRanges =
+        column.bv_mem_value.as_deref_mut().expect("initialized above");
 
     modified |= range_add_value(
         mcx, bdesc, colloid, attno, atttypid, attbyval, attlen, ranges, newval,
@@ -191,19 +186,13 @@ pub fn brin_minmax_multi_consistent(
                 }
                 BTEqualStrategyNumber => {
                     let mut gt = minmax_multi_get_strategy_procinfo(
-                        bdesc,
-                        attno,
-                        subtype,
-                        BTGreaterStrategyNumber,
+                        bdesc, attno, subtype, BTGreaterStrategyNumber,
                     )?;
                     if call_bool(mcx, &mut gt, colloid, minval, value)? {
                         false
                     } else {
                         let mut lt = minmax_multi_get_strategy_procinfo(
-                            bdesc,
-                            attno,
-                            subtype,
-                            BTLessStrategyNumber,
+                            bdesc, attno, subtype, BTLessStrategyNumber,
                         )?;
                         !call_bool(mcx, &mut lt, colloid, maxval, value)?
                     }
@@ -274,16 +263,10 @@ pub fn brin_minmax_multi_union(
     let serialized_a = detoast_summary(mcx, col_a.bv_values[0])?;
     let serialized_b = detoast_summary(mcx, col_b.bv_values[0])?;
 
-    let mut ranges_a = brin_range_deserialize(
-        mcx,
-        read_serialized_header(serialized_a)?.maxvalues,
-        serialized_a,
-    )?;
-    let ranges_b = brin_range_deserialize(
-        mcx,
-        read_serialized_header(serialized_b)?.maxvalues,
-        serialized_b,
-    )?;
+    let mut ranges_a =
+        brin_range_deserialize(mcx, read_serialized_header(serialized_a)?.maxvalues, serialized_a,)?;
+    let ranges_b =
+        brin_range_deserialize(mcx, read_serialized_header(serialized_b)?.maxvalues, serialized_b,)?;
 
     let n_a = (ranges_a.nranges + ranges_a.nvalues) as usize;
     let n_b = (ranges_b.nranges + ranges_b.nvalues) as usize;
@@ -299,11 +282,7 @@ pub fn brin_minmax_multi_union(
         ::mcx::pgvec_resize(
             &mut eranges,
             n_a + n_b,
-            ExpandedRange {
-                minval: Datum::null(),
-                maxval: Datum::null(),
-                collapsed: false,
-            },
+            ExpandedRange { minval: Datum::null(), maxval: Datum::null(), collapsed: false, },
         )?;
         fill_expanded_ranges(&mut eranges[..n_a], n_a, &ranges_a);
         fill_expanded_ranges(&mut eranges[n_a..], n_b, &ranges_b);
@@ -340,10 +319,7 @@ pub fn brin_minmax_multi_serialize(
     bdesc: &BrinDesc<'_>,
     column: &mut BrinValues,
 ) -> PgResult<()> {
-    let ranges = column
-        .bv_mem_value
-        .as_deref_mut()
-        .expect("live minmax-multi buffer");
+    let ranges = column.bv_mem_value.as_deref_mut().expect("live minmax-multi buffer");
     let target = ranges.target_maxvalues;
     compactify_ranges(mcx, bdesc, ranges, target)?;
     debug_assert!(ranges.nsorted == ranges.nvalues);
@@ -351,7 +327,11 @@ pub fn brin_minmax_multi_serialize(
     Ok(())
 }
 
-fn minmax_multi_get_procinfo(bdesc: &BrinDesc<'_>, attno: u16, procnum: u16) -> PgResult<FmgrInfo> {
+fn minmax_multi_get_procinfo(
+    bdesc: &BrinDesc<'_>,
+    attno: u16,
+    procnum: u16
+) -> PgResult<FmgrInfo> {
     debug_assert!(procnum == PROCNUM_DISTANCE);
     let cache = &bdesc.bd_info[attno as usize - 1].distance_procinfo;
 
@@ -378,7 +358,7 @@ fn minmax_multi_get_strategy_procinfo(
     subtype: Oid,
     strategynum: u16,
 ) -> PgResult<FmgrInfo> {
-    debug_assert!((1..=BTMaxStrategyNumber).contains(&strategynum));
+    debug_assert!(( 1..= BTMaxStrategyNumber).contains(&strategynum));
     let opaque = &bdesc.bd_info[attno as usize - 1].minmax;
 
     if opaque.cached_subtype.get() != subtype {
@@ -412,16 +392,19 @@ fn minmax_multi_get_strategy_procinfo(
 #[cold]
 #[inline(never)]
 fn invalid_strategy(strategy: u16) -> Box<PgError> {
-    Box::new(PgError::error(format!(
-        "invalid strategy number {strategy}"
-    )))
+    Box::new(PgError::error(format!("invalid strategy number {strategy}")))
 }
 
 // brin_minmax_multi.c:2937 elog(ERROR, "missing operator %d(%u,%u) in opfamily %u").
 #[track_caller]
 #[cold]
 #[inline(never)]
-fn missing_operator(strategynum: u16, atttypid: Oid, subtype: Oid, opfamily: Oid) -> Box<PgError> {
+fn missing_operator(
+    strategynum: u16,
+    atttypid: Oid,
+    subtype: Oid,
+    opfamily: Oid
+) -> Box<PgError> {
     Box::new(PgError::error(format!(
         "missing operator {strategynum}({atttypid},{subtype}) in opfamily {opfamily}"
     )))

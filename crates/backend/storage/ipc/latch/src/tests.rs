@@ -443,7 +443,7 @@ fn set_latch_my_latch_panics_when_null() {
     install_mock();
     SetMyLatch(None);
 
-    let result = catch_unwind(AssertUnwindSafe(latch_seams::set_latch_my_latch::call));
+    let result = catch_unwind(AssertUnwindSafe( latch_seams::set_latch_my_latch::call));
     assert!(result.is_err());
 }
 

@@ -92,26 +92,14 @@ mod imp {
     #[inline(never)]
     unsafe fn off_dealloc(p: *mut u8, l: Layout) {
         // SAFETY: the caller's: `p` is a live block of this layout, made on the road decided before it.
-        unsafe {
-            if pool_mode() {
-                pool_dealloc(p, l)
-            } else {
-                Hatch.dealloc(p, l)
-            }
-        }
+        unsafe { if pool_mode() { pool_dealloc(p, l) } else { Hatch.dealloc(p, l) } }
     }
 
     #[cold]
     #[inline(never)]
     unsafe fn off_realloc(p: *mut u8, l: Layout, new: usize) -> *mut u8 {
         // SAFETY: as `off_dealloc`, and `new` the caller's valid size.
-        unsafe {
-            if pool_mode() {
-                pool_realloc(p, l, new)
-            } else {
-                Hatch.realloc(p, l, new)
-            }
-        }
+        unsafe { if pool_mode() { pool_realloc(p, l, new) } else { Hatch.realloc(p, l, new) } }
     }
 
     /// `PGRUST_ALLOCATOR` read once (getenv: no allocation), else this process's default (`crate::hearth_default`).
@@ -120,14 +108,7 @@ mod imp {
     #[inline(never)]
     fn decide() -> u8 {
         DECIDES.fetch_add(1, Relaxed);
-        let want = if crate::hearth_chosen(
-            crate::os::env_str(c"PGRUST_ALLOCATOR"),
-            crate::hearth_default(),
-        ) {
-            POOL
-        } else {
-            MIMALLOC
-        };
+        let want = if crate::hearth_chosen(crate::os::env_str(c"PGRUST_ALLOCATOR"), crate::hearth_default(),) { POOL } else { MIMALLOC };
         match MODE.compare_exchange(UNSET, want, Relaxed, Relaxed) {
             Ok(_) => want,
             Err(m) => m,
@@ -188,8 +169,7 @@ mod imp {
 
     /// A block in the reservation that `PoolAlloc` handed out: a small-tier block, or a bigger one under its tags.
     pub(crate) fn is_global_block(p: *const u8) -> bool {
-        small::is_small(p)
-            || matches!(run::lookup(p), Some(i) if i.tag == Tag::HEAP || i.tag == Tag::CACHE)
+        small::is_small(p) || matches!(run::lookup(p), Some(i) if i.tag == Tag::HEAP || i.tag == Tag::CACHE)
     }
 
     /// The pool is up: on already, else started here once with the memory policy's sizes. False on the thread that is
@@ -280,9 +260,7 @@ mod imp {
         if let Some(s) = api::take_base(l.size(), l.align(), h) {
             return s.as_ptr() as *mut u8;
         }
-        let Some(s) = api::take(l.size(), l.align(), h) else {
-            return os_big(l, true);
-        };
+        let Some(s) = api::take(l.size(), l.align(), h) else { return os_big(l, true); };
         let page = crate::os::page_size();
         // SAFETY: whole pages of the zeroed span just taken, nothing in them yet.
         unsafe { crate::os::release_base(s.as_ptr() as *mut u8 as usize, l.size() / page * page) };
@@ -298,13 +276,7 @@ mod imp {
     #[inline(never)]
     fn os_big(l: Layout, zero: bool) -> *mut u8 {
         // SAFETY: the caller's layout, not zero-sized (a big one).
-        let p = unsafe {
-            if zero {
-                System.alloc_zeroed(l)
-            } else {
-                System.alloc(l)
-            }
-        };
+        let p = unsafe { if zero { System.alloc_zeroed(l) } else { System.alloc(l) } };
         if !p.is_null() {
             crate::stats::note_os_big(l.size());
         }
@@ -316,13 +288,7 @@ mod imp {
         // pphatch: decides on the process's first big take (api::take misses while no pool is up)
         if hatch() {
             // SAFETY: the caller's layout.
-            return unsafe {
-                if h.zero == Zero::No {
-                    Hatch.alloc(l)
-                } else {
-                    Hatch.alloc_zeroed(l)
-                }
-            };
+            return unsafe { if h.zero == Zero::No { Hatch.alloc(l) } else { Hatch.alloc_zeroed(l) } };
         }
         if ready() {
             if let Some(s) = api::take(l.size(), l.align(), h) {
@@ -333,13 +299,7 @@ mod imp {
             }
         }
         // SAFETY: the caller's layout; `dealloc` sends a block `owns` refuses back here.
-        unsafe {
-            if h.zero == Zero::Dense {
-                System.alloc_zeroed(l)
-            } else {
-                System.alloc(l)
-            }
-        }
+        unsafe { if h.zero == Zero::Dense { System.alloc_zeroed(l) } else { System.alloc(l) } }
     }
 
     // SAFETY: every block handed out is the small tier's, the pool's or the system's, and each goes back where it came
@@ -356,13 +316,7 @@ mod imp {
         #[inline]
         unsafe fn dealloc(&self, p: *mut u8, l: Layout) {
             // SAFETY: the caller's: `p` is a live block of this layout.
-            unsafe {
-                if served() {
-                    pool_dealloc(p, l)
-                } else {
-                    off_dealloc(p, l)
-                }
-            }
+            unsafe { if served() { pool_dealloc(p, l) } else { off_dealloc(p, l) } }
         }
 
         #[inline]
@@ -372,13 +326,7 @@ mod imp {
 
         unsafe fn realloc(&self, p: *mut u8, l: Layout, new: usize) -> *mut u8 {
             // SAFETY: the caller's: a live block of this layout, `new` a valid size.
-            unsafe {
-                if served() {
-                    pool_realloc(p, l, new)
-                } else {
-                    off_realloc(p, l, new)
-                }
-            }
+            unsafe { if served() { pool_realloc(p, l, new) } else { off_realloc(p, l, new) } }
         }
     }
 
@@ -409,11 +357,7 @@ mod imp {
     /// The pool's road for each method (the methods' bodies before the hatch).
     #[inline(always)]
     fn pool_alloc(l: Layout) -> *mut u8 {
-        if is_small(l.size(), l.align()) {
-            small::alloc(l.size(), l.align())
-        } else {
-            big(l, false)
-        }
+        if is_small(l.size(), l.align()) { small::alloc(l.size(), l.align()) } else { big(l, false) }
     }
 
     #[inline(always)]
@@ -462,8 +406,7 @@ mod imp {
             if a == b && !matches!(a, Road::Bucket(_)) {
                 let _u = Uncapped::new();
                 // SAFETY: a live pool block of `old` bytes, ours; on Some `new` bytes, maybe moved (a lazy span, D4722)
-                if let Some(q) = unsafe { api::resize(NonNull::new_unchecked(p), old, new, align) }
-                {
+                if let Some(q) = unsafe { api::resize(NonNull::new_unchecked(p), old, new, align) } {
                     return q.as_ptr() as *mut u8;
                 }
             }
@@ -503,11 +446,7 @@ mod imp {
                 return base_big(l, CACHE_BIG);
             }
         }
-        let h = if zeroed {
-            CACHE_BIG.zero(Zero::Dense)
-        } else {
-            CACHE_BIG
-        };
+        let h = if zeroed { CACHE_BIG.zero(Zero::Dense) } else { CACHE_BIG };
         let _u = Uncapped::new();
         api::take(size, align, h).map_or(core::ptr::null_mut(), |s| s.as_ptr() as *mut u8)
     }
@@ -521,13 +460,9 @@ mod imp {
         }
         let old = usable_size(p);
         let small_now = small::is_small(p);
-        if old == good_size(new, align) && (p as usize).is_multiple_of(align) {
+        if old == good_size(new, align) && ( p as usize).is_multiple_of( align) {
             // SAFETY: a live block of the tier when `small_now`.
-            let cache_now = if small_now {
-                unsafe { small::is_cache_block(p) }
-            } else {
-                matches!(run::lookup(p), Some(i) if i.tag == Tag::CACHE)
-            };
+            let cache_now = if small_now { unsafe { small::is_cache_block(p) } } else { matches!(run::lookup(p), Some(i) if i.tag == Tag::CACHE) };
             if cache_now {
                 return p;
             }
@@ -566,20 +501,14 @@ mod imp {
     /// Bytes `PoolAlloc` has handed out and not taken back at `good_size` per block (door 1's bytes plus its rounding).
     pub fn global_live() -> usize {
         let s = crate::stats();
-        let big = s.in_use[Tag::HEAP.0 as usize] as isize
-            + s.in_use[Tag::CACHE.0 as usize] as isize
-            - small::cache_run_bytes();
+        let big = s.in_use[Tag::HEAP.0 as usize] as isize + s.in_use[Tag::CACHE.0 as usize] as isize - small::cache_run_bytes();
         (small::live_bytes() + big).max(0) as usize
     }
 
     /// What `PoolAlloc` hands out for this layout (memledger's door 1 charges it): the small class, else the pool's.
     #[inline(always)]
     pub fn good_size(size: usize, align: usize) -> usize {
-        if is_small(size, align) {
-            small::usable(size, align)
-        } else {
-            api::usable(size, align)
-        }
+        if is_small(size, align) { small::usable(size, align) } else { api::usable(size, align) }
     }
 
     /// A live `PoolAlloc` block's usable size, by pointer (C free, `malloc_usable_size`); 0 for one the pool does not own.
@@ -596,8 +525,7 @@ mod imp {
         match run::lookup(p) {
             // ppround (`PGRUST_POOL_FIT_TAIL`): a span's own start, what it handed out (`good_size`): a fitted base span's
             // commit, a missed span less its excess, not its superpages (a copy that long would touch the uncommitted tail)
-            Some(i) if p as usize == i.base && matches!(i.kind, run::Kind::Span { .. }) => {
-                api::span_handed(i.base, i.bytes)
+            Some(i) if p as usize == i.base && matches!(i.kind, run::Kind::Span { .. }) => { api::span_handed(i.base, i.bytes)
             }
             Some(i) => i.bytes - (p as usize - i.base),
             None => 0,

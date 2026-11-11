@@ -34,8 +34,7 @@ fn a_span_resized_to_a_small_size_moves() {
             // span to span: still served (the lazy span in place or moved, its result replaces it)
             let p = take(40 * MIB, 64, h).expect("a span").cast::<u8>();
             // SAFETY: ours, `40 MiB` at 64
-            let q = unsafe { resize(p, 40 * MIB, 3 * MIB, 64) }
-                .expect("a span shrunk to a span's size");
+            let q = unsafe { resize(p, 40 * MIB, 3 * MIB, 64) }.expect("a span shrunk to a span's size");
             // SAFETY: the resize's result, its new size
             unsafe { give(q.cast(), 3 * MIB) };
         }

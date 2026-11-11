@@ -83,9 +83,7 @@ impl HistOrder {
     pub fn of(profile: &MetaProfile) -> HistOrder {
         match profile.key {
             KeyDerivation::SignedWord => HistOrder::Signed,
-            KeyDerivation::UnsignedWordSmall
-            | KeyDerivation::UnsignedWordFlip
-            | KeyDerivation::Bool => HistOrder::Unsigned,
+            KeyDerivation::UnsignedWordSmall | KeyDerivation::UnsignedWordFlip | KeyDerivation::Bool => HistOrder::Unsigned,
             KeyDerivation::Float32 | KeyDerivation::Float64 => HistOrder::Float,
             _ => HistOrder::Bytes,
         }
@@ -184,18 +182,11 @@ impl Arena {
         if v.is_empty() {
             return Some(core::ptr::NonNull::<u8>::dangling().as_ptr() as usize);
         }
-        let room = self
-            .chunks
-            .last()
-            .is_some_and(|c| c.capacity() - c.len() >= v.len());
+        let room = self.chunks.last().is_some_and(|c| c.capacity() - c.len() >= v.len());
         if !room {
-            let next = self
-                .chunks
-                .last()
-                .map_or(Self::FIRST, |c| (c.capacity() * 2).min(Self::MAX));
+            let next = self.chunks.last().map_or(Self::FIRST, |c| (c.capacity() * 2).min(Self::MAX));
             self.chunks.try_reserve(1).ok()?;
-            self.chunks
-                .push(pgrc_format::try_vec(next.max(v.len()), "sketch").ok()?);
+            self.chunks.push(pgrc_format::try_vec(next.max(v.len()), "sketch").ok()?);
         }
         let c = self.chunks.last_mut().expect("a chunk with room");
         let at = c.len();
@@ -211,26 +202,11 @@ impl Arena {
     /// The bytes [`Arena::copy`] of a `len`-byte value allocates (0: it fits the last chunk, or is empty): the next
     /// chunk, and the chunk list's next block if that grows too. An estimate for a charge made before the allocation.
     fn next_block(&self, len: usize) -> u64 {
-        if len == 0
-            || self
-                .chunks
-                .last()
-                .is_some_and(|c| c.capacity() - c.len() >= len)
-        {
+        if len == 0 || self.chunks.last().is_some_and(|c| c.capacity() - c.len() >= len) {
             return 0;
         }
-        let next = self
-            .chunks
-            .last()
-            .map_or(Self::FIRST, |c| (c.capacity() * 2).min(Self::MAX))
-            .max(len);
-        next as u64
-            + next_block(
-                self.chunks.len(),
-                self.chunks.capacity(),
-                1,
-                std::mem::size_of::<Vec<u8>>(),
-            )
+        let next = self.chunks.last().map_or(Self::FIRST, |c| (c.capacity() * 2).min(Self::MAX)).max(len);
+        next as u64 + next_block(self.chunks.len(), self.chunks.capacity(), 1, std::mem::size_of::<Vec<u8>>(),)
     }
 }
 
@@ -241,11 +217,7 @@ enum Acc {
     /// probing, grown below 3/4 load. Probe compares the stored 128-bit
     /// hash first; bytes are compared exactly once, on the full-hash
     /// match that adjudicates identity.
-    Hash {
-        slots: Vec<u32>,
-        entries: Vec<Entry>,
-        arena: Arena,
-    },
+    Hash { slots: Vec<u32>, entries: Vec<Entry>, arena: Arena, },
     /// `PGRUST_PGRC_DISTACC_HASH=0|off`: the original byte-keyed tree
     /// (kept verbatim as the A/B control / equivalence witness).
     BTree(BTreeMap<Vec<u8>, u64>),
@@ -275,13 +247,7 @@ impl SmallEntry {
     #[inline(always)]
     fn new(word: u64, len: u8, stamp: u32, h: u32) -> SmallEntry {
         let b = h.to_le_bytes();
-        SmallEntry {
-            word,
-            count: 1,
-            stamp,
-            len,
-            hash: [b[0], b[1], b[2]],
-        }
+        SmallEntry { word, count: 1, stamp, len, hash: [b[0], b[1], b[2]], }
     }
 }
 
@@ -446,10 +412,7 @@ impl DistAcc {
     pub fn for_words() -> DistAcc {
         let mut d = DistAcc::default();
         if matches!(d.acc, Acc::Hash { .. }) {
-            d.acc = Acc::Small {
-                slots: Vec::new(),
-                n: 0,
-            };
+            d.acc = Acc::Small { slots: Vec::new(), n: 0, };
         }
         d
     }
@@ -509,9 +472,7 @@ impl DistAcc {
         if self.failed {
             return None;
         }
-        let Acc::Small { slots, n } = &mut self.acc else {
-            return None;
-        };
+        let Acc::Small { slots, n } = &mut self.acc else { return None; };
         self.nonnull += 1;
         if (*n + 1) * 4 > slots.len() * 3 && !grow_small(slots, &mut self.kept) {
             self.failed = true;
@@ -558,9 +519,7 @@ impl DistAcc {
         mut first: impl FnMut(u64),
     ) -> Result<(), usize> {
         debug_assert!(stamp != 0 && (1..=8).contains(&len) && self.word_memo_ready());
-        let Acc::Small { slots, n: count } = &mut self.acc else {
-            return Ok(());
-        };
+        let Acc::Small { slots, n: count } = &mut self.acc else { return Ok(()); };
         let (mut cnt, mut nonnull, mut last) = (*count, self.nonnull, self.last);
         let ahead = 2 * crate::batch::DIST_PREFETCH_AHEAD;
         let n = vals.len();
@@ -693,11 +652,7 @@ impl DistAcc {
                 } else {
                     // D4539: the key's block and its entry on the charge before they are allocated.
                     let entry = std::mem::size_of::<(Vec<u8>, u64)>() as u64;
-                    self.kept.fit(
-                        self.tree_bytes
-                            + canonical.len() as u64
-                            + (counts.len() as u64 + 1) * entry,
-                    );
+                    self.kept.fit(self.tree_bytes + canonical.len() as u64 + (counts.len() as u64 + 1) * entry,);
                     let Ok(k) = pgrc_format::try_to_vec(canonical, "sketch") else {
                         self.kept.fit(self.tree_bytes + counts.len() as u64 * entry);
                         self.failed = true;
@@ -709,20 +664,11 @@ impl DistAcc {
                 }
             }
             Acc::Small { .. } => unreachable!("inline arm left above"),
-            Acc::Hash {
-                slots,
-                entries,
-                arena,
-            } => {
+            Acc::Hash { slots, entries, arena, } => {
                 // Grow below 3/4 load (also the lazy init: 0 slots grows
                 // to the initial table before the first probe).
                 if (entries.len() + 1) * 4 > slots.len() * 3
-                    && !grow(
-                        slots,
-                        entries,
-                        &mut self.kept,
-                        cap_bytes!(entries) + arena.heap_bytes(),
-                    )
+                    && !grow(slots, entries, &mut self.kept, cap_bytes!(entries) + arena.heap_bytes(),)
                 {
                     self.failed = true;
                     self.last = 0;
@@ -737,21 +683,11 @@ impl DistAcc {
                         // D4539 (trunk) on the line's arena (K1-MEM B): a block the arena (unless the value is kept in
                         // place) or the entries grow to next is on the charge before it is allocated, and the charge is
                         // fitted to the blocks after.
-                        let next = if in_place {
-                            0
-                        } else {
-                            arena.next_block(canonical.len())
-                        } + next_block(
-                            entries.len(),
-                            entries.capacity(),
-                            1,
-                            std::mem::size_of::<Entry>(),
-                        );
+                        let next = if in_place { 0 } else { arena.next_block(canonical.len()) }
+                            + next_block(entries.len(), entries.capacity(), 1, std::mem::size_of::<Entry>(),);
                         let grows = next != 0;
                         if grows {
-                            self.kept.fit(
-                                cap_bytes!(slots) + cap_bytes!(entries) + arena.heap_bytes() + next,
-                            );
+                            self.kept.fit(cap_bytes!(slots) + cap_bytes!(entries) + arena.heap_bytes() + next,);
                         }
                         let at = if entries.try_reserve(1).is_err() {
                             None
@@ -761,8 +697,7 @@ impl DistAcc {
                             arena.copy(canonical)
                         };
                         let Some(at) = at else {
-                            self.kept
-                                .fit(cap_bytes!(slots) + cap_bytes!(entries) + arena.heap_bytes());
+                            self.kept.fit(cap_bytes!(slots) + cap_bytes!(entries) + arena.heap_bytes());
                             self.failed = true;
                             self.last = 0;
                             return;
@@ -775,8 +710,7 @@ impl DistAcc {
                             len: canonical.len(),
                         });
                         if grows {
-                            self.kept
-                                .fit(cap_bytes!(slots) + cap_bytes!(entries) + arena.heap_bytes());
+                            self.kept.fit(cap_bytes!(slots) + cap_bytes!(entries) + arena.heap_bytes());
                         }
                         slots[i] = entries.len() as u32;
                         self.last = entries.len();
@@ -842,9 +776,7 @@ impl DistAcc {
     /// values are copied into the hash arm's arena).
     #[cold]
     fn small_to_hash(&mut self) {
-        let Acc::Small { slots, .. } = &self.acc else {
-            return;
-        };
+        let Acc::Small { slots, .. } = &self.acc else { return; };
         let mut arena = Arena::default();
         let es: Option<Vec<Entry>> = slots
             .iter()
@@ -853,13 +785,7 @@ impl DistAcc {
                 let b = e.word.to_le_bytes();
                 let v = &b[..e.len as usize];
                 let (h1, h2) = meta_hash128(v);
-                Some(Entry {
-                    h1,
-                    h2,
-                    count: e.count,
-                    at: arena.copy(v)?,
-                    len: v.len(),
-                })
+                Some(Entry { h1, h2, count: e.count, at: arena.copy(v)?, len: v.len(), })
             })
             .collect();
         let Some(es) = es else {
@@ -879,11 +805,7 @@ impl DistAcc {
             self.last = 0;
             return;
         }
-        self.acc = Acc::Hash {
-            slots,
-            entries: es,
-            arena,
-        };
+        self.acc = Acc::Hash { slots, entries: es, arena, };
         self.last = 0;
         let now = self.heap_bytes();
         self.kept.fit(now);
@@ -905,11 +827,7 @@ impl DistAcc {
     /// The heap bytes a keeper's charge must still cover: all of [`DistAcc::heap_bytes`] when the accumulator has no
     /// charge of its own, none when it does ([`DistAcc::charge_to`]).
     pub fn unkept_bytes(&self) -> u64 {
-        if self.kept.owner().is_some() {
-            0
-        } else {
-            self.heap_bytes()
-        }
+        if self.kept.owner().is_some() { 0 } else { self.heap_bytes() }
     }
 
     /// The accumulator's heap bytes (capacities): the hash arm's slots, entries and value arena, the inline arm's table.
@@ -917,14 +835,9 @@ impl DistAcc {
     /// A/B control, off by default) counts its keys' blocks and one entry each, not the tree's own nodes.
     pub fn heap_bytes(&self) -> u64 {
         match &self.acc {
-            Acc::Hash {
-                slots,
-                entries,
-                arena,
-            } => cap_bytes!(slots) + cap_bytes!(entries) + arena.heap_bytes(),
+            Acc::Hash { slots, entries, arena, } => cap_bytes!(slots) + cap_bytes!(entries) + arena.heap_bytes(),
             Acc::Small { slots, .. } => cap_bytes!(slots),
-            Acc::BTree(counts) => {
-                self.tree_bytes + counts.len() as u64 * std::mem::size_of::<(Vec<u8>, u64)>() as u64
+            Acc::BTree(counts) => { self.tree_bytes + counts.len() as u64 * std::mem::size_of::<(Vec<u8>, u64)>() as u64
             }
         }
     }
@@ -959,8 +872,7 @@ impl DistAcc {
     /// [`Self::finalize`] with the histogram in `order` (the column's, [`HistOrder::of`]). Both arms converge on the
     /// same finish path ([`finish_distribution`] — shared with the DICT-DEDUP feed).
     pub fn finalize_in(&self, order: HistOrder) -> ColDistribution {
-        self.finalize_in_for(order, None)
-            .unwrap_or_else(|_| missing(self.nonnull))
+        self.finalize_in_for(order, None).unwrap_or_else(|_| missing(self.nonnull))
     }
 
     /// [`DistAcc::finalize`] whose working vectors (the byte order's keys, images and sorted views) are charged to `on`
@@ -996,11 +908,7 @@ impl DistAcc {
                 // u128-key sort, PGRC-WRITER-FAST `dist`), else first-seen (a
                 // word order keys and sorts them in `equi_depth_bounds`).
                 let byte_ordered = order == HistOrder::Bytes;
-                let radix = if byte_ordered {
-                    small_byte_order(entries, on)
-                } else {
-                    None
-                };
+                let radix = if byte_ordered { small_byte_order(entries, on) } else { None };
                 let imgs: ChargedVec<([u8; 8], u8, u64)> = match radix {
                     Some(ix) => collect_on(
                         on,
@@ -1010,17 +918,9 @@ impl DistAcc {
                         }),
                     )?,
                     None => {
-                        let mut st = collect_on(
-                            on,
-                            entries.iter().map(|e| {
-                                (
-                                    small_key(e.word, e.len),
-                                    e.word.to_le_bytes(),
-                                    e.len,
-                                    e.count,
-                                )
-                            }),
-                        )?;
+                        let mut st =
+                            collect_on(on, entries.iter().map(|e| { (small_key(e.word, e.len), e.word.to_le_bytes(), e.len, e.count,)
+                            }),)?;
                         if byte_ordered {
                             st.sort_unstable_by_key(|t| t.0);
                         }
@@ -1028,14 +928,7 @@ impl DistAcc {
                     }
                 };
                 let set = collect_on(on, imgs.iter().map(|t| (&t.0[..t.1 as usize], t.2)))?;
-                finish_distribution(
-                    &set,
-                    byte_ordered,
-                    self.nonnull,
-                    self.long_values,
-                    order,
-                    on,
-                )
+                finish_distribution(&set, byte_ordered, self.nonnull, self.long_values, order, on,)
             }
         }
     }
@@ -1069,21 +962,13 @@ fn finish_distribution(
         nonnull,
         ndv_eligible: set.len() as u64,
         long_values,
-        mcv: if byte_ordered {
-            mcv_top_k(set, on)?
-        } else {
-            top_counts(set)?
-        },
+        mcv: if byte_ordered { mcv_top_k(set, on)? } else { top_counts(set)? },
         hist_bounds: equi_depth_bounds(set, byte_ordered, eligible_total, order, on)?,
     })
 }
 
 fn missing(nonnull: u64) -> ColDistribution {
-    ColDistribution {
-        nonnull,
-        long_values: nonnull,
-        ..ColDistribution::default()
-    }
+    ColDistribution { nonnull, long_values: nonnull, ..ColDistribution::default() }
 }
 
 pub(crate) fn or_skipped<T>(r: FormatResult<T>) -> Option<T> {
@@ -1091,8 +976,7 @@ pub(crate) fn or_skipped<T>(r: FormatResult<T>) -> Option<T> {
         Err(FormatError::OutOfMemory { bytes }) => *bytes,
         _ => 0,
     };
-    r.map_err(|_| pgrc_format::note_accel_skipped(pgrc_format::Accel::DistStats, bytes))
-        .ok()
+    r.map_err(|_| pgrc_format::note_accel_skipped(pgrc_format::Accel::DistStats, bytes)).ok()
 }
 
 /// The MCV top-k: the first [`STATS_MCV_K`] of `set` in (count desc, bytes
@@ -1104,8 +988,7 @@ fn top_counts(set: &[(&[u8], u64)]) -> FormatResult<Vec<(Vec<u8>, u64)>> {
     let mut top: Vec<(&[u8], u64)> = if set.len() <= k {
         pgrc_format::try_to_vec(set, "sketch")?
     } else {
-        let mut counts: BinaryHeap<Reverse<u64>> =
-            set[..k].iter().map(|&(_, c)| Reverse(c)).collect();
+        let mut counts: BinaryHeap<Reverse<u64>> = set[..k].iter().map(|&(_, c)| Reverse(c)).collect();
         for &(_, c) in &set[k..] {
             if counts.peek().is_some_and(|m| c > m.0) {
                 counts.pop();
@@ -1145,13 +1028,7 @@ fn top_counts(set: &[(&[u8], u64)]) -> FormatResult<Vec<(Vec<u8>, u64)>> {
 /// rows (the fold weighs parts by it). A word order sorts decoded keys (a
 /// radix sort; none when they arrive ascending), and a unique set reads
 /// its bounds at their ranks.
-fn equi_depth_bounds(
-    set: &[(&[u8], u64)],
-    byte_ordered: bool,
-    total: u64,
-    order: HistOrder,
-    on: On,
-) -> FormatResult<Vec<Vec<u8>>> {
+fn equi_depth_bounds(set: &[(&[u8], u64)], byte_ordered: bool, total: u64, order: HistOrder, on: On,) -> FormatResult<Vec<Vec<u8>>> {
     if total == 0 {
         return Ok(Vec::new());
     }
@@ -1160,10 +1037,7 @@ fn equi_depth_bounds(
     targets.with_vec(|v| v.extend((0..nb).map(|i| (i * (total - 1)) / (nb - 1)))); // alloc: Exec charged on
     targets.with_vec(|v| v.dedup());
     // the values at the target ranks of an ascending walk
-    fn walk<'a>(
-        ordered: impl Iterator<Item = (&'a [u8], u64)>,
-        targets: &[u64],
-    ) -> FormatResult<Vec<Vec<u8>>> {
+    fn walk<'a>(ordered: impl Iterator<Item = (&'a [u8], u64)>, targets: &[u64],) -> FormatResult<Vec<Vec<u8>>> {
         let mut out: Vec<Vec<u8>> = pgrc_format::try_vec(targets.len(), "sketch")?;
         let (mut cum, mut ti) = (0u64, 0usize);
         for (k, c) in ordered {
@@ -1183,24 +1057,22 @@ fn equi_depth_bounds(
         return walk(set.iter().copied(), &targets);
     }
     // D4594 / D4416: the decoded keys on `on`, their block charged as it is allocated (one reserve, then fills)
-    let keyed: Option<ChargedVec<(u64, u32)>> =
-        if order == HistOrder::Bytes || u32::try_from(set.len()).is_err() {
-            None
-        } else {
-            let mut k = charged_vec(on);
-            k.try_reserve(set.len())
-                .map_err(|_| oom::<(u64, u32)>(set.len()))?;
-            let all = k.with_vec(|w| {
-                for (i, &(v, _)) in set.iter().enumerate() {
-                    match order.key(v) {
-                        Some(key) => w.push((key, i as u32)), // alloc: Exec charged on
-                        None => return false,
-                    }
+    let keyed: Option<ChargedVec<(u64, u32)>> = if order == HistOrder::Bytes || u32::try_from(set.len()).is_err() {
+        None
+    } else {
+        let mut k = charged_vec(on);
+        k.try_reserve(set.len()).map_err(|_| oom::<(u64, u32)>(set.len()))?;
+        let all = k.with_vec(|w| {
+            for (i, &(v, _)) in set.iter().enumerate() {
+                match order.key(v) {
+                    Some(key) => w.push((key, i as u32)), // alloc: Exec charged on
+                    None => return false,
                 }
-                true
-            });
-            all.then_some(k)
-        };
+            }
+            true
+        });
+        all.then_some(k)
+    };
     let Some(mut keyed) = keyed else {
         let mut v = collect_on(on, set.iter().copied())?;
         if order == HistOrder::Bytes {
@@ -1228,10 +1100,7 @@ fn equi_depth_bounds(
         // every count is 1: rank r is the r-th value
         let mut out = pgrc_format::try_vec(targets.len(), "sketch")?;
         for &t in targets.iter() {
-            out.push(pgrc_format::try_to_vec(
-                set[keyed[t as usize].1 as usize].0,
-                "sketch",
-            )?);
+            out.push(pgrc_format::try_to_vec(set[keyed[t as usize].1 as usize].0, "sketch",)?);
         }
         return Ok(out);
     }
@@ -1255,16 +1124,12 @@ fn radix_sort_keys(v: &mut ChargedVec<(u64, u32)>, on: On) {
     // D4594 / D4416: the scatter buffer on `on` (a failed reserve leaves the keys in their order: the stable sort below)
     let mut buf: ChargedVec<(u64, u32)> = charged_vec(on);
     let bytes = n * std::mem::size_of::<(u64, u32)>();
-    if buf
-        .resize(n, (0, 0))
-        .map_err(|_| pgrc_format::note_accel_skipped(pgrc_format::Accel::SortOrder, bytes))
-        .is_err()
-    {
+    if buf.resize(n, (0, 0)).map_err(|_| pgrc_format::note_accel_skipped(pgrc_format::Accel::SortOrder, bytes)).is_err() {
         v.as_mut_slice().sort_by_key(|e| e.0);
         return;
     }
     for (d, h) in hist.iter().enumerate() {
-        if h.contains(&n) {
+        if h.contains(& n) {
             continue;
         }
         let mut at = [0usize; 256];
@@ -1298,9 +1163,7 @@ fn mcv_top_k(ordered: &[(&[u8], u64)], on: On) -> FormatResult<Vec<(Vec<u8>, u64
     }
     let kth = if ordered.len() > STATS_MCV_K {
         let mut counts = collect_on(on, ordered.iter().map(|t| t.1))?;
-        *counts
-            .select_nth_unstable_by(STATS_MCV_K - 1, |a, b| b.cmp(a))
-            .1
+        *counts.select_nth_unstable_by(STATS_MCV_K - 1, |a, b| b.cmp(a)).1
     } else {
         0 // every count is >= 1: all entries are above
     };
@@ -1339,14 +1202,7 @@ fn small_byte_order(entries: &[SmallEntry], on: On) -> Option<ChargedVec<u32>> {
     if entries.iter().any(|e| e.len != first.len) {
         return None;
     }
-    let mut keyed = collect_on(
-        None,
-        entries
-            .iter()
-            .enumerate()
-            .map(|(i, e)| (u64::from_be_bytes(e.word.to_le_bytes()), i as u32)),
-    )
-    .ok()?;
+    let mut keyed = collect_on(None, entries.iter().enumerate().map(|(i, e)| (u64::from_be_bytes(e.word.to_le_bytes()), i as u32)),).ok()?;
     radix_by_key(&mut keyed, None);
     collect_on(on, keyed.iter().map(|t| t.1)).ok()
 }
@@ -1367,21 +1223,16 @@ fn radix_by_key<T: Copy + Default>(keyed: &mut ChargedVec<(u64, T)>, on: On) {
         }
     }
     let mut tmp: ChargedVec<(u64, T)> = charged_vec(on);
-    let filled = tmp.with_vec(|t| {
-        match pgrc_format::try_filled::<(u64, T)>(keyed.len(), (0, T::default()), "sketch") {
-            // alloc: Exec charged on
-            Ok(b) => {
-                *t = b;
-                true
-            }
-            Err(_) => false,
+    let filled = tmp.with_vec(|t| { match pgrc_format::try_filled::<(u64, T)>(keyed.len(), (0, T::default()), "sketch") { // alloc: Exec charged on
+        Ok(b) => {
+            *t = b;
+            true
         }
+        Err(_) => false,
+    }
     });
     if !filled {
-        pgrc_format::note_accel_skipped(
-            pgrc_format::Accel::SortOrder,
-            keyed.len() * std::mem::size_of::<(u64, T)>(),
-        );
+        pgrc_format::note_accel_skipped(pgrc_format::Accel::SortOrder, keyed.len() * std::mem::size_of::<(u64, T)>(),);
         keyed.sort_unstable_by_key(|t| t.0);
         return;
     }
@@ -1427,28 +1278,17 @@ pub fn distribution_from_sorted_counts(entries: &[(Vec<u8>, u64)]) -> ColDistrib
 }
 
 /// [`distribution_from_sorted_counts`] with the histogram in `order` (the column's, [`HistOrder::of`]).
-pub fn distribution_from_sorted_counts_in(
-    entries: &[(Vec<u8>, u64)],
-    order: HistOrder,
-) -> ColDistribution {
-    distribution_from_sorted_counts_in_for(entries, order, None)
-        .unwrap_or_else(|_| missing(entries.iter().map(|(_, c)| c).sum()))
+pub fn distribution_from_sorted_counts_in(entries: &[(Vec<u8>, u64)], order: HistOrder,) -> ColDistribution {
+    distribution_from_sorted_counts_in_for(entries, order, None).unwrap_or_else(|_| missing(entries.iter().map(|(_, c)| c).sum()))
 }
 
 /// [`distribution_from_sorted_counts`] whose working vectors are charged to `on` while they live (wave 3 A3).
-pub fn distribution_from_sorted_counts_for(
-    entries: &[(Vec<u8>, u64)],
-    on: On,
-) -> FormatResult<ColDistribution> {
+pub fn distribution_from_sorted_counts_for(entries: &[(Vec<u8>, u64)], on: On,) -> FormatResult<ColDistribution> {
     distribution_from_sorted_counts_in_for(entries, HistOrder::Bytes, on)
 }
 
 /// The line's histogram order (FOLDSTATS) and trunk's charging (wave 3 A3) in one face: the meta builder's feed arm.
-pub fn distribution_from_sorted_counts_in_for(
-    entries: &[(Vec<u8>, u64)],
-    order: HistOrder,
-    on: On,
-) -> FormatResult<ColDistribution> {
+pub fn distribution_from_sorted_counts_in_for(entries: &[(Vec<u8>, u64)], order: HistOrder, on: On,) -> FormatResult<ColDistribution> {
     let nonnull: u64 = entries.iter().map(|(_, c)| c).sum();
     let mut long_values = 0u64;
     let mut ordered: ChargedVec<(&[u8], u64)> = charged_vec(on);
@@ -1491,10 +1331,7 @@ pub fn sort_bytes_prefixed_for<T>(v: &mut [T], bytes: impl Fn(&T) -> &[u8], on: 
             rest.len().min(17) as u8,
         )
     };
-    let Ok(mut keyed) = collect_on(
-        on,
-        v.iter().enumerate().map(|(i, t)| (key_at(bytes(t), 0), i)),
-    ) else {
+    let Ok(mut keyed) = collect_on(on, v.iter().enumerate().map(|(i, t)| (key_at(bytes(t), 0), i)),) else {
         return plain_byte_sort(v, bytes);
     };
     let mut runs: ChargedVec<(usize, usize, usize)> = charged_vec(on);
@@ -1538,10 +1375,7 @@ pub fn sort_bytes_prefixed_for<T>(v: &mut [T], bytes: impl Fn(&T) -> &[u8], on: 
 }
 
 fn plain_byte_sort<T>(v: &mut [T], bytes: impl Fn(&T) -> &[u8]) {
-    pgrc_format::note_accel_skipped(
-        pgrc_format::Accel::SortOrder,
-        v.len() * std::mem::size_of::<((u64, u64, u8), usize)>(),
-    );
+    pgrc_format::note_accel_skipped(pgrc_format::Accel::SortOrder, v.len() * std::mem::size_of::<((u64, u64, u8), usize)>(),);
     v.sort_unstable_by(|a, b| bytes(a).cmp(bytes(b)));
 }
 
@@ -1551,15 +1385,9 @@ fn plain_byte_sort<T>(v: &mut [T], bytes: impl Fn(&T) -> &[u8]) {
 /// D4539: the inline arm's heap IS its table, so `kept` is fitted to the old table plus the new one before the new one
 /// is allocated (both live through the rehash), and to the new one after.
 fn grow_small(slots: &mut Vec<SmallEntry>, kept: &mut Kept) -> bool {
-    let ncap = if slots.is_empty() {
-        16
-    } else {
-        slots.len() * 2
-    };
+    let ncap = if slots.is_empty() { 16 } else { slots.len() * 2 };
     let mask = ncap - 1;
-    kept.fit(
-        cap_bytes!(slots) + (ncap as u64).saturating_mul(std::mem::size_of::<SmallEntry>() as u64),
-    );
+    kept.fit(cap_bytes!(slots) + (ncap as u64).saturating_mul(std::mem::size_of::<SmallEntry>() as u64),);
     let Ok(mut ns) = pgrc_format::try_filled(ncap, SmallEntry::default(), "sketch") else {
         kept.fit(cap_bytes!(slots));
         return false;
@@ -1588,15 +1416,9 @@ fn grow_small(slots: &mut Vec<SmallEntry>, kept: &mut Kept) -> bool {
 /// D4539: `kept` is fitted to the old table plus the new one plus `rest` (the arm's other blocks) before the new one is
 /// allocated, and to the new one plus `rest` after.
 fn grow(slots: &mut Vec<u32>, entries: &[Entry], kept: &mut Kept, rest: u64) -> bool {
-    let ncap = if slots.is_empty() {
-        16
-    } else {
-        slots.len() * 2
-    };
+    let ncap = if slots.is_empty() { 16 } else { slots.len() * 2 };
     let mask = ncap - 1;
-    kept.fit(
-        cap_bytes!(slots) + (ncap as u64).saturating_mul(std::mem::size_of::<u32>() as u64) + rest,
-    );
+    kept.fit(cap_bytes!(slots) + (ncap as u64).saturating_mul(std::mem::size_of::<u32>() as u64) + rest,);
     let Ok(mut ns) = pgrc_format::try_filled(ncap, 0u32, "sketch") else {
         kept.fit(cap_bytes!(slots) + rest);
         return false;
@@ -1643,10 +1465,7 @@ mod tests {
                 let mask = (1usize << bits) - 1;
                 assert_eq!(stored & mask, small_slot(x, len, mask));
             }
-            assert_eq!(
-                h as usize & ((1usize << 31) - 1),
-                small_slot(x, len, (1usize << 31) - 1)
-            );
+            assert_eq!(h as usize & ((1usize << 31) - 1), small_slot(x, len, (1usize << 31) - 1));
         }
         assert_eq!(std::mem::size_of::<SmallEntry>(), 24);
     }
@@ -1659,10 +1478,7 @@ mod tests {
         for width in [1usize, 2, 4, 8] {
             let mut a = DistAcc::with_hash_arm(true);
             let mut b = DistAcc::with_hash_arm(true);
-            b.acc = Acc::Small {
-                slots: Vec::new(),
-                n: 0,
-            };
+            b.acc = Acc::Small { slots: Vec::new(), n: 0, };
             for i in 0..20_000u64 {
                 x = crate::hash::mix64(x);
                 // skewed: many repeats of a few values + a long tail
@@ -1671,11 +1487,7 @@ mod tests {
                 let v = &img[..width];
                 let (h1, h2) = meta_hash128(v);
                 a.observe_hashed(h1, h2, v);
-                let mask = if width == 8 {
-                    u64::MAX
-                } else {
-                    (1u64 << (8 * width)) - 1
-                };
+                let mask = if width == 8 { u64::MAX } else { (1u64 << (8 * width)) - 1 };
                 if i % 2 == 0 {
                     b.observe_hashed_word(h1, h2, w & mask, width as u8);
                 } else {
@@ -1723,9 +1535,7 @@ mod tests {
         let mut x: u64 = 0x2468_ace0_1357_9bdf;
         for len in 0..90usize {
             x = crate::hash::mix64(x);
-            let b: Vec<u8> = (0..len)
-                .map(|i| (x >> (i % 7 * 8)) as u8 ^ i as u8)
-                .collect();
+            let b: Vec<u8> = (0..len).map(|i| (x >> (i % 7 * 8)) as u8 ^ i as u8).collect();
             let (h1, h2, lo, hi) =
                 crate::hash::meta_hash128_and_digests(&b, crate::format::bank::BANK_LANE_SEEDS);
             assert_eq!((h1, h2), meta_hash128(&b));
@@ -1748,11 +1558,7 @@ mod tests {
         fn mcv_reference(ordered: &[(&[u8], u64)]) -> Vec<(Vec<u8>, u64)> {
             let mut by_count = ordered.to_vec();
             by_count.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(b.0)));
-            by_count
-                .iter()
-                .take(STATS_MCV_K)
-                .map(|&(k, v)| (k.to_vec(), v))
-                .collect()
+            by_count.iter().take(STATS_MCV_K).map(|&(k, v)| (k.to_vec(), v)).collect()
         }
         let mut x: u64 = 0x1b1b_0000_5eed_0001;
         for case in 0..400u64 {
@@ -1764,16 +1570,14 @@ mod tests {
                 _ => 100 + (x % 3000) as usize,
             };
             let spread = match case % 4 {
-                0 => 1, // every count 1
-                1 => 3, // many ties
+                0 => 1,  // every count 1
+                1 => 3,  // many ties
                 _ => 1 + (x >> 20) % 50,
             };
             let mut vals: Vec<Vec<u8>> = (0..n as u64)
                 .map(|i| {
                     let w = crate::hash::mix64(x ^ i);
-                    (0..1 + (w % 12) as usize)
-                        .map(|j| (w >> (j % 8 * 8)) as u8 % 7)
-                        .collect()
+                    (0..1 + (w % 12) as usize).map(|j| (w >> (j % 8 * 8)) as u8 % 7).collect()
                 })
                 .collect();
             vals.sort();
@@ -1781,97 +1585,45 @@ mod tests {
             let ordered: Vec<(&[u8], u64)> = vals
                 .iter()
                 .enumerate()
-                .map(|(i, v)| {
-                    (
-                        v.as_slice(),
-                        1 + crate::hash::mix64(x ^ (i as u64) << 7) % spread,
-                    )
+                .map(|(i, v)| { (v.as_slice(), 1 + crate::hash::mix64(x ^ (i as u64) << 7) % spread,)
                 })
                 .collect();
-            assert_eq!(
-                mcv_top_k(&ordered, None).unwrap(),
-                mcv_reference(&ordered),
-                "case {case} n {n} spread {spread}"
-            );
+            assert_eq!(mcv_top_k(&ordered, None).unwrap(), mcv_reference(&ordered), "case {case} n {n} spread {spread}");
         }
         // The word arm's radix order == the u128-key sort, widths 1..8,
         // above and below the radix cut-in.
         for width in [1u8, 2, 4, 8] {
             for n in [5usize, 1023, 1024, 20_000] {
-                let mask = if width == 8 {
-                    u64::MAX
-                } else {
-                    (1u64 << (8 * width)) - 1
-                };
+                let mask = if width == 8 { u64::MAX } else { (1u64 << (8 * width)) - 1 };
                 let mut seen = std::collections::HashSet::new();
                 let mut entries = Vec::new();
                 while entries.len() < n.min(if width == 1 { 256 } else { usize::MAX }) {
                     x = crate::hash::mix64(x);
                     // some bytes constant: a narrow value range in places
-                    let w = if x & 1 == 0 {
-                        x & mask & 0x00ff_00ff_00ff_00ff
-                    } else {
-                        x & mask
-                    };
+                    let w = if x & 1 == 0 { x & mask & 0x00ff_00ff_00ff_00ff } else { x & mask };
                     if seen.insert(w) {
-                        entries.push(SmallEntry {
-                            word: w,
-                            count: 1 + x % 3,
-                            stamp: 0,
-                            len: width,
-                            hash: [0; 3],
-                        });
+                        entries.push(SmallEntry { word: w, count: 1 + x % 3, stamp: 0, len: width, hash: [0; 3], });
                     }
                 }
-                let mut want: Vec<(u128, u32)> = entries
-                    .iter()
-                    .enumerate()
-                    .map(|(i, e)| (small_key(e.word, e.len), i as u32))
-                    .collect();
+                let mut want: Vec<(u128, u32)> =
+                    entries.iter().enumerate().map(|(i, e)| (small_key(e.word, e.len), i as u32)).collect();
                 want.sort_unstable_by_key(|t| t.0);
                 let want: Vec<u32> = want.into_iter().map(|t| t.1).collect();
-                assert_eq!(
-                    small_byte_order(&entries, None).map(|v| v.to_vec()),
-                    Some(want),
-                    "width {width} n {}",
-                    entries.len()
-                );
+                assert_eq!(small_byte_order(&entries, None).map(|v| v.to_vec()), Some(want), "width {width} n {}", entries.len());
             }
         }
         let mixed = [
-            SmallEntry {
-                word: 1,
-                count: 1,
-                stamp: 0,
-                len: 1,
-                hash: [0; 3],
-            },
-            SmallEntry {
-                word: 1,
-                count: 1,
-                stamp: 0,
-                len: 2,
-                hash: [0; 3],
-            },
+            SmallEntry { word: 1, count: 1, stamp: 0, len: 1, hash: [0; 3], },
+            SmallEntry { word: 1, count: 1, stamp: 0, len: 2, hash: [0; 3], },
         ];
-        assert!(
-            small_byte_order(&mixed, None).is_none(),
-            "mixed lengths keep the comparison sort"
-        );
+        assert!(small_byte_order(&mixed, None).is_none(), "mixed lengths keep the comparison sort");
         // 16-byte prefix sort == plain sort with long shared prefixes.
         let mut v: Vec<Vec<u8>> = Vec::new();
         for i in 0..4000u64 {
             x = crate::hash::mix64(x);
             let len = (x % 41) as usize;
-            let mut b: Vec<u8> = (0..len)
-                .map(|k| {
-                    if k < 18 {
-                        b'a' + (x % 2) as u8
-                    } else {
-                        ((x >> (k % 8 * 8)) % 3) as u8
-                    }
-                })
-                .collect();
+            let mut b: Vec<u8> = (0..len).map(|k| { if k < 18 { b'a' + (x % 2) as u8 } else { ((x >> (k % 8 * 8)) % 3) as u8 }
+                }).collect();
             if i % 7 == 0 {
                 b.push(0);
             }
@@ -1894,8 +1646,7 @@ mod tests {
         let stem: Vec<u8> = b"http://example.com/some/long/shared/path/segment/".to_vec();
         for i in 0..6000u64 {
             x = crate::hash::mix64(x);
-            let cut =
-                [0usize, 15, 16, 17, 31, 32, 33, stem.len()][(x % 8) as usize].min(stem.len());
+            let cut = [0usize, 15, 16, 17, 31, 32, 33, stem.len()][(x % 8) as usize].min(stem.len());
             let mut b = stem[..cut].to_vec();
             let tail = (x >> 8) % 40;
             for k in 0..tail {
@@ -2021,6 +1772,7 @@ mod tests {
         assert_arms_equal(&bools, "bool family");
 
         #[allow(clippy::unusual_byte_groupings)]
+
         let mut rng = Rng(0x5EED_2);
         let w4: Vec<Vec<u8>> = (0..20_000)
             .map(|_| ((rng.next() % 3000) as u32).to_le_bytes().to_vec())
@@ -2028,13 +1780,13 @@ mod tests {
         assert_arms_equal(&w4, "4-byte word family (duplicate-heavy)");
 
         #[allow(clippy::unusual_byte_groupings)]
+
         let mut rng = Rng(0x5EED_3);
-        let w8: Vec<Vec<u8>> = (0..20_000)
-            .map(|_| rng.next().to_le_bytes().to_vec())
-            .collect();
+        let w8: Vec<Vec<u8>> = (0..20_000).map(|_| rng.next().to_le_bytes().to_vec()).collect();
         assert_arms_equal(&w8, "8-byte word family (all-distinct)");
 
         #[allow(clippy::unusual_byte_groupings)]
+
         let mut rng = Rng(0x5EED_4);
         let f16: Vec<Vec<u8>> = (0..5000)
             .map(|_| {
@@ -2046,6 +1798,7 @@ mod tests {
         assert_arms_equal(&f16, "fixed-16 family");
 
         #[allow(clippy::unusual_byte_groupings)]
+
         let mut rng = Rng(0x5EED_5);
         let text: Vec<Vec<u8>> = (0..10_000)
             .map(|_| format!("url/{}/page", rng.next() % 4000).into_bytes())
@@ -2102,7 +1855,9 @@ mod tests {
     fn arms_equal_growth_and_rehash() {
         // Enough distinct values to force many doublings from the lazy
         // 16-slot start; counts must survive every rehash.
-        let corpus: Vec<Vec<u8>> = (0..100_000u64).map(|i| i.to_le_bytes().to_vec()).collect();
+        let corpus: Vec<Vec<u8>> = (0..100_000u64)
+            .map(|i| i.to_le_bytes().to_vec())
+            .collect();
         assert_arms_equal(&corpus, "growth ladder to 100k distinct");
     }
 
@@ -2142,6 +1897,7 @@ mod tests {
         assert_feed_equals_acc(&text, "text family (zipf-ish)");
 
         #[allow(clippy::unusual_byte_groupings)]
+
         let mut rng = Rng(0xD1C7_2);
         let dup4: Vec<Vec<u8>> = (0..20_000)
             .map(|_| ((rng.next() % 300) as u32).to_le_bytes().to_vec())
@@ -2149,10 +1905,9 @@ mod tests {
         assert_feed_equals_acc(&dup4, "duplicate-heavy 4-byte family");
 
         #[allow(clippy::unusual_byte_groupings)]
+
         let mut rng = Rng(0xD1C7_3);
-        let uniq: Vec<Vec<u8>> = (0..5_000)
-            .map(|_| rng.next().to_le_bytes().to_vec())
-            .collect();
+        let uniq: Vec<Vec<u8>> = (0..5_000).map(|_| rng.next().to_le_bytes().to_vec()).collect();
         assert_feed_equals_acc(&uniq, "all-distinct family");
     }
 
@@ -2218,13 +1973,7 @@ mod tests {
                 0 => Vec::new(),
                 1 => vec![b'L'; STATS_MCV_VALUE_MAX + 1 + (rng.next() % 5) as usize],
                 2 => format!("r{}", rng.next() % 40).into_bytes(),
-                _ => format!(
-                    "{:016x}{:016x}{:016x}",
-                    rng.next(),
-                    rng.next(),
-                    rng.next() % 3_000
-                )
-                .into_bytes(),
+                _ => format!("{:016x}{:016x}{:016x}", rng.next(), rng.next(), rng.next() % 3_000).into_bytes(),
             })
             .collect();
         let mut pinned = DistAcc::with_hash_arm(true);
@@ -2243,19 +1992,11 @@ mod tests {
         assert_eq!(pinned.finalize(), want);
         assert_eq!(copied.finalize(), want);
         assert_eq!(pinned.distinct_exact(), reference.distinct_exact());
-        let Acc::Hash { entries, arena, .. } = &pinned.acc else {
-            panic!("hash arm")
-        };
+        let Acc::Hash { entries, arena, .. } = &pinned.acc else { panic!("hash arm") };
         assert!(arena.chunks.is_empty(), "nothing copied");
-        let inputs: std::collections::HashSet<usize> =
-            corpus.iter().map(|v| v.as_ptr() as usize).collect();
-        assert!(
-            entries.iter().all(|e| e.len == 0 || inputs.contains(&e.at)),
-            "keyed into the input"
-        );
-        let Acc::Hash { arena, .. } = &copied.acc else {
-            panic!("hash arm")
-        };
+        let inputs: std::collections::HashSet<usize> = corpus.iter().map(|v| v.as_ptr() as usize).collect();
+        assert!(entries.iter().all(|e| e.len == 0 || inputs.contains(&e.at)), "keyed into the input");
+        let Acc::Hash { arena, .. } = &copied.acc else { panic!("hash arm") };
         assert!(arena.chunks.len() > 3, "several arena chunks");
     }
 
@@ -2263,11 +2004,7 @@ mod tests {
     /// float rules), ties by bytes.
     fn value_cmp(order: HistOrder, a: &[u8], b: &[u8]) -> Ordering {
         let word = |v: &[u8], signed: bool| {
-            let fill = if signed && v.last().is_some_and(|&x| x & 0x80 != 0) {
-                0xFF
-            } else {
-                0
-            };
+            let fill = if signed && v.last().is_some_and(|&x| x & 0x80 != 0) { 0xFF } else { 0 };
             let mut le = [fill; 8];
             le[..v.len()].copy_from_slice(v);
             le
@@ -2281,11 +2018,9 @@ mod tests {
         let by_value = match order {
             HistOrder::Bytes => None,
             _ if !decodable(a) || !decodable(b) => None,
-            HistOrder::Signed => {
-                Some(i64::from_le_bytes(word(a, true)).cmp(&i64::from_le_bytes(word(b, true))))
+            HistOrder::Signed => { Some(i64::from_le_bytes(word(a, true)).cmp(&i64::from_le_bytes(word(b, true))))
             }
-            HistOrder::Unsigned => {
-                Some(u64::from_le_bytes(word(a, false)).cmp(&u64::from_le_bytes(word(b, false))))
+            HistOrder::Unsigned => { Some(u64::from_le_bytes(word(a, false)).cmp(&u64::from_le_bytes(word(b, false))))
             }
             HistOrder::Float => match (fl(a), fl(b)) {
                 (Some(x), Some(y)) => Some(match (x.is_nan(), y.is_nan()) {
@@ -2302,29 +2037,16 @@ mod tests {
 
     /// The full-sort reference: MCVs the first k of the whole set sorted (count desc, bytes asc); bound i the value
     /// holding cumulative rank i * (total - 1) / (nbounds - 1) of the whole set sorted in value order.
-    fn full_sort_reference(
-        set: &[(&[u8], u64)],
-        order: HistOrder,
-    ) -> (Vec<(Vec<u8>, u64)>, Vec<Vec<u8>>) {
+    fn full_sort_reference(set: &[(&[u8], u64)], order: HistOrder,) -> (Vec<(Vec<u8>, u64)>, Vec<Vec<u8>>) {
         let mut by_count = set.to_vec();
         by_count.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(b.0)));
-        let mcv = by_count
-            .iter()
-            .take(STATS_MCV_K)
-            .map(|&(v, c)| (v.to_vec(), c))
-            .collect();
+        let mcv = by_count.iter().take(STATS_MCV_K).map(|&(v, c)| (v.to_vec(), c)).collect();
         let mut ordered = set.to_vec();
         ordered.sort_by(|a, b| value_cmp(order, a.0, b.0));
         let total: u64 = set.iter().map(|e| e.1).sum();
         let mut bounds = Vec::new();
         if total > 0 {
-            let cum: Vec<u64> = ordered
-                .iter()
-                .scan(0u64, |s, e| {
-                    *s += e.1;
-                    Some(*s)
-                })
-                .collect();
+            let cum: Vec<u64> = ordered.iter().scan(0u64, |s, e| { *s += e.1; Some(*s) }).collect();
             let nb = STATS_HIST_BOUNDS as u64;
             let mut targets: Vec<u64> = (0..nb).map(|i| i * (total - 1) / (nb - 1)).collect();
             targets.dedup();
@@ -2342,41 +2064,21 @@ mod tests {
     #[test]
     fn finish_is_the_full_sort_reference() {
         let mut rng = Rng(0x9E37_79B9_7F4A_7C15);
-        for order in [
-            HistOrder::Bytes,
-            HistOrder::Signed,
-            HistOrder::Unsigned,
-            HistOrder::Float,
-        ] {
+        for order in [HistOrder::Bytes, HistOrder::Signed, HistOrder::Unsigned, HistOrder::Float,] {
             for width in [1usize, 2, 4, 8, 12] {
                 for n in [20usize, 700, 5000] {
-                    let mut vals: Vec<Vec<u8>> = (0..n)
-                        .map(|_| rng.next().to_le_bytes()[..width.min(8)].to_vec())
-                        .collect();
+                    let mut vals: Vec<Vec<u8>> = (0..n).map(|_| rng.next().to_le_bytes()[..width.min(8)].to_vec()).collect();
                     if width == 12 {
                         for v in &mut vals {
                             v.extend_from_slice(&[7, 7, 7, 7]);
                         }
                     }
                     if width == 8 {
-                        vals.extend(
-                            [
-                                0.0f64,
-                                -0.0,
-                                f64::NAN,
-                                -f64::NAN,
-                                f64::INFINITY,
-                                f64::NEG_INFINITY,
-                            ]
-                            .map(|f| f.to_le_bytes().to_vec()),
-                        );
+                        vals.extend([0.0f64, -0.0, f64::NAN, -f64::NAN, f64::INFINITY, f64::NEG_INFINITY,].map(|f| f.to_le_bytes().to_vec()),);
                         vals.push(f64::from_bits(0x7FF8_0000_0000_0001).to_le_bytes().to_vec());
                     }
                     if width == 4 {
-                        vals.extend(
-                            [0.0f32, -0.0, f32::NAN, -f32::NAN, f32::INFINITY]
-                                .map(|f| f.to_le_bytes().to_vec()),
-                        );
+                        vals.extend([0.0f32, -0.0, f32::NAN, -f32::NAN, f32::INFINITY].map(|f| f.to_le_bytes().to_vec()),);
                         vals.push(f32::from_bits(0x7FC0_0001).to_le_bytes().to_vec());
                     }
                     vals.sort();
@@ -2389,43 +2091,19 @@ mod tests {
                     for i in (1..shuffled.len()).rev() {
                         shuffled.swap(i, (rng.next() % (i as u64 + 1)) as usize);
                     }
-                    for (shape, arrival) in [
-                        ("byte-ordered", &vals),
-                        ("ascending", &asc),
-                        ("descending", &desc),
-                        ("shuffled", &shuffled),
-                    ] {
+                    for (shape, arrival) in [("byte-ordered", &vals), ("ascending", &asc), ("descending", &desc), ("shuffled", &shuffled),] {
                         for counted in [false, true] {
                             // counted: 1..=4 with every 97th value heavy
                             let set: Vec<(&[u8], u64)> = arrival
                                 .iter()
                                 .enumerate()
-                                .map(|(i, v)| {
-                                    (
-                                        v.as_slice(),
-                                        if !counted {
-                                            1
-                                        } else if i % 97 == 0 {
-                                            400 + i as u64
-                                        } else {
-                                            1 + rng.next() % 4
-                                        },
-                                    )
+                                .map(|(i, v)| { (v.as_slice(), if !counted { 1 } else if i % 97 == 0 { 400 + i as u64 } else { 1 + rng.next() % 4 },)
                                 })
                                 .collect();
                             let nonnull: u64 = set.iter().map(|e| e.1).sum();
                             let (mcv, bounds) = full_sort_reference(&set, order);
-                            let what =
-                                format!("{order:?} width {width} n {n} {shape} counted {counted}");
-                            let got = finish_distribution(
-                                &set,
-                                shape == "byte-ordered",
-                                nonnull,
-                                0,
-                                order,
-                                None,
-                            )
-                            .unwrap();
+                            let what = format!("{order:?} width {width} n {n} {shape} counted {counted}");
+                            let got = finish_distribution(&set, shape == "byte-ordered", nonnull, 0, order, None,).unwrap();
                             assert_eq!(got.mcv, mcv, "MCVs: {what}");
                             assert_eq!(got.hist_bounds, bounds, "bounds: {what}");
                             assert_eq!(got.ndv_eligible, set.len() as u64, "{what}");
@@ -2434,9 +2112,7 @@ mod tests {
                 }
             }
             // both arms, a corpus with repeats and ties at the MCV cut
-            let corpus: Vec<Vec<u8>> = (0..5000)
-                .map(|_| (rng.next() % 700).to_le_bytes().to_vec())
-                .collect();
+            let corpus: Vec<Vec<u8>> = (0..5000).map(|_| (rng.next() % 700).to_le_bytes().to_vec()).collect();
             let mut h = DistAcc::with_hash_arm(true);
             let mut r = DistAcc::with_hash_arm(false);
             let mut counts: BTreeMap<Vec<u8>, u64> = BTreeMap::new();

@@ -127,10 +127,7 @@ mod adoption_fingerprint_teeth {
     fn col(attno: u32, typalign: u8) -> ColSchema {
         ColSchema::opaque(
             attno,
-            StorageClass::ByvalWord {
-                width: 4,
-                signed: true,
-            },
+            StorageClass::ByvalWord { width: 4, signed: true, },
             4,
             true,
             typalign,
@@ -156,16 +153,9 @@ mod adoption_fingerprint_teeth {
         );
         // Every OTHER fact still splits the alignfree fold.
         let mut wider = [col(1, b'i'), col(2, b'i')];
-        wider[1].class = StorageClass::ByvalWord {
-            width: 8,
-            signed: true,
-        };
+        wider[1].class = StorageClass::ByvalWord { width: 8, signed: true, };
         wider[1].typlen = 8;
-        assert_ne!(
-            alignfree_fingerprint(&rig),
-            alignfree_fingerprint(&wider),
-            "class/width"
-        );
+        assert_ne!(alignfree_fingerprint(&rig), alignfree_fingerprint(&wider), "class/width");
         let mut collated = [col(1, b'i'), col(2, b'i')];
         collated[1].collation_class = CollationClass::OtherDeterministic;
         assert_ne!(
@@ -174,17 +164,9 @@ mod adoption_fingerprint_teeth {
             "collation_class is load-bearing and stays folded"
         );
         let fewer = [col(1, b'i')];
-        assert_ne!(
-            alignfree_fingerprint(&rig),
-            alignfree_fingerprint(&fewer),
-            "arity"
-        );
+        assert_ne!(alignfree_fingerprint(&rig), alignfree_fingerprint(&fewer), "arity");
         let renumbered = [col(1, b'i'), col(3, b'i')];
-        assert_ne!(
-            alignfree_fingerprint(&rig),
-            alignfree_fingerprint(&renumbered),
-            "attno"
-        );
+        assert_ne!(alignfree_fingerprint(&rig), alignfree_fingerprint(&renumbered), "attno");
     }
 
     #[test]

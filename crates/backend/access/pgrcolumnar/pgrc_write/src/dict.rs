@@ -62,9 +62,7 @@
 //! total order — entries are distinct) — no hash-order leak into part bytes
 //! (the byte-identical-parts law, charter §1).
 
-use pgrc_format::dict::{
-    dict_entry, DictCharLenForm, DictIndexEntry, DictSections, DICT_INDEX_ENTRY_LEN,
-};
+use pgrc_format::dict::{dict_entry, DictCharLenForm, DictIndexEntry, DictSections, DICT_INDEX_ENTRY_LEN,};
 use pgrc_format::enc::{EncodingId, Wrapper};
 use pgrc_format::geom::DICT_FRAME_ENTRIES;
 use pgrc_format::part::{StreamCloseout, StreamSectionWriter, STREAM_SECTION_HDR_LEN};
@@ -262,9 +260,7 @@ impl DictBuilder {
                 slots.capacity() * 4 + entries.capacity() * core::mem::size_of::<HashEntry>()
             }
             DictAcc::BTree(map) => {
-                map.len()
-                    * map.iter().next().map_or(0, |(k, v)| {
-                        core::mem::size_of_val(k) + core::mem::size_of_val(v)
+                map.len() * map.iter().next().map_or(0, |(k, v)| { core::mem::size_of_val(k) + core::mem::size_of_val(v)
                     })
             }
         };
@@ -273,11 +269,7 @@ impl DictBuilder {
 
     fn caps(&self) -> (usize, usize, usize) {
         match &self.acc {
-            DictAcc::Hash { slots, entries } => (
-                slots.capacity(),
-                entries.capacity(),
-                self.row_handles.capacity(),
-            ),
+            DictAcc::Hash { slots, entries } => (slots.capacity(), entries.capacity(), self.row_handles.capacity(),),
             DictAcc::BTree(map) => (0, map.len(), self.row_handles.capacity()),
         }
     }
@@ -306,8 +298,7 @@ impl DictBuilder {
                     let cl = char_len_of(payload, self.sem);
                     self.distinct_bytes += payload.len() as u64;
                     self.pay += payload.len() as u64;
-                    map.insert(
-                        // alloc: Exec charged self.charge
+                    map.insert( // alloc: Exec charged self.charge
                         payload.to_vec(), // alloc: Exec charged self.charge
                         EntryFacts {
                             char_len: cl,
@@ -343,8 +334,7 @@ impl DictBuilder {
                         let id = entries.len() as u32;
                         self.distinct_bytes += payload.len() as u64;
                         self.pay += payload.len() as u64;
-                        entries.push(HashEntry {
-                            // alloc: Exec charged self.charge
+                        entries.push(HashEntry { // alloc: Exec charged self.charge
                             h1,
                             payload: payload.to_vec(), // alloc: Exec charged self.charge
                             char_len: char_len_of(payload, self.sem),
@@ -366,7 +356,7 @@ impl DictBuilder {
             self.last = id + 1;
         }
         self.row_handles.push(id); // alloc: Exec charged self.charge
-                                   // CONVERT W3-2b: sync when a table moved or past DICT_SYNC_BYTES of new payloads (a repeat costs compares)
+        // CONVERT W3-2b: sync when a table moved or past DICT_SYNC_BYTES of new payloads (a repeat costs compares)
         if self.charge.owner().is_some()
             && (self.pay - self.synced.0 >= DICT_SYNC_BYTES || {
                 let (a, b, c) = self.caps();
@@ -428,17 +418,14 @@ impl DictBuilder {
                 // CONVERT W3-2b: the probe table is done with (it went at the builder's drop before)
                 charge.sync(charge.charged().saturating_sub(slots.capacity() as u64 * 4));
                 drop(slots);
-                charge.sync(
-                    charge.charged()
-                        + (entries.len() * core::mem::size_of::<(Vec<u8>, u32, u64, u32)>()) as u64,
-                );
+                charge.sync(charge.charged() + (entries.len() * core::mem::size_of::<(Vec<u8>, u32, u64, u32)>()) as u64,);
                 // (payload, char_len, count, insert_id), byte-rank sorted.
                 let mut staged: Vec<(Vec<u8>, u32, u64, u32)> = entries
                     .into_iter()
                     .enumerate()
                     .map(|(id, e)| (e.payload, e.char_len, e.count, id as u32))
                     .collect(); // alloc: Exec charged charge
-                                // CONVERT W3-2b: the build's peak: the staged table beside the rank / count maps and the handles
+                // CONVERT W3-2b: the build's peak: the staged table beside the rank / count maps and the handles
                 charge.sync(
                     pay + handles
                         + cap_bytes(staged.capacity(), &staged)
@@ -480,11 +467,7 @@ impl DictBuilder {
 /// Grow (or lazily create) the slot table and rehash by the STORED h1 —
 /// no byte access on the rehash path (`sketch.rs`'s grow verbatim).
 fn grow(slots: &mut Vec<u32>, entries: &[HashEntry]) {
-    let ncap = if slots.is_empty() {
-        16
-    } else {
-        slots.len() * 2
-    };
+    let ncap = if slots.is_empty() { 16 } else { slots.len() * 2 };
     let mask = ncap - 1;
     let mut ns = vec![0u32; ncap];
     for (idx, e) in entries.iter().enumerate() {
@@ -610,7 +593,9 @@ impl BuiltDict {
     /// [`DictBuilder::build`]); `None` = the driver asked past the
     /// observed rows (a code bug, refused typed by the caller).
     pub fn code_of_observed(&self, k: usize) -> Option<u32> {
-        self.row_handles.get(k).map(|&id| self.rank_of[id as usize])
+        self.row_handles
+            .get(k)
+            .map(|&id| self.rank_of[id as usize])
     }
 
     /// The byte-rank-sorted invariant (contractual, spec §7): strictly
@@ -643,33 +628,27 @@ impl BuiltDict {
     ) -> WriteResult<DictSectionImages> {
         let enc = EncodingId::DictCodes.as_u16();
         let n = self.entries.len();
-        let oom =
-            |bytes: usize| WriteError::Format(pgrc_format::FormatError::OutOfMemory { bytes });
+        let oom = |bytes: usize| WriteError::Format(pgrc_format::FormatError::OutOfMemory { bytes });
 
         // DictPayload: varlena-shaped 8-aligned entries in code order,
         // begin_frame every DICT_FRAME_ENTRIES entries. Collect each entry's
         // payload-region-relative header offset for the index.
         // Its exact bound: the header, each entry padded to 8, the frame table.
         let payload_len = STREAM_SECTION_HDR_LEN
-            + self
-                .entries
-                .iter()
-                .map(|(b, _)| (4 + b.len()).next_multiple_of(8))
-                .sum::<usize>()
+            + self.entries.iter().map(|(b, _)| (4 + b.len()).next_multiple_of(8)).sum::<usize>()
             + n.div_ceil(DICT_FRAME_ENTRIES as usize) * 4;
         let mut payload_section: Vec<u8> = Vec::new(); // alloc: Exec charged charge
-        payload_section
-            .try_reserve_exact(payload_len)
-            .map_err(|_| oom(payload_len))?; // alloc: Exec charged charge
+        payload_section.try_reserve_exact(payload_len).map_err(|_| oom(payload_len))?; // alloc: Exec charged charge
         let mut offs: Vec<u32> = Vec::new(); // alloc: Exec charged charge
         offs.try_reserve_exact(n).map_err(|_| oom(n * 4))?; // alloc: Exec charged charge
         let mut fitted = payload_section.capacity() + offs.capacity() * 4;
         charge.sync(held + fitted as u64);
         let payload_closeout = {
-            let mut w = StreamSectionWriter::begin(&mut payload_section, enc, 0, Wrapper::None)
-                .map_err(WriteError::Format)?;
+            let mut w =
+                StreamSectionWriter::begin(&mut payload_section, enc, 0, Wrapper::None)
+                    .map_err(WriteError::Format)?;
             for (code, (bytes, _)) in self.entries.iter().enumerate() {
-                if (code as u32).is_multiple_of(DICT_FRAME_ENTRIES) {
+                if ( code as u32).is_multiple_of( DICT_FRAME_ENTRIES) {
                     w.align_payload(8);
                     w.begin_frame();
                 }
@@ -698,11 +677,8 @@ impl BuiltDict {
         // DictIndex: 12-B fixed-stride records; closed-form addressing.
         let index_len = STREAM_SECTION_HDR_LEN + n * DICT_INDEX_ENTRY_LEN;
         let mut index_section: Vec<u8> = Vec::new(); // alloc: Exec charged charge
-        index_section
-            .try_reserve_exact(index_len)
-            .map_err(|_| oom(index_len))?; // alloc: Exec charged charge
-        let mut fitted =
-            payload_section.capacity() + offs.capacity() * 4 + index_section.capacity();
+        index_section.try_reserve_exact(index_len).map_err(|_| oom(index_len))?; // alloc: Exec charged charge
+        let mut fitted = payload_section.capacity() + offs.capacity() * 4 + index_section.capacity();
         charge.sync(held + fitted as u64);
         let index_closeout = {
             let mut w = StreamSectionWriter::begin(&mut index_section, enc, 0, Wrapper::None)
@@ -775,7 +751,8 @@ impl BuiltDict {
 /// before the frame table when present). Crate-visible: the seal driver
 /// builds `DictSections` verify ctxs over the emitted images (M3-A2).
 pub(crate) fn section_payload(section: &[u8]) -> WriteResult<&[u8]> {
-    let hdr = pgrc_format::part::StreamSectionHdr::decode(section).map_err(WriteError::Format)?;
+    let hdr =
+        pgrc_format::part::StreamSectionHdr::decode(section).map_err(WriteError::Format)?;
     let end = if hdr.frame_table_off != 0 {
         hdr.frame_table_off as usize
     } else {

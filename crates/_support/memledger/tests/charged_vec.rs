@@ -5,10 +5,7 @@
 use std::alloc::{GlobalAlloc, Layout, System};
 
 use memledger::charge::{context, enter_as, owner_row};
-use memledger::{
-    account_row, bind_backend, door_heap, fold, statement_begin, statement_end, unbind_backend,
-    Acct, ChargedVec, Kind, Owner,
-};
+use memledger::{account_row, bind_backend, door_heap, fold, statement_begin, statement_end, unbind_backend, Acct, ChargedVec, Kind, Owner,};
 
 struct Door1;
 
@@ -71,26 +68,15 @@ fn the_charge_follows_the_capacity_and_leaves_with_the_data() {
         v.extend_from_slice(&[7; 5000]).unwrap();
         assert_eq!(committed(o), 8 * v.capacity() as i64);
         v.resize(100_000, 3).unwrap();
-        assert_eq!(
-            (v.len(), v[99_999], committed(o)),
-            (100_000, 3, 8 * v.capacity() as i64)
-        );
+        assert_eq!((v.len(), v[99_999], committed(o)), (100_000, 3, 8 * v.capacity() as i64));
         v.resize(10, 0).unwrap();
         let cap = v.capacity();
         v.clear();
-        assert_eq!(
-            (v.len(), v.capacity(), committed(o)),
-            (0, cap, 8 * cap as i64),
-            "clear keeps the block and its charge"
-        );
+        assert_eq!((v.len(), v.capacity(), committed(o)), (0, cap, 8 * cap as i64), "clear keeps the block and its charge");
         v.with_vec(|w| w.reserve_exact(1 << 20));
         assert_eq!(committed(o), 8 * v.capacity() as i64);
         v.with_vec(|w| w.shrink_to_fit());
-        assert_eq!(
-            (v.capacity(), committed(o)),
-            (0, 0),
-            "a shrink frees its share"
-        );
+        assert_eq!((v.capacity(), committed(o)), (0, 0), "a shrink frees its share");
         v.extend_from_slice(&[1, 2, 3]).unwrap();
         v.as_mut_slice()[1] = 9;
         assert_eq!(v.as_slice(), [1, 9, 3]);
@@ -119,10 +105,7 @@ fn filled_on_a_worker_freed_on_the_leader() {
         let cap = v.capacity() as i64;
         assert_eq!(committed(o), cap);
         let during = account(a) - before;
-        assert!(
-            (during - cap).abs() < SLACK,
-            "the block is on the leader's account: {during} for {cap}"
-        );
+        assert!((during - cap).abs() < SLACK, "the block is on the leader's account: {during} for {cap}");
         drop(v);
         assert_eq!(committed(o), 0);
         let after = account(a) - before;
@@ -144,10 +127,7 @@ fn filled_on_thread_a_freed_on_thread_b() {
             let mut v = ChargedVec::<u64>::new(Some(o), Kind::Region);
             v.resize(1 << 17, 5).unwrap();
             let moved = account(a) - a0;
-            assert!(
-                moved.abs() < SLACK,
-                "thread A's account keeps nothing of the block: {moved}"
-            );
+            assert!(moved.abs() < SLACK, "thread A's account keeps nothing of the block: {moved}");
             unbind_backend();
             v
         })
@@ -155,17 +135,11 @@ fn filled_on_thread_a_freed_on_thread_b() {
         .unwrap();
         let cap = 8 * v.capacity() as i64;
         assert_eq!(committed(o), cap);
-        assert!(
-            (account(b) - b0 - cap).abs() < SLACK,
-            "the block is on the owner's account"
-        );
+        assert!((account(b) - b0 - cap).abs() < SLACK, "the block is on the owner's account");
         drop(v);
         assert_eq!(committed(o), 0);
         let after = account(b) - b0;
-        assert!(
-            after.abs() < SLACK,
-            "thread B's account is back, not below: {after}"
-        );
+        assert!(after.abs() < SLACK, "thread B's account is back, not below: {after}");
     });
 }
 
@@ -177,10 +151,7 @@ fn no_owner_is_a_plain_vec() {
         v.extend_from_slice(&[1; 50_000]).unwrap();
         assert_eq!((v.owner(), v.charged_bytes(), committed(o)), (None, 0, 0));
         let during = account(a) - before;
-        assert!(
-            during >= 4 * 50_000,
-            "the block stays on the allocating thread's account: {during}"
-        );
+        assert!(during >= 4 * 50_000, "the block stays on the allocating thread's account: {during}");
         let d: ChargedVec<u8> = ChargedVec::default();
         assert_eq!((d.owner(), d.len(), d.capacity()), (None, 0, 0));
     });
@@ -226,31 +197,16 @@ fn the_guard_grows_in_place_and_syncs_at_sync_and_drop() {
                 let mut g = v.vec_mut();
                 assert_eq!(g.owner(), Some(o));
                 g.extend_from_slice(&vec![1; 8 * memledger::VALUE_FLOOR]);
-                assert_eq!(
-                    committed(o),
-                    0,
-                    "growth through the guard is uncharged until a sync"
-                );
+                assert_eq!(committed(o), 0, "growth through the guard is uncharged until a sync");
                 g.sync();
-                assert_eq!(
-                    committed(o),
-                    g.capacity() as i64,
-                    "sync charges the capacity"
-                );
+                assert_eq!(committed(o), g.capacity() as i64, "sync charges the capacity");
                 let w: &mut Vec<u8> = &mut g;
                 w.reserve_exact(1 << 20);
             }
-            assert_eq!(
-                committed(o),
-                v.capacity() as i64,
-                "the guard's drop syncs (capacity, not length)"
-            );
+            assert_eq!(committed(o), v.capacity() as i64, "the guard's drop syncs (capacity, not length)");
             assert!(v.capacity() > v.len());
             let moved = account(a) - a0;
-            assert!(
-                moved.abs() < SLACK,
-                "thread A's account keeps nothing of the block: {moved}"
-            );
+            assert!(moved.abs() < SLACK, "thread A's account keeps nothing of the block: {moved}");
             unbind_backend();
             v
         })
@@ -258,16 +214,9 @@ fn the_guard_grows_in_place_and_syncs_at_sync_and_drop() {
         .unwrap();
         let cap = v.capacity() as i64;
         assert_eq!(committed(o), cap);
-        assert!(
-            (account(b) - b0 - cap).abs() < SLACK,
-            "the block is on the owner's account"
-        );
+        assert!((account(b) - b0 - cap).abs() < SLACK, "the block is on the owner's account");
         v.vec_mut().shrink_to_fit();
-        assert_eq!(
-            committed(o),
-            v.capacity() as i64,
-            "a shrink frees its share at the guard's drop"
-        );
+        assert_eq!(committed(o), v.capacity() as i64, "a shrink frees its share at the guard's drop");
         drop(v);
         assert_eq!(committed(o), 0);
         let after = account(b) - b0;

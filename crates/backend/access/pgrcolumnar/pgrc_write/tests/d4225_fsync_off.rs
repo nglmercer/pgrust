@@ -27,16 +27,9 @@ fn publish_once(vfs: &mut dyn WriteVfs, dir: &str) {
     .expect("open writer");
     let sources: [&dyn CandidateSource; 1] = [&kit.cands];
     {
-        let mut env = SealEnv {
-            vfs: &mut *vfs,
-            sources: &sources,
-            resolver: &kit.resolver,
-            shred: &mut kit.shred,
-            shred_opts: &kit.opts,
-        };
+        let mut env = SealEnv { vfs: &mut *vfs, sources: &sources, resolver: &kit.resolver, shred: &mut kit.shred, shred_opts: &kit.opts, };
         for i in 0..1000u64 {
-            w.append_row(&[RawDatum::Word(i)], &mut kit.ext, &mut env)
-                .expect("append");
+            w.append_row(&[RawDatum::Word(i)], &mut kit.ext, &mut env).expect("append");
         }
         w.finish(&mut env).expect("finish");
     }
@@ -48,16 +41,8 @@ fn publish_once(vfs: &mut dyn WriteVfs, dir: &str) {
 fn real_dir(real: &mut RealVfs, arm: &str) -> String {
     let base = std::env::temp_dir().join(format!("pgrc_d4225_{}", std::process::id()));
     let mut path = String::new();
-    for part in [
-        base.to_str().expect("utf8 temp dir").to_string(),
-        arm.to_string(),
-        "pgrc_777".to_string(),
-    ] {
-        path = if path.is_empty() {
-            part
-        } else {
-            format!("{path}/{part}")
-        };
+    for part in [base.to_str().expect("utf8 temp dir").to_string(), arm.to_string(), "pgrc_777".to_string(),] {
+        path = if path.is_empty() { part } else { format!("{path}/{part}") };
         if !real.exists_path(&path).expect("exists") {
             real.mkdir_path(&path).expect("mkdir");
         }
@@ -71,16 +56,8 @@ fn a_publish_under_fsync_off_makes_no_fsync() {
     // The model: the fsync ops one publish asks for (data, manifest, CURRENT twice, the directory, the stats plane).
     let mut mem = mem_with_dir();
     publish_once(&mut mem, DIR);
-    let want = mem
-        .ops()
-        .iter()
-        .filter(|o| o.starts_with("fsync ") || o.starts_with("fsyncdir "))
-        .count() as u64;
-    assert!(
-        want > 0,
-        "the model's publish asks for fsyncs: {:#?}",
-        mem.ops()
-    );
+    let want = mem.ops().iter().filter(|o| o.starts_with("fsync ") || o.starts_with("fsyncdir ")).count() as u64;
+    assert!(want > 0, "the model's publish asks for fsyncs: {:#?}", mem.ops());
 
     let mut real = RealVfs;
     // fsync=on: the real publish makes exactly the model's fsyncs (durability unchanged).
@@ -88,11 +65,7 @@ fn a_publish_under_fsync_off_makes_no_fsync() {
     let on = real_dir(&mut real, "on");
     let before = real_fsyncs();
     publish_once(&mut real, &on);
-    assert_eq!(
-        real_fsyncs() - before,
-        want,
-        "fsync=on: the real publish's fsync(2) calls against the model's fsync ops"
-    );
+    assert_eq!(real_fsyncs() - before, want, "fsync=on: the real publish's fsync(2) calls against the model's fsync ops");
     assert!(real.exists_path(&format!("{on}/CURRENT")).expect("exists"));
 
     // fsync=off: the same publish makes none, and still publishes.
@@ -102,10 +75,7 @@ fn a_publish_under_fsync_off_makes_no_fsync() {
     publish_once(&mut real, &off);
     let made = real_fsyncs() - before;
     init_small::globals::set_enableFsync(true);
-    assert_eq!(
-        made, 0,
-        "fsync=off: a publish made {made} fsync(2) calls (PostgreSQL makes none)"
-    );
+    assert_eq!(made, 0, "fsync=off: a publish made {made} fsync(2) calls (PostgreSQL makes none)");
     assert!(real.exists_path(&format!("{off}/CURRENT")).expect("exists"));
 
     let base = std::env::temp_dir().join(format!("pgrc_d4225_{}", std::process::id()));

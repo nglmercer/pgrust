@@ -111,7 +111,7 @@ pub fn AdjustTimestampForTypmod(
     escontext: Option<&mut SoftErrorContext>,
 ) -> PgResult<bool> {
     if !TIMESTAMP_NOT_FINITE(*time) && typmod != -1 && typmod != MAX_TIMESTAMP_PRECISION {
-        if !(0..=MAX_TIMESTAMP_PRECISION).contains(&typmod) {
+        if !( 0..= MAX_TIMESTAMP_PRECISION).contains(&typmod) {
             return ereturn(
                 escontext,
                 false,
@@ -1819,7 +1819,7 @@ pub fn timestamp_scale(timestamp: Timestamp, typmod: i32) -> PgResult<Timestamp>
 pub fn fmt_g6(v: f64) -> String {
     let e_str = format!("{:.5e}", v);
     let exp: i32 = e_str.rsplit('e').next().and_then(|s| s.parse().ok()).unwrap_or(0);
-    let s = if !(-4..6).contains(&exp) {
+    let s = if !( -4.. 6).contains(&exp) {
         let (mant, _) = e_str.split_once('e').unwrap();
         let mant = mant.trim_end_matches('0').trim_end_matches('.');
         format!("{mant}e{}{:02}", if exp < 0 { '-' } else { '+' }, exp.abs())

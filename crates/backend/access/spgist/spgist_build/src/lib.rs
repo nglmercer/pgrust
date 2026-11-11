@@ -5,9 +5,7 @@ use ::mcx::{Mcx, MemoryContext};
 use ::types_core::{Buffer, ForkNumber};
 use ::types_error::{PgError, PgResult};
 use ::types_rel::Relation;
-use ::types_spgist::{
-    SPGIST_LEAF, SPGIST_METAPAGE_BLKNO, SPGIST_NULLS, SPGIST_NULL_BLKNO, SPGIST_ROOT_BLKNO,
-};
+use ::types_spgist::{SPGIST_LEAF, SPGIST_METAPAGE_BLKNO, SPGIST_NULLS, SPGIST_NULL_BLKNO, SPGIST_ROOT_BLKNO,};
 use execindexing::IndexInfo;
 use init_small::globals::{EndCriticalSection, StartCriticalSection};
 

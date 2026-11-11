@@ -58,9 +58,7 @@ pub fn cstring_scratch(
     name: &'static str,
     bytes: &[u8],
 ) -> Datum {
-    let Some(flinfo) = flinfo else {
-        no_flinfo(name)
-    };
+    let Some(flinfo) = flinfo else { no_flinfo(name) };
     if !flinfo.has_fn_extra() {
         flinfo.set_fn_extra(OutScratch(alloc::vec::Vec::new()));
     }

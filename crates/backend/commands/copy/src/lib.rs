@@ -153,20 +153,11 @@ pub fn DoCopy<'mcx>(
     let userid = miscinit_seams::get_user_id::call();
     if stmt.filename.is_some() {
         let (role, denied) = if stmt.is_program {
-            (
-                ROLE_PG_EXECUTE_SERVER_PROGRAM,
-                program_denied as fn() -> Box<PgError>,
-            )
+            (ROLE_PG_EXECUTE_SERVER_PROGRAM, program_denied as fn() -> Box<PgError>,)
         } else if is_from {
-            (
-                ROLE_PG_READ_SERVER_FILES,
-                from_file_denied as fn() -> Box<PgError>,
-            )
+            (ROLE_PG_READ_SERVER_FILES, from_file_denied as fn() -> Box<PgError>,)
         } else {
-            (
-                ROLE_PG_WRITE_SERVER_FILES,
-                to_file_denied as fn() -> Box<PgError>,
-            )
+            (ROLE_PG_WRITE_SERVER_FILES, to_file_denied as fn() -> Box<PgError>,)
         };
         if !acl_seams::has_privs_of_role::call(userid, role)? {
             return Err(denied());
@@ -195,9 +186,7 @@ pub fn DoCopy<'mcx>(
         EndCopyTo(cstate)?;
         return Ok(processed);
     };
-    let rv = rv_node
-        .as_range_var()
-        .expect("CopyStmt.relation is RangeVar");
+    let rv = rv_node.as_range_var().expect("CopyStmt.relation is RangeVar");
     let rv = rel_vocab::RangeVar {
         catalogname: rv.catalogname,
         schemaname: rv.schemaname,
@@ -225,15 +214,8 @@ pub fn DoCopy<'mcx>(
     if let Some(wc) = stmt.whereClause {
         let mut pstate = parser_small1::make_parsestate(mcx, None);
         pstate.p_sourcetext = Some(source_text.as_bytes());
-        let nsitem = parse_relation::addRangeTableEntryForRelation(
-            mcx,
-            &mut pstate,
-            &rel,
-            lockmode,
-            None,
-            false,
-            false,
-        )?;
+        let nsitem =
+            parse_relation::addRangeTableEntryForRelation(mcx, &mut pstate, &rel, lockmode, None, false, false,)?;
         let where_perminfo = nsitem.p_perminfo;
         parse_relation::addNSItemToQuery(mcx, &mut pstate, nsitem, false, true, true)?;
         let qual = parse_clause::transformWhereClause(
@@ -261,8 +243,9 @@ pub fn DoCopy<'mcx>(
                 continue;
             }
             if rel.rd_att.attr(attno as usize - 1).attgenerated != 0 {
-                let name = lsyscache::attribute::get_attname(mcx, rel.rd_id, attno as i16, false)?
-                    .expect("checked missing_ok=false");
+                let name =
+                    lsyscache::attribute::get_attname(mcx, rel.rd_id, attno as i16, false)?
+                        .expect("checked missing_ok=false");
                 return Err(Box::new(
                     PgError::error(
                         "generated columns are not supported in COPY FROM WHERE conditions",
@@ -275,9 +258,7 @@ pub fn DoCopy<'mcx>(
         // In C the WHERE transform marks Vars for SELECT privilege on the
         // same perminfo (markVarForSelectPriv); fold the pstate copy in.
         if let Some(wpin) = where_perminfo {
-            let wpi = wpin
-                .as_rte_permission_info()
-                .expect("p_perminfo is RTEPermissionInfo");
+            let wpi = wpin.as_rte_permission_info().expect("p_perminfo is RTEPermissionInfo");
             if !wpi.selectedCols.is_empty() {
                 perminfo.requiredPerms |= ACL_SELECT;
                 perminfo.selectedCols.add_members(mcx, &wpi.selectedCols)?;
@@ -291,16 +272,16 @@ pub fn DoCopy<'mcx>(
     {
         const FLIHAN: i32 = types_tuple::htup::FirstLowInvalidHeapAttributeNumber;
         let attnums = CopyGetAttnums(mcx, &rel.rd_att, Some(&rel), &stmt.attlist)?;
-        let bms = if is_from {
-            &mut perminfo.insertedCols
-        } else {
-            &mut perminfo.selectedCols
-        };
+        let bms =
+            if is_from { &mut perminfo.insertedCols } else { &mut perminfo.selectedCols };
         for &attno in attnums.iter() {
             bms.add_member(mcx, attno as i32 - FLIHAN)?;
         }
     }
-    execmain_seams::exec_check_permissions::call(&NodeList::make1(mcx, Node::mk(mcx, perminfo)?)?)?;
+    execmain_seams::exec_check_permissions::call(&NodeList::make1(
+        mcx,
+        Node::mk(mcx, perminfo)?
+    )?)?;
     if rls::check_enable_rls(rel.rd_id, types_core::InvalidOid, false)?
         == rls::CheckEnableRls::RlsEnabled
     {
@@ -317,21 +298,13 @@ pub fn DoCopy<'mcx>(
         let mk_target = |val: Node<'mcx>| -> PgResult<Node<'mcx>> {
             Node::mk(
                 mcx,
-                ResTarget {
-                    name: None,
-                    indirection: NodeList::nil(),
-                    val: Some(val),
-                    location: -1,
-                },
+                ResTarget { name: None, indirection: NodeList::nil(), val: Some(val), location: -1, },
             )
         };
         let target_list = if stmt.attlist.is_nil() {
             let cr = Node::mk(
                 mcx,
-                ColumnRef {
-                    fields: NodeList::make1(mcx, Node::mk(mcx, A_Star)?)?,
-                    location: -1,
-                },
+                ColumnRef { fields: NodeList::make1(mcx, Node::mk(mcx, A_Star)?)?, location: -1, },
             )?;
             NodeList::make1(mcx, mk_target(cr)?)?
         } else {
@@ -339,10 +312,7 @@ pub fn DoCopy<'mcx>(
             for col in stmt.attlist.iter() {
                 let cr = Node::mk(
                     mcx,
-                    ColumnRef {
-                        fields: NodeList::make1(mcx, col)?,
-                        location: -1,
-                    },
+                    ColumnRef { fields: NodeList::make1(mcx, col)?, location: -1, },
                 )?;
                 targets.push(mk_target(cr)?);
             }
@@ -375,11 +345,8 @@ pub fn DoCopy<'mcx>(
                 ..Default::default()
             },
         )?;
-        let raw_query = types_nodes::rawnodes::RawStmt {
-            stmt: Some(select),
-            stmt_location,
-            stmt_len,
-        };
+        let raw_query =
+            types_nodes::rawnodes::RawStmt { stmt: Some(select), stmt_location, stmt_len, };
         let query_rel_id = rel.rd_id;
         // C closes the relation here but keeps the lock until end of xact;
         // the query-based COPY reopens it.
@@ -440,7 +407,10 @@ pub fn DoCopy<'mcx>(
 
 // defGetString (define.c), via the shared commands_define port; strings
 // formatted from non-String args live in mcx.
-fn def_string<'s>(mcx: Mcx<'s>, d: &types_nodes::parsenodes::DefElem<'s>) -> PgResult<&'s str> {
+fn def_string<'s>(
+    mcx: Mcx<'s>,
+    d: &types_nodes::parsenodes::DefElem<'s>
+) -> PgResult<&'s str> {
     commands_define::defGetString(mcx, d)
 }
 
@@ -483,9 +453,7 @@ fn def_header_choice(
     d: &types_nodes::parsenodes::DefElem<'_>,
     is_from: bool,
 ) -> PgResult<CopyHeaderChoice> {
-    let Some(arg) = d.arg else {
-        return Ok(CopyHeaderChoice::True);
-    };
+    let Some(arg) = d.arg else { return Ok(CopyHeaderChoice::True); };
     if let Some(i) = arg.as_integer() {
         match i.ival {
             0 => return Ok(CopyHeaderChoice::False),
@@ -590,10 +558,8 @@ fn def_reject_limit(d: &types_nodes::parsenodes::DefElem<'_>) -> PgResult<i64> {
     };
     if reject_limit <= 0 {
         return Err(Box::new(
-            PgError::error(format!(
-                "REJECT_LIMIT ({reject_limit}) must be greater than zero"
-            ))
-            .with_sqlstate(ERRCODE_INVALID_PARAMETER_VALUE),
+            PgError::error(format!("REJECT_LIMIT ({reject_limit}) must be greater than zero"))
+                .with_sqlstate(ERRCODE_INVALID_PARAMETER_VALUE),
         ));
     }
     Ok(reject_limit)
@@ -699,7 +665,8 @@ pub(crate) fn process_copy_options<'s>(
     let parquet_from = is_from
         && parquet_ok
         && options.iter().filter_map(|o| o.as_def_elem()).any(|d| {
-            d.defname == Some("format") && def_string_transient(d).is_ok_and(|fmt| fmt == "parquet")
+            d.defname == Some("format")
+                && def_string_transient(d).is_ok_and(|fmt| fmt == "parquet")
         });
 
     for option in options.iter() {
@@ -851,9 +818,11 @@ pub(crate) fn process_copy_options<'s>(
                     "name" => opts.parquet_match_by_name = true,
                     sval => {
                         return Err(Box::new(
-                            PgError::error(format!("COPY MATCH_BY \"{sval}\" not recognized"))
-                                .with_sqlstate(ERRCODE_INVALID_PARAMETER_VALUE)
-                                .with_cursor_position(errpos(src, d.location)),
+                            PgError::error(format!(
+                                "COPY MATCH_BY \"{sval}\" not recognized"
+                            ))
+                            .with_sqlstate(ERRCODE_INVALID_PARAMETER_VALUE)
+                            .with_cursor_position(errpos(src, d.location)),
                         ))
                     }
                 }
@@ -939,16 +908,8 @@ pub(crate) fn process_copy_options<'s>(
 
     let delim = delim.unwrap_or(if opts.csv_mode { "," } else { "\t" });
     opts.null_print = null_print.unwrap_or(if opts.csv_mode { "" } else { "\\N" });
-    let quote = if opts.csv_mode {
-        Some(quote.unwrap_or("\""))
-    } else {
-        quote
-    };
-    let escape = if opts.csv_mode {
-        Some(escape.unwrap_or(quote.unwrap()))
-    } else {
-        escape
-    };
+    let quote = if opts.csv_mode { Some(quote.unwrap_or("\"")) } else { quote };
+    let escape = if opts.csv_mode { Some(escape.unwrap_or(quote.unwrap())) } else { escape };
 
     if delim.len() != 1 {
         return Err(Box::new(
@@ -972,18 +933,17 @@ pub(crate) fn process_copy_options<'s>(
     if let Some(default_print) = opts.default_print {
         if default_print.contains('\r') || default_print.contains('\n') {
             return Err(Box::new(
-                PgError::error("COPY default representation cannot use newline or carriage return")
-                    .with_sqlstate(ERRCODE_INVALID_PARAMETER_VALUE),
+                PgError::error(
+                    "COPY default representation cannot use newline or carriage return"
+                )
+                .with_sqlstate(ERRCODE_INVALID_PARAMETER_VALUE),
             ));
         }
     }
     if !opts.csv_mode && b"\\.abcdefghijklmnopqrstuvwxyz0123456789".contains(&opts.delim) {
         return Err(Box::new(
-            PgError::error(format!(
-                "COPY delimiter cannot be \"{}\"",
-                opts.delim as char
-            ))
-            .with_sqlstate(ERRCODE_INVALID_PARAMETER_VALUE),
+            PgError::error(format!("COPY delimiter cannot be \"{}\"", opts.delim as char))
+                .with_sqlstate(ERRCODE_INVALID_PARAMETER_VALUE),
         ));
     }
     if opts.binary && opts.header_line != CopyHeaderChoice::False {
@@ -1084,14 +1044,18 @@ pub(crate) fn process_copy_options<'s>(
         }
         if opts.csv_mode && default_print.as_bytes().contains(&opts.quote) {
             return Err(Box::new(
-                PgError::error("CSV quote character must not appear in the DEFAULT specification")
-                    .with_sqlstate(ERRCODE_FEATURE_NOT_SUPPORTED),
+                PgError::error(
+                    "CSV quote character must not appear in the DEFAULT specification"
+                )
+                .with_sqlstate(ERRCODE_FEATURE_NOT_SUPPORTED),
             ));
         }
         if opts.null_print == default_print {
             return Err(Box::new(
-                PgError::error("NULL specification and DEFAULT specification cannot be the same")
-                    .with_sqlstate(ERRCODE_FEATURE_NOT_SUPPORTED),
+                PgError::error(
+                    "NULL specification and DEFAULT specification cannot be the same"
+                )
+                .with_sqlstate(ERRCODE_FEATURE_NOT_SUPPORTED),
             ));
         }
     }

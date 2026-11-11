@@ -140,7 +140,7 @@ fn tuple_image(
     nulls: &[bool],
 ) -> PgResult<Vec<u8>> {
     let tup = heaptuple::heap_form_tuple(mcx, tupdesc, values, nulls)?;
-    ::mcx::std_vec_from_slice("pg_visibility", tup.image())
+    ::mcx::std_vec_from_slice("pg_visibility",tup.image())
 }
 
 struct RowSet {

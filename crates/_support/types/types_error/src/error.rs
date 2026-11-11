@@ -446,12 +446,7 @@ pub fn register_exit_payload_test(test: &'static ExitPayloadTest) {
     use core::sync::atomic::Ordering;
     let t = test as *const ExitPayloadTest as *mut ExitPayloadTest;
     for slot in &EXIT_TESTS {
-        match slot.compare_exchange(
-            core::ptr::null_mut(),
-            t,
-            Ordering::AcqRel,
-            Ordering::Acquire,
-        ) {
+        match slot.compare_exchange(core::ptr::null_mut(), t, Ordering::AcqRel, Ordering::Acquire,) {
             Ok(_) => return,
             Err(cur) if cur == t => return,
             Err(_) => {}

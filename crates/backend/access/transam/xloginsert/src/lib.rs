@@ -6,7 +6,7 @@
 //! retained scratch (header image, fragment list, compression buffers)
 //! survives between records — C's static registered_buffers, per rule 7.
 
-#![allow(non_snake_case, non_upper_case_globals)]
+#![allow(non_snake_case,non_upper_case_globals)]
 
 use std::cell::RefCell;
 
@@ -68,25 +68,13 @@ const BKPIMAGE_COMPRESS_LZ4: u8 = 0x08;
 const BKPIMAGE_COMPRESS_ZSTD: u8 = 0x10;
 
 const fn max_usize(a: usize, b: usize) -> usize {
-    if a > b {
-        a
-    } else {
-        b
-    }
+    if a > b { a } else { b }
 }
 // ZSTD_COMPRESSBOUND(BLCKSZ), the zstd.h macro.
-const ZSTD_MAX_BLCKSZ: usize = BLCKSZ
-    + (BLCKSZ >> 8)
-    + if BLCKSZ < (128 << 10) {
-        ((128 << 10) - BLCKSZ) >> 11
-    } else {
-        0
-    };
+const ZSTD_MAX_BLCKSZ: usize =
+    BLCKSZ + (BLCKSZ >> 8) + if BLCKSZ < (128 << 10) { ((128 << 10) - BLCKSZ) >> 11 } else { 0 };
 const COMPRESS_BUFSIZE: usize = max_usize(
-    max_usize(
-        pglz::pglz_max_output(BLCKSZ),
-        lz4_block::compress_bound(BLCKSZ),
-    ),
+    max_usize(pglz::pglz_max_output(BLCKSZ), lz4_block::compress_bound(BLCKSZ),),
     ZSTD_MAX_BLCKSZ,
 );
 
@@ -331,11 +319,7 @@ fn assemble(
             fork_flags |= BKPBLOCK_HAS_IMAGE;
             num_fpi += 1;
 
-            bimg_info = if cbimg_hole_length == 0 {
-                0
-            } else {
-                BKPIMAGE_HAS_HOLE
-            };
+            bimg_info = if cbimg_hole_length == 0 { 0 } else { BKPIMAGE_HAS_HOLE };
             if needs_backup {
                 bimg_info |= BKPIMAGE_APPLY;
             }
@@ -354,9 +338,7 @@ fn assemble(
                 if cbimg_hole_length == 0 {
                     scratch.rdatas.push(erased(blk.page));
                 } else {
-                    scratch
-                        .rdatas
-                        .push(erased(&blk.page[..bimg_hole_offset as usize]));
+                    scratch.rdatas.push(erased(&blk.page[..bimg_hole_offset as usize]));
                     scratch.rdatas.push(erased(
                         &blk.page[(bimg_hole_offset + cbimg_hole_length) as usize..],
                     ));
@@ -535,10 +517,7 @@ fn zstd_compress(source: &[u8], dest: &mut [u8]) -> PgResult<Option<usize>> {
 
 #[cfg(target_family = "wasm")]
 fn zstd_compress(_source: &[u8], _dest: &mut [u8]) -> PgResult<Option<usize>> {
-    Err(Box::new(PgError::new(
-        ERROR,
-        "zstd is not supported by this build".to_string(),
-    )))
+    Err(Box::new(PgError::new(ERROR, "zstd is not supported by this build".to_string(),)))
 }
 
 /// The whole C protocol in one call: XLogBeginInsert + XLogRegisterData(main
@@ -650,7 +629,8 @@ fn xlog_insert_record_seam(
         });
     }
     // SAFETY: blocks[..n] initialized by the loop above (n <= array len).
-    let blocks = unsafe { core::slice::from_raw_parts(blocks.as_ptr().cast::<RegBlock<'_>>(), n) };
+    let blocks =
+        unsafe { core::slice::from_raw_parts(blocks.as_ptr().cast::<RegBlock<'_>>(), n) };
     insert_record(rmid, info, record_flags, main_data, blocks)
 }
 
@@ -781,7 +761,7 @@ pub fn log_newpages(
                 rlocator: *rlocator,
                 forknum,
                 block: blknos[i + j],
-                page: pages[i + j],
+                page:pages[i + j],
                 flags,
                 bufdata: &[],
             });

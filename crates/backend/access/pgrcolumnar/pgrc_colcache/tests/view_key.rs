@@ -20,30 +20,9 @@ const SLOT: catalog::RelSlot = (1663, 5, 91_301);
 const DIR: &str = "t/view-key-91301";
 
 fn publish(gen: u64, prev: u64, fxid: u64) {
-    let header = ManifestHeader {
-        gen,
-        prev_gen: prev,
-        publisher_fxid: fxid,
-        relfilenumber: SLOT.2,
-        schema_fingerprint: 1,
-        magic: 0,
-        format_version: 0,
-        spc: SLOT.0,
-        db: SLOT.1,
-        part_count: 0,
-        next_part_no: 1,
-        flags: 0,
-        reserved: 0,
-    };
+    let header = ManifestHeader { gen, prev_gen: prev, publisher_fxid: fxid, relfilenumber: SLOT.2, schema_fingerprint: 1, magic: 0, format_version: 0, spc: SLOT.0, db: SLOT.1, part_count: 0, next_part_no: 1, flags: 0, reserved: 0, };
     // P-1: nothing read or written; a part-less generation's (empty) stats cover its manifest, so no fold runs.
-    catalog::publish(
-        SLOT,
-        DIR,
-        Manifest::new(header, Vec::new()),
-        StatsState::default(),
-        &|_| unreachable!("no parts to fold"),
-    )
-    .expect("publish");
+    catalog::publish(SLOT, DIR, Manifest::new(header, Vec::new()), StatsState::default(), &|_| unreachable!("no parts to fold"),).expect("publish");
 }
 
 struct Snap {
@@ -61,15 +40,7 @@ impl CommitCheck for Snap {
 }
 
 fn view(own: &[u64], seen: &[u64]) -> Arc<Generation> {
-    match catalog::visible(
-        SLOT,
-        &Snap {
-            own: own.to_vec(),
-            seen: seen.to_vec(),
-        },
-    )
-    .expect("visible")
-    {
+    match catalog::visible(SLOT, &Snap { own: own.to_vec(), seen: seen.to_vec(), },).expect("visible") {
         Lookup::Gen(g) => g,
         _ => panic!("a generation"),
     }
@@ -81,11 +52,7 @@ impl TombPage {
     fn new(n: u32) -> TombPage {
         let p = TombPage(RefCell::new(vec![0u64; BLCKSZ / 8].into_boxed_slice()));
         // SAFETY: an 8-aligned BLCKSZ buffer this page owns.
-        let mut page = unsafe {
-            PageMut::from_raw(
-                std::ptr::NonNull::new(p.0.borrow_mut().as_mut_ptr() as *mut u8).unwrap(),
-            )
-        };
+        let mut page = unsafe { PageMut::from_raw(std::ptr::NonNull::new(p.0.borrow_mut().as_mut_ptr() as *mut u8).unwrap(),) };
         page.init(0);
         for pos in 0..n {
             let mut t = [0u8; 40];
@@ -140,49 +107,15 @@ fn a_composed_view_and_its_generation_do_not_share_the_settled_keying() {
     publish(3, 2, 20);
     let whole = view(&[], &[10, 11, 20]);
     let composed = view(&[20], &[10]);
-    assert!(
-        !whole.composed() && composed.composed() && whole.gen == 3 && composed.gen == 3,
-        "one number, two views"
-    );
+    assert!(!whole.composed() && composed.composed() && whole.gen == 3 && composed.gen == 3, "one number, two views");
 
     let (reg, imgs) = (Registry::new(), Images::new());
-    let tomb = imgs
-        .current(
-            &reg,
-            (1663, 5, 91_302),
-            91_302,
-            Kind::Tomb,
-            &TombPage::new(5),
-            &Committed,
-        )
-        .expect("current")
-        .expect("an image");
-    let a = settled(
-        &tomb,
-        &mut GenKeyer::new(&whole, DIR.into(), Default::default()),
-    )
-    .expect("settled");
-    let b = settled(
-        &tomb,
-        &mut GenKeyer::new(&composed, DIR.into(), Default::default()),
-    )
-    .expect("settled");
+    let tomb = imgs.current(&reg, (1663, 5, 91_302), 91_302, Kind::Tomb, &TombPage::new(5), &Committed,).expect("current").expect("an image");
+    let a = settled(&tomb, &mut GenKeyer::new(&whole, DIR.into(), Default::default()),).expect("settled");
+    let b = settled(&tomb, &mut GenKeyer::new(&composed, DIR.into(), Default::default()),).expect("settled");
     assert_eq!((a.count, b.count), (5, 5));
-    assert!(
-        !Arc::ptr_eq(&a, &b),
-        "the composed view read the whole generation's settled keying"
-    );
+    assert!(!Arc::ptr_eq(&a, &b), "the composed view read the whole generation's settled keying");
     assert_ne!(a.gen, b.gen, "keyed by view_key");
-    assert!(
-        Arc::ptr_eq(
-            &b,
-            &settled(
-                &tomb,
-                &mut GenKeyer::new(&composed, DIR.into(), Default::default())
-            )
-            .expect("settled")
-        ),
-        "and each view keeps its own"
-    );
+    assert!(Arc::ptr_eq(&b, &settled(&tomb, &mut GenKeyer::new(&composed, DIR.into(), Default::default())).expect("settled")), "and each view keeps its own");
     catalog::remove_dir(DIR);
 }

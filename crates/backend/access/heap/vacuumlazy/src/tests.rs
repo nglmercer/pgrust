@@ -35,11 +35,7 @@ fn with_fake<R>(f: impl FnOnce(&mut Fake) -> R) -> R {
 
 fn fake_page(fork: u8, block: BlockNumber) -> Buffer {
     with_fake(|f| {
-        if let Some(i) = f
-            .entries
-            .iter()
-            .position(|&(fk, b, _)| fk == fork && b == block)
-        {
+        if let Some(i) = f.entries.iter().position(|&(fk, b, _)| fk == fork && b == block) {
             f.pins[i] += 1;
             return (i + 1) as Buffer;
         }
@@ -99,18 +95,12 @@ fn install_seams() {
                 })
             },
         );
-        bufmgr_seams::extend_buffered_rel_to_rel::set(
-            |rel, fork, strategy, flags, extend_to, mode| {
-                bufmgr_seams::extend_buffered_rel_to::call(
-                    bufmgr_seams::relation_smgr_locator::call(rel),
-                    fork,
-                    strategy,
-                    flags,
-                    extend_to,
-                    mode,
-                )
-            },
-        );
+        bufmgr_seams::extend_buffered_rel_to_rel::set(|rel, fork, strategy, flags, extend_to, mode| {
+            bufmgr_seams::extend_buffered_rel_to::call(
+                bufmgr_seams::relation_smgr_locator::call(rel),
+                fork, strategy, flags, extend_to, mode,
+            )
+        },);
         bufmgr_seams::lock_buffer::set(|buf, mode| {
             with_fake(|f| {
                 let l = &mut f.locks[(buf - 1) as usize];
@@ -160,9 +150,7 @@ fn install_seams() {
         static NEXT_LSN: AtomicU64 = AtomicU64::new(0x0100_0000);
         xloginsert_seams::xlog_insert_record::set(|rmid, info, _flags, main_data, _bufs| {
             if FAIL_WAL.load(Relaxed) {
-                return Err(Box::new(::types_error::PgError::error(
-                    "simulated XLogInsert failure",
-                )));
+                return Err(Box::new(::types_error::PgError::error("simulated XLogInsert failure",)));
             }
             let main: Vec<u8> = main_data.iter().flat_map(|d| d.iter().copied()).collect();
             with_fake(|f| f.wal.push((rmid, info, main)));
@@ -180,9 +168,7 @@ fn install_seams() {
         });
         xloginsert_seams::log_newpage_buffer::set(|_buf, _page_std| {
             if FAIL_WAL.load(Relaxed) {
-                return Err(Box::new(::types_error::PgError::error(
-                    "simulated log_newpage failure",
-                )));
+                return Err(Box::new(::types_error::PgError::error("simulated log_newpage failure",)));
             }
             Ok(NEXT_LSN.fetch_add(64, Relaxed))
         });
@@ -191,19 +177,12 @@ fn install_seams() {
         transam_xlog_seams::data_checksums_enabled::set(|| false);
         transam_xlog_seams::recovery_in_progress::set(|| false);
         sinval_seams::send_shared_invalid_messages::set(|_| Ok(()));
-        guc_tables::vars::wal_log_hints.install(guc_tables::GucVarAccessors {
-            get: || false,
-            set: |_| {},
-        });
+        guc_tables::vars::wal_log_hints
+            .install(guc_tables::GucVarAccessors { get: || false, set: |_| {}, });
         ::read_stream::testing::install_resident_reads();
     });
     let mut g = FAKE.lock().unwrap_or_else(|e| e.into_inner());
-    *g = Some(Fake {
-        entries: Vec::new(),
-        pins: Vec::new(),
-        locks: Vec::new(),
-        wal: Vec::new(),
-    });
+    *g = Some(Fake { entries: Vec::new(), pins: Vec::new(), locks: Vec::new(), wal: Vec::new(), });
 }
 
 fn test_relation<'mcx>(mcx: Mcx<'mcx>) -> RelationData<'mcx> {
@@ -270,10 +249,7 @@ fn test_relation<'mcx>(mcx: Mcx<'mcx>) -> RelationData<'mcx> {
         rd_firstRelfilelocatorSubid: Cell::new(0),
         rd_droppedSubid: Cell::new(0),
         rd_lockInfo: LockInfoData {
-            lockRelId: LockRelId {
-                relId: REL_OID,
-                dbId: 5,
-            },
+            lockRelId: LockRelId { relId: REL_OID, dbId: 5, },
         },
         rd_rel,
         rd_att,
@@ -286,17 +262,13 @@ fn test_relation<'mcx>(mcx: Mcx<'mcx>) -> RelationData<'mcx> {
         pgstat_enabled: Cell::new(false),
         pgstat_link: core::cell::Cell::new((0, core::ptr::null_mut())),
         rd_amcache: Default::default(),
-        rd_amcache_hash: Default::default(),
-        rd_amcache_gin: Default::default(),
-        rd_amcache_spgist: Default::default(),
-        rd_amcache_bloom: Default::default(),
+        rd_amcache_hash: Default::default(), rd_amcache_gin: Default::default(), rd_amcache_spgist: Default::default(), rd_amcache_bloom: Default::default(),
         rd_support: ::mcx::PgVec::new_in(mcx),
         rd_supportinfo: Default::default(),
         rd_opcoptions: Default::default(),
         rd_indexlist: Default::default(),
-        rd_trigdesc: Default::default(),
-        rd_hastriggers: false,
-        rd_hasrules: false,
+            rd_trigdesc: Default::default(),
+            rd_hastriggers: false, rd_hasrules: false,
     }
 }
 
@@ -334,16 +306,10 @@ fn vacrel<'a, 'mcx>(rel: &'a RelationData<'mcx>, mcx: Mcx<'mcx>) -> LVRelState<'
             // Seed = (OldestXmin, OldestMxact), as heap_vacuum_rel.
             let mut counters = ::vacuum_morsels::ScanCounters::seed(1000, 1);
             counters.lpdead_item_pages = 1;
-            ScanFolds {
-                counters,
-                err: VacErrInfo::new("public".to_string(), "t".to_string()),
-            }
+            ScanFolds { counters, err: VacErrInfo::new("public".to_string(), "t".to_string()), }
         },
         dead_items: Some(TidStore::create_local(mcx, 64 * 1024 * 1024, true).unwrap()),
-        dead_items_info: VacDeadItemsInfo {
-            max_bytes: 64 * 1024 * 1024,
-            num_items: 0,
-        },
+        dead_items_info: VacDeadItemsInfo { max_bytes: 64 * 1024 * 1024, num_items: 0, },
         pvs: None,
         num_index_scans: 1,
         new_rel_tuples: 0.0,
@@ -393,12 +359,7 @@ fn with_scan_parts<R>(
         mark_unused_now: crate::mark_unused_now(*nindexes, false),
     };
     let mut sink = |blkno: BlockNumber, offsets: &[OffsetNumber]| {
-        dead_items_add(
-            dead_items.as_mut().unwrap(),
-            dead_items_info,
-            blkno,
-            offsets,
-        )
+        dead_items_add(dead_items.as_mut().unwrap(), dead_items_info, blkno, offsets,)
     };
     f(&env, folds, &mut sink)
 }
@@ -427,9 +388,7 @@ fn lazy_vacuum_heap_rel_reaps_dead_items() {
         pm.init(0);
         let tuple = [0u8; 32];
         for expected in 1..=3u16 {
-            let off = pm
-                .add_item(&tuple, InvalidOffsetNumber, PAI_IS_HEAP)
-                .unwrap();
+            let off = pm.add_item(&tuple, InvalidOffsetNumber, PAI_IS_HEAP).unwrap();
             assert_eq!(off, expected);
             let mut lp = pm.as_ref().item_id(off);
             lp.set_dead();
@@ -440,11 +399,7 @@ fn lazy_vacuum_heap_rel_reaps_dead_items() {
 
     let mut vr = vacrel(&rel, mcx);
     {
-        let LVRelState {
-            dead_items,
-            dead_items_info,
-            ..
-        } = &mut vr;
+        let LVRelState { dead_items, dead_items_info, .. } = &mut vr;
         dead_items_add(dead_items.as_mut().unwrap(), dead_items_info, 0, &[1, 2, 3]).unwrap();
     }
     vr.folds.counters.lpdead_items = 3;
@@ -454,11 +409,7 @@ fn lazy_vacuum_heap_rel_reaps_dead_items() {
     let buf = fake_page(0, 0);
     // SAFETY: test page, live.
     let page = unsafe { PageRef::from_raw(bufmgr_seams::buffer_get_page::call(buf)) };
-    assert_eq!(
-        page.max_offset_number(),
-        1,
-        "lp array truncated to one entry"
-    );
+    assert_eq!(page.max_offset_number(), 1, "lp array truncated to one entry");
     assert!(!page.item_id(1).is_used(), "remaining lp is LP_UNUSED");
     assert!(page.is_all_visible(), "PD_ALL_VISIBLE set");
     assert!(page.heap_free_space() > BLCKSZ / 2);
@@ -484,11 +435,7 @@ fn lazy_vacuum_heap_rel_reaps_dead_items() {
 
     with_fake(|f| {
         assert!(f.pins.iter().all(|&p| p == 0), "leaked pins: {:?}", f.pins);
-        assert!(
-            f.locks.iter().all(|&l| l == 0),
-            "leaked locks: {:?}",
-            f.locks
-        );
+        assert!(f.locks.iter().all(|&l| l == 0), "leaked locks: {:?}", f.locks);
     });
 }
 
@@ -500,9 +447,7 @@ fn noprune_page(block: BlockNumber) -> Buffer {
     let mut tuple = [0u8; 32];
     for (expected, xmin) in [(1u16, 500u32), (2, 0), (3, 1500), (4, 700)] {
         tuple[0..4].copy_from_slice(&xmin.to_ne_bytes());
-        let off = pm
-            .add_item(&tuple, InvalidOffsetNumber, PAI_IS_HEAP)
-            .unwrap();
+        let off = pm.add_item(&tuple, InvalidOffsetNumber, PAI_IS_HEAP).unwrap();
         assert_eq!(off, expected);
     }
     let mut lp = pm.as_ref().item_id(2);
@@ -516,10 +461,7 @@ fn noprune_page(block: BlockNumber) -> Buffer {
 // dead_items, the relfrozenxid ratchet, and hastup all match C.
 #[test]
 fn dead_tid_snapshot_is_not_capped_at_max_alloc_size() {
-    assert_eq!(
-        dead_tids_snapshot_bytes(200_000_000).unwrap(),
-        1_200_000_000
-    );
+    assert_eq!(dead_tids_snapshot_bytes(200_000_000).unwrap(), 1_200_000_000);
     assert!(dead_tids_snapshot_bytes(usize::MAX / 4).is_err());
 }
 
@@ -550,18 +492,9 @@ fn lazy_scan_noprune_counts_and_collects() {
     assert_eq!(vr.folds.counters.lpdead_item_pages, 1);
     let dead_tids = collect_dead_tids(&vr).unwrap();
     assert_eq!(dead_tids.len(), 1);
-    assert_eq!(
-        ::types_tuple::ItemPointerGetBlockNumberNoCheck(&dead_tids[0]),
-        3
-    );
-    assert_eq!(
-        ::types_tuple::ItemPointerGetOffsetNumberNoCheck(&dead_tids[0]),
-        2
-    );
-    assert_eq!(
-        vr.folds.counters.NewRelfrozenXid, 500,
-        "ratcheted to oldest unfrozen xmin"
-    );
+    assert_eq!(::types_tuple::ItemPointerGetBlockNumberNoCheck(&dead_tids[0]), 3);
+    assert_eq!(::types_tuple::ItemPointerGetOffsetNumberNoCheck(&dead_tids[0]), 2);
+    assert_eq!(vr.folds.counters.NewRelfrozenXid, 500, "ratcheted to oldest unfrozen xmin");
     assert_eq!(vr.folds.counters.nonempty_pages, 4);
     assert_eq!(vr.folds.err.offnum.get(), InvalidOffsetNumber);
 
@@ -592,10 +525,7 @@ fn lazy_scan_noprune_aggressive_requires_prune() {
     assert_eq!(vr.folds.counters.missed_dead_tuples, 0);
     assert_eq!(vr.folds.counters.lpdead_items, 0);
     assert_eq!(vr.dead_items_info.num_items, 0);
-    assert_eq!(
-        vr.folds.counters.NewRelfrozenXid, 1000,
-        "tracker untouched on bailout"
-    );
+    assert_eq!(vr.folds.counters.NewRelfrozenXid, 1000, "tracker untouched on bailout");
     assert_eq!(vr.folds.counters.nonempty_pages, 0);
     assert_eq!(vr.folds.err.offnum.get(), InvalidOffsetNumber);
 
@@ -624,10 +554,7 @@ fn lazy_scan_noprune_one_pass_counts_lpdead_as_missed() {
     .unwrap());
 
     assert!(has_lpdead_items);
-    assert_eq!(
-        vr.folds.counters.missed_dead_tuples, 2,
-        "HTSV-dead + folded LP_DEAD"
-    );
+    assert_eq!(vr.folds.counters.missed_dead_tuples, 2, "HTSV-dead + folded LP_DEAD");
     assert_eq!(vr.folds.counters.lpdead_items, 0);
     assert_eq!(vr.folds.counters.lpdead_item_pages, 0);
     assert_eq!(vr.dead_items_info.num_items, 0);
@@ -646,8 +573,7 @@ fn truncate_line_pointer_array_keeps_used_prefix() {
     pm.init(0);
     let tuple = [0u8; 16];
     for _ in 1..=5u16 {
-        pm.add_item(&tuple, InvalidOffsetNumber, PAI_IS_HEAP)
-            .unwrap();
+        pm.add_item(&tuple, InvalidOffsetNumber, PAI_IS_HEAP).unwrap();
     }
     for off in [2u16, 4, 5] {
         let mut lp = pm.as_ref().item_id(off);
@@ -704,25 +630,13 @@ fn morsel_coverage_trip_counts_each_dead_item_once() {
     //      the §5.3 deferred-cleanup ledger (dead offsets 5,6 on re-prune).
     let total = 4u64;
     let mut w0 = ::vacuum_morsels::VacScanLocal::new(0, 1000, 1);
-    w0.claims.push(::vacuum_morsels::ClaimRecord {
-        start: 0,
-        end: 1,
-        scanned: true,
-    });
+    w0.claims.push(::vacuum_morsels::ClaimRecord { start: 0, end: 1, scanned: true, });
     w0.record_dead(0, vec![1, 2]);
     let mut w1 = ::vacuum_morsels::VacScanLocal::new(1, 1000, 1);
-    w1.claims.push(::vacuum_morsels::ClaimRecord {
-        start: 1,
-        end: 2,
-        scanned: true,
-    });
+    w1.claims.push(::vacuum_morsels::ClaimRecord { start: 1, end: 2, scanned: true, });
     w1.record_dead(1, vec![3]);
     let mut w2 = ::vacuum_morsels::VacScanLocal::new(2, 1000, 1);
-    w2.claims.push(::vacuum_morsels::ClaimRecord {
-        start: 2,
-        end: 4,
-        scanned: true,
-    });
+    w2.claims.push(::vacuum_morsels::ClaimRecord { start: 2, end: 4, scanned: true, });
     w2.record_dead(2, vec![1]);
     w2.deferred_cleanup.push(3);
     let mut locals = vec![w0, w1, w2];
@@ -732,10 +646,7 @@ fn morsel_coverage_trip_counts_each_dead_item_once() {
     // Leader finalize, scan_rounds' exact sequence: resume + coverage guard
     // + rewind-to-hole.
     let mut resume_g = ::vacuum_morsels::resume_granule(&locals, total);
-    assert_eq!(
-        resume_g, total,
-        "no unscanned claim: resume starts at total"
-    );
+    assert_eq!(resume_g, total, "no unscanned claim: resume starts at total");
     let mut coverage_failed = false;
     if let Err(e) = ::vacuum_morsels::verify_prefix_coverage(&locals, resume_g) {
         coverage_failed = true;
@@ -750,10 +661,7 @@ fn morsel_coverage_trip_counts_each_dead_item_once() {
     let resume_block: BlockNumber = resume_g as BlockNumber; // identity map
 
     let mut dead_items = TidStore::create_local(mcx, 1024 * 1024, true).unwrap();
-    let mut info = VacDeadItemsInfo {
-        max_bytes: 1024 * 1024,
-        num_items: 0,
-    };
+    let mut info = VacDeadItemsInfo { max_bytes: 1024 * 1024, num_items: 0, };
 
     // The leader drain, as scan_rounds performs it: merged dead runs into
     // the round store, then the deferred-cleanup pages (whose prune sink is
@@ -764,18 +672,15 @@ fn morsel_coverage_trip_counts_each_dead_item_once() {
     }
     let deferred_page_offsets: &[(BlockNumber, &[OffsetNumber])] = &[(3, &[5, 6])];
     for blk in deferred {
-        let offs = deferred_page_offsets
-            .iter()
-            .find(|(b, _)| *b == blk)
-            .unwrap()
-            .1;
+        let offs = deferred_page_offsets.iter().find(|(b, _)| *b == blk).unwrap().1;
         dead_items_add(&mut dead_items, &mut info, blk, offs).unwrap();
     }
 
     // coverage_failed => ScanHandoff::Resume { resume_block }: the serial
     // arm re-scans EVERY block from the rewound resume point; re-pruning is
     // idempotent, so each re-scanned block re-adds its same dead offsets.
-    let serial_rescan: &[(BlockNumber, &[OffsetNumber])] = &[(1, &[3]), (2, &[1]), (3, &[5, 6])];
+    let serial_rescan: &[(BlockNumber, &[OffsetNumber])] =
+        &[(1, &[3]), (2, &[1]), (3, &[5, 6])];
     for (blk, offs) in serial_rescan {
         dead_items_add(&mut dead_items, &mut info, *blk, offs).unwrap();
     }
@@ -805,19 +710,11 @@ fn morsel_verified_round_drains_all_runs_and_deferred() {
 
     let total = 4u64;
     let mut w0 = ::vacuum_morsels::VacScanLocal::new(0, 1000, 1);
-    w0.claims.push(::vacuum_morsels::ClaimRecord {
-        start: 0,
-        end: 2,
-        scanned: true,
-    });
+    w0.claims.push(::vacuum_morsels::ClaimRecord { start: 0, end: 2, scanned: true, });
     w0.record_dead(0, vec![1, 2]);
     w0.record_dead(1, vec![3]);
     let mut w1 = ::vacuum_morsels::VacScanLocal::new(1, 1000, 1);
-    w1.claims.push(::vacuum_morsels::ClaimRecord {
-        start: 2,
-        end: 4,
-        scanned: true,
-    });
+    w1.claims.push(::vacuum_morsels::ClaimRecord { start: 2, end: 4, scanned: true, });
     w1.record_dead(2, vec![1]);
     w1.deferred_cleanup.push(3);
     let locals = vec![w0, w1];
@@ -829,18 +726,11 @@ fn morsel_verified_round_drains_all_runs_and_deferred() {
     let resume_block: BlockNumber = 4;
 
     let mut dead_items = TidStore::create_local(mcx, 1024 * 1024, true).unwrap();
-    let mut info = VacDeadItemsInfo {
-        max_bytes: 1024 * 1024,
-        num_items: 0,
-    };
+    let mut info = VacDeadItemsInfo { max_bytes: 1024 * 1024, num_items: 0, };
 
     let (runs, deferred) = morsels::round_drain_plan(&locals, resume_block);
     assert_eq!(runs.len(), 3, "all runs drained on a verified round");
-    assert_eq!(
-        deferred,
-        vec![3],
-        "deferred page drained on a verified round"
-    );
+    assert_eq!(deferred, vec![3], "deferred page drained on a verified round");
     for run in &runs {
         dead_items_add(&mut dead_items, &mut info, run.block, &run.offsets).unwrap();
     }
@@ -996,10 +886,7 @@ fn eager_scan_setup_enables_region_math() {
     assert_eq!(vr.next_eager_scan_region_start, 100);
     assert_eq!(vr.eager_scan_max_fails_per_region, 122);
     let ratio = 1.0 - 100.0f32 / 4096.0f32;
-    assert_eq!(
-        vr.eager_scan_remaining_fails,
-        (122.0f32 * ratio) as BlockNumber
-    );
+    assert_eq!(vr.eager_scan_remaining_fails, (122.0f32 * ratio) as BlockNumber);
 }
 
 #[test]
@@ -1092,9 +979,7 @@ fn lazy_vacuum_heap_page_wal_failure_escapes_inside_critical_section() {
         pm.init(0);
         let tuple = [0u8; 32];
         for expected in 1..=2u16 {
-            let off = pm
-                .add_item(&tuple, InvalidOffsetNumber, PAI_IS_HEAP)
-                .unwrap();
+            let off = pm.add_item(&tuple, InvalidOffsetNumber, PAI_IS_HEAP).unwrap();
             assert_eq!(off, expected);
             let mut lp = pm.as_ref().item_id(off);
             lp.set_dead();
@@ -1118,11 +1003,7 @@ fn lazy_vacuum_heap_page_wal_failure_escapes_inside_critical_section() {
             .is::<::types_error::PanicExitThread>(),
         "C's in-crit-section promotion: PANIC (abort class), not a recoverable Err"
     );
-    assert_eq!(
-        init_small::globals::CritSectionCount(),
-        0,
-        "the guard unwound cleanly"
-    );
+    assert_eq!(init_small::globals::CritSectionCount(), 0, "the guard unwound cleanly");
     // The page had already been rewritten when the WAL insert failed — the
     // state C refuses to leave behind without a PANIC.
     // SAFETY: test page, live.
@@ -1154,9 +1035,7 @@ fn lazy_vacuum_heap_rel_error_carries_vacuum_heap_context() {
         pm.init(0);
         let tuple = [0u8; 32];
         for expected in 1..=2u16 {
-            let off = pm
-                .add_item(&tuple, InvalidOffsetNumber, PAI_IS_HEAP)
-                .unwrap();
+            let off = pm.add_item(&tuple, InvalidOffsetNumber, PAI_IS_HEAP).unwrap();
             assert_eq!(off, expected);
             let mut lp = pm.as_ref().item_id(off);
             lp.set_dead();
@@ -1167,11 +1046,7 @@ fn lazy_vacuum_heap_rel_error_carries_vacuum_heap_context() {
 
     let mut vr = vacrel(&rel, mcx);
     {
-        let LVRelState {
-            dead_items,
-            dead_items_info,
-            ..
-        } = &mut vr;
+        let LVRelState { dead_items, dead_items_info, .. } = &mut vr;
         dead_items_add(dead_items.as_mut().unwrap(), dead_items_info, 0, &[1, 2]).unwrap();
     }
     vr.folds.counters.lpdead_items = 2;
@@ -1182,8 +1057,7 @@ fn lazy_vacuum_heap_rel_error_carries_vacuum_heap_context() {
     // vacuum_error_callback would add to the PANIC.
     let result = {
         let _wal = FailingWal::arm();
-        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            lazy_vacuum_heap_rel(&mut vr)
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| { lazy_vacuum_heap_rel(&mut vr)
         }))
     };
     assert!(result
@@ -1214,10 +1088,7 @@ fn lazy_scan_new_or_empty_wal_failure_escapes_inside_critical_section() {
     // SAFETY: test page, live.
     let page = unsafe { PageRef::from_raw(bufmgr_seams::buffer_get_page::call(buf)) };
     assert!(page_is_empty(page) && !page.is_all_visible());
-    assert!(
-        relation_needs_wal(&rel),
-        "the fixture relation is WAL-logged"
-    );
+    assert!(relation_needs_wal(&rel), "the fixture relation is WAL-logged");
 
     let mut vr = vacrel(&rel, mcx);
     assert_eq!(init_small::globals::CritSectionCount(), 0);
@@ -1233,11 +1104,7 @@ fn lazy_scan_new_or_empty_wal_failure_escapes_inside_critical_section() {
     assert!(result
         .expect_err("the failing log_newpage_buffer must PANIC inside the critical section")
         .is::<::types_error::PanicExitThread>());
-    assert_eq!(
-        init_small::globals::CritSectionCount(),
-        0,
-        "the guard unwound cleanly"
-    );
+    assert_eq!(init_small::globals::CritSectionCount(), 0, "the guard unwound cleanly");
     bufmgr_seams::lock_buffer::call(buf, BUFFER_LOCK_UNLOCK).unwrap();
     bufmgr_seams::release_buffer::call(buf).unwrap();
 }
@@ -1254,83 +1121,30 @@ fn a_pgrc_segment_heap_is_never_truncated() {
         rel.rd_rel.relkind = kind;
         rel
     };
-    let (toast, perm, temp, r) = (
-        ::types_core::catalog::PG_TOAST_NAMESPACE,
-        ::types_core::RELPERSISTENCE_PERMANENT,
-        ::types_core::catalog::RELPERSISTENCE_TEMP,
-        RELKIND_RELATION,
-    );
+    let (toast, perm, temp, r) = (::types_core::catalog::PG_TOAST_NAMESPACE, ::types_core::RELPERSISTENCE_PERMANENT, ::types_core::catalog::RELPERSISTENCE_TEMP, RELKIND_RELATION,);
     let on = VacOptValue::Enabled;
-    assert!(!crate::truncate_allowed(
-        on,
-        &named("pgrc_seg_16384_0", toast, perm, r),
-        "pg_toast"
-    ));
-    assert!(
-        !crate::truncate_allowed(
-            on,
-            &named("pgrc_seg_16384_3", 16_999, temp, r),
-            "pg_toast_temp_3"
-        ),
-        "a temp parent's segment"
-    );
+    assert!(!crate::truncate_allowed(on, &named("pgrc_seg_16384_0", toast, perm, r), "pg_toast"));
+    assert!(!crate::truncate_allowed(on, &named("pgrc_seg_16384_3", 16_999, temp, r), "pg_toast_temp_3"), "a temp parent's segment");
     let not = [
-        (
-            "an ordinary toast table",
-            named("pg_toast_16384", toast, perm, r),
-            "pg_toast",
-        ),
-        (
-            "the tombstone heap",
-            named("pgrc_tomb_16384", toast, perm, r),
-            "pg_toast",
-        ),
-        (
-            "a user table named pgrc_seg_x in public",
-            named("pgrc_seg_x", 2200, perm, r),
-            "public",
-        ),
-        (
-            "a user table named like a segment in public",
-            named("pgrc_seg_16384_0", 2200, perm, r),
-            "public",
-        ),
-        (
-            "a temp user table named pgrc_seg_x",
-            named("pgrc_seg_x", 16_998, temp, r),
-            "pg_temp_3",
-        ),
-        (
-            "an ordinary temp toast table",
-            named("pg_toast_16999", 16_999, temp, r),
-            "pg_toast_temp_3",
-        ),
-        (
-            "not a heap",
-            named("pgrc_seg_16384_0", toast, perm, b't'),
-            "pg_toast",
-        ),
+        ("an ordinary toast table", named("pg_toast_16384", toast, perm, r), "pg_toast",),
+        ("the tombstone heap", named("pgrc_tomb_16384", toast, perm, r), "pg_toast",),
+        ("a user table named pgrc_seg_x in public", named("pgrc_seg_x", 2200, perm, r), "public",),
+        ("a user table named like a segment in public", named("pgrc_seg_16384_0", 2200, perm, r), "public",),
+        ("a temp user table named pgrc_seg_x", named("pgrc_seg_x", 16_998, temp, r), "pg_temp_3",),
+        ("an ordinary temp toast table", named("pg_toast_16999", 16_999, temp, r), "pg_toast_temp_3",),
+        ("not a heap", named("pgrc_seg_16384_0", toast, perm, b't'), "pg_toast",),
     ];
     for (why, rel, ns) in &not {
         assert!(crate::truncate_allowed(on, rel, ns), "{why}");
-        assert!(
-            !crate::truncate_allowed(VacOptValue::Disabled, rel, ns),
-            "{why}: TRUNCATE false still wins"
-        );
+        assert!(!crate::truncate_allowed(VacOptValue::Disabled, rel, ns), "{why}: TRUNCATE false still wins");
     }
 }
 
 #[test]
 fn a_pgrc_segment_heap_never_marks_items_unused() {
-    assert!(
-        !crate::mark_unused_now(0, true),
-        "a segment heap: no one-pass pruning"
-    );
+    assert!(!crate::mark_unused_now(0, true), "a segment heap: no one-pass pruning");
     assert!(!crate::mark_unused_now(1, true));
-    assert!(
-        crate::mark_unused_now(0, false) && !crate::mark_unused_now(1, false),
-        "heap's one-pass rule unchanged"
-    );
+    assert!(crate::mark_unused_now(0, false) && !crate::mark_unused_now(1, false), "heap's one-pass rule unchanged");
 }
 
 #[test]
@@ -1340,8 +1154,5 @@ fn helper_error_rethrown_by_the_leader_keeps_one_scan_context() {
     let mut e = Box::new(PgError::new(::types_error::ERROR, "boom"));
     e.add_context_line("while scanning block 3 of relation \"public.t\"");
     let e = err.attach_err(morsels::leader_rethrow(&err, e));
-    assert_eq!(
-        e.context(),
-        Some("while scanning block 3 of relation \"public.t\"")
-    );
+    assert_eq!(e.context(), Some("while scanning block 3 of relation \"public.t\""));
 }

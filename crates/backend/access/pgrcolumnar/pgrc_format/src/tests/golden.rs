@@ -19,51 +19,48 @@ use crate::wire::{crc32c, varlena_4b_u_payload_len, varlena_header_4b_u};
 use crate::{FormatError, FORMAT_VERSION};
 
 pub(crate) fn sample_manifest() -> Manifest {
-    Manifest::new(
-        ManifestHeader {
-            gen: 7,
-            prev_gen: 6,
-            publisher_fxid: 0x0000_0002_0000_1234,
-            relfilenumber: 90210,
-            schema_fingerprint: 0x1122_3344_5566_7788,
-            magic: MANIFEST_MAGIC,
-            format_version: FORMAT_VERSION,
-            spc: 1663,
-            db: 5,
-            part_count: 2,
-            next_part_no: 4,
+    Manifest::new(ManifestHeader {
+        gen: 7,
+        prev_gen: 6,
+        publisher_fxid: 0x0000_0002_0000_1234,
+        relfilenumber: 90210,
+        schema_fingerprint: 0x1122_3344_5566_7788,
+        magic: MANIFEST_MAGIC,
+        format_version: FORMAT_VERSION,
+        spc: 1663,
+        db: 5,
+        part_count: 2,
+        next_part_no: 4,
+        flags: 0,
+        reserved: 0,
+    }, vec![
+        PartRecord {
+            rows: 100_000,
+            file_len: 4_000_000,
+            footer_off: 3_999_888,
+            dv_gen: 0,
+            dv_len: 0,
+            part_no: 1,
             flags: 0,
-            reserved: 0,
+            granule_count: crate::geom::granule_count(100_000),
+            band_count: crate::geom::band_count(100_000),
+            dv_crc: 0,
+            granule_rows: 0,
         },
-        vec![
-            PartRecord {
-                rows: 100_000,
-                file_len: 4_000_000,
-                footer_off: 3_999_888,
-                dv_gen: 0,
-                dv_len: 0,
-                part_no: 1,
-                flags: 0,
-                granule_count: crate::geom::granule_count(100_000),
-                band_count: crate::geom::band_count(100_000),
-                dv_crc: 0,
-                granule_rows: 0,
-            },
-            PartRecord {
-                rows: 65_536,
-                file_len: 2_000_000,
-                footer_off: 1_999_888,
-                dv_gen: 3,
-                dv_len: 2048,
-                part_no: 3,
-                flags: 0,
-                granule_count: 8,
-                band_count: 1,
-                dv_crc: 0xABCD_EF01,
-                granule_rows: 0,
-            },
-        ],
-    )
+        PartRecord {
+            rows: 65_536,
+            file_len: 2_000_000,
+            footer_off: 1_999_888,
+            dv_gen: 3,
+            dv_len: 2048,
+            part_no: 3,
+            flags: 0,
+            granule_count: 8,
+            band_count: 1,
+            dv_crc: 0xABCD_EF01,
+            granule_rows: 0,
+        },
+    ],)
 }
 
 /// Independent hand assembly of the sample manifest — MUST mirror spec

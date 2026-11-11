@@ -164,10 +164,7 @@ fn pg_file_exists(full: &std::path::Path) -> PgResult<bool> {
                 b = b.with_saved_errno(errno).errcode_for_file_access();
             }
             Err(b
-                .errmsg(format!(
-                    "could not access file \"{}\": {PCT_M}",
-                    full.display()
-                ))
+                .errmsg(format!("could not access file \"{}\": {PCT_M}", full.display()))
                 .into_error()
                 .into())
         }
@@ -221,27 +218,17 @@ fn find_extension_control_filename(control: &mut ExtensionControlFile) -> PgResu
 
 pub(crate) fn get_extension_script_directory(control: &ExtensionControlFile) -> String {
     let Some(directory) = &control.directory else {
-        return control
-            .control_dir
-            .clone()
-            .expect("control_dir set by control-file read");
+        return control.control_dir.clone().expect("control_dir set by control-file read");
     };
     if pg_path::is_absolute_path(directory) {
         return directory.clone();
     }
-    let basedir = control
-        .basedir
-        .as_ref()
-        .expect("basedir set by control-file read");
+    let basedir = control.basedir.as_ref().expect("basedir set by control-file read");
     format!("{basedir}/{directory}")
 }
 
 fn get_extension_aux_control_filename(control: &ExtensionControlFile, version: &str) -> String {
-    format!(
-        "{}/{}--{version}.control",
-        get_extension_script_directory(control),
-        control.name
-    )
+    format!("{}/{}--{version}.control", get_extension_script_directory(control), control.name)
 }
 
 pub(crate) fn get_extension_script_filename(
@@ -287,9 +274,7 @@ fn parse_extension_control_file(
                 b = b.with_saved_errno(errno).errcode_for_file_access();
             }
             return Err(b
-                .errmsg(format!(
-                    "could not open extension control file \"{filename}\": {PCT_M}"
-                ))
+                .errmsg(format!("could not open extension control file \"{filename}\": {PCT_M}"))
                 .into_error()
                 .into());
         }
@@ -337,9 +322,7 @@ fn parse_extension_control_file(
             _ => {
                 return Err(ereport(ERROR)
                     .errcode(ERRCODE_SYNTAX_ERROR)
-                    .errmsg(format!(
-                        "unrecognized parameter \"{name}\" in file \"{filename}\""
-                    ))
+                    .errmsg(format!("unrecognized parameter \"{name}\" in file \"{filename}\""))
                     .into_error()
                     .into());
             }
@@ -391,9 +374,7 @@ fn split_names_param(name: &str, value: &str) -> PgResult<Vec<String>> {
         Some(names) => Ok(names),
         None => Err(ereport(ERROR)
             .errcode(ERRCODE_INVALID_PARAMETER_VALUE)
-            .errmsg(format!(
-                "parameter \"{name}\" must be a list of extension names"
-            ))
+            .errmsg(format!("parameter \"{name}\" must be a list of extension names"))
             .into_error()
             .into()),
     }
@@ -425,18 +406,12 @@ mod name_bytes_tests {
 
     #[test]
     fn unavailable_test_modules_report_c_error_metadata() {
-        for name in [
-            b"injection_points".as_slice(),
-            b"test_custom_types".as_slice(),
-        ] {
+        for name in [b"injection_points".as_slice(), b"test_custom_types".as_slice(),] {
             let e = extension_not_available(name);
             let location = e.location().unwrap();
             assert_eq!(location.filename.as_deref(), Some("extension.c"));
             assert_eq!(location.lineno, 673);
-            assert_eq!(
-                location.funcname.as_deref(),
-                Some("parse_extension_control_file")
-            );
+            assert_eq!(location.funcname.as_deref(), Some("parse_extension_control_file"));
         }
     }
 
@@ -506,8 +481,7 @@ pub(crate) fn read_whole_file(filename: &str) -> PgResult<Vec<u8>> {
         if let Some(errno) = e.raw_os_error() {
             b = b.with_saved_errno(errno).errcode_for_file_access();
         }
-        b.errmsg(format!("could not stat file \"{filename}\": {PCT_M}"))
-            .into_error()
+        b.errmsg(format!("could not stat file \"{filename}\": {PCT_M}")).into_error()
     })?;
     if meta.len() > MAX_ALLOC_SIZE - 1 {
         return Err(ereport(ERROR)
@@ -523,26 +497,21 @@ pub(crate) fn read_whole_file(filename: &str) -> PgResult<Vec<u8>> {
         if let Some(errno) = e.raw_os_error() {
             b = b.with_saved_errno(errno).errcode_for_file_access();
         }
-        b.errmsg(format!(
-            "could not open file \"{filename}\" for reading: {PCT_M}"
-        ))
-        .into_error()
+        b.errmsg(format!("could not open file \"{filename}\" for reading: {PCT_M}"))
+            .into_error()
     })?;
 
     // fread(buf, 1, bytes_to_read, file): a read-side failure (ferror) is
     // "could not read file", distinct from the open failure above.
     use std::io::Read;
     let mut buf = ::mcx::std_vec_with_capacity("commands", bytes_to_read as usize + 1)?;
-    file.take(bytes_to_read)
-        .read_to_end(&mut buf)
-        .map_err(|e| {
-            let mut b = ereport(ERROR);
-            if let Some(errno) = e.raw_os_error() {
-                b = b.with_saved_errno(errno).errcode_for_file_access();
-            }
-            b.errmsg(format!("could not read file \"{filename}\": {PCT_M}"))
-                .into_error()
-        })?;
+    file.take(bytes_to_read).read_to_end(&mut buf).map_err(|e| {
+        let mut b = ereport(ERROR);
+        if let Some(errno) = e.raw_os_error() {
+            b = b.with_saved_errno(errno).errcode_for_file_access();
+        }
+        b.errmsg(format!("could not read file \"{filename}\": {PCT_M}")).into_error()
+    })?;
     Ok(buf)
 }
 
@@ -575,13 +544,10 @@ pub(crate) fn for_each_primary_control_name(
                 if let Some(errno) = e.raw_os_error() {
                     b = b.with_saved_errno(errno).errcode_for_file_access();
                 }
-                b.errmsg(format!("could not read directory \"{location}\": {PCT_M}"))
-                    .into_error()
+                b.errmsg(format!("could not read directory \"{location}\": {PCT_M}")).into_error()
             })?;
             let fname = de.file_name();
-            let Some(fname) = fname.to_str() else {
-                continue;
-            };
+            let Some(fname) = fname.to_str() else { continue; };
             if !is_extension_control_filename(fname) {
                 continue;
             }

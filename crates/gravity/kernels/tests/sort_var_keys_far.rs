@@ -105,7 +105,7 @@ fn key_nineteen_hosted_orders_by_its_comparator() {
 
 #[test]
 fn a_table_with_no_var_section_orders_keys_past_sixteen_by_their_pairs() {
-    let t = [(16 * NKEY) as u32, 2 * NKEY as u32, NKEY as u32, 0, 0, 0];
+    let t =[(16 * NKEY) as u32, 2 * NKEY as u32, NKEY as u32, 0, 0, 0];
     let row = |w: u64| {
         let mut r = vec![0u64; 2 * NKEY];
         (0..NKEY).for_each(|k| r[2 * k] = 1);

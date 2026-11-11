@@ -15,9 +15,7 @@ pub struct Selection {
 impl Selection {
     #[inline]
     pub fn new() -> Selection {
-        Selection {
-            positions: Vec::new(),
-        }
+        Selection { positions: Vec::new(), }
     }
 
     #[inline]
@@ -44,10 +42,7 @@ impl Selection {
     /// ascending).
     #[inline]
     pub fn push(&mut self, pos: u32) {
-        debug_assert!(
-            self.positions.last().is_none_or(|&p| p < pos),
-            "selection must ascend"
-        );
+        debug_assert!(self.positions.last().is_none_or(|&p| p < pos), "selection must ascend");
         self.positions.push(pos);
     }
 
@@ -67,9 +62,7 @@ impl Selection {
     pub fn push_mask_word(&mut self, word_index: usize, mut mask: u64) {
         let base = (word_index * 64) as u32;
         debug_assert!(
-            self.positions
-                .last()
-                .is_none_or(|&p| mask == 0 || p < base + mask.trailing_zeros()),
+            self.positions.last().is_none_or(|&p| mask == 0 || p < base + mask.trailing_zeros()),
             "selection must ascend"
         );
         while mask != 0 {

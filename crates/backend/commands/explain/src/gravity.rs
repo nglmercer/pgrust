@@ -5,10 +5,7 @@ use types_error::PgResult;
 use types_nodes::plannodes::PlannedStmt;
 use types_nodes::Node;
 
-use crate::format::{
-    append, ExplainCloseGroup, ExplainIndentText, ExplainOpenGroup, ExplainPropertyBool,
-    ExplainPropertyFloat, ExplainPropertyList, ExplainPropertyText, ExplainPropertyUInteger,
-};
+use crate::format::{append, ExplainCloseGroup, ExplainIndentText, ExplainOpenGroup, ExplainPropertyBool, ExplainPropertyFloat, ExplainPropertyList, ExplainPropertyText, ExplainPropertyUInteger,};
 use crate::state::{ExplainState, EXPLAIN_FORMAT_TEXT};
 
 fn ms(ns: u64) -> f64 {
@@ -20,9 +17,7 @@ pub fn ExplainPrintGravity(es: &mut ExplainState<'_>) -> PgResult<()> {
     if !es.analyze || es.qd.is_null() {
         return Ok(());
     }
-    let Some(r) = execmain_seams::query_desc_gravity_report::call(es.qd) else {
-        return Ok(());
-    };
+    let Some(r) = execmain_seams::query_desc_gravity_report::call(es.qd) else { return Ok(()); };
     let pushed = pushed(&r, es)?;
     if es.format == EXPLAIN_FORMAT_TEXT {
         text(&r, &pushed, es)?;
@@ -37,27 +32,12 @@ pub fn ExplainPrintGravity(es: &mut ExplainState<'_>) -> PgResult<()> {
 /// reads more than one).
 fn pushed(r: &GravityReport, es: &ExplainState<'_>) -> PgResult<Vec<String>> {
     let mut out = Vec::new();
-    let (Some(pstmt), Some(cxt)) = (es.pstmt, es.deparse_cxt.as_ref()) else {
-        return Ok(out);
-    };
+    let (Some(pstmt), Some(cxt)) = (es.pstmt, es.deparse_cxt.as_ref()) else { return Ok(out); };
     for &(id, i) in &r.rows_pushed {
-        let Some(node) = find_node(pstmt, id) else {
-            continue;
-        };
-        let Some(q) = node
-            .as_seq_scan()
-            .and_then(|s| s.scan.plan.qual.iter().nth(i as usize))
-        else {
-            continue;
-        };
+        let Some(node) = find_node(pstmt, id) else { continue; };
+        let Some(q) = node.as_seq_scan().and_then(|s| s.scan.plan.qual.iter().nth(i as usize)) else { continue; };
         ruleutils::set_deparse_context_plan(cxt, node, Vec::new());
-        out.push(ruleutils::deparse_expression(
-            es.str.allocator(),
-            q,
-            cxt,
-            es.rtable_size > 1 || es.verbose,
-            false,
-        )?);
+        out.push(ruleutils::deparse_expression(es.str.allocator(), q, cxt, es.rtable_size > 1 || es.verbose, false,)?);
     }
     Ok(out)
 }
@@ -70,20 +50,9 @@ fn find_node<'mcx>(pstmt: &'mcx PlannedStmt<'mcx>, id: i32) -> Option<Node<'mcx>
         if p.plan_node_id == id {
             return Some(n);
         }
-        let kids = [
-            n.as_bitmap_and().map(|a| &a.bitmapplans),
-            n.as_bitmap_or().map(|o| &o.bitmapplans),
-            n.as_append().map(|a| &a.appendplans),
-            n.as_merge_append().map(|m| &m.mergeplans),
-        ];
-        under(p.lefttree, id)
-            .or_else(|| under(p.righttree, id))
-            .or_else(|| {
-                kids.into_iter()
-                    .flatten()
-                    .find_map(|l| l.iter().find_map(|c| under(Some(c), id)))
-            })
-            .or_else(|| n.as_subquery_scan().and_then(|s| under(s.subplan, id)))
+        let kids = [n.as_bitmap_and().map(|a| &a.bitmapplans), n.as_bitmap_or().map(|o| &o.bitmapplans), n.as_append().map(|a| &a.appendplans), n.as_merge_append().map(|m| &m.mergeplans),];
+        under(p.lefttree, id).or_else(|| under(p.righttree, id)).or_else(|| { kids.into_iter().flatten().find_map(|l| l.iter().find_map(|c| under(Some(c), id)))
+            }).or_else(|| n.as_subquery_scan().and_then(|s| under(s.subplan, id)))
     }
     under(pstmt.planTree, id).or_else(|| pstmt.subplans.iter().find_map(|s| under(s, id)))
 }
@@ -127,14 +96,7 @@ fn text(r: &GravityReport, pushed: &[String], es: &mut ExplainState<'_>) -> PgRe
     }
     if r.granules.iter().any(|&g| g > 0) || r.opens > 0 {
         ExplainIndentText(es)?;
-        append!(
-            es,
-            "Granules: {} read, {} skipped, {} answered; {} part opens\n",
-            r.granules[0],
-            r.granules[1],
-            r.granules[2],
-            r.opens
-        )?;
+        append!(es, "Granules: {} read, {} skipped, {} answered; {} part opens\n", r.granules[0], r.granules[1], r.granules[2], r.opens)?;
     }
     if r.spilled > 0 {
         ExplainIndentText(es)?;
@@ -142,23 +104,14 @@ fn text(r: &GravityReport, pushed: &[String], es: &mut ExplainState<'_>) -> PgRe
     }
     if r.rows_road > 0 {
         ExplainIndentText(es)?;
-        append!(
-            es,
-            "Rows road: {} {}\n",
-            r.rows_road,
-            if r.rows_road == 1 { "site" } else { "sites" }
-        )?;
+        append!(es, "Rows road: {} {}\n", r.rows_road, if r.rows_road == 1 { "site" } else { "sites" })?;
         if !pushed.is_empty() {
             ExplainIndentText(es)?;
             append!(es, "Rows road pushed: {}\n", pushed.join(", "))?;
         }
     }
     ExplainIndentText(es)?;
-    append!(
-        es,
-        "Program: {}",
-        if r.memo { "plan memo" } else { "admitted" }
-    )?;
+    append!(es, "Program: {}", if r.memo { "plan memo" } else { "admitted" })?;
     if r.shape != "graph" && !r.shape.is_empty() {
         append!(es, ", shape {}", r.shape)?;
     }

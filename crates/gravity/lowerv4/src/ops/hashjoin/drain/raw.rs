@@ -233,8 +233,7 @@ gravity_abi::host! {
             };
             match got {
                 Err(e) => return v4::fail(ctx, e),
-                Ok(Some((r, _, n, next))) if n > 0 => {
-                    out.write(r as u64); out.add(1).write(n as u64);
+                Ok(Some((r, _, n, next))) if n > 0 => {out.write(r as u64); out.add(1).write(n as u64);
                     return phase(p, next);
                 }
                 Ok(Some((r, _, _, _))) => give_part(ctx, r),

@@ -94,10 +94,9 @@ pub(crate) unsafe fn scatter(a: &OpArena, d: *mut u8, len: usize, n: usize, mask
         top -= l8;
         core::ptr::copy(d.add(off), d.add(top), l8);
         wr::<u64>(t.rec(i), 8 * (t.words + 1 + c), (end - top) as u64);
-    }
-    wr::<u64>(d, TOP, top as u64); wr::<u64>(d, N, keep as u64);
+    }wr::<u64>(d, TOP, top as u64); wr::<u64>(d, N, keep as u64);
     // the newest carve first: the arena's bump rewinds, so the caller's next scatter reuses the same chunk
-    imgs.release(a); buf.release(a);
+imgs.release(a); buf.release(a);
     Ok(keep)
 }
 
@@ -204,8 +203,7 @@ gravity_abi::host! {
             if keep == 0 || kept_fits(r, kept, rec, keep) || wider(m, bits) == m {
                 break;
             }
-        }
-        wr::<u8>(r, SPILL, bits); wr::<u64>(r, SPILLED, m);
+        }wr::<u8>(r, SPILL, bits); wr::<u64>(r, SPILLED, m);
         *out = kept as u64;
         if keep != 0 {
             let fits = kept_fits(r, kept, rec, keep);
@@ -234,8 +232,7 @@ unsafe fn shrink_to(d: *mut u8, keep: u64) {
     let tail = end - top;
     if end != keep {
         core::ptr::copy(d.add(top as usize), d.add((keep - tail) as usize), tail as usize);
-    }
-    wr::<u64>(d, END, keep); wr::<u64>(d, TOP, keep - tail);
+    }wr::<u64>(d, END, keep); wr::<u64>(d, TOP, keep - tail);
 }
 
 gravity_abi::host! {

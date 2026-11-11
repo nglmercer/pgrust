@@ -33,14 +33,9 @@ use std::borrow::Cow;
 use std::collections::BTreeMap;
 
 use pgrc_format::bankstats::PartIdent;
-use pgrc_format::dirlayout::{
-    parse_manifest_file_name, part_file_name, run_file_name, run_tmp_file_name, sidecar_file_name,
-    CURRENT_FILE_NAME,
-};
+use pgrc_format::dirlayout::{parse_manifest_file_name, part_file_name, run_file_name, run_tmp_file_name, sidecar_file_name, CURRENT_FILE_NAME,};
 use pgrc_format::facts::FactsImage;
-use pgrc_format::manifest::{
-    stats_ref, under, with_stats_ref, CommitPointer, Manifest, PartRecord, UnderEntry,
-};
+use pgrc_format::manifest::{stats_ref, under, with_stats_ref, CommitPointer, Manifest, PartRecord, UnderEntry,};
 use pgrc_format::sidecar::{SidecarFileHeader, SidecarKind};
 use pgrc_format::wal::PublishKind;
 use pgrc_format::wire::crc32c;
@@ -48,9 +43,7 @@ use pgrc_format::FormatError;
 
 use crate::plan::{apply_planned, read_manifest, PlanBuilder, PublishPlan};
 use crate::seal::{PartSpec, SealedPart};
-use crate::stats::{
-    self, ident_of, FullTest, PartStats, Run, StatsState, LOOSE_MAX, SMALL_RUNS_MAX,
-};
+use crate::stats::{self, ident_of, FullTest, PartStats, Run, StatsState, LOOSE_MAX, SMALL_RUNS_MAX,};
 use crate::walsink::{LoggedVfs, WalSink};
 use crate::wvfs::WriteVfs;
 use crate::{WriteError, WriteResult};
@@ -174,11 +167,7 @@ impl<'a> From<(Option<&'a FactsImage>, Option<&'a [(u32, Vec<u8>)]>)> for BaseSt
 /// `CURRENT`'s record for `m` (what [`BaseGen::pointer`] holds): the manifest's encoded length and trailing crc.
 pub fn commit_pointer(m: &Manifest) -> CommitPointer {
     let bytes = m.encode();
-    CommitPointer::new(
-        m.header.gen,
-        bytes.len() as u64,
-        crc32c(&bytes[..bytes.len() - 4]),
-    )
+    CommitPointer::new(m.header.gen, bytes.len() as u64, crc32c(&bytes[..bytes.len() - 4]),)
 }
 
 impl<'a> From<Option<BaseGen<'a>>> for BaseStats<'a> {
@@ -241,15 +230,11 @@ pub fn effective_base(
         if let Some(m) = read_manifest(vfs, dir, g) {
             match probe.verdict(m.header.publisher_fxid) {
                 TxnVerdict::Committed => return Ok(Some((m, Vec::new()))),
-                TxnVerdict::InProgress
-                    if own_fxid.is_some_and(|o| probe.is_own(m.header.publisher_fxid, o)) =>
-                {
+                TxnVerdict::InProgress if own_fxid.is_some_and(|o| probe.is_own(m.header.publisher_fxid, o)) => {
                     return Ok(Some((m, Vec::new())))
                 }
                 TxnVerdict::InProgress if own_fxid.is_some() => {
-                    return Err(WriteError::PublishBusy {
-                        holder_fxid: m.header.publisher_fxid,
-                    })
+                    return Err(WriteError::PublishBusy { holder_fxid: m.header.publisher_fxid, })
                 }
                 _ => continue,
             }
@@ -268,27 +253,16 @@ fn walk_chain(
     own_fxid: Option<u64>,
 ) -> WriteResult<Option<(Manifest, Vec<UnderEntry>)>> {
     while gen != 0 {
-        let Some(m) = read_manifest(vfs, dir, gen) else {
-            return Ok(None);
-        };
+        let Some(m) = read_manifest(vfs, dir, gen) else { return Ok(None); };
         match probe.verdict(m.header.publisher_fxid) {
             TxnVerdict::Committed => return Ok(Some((m, Vec::new()))),
-            TxnVerdict::InProgress
-                if own_fxid.is_some_and(|o| probe.is_own(m.header.publisher_fxid, o)) =>
-            {
+            TxnVerdict::InProgress if own_fxid.is_some_and(|o| probe.is_own(m.header.publisher_fxid, o)) => {
                 return Ok(Some((m, Vec::new())))
             }
             TxnVerdict::InProgress if own_fxid.is_some() => {
-                return match own_fxid
-                    .filter(|_| probe.stacks())
-                    .map(|o| stack_run(vfs, dir, &m, probe, o))
-                    .transpose()?
-                    .flatten()
-                {
+                return match own_fxid.filter(|_| probe.stacks()).map(|o| stack_run(vfs, dir, &m, probe, o)).transpose()?.flatten() {
                     Some(run) => Ok(Some((m, run))),
-                    None => Err(WriteError::PublishBusy {
-                        holder_fxid: m.header.publisher_fxid,
-                    }),
+                    None => Err(WriteError::PublishBusy { holder_fxid: m.header.publisher_fxid, }),
                 };
             }
             _ => {}
@@ -308,23 +282,12 @@ fn walk_chain(
 /// parts or dropped parts of rolled-back creators ([`adds_only`]): a generation of that run that changed anything else
 /// (segments, deletion vectors, the tombstone heaps' state, a retirement) would need its edits undone for a reader that
 /// does not see it, which a tag cannot say.
-fn stack_run(
-    vfs: &mut dyn WriteVfs,
-    dir: &str,
-    head: &Manifest,
-    probe: &dyn TxnProbe,
-    own: u64,
-) -> WriteResult<Option<Vec<UnderEntry>>> {
+fn stack_run(vfs: &mut dyn WriteVfs, dir: &str, head: &Manifest, probe: &dyn TxnProbe, own: u64,) -> WriteResult<Option<Vec<UnderEntry>>> {
     stack_run_by(head, &mut |g| read_manifest(vfs, dir, g), probe, own)
 }
 
 /// [`stack_run`] over the manifests `read` returns.
-fn stack_run_by(
-    head: &Manifest,
-    read: &mut dyn FnMut(u64) -> Option<Manifest>,
-    probe: &dyn TxnProbe,
-    own: u64,
-) -> WriteResult<Option<Vec<UnderEntry>>> {
+fn stack_run_by(head: &Manifest, read: &mut dyn FnMut(u64) -> Option<Manifest>, probe: &dyn TxnProbe, own: u64,) -> WriteResult<Option<Vec<UnderEntry>>> {
     let (mut run, mut retired) = (Vec::new(), Vec::new());
     let mut g = head.clone();
     loop {
@@ -335,15 +298,10 @@ fn stack_run_by(
                 None => return Ok(None),
             },
         };
-        let Some((gone, added)) = adds_only(prev.as_ref(), &g) else {
-            return Ok(None);
-        };
+        let Some((gone, added)) = adds_only(prev.as_ref(), &g) else { return Ok(None); };
         retired.extend(gone);
         run.extend(under(&g)?);
-        run.extend(added.into_iter().map(|part_no| UnderEntry {
-            part_no,
-            fxid: g.header.publisher_fxid,
-        }));
+        run.extend(added.into_iter().map(|part_no| UnderEntry { part_no, fxid: g.header.publisher_fxid, }));
         let Some(prev) = prev else { break };
         let p = prev.header.publisher_fxid;
         match probe.verdict(p) {
@@ -355,9 +313,7 @@ fn stack_run_by(
             }
         }
     }
-    let dead = |n: u32| {
-        run.iter()
-            .any(|e| e.part_no == n && probe.verdict(e.fxid) == TxnVerdict::Aborted)
+    let dead = |n: u32| { run.iter().any(|e| e.part_no == n && probe.verdict(e.fxid) == TxnVerdict::Aborted)
     };
     Ok(retired.into_iter().all(dead).then_some(run))
 }
@@ -366,12 +322,7 @@ fn stack_run_by(
 /// generation `head` as [`walk_chain`] walks it, over the manifests `read` returns (the process catalog's: a
 /// compaction's check before its job decodes anything); false where its publish would be [`WriteError::PublishBusy`].
 /// A generation `read` does not return ends the walk as chainable: the publish's own walk decides.
-pub fn stacks_on(
-    head: u64,
-    read: &mut dyn FnMut(u64) -> Option<Manifest>,
-    probe: &dyn TxnProbe,
-    own: u64,
-) -> WriteResult<bool> {
+pub fn stacks_on(head: u64, read: &mut dyn FnMut(u64) -> Option<Manifest>, probe: &dyn TxnProbe, own: u64,) -> WriteResult<bool> {
     let mut gen = head;
     while gen != 0 {
         let Some(m) = read(gen) else { return Ok(true) };
@@ -379,8 +330,7 @@ pub fn stacks_on(
         match probe.verdict(p) {
             TxnVerdict::Committed => return Ok(true),
             TxnVerdict::InProgress if probe.is_own(p, own) => return Ok(true),
-            TxnVerdict::InProgress => {
-                return Ok(probe.stacks() && stack_run_by(&m, read, probe, own)?.is_some())
+            TxnVerdict::InProgress => { return Ok(probe.stacks() && stack_run_by(&m, read, probe, own)?.is_some())
             }
             _ => {}
         }
@@ -393,22 +343,12 @@ pub fn stacks_on(
 /// block but for the stats root, the under tags and the row-ID directory (IX0: an added part's `EXT_RANGES` entry, a
 /// retired one's gone, `EXT_ROWID` raised), whose entries for the parts both list must be the same. `None` otherwise.
 pub(crate) fn adds_only(prev: Option<&Manifest>, g: &Manifest) -> Option<(Vec<u32>, Vec<u32>)> {
-    use pgrc_format::manifest::{
-        ext_records, flat_ranges, EXT_RANGES, EXT_ROWID, EXT_STATS, EXT_UNDER,
-    };
+    use pgrc_format::manifest::{ext_records, flat_ranges, EXT_RANGES, EXT_ROWID, EXT_STATS, EXT_UNDER,};
     fn rest(ext: &[u8]) -> Option<Vec<(u16, &[u8])>> {
-        Some(
-            ext_records(ext)
-                .ok()?
-                .into_iter()
-                .filter(|(t, _)| ![EXT_STATS, EXT_UNDER, EXT_RANGES, EXT_ROWID].contains(t))
-                .collect(),
-        )
+        Some(ext_records(ext).ok()?.into_iter().filter(|(t, _)| ![EXT_STATS, EXT_UNDER, EXT_RANGES, EXT_ROWID].contains(t)).collect(),)
     }
     let (pparts, pext) = prev.map_or((&[][..], &[][..]), |p| (&p.parts[..], &p.ext[..]));
-    if prev.is_some_and(|p| p.header.schema_fingerprint != g.header.schema_fingerprint)
-        || rest(pext)? != rest(&g.ext)?
-    {
+    if prev.is_some_and(|p| p.header.schema_fingerprint != g.header.schema_fingerprint) || rest(pext)? != rest(&g.ext)? {
         return None;
     }
     if let Some(p) = prev {
@@ -419,42 +359,24 @@ pub(crate) fn adds_only(prev: Option<&Manifest>, g: &Manifest) -> Option<(Vec<u3
             while p.parts.get(i).is_some_and(|q| q.part_no < rec.part_no) {
                 i += 1;
             }
-            if p.parts.get(i).is_some_and(|q| q.part_no == rec.part_no)
-                && before.of(i) != after.of(j)
-            {
+            if p.parts.get(i).is_some_and(|q| q.part_no == rec.part_no) && before.of(i) != after.of(j) {
                 return None;
             }
         }
     }
     let (retired, added) = part_changes(pparts, &g.parts);
-    Some((
-        retired,
-        added.into_iter().map(|k| g.parts[k].part_no).collect(),
-    ))
+    Some((retired, added.into_iter().map(|k| g.parts[k].part_no).collect(),))
 }
 
 /// SEAL-OFFHEAD: what a publish on `base` does with the creators its `EXT_UNDER` tags and the stacked run `run` name
 /// for the parts it holds: the tags the new generation carries (a creator still in progress), and the parts to drop
 /// (a creator that rolled back: no reader ever sees them). A foreign creator in progress under a publisher that does
 /// not stack is [`WriteError::PublishBusy`]: it waits for it as it would for the head it was.
-fn under_plan(
-    base: Option<&Manifest>,
-    run: Vec<UnderEntry>,
-    probe: &dyn TxnProbe,
-    fxid: u64,
-) -> WriteResult<(Vec<UnderEntry>, Vec<u32>)> {
-    let Some(base) = base else {
-        return Ok((Vec::new(), Vec::new()));
-    };
-    let (mut keep, mut dead, mut seen) =
-        (Vec::new(), Vec::new(), std::collections::BTreeSet::new());
+fn under_plan(base: Option<&Manifest>, run: Vec<UnderEntry>, probe: &dyn TxnProbe, fxid: u64,) -> WriteResult<(Vec<UnderEntry>, Vec<u32>)> {
+    let Some(base) = base else { return Ok((Vec::new(), Vec::new())); };
+    let (mut keep, mut dead, mut seen) = (Vec::new(), Vec::new(), std::collections::BTreeSet::new());
     for e in under(base)?.into_iter().chain(run) {
-        if base
-            .parts
-            .binary_search_by_key(&e.part_no, |p| p.part_no)
-            .is_err()
-            || !seen.insert(e.part_no)
-        {
+        if base.parts.binary_search_by_key(&e.part_no, |p| p.part_no).is_err() || !seen.insert(e.part_no) {
             continue;
         }
         match probe.verdict(e.fxid) {
@@ -463,10 +385,7 @@ fn under_plan(
             // the publisher's own parts need no tag (whoever sees this generation sees its publisher)
             TxnVerdict::InProgress if e.fxid == fxid => {}
             TxnVerdict::InProgress if probe.is_own(e.fxid, fxid) || probe.stacks() => keep.push(e),
-            TxnVerdict::InProgress => {
-                return Err(WriteError::PublishBusy {
-                    holder_fxid: e.fxid,
-                })
+            TxnVerdict::InProgress => { return Err(WriteError::PublishBusy { holder_fxid: e.fxid, })
             }
         }
     }
@@ -489,36 +408,19 @@ pub fn publish_parts<'b>(
     base: impl Into<BaseStats<'b>>,
 ) -> WriteResult<PublishOutcome> {
     if sealed.is_empty() {
-        return Err(WriteError::Contract {
-            detail: "publish with zero sealed parts",
-        });
+        return Err(WriteError::Contract { detail: "publish with zero sealed parts", });
     }
     use pgrc_format::manifest::{PART_FLAG_ROWMAP, PART_ROWMAP_FORM_SHIFT, PART_ROWMAP_GRANULES};
     let mut install = |_: Option<&Manifest>, b: &mut PlanBuilder<'_>| {
         sealed.iter().try_for_each(|s| {
             let no = b.install(s)?;
             if s.ids.len() > 1 {
-                b.set_flags(
-                    no,
-                    PART_FLAG_ROWMAP | PART_ROWMAP_GRANULES << PART_ROWMAP_FORM_SHIFT,
-                );
+                b.set_flags(no, PART_FLAG_ROWMAP | PART_ROWMAP_GRANULES << PART_ROWMAP_FORM_SHIFT,);
             }
             Ok(())
         })
     };
-    publish_with(
-        vfs,
-        sink,
-        dir,
-        spec,
-        sealed,
-        &[],
-        PublishKind::Bulk,
-        fxid,
-        probe,
-        base.into(),
-        &mut install,
-    )
+    publish_with(vfs, sink, dir, spec, sealed, &[], PublishKind::Bulk, fxid, probe, base.into(), &mut install,)
 }
 
 /// IDBURN: a bulk part whose writer's grants landed apart homes several ranges, every one whole but the last; its
@@ -556,19 +458,7 @@ pub fn publish_ext<'b>(
     base_facts: impl Into<BaseStats<'b>>,
     edit: Edit<'_>,
 ) -> WriteResult<PublishOutcome> {
-    publish_with(
-        vfs,
-        sink,
-        dir,
-        spec,
-        &[],
-        &[],
-        PublishKind::Rotate,
-        fxid,
-        probe,
-        base_facts.into(),
-        edit,
-    )
+    publish_with(vfs, sink, dir, spec, &[], &[], PublishKind::Rotate, fxid, probe, base_facts.into(), edit,)
 }
 
 /// A segment's seal (F1, design §4.5): its part, when it had committed rows, installed under the segment's reserved
@@ -587,35 +477,17 @@ pub fn publish_seal<'b>(
 ) -> WriteResult<PublishOutcome> {
     let base_facts = base_facts.into();
     let sealed = part.map_or(&[][..], |(s, ..)| std::slice::from_ref(s));
-    let sidecars: Vec<(u32, SidecarKind, u64, &[u8])> = part
-        .iter()
-        .map(|&(_, no, map)| (no, SidecarKind::RowIdentMap, 1, map))
-        .collect();
+    let sidecars: Vec<(u32, SidecarKind, u64, &[u8])> = part.iter().map(|&(_, no, map)| (no, SidecarKind::RowIdentMap, 1, map)).collect();
     use pgrc_format::manifest::{PART_FLAG_ROWMAP, PART_ROWMAP_FORM_SHIFT, PART_ROWMAP_GRANULES};
     let mut install = |base: Option<&Manifest>, b: &mut PlanBuilder<'_>| {
         if let Some((s, part_no, _)) = part {
             b.install_as(s, part_no)?;
             // ROWMAP2 M1: a seal's map is the granules form, authoritative (its absence is corruption)
-            b.set_flags(
-                part_no,
-                PART_FLAG_ROWMAP | PART_ROWMAP_GRANULES << PART_ROWMAP_FORM_SHIFT,
-            );
+            b.set_flags(part_no, PART_FLAG_ROWMAP | PART_ROWMAP_GRANULES << PART_ROWMAP_FORM_SHIFT,);
         }
         edit(base, b)
     };
-    publish_with(
-        vfs,
-        sink,
-        dir,
-        spec,
-        sealed,
-        &sidecars,
-        PublishKind::Seal,
-        fxid,
-        probe,
-        base_facts,
-        &mut install,
-    )
+    publish_with(vfs, sink, dir, spec, sealed, &sidecars, PublishKind::Seal, fxid, probe, base_facts, &mut install,)
 }
 
 /// A compile (F2 L7, design §4.7): each `(part_no, rows)` folds its `(granule, row)` deletions into the part's DV.
@@ -643,77 +515,33 @@ pub fn publish_compile<'b>(
     if by_part.is_empty() {
         return Ok(None);
     }
-    let base = plan_base(vfs, dir, fxid, probe, &base_facts)?.ok_or(WriteError::Contract {
-        detail: "compile of a table with no generation",
-    })?;
+    let base = plan_base(vfs, dir, fxid, probe, &base_facts)?.ok_or(WriteError::Contract { detail: "compile of a table with no generation", })?;
     let base_gen = base.header.gen;
     let gen = next_gen(base_gen, probe.used_numbers(dir));
     let mut dvs: Vec<(PartRecord, Vec<u8>)> = Vec::new();
     for (part_no, rows) in &by_part {
-        let at = base
-            .parts
-            .binary_search_by_key(part_no, |p| p.part_no)
-            .map_err(|_| WriteError::Contract {
-                detail: "compile names a part not in the base generation",
-            })?;
+        let at = base.parts.binary_search_by_key(part_no, |p| p.part_no).map_err(|_| WriteError::Contract { detail: "compile names a part not in the base generation", })?;
         let rec = &base.parts[at];
-        if rows
-            .iter()
-            .any(|&(g, r)| g >= rec.granule_count || u32::from(r) >= rec.granule_rows)
-        {
-            return Err(WriteError::Contract {
-                detail: "compile row beyond its part",
-            });
+        if rows.iter().any(|&(g, r)| g >= rec.granule_count || u32::from(r) >= rec.granule_rows) {
+            return Err(WriteError::Contract { detail: "compile row beyond its part", });
         }
-        let existing = if rec.dv_gen == 0 {
-            None
-        } else {
-            Some(read_dv(vfs, dir, rec)?)
-        };
-        if let Some((payload, t)) =
-            crate::dml::compile_part_dv(existing.as_deref(), *part_no, rows, gen)?
-        {
-            dvs.push((
-                PartRecord {
-                    dv_gen: t.dv_gen,
-                    dv_len: t.dv_len,
-                    dv_crc: t.dv_crc,
-                    ..*rec
-                },
-                payload,
-            ));
+        let existing = if rec.dv_gen == 0 { None } else { Some(read_dv(vfs, dir, rec)?) };
+        if let Some((payload, t)) = crate::dml::compile_part_dv(existing.as_deref(), *part_no, rows, gen)? {
+            dvs.push((PartRecord { dv_gen: t.dv_gen, dv_len: t.dv_len, dv_crc: t.dv_crc, ..*rec }, payload,));
         }
     }
     if dvs.is_empty() {
         return Ok(None);
     }
-    let sidecars: Vec<(u32, SidecarKind, u64, &[u8])> = dvs
-        .iter()
-        .map(|(r, p)| (r.part_no, SidecarKind::Dv, gen, p.as_slice()))
-        .collect();
+    let sidecars: Vec<(u32, SidecarKind, u64, &[u8])> = dvs.iter().map(|(r, p)| (r.part_no, SidecarKind::Dv, gen, p.as_slice())).collect();
     let mut edit = |b: Option<&Manifest>, plan: &mut PlanBuilder<'_>| {
         if b.map(|m| m.header.gen) != Some(base_gen) || plan.gen() != gen {
-            return Err(WriteError::Contract {
-                detail: "compile base generation moved",
-            });
+            return Err(WriteError::Contract { detail: "compile base generation moved", });
         }
         dvs.iter().for_each(|(r, _)| plan.upsert(*r));
         Ok(())
     };
-    publish_with(
-        vfs,
-        sink,
-        dir,
-        spec,
-        &[],
-        &sidecars,
-        PublishKind::Compile,
-        fxid,
-        probe,
-        base_facts,
-        &mut edit,
-    )
-    .map(Some)
+    publish_with(vfs, sink, dir, spec, &[], &sidecars, PublishKind::Compile, fxid, probe, base_facts, &mut edit,).map(Some)
 }
 
 /// TOMB: [`publish_compile`] whose plan `extra` also edits (the tombstone heaps' `EXT_TOMBS` state rides the DVs of
@@ -740,77 +568,33 @@ pub fn publish_compile_ext<'b>(
     if by_part.is_empty() {
         return Ok(None);
     }
-    let base = plan_base(vfs, dir, fxid, probe, &base_facts)?.ok_or(WriteError::Contract {
-        detail: "compile of a table with no generation",
-    })?;
+    let base = plan_base(vfs, dir, fxid, probe, &base_facts)?.ok_or(WriteError::Contract { detail: "compile of a table with no generation", })?;
     let base_gen = base.header.gen;
     let gen = next_gen(base_gen, probe.used_numbers(dir));
     let mut dvs: Vec<(PartRecord, Vec<u8>)> = Vec::new();
     for (part_no, rows) in &by_part {
-        let at = base
-            .parts
-            .binary_search_by_key(part_no, |p| p.part_no)
-            .map_err(|_| WriteError::Contract {
-                detail: "compile names a part not in the base generation",
-            })?;
+        let at = base.parts.binary_search_by_key(part_no, |p| p.part_no).map_err(|_| WriteError::Contract { detail: "compile names a part not in the base generation", })?;
         let rec = &base.parts[at];
-        if rows
-            .iter()
-            .any(|&(g, r)| g >= rec.granule_count || u32::from(r) >= rec.granule_rows)
-        {
-            return Err(WriteError::Contract {
-                detail: "compile row beyond its part",
-            });
+        if rows.iter().any(|&(g, r)| g >= rec.granule_count || u32::from(r) >= rec.granule_rows) {
+            return Err(WriteError::Contract { detail: "compile row beyond its part", });
         }
-        let existing = if rec.dv_gen == 0 {
-            None
-        } else {
-            Some(read_dv(vfs, dir, rec)?)
-        };
-        if let Some((payload, t)) =
-            crate::dml::compile_part_dv(existing.as_deref(), *part_no, rows, gen)?
-        {
-            dvs.push((
-                PartRecord {
-                    dv_gen: t.dv_gen,
-                    dv_len: t.dv_len,
-                    dv_crc: t.dv_crc,
-                    ..*rec
-                },
-                payload,
-            ));
+        let existing = if rec.dv_gen == 0 { None } else { Some(read_dv(vfs, dir, rec)?) };
+        if let Some((payload, t)) = crate::dml::compile_part_dv(existing.as_deref(), *part_no, rows, gen)? {
+            dvs.push((PartRecord { dv_gen: t.dv_gen, dv_len: t.dv_len, dv_crc: t.dv_crc, ..*rec }, payload,));
         }
     }
     if dvs.is_empty() {
         return Ok(None);
     }
-    let sidecars: Vec<(u32, SidecarKind, u64, &[u8])> = dvs
-        .iter()
-        .map(|(r, p)| (r.part_no, SidecarKind::Dv, gen, p.as_slice()))
-        .collect();
+    let sidecars: Vec<(u32, SidecarKind, u64, &[u8])> = dvs.iter().map(|(r, p)| (r.part_no, SidecarKind::Dv, gen, p.as_slice())).collect();
     let mut edit = |b: Option<&Manifest>, plan: &mut PlanBuilder<'_>| {
         if b.map(|m| m.header.gen) != Some(base_gen) || plan.gen() != gen {
-            return Err(WriteError::Contract {
-                detail: "compile base generation moved",
-            });
+            return Err(WriteError::Contract { detail: "compile base generation moved", });
         }
         dvs.iter().for_each(|(r, _)| plan.upsert(*r));
         extra(b, plan)
     };
-    publish_with(
-        vfs,
-        sink,
-        dir,
-        spec,
-        &[],
-        &sidecars,
-        PublishKind::Compile,
-        fxid,
-        probe,
-        base_facts,
-        &mut edit,
-    )
-    .map(Some)
+    publish_with(vfs, sink, dir, spec, &[], &sidecars, PublishKind::Compile, fxid, probe, base_facts, &mut edit,).map(Some)
 }
 
 /// A compaction (K1, design §4.9): retire every input `(part_no, dv_gen)` of the base (its DV unchanged since the job
@@ -832,24 +616,15 @@ pub fn publish_compact<'b>(
 ) -> WriteResult<(PublishOutcome, Option<u32>)> {
     has_storage(spec)?;
     let base_facts = base_facts.into();
-    use pgrc_format::manifest::{
-        PART_FLAG_COMPACTED, PART_FLAG_ROWMAP, PART_ROWMAP_FORM_SHIFT, PART_ROWMAP_GRANULES,
-    };
+    use pgrc_format::manifest::{PART_FLAG_COMPACTED, PART_FLAG_ROWMAP, PART_ROWMAP_FORM_SHIFT, PART_ROWMAP_GRANULES,};
     let contract = |detail| WriteError::Contract { detail };
     // ROWMAP2 M2: the granules map is the one form a reader loads; the forms before M1 are retired
     if part.is_some_and(|(_, form, _)| form != PART_ROWMAP_GRANULES) {
         return Err(contract("a compaction output's RowIdentMap is not the granules form (the forms before ROWMAP2 M1 are retired)"));
     }
-    let base = effective_manifest(vfs, dir, probe, Some(fxid))?
-        .ok_or(contract("compaction of a table with no generation"))?;
-    if retire.is_empty()
-        || retire.iter().any(|&(no, dv_gen)| {
-            !base
-                .parts
-                .iter()
-                .any(|p| p.part_no == no && p.dv_gen == dv_gen)
-        })
-    {
+    let base = effective_manifest(vfs, dir, probe, Some(fxid))?.ok_or(contract("compaction of a table with no generation"))?;
+    if retire.is_empty() || retire.iter().any(|&(no, dv_gen)| { !base.parts.iter().any(|p| p.part_no == no && p.dv_gen == dv_gen)
+        }) {
         return Err(contract("compaction inputs are not the base generation's"));
     }
     let used = probe.used_numbers(dir);
@@ -867,33 +642,13 @@ pub fn publish_compact<'b>(
         }
         _ => None,
     };
-    let sidecars: Vec<(u32, SidecarKind, u64, &[u8])> = out
-        .iter()
-        .zip(part)
-        .map(|(&no, (_, _, map))| {
-            (
-                no,
-                SidecarKind::RowIdentMap,
-                1,
-                home.as_ref().map_or(map, |h| &h.member_map[..]),
-            )
-        })
-        .collect();
-    let files: Vec<(String, &[u8])> = home
-        .iter()
-        .map(|h| {
-            (
-                pgrc_format::dirlayout::runrev_file_name(h.run.run_id),
-                &h.file[..],
-            )
-        })
-        .collect();
+    let sidecars: Vec<(u32, SidecarKind, u64, &[u8])> =
+        out.iter().zip(part).map(|(&no, (_, _, map))| { (no, SidecarKind::RowIdentMap, 1, home.as_ref().map_or(map, |h| &h.member_map[..]),)
+        }).collect();
+    let files: Vec<(String, &[u8])> = home.iter().map(|h| { (pgrc_format::dirlayout::runrev_file_name(h.run.run_id), &h.file[..],)
+        }).collect();
     let base_next = base.header.next_part_no;
-    let holds = |m: &Manifest| {
-        retire.iter().all(|&(no, dv_gen)| {
-            m.parts
-                .iter()
-                .any(|p| p.part_no == no && p.dv_gen == dv_gen)
+    let holds = |m: &Manifest| { retire.iter().all(|&(no, dv_gen)| { m.parts.iter().any(|p| p.part_no == no && p.dv_gen == dv_gen)
         })
     };
     let mut edit = |b: Option<&Manifest>, plan: &mut PlanBuilder<'_>| {
@@ -915,10 +670,7 @@ pub fn publish_compact<'b>(
         retire.iter().for_each(|&(no, _)| plan.retire(no));
         if let (Some(no), Some((s, form, ..))) = (out, part) {
             plan.install_as(s, no)?;
-            plan.set_flags(
-                no,
-                PART_FLAG_ROWMAP | form << PART_ROWMAP_FORM_SHIFT | PART_FLAG_COMPACTED,
-            );
+            plan.set_flags(no, PART_FLAG_ROWMAP | form << PART_ROWMAP_FORM_SHIFT | PART_FLAG_COMPACTED,);
             match (&home, crate::testruns::knob()) {
                 (Some(h), _) => {
                     plan.set_ranges(no, Vec::new());
@@ -930,21 +682,7 @@ pub fn publish_compact<'b>(
         }
         Ok(())
     };
-    publish_with_files(
-        vfs,
-        sink,
-        dir,
-        spec,
-        sealed,
-        &sidecars,
-        &files,
-        PublishKind::Compact,
-        fxid,
-        probe,
-        base_facts,
-        &mut edit,
-    )
-    .map(|o| (o, out))
+    publish_with_files(vfs, sink, dir, spec, sealed, &sidecars, &files, PublishKind::Compact, fxid, probe, base_facts, &mut edit,).map(|o| (o, out))
 }
 
 /// SORTRUNS-E0 L0, the gates' knob `PGRUST_PGRC_TEST_SELF_RUNS=1` (never set in production; [`crate::testruns`]):
@@ -954,38 +692,15 @@ pub fn publish_compact<'b>(
 /// dirhash). A later compaction of the output empties and drops the run ([`PlanBuilder::finish`]).
 /// L1: `frameix` / `labels` publish a run that homes the output's IDs instead ([`add_run`]).
 /// The knob's edit: the base's runs (`b`'s) and a NONE run of part `no` (`rows` rows) under the plan's generation.
-pub(crate) fn add_self_run(
-    b: Option<&Manifest>,
-    plan: &mut PlanBuilder<'_>,
-    no: u32,
-    rows: u64,
-) -> WriteResult<()> {
+pub(crate) fn add_self_run(b: Option<&Manifest>, plan: &mut PlanBuilder<'_>, no: u32, rows: u64,) -> WriteResult<()> {
     use pgrc_format::sortrun::{RankForm, RunRevForm, SortRun};
     let run_id = plan.gen();
-    add_run(
-        b,
-        plan,
-        SortRun {
-            run_id,
-            level: 1,
-            rev: RunRevForm::None,
-            rank: RankForm::Dense,
-            rows: rows.max(1),
-            rev_len: 0,
-            rev_crc: 0,
-            members: vec![no],
-            ranges: Vec::new(),
-        },
-    )
+    add_run(b, plan, SortRun { run_id, level: 1, rev: RunRevForm::None, rank: RankForm::Dense, rows: rows.max(1), rev_len: 0, rev_crc: 0, members: vec![no], ranges: Vec::new(), },)
 }
 
 /// SORTRUNS-E0: the base's runs (`b`'s) and `run`, published by the plan, its job having read the base itself (the
 /// gates' knob, VACUUM FULL's renumber): [`add_run_from`] with the base's generation as the job's start.
-pub(crate) fn add_run(
-    b: Option<&Manifest>,
-    plan: &mut PlanBuilder<'_>,
-    run: pgrc_format::sortrun::SortRun,
-) -> WriteResult<()> {
+pub(crate) fn add_run(b: Option<&Manifest>, plan: &mut PlanBuilder<'_>, run: pgrc_format::sortrun::SortRun,) -> WriteResult<()> {
     add_run_from(b, plan, run, b.map_or(0, |m| m.header.gen))
 }
 
@@ -993,12 +708,7 @@ pub(crate) fn add_run(
 /// `start_gen`. Its `run_id` is the plan's generation (the gates' knob, a renumbered run) or, L2, a generation number
 /// its job reserved before it wrote the run's reverse (so the file and its page 0 are whole before the publish):
 /// [`run_id_ok`]. The runs stay in `run_id` order.
-pub(crate) fn add_run_from(
-    b: Option<&Manifest>,
-    plan: &mut PlanBuilder<'_>,
-    run: pgrc_format::sortrun::SortRun,
-    start_gen: u64,
-) -> WriteResult<()> {
+pub(crate) fn add_run_from(b: Option<&Manifest>, plan: &mut PlanBuilder<'_>, run: pgrc_format::sortrun::SortRun, start_gen: u64,) -> WriteResult<()> {
     let mut runs = b.map_or(Ok(Vec::new()), |m| pgrc_format::sortrun::runs_in(&m.ext))?;
     if !run_id_ok(run.run_id, start_gen, plan.gen(), &runs) {
         return Err(WriteError::Contract { detail: "a sorted run's ID is its publish's generation or one its job reserved after the generation it read, and no run's of the base" });
@@ -1014,12 +724,7 @@ pub(crate) fn add_run_from(
 /// job's) or the publish's own, so it lies above `start_gen` and at or below `plan_gen`, and no run of the base has it.
 /// Other publishes (a COPY's: no maintenance lock) may land between the reservation and the run's publish, so the
 /// base's generation may pass the ID: uniqueness rests on the reservation, not on "above the base's generation".
-pub fn run_id_ok(
-    id: u64,
-    start_gen: u64,
-    plan_gen: u64,
-    base_runs: &[pgrc_format::sortrun::SortRun],
-) -> bool {
+pub fn run_id_ok(id: u64, start_gen: u64, plan_gen: u64, base_runs: &[pgrc_format::sortrun::SortRun],) -> bool {
     id > start_gen && id <= plan_gen && !base_runs.iter().any(|r| r.run_id == id)
 }
 
@@ -1059,23 +764,16 @@ pub fn publish_runs<'b>(
     probe: &dyn TxnProbe,
     base_facts: impl Into<BaseStats<'b>>,
 ) -> WriteResult<(PublishOutcome, Vec<u32>)> {
-    use pgrc_format::manifest::{
-        PART_FLAG_COMPACTED, PART_FLAG_ROWMAP, PART_ROWMAP_FORM_SHIFT, PART_ROWMAP_GRANULES,
-    };
+    use pgrc_format::manifest::{PART_FLAG_COMPACTED, PART_FLAG_ROWMAP, PART_ROWMAP_FORM_SHIFT, PART_ROWMAP_GRANULES,};
     let base_facts = base_facts.into();
     let contract = |detail| WriteError::Contract { detail };
     if sealed.is_empty() || sealed.len() != maps.len() || !run.homes() || retire.is_empty() {
         return Err(contract("a run merge's members, maps and inputs"));
     }
-    let base = effective_manifest(vfs, dir, probe, Some(fxid))?
-        .ok_or(contract("run merge of a table with no generation"))?;
+    let base = effective_manifest(vfs, dir, probe, Some(fxid))?.ok_or(contract("run merge of a table with no generation"))?;
     let now: Vec<(u32, u64)> = retire
         .iter()
-        .map(|&no| {
-            base.parts
-                .iter()
-                .find(|p| p.part_no == no)
-                .map(|p| (no, p.dv_gen))
+        .map(|&no| { base.parts.iter().find(|p| p.part_no == no).map(|p| (no, p.dv_gen))
         })
         .collect::<Option<_>>()
         .ok_or(contract("run merge inputs are not the base generation's"))?;
@@ -1085,56 +783,32 @@ pub fn publish_runs<'b>(
     let base_gen = base.header.gen;
     let gen = next_gen(base_gen, used);
     if run.run_id == 0 || run.run_id >= gen {
-        return Err(contract(
-            "a run merge's run ID is not reserved below its publish",
-        ));
+        return Err(contract("a run merge's run ID is not reserved below its publish",));
     }
     let mut dvs: Vec<(u32, crate::dml::DvTriplet, Vec<u8>)> = Vec::new();
     for (slot, ords) in carry(&base)? {
-        let s = sealed
-            .get(slot)
-            .ok_or(contract("DV carry names no member"))?;
+        let s = sealed.get(slot).ok_or(contract("DV carry names no member"))?;
         let grain = pgrc_format::part::FooterFixed::decode(&s.footer_image)?.granule_rows;
         if grain == 0 || ords.iter().any(|&o| u64::from(o) >= s.rows) {
             return Err(contract("DV carry names a row past its member"));
         }
-        let rows: Vec<(u32, u16)> = ords
-            .iter()
-            .map(|&o| (o / grain, (o % grain) as u16))
-            .collect();
+        let rows: Vec<(u32, u16)> = ords.iter().map(|&o| (o / grain, (o % grain) as u16)).collect();
         if let Some((payload, t)) = crate::dml::compile_part_dv(None, nos[slot], &rows, gen)? {
             dvs.push((nos[slot], t, payload));
         }
     }
     run.members = nos.clone();
-    let sidecars: Vec<(u32, SidecarKind, u64, &[u8])> = nos
-        .iter()
-        .zip(maps)
-        .map(|(&no, m)| (no, SidecarKind::RowIdentMap, 1, &m[..]))
-        .collect();
+    let sidecars: Vec<(u32, SidecarKind, u64, &[u8])> = nos.iter().zip(maps).map(|(&no, m)| (no, SidecarKind::RowIdentMap, 1, &m[..])).collect();
     // a member's DV is staged as one of the publish's files: a publish stages one sidecar a part (the temp name
     // `stage_sidecar_gen` gives it), here its map; the image and the name are the sidecar's
     let dv_images: Vec<(String, Vec<u8>)> = dvs
         .iter()
-        .map(|(no, _, p)| {
-            (
-                sidecar_file_name(*no, SidecarKind::Dv, gen),
-                crate::sidecar::sidecar_file_image(
-                    SidecarKind::Dv,
-                    [0u8; 16],
-                    spec.schema_fingerprint,
-                    p,
-                ),
-            )
+        .map(|(no, _, p)| { (sidecar_file_name(*no, SidecarKind::Dv, gen), crate::sidecar::sidecar_file_image(SidecarKind::Dv, [0u8; 16], spec.schema_fingerprint, p,),)
         })
         .collect();
     let files: Vec<(String, &[u8])> = dv_images.iter().map(|(n, b)| (n.clone(), &b[..])).collect();
     let base_next = base.header.next_part_no;
-    let holds = |m: &Manifest| {
-        now.iter().all(|&(no, dv_gen)| {
-            m.parts
-                .iter()
-                .any(|p| p.part_no == no && p.dv_gen == dv_gen)
+    let holds = |m: &Manifest| { now.iter().all(|&(no, dv_gen)| { m.parts.iter().any(|p| p.part_no == no && p.dv_gen == dv_gen)
         })
     };
     let mut edit = |b: Option<&Manifest>, plan: &mut PlanBuilder<'_>| {
@@ -1153,12 +827,7 @@ pub fn publish_runs<'b>(
         now.iter().for_each(|&(no, _)| plan.retire(no));
         for (s, &no) in sealed.iter().zip(&nos) {
             plan.install_as(s, no)?;
-            plan.set_flags(
-                no,
-                PART_FLAG_ROWMAP
-                    | PART_ROWMAP_GRANULES << PART_ROWMAP_FORM_SHIFT
-                    | PART_FLAG_COMPACTED,
-            );
+            plan.set_flags(no, PART_FLAG_ROWMAP | PART_ROWMAP_GRANULES << PART_ROWMAP_FORM_SHIFT | PART_FLAG_COMPACTED,);
             plan.set_ranges(no, Vec::new());
         }
         for (no, t, _) in &dvs {
@@ -1169,21 +838,7 @@ pub fn publish_runs<'b>(
         }
         add_run_from(b, plan, run.clone(), start_gen)
     };
-    publish_with_files(
-        vfs,
-        sink,
-        dir,
-        spec,
-        sealed,
-        &sidecars,
-        &files,
-        PublishKind::Compact,
-        fxid,
-        probe,
-        base_facts,
-        &mut edit,
-    )
-    .map(|o| (o, nos.clone()))
+    publish_with_files(vfs, sink, dir, spec, sealed, &sidecars, &files, PublishKind::Compact, fxid, probe, base_facts, &mut edit,).map(|o| (o, nos.clone()))
 }
 
 /// SORTRUNS-E0 L3b1: VACUUM FULL's renumber of a sorted run, one `PUBLISH` (kind `Compact`) under the caller's
@@ -1211,21 +866,11 @@ pub fn publish_self_run<'b>(
     use pgrc_format::sortrun::{RankForm, RunRevForm, SortRun};
     let base_facts = base_facts.into();
     let contract = |detail| WriteError::Contract { detail };
-    if sealed.is_empty()
-        || sealed.len() != maps.len()
-        || sealed.len() != ranges.len()
-        || retire.is_empty()
-    {
-        return Err(contract(
-            "a run renumber's members, maps, ranges and inputs",
-        ));
+    if sealed.is_empty() || sealed.len() != maps.len() || sealed.len() != ranges.len() || retire.is_empty() {
+        return Err(contract("a run renumber's members, maps, ranges and inputs",));
     }
-    let base = effective_manifest(vfs, dir, probe, Some(fxid))?
-        .ok_or(contract("run renumber of a table with no generation"))?;
-    if !retire.iter().all(|&(no, dv_gen)| {
-        base.parts
-            .iter()
-            .any(|p| p.part_no == no && p.dv_gen == dv_gen)
+    let base = effective_manifest(vfs, dir, probe, Some(fxid))?.ok_or(contract("run renumber of a table with no generation"))?;
+    if !retire.iter().all(|&(no, dv_gen)| { base.parts.iter().any(|p| p.part_no == no && p.dv_gen == dv_gen)
     }) {
         return Err(contract("run renumber inputs moved since the read"));
     }
@@ -1234,11 +879,7 @@ pub fn publish_self_run<'b>(
     let nos: Vec<u32> = (0..sealed.len() as u32).map(|k| first + k).collect();
     let base_gen = base.header.gen;
     let gen = next_gen(base_gen, used);
-    let sidecars: Vec<(u32, SidecarKind, u64, &[u8])> = nos
-        .iter()
-        .zip(maps)
-        .map(|(&no, m)| (no, SidecarKind::RowIdentMap, 1, &m.1[..]))
-        .collect();
+    let sidecars: Vec<(u32, SidecarKind, u64, &[u8])> = nos.iter().zip(maps).map(|(&no, m)| (no, SidecarKind::RowIdentMap, 1, &m.1[..])).collect();
     let rows: u64 = sealed.iter().map(|s| s.rows).sum();
     let mut edit = |b: Option<&Manifest>, plan: &mut PlanBuilder<'_>| {
         if b.is_none_or(|m| m.header.gen != base_gen) || plan.gen() != gen {
@@ -1247,43 +888,12 @@ pub fn publish_self_run<'b>(
         retire.iter().for_each(|&(no, _)| plan.retire(no));
         for ((s, &no), (m, r)) in sealed.iter().zip(&nos).zip(maps.iter().zip(ranges)) {
             plan.install_as(s, no)?;
-            plan.set_flags(
-                no,
-                PART_FLAG_ROWMAP | m.0 << PART_ROWMAP_FORM_SHIFT | PART_FLAG_COMPACTED,
-            );
+            plan.set_flags(no, PART_FLAG_ROWMAP | m.0 << PART_ROWMAP_FORM_SHIFT | PART_FLAG_COMPACTED,);
             plan.set_ranges(no, r.clone());
         }
-        add_run(
-            b,
-            plan,
-            SortRun {
-                run_id: gen,
-                level,
-                rev: RunRevForm::None,
-                rank: RankForm::Dense,
-                rows: rows.max(1),
-                rev_len: 0,
-                rev_crc: 0,
-                members: nos.clone(),
-                ranges: Vec::new(),
-            },
-        )
+        add_run(b, plan, SortRun { run_id: gen, level, rev: RunRevForm::None, rank: RankForm::Dense, rows: rows.max(1), rev_len: 0, rev_crc: 0, members: nos.clone(), ranges: Vec::new(), },)
     };
-    publish_with_files(
-        vfs,
-        sink,
-        dir,
-        spec,
-        sealed,
-        &sidecars,
-        &[],
-        PublishKind::Compact,
-        fxid,
-        probe,
-        base_facts,
-        &mut edit,
-    )
-    .map(|o| (o, nos.clone()))
+    publish_with_files(vfs, sink, dir, spec, sealed, &sidecars, &[], PublishKind::Compact, fxid, probe, base_facts, &mut edit,).map(|o| (o, nos.clone()))
 }
 
 /// SORTRUNS-E0 L3b1, DV carry of a member's slot swap ([`publish_member_swap`]): given the publish's base, the new
@@ -1310,29 +920,15 @@ pub fn publish_member_swap<'b>(
     probe: &dyn TxnProbe,
     base_facts: impl Into<BaseStats<'b>>,
 ) -> WriteResult<(PublishOutcome, u32)> {
-    use pgrc_format::manifest::{
-        PART_FLAG_COMPACTED, PART_FLAG_ROWMAP, PART_ROWMAP_FORM_SHIFT, PART_ROWMAP_GRANULES,
-    };
+    use pgrc_format::manifest::{PART_FLAG_COMPACTED, PART_FLAG_ROWMAP, PART_ROWMAP_FORM_SHIFT, PART_ROWMAP_GRANULES,};
     let base_facts = base_facts.into();
     let contract = |detail| WriteError::Contract { detail };
-    let [s] = sealed else {
-        return Err(contract("a member's slot swap seals one part"));
-    };
-    let base = effective_manifest(vfs, dir, probe, Some(fxid))?
-        .ok_or(contract("member swap of a table with no generation"))?;
-    let dv_gen = base
-        .parts
-        .iter()
-        .find(|p| p.part_no == from)
-        .map(|p| p.dv_gen)
-        .ok_or(contract("member swap input is not the base generation's"))?;
-    let homes = pgrc_format::sortrun::runs_in(&base.ext)?
-        .iter()
-        .any(|r| r.homes() && r.members.contains(&from));
+    let [s] = sealed else { return Err(contract("a member's slot swap seals one part")); };
+    let base = effective_manifest(vfs, dir, probe, Some(fxid))?.ok_or(contract("member swap of a table with no generation"))?;
+    let dv_gen = base.parts.iter().find(|p| p.part_no == from).map(|p| p.dv_gen).ok_or(contract("member swap input is not the base generation's"))?;
+    let homes = pgrc_format::sortrun::runs_in(&base.ext)?.iter().any(|r| r.homes() && r.members.contains(&from));
     if !homes {
-        return Err(contract(
-            "member swap input is no member of a run that homes its IDs",
-        ));
+        return Err(contract("member swap input is no member of a run that homes its IDs",));
     }
     let used = probe.used_numbers(dir);
     let no = base.header.next_part_no.max(used.1);
@@ -1343,33 +939,14 @@ pub fn publish_member_swap<'b>(
     if grain == 0 || ords.iter().any(|&o| u64::from(o) >= s.rows) {
         return Err(contract("DV carry names a row past the member"));
     }
-    let rows: Vec<(u32, u16)> = ords
-        .iter()
-        .map(|&o| (o / grain, (o % grain) as u16))
-        .collect();
+    let rows: Vec<(u32, u16)> = ords.iter().map(|&o| (o / grain, (o % grain) as u16)).collect();
     let dv = crate::dml::compile_part_dv(None, no, &rows, gen)?;
-    let sidecars: Vec<(u32, SidecarKind, u64, &[u8])> =
-        vec![(no, SidecarKind::RowIdentMap, 1, map)];
-    let dv_images: Vec<(String, Vec<u8>)> = dv
-        .iter()
-        .map(|(p, _)| {
-            (
-                sidecar_file_name(no, SidecarKind::Dv, gen),
-                crate::sidecar::sidecar_file_image(
-                    SidecarKind::Dv,
-                    [0u8; 16],
-                    spec.schema_fingerprint,
-                    p,
-                ),
-            )
-        })
-        .collect();
+    let sidecars: Vec<(u32, SidecarKind, u64, &[u8])> = vec![(no, SidecarKind::RowIdentMap, 1, map)];
+    let dv_images: Vec<(String, Vec<u8>)> = dv.iter().map(|(p, _)| { (sidecar_file_name(no, SidecarKind::Dv, gen), crate::sidecar::sidecar_file_image(SidecarKind::Dv, [0u8; 16], spec.schema_fingerprint, p,),)
+        }).collect();
     let files: Vec<(String, &[u8])> = dv_images.iter().map(|(n, b)| (n.clone(), &b[..])).collect();
     let base_next = base.header.next_part_no;
-    let holds = |m: &Manifest| {
-        m.parts
-            .iter()
-            .any(|p| p.part_no == from && p.dv_gen == dv_gen)
+    let holds = |m: &Manifest| { m.parts.iter().any(|p| p.part_no == from && p.dv_gen == dv_gen)
     };
     let mut edit = |b: Option<&Manifest>, plan: &mut PlanBuilder<'_>| {
         // as publish_runs: a stacked base whose run's creator rolled back since the read
@@ -1386,10 +963,7 @@ pub fn publish_member_swap<'b>(
         }
         plan.retire(from);
         plan.install_as(s, no)?;
-        plan.set_flags(
-            no,
-            PART_FLAG_ROWMAP | PART_ROWMAP_GRANULES << PART_ROWMAP_FORM_SHIFT | PART_FLAG_COMPACTED,
-        );
+        plan.set_flags(no, PART_FLAG_ROWMAP | PART_ROWMAP_GRANULES << PART_ROWMAP_FORM_SHIFT | PART_FLAG_COMPACTED,);
         plan.set_ranges(no, Vec::new());
         if let Some((_, t)) = &dv {
             plan.set_dv(no, t.dv_gen, t.dv_len, t.dv_crc);
@@ -1397,21 +971,7 @@ pub fn publish_member_swap<'b>(
         plan.repoint_member(from, no);
         Ok(())
     };
-    publish_with_files(
-        vfs,
-        sink,
-        dir,
-        spec,
-        sealed,
-        &sidecars,
-        &files,
-        PublishKind::Compact,
-        fxid,
-        probe,
-        base_facts,
-        &mut edit,
-    )
-    .map(|o| (o, no))
+    publish_with_files(vfs, sink, dir, spec, sealed, &sidecars, &files, PublishKind::Compact, fxid, probe, base_facts, &mut edit,).map(|o| (o, no))
 }
 
 /// A part's DV payload, checked against its manifest triplet (the reader's `load_part_deletes` law).
@@ -1446,34 +1006,13 @@ pub struct FreezeScan {
 
 /// The chain of `dir` against `cutoff_fxid` (the vacuum's horizon, epoch-qualified): see [`FreezeScan`]. `Err` only
 /// for an I/O error; a chain that cannot be read is `floor = Some(0)` (the caller keeps `relfrozenxid`).
-pub fn freeze_scan(
-    vfs: &mut dyn WriteVfs,
-    dir: &str,
-    probe: &dyn TxnProbe,
-    cutoff_fxid: u64,
-) -> WriteResult<FreezeScan> {
-    let unreadable = |why| FreezeScan {
-        floor: Some(0),
-        base: None,
-        due: false,
-        skip: Some(why),
-    };
+pub fn freeze_scan(vfs: &mut dyn WriteVfs, dir: &str, probe: &dyn TxnProbe, cutoff_fxid: u64,) -> WriteResult<FreezeScan> {
+    let unreadable = |why| FreezeScan { floor: Some(0), base: None, due: false, skip: Some(why), };
     let current = full_path(dir, CURRENT_FILE_NAME);
     if !vfs.exists_path(&current)? {
-        return Ok(FreezeScan {
-            floor: None,
-            base: None,
-            due: false,
-            skip: None,
-        });
+        return Ok(FreezeScan { floor: None, base: None, due: false, skip: None, });
     }
-    let Some(cp) = vfs
-        .read_full(&current)
-        .ok()
-        .and_then(|b| CommitPointer::decode(&b).ok())
-    else {
-        return Ok(unreadable("CURRENT unreadable"));
-    };
+    let Some(cp) = vfs.read_full(&current).ok().and_then(|b| CommitPointer::decode(&b).ok()) else { return Ok(unreadable("CURRENT unreadable")); };
     let mut floor: Option<u64> = None;
     fn note(floor: &mut Option<u64>, x: u64) {
         if clog_bound(x) {
@@ -1485,9 +1024,7 @@ pub fn freeze_scan(
     let mut residue = false;
     let mut g = cp.gen;
     while g != 0 {
-        let Some(m) = read_manifest(vfs, dir, g) else {
-            return Ok(unreadable("chain unreadable"));
-        };
+        let Some(m) = read_manifest(vfs, dir, g) else { return Ok(unreadable("chain unreadable")); };
         let p = m.header.publisher_fxid;
         note(&mut floor, p);
         match probe.verdict(p) {
@@ -1497,12 +1034,7 @@ pub fn freeze_scan(
                 if !clog_bound(p) || p < cutoff_fxid {
                     let due = clog_bound(p) || residue;
                     let skip = above.or((!tags.is_empty()).then_some("tagged parts in the head"));
-                    return Ok(FreezeScan {
-                        floor,
-                        base: Some(m),
-                        due,
-                        skip: skip.filter(|_| due),
-                    });
+                    return Ok(FreezeScan { floor, base: Some(m), due, skip: skip.filter(|_| due), });
                 }
                 above.get_or_insert("publisher not below the cutoff");
             }
@@ -1513,12 +1045,7 @@ pub fn freeze_scan(
         }
         g = m.header.prev_gen;
     }
-    Ok(FreezeScan {
-        floor,
-        base: None,
-        due: false,
-        skip: None,
-    })
+    Ok(FreezeScan { floor, base: None, due: false, skip: None, })
 }
 
 /// What [`publish_freeze`] did.
@@ -1562,51 +1089,23 @@ pub fn publish_freeze<'b>(
     // the live fingerprint over it was refused ("manifest base identity mismatch": a base of another schema must be
     // described), so VACUUM failed and relfrozenxid could not advance. A writer first publishes the stamp's description
     // (pgrc_am's catch-up); the freeze has no xid to do that.
-    let spec = &PartSpec {
-        schema_fingerprint: base_fp,
-        ..*spec
-    };
+    let spec = &PartSpec { schema_fingerprint: base_fp, ..*spec };
     let mut edit = |b: Option<&Manifest>, _: &mut PlanBuilder<'_>| match b {
         Some(m) if m.header.gen == base_gen => Ok(()),
-        _ => Err(WriteError::Contract {
-            detail: "freeze: the effective generation is not the scanned one",
-        }),
+        _ => Err(WriteError::Contract { detail: "freeze: the effective generation is not the scanned one", }),
     };
-    match publish_with(
-        vfs,
-        sink,
-        dir,
-        spec,
-        &[],
-        &[],
-        PublishKind::Freeze,
-        FROZEN_PUBLISHER_FXID,
-        probe,
-        base_facts.into(),
-        &mut edit,
-    ) {
+    match publish_with(vfs, sink, dir, spec, &[], &[], PublishKind::Freeze, FROZEN_PUBLISHER_FXID, probe, base_facts.into(), &mut edit,) {
         Ok(o) => Ok((FreezeOutcome::Frozen(Box::new(o)), None)),
-        Err(WriteError::PublishBusy { .. }) => Ok((
-            FreezeOutcome::Skipped(Some("publish in progress")),
-            scan.floor,
-        )),
+        Err(WriteError::PublishBusy { .. }) => Ok((FreezeOutcome::Skipped(Some("publish in progress")), scan.floor,)),
         Err(e) => Err(e),
     }
 }
 
 fn read_dv(vfs: &mut dyn WriteVfs, dir: &str, rec: &PartRecord) -> WriteResult<Vec<u8>> {
-    let bytes = vfs.read_full(&full_path(
-        dir,
-        &sidecar_file_name(rec.part_no, SidecarKind::Dv, rec.dv_gen),
-    ))?;
+    let bytes = vfs.read_full(&full_path(dir, &sidecar_file_name(rec.part_no, SidecarKind::Dv, rec.dv_gen),))?;
     let (h, payload) = SidecarFileHeader::validate_file(&bytes)?;
-    if h.kind != SidecarKind::Dv.as_u16()
-        || payload.len() as u64 != rec.dv_len
-        || crc32c(payload) != rec.dv_crc
-    {
-        return Err(WriteError::Format(FormatError::Corrupt {
-            at: "part DV vs its manifest triplet at compile",
-        }));
+    if h.kind != SidecarKind::Dv.as_u16() || payload.len() as u64 != rec.dv_len || crc32c(payload) != rec.dv_crc {
+        return Err(WriteError::Format(FormatError::Corrupt { at: "part DV vs its manifest triplet at compile", }));
     }
     Ok(pgrc_format::try_to_vec(payload, "publish")?)
 }
@@ -1615,23 +1114,12 @@ pub type Edit<'e> = &'e mut dyn FnMut(Option<&Manifest>, &mut PlanBuilder<'_>) -
 
 /// The base generation and its stats. With the catalog's generation, `CURRENT` must still name it (a 32-byte read and
 /// the manifest's crc); otherwise the effective manifest is read and its stats loaded from the directory.
-fn resolve_base<'a>(
-    vfs: &mut dyn WriteVfs,
-    dir: &str,
-    fxid: u64,
-    probe: &dyn TxnProbe,
-    given: &BaseStats<'a>,
-) -> WriteResult<(Option<Cow<'a, Manifest>>, BaseState, bool, Vec<UnderEntry>)> {
+fn resolve_base<'a>(vfs: &mut dyn WriteVfs, dir: &str, fxid: u64, probe: &dyn TxnProbe, given: &BaseStats<'a>,) -> WriteResult<(Option<Cow<'a, Manifest>>, BaseState, bool, Vec<UnderEntry>)> {
     if let BaseStats::Gen(g) = given {
         if given_is_base(vfs, dir, fxid, probe, g) {
-            let state = match (
-                g.stats.root,
-                g.stats.runs.is_empty(),
-                g.stats.loose.len() >= LOOSE_MAX,
-            ) {
+            let state = match (g.stats.root, g.stats.runs.is_empty(), g.stats.loose.len() >= LOOSE_MAX,) {
                 (None, true, true) => {
-                    let parts: Vec<PartStats> =
-                        g.stats.loose.iter().map(|p| (**p).clone()).collect();
+                    let parts: Vec<PartStats> = g.stats.loose.iter().map(|p| (**p).clone()).collect();
                     BaseState::Legacy(stats::legacy_run_from_parts(&parts)?)
                 }
                 _ => BaseState::Runs(g.stats.clone()),
@@ -1640,38 +1128,19 @@ fn resolve_base<'a>(
             return Ok((Some(Cow::Borrowed(g.manifest)), state, true, Vec::new()));
         }
     }
-    let Some((base, run)) = effective_base(vfs, dir, probe, Some(fxid))? else {
-        return Ok((
-            None,
-            BaseState::Runs(StatsState::default()),
-            false,
-            Vec::new(),
-        ));
-    };
+    let Some((base, run)) = effective_base(vfs, dir, probe, Some(fxid))? else { return Ok((None, BaseState::Runs(StatsState::default()), false, Vec::new(),)); };
     let state = load_base_stats(vfs, dir, &base, given)?;
     Ok((Some(Cow::Owned(base)), state, false, run))
 }
 
 /// The catalog's generation is the publish's base: `CURRENT` still names it and its publisher is usable.
-fn given_is_base(
-    vfs: &mut dyn WriteVfs,
-    dir: &str,
-    fxid: u64,
-    probe: &dyn TxnProbe,
-    g: &BaseGen<'_>,
-) -> bool {
+fn given_is_base(vfs: &mut dyn WriteVfs, dir: &str, fxid: u64, probe: &dyn TxnProbe, g: &BaseGen<'_>,) -> bool {
     let names_it = vfs
         .read_full(&full_path(dir, CURRENT_FILE_NAME))
         .ok()
         .and_then(|b| CommitPointer::decode(&b).ok())
         // the manifest it names (a decoded pointer carries its own crc, a computed one 0)
-        .is_some_and(|cp| {
-            (cp.gen, cp.manifest_len, cp.manifest_crc)
-                == (
-                    g.pointer.gen,
-                    g.pointer.manifest_len,
-                    g.pointer.manifest_crc,
-                )
+        .is_some_and(|cp| { (cp.gen, cp.manifest_len, cp.manifest_crc) == (g.pointer.gen, g.pointer.manifest_len, g.pointer.manifest_crc,)
         });
     let usable = match probe.verdict(g.manifest.header.publisher_fxid) {
         TxnVerdict::Committed => true,
@@ -1685,13 +1154,7 @@ fn given_is_base(
 
 /// The base manifest a publisher reads before its plan (a compile's DV folds): the catalog's by reference when it is
 /// the base ([`given_is_base`]; P-1 L4a, no manifest read per compile), else the effective manifest from the directory.
-fn plan_base<'a>(
-    vfs: &mut dyn WriteVfs,
-    dir: &str,
-    fxid: u64,
-    probe: &dyn TxnProbe,
-    given: &BaseStats<'a>,
-) -> WriteResult<Option<Cow<'a, Manifest>>> {
+fn plan_base<'a>(vfs: &mut dyn WriteVfs, dir: &str, fxid: u64, probe: &dyn TxnProbe, given: &BaseStats<'a>,) -> WriteResult<Option<Cow<'a, Manifest>>> {
     if let BaseStats::Gen(g) = given {
         if given_is_base(vfs, dir, fxid, probe, g) {
             return Ok(Some(Cow::Borrowed(g.manifest)));
@@ -1708,12 +1171,7 @@ enum BaseState {
 }
 
 /// A part's stats from its file, opened through `vfs` against its manifest record.
-pub fn part_stats_on_disk(
-    vfs: &mut dyn WriteVfs,
-    dir: &str,
-    m: &Manifest,
-    rec: &PartRecord,
-) -> WriteResult<PartStats> {
+pub fn part_stats_on_disk(vfs: &mut dyn WriteVfs, dir: &str, m: &Manifest, rec: &PartRecord,) -> WriteResult<PartStats> {
     let io = vfs.part_io(&full_path(dir, &part_file_name(rec.part_no)))?;
     let fp = pgrc_format::manifest::part_fingerprint(m, rec.part_no)?;
     let expect = pgrc_read::PartExpect::from_manifest(rec, fp, m.header.relfilenumber);
@@ -1721,51 +1179,27 @@ pub fn part_stats_on_disk(
     stats::part_stats_from_open(&part, rec).map_err(stats::read_error)
 }
 
-fn load_base_stats(
-    vfs: &mut dyn WriteVfs,
-    dir: &str,
-    base: &Manifest,
-    given: &BaseStats<'_>,
-) -> WriteResult<BaseState> {
+fn load_base_stats(vfs: &mut dyn WriteVfs, dir: &str, base: &Manifest, given: &BaseStats<'_>,) -> WriteResult<BaseState> {
     if stats_ref(base)?.is_some() {
-        let loaded = StatsState::load(vfs, dir, base, None, &mut |v, rec| {
-            part_stats_on_disk(v, dir, base, rec)
+        let loaded = StatsState::load(vfs, dir, base, None, &mut |v, rec| { part_stats_on_disk(v, dir, base, rec)
         });
         match loaded {
             Ok(s) => return Ok(BaseState::Runs(s)),
             // a root that does not describe its generation is never trusted: the parts are walked (below)
-            Err(WriteError::Io { .. })
-            | Err(WriteError::Format(_))
-            | Err(WriteError::Contract { .. }) => {}
+            Err(WriteError::Io { .. }) | Err(WriteError::Format(_)) | Err(WriteError::Contract { .. }) => {}
             Err(e) => return Err(e),
         }
     } else if base.parts.len() < LOOSE_MAX {
-        let loose = base
-            .parts
-            .iter()
-            .map(|rec| part_stats_on_disk(vfs, dir, base, rec).map(std::sync::Arc::new))
-            .collect::<WriteResult<Vec<_>>>()?;
-        return Ok(BaseState::Runs(StatsState {
-            root: None,
-            runs: Vec::new(),
-            loose,
-        }));
+        let loose = base.parts.iter().map(|rec| part_stats_on_disk(vfs, dir, base, rec).map(std::sync::Arc::new)).collect::<WriteResult<Vec<_>>>()?;
+        return Ok(BaseState::Runs(StatsState { root: None, runs: Vec::new(), loose, }));
     } else if let BaseStats::Folded(Some(img), Some(ans)) = given {
         if let Ok(run) = stats::legacy_run(base, img, ans) {
             return Ok(BaseState::Legacy(run));
         }
     }
-    let parts = base
-        .parts
-        .iter()
-        .map(|rec| part_stats_on_disk(vfs, dir, base, rec))
-        .collect::<WriteResult<Vec<_>>>()?;
+    let parts = base.parts.iter().map(|rec| part_stats_on_disk(vfs, dir, base, rec)).collect::<WriteResult<Vec<_>>>()?;
     if parts.len() < LOOSE_MAX {
-        return Ok(BaseState::Runs(StatsState {
-            root: None,
-            runs: Vec::new(),
-            loose: parts.into_iter().map(std::sync::Arc::new).collect(),
-        }));
+        return Ok(BaseState::Runs(StatsState { root: None, runs: Vec::new(), loose: parts.into_iter().map(std::sync::Arc::new).collect(), }));
     }
     Ok(BaseState::Legacy(stats::legacy_run_from_parts(&parts)?))
 }
@@ -1784,17 +1218,8 @@ pub mod counters {
 
     use pgrc_format::wal::PublishKind;
 
-    pub const FIELDS: [&str; 10] = [
-        "n", "part", "sidecar", "logged", "rec", "births", "us", "rows", "meta", "runs",
-    ];
-    pub const KINDS: [(PublishKind, &str); 6] = [
-        (PublishKind::Bulk, "bulk"),
-        (PublishKind::Rotate, "rotate"),
-        (PublishKind::Seal, "seal"),
-        (PublishKind::Compile, "compile"),
-        (PublishKind::Compact, "compact"),
-        (PublishKind::Freeze, "freeze"),
-    ];
+    pub const FIELDS: [&str; 10] = ["n", "part", "sidecar", "logged", "rec", "births", "us", "rows", "meta", "runs",];
+    pub const KINDS: [(PublishKind, &str); 6] = [(PublishKind::Bulk, "bulk"), (PublishKind::Rotate, "rotate"), (PublishKind::Seal, "seal"), (PublishKind::Compile, "compile"), (PublishKind::Compact, "compact"), (PublishKind::Freeze, "freeze"),];
 
     pgsync::process_global! {
         static BY_KIND: [[AtomicU64; 10]; 7] = [const { [const { AtomicU64::new(0) }; 10] }; 7];
@@ -1815,9 +1240,7 @@ pub mod counters {
 
     /// `pub.<kind>=<n>,<part>,<sidecar>,<logged>,<rec>,<births>,<us>,<rows>,<meta>,<runs>` for every kind, space-separated.
     pub fn line() -> String {
-        KINDS
-            .map(|(k, name)| format!("pub.{name}={}", get(k).map(|x| x.to_string()).join(",")))
-            .join(" ")
+        KINDS.map(|(k, name)| format!("pub.{name}={}", get(k).map(|x| x.to_string()).join(","))).join(" ")
     }
 }
 
@@ -1883,20 +1306,7 @@ fn publish_with(
     given: BaseStats<'_>,
     edit: Edit<'_>,
 ) -> WriteResult<PublishOutcome> {
-    publish_with_files(
-        vfs,
-        sink,
-        dir,
-        spec,
-        sealed,
-        sidecars,
-        &[],
-        kind,
-        fxid,
-        probe,
-        given,
-        edit,
-    )
+    publish_with_files(vfs, sink, dir, spec, sealed, sidecars, &[], kind, fxid, probe, given, edit,)
 }
 
 /// [`publish_with`] that also writes `files` (`(name, bytes)`; SORTRUNS-E0: a run's reverse) as temps renamed to their
@@ -1926,15 +1336,8 @@ fn publish_with_files(
     let mut b = PublishPlan::build(base.as_deref(), spec, fxid, kind);
     b.number_above(probe.used_numbers(dir));
     edit(base.as_deref(), &mut b)?;
-    if keep
-        .iter()
-        .map(|e| e.part_no)
-        .chain(dead.iter().copied())
-        .any(|n| b.touches(n))
-    {
-        return Err(WriteError::Contract {
-            detail: "a publish edits a part another transaction's uncommitted generation added",
-        });
+    if keep.iter().map(|e| e.part_no).chain(dead.iter().copied()).any(|n| b.touches(n)) {
+        return Err(WriteError::Contract { detail: "a publish edits a part another transaction's uncommitted generation added", });
     }
     dead.iter().for_each(|&n| b.retire(n));
     b.set_under(&keep)?;
@@ -1944,29 +1347,20 @@ fn publish_with_files(
 
     // the stats plan: the parts this publish adds (from the seal, or from disk) and the ones it drops
     let ts = pg_clock::MonoStamp::now();
-    let (retired, added) = part_changes(
-        base.as_deref().map_or(&[][..], |m| &m.parts[..]),
-        &plan.manifest.parts,
-    );
+    let (retired, added) = part_changes(base.as_deref().map_or(&[][..], |m| &m.parts[..]), &plan.manifest.parts,);
     let mut installs: Vec<PartStats> = Vec::new();
     for rec in added.iter().map(|&k| &plan.manifest.parts[k]) {
-        let from_seal = part_nos
-            .iter()
-            .position(|&n| n == rec.part_no)
-            .map(|i| &sealed[i]);
-        installs.push(
-            match from_seal.map(|s| stats::part_stats_from_sealed(s, rec.part_no)) {
-                Some(Ok(ps)) => ps,
-                Some(Err(_)) => {
-                    let s = from_seal.expect("sealed");
-                    let io = vfs.part_io(&full_path(dir, &s.tmp_name))?;
-                    let part = pgrc_read::OpenPart::open(io, &pgrc_read::PartExpect::none())
-                        .map_err(stats::read_error)?;
-                    stats::part_stats_from_open(&part, rec).map_err(stats::read_error)?
-                }
-                None => part_stats_on_disk(vfs, dir, &plan.manifest, rec)?,
-            },
-        );
+        let from_seal = part_nos.iter().position(|&n| n == rec.part_no).map(|i| &sealed[i]);
+        installs.push(match from_seal.map(|s| stats::part_stats_from_sealed(s, rec.part_no)) {
+            Some(Ok(ps)) => ps,
+            Some(Err(_)) => {
+                let s = from_seal.expect("sealed");
+                let io = vfs.part_io(&full_path(dir, &s.tmp_name))?;
+                let part = pgrc_read::OpenPart::open(io, &pgrc_read::PartExpect::none()).map_err(stats::read_error)?;
+                stats::part_stats_from_open(&part, rec).map_err(stats::read_error)?
+            }
+            None => part_stats_on_disk(vfs, dir, &plan.manifest, rec)?,
+        },);
     }
     let fp = spec.schema_fingerprint;
     // hold (P-1 L2, K1's install): a run holding a part below the bulk cut stays out of big-run merges, up to
@@ -1977,28 +1371,15 @@ fn publish_with_files(
         _ => None,
     };
     let (small_runs, loose) = match &base_state {
-        BaseState::Runs(s) => (
-            s.runs.iter().filter(|r| r.parts.len() <= LOOSE_MAX).count(),
-            s.loose.len(),
-        ),
+        BaseState::Runs(s) => (s.runs.iter().filter(|r| r.parts.len() <= LOOSE_MAX).count(), s.loose.len(),),
         BaseState::Legacy(_) => (0, 0),
     };
-    let may_merge =
-        small_runs + (loose + installs.len()) / LOOSE_MAX + retired.len() >= SMALL_RUNS_MAX;
-    let owned_full = match (
-        given_full,
-        may_merge,
-        base.as_deref()
-            .and_then(|m| m.parts.first().map(|rec| (m, rec))),
-    ) {
+    let may_merge = small_runs + (loose + installs.len()) / LOOSE_MAX + retired.len() >= SMALL_RUNS_MAX;
+    let owned_full = match (given_full, may_merge, base.as_deref().and_then(|m| m.parts.first().map(|rec| (m, rec))),) {
         (None, true, Some((m, rec))) => {
             let io = vfs.part_io(&full_path(dir, &part_file_name(rec.part_no)))?;
             let pfp = pgrc_format::manifest::part_fingerprint(m, rec.part_no)?;
-            let part = pgrc_read::OpenPart::open(
-                io,
-                &pgrc_read::PartExpect::from_manifest(rec, pfp, m.header.relfilenumber),
-            )
-            .map_err(stats::read_error)?;
+            let part = pgrc_read::OpenPart::open(io, &pgrc_read::PartExpect::from_manifest(rec, pfp, m.header.relfilenumber),).map_err(stats::read_error)?;
             Some(FullTest::from_part(&part).map_err(stats::read_error)?)
         }
         _ => None,
@@ -2007,18 +1388,11 @@ fn publish_with_files(
     let hold = |r: &Run| full.is_some_and(|t| t.run_holds(r));
     let base_manifest = base.as_deref();
     let mut refold = |idents: &[PartIdent]| -> WriteResult<Vec<PartStats>> {
-        let m = base_manifest.ok_or(WriteError::Contract {
-            detail: "stats: a refold without a base",
-        })?;
+        let m = base_manifest.ok_or(WriteError::Contract { detail: "stats: a refold without a base", })?;
         idents
             .iter()
             .map(|id| {
-                let i = m
-                    .parts
-                    .binary_search_by_key(&id.part_no, |p| p.part_no)
-                    .map_err(|_| WriteError::Contract {
-                        detail: "stats: a refold of a part not in the base",
-                    })?;
+                let i = m.parts.binary_search_by_key(&id.part_no, |p| p.part_no).map_err(|_| WriteError::Contract { detail: "stats: a refold of a part not in the base", })?;
                 part_stats_on_disk(vfs, dir, m, &m.parts[i])
             })
             .collect()
@@ -2028,11 +1402,9 @@ fn publish_with_files(
         BaseState::Runs(_) => 0,
     };
     let stats_plan = match base_state {
-        BaseState::Runs(s) => {
-            stats::plan_stats(&s, gen, fxid, fp, installs, &retired, &mut refold, &hold)?
+        BaseState::Runs(s) => { stats::plan_stats(&s, gen, fxid, fp, installs, &retired, &mut refold, &hold)?
         }
-        BaseState::Legacy(run) => {
-            stats::plan_stats_legacy(run, gen, fxid, fp, installs, &retired, &mut refold, &hold)?
+        BaseState::Legacy(run) => { stats::plan_stats_legacy(run, gen, fxid, fp, installs, &retired, &mut refold, &hold)?
         }
     };
     let stats_us = (base_ns + ts.elapsed_ns()) / 1000;
@@ -2040,13 +1412,7 @@ fn publish_with_files(
         let ext = with_stats_ref(&plan.manifest.ext, stats_plan.state.root.as_ref())?;
         plan.set_ext(ext);
     }
-    stats_plan
-        .state
-        .check(&plan.manifest)
-        .map_err(|e| match e {
-            stats::OrderError::Mismatch(detail) => WriteError::Contract { detail },
-            stats::OrderError::Alloc(e) => e.into(),
-        })?;
+    stats_plan.state.check(&plan.manifest).map_err(|e| match e { stats::OrderError::Mismatch(detail) => WriteError::Contract { detail }, stats::OrderError::Alloc(e) => e.into(), })?;
 
     let mut lvfs = LoggedVfs::new(vfs, sink, dir);
     for (rref, bytes) in &stats_plan.stage {
@@ -2057,33 +1423,17 @@ fn publish_with_files(
         plan.rename(tmp, run_file_name(rref.gen, rref.seq));
     }
     let run_bytes = lvfs.written();
-    let (bankstats_plane, plane) =
-        crate::bankplane::stage_plane(&mut lvfs, dir, base.as_deref(), &plan.manifest, sealed);
+    let (bankstats_plane, plane) = crate::bankplane::stage_plane(&mut lvfs, dir, base.as_deref(), &plan.manifest, sealed);
     let meta = lvfs.written();
     if let Some((tmp, name)) = plane {
         plan.rename(tmp, name);
     }
-    let pairs: Vec<(u32, &[u8])> = part_nos
-        .iter()
-        .copied()
-        .zip(sealed.iter().map(|s| s.stats_payload.as_slice()))
-        .collect();
-    for (tmp, name) in
-        crate::sidecar::stage_stats_sidecars(&mut lvfs, dir, spec.schema_fingerprint, &pairs, fxid)?
-    {
+    let pairs: Vec<(u32, &[u8])> = part_nos.iter().copied().zip(sealed.iter().map(|s| s.stats_payload.as_slice())).collect();
+    for (tmp, name) in crate::sidecar::stage_stats_sidecars(&mut lvfs, dir, spec.schema_fingerprint, &pairs, fxid)? {
         plan.rename(tmp, name);
     }
     for &(part_no, kind, sgen, payload) in sidecars {
-        let (tmp, name) = crate::sidecar::stage_sidecar_gen(
-            &mut lvfs,
-            dir,
-            kind,
-            spec.schema_fingerprint,
-            part_no,
-            sgen,
-            payload,
-            fxid,
-        )?;
+        let (tmp, name) = crate::sidecar::stage_sidecar_gen(&mut lvfs, dir, kind, spec.schema_fingerprint, part_no, sgen, payload, fxid,)?;
         plan.rename(tmp, name);
     }
     for (k, (name, bytes)) in files.iter().enumerate() {
@@ -2093,24 +1443,11 @@ fn publish_with_files(
         lvfs.close_file(fd)?;
         plan.rename(tmp, name.clone());
     }
-    let mut sidecar_bytes: u64 = sidecars
-        .iter()
-        .map(|s| s.3.len() as u64)
-        .chain(files.iter().map(|f| f.1.len() as u64))
-        .sum();
+    let mut sidecar_bytes: u64 = sidecars.iter().map(|s| s.3.len() as u64).chain(files.iter().map(|f| f.1.len() as u64)).sum();
     if kind == PublishKind::Bulk {
         for (&part_no, s) in part_nos.iter().zip(sealed) {
             if let Some(map) = bulk_runs(s) {
-                let (tmp, name) = crate::sidecar::stage_sidecar_gen(
-                    &mut lvfs,
-                    dir,
-                    SidecarKind::RowIdentMap,
-                    spec.schema_fingerprint,
-                    part_no,
-                    1,
-                    &map,
-                    fxid,
-                )?;
+                let (tmp, name) = crate::sidecar::stage_sidecar_gen(&mut lvfs, dir, SidecarKind::RowIdentMap, spec.schema_fingerprint, part_no, 1, &map, fxid,)?;
                 plan.rename(tmp, name);
                 sidecar_bytes += map.len() as u64;
             }
@@ -2122,57 +1459,19 @@ fn publish_with_files(
     let (rec, manifest, bytes) = plan.into_parts();
     let pointer = CommitPointer::new(gen, bytes.len() as u64, rec.manifest_crc);
     let base = base.as_deref();
-    sink.publish(&rec, &mut || {
-        apply_planned(&mut *vfs, dir, base, &rec, &bytes)
+    sink.publish(&rec, &mut || { apply_planned(&mut *vfs, dir, base, &rec, &bytes)
     })?;
     let mut enc = Vec::new();
     let rec_bytes = rec.encode(&mut enc).map_or(0, |()| enc.len() as u64);
     // the `births` column (its name kept for the scripts that read the counters by position): the row-ID directory's
     // bytes, `EXT_RANGES` (IX0; K1's `EXT_BIRTHS` before it)
-    let births_bytes = pgrc_format::manifest::ext_records(&rec.ext).map_or(0, |r| {
-        r.iter()
-            .filter(|x| x.0 == pgrc_format::manifest::EXT_RANGES)
-            .map(|x| x.1.len() as u64)
-            .sum()
+    let births_bytes = pgrc_format::manifest::ext_records(&rec.ext).map_or(0, |r| { r.iter().filter(|x| x.0 == pgrc_format::manifest::EXT_RANGES).map(|x| x.1.len() as u64).sum()
     });
     let part_bytes = sealed.iter().map(|s| s.file_len).sum();
-    counters::add(
-        kind,
-        [
-            1,
-            part_bytes,
-            sidecar_bytes,
-            logged,
-            rec_bytes,
-            births_bytes,
-            t0.elapsed().as_nanos() as u64,
-            sealed.iter().map(|s| s.rows).sum(),
-            meta - run_bytes,
-            run_bytes,
-        ],
-    );
+    counters::add(kind, [1, part_bytes, sidecar_bytes, logged, rec_bytes, births_bytes, t0.elapsed().as_nanos() as u64, sealed.iter().map(|s| s.rows).sum(), meta - run_bytes, run_bytes,],);
     let runs_written = stats_plan.stage.len() as u32;
-    let mut stacked_over: Vec<u64> = keep
-        .iter()
-        .map(|e| e.fxid)
-        .filter(|&x| !probe.is_own(x, fxid))
-        .collect();
+    let mut stacked_over: Vec<u64> = keep.iter().map(|e| e.fxid).filter(|&x| !probe.is_own(x, fxid)).collect();
     stacked_over.sort_unstable();
     stacked_over.dedup();
-    Ok(PublishOutcome {
-        gen,
-        kind,
-        part_nos,
-        bankstats_plane,
-        manifest,
-        pointer,
-        stats: stats_plan.state,
-        runs_written,
-        run_bytes,
-        stats_us,
-        base_given,
-        legacy_parts,
-        stacked_over,
-        dropped: dead,
-    })
+    Ok(PublishOutcome { gen, kind, part_nos, bankstats_plane, manifest, pointer, stats: stats_plan.state, runs_written, run_bytes, stats_us, base_given, legacy_parts, stacked_over, dropped: dead, })
 }

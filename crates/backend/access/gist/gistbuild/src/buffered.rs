@@ -14,9 +14,7 @@ use ::types_tuple::itemptr::{FirstOffsetNumber, InvalidOffsetNumber};
 
 use gist::insert::gistplacetopage;
 use gist::state::GistState;
-use gist::util::{
-    gistcheckpage, gistchoose, gistgetadjusted, itup_block_number, itup_slice, page_item,
-};
+use gist::util::{gistcheckpage, gistchoose, gistgetadjusted, itup_block_number, itup_slice, page_item,};
 
 use crate::buffers::{gistRelocateBuildBuffersOnSplit, GistBuildBuffers};
 
@@ -86,11 +84,7 @@ pub fn gist_init_buffering<'mcx>(
     let mut itup_min_size = SIZEOF_INDEX_TUPLE_DATA_MAXALIGNED;
     for i in 0..index.rd_att.natts as usize {
         let attlen = index.rd_att.compact_attr(i).attlen;
-        itup_min_size += if attlen < 0 {
-            VARHDRSZ
-        } else {
-            attlen as usize
-        };
+        itup_min_size += if attlen < 0 { VARHDRSZ } else { attlen as usize };
     }
 
     // gistbuild.c:669-670: both are Size/Size integer divisions widened to
@@ -130,12 +124,7 @@ pub fn gist_init_buffering<'mcx>(
 
     let pages_per_buffer =
         calculate_pages_per_buffer(index, freespace, indtuples, indtuples_size, level_step);
-    let gfbb = GistBuildBuffers::new(
-        mcx,
-        pages_per_buffer,
-        level_step,
-        gist_get_max_level(index)?,
-    )?;
+    let gfbb = GistBuildBuffers::new(mcx, pages_per_buffer, level_step, gist_get_max_level(index)?,)?;
 
     crate::debug_msg(
         ::types_error::DEBUG1,
@@ -161,8 +150,7 @@ fn gist_init_parent_map<'mcx>(
         context
     });
     let mut map = PgHashMap::new_in(context.mcx());
-    map.try_reserve(1024)
-        .map_err(|_| context.mcx().oom(1024 * 8))?;
+    map.try_reserve(1024).map_err(|_| context.mcx().oom(1024 * 8))?;
     Ok(map)
 }
 
@@ -366,10 +354,7 @@ fn gist_buffering_insert_tuples(
 
         crate::debug_msg(
             ::types_error::DEBUG2,
-            format!(
-                "splitting GiST root page, now {} levels deep",
-                bb.gfbb.rootlevel
-            ),
+            format!("splitting GiST root page, now {} levels deep", bb.gfbb.rootlevel),
             crate::ErrorLocation::new("gistbuild.c", 1090, "gistbufferinginserttuples"),
         )?;
 
@@ -525,8 +510,8 @@ fn gist_buffering_find_correct_parent(
     match found {
         Some(off) => Ok((pin, off)),
         None => Err(crate::elog_error(format!(
-            "failed to re-find parent for block {childblkno}"
-        ))),
+                "failed to re-find parent for block {childblkno}"
+            ))),
     }
 }
 
@@ -618,10 +603,7 @@ pub fn gist_empty_all_buffers(
 }
 
 /// gistMemorizeAllDownlinks.
-fn memorize_all_downlinks(
-    parent_map: &mut PgHashMap<'_, BlockNumber, BlockNumber>,
-    parent: &BufferPin,
-) {
+fn memorize_all_downlinks(parent_map: &mut PgHashMap<'_, BlockNumber, BlockNumber>, parent: &BufferPin,) {
     let parentblkno = parent.block_number();
     let page = parent.page();
     debug_assert!(!GistPageIsLeaf(&page));

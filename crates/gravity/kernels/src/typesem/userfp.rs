@@ -217,7 +217,7 @@ impl Classes {
 
     fn tick(&mut self) {
         self.calls = self.calls.wrapping_add(1);
-        if self.calls.is_multiple_of(WINDOW) {
+        if self.calls.is_multiple_of( WINDOW) {
             self.eq.reset_window();
             if let Some(h) = self.hash.as_mut() {
                 h.reset_window();

@@ -28,8 +28,7 @@ pub fn copy_for_cluster<'mcx>(
     let old_tup_desc = old_heap.descr();
     let new_tup_desc = new_heap.descr();
     let natts = new_tup_desc.natts as usize;
-    let mut values: mcx::PgVec<'_, datum::Datum> =
-        mcx::vec_from_elem_in(mcx, datum::Datum::null(), natts);
+    let mut values: mcx::PgVec<'_, datum::Datum> = mcx::vec_from_elem_in(mcx, datum::Datum::null(), natts);
     let mut isnull: mcx::PgVec<'_, bool> = mcx::vec_from_elem_in(mcx, false, natts);
 
     let mut rwstate = rewriteheap::begin_heap_rewrite(
@@ -101,14 +100,8 @@ pub fn copy_for_cluster<'mcx>(
         (Some(index), false) => {
             // heapam_handler.c:743-752: phase + OIDOldIndex.
             backend_progress::pgstat_progress_update_multi_param(
-                &[
-                    progress::PROGRESS_CLUSTER_PHASE,
-                    progress::PROGRESS_CLUSTER_INDEX_RELID,
-                ],
-                &[
-                    progress::PROGRESS_CLUSTER_PHASE_INDEX_SCAN_HEAP,
-                    i64::from(index.rd_id),
-                ],
+                &[progress::PROGRESS_CLUSTER_PHASE, progress::PROGRESS_CLUSTER_INDEX_RELID,],
+                &[progress::PROGRESS_CLUSTER_PHASE_INDEX_SCAN_HEAP, i64::from(index.rd_id),],
             );
             let mut scan = indexam::index_beginscan(
                 mcx,
@@ -152,12 +145,8 @@ pub fn copy_for_cluster<'mcx>(
 
         let fetched = match &mut arm {
             ScanArm::Index(scan) => {
-                let found = indexam::index_getnext_slot(
-                    mcx,
-                    scan,
-                    ScanDirection::ForwardScanDirection,
-                    &mut slot,
-                )?;
+                let found =
+                    indexam::index_getnext_slot(mcx, scan, ScanDirection::ForwardScanDirection, &mut slot,)?;
                 // Since we used no scan keys, should never need to recheck
                 // (heapam_handler.c:797-798, elog(ERROR) = XX000).
                 if found && scan.xs_recheck {
@@ -190,9 +179,7 @@ pub fn copy_for_cluster<'mcx>(
                     // of a scan that started at an offset.
                     backend_progress::pgstat_progress_update_param(
                         progress::PROGRESS_CLUSTER_HEAP_BLKS_SCANNED,
-                        i64::from(
-                            cblock.wrapping_add(nblocks).wrapping_sub(startblock) % nblocks + 1,
-                        ),
+                        i64::from(cblock.wrapping_add(nblocks).wrapping_sub(startblock) % nblocks + 1,),
                     );
                     prev_cblock = cblock;
                 }
@@ -207,11 +194,7 @@ pub fn copy_for_cluster<'mcx>(
             panic!("heap copy_for_cluster requires a BufferHeapTuple slot");
         };
         let buf = bslot.buffer;
-        let tuple = bslot
-            .base
-            .tuple
-            .as_mut()
-            .expect("buffer slot holds a tuple");
+        let tuple = bslot.base.tuple.as_mut().expect("buffer slot holds a tuple");
 
         bufmgr_seams::lock_buffer::call(buf, bufmgr_seams::BUFFER_LOCK_SHARE)?;
         let htsv = heapam_visibility::HeapTupleSatisfiesVacuum(tuple, oldest_xmin, buf)?;
@@ -287,10 +270,7 @@ pub fn copy_for_cluster<'mcx>(
                     )?;
                     Some(nbtree::itup::index_form_tuple(
                         per_tuple.mcx(),
-                        old_index
-                            .expect("expr_sort implies an index")
-                            .rd_att
-                            .as_ref(),
+                        old_index.expect("expr_sort implies an index").rd_att.as_ref(),
                         &kvalues,
                         &kisnull,
                     )?)
@@ -300,20 +280,13 @@ pub fn copy_for_cluster<'mcx>(
             let SlotData::BufferHeap(bslot) = &mut slot else {
                 panic!("heap copy_for_cluster requires a BufferHeapTuple slot");
             };
-            let tuple = bslot
-                .base
-                .tuple
-                .as_ref()
-                .expect("buffer slot holds a tuple");
+            let tuple = bslot.base.tuple.as_ref().expect("buffer slot holds a tuple");
             // SAFETY: live maxaligned itup image formed above.
             let itup_bytes = itup_buf
                 .as_ref()
                 .map(|b| unsafe { core::slice::from_raw_parts(b.as_ptr().cast::<u8>(), b.size()) });
             #[allow(clippy::unnecessary_unwrap)]
-            tuplesort
-                .as_mut()
-                .expect("checked")
-                .putheaptuple(tuple, itup_bytes)?;
+            tuplesort.as_mut().expect("checked").putheaptuple(tuple, itup_bytes)?;
             // heapam_handler.c:915: scan-and-sort mode reports tuples scanned.
             backend_progress::pgstat_progress_update_param(
                 progress::PROGRESS_CLUSTER_HEAP_TUPLES_SCANNED,
@@ -404,11 +377,7 @@ fn heap_scan_nblocks(scan: &tableam::TableScanDesc<'_>) -> types_core::BlockNumb
 // (rs_nblocks, rs_startblock, rs_cblock) of the heap scan.
 fn heap_scan_position(
     scan: &tableam::TableScanDesc<'_>,
-) -> (
-    types_core::BlockNumber,
-    types_core::BlockNumber,
-    types_core::BlockNumber,
-) {
+) -> (types_core::BlockNumber, types_core::BlockNumber, types_core::BlockNumber,) {
     match scan {
         tableam::TableScanDesc::Heap(h) => (h.rs_nblocks, h.rs_startblock, h.rs_cblock),
         _ => (0, 0, InvalidBlockNumber),

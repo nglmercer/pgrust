@@ -165,5 +165,5 @@ pub(crate) fn splice(sv: &mut PgVec<'_, Value>, sn: &mut PgVec<'_, Value>, sites
 /// read carries it, so it takes the site's place in PG's order and a branch PG never takes masks it (an or'ed word raised
 /// ahead of an earlier error and under a CASE arm never reached).
 pub(crate) fn raises<'g>(b: &FunctionBuilder<'_>, sites: &[(i16, [Value; 3])], mcx: Mcx<'g>) -> PgVec<'g, (i16, Value)> {
-    sites.iter().filter(|s| b.const_of(s.1[2]).is_none_or(|(_, c)| c != 0)).map(|s| (s.0, s.1[2])).collect_in(mcx)
+    sites.iter().filter(|s|b.const_of(s.1[2]).is_none_or(|(_, c)| c != 0)).map(|s| (s.0, s.1[2])).collect_in(mcx)
 }

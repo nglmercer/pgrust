@@ -443,7 +443,7 @@ impl Facts for RelcacheFacts<'_> {
         // and a `None` drops what was taken, in order, as `collect::<Option<Vec<_>>>` does
         let Some(_held) = list.iter().map(|&oid| Held::take(oid)).try_collect_in(self.mcx) else { return false };
         let Some(facts) = list.iter().map(|&oid| self.index(oid)).try_collect_in(self.mcx) else { return false };
-        facts.into_iter().for_each(f);
+        facts.into_iter().for_each( f);
         true
     }
 
@@ -1202,7 +1202,7 @@ impl<'m> RelcacheFacts<'m> {
             let ok = held_briefly(oid, |held| {
                 // a partition dropped since the listing fails its open: the leaves unknown
                 let Some(c) = open_held(held, oid, || table::table_open(self.mcx, oid, NoLock)) else { return false };
-                let ok = if c.rd_rel.relkind == types_rel::RELKIND_PARTITIONED_TABLE { self.leaves_under(root, &c, f) } else { self.leaf_fact(root, &c).map(&mut *f).is_some() };
+                let ok = if c.rd_rel.relkind == types_rel::RELKIND_PARTITIONED_TABLE { self.leaves_under(root, &c, f) } else { self.leaf_fact(root, &c).map(&mut * f).is_some() };
                 let _ = c.close(NoLock);
                 ok
             });

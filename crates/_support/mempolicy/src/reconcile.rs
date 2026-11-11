@@ -75,15 +75,7 @@ pub enum Consumer {
 pub const CONSUMERS: usize = 7;
 
 impl Consumer {
-    pub const ALL: [Consumer; CONSUMERS] = [
-        Consumer::LadderRead,
-        Consumer::Landing,
-        Consumer::RaiseRoom,
-        Consumer::RaiseWindow,
-        Consumer::PoolCapacity,
-        Consumer::KillRead,
-        Consumer::Stuck,
-    ];
+    pub const ALL: [Consumer; CONSUMERS] = [Consumer::LadderRead, Consumer::Landing, Consumer::RaiseRoom, Consumer::RaiseWindow, Consumer::PoolCapacity, Consumer::KillRead, Consumer::Stuck,];
 
     pub const fn name(self) -> &'static str {
         match self {
@@ -100,8 +92,7 @@ impl Consumer {
     /// The kinds the consumer may read (a bit per `Kind`).
     pub const fn allowed(self) -> u8 {
         match self {
-            Consumer::PoolCapacity => {
-                Kind::Resident.bit() | Kind::Reserved.bit() | Kind::Account.bit()
+            Consumer::PoolCapacity => { Kind::Resident.bit() | Kind::Reserved.bit() | Kind::Account.bit()
             }
             Consumer::Stuck => Kind::Resident.bit() | Kind::Account.bit(),
             _ => Kind::Resident.bit(),
@@ -172,12 +163,7 @@ const fn def(name: &'static str, kind: Kind, feeds: &[Consumer], bound: bool) ->
         bits |= feeds[i].bit();
         i += 1;
     }
-    TermDef {
-        name,
-        kind,
-        feeds: bits,
-        bound,
-    }
+    TermDef { name, kind, feeds: bits, bound, }
 }
 
 use Consumer as C;
@@ -187,48 +173,18 @@ pub const DEFS: [TermDef; TERMS] = [
     // the driver's reap::landing_credit, part by part: the reaper's credit (each handed region's resident bytes at the
     // residency pass's last read), the cache runs waiting for the page releaser and the give-back service's jobs (their
     // lengths), the page pool's R1 ask its purger has not served
-    def(
-        "landing.reaper",
-        Kind::Resident,
-        &[C::Landing, C::RaiseWindow],
-        false,
-    ),
-    def(
-        "landing.own",
-        Kind::Mapped,
-        &[C::Landing, C::RaiseWindow],
-        false,
-    ),
-    def(
-        "landing.giveback",
-        Kind::Mapped,
-        &[C::Landing, C::RaiseWindow],
-        false,
-    ),
-    def(
-        "landing.pool",
-        Kind::Asked,
-        &[C::Landing, C::RaiseWindow],
-        false,
-    ),
+    def("landing.reaper", Kind::Resident, &[C::Landing, C::RaiseWindow], false,),
+    def("landing.own", Kind::Mapped, &[C::Landing, C::RaiseWindow], false,),
+    def("landing.giveback", Kind::Mapped, &[C::Landing, C::RaiseWindow], false,),
+    def("landing.pool", Kind::Asked, &[C::Landing, C::RaiseWindow], false,),
     // R2p's jobs posted to the give-back service (the parked regions' and slot sets' lengths): asked of the service,
     // which has not answered (the audit's D-12: the label said Mapped)
-    def(
-        "landing.parked_jobs",
-        Kind::Asked,
-        &[C::Landing, C::RaiseWindow],
-        false,
-    ),
+    def("landing.parked_jobs", Kind::Asked, &[C::Landing, C::RaiseWindow], false,),
     // shared_buffers' give-back on its way (the extents asked of the background writer), in the hook pass's relief
     def("landing.buffers", Kind::Asked, &[C::LadderRead], false),
     def("ladder.read", Kind::Resident, &[C::LadderRead], false),
     // the line less the read at the last sample
-    def(
-        "room",
-        Kind::Resident,
-        &[C::RaiseRoom, C::RaiseWindow],
-        false,
-    ),
+    def("room", Kind::Resident, &[C::RaiseRoom, C::RaiseWindow], false,),
     def("room_low", Kind::Resident, &[C::RaiseRoom], false),
     // what the statements mapped since the last sample (inline_on_draw's note_mapped; 0 with it off)
     def("maps_since", Kind::Mapped, &[C::RaiseWindow], false),
@@ -259,25 +215,10 @@ pub const DEFS: [TermDef; TERMS] = [
     def("pool.cap.r_high", Kind::Reserved, &[C::PoolCapacity], false),
     def("pool.cap.fixed", Kind::Account, &[C::PoolCapacity], false),
     // resident less B's used side (b.used, mixed): mixed too (B-7)
-    def(
-        "pool.cap.unattributed",
-        Kind::Mixed,
-        &[C::PoolCapacity],
-        false,
-    ),
+    def("pool.cap.unattributed", Kind::Mixed, &[C::PoolCapacity], false,),
     // shared_buffers' live extents (`shared_live`): lengths (E6, the label said Account)
-    def(
-        "pool.cap.shared_buffers",
-        Kind::Mapped,
-        &[C::PoolCapacity],
-        false,
-    ),
-    def(
-        "pool.cap.caches_kept",
-        Kind::Account,
-        &[C::PoolCapacity],
-        false,
-    ),
+    def("pool.cap.shared_buffers", Kind::Mapped, &[C::PoolCapacity], false,),
+    def("pool.cap.caches_kept", Kind::Account, &[C::PoolCapacity], false,),
 ];
 
 impl Term {
@@ -361,13 +302,7 @@ impl Term {
 }
 
 /// The landing terms the background pass nets (`Check::Landing`'s sum).
-pub const LANDING: [Term; 5] = [
-    Term::LandingReaper,
-    Term::LandingOwn,
-    Term::LandingGiveback,
-    Term::LandingPool,
-    Term::LandingParkedJobs,
-];
+pub const LANDING: [Term; 5] = [Term::LandingReaper, Term::LandingOwn, Term::LandingGiveback, Term::LandingPool, Term::LandingParkedJobs,];
 
 /// The limiting cgroup at the sample, with the ladder's line and the limit (bytes; memory.stat's fields).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -395,11 +330,7 @@ impl Split {
     pub const fn governed(&self) -> u64 {
         let own = self.anon.saturating_add(self.shmem);
         let unreclaimable = self.current.saturating_sub(self.clean);
-        if own > unreclaimable {
-            own
-        } else {
-            unreclaimable
-        }
+        if own > unreclaimable { own } else { unreclaimable }
     }
 
     /// The room under the line by the ladder's read.
@@ -443,18 +374,7 @@ pub enum Check {
 pub const CHECKS: usize = 10;
 
 impl Check {
-    pub const ALL: [Check; CHECKS] = [
-        Check::Landing,
-        Check::LadderRead,
-        Check::KillRead,
-        Check::RoomLow,
-        Check::PoolFree,
-        Check::Stuck,
-        Check::BUsed,
-        Check::DepotResident,
-        Check::DepotMapped,
-        Check::BufGrown,
-    ];
+    pub const ALL: [Check; CHECKS] = [Check::Landing, Check::LadderRead, Check::KillRead, Check::RoomLow, Check::PoolFree, Check::Stuck, Check::BUsed, Check::DepotResident, Check::DepotMapped, Check::BufGrown,];
 
     /// The row's name: the consumer's terms, the comparison and the split checked against.
     pub const fn name(self) -> &'static str {
@@ -463,8 +383,7 @@ impl Check {
             Check::LadderRead => "ladder.read == max(current-inactive_file, governed)",
             Check::KillRead => "kill.governed == max(anon+shmem, current-clean_file)",
             Check::RoomLow => "room_low <= line-(current-inactive_file)",
-            Check::PoolFree => {
-                "pool.capacity-pool.held <= limit-(current-inactive_file)+pool.evictable"
+            Check::PoolFree => { "pool.capacity-pool.held <= limit-(current-inactive_file)+pool.evictable"
             }
             Check::Stuck => "stuck <= anon",
             Check::BUsed => "b.used <= anon+file",
@@ -486,10 +405,7 @@ impl Check {
     /// the value, breaks nothing and says it was skipped.
     pub const fn compares(self) -> bool {
         match self {
-            Check::BufGrown => matches!(
-                DEFS[Term::BufGrown as usize].kind,
-                Kind::Resident | Kind::Account
-            ),
+            Check::BufGrown => matches!(DEFS[Term::BufGrown as usize].kind, Kind::Resident | Kind::Account),
             _ => true,
         }
     }
@@ -565,22 +481,17 @@ pub struct Outcome {
 
 #[inline]
 fn over(x: u64, cap: u64, tol: u64) -> u64 {
-    let lim = cap.saturating_add(tol);
-    x.saturating_sub(lim)
+    let lim = cap.saturating_add(tol); x.saturating_sub( lim)
 }
 
 #[inline]
 fn apart(x: u64, y: u64, tol: u64) -> u64 {
-    let d = x.abs_diff(y);
-    d.saturating_sub(tol)
+    let d = x.abs_diff(y); d.saturating_sub( tol)
 }
 
 /// The check over the terms `v` (`Term as usize`; `NONE` = not set) and the split `s`.
 pub fn check(v: &[u64; TERMS], s: &Split, tol: u64) -> Outcome {
-    let mut o = Outcome {
-        excess: [0; ROWS],
-        value: [0; ROWS],
-    };
+    let mut o = Outcome { excess: [0; ROWS], value: [0; ROWS], };
     let at = |t: Term| v[t as usize];
     let set = |t: Term| at(t) != NONE;
     let val = |t: Term| if set(t) { at(t) } else { 0 };
@@ -594,102 +505,46 @@ pub fn check(v: &[u64; TERMS], s: &Split, tol: u64) -> Outcome {
         if t.wrong_feeds() != 0 && set(t) {
             // a bound binds when it is under the room the split shows; an additive term counts past the tolerance
             let x = at(t);
-            put(
-                Row::WrongKind(t),
-                x,
-                if d.bound {
-                    over(room, x, tol)
-                } else {
-                    over(x, 0, tol)
-                },
-            );
+            put(Row::WrongKind(t), x, if d.bound { over(room, x, tol) } else { over(x, 0, tol) },);
         }
         if t.resident_read() && set(t) {
             put(Row::OverCurrent(t), at(t), over(at(t), s.current, tol));
         }
     }
     let landing = LANDING.iter().fold(0u64, |a, t| a.saturating_add(val(*t)));
-    put(
-        Row::Split(Check::Landing),
-        landing,
-        over(landing, s.ladder(), tol),
-    );
+    put(Row::Split(Check::Landing), landing, over(landing, s.ladder(), tol),);
     if set(Term::LadderRead) {
-        let want = if s.ladder() > s.governed() {
-            s.ladder()
-        } else {
-            s.governed()
-        };
-        put(
-            Row::Split(Check::LadderRead),
-            at(Term::LadderRead),
-            apart(at(Term::LadderRead), want, tol),
-        );
+        let want = if s.ladder() > s.governed() { s.ladder() } else { s.governed() };
+        put(Row::Split(Check::LadderRead), at(Term::LadderRead), apart(at(Term::LadderRead), want, tol),);
     }
     if set(Term::Governed) {
-        put(
-            Row::Split(Check::KillRead),
-            at(Term::Governed),
-            apart(at(Term::Governed), s.governed(), tol),
-        );
+        put(Row::Split(Check::KillRead), at(Term::Governed), apart(at(Term::Governed), s.governed(), tol),);
     }
     if set(Term::RoomLow) {
-        put(
-            Row::Split(Check::RoomLow),
-            at(Term::RoomLow),
-            over(at(Term::RoomLow), room, tol),
-        );
+        put(Row::Split(Check::RoomLow), at(Term::RoomLow), over(at(Term::RoomLow), room, tol),);
     }
     if set(Term::PoolCapacity) && set(Term::PoolHeld) {
         let free = at(Term::PoolCapacity).saturating_sub(at(Term::PoolHeld));
-        put(
-            Row::Split(Check::PoolFree),
-            free,
-            over(free, s.free().saturating_add(val(Term::PoolEvictable)), tol),
-        );
+        put(Row::Split(Check::PoolFree), free, over(free, s.free().saturating_add(val(Term::PoolEvictable)), tol),);
     }
     if set(Term::Stuck) {
-        put(
-            Row::Split(Check::Stuck),
-            at(Term::Stuck),
-            over(at(Term::Stuck), s.anon, tol),
-        );
+        put(Row::Split(Check::Stuck), at(Term::Stuck), over(at(Term::Stuck), s.anon, tol),);
     }
     if set(Term::BUsed) {
-        put(
-            Row::Split(Check::BUsed),
-            at(Term::BUsed),
-            over(at(Term::BUsed), s.anon.saturating_add(s.file), tol),
-        );
+        put(Row::Split(Check::BUsed), at(Term::BUsed), over(at(Term::BUsed), s.anon.saturating_add(s.file), tol),);
     }
     if set(Term::DepotResident) {
-        put(
-            Row::Split(Check::DepotResident),
-            at(Term::DepotResident),
-            over(at(Term::DepotResident), s.anon, tol),
-        );
+        put(Row::Split(Check::DepotResident), at(Term::DepotResident), over(at(Term::DepotResident), s.anon, tol),);
         if set(Term::DepotMapped) {
-            put(
-                Row::Split(Check::DepotMapped),
-                at(Term::DepotResident),
-                over(at(Term::DepotResident), at(Term::DepotMapped), tol),
-            );
+            put(Row::Split(Check::DepotMapped), at(Term::DepotResident), over(at(Term::DepotResident), at(Term::DepotMapped), tol),);
         }
     }
     if set(Term::BufGrown) {
-        let excess = if Check::BufGrown.compares() {
-            over(at(Term::BufGrown), s.anon, tol)
-        } else {
-            0
-        };
+        let excess = if Check::BufGrown.compares() { over(at(Term::BufGrown), s.anon, tol) } else { 0 };
         put(Row::Split(Check::BufGrown), at(Term::BufGrown), excess);
     }
     if set(Term::BRetained) {
-        put(
-            Row::RetainedAsUsed,
-            at(Term::BRetained),
-            over(at(Term::BRetained), 0, tol),
-        );
+        put(Row::RetainedAsUsed, at(Term::BRetained), over(at(Term::BRetained), 0, tol),);
     }
     o
 }
@@ -701,16 +556,7 @@ mod tests {
     const GIB: u64 = 1 << 30;
 
     fn split() -> Split {
-        Split {
-            current: 12 * GIB,
-            anon: 9 * GIB,
-            shmem: 0,
-            file: 3 * GIB,
-            inactive: GIB,
-            clean: 2 * GIB,
-            line: 14 * GIB,
-            limit: 16 * GIB,
-        }
+        Split { current: 12 * GIB, anon: 9 * GIB, shmem: 0, file: 3 * GIB, inactive: GIB, clean: 2 * GIB, line: 14 * GIB, limit: 16 * GIB, }
     }
 
     fn none() -> [u64; TERMS] {
@@ -724,39 +570,12 @@ mod tests {
     /// The table: exactly the terms the design names have a wrong-kind consumer, and the rows round-trip.
     #[test]
     fn the_table_flags_the_mapped_asked_and_reserved_terms_a_resident_consumer_reads() {
-        let flagged: Vec<&str> = Term::ALL
-            .iter()
-            .filter(|t| t.wrong_feeds() != 0)
-            .map(|t| t.name())
-            .collect();
-        assert_eq!(
-            flagged,
-            [
-                "landing.own",
-                "landing.giveback",
-                "landing.pool",
-                "landing.parked_jobs",
-                "landing.buffers",
-                "maps_since",
-                "claim_low",
-                "b.free",
-                "b.used",
-                "pool.cap.unattributed",
-                "pool.cap.shared_buffers"
-            ]
-        );
+        let flagged: Vec<&str> = Term::ALL.iter().filter(|t| t.wrong_feeds() != 0).map(|t| t.name()).collect();
+        assert_eq!(flagged, ["landing.own", "landing.giveback", "landing.pool", "landing.parked_jobs", "landing.buffers", "maps_since", "claim_low", "b.free", "b.used", "pool.cap.unattributed", "pool.cap.shared_buffers"]);
         assert_eq!(Term::MapsSince.wrong_feeds(), Consumer::RaiseWindow.bit());
-        assert_eq!(
-            Term::LandingPool.wrong_feeds(),
-            Consumer::Landing.bit() | Consumer::RaiseWindow.bit()
-        );
+        assert_eq!(Term::LandingPool.wrong_feeds(), Consumer::Landing.bit() | Consumer::RaiseWindow.bit());
         assert!(!Term::ClaimLow.resident_read(), "a bound is never rule 2's");
-        assert!(
-            !Term::Room.resident_read()
-                && !Term::RoomLow.resident_read()
-                && !Term::PoolRoom.resident_read(),
-            "a headroom is never rule 2's"
-        );
+        assert!(!Term::Room.resident_read() && !Term::RoomLow.resident_read() && !Term::PoolRoom.resident_read(), "a headroom is never rule 2's");
         assert!(Term::LandingReaper.resident_read() && !Term::PoolHeld.resident_read());
         for (i, t) in Term::ALL.iter().enumerate() {
             assert_eq!(*t as usize, i, "Term::ALL in order");
@@ -765,11 +584,7 @@ mod tests {
             assert_eq!(Row::of(i).index(), i);
         }
         assert_eq!(tolerance(16 * GIB, 0), 16 * GIB / 50);
-        assert_eq!(
-            tolerance(GIB, 5 * MIB),
-            69 * MIB,
-            "64 MiB at least, plus the sample's growth"
-        );
+        assert_eq!(tolerance(GIB, 5 * MIB), 69 * MIB, "64 MiB at least, plus the sample's growth");
     }
 
     /// Rule 1: an additive wrong-kind term counts past the tolerance; a bound only when it binds under the split's room.
@@ -783,69 +598,31 @@ mod tests {
         v[Term::ClaimLow as usize] = GIB / 2;
         v[Term::BFree as usize] = 5 * GIB;
         let o = check(&v, &s, tol);
-        assert_eq!(
-            row(&o, Row::WrongKind(Term::LandingPool)),
-            (2 * GIB, 2 * GIB - tol),
-            "an ask in the landing"
-        );
-        assert_eq!(
-            row(&o, Row::WrongKind(Term::MapsSince)),
-            (tol / 2, 0),
-            "under the tolerance"
-        );
+        assert_eq!(row(&o, Row::WrongKind(Term::LandingPool)), (2 * GIB, 2 * GIB - tol), "an ask in the landing");
+        assert_eq!(row(&o, Row::WrongKind(Term::MapsSince)), (tol / 2, 0), "under the tolerance");
         assert_eq!(s.room(), 3 * GIB);
-        assert_eq!(
-            row(&o, Row::WrongKind(Term::ClaimLow)),
-            (GIB / 2, 3 * GIB - GIB / 2 - tol),
-            "a reservation bound the raise under the room"
-        );
-        assert_eq!(
-            row(&o, Row::WrongKind(Term::BFree)).1,
-            0,
-            "a bound over the room binds nothing"
-        );
-        assert_eq!(
-            row(&o, Row::WrongKind(Term::LandingOwn)),
-            (0, 0),
-            "a term not set"
-        );
+        assert_eq!(row(&o, Row::WrongKind(Term::ClaimLow)), (GIB / 2, 3 * GIB - GIB / 2 - tol), "a reservation bound the raise under the room");
+        assert_eq!(row(&o, Row::WrongKind(Term::BFree)).1, 0, "a bound over the room binds nothing");
+        assert_eq!(row(&o, Row::WrongKind(Term::LandingOwn)), (0, 0), "a term not set");
     }
 
     /// Rule 2 and rule 3's landing: D4907's 17.6 GiB landing in a 15.7 GiB cgroup breaks both.
     #[test]
     fn rule_2_and_the_landing_check_catch_a_landing_past_memory_current() {
-        let s = Split {
-            current: 4856 * MIB + 2 * GIB,
-            inactive: 2 * GIB,
-            ..split()
-        };
+        let s = Split { current: 4856 * MIB + 2 * GIB, inactive: 2 * GIB, ..split() };
         let tol = tolerance(s.limit, 0);
         let mut v = none();
         v[Term::LandingReaper as usize] = 17_566 * MIB;
         let o = check(&v, &s, tol);
-        assert_eq!(
-            row(&o, Row::OverCurrent(Term::LandingReaper)).1,
-            17_566 * MIB - s.current - tol
-        );
-        assert_eq!(
-            row(&o, Row::Split(Check::Landing)),
-            (17_566 * MIB, 17_566 * MIB - 4856 * MIB - tol),
-            "past the ladder's read"
-        );
+        assert_eq!(row(&o, Row::OverCurrent(Term::LandingReaper)).1, 17_566 * MIB - s.current - tol);
+        assert_eq!(row(&o, Row::Split(Check::Landing)), (17_566 * MIB, 17_566 * MIB - 4856 * MIB - tol), "past the ladder's read");
         v[Term::LandingReaper as usize] = GIB;
         assert_eq!(row(&check(&v, &s, tol), Row::Split(Check::Landing)).1, 0);
         // s1rerun K R0's r2.room / r2.room_low: a headroom past memory.current under a small read is no fault
         v[Term::Room as usize] = 13_896 * MIB;
         v[Term::RoomLow as usize] = 13_896 * MIB;
         let o = check(&v, &s, tol);
-        assert_eq!(
-            (
-                row(&o, Row::OverCurrent(Term::Room)).1,
-                row(&o, Row::OverCurrent(Term::RoomLow)).1
-            ),
-            (0, 0),
-            "a headroom is never rule 2's"
-        );
+        assert_eq!((row(&o, Row::OverCurrent(Term::Room)).1, row(&o, Row::OverCurrent(Term::RoomLow)).1), (0, 0), "a headroom is never rule 2's");
     }
 
     /// Rule 3: each check against its split, rule 4 on the retained bytes.
@@ -853,10 +630,7 @@ mod tests {
     fn rule_3_checks_each_consumer_against_its_split_and_rule_4_the_retained_bytes() {
         let s = split();
         let tol = tolerance(s.limit, 0);
-        assert_eq!(
-            (s.ladder(), s.governed(), s.free()),
-            (11 * GIB, 10 * GIB, 5 * GIB)
-        );
+        assert_eq!((s.ladder(), s.governed(), s.free()), (11 * GIB, 10 * GIB, 5 * GIB));
         let mut v = none();
         v[Term::LadderRead as usize] = 11 * GIB;
         v[Term::Governed as usize] = 9 * GIB;
@@ -874,43 +648,16 @@ mod tests {
         let o = check(&v, &s, tol);
         let ex = |c: Check| row(&o, Row::Split(c)).1;
         assert_eq!(ex(Check::LadderRead), 0);
-        assert_eq!(
-            ex(Check::KillRead),
-            GIB - tol,
-            "a stale kill read a GiB under the split's"
-        );
-        assert_eq!(
-            ex(Check::RoomLow),
-            GIB - tol,
-            "a window low over the room now"
-        );
-        assert_eq!(
-            ex(Check::PoolFree),
-            GIB - tol,
-            "the pool's free past the cgroup's room and the evictable bytes"
-        );
+        assert_eq!(ex(Check::KillRead), GIB - tol, "a stale kill read a GiB under the split's");
+        assert_eq!(ex(Check::RoomLow), GIB - tol, "a window low over the room now");
+        assert_eq!(ex(Check::PoolFree), GIB - tol, "the pool's free past the cgroup's room and the evictable bytes");
         assert_eq!(ex(Check::Stuck), GIB - tol);
         assert_eq!(ex(Check::BUsed), 0, "under anon + file");
         assert_eq!(ex(Check::DepotResident), 0);
-        assert_eq!(
-            ex(Check::DepotMapped),
-            GIB - tol,
-            "more resident than mapped"
-        );
-        assert_eq!(
-            row(&o, Row::Split(Check::BufGrown)),
-            (64 * GIB, 0),
-            "Mapped extents past anon: skipped, the value kept"
-        );
-        assert!(
-            !Check::BufGrown.compares() && Check::BufGrown.name().contains("skipped"),
-            "the row says it was skipped"
-        );
+        assert_eq!(ex(Check::DepotMapped), GIB - tol, "more resident than mapped");
+        assert_eq!(row(&o, Row::Split(Check::BufGrown)), (64 * GIB, 0), "Mapped extents past anon: skipped, the value kept");
+        assert!(!Check::BufGrown.compares() && Check::BufGrown.name().contains("skipped"), "the row says it was skipped");
         assert_eq!(row(&o, Row::RetainedAsUsed), (GIB, GIB - tol));
-        assert!(
-            Row::RetainedAsUsed.applies()
-                && !Row::WrongKind(Term::Room).applies()
-                && !Row::OverCurrent(Term::DepotMapped).applies()
-        );
+        assert!(Row::RetainedAsUsed.applies() && !Row::WrongKind(Term::Room).applies() && !Row::OverCurrent(Term::DepotMapped).applies());
     }
 }

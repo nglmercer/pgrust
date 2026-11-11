@@ -118,14 +118,14 @@ pub fn bind_dense_plain_at(d: &OwnerDesc, words: &mut [u64], spill_bits: u8, rec
         (None, None) => {
             let check = check_range(d, words);
             let floor = floor_bound(d, words);
-            let top = d.runs_top_of().filter(|&(n, _, slot)| (1..=RUNS_TOP_HEAP).contains(&n) && (slot as usize) < d.layout.nslots() && d.check.width == 0 && d.layout.slot_kind(slot as usize) == SlotKind::Count);
+            let top = d.runs_top_of().filter(|&(n, _, slot)| ( 1..= RUNS_TOP_HEAP).contains(&n) && (slot as usize) < d.layout.nslots() && d.check.width == 0 && d.layout.slot_kind(slot as usize) == SlotKind::Count);
             let bound = |dense: Option<(i64, i64)>| {
                 let mut f = owner_fns_at(d, bits, dense, parallel);
                 if let Some((off, lo, hi)) = floor {
                     (f.params[P_FLOOR], f.params[P_FLOOR + 1], f.params[P_FLOOR + 2]) = (off as u64 + 1, lo as u64, hi as u64);
                 }
                 if let Some((n, below, slot)) = top {
-                    f.params[P_FLOOR] = (d.layout.slot_off(slot as usize) as u64 + 1) | ((n as u64) << 32) | (below as u64) << 63;
+                    f.params[P_FLOOR] = ( d.layout.slot_off(slot as usize) as u64 + 1) | ((n as u64) << 32) | (below as u64) << 63;
                 }
                 if let Some(c) = &check {
                     f.params[P_CHECK] |= c.n as u64 | (c.code as u64) << 8;

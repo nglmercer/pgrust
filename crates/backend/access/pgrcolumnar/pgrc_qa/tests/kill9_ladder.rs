@@ -82,9 +82,7 @@ fn kill9_ladder() {
     while kills_done < s.ladder_kills {
         // Deterministic-ish pseudo-random delay; the harness's own speed is
         // the entropy that moves the kill point across publish steps.
-        rng = rng
-            .wrapping_mul(6364136223846793005)
-            .wrapping_add(1442695040888963407);
+        rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
         let delay = 2 + (rng >> 33) % 120;
         let (committed, killed) = kill_cycle(&base, delay);
         assert!(

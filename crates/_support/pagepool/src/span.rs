@@ -39,12 +39,7 @@ impl Span {
 
 impl core::fmt::Debug for Span {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("Span")
-            .field("base", &self.base)
-            .field("len", &self.len)
-            .field("committed", &self.committed)
-            .field("lazy", &self.lazy)
-            .finish()
+        f.debug_struct("Span").field("base", &self.base).field("len", &self.len).field("committed", &self.committed).field("lazy", &self.lazy).finish()
     }
 }
 
@@ -55,8 +50,7 @@ pub fn span(bytes: usize, hint: Hint) -> Option<Span> {
     }
     let n = bytes.div_ceil(SUPER);
     if bytes < zones().cfg.lazy_min && n <= superpage::per_chunk() as usize {
-        let s = pool_span(n as u32, hint)
-            .or_else(|| crate::purger::reclaim(hint.class, || pool_span(n as u32, hint)));
+        let s = pool_span(n as u32, hint).or_else(|| crate::purger::reclaim(hint.class, || pool_span(n as u32, hint)));
         // pppress card 6: what the span claimed while the ladder pressed goes back now, no lock held
         crate::purger::settle();
         s
@@ -99,10 +93,7 @@ fn mark_span(first: u32, n: u32, from: u32, class: Class, tag: Tag) {
 /// Cold. The Cold superpages left.
 fn fill_cold(first: u32, n: u32, mut cold: u32) -> u32 {
     let mut i = first;
-    while cold > 0
-        && i < first + n
-        && superpage::count(State::WarmDirty) + superpage::count(State::WarmZero) > 0
-    {
+    while cold > 0 && i < first + n && superpage::count(State::WarmDirty) + superpage::count(State::WarmZero) > 0 {
         if superpage::was(i) != State::Cold {
             i += 1;
             continue;
@@ -110,9 +101,7 @@ fn fill_cold(first: u32, n: u32, mut cold: u32) -> u32 {
         if !crate::frames::take_maps(2) {
             break;
         }
-        let Some(j) =
-            superpage::take_one(State::WarmDirty).or_else(|| superpage::take_one(State::WarmZero))
-        else {
+        let Some(j) = superpage::take_one(State::WarmDirty).or_else(|| superpage::take_one(State::WarmZero)) else {
             crate::frames::give_maps(2);
             break;
         };
@@ -148,11 +137,7 @@ fn pool_span(n: u32, hint: Hint) -> Option<Span> {
         let chunks = superpage::chunks();
         let start = CURSOR.load(Relaxed) % chunks;
         // pppress card 6: a zeroed span the ladder presses takes free warm superpages before Cold ones (zeroed by adopt)
-        let prefs = if hint.zero == Zero::Sparse && !crate::purger::pressed(n as usize * SUPER) {
-            [Pref::Cold, Pref::Any]
-        } else {
-            [Pref::Warm, Pref::Any]
-        };
+        let prefs = if hint.zero == Zero::Sparse && !crate::purger::pressed(n as usize * SUPER) { [Pref::Cold, Pref::Any] } else { [Pref::Warm, Pref::Any] };
         let mut got = None;
         'find: for pref in prefs {
             for c in 0..chunks {
@@ -160,11 +145,7 @@ fn pool_span(n: u32, hint: Hint) -> Option<Span> {
                 if let Some(t) = superpage::free_contig(c, n, pref) {
                     // pagepool P3 (d): the run's Cold superpages filled from scattered warm ones first (moved in: no
                     // fault, no claim); only what no warm superpage fills is claimed
-                    let cold = if t.cold > 0 && hint.zero != Zero::Sparse {
-                        fill_cold(t.first, n, t.cold)
-                    } else {
-                        0
-                    };
+                    let cold = if t.cold > 0 && hint.zero != Zero::Sparse { fill_cold(t.first, n, t.cold) } else { 0 };
                     if !adopt(t.first, n, cold, hint.zero, hint.class) {
                         return None;
                     }
@@ -179,14 +160,7 @@ fn pool_span(n: u32, hint: Hint) -> Option<Span> {
     mark_span(first, n, 0, hint.class, hint.tag);
     let len = n as usize * SUPER;
     stats::in_use(hint.tag, len as isize);
-    Some(Span {
-        base: NonNull::new(superpage::addr_of(first) as *mut u8)?,
-        len,
-        committed: len,
-        lazy: false,
-        class: hint.class,
-        tag: hint.tag,
-    })
+    Some(Span { base: NonNull::new(superpage::addr_of(first) as *mut u8)?, len, committed: len, lazy: false, class: hint.class, tag: hint.tag, })
 }
 
 /// Grow a span to `bytes`: a pool span in place when the next superpages are free; a lazy span in place when the next
@@ -207,9 +181,7 @@ pub unsafe fn grow_span(s: &mut Span, bytes: usize) -> bool {
         return false;
     }
     let want = want as u32;
-    let Some(cold) = superpage::take_after(first, n, want - n) else {
-        return false;
-    };
+    let Some(cold) = superpage::take_after(first, n, want - n) else { return false; };
     let adopted = adopt(first + n, want - n, cold, Zero::No, s.class);
     // pppress card 6: what the grow claimed while the ladder pressed goes back now
     crate::purger::settle();
@@ -234,11 +206,7 @@ pub unsafe fn shrink_span(s: &mut Span, bytes: usize) {
     if s.lazy && is_base(s) {
         return;
     }
-    crate::api::undead(
-        s.base.as_ptr() as usize + keep * SUPER,
-        s.len - keep * SUPER,
-        s.tag,
-    );
+    crate::api::undead(s.base.as_ptr() as usize + keep * SUPER, s.len - keep * SUPER, s.tag,);
     if s.lazy {
         lazy_shrink(s, keep);
         return;
@@ -261,10 +229,7 @@ pub unsafe fn commit_to(s: &mut Span, bytes: usize) {
     if !s.lazy {
         return;
     }
-    let to = bytes
-        .min(s.len)
-        .next_multiple_of(os::page_size())
-        .min(s.len);
+    let to = bytes.min(s.len).next_multiple_of(os::page_size()).min(s.len);
     if to <= s.committed {
         return;
     }
@@ -273,20 +238,14 @@ pub unsafe fn commit_to(s: &mut Span, bytes: usize) {
     crate::state::note_active(s.base.as_ptr() as usize + s.committed, to - s.committed);
     // pppress card 7 (`PGRUST_POOL_SPAN_MOVE`): the commit's whole untouched superpages taken from the pool's free warm
     // ones by remap, not faulted fresh: their pages were claimed as the pool's, so the claim grows by the rest alone
-    let moved = if move_on() {
-        move_in(s, s.committed, to)
-    } else {
-        0
-    };
+    let moved = if move_on() { move_in(s, s.committed, to) } else { 0 };
     stats::claim(d - moved as isize);
     // pppress card 6 (`PGRUST_POOL_GROW_GUARD`): the ladder pressing, the pool's own free memory goes back for it now
     crate::purger::settle();
     stats::LAZY_COMMITTED.fetch_add(d, Relaxed);
     stats::in_use(s.tag, d);
     s.committed = to;
-    slot(lazy_slot(s.base.as_ptr() as usize))
-        .committed
-        .store(to as u64, Relaxed);
+    slot(lazy_slot(s.base.as_ptr() as usize)).committed.store(to as u64, Relaxed);
 }
 
 /// pppress card 13 (2): the lazy span `s`'s commit past its take's ask is `past` bytes now (`api::handed`; 0 at its give):
@@ -295,9 +254,7 @@ pub(crate) fn set_past(s: &Span, past: usize) {
     if !s.lazy {
         return;
     }
-    let old = slot(lazy_slot(s.base.as_ptr() as usize))
-        .past
-        .swap(past as u64, Relaxed);
+    let old = slot(lazy_slot(s.base.as_ptr() as usize)).past.swap(past as u64, Relaxed);
     stats::COMMIT_PAST_ASK[s.tag.0 as usize].fetch_add(past as isize - old as isize, Relaxed);
 }
 
@@ -308,11 +265,7 @@ pub unsafe fn give_span(s: Span) {
     crate::api::undead(s.base.as_ptr() as usize, s.len, s.tag);
     if s.lazy {
         set_past(&s, 0);
-        if is_base(&s) {
-            base_give(s)
-        } else {
-            lazy_give(s)
-        }
+        if is_base(&s) { base_give(s) } else { lazy_give(s) }
         return;
     }
     let first = superpage::index_of(s.base.as_ptr() as usize);
@@ -330,9 +283,7 @@ pub unsafe fn give_span(s: Span) {
 /// `a` is the start of a live span of the pool's, its caller's alone (no give, resize, commit or give_pages meanwhile).
 pub(crate) unsafe fn retag(a: usize, tag: Tag) -> bool {
     // SAFETY: the caller's.
-    let Some(s) = (unsafe { span_at(NonNull::new_unchecked(a as *mut u8)) }) else {
-        return false;
-    };
+    let Some(s) = (unsafe { span_at(NonNull::new_unchecked(a as *mut u8)) }) else { return false; };
     if s.tag == tag {
         return true;
     }
@@ -384,14 +335,7 @@ pub unsafe fn span_at(p: NonNull<u8>) -> Option<Span> {
         }
         let len = l_n(w) as usize * SUPER;
         let committed = slot(h).committed.load(Relaxed) as usize;
-        return Some(Span {
-            base: p,
-            len,
-            committed,
-            lazy: true,
-            class: l_class(w),
-            tag: l_tag(w),
-        });
+        return Some(Span { base: p, len, committed, lazy: true, class: l_class(w), tag: l_tag(w), });
     }
     if !crate::reserve::in_pool(a) {
         return None;
@@ -402,14 +346,7 @@ pub unsafe fn span_at(p: NonNull<u8>) -> Option<Span> {
         return None;
     }
     let len = m.span_n.load(Relaxed) as usize * SUPER;
-    Some(Span {
-        base: p,
-        len,
-        committed: len,
-        lazy: false,
-        class: m.class(),
-        tag: Tag(m.tag()),
-    })
+    Some(Span { base: p, len, committed: len, lazy: false, class: m.class(), tag: Tag(m.tag()), })
 }
 
 /// A lazy span: PROT_NONE past `at` (the region road's commit by mprotect). False on a pool span or a refusal.
@@ -419,12 +356,7 @@ pub unsafe fn guard_past(s: &mut Span, at: usize) -> bool {
     if !s.lazy {
         return false;
     }
-    let Some(at) = at
-        .checked_next_multiple_of(os::page_size())
-        .filter(|&at| at < s.len)
-    else {
-        return true;
-    };
+    let Some(at) = at.checked_next_multiple_of(os::page_size()).filter(|&at| at < s.len) else { return true; };
     let base = s.base.as_ptr() as usize;
     let h = lazy_slot(base);
     let ok = unsafe { os::set_prot(base + at, s.len - at, false) };
@@ -453,10 +385,7 @@ const GUARDED: u64 = 1 << 13;
 /// Bit 16: 13-15 are GUARDED / BASE / FENCE and 32-63 the slot count (bit 14 was BASE's: in mode 3 a used span read as a
 /// base span, so its give went to `base_give` and no `clean_base` ever reached it, its claim held for good).
 const L_ACTIVE: u64 = 1 << 16;
-const _: () = assert!(
-    L_ACTIVE & (GUARDED | BASE | FENCE | 3) == 0 && L_ACTIVE < 1 << 32,
-    "L_ACTIVE shares a slot word bit"
-);
+const _: () = assert!(L_ACTIVE & (GUARDED | BASE | FENCE | 3) == 0 && L_ACTIVE < 1 << 32, "L_ACTIVE shares a slot word bit");
 const WARM_MAX: usize = 64;
 /// pagepool P3 (F1): a FREE slot held PROT_NONE as the fence after the span ending just below it (`fence_on`).
 const FENCE: u64 = 1 << 15;
@@ -473,11 +402,7 @@ static FENCE_SWITCH: AtomicU32 = AtomicU32::new(0);
 pub(crate) fn fence_on() -> bool {
     match FENCE_SWITCH.load(Relaxed) {
         0 => {
-            let v = if os::env_on_by_default(c"PGRUST_POOL_FENCE") {
-                2
-            } else {
-                1
-            };
+            let v = if os::env_on_by_default(c"PGRUST_POOL_FENCE") { 2 } else { 1 };
             FENCE_SWITCH.store(v, Relaxed);
             v == 2
         }
@@ -502,11 +427,7 @@ static TRIM_SWITCH: AtomicU32 = AtomicU32::new(0);
 pub(crate) fn trim_on() -> bool {
     match TRIM_SWITCH.load(Relaxed) {
         0 => {
-            let v = if os::env_on_by_default(c"PGRUST_POOL_SPAN_TRIM") {
-                2
-            } else {
-                1
-            };
+            let v = if os::env_on_by_default(c"PGRUST_POOL_SPAN_TRIM") { 2 } else { 1 };
             TRIM_SWITCH.store(v, Relaxed);
             v == 2
         }
@@ -522,11 +443,7 @@ pub(crate) fn force_trim(on: bool) {
 /// D4787: the committed bytes a reused warm span keeps for an ask of `bytes`: what the ask expects to touch
 /// (`Hint::expect_kib`), else its whole length, in whole superpages.
 fn trim_target(bytes: usize, hint: Hint) -> usize {
-    let want = if hint.expect_kib > 0 {
-        hint.expect_kib as usize * 1024
-    } else {
-        bytes
-    };
+    let want = if hint.expect_kib > 0 { hint.expect_kib as usize * 1024 } else { bytes };
     want.next_multiple_of(SUPER)
 }
 
@@ -555,11 +472,7 @@ static MOVE_SWITCH: AtomicU32 = AtomicU32::new(0);
 pub(crate) fn move_on() -> bool {
     match MOVE_SWITCH.load(Relaxed) {
         0 => {
-            let v = if os::env_is_one(c"PGRUST_POOL_SPAN_MOVE") {
-                2
-            } else {
-                1
-            };
+            let v = if os::env_is_one(c"PGRUST_POOL_SPAN_MOVE") { 2 } else { 1 };
             MOVE_SWITCH.store(v, Relaxed);
             v == 2
         }
@@ -596,9 +509,7 @@ fn move_in(s: &Span, from: usize, to: usize) -> usize {
             MOVE_REFUSED.fetch_add(1, Relaxed);
             break;
         }
-        let Some(j) =
-            superpage::take_one(State::WarmZero).or_else(|| superpage::take_one(State::WarmDirty))
-        else {
+        let Some(j) = superpage::take_one(State::WarmZero).or_else(|| superpage::take_one(State::WarmDirty)) else {
             crate::frames::give_maps(2);
             break;
         };
@@ -739,29 +650,15 @@ fn slot_addr(i: u32) -> usize {
 fn lazy_slot(a: usize) -> u32 {
     let i = ((a - zones().lazy.lo) / SUPER) as u32;
     let w = slot(i).word.load(Acquire);
-    if l_state(w) == TAIL {
-        i - l_n(w)
-    } else {
-        i
-    }
+    if l_state(w) == TAIL { i - l_n(w) } else { i }
 }
 
 pub(crate) fn lazy_info(a: usize) -> Option<crate::RunInfo> {
     let h = lazy_slot(a);
     let w = slot(h).word.load(Acquire);
-    let kind = if l_state(w) == LIVE {
-        crate::Kind::Span { superpages: l_n(w) }
-    } else {
-        crate::Kind::Free
-    };
+    let kind = if l_state(w) == LIVE { crate::Kind::Span { superpages: l_n(w) } } else { crate::Kind::Free };
     let n = l_n(w).max(1) as usize;
-    Some(crate::RunInfo {
-        kind,
-        base: slot_addr(h),
-        bytes: n * SUPER,
-        class: l_class(w),
-        tag: l_tag(w),
-    })
+    Some(crate::RunInfo { kind, base: slot_addr(h), bytes: n * SUPER, class: l_class(w), tag: l_tag(w), })
 }
 
 fn mark_lazy(h: u32, n: u32, from: u32, st: u64, class: Class, tag: Tag) {
@@ -815,17 +712,10 @@ fn find_va_dropping_warm(n: u32) -> Option<u32> {
             .enumerate()
             .map(|(k, e)| (k, e.load(Relaxed)))
             .filter(|&(_, h)| h != NONE)
-            .min_by_key(|&(_, h)| {
-                (
-                    slot(h).committed.load(Relaxed),
-                    core::cmp::Reverse(l_n(slot(h).word.load(Relaxed))),
-                )
+            .min_by_key(|&(_, h)| { (slot(h).committed.load(Relaxed), core::cmp::Reverse(l_n(slot(h).word.load(Relaxed))),)
             })?;
         WARM_LIST[k].store(NONE, Relaxed);
-        let (c, len) = (
-            slot(h).committed.load(Relaxed) as isize,
-            l_n(slot(h).word.load(Relaxed)),
-        );
+        let (c, len) = (slot(h).committed.load(Relaxed) as isize, l_n(slot(h).word.load(Relaxed)),);
         drop_va(h, len);
         stats::LAZY_WARM.fetch_sub(c, Relaxed);
         stats::LAZY_COMMITTED.fetch_sub(c, Relaxed);
@@ -900,9 +790,7 @@ fn trim_reused(s: &mut Span, keep: usize) {
         let lo = top.saturating_sub(batch).max(keep);
         // SAFETY: whole superpages of a span this thread just took off the warm list: no other owner, nothing reads them
         // (its next owner reads only what is zeroed for it, or fresh pages); `lo` and `top` are superpage multiples
-        let Some(r) = (unsafe { os::age_release(base + lo, top - lo) }) else {
-            break;
-        };
+        let Some(r) = (unsafe { os::age_release(base + lo, top - lo) }) else { break; };
         resident += r;
         top = lo;
     }
@@ -930,11 +818,7 @@ fn trim_reused(s: &mut Span, keep: usize) {
 /// zeroing are the caller's, off the lock).
 fn lazy_span_locked(n: u32, bytes: usize, hint: Hint, trim: bool) -> Option<(Span, bool)> {
     // D4787 (`trim`): the span's warm pages are wanted only up to what the ask expects
-    let expect = if trim {
-        trim_target(bytes, hint)
-    } else {
-        (hint.expect_kib as usize * 1024).max(bytes)
-    };
+    let expect = if trim { trim_target(bytes, hint) } else { (hint.expect_kib as usize * 1024).max(bytes) };
     let mut best: Option<(usize, u32, u32, usize)> = None;
     for (k, e) in WARM_LIST.iter().enumerate() {
         let h = e.load(Relaxed);
@@ -952,18 +836,11 @@ fn lazy_span_locked(n: u32, bytes: usize, hint: Hint, trim: bool) -> Option<(Spa
             // under them, then the shortest
             Some((_, _, blen, bc)) if trim => {
                 use core::cmp::Reverse;
-                let key = |c: usize, len: u32| {
-                    (
-                        c >= expect,
-                        Reverse(c.saturating_sub(expect)),
-                        c.min(expect),
-                        Reverse(len),
-                    )
+                let key = |c: usize, len: u32| { (c >= expect, Reverse(c.saturating_sub(expect)), c.min(expect), Reverse(len),)
                 };
                 key(c, len) > key(bc, blen)
             }
-            Some((_, _, blen, bc)) => {
-                (c >= expect, core::cmp::Reverse(len)) > (bc >= expect, core::cmp::Reverse(blen))
+            Some((_, _, blen, bc)) => { (c >= expect, core::cmp::Reverse(len)) > (bc >= expect, core::cmp::Reverse(blen))
             }
         };
         if better {
@@ -989,17 +866,7 @@ fn lazy_span_locked(n: u32, bytes: usize, hint: Hint, trim: bool) -> Option<(Spa
         if !trim && hint.zero != Zero::No && c > 0 {
             zero_reused(base, c);
         }
-        return Some((
-            Span {
-                base: NonNull::new(base as *mut u8)?,
-                len: len as usize * SUPER,
-                committed: c,
-                lazy: true,
-                class,
-                tag: hint.tag,
-            },
-            trim,
-        ));
+        return Some((Span { base: NonNull::new(base as *mut u8)?, len: len as usize * SUPER, committed: c, lazy: true, class, tag: hint.tag, }, trim,));
     }
     let f = fence_n();
     let h = find_va(n + f).or_else(|| find_va_dropping_warm(n + f))?;
@@ -1013,17 +880,7 @@ fn lazy_span_locked(n: u32, bytes: usize, hint: Hint, trim: bool) -> Option<(Spa
     if f > 0 {
         set_fence(h + n);
     }
-    Some((
-        Span {
-            base: NonNull::new(base as *mut u8)?,
-            len: n as usize * SUPER,
-            committed: 0,
-            lazy: true,
-            class,
-            tag: hint.tag,
-        },
-        false,
-    ))
+    Some((Span { base: NonNull::new(base as *mut u8)?, len: n as usize * SUPER, committed: 0, lazy: true, class, tag: hint.tag, }, false,))
 }
 
 unsafe fn lazy_give(s: Span) {
@@ -1033,9 +890,7 @@ unsafe fn lazy_give(s: Span) {
     spin(&LAZY_LOCK);
     let n = l_n(slot(h).word.load(Relaxed));
     let guarded = slot(h).word.load(Relaxed) & GUARDED;
-    slot(h)
-        .word
-        .store(l_word(WARM, s.class, s.tag, n) | guarded, Release);
+    slot(h).word.store(l_word(WARM, s.class, s.tag, n) | guarded, Release);
     let free = WARM_LIST.iter().position(|e| e.load(Relaxed) == NONE);
     match free {
         Some(k) => {
@@ -1077,20 +932,13 @@ fn lazy_grow_locked(s: &mut Span, h: u32, n: u32, want: u32) -> bool {
     let f = fence_n();
     // our own fence (the slot at `end`) is ours to grow over; the fence then moves to the new end
     let fenced = end < zones().nlazy && slot(end).word.load(Relaxed) == FENCE;
-    let free_after = end + (want - n) + f <= total
-        && (end..end + (want - n) + f).all(|i| i >= b || free_slot(i) || (i == end && fenced));
+    let free_after =
+        end + (want - n) + f <= total && (end..end + (want - n) + f).all(|i| i >= b || free_slot(i) || (i == end && fenced));
     let base = slot_addr(h);
     let w = slot(h).word.load(Relaxed);
     if free_after {
         // SAFETY: free lazy-zone address space after our own span.
-        if !unsafe {
-            os::open(
-                slot_addr(end),
-                (want - n) as usize * SUPER,
-                true,
-                c"pgrust:pool",
-            )
-        } {
+        if !unsafe { os::open(slot_addr(end), (want - n) as usize * SUPER, true, c"pgrust:pool",) } {
             return false;
         }
         if end + (want - n) > b {
@@ -1104,21 +952,10 @@ fn lazy_grow_locked(s: &mut Span, h: u32, n: u32, want: u32) -> bool {
         s.len = want as usize * SUPER;
         return true;
     }
-    let Some(to) = find_va(want + f) else {
-        return false;
-    };
+    let Some(to) = find_va(want + f) else { return false; };
     let dst = slot_addr(to);
     // SAFETY: free lazy-zone address space past where the span lands. The tail first: a refusal never moves the span.
-    if w & GUARDED != 0
-        || !unsafe {
-            os::open(
-                dst + n as usize * SUPER,
-                (want - n) as usize * SUPER,
-                true,
-                c"pgrust:pool",
-            )
-        }
-    {
+    if w & GUARDED != 0 || !unsafe { os::open(dst + n as usize * SUPER, (want - n) as usize * SUPER, true, c"pgrust:pool",) } {
         drop_va(to, want);
         return false;
     }
@@ -1129,10 +966,7 @@ fn lazy_grow_locked(s: &mut Span, h: u32, n: u32, want: u32) -> bool {
         drop_va(to, want);
         return false;
     }
-    let (c, past) = (
-        slot(h).committed.load(Relaxed),
-        slot(h).past.swap(0, Relaxed),
-    );
+    let (c, past) = (slot(h).committed.load(Relaxed), slot(h).past.swap(0, Relaxed),);
     drop_va(h, n);
     mark_lazy(to, want, 1, LIVE, s.class, s.tag);
     if f > 0 {
@@ -1158,9 +992,7 @@ unsafe fn lazy_shrink(s: &mut Span, keep: usize) {
     if fenced && (keep as u32) < n {
         set_fence(h + keep as u32);
     }
-    slot(h)
-        .word
-        .store((w & !(0xffff_ffff << 32)) | (keep as u64) << 32, Release);
+    slot(h).word.store((w & !(0xffff_ffff << 32)) | (keep as u64) << 32, Release);
     if lost > 0 {
         slot(h).committed.store(keep_bytes as u64, Relaxed);
     }
@@ -1186,10 +1018,7 @@ pub(crate) fn lazy_used() -> usize {
 /// pppress: where in the lazy zone a span can be, as offsets: below the bump, and from the base sub-zone's floor up.
 pub(crate) fn lazy_bounds() -> (usize, usize) {
     let len = zones().lazy.len;
-    (
-        lazy_used().min(len),
-        (base_floor() as usize * SUPER).min(len),
-    )
+    (lazy_used().min(len), (base_floor() as usize * SUPER).min(len),)
 }
 
 /// pagepool P3 (c): `f(base, committed, warm, tag)` over every live or warm lazy span with committed bytes (`present`'s
@@ -1208,12 +1037,7 @@ pub(crate) fn each_committed_by(mut f: impl FnMut(usize, usize, bool, Tag)) {
         if matches!(st, LIVE | WARM) {
             let c = slot(h).committed.load(Relaxed) as usize;
             if c > 0 {
-                f(
-                    slot_addr(h),
-                    c.min(l_n(w).max(1) as usize * SUPER),
-                    st == WARM,
-                    l_tag(w),
-                );
+                f(slot_addr(h), c.min(l_n(w).max(1) as usize * SUPER), st == WARM, l_tag(w),);
             }
         }
     }
@@ -1269,12 +1093,7 @@ pub(crate) fn release_warm(want: usize, class: Option<Class>) -> usize {
 /// lowered after each. It stops at `want` bytes released (as counted: committed), `budget` resident bytes given back, or
 /// the pass's time (`purger::pass_late`), and the span goes back on the warm list with what is left of its commit and its
 /// age. Returns (bytes released as counted, resident bytes given back).
-pub(crate) fn age_warm(
-    min_age_ms: u32,
-    want: usize,
-    budget: usize,
-    batch: usize,
-) -> (usize, usize) {
+pub(crate) fn age_warm(min_age_ms: u32, want: usize, budget: usize, batch: usize,) -> (usize, usize) {
     let batch = batch.max(SUPER).next_multiple_of(SUPER);
     let (mut got, mut remapped) = (0usize, 0usize);
     let now = crate::purger::tick();
@@ -1315,11 +1134,7 @@ pub(crate) fn age_warm(
         }
         let mut top = c.next_multiple_of(SUPER).min(len);
         let (mut resident, mut failed) = (0usize, false);
-        while top > 0
-            && got + c.saturating_sub(top) < want
-            && remapped < budget
-            && !crate::purger::pass_late()
-        {
+        while top > 0 && got + c.saturating_sub(top) < want && remapped < budget && !crate::purger::pass_late() {
             let lo = top.saturating_sub(batch);
             // SAFETY: whole superpages of a warm span nobody owns or reads
             let Some(r) = (unsafe { os::age_release(base + lo, top - lo) }) else {
@@ -1355,11 +1170,7 @@ pub(crate) fn age_warm(
 /// its address space is dropped, the rest of its commit with it.
 fn put_warm(h: u32, k: usize, at: u32) {
     spin(&LAZY_LOCK);
-    let free = if WARM_LIST[k].load(Relaxed) == NONE {
-        Some(k)
-    } else {
-        WARM_LIST.iter().position(|e| e.load(Relaxed) == NONE)
-    };
+    let free = if WARM_LIST[k].load(Relaxed) == NONE { Some(k) } else { WARM_LIST.iter().position(|e| e.load(Relaxed) == NONE) };
     match free {
         Some(j) => {
             WARM_AT[j].store(at, Relaxed);
@@ -1382,10 +1193,7 @@ fn put_warm(h: u32, k: usize, at: u32) {
 /// advised off. Its free slots (word `BASE`) are untouched since their open or last give-back: zero, committed at their
 /// first write. A carve is no syscall; a given span is dirty (WARM) until the purger gives it back (`clean_base`).
 const BASE: u64 = 1 << 14;
-#[cfg_attr(
-    not(all(feature = "global", not(target_family = "wasm"))),
-    allow(dead_code)
-)]
+#[cfg_attr(not(all(feature = "global", not(target_family = "wasm"))), allow(dead_code))]
 const BASE_CHUNK: u32 = 512;
 static BASE_LO: crate::Line<AtomicU32> = crate::Line(AtomicU32::new(NONE));
 static BASE_DIRTY: crate::Line<AtomicU32> = crate::Line(AtomicU32::new(0));
@@ -1394,11 +1202,7 @@ static CLEANING: crate::Line<AtomicU32> = crate::Line(AtomicU32::new(0));
 /// The lowest slot of the base sub-zone (`nlazy` before its first chunk): the other lazy spans stay below it.
 fn base_floor() -> u32 {
     let b = BASE_LO.load(Relaxed);
-    if b == NONE {
-        zones().nlazy
-    } else {
-        b
-    }
+    if b == NONE { zones().nlazy } else { b }
 }
 
 /// D4760: whether `a` (inside the pool's reservation) lies where the pool advises huge pages: the pool zone, and the lazy
@@ -1420,10 +1224,7 @@ pub(crate) fn is_base(s: &Span) -> bool {
 }
 
 /// C.23: `base_pages`'s span: the sub-zone's first `n` free slots in a row, else a chunk opened for it.
-#[cfg_attr(
-    not(all(feature = "global", not(target_family = "wasm"))),
-    allow(dead_code)
-)]
+#[cfg_attr(not(all(feature = "global", not(target_family = "wasm"))), allow(dead_code))]
 pub(crate) fn base_span(bytes: usize, hint: Hint) -> Option<Span> {
     let n = bytes.div_ceil(SUPER);
     if !crate::on() || bytes == 0 || n > zones().nlazy as usize {
@@ -1437,14 +1238,7 @@ pub(crate) fn base_span(bytes: usize, hint: Hint) -> Option<Span> {
         unspin(&LAZY_LOCK);
         let (at, lo) = r?;
         // SAFETY: lazy-zone address space past the bump, PROT_NONE and no span's (reserved above).
-        let ok = unsafe {
-            os::open(
-                slot_addr(at),
-                (lo - at) as usize * SUPER,
-                false,
-                c"pgrust:pool",
-            )
-        };
+        let ok = unsafe { os::open(slot_addr(at), (lo - at) as usize * SUPER, false, c"pgrust:pool",) };
         spin(&LAZY_LOCK);
         if ok {
             for i in at + n..lo {
@@ -1458,27 +1252,15 @@ pub(crate) fn base_span(bytes: usize, hint: Hint) -> Option<Span> {
         slot(h).word.fetch_or(BASE, Relaxed);
     }
     unspin(&LAZY_LOCK);
-    Some(Span {
-        base: NonNull::new(slot_addr(h?) as *mut u8)?,
-        len: n as usize * SUPER,
-        committed: 0,
-        lazy: true,
-        class: hint.class,
-        tag: hint.tag,
-    })
+    Some(Span { base: NonNull::new(slot_addr(h?) as *mut u8)?, len: n as usize * SUPER, committed: 0, lazy: true, class: hint.class, tag: hint.tag, })
 }
 
 /// The first `n` free sub-zone slots in a row (lock held).
-#[cfg_attr(
-    not(all(feature = "global", not(target_family = "wasm"))),
-    allow(dead_code)
-)]
+#[cfg_attr(not(all(feature = "global", not(target_family = "wasm"))), allow(dead_code))]
 fn base_fit(n: u32) -> Option<u32> {
     let (mut i, end) = (BASE_LO.load(Relaxed), zones().nlazy);
     while i != NONE && i + n <= end {
-        let j = (0..n)
-            .find(|&j| slot(i + j).word.load(Relaxed) != BASE)
-            .unwrap_or(n);
+        let j = (0..n).find(|&j| slot(i + j).word.load(Relaxed) != BASE).unwrap_or(n);
         if j == n {
             return Some(i);
         }
@@ -1488,15 +1270,10 @@ fn base_fit(n: u32) -> Option<u32> {
 }
 
 /// The sub-zone's next chunk (`n` slots if more) past the bump (lock held): FREE until opened, for good if that fails.
-#[cfg_attr(
-    not(all(feature = "global", not(target_family = "wasm"))),
-    allow(dead_code)
-)]
+#[cfg_attr(not(all(feature = "global", not(target_family = "wasm"))), allow(dead_code))]
 fn base_reserve(n: u32) -> Option<(u32, u32)> {
     let lo = base_floor();
-    let at = lo
-        .checked_sub(n.max(BASE_CHUNK))
-        .filter(|&at| at >= BUMP.load(Relaxed))?;
+    let at = lo.checked_sub(n.max(BASE_CHUNK)).filter(|&at| at >= BUMP.load(Relaxed))?;
     BASE_LO.store(at, Relaxed);
     Some((at, lo))
 }
@@ -1510,9 +1287,7 @@ unsafe fn base_give(s: Span) {
     spin(&LAZY_LOCK);
     let first = BASE_DIRTY.fetch_add(1, Relaxed) == 0;
     let n = l_n(slot(h).word.load(Relaxed));
-    slot(h)
-        .word
-        .store(l_word(WARM, s.class, s.tag, n) | BASE, Release);
+    slot(h).word.store(l_word(WARM, s.class, s.tag, n) | BASE, Release);
     unspin(&LAZY_LOCK);
     if first {
         crate::purger::wake();
@@ -1541,23 +1316,13 @@ pub(crate) fn clean_base(budget: usize) -> usize {
         #[cfg(all(target_os = "linux", not(miri)))]
         let none = r == Some((0, 0));
         #[cfg(not(all(target_os = "linux", not(miri))))]
-        let none = {
-            let _ = r;
-            false
-        };
+        let none = { let _ = r; false };
         // SAFETY: a given base span's pages: no owner, and no carve takes a dirty slot.
         #[cfg(all(target_os = "linux", not(miri)))]
-        let rc = if none {
-            unsafe { os::clear_nonresident(slot_addr(i), len) }
-        } else {
-            unsafe { os::release_base(slot_addr(i), len) }
-        };
+        let rc = if none { unsafe { os::clear_nonresident(slot_addr(i), len) } } else { unsafe { os::release_base(slot_addr(i), len) } };
         // SAFETY: as above.
         #[cfg(not(all(target_os = "linux", not(miri))))]
-        let rc = {
-            let _ = none;
-            unsafe { os::release_base(slot_addr(i), len) }
-        };
+        let rc = { let _ = none; unsafe { os::release_base(slot_addr(i), len) } };
         if rc != 0 {
             break;
         }

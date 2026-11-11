@@ -110,10 +110,7 @@ impl SidecarKind {
     /// regenerates it with the fresh part rather than referencing it from
     /// the manifest.
     pub const fn authoritative(self) -> bool {
-        matches!(
-            self,
-            SidecarKind::Dv | SidecarKind::RowIdentMap | SidecarKind::RunReverse
-        )
+        matches!(self, SidecarKind::Dv | SidecarKind::RowIdentMap | SidecarKind::RunReverse)
     }
 }
 
@@ -230,7 +227,7 @@ impl SidecarFileHeader {
     /// Validate a whole sidecar file image (header + payload + trailing crc).
     /// Returns the payload slice. Any mismatch is a typed refusal — the
     /// refuse-and-rebuild law for derived kinds.
-    pub fn validate_file(bytes: &[u8]) -> FormatResult<(SidecarFileHeader, &[u8])> {
+    pub fn validate_file(bytes: & [u8]) -> FormatResult<(SidecarFileHeader, & [u8])> {
         if bytes.len() < SIDECAR_FILE_HEADER_LEN + 4 {
             return Err(FormatError::Truncated { at: "sidecar file" });
         }
@@ -315,8 +312,7 @@ impl ColDistribution {
         fn elem<T>(_: &[T]) -> usize {
             core::mem::size_of::<T>()
         }
-        let lists = self.mcv.capacity() * elem(&self.mcv)
-            + self.hist_bounds.capacity() * elem(&self.hist_bounds);
+        let lists = self.mcv.capacity() * elem(&self.mcv) + self.hist_bounds.capacity() * elem(&self.hist_bounds);
         let values: usize = self.mcv.iter().map(|(b, _)| b.capacity()).sum::<usize>()
             + self.hist_bounds.iter().map(|b| b.capacity()).sum::<usize>();
         (lists + values) as u64
@@ -325,10 +321,7 @@ impl ColDistribution {
 
 /// Wave 3 A4: [`encode_stats_payload`] in a `ChargedVec` on `owner` (the seal's statement; `None`: uncharged), charged
 /// as one block when the payload is done (the call's growth lags).
-pub fn encode_stats_payload_for(
-    cols: &[(u32, u32, ColDistribution)],
-    owner: Option<(Owner, Kind)>,
-) -> ChargedVec<u8> {
+pub fn encode_stats_payload_for(cols: &[(u32, u32, ColDistribution)], owner: Option<(Owner, Kind)>,) -> ChargedVec<u8> {
     let mut v = match owner {
         Some((o, k)) => ChargedVec::new(Some(o), k),
         None => ChargedVec::none(),
@@ -372,7 +365,9 @@ fn cur_bytes<'a>(c: &mut Cur<'a>, len: usize, at: &'static str) -> FormatResult<
 }
 
 /// Decode a Stats payload (typed refusals; the envelope CRC already ran).
-pub fn decode_stats_payload(payload: &[u8]) -> FormatResult<Vec<(u32, u32, ColDistribution)>> {
+pub fn decode_stats_payload(
+    payload: &[u8]
+) -> FormatResult<Vec<(u32, u32, ColDistribution)>> {
     let mut c = Cur::new(payload);
     let version = c.u32("StatsPayload")?;
     if version != STATS_PAYLOAD_VERSION {
@@ -415,10 +410,7 @@ pub fn decode_stats_payload(payload: &[u8]) -> FormatResult<Vec<(u32, u32, ColDi
                     at: "StatsPayload mcv value len",
                 });
             }
-            mcv.push((
-                cur_bytes(&mut c, len, "StatsPayload mcv bytes")?.to_vec(),
-                count,
-            )); // alloc: Node charged caller (ColDistribution::heap_bytes)
+            mcv.push((cur_bytes(&mut c, len, "StatsPayload mcv bytes")?.to_vec(), count,)); // alloc: Node charged caller (ColDistribution::heap_bytes)
         }
         let mut hist_bounds = Vec::with_capacity(nhist); // alloc: Node charged caller (ColDistribution::heap_bytes)
         for _ in 0..nhist {
@@ -428,8 +420,7 @@ pub fn decode_stats_payload(payload: &[u8]) -> FormatResult<Vec<(u32, u32, ColDi
                     at: "StatsPayload hist bound len",
                 });
             }
-            hist_bounds.push(cur_bytes(&mut c, len, "StatsPayload hist bytes")?.to_vec());
-            // alloc: Node charged caller (ColDistribution::heap_bytes)
+            hist_bounds.push(cur_bytes(&mut c, len, "StatsPayload hist bytes")?.to_vec()); // alloc: Node charged caller (ColDistribution::heap_bytes)
         }
         out.push((
             attno,
@@ -504,8 +495,7 @@ mod tests {
         };
         let payload = encode_stats_payload(&[(1, 0, d)]);
         let got = decode_stats_payload(&payload).expect("valid payload decodes");
-        let lists =
-            2 * core::mem::size_of::<(Vec<u8>, u64)>() + 3 * core::mem::size_of::<Vec<u8>>();
+        let lists = 2 * core::mem::size_of::<(Vec<u8>, u64)>() + 3 * core::mem::size_of::<Vec<u8>>();
         assert_eq!(got[0].2.heap_bytes(), (lists + 3 + 2 + 1 + 1 + 2) as u64);
         assert_eq!(ColDistribution::default().heap_bytes(), 0);
     }

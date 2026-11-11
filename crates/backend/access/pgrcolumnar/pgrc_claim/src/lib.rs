@@ -470,10 +470,7 @@ mod tests {
         assert!(guard.narrow(Span { start: 8, end: 12 }).is_none());
         assert!(guard.narrow(Span { start: 5, end: 5 }).is_none());
         drop(guard);
-        assert_eq!(
-            rec.begins.lock().unwrap().as_slice(),
-            &[(3, Span { start: 0, end: 10 })]
-        );
+        assert_eq!(rec.begins.lock().unwrap().as_slice(), &[(3, Span { start: 0, end: 10 })]);
         assert_eq!(
             rec.narrows.lock().unwrap().as_slice(),
             &[(Span { start: 0, end: 10 }, Span { start: 2, end: 4 })]

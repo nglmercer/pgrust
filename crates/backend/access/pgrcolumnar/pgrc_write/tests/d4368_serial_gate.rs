@@ -67,36 +67,17 @@ fn write() -> Result<BTreeMap<String, Vec<u8>>, WriteError> {
         RELFILENUMBER,
         stamp(7, 1),
         &SubxactEvidence::default(),
-        PartCutPolicy {
-            max_rows: 256,
-            max_bytes: u64::MAX,
-            cut_granule_rows: 64,
-        },
+        PartCutPolicy { max_rows: 256, max_bytes: u64::MAX, cut_granule_rows: 64, },
     )
     .expect("open writer");
     let sources: [&dyn CandidateSource; 1] = [&kit.cands];
-    let mut env = SealEnv {
-        vfs: &mut vfs,
-        sources: &sources,
-        resolver: &kit.resolver,
-        shred: &mut kit.shred,
-        shred_opts: &kit.opts,
-    };
+    let mut env = SealEnv { vfs: &mut vfs, sources: &sources, resolver: &kit.resolver, shred: &mut kit.shred, shred_opts: &kit.opts, };
     for i in 0..ROWS {
         w.append_row(&[RawDatum::Word(i)], &mut kit.ext, &mut env)?;
     }
     w.finish(&mut env)?;
-    Ok(vfs
-        .list_dir(DIR)
-        .expect("list")
-        .into_iter()
-        .map(|n| {
-            (
-                n.clone(),
-                vfs.read_full(&format!("{DIR}/{n}")).expect("read"),
-            )
-        })
-        .collect())
+    Ok(vfs.list_dir(DIR).expect("list").into_iter().map(|n| { (n.clone(), vfs.read_full(&format!("{DIR}/{n}")).expect("read"),)
+        }).collect())
 }
 
 #[test]
@@ -106,13 +87,9 @@ fn d4368_a_serial_write_past_the_ladders_line_is_refused_not_buffered() {
     let r = write();
     ladder(mcx::ladder::OFF, 0);
     match r {
-        Err(WriteError::Refused { what }) => {
-            assert!(what.contains("memory"), "a memory refusal: {what}")
+        Err(WriteError::Refused { what }) => { assert!(what.contains("memory"), "a memory refusal: {what}")
         }
-        other => panic!(
-            "a serial write past the ladder's line must be refused, got {:?}",
-            other.map(|f| f.len())
-        ),
+        other => panic!("a serial write past the ladder's line must be refused, got {:?}", other.map(|f| f.len())),
     }
 }
 
@@ -124,9 +101,5 @@ fn d4368_under_the_line_the_serial_gate_moves_no_byte() {
     ladder(mcx::ladder::ON, 100 * MIB);
     let on = write();
     ladder(mcx::ladder::OFF, 0);
-    assert_eq!(
-        on.expect("under the line"),
-        off,
-        "the gate moves no byte of any part"
-    );
+    assert_eq!(on.expect("under the line"), off, "the gate moves no byte of any part");
 }

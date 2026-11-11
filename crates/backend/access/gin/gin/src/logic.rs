@@ -119,8 +119,7 @@ pub(crate) fn tri_consistent(
         // C twiddles key->entryRes in place and restores it; the probes here
         // run over a scratch copy of all nentries (ginlogic.c:159), the
         // consistent fn reading its first nuserentries as always.
-        let entry_res: Vec<GinTernaryValue> =
-            ::mcx::std_vec_from_slice("access", key.entryRes.as_slice())?;
+        let entry_res: Vec<GinTernaryValue> = ::mcx::std_vec_from_slice("access",key.entryRes.as_slice())?;
         let graph = std::cell::RefCell::new(key.trgmGraph.take());
         let call = |local: &[GinTernaryValue]| {
             let mut graph = graph.borrow_mut();
@@ -161,13 +160,7 @@ pub(crate) fn shim_tri_consistent(
 
     if nmaybe == 0 {
         let (res, rc) = call(check)?;
-        return Ok(if res && rc {
-            GIN_MAYBE
-        } else if res {
-            GIN_TRUE
-        } else {
-            GIN_FALSE
-        });
+        return Ok(if res && rc { GIN_MAYBE } else if res { GIN_TRUE } else { GIN_FALSE });
     }
 
     let mut local: Vec<GinTernaryValue> = ::mcx::std_vec_from_slice("access", &check[..nkeys])?;
@@ -229,15 +222,8 @@ mod rem_b006_tests {
             Ok((true, local[0] == GIN_FALSE))
         };
         let res = shim_tri_consistent(&check, &consistent).unwrap();
-        assert_eq!(
-            calls.get(),
-            2,
-            "both combinations of the one MAYBE entry are probed"
-        );
-        assert_eq!(
-            res, GIN_MAYBE,
-            "TRUE with recheck from the all-FALSE probe is GIN_MAYBE"
-        );
+        assert_eq!(calls.get(), 2, "both combinations of the one MAYBE entry are probed");
+        assert_eq!(res, GIN_MAYBE, "TRUE with recheck from the all-FALSE probe is GIN_MAYBE");
 
         // Control: no combination needs a recheck -> GIN_TRUE.
         let plain = |_local: &[i8]| -> PgResult<(bool, bool)> { Ok((true, false)) };

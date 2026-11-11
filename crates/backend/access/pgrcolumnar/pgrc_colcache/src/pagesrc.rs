@@ -28,13 +28,7 @@ impl PageSource for BufPages<'_, '_> {
     }
 
     fn read(&self, block: u32, f: &mut dyn FnMut(&[u8]) -> PgResult<()>) -> PgResult<()> {
-        let buf = bufmgr::ReadBufferExtended(
-            self.rel,
-            ForkNumber::MAIN_FORKNUM,
-            block,
-            types_storage::ReadBufferMode::Normal,
-            None,
-        )?;
+        let buf = bufmgr::ReadBufferExtended(self.rel, ForkNumber::MAIN_FORKNUM, block, types_storage::ReadBufferMode::Normal, None,)?;
         if let Err(e) = bufmgr::LockBuffer(buf, types_storage::buf::BUFFER_LOCK_SHARE) {
             let _ = bufmgr::ReleaseBuffer(buf);
             return Err(e);
@@ -70,8 +64,6 @@ impl TxnOracle for Procs<'_, '_> {
     }
 
     fn oldest_clog(&self) -> TransactionId {
-        varsup::TransamVariables()
-            .oldestClogXid
-            .load(std::sync::atomic::Ordering::Relaxed)
+        varsup::TransamVariables().oldestClogXid.load(std::sync::atomic::Ordering::Relaxed)
     }
 }

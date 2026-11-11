@@ -102,8 +102,7 @@ fn own_image<'mcx>(base: &mut SlotBase<'mcx>, image_mcx: Mcx<'mcx>) {
 
 #[inline]
 fn owned_image_mcx<'mcx>(base: &SlotBase<'mcx>) -> Mcx<'mcx> {
-    base.tts_free_mcx
-        .expect("SHOULDFREE without its image's context")
+    base.tts_free_mcx.expect("SHOULDFREE without its image's context")
 }
 
 /// # Safety
@@ -837,11 +836,7 @@ pub fn exec_copy_slot_heap_tuple<'mcx, 'out>(
         SlotData::Heap(h) => match h.tuple.as_ref() {
             Some(t) => heap_copytuple(out_mcx, t),
             None => {
-                let desc = h
-                    .base
-                    .tts_tupleDescriptor
-                    .as_ref()
-                    .expect("copy without descriptor");
+                let desc = h.base.tts_tupleDescriptor.as_ref().expect("copy without descriptor");
                 heap_form_tuple(out_mcx, desc, &h.base.tts_values, &h.base.tts_isnull)
             }
         },
@@ -849,10 +844,7 @@ pub fn exec_copy_slot_heap_tuple<'mcx, 'out>(
             Some(t) => heap_copytuple(out_mcx, t),
             None => {
                 let base = &b.base.base;
-                let desc = base
-                    .tts_tupleDescriptor
-                    .as_ref()
-                    .expect("copy without descriptor");
+                let desc = base.tts_tupleDescriptor.as_ref().expect("copy without descriptor");
                 heap_form_tuple(out_mcx, desc, &base.tts_values, &base.tts_isnull)
             }
         },
@@ -860,11 +852,7 @@ pub fn exec_copy_slot_heap_tuple<'mcx, 'out>(
             // SAFETY: stored mintuple is live for the duration of the copy.
             Some(p) => heap_tuple_from_minimal_tuple(out_mcx, unsafe { minimal_bytes(p) }),
             None => {
-                let desc = m
-                    .base
-                    .tts_tupleDescriptor
-                    .as_ref()
-                    .expect("copy without descriptor");
+                let desc = m.base.tts_tupleDescriptor.as_ref().expect("copy without descriptor");
                 heap_form_tuple(out_mcx, desc, &m.base.tts_values, &m.base.tts_isnull)
             }
         },
@@ -893,28 +881,15 @@ pub fn exec_copy_slot_minimal_tuple<'mcx, 'out>(
         SlotData::Heap(h) => match h.tuple.as_ref() {
             Some(t) => minimal_tuple_from_heap_tuple(out_mcx, t, extra),
             None => {
-                let desc = h
-                    .base
-                    .tts_tupleDescriptor
-                    .as_ref()
-                    .expect("copy without descriptor");
-                heap_form_minimal_tuple(
-                    out_mcx,
-                    desc,
-                    &h.base.tts_values,
-                    &h.base.tts_isnull,
-                    extra,
-                )
+                let desc = h.base.tts_tupleDescriptor.as_ref().expect("copy without descriptor");
+                heap_form_minimal_tuple(out_mcx, desc, &h.base.tts_values, &h.base.tts_isnull, extra,)
             }
         },
         SlotData::BufferHeap(b) => match b.base.tuple.as_ref() {
             Some(t) => minimal_tuple_from_heap_tuple(out_mcx, t, extra),
             None => {
                 let base = &b.base.base;
-                let desc = base
-                    .tts_tupleDescriptor
-                    .as_ref()
-                    .expect("copy without descriptor");
+                let desc = base.tts_tupleDescriptor.as_ref().expect("copy without descriptor");
                 heap_form_minimal_tuple(out_mcx, desc, &base.tts_values, &base.tts_isnull, extra)
             }
         },
@@ -922,18 +897,8 @@ pub fn exec_copy_slot_minimal_tuple<'mcx, 'out>(
             // SAFETY: stored mintuple is live for the duration of the copy.
             Some(p) => heap_copy_minimal_tuple(out_mcx, unsafe { minimal_bytes(p) }, extra),
             None => {
-                let desc = m
-                    .base
-                    .tts_tupleDescriptor
-                    .as_ref()
-                    .expect("copy without descriptor");
-                heap_form_minimal_tuple(
-                    out_mcx,
-                    desc,
-                    &m.base.tts_values,
-                    &m.base.tts_isnull,
-                    extra,
-                )
+                let desc = m.base.tts_tupleDescriptor.as_ref().expect("copy without descriptor");
+                heap_form_minimal_tuple(out_mcx, desc, &m.base.tts_values, &m.base.tts_isnull, extra,)
             }
         },
     }
@@ -952,11 +917,7 @@ pub fn exec_copy_slot_minimal_tuple_planned<'mcx, 'out>(
     if let SlotData::Virtual(v) = slot {
         debug_assert_eq!(
             plan.natts(),
-            v.base
-                .tts_tupleDescriptor
-                .as_ref()
-                .expect("copy without descriptor")
-                .natts as usize
+            v.base.tts_tupleDescriptor.as_ref().expect("copy without descriptor").natts as usize
         );
         if !v.base.tts_isnull[..plan.natts()].contains(&true) {
             return heap_form_minimal_tuple_planned(out_mcx, plan, &v.base.tts_values, extra);
@@ -973,10 +934,7 @@ pub enum FetchedHeapTuple<'a, 'mcx, 'out> {
 
 pub enum FetchedMinimalTuple<'a, 'out> {
     /// Full-image-provenance pointer, live for `'a`; a `&MinimalTupleData` here would shrink provenance to the header (UB on deform).
-    Slot(
-        NonNull<MinimalTupleData>,
-        core::marker::PhantomData<&'a MinimalTupleData>,
-    ),
+    Slot(NonNull<MinimalTupleData>, core::marker::PhantomData<&'a MinimalTupleData>,),
     Copied(MinimalTuple<'out>),
 }
 
@@ -1276,8 +1234,7 @@ pub unsafe fn datum_get_heap_tuple_header<'mcx>(
     mcx: Mcx<'mcx>,
     datum: Datum,
 ) -> PgResult<*const HeapTupleHeaderData> {
-    let aligned =
-        |p: *const u8| (p as usize).is_multiple_of(core::mem::align_of::<HeapTupleHeaderData>());
+    let aligned = |p: *const u8| (p as usize).is_multiple_of( core::mem::align_of::<HeapTupleHeaderData>());
     let src = datum.as_usize() as *const u8;
     // SAFETY: caller contract.
     let hdr = unsafe {
@@ -1301,10 +1258,8 @@ pub unsafe fn datum_get_heap_tuple_header<'mcx>(
 #[inline(never)]
 fn misaligned_composite(p: *const u8) -> alloc::boxed::Box<PgError> {
     alloc::boxed::Box::new(
-        PgError::error(alloc::format!(
-            "composite datum image at {p:p} is not MAXALIGN'd"
-        ))
-        .with_sqlstate(ERRCODE_INTERNAL_ERROR),
+        PgError::error(alloc::format!("composite datum image at {p:p} is not MAXALIGN'd"))
+            .with_sqlstate(ERRCODE_INTERNAL_ERROR),
     )
 }
 
@@ -1351,6 +1306,7 @@ pub fn execute_attr_map_slot<'mcx>(
     exec_clear_tuple(out_slot, mcx);
 
     #[allow(clippy::needless_range_loop)]
+
     for i in 0..outnatts {
         let j = attmap[i] - 1;
         let (value, isnull) = if j < 0 {

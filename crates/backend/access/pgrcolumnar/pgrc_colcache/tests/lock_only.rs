@@ -38,11 +38,7 @@ impl Page {
     fn new(rows: &[[u8; 40]]) -> Page {
         let p = Page(RefCell::new(vec![0u64; BLCKSZ / 8].into_boxed_slice()));
         // SAFETY: an 8-aligned BLCKSZ buffer this page owns.
-        let mut page = unsafe {
-            PageMut::from_raw(
-                std::ptr::NonNull::new(p.0.borrow_mut().as_mut_ptr() as *mut u8).unwrap(),
-            )
-        };
+        let mut page = unsafe { PageMut::from_raw(std::ptr::NonNull::new(p.0.borrow_mut().as_mut_ptr() as *mut u8).unwrap(),) };
         page.init(0);
         for t in rows {
             page.add_item(t, 0, PAI_IS_HEAP).expect("room");
@@ -87,71 +83,20 @@ fn a_tomb_image_counts_its_live_rows_and_never_a_lock_row() {
     mem::set_cap(mem::DEFAULT_CAP);
     let locks = [
         // a lock held by a running transaction, and a committed lock-only one
-        tuple(
-            900,
-            900,
-            XMIN_FROZEN | XMAX_LOCK_ONLY | XMAX_EXCL,
-            rowident(7, 1),
-            SUCC_LOCK,
-        ),
-        tuple(
-            5,
-            6,
-            XMIN_FROZEN | XMAX_LOCK_ONLY | XMAX_EXCL,
-            rowident(7, 2),
-            SUCC_LOCK,
-        ),
+        tuple(900, 900, XMIN_FROZEN | XMAX_LOCK_ONLY | XMAX_EXCL, rowident(7, 1), SUCC_LOCK,),
+        tuple(5, 6, XMIN_FROZEN | XMAX_LOCK_ONLY | XMAX_EXCL, rowident(7, 2), SUCC_LOCK,),
     ];
     let cases: [(&str, Vec<[u8; 40]>, usize); 4] = [
         ("LOCK rows only", locks.to_vec(), 0),
         // a speculative tombstone that lost: its xmin invalid, dead to all
-        (
-            "a dead loser",
-            [
-                locks.to_vec(),
-                vec![tuple(
-                    77,
-                    0,
-                    XMIN_INVALID | XMAX_INVALID,
-                    rowident(7, 3),
-                    SUCC_NONE,
-                )],
-            ]
-            .concat(),
-            0,
-        ),
-        (
-            "a settled delete",
-            [
-                locks.to_vec(),
-                vec![tuple(
-                    5,
-                    0,
-                    XMIN_FROZEN | XMAX_INVALID,
-                    rowident(7, 4),
-                    SUCC_NONE,
-                )],
-            ]
-            .concat(),
-            1,
-        ),
-        (
-            "an in-progress delete",
-            [
-                locks.to_vec(),
-                vec![tuple(900, 0, XMAX_INVALID, rowident(7, 5), SUCC_NONE)],
-            ]
-            .concat(),
-            1,
-        ),
+        ("a dead loser", [locks.to_vec(), vec![tuple(77, 0, XMIN_INVALID | XMAX_INVALID, rowident(7, 3), SUCC_NONE,)],].concat(), 0,),
+        ("a settled delete", [locks.to_vec(), vec![tuple(5, 0, XMIN_FROZEN | XMAX_INVALID, rowident(7, 4), SUCC_NONE,)],].concat(), 1,),
+        ("an in-progress delete", [locks.to_vec(), vec![tuple(900, 0, XMAX_INVALID, rowident(7, 5), SUCC_NONE)],].concat(), 1,),
     ];
     for (i, (what, rows, live)) in cases.into_iter().enumerate() {
         let (reg, imgs) = (Registry::new(), Images::new());
         let loc = (1663, 5, 91_500 + i as u32);
-        let img = imgs
-            .current(&reg, loc, loc.2, Kind::Tomb, &Page::new(&rows), &Txns)
-            .expect("current")
-            .expect("an image");
+        let img = imgs.current(&reg, loc, loc.2, Kind::Tomb, &Page::new(&rows), &Txns).expect("current").expect("an image");
         assert_eq!(img.live, live, "{what}");
         imgs.drop_image(&reg, loc);
     }

@@ -81,21 +81,14 @@ struct ContainMutable;
 
 impl<'mcx> NodeWalker<'mcx> for ContainMutable {
     fn visit(&mut self, node: Node<'mcx>) -> PgResult<bool> {
-        if check_functions_in_node(
-            node,
-            &mut |f| Ok(func_volatile(f)? != PROVOLATILE_IMMUTABLE),
-        )? {
+        if check_functions_in_node(node, &mut |f|
+            Ok(func_volatile(f)? != PROVOLATILE_IMMUTABLE),)? {
             return Ok(true);
         }
         match node.node_tag() {
             NodeTag::T_JsonConstructorExpr => {
                 let c = node.as_json_constructor_expr().unwrap();
-                let is_jsonb = c
-                    .returning
-                    .expect("returning")
-                    .format
-                    .expect("format")
-                    .format_type
+                let is_jsonb = c.returning.expect("returning").format.expect("format").format_type
                     == types_nodes::primnodes::JsonFormatType::JS_FORMAT_JSONB;
                 for arg in &c.args {
                     let typid = nodes_core::node_funcs::expr_type(arg);
@@ -123,14 +116,10 @@ impl<'mcx> NodeWalker<'mcx> for ContainMutable {
                 if cnst.constisnull {
                     return Ok(false);
                 }
-                let mut vars: Vec<(&[u8], Oid)> =
-                    ::mcx::std_vec_with_capacity("optimizer", je.passing_names.len())?;
+                let mut vars: Vec<(&[u8], Oid)> = ::mcx::std_vec_with_capacity("optimizer", je.passing_names.len())?;
                 for (name, value) in je.passing_names.iter().zip(je.passing_values.iter()) {
                     vars.push((
-                        name.as_string()
-                            .expect("passing name is a String node")
-                            .sval
-                            .as_bytes(),
+                        name.as_string().expect("passing name is a String node").sval.as_bytes(),
                         nodes_core::node_funcs::expr_type(value),
                     ));
                 }
@@ -147,7 +136,10 @@ impl<'mcx> NodeWalker<'mcx> for ContainMutable {
         }
     }
 
-    fn visit_query_ref(&mut self, q: &'mcx types_nodes::parsenodes::Query<'mcx>) -> PgResult<bool> {
+    fn visit_query_ref(
+        &mut self,
+        q: &'mcx types_nodes::parsenodes::Query<'mcx>
+    ) -> PgResult<bool> {
         query_tree_walker(q, self, 0)
     }
 }
@@ -191,7 +183,10 @@ impl<'mcx> NodeWalker<'mcx> for ContainVolatile {
         }
     }
 
-    fn visit_query_ref(&mut self, q: &'mcx types_nodes::parsenodes::Query<'mcx>) -> PgResult<bool> {
+    fn visit_query_ref(
+        &mut self,
+        q: &'mcx types_nodes::parsenodes::Query<'mcx>
+    ) -> PgResult<bool> {
         query_tree_walker(q, self, 0)
     }
 }
@@ -258,7 +253,8 @@ fn test_hazard(proparallel: i8, max_interesting: i8, max_hazard: &mut i8) -> PgR
 impl<'mcx> NodeWalker<'mcx> for MaxParallelHazard {
     fn visit(&mut self, node: Node<'mcx>) -> PgResult<bool> {
         let (mi, mh) = (self.max_interesting, &mut self.max_hazard);
-        if check_functions_in_node(node, &mut |f| test_hazard(func_parallel(f)?, mi, mh))? {
+        if check_functions_in_node(node, &mut |f|
+            test_hazard(func_parallel(f)?, mi, mh))? {
             return Ok(true);
         }
         match node.node_tag() {
@@ -299,7 +295,8 @@ impl<'mcx> NodeWalker<'mcx> for MaxParallelHazard {
                 if p.paramkind == ParamKind::PARAM_EXTERN {
                     return Ok(false);
                 }
-                if p.paramkind != ParamKind::PARAM_EXEC || !self.safe_param_ids.contains(&p.paramid)
+                if p.paramkind != ParamKind::PARAM_EXEC
+                    || !self.safe_param_ids.contains(&p.paramid)
                 {
                     return self.test(PROPARALLEL_RESTRICTED);
                 }
@@ -311,7 +308,10 @@ impl<'mcx> NodeWalker<'mcx> for MaxParallelHazard {
         }
     }
 
-    fn visit_query_ref(&mut self, q: &'mcx types_nodes::parsenodes::Query<'mcx>) -> PgResult<bool> {
+    fn visit_query_ref(
+        &mut self,
+        q: &'mcx types_nodes::parsenodes::Query<'mcx>
+    ) -> PgResult<bool> {
         self.scan_query(q)
     }
 }
@@ -498,10 +498,7 @@ impl<'mcx> NodeWalker<'mcx> for ContainContextDependent {
 }
 
 pub fn contain_context_dependent_node(clause: Node<'_>) -> PgResult<bool> {
-    ContainContextDependent {
-        casetestexpr_ok: false,
-    }
-    .visit(clause)
+    ContainContextDependent { casetestexpr_ok: false, }.visit(clause)
 }
 
 struct ContainLeakedVars;
@@ -592,7 +589,7 @@ pub fn is_pseudo_constant_clause_relids(
     clause: Node<'_>,
     relids: Option<&Bitmapset<'_>>,
 ) -> PgResult<bool> {
-    let relids_empty = relids.is_none_or(|b| b.is_empty());
+    let relids_empty = relids.is_none_or( |b| b.is_empty());
     Ok(relids_empty && !contain_volatile_functions(clause)?)
 }
 
@@ -631,10 +628,7 @@ impl<'mcx> NodeWalker<'mcx> for PullParamids<'mcx> {
 }
 
 pub fn pull_paramids<'mcx>(mcx: mcx::Mcx<'mcx>, expr: Node<'mcx>) -> PgResult<Bitmapset<'mcx>> {
-    let mut cx = PullParamids {
-        mcx,
-        result: Bitmapset::empty(),
-    };
+    let mut cx = PullParamids { mcx, result: Bitmapset::empty(), };
     cx.visit(expr)?;
     Ok(cx.result)
 }
@@ -791,11 +785,7 @@ pub fn find_window_functions<'mcx>(
     for _ in 0..=max_win_ref {
         window_funcs.push(mcx::PgVec::new_in(mcx));
     }
-    let mut lists = WindowFuncLists {
-        num_window_funcs: 0,
-        max_win_ref,
-        window_funcs,
-    };
+    let mut lists = WindowFuncLists { num_window_funcs: 0, max_win_ref, window_funcs, };
     FindWindowFuncs { lists: &mut lists }.visit(clause)?;
     Ok(lists)
 }
@@ -804,11 +794,7 @@ pub fn find_window_functions<'mcx>(
 const FIRST_LOW_INVALID_HEAP_ATTR: i32 = -7;
 
 fn strict_opfuncid(o: &types_nodes::primnodes::OpExpr<'_>) -> PgResult<bool> {
-    let funcid = if o.opfuncid != 0 {
-        o.opfuncid
-    } else {
-        lsyscache::get_opcode(o.opno)?
-    };
+    let funcid = if o.opfuncid != 0 { o.opfuncid } else { lsyscache::get_opcode(o.opno)? };
     func_strict(funcid)
 }
 
@@ -873,7 +859,7 @@ fn saop_const_array_nitems(value: datum::Datum) -> PgResult<i64> {
             let tag = *p.add(1);
             let body = match tag {
                 18 => 16,
-                1..=3 => core::mem::size_of::<usize>(),
+                1..= 3 => core::mem::size_of::<usize>(),
                 other => panic!("saop_const_array_nitems: unknown vartag {other}"),
             };
             core::slice::from_raw_parts(p, 2 + body)
@@ -925,7 +911,7 @@ fn jsonpath_const_is_mutable(value: datum::Datum, vars: &[(&[u8], Oid)]) -> PgRe
         if b0 == 0x01 {
             let body = match *p.add(1) {
                 18 => 16,
-                1..=3 => core::mem::size_of::<usize>(),
+                1..= 3 => core::mem::size_of::<usize>(),
                 other => panic!("jsonpath_const_is_mutable: unknown vartag {other}"),
             };
             core::slice::from_raw_parts(p, 2 + body)
@@ -1088,7 +1074,8 @@ fn find_nonnullable_rels_walker<'mcx>(
             let sp = node.as_sub_plan().unwrap();
             // Strictness transfers from the testexpr only for top-level ANY
             // and any-level ROWCOMPARE sublinks (clauses.c:1649-1652).
-            if ((top_level && sp.subLinkType == types_nodes::primnodes::SubLinkType::ANY_SUBLINK)
+            if ((top_level
+                && sp.subLinkType == types_nodes::primnodes::SubLinkType::ANY_SUBLINK)
                 || sp.subLinkType == types_nodes::primnodes::SubLinkType::ROWCOMPARE_SUBLINK)
                 && sp.testexpr.is_some()
             {
@@ -1337,7 +1324,8 @@ fn find_nonnullable_vars_walker<'mcx>(
         }
         NodeTag::T_SubPlan => {
             let sp = node.as_sub_plan().unwrap();
-            if ((top_level && sp.subLinkType == types_nodes::primnodes::SubLinkType::ANY_SUBLINK)
+            if ((top_level
+                && sp.subLinkType == types_nodes::primnodes::SubLinkType::ANY_SUBLINK)
                 || sp.subLinkType == types_nodes::primnodes::SubLinkType::ROWCOMPARE_SUBLINK)
                 && sp.testexpr.is_some()
             {
@@ -1399,11 +1387,7 @@ pub fn find_forced_null_var<'mcx>(
             return None;
         }
         let var = bt.arg?.as_var()?;
-        return if var.varlevelsup == 0 {
-            Some(var)
-        } else {
-            None
-        };
+        return if var.varlevelsup == 0 { Some(var) } else { None };
     }
     let nt = node.as_null_test()?;
     if nt.nulltesttype != types_nodes::primnodes::NullTestType::IS_NULL || nt.argisrow {
@@ -1491,9 +1475,7 @@ pub fn make_saop_expr<'mcx>(
         let mut elems: mcx::PgVec<'mcx, datum::Datum> = mcx::PgVec::new_in(mcx);
         let mut nulls: mcx::PgVec<'mcx, bool> = mcx::PgVec::new_in(mcx);
         for e in &exprs {
-            let c = e
-                .as_const()
-                .expect("have_non_const covers non-Const elements");
+            let c = e.as_const().expect("have_non_const covers non-Const elements");
             elems.push(c.constvalue);
             nulls.push(c.constisnull);
         }

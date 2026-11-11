@@ -194,9 +194,7 @@ fn check_root(progname: &str) {
         std::process::exit(1);
     }
     if uid != euid {
-        elog::write_stderr(&format!(
-            "{progname}: real and effective user IDs must match\n"
-        ));
+        elog::write_stderr(&format!("{progname}: real and effective user IDs must match\n"));
         std::process::exit(1);
     }
 }
@@ -210,9 +208,7 @@ fn write_stdout_ignoring_errors(w: &mut dyn std::io::Write, s: &str) {
 
 /// C's argv is raw bytes (main.c:163); a non-UTF-8 argument must not panic.
 pub fn argv_from_os<I: IntoIterator<Item = std::ffi::OsString>>(args: I) -> Vec<String> {
-    args.into_iter()
-        .map(|a| a.to_string_lossy().into_owned())
-        .collect()
+    args.into_iter().map(|a| a.to_string_lossy().into_owned()).collect()
 }
 
 pub fn pg_main(argv: &[String]) -> PgResult<()> {
@@ -450,11 +446,7 @@ fn set_errno_zero() {
 
 /// `postgres --version`: which pgrust this is and the PostgreSQL release it is compatible with.
 pub fn version_banner() -> String {
-    format!(
-        "pgrust {} (PostgreSQL {} compatible)\n",
-        guc_tables::consts::PGRUST_VERSION,
-        guc_tables::consts::PG_COMPAT_VERSION
-    )
+    format!("pgrust {} (PostgreSQL {} compatible)\n", guc_tables::consts::PGRUST_VERSION, guc_tables::consts::PG_COMPAT_VERSION)
 }
 
 pub fn help(progname: &str) -> String {
@@ -529,13 +521,8 @@ pub fn heap_thp_policy() -> HeapThp {
         let policy = linux_heap_thp();
         // P6: not while PoolAlloc serves (the pool advises its own superpages; a block's advice would split them)
         if policy != HeapThp::Off && !pool_allocates() {
-            let min_mb = std::env::var_os("PGRUST_HEAP_HUGE_MIN_MB")
-                .and_then(|v| v.to_str()?.trim().parse::<usize>().ok())
-                .unwrap_or(4);
-            let pmd = std::fs::read_to_string("/sys/kernel/mm/transparent_hugepage/hpage_pmd_size")
-                .ok()
-                .and_then(|t| t.trim().parse::<usize>().ok())
-                .unwrap_or(0);
+            let min_mb = std::env::var_os("PGRUST_HEAP_HUGE_MIN_MB").and_then(|v| v.to_str()?.trim().parse::<usize>().ok()).unwrap_or(4);
+            let pmd = std::fs::read_to_string("/sys/kernel/mm/transparent_hugepage/hpage_pmd_size").ok().and_then(|t| t.trim().parse::<usize>().ok()).unwrap_or(0);
             init_small::oom::set_huge_advise(min_mb.saturating_mul(1 << 20), pmd);
         }
         policy
@@ -585,20 +572,10 @@ fn linux_heap_thp() -> HeapThp {
         return HeapThp::Kept;
     }
     // SAFETY: integer-argument prctl; changes only this process's THP policy (EINVAL before Linux 6.18).
-    if unsafe {
-        libc::prctl(
-            libc::PR_SET_THP_DISABLE,
-            1 as libc::c_ulong,
-            PR_THP_DISABLE_EXCEPT_ADVISED,
-            0 as libc::c_ulong,
-            0 as libc::c_ulong,
-        )
-    } == 0
-    {
+    if unsafe { libc::prctl(libc::PR_SET_THP_DISABLE, 1 as libc::c_ulong, PR_THP_DISABLE_EXCEPT_ADVISED, 0 as libc::c_ulong, 0 as libc::c_ulong,) } == 0 {
         return HeapThp::ExceptAdvised;
     }
-    let always = std::fs::read_to_string("/sys/kernel/mm/transparent_hugepage/enabled")
-        .is_ok_and(|t| t.contains("[always]"));
+    let always = std::fs::read_to_string("/sys/kernel/mm/transparent_hugepage/enabled").is_ok_and(|t| t.contains("[always]"));
     if !always {
         return HeapThp::HostMadvise;
     }
@@ -606,15 +583,7 @@ fn linux_heap_thp() -> HeapThp {
         return HeapThp::Kept;
     }
     // SAFETY: as above, without the flag.
-    unsafe {
-        libc::prctl(
-            libc::PR_SET_THP_DISABLE,
-            1 as libc::c_ulong,
-            0 as libc::c_ulong,
-            0 as libc::c_ulong,
-            0 as libc::c_ulong,
-        )
-    };
+    unsafe { libc::prctl(libc::PR_SET_THP_DISABLE, 1 as libc::c_ulong, 0 as libc::c_ulong, 0 as libc::c_ulong, 0 as libc::c_ulong,) };
     HeapThp::Off
 }
 
@@ -626,15 +595,9 @@ mod tests {
     fn version_names_pgrust_and_the_compatible_postgres() {
         assert_eq!(
             version_banner(),
-            format!(
-                "pgrust {} (PostgreSQL 18.6 compatible)\n",
-                guc_tables::consts::PGRUST_VERSION
-            )
+            format!("pgrust {} (PostgreSQL 18.6 compatible)\n", guc_tables::consts::PGRUST_VERSION)
         );
-        assert_eq!(
-            PG_BACKEND_VERSIONSTR, "postgres (PostgreSQL) 18.6\n",
-            "-V stays PostgreSQL's for initdb / pg_ctl"
-        );
+        assert_eq!(PG_BACKEND_VERSIONSTR, "postgres (PostgreSQL) 18.6\n", "-V stays PostgreSQL's for initdb / pg_ctl");
     }
 
     /// the policy's prctl state, by what it set: off except advised ranges (1 | PR_THP_DISABLE_EXCEPT_ADVISED),
@@ -642,9 +605,7 @@ mod tests {
     #[cfg(target_os = "linux")]
     #[test]
     fn heap_thp_policy_keeps_advised_ranges_huge() {
-        if std::env::var_os("MIMALLOC_ALLOW_THP").is_some()
-            || std::env::var_os("PGRUST_HEAP_THP").is_some()
-        {
+        if std::env::var_os("MIMALLOC_ALLOW_THP").is_some() || std::env::var_os("PGRUST_HEAP_THP").is_some() {
             return;
         }
         let policy = heap_thp_policy();
@@ -656,16 +617,10 @@ mod tests {
             HeapThp::HostMadvise | HeapThp::Kept => 0,
         };
         assert_eq!(got, want, "{policy:?}");
-        if policy != HeapThp::Off
-            && std::fs::read_to_string("/sys/kernel/mm/transparent_hugepage/hpage_pmd_size").is_ok()
-        {
+        if policy != HeapThp::Off && std::fs::read_to_string("/sys/kernel/mm/transparent_hugepage/hpage_pmd_size").is_ok() {
             // while PoolAlloc serves, the pool advises its own superpages: no block advice
             let want = if pool_allocates() { 0 } else { 4 << 20 };
-            assert_eq!(
-                init_small::oom::huge_advise_min(),
-                want,
-                "the default threshold"
-            );
+            assert_eq!(init_small::oom::huge_advise_min(), want, "the default threshold");
         }
     }
 
@@ -687,11 +642,7 @@ mod tests {
             let mut vm = String::new();
             for line in flags.lines() {
                 let range = line.split_whitespace().next().unwrap_or("");
-                if let Some((lo, hi)) = range.split_once('-').and_then(|(a, b)| {
-                    Some((
-                        usize::from_str_radix(a, 16).ok()?,
-                        usize::from_str_radix(b, 16).ok()?,
-                    ))
+                if let Some((lo, hi)) = range.split_once('-').and_then(|(a, b)| { Some((usize::from_str_radix(a, 16).ok()?, usize::from_str_radix(b, 16).ok()?,))
                 }) {
                     inside = lo <= p as usize && (p as usize) < hi;
                 } else if inside && line.starts_with("VmFlags:") {
@@ -705,19 +656,14 @@ mod tests {
         })
         .join()
         .unwrap();
-        assert!(
-            !addr.is_empty() && !addr.split_whitespace().any(|f| f == "hg"),
-            "mimalloc advised its arena huge: {addr}"
-        );
+        assert!(!addr.is_empty() && !addr.split_whitespace().any(|f| f == "hg"), "mimalloc advised its arena huge: {addr}");
     }
 
     // main.c:400 under USE_SSL (be_secure's default-on ssl feature).
     #[test]
     fn help_lists_the_ssl_switch() {
         let h = help("postgres");
-        let k = h
-            .find("  -k DIRECTORY       Unix-domain socket location\n")
-            .unwrap();
+        let k = h.find("  -k DIRECTORY       Unix-domain socket location\n").unwrap();
         assert!(h[k..].starts_with(
             "  -k DIRECTORY       Unix-domain socket location\n  -l                 enable SSL connections\n  -N MAX-CONNECT"
         ));
@@ -727,23 +673,11 @@ mod tests {
     fn dispatch_names_match_c() {
         assert_eq!(parse_dispatch_option("check"), DispatchOption::Check);
         assert_eq!(parse_dispatch_option("boot"), DispatchOption::Boot);
-        assert_eq!(
-            parse_dispatch_option("describe-config"),
-            DispatchOption::DescribeConfig
-        );
+        assert_eq!(parse_dispatch_option("describe-config"), DispatchOption::DescribeConfig);
         assert_eq!(parse_dispatch_option("single"), DispatchOption::Single);
-        assert_eq!(
-            parse_dispatch_option("stdio-wire"),
-            DispatchOption::StdioWire
-        );
-        assert_eq!(
-            parse_dispatch_option("forkchild"),
-            DispatchOption::Postmaster
-        );
-        assert_eq!(
-            parse_dispatch_option("nonsense"),
-            DispatchOption::Postmaster
-        );
+        assert_eq!(parse_dispatch_option("stdio-wire"), DispatchOption::StdioWire);
+        assert_eq!(parse_dispatch_option("forkchild"), DispatchOption::Postmaster);
+        assert_eq!(parse_dispatch_option("nonsense"), DispatchOption::Postmaster);
         assert_eq!(parse_dispatch_option(""), DispatchOption::Postmaster);
     }
 
@@ -779,22 +713,13 @@ mod tests {
     #[test]
     fn help_and_version_answer_before_profile_expansion() {
         // main.c:163-176 never reads argv[2..] once argv[1] is --help/--version.
-        assert_eq!(
-            expand_profile_argv(&sv(&["postgres", "--help", "--profile"])),
-            Ok(None)
-        );
-        assert_eq!(
-            expand_profile_argv(&sv(&["postgres", "-?", "--profile=nope"])),
-            Ok(None)
-        );
+        assert_eq!(expand_profile_argv(&sv(&["postgres", "--help", "--profile"])), Ok(None));
+        assert_eq!(expand_profile_argv(&sv(&["postgres", "-?", "--profile=nope"])), Ok(None));
         assert_eq!(
             expand_profile_argv(&sv(&["postgres", "--version", "--profile=unknown"])),
             Ok(None)
         );
-        assert_eq!(
-            expand_profile_argv(&sv(&["postgres", "-V", "--profile"])),
-            Ok(None)
-        );
+        assert_eq!(expand_profile_argv(&sv(&["postgres", "-V", "--profile"])), Ok(None));
         assert_eq!(
             expand_profile_argv(&sv(&["postgres", "-D", "dd", "--help", "--profile"])),
             Err(ProfileArgvError::MissingValue)
@@ -811,9 +736,7 @@ mod tests {
     fn build_id_stamp_is_empty_or_a_plain_token() {
         assert!(PGRUST_BUILD_ID.len() <= 40, "{PGRUST_BUILD_ID:?}");
         assert!(
-            PGRUST_BUILD_ID
-                .bytes()
-                .all(|b| b.is_ascii_alphanumeric() || b"._+-".contains(&b)),
+            PGRUST_BUILD_ID.bytes().all(|b| b.is_ascii_alphanumeric() || b"._+-".contains(&b)),
             "{PGRUST_BUILD_ID:?}"
         );
     }
@@ -855,10 +778,7 @@ mod tests {
     #[test]
     fn profile_absent_is_untouched() {
         // Stock invocations: expansion returns None (caller keeps the slice).
-        assert_eq!(
-            expand_profile_argv(&sv(&["postgres", "-D", "dd"])),
-            Ok(None)
-        );
+        assert_eq!(expand_profile_argv(&sv(&["postgres", "-D", "dd"])), Ok(None));
         assert_eq!(expand_profile_argv(&sv(&["postgres"])), Ok(None));
         // argv[0] never participates, even if pathological.
         assert_eq!(expand_profile_argv(&sv(&["--profile"])), Ok(None));
@@ -868,13 +788,7 @@ mod tests {
     fn profile_expands_in_place() {
         // Expansion happens AT THAT POSITION: -D before, explicit -c after.
         let out = expand_profile_argv(&sv(&[
-            "postgres",
-            "-D",
-            "dd",
-            "--profile",
-            "test",
-            "-c",
-            "fsync=on",
+            "postgres", "-D", "dd", "--profile", "test", "-c", "fsync=on",
         ]))
         .unwrap()
         .unwrap();
@@ -902,12 +816,8 @@ mod tests {
 
     #[test]
     fn profile_equals_form_and_errors() {
-        let a = expand_profile_argv(&sv(&["postgres", "--profile", "test"]))
-            .unwrap()
-            .unwrap();
-        let b = expand_profile_argv(&sv(&["postgres", "--profile=test"]))
-            .unwrap()
-            .unwrap();
+        let a = expand_profile_argv(&sv(&["postgres", "--profile", "test"])).unwrap().unwrap();
+        let b = expand_profile_argv(&sv(&["postgres", "--profile=test"])).unwrap().unwrap();
         assert_eq!(a, b);
         assert_eq!(
             expand_profile_argv(&sv(&["postgres", "--profile"])),
@@ -924,10 +834,7 @@ mod tests {
         assert!(profile_settings("test").is_some());
         assert!(profile_settings("prod").is_none());
         for name in KNOWN_PROFILES {
-            assert!(
-                profile_settings(name).is_some(),
-                "KNOWN_PROFILES lists {name} but profile_settings has no arm"
-            );
+            assert!(profile_settings(name).is_some(), "KNOWN_PROFILES lists {name} but profile_settings has no arm");
         }
     }
 
@@ -948,9 +855,7 @@ mod tests {
             if line.is_empty() {
                 continue;
             }
-            let (k, v) = line
-                .split_once('=')
-                .expect("conf line must be name = value");
+            let (k, v) = line.split_once('=').expect("conf line must be name = value");
             // GUC-file quoting is file-syntax only: a quoted file value
             // ('*') and the argv form (-c ...=*) denote the same setting,
             // so strip one layer of single quotes before comparing.
@@ -961,10 +866,7 @@ mod tests {
                 .unwrap_or(v);
             file_settings.push((k.trim().to_string(), v.to_string()));
         }
-        assert!(
-            !file_settings.is_empty(),
-            "parsed zero settings from conf/test.conf"
-        );
+        assert!(!file_settings.is_empty(), "parsed zero settings from conf/test.conf");
         let table: Vec<(String, String)> = PROFILE_TEST_SETTINGS
             .iter()
             .map(|(k, v)| (k.to_string(), v.to_string()))

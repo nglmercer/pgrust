@@ -188,18 +188,11 @@ fn an_exiting_threads_callback_lists_are_freed() {
     RegisterXactCallback(cb1, Datum::from_usize(1));
     RegisterSubXactCallback(sub_cb, Datum::from_usize(1));
     let held = || xs(|s| (s.xact_callbacks.capacity(), s.subxact_callbacks.capacity()));
-    assert!(
-        held().0 > 0 && held().1 > 0,
-        "each registration holds a list block"
-    );
+    assert!(held().0 > 0 && held().1 > 0, "each registration holds a list block");
     let g0 = xs(|s| s.callbacks_gen);
     release_thread_callbacks();
     assert_eq!(held(), (0, 0), "both lists' blocks freed");
-    assert_ne!(
-        xs(|s| s.callbacks_gen),
-        g0,
-        "a walk in progress sees the lists changed"
-    );
+    assert_ne!(xs(|s| s.callbacks_gen), g0, "a walk in progress sees the lists changed");
     reset_xact_state_for_tests();
 }
 
@@ -276,18 +269,7 @@ fn commit_record_round_trips_through_parser() {
     install_test_seams();
     reset_xact_state_for_tests();
 
-    XactLogCommitRecord(
-        777,
-        &[],
-        &[],
-        &[],
-        &[],
-        false,
-        0,
-        InvalidTransactionId,
-        None,
-    )
-    .unwrap();
+    XactLogCommitRecord(777, &[], &[], &[], &[], false, 0, InvalidTransactionId, None,).unwrap();
     let (info, body) = CAPTURED.with(|c| c.borrow_mut().take()).unwrap();
     assert_eq!(info, XLOG_XACT_COMMIT);
     assert_eq!(body.len(), 8);
@@ -340,18 +322,7 @@ fn commit_record_no_origin_seam_child() {
     });
     reset_xact_state_for_tests();
 
-    XactLogCommitRecord(
-        777,
-        &[],
-        &[],
-        &[],
-        &[],
-        false,
-        0,
-        InvalidTransactionId,
-        None,
-    )
-    .unwrap();
+    XactLogCommitRecord(777, &[], &[], &[], &[], false, 0, InvalidTransactionId, None,).unwrap();
     let (info, body) = CAPTURED.with(|c| c.borrow_mut().take()).unwrap();
     assert_eq!(info, XLOG_XACT_COMMIT);
     let parsed = parse_commit_record(info, &body).unwrap();
@@ -448,8 +419,7 @@ fn save_restore_transaction_characteristics() {
 fn session_mem_teardown_frees_the_subtransaction_stack() {
     reset_xact_state_for_tests();
     xs(|s| {
-        s.try_push_node(crate::state::TransactionNode::top())
-            .unwrap();
+        s.try_push_node(crate::state::TransactionNode::top()).unwrap();
         s.pop_node();
     });
     assert!(crate::state::subs_capacity_for_tests() > 0);
@@ -466,8 +436,7 @@ fn top_level_end_releases_deep_sub_stack() {
     let fill = |n: usize| {
         xs(|s| {
             for _ in 0..n {
-                s.try_push_node(crate::state::TransactionNode::top())
-                    .unwrap();
+                s.try_push_node(crate::state::TransactionNode::top()).unwrap();
             }
             for _ in 0..n {
                 s.pop_node();
@@ -491,9 +460,7 @@ fn subcommit_keeps_cur_transaction_context_with_callback_or_child() {
     use std::cell::Cell;
     use std::rc::Rc;
     let push_sub = || {
-        xs(|s| {
-            s.try_push_node(crate::state::TransactionNode::top())
-                .unwrap()
+        xs(|s| { s.try_push_node(crate::state::TransactionNode::top()).unwrap()
         });
         AtSubStart_Memory();
     };
@@ -508,11 +475,7 @@ fn subcommit_keeps_cur_transaction_context_with_callback_or_child() {
     let fired = Rc::new(Cell::new(false));
     let f = fired.clone();
     xs(|s| {
-        let ctx = s
-            .node(1)
-            .cur_transaction_context
-            .as_ref()
-            .expect("subxact context");
+        let ctx = s.node(1).cur_transaction_context.as_ref().expect("subxact context");
         assert_eq!(ctx.subtree_used(), 0);
         ctx.register_reset_callback(move || f.set(true));
     });
@@ -525,19 +488,10 @@ fn subcommit_keeps_cur_transaction_context_with_callback_or_child() {
     reset_xact_state_for_tests();
     AtStart_Memory(crate::state::xs_ptr());
     push_sub();
-    let kid = xs(|s| {
-        s.node(1)
-            .cur_transaction_context
-            .as_ref()
-            .expect("subxact context")
-            .new_child("kid")
+    let kid = xs(|s| { s.node(1).cur_transaction_context.as_ref().expect("subxact context").new_child("kid")
     });
     commit_sub();
-    assert_eq!(
-        xs(|s| s.node(0).retained_child_contexts.len()),
-        1,
-        "context with a live child dropped"
-    );
+    assert_eq!(xs(|s| s.node(0).retained_child_contexts.len()), 1, "context with a live child dropped");
     drop(kid);
     AtCommit_Memory(crate::state::xs_ptr());
     assert_eq!(xs(|s| s.node(0).retained_child_contexts.len()), 0);
@@ -588,11 +542,7 @@ fn a_reused_threads_next_session_keeps_its_callbacks_and_they_fire() {
         CallXactCallbacks(xs_ptr(), XACT_EVENT_COMMIT).unwrap();
         CallSubXactCallbacks(SubXactEvent::SUBXACT_EVENT_COMMIT_SUB, 2, 1).unwrap();
         session_mem_teardown();
-        assert_eq!(
-            log_take(),
-            vec![7, 8],
-            "a session's end must keep the thread's callbacks"
-        );
+        assert_eq!(log_take(), vec![7, 8], "a session's end must keep the thread's callbacks");
         // the thread's real exit frees them
         thread_exit_teardown();
         CallXactCallbacks(xs_ptr(), XACT_EVENT_COMMIT).unwrap();
@@ -615,24 +565,11 @@ fn thread_exit_teardown_frees_the_states_heap() {
             s.parallel_current_xids.push(6);
             s.prepare_gid = Some(String::from("gid"));
         });
-        assert!(
-            crate::state::exit_heap_for_tests().iter().all(|&c| c > 0),
-            "{:?}",
-            crate::state::exit_heap_for_tests()
-        );
+        assert!(crate::state::exit_heap_for_tests().iter().all(|&c| c > 0), "{:?}", crate::state::exit_heap_for_tests());
         session_mem_teardown();
-        assert!(
-            crate::state::exit_heap_for_tests()[..2]
-                .iter()
-                .all(|&c| c > 0),
-            "a session's end keeps the callback lists"
-        );
+        assert!(crate::state::exit_heap_for_tests()[..2].iter().all(|&c| c > 0), "a session's end keeps the callback lists");
         thread_exit_teardown();
-        assert_eq!(
-            crate::state::exit_heap_for_tests(),
-            [0; 5],
-            "the thread's exit frees every block"
-        );
+        assert_eq!(crate::state::exit_heap_for_tests(), [0; 5], "the thread's exit frees every block");
     })
     .join()
     .unwrap();

@@ -55,10 +55,7 @@ use crate::elect::CandidateSource;
 use crate::ingest::{normalize_varlena, ColBuffer, ExternalDetoast, NoExternalDetoast, RawDatum};
 use crate::plan::{apply_reclaim, dir_loc};
 use crate::publish::{publish_parts, PublishOutcome, TxnProbe};
-use crate::seal::{
-    seal_part, seal_part_pooled, seal_part_streamed, ColumnPool, PartSpec, SealReport, SealedPart,
-    SerialPool, Streamed, StreamedPool, VerifyResolver,
-};
+use crate::seal::{seal_part, seal_part_pooled, seal_part_streamed, ColumnPool, PartSpec, SealReport, SealedPart, SerialPool, Streamed, StreamedPool, VerifyResolver,};
 use crate::shred::{validate_lanes, ShredLaneSource};
 use crate::structural::StructuralPolicy;
 use crate::walsink::{LoggedVfs, NoWal, WalSink};
@@ -93,7 +90,8 @@ pub enum FreezeDecision {
 /// The old-writer freeze belt, verbatim: frozen iff the current subxact is
 /// valid AND the relation (or its relfilelocator) was created in it.
 pub fn freeze_decision(e: &SubxactEvidence) -> FreezeDecision {
-    if e.cur_subxact_valid && (e.rel_created_in_cur_subxact || e.new_relfilelocator_in_cur_subxact)
+    if e.cur_subxact_valid
+        && (e.rel_created_in_cur_subxact || e.new_relfilelocator_in_cur_subxact)
     {
         FreezeDecision::Frozen
     } else {
@@ -161,7 +159,7 @@ impl Default for PartCutPolicy {
 impl PartCutPolicy {
     /// True at a cut-decision boundary (never at zero rows).
     pub fn at_granule(&self, rows: u64) -> bool {
-        rows > 0 && rows.is_multiple_of(self.cut_granule_rows as u64)
+        rows > 0 && rows.is_multiple_of( self.cut_granule_rows as u64)
     }
 
     /// THE cut predicate — the ONE implementation shared by serial ingest
@@ -274,11 +272,7 @@ pub struct Placed {
 impl Placed {
     /// The part's own heap bytes (its ID ranges and the inverse permutation), for the holder that keeps it (D4537).
     pub fn heap_bytes(&self) -> usize {
-        self.ids.capacity() * core::mem::size_of::<(u64, u64)>()
-            + self
-                .sorted
-                .as_ref()
-                .map_or(0, |s| s.capacity() * core::mem::size_of::<u32>())
+        self.ids.capacity() * core::mem::size_of::<(u64, u64)>() + self.sorted.as_ref().map_or(0, |s| s.capacity() * core::mem::size_of::<u32>())
     }
 
     #[cfg(test)]
@@ -461,10 +455,7 @@ impl TableWriter {
 
     /// IXBULKSORT: the [`Placed`] of each part with IDs cut since the last call, in cut order.
     pub fn take_placements(&mut self) -> Vec<Placed> {
-        self.placements
-            .as_mut()
-            .map(std::mem::take)
-            .unwrap_or_default()
+        self.placements.as_mut().map(std::mem::take).unwrap_or_default()
     }
 
     /// Seal parts, and append [`crate::par::RowChunk`]s, column by column on `pool`.
@@ -594,17 +585,10 @@ impl TableWriter {
     /// cannot fall inside a chunk. The first failing column's error.
     pub fn append_chunk(&mut self, chunk: &crate::par::RowChunk) -> WriteResult<()> {
         if chunk.ncols() != self.cols.len() {
-            return Err(WriteError::Contract {
-                detail: "row width mismatch",
-            });
+            return Err(WriteError::Contract { detail: "row width mismatch", });
         }
-        if self.policy.max_rows != u64::MAX
-            || self.policy.max_bytes != u64::MAX
-            || chunk.has_dict_lanes()
-        {
-            return Err(WriteError::Contract {
-                detail: "chunk append under a bounded cut policy or with dict lanes",
-            });
+        if self.policy.max_rows != u64::MAX || self.policy.max_bytes != u64::MAX || chunk.has_dict_lanes() {
+            return Err(WriteError::Contract { detail: "chunk append under a bounded cut policy or with dict lanes", });
         }
         if self.pool.is_some() {
             // C1-REG: the columns grow here, on the thread that frees them, not on the workers (only a detoast that
@@ -614,11 +598,7 @@ impl TableWriter {
                 col.reserve(rows, chunk.column_heap_bound(c))?;
             }
         }
-        let slots: Vec<pgsync::Mutex<(&mut ColBuffer, WriteResult<()>)>> = self
-            .cols
-            .iter_mut()
-            .map(|c| pgsync::Mutex::new((c, Ok(()))))
-            .collect();
+        let slots: Vec<pgsync::Mutex<(&mut ColBuffer, WriteResult<()>)>> = self.cols.iter_mut().map(|c| pgsync::Mutex::new((c, Ok(())))).collect();
         let run = |c: usize| {
             let mut slot = pgsync::lock(&slots[c]);
             let (col, out) = &mut *slot;
@@ -628,9 +608,7 @@ impl TableWriter {
             Some(p) => p.pool.run(slots.len(), &run),
             None => SerialPool.run(slots.len(), &run),
         }
-        slots
-            .into_iter()
-            .try_for_each(|s| s.into_inner().unwrap_or_else(|e| e.into_inner()).1)
+        slots.into_iter().try_for_each(|s| s.into_inner().unwrap_or_else(|e| e.into_inner()).1)
     }
 
     /// Seal the buffered rows into a part (no-op on empty buffers).
@@ -680,13 +658,8 @@ impl TableWriter {
                 )?
             }
             Some(p) => {
-                let mut builders =
-                    crate::meta_wire::send_builders_for_streams(&self.cols, &lanes, &octet);
-                let sources: Vec<&(dyn CandidateSource + Sync)> = p
-                    .sources
-                    .iter()
-                    .map(|s| &**s as &(dyn CandidateSource + Sync))
-                    .collect();
+                let mut builders = crate::meta_wire::send_builders_for_streams(&self.cols, &lanes, &octet);
+                let sources: Vec<&(dyn CandidateSource + Sync)> = p.sources.iter().map(|s| &**s as &(dyn CandidateSource + Sync)).collect();
                 seal_part_pooled(
                     &mut lvfs,
                     &self.table_dir,
@@ -709,14 +682,9 @@ impl TableWriter {
         let mut report = report;
         let perm = report.cluster_perm.take();
         if let Some((lo, hi)) = self.ranges.pop() {
-            let used = sealed
-                .rows
-                .checked_sub(self.last_start)
-                .filter(|_| sealed.rows <= self.held);
+            let used = sealed.rows.checked_sub(self.last_start).filter(|_| sealed.rows <= self.held);
             let Some(used) = used else {
-                return Err(WriteError::Contract {
-                    detail: "a part past its row-ID grant",
-                });
+                return Err(WriteError::Contract { detail: "a part past its row-ID grant", });
             };
             let end = lo + pgrc_format::rowid::align_up(used);
             if used > 0 {
@@ -734,11 +702,7 @@ impl TableWriter {
         self.sealed.push(sealed);
         self.reports.push(report);
         let owner = self.owner;
-        self.cols = self
-            .schema
-            .iter()
-            .map(|s| ColBuffer::with_owner(*s, owner))
-            .collect();
+        self.cols = self.schema.iter().map(|s| ColBuffer::with_owner(*s, owner)).collect();
         Ok(())
     }
 
@@ -751,14 +715,8 @@ impl TableWriter {
         if self.policy.max_rows == u64::MAX || rows < self.held {
             return None;
         }
-        let grow = if self.last_grant == 0 {
-            FIRST_GRANT
-        } else {
-            self.last_grant.saturating_mul(GRANT_GROWTH)
-        };
-        Some(grow.min(pgrc_format::rowid::align_up(
-            self.policy.max_rows.saturating_sub(rows).max(1),
-        )))
+        let grow = if self.last_grant == 0 { FIRST_GRANT } else { self.last_grant.saturating_mul(GRANT_GROWTH) };
+        Some(grow.min(pgrc_format::rowid::align_up(self.policy.max_rows.saturating_sub(rows).max(1),)))
     }
 
     /// The IDs `[lo, hi)` the part being buffered takes next, from the table's counter ([`TableWriter::needs_ids`]): a
@@ -766,9 +724,7 @@ impl TableWriter {
     pub fn grant_ids(&mut self, lo: u64, hi: u64) -> WriteResult<()> {
         let rows = self.buffered_rows();
         if lo >= hi || rows < self.held || self.held + (hi - lo) < rows {
-            return Err(WriteError::Contract {
-                detail: "a row-ID grant over a held one, or smaller than the buffered rows",
-            });
+            return Err(WriteError::Contract { detail: "a row-ID grant over a held one, or smaller than the buffered rows", });
         }
         match self.ranges.last_mut() {
             Some(last) if last.1 == lo => last.1 = hi,
@@ -784,9 +740,7 @@ impl TableWriter {
 
     /// The ID the next appended row takes, under a grant.
     pub fn next_id(&self) -> Option<u64> {
-        self.ranges
-            .last()
-            .map(|&(lo, _)| lo + self.buffered_rows().saturating_sub(self.last_start))
+        self.ranges.last().map(|&(lo, _)| lo + self.buffered_rows().saturating_sub(self.last_start))
     }
 
     /// IDBURN: the unused tails `[end, hi)` of the parts cut since the last call, for the caller to give back to the
@@ -817,20 +771,14 @@ impl TableWriter {
         feed: &mut dyn FnMut(usize, &mut ColBuffer) -> WriteResult<()>,
     ) -> WriteResult<bool> {
         if self.buffered_rows() != 0 {
-            return Err(WriteError::Contract {
-                detail: "a streamed seal with rows buffered",
-            });
+            return Err(WriteError::Contract { detail: "a streamed seal with rows buffered", });
         }
         let seq = self.seq.fetch_add(1, Ordering::Relaxed);
         let mut created = false;
         let out = {
             let pool = self.pool.as_ref().map(|p| StreamedPool {
                 pool: &*p.pool,
-                sources: p
-                    .sources
-                    .iter()
-                    .map(|s| &**s as &(dyn CandidateSource + Sync))
-                    .collect(),
+                sources: p.sources.iter().map(|s| &**s as &(dyn CandidateSource + Sync)).collect(),
                 resolver: &*p.resolver,
             });
             let mut lvfs = LoggedVfs::new(&mut *env.vfs, &mut *self.sink, &self.table_dir);
@@ -877,15 +825,9 @@ impl TableWriter {
             return Ok(());
         }
         let names = vec![pgrc_format::dirlayout::temp_file_name(self.stamp.fxid, seq)];
-        let rec = ReclaimRec {
-            dir: dir_loc(&self.spec),
-            xid: self.stamp.fxid as u32,
-            retire_below: None,
-            names,
-        };
+        let rec = ReclaimRec { dir: dir_loc(&self.spec), xid: self.stamp.fxid as u32, retire_below: None, names, };
         let dir = &self.table_dir;
-        self.sink
-            .reclaim(&rec, &mut || apply_reclaim(&mut *vfs, dir, &rec))
+        self.sink.reclaim(&rec, &mut || apply_reclaim(&mut *vfs, dir, &rec))
     }
 
     /// The parallel-ingest seam, fact side (chunk M3-I). The rtpool BINDING
@@ -931,7 +873,10 @@ impl TableWriter {
         }
         let base = self.seq.load(Ordering::Relaxed);
         for (i, p) in parts.iter().enumerate() {
-            let expect = pgrc_format::dirlayout::temp_file_name(self.stamp.fxid, base + i as u32);
+            let expect = pgrc_format::dirlayout::temp_file_name(
+                self.stamp.fxid,
+                base + i as u32
+            );
             if p.tmp_name != expect {
                 return Err(WriteError::Contract {
                     detail: "deposit violates the ordered-commit temp-name law",
@@ -985,16 +930,7 @@ impl TableWriter {
         probe: &dyn TxnProbe,
         base: impl Into<crate::publish::BaseStats<'b>>,
     ) -> WriteResult<PublishOutcome> {
-        let outcome = publish_parts(
-            vfs,
-            &mut *self.sink,
-            &self.table_dir,
-            &self.spec,
-            &self.sealed,
-            self.stamp.fxid,
-            probe,
-            base,
-        )?;
+        let outcome = publish_parts(vfs, &mut *self.sink, &self.table_dir, &self.spec, &self.sealed, self.stamp.fxid, probe, base,)?;
         self.sealed.clear();
         Ok(outcome)
     }
@@ -1014,25 +950,13 @@ impl TableWriter {
         edit: crate::publish::Edit<'_>,
     ) -> WriteResult<PublishOutcome> {
         if self.sealed.len() > 1 {
-            return Err(WriteError::Contract {
-                detail: "a seal cut its segment into more than one part",
-            });
+            return Err(WriteError::Contract { detail: "a seal cut its segment into more than one part", });
         }
         if let Some(s) = self.sealed.first_mut() {
             s.ids = pgrc_format::try_to_vec(ids, "writer")?;
         }
         let part = self.sealed.first().map(|s| (s, part_no, rowmap));
-        let outcome = crate::publish::publish_seal(
-            vfs,
-            &mut *self.sink,
-            &self.table_dir,
-            &self.spec,
-            part,
-            self.stamp.fxid,
-            probe,
-            base_facts,
-            edit,
-        )?;
+        let outcome = crate::publish::publish_seal(vfs, &mut *self.sink, &self.table_dir, &self.spec, part, self.stamp.fxid, probe, base_facts, edit,)?;
         self.sealed.clear();
         Ok(outcome)
     }
@@ -1051,25 +975,13 @@ impl TableWriter {
         ids: &[(u64, u64)],
     ) -> WriteResult<(PublishOutcome, Option<u32>)> {
         if self.sealed.len() > 1 {
-            return Err(WriteError::Contract {
-                detail: "a compaction cut its output into more than one part",
-            });
+            return Err(WriteError::Contract { detail: "a compaction cut its output into more than one part", });
         }
         if let Some(s) = self.sealed.first_mut() {
             s.ids = pgrc_format::try_to_vec(ids, "writer")?;
         }
         let part = self.sealed.first().map(|s| (s, map.0, map.1));
-        let out = crate::publish::publish_compact(
-            vfs,
-            &mut *self.sink,
-            &self.table_dir,
-            &self.spec,
-            part,
-            retire,
-            self.stamp.fxid,
-            probe,
-            base_facts,
-        )?;
+        let out = crate::publish::publish_compact(vfs, &mut *self.sink, &self.table_dir, &self.spec, part, retire, self.stamp.fxid, probe, base_facts,)?;
         self.sealed.clear();
         Ok(out)
     }
@@ -1079,20 +991,10 @@ impl TableWriter {
     /// bytes in order (`write` appends; a file at least the sink's `ref_min` may go by reference, so the writes are
     /// sequential from offset 0). Reclaimed with the writer's parts on abort, renamed by its publish
     /// ([`TableWriter::publish_runs`]). Its temp name.
-    pub fn write_file(
-        &mut self,
-        vfs: &mut dyn WriteVfs,
-        k: u32,
-        fill: &mut dyn FnMut(&mut dyn FnMut(&[u8]) -> WriteResult<()>) -> WriteResult<()>,
-    ) -> WriteResult<String> {
-        let name = pgrc_format::dirlayout::temp_file_name(
-            self.stamp.fxid,
-            crate::publish::RUN_FILE_TMP_SEQ | k,
-        );
+    pub fn write_file(&mut self, vfs: &mut dyn WriteVfs, k: u32, fill: &mut dyn FnMut(&mut dyn FnMut(&[u8]) -> WriteResult<()>) -> WriteResult<()>,) -> WriteResult<String> {
+        let name = pgrc_format::dirlayout::temp_file_name(self.stamp.fxid, crate::publish::RUN_FILE_TMP_SEQ | k,);
         if self.files.contains(&name) || k >= 0x0010_0000 {
-            return Err(WriteError::Contract {
-                detail: "a run job's staged file written twice",
-            });
+            return Err(WriteError::Contract { detail: "a run job's staged file written twice", });
         }
         self.files.push(name.clone());
         let mut lvfs = LoggedVfs::new(vfs, &mut *self.sink, &self.table_dir);
@@ -1125,26 +1027,9 @@ impl TableWriter {
         carry: crate::publish::Carry<'_>,
     ) -> WriteResult<(PublishOutcome, Vec<u32>)> {
         if staged.iter().any(|(t, _)| !self.files.contains(t)) {
-            return Err(WriteError::Contract {
-                detail: "a run merge stages a file its writer did not write",
-            });
+            return Err(WriteError::Contract { detail: "a run merge stages a file its writer did not write", });
         }
-        let out = crate::publish::publish_runs(
-            vfs,
-            &mut *self.sink,
-            &self.table_dir,
-            &self.spec,
-            &self.sealed,
-            maps,
-            retire,
-            run,
-            start_gen,
-            staged,
-            carry,
-            self.stamp.fxid,
-            probe,
-            base_facts,
-        )?;
+        let out = crate::publish::publish_runs(vfs, &mut *self.sink, &self.table_dir, &self.spec, &self.sealed, maps, retire, run, start_gen, staged, carry, self.stamp.fxid, probe, base_facts,)?;
         self.sealed.clear();
         self.files.retain(|f| !staged.iter().any(|(t, _)| t == f));
         Ok(out)
@@ -1164,20 +1049,7 @@ impl TableWriter {
         retire: &[(u32, u64)],
         level: u8,
     ) -> WriteResult<(PublishOutcome, Vec<u32>)> {
-        let out = crate::publish::publish_self_run(
-            vfs,
-            &mut *self.sink,
-            &self.table_dir,
-            &self.spec,
-            &self.sealed,
-            maps,
-            ranges,
-            retire,
-            level,
-            self.stamp.fxid,
-            probe,
-            base_facts,
-        )?;
+        let out = crate::publish::publish_self_run(vfs, &mut *self.sink, &self.table_dir, &self.spec, &self.sealed, maps, ranges, retire, level, self.stamp.fxid, probe, base_facts,)?;
         self.sealed.clear();
         Ok(out)
     }
@@ -1193,19 +1065,7 @@ impl TableWriter {
         from: u32,
         carry: crate::publish::SwapCarry<'_>,
     ) -> WriteResult<(PublishOutcome, u32)> {
-        let out = crate::publish::publish_member_swap(
-            vfs,
-            &mut *self.sink,
-            &self.table_dir,
-            &self.spec,
-            &self.sealed,
-            map,
-            from,
-            carry,
-            self.stamp.fxid,
-            probe,
-            base_facts,
-        )?;
+        let out = crate::publish::publish_member_swap(vfs, &mut *self.sink, &self.table_dir, &self.spec, &self.sealed, map, from, carry, self.stamp.fxid, probe, base_facts,)?;
         self.sealed.clear();
         Ok(out)
     }
@@ -1218,23 +1078,14 @@ impl TableWriter {
         self.ranges.clear();
         self.released.clear();
         (self.held, self.last_start, self.last_grant) = (0, 0, 0);
-        let mut names: Vec<String> = std::mem::take(&mut self.sealed)
-            .into_iter()
-            .map(|s| s.tmp_name)
-            .collect();
+        let mut names: Vec<String> = std::mem::take(&mut self.sealed).into_iter().map(|s| s.tmp_name).collect();
         names.append(&mut self.files);
         if names.is_empty() {
             return Ok(());
         }
-        let rec = ReclaimRec {
-            dir: dir_loc(&self.spec),
-            xid: self.stamp.fxid as u32,
-            retire_below: None,
-            names,
-        };
+        let rec = ReclaimRec { dir: dir_loc(&self.spec), xid: self.stamp.fxid as u32, retire_below: None, names, };
         let dir = &self.table_dir;
-        self.sink
-            .reclaim(&rec, &mut || apply_reclaim(&mut *vfs, dir, &rec))
+        self.sink.reclaim(&rec, &mut || apply_reclaim(&mut *vfs, dir, &rec))
     }
 
     fn share_seq(&mut self, seq: Arc<AtomicU32>) {
@@ -1284,12 +1135,7 @@ impl WriterRegistry {
     /// writer's own charges).
     pub fn shell_bytes(&self) -> usize {
         const NODE: usize = 2 * size_of::<usize>();
-        self.writers.len() * (size_of::<(u64, TableWriter)>() + NODE)
-            + self.seqs.len()
-                * (size_of::<((u64, u64), Arc<AtomicU32>)>()
-                    + NODE
-                    + 2 * size_of::<usize>()
-                    + size_of::<AtomicU32>())
+        self.writers.len() * (size_of::<(u64, TableWriter)>() + NODE) + self.seqs.len() * (size_of::<((u64, u64), Arc<AtomicU32>)>() + NODE + 2 * size_of::<usize>() + size_of::<AtomicU32>())
     }
 
     /// IXPERF F5b: no writer and no shared tmp-name seq: [`WriterRegistry::at_eoxact`] has nothing to purge.
@@ -1330,10 +1176,7 @@ impl WriterRegistry {
                     detail: "opened writer carries a foreign stamp",
                 });
             }
-            let seq = self
-                .seqs
-                .entry((relfilenumber, stamp.fxid))
-                .or_insert_with(|| w.seq.clone());
+            let seq = self.seqs.entry((relfilenumber, stamp.fxid)).or_insert_with(|| w.seq.clone());
             w.share_seq(seq.clone());
             self.writers.insert(relfilenumber, w);
         }
@@ -1342,10 +1185,7 @@ impl WriterRegistry {
 
     /// Give a writer the registry does not hold (a seal's) the tmp-name seq of the table's transaction.
     pub fn share_seq(&mut self, relfilenumber: u64, w: &mut TableWriter) {
-        let seq = self
-            .seqs
-            .entry((relfilenumber, w.stamp.fxid))
-            .or_insert_with(|| w.seq.clone());
+        let seq = self.seqs.entry((relfilenumber, w.stamp.fxid)).or_insert_with(|| w.seq.clone());
         w.share_seq(seq.clone());
     }
 

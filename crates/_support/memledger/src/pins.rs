@@ -83,15 +83,7 @@ fn lock<T>(m: &Mutex<T>) -> pgsync::MutexGuard<'_, T> {
 
 impl PinSet {
     pub fn new(bytes: u64) -> Arc<PinSet> {
-        Arc::new(PinSet {
-            bytes: bytes.min(i64::MAX as u64) as i64,
-            inner: Mutex::new(Inner {
-                evicted: false,
-                next: 0,
-                inline: [const { None }; INLINE],
-                more: Vec::new(),
-            }),
-        }) // alloc: Cold
+        Arc::new(PinSet { bytes: bytes.min(i64::MAX as u64) as i64, inner: Mutex::new(Inner { evicted: false, next: 0, inline: [const { None }; INLINE], more: Vec::new(), }), }) // alloc: Cold
     }
 
     /// The entry's holders re-shared: each evicted entry's bytes over its holders (the remainder to the first), so the
@@ -101,11 +93,7 @@ impl PinSet {
         let (bytes, evicted) = (self.bytes, g.evicted);
         let mut i = 0i64;
         g.each(|h| {
-            let sh = if evicted && n > 0 {
-                bytes / n + if i < bytes % n { 1 } else { 0 }
-            } else {
-                0
-            };
+            let sh = if evicted && n > 0 { bytes / n + if i < bytes % n { 1 } else { 0 } } else { 0 };
             h.slot.set(bytes, if evicted { bytes } else { 0 }, sh);
             i += 1;
         });
@@ -116,24 +104,13 @@ impl PinSet {
         let mut g = lock(&self.inner);
         let id = g.next;
         g.next += 1;
-        let held = Held {
-            id,
-            slot: Slot {
-                c: Charge::handle(owner),
-                pins: 0,
-                ev: 0,
-                sh: 0,
-            },
-        };
+        let held = Held { id, slot: Slot { c: Charge::handle(owner), pins: 0, ev: 0, sh: 0, }, };
         match g.inline.iter_mut().find(|s| s.is_none()) {
             Some(s) => *s = Some(held),
             None => g.more.push(held), // alloc: Cold
         }
         self.reshare(&mut g);
-        PinGuard {
-            set: Arc::clone(self),
-            id,
-        }
+        PinGuard { set: Arc::clone(self), id, }
     }
 
     /// The calling thread's portal or statement takes a reference.
@@ -161,11 +138,7 @@ impl Drop for PinGuard {
         let mut g = lock(&self.set.inner);
         let id = self.id;
         let mut mine = None;
-        if let Some(s) = g
-            .inline
-            .iter_mut()
-            .find(|s| s.as_ref().is_some_and(|h| h.id == id))
-        {
+        if let Some(s) = g.inline.iter_mut().find(|s| s.as_ref().is_some_and(|h| h.id == id)) {
             mine = s.take();
         } else if let Some(i) = g.more.iter().position(|h| h.id == id) {
             mine = Some(g.more.swap_remove(i));

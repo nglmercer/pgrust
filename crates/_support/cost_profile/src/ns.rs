@@ -77,21 +77,9 @@ mod tests {
         let r = crate::measured::at("walk.group.plain", 0).unwrap();
         assert_eq!(g, Ns(r.fixed_ns + 10.0 * r.ns));
         assert_eq!(op("no.such", 0, 1.0), None);
-        let tiers = [
-            (22.0, "plain.fold_g22"),
-            (4096.0, "plain.fold_g4096"),
-            (4194304.0, "plain.fold_g4194304"),
-        ];
-        let (lo, mid, hi) = (
-            tiered(&tiers, 0, 22.0, 1e3).unwrap(),
-            tiered(&tiers, 0, 300.0, 1e3).unwrap(),
-            tiered(&tiers, 0, 1e9, 1e3).unwrap(),
-        );
+        let tiers = [(22.0, "plain.fold_g22"), (4096.0, "plain.fold_g4096"), (4194304.0, "plain.fold_g4194304"),];
+        let (lo, mid, hi) = (tiered(&tiers, 0, 22.0, 1e3).unwrap(), tiered(&tiers, 0, 300.0, 1e3).unwrap(), tiered(&tiers, 0, 1e9, 1e3).unwrap(),);
         assert!(lo < mid && mid < hi, "{lo:?} {mid:?} {hi:?}");
-        assert_eq!(
-            tiered(&tiers, 0, 1.0, 1e3),
-            Some(lo),
-            "under the first tier reads the first"
-        );
+        assert_eq!(tiered(&tiers, 0, 1.0, 1e3), Some(lo), "under the first tier reads the first");
     }
 }

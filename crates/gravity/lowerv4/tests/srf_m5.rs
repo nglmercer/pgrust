@@ -126,7 +126,7 @@ fn m5_user_srf_fixtures() {
         // M5-PL: a user SRF alone in FROM serves (it reads PG's own store, no user catalog needed); on a join build
         // side (L0-k, D762) it is D824 / D1005's lazy build (plain, or fed under an aggregate: its producers deferred with
         // it, the probe on the leader); in the target list (PSET) it refuses by name
-        if user && (v.as_deref() == Some("served")) == nodes.starts_with("PROJECTSET") {
+        if user && (v.as_deref() == Some("served")) ==nodes.starts_with("PROJECTSET") {
             bad.push(format!("{sql}: a user SRF {v:?}: served alone in FROM (srf.pl) and on a join build side (a lazy build), refused by name in the target list"));
         }
     }

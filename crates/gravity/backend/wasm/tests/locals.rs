@@ -1,5 +1,4 @@
-#![cfg(feature = "wasmtime-oracle")]
-//! D3228: a function with more IR values than an engine compiles locals (V8 and wasmparser: 50 000 per function) still
+#![cfg(feature = "wasmtime-oracle")]//! D3228: a function with more IR values than an engine compiles locals (V8 and wasmparser: 50 000 per function) still
 //! compiles, because values whose live ranges never overlap share a local; and sharing never lets a later value clobber
 //! one still live (a value carried around a loop and past the chain, a result nothing reads, a parameter nothing reads,
 //! both float and integer chains), checked against the interpreter.

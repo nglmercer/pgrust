@@ -3,10 +3,7 @@ use std::sync::{Mutex, Once};
 
 #[test]
 fn lock_offset_is_sync_scan() {
-    assert_eq!(
-        lwlock::GetLWTrancheName(SYNC_SCAN_LOCK_OFFSET as u16),
-        "SyncScan"
-    );
+    assert_eq!(lwlock::GetLWTrancheName(SYNC_SCAN_LOCK_OFFSET as u16), "SyncScan");
 }
 
 #[test]
@@ -93,8 +90,5 @@ fn shmem_init_registers_scan_locations_in_shmem_index() {
     let _g = serial();
     setup();
     let (_, found) = shmem::ShmemInitStruct("Sync Scan Locations List", 656).unwrap();
-    assert!(
-        found,
-        "Sync Scan Locations List is missing from the ShmemIndex"
-    );
+    assert!(found, "Sync Scan Locations List is missing from the ShmemIndex");
 }

@@ -99,18 +99,8 @@ fn tablespace_list_send_failure_propagates() {
     let mut sink = bbsink_copystream_new(mcx, true);
     let mut state = BbsinkState {
         tablespaces: vec![
-            TablespaceInfo {
-                oid: 16384,
-                path: Some("/poison".into()),
-                rpath: None,
-                size: 0,
-            },
-            TablespaceInfo {
-                oid: 0,
-                path: None,
-                rpath: None,
-                size: -1,
-            },
+            TablespaceInfo { oid: 16384, path: Some("/poison".into()), rpath: None, size: 0, },
+            TablespaceInfo { oid: 0, path: None, rpath: None, size: -1, },
         ],
         tablespace_num: 0,
         bytes_done: 0,
@@ -122,10 +112,7 @@ fn tablespace_list_send_failure_propagates() {
 
     let err = ::sink::bbsink_begin_backup(&mut sink, &mut state, 8192)
         .expect_err("untranslatable tablespace path must be an ERROR");
-    assert_eq!(
-        err.sqlstate(),
-        types_error::ERRCODE_UNTRANSLATABLE_CHARACTER
-    );
+    assert_eq!(err.sqlstate(), types_error::ERRCODE_UNTRANSLATABLE_CHARACTER);
 }
 
 #[test]
@@ -136,18 +123,8 @@ fn begin_backup_emits_two_resultsets_command_complete_and_copyout() {
     let mut sink = bbsink_copystream_new(mcx, true);
     let mut state = BbsinkState {
         tablespaces: vec![
-            TablespaceInfo {
-                oid: 1663,
-                path: Some("/data".into()),
-                rpath: None,
-                size: 4096,
-            },
-            TablespaceInfo {
-                oid: 0,
-                path: None,
-                rpath: None,
-                size: -1,
-            },
+            TablespaceInfo { oid: 1663, path: Some("/data".into()), rpath: None, size: 4096, },
+            TablespaceInfo { oid: 0, path: None, rpath: None, size: -1, },
         ],
         tablespace_num: 0,
         bytes_done: 0,
@@ -164,14 +141,8 @@ fn begin_backup_emits_two_resultsets_command_complete_and_copyout() {
     assert_eq!(
         ev[1],
         Event::Begin(vec![
-            ResultColumn {
-                name: "recptr".into(),
-                typ: ResultColumnType::Text
-            },
-            ResultColumn {
-                name: "tli".into(),
-                typ: ResultColumnType::Int8
-            },
+            ResultColumn { name: "recptr".into(), typ: ResultColumnType::Text },
+            ResultColumn { name: "tli".into(), typ: ResultColumnType::Int8 },
         ])
     );
     assert_eq!(
@@ -182,27 +153,15 @@ fn begin_backup_emits_two_resultsets_command_complete_and_copyout() {
         ])
     );
     assert_eq!(ev[3], Event::End);
-    assert_eq!(
-        ev[4],
-        Event::Msg(PQ_MSG_COMMAND_COMPLETE, b"SELECT\0".to_vec())
-    );
+    assert_eq!(ev[4], Event::Msg(PQ_MSG_COMMAND_COMPLETE, b"SELECT\0".to_vec()));
 
     assert_eq!(ev[5], Event::NewDest);
     assert_eq!(
         ev[6],
         Event::Begin(vec![
-            ResultColumn {
-                name: "spcoid".into(),
-                typ: ResultColumnType::Oid
-            },
-            ResultColumn {
-                name: "spclocation".into(),
-                typ: ResultColumnType::Text
-            },
-            ResultColumn {
-                name: "size".into(),
-                typ: ResultColumnType::Int8
-            },
+            ResultColumn { name: "spcoid".into(), typ: ResultColumnType::Oid },
+            ResultColumn { name: "spclocation".into(), typ: ResultColumnType::Text },
+            ResultColumn { name: "size".into(), typ: ResultColumnType::Int8 },
         ])
     );
     assert_eq!(
@@ -216,10 +175,7 @@ fn begin_backup_emits_two_resultsets_command_complete_and_copyout() {
     assert_eq!(ev[8], Event::Row(vec![None, None, None]));
     assert_eq!(ev[9], Event::End);
 
-    assert_eq!(
-        ev[10],
-        Event::Msg(PQ_MSG_COMMAND_COMPLETE, b"SELECT\0".to_vec())
-    );
+    assert_eq!(ev[10], Event::Msg(PQ_MSG_COMMAND_COMPLETE, b"SELECT\0".to_vec()));
     assert_eq!(ev[11], Event::Msg(PQ_MSG_COPY_OUT_RESPONSE, vec![0, 0, 0]));
     assert_eq!(ev.len(), 12);
 }
@@ -255,12 +211,7 @@ fn begin_archive_null_path_sends_empty_string() {
     let mcx = ctx.mcx();
     let mut sink = bbsink_copystream_new(mcx, true);
     let mut state = BbsinkState {
-        tablespaces: vec![TablespaceInfo {
-            oid: 0,
-            path: None,
-            rpath: None,
-            size: -1,
-        }],
+        tablespaces: vec![TablespaceInfo { oid: 0, path: None, rpath: None, size: -1, }],
         tablespace_num: 0,
         ..Default::default()
     };
@@ -279,11 +230,7 @@ fn archive_contents_ships_data_with_leading_type_byte() {
     let ctx = setup();
     let mcx = ctx.mcx();
     let mut sink = bbsink_copystream_new(mcx, true);
-    let mut state = BbsinkState {
-        startptr: 0,
-        starttli: 1,
-        ..Default::default()
-    };
+    let mut state = BbsinkState { startptr: 0, starttli: 1, ..Default::default() };
 
     ::sink::bbsink_begin_backup(&mut sink, &mut state, 8192).unwrap();
     drain();
@@ -301,11 +248,7 @@ fn archive_contents_not_to_client_sends_nothing_but_may_report() {
     let ctx = setup();
     let mcx = ctx.mcx();
     let mut sink = bbsink_copystream_new(mcx, false);
-    let mut state = BbsinkState {
-        startptr: 0,
-        starttli: 1,
-        ..Default::default()
-    };
+    let mut state = BbsinkState { startptr: 0, starttli: 1, ..Default::default() };
     ::sink::bbsink_begin_backup(&mut sink, &mut state, 8192).unwrap();
     drain();
 
@@ -324,11 +267,7 @@ fn archive_contents_no_report_when_time_threshold_not_met() {
     let ctx = setup();
     let mcx = ctx.mcx();
     let mut sink = bbsink_copystream_new(mcx, false);
-    let mut state = BbsinkState {
-        startptr: 0,
-        starttli: 1,
-        ..Default::default()
-    };
+    let mut state = BbsinkState { startptr: 0, starttli: 1, ..Default::default() };
     ::sink::bbsink_begin_backup(&mut sink, &mut state, 8192).unwrap();
     drain();
 
@@ -345,11 +284,7 @@ fn archive_contents_reports_progress_after_nobegin_start_time() {
     let mcx = ctx.mcx();
     NOW.with(|n| n.set(TimestampTz::MIN));
     let mut sink = bbsink_copystream_new(mcx, false);
-    let mut state = BbsinkState {
-        startptr: 0,
-        starttli: 1,
-        ..Default::default()
-    };
+    let mut state = BbsinkState { startptr: 0, starttli: 1, ..Default::default() };
     ::sink::bbsink_begin_backup(&mut sink, &mut state, 8192).unwrap();
     drain();
 
@@ -380,10 +315,7 @@ fn end_archive_forces_progress_report() {
     let ctx = setup();
     let mcx = ctx.mcx();
     let mut sink = bbsink_copystream_new(mcx, true);
-    let mut state = BbsinkState {
-        bytes_done: 12345,
-        ..Default::default()
-    };
+    let mut state = BbsinkState { bytes_done: 12345, ..Default::default() };
 
     ::sink::bbsink_end_archive(&mut sink, &mut state).unwrap();
 
@@ -410,21 +342,14 @@ fn manifest_contents_ships_data_with_leading_type_byte() {
     let ctx = setup();
     let mcx = ctx.mcx();
     let mut sink = bbsink_copystream_new(mcx, true);
-    let mut state = BbsinkState {
-        startptr: 0,
-        starttli: 1,
-        ..Default::default()
-    };
+    let mut state = BbsinkState { startptr: 0, starttli: 1, ..Default::default() };
     ::sink::bbsink_begin_backup(&mut sink, &mut state, 8192).unwrap();
     drain();
 
     sink.buffer_mut().unwrap()[..3].copy_from_slice(b"xyz");
     ::sink::bbsink_manifest_contents(&mut sink, &mut state, 3).unwrap();
 
-    assert_eq!(
-        drain(),
-        vec![Event::Msg(PQ_MSG_COPY_DATA, b"dxyz".to_vec())]
-    );
+    assert_eq!(drain(), vec![Event::Msg(PQ_MSG_COPY_DATA, b"dxyz".to_vec())]);
 }
 
 #[test]
@@ -454,14 +379,8 @@ fn end_backup_sends_copydone_then_xlogpos_result() {
     assert_eq!(
         ev[2],
         Event::Begin(vec![
-            ResultColumn {
-                name: "recptr".into(),
-                typ: ResultColumnType::Text
-            },
-            ResultColumn {
-                name: "tli".into(),
-                typ: ResultColumnType::Int8
-            },
+            ResultColumn { name: "recptr".into(), typ: ResultColumnType::Text },
+            ResultColumn { name: "tli".into(), typ: ResultColumnType::Int8 },
         ])
     );
     assert_eq!(
@@ -472,10 +391,7 @@ fn end_backup_sends_copydone_then_xlogpos_result() {
         ])
     );
     assert_eq!(ev[4], Event::End);
-    assert_eq!(
-        ev[5],
-        Event::Msg(PQ_MSG_COMMAND_COMPLETE, b"SELECT\0".to_vec())
-    );
+    assert_eq!(ev[5], Event::Msg(PQ_MSG_COMMAND_COMPLETE, b"SELECT\0".to_vec()));
     assert_eq!(ev.len(), 6);
 }
 

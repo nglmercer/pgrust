@@ -17,45 +17,18 @@ use crate::{WriteError, WriteResult};
 /// A record of the in-memory WAL a [`RecordingSink`] keeps; `dir` is the table directory path.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WalRecord {
-    File {
-        dir: String,
-        name: String,
-        off: u64,
-        bytes: Vec<u8>,
-        create: bool,
-    },
-    Publish {
-        dir: String,
-        rec: PublishRec,
-    },
-    Install {
-        dir: String,
-        rec: InstallRec,
-    },
-    Reclaim {
-        dir: String,
-        rec: ReclaimRec,
-    },
-    Commit {
-        fxid: u64,
-    },
+    File { dir: String, name: String, off: u64, bytes: Vec<u8>, create: bool, },
+    Publish { dir: String, rec: PublishRec, },
+    Install { dir: String, rec: InstallRec, },
+    Reclaim { dir: String, rec: ReclaimRec, },
+    Commit { fxid: u64, },
     /// `FILE_REF` (WR); its LSN is its index in [`WalLog::records`].
-    FileRef {
-        dir: String,
-        name: String,
-        len: u64,
-        crc: u32,
-        masks: SmallMasks,
-    },
+    FileRef { dir: String, name: String, len: u64, crc: u32, masks: SmallMasks, },
 }
 
 /// The model's stand-in for a table directory's `DirLoc` (the records carry paths): pending spool names need one.
 pub fn model_loc(dir: &str) -> DirLoc {
-    DirLoc {
-        spc: 0,
-        db: 0,
-        relnumber: crc32c(dir.as_bytes()),
-    }
+    DirLoc { spc: 0, db: 0, relnumber: crc32c(dir.as_bytes()), }
 }
 
 /// The model spool (WR): `dir` holds one hard link per logged reference, named by the record's index
@@ -211,31 +184,11 @@ impl WalLog {
 
     /// Every reference in `records[from..upto]` has a spool entry (or its pending link) holding its bytes: what a
     /// WAL consumer at `from` reads. The error names the first reference without one.
-    pub fn check_spool(
-        &self,
-        vfs: &mut dyn WriteVfs,
-        from: usize,
-        upto: usize,
-    ) -> Result<(), String> {
+    pub fn check_spool(&self, vfs: &mut dyn WriteVfs, from: usize, upto: usize,) -> Result<(), String> {
         let Some(sp) = &self.spool else { return Ok(()) };
         for (lsn, r) in self.records.iter().enumerate().take(upto).skip(from) {
-            let WalRecord::FileRef {
-                dir,
-                name,
-                len,
-                crc,
-                masks,
-            } = r
-            else {
-                continue;
-            };
-            let rec = FileRefRec {
-                dir: model_loc(dir),
-                name,
-                len: *len,
-                crc: *crc,
-                masks: *masks,
-            };
+            let WalRecord::FileRef { dir, name, len, crc, masks, } = r else { continue; };
+            let rec = FileRefRec { dir: model_loc(dir), name, len: *len, crc: *crc, masks: *masks, };
             let mut found = false;
             for p in [sp.entry(lsn), sp.pending(dir, name)] {
                 if plan::verify_ref(vfs, &p, &rec).map_err(|e| e.to_string())? {
@@ -257,8 +210,7 @@ impl WalLog {
         let dir = sp.dir.clone();
         let mut removed = false;
         for n in vfs.list_dir(&dir)? {
-            let debris = parse_pending_name(&n).is_some()
-                || parse_spool_name(&n).is_some_and(|lsn| lsn as usize >= end);
+            let debris = parse_pending_name(&n).is_some() || parse_spool_name(&n).is_some_and(|lsn| lsn as usize >= end);
             if debris {
                 vfs.unlink_path(&format!("{dir}/{n}"))?;
                 removed = true;
@@ -279,27 +231,18 @@ impl WalLog {
         dir: &str,
         rec: &FileRefRec<'_>,
     ) -> WriteResult<Vec<(String, Vec<String>)>> {
-        let sp = self.spool.clone().ok_or(WriteError::Contract {
-            detail: "FILE_REF replay without a model spool",
-        })?;
+        let sp = self.spool.clone().ok_or(WriteError::Contract { detail: "FILE_REF replay without a model spool", })?;
         let entry = sp.entry(lsn);
         let pending = sp.pending(dir, rec.name);
         if !vfs.exists_path(&entry)? && vfs.exists_path(&pending)? {
             vfs.rename_path(&pending, &entry)?;
         }
-        let src = if vfs.exists_path(&entry)? {
-            RefSource::Spool(entry.clone())
-        } else {
-            RefSource::InPlace
-        };
+        let src = if vfs.exists_path(&entry)? { RefSource::Spool(entry.clone()) } else { RefSource::InPlace };
         plan::apply_file_ref(vfs, dir, rec, src)?;
         if !vfs.exists_path(&entry)? {
             vfs.link_path(&format!("{dir}/{}", rec.name), &entry)?;
         }
-        Ok(vec![
-            (dir.to_string(), vec![rec.name.to_string()]),
-            (sp.dir.clone(), vec![spool_name(lsn as u64)]),
-        ])
+        Ok(vec![(dir.to_string(), vec![rec.name.to_string()]), (sp.dir.clone(), vec![spool_name(lsn as u64)]),])
     }
 
     pub fn checkpoint(&mut self, vfs: &mut dyn WriteVfs) -> WriteResult<()> {
@@ -330,42 +273,20 @@ impl WalLog {
 
     /// Redo `records[replay_from..upto]` through the functions the real redo uses, registering what each record
     /// touched for the end-of-recovery checkpoint. Returns the publishes skipped because their base was gone.
-    pub fn replay(
-        &mut self,
-        vfs: &mut dyn WriteVfs,
-        upto: usize,
-    ) -> WriteResult<Vec<(String, u64)>> {
+    pub fn replay(&mut self, vfs: &mut dyn WriteVfs, upto: usize,) -> WriteResult<Vec<(String, u64)>> {
         let mut skipped = Vec::new();
         let start = self.replay_from.min(upto);
         let records = pgrc_format::try_to_vec(&self.records[start..upto], "walmodel")?;
         for (i, r) in records.into_iter().enumerate() {
             let (dir, touched) = match r {
-                WalRecord::FileRef {
-                    dir,
-                    name,
-                    len,
-                    crc,
-                    masks,
-                } => {
-                    let rec = FileRefRec {
-                        dir: model_loc(&dir),
-                        name: &name,
-                        len,
-                        crc,
-                        masks,
-                    };
+                WalRecord::FileRef { dir, name, len, crc, masks, } => {
+                    let rec = FileRefRec { dir: model_loc(&dir), name: &name, len, crc, masks, };
                     for (d, names) in self.replay_file_ref(vfs, start + i, &dir, &rec)? {
                         self.register_all(&d, names);
                     }
                     continue;
                 }
-                WalRecord::File {
-                    dir,
-                    name,
-                    off,
-                    bytes,
-                    create,
-                } => {
+                WalRecord::File { dir, name, off, bytes, create, } => {
                     plan::apply_file_write(vfs, &dir, &name, off, &bytes, create)?;
                     (dir, vec![name])
                 }
@@ -408,18 +329,10 @@ pub struct RecordingSink {
 
 impl RecordingSink {
     pub fn new(dir: &str, log: Arc<Mutex<WalLog>>) -> RecordingSink {
-        RecordingSink {
-            dir: dir.to_string(),
-            log,
-        }
+        RecordingSink { dir: dir.to_string(), log, }
     }
 
-    fn logged(
-        &mut self,
-        rec: WalRecord,
-        touched: Vec<String>,
-        apply: Apply<'_>,
-    ) -> WriteResult<()> {
+    fn logged(&mut self, rec: WalRecord, touched: Vec<String>, apply: Apply<'_>,) -> WriteResult<()> {
         {
             let mut g = lock(&self.log);
             g.delaying += 1;
@@ -450,25 +363,13 @@ impl WalSink for RecordingSink {
         let mut g = lock(&self.log);
         g.tick();
         let redo = g.redo;
-        g.first_write
-            .entry((self.dir.clone(), name.to_string()))
-            .or_insert(redo);
-        g.records.push(WalRecord::File {
-            dir: self.dir.clone(),
-            name: name.to_string(),
-            off,
-            bytes,
-            create,
-        });
+        g.first_write.entry((self.dir.clone(), name.to_string())).or_insert(redo);
+        g.records.push(WalRecord::File { dir: self.dir.clone(), name: name.to_string(), off, bytes, create, });
         g.tick();
         Ok(())
     }
 
-    fn file_done(
-        &mut self,
-        name: &str,
-        fsync: &mut dyn FnMut() -> WriteResult<()>,
-    ) -> WriteResult<()> {
+    fn file_done(&mut self, name: &str, fsync: &mut dyn FnMut() -> WriteResult<()>,) -> WriteResult<()> {
         let mut g = lock(&self.log);
         g.delaying += 1;
         g.tick();
@@ -488,30 +389,17 @@ impl WalSink for RecordingSink {
     }
 
     fn publish(&mut self, rec: &PublishRec, apply: Apply<'_>) -> WriteResult<()> {
-        let rec_ = WalRecord::Publish {
-            dir: self.dir.clone(),
-            rec: rec.clone(),
-        };
+        let rec_ = WalRecord::Publish { dir: self.dir.clone(), rec: rec.clone(), };
         self.logged(rec_, plan::publish_touched(rec), apply)
     }
 
     fn install(&mut self, rec: &InstallRec, apply: Apply<'_>) -> WriteResult<()> {
-        let rec_ = WalRecord::Install {
-            dir: self.dir.clone(),
-            rec: rec.clone(),
-        };
-        self.logged(
-            rec_,
-            rec.renames.iter().map(|(_, to)| to.clone()).collect(),
-            apply,
-        )
+        let rec_ = WalRecord::Install { dir: self.dir.clone(), rec: rec.clone(), };
+        self.logged(rec_, rec.renames.iter().map(|(_, to)| to.clone()).collect(), apply,)
     }
 
     fn reclaim(&mut self, rec: &ReclaimRec, apply: Apply<'_>) -> WriteResult<()> {
-        let rec_ = WalRecord::Reclaim {
-            dir: self.dir.clone(),
-            rec: rec.clone(),
-        };
+        let rec_ = WalRecord::Reclaim { dir: self.dir.clone(), rec: rec.clone(), };
         self.logged(rec_, rec.names.clone(), apply)
     }
 
@@ -527,16 +415,9 @@ impl WalSink for RecordingSink {
     /// XlogSink's sequence (WR L2): fsync the file and its directory, link it into the spool as `pending-*` and
     /// fsync the spool, then inside one delay window insert `FILE_REF`, rename the link to the record's LSN and
     /// register the spool and the table directory for the next checkpoint.
-    fn file_ref(
-        &mut self,
-        f: &FileRef<'_>,
-        vfs: &mut dyn WriteVfs,
-        fsync: RefSync<'_>,
-    ) -> WriteResult<()> {
+    fn file_ref(&mut self, f: &FileRef<'_>, vfs: &mut dyn WriteVfs, fsync: RefSync<'_>,) -> WriteResult<()> {
         let mut g = lock(&self.log);
-        let sp = g.spool.clone().ok_or(WriteError::Contract {
-            detail: "a by-reference file without a model spool",
-        })?;
+        let sp = g.spool.clone().ok_or(WriteError::Contract { detail: "a by-reference file without a model spool", })?;
         let pending = sp.pending(&self.dir, f.name);
         g.tick();
         if !g.teeth.skip_ref_fsync {

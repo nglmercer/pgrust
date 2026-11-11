@@ -153,12 +153,7 @@ impl Semaphore {
         // ordinary lane is bounded by the interactive class's own size —
         // interactive demand is short by classification (undecayed = <1
         // decay quantum of consumed CPU).
-        while *g == 0
-            || self
-                .prio_waiting
-                .load(core::sync::atomic::Ordering::Relaxed)
-                > 0
-        {
+        while *g == 0 || self.prio_waiting.load(core::sync::atomic::Ordering::Relaxed) > 0 {
             g = self.cv.wait(g).unwrap_or_else(|e| e.into_inner());
         }
         *g -= 1;
@@ -172,15 +167,12 @@ impl Semaphore {
     /// morsel instead of one query.
     pub fn acquire_priority(&self) {
         let mut g = lock(&self.permits);
-        self.prio_waiting
-            .fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+        self.prio_waiting.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
         while *g == 0 {
             g = self.cv.wait(g).unwrap_or_else(|e| e.into_inner());
         }
         *g -= 1;
-        let prev = self
-            .prio_waiting
-            .fetch_sub(1, core::sync::atomic::Ordering::Relaxed);
+        let prev = self.prio_waiting.fetch_sub(1, core::sync::atomic::Ordering::Relaxed);
         drop(g);
         if prev == 1 {
             // Last priority waiter satisfied: wake deferred ordinary
@@ -193,18 +185,12 @@ impl Semaphore {
     /// Off-lock advisory read: are priority waiters parked? One Relaxed
     /// load — the demoted-holder step-boundary check's whole cost.
     pub fn priority_waiting(&self) -> usize {
-        self.prio_waiting
-            .load(core::sync::atomic::Ordering::Relaxed)
+        self.prio_waiting.load(core::sync::atomic::Ordering::Relaxed)
     }
 
     pub fn try_acquire(&self) -> bool {
         let mut g = lock(&self.permits);
-        if *g == 0
-            || self
-                .prio_waiting
-                .load(core::sync::atomic::Ordering::Relaxed)
-                > 0
-        {
+        if *g == 0 || self.prio_waiting.load(core::sync::atomic::Ordering::Relaxed) > 0 {
             return false;
         }
         *g -= 1;
@@ -226,28 +212,18 @@ impl Semaphore {
     pub fn acquire_timeout(&self, timeout: core::time::Duration) -> bool {
         let mut g = lock(&self.permits);
         loop {
-            if *g > 0
-                && self
-                    .prio_waiting
-                    .load(core::sync::atomic::Ordering::Relaxed)
-                    == 0
-            {
+            if *g > 0 && self.prio_waiting.load(core::sync::atomic::Ordering::Relaxed) == 0 {
                 *g -= 1;
                 return true;
             }
-            let (ng, res) = self
-                .cv
-                .wait_timeout(g, timeout)
-                .unwrap_or_else(|e| e.into_inner());
+            let (ng, res) =
+                self.cv.wait_timeout(g, timeout).unwrap_or_else(|e| e.into_inner());
             g = ng;
             if res.timed_out() {
                 // One last under-lock look (a release may have landed with
                 // the timeout): take it or report failure.
                 if *g > 0
-                    && self
-                        .prio_waiting
-                        .load(core::sync::atomic::Ordering::Relaxed)
-                        == 0
+                    && self.prio_waiting.load(core::sync::atomic::Ordering::Relaxed) == 0
                 {
                     *g -= 1;
                     return true;
@@ -355,10 +331,7 @@ pub struct WorkerParker {
 
 impl WorkerParker {
     pub fn new() -> Self {
-        WorkerParker {
-            woken: atomic::AtomicBool::new(false),
-            cv: Condvar::new(),
-        }
+        WorkerParker { woken: atomic::AtomicBool::new(false), cv: Condvar::new(), }
     }
 }
 
@@ -410,10 +383,7 @@ impl ParkLot {
             m: Mutex::new(()),
             cv: Condvar::new(),
             spinners: atomic::AtomicUsize::new(0),
-            idle: Mutex::new(IdleStack {
-                stack: Vec::new(),
-                wakes: 0,
-            }),
+            idle: Mutex::new(IdleStack { stack: Vec::new(), wakes: 0, }),
             unparks: atomic::AtomicU64::new(0),
             legacy_parked: atomic::AtomicUsize::new(0),
             tree_pending: atomic::AtomicUsize::new(0),
@@ -481,10 +451,8 @@ impl ParkLot {
             return;
         }
         self.legacy_parked.fetch_add(1, atomic::Ordering::SeqCst);
-        let (g2, _res) = self
-            .cv
-            .wait_timeout(g, timeout)
-            .unwrap_or_else(|e| e.into_inner());
+        let (g2, _res) =
+            self.cv.wait_timeout(g, timeout).unwrap_or_else(|e| e.into_inner());
         self.legacy_parked.fetch_sub(1, atomic::Ordering::SeqCst);
         // Antithesis steering, wake edge. The ENTRY probe above can only
         // witness an interrupt that was ALREADY pending when the parker
@@ -522,8 +490,7 @@ impl ParkLot {
             n
         };
         if legacy + woken > 0 {
-            self.unparks
-                .fetch_add(legacy + woken, atomic::Ordering::SeqCst);
+            self.unparks.fetch_add(legacy + woken, atomic::Ordering::SeqCst);
         }
     }
 
@@ -600,11 +567,7 @@ impl ParkLot {
         // may still be registered — deregister so a later wake_work cannot
         // pop a slot nobody waits on and count it as a wake.
         if !parker.woken.load(atomic::Ordering::SeqCst) {
-            if let Some(i) = g
-                .stack
-                .iter()
-                .position(|p| std::sync::Arc::ptr_eq(p, parker))
-            {
+            if let Some(i) = g.stack.iter().position(|p| std::sync::Arc::ptr_eq(p, parker)) {
                 g.stack.remove(i);
             }
         }
@@ -648,8 +611,7 @@ impl ParkLot {
             }
         }
         if from_cv + woken > 0 {
-            self.unparks
-                .fetch_add((from_cv + woken) as u64, atomic::Ordering::SeqCst);
+            self.unparks.fetch_add((from_cv + woken) as u64, atomic::Ordering::SeqCst);
         }
     }
 
@@ -666,8 +628,7 @@ impl ParkLot {
         };
         if legacy > 0 {
             self.cv.notify_all();
-            self.unparks
-                .fetch_add(legacy as u64, atomic::Ordering::SeqCst);
+            self.unparks.fetch_add(legacy as u64, atomic::Ordering::SeqCst);
         }
         if self.spinners.load(atomic::Ordering::SeqCst) > 0 {
             return; // store+fence submission: the spinner's re-scan owns it
@@ -691,8 +652,7 @@ impl ParkLot {
         };
         if legacy > 0 {
             self.cv.notify_all();
-            self.unparks
-                .fetch_add(legacy as u64, atomic::Ordering::SeqCst);
+            self.unparks.fetch_add(legacy as u64, atomic::Ordering::SeqCst);
         }
     }
 
@@ -711,8 +671,7 @@ impl ParkLot {
         };
         if legacy > 0 {
             self.cv.notify_all();
-            self.unparks
-                .fetch_add(legacy as u64, atomic::Ordering::SeqCst);
+            self.unparks.fetch_add(legacy as u64, atomic::Ordering::SeqCst);
         }
         let mut g = lock(&self.idle);
         let n = g.stack.len();
@@ -741,12 +700,7 @@ impl ParkLot {
             let take = owed.min(2);
             if self
                 .tree_pending
-                .compare_exchange(
-                    owed,
-                    owed - take,
-                    atomic::Ordering::SeqCst,
-                    atomic::Ordering::SeqCst,
-                )
+                .compare_exchange(owed, owed - take, atomic::Ordering::SeqCst, atomic::Ordering::SeqCst,)
                 .is_err()
             {
                 continue;
@@ -777,11 +731,7 @@ impl ParkLot {
         }
         g.wakes = g.wakes.wrapping_add(1);
         // 3-poll starvation cap: every 4th directed wake takes the OLDEST.
-        let p = if g.wakes.is_multiple_of(4) {
-            g.stack.remove(0)
-        } else {
-            g.stack.pop().unwrap()
-        };
+        let p = if g.wakes.is_multiple_of( 4) { g.stack.remove(0) } else { g.stack.pop().unwrap() };
         p.woken.store(true, atomic::Ordering::SeqCst);
         p.cv.notify_all();
         self.unparks.fetch_add(1, atomic::Ordering::SeqCst);
@@ -849,12 +799,8 @@ mod parklot_tests {
         // Give the parker time to enter the wait, then wake it.
         std::thread::sleep(core::time::Duration::from_millis(50));
         lot.wake_all();
-        t.join()
-            .expect("parker woke on the epoch bump and returned");
+        t.join().expect("parker woke on the epoch bump and returned");
         assert_ne!(lot.epoch(), seen, "wake_all bumped the epoch");
-        assert!(
-            lot.unparks() >= 1,
-            "wake_all counted the park_timeout parker"
-        );
+        assert!(lot.unparks() >= 1, "wake_all counted the park_timeout parker");
     }
 }

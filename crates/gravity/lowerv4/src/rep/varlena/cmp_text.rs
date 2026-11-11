@@ -149,8 +149,7 @@ impl ExprExtMech for Eq {
                     let word = (lean && s.any.is_none() && sites.len() < 64).then(|| super::text_lean::words(px, at, ex, sites.len() as u8));
                     if word.is_some() {
                         fires::fire("text.lean"); // textkeys witness signal: a site took text.lean's form
-                    }
-                    sites.push(Site { sub: k, view: View { substr, ..s.view }, word, ..s }); skip.push(n.as_raw().as_ptr() as usize); // alloc: Program
+                    }sites.push(Site { sub: k, view: View { substr, ..s.view }, word, ..s }); skip.push(n.as_raw().as_ptr() as usize); // alloc: Program
                 },
             }
         }

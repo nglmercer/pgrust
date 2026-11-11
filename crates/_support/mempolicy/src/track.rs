@@ -12,14 +12,8 @@ use crate::consts::{self, K};
 use crate::curve::{Curve, Policy, Tracker, DOOR_ALL, SAMPLES, UNIFORM};
 
 /// The caches with a keyed door, in the view's order.
-pub const TRACKED: [Consumer; 6] = [
-    Consumer::SharedBuffers,
-    Consumer::PartCache,
-    Consumer::FpTables,
-    Consumer::ZoneStore,
-    Consumer::CondCache,
-    Consumer::CatalogL2,
-];
+pub const TRACKED: [Consumer; 6] =
+    [Consumer::SharedBuffers, Consumer::PartCache, Consumer::FpTables, Consumer::ZoneStore, Consumer::CondCache, Consumer::CatalogL2,];
 
 /// The hand-over buffer, in samples (the drain keeps a second one to swap with).
 pub const SHARED_CAP: usize = 1 << 15;
@@ -83,22 +77,14 @@ pub fn measured_ns_per_byte(c: Consumer) -> Option<f64> {
 /// see yet; the C2 follow-up), and the catalog L2 has no C0 figure. An unvalidated curve is shown, never ranked: its
 /// cache ranks by [`standin`].
 pub fn validated(c: Consumer) -> bool {
-    matches!(
-        c,
-        Consumer::FpTables | Consumer::CondCache | Consumer::ZoneStore | Consumer::SharedBuffers
-    )
+    matches!(c, Consumer::FpTables | Consumer::CondCache | Consumer::ZoneStore | Consumer::SharedBuffers)
 }
 
 /// The fixed curve an unvalidated cache ranks by (broker ruling 10-16): C0's measured slowdown, the analytic suite at W0, as (fraction
 /// of the no-pressure size, loss ns/s = the hot pass's extra wall over the 100 % arm's wall): part cache 15.37 GB, hot
 /// pass 13.133 s, +11.84 / +15.75 / +19.70 s at 50 / 25 / 10 %. `None`: no C0 figure.
 pub fn standin(c: Consumer) -> Option<&'static [(f64, f64)]> {
-    const PART: [(f64, f64); 4] = [
-        (1.0, 0.0),
-        (0.5, 0.9015e9),
-        (0.25, 1.1994e9),
-        (0.1, 1.5001e9),
-    ];
+    const PART: [(f64, f64); 4] = [(1.0, 0.0), (0.5, 0.9015e9), (0.25, 1.1994e9), (0.1, 1.5001e9),];
     match c {
         Consumer::PartCache => Some(&PART),
         _ => None,
@@ -122,12 +108,8 @@ pub const BYTES: u64 = 3;
 pub fn policy(c: Consumer) -> Policy {
     match c {
         Consumer::CondCache if crate::cache::tinylfu_on() => Policy::TinyLfu,
-        Consumer::SharedBuffers
-        | Consumer::PartCache
-        | Consumer::FpTables
-        | Consumer::ZoneStore
-        | Consumer::CondCache
-        | Consumer::CatalogL2 => Policy::Lru,
+        Consumer::SharedBuffers | Consumer::PartCache | Consumer::FpTables | Consumer::ZoneStore | Consumer::CondCache | Consumer::CatalogL2 =>
+            Policy::Lru,
         _ => Policy::S3Fifo,
     }
 }
@@ -136,10 +118,7 @@ pub fn policy(c: Consumer) -> Policy {
 /// miss and its fill) is known: fp tables, the zone store, the condition cache and the catalog L2 do. The part cache's
 /// fills carry its part's key and its door the segment's; shared_buffers times no fill.
 pub fn outcomes(c: Consumer) -> bool {
-    matches!(
-        c,
-        Consumer::FpTables | Consumer::ZoneStore | Consumer::CondCache | Consumer::CatalogL2
-    )
+    matches!(c, Consumer::FpTables | Consumer::ZoneStore | Consumer::CondCache | Consumer::CatalogL2)
 }
 
 /// The drain's state: built, drained and dropped on the drain's thread only ([`tick`], the memory watchdog's sampler,
@@ -172,8 +151,7 @@ fn index(c: u8) -> Option<usize> {
 
 /// One drain, now: the switch read, the samples fed, the sizes and prices refreshed, the thresholds published.
 pub fn tick() {
-    tick_at(value::track_now(), |c| {
-        memledger::hooks(c).map_or(0, |h| (h.current)())
+    tick_at(value::track_now(), |c| { memledger::hooks(c).map_or(0, |h| (h.current)())
     });
 }
 
@@ -247,19 +225,10 @@ impl State {
                 REF => {
                     t.reference_hashed(s.key, s.h, u64::from(s.bytes), self.at);
                     self.counts[i] += 1;
-                    let d = if s.bytes == 0 {
-                        UNIFORM
-                    } else {
-                        u64::from(s.bytes)
-                    };
+                    let d = if s.bytes == 0 { UNIFORM } else { u64::from(s.bytes) };
                     self.min_dsize[i] = self.min_dsize[i].min(d);
                 }
-                FILL => t.fill(
-                    s.key,
-                    u64::from(s.bytes),
-                    if self.count { 0 } else { u64::from(s.ns) },
-                    self.at,
-                ),
+                FILL => t.fill(s.key, u64::from(s.bytes), if self.count { 0 } else { u64::from(s.ns) }, self.at,),
                 RELOAD => t.reload(s.key, u64::from(s.bytes), self.at),
                 _ => {}
             }
@@ -277,11 +246,7 @@ impl State {
                 1
             } else {
                 #[allow(clippy::manual_checked_ops)]
-                measured_ns(c).unwrap_or(if st.cost_samples > 0 {
-                    st.cost_ns / st.cost_samples
-                } else {
-                    20_000
-                })
+                measured_ns(c).unwrap_or(if st.cost_samples > 0 { st.cost_ns / st.cost_samples } else { 20_000 })
             });
             t.tick(now);
             // D4892: before a door's first cut, a tick's window (>= EARLY_NS) that holds far more than the rate (and more
@@ -400,11 +365,7 @@ mod tests {
     fn d4889_the_condition_cache_is_tracked_as_the_policy_it_runs() {
         consts::set(K::CachePolicy, 2);
         assert_eq!(policy(Consumer::CondCache), Policy::TinyLfu);
-        assert_eq!(
-            policy(Consumer::FpTables),
-            Policy::Lru,
-            "the fp tables stay lru at every value"
-        );
+        assert_eq!(policy(Consumer::FpTables), Policy::Lru, "the fp tables stay lru at every value");
         consts::set(K::CachePolicy, 0);
         assert_eq!(policy(Consumer::CondCache), Policy::Lru);
     }
@@ -414,21 +375,9 @@ mod tests {
         let s = 1_000_000_000;
         assert_eq!(rate_cut(RATE, RATE, s, false), None, "at the rate: no cut");
         assert_eq!(rate_cut(RATE, 2 * RATE, s, false), Some(0.5));
-        assert_eq!(
-            rate_cut(RATE, 1000 * RATE, s, false),
-            Some(1.0 / 16.0),
-            "at most 16x a step"
-        );
-        assert_eq!(
-            rate_cut(RATE, RATE / 2, s, true),
-            Some(0.5),
-            "a flood halves a door that sent a share"
-        );
-        assert_eq!(
-            rate_cut(rate(Consumer::PartCache), 2 * RATE, s, false),
-            None,
-            "the part cache's own rate"
-        );
+        assert_eq!(rate_cut(RATE, 1000 * RATE, s, false), Some(1.0 / 16.0), "at most 16x a step");
+        assert_eq!(rate_cut(RATE, RATE / 2, s, true), Some(0.5), "a flood halves a door that sent a share");
+        assert_eq!(rate_cut(rate(Consumer::PartCache), 2 * RATE, s, false), None, "the part cache's own rate");
         assert_eq!(rate_cut(RATE, 1, s, true), None);
     }
 
@@ -444,11 +393,7 @@ mod tests {
         tick_at(t0, |_| 64 << 20);
         let c = Consumer::FpTables;
         assert_ne!(value::track_of(c), 0, "the door is open");
-        assert_eq!(
-            value::track_of(c),
-            DOOR_ALL,
-            "it opens passing every lookup"
-        );
+        assert_eq!(value::track_of(c), DOOR_ALL, "it opens passing every lookup");
         let z = Consumer::ZoneStore;
         for r in 0..20_000u64 {
             value::lookup(c, r % 512, 0);
@@ -464,52 +409,25 @@ mod tests {
         // references in 100 ms against 100 wanted) cuts it at once to 4x the rate plus a hand-over burst, from the least
         // door that passes every sizeless lookup (2^24), not from DOOR_ALL (2^40)
         tick_at(t0 + 100_000_000, |_| 64 << 20);
-        let fed = curves()
-            .expect("on")
-            .iter()
-            .find(|r| r.cache == c)
-            .unwrap()
-            .curve
-            .refs;
+        let fed = curves().expect("on").iter().find(|r| r.cache == c).unwrap().curve.refs;
         assert!(fed > 0, "fed at 100 ms: {fed}");
         assert_eq!(all_pass(UNIFORM), 1 << 24);
-        let early = (all_pass(UNIFORM) as f64
-            * early_cut(RATE, 20_000, 100_000_000).expect("far over")) as u64;
-        assert!(
-            early < all_pass(UNIFORM) / 8 && early > all_pass(UNIFORM) / 16,
-            "{early}"
-        );
+        let early = (all_pass(UNIFORM) as f64 * early_cut(RATE, 20_000, 100_000_000).expect("far over")) as u64;
+        assert!(early < all_pass(UNIFORM) / 8 && early > all_pass(UNIFORM) / 16, "{early}");
         assert_eq!(value::track_of(c), early, "the early cut");
         // 2,000 references are under 4 x 100 + a burst: no early cut; the second's check cuts them to the rate
         assert_eq!(value::track_of(z), DOOR_ALL, "a burst never cuts early");
         tick_at(t0 + 1_100_000_000, |_| 64 << 20);
-        assert_eq!(
-            value::track_of(c),
-            early,
-            "nothing more came: the second's check keeps it"
-        );
-        let second = (all_pass(UNIFORM) as f64
-            * rate_cut(RATE, 2_000, 1_100_000_000, false).expect("over"))
-            as u64;
+        assert_eq!(value::track_of(c), early, "nothing more came: the second's check keeps it");
+        let second = (all_pass(UNIFORM) as f64 * rate_cut(RATE, 2_000, 1_100_000_000, false).expect("over")) as u64;
         assert_eq!(value::track_of(z), second, "one cut into the doors' range");
-        assert_eq!(
-            early_cut(RATE, 2_000, 100_000_000),
-            None,
-            "under 4x the rate plus a burst"
-        );
+        assert_eq!(early_cut(RATE, 2_000, 100_000_000), None, "under 4x the rate plus a burst");
         tick_at(t0 + 2_000_000_000, |_| 64 << 20);
         let rows = curves().expect("on");
         let own = own_bytes();
-        assert!(
-            own >= 2 * (SHARED_CAP * core::mem::size_of::<Sample>()) as u64 && own < 16 << 20,
-            "own bytes {own}"
-        );
+        assert!(own >= 2 * (SHARED_CAP * core::mem::size_of::<Sample>()) as u64 && own < 16 << 20, "own bytes {own}");
         let row = rows.iter().find(|r| r.cache == c).unwrap();
-        assert!(
-            row.curve.samples > 0 && row.curve.refs > 0,
-            "{:?}",
-            (row.curve.samples, row.curve.refs)
-        );
+        assert!(row.curve.samples > 0 && row.curve.refs > 0, "{:?}", (row.curve.samples, row.curve.refs));
         consts::set(K::CacheTrack, 0);
         tick_at(t0 + 3_000_000_000, |_| 0);
         assert!(curves().is_none());

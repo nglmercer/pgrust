@@ -77,10 +77,7 @@ struct SnapKey {
 }
 
 fn live_xids<'s>(s: &'s SnapshotData<'_>) -> (&'s [TransactionId], &'s [TransactionId]) {
-    (
-        &s.xip[..s.xcnt as usize],
-        &s.subxip[..s.subxcnt.max(0) as usize],
-    )
+    (&s.xip[..s.xcnt as usize], &s.subxip[..s.subxcnt.max(0) as usize],)
 }
 
 impl SnapKey {
@@ -100,19 +97,7 @@ impl SnapKey {
 
     fn set(&mut self, s: &SnapshotData<'_>) {
         let (xip, subxip) = live_xids(s);
-        (
-            self.xmin,
-            self.xmax,
-            self.curcid,
-            self.suboverflowed,
-            self.recovery,
-        ) = (
-            s.xmin,
-            s.xmax,
-            s.curcid.get(),
-            s.suboverflowed,
-            s.takenDuringRecovery,
-        );
+        (self.xmin, self.xmax, self.curcid, self.suboverflowed, self.recovery,) = (s.xmin, s.xmax, s.curcid.get(), s.suboverflowed, s.takenDuringRecovery,);
         self.xip.clear();
         self.xip.extend_from_slice(xip); // alloc: Cold
         self.subxip.clear();
@@ -175,14 +160,7 @@ impl Cache {
         };
         let ext = load(&dir)?;
         let over = crate::route::extents_over(&ext);
-        let fresh = Entry {
-            key,
-            cid,
-            ver,
-            dir,
-            ext,
-            over,
-        };
+        let fresh = Entry { key, cid, ver, dir, ext, over, };
         let i = match at {
             Some(i) => {
                 self.entries[i] = fresh;
@@ -202,28 +180,10 @@ impl Cache {
         Ok(&self.entries[i])
     }
 
-    fn view(
-        &mut self,
-        key: Key,
-        at: &ViewAt,
-        snap: &SnapshotData<'_>,
-        head: &dyn Fn() -> Option<u64>,
-        stale: &dyn Fn() -> bool,
-    ) -> Option<Option<Arc<Generation>>> {
-        let hit = self
-            .views
-            .iter()
-            .find(|e| e.key == key && e.at == *at && e.snap.matches(snap))
-            .filter(|e| head() == Some(e.head));
-        let hit = hit
-            .or_else(|| {
-                if stale() {
-                    self.views.iter().find(|e| e.key.relid == key.relid)
-                } else {
-                    None
-                }
-            })
-            .map(|e| e.view.clone());
+    fn view(&mut self, key: Key, at: &ViewAt, snap: &SnapshotData<'_>, head: &dyn Fn() -> Option<u64>, stale: &dyn Fn() -> bool,) -> Option<Option<Arc<Generation>>> {
+        let hit = self.views.iter().find(|e| e.key == key && e.at == *at && e.snap.matches(snap)).filter(|e| head() == Some(e.head));
+        let hit = hit.or_else(|| { if stale() { self.views.iter().find(|e| e.key.relid == key.relid) } else { None }
+            }).map(|e| e.view.clone());
         match hit {
             Some(_) => self.view_hits += 1,
             None => self.view_misses += 1,
@@ -231,24 +191,11 @@ impl Cache {
         hit
     }
 
-    fn put_view(
-        &mut self,
-        key: Key,
-        at: ViewAt,
-        head: u64,
-        snap: &SnapshotData<'_>,
-        view: Option<Arc<Generation>>,
-    ) {
+    fn put_view(&mut self, key: Key, at: ViewAt, head: u64, snap: &SnapshotData<'_>, view: Option<Arc<Generation>>,) {
         let i = match self.views.iter().position(|e| e.key == key) {
             Some(i) => i,
             None if self.views.len() < SLOTS => {
-                self.views.push(ViewEntry {
-                    key,
-                    at,
-                    head,
-                    snap: SnapKey::default(),
-                    view: None,
-                }); // alloc: Cold
+                self.views.push(ViewEntry { key, at, head, snap: SnapKey::default(), view: None, }); // alloc: Cold
                 self.views.len() - 1
             }
             None => {
@@ -269,9 +216,7 @@ impl Cache {
     }
 
     fn take_located(&mut self, at: &Located, stale: bool) -> bool {
-        self.located
-            .take()
-            .is_some_and(|l| l == *at || (stale && (l.block, l.off) == (at.block, at.off)))
+        self.located.take().is_some_and(|l| l == *at || (stale && (l.block, l.off) == (at.block, at.off)))
     }
 
     #[cfg(test)]
@@ -290,22 +235,13 @@ impl Cache {
 
 impl Path {
     fn of(e: &Entry) -> Path {
-        Path {
-            dir: Rc::clone(&e.dir),
-            ext: Arc::clone(&e.ext),
-        }
+        Path { dir: Rc::clone(&e.dir), ext: Arc::clone(&e.ext), }
     }
 }
 
 fn key_of(rel: &Relation<'_>) -> Key {
     let l = rel.rd_locator.get();
-    Key {
-        relid: rel.rd_id,
-        spc: l.spcOid,
-        db: l.dbOid,
-        rel: l.relNumber as u64,
-        backend: rel.rd_backend,
-    }
+    Key { relid: rel.rd_id, spc: l.spcOid, db: l.dbOid, rel: l.relNumber as u64, backend: rel.rd_backend, }
 }
 
 fn with<R>(rel: &Relation<'_>, f: impl FnOnce(&Entry) -> R) -> PgResult<R> {
@@ -313,16 +249,7 @@ fn with<R>(rel: &Relation<'_>, f: impl FnOnce(&Entry) -> R) -> PgResult<R> {
     let cid = ::xact::GetCurrentCommandId(false)?;
     let ver = rowid_alloc::extents_version();
     CACHE.with(|c| {
-        c.borrow_mut()
-            .entry(
-                key,
-                cid,
-                ver,
-                &|| injection_point::is_attached(STALE_POINT),
-                &|| rowid_alloc::dir_of(rel),
-                &|d: &str| rowid_alloc::extents(d),
-            )
-            .map(f)
+        c.borrow_mut().entry(key, cid, ver, &|| injection_point::is_attached(STALE_POINT), &|| rowid_alloc::dir_of(rel), &|d: &str| rowid_alloc::extents(d),).map(f)
     })
 }
 
@@ -359,9 +286,7 @@ pub(crate) fn note_located(rel: &Relation<'_>, block: u32, off: u16) -> PgResult
 /// and its ID is `id_of` it.
 pub(crate) fn was_located(rel: &Relation<'_>, block: u32, off: u16) -> PgResult<bool> {
     let at = located_at(rel, block, off)?;
-    Ok(CACHE.with(|c| {
-        c.borrow_mut()
-            .take_located(&at, injection_point::is_attached(LOCATED_STALE_POINT))
+    Ok(CACHE.with(|c| { c.borrow_mut().take_located(&at, injection_point::is_attached(LOCATED_STALE_POINT))
     }))
 }
 
@@ -372,17 +297,7 @@ pub(crate) fn statement_view(
     head: impl Fn() -> Option<u64>,
     mut compute: impl FnMut() -> PgResult<(Option<Arc<Generation>>, Option<u64>)>,
 ) -> PgResult<Option<Arc<Generation>>> {
-    CACHE.with(|c| {
-        statement_view_in(
-            c,
-            key_of(rel),
-            at,
-            snap,
-            &head,
-            &|| injection_point::is_attached(VIEW_STALE_POINT),
-            &mut compute,
-            &hook,
-        )
+    CACHE.with(|c| { statement_view_in(c, key_of(rel), at, snap, &head, &|| injection_point::is_attached(VIEW_STALE_POINT), &mut compute, &hook,)
     })
 }
 
@@ -417,9 +332,7 @@ fn statement_view_in(
 }
 
 pub(crate) fn view_counts() -> (u64, u64) {
-    CACHE.with(|c| {
-        c.try_borrow()
-            .map_or((0, 0), |c| (c.view_hits, c.view_misses))
+    CACHE.with(|c| { c.try_borrow().map_or((0, 0), |c| (c.view_hits, c.view_misses))
     })
 }
 
@@ -436,16 +349,8 @@ fn at_xact_event(_event: types_core::xact::XactEvent, _arg: ::datum::Datum) -> P
     Ok(())
 }
 
-fn at_subxact_event(
-    event: types_core::xact::SubXactEvent,
-    _my: u32,
-    _parent: u32,
-    _arg: ::datum::Datum,
-) -> PgResult<()> {
-    if matches!(
-        event,
-        types_core::xact::SubXactEvent::SUBXACT_EVENT_ABORT_SUB
-    ) {
+fn at_subxact_event(event: types_core::xact::SubXactEvent, _my: u32, _parent: u32, _arg: ::datum::Datum,) -> PgResult<()> {
+    if matches!(event, types_core::xact::SubXactEvent::SUBXACT_EVENT_ABORT_SUB) {
         forget_now();
     }
     Ok(())
@@ -465,25 +370,11 @@ mod tests {
     use std::cell::Cell;
 
     fn key(relid: Oid, rel: u64) -> Key {
-        Key {
-            relid,
-            spc: 1663,
-            db: 5,
-            rel,
-            backend: -1,
-        }
+        Key { relid, spc: 1663, db: 5, rel, backend: -1, }
     }
 
     fn table(n: u32) -> Arc<Extents> {
-        Arc::new(Extents::new(
-            (0..n)
-                .map(|idx| SegExtent {
-                    part_no: 1,
-                    idx,
-                    base: 291 + u64::from(idx) * SEG_EXTENT_IDS,
-                })
-                .collect(),
-        ))
+        Arc::new(Extents::new((0..n).map(|idx| SegExtent { part_no: 1, idx, base: 291 + u64::from(idx) * SEG_EXTENT_IDS, }).collect(),))
     }
 
     struct Rig {
@@ -496,13 +387,7 @@ mod tests {
 
     impl Rig {
         fn new() -> Rig {
-            Rig {
-                c: Cache::default(),
-                dirs: Cell::new(0),
-                loads: Cell::new(0),
-                now: RefCell::new(table(1)),
-                stale: Cell::new(false),
-            }
+            Rig { c: Cache::default(), dirs: Cell::new(0), loads: Cell::new(0), now: RefCell::new(table(1)), stale: Cell::new(false), }
         }
         fn get(&mut self, k: Key, cid: CommandId, ver: u64) -> Path {
             let (dirs, loads, now, stale) = (&self.dirs, &self.loads, &self.now, &self.stale);
@@ -541,17 +426,9 @@ mod tests {
         let mut r = Rig::new();
         r.get(key(10, 7), 3, 40);
         *r.now.borrow_mut() = table(2);
-        assert_eq!(
-            r.get(key(10, 7), 3, 41).ext.count(1),
-            2,
-            "the version moved: the new extent is seen"
-        );
+        assert_eq!(r.get(key(10, 7), 3, 41).ext.count(1), 2, "the version moved: the new extent is seen");
         *r.now.borrow_mut() = table(3);
-        assert_eq!(
-            r.get(key(10, 7), 4, 41).ext.count(1),
-            3,
-            "the next command re-reads"
-        );
+        assert_eq!(r.get(key(10, 7), 4, 41).ext.count(1), 3, "the next command re-reads");
         assert_eq!(r.get(key(10, 7), 4, 41).ext.count(1), 3);
         assert_eq!((r.dirs.get(), r.loads.get()), (1, 3));
     }
@@ -560,11 +437,7 @@ mod tests {
     fn storage_and_tables_key_their_own_entries() {
         let mut r = Rig::new();
         assert_eq!(&*r.get(key(10, 7), 3, 40).dir, "base/5/pgrc_7");
-        assert_eq!(
-            &*r.get(key(10, 8), 3, 40).dir,
-            "base/5/pgrc_8",
-            "TRUNCATE in the same command: new storage"
-        );
+        assert_eq!(&*r.get(key(10, 8), 3, 40).dir, "base/5/pgrc_8", "TRUNCATE in the same command: new storage");
         for t in 0..SLOTS as u64 {
             r.get(key(100 + t as Oid, 100 + t), 3, 40);
         }
@@ -583,70 +456,28 @@ mod tests {
         let at = ViewAt { cid: 3, subid: 1 };
         let h40 = || Some(40u64);
         let mut c = Cache::default();
-        assert!(
-            c.view(key(10, 7), &at, &s, &h40, &|| false).is_none(),
-            "nothing filed"
-        );
+        assert!(c.view(key(10, 7), &at, &s, &h40, &|| false).is_none(), "nothing filed");
         c.put_view(key(10, 7), at, 40, &s, None);
         assert!(c.view(key(10, 7), &at, &s, &h40, &|| false).is_some());
         for other in [ViewAt { cid: 4, ..at }, ViewAt { subid: 2, ..at }] {
-            assert!(
-                c.view(key(10, 7), &other, &s, &h40, &|| false).is_none(),
-                "{other:?}"
-            );
+            assert!(c.view(key(10, 7), &other, &s, &h40, &|| false).is_none(), "{other:?}");
         }
-        assert!(
-            c.view(key(10, 7), &at, &s, &|| Some(41), &|| false)
-                .is_none(),
-            "a publish moved the head"
-        );
-        assert!(
-            c.view(key(10, 8), &at, &s, &h40, &|| false).is_none(),
-            "new storage (TRUNCATE)"
-        );
-        assert!(
-            c.view(
-                key(10, 8),
-                &at,
-                &snap(ctx.mcx(), 1, 2, &[], &[], false, 9),
-                &|| Some(1),
-                &|| true
-            )
-            .is_some(),
-            "stale: the OID alone"
-        );
+        assert!(c.view(key(10, 7), &at, &s, &|| Some(41), &|| false).is_none(), "a publish moved the head");
+        assert!(c.view(key(10, 8), &at, &s, &h40, &|| false).is_none(), "new storage (TRUNCATE)");
+        assert!(c.view(key(10, 8), &at, &snap(ctx.mcx(), 1, 2, &[], &[], false, 9), &|| Some(1), &|| true).is_some(), "stale: the OID alone");
         c.put_view(key(10, 7), ViewAt { cid: 4, ..at }, 40, &s, None);
-        assert_eq!(
-            c.views.len(),
-            1,
-            "one a storage: the next command's replaces it"
-        );
+        assert_eq!(c.views.len(), 1, "one a storage: the next command's replaces it");
         for t in 0..SLOTS as u64 {
             c.put_view(key(100 + t as Oid, t), at, 40, &s, None);
         }
         assert_eq!(c.views.len(), SLOTS);
         assert_eq!((c.view_hits, c.view_misses), (2, 5));
-        c.located = Some(Located {
-            key: key(10, 7),
-            cid: 3,
-            subid: 1,
-            stmt: 1,
-            block: 1,
-            off: 1,
-        });
+        c.located = Some(Located { key: key(10, 7), cid: 3, subid: 1, stmt: 1, block: 1, off: 1, });
         c.forget();
         assert!(c.views.is_empty() && c.located.is_none());
     }
 
-    fn snap<'m>(
-        m: mcx::Mcx<'m>,
-        xmin: u32,
-        xmax: u32,
-        xip: &[u32],
-        subxip: &[u32],
-        overflowed: bool,
-        curcid: CommandId,
-    ) -> SnapshotData<'m> {
+    fn snap<'m>(m: mcx::Mcx<'m>, xmin: u32, xmax: u32, xip: &[u32], subxip: &[u32], overflowed: bool, curcid: CommandId,) -> SnapshotData<'m> {
         let mut s = SnapshotData::sentinel(m, types_snapshot::SnapshotType::SNAPSHOT_MVCC);
         (s.xmin, s.xmax, s.suboverflowed) = (xmin, xmax, overflowed);
         s.xip.extend_from_slice(xip);
@@ -664,99 +495,23 @@ mod tests {
         let at = ViewAt { cid: 3, subid: 1 };
         let h = || Some(40u64);
         let mut c = Cache::default();
-        c.put_view(
-            key(10, 7),
-            at,
-            40,
-            &snap(m, 700, 710, &[701, 703, 705], &[702], false, 3),
-            None,
-        );
-        assert!(
-            c.view(
-                key(10, 7),
-                &at,
-                &snap(m, 700, 710, &[701, 703, 705], &[702], false, 3),
-                &h,
-                &|| false
-            )
-            .is_some(),
-            "a separate snapshot, the same content"
-        );
+        c.put_view(key(10, 7), at, 40, &snap(m, 700, 710, &[701, 703, 705], &[702], false, 3), None,);
+        assert!(c.view(key(10, 7), &at, &snap(m, 700, 710, &[701, 703, 705], &[702], false, 3), &h, &|| false).is_some(), "a separate snapshot, the same content");
         for (other, why) in [
-            (
-                snap(m, 700, 710, &[701, 703, 706], &[702], false, 3),
-                "one in-progress xid",
-            ),
-            (
-                snap(m, 700, 710, &[701, 703], &[702], false, 3),
-                "one in-progress xid fewer",
-            ),
-            (
-                snap(m, 700, 710, &[701, 703, 705], &[704], false, 3),
-                "one subxid",
-            ),
-            (
-                snap(m, 700, 710, &[701, 703, 705], &[702], true, 3),
-                "the overflow flag",
-            ),
-            (
-                snap(m, 699, 710, &[701, 703, 705], &[702], false, 3),
-                "xmin",
-            ),
-            (
-                snap(m, 700, 711, &[701, 703, 705], &[702], false, 3),
-                "xmax",
-            ),
-            (
-                snap(m, 700, 710, &[701, 703, 705], &[702], false, 4),
-                "curcid",
-            ),
+            (snap(m, 700, 710, &[701, 703, 706], &[702], false, 3), "one in-progress xid",),
+            (snap(m, 700, 710, &[701, 703], &[702], false, 3), "one in-progress xid fewer",),
+            (snap(m, 700, 710, &[701, 703, 705], &[704], false, 3), "one subxid",),
+            (snap(m, 700, 710, &[701, 703, 705], &[702], true, 3), "the overflow flag",),
+            (snap(m, 699, 710, &[701, 703, 705], &[702], false, 3), "xmin",),
+            (snap(m, 700, 711, &[701, 703, 705], &[702], false, 3), "xmax",),
+            (snap(m, 700, 710, &[701, 703, 705], &[702], false, 4), "curcid",),
         ] {
-            assert!(
-                c.view(key(10, 7), &at, &other, &h, &|| false).is_none(),
-                "{why}"
-            );
+            assert!(c.view(key(10, 7), &at, &other, &h, &|| false).is_none(), "{why}");
         }
-        c.put_view(
-            key(10, 7),
-            at,
-            40,
-            &snap(m, 700, 710, &[701, 703, 705], &[], true, 3),
-            None,
-        );
-        assert!(
-            c.view(
-                key(10, 7),
-                &at,
-                &snap(m, 700, 710, &[701, 703, 705], &[], true, 3),
-                &h,
-                &|| false
-            )
-            .is_some(),
-            "overflowed, the same content"
-        );
-        assert!(
-            c.view(
-                key(10, 7),
-                &at,
-                &snap(m, 700, 710, &[701, 705], &[], true, 3),
-                &h,
-                &|| false
-            )
-            .is_none(),
-            "overflowed, one in-progress xid fewer"
-        );
-        assert!(
-            c.view(
-                key(10, 7),
-                &at,
-                &snap(m, 700, 710, &[701, 703, 705], &[], false, 3),
-                &h,
-                &|| false
-            )
-            .is_none(),
-            "no longer overflowed"
-        );
+        c.put_view(key(10, 7), at, 40, &snap(m, 700, 710, &[701, 703, 705], &[], true, 3), None,);
+        assert!(c.view(key(10, 7), &at, &snap(m, 700, 710, &[701, 703, 705], &[], true, 3), &h, &|| false).is_some(), "overflowed, the same content");
+        assert!(c.view(key(10, 7), &at, &snap(m, 700, 710, &[701, 705], &[], true, 3), &h, &|| false).is_none(), "overflowed, one in-progress xid fewer");
+        assert!(c.view(key(10, 7), &at, &snap(m, 700, 710, &[701, 703, 705], &[], false, 3), &h, &|| false).is_none(), "no longer overflowed");
         assert_eq!((c.view_hits, c.view_misses), (2, 9));
     }
 
@@ -780,45 +535,17 @@ mod tests {
             (asks.get(), walks.get())
         };
         let s = snap(m, 700, 705, &[701], &[], false, 3);
-        assert_eq!(
-            ask(key(10, 7), at, &s),
-            (0, 1),
-            "nothing filed: a walk and no head"
-        );
-        assert_eq!(
-            ask(key(10, 7), at, &snap(m, 700, 705, &[701], &[], false, 3)),
-            (1, 1),
-            "the same content: one head, a hit"
-        );
-        assert_eq!(
-            ask(key(10, 7), at, &snap(m, 706, 709, &[707], &[], false, 3)),
-            (1, 2),
-            "a new snapshot"
-        );
-        assert_eq!(
-            ask(key(10, 7), ViewAt { cid: 4, ..at }, &s),
-            (1, 3),
-            "the next command"
-        );
-        assert_eq!(
-            ask(key(10, 7), ViewAt { subid: 2, ..at }, &s),
-            (1, 4),
-            "another subtransaction"
-        );
+        assert_eq!(ask(key(10, 7), at, &s), (0, 1), "nothing filed: a walk and no head");
+        assert_eq!(ask(key(10, 7), at, &snap(m, 700, 705, &[701], &[], false, 3)), (1, 1), "the same content: one head, a hit");
+        assert_eq!(ask(key(10, 7), at, &snap(m, 706, 709, &[707], &[], false, 3)), (1, 2), "a new snapshot");
+        assert_eq!(ask(key(10, 7), ViewAt { cid: 4, ..at }, &s), (1, 3), "the next command");
+        assert_eq!(ask(key(10, 7), ViewAt { subid: 2, ..at }, &s), (1, 4), "another subtransaction");
         assert_eq!(ask(key(10, 8), at, &s), (1, 5), "new storage");
         now.set(Some(41));
-        assert_eq!(
-            ask(key(10, 8), at, &s),
-            (2, 6),
-            "a publish moved the head: filed under the walk's"
-        );
+        assert_eq!(ask(key(10, 8), at, &s), (2, 6), "a publish moved the head: filed under the walk's");
         assert_eq!(ask(key(10, 8), at, &s), (3, 6));
         now.set(None);
-        assert_eq!(
-            ask(key(10, 8), at, &s),
-            (4, 7),
-            "the catalog lost the table: not filed"
-        );
+        assert_eq!(ask(key(10, 8), at, &s), (4, 7), "the catalog lost the table: not filed");
         assert_eq!(ask(key(10, 8), at, &s), (5, 8));
         assert_eq!(c.borrow().views.len(), 2);
         assert_eq!((c.borrow().view_hits, c.borrow().view_misses), (2, 8));
@@ -826,28 +553,15 @@ mod tests {
 
     #[test]
     fn a_located_position_answers_one_ask_where_it_was_located() {
-        let at = Located {
-            key: key(10, 7),
-            cid: 3,
-            subid: 1,
-            stmt: 1_000,
-            block: 4,
-            off: 9,
-        };
+        let at = Located { key: key(10, 7), cid: 3, subid: 1, stmt: 1_000, block: 4, off: 9, };
         let mut c = Cache::default();
         assert!(!c.take_located(&at, false), "nothing noted");
         c.located = Some(at);
         assert!(c.take_located(&at, false));
         assert!(!c.take_located(&at, false), "used up");
         for other in [
-            Located {
-                key: key(11, 7),
-                ..at
-            },
-            Located {
-                key: key(10, 8),
-                ..at
-            },
+            Located { key: key(11, 7), ..at },
+            Located { key: key(10, 8), ..at },
             Located { cid: 4, ..at },
             Located { subid: 2, ..at },
             Located { stmt: 1_001, ..at },
@@ -859,19 +573,7 @@ mod tests {
             assert!(c.located.is_none(), "a miss uses the note up too");
         }
         c.located = Some(at);
-        assert!(
-            c.take_located(
-                &Located {
-                    key: key(11, 8),
-                    cid: 9,
-                    subid: 3,
-                    stmt: 7,
-                    ..at
-                },
-                true
-            ),
-            "stale: the position alone"
-        );
+        assert!(c.take_located(&Located { key: key(11, 8), cid: 9, subid: 3, stmt: 7, ..at }, true), "stale: the position alone");
     }
 
     #[test]
@@ -880,30 +582,14 @@ mod tests {
         let mut r = Rig::new();
         let over = |r: &mut Rig, cid, ver| {
             let (dirs, loads, now) = (&r.dirs, &r.loads, &r.now);
-            r.c.entry(
-                key(10, 7),
-                cid,
-                ver,
-                &|| false,
-                &|| {
-                    dirs.set(dirs.get() + 1);
-                    "d".to_string()
-                },
-                &|_| {
-                    loads.set(loads.get() + 1);
-                    Ok(Arc::clone(&now.borrow()))
-                },
-            )
-            .map(|e| e.over)
-            .unwrap()
+            r.c.entry(key(10, 7), cid, ver, &|| false, &|| { dirs.set(dirs.get() + 1); "d".to_string() }, &|_| { loads.set(loads.get() + 1); Ok(Arc::clone(&now.borrow())) },)
+                .map(|e| e.over)
+                .unwrap()
         };
         assert!(!over(&mut r, 3, 40));
         *r.now.borrow_mut() = table(SEG_SOFT_EXTENTS);
         assert!(!over(&mut r, 3, 40), "the same version: the entry's answer");
-        assert!(
-            over(&mut r, 3, 41),
-            "the version moved: the wide segment's table is at its cap"
-        );
+        assert!(over(&mut r, 3, 41), "the version moved: the wide segment's table is at its cap");
         *r.now.borrow_mut() = table(1);
         assert!(!over(&mut r, 4, 41), "the next command re-reads");
         assert_eq!(r.loads.get(), 3);
@@ -915,16 +601,8 @@ mod tests {
         r.get(key(10, 7), 3, 40);
         r.stale.set(true);
         *r.now.borrow_mut() = table(2);
-        assert_eq!(
-            r.get(key(10, 7), 9, 99).ext.count(1),
-            1,
-            "stale: the old table"
-        );
-        assert_eq!(
-            &*r.get(key(10, 8), 9, 99).dir,
-            "base/5/pgrc_7",
-            "stale: the old storage"
-        );
+        assert_eq!(r.get(key(10, 7), 9, 99).ext.count(1), 1, "stale: the old table");
+        assert_eq!(&*r.get(key(10, 8), 9, 99).dir, "base/5/pgrc_7", "stale: the old storage");
         r.stale.set(false);
         assert_eq!(r.get(key(10, 7), 9, 99).ext.count(1), 2);
     }

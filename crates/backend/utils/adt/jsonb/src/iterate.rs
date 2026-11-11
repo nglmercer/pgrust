@@ -129,7 +129,7 @@ pub fn iterate_jsonb_values(
                 JsonbItem::Bool(b)
                     if flags & JTI_BOOL != 0 => {
                         action(if b { b"true" } else { b"false" })?;
-                    }
+                }
                 _ => {}
             },
             _ => {}

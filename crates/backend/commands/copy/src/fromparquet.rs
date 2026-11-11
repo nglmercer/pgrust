@@ -227,10 +227,7 @@ pub(crate) struct ParquetPlan {
 
 impl ParquetPlan {
     pub(crate) fn make_batches(&self, meta: &parquet_read::FileMeta) -> Vec<ColumnBatch> {
-        self.cols
-            .iter()
-            .map(|&c| ColumnBatch::new_for(meta.columns[c].phys))
-            .collect()
+        self.cols.iter().map(|&c| ColumnBatch::new_for(meta.columns[c].phys)).collect()
     }
 }
 
@@ -271,9 +268,7 @@ fn type_mismatch(attname: &str, pg_type: &str, pq_type: &str) -> Box<PgError> {
             "type mismatch for column \"{attname}\" between table and parquet file"
         ))
         .with_sqlstate(ERRCODE_DATATYPE_MISMATCH)
-        .with_detail(format!(
-            "table has \"{pg_type}\", parquet file has \"{pq_type}\""
-        )),
+        .with_detail(format!("table has \"{pg_type}\", parquet file has \"{pq_type}\"")),
     )
 }
 
@@ -293,10 +288,7 @@ fn resolve_conv(
     let plain_int = |l: Logical, bits: u8| -> bool {
         match l {
             Logical::None => true,
-            Logical::Int {
-                bits: b,
-                signed: true,
-            } => b <= bits,
+            Logical::Int { bits: b, signed: true, } => b <= bits,
             _ => false,
         }
     };
@@ -307,10 +299,7 @@ fn resolve_conv(
         matches!(l, Logical::Int { bits: b, signed: false } if b < bits)
     };
     let textual = |l: Logical| {
-        matches!(
-            l,
-            Logical::None | Logical::String | Logical::Enum | Logical::Json
-        )
+        matches!(l, Logical::None | Logical::String | Logical::Enum | Logical::Json)
     };
     // COERCE_EPOCH admits exactly the plain-integer annotation classes (no
     // temporal/other logical); annotated temporal columns keep their mapping.
@@ -320,10 +309,7 @@ fn resolve_conv(
         _ => EpochLane::I32,
     };
     let lane64 = |l: Logical| match l {
-        Logical::Int {
-            bits: 64,
-            signed: false,
-        } => EpochLane::U64,
+        Logical::Int { bits: 64, signed: false, } => EpochLane::U64,
         _ => EpochLane::I64,
     };
     let conv = match (phys, atttypid) {
@@ -339,34 +325,16 @@ fn resolve_conv(
         (Phys::Int32, INT2OID) if small_uint(logical, 32) => Some(Conv::I16FromI32),
         (Phys::Int32, INT4OID) if small_uint(logical, 32) => Some(Conv::I32),
         (Phys::Int32, INT8OID) if small_uint(logical, 32) => Some(Conv::I64FromI32),
-        (Phys::Int32, INT4OID)
-            if logical
-                == (Logical::Int {
-                    bits: 32,
-                    signed: false,
-                }) =>
-        {
+        (Phys::Int32, INT4OID) if logical == (Logical::Int { bits: 32, signed: false, }) => {
             Some(Conv::U32AsI32)
         }
-        (Phys::Int32, INT8OID)
-            if logical
-                == (Logical::Int {
-                    bits: 32,
-                    signed: false,
-                }) =>
-        {
+        (Phys::Int32, INT8OID) if logical == (Logical::Int { bits: 32, signed: false, }) => {
             Some(Conv::U32AsI64)
         }
         (Phys::Int64, INT2OID) if small_uint(logical, 64) => Some(Conv::I16FromI64),
         (Phys::Int64, INT4OID) if small_uint(logical, 64) => Some(Conv::I32FromI64),
         (Phys::Int64, INT8OID) if small_uint(logical, 64) => Some(Conv::I64),
-        (Phys::Int64, INT8OID)
-            if logical
-                == (Logical::Int {
-                    bits: 64,
-                    signed: false,
-                }) =>
-        {
+        (Phys::Int64, INT8OID) if logical == (Logical::Int { bits: 64, signed: false, }) => {
             Some(Conv::U64AsI64)
         }
         (Phys::Float, FLOAT4OID) if logical == Logical::None => Some(Conv::F32),
@@ -393,7 +361,9 @@ fn resolve_conv(
             }
             _ => None,
         },
-        (Phys::Int32, TIMESTAMPOID | TIMESTAMPTZOID) if coerce_epoch && plain_integer(logical) => {
+        (Phys::Int32, TIMESTAMPOID | TIMESTAMPTZOID)
+            if coerce_epoch && plain_integer(logical) =>
+        {
             Some(Conv::TsFromEpochSecs(lane32(logical)))
         }
         (Phys::Int64, TIMEOID) => match logical {
@@ -417,12 +387,7 @@ fn resolve_conv(
         }
         // BSON and every other BYTE_ARRAY / FLBA annotation store as raw bytes.
         (Phys::ByteArray | Phys::Flba(_), BYTEAOID) => Some(Conv::Bytea),
-        (Phys::Int32, TIMEOID)
-            if logical
-                == (Logical::Time {
-                    unit: TimeUnit::Millis,
-                }) =>
-        {
+        (Phys::Int32, TIMEOID) if logical == (Logical::Time { unit: TimeUnit::Millis, }) => {
             Some(Conv::TimeMillis32)
         }
         (Phys::Int96, TIMESTAMPOID | TIMESTAMPTZOID) => Some(Conv::TsFromInt96),
@@ -440,17 +405,12 @@ fn resolve_conv(
         (Phys::Int32 | Phys::Int64 | Phys::ByteArray | Phys::Flba(_), NUMERICOID)
             if matches!(logical, Logical::Decimal { .. }) =>
         {
-            let Logical::Decimal { scale, .. } = logical else {
-                unreachable!()
-            };
-            i16::try_from(scale)
-                .ok()
-                .map(|s| Conv::ViaInput(InputForm::Decimal(decimal_src(phys), s)))
+            let Logical::Decimal { scale, .. } = logical else { unreachable!() };
+            i16::try_from(scale).ok().map(|s| Conv::ViaInput(InputForm::Decimal(decimal_src(phys), s)))
         }
-        (
-            Phys::Int32 | Phys::Int64 | Phys::ByteArray | Phys::Flba(_),
-            INT2OID | INT4OID | INT8OID,
-        ) if matches!(logical, Logical::Decimal { scale: 0, .. }) => {
+        (Phys::Int32 | Phys::Int64 | Phys::ByteArray | Phys::Flba(_), INT2OID | INT4OID | INT8OID,)
+            if matches!(logical, Logical::Decimal { scale: 0, .. }) =>
+        {
             let width = match atttypid {
                 INT2OID => IntWidth::I16,
                 INT4OID => IntWidth::I32,
@@ -461,9 +421,7 @@ fn resolve_conv(
         (Phys::Int32 | Phys::Int64 | Phys::ByteArray | Phys::Flba(_), FLOAT4OID | FLOAT8OID)
             if matches!(logical, Logical::Decimal { .. }) =>
         {
-            let Logical::Decimal { scale, .. } = logical else {
-                unreachable!()
-            };
+            let Logical::Decimal { scale, .. } = logical else { unreachable!() };
             i16::try_from(scale).ok().map(|s| match atttypid {
                 FLOAT4OID => Conv::DecimalToF32(decimal_src(phys), s),
                 _ => Conv::DecimalToF64(decimal_src(phys), s),
@@ -522,10 +480,7 @@ fn resolve_binding(
     // scalar element type. MAP, STRUCT and nested LIST leaves have no
     // binding (docs/gravity/parquet-load.md, "Conformance").
     let elmtype = lsyscache::get_element_type(atttypid)?;
-    let list_at = schema
-        .ancestors
-        .iter()
-        .rposition(|a| a.logical == Logical::List);
+    let list_at = schema.ancestors.iter().rposition(|a| a.logical == Logical::List);
     let shape_ok = schema.max_rep == 1
         && elmtype != types_core::InvalidOid
         && match list_at {
@@ -569,11 +524,7 @@ fn resolve_binding(
 
 fn input_spec(typid: Oid, typmod: i32) -> PgResult<InputSpec> {
     let (typinput, typioparam) = lsyscache::getTypeInputInfo(typid)?;
-    Ok(InputSpec {
-        typinput,
-        typioparam,
-        typmod,
-    })
+    Ok(InputSpec { typinput, typioparam, typmod, })
 }
 
 /// Whether the conversion consumes string bytes (drives page-batched UTF-8
@@ -612,13 +563,7 @@ pub(crate) fn open_source(
     let owner = pgrc_am::ingest::load_owner();
     // memsig E-pub t5: the footer on the load's owner, as its row groups (`row_group_on`)
     let reader = FileReader::open_on(filename, owner)?;
-    let plan = resolve_plan(
-        &reader.meta,
-        tup_desc,
-        attnumlist,
-        match_by_name,
-        coerce_epoch,
-    )?;
+    let plan = resolve_plan(&reader.meta, tup_desc, attnumlist, match_by_name, coerce_epoch,)?;
     let batches = plan.make_batches(&reader.meta);
     let file_len = reader.file_len();
     let mut inputs = ::mcx::stdvec::try_vec(plan.bindings.len(), "fromparquet")?;
@@ -700,13 +645,7 @@ pub(crate) fn resolve_plan(
         any_text |= utf8;
         cols.push(col);
         vutf8.push(utf8);
-        bindings.push(Binding {
-            attidx,
-            conv,
-            batch: bindings.len(),
-            input,
-            list,
-        });
+        bindings.push(Binding { attidx, conv, batch: bindings.len(), input, list, });
     }
 
     if any_text && mbutils::GetDatabaseEncoding() != wchar::PG_UTF8 {
@@ -715,15 +654,13 @@ pub(crate) fn resolve_plan(
         // SQL_ASCII databases (kept creatable under the UTF-8-only
         // server-encoding carve, docs/design/carve-ratifications.md §11).
         return Err(Box::new(
-            PgError::error("COPY FROM parquet with text columns requires a UTF8 database encoding")
-                .with_sqlstate(ERRCODE_FEATURE_NOT_SUPPORTED),
+            PgError::error(
+                "COPY FROM parquet with text columns requires a UTF8 database encoding"
+            )
+            .with_sqlstate(ERRCODE_FEATURE_NOT_SUPPORTED),
         ));
     }
-    Ok(ParquetPlan {
-        bindings,
-        cols,
-        vutf8,
-    })
+    Ok(ParquetPlan { bindings, cols, vutf8, })
 }
 
 /// Test face (the fused-decoder identity test): [`resolve_plan`] by
@@ -752,19 +689,9 @@ pub(crate) fn resolve_plan_types(
         let utf8 = wants_utf8(conv) || list.is_some_and(|l| wants_utf8(l.elem));
         cols.push(i);
         vutf8.push(utf8);
-        bindings.push(Binding {
-            attidx: i,
-            conv,
-            batch: bindings.len(),
-            input,
-            list,
-        });
+        bindings.push(Binding { attidx: i, conv, batch: bindings.len(), input, list, });
     }
-    Ok(ParquetPlan {
-        bindings,
-        cols,
-        vutf8,
-    })
+    Ok(ParquetPlan { bindings, cols, vutf8, })
 }
 
 /// How a bpchar(n) input is stored — the ONE shape decision shared by the
@@ -824,9 +751,7 @@ fn bpchar_datum<'mcx>(mcx: Mcx<'mcx>, bytes: &[u8], maxlen: i32) -> PgResult<Dat
             for _ in 0..pad {
                 image.push(b' ');
             }
-            Ok(types_fmgr::varlena_result(datum::Varlena::from_image(
-                image,
-            )))
+            Ok(types_fmgr::varlena_result(datum::Varlena::from_image(image,)))
         }
     }
 }
@@ -874,9 +799,7 @@ fn dt_out_of_range(what: &'static str) -> Box<PgError> {
 
 #[inline]
 fn ts_from_unix_us(us: i64) -> PgResult<Datum> {
-    let t = us
-        .checked_sub(EPOCH_SHIFT_US)
-        .ok_or_else(|| dt_out_of_range("timestamp"))?;
+    let t = us.checked_sub(EPOCH_SHIFT_US).ok_or_else(|| dt_out_of_range("timestamp"))?;
     if !(MIN_TIMESTAMP_US..END_TIMESTAMP_US).contains(&t) {
         return Err(dt_out_of_range("timestamp"));
     }
@@ -914,9 +837,7 @@ fn date_from_unix_days(days: i64) -> PgResult<Datum> {
 }
 
 fn varlena_datum(mcx: Mcx<'_>, bytes: &[u8]) -> PgResult<Datum> {
-    Ok(types_fmgr::varlena_result(varlena::cstring_to_text(
-        mcx, bytes,
-    )?))
+    Ok(types_fmgr::varlena_result(varlena::cstring_to_text(mcx, bytes,)?))
 }
 
 /// Verify a decoded parquet string value against the database encoding before
@@ -1003,8 +924,7 @@ impl ParquetSrc {
                         }
                         return Err(e);
                     }
-                    self.batch_charge
-                        .sync(parquet_read::batches_held(&self.batches));
+                    self.batch_charge.sync(parquet_read::batches_held(&self.batches));
                     for (i, b) in self.plan.bindings.iter().enumerate() {
                         if b.list.is_none() {
                             continue;
@@ -1013,10 +933,7 @@ impl ParquetSrc {
                         let starts = &mut self.list_starts[i];
                         starts.clear();
                         starts.extend(
-                            rep.iter()
-                                .enumerate()
-                                .filter(|(_, &r)| r == 0)
-                                .map(|(s, _)| s as u32),
+                            rep.iter().enumerate().filter(|(_, &r)| r == 0).map(|(s, _)| s as u32),
                         );
                         if starts.len() != n {
                             return Err(batch_shape());
@@ -1032,12 +949,7 @@ impl ParquetSrc {
             if self.rg_idx >= self.reader.meta.row_groups.len() {
                 return Ok(false);
             }
-            let rg = match self.reader.row_group_on(
-                self.rg_idx,
-                &self.plan.cols,
-                &self.plan.vutf8,
-                self.owner,
-            ) {
+            let rg = match self.reader.row_group_on(self.rg_idx, &self.plan.cols, &self.plan.vutf8, self.owner,) {
                 Ok(rg) => rg,
                 Err(e) => {
                     if is_reader_invalid_utf8(&e) {
@@ -1063,12 +975,8 @@ impl ParquetSrc {
     #[cold]
     #[inline(never)]
     fn locate_invalid_utf8(&mut self, rg_idx: usize, from: u64) -> Option<u64> {
-        let unchecked =
-            ::mcx::stdvec::try_filled(self.plan.vutf8.len(), false, "fromparquet").ok()?;
-        let mut rg = self
-            .reader
-            .row_group_on(rg_idx, &self.plan.cols, &unchecked, self.owner)
-            .ok()?;
+        let unchecked = ::mcx::stdvec::try_filled(self.plan.vutf8.len(), false, "fromparquet").ok()?;
+        let mut rg = self.reader.row_group_on(rg_idx, &self.plan.cols, &unchecked, self.owner).ok()?;
         let mut batches = self.plan.make_batches(&self.reader.meta);
         // CONVERT wave 3 (cvwrite job 3): the re-read's batches on the load's owner too; declared after them, drops first
         let mut batch_charge = pgrc_write::held::HeldCharge::new(self.owner);
@@ -1085,9 +993,7 @@ impl ParquetSrc {
                         continue;
                     }
                     let lo = from.saturating_sub(row) as usize;
-                    if let Some(i) = (lo..n)
-                        .find(|&i| !b.is_null(i) && std::str::from_utf8(b.bytes_at(i)).is_err())
-                    {
+                    if let Some(i) = (lo..n).find(|&i| !b.is_null(i) && std::str::from_utf8(b.bytes_at(i)).is_err()) {
                         let r = row + i as u64;
                         first = Some(first.map_or(r, |f| f.min(r)));
                     }
@@ -1150,14 +1056,7 @@ impl<'mcx> CopyFromState<'mcx, '_> {
 
         // Split borrows: bindings/batches are read, cur_attidx written for
         // error context.
-        let ParquetSrc {
-            plan,
-            batches,
-            inputs,
-            list_starts,
-            rg,
-            ..
-        } = src.as_mut();
+        let ParquetSrc { plan, batches, inputs, list_starts, rg, .. } = src.as_mut();
         for (i, b) in plan.bindings.iter().enumerate() {
             let batch = &batches[b.batch];
             let m = b.attidx;
@@ -1168,14 +1067,7 @@ impl<'mcx> CopyFromState<'mcx, '_> {
                 let lanes = rg.as_ref().ok_or_else(batch_shape)?.levels(b.batch);
                 let s = list_starts[i][k] as usize;
                 let e = list_starts[i][k + 1] as usize;
-                list_cell(
-                    row_mcx,
-                    &list,
-                    batch,
-                    &lanes.def[s..e],
-                    s,
-                    inputs[i].as_mut(),
-                )?
+                list_cell(row_mcx, &list, batch, &lanes.def[s..e], s, inputs[i].as_mut(),)?
             } else if batch.is_null(k) {
                 None
             } else {
@@ -1222,13 +1114,7 @@ fn list_cell<'mcx>(
     let mut any_null = false;
     for (j, &d) in defs.iter().enumerate() {
         if d == list.elem_def {
-            elems.push(convert_cell(
-                mcx,
-                list.elem,
-                batch,
-                base + j,
-                input.as_deref_mut(),
-            )?);
+            elems.push(convert_cell(mcx, list.elem, batch, base + j, input.as_deref_mut(),)?);
             elem_nulls.push(false);
         } else if list.elem_nullable && d + 1 == list.elem_def {
             elems.push(Datum::null());
@@ -1353,11 +1239,7 @@ fn decimal_unscaled_i128(src: DecimalSrc, batch: &ColumnBatch, k: usize) -> PgRe
             if bytes.len() > 16 {
                 None
             } else {
-                let mut buf = [if bytes.first().is_some_and(|b| b & 0x80 != 0) {
-                    0xffu8
-                } else {
-                    0
-                }; 16];
+                let mut buf = [if bytes.first().is_some_and(|b| b & 0x80 != 0) { 0xffu8 } else { 0 }; 16];
                 buf[16 - bytes.len()..].copy_from_slice(bytes);
                 Some(i128::from_be_bytes(buf))
             }
@@ -1409,8 +1291,7 @@ const US_PER_DAY: i64 = 86_400_000_000;
 fn input_text(form: InputForm, batch: &ColumnBatch, k: usize) -> PgResult<Vec<u8>> {
     Ok(match form {
         InputForm::Decimal(src, scale) => {
-            scaled_decimal_text(&decimal_unscaled_text(src, batch, k)?, i32::from(scale))
-                .into_bytes()
+            scaled_decimal_text(&decimal_unscaled_text(src, batch, k)?, i32::from(scale)).into_bytes()
         }
         InputForm::Uuid => {
             let b = batch.bytes_at(k);
@@ -1418,15 +1299,8 @@ fn input_text(form: InputForm, batch: &ColumnBatch, k: usize) -> PgResult<Vec<u8
                 return Err(batch_shape());
             }
             let hex: String = b.iter().map(|x| format!("{x:02x}")).collect();
-            format!(
-                "{}-{}-{}-{}-{}",
-                &hex[0..8],
-                &hex[8..12],
-                &hex[12..16],
-                &hex[16..20],
-                &hex[20..32]
-            )
-            .into_bytes()
+            format!("{}-{}-{}-{}-{}", &hex[0..8], &hex[8..12], &hex[12..16], &hex[16..20], &hex[20..32])
+                .into_bytes()
         }
         InputForm::Interval => {
             let b = batch.bytes_at(k);
@@ -1508,9 +1382,7 @@ pub(crate) fn word_cell(conv: Conv, batch: &ColumnBatch, k: usize) -> PgResult<O
         Conv::F64FromF32 => Datum::from_f64(f64::from(lane!(F32))),
         Conv::DateFromDays => {
             let v = lane!(I32);
-            let d = v
-                .checked_sub(EPOCH_SHIFT_DAYS)
-                .ok_or_else(|| dt_out_of_range("date"))?;
+            let d = v.checked_sub(EPOCH_SHIFT_DAYS).ok_or_else(|| dt_out_of_range("date"))?;
             if !(MIN_DATE_DAYS..END_DATE_DAYS).contains(&d) {
                 return Err(dt_out_of_range("date"));
             }
@@ -1520,9 +1392,8 @@ pub(crate) fn word_cell(conv: Conv, batch: &ColumnBatch, k: usize) -> PgResult<O
             let v = lane!(I64);
             let us = match unit {
                 TimeUnit::Micros => v,
-                TimeUnit::Millis => v
-                    .checked_mul(1000)
-                    .ok_or_else(|| dt_out_of_range("timestamp"))?,
+                TimeUnit::Millis =>
+                    v.checked_mul(1000).ok_or_else(|| dt_out_of_range("timestamp"))?,
                 // Floor division: pre-epoch nanos round down, matching the
                 // timestamp number line rather than truncation toward zero.
                 TimeUnit::Nanos => v.div_euclid(1000),
@@ -1640,8 +1511,7 @@ fn word_cell_ext(conv: Conv, batch: &ColumnBatch, k: usize) -> PgResult<Option<D
         Conv::DecimalToF32(src, scale) | Conv::DecimalToF64(src, scale) => {
             // Parsed at the target width (one rounding, as numeric -> real
             // / float8 round from the decimal text).
-            let text =
-                scaled_decimal_text(&decimal_unscaled_text(src, batch, k)?, i32::from(scale));
+            let text = scaled_decimal_text(&decimal_unscaled_text(src, batch, k)?, i32::from(scale));
             if matches!(conv, Conv::DecimalToF32(..)) {
                 let f: f32 = text.parse().map_err(|_| batch_shape())?;
                 if f.is_infinite() {
@@ -1716,18 +1586,15 @@ pub(crate) fn word_i32(conv: Conv, v: i32) -> PgResult<u64> {
     Ok(match conv {
         Conv::I32 => Datum::from_i32(v),
         Conv::I64FromI32 => Datum::from_i64(i64::from(v)),
-        Conv::I16FromI32 => {
-            Datum::from_i16(i16::try_from(v).map_err(|_| out_of_range("smallint"))?)
+        Conv::I16FromI32 => { Datum::from_i16(i16::try_from(v).map_err(|_| out_of_range("smallint"))?)
         }
         Conv::U32AsI32 => {
             let u = v as u32;
             Datum::from_i32(i32::try_from(u).map_err(|_| out_of_range("integer"))?)
         }
         Conv::U32AsI64 => Datum::from_i64(i64::from(v as u32)),
-        Conv::DateFromDays => Datum::from_i32(
-            v.checked_sub(EPOCH_SHIFT_DAYS)
-                .ok_or_else(|| dt_out_of_range("date"))?,
-        ),
+        Conv::DateFromDays =>
+            Datum::from_i32(v.checked_sub(EPOCH_SHIFT_DAYS).ok_or_else(|| dt_out_of_range("date"))?,),
         Conv::TsFromEpochSecs(EpochLane::I32) => ts_from_unix_secs(i64::from(v))?,
         Conv::TsFromEpochSecs(EpochLane::U32) => ts_from_unix_secs(i64::from(v as u32))?,
         Conv::DateFromEpochDays(EpochLane::I32) => date_from_unix_days(i64::from(v))?,
@@ -1742,8 +1609,7 @@ pub(crate) fn word_i32(conv: Conv, v: i32) -> PgResult<u64> {
 pub(crate) fn word_i64(conv: Conv, v: i64) -> PgResult<u64> {
     Ok(match conv {
         Conv::I64 => Datum::from_i64(v),
-        Conv::I16FromI64 => {
-            Datum::from_i16(i16::try_from(v).map_err(|_| out_of_range("smallint"))?)
+        Conv::I16FromI64 => { Datum::from_i16(i16::try_from(v).map_err(|_| out_of_range("smallint"))?)
         }
         Conv::I32FromI64 => Datum::from_i32(i32::try_from(v).map_err(|_| out_of_range("integer"))?),
         Conv::U64AsI64 => {
@@ -1755,9 +1621,7 @@ pub(crate) fn word_i64(conv: Conv, v: i64) -> PgResult<u64> {
         Conv::Timestamp(unit) => {
             let us = match unit {
                 TimeUnit::Micros => v,
-                TimeUnit::Millis => v
-                    .checked_mul(1000)
-                    .ok_or_else(|| dt_out_of_range("timestamp"))?,
+                TimeUnit::Millis => v.checked_mul(1000).ok_or_else(|| dt_out_of_range("timestamp"))?,
                 TimeUnit::Nanos => v.div_euclid(1000),
             };
             ts_from_unix_us(us)?
@@ -1819,12 +1683,7 @@ pub(crate) fn word_f64(conv: Conv, v: f64) -> PgResult<u64> {
 /// was proven at page decode), so the per-value verification is skipped;
 /// otherwise the value is verified exactly as `raw_cell` does.
 #[inline(always)]
-pub(crate) fn text_image(
-    conv: Conv,
-    bytes: &[u8],
-    nul_free: bool,
-    arena: &mut Vec<u8>,
-) -> PgResult<(u32, u32)> {
+pub(crate) fn text_image(conv: Conv, bytes: &[u8], nul_free: bool, arena: &mut Vec<u8>,) -> PgResult<(u32, u32)> {
     if !nul_free && !matches!(conv, Conv::Bytea) {
         verify_text_bytes(bytes)?;
     }
@@ -1884,10 +1743,7 @@ pub(crate) fn fast_lane_ok(conv: Conv, phys: parquet_read::Phys) -> bool {
         ),
         P::Float => matches!(conv, Conv::F32 | Conv::F64FromF32),
         P::Double => matches!(conv, Conv::F64),
-        P::ByteArray => matches!(
-            conv,
-            Conv::Text | Conv::VarcharN(_) | Conv::Bpchar(_) | Conv::Bytea
-        ),
+        P::ByteArray => matches!(conv, Conv::Text | Conv::VarcharN(_) | Conv::Bpchar(_) | Conv::Bytea),
         _ => false,
     }
 }
@@ -1947,10 +1803,7 @@ pub(crate) fn raw_cell(
     arena.extend_from_slice(&datum::varlena::set_varsize_4b(total));
     arena.extend_from_slice(payload);
     ::mcx::stdvec::try_resize(arena, off + total, b' ', "fromparquet")?;
-    Ok(RawCell::Bytes {
-        off: off as u32,
-        len: total as u32,
-    })
+    Ok(RawCell::Bytes { off: off as u32, len: total as u32, })
 }
 
 /// Column-at-a-time [`raw_cell`] for a word column: batch rows `k0..k1`
@@ -1977,9 +1830,7 @@ pub(crate) fn words_lane(
     nulls.extend_from_slice(bn);
     macro_rules! typed {
         ($variant:ident, |$v:ident| $e:expr) => {{
-            let BatchData::$variant(src) = &batch.data else {
-                return Err(batch_shape());
-            };
+            let BatchData::$variant(src) = &batch.data else { return Err(batch_shape()); };
             let src = src.get(k0..k1).ok_or_else(batch_shape)?;
             for (&$v, &null) in src.iter().zip(bn) {
                 words.push(if null { 0 } else { $e });
@@ -1991,41 +1842,24 @@ pub(crate) fn words_lane(
         Conv::I32 => typed!(I32, |v| Datum::from_i32(v).as_u64()),
         Conv::I64 => typed!(I64, |v| Datum::from_i64(v).as_u64()),
         Conv::I64FromI32 => typed!(I32, |v| Datum::from_i64(i64::from(v)).as_u64()),
-        Conv::I16FromI32 => typed!(I32, |v| Datum::from_i16(
-            i16::try_from(v).map_err(|_| out_of_range("smallint"))?
-        )
-        .as_u64()),
-        Conv::I16FromI64 => typed!(I64, |v| Datum::from_i16(
-            i16::try_from(v).map_err(|_| out_of_range("smallint"))?
-        )
-        .as_u64()),
-        Conv::I32FromI64 => typed!(I64, |v| Datum::from_i32(
-            i32::try_from(v).map_err(|_| out_of_range("integer"))?
-        )
-        .as_u64()),
-        Conv::U32AsI32 => typed!(I32, |v| Datum::from_i32(
-            i32::try_from(v as u32).map_err(|_| out_of_range("integer"))?
-        )
-        .as_u64()),
+        Conv::I16FromI32 => typed!(I32, |v| Datum::from_i16(i16::try_from(v).map_err(|_| out_of_range("smallint"))?).as_u64()),
+        Conv::I16FromI64 => typed!(I64, |v| Datum::from_i16(i16::try_from(v).map_err(|_| out_of_range("smallint"))?).as_u64()),
+        Conv::I32FromI64 => typed!(I64, |v| Datum::from_i32(i32::try_from(v).map_err(|_| out_of_range("integer"))?).as_u64()),
+        Conv::U32AsI32 => typed!(I32, |v| Datum::from_i32(i32::try_from(v as u32).map_err(|_| out_of_range("integer"))?).as_u64()),
         Conv::U32AsI64 => typed!(I32, |v| Datum::from_i64(i64::from(v as u32)).as_u64()),
         Conv::F32 => typed!(F32, |v| Datum::from_f32(v).as_u64()),
         Conv::F64 => typed!(F64, |v| Datum::from_f64(v).as_u64()),
         Conv::F64FromF32 => typed!(F32, |v| Datum::from_f64(f64::from(v)).as_u64()),
-        Conv::TsFromEpochSecs(EpochLane::I32) => {
-            typed!(I32, |v| ts_from_unix_secs(i64::from(v))?.as_u64())
+        Conv::TsFromEpochSecs(EpochLane::I32) => { typed!(I32, |v| ts_from_unix_secs(i64::from(v))?.as_u64())
         }
-        Conv::TsFromEpochSecs(EpochLane::U32) => {
-            typed!(I32, |v| ts_from_unix_secs(i64::from(v as u32))?.as_u64())
+        Conv::TsFromEpochSecs(EpochLane::U32) => { typed!(I32, |v| ts_from_unix_secs(i64::from(v as u32))?.as_u64())
         }
         Conv::TsFromEpochSecs(EpochLane::I64) => typed!(I64, |v| ts_from_unix_secs(v)?.as_u64()),
-        Conv::DateFromEpochDays(EpochLane::I32) => {
-            typed!(I32, |v| date_from_unix_days(i64::from(v))?.as_u64())
+        Conv::DateFromEpochDays(EpochLane::I32) => { typed!(I32, |v| date_from_unix_days(i64::from(v))?.as_u64())
         }
-        Conv::DateFromEpochDays(EpochLane::U32) => {
-            typed!(I32, |v| date_from_unix_days(i64::from(v as u32))?.as_u64())
+        Conv::DateFromEpochDays(EpochLane::U32) => { typed!(I32, |v| date_from_unix_days(i64::from(v as u32))?.as_u64())
         }
-        Conv::DateFromEpochDays(EpochLane::I64) => {
-            typed!(I64, |v| date_from_unix_days(v)?.as_u64())
+        Conv::DateFromEpochDays(EpochLane::I64) => { typed!(I64, |v| date_from_unix_days(v)?.as_u64())
         }
         _ => {
             for (k, &null) in (k0..k1).zip(bn) {
@@ -2071,11 +1905,7 @@ pub(crate) fn images_lane(
     let plain = matches!(conv, Conv::Text) && utf8_checked;
     if let (true, BatchData::Bytes { ends, arena: src }) = (plain, &batch.data) {
         let ends = ends.get(k0..k1).ok_or_else(batch_shape)?;
-        let mut start = if k0 == 0 {
-            0
-        } else {
-            batch_end(batch, k0 - 1)?
-        };
+        let mut start = if k0 == 0 { 0 } else { batch_end(batch, k0 - 1)? };
         let total = ends.last().map_or(0, |&e| e as usize - start) + 4 * (k1 - k0);
         ::mcx::stdvec::try_reserve_more(arena, total, "fromparquet")?;
         for (&end, &null) in ends.iter().zip(bn) {
@@ -2138,16 +1968,10 @@ mod logical_arm_tests {
         // 2^159 = 730750818665451459101842416358141509827966271488
         let mut p = [0u8; 20];
         p[0] = 0x80;
-        assert_eq!(
-            be_int_to_decimal(&p),
-            "-730750818665451459101842416358141509827966271488"
-        );
+        assert_eq!(be_int_to_decimal(&p), "-730750818665451459101842416358141509827966271488");
         let mut q = [0u8; 21];
         q[1] = 0x80;
-        assert_eq!(
-            be_int_to_decimal(&q),
-            "730750818665451459101842416358141509827966271488"
-        );
+        assert_eq!(be_int_to_decimal(&q), "730750818665451459101842416358141509827966271488");
         let all_ff = [0xffu8; 24];
         assert_eq!(be_int_to_decimal(&all_ff), "-1");
         // Negative, length not a multiple of 4 (the FLBA(22) of a DECIMAL(50)).
@@ -2157,10 +1981,7 @@ mod logical_arm_tests {
         let mut neg21 = [0u8; 21];
         neg21[0] = 0xff;
         neg21[1] = 0x7f;
-        assert_eq!(
-            be_int_to_decimal(&neg21),
-            "-736459809436275298626075560235939490373497257984"
-        );
+        assert_eq!(be_int_to_decimal(&neg21), "-736459809436275298626075560235939490373497257984");
         assert_eq!(scaled_decimal_text("12345", 2), "123.45");
         assert_eq!(scaled_decimal_text("-5", 3), "-0.005");
         assert_eq!(scaled_decimal_text("5", 0), "5");
@@ -2196,13 +2017,7 @@ mod logical_arm_tests {
             v.push(1_000);
             v.push(-1);
         }
-        assert_eq!(
-            word_cell(Conv::TimeMillis32, &t, 0)
-                .unwrap()
-                .unwrap()
-                .as_i64(),
-            1_000_000
-        );
+        assert_eq!(word_cell(Conv::TimeMillis32, &t, 0).unwrap().unwrap().as_i64(), 1_000_000);
         assert!(word_cell(Conv::TimeMillis32, &t, 1).is_err());
     }
 
@@ -2222,9 +2037,7 @@ mod logical_arm_tests {
                 .as_i32(),
             70_000
         );
-        let f = word_cell(Conv::DecimalToF64(DecimalSrc::I64, 2), &b, 1)
-            .unwrap()
-            .unwrap();
+        let f = word_cell(Conv::DecimalToF64(DecimalSrc::I64, 2), &b, 1).unwrap().unwrap();
         assert_eq!(f.as_f64(), -123.45);
     }
 }
@@ -2304,26 +2117,12 @@ mod raw_cell_tests {
     fn word_arms_match_serial() {
         let ctx = MemoryContext::new("raw-cell-words");
         let mcx = ctx.mcx();
-        let b32 = ColumnBatch {
-            nulls: vec![false; 2],
-            data: BatchData::I32(vec![-7, 12345]),
-        };
-        let b64 = ColumnBatch {
-            nulls: vec![false; 2],
-            data: BatchData::I64(vec![-1, 4_102_444_800]),
-        };
-        let bf = ColumnBatch {
-            nulls: vec![false; 1],
-            data: BatchData::F32(vec![1.5]),
-        };
-        let bd = ColumnBatch {
-            nulls: vec![false; 1],
-            data: BatchData::F64(vec![-2.25]),
-        };
-        let bb = ColumnBatch {
-            nulls: vec![false; 1],
-            data: BatchData::Bool(vec![true]),
-        };
+        let b32 = ColumnBatch { nulls: vec![false; 2], data: BatchData::I32(vec![-7, 12345]), };
+        let b64 =
+            ColumnBatch { nulls: vec![false; 2], data: BatchData::I64(vec![-1, 4_102_444_800]), };
+        let bf = ColumnBatch { nulls: vec![false; 1], data: BatchData::F32(vec![1.5]), };
+        let bd = ColumnBatch { nulls: vec![false; 1], data: BatchData::F64(vec![-2.25]), };
+        let bb = ColumnBatch { nulls: vec![false; 1], data: BatchData::Bool(vec![true]), };
         let cases: &[(Conv, &ColumnBatch, usize)] = &[
             (Conv::Bool, &bb, 0),
             (Conv::I16FromI32, &b32, 0),
@@ -2346,19 +2145,12 @@ mod raw_cell_tests {
         ];
         for &(conv, batch, k) in cases {
             let mut arena = Vec::new();
-            match (
-                raw_cell(conv, batch, k, &mut arena),
-                convert_cell(mcx, conv, batch, k, None),
-            ) {
+            match (raw_cell(conv, batch, k, &mut arena), convert_cell(mcx, conv, batch, k, None),) {
                 (Ok(RawCell::Word(w)), Ok(d)) => {
                     assert_eq!(w, d.as_u64(), "word parity for the arm");
                 }
                 (Err(re), Err(de)) => assert_eq!(re.message(), de.message()),
-                (r, d) => panic!(
-                    "shape mismatch: raw ok={} datum ok={}",
-                    r.is_ok(),
-                    d.is_ok()
-                ),
+                (r, d) => panic!("shape mismatch: raw ok={} datum ok={}", r.is_ok(), d.is_ok()),
             }
             assert!(arena.is_empty(), "word arms must not touch the arena");
         }
@@ -2393,7 +2185,7 @@ mod epoch_tests {
         assert_eq!(ts_us(946_684_800), 0); // the engine epoch
         assert_eq!(ts_us(-1), -946_684_801_000_000); // pre-1970
         assert_eq!(ts_us(2_147_483_648), 1_200_798_848_000_000); // past 2038
-                                                                 // Exact window edges (inclusive both ends in seconds terms).
+        // Exact window edges (inclusive both ends in seconds terms).
         assert_eq!(UNIX_SECS_MIN, -210_866_803_200);
         assert_eq!(UNIX_SECS_MAX, 9_224_318_015_999);
         ts_us(UNIX_SECS_MIN);
@@ -2405,10 +2197,7 @@ mod epoch_tests {
             i64::MAX,
             i64::MIN, // shift underflow
         ] {
-            assert!(
-                ts_from_unix_secs(bad).is_err(),
-                "{bad} must be out of range"
-            );
+            assert!(ts_from_unix_secs(bad).is_err(), "{bad} must be out of range");
         }
     }
 
@@ -2420,7 +2209,7 @@ mod epoch_tests {
         assert_eq!(day(-1), Datum::from_i32(-10_958)); // 1969-12-31
         assert_eq!(day(2_932_896), Datum::from_i32(2_921_939)); // 9999-12-31
         assert_eq!(day(-719_162), Datum::from_i32(-730_119)); // 0001-01-01
-                                                              // The i32 datum bound after the shift, and both i64 extremes.
+        // The i32 datum bound after the shift, and both i64 extremes.
         assert!(date_from_unix_days(i64::from(i32::MAX) + 10_958).is_err());
         assert!(date_from_unix_days(3_000_000_000).is_err());
         assert!(date_from_unix_days(i64::MIN).is_err());
@@ -2437,14 +2226,9 @@ mod epoch_tests {
     fn epoch_lane_widening() {
         let ctx = MemoryContext::new("epoch-lane-test");
         let mcx = ctx.mcx();
-        let b32 = ColumnBatch {
-            nulls: vec![false; 2],
-            data: BatchData::I32(vec![-1, 86_400]),
-        };
-        let b64 = ColumnBatch {
-            nulls: vec![false; 2],
-            data: BatchData::I64(vec![-1, 4_102_444_800]),
-        };
+        let b32 = ColumnBatch { nulls: vec![false; 2], data: BatchData::I32(vec![-1, 86_400]), };
+        let b64 =
+            ColumnBatch { nulls: vec![false; 2], data: BatchData::I64(vec![-1, 4_102_444_800]), };
         // Signed i32 lane: -1 is one second before 1970.
         assert_eq!(
             convert_cell(mcx, Conv::TsFromEpochSecs(EpochLane::I32), &b32, 0, None).unwrap(),
@@ -2495,29 +2279,14 @@ mod epoch_tests {
             Ok(Conv::DateFromEpochDays(EpochLane::I64))
         ));
         // The flag never disturbs non-temporal targets.
-        assert!(matches!(
-            resolve_conv(&plain64, INT8OID, -1, "c", true),
-            Ok(Conv::I64)
-        ));
+        assert!(matches!(resolve_conv(&plain64, INT8OID, -1, "c", true), Ok(Conv::I64)));
         // Unsigned annotations pick the unsigned lanes.
-        let u16d = col(
-            Phys::Int32,
-            Logical::Int {
-                bits: 16,
-                signed: false,
-            },
-        );
+        let u16d = col(Phys::Int32, Logical::Int { bits: 16, signed: false, },);
         assert!(matches!(
             resolve_conv(&u16d, DATEOID, -1, "c", true),
             Ok(Conv::DateFromEpochDays(EpochLane::U32))
         ));
-        let u64c = col(
-            Phys::Int64,
-            Logical::Int {
-                bits: 64,
-                signed: false,
-            },
-        );
+        let u64c = col(Phys::Int64, Logical::Int { bits: 64, signed: false, },);
         assert!(matches!(
             resolve_conv(&u64c, TIMESTAMPOID, -1, "c", true),
             Ok(Conv::TsFromEpochSecs(EpochLane::U64))
@@ -2528,13 +2297,8 @@ mod epoch_tests {
             Ok(Conv::TsFromEpochSecs(EpochLane::I32))
         ));
         // Temporal annotations keep their mapping under the flag.
-        let annts = col(
-            Phys::Int64,
-            Logical::Timestamp {
-                unit: TimeUnit::Millis,
-                utc: true,
-            },
-        );
+        let annts =
+            col(Phys::Int64, Logical::Timestamp { unit: TimeUnit::Millis, utc: true, },);
         assert!(matches!(
             resolve_conv(&annts, TIMESTAMPOID, -1, "c", true),
             Ok(Conv::Timestamp(TimeUnit::Millis))
@@ -2559,10 +2323,7 @@ mod text_nul_tests {
         let arena = b"admin\0evilok".to_vec();
         ColumnBatch {
             nulls: vec![false, false],
-            data: BatchData::Bytes {
-                ends: vec![10, 12],
-                arena,
-            },
+            data: BatchData::Bytes { ends: vec![10, 12], arena, },
         }
     }
 
@@ -2576,18 +2337,10 @@ mod text_nul_tests {
         let mcx = ctx.mcx();
         let b = bytes_batch();
 
-        for conv in [
-            Conv::Text,
-            Conv::VarcharN(64),
-            Conv::Bpchar(64),
-            Conv::Bpchar(-1),
-        ] {
+        for conv in [Conv::Text, Conv::VarcharN(64), Conv::Bpchar(64), Conv::Bpchar(-1),] {
             // Row 0 carries "admin\0evil": rejected as an invalid byte sequence.
             let err = convert_cell(mcx, conv, &b, 0, None).err().unwrap();
-            assert_eq!(
-                err.sqlstate(),
-                types_error::ERRCODE_CHARACTER_NOT_IN_REPERTOIRE
-            );
+            assert_eq!(err.sqlstate(), types_error::ERRCODE_CHARACTER_NOT_IN_REPERTOIRE);
             // Row 1 is clean and must convert.
             assert!(convert_cell(mcx, conv, &b, 1, None).is_ok());
         }

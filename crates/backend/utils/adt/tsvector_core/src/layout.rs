@@ -120,7 +120,7 @@ impl<'a> TsVec<'a> {
         let npos = u16::from_ne_bytes(self.payload[off..off + 2].try_into().unwrap()) as usize;
         let start = off + 2;
         let bytes = &self.payload[start..start + npos * 2];
-        debug_assert!((bytes.as_ptr() as usize).is_multiple_of(2));
+        debug_assert!((bytes.as_ptr() as usize).is_multiple_of( 2));
         // SAFETY: bounds sliced above; the payload base is >=4-aligned (palloc
         // or expanded copy) and `start` keeps SHORTALIGN parity, so the u16
         // view is aligned.

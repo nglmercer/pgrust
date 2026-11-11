@@ -12,10 +12,7 @@ fn unordered_lists_raise_the_c_error() {
     for (opr_ordered, proc_ordered) in [(false, true), (true, false), (false, false)] {
         let e = identify_opfamily_groups(cx.mcx(), &[], opr_ordered, &[], proc_ordered)
             .expect_err("unordered lists must be an error");
-        assert_eq!(
-            e.message,
-            "cannot validate operator family without ordered data"
-        );
+        assert_eq!(e.message, "cannot validate operator family without ordered data");
         assert_eq!(e.sqlstate(), ERRCODE_INTERNAL_ERROR);
     }
     let groups = identify_opfamily_groups(cx.mcx(), &[], true, &[], true).unwrap();

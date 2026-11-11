@@ -82,36 +82,18 @@ pub fn RunObjectPostCreateHook(
 ) -> PgResult<()> {
     let hook = object_access_hook().expect("caller checks object_access_hook");
     let pc_arg = ObjectAccessPostCreate { is_internal };
-    hook(
-        OAT_POST_CREATE,
-        classId,
-        objectId,
-        subId,
-        &mut ObjectAccessArg::PostCreate(&pc_arg),
-    )
+    hook(OAT_POST_CREATE, classId, objectId, subId, &mut ObjectAccessArg::PostCreate(&pc_arg),)
 }
 
 pub fn RunObjectDropHook(classId: Oid, objectId: Oid, subId: i32, dropflags: i32) -> PgResult<()> {
     let hook = object_access_hook().expect("caller checks object_access_hook");
     let drop_arg = ObjectAccessDrop { dropflags };
-    hook(
-        OAT_DROP,
-        classId,
-        objectId,
-        subId,
-        &mut ObjectAccessArg::Drop(&drop_arg),
-    )
+    hook(OAT_DROP, classId, objectId, subId, &mut ObjectAccessArg::Drop(&drop_arg),)
 }
 
 pub fn RunObjectTruncateHook(objectId: Oid) -> PgResult<()> {
     let hook = object_access_hook().expect("caller checks object_access_hook");
-    hook(
-        OAT_TRUNCATE,
-        RELATION_RELATION_ID,
-        objectId,
-        0,
-        &mut ObjectAccessArg::None,
-    )
+    hook(OAT_TRUNCATE, RELATION_RELATION_ID, objectId, 0, &mut ObjectAccessArg::None,)
 }
 
 pub fn RunObjectPostAlterHook(
@@ -122,25 +104,13 @@ pub fn RunObjectPostAlterHook(
     is_internal: bool,
 ) -> PgResult<()> {
     let hook = object_access_hook().expect("caller checks object_access_hook");
-    let pa_arg = ObjectAccessPostAlter {
-        auxiliary_id: auxiliaryId,
-        is_internal,
-    };
-    hook(
-        OAT_POST_ALTER,
-        classId,
-        objectId,
-        subId,
-        &mut ObjectAccessArg::PostAlter(&pa_arg),
-    )
+    let pa_arg = ObjectAccessPostAlter { auxiliary_id: auxiliaryId, is_internal, };
+    hook(OAT_POST_ALTER, classId, objectId, subId, &mut ObjectAccessArg::PostAlter(&pa_arg),)
 }
 
 pub fn RunNamespaceSearchHook(objectId: Oid, ereport_on_violation: bool) -> PgResult<bool> {
     let hook = object_access_hook().expect("caller checks object_access_hook");
-    let mut ns_arg = ObjectAccessNamespaceSearch {
-        ereport_on_violation,
-        result: true,
-    };
+    let mut ns_arg = ObjectAccessNamespaceSearch { ereport_on_violation, result: true, };
     hook(
         OAT_NAMESPACE_SEARCH,
         NAMESPACE_RELATION_ID,
@@ -153,13 +123,7 @@ pub fn RunNamespaceSearchHook(objectId: Oid, ereport_on_violation: bool) -> PgRe
 
 pub fn RunFunctionExecuteHook(objectId: Oid) -> PgResult<()> {
     let hook = object_access_hook().expect("caller checks object_access_hook");
-    hook(
-        OAT_FUNCTION_EXECUTE,
-        PROCEDURE_RELATION_ID,
-        objectId,
-        0,
-        &mut ObjectAccessArg::None,
-    )
+    hook(OAT_FUNCTION_EXECUTE, PROCEDURE_RELATION_ID, objectId, 0, &mut ObjectAccessArg::None,)
 }
 
 pub fn RunObjectPostCreateHookStr(
@@ -170,13 +134,7 @@ pub fn RunObjectPostCreateHookStr(
 ) -> PgResult<()> {
     let hook = object_access_hook_str().expect("caller checks object_access_hook_str");
     let pc_arg = ObjectAccessPostCreate { is_internal };
-    hook(
-        OAT_POST_CREATE,
-        classId,
-        objectName,
-        subId,
-        &mut ObjectAccessArg::PostCreate(&pc_arg),
-    )
+    hook(OAT_POST_CREATE, classId, objectName, subId, &mut ObjectAccessArg::PostCreate(&pc_arg),)
 }
 
 pub fn RunObjectDropHookStr(
@@ -187,24 +145,12 @@ pub fn RunObjectDropHookStr(
 ) -> PgResult<()> {
     let hook = object_access_hook_str().expect("caller checks object_access_hook_str");
     let drop_arg = ObjectAccessDrop { dropflags };
-    hook(
-        OAT_DROP,
-        classId,
-        objectName,
-        subId,
-        &mut ObjectAccessArg::Drop(&drop_arg),
-    )
+    hook(OAT_DROP, classId, objectName, subId, &mut ObjectAccessArg::Drop(&drop_arg),)
 }
 
 pub fn RunObjectTruncateHookStr(objectName: &str) -> PgResult<()> {
     let hook = object_access_hook_str().expect("caller checks object_access_hook_str");
-    hook(
-        OAT_TRUNCATE,
-        RELATION_RELATION_ID,
-        objectName,
-        0,
-        &mut ObjectAccessArg::None,
-    )
+    hook(OAT_TRUNCATE, RELATION_RELATION_ID, objectName, 0, &mut ObjectAccessArg::None,)
 }
 
 pub fn RunObjectPostAlterHookStr(
@@ -215,25 +161,13 @@ pub fn RunObjectPostAlterHookStr(
     is_internal: bool,
 ) -> PgResult<()> {
     let hook = object_access_hook_str().expect("caller checks object_access_hook_str");
-    let pa_arg = ObjectAccessPostAlter {
-        auxiliary_id: auxiliaryId,
-        is_internal,
-    };
-    hook(
-        OAT_POST_ALTER,
-        classId,
-        objectName,
-        subId,
-        &mut ObjectAccessArg::PostAlter(&pa_arg),
-    )
+    let pa_arg = ObjectAccessPostAlter { auxiliary_id: auxiliaryId, is_internal, };
+    hook(OAT_POST_ALTER, classId, objectName, subId, &mut ObjectAccessArg::PostAlter(&pa_arg),)
 }
 
 pub fn RunNamespaceSearchHookStr(objectName: &str, ereport_on_violation: bool) -> PgResult<bool> {
     let hook = object_access_hook_str().expect("caller checks object_access_hook_str");
-    let mut ns_arg = ObjectAccessNamespaceSearch {
-        ereport_on_violation,
-        result: true,
-    };
+    let mut ns_arg = ObjectAccessNamespaceSearch { ereport_on_violation, result: true, };
     hook(
         OAT_NAMESPACE_SEARCH,
         NAMESPACE_RELATION_ID,
@@ -246,13 +180,7 @@ pub fn RunNamespaceSearchHookStr(objectName: &str, ereport_on_violation: bool) -
 
 pub fn RunFunctionExecuteHookStr(objectName: &str) -> PgResult<()> {
     let hook = object_access_hook_str().expect("caller checks object_access_hook_str");
-    hook(
-        OAT_FUNCTION_EXECUTE,
-        PROCEDURE_RELATION_ID,
-        objectName,
-        0,
-        &mut ObjectAccessArg::None,
-    )
+    hook(OAT_FUNCTION_EXECUTE, PROCEDURE_RELATION_ID, objectName, 0, &mut ObjectAccessArg::None,)
 }
 
 // objectaccess.h's Invoke* macros: no-ops unless a hook is installed.

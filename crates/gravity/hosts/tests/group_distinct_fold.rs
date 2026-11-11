@@ -123,7 +123,7 @@ fn plain_form_counts_the_partitions_and_the_leader_sums_the_owners() {
     let one = own(&f, &fns, &pairs, 4, 64 << 10);
     assert_eq!(unsafe { plain_total(one.as_ptr() as *const u8) }, want);
     #[allow(clippy::unnecessary_cast)]
-    let (a, b): (Vec<Pair>, Vec<Pair>) = pairs.iter().cloned().partition(|p| (partition_hash(&layout, &p.keys)).part(4 as u32).is_multiple_of(2));
+    let (a, b): (Vec<Pair>, Vec<Pair>) = pairs.iter().cloned().partition(|p| (partition_hash(&layout, &p.keys)).part(4 as u32).is_multiple_of( 2));
     let (ra, rb) = (own(&f, &fns, &a, 4, 64 << 10), own(&f, &fns, &b, 4, 64 << 10));
     assert_eq!(top(&ra).total + top(&rb).total, want);
     assert_eq!(top(&ra).len, 0, "the plain form keeps no records");

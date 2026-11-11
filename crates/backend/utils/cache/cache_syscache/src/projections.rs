@@ -2288,6 +2288,7 @@ fn statext_form<'mcx>(
     }
 
     #[allow(clippy::drop_non_drop)]
+
     drop(t);
     ReleaseSysCache(tuple);
     Ok(Some(syscache_seams::StatExtForm {
@@ -2994,6 +2995,7 @@ fn pg_proc_result_arrays<'mcx>(
     };
 
     #[allow(clippy::drop_non_drop)]
+
     drop(t);
     ReleaseSysCache(tuple);
     Ok(Some(syscache_seams::PgProcResultArraysShape {

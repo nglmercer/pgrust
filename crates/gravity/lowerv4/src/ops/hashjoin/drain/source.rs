@@ -117,7 +117,7 @@ fn make<'g>(px: &mut Px<'g, '_>, k: usize) -> PgBox<'g, dyn SourceMech + 'g> {
     // free again once its life ends, so an earlier producer (a lower join's build) may hold it, and phase 2 never ran.
     let probe = gx.life_of(k, *matches).map(|l| l.0 as usize);
     let spill = probe.filter(|&q| px.pass_after.contains(&q)).map(|_| crate::ops::hashjoin::drain::part::words(px, k, consumed));
-    let reset = matches!(jointype, JoinType::JOIN_RIGHT_SEMI | JoinType::JOIN_RIGHT_ANTI) && !gx.graph.reruns.iter().any(|r| r.pipelines.contains(&{ life.0 }));
+    let reset = matches!(jointype, JoinType::JOIN_RIGHT_SEMI | JoinType::JOIN_RIGHT_ANTI) && !gx.graph.reruns.iter().any(|r| r.pipelines.contains(&{life.0 }));
     let site = if inner { None } else { wide_site(px, k, *jointype, probe) };
     // words 0-2 are phase 2's (part.rs `words`)
     let mut w = |i: u8| px.frame_word(WordKey::Open { face: Face::Join, k, j: u64::MAX, i }) as i32 * 8;

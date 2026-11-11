@@ -2,7 +2,7 @@
 // (docs/no-drop.md): droppy resources live here by value, arena-resident
 // nodes hold u32 handles. Query + per-tuple contexts are AllocSets, as in C.
 #![no_std]
-#![allow(non_snake_case, non_upper_case_globals)]
+#![allow(non_snake_case,non_upper_case_globals)]
 
 extern crate alloc;
 
@@ -40,7 +40,9 @@ macro_rules! p3 {
     )+};
 }
 // Unconstructible placeholders: provably None until the owning unit lands.
-p3!(ModifyTableP3,);
+p3!(
+    ModifyTableP3,
+);
 
 /// C ExecRowMark (execnodes.h). The open relation is es_relations[rti-1]
 /// (C stores the same pointer ExecGetRangeTableRelation returns); ermExtra
@@ -119,7 +121,10 @@ pub struct WorkTableShared {
 /// serialization (execParallel.c:635/931) and the EvalPlanQual pre-pass
 /// (execMain.c:2972/3076) — ordinary expression evaluation runs initplans
 /// lazily at first PARAM_EXEC fetch via the suspension driver instead.
-pub fn exec_eval_param_exec_params(estate: &mut EStateData<'_>, deps: &[u32]) -> PgResult<()> {
+pub fn exec_eval_param_exec_params(
+    estate: &mut EStateData<'_>,
+    deps: &[u32]
+) -> PgResult<()> {
     for &pid in deps {
         if estate.es_param_exec_vals[pid as usize].exec_plan {
             exec_set_param_plan(estate, pid)?;
@@ -186,16 +191,18 @@ pub fn with_subplan_compile_env_parent<'mcx, R>(
     // and needs an RTE to exist); rtable-free plain compiles (SELECT 1) keep
     // the pre-env cost (C's ExprState.parent is free).
     let init = estate.es_subplan_init_hook;
-    let env =
-        (init.is_some() || parent_subplan_tlist.is_some() || !estate.es_range_table.is_empty())
-            .then(|| execexpr::SubplanCompileEnv {
-                estate: core::ptr::NonNull::from(&mut *estate).cast(),
-                init,
-                agg: None,
-                rtable: Some(rtable),
-                parent_subplan_tlist,
-                errpos: Some(executor_errposition_erased),
-            });
+    let env = (init.is_some()
+        || parent_subplan_tlist.is_some()
+        || !estate.es_range_table.is_empty())
+    .then(||
+        execexpr::SubplanCompileEnv {
+            estate: core::ptr::NonNull::from(&mut *estate).cast(),
+            init,
+            agg: None,
+            rtable: Some(rtable),
+            parent_subplan_tlist,
+            errpos: Some(executor_errposition_erased),
+        });
     f(env)
 }
 
@@ -203,11 +210,7 @@ pub fn with_ecxt_eval_slots<'mcx, R>(
     estate: &mut EStateData<'mcx>,
     ecxt: EcxtId,
     result: Option<ExecSlotId>,
-    f: impl FnOnce(
-        &mut execexpr::EvalSlots<'_, 'mcx>,
-        Option<&mut SlotData<'mcx>>,
-        Mcx<'mcx>,
-    ) -> PgResult<R>,
+    f: impl FnOnce(&mut execexpr::EvalSlots<'_, 'mcx>, Option<&mut SlotData<'mcx>>, Mcx<'mcx>,) -> PgResult<R>,
 ) -> PgResult<R> {
     let mcx = estate.es_query_cxt;
     let (scan, inner, outer) = {
@@ -228,11 +231,8 @@ pub fn with_ecxt_eval_slots<'mcx, R>(
     // SAFETY: indices bounds-checked and pairwise-distinct above, so the four
     // derived &mut are disjoint elements of one live slice.
     let get = |id: Option<ExecSlotId>| id.map(|i| unsafe { &mut *base.add(i.0 as usize) });
-    let mut slots = execexpr::EvalSlots {
-        scan: get(scan),
-        inner: get(inner),
-        outer: get(outer),
-    };
+    let mut slots =
+        execexpr::EvalSlots { scan: get(scan), inner: get(inner), outer: get(outer), };
     f(&mut slots, get(result), mcx)
 }
 
@@ -374,11 +374,8 @@ pub fn exec_qual_with_subplans_outer<'mcx>(
     loop {
         let outcome = {
             let r = resume.take();
-            let mut slots = execexpr::EvalSlots {
-                scan: None,
-                inner: None,
-                outer: Some(&mut *outer),
-            };
+            let mut slots =
+                execexpr::EvalSlots { scan: None, inner: None, outer: Some(&mut *outer), };
             execexpr::exec_qual_outcome(state, &mut slots, r)?
         };
         match outcome {
@@ -404,11 +401,8 @@ pub fn exec_eval_expr_with_subplans_outer<'mcx>(
     loop {
         let outcome = {
             let r = resume.take();
-            let mut slots = execexpr::EvalSlots {
-                scan: None,
-                inner: None,
-                outer: Some(&mut *outer),
-            };
+            let mut slots =
+                execexpr::EvalSlots { scan: None, inner: None, outer: Some(&mut *outer), };
             execexpr::exec_eval_expr_outcome(state, &mut slots, r)?
         };
         match outcome {
@@ -441,11 +435,8 @@ pub fn exec_project_with_subplans_outer<'mcx>(
         let suspended = {
             let r = resume.take();
             let result_slot = estate.slot_mut(result);
-            let mut slots = execexpr::EvalSlots {
-                scan: None,
-                inner: None,
-                outer: Some(&mut *outer),
-            };
+            let mut slots =
+                execexpr::EvalSlots { scan: None, inner: None, outer: Some(&mut *outer), };
             execexpr::exec_project_outcome(state, &mut slots, result_slot, r)?
         };
         match suspended {
@@ -476,11 +467,8 @@ pub fn exec_eval_expr_with_subplans_hashkey<'mcx>(
         let outcome = {
             let r = resume.take();
             let slot = &mut estate.es_tupleTable[slot_id.0 as usize];
-            let mut slots = execexpr::EvalSlots {
-                scan: None,
-                inner: Some(slot),
-                outer: None,
-            };
+            let mut slots =
+                execexpr::EvalSlots { scan: None, inner: Some(slot), outer: None, };
             execexpr::exec_eval_expr_outcome(state, &mut slots, r)?
         };
         match outcome {
@@ -534,11 +522,8 @@ pub fn exec_eval_expr_with_subplans_outer_slot<'mcx>(
         let outcome = {
             let r = resume.take();
             let slot = &mut estate.es_tupleTable[outer.0 as usize];
-            let mut slots = execexpr::EvalSlots {
-                scan: None,
-                inner: None,
-                outer: Some(slot),
-            };
+            let mut slots =
+                execexpr::EvalSlots { scan: None, inner: None, outer: Some(slot), };
             execexpr::exec_eval_expr_outcome(state, &mut slots, r)?
         };
         match outcome {
@@ -567,11 +552,8 @@ pub fn exec_eval_expr_with_subplans_inner_slot<'mcx>(
         let outcome = {
             let r = resume.take();
             let slot = &mut estate.es_tupleTable[inner.0 as usize];
-            let mut slots = execexpr::EvalSlots {
-                scan: None,
-                inner: Some(slot),
-                outer: None,
-            };
+            let mut slots =
+                execexpr::EvalSlots { scan: None, inner: Some(slot), outer: None, };
             execexpr::exec_eval_expr_outcome(state, &mut slots, r)?
         };
         match outcome {
@@ -959,13 +941,7 @@ pub struct EStateData<'mcx> {
     /// ri_TrigDesc of each es_opened_result_relations entry without a root
     /// (ExecGetTriggerResultRel(estate, relid, NULL) matches only those), in
     /// open order; AfterTriggerEndQuery fires their events with these copies.
-    pub es_trig_result_descs: PgVec<
-        'mcx,
-        (
-            ::types_core::Oid,
-            Option<Rc<::types_trigger::TriggerDesc<'static>>>,
-        ),
-    >,
+    pub es_trig_result_descs: PgVec<'mcx, (::types_core::Oid, Option<Rc<::types_trigger::TriggerDesc<'static>>>,),>,
     pub es_insert_pending_result_relations: PgVec<'mcx, u32>,
     pub es_foreign_modify_states: PgVec<'mcx, ForeignModifyState>,
     pub es_insert_pending_modifytables: PgVec<'mcx, ModifyTableP3>,
@@ -1329,20 +1305,14 @@ impl<'mcx> EStateData<'mcx> {
         id: u32,
         f: impl FnOnce(&mut dyn core::any::Any, &mut Self) -> PgResult<T>,
     ) -> PgResult<T> {
-        let mut state = self.es_foreign_modify_states[id as usize]
-            .state
-            .take()
-            .expect("idle FDW state");
+        let mut state = self.es_foreign_modify_states[id as usize].state.take().expect("idle FDW state");
         let result = f(state.as_mut(), self);
         self.es_foreign_modify_states[id as usize].state = Some(state);
         result
     }
 
     pub fn take_foreign_modify(&mut self, id: u32) -> Box<dyn core::any::Any> {
-        self.es_foreign_modify_states[id as usize]
-            .state
-            .take()
-            .expect("idle FDW state")
+        self.es_foreign_modify_states[id as usize].state.take().expect("idle FDW state")
     }
 
     pub fn register_pending_foreign_insert(&mut self, id: u32) {
@@ -1364,15 +1334,10 @@ impl<'mcx> EStateData<'mcx> {
         let mut index = 0;
         while index < self.es_insert_pending_result_relations.len() {
             let id = self.es_insert_pending_result_relations[index];
-            let flush = self.es_foreign_modify_states[id as usize]
-                .flush
-                .expect("pending FDW flush");
+            let flush = self.es_foreign_modify_states[id as usize].flush.expect("pending FDW flush");
             self.with_foreign_modify(id, flush)?;
             self.es_foreign_modify_states[id as usize].pending = false;
-            if let Some(err) = self.es_foreign_modify_states[id as usize]
-                .after_flush_error
-                .take()
-            {
+            if let Some(err) = self.es_foreign_modify_states[id as usize].after_flush_error.take() {
                 return Err(err);
             }
             index += 1;
@@ -1400,11 +1365,7 @@ impl<'mcx> EStateData<'mcx> {
         {
             return;
         }
-        self.es_runtime_ea_refusals.push(RuntimeEaRefusal {
-            plan_node_id,
-            arm,
-            reason,
-        });
+        self.es_runtime_ea_refusals.push(RuntimeEaRefusal { plan_node_id, arm, reason, });
     }
 
     /// EXPLAIN (ENGINE) capture armed for this execution? Derived from
@@ -1438,12 +1399,7 @@ impl<'mcx> EStateData<'mcx> {
         {
             return;
         }
-        self.es_engine_events.push(EngineEvent {
-            plan_node_id,
-            engine,
-            class,
-            detail,
-        });
+        self.es_engine_events.push(EngineEvent { plan_node_id, engine, class, detail, });
     }
 
     /// `InstrCountFiltered1` (execnodes.h); idx is the node's
@@ -1472,8 +1428,7 @@ impl<'mcx> EStateData<'mcx> {
                 return;
             }
         }
-        self.es_index_instrumentation
-            .push((plan_node_id, nsearches));
+        self.es_index_instrumentation.push((plan_node_id, nsearches));
     }
 
     /// Current bitmap heap scan page stats, republished per node; ANALYZE +
@@ -1591,9 +1546,7 @@ impl<'mcx> EStateData<'mcx> {
     pub fn create_expr_context(&mut self) -> EcxtId {
         // execUtils.c CreateExprContextInternal: an AllocSet under es_query_cxt.
         let per_tuple = PgBox::new_in(
-            self.es_query_cxt
-                .context()
-                .new_child_wholesale("ExprContext"),
+            self.es_query_cxt.context().new_child_wholesale("ExprContext"),
             self.es_query_cxt,
         );
         let mut ecxt = ExprContextData::new(self.es_query_cxt, per_tuple);
@@ -1635,7 +1588,8 @@ impl<'mcx> EStateData<'mcx> {
             self.es_param_stable = Some(ParamStable(core::ptr::NonNull::dangling(), 0));
             return Ok(&[]);
         }
-        let layout = core::alloc::Layout::array::<ParamExternData>(n).expect("param array layout");
+        let layout = core::alloc::Layout::array::<ParamExternData>(n)
+            .expect("param array layout");
         let p: core::ptr::NonNull<ParamExternData> = self
             .es_query_cxt
             .allocate(layout)
@@ -1702,9 +1656,7 @@ impl<'mcx> EStateData<'mcx> {
 
     #[inline]
     fn aux_context(&self, id: AuxCxtId) -> &MemoryContext {
-        self.es_aux_contexts[id.0 as usize]
-            .as_deref()
-            .expect("aux context deleted")
+        self.es_aux_contexts[id.0 as usize].as_deref().expect("aux context deleted")
     }
 
     #[inline]
@@ -1713,10 +1665,7 @@ impl<'mcx> EStateData<'mcx> {
     }
 
     pub fn reset_aux_context(&mut self, id: AuxCxtId) {
-        self.es_aux_contexts[id.0 as usize]
-            .as_deref_mut()
-            .expect("aux context deleted")
-            .reset();
+        self.es_aux_contexts[id.0 as usize].as_deref_mut().expect("aux context deleted").reset();
     }
 
     #[inline]
@@ -1727,10 +1676,7 @@ impl<'mcx> EStateData<'mcx> {
     ) -> (&mut SlotData<'mcx>, Mcx<'_>) {
         (
             &mut self.es_tupleTable[slot.0 as usize],
-            self.es_aux_contexts[aux.0 as usize]
-                .as_deref()
-                .expect("aux context deleted")
-                .mcx(),
+            self.es_aux_contexts[aux.0 as usize].as_deref().expect("aux context deleted").mcx(),
         )
     }
 
@@ -2013,9 +1959,7 @@ impl<'mcx> EStateData<'mcx> {
             let n = self.es_range_table_size as usize - self.es_result_relations.len();
             self.es_result_relations.extend((0..n).map(|_| None));
         }
-        let info = ResultRelInfo {
-            ri_RangeTableIndex: rti,
-        };
+        let info = ResultRelInfo { ri_RangeTableIndex: rti, };
         self.es_result_relations[(rti - 1) as usize] = Some(info);
         self.es_opened_result_relations.push(info);
         Ok(())
@@ -2055,9 +1999,7 @@ impl<'mcx> EStateData<'mcx> {
     /// (execMain.c:1368-1389): a child result relation carrying
     /// ri_RootResultRelInfo never matches.
     pub fn trig_instrument_index(&self, relid: ::types_core::Oid) -> Option<usize> {
-        self.es_trig_instrument
-            .iter()
-            .position(|e| e.relid == relid && !e.root)
+        self.es_trig_instrument.iter().position(|e| e.relid == relid && !e.root)
     }
 
     // ExecCloseResultRelations index/trigger lanes are loud upstream.
@@ -2127,12 +2069,7 @@ impl<'mcx> EStateData<'mcx> {
 }
 
 mcx::forget_safe_nodrop!(
-    SubplanStateCell,
-    ResultRelInfo,
-    EcxtId,
-    ExecSlotId,
-    ExecRowMark,
-    ParamStable,
+    SubplanStateCell, ResultRelInfo, EcxtId, ExecSlotId, ExecRowMark, ParamStable,
     EpqRowMarkFetch,
 );
 
@@ -2143,10 +2080,7 @@ mcx::forget_safe_nodrop!(
 const _: () = assert!(!core::mem::needs_drop::<ScanDirection>());
 const _: () = assert!(!core::mem::needs_drop::<Option<SubplanInitHook>>());
 const _: () = assert!(!core::mem::needs_drop::<Option<SubplanEvalHook>>());
-const _: () = assert!(!core::mem::needs_drop::<(
-    core::ptr::NonNull<()>,
-    unsafe fn(core::ptr::NonNull<()>)
-)>());
+const _: () = assert!(!core::mem::needs_drop::<(core::ptr::NonNull<()>, unsafe fn(core::ptr::NonNull<()>))>());
 const _: () = assert!(!core::mem::needs_drop::<ModifyTableP3>());
 const _: () = assert!(!core::mem::needs_drop::<Instrumentation>());
 const _: () = assert!(!core::mem::needs_drop::<(i32, AggregateInstrumentation)>());

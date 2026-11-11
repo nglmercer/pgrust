@@ -189,8 +189,7 @@ unsafe extern "C" fn h_spill(ctx: *mut Ctx, op: u32, arg: u64) -> i64 {
         }
         SPILL_RUN_CLOSE => 0,
         // NEW-43: the one run stream's runs dropped (`SortStreamRearm`)
-        gravity_abi::program::SPILL_RUN_DROP => {
-            h.runs.clear(); h.run_read.clear(); h.run_rows.clear();
+        gravity_abi::program::SPILL_RUN_DROP => {h.runs.clear(); h.run_read.clear(); h.run_rows.clear();
             0
         }
         // one run stream: an adoption moves nothing

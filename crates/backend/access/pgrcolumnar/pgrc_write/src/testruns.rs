@@ -32,14 +32,12 @@ pub enum Knob {
 /// The knob, read once per process.
 pub fn knob() -> Knob {
     static K: pgsync::OnceLock<Knob> = pgsync::OnceLock::new();
-    *K.get_or_init(
-        || match std::env::var("PGRUST_PGRC_TEST_SELF_RUNS").as_deref() {
-            Ok("1") | Ok("none") => Knob::SelfHomed,
-            Ok("frameix") => Knob::Homes(RunRevForm::FrameIx),
-            Ok("labels") => Knob::Homes(RunRevForm::Labels),
-            _ => Knob::Off,
-        },
-    )
+    *K.get_or_init(|| match std::env::var("PGRUST_PGRC_TEST_SELF_RUNS").as_deref() {
+        Ok("1") | Ok("none") => Knob::SelfHomed,
+        Ok("frameix") => Knob::Homes(RunRevForm::FrameIx),
+        Ok("labels") => Knob::Homes(RunRevForm::Labels),
+        _ => Knob::Off,
+    },)
 }
 
 /// LABELS: the member's large frames a group spans.
@@ -62,53 +60,22 @@ fn contract(detail: &'static str) -> WriteError {
 /// (sorted, disjoint) hold every one of them: the member's map with `form`'s virtual frames, and the reverse ranking
 /// the IDs `rank`-wise (`None`: DENSE when the ranges span at most twice the rows, else SET). An ID of the ranges no
 /// row holds is absent (DENSE: the label that names no group or frame).
-pub fn build(
-    form: RunRevForm,
-    rank: Option<RankForm>,
-    run_id: u64,
-    part_no: u32,
-    ids: &[u64],
-    ranges: &IdRanges,
-) -> WriteResult<HomeRun> {
+pub fn build(form: RunRevForm, rank: Option<RankForm>, run_id: u64, part_no: u32, ids: &[u64], ranges: &IdRanges,) -> WriteResult<HomeRun> {
     let rows = ids.len();
     let span: u64 = ranges.iter().map(|&(lo, hi)| hi - lo).sum();
     if rows == 0 || form == RunRevForm::None {
         return Err(contract("test run: no rows, or a form without a reverse"));
     }
-    let rank = rank.unwrap_or(if span <= 2 * rows as u64 {
-        RankForm::Dense
-    } else {
-        RankForm::Set
-    });
-    let frame = if form == RunRevForm::FrameIx {
-        RUN_FRAME_SMALL
-    } else {
-        RUN_FRAME_LARGE
-    } as usize;
+    let rank = rank.unwrap_or(if span <= 2 * rows as u64 { RankForm::Dense } else { RankForm::Set });
+    let frame = if form == RunRevForm::FrameIx { RUN_FRAME_SMALL } else { RUN_FRAME_LARGE } as usize;
     let vstarts: Vec<u32> = (0..rows).step_by(frame).map(|o| o as u32).collect();
     let nv = vstarts.len() as u32;
-    let vmin: Vec<u64> = vstarts
-        .iter()
-        .map(|&s| {
-            ids[s as usize..(s as usize + frame).min(rows)]
-                .iter()
-                .copied()
-                .min()
-                .expect("a frame holds a row")
-        })
-        .collect();
-    let member_map = encode_run_member(
-        ids,
-        &vstarts,
-        (form == RunRevForm::Labels).then_some(&vmin[..]),
-    )?;
+    let vmin: Vec<u64> = vstarts.iter().map(|&s| { ids[s as usize..(s as usize + frame).min(rows)].iter().copied().min().expect("a frame holds a row")
+        }).collect();
+    let member_map = encode_run_member(ids, &vstarts, (form == RunRevForm::Labels).then_some(&vmin[..]),)?;
     let member = GranMap::decode(&member_map, rows as u64)?;
     // the IDs in rank order with their ordinals; the ranks
-    let mut by_id: Vec<(u64, u32)> = ids
-        .iter()
-        .enumerate()
-        .map(|(o, &id)| (id, o as u32))
-        .collect();
+    let mut by_id: Vec<(u64, u32)> = ids.iter().enumerate().map(|(o, &id)| (id, o as u32)).collect();
     by_id.sort_unstable();
     let dense_rank = |id: u64| -> Option<u64> {
         let mut r0 = 0;
@@ -148,8 +115,7 @@ pub fn build(
         RankForm::Dense => {
             let mut labels = pgrc_format::try_filled(span as usize, nsym, "testruns")?;
             for &(id, o) in &by_id {
-                let r =
-                    dense_rank(id).ok_or(contract("test run: an ID outside the run's ranges"))?;
+                let r = dense_rank(id).ok_or(contract("test run: an ID outside the run's ranges"))?;
                 labels[r as usize] = label_of(id, o)?;
             }
             (span, Vec::new(), labels)
@@ -170,38 +136,10 @@ pub fn build(
             (rows as u64, s_runs, labels)
         }
     };
-    let groups: Vec<(u16, u32, u32)> = (0..ngroups)
-        .map(|g| (0, g * GROUP_FRAMES, ((g + 1) * GROUP_FRAMES).min(nv)))
-        .collect();
-    let prefix: Vec<u32> = if form == RunRevForm::FrameIx {
-        vec![0, nv]
-    } else {
-        Vec::new()
-    };
-    let spec = Spec {
-        run_id,
-        form,
-        rank,
-        ranks,
-        rows: rows as u64,
-        nsym,
-        members: 1,
-    };
+    let groups: Vec<(u16, u32, u32)> = (0..ngroups).map(|g| (0, g * GROUP_FRAMES, ((g + 1) * GROUP_FRAMES).min(nv))).collect();
+    let prefix: Vec<u32> = if form == RunRevForm::FrameIx { vec![0, nv] } else { Vec::new() };
+    let spec = Spec { run_id, form, rank, ranks, rows: rows as u64, nsym, members: 1, };
     let (file, fin) = encode(spec, &s_runs, &labels, &groups, &exceptions, &prefix)?;
-    let run = SortRun {
-        run_id,
-        level: 1,
-        rev: form,
-        rank,
-        rows: rows as u64,
-        rev_len: fin.rev_len,
-        rev_crc: fin.rev_crc,
-        members: vec![part_no],
-        ranges: ranges.clone(),
-    };
-    Ok(HomeRun {
-        run,
-        member_map,
-        file,
-    })
+    let run = SortRun { run_id, level: 1, rev: form, rank, rows: rows as u64, rev_len: fin.rev_len, rev_crc: fin.rev_crc, members: vec![part_no], ranges: ranges.clone(), };
+    Ok(HomeRun { run, member_map, file, })
 }

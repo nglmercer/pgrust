@@ -58,11 +58,8 @@ fn composite_datum(
 fn permission_denied(relid: Oid) -> PgResult<Box<PgError>> {
     let name = with_fc_mcx(|mcx| {
         Ok(lsyscache::relation::get_rel_name(mcx, relid)
-            .ok()
-            .flatten()
-            .map(|n| n.as_str().to_string()))
-    })?
-    .unwrap_or_else(|| format!("{relid}"));
+            .ok().flatten().map(|n| n.as_str().to_string()))
+    })?.unwrap_or_else(|| format!("{relid}"));
     Ok(err(
         format!("permission denied for sequence {name}"),
         ERRCODE_INSUFFICIENT_PRIVILEGE,
@@ -96,9 +93,7 @@ fn fc_pg_sequence_parameters(
     if resolved.class != funcapi::TypeFuncClass::Composite {
         return Err(Box::new(PgError::error("return type must be a row type")));
     }
-    let desc = resolved
-        .result_tuple_desc
-        .expect("composite result carries a tupdesc");
+    let desc = resolved.result_tuple_desc.expect("composite result carries a tupdesc");
 
     let form = pgs_form(relid)?;
     let values = [
@@ -148,7 +143,10 @@ fn pg_sequence_last_value(mcx: Mcx<'_>, relid: Oid, fcinfo: &mut Fcinfo) -> PgRe
     }
 }
 
-fn fc_pg_get_sequence_data(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgResult<Datum> {
+fn fc_pg_get_sequence_data(
+    _flinfo: Option<&mut FmgrInfo>,
+    fcinfo: &mut Fcinfo
+) -> PgResult<Datum> {
     let relid = fcinfo.arg_oid(0);
     // SAFETY: executor arms es_query_cxt pre-call; it outlives this frame.
     let mcx = unsafe { fcinfo.result_mcx_detached() };

@@ -148,15 +148,13 @@ impl StreamSource {
     /// [`crate::Runtime::notify_source_progress`] after publishing so
     /// starved workers re-check.
     pub fn publish(&self, upto: u64) {
-        self.published
-            .fetch_max(upto, crate::sync::atomic::Ordering::SeqCst);
+        self.published.fetch_max(upto, crate::sync::atomic::Ordering::SeqCst);
     }
 
     /// Close the stream: the current watermark is final. Publish-then-close
     /// (never the reverse); the producer owes a wake after closing.
     pub fn close(&self) {
-        self.closed
-            .store(true, crate::sync::atomic::Ordering::SeqCst);
+        self.closed.store(true, crate::sync::atomic::Ordering::SeqCst);
     }
 
     pub fn is_closed(&self) -> bool {
@@ -212,20 +210,12 @@ pub struct SyntheticMorselSource {
 
 impl SyntheticMorselSource {
     pub fn new(total: u64) -> Self {
-        SyntheticMorselSource {
-            total,
-            boundary_every: 0,
-            c0: 16,
-        }
+        SyntheticMorselSource { total, boundary_every: 0, c0: 16, }
     }
 
     pub fn with_boundaries(total: u64, boundary_every: u64) -> Self {
         assert!(boundary_every > 0);
-        SyntheticMorselSource {
-            total,
-            boundary_every,
-            c0: 16,
-        }
+        SyntheticMorselSource { total, boundary_every, c0: 16, }
     }
 
     pub fn with_c0(mut self, c0: u64) -> Self {
@@ -279,10 +269,7 @@ impl GranuleMap {
     /// Columnar geometry over `Part::granule_starts`-shaped prefix sums
     /// (len = nrgs+1, first 0, last = total granules).
     pub fn with_boundaries(starts: Arc<Vec<u64>>, c0: u64) -> GranuleMap {
-        debug_assert!(
-            starts.first() == Some(&0),
-            "boundary prefix sums start at 0"
-        );
+        debug_assert!(starts.first() == Some(&0), "boundary prefix sums start at 0");
         debug_assert!(
             starts.windows(2).all(|w| w[0] <= w[1]),
             "boundary prefix sums are non-decreasing"
@@ -294,11 +281,7 @@ impl GranuleMap {
     /// Boundary-free geometry (heap: granule = one block, no dictionary
     /// epochs).
     pub fn unbounded(total: u64, c0: u64) -> GranuleMap {
-        GranuleMap {
-            total,
-            starts: Arc::new(Vec::new()),
-            c0,
-        }
+        GranuleMap { total, starts: Arc::new(Vec::new()), c0, }
     }
 
     pub fn total(&self) -> u64 {
@@ -333,11 +316,7 @@ impl GranuleMap {
     /// Boundary-free maps yield `claim` once.
     #[inline]
     pub fn segments(&self, claim: MorselRange) -> Segments<'_> {
-        Segments {
-            starts: &self.starts,
-            next: claim.start,
-            end: claim.end,
-        }
+        Segments { starts: &self.starts, next: claim.start, end: claim.end, }
     }
 }
 
@@ -355,11 +334,7 @@ impl Segments<'static> {
     /// Boundary-free segmentation: yields `claim` once.
     #[inline]
     pub fn whole(claim: MorselRange) -> Segments<'static> {
-        Segments {
-            starts: &[],
-            next: claim.start,
-            end: claim.end,
-        }
+        Segments { starts: &[], next: claim.start, end: claim.end, }
     }
 }
 
@@ -417,11 +392,7 @@ impl GranuleMapSource {
     /// boundary-free map must not set `whole_boundary`: one claim would
     /// take the whole pipeline).
     pub fn new(map: Arc<GranuleMap>, whole_boundary: bool, coalesce: bool) -> GranuleMapSource {
-        GranuleMapSource {
-            map,
-            whole_boundary,
-            coalesce,
-        }
+        GranuleMapSource { map, whole_boundary, coalesce, }
     }
 }
 

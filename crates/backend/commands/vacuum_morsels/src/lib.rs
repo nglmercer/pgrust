@@ -235,9 +235,7 @@ impl VacuumBlockSource {
     /// point are re-decided from fresh VM state and must not commit here.
     /// `skipsallvis_before(total_granules()) == skipsallvis()`.
     pub fn skipsallvis_before(&self, resume_granule: u64) -> bool {
-        self.skip_runs
-            .iter()
-            .any(|&(pos, avnotaf)| avnotaf && resume_granule >= pos)
+        self.skip_runs.iter().any(|&(pos, avnotaf)| avnotaf && resume_granule >= pos)
     }
 
     pub fn rel_pages(&self) -> u32 {
@@ -260,7 +258,8 @@ impl runtime::MorselSource for VacuumBlockSource {
             self.eager_region_start
         } else {
             let off = start_block - self.eager_region_start;
-            self.eager_region_start + ((off / EAGER_SCAN_REGION_SIZE) + 1) * EAGER_SCAN_REGION_SIZE
+            self.eager_region_start
+                + ((off / EAGER_SCAN_REGION_SIZE) + 1) * EAGER_SCAN_REGION_SIZE
         };
         for i in (start + 1)..total {
             if self.entries[i as usize].block >= next_region {
@@ -352,11 +351,7 @@ impl EagerScanShared {
         // a disabled state (max_fails == 0) never admits regardless.
         let disabled = max_fails_per_region == 0;
         EagerScanShared {
-            credits: AtomicU32::new(if disabled {
-                0
-            } else {
-                remaining_successes.saturating_add(1)
-            }),
+            credits: AtomicU32::new(if disabled { 0 } else { remaining_successes.saturating_add(1) }),
             disabled: AtomicBool::new(disabled),
             max_fails_per_region: AtomicU32::new(max_fails_per_region),
             first_region_start,
@@ -407,8 +402,7 @@ impl EagerScanShared {
         }
         let Ok(prev) = self
             .credits
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| {
-                (n > 0).then_some(n - 1)
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| { (n > 0).then_some(n - 1)
             })
         else {
             return EagerAdmit::Deny;
@@ -437,9 +431,7 @@ impl EagerScanShared {
         if vm_page_frozen || self.disabled.load(Ordering::Relaxed) {
             return;
         }
-        let _ = self
-            .credits
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| Some(n + 1));
+        let _ = self.credits.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| Some(n + 1));
         if let Some(a) = self
             .region_fails
             .get(eager_region_id(self.first_region_start, block))
@@ -468,12 +460,7 @@ impl EagerScanShared {
                 + ((at_block - self.first_region_start) / EAGER_SCAN_REGION_SIZE + 1)
                     * EAGER_SCAN_REGION_SIZE
         };
-        (
-            self.remaining_successes(),
-            self.fails_at(at_block),
-            max,
-            next,
-        )
+        (self.remaining_successes(), self.fails_at(at_block), max, next,)
     }
 }
 
@@ -560,10 +547,7 @@ impl ScanCounters {
         // value by XID rules — the inc-2 CI cluster battery caught the stricter
         // assert panicking on the very first engaged fold). Compare with
         // MultiXactIdPrecedes, C's own comparator for this tracker.
-        debug_assert!(
-            other.NewRelminMxid != 0,
-            "vacuum folds only valid MultiXactIds"
-        );
+        debug_assert!(other.NewRelminMxid != 0, "vacuum folds only valid MultiXactIds");
         if TransactionIdPrecedes(other.NewRelfrozenXid, self.NewRelfrozenXid) {
             self.NewRelfrozenXid = other.NewRelfrozenXid;
         }
@@ -667,11 +651,7 @@ pub struct QuiesceState {
 
 impl QuiesceState {
     pub fn new(max_bytes: u64) -> Self {
-        QuiesceState {
-            max_bytes,
-            bytes: AtomicU64::new(0),
-            tripped: AtomicBool::new(false),
-        }
+        QuiesceState { max_bytes, bytes: AtomicU64::new(0), tripped: AtomicBool::new(false), }
     }
 
     /// Account `n` estimated dead-TID bytes; trips the round when the
@@ -721,7 +701,10 @@ pub enum CoverageError {
     ScannedBeyondResume { start: u64, resume: u64 },
 }
 
-pub fn verify_prefix_coverage(locals: &[VacScanLocal], resume: u64) -> Result<(), CoverageError> {
+pub fn verify_prefix_coverage(
+    locals: &[VacScanLocal],
+    resume: u64
+) -> Result<(), CoverageError> {
     let mut scanned: Vec<(u64, u64)> = locals
         .iter()
         .flat_map(|l| l.claims.iter())

@@ -84,10 +84,7 @@ fn redirect_frames_protocol_bytes() {
     let (tx, mut rx) = queue_pair();
 
     pq_redirect_to_shm_mq(tx);
-    assert_eq!(
-        elog::config::where_to_send_output(),
-        types_dest::CommandDest::Remote
-    );
+    assert_eq!(elog::config::where_to_send_output(), types_dest::CommandDest::Remote);
     assert_eq!(init_small::globals::FrontendProtocol(), (3 << 16) | 2);
 
     // One queue message = msgtype byte + body, no length word.
@@ -114,10 +111,7 @@ fn redirect_frames_protocol_bytes() {
     pqcomm::pq_comm_reset();
 
     teardown_redirect();
-    assert_eq!(
-        elog::config::where_to_send_output(),
-        types_dest::CommandDest::None
-    );
+    assert_eq!(elog::config::where_to_send_output(), types_dest::CommandDest::None);
     drop(rx);
 }
 
@@ -257,10 +251,7 @@ fn parse_errornotice_without_sqlstate_field_is_00000() {
     let edata = pq_parse_errornotice(&mut msg).unwrap();
     assert_eq!(edata.sqlstate, make_sqlstate(*b"00000"));
     let mut msg = errnotice_msg(&ctx, &[]);
-    assert_eq!(
-        pq_parse_errornotice(&mut msg).unwrap().sqlstate,
-        make_sqlstate(*b"00000")
-    );
+    assert_eq!(pq_parse_errornotice(&mut msg).unwrap().sqlstate, make_sqlstate(*b"00000"));
 }
 
 #[test]
@@ -348,37 +339,22 @@ fn putmessage_signals_leader_by_worker_kind() {
 
     // Parallel-query worker (C: the Assert(IsParallelWorker()) arm).
     IS_PARALLEL_APPLY_WORKER.store(false, SeqCst);
-    assert_eq!(
-        pqcomm::pq_putmessage(b'N', b"from a parallel worker").unwrap(),
-        0
-    );
+    assert_eq!(pqcomm::pq_putmessage(b'N', b"from a parallel worker").unwrap(), 0);
     procsignal::procsignal_sigusr1_handler();
     assert_eq!(PARALLEL_MESSAGE_HITS.load(SeqCst), 1);
     assert_eq!(PARALLEL_APPLY_MESSAGE_HITS.load(SeqCst), 0);
-    assert!(matches!(
-        rx.receive(true).unwrap(),
-        shm_mq::ShmMqRecv::Success(_)
-    ));
+    assert!(matches!(rx.receive(true).unwrap(), shm_mq::ShmMqRecv::Success(_)));
 
     // Logical parallel apply worker (C: the IsLogicalParallelApplyWorker() arm).
     IS_PARALLEL_APPLY_WORKER.store(true, SeqCst);
-    assert_eq!(
-        pqcomm::pq_putmessage(b'N', b"from a parallel apply worker").unwrap(),
-        0
-    );
+    assert_eq!(pqcomm::pq_putmessage(b'N', b"from a parallel apply worker").unwrap(), 0);
     procsignal::procsignal_sigusr1_handler();
     assert_eq!(
-        (
-            PARALLEL_MESSAGE_HITS.load(SeqCst),
-            PARALLEL_APPLY_MESSAGE_HITS.load(SeqCst)
-        ),
+        (PARALLEL_MESSAGE_HITS.load(SeqCst), PARALLEL_APPLY_MESSAGE_HITS.load(SeqCst)),
         (1, 1),
         "pqmq.c:170: a logical parallel apply worker must signal PROCSIG_PARALLEL_APPLY_MESSAGE"
     );
-    assert!(matches!(
-        rx.receive(true).unwrap(),
-        shm_mq::ShmMqRecv::Success(_)
-    ));
+    assert!(matches!(rx.receive(true).unwrap(), shm_mq::ShmMqRecv::Success(_)));
 
     IS_PARALLEL_APPLY_WORKER.store(false, SeqCst);
     teardown_redirect();
@@ -396,27 +372,13 @@ fn parse_errornotice_int_fields_use_pg_strtoint32() {
     for code in [b'P', b'p', b'L'] {
         let mut msg = errnotice_msg(&ctx, &[(b'M', b"m"), (code, b"9999999999")]);
         let err = pq_parse_errornotice(&mut msg).unwrap_err();
-        assert_eq!(
-            err.sqlstate, ERRCODE_NUMERIC_VALUE_OUT_OF_RANGE,
-            "field {}",
-            code as char
-        );
-        assert_eq!(
-            err.message,
-            "value \"9999999999\" is out of range for type integer"
-        );
+        assert_eq!(err.sqlstate, ERRCODE_NUMERIC_VALUE_OUT_OF_RANGE, "field {}", code as char);
+        assert_eq!(err.message, "value \"9999999999\" is out of range for type integer");
 
         let mut msg = errnotice_msg(&ctx, &[(b'M', b"m"), (code, b"invalid")]);
         let err = pq_parse_errornotice(&mut msg).unwrap_err();
-        assert_eq!(
-            err.sqlstate, ERRCODE_INVALID_TEXT_REPRESENTATION,
-            "field {}",
-            code as char
-        );
-        assert_eq!(
-            err.message,
-            "invalid input syntax for type integer: \"invalid\""
-        );
+        assert_eq!(err.sqlstate, ERRCODE_INVALID_TEXT_REPRESENTATION, "field {}", code as char);
+        assert_eq!(err.message, "invalid input syntax for type integer: \"invalid\"");
     }
 
     // pg_strtoint32 grammar: surrounding whitespace, a sign, digit separators.
@@ -432,17 +394,11 @@ fn parse_errornotice_int_fields_use_pg_strtoint32() {
 #[test]
 fn parse_errornotice_without_source_fields_has_no_location() {
     let ctx = mcx::MemoryContext::new("pqmq-test");
-    let mut msg = errnotice_msg(
-        &ctx,
-        &[(b'V', b"NOTICE"), (b'C', b"00000"), (b'M', b"hello")],
-    );
+    let mut msg = errnotice_msg(&ctx, &[(b'V', b"NOTICE"), (b'C', b"00000"), (b'M', b"hello")],);
     let edata = pq_parse_errornotice(&mut msg).unwrap();
     assert_eq!(edata.level, NOTICE);
     assert_eq!(edata.message, "hello");
-    assert_eq!(
-        edata.location, None,
-        "no F/L/R field: C reports no location"
-    );
+    assert_eq!(edata.location, None, "no F/L/R field: C reports no location");
 
     // A lone L field still yields a location with only lineno set.
     let mut msg = errnotice_msg(&ctx, &[(b'M', b"m"), (b'L', b"42")]);

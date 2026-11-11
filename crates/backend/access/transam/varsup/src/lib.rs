@@ -1,4 +1,4 @@
-#![allow(non_snake_case, non_upper_case_globals)]
+#![allow(non_snake_case,non_upper_case_globals)]
 
 use std::sync::atomic::Ordering::{Relaxed, Release, SeqCst};
 use std::sync::atomic::{fence, AtomicU32, AtomicU64};
@@ -7,17 +7,15 @@ use std::sync::OnceLock;
 use elog::{elog, ereport};
 use init_small::globals;
 use lmgr_proc::{GetPGProcByNumber, MyProc, ProcGlobal};
-use lwlock::{LWLock, LWLockAcquire, LWLockRelease, LW_EXCLUSIVE, LW_SHARED};
-use pmsignal::{PMSignalReason, SendPostmasterSignal};
+use lwlock::{LWLock,LWLockAcquire, LWLockRelease, LW_EXCLUSIVE, LW_SHARED};
+use pmsignal::{ PMSignalReason, SendPostmasterSignal};
 use types_core::{
     BootstrapTransactionId, FirstGenbkiObjectId, FirstNormalObjectId, FirstNormalTransactionId,
     FirstUnpinnedObjectId, FullTransactionId, MaxTransactionId, Oid, Size, TransactionId,
     TransactionIdFollowsOrEquals, TransactionIdIsNormal, TransactionIdIsValid,
     TransactionIdPrecedes, TransactionIdPrecedesOrEquals,
 };
-use types_error::{
-    ErrorLocation, PgResult, DEBUG1, ERRCODE_PROGRAM_LIMIT_EXCEEDED, ERROR, WARNING,
-};
+use types_error::{ErrorLocation, PgResult, DEBUG1, ERRCODE_PROGRAM_LIMIT_EXCEEDED, ERROR, WARNING,};
 use types_storage::storage::PGPROC_MAX_CACHED_SUBXIDS;
 
 const VAR_OID_PREFETCH: u32 = 8192;
@@ -116,13 +114,9 @@ pub fn VarsupShmemInit() {
     // "out of shared memory" FATAL, not a user-reachable path.
     const {
         assert!(core::mem::size_of::<TransamVariablesShared>() <= SIZEOF_TRANSAM_VARIABLES_DATA);
-        assert!(
-            core::mem::align_of::<TransamVariablesShared>() <= 64,
-            "PG_CACHE_LINE_SIZE alignment"
-        );
+        assert!(core::mem::align_of::<TransamVariablesShared>() <= 64, "PG_CACHE_LINE_SIZE alignment");
     }
-    let shared: &'static TransamVariablesShared = if shmem_seams::shmem_init_struct::is_installed()
-    {
+    let shared: &'static TransamVariablesShared = if shmem_seams::shmem_init_struct::is_installed() {
         let (raw, found) =
             shmem_seams::shmem_init_struct::call("TransamVariables", SIZEOF_TRANSAM_VARIABLES_DATA)
                 .unwrap_or_else(|e| panic!("VarsupShmemInit: {}", e.message()));
@@ -154,26 +148,16 @@ pub fn VarsupShmemReset() {
     live.oidCount.store(boot.oidCount.load(Relaxed), Relaxed);
     live.nextXid.store(boot.nextXid.load(Relaxed), Relaxed);
     live.oldestXid.store(boot.oldestXid.load(Relaxed), Relaxed);
-    live.xidVacLimit
-        .store(boot.xidVacLimit.load(Relaxed), Relaxed);
-    live.xidWarnLimit
-        .store(boot.xidWarnLimit.load(Relaxed), Relaxed);
-    live.xidStopLimit
-        .store(boot.xidStopLimit.load(Relaxed), Relaxed);
-    live.xidWrapLimit
-        .store(boot.xidWrapLimit.load(Relaxed), Relaxed);
-    live.oldestXidDB
-        .store(boot.oldestXidDB.load(Relaxed), Relaxed);
-    live.oldestCommitTsXid
-        .store(boot.oldestCommitTsXid.load(Relaxed), Relaxed);
-    live.newestCommitTsXid
-        .store(boot.newestCommitTsXid.load(Relaxed), Relaxed);
-    live.latestCompletedXid
-        .store(boot.latestCompletedXid.load(Relaxed), Relaxed);
-    live.xactCompletionCount
-        .store(boot.xactCompletionCount.load(Relaxed), Relaxed);
-    live.oldestClogXid
-        .store(boot.oldestClogXid.load(Relaxed), Relaxed);
+    live.xidVacLimit.store(boot.xidVacLimit.load(Relaxed), Relaxed);
+    live.xidWarnLimit.store(boot.xidWarnLimit.load(Relaxed), Relaxed);
+    live.xidStopLimit.store(boot.xidStopLimit.load(Relaxed), Relaxed);
+    live.xidWrapLimit.store(boot.xidWrapLimit.load(Relaxed), Relaxed);
+    live.oldestXidDB.store(boot.oldestXidDB.load(Relaxed), Relaxed);
+    live.oldestCommitTsXid.store(boot.oldestCommitTsXid.load(Relaxed), Relaxed);
+    live.newestCommitTsXid.store(boot.newestCommitTsXid.load(Relaxed), Relaxed);
+    live.latestCompletedXid.store(boot.latestCompletedXid.load(Relaxed), Relaxed);
+    live.xactCompletionCount.store(boot.xactCompletionCount.load(Relaxed), Relaxed);
+    live.oldestClogXid.store(boot.oldestClogXid.load(Relaxed), Relaxed);
 }
 
 #[cold]
@@ -210,10 +194,7 @@ fn my_proc() -> &'static types_storage::storage::PGPROC {
 
 pub fn GetNewTransactionId(isSubXact: bool) -> PgResult<FullTransactionId> {
     if xact_seams::is_in_parallel_mode::call() {
-        elog(
-            ERROR,
-            "cannot assign TransactionIds during a parallel operation",
-        )?;
+        elog(ERROR, "cannot assign TransactionIds during a parallel operation",)?;
     }
 
     if miscinit_seams::is_bootstrap_processing_mode::call() {
@@ -223,10 +204,7 @@ pub fn GetNewTransactionId(isSubXact: bool) -> PgResult<FullTransactionId> {
         ProcGlobal().xids[proc.pgxactoff.load(Relaxed) as usize]
             .value
             .store(BootstrapTransactionId, Relaxed);
-        return Ok(FullTransactionId::from_epoch_and_xid(
-            0,
-            BootstrapTransactionId,
-        ));
+        return Ok(FullTransactionId::from_epoch_and_xid(0, BootstrapTransactionId,));
     }
 
     if transam_xlog_seams::recovery_in_progress::call() {
@@ -251,7 +229,7 @@ pub fn GetNewTransactionId(isSubXact: bool) -> PgResult<FullTransactionId> {
 
         LWLockRelease(XidGenLock())?;
 
-        if globals::IsUnderPostmaster() && xid.is_multiple_of(65536) {
+        if globals::IsUnderPostmaster() &&xid.is_multiple_of( 65536) {
             SendPostmasterSignal(PMSignalReason::PMSIGNAL_START_AUTOVAC_LAUNCHER);
         }
 
@@ -323,10 +301,7 @@ pub fn GetNewTransactionId(isSubXact: bool) -> PgResult<FullTransactionId> {
     // SAFETY (all subxidStates/subxidStatus get/set below): [PSL] PGPROC subxid
     // cache + ProcGlobal subxid state serialized by XidGenLock (held by the caller).
     if !isSubXact {
-        debug_assert_eq!(
-            unsafe { ProcGlobal().subxidStates[pgxactoff].get() }.count,
-            0
-        );
+        debug_assert_eq!(unsafe { ProcGlobal().subxidStates[pgxactoff].get() }.count, 0);
         debug_assert!(!unsafe { ProcGlobal().subxidStates[pgxactoff].get() }.overflowed);
         debug_assert_eq!(unsafe { proc.subxidStatus.get() }.count, 0);
         debug_assert!(!unsafe { proc.subxidStatus.get() }.overflowed);
@@ -416,10 +391,7 @@ pub fn AdvanceOldestClogXid(oldest_datfrozenxid: TransactionId) -> PgResult<()> 
     LWLockRelease(XactTruncationLock())
 }
 
-pub fn SetTransactionIdLimit(
-    oldest_datfrozenxid: TransactionId,
-    oldest_datoid: Oid,
-) -> PgResult<()> {
+pub fn SetTransactionIdLimit(oldest_datfrozenxid: TransactionId, oldest_datoid: Oid,) -> PgResult<()> {
     debug_assert!(TransactionIdIsNormal(oldest_datfrozenxid));
 
     let mut xidWrapLimit = oldest_datfrozenxid.wrapping_add(MaxTransactionId >> 1);
@@ -468,7 +440,8 @@ pub fn SetTransactionIdLimit(
         SendPostmasterSignal(PMSignalReason::PMSIGNAL_START_AUTOVAC_LAUNCHER);
     }
 
-    if TransactionIdFollowsOrEquals(curXid, xidWarnLimit) && !xlogutils_seams::in_recovery::call() {
+    if TransactionIdFollowsOrEquals(curXid, xidWarnLimit) && !xlogutils_seams::in_recovery::call()
+    {
         // No database access outside a transaction (e.g. StartupXLOG).
         let oldest_datname = if xact_seams::is_transaction_state::call() {
             dbcommands_seams::get_database_name::call(oldest_datoid)?

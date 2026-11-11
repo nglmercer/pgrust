@@ -131,7 +131,7 @@ pub fn arr_overhead_nonulls(ndims: i32) -> usize {
 
 #[inline]
 pub fn arr_overhead_withnulls(ndims: i32, nitems: i32) -> usize {
-    maxalign(ARRAYTYPE_HDRSZ + 2 * 4 * ndims as usize + (nitems as usize).div_ceil(8))
+    maxalign(ARRAYTYPE_HDRSZ + 2 * 4 * ndims as usize + (nitems as usize).div_ceil( 8))
 }
 
 #[inline]

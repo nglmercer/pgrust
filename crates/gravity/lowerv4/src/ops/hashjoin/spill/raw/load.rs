@@ -192,10 +192,9 @@ unsafe fn fill_part(orig: *const u8, raw: &[u8], n: usize, d: *mut u8, len: usiz
     core::ptr::copy_nonoverlapping(orig, d, base);
     for off in [N, crate::ops::hashjoin::build::DIR, crate::ops::hashjoin::build::SLOTS, crate::ops::hashjoin::build::KEPT, crate::ops::hashjoin::build::MARKS] {
         wr::<u64>(d, off, 0);
-    }
-    wr::<u8>(d, PHASE, 1); wr::<u8>(d, crate::ops::hashjoin::build::FORM, 0); wr::<u32>(d, crate::ops::hashjoin::build::BITS, 0);
-    wr::<u8>(d, FLAGS, rd::<u8>(orig, FLAGS) & (F_RANGE | F_RANGE0 | F_FP128)); wr::<u8>(d, SPILL, 0); wr::<u8>(d, PBITS, 0); wr::<u64>(d, SPILLED, (n == 0) as u64);
-    wr::<u64>(d, TOP, len as u64); wr::<u64>(d, END, len as u64); wr::<u32>(d, LIMIT, len as u32);
+    }wr::<u8>(d, PHASE, 1); wr::<u8>(d, crate::ops::hashjoin::build::FORM, 0); wr::<u32>(d, crate::ops::hashjoin::build::BITS, 0);
+wr::<u8>(d, FLAGS, rd::<u8>(orig, FLAGS) & (F_RANGE | F_RANGE0 | F_FP128)); wr::<u8>(d, SPILL, 0); wr::<u8>(d, PBITS, 0); wr::<u64>(d, SPILLED, (n == 0) as u64);
+wr::<u64>(d, TOP, len as u64); wr::<u64>(d, END, len as u64); wr::<u32>(d, LIMIT, len as u32);
     let (range, mut lo, mut hi) = (rd::<u8>(orig, FLAGS) & (F_RANGE | F_RANGE0) != 0, i64::MAX, i64::MIN);
     let mut o = 0;
     for k in 0..n {
@@ -205,8 +204,7 @@ unsafe fn fill_part(orig: *const u8, raw: &[u8], n: usize, d: *mut u8, len: usiz
             let w = rd::<i64>(d, base + k * rec);
             (lo, hi) = (lo.min(w), hi.max(w));
         }
-    }
-    wr::<i64>(d, LO, lo); wr::<i64>(d, HI, hi);
+    }wr::<i64>(d, LO, lo); wr::<i64>(d, HI, hi);
 }
 
 /// A laid-out partition region of `raw`'s records under `orig`, `head` bytes into a region of its own (`take_pair`):
@@ -393,9 +391,8 @@ mod tests {
         let mut buf = vec![0u64; HDR / 8 + 1];
         let d = buf.as_mut_ptr() as *mut u8;
         // SAFETY: `buf` covers the header.
-        unsafe {
-            wr::<u8>(d, PHASE, 1); wr::<u8>(d, WORDS, 1); wr::<u32>(d, REC, 24); crate::ops::hashjoin::layout::set_pay(d, 1); wr::<u8>(d, ALLOW, allow); wr::<u8>(d, FLAGS, F_RANGE);
-            wr::<u64>(d, N, 99); wr::<u64>(d, KEPT, 7); wr::<u64>(d, MARKS, 4096); wr::<u64>(d, DIR, 4096);
+        unsafe {wr::<u8>(d, PHASE, 1); wr::<u8>(d, WORDS, 1); wr::<u32>(d, REC, 24); crate::ops::hashjoin::layout::set_pay(d, 1); wr::<u8>(d, ALLOW, allow); wr::<u8>(d, FLAGS, F_RANGE);
+wr::<u64>(d, N, 99); wr::<u64>(d, KEPT, 7); wr::<u64>(d, MARKS, 4096); wr::<u64>(d, DIR, 4096);
         }
         buf
     }
@@ -527,8 +524,7 @@ mod tests {
                 want.push((i as u64, b));
             }
             // SAFETY: the header above (payload 1 an image of `kind`) and the regions below, ours alone.
-            unsafe {
-                crate::ops::hashjoin::layout::set_pay(op, 2); wr::<u32>(op, REC, 32); wr::<u16>(op, DESC + 2, kind);
+            unsafe {crate::ops::hashjoin::layout::set_pay(op, 2); wr::<u32>(op, REC, 32); wr::<u16>(op, DESC + 2, kind);
                 let lay = |raw: &[u8]| {
                     let (n, _) = records(op, raw).unwrap();
                     assert_eq!(n, 3);
@@ -596,8 +592,7 @@ mod tests {
             }
         }
         // SAFETY: the header above (payload 1 a fixed 8-byte image, payload 2 a varlena) and the region below, ours alone.
-        unsafe {
-            crate::ops::hashjoin::layout::set_pay(op, 3); wr::<u32>(op, REC, 40); wr::<u16>(op, DESC + 2, 8); wr::<u16>(op, DESC + 4, D_VARLENA);
+        unsafe {crate::ops::hashjoin::layout::set_pay(op, 3); wr::<u32>(op, REC, 40); wr::<u16>(op, DESC + 2, 8); wr::<u16>(op, DESC + 4, D_VARLENA);
             let (n, _) = records(op, &r).unwrap();
             assert_eq!(n, keys.len());
             let mut buf = vec![0u64; LEN / 8];
@@ -623,8 +618,7 @@ mod tests {
                 let before = buf.clone();
                 let d = buf.as_mut_ptr() as *mut u8;
                 let (mut got, mut puts) = (Vec::new(), Vec::new());
-                drain_pieces(d, marked, &mut |b| -> Result<(), ()> {
-                    got.extend_from_slice(b); puts.push(b.len());
+                drain_pieces(d, marked, &mut |b| -> Result<(), ()> {got.extend_from_slice(b); puts.push(b.len());
                     Ok(())
                 })
                 .unwrap();

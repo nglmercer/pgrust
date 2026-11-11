@@ -149,6 +149,7 @@ fn edge_failure(
     let mut four_count = 0;
 
     #[allow(clippy::needless_range_loop)]
+
     for i in 1..=num_gene as usize {
         if edge_table[i].unused_edges != -1 && i as Gene != fail_gene {
             remaining_edges += 1;

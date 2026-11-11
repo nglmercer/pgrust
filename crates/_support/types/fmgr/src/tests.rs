@@ -5,10 +5,7 @@ use ::types_error::{PgError, PgResult};
 
 use crate::fcinfo::*;
 
-fn int4pl(
-    _flinfo: Option<&mut FmgrInfo>,
-    fcinfo: &mut FunctionCallInfoBaseData,
-) -> PgResult<Datum> {
+fn int4pl(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut FunctionCallInfoBaseData,) -> PgResult<Datum> {
     let a = fcinfo.arg_i32(0);
     let b = fcinfo.arg_i32(1);
     match a.checked_add(b) {
@@ -17,10 +14,7 @@ fn int4pl(
     }
 }
 
-fn always_null(
-    _flinfo: Option<&mut FmgrInfo>,
-    fcinfo: &mut FunctionCallInfoBaseData,
-) -> PgResult<Datum> {
+fn always_null(_flinfo: Option<&mut FmgrInfo>, fcinfo: &mut FunctionCallInfoBaseData,) -> PgResult<Datum> {
     Ok(fcinfo.return_null())
 }
 
@@ -111,8 +105,7 @@ fn pg_result_error_surface() {
         Datum::from_i32(i32::MAX),
         Datum::from_i32(1),
     )
-    .err()
-    .unwrap();
+    .err().unwrap();
     assert_eq!(err.message(), "integer out of range");
 }
 
@@ -120,9 +113,7 @@ fn pg_result_error_surface() {
 fn function_call_rejects_null_result() {
     let mut flinfo = FmgrInfo::new(always_null, 42, 1, false, false);
     let ctx = ::mcx::MemoryContext::new_bump("fc-null");
-    let err = function_call1_coll_in(&mut flinfo, 0, ctx.mcx(), Datum::from_i32(0))
-        .err()
-        .unwrap();
+    let err = function_call1_coll_in(&mut flinfo, 0, ctx.mcx(), Datum::from_i32(0)).err().unwrap();
     assert_eq!(err.message(), "function 42 returned NULL");
 }
 
@@ -242,11 +233,7 @@ mod byref {
         // The previous code computed `varsize_4b - VARHDRSZ`, underflowing usize
         // to ~2^64 and minting an out-of-bounds slice. It must now surface as a
         // catchable ERRCODE_DATA_CORRUPTED, not UB.
-        for image in [
-            [0u8; 4],
-            [0x04, 0, 0, 0], /* size 1 */
-            [0x0C, 0, 0, 0], /* size 3 */
-        ] {
+        for image in [[0u8; 4], [0x04, 0, 0, 0], /* size 1 */ [0x0C, 0, 0, 0], /* size 3 */] {
             let mut fci = LocalFcinfo::<1>::new(0);
             fci.set_arg(0, Datum::from_usize(image.as_ptr() as usize));
             let err = unsafe { fci.arg_varlena_packed(0) }.err().unwrap();
@@ -503,11 +490,7 @@ mod soft {
         let mut fl = FmgrInfo::new(const_seven, 42, 3, false, false);
         let (ok, _) = call(&mut fl, None, None);
         let err = ok.err().unwrap();
-        assert!(
-            err.message().contains("returned non-NULL"),
-            "{}",
-            err.message()
-        );
+        assert!(err.message().contains("returned non-NULL"), "{}", err.message());
     }
 
     #[test]
@@ -523,38 +506,20 @@ mod soft {
         let ctx = MemoryContext::new_bump("soft-test");
         let mut result = Datum::null();
         assert!(direct_input_function_call_safe(
-            parse_i32,
-            Some(c"7"),
-            0,
-            -1,
-            ctx.mcx(),
-            None,
-            &mut result
+            parse_i32, Some(c"7"), 0, -1, ctx.mcx(), None, &mut result
         )
         .unwrap());
         assert_eq!(result.as_i32(), 7);
 
         let mut esc = ErrorSaveNode::new(true);
         assert!(!direct_input_function_call_safe(
-            parse_i32,
-            Some(c"x"),
-            0,
-            -1,
-            ctx.mcx(),
-            Some(&mut esc),
-            &mut result
+            parse_i32, Some(c"x"), 0, -1, ctx.mcx(), Some(&mut esc), &mut result
         )
         .unwrap());
         assert!(esc.ctx.error_occurred());
 
         assert!(direct_input_function_call_safe(
-            parse_i32,
-            None,
-            0,
-            -1,
-            ctx.mcx(),
-            None,
-            &mut result
+            parse_i32, None, 0, -1, ctx.mcx(), None, &mut result
         )
         .unwrap());
         assert_eq!(result.as_usize(), 0);
@@ -597,17 +562,9 @@ fn fn_extra_take_restore_and_drop() {
     assert_eq!(b.fn_extra_ref::<Memo>().unwrap().0, alloc::vec![1, 2, 3]);
     assert_eq!(DROPS.load(Ordering::Relaxed), 0);
     b.set_fn_extra(Memo(alloc::vec![9]));
-    assert_eq!(
-        DROPS.load(Ordering::Relaxed),
-        1,
-        "replacement drops the old memo"
-    );
+    assert_eq!(DROPS.load(Ordering::Relaxed), 1, "replacement drops the old memo");
     drop(b);
-    assert_eq!(
-        DROPS.load(Ordering::Relaxed),
-        2,
-        "flinfo death drops the memo"
-    );
+    assert_eq!(DROPS.load(Ordering::Relaxed), 2, "flinfo death drops the memo");
 }
 
 #[test]

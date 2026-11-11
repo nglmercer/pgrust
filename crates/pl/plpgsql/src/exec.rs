@@ -5389,7 +5389,7 @@ impl<'a> Estate<'a> {
         let rectypeid = self.rec_typeid(recno);
         if rectypeid == RECORDOID {
             let natts = srcdesc.types.len();
-            let mut out_values = ::mcx::std_vec_from_slice("plpgsql", values)?;
+            let mut out_values = ::mcx::std_vec_from_slice("plpgsql",values)?;
             for f in 0..natts {
                 if !srcdesc.dropped[f] {
                     out_values[f] = self.assign_copy_to_datum_ctx(
@@ -5408,7 +5408,7 @@ impl<'a> Estate<'a> {
                 Some(RecValue {
                     desc: srcdesc.clone(),
                     values: out_values,
-                    nulls: ::mcx::std_vec_from_slice("plpgsql", nulls)?,
+                    nulls: ::mcx::std_vec_from_slice("plpgsql",nulls)?,
                     src_desc: Some(src_tupdesc),
                     empty: false,
                     fvalue_valid: sys.is_some(),

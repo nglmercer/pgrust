@@ -661,7 +661,7 @@ enum JsObject<'v> {
 fn js_object_is_empty(obj: &JsObject<'_>) -> bool {
     match obj {
         JsObject::Json(h) => h.is_empty(),
-        JsObject::Jsonb(c) => c.is_none_or(|c| container_size(c) == 0),
+        JsObject::Jsonb(c) => c.is_none_or( |c| container_size(c) == 0),
     }
 }
 
@@ -819,7 +819,9 @@ fn populate_record<'c>(
         // catchable error rather than forge an unsound &str.
         let colname_str = core::str::from_utf8(colname).map_err(|_| {
             Box::new(
-                PgError::error("invalid byte sequence in record attribute name".to_string())
+                PgError::error(
+                    "invalid byte sequence in record attribute name".to_string(
+                ))
                 .with_sqlstate(ERRCODE_INVALID_TEXT_REPRESENTATION),
             )
         })?;
@@ -1464,8 +1466,7 @@ fn populate_record_worker(
                 get_record_type_from_argument(flinfo, funcname, &mut cache)
             } else {
                 get_record_type_from_query(flinfo, fcinfo, funcname, &mut cache)
-            };
-            r?;
+            }; r?;
             types_fmgr::FnExtra::new(cache)
         }
     };
@@ -1753,8 +1754,7 @@ fn populate_recordset_worker(
                 get_record_type_from_argument(flinfo, funcname, &mut cache)
             } else {
                 get_record_type_from_query(flinfo, fcinfo, funcname, &mut cache)
-            };
-            r?;
+            }; r?;
             types_fmgr::FnExtra::new(cache)
         }
     };
@@ -1769,8 +1769,7 @@ fn populate_recordset_worker(
             io.base_typid = hdr.type_id();
             io.base_typmod = hdr.typmod();
         }
-    } else if have_record_arg && cache.argtype == RECORDOID {
-        get_record_type_from_query(flinfo, fcinfo, funcname, cache)?;
+    } else if have_record_arg && cache.argtype == RECORDOID { get_record_type_from_query(flinfo, fcinfo, funcname, cache)?;
     }
 
     // C: null json sends back an empty set.

@@ -143,7 +143,7 @@ fn a_tail_cursor_claims_whole_parts_then_cuts_the_tail() {
     c.set_whole_boundary_claims(true);
     c.set_tail_from(8 * 13);
     assert_eq!((c.whole_until(), c.endgame_split()), (104, true));
-    let mut seen = [0u8; 130];
+    let mut seen =[0u8; 130];
     let mut claims = Vec::new();
     while let Some(r) = c.claim() {
         assert!(r.hi <= c.next_boundary_after(r.lo), "claim {r:?} crosses a part edge");

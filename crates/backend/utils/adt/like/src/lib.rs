@@ -318,8 +318,7 @@ pub fn generic_match_text(s: &[u8], p: &[u8], collation: Oid) -> PgResult<i32> {
         match_text::<SbCs>(s, p, locale)
     } else if mbutils::GetDatabaseEncoding() == PG_UTF8 {
         match_text::<Utf8Cs>(s, p, locale)
-    } else {
-        Err(mb_matchtext_unported(mbutils::GetDatabaseEncoding()))
+    } else { Err(mb_matchtext_unported(mbutils::GetDatabaseEncoding()))
     }
 }
 

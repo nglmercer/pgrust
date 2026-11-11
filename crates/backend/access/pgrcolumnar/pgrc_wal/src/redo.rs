@@ -5,12 +5,9 @@ use pgrc_am::{catalog, dirpath, footer};
 use pgrc_format::dirlayout::CURRENT_FILE_NAME;
 use pgrc_format::manifest::Manifest;
 use pgrc_format::wal::{
-    decode_dir, FileRefRec, FileWriteRec, InstallRec, PublishRec, ReclaimRec, Retire,
-    RowidExtentsRec, RowidReserveRec, XLOG_PGRC_BULK_ROWS, XLOG_PGRC_DIR_CREATE,
-    XLOG_PGRC_FILE_CREATE, XLOG_PGRC_FILE_REF, XLOG_PGRC_FILE_WRITE, XLOG_PGRC_INSTALL,
-    XLOG_PGRC_OPMASK, XLOG_PGRC_PUBLISH, XLOG_PGRC_RECLAIM, XLOG_PGRC_ROWID_EXTENTS,
-    XLOG_PGRC_ROWID_RESERVE, XLOG_PGRC_ROWID_SET, XLOG_PGRC_ROW_DELETE, XLOG_PGRC_ROW_UPDATE,
-    XLOG_PGRC_TRUNCATE,
+    decode_dir, FileRefRec, FileWriteRec, InstallRec, PublishRec, ReclaimRec, Retire, RowidExtentsRec, RowidReserveRec, XLOG_PGRC_BULK_ROWS, XLOG_PGRC_DIR_CREATE,
+    XLOG_PGRC_FILE_CREATE, XLOG_PGRC_FILE_REF, XLOG_PGRC_FILE_WRITE, XLOG_PGRC_INSTALL, XLOG_PGRC_OPMASK,
+    XLOG_PGRC_PUBLISH, XLOG_PGRC_RECLAIM, XLOG_PGRC_ROWID_EXTENTS, XLOG_PGRC_ROWID_RESERVE, XLOG_PGRC_ROWID_SET, XLOG_PGRC_ROW_DELETE, XLOG_PGRC_ROW_UPDATE, XLOG_PGRC_TRUNCATE,
 };
 use pgrc_format::{wal::DirLoc, FormatError};
 use pgrc_write::plan::{self, ApplyMode};
@@ -20,17 +17,11 @@ use types_error::{PgError, PgResult, ERRCODE_DATA_CORRUPTED, PANIC, WARNING};
 use xlogreader_seams::XLogReaderState;
 
 fn corrupt(op: &str, e: FormatError) -> Box<PgError> {
-    Box::new(
-        PgError::error(format!("pgrc {op} record is corrupt: {e}"))
-            .with_sqlstate(ERRCODE_DATA_CORRUPTED),
-    )
+    Box::new(PgError::error(format!("pgrc {op} record is corrupt: {e}")).with_sqlstate(ERRCODE_DATA_CORRUPTED),)
 }
 
 fn failed(op: &str, e: impl std::fmt::Display) -> Box<PgError> {
-    Box::new(PgError::new(
-        PANIC,
-        format!("pgrc redo of {op} failed: {e}"),
-    ))
+    Box::new(PgError::new(PANIC, format!("pgrc redo of {op} failed: {e}"),))
 }
 
 pub type DirOf<'a> = &'a dyn Fn(DirLoc) -> PgResult<Option<String>>;
@@ -55,10 +46,7 @@ fn existing(loc: DirLoc) -> PgResult<Option<String>> {
 }
 
 pub fn pgrc_redo(record: &mut XLogReaderState) -> PgResult<()> {
-    let rec = record
-        .record
-        .as_ref()
-        .expect("pgrc redo with no decoded record");
+    let rec = record.record.as_ref().expect("pgrc redo with no decoded record");
     let info = rec.xl_info & XLOG_PGRC_OPMASK;
     // SAFETY: main_data points into the reader's decode buffer, valid for the redo callback's duration.
     let data = unsafe { rec.main_data_bytes() };
@@ -80,16 +68,8 @@ pub fn pgrc_redo(record: &mut XLogReaderState) -> PgResult<()> {
     }
     if info == XLOG_PGRC_FILE_REF {
         let r = FileRefRec::decode(data).map_err(|e| corrupt("FILE_REF", e))?;
-        let Some(dir) = existing(r.dir)? else {
-            return Ok(());
-        };
-        let entry = crate::fetch::materialize(
-            &mut RealVfs,
-            &pgrc_spool::Spool::data(),
-            record.ReadRecPtr,
-            &r,
-            &dir,
-        )?;
+        let Some(dir) = existing(r.dir)? else { return Ok(()); };
+        let entry = crate::fetch::materialize(&mut RealVfs, &pgrc_spool::Spool::data(), record.ReadRecPtr, &r, &dir,)?;
         crate::sync::register(crate::sync::SPOOL_LOC, [entry])?;
         return crate::sync::register(r.dir, [r.name.to_string()]);
     }
@@ -118,36 +98,21 @@ fn freeze_conflict(data: &[u8]) -> PgResult<()> {
     use pgrc_format::wal::{PublishKind, PUBLISH_KIND_FLAGS};
     use pgrc_write::publish::{clog_bound, FROZEN_PUBLISHER_FXID};
     // the kind byte follows the dir (12 bytes) and the base generation (8): only a freeze record is decoded twice
-    if data
-        .get(20)
-        .is_none_or(|k| k & !PUBLISH_KIND_FLAGS != PublishKind::Freeze as u8)
-    {
+    if data.get(20).is_none_or(|k| k & !PUBLISH_KIND_FLAGS != PublishKind::Freeze as u8) {
         return Ok(());
     }
     let r = PublishRec::decode(data).map_err(|e| corrupt("PUBLISH", e))?;
     if r.header.publisher_fxid != FROZEN_PUBLISHER_FXID || r.base_gen == 0 {
         return Ok(());
     }
-    let Some(dir) = existing(r.dir)? else {
-        return Ok(());
-    };
-    let Some(base) = plan::read_manifest(&mut RealVfs, &dir, r.base_gen) else {
-        return Ok(());
-    };
+    let Some(dir) = existing(r.dir)? else { return Ok(()); };
+    let Some(base) = plan::read_manifest(&mut RealVfs, &dir, r.base_gen) else { return Ok(()); };
     let publisher = base.header.publisher_fxid;
     if !clog_bound(publisher) {
         return Ok(());
     }
-    let locator = types_storage::RelFileLocator {
-        spcOid: r.dir.spc,
-        dbOid: r.dir.db,
-        relNumber: r.dir.relnumber,
-    };
-    standby::ResolveRecoveryConflictWithSnapshotFullXid(
-        types_core::xact::FullTransactionId::from_u64(publisher),
-        false,
-        locator,
-    )
+    let locator = types_storage::RelFileLocator { spcOid: r.dir.spc, dbOid: r.dir.db, relNumber: r.dir.relnumber, };
+    standby::ResolveRecoveryConflictWithSnapshotFullXid(types_core::xact::FullTransactionId::from_u64(publisher), false, locator,)
 }
 
 /// A retirement that redo applies at once unlinks files that a hot standby's snapshot not seeing `xid` may still open
@@ -172,17 +137,8 @@ pub(crate) fn resolves_first(retire: Option<Retire>, live: bool) -> bool {
 pub fn keep_catalog(a: Applied) {
     match a {
         Applied::Published(loc, dir, m) => {
-            if let Err(e) = catalog::redo_publish(
-                slot(loc),
-                &dir,
-                m,
-                &footer::fold_generation,
-                &footer::serve_generation_without_catalog,
-            ) {
-                let _ = elog::elog(
-                    WARNING,
-                    format!("pgrcolumnar: {dir} left the catalog: {}", e.message()),
-                );
+            if let Err(e) = catalog::redo_publish(slot(loc), &dir, m, &footer::fold_generation, &footer::serve_generation_without_catalog,) {
+                let _ = elog::elog(WARNING, format!("pgrcolumnar: {dir} left the catalog: {}", e.message()),);
                 catalog::remove_dir(&dir);
             }
         }
@@ -192,49 +148,32 @@ pub fn keep_catalog(a: Applied) {
             catalog::retire_below(slot(loc), keep_from);
             catalog::forget_dead_names(slot(loc), &names);
         }
-        Applied::Deferred(loc, dir, keep_from, xid, names) => {
-            catalog::defer_retire(slot(loc), keep_from, xid, dir, names)
+        Applied::Deferred(loc, dir, keep_from, xid, names) => { catalog::defer_retire(slot(loc), keep_from, xid, dir, names)
         }
     }
 }
 
-pub fn redo_op(
-    vfs: &mut dyn WriteVfs,
-    info: u8,
-    data: &[u8],
-    dir_of: DirOf<'_>,
-) -> PgResult<Option<Applied>> {
+pub fn redo_op(vfs: &mut dyn WriteVfs, info: u8, data: &[u8], dir_of: DirOf<'_>,) -> PgResult<Option<Applied>> {
     match info {
         XLOG_PGRC_ROW_DELETE | XLOG_PGRC_ROW_UPDATE | XLOG_PGRC_BULK_ROWS => {}
         XLOG_PGRC_FILE_WRITE | XLOG_PGRC_FILE_CREATE => {
             let r = FileWriteRec::decode(data).map_err(|e| corrupt("FILE_WRITE", e))?;
-            let Some(dir) = dir_of(r.dir)? else {
-                return Ok(None);
-            };
+            let Some(dir) = dir_of(r.dir)? else { return Ok(None); };
             let create = info == XLOG_PGRC_FILE_CREATE;
-            plan::apply_file_write(vfs, &dir, r.name, r.off, r.bytes, create)
-                .map_err(|e| failed("FILE_WRITE", e))?;
+            plan::apply_file_write(vfs, &dir, r.name, r.off, r.bytes, create).map_err(|e| failed("FILE_WRITE", e))?;
             crate::sync::register(r.dir, [r.name.to_string()])?;
         }
         XLOG_PGRC_PUBLISH => {
             let r = PublishRec::decode(data).map_err(|e| corrupt("PUBLISH", e))?;
-            let Some(dir) = dir_of(r.dir)? else {
-                return Ok(None);
-            };
-            let Some(m) = plan::redo_publish(vfs, &dir, &r).map_err(|e| failed("PUBLISH", e))?
-            else {
-                return Ok(None);
-            };
+            let Some(dir) = dir_of(r.dir)? else { return Ok(None); };
+            let Some(m) = plan::redo_publish(vfs, &dir, &r).map_err(|e| failed("PUBLISH", e))? else { return Ok(None); };
             crate::sync::register(r.dir, plan::publish_touched(&r))?;
             return Ok(Some(Applied::Published(r.dir, dir, m)));
         }
         XLOG_PGRC_INSTALL => {
             let r = InstallRec::decode(data).map_err(|e| corrupt("INSTALL", e))?;
-            let Some(dir) = dir_of(r.dir)? else {
-                return Ok(None);
-            };
-            plan::apply_install(vfs, &dir, &r, ApplyMode::Redo)
-                .map_err(|e| failed("INSTALL", e))?;
+            let Some(dir) = dir_of(r.dir)? else { return Ok(None); };
+            plan::apply_install(vfs, &dir, &r, ApplyMode::Redo).map_err(|e| failed("INSTALL", e))?;
             let copied = r.renames.iter().any(|(_, to)| to == CURRENT_FILE_NAME);
             crate::sync::register(r.dir, r.renames.into_iter().map(|(_, to)| to))?;
             if copied {
@@ -243,14 +182,9 @@ pub fn redo_op(
         }
         XLOG_PGRC_RECLAIM => {
             let r = ReclaimRec::decode(data).map_err(|e| corrupt("RECLAIM", e))?;
-            let Some(dir) = dir_of(r.dir)? else {
-                return Ok(None);
-            };
-            if let (Some(Retire::Deferred(keep_from)), true) = (r.retire_below, catalog::is_live())
-            {
-                return Ok(Some(Applied::Deferred(
-                    r.dir, dir, keep_from, r.xid, r.names,
-                )));
+            let Some(dir) = dir_of(r.dir)? else { return Ok(None); };
+            if let (Some(Retire::Deferred(keep_from)), true) = (r.retire_below, catalog::is_live()) {
+                return Ok(Some(Applied::Deferred(r.dir, dir, keep_from, r.xid, r.names,)));
             }
             plan::apply_reclaim(vfs, &dir, &r).map_err(|e| failed("RECLAIM", e))?;
             crate::sync::register(r.dir, r.names.iter().cloned())?;
@@ -260,49 +194,30 @@ pub fn redo_op(
         }
         XLOG_PGRC_ROWID_RESERVE => {
             let r = RowidReserveRec::decode(data).map_err(|e| corrupt("ROWID_RESERVE", e))?;
-            let Some(dir) = dir_of(r.dir)? else {
-                return Ok(None);
-            };
-            pgrc_am::rowid_alloc::redo_reserve(vfs, &dir, r.high)
-                .map_err(|e| failed("ROWID_RESERVE", e))?;
+            let Some(dir) = dir_of(r.dir)? else { return Ok(None); };
+            pgrc_am::rowid_alloc::redo_reserve(vfs, &dir, r.high).map_err(|e| failed("ROWID_RESERVE", e))?;
             crate::sync::register(r.dir, [pgrc_format::dirlayout::ROWID_FILE_NAME.to_string()])?;
         }
         XLOG_PGRC_ROWID_SET => {
             let r = RowidReserveRec::decode(data).map_err(|e| corrupt("ROWID_SET", e))?;
-            let Some(dir) = dir_of(r.dir)? else {
-                return Ok(None);
-            };
-            pgrc_am::rowid_alloc::redo_set(vfs, &dir, r.high)
-                .map_err(|e| failed("ROWID_SET", e))?;
+            let Some(dir) = dir_of(r.dir)? else { return Ok(None); };
+            pgrc_am::rowid_alloc::redo_set(vfs, &dir, r.high).map_err(|e| failed("ROWID_SET", e))?;
             crate::sync::register(r.dir, [pgrc_format::dirlayout::ROWID_FILE_NAME.to_string()])?;
         }
         XLOG_PGRC_ROWID_EXTENTS => {
             let r = RowidExtentsRec::decode(data).map_err(|e| corrupt("ROWID_EXTENTS", e))?;
-            let Some(dir) = dir_of(r.dir)? else {
-                return Ok(None);
-            };
-            let image = pgrc_format::rowid::encode_segext(&r.table)
-                .map_err(|e| corrupt("ROWID_EXTENTS", e))?;
-            pgrc_am::rowid_alloc::redo_extents(vfs, &dir, &image)
-                .map_err(|e| failed("ROWID_EXTENTS", e))?;
-            crate::sync::register(
-                r.dir,
-                [pgrc_format::dirlayout::SEGEXT_FILE_NAME.to_string()],
-            )?;
+            let Some(dir) = dir_of(r.dir)? else { return Ok(None); };
+            let image = pgrc_format::rowid::encode_segext(&r.table).map_err(|e| corrupt("ROWID_EXTENTS", e))?;
+            pgrc_am::rowid_alloc::redo_extents(vfs, &dir, &image).map_err(|e| failed("ROWID_EXTENTS", e))?;
+            crate::sync::register(r.dir, [pgrc_format::dirlayout::SEGEXT_FILE_NAME.to_string()],)?;
         }
         XLOG_PGRC_TRUNCATE => {
             let loc = decode_dir(data).map_err(|e| corrupt("TRUNCATE", e))?;
-            let Some(dir) = dir_of(loc)? else {
-                return Ok(None);
-            };
+            let Some(dir) = dir_of(loc)? else { return Ok(None); };
             truncate(vfs, &dir).map_err(|e| failed("TRUNCATE", e))?;
             return Ok(Some(Applied::Truncated(loc, dir)));
         }
-        _ => {
-            return Err(Box::new(PgError::new(
-                PANIC,
-                format!("pgrc_redo: unknown op code {info}"),
-            )))
+        _ => { return Err(Box::new(PgError::new(PANIC, format!("pgrc_redo: unknown op code {info}"),)))
         }
     }
     Ok(None)
@@ -311,10 +226,7 @@ pub fn redo_op(
 fn truncate(vfs: &mut dyn WriteVfs, dir: &str) -> WriteResult<()> {
     for n in vfs.list_dir(dir)? {
         match vfs.unlink_path(&format!("{dir}/{n}")) {
-            Err(WriteError::Io {
-                errno: libc::ENOENT,
-                ..
-            }) => {}
+            Err(WriteError::Io { errno: libc::ENOENT, .. }) => {}
             r => r?,
         }
     }

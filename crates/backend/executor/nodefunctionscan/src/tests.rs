@@ -88,9 +88,7 @@ fn elided_expression_stores_one_row() {
         true,
     )
     .unwrap();
-    let elided = ::execexpr::exec_init_expr(mcx, Some(konst), estate.param_bind())
-        .unwrap()
-        .unwrap();
+    let elided = ::execexpr::exec_init_expr(mcx, Some(konst), estate.param_bind()).unwrap().unwrap();
     let mut setexpr = SetExprState {
         flinfo: None,
         args: PgVec::new_in(mcx),
@@ -101,15 +99,9 @@ fn elided_expression_stores_one_row() {
     };
 
     let mut arg_mcx = MemoryContext::new("t-args");
-    let mut store = exec_make_table_function_result(
-        &mut setexpr,
-        &desc,
-        false,
-        &mut estate,
-        ecxt,
-        &mut arg_mcx,
-    )
-    .unwrap();
+    let mut store =
+        exec_make_table_function_result(&mut setexpr, &desc, false, &mut estate, ecxt, &mut arg_mcx,)
+            .unwrap();
     assert_eq!(store.tuple_count(), 1);
     store.rescan().unwrap();
     let mut slot =
@@ -132,15 +124,9 @@ fn materialize_mode_srf_feeds_the_scan_store() {
     let mut setexpr = setexpr_for(mcx, true);
 
     let mut arg_mcx = MemoryContext::new("t-args");
-    let mut store = exec_make_table_function_result(
-        &mut setexpr,
-        &desc,
-        false,
-        &mut estate,
-        ecxt,
-        &mut arg_mcx,
-    )
-    .unwrap();
+    let mut store =
+        exec_make_table_function_result(&mut setexpr, &desc, false, &mut estate, ecxt, &mut arg_mcx,)
+            .unwrap();
     assert_eq!(store.tuple_count(), 2);
 
     let mut slot =
@@ -230,15 +216,9 @@ fn eight_arg_table_srf_does_not_panic() {
     };
 
     let mut arg_mcx = MemoryContext::new("t-args");
-    let store = exec_make_table_function_result(
-        &mut setexpr,
-        &desc,
-        false,
-        &mut estate,
-        ecxt,
-        &mut arg_mcx,
-    )
-    .unwrap();
+    let store =
+        exec_make_table_function_result(&mut setexpr, &desc, false, &mut estate, ecxt, &mut arg_mcx,)
+            .unwrap();
     assert_eq!(store.tuple_count(), 0);
     store.end();
 }
@@ -296,7 +276,7 @@ mod init_sexpr_witness {
     }
 
     fn proc_shape(funcid: Oid) -> PgResult<Option<PgProcShape>> {
-        Ok((funcid == FID_RECORD).then_some(PgProcShape {
+        Ok((funcid == FID_RECORD).then_some( PgProcShape {
             pronamespace: 11,
             prorettype: RECORDOID,
             provariadic: types_core::InvalidOid,
@@ -355,25 +335,13 @@ mod init_sexpr_witness {
         sub_id: i32,
         _arg: &mut ObjectAccessArg<'_>,
     ) -> PgResult<()> {
-        HOOK_EVENTS
-            .lock()
-            .unwrap()
-            .push((access, class_id, object_id, sub_id));
+        HOOK_EVENTS.lock().unwrap().push((access, class_id, object_id, sub_id));
         Ok(())
     }
 
     fn int4_const(mcx: Mcx<'_>, v: i32) -> ::types_nodes::node_tree::Node<'_> {
-        ::types_nodes::node_tree::Node::mk_const(
-            mcx,
-            INT4OID,
-            -1,
-            0,
-            4,
-            Datum::from_i32(v),
-            false,
-            true,
-        )
-        .unwrap()
+        ::types_nodes::node_tree::Node::mk_const(mcx, INT4OID, -1, 0, 4, Datum::from_i32(v), false, true,)
+            .unwrap()
     }
 
     fn rtfunc_for<'mcx>(
@@ -403,10 +371,7 @@ mod init_sexpr_witness {
             },
         )
         .unwrap();
-        RangeTblFunction {
-            funcexpr: Some(fexpr),
-            ..Default::default()
-        }
+        RangeTblFunction { funcexpr: Some(fexpr), ..Default::default() }
     }
 
     // execSRF.c:403-411 no_function_result: a non-set-returning function
@@ -439,11 +404,7 @@ mod init_sexpr_witness {
             &mut arg_mcx,
         )
         .unwrap();
-        assert_eq!(
-            store.tuple_count(),
-            1,
-            "C stores one all-nulls row for a non-SRF"
-        );
+        assert_eq!(store.tuple_count(), 1, "C stores one all-nulls row for a non-SRF");
         let mut slot = exectuples::make_tuple_table_slot(
             mcx,
             TupleSlotKind::MinimalTuple,
@@ -470,14 +431,9 @@ mod init_sexpr_witness {
         let rtfunc = rtfunc_for(mcx, FID_PROC_RETSET, INT4OID, false, 0, 14);
         let err = match exec_init_table_function_result(mcx, &rtfunc, &mut estate) {
             Err(e) => e,
-            Ok(_) => panic!(
-                "init_sexpr must refuse a set-valued function where the caller disallows sets"
-            ),
+            Ok(_) => panic!("init_sexpr must refuse a set-valued function where the caller disallows sets"),
         };
-        assert_eq!(
-            err.message(),
-            "set-valued function called in context that cannot accept a set"
-        );
+        assert_eq!(err.message(), "set-valued function called in context that cannot accept a set");
         assert_eq!(err.sqlstate(), ::types_error::ERRCODE_FEATURE_NOT_SUPPORTED);
         assert_eq!(err.cursor_position(), Some(15));
     }
@@ -496,10 +452,7 @@ mod init_sexpr_witness {
             Err(e) => e,
             Ok(_) => panic!("init_sexpr must refuse more than FUNC_MAX_ARGS arguments"),
         };
-        assert_eq!(
-            err.message(),
-            "cannot pass more than 100 arguments to a function"
-        );
+        assert_eq!(err.message(), "cannot pass more than 100 arguments to a function");
         assert_eq!(err.sqlstate(), ::types_error::ERRCODE_TOO_MANY_ARGUMENTS);
     }
 
@@ -516,10 +469,7 @@ mod init_sexpr_witness {
             Err(e) => e,
             Ok(_) => panic!("RECORD without a coldeflist has no tupdesc"),
         };
-        assert_eq!(
-            err.message(),
-            "function in FROM has unsupported return type"
-        );
+        assert_eq!(err.message(), "function in FROM has unsupported return type");
         assert_eq!(err.sqlstate(), ::types_error::ERRCODE_INTERNAL_ERROR);
     }
 
@@ -544,10 +494,7 @@ mod init_sexpr_witness {
             .copied()
             .filter(|e| e.2 == FID_HOOKED)
             .collect();
-        assert_eq!(
-            events,
-            vec![(OAT_FUNCTION_EXECUTE, PROCEDURE_RELATION_ID, FID_HOOKED, 0)]
-        );
+        assert_eq!(events, vec![(OAT_FUNCTION_EXECUTE, PROCEDURE_RELATION_ID, FID_HOOKED, 0)]);
     }
 }
 
@@ -581,8 +528,7 @@ fn scan_of<'mcx>(
     for _ in 0..nfuncs {
         let tupdesc = Rc::new(int4_desc(mcx, 2));
         let func_slot = (!simple).then(|| {
-            estate
-                .exec_init_extra_tuple_slot(Some(Rc::clone(&tupdesc)), TupleSlotKind::MinimalTuple)
+            estate.exec_init_extra_tuple_slot(Some(Rc::clone(&tupdesc)), TupleSlotKind::MinimalTuple)
         });
         let mut setexpr = setexpr_for(mcx, true);
         setexpr.flinfo = Some(FmgrInfo::new(counted_mat_srf, 4242, 0, false, true));
@@ -598,11 +544,7 @@ fn scan_of<'mcx>(
     }
     let ss_ScanTupleSlot = estate.exec_init_extra_tuple_slot(
         Some(Rc::new(int4_desc(mcx, 2 * nfuncs as i32))),
-        if simple {
-            TupleSlotKind::MinimalTuple
-        } else {
-            TupleSlotKind::Virtual
-        },
+        if simple { TupleSlotKind::MinimalTuple } else { TupleSlotKind::Virtual },
     );
     FunctionScanState {
         ss: ScanState {
@@ -626,9 +568,7 @@ fn scan_of<'mcx>(
 }
 
 fn params_of<'mcx>(mcx: Mcx<'mcx>, x: i32) -> &'mcx ::types_nodes::bitmapset::Bitmapset<'mcx> {
-    Box::leak(Box::new(
-        ::types_nodes::bitmapset::Bitmapset::make_singleton(mcx, x).unwrap(),
-    ))
+    Box::leak(Box::new(::types_nodes::bitmapset::Bitmapset::make_singleton(mcx, x).unwrap(),))
 }
 
 fn slot_row(slot: &mut ::types_slot::SlotData<'_>) -> Row {
@@ -639,11 +579,7 @@ fn slot_row(slot: &mut ::types_slot::SlotData<'_>) -> Row {
         .collect()
 }
 
-fn store_rows<'mcx>(
-    store: &mut Tuplestore,
-    desc: &Rc<TupleDescData<'mcx>>,
-    mcx: Mcx<'mcx>,
-) -> Vec<Row> {
+fn store_rows<'mcx>(store: &mut Tuplestore, desc: &Rc<TupleDescData<'mcx>>, mcx: Mcx<'mcx>,) -> Vec<Row> {
     let mut slot =
         exectuples::make_tuple_table_slot(mcx, TupleSlotKind::MinimalTuple, Some(Rc::clone(desc)));
     let mut rows = Vec::new();
@@ -723,15 +659,11 @@ fn rescan_rewinds_the_lent_store_and_a_changed_param_recalls() {
     assert_eq!(store_rows(store, &desc, mcx), mat_rows());
 
     exec_rescan_function_scan(&mut node, &mut estate).unwrap();
-    let store = node
-        .func_store_mut(0)
-        .expect("a plain rescan keeps the store");
+    let store = node.func_store_mut(0).expect("a plain rescan keeps the store");
     assert_eq!(store_rows(store, &desc, mcx), mat_rows());
 
     exec_rescan_function_scan_chg(&mut node, &mut estate, params_of(mcx, 2)).unwrap();
-    let store = node
-        .func_store_mut(0)
-        .expect("an unrelated param keeps the store");
+    let store = node.func_store_mut(0).expect("an unrelated param keeps the store");
     assert_eq!(store_rows(store, &desc, mcx), mat_rows());
     assert_eq!(srf_calls(), before + 1);
 
@@ -761,10 +693,7 @@ fn rows_from_member_materializes_alone_and_the_scan_uses_it() {
     let rows = scan_rows(&mut node, &mut estate);
     assert_eq!(
         rows,
-        vec![
-            vec![Some(10), Some(20), Some(10), Some(20)],
-            vec![Some(30), None, Some(30), None]
-        ]
+        vec![vec![Some(10), Some(20), Some(10), Some(20)], vec![Some(30), None, Some(30), None]]
     );
     assert_eq!(srf_calls(), before + 2);
     exec_end_function_scan(&mut node);
@@ -827,8 +756,5 @@ fn null_composite_rows_do_not_grow_query_context() {
     let small = query_ctx_used_after(100);
     let big = query_ctx_used_after(20_000);
     const SLACK: usize = 16 * 1024;
-    assert!(
-        big <= small + SLACK,
-        "query context grew with NULL composite rows: {small} -> {big}"
-    );
+    assert!(big <= small + SLACK, "query context grew with NULL composite rows: {small} -> {big}");
 }

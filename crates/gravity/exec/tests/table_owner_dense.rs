@@ -34,7 +34,7 @@ fn rows(n: usize, lo: i64, span: u64, dom: u64, seed: u64) -> Vec<Row> {
     (0..n)
         .map(|_| {
             let r = lcg(&mut s);
-            let k = lo + if r.is_multiple_of(3) { (r % 8) % span } else { r % span } as i64;
+            let k = lo + if r.is_multiple_of( 3) { (r % 8) % span } else { r % span } as i64;
             Row { k, x: (lcg(&mut s) % dom) as i64, v: (lcg(&mut s) % 1000) as i64 - 500 }
         })
         .collect()

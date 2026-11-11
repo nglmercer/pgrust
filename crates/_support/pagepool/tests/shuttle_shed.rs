@@ -78,9 +78,6 @@ fn one_round() {
 
 #[test]
 fn shed_races_a_move() {
-    let iters = std::env::var("SHUTTLE_ITERS")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(2000);
+    let iters = std::env::var("SHUTTLE_ITERS").ok().and_then(|v| v.parse().ok()).unwrap_or(2000);
     shuttle::check_pct(one_round, iters, 3);
 }

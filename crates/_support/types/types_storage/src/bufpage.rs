@@ -253,7 +253,7 @@ impl<'a> PageRef<'a> {
 
     #[inline]
     fn read_u16(&self, off: usize) -> uint16 {
-        debug_assert!(off + 2 <= BLCKSZ && off.is_multiple_of(2));
+        debug_assert!(off + 2 <= BLCKSZ && off.is_multiple_of( 2));
         // SAFETY: in-bounds, 2-aligned (from_raw contract).
         unsafe { self.ptr.as_ptr().add(off).cast::<uint16>().read() }
     }
@@ -264,7 +264,8 @@ impl<'a> PageRef<'a> {
         if pd_lower <= SizeOfPageHeaderData {
             0
         } else {
-            ((pd_lower - SizeOfPageHeaderData) / core::mem::size_of::<ItemIdData>()) as OffsetNumber
+            ((pd_lower - SizeOfPageHeaderData) / core::mem::size_of::<ItemIdData>())
+                as OffsetNumber
         }
     }
 
@@ -283,7 +284,8 @@ impl<'a> PageRef<'a> {
     pub fn item_id(&self, offnum: OffsetNumber) -> ItemIdData {
         assert!(
             offnum >= 1
-                && SizeOfPageHeaderData + offnum as usize * core::mem::size_of::<ItemIdData>()
+                && SizeOfPageHeaderData
+                    + offnum as usize * core::mem::size_of::<ItemIdData>()
                     <= BLCKSZ
         );
         // SAFETY: bounds checked above.
@@ -477,7 +479,7 @@ impl<'a> PageMut<'a> {
 
     #[inline]
     fn write_u16(&mut self, off: usize, v: uint16) {
-        debug_assert!(off + 2 <= BLCKSZ && off.is_multiple_of(2));
+        debug_assert!(off + 2 <= BLCKSZ && off.is_multiple_of( 2));
         // SAFETY: in-bounds, 2-aligned (from_raw contract).
         unsafe { self.ptr.as_ptr().add(off).cast::<uint16>().write(v) }
     }
@@ -588,11 +590,12 @@ impl<'a> PageMut<'a> {
         let pd_lower = r.pd_lower() as usize;
         let pd_upper = r.pd_upper() as usize;
         let pd_special = r.pd_special() as usize;
-        if !(pd_lower >= SizeOfPageHeaderData
-            && pd_lower <= pd_upper
-            && pd_upper <= pd_special
-            && pd_special <= BLCKSZ)
-        {
+        if !(
+            pd_lower >= SizeOfPageHeaderData
+                && pd_lower <= pd_upper
+                && pd_upper <= pd_special
+                && pd_special <= BLCKSZ
+        ) {
             // bufpage.c:214: PageAddItemExtended reports this at PANIC.
             data_corrupted(
                 PANIC,
@@ -695,12 +698,13 @@ impl<'a> PageMut<'a> {
         let pd_lower = r.pd_lower() as usize;
         let pd_upper = r.pd_upper() as usize;
         let pd_special = r.pd_special() as usize;
-        if !(pd_lower >= SizeOfPageHeaderData
-            && pd_lower <= pd_upper
-            && pd_upper <= pd_special
-            && pd_special <= BLCKSZ
-            && pd_special == (pd_special + 7) & !7)
-        {
+        if !(
+            pd_lower >= SizeOfPageHeaderData
+                && pd_lower <= pd_upper
+                && pd_upper <= pd_special
+                && pd_special <= BLCKSZ
+                && pd_special == (pd_special + 7) & !7
+        ) {
             data_corrupted(
                 ERROR,
                 alloc::format!(
@@ -710,10 +714,7 @@ impl<'a> PageMut<'a> {
         }
 
         let itemcount = r.max_offset_number();
-        assert!(
-            offnum >= 1 && offnum <= itemcount,
-            "invalid index offnum: {offnum}"
-        );
+        assert!(offnum >= 1 && offnum <= itemcount, "invalid index offnum: {offnum}");
 
         let tupid = r.item_id(offnum);
         debug_assert!(tupid.has_storage());
@@ -777,12 +778,13 @@ impl<'a> PageMut<'a> {
         let pd_lower = r.pd_lower() as usize;
         let pd_upper = r.pd_upper() as usize;
         let pd_special = r.pd_special() as usize;
-        if !(pd_lower >= SizeOfPageHeaderData
-            && pd_lower <= pd_upper
-            && pd_upper <= pd_special
-            && pd_special <= BLCKSZ
-            && pd_special == (pd_special + 7) & !7)
-        {
+        if !(
+            pd_lower >= SizeOfPageHeaderData
+                && pd_lower <= pd_upper
+                && pd_upper <= pd_special
+                && pd_special <= BLCKSZ
+                && pd_special == (pd_special + 7) & !7
+        ) {
             data_corrupted(
                 ERROR,
                 alloc::format!(
@@ -792,10 +794,7 @@ impl<'a> PageMut<'a> {
         }
 
         let mut nline = r.max_offset_number();
-        assert!(
-            offnum >= 1 && offnum <= nline,
-            "invalid index offnum: {offnum}"
-        );
+        assert!(offnum >= 1 && offnum <= nline, "invalid index offnum: {offnum}");
 
         let tup = r.item_id(offnum);
         debug_assert!(tup.has_storage());
@@ -847,12 +846,13 @@ impl<'a> PageMut<'a> {
         let pd_lower = r.pd_lower() as usize;
         let pd_upper = r.pd_upper() as usize;
         let pd_special = r.pd_special() as usize;
-        if !(pd_lower >= SizeOfPageHeaderData
-            && pd_lower <= pd_upper
-            && pd_upper <= pd_special
-            && pd_special <= BLCKSZ
-            && pd_special == (pd_special + 7) & !7)
-        {
+        if !(
+            pd_lower >= SizeOfPageHeaderData
+                && pd_lower <= pd_upper
+                && pd_upper <= pd_special
+                && pd_special <= BLCKSZ
+                && pd_special == (pd_special + 7) & !7
+        ) {
             data_corrupted(
                 ERROR,
                 alloc::format!(
@@ -918,7 +918,10 @@ impl<'a> PageMut<'a> {
                         && itemoff < pd_special
                         && itemoff + alignedlen <= pd_special)
                     {
-                        data_corrupted(ERROR, alloc::format!("corrupted line pointer: {itemoff}"));
+                        data_corrupted(
+                            ERROR,
+                            alloc::format!("corrupted line pointer: {itemoff}")
+                        );
                     }
                     itemidbase[nstorage] = ItemIdCompact {
                         offsetindex: i - 1,
@@ -996,7 +999,8 @@ impl<'a> PageMut<'a> {
         }
 
         if nunusedend > 0 {
-            let new_lower = r.pd_lower() as usize - core::mem::size_of::<ItemIdData>() * nunusedend;
+            let new_lower =
+                r.pd_lower() as usize - core::mem::size_of::<ItemIdData>() * nunusedend;
             self.set_pd_lower(new_lower as uint16);
         } else {
             debug_assert!(sethint);
@@ -1016,12 +1020,13 @@ impl<'a> PageMut<'a> {
         let pd_lower = r.pd_lower() as usize;
         let pd_upper = r.pd_upper() as usize;
         let pd_special = r.pd_special() as usize;
-        if !(pd_lower >= SizeOfPageHeaderData
-            && pd_lower <= pd_upper
-            && pd_upper <= pd_special
-            && pd_special <= BLCKSZ
-            && pd_special == (pd_special + 7) & !7)
-        {
+        if !(
+            pd_lower >= SizeOfPageHeaderData
+                && pd_lower <= pd_upper
+                && pd_upper <= pd_special
+                && pd_special <= BLCKSZ
+                && pd_special == (pd_special + 7) & !7
+        ) {
             data_corrupted(
                 ERROR,
                 alloc::format!(
@@ -1031,10 +1036,7 @@ impl<'a> PageMut<'a> {
         }
 
         let nline = r.max_offset_number();
-        assert!(
-            offnum >= 1 && offnum <= nline,
-            "invalid index offnum: {offnum}"
-        );
+        assert!(offnum >= 1 && offnum <= nline, "invalid index offnum: {offnum}");
 
         let tup = r.item_id(offnum);
         debug_assert!(tup.has_storage());
@@ -1107,12 +1109,13 @@ impl<'a> PageMut<'a> {
         let pd_lower = r.pd_lower() as usize;
         let pd_upper = r.pd_upper() as usize;
         let pd_special = r.pd_special() as usize;
-        if !(pd_lower >= SizeOfPageHeaderData
-            && pd_lower <= pd_upper
-            && pd_upper <= pd_special
-            && pd_special <= BLCKSZ
-            && pd_special == (pd_special + 7) & !7)
-        {
+        if !(
+            pd_lower >= SizeOfPageHeaderData
+                && pd_lower <= pd_upper
+                && pd_upper <= pd_special
+                && pd_special <= BLCKSZ
+                && pd_special == (pd_special + 7) & !7
+        ) {
             data_corrupted(
                 ERROR,
                 alloc::format!(
@@ -1336,11 +1339,7 @@ struct ItemIdCompact {
 }
 
 impl ItemIdCompact {
-    const ZERO: ItemIdCompact = ItemIdCompact {
-        offsetindex: 0,
-        itemoff: 0,
-        alignedlen: 0,
-    };
+    const ZERO: ItemIdCompact = ItemIdCompact { offsetindex: 0, itemoff: 0, alignedlen: 0, };
 }
 
 // Owned local scratch page: PageGetTempPage*'s palloc(pageSize), always a full
@@ -1533,10 +1532,7 @@ mod tests {
         assert_eq!(id2.lp_off() as usize, BLCKSZ - 64 - 40);
         let (p1, l1) = r.item_raw(id1);
         // SAFETY: item_raw bounds-checked.
-        assert_eq!(
-            unsafe { core::slice::from_raw_parts(p1, l1 as usize) },
-            &item1
-        );
+        assert_eq!(unsafe { core::slice::from_raw_parts(p1, l1 as usize) }, &item1);
         assert_eq!(
             r.free_space(),
             BLCKSZ - SizeOfPageHeaderData - 2 * 4 - 104 - 4
@@ -1608,10 +1604,7 @@ mod tests {
         pm.init(0);
         let tiny = [0u8; 8];
         for i in 0..MaxHeapTuplesPerPage {
-            assert_eq!(
-                pm.add_item(&tiny, 0, PAI_IS_HEAP),
-                Some((i + 1) as OffsetNumber)
-            );
+            assert_eq!(pm.add_item(&tiny, 0, PAI_IS_HEAP), Some((i + 1) as OffsetNumber));
         }
         let limit = (MaxHeapTuplesPerPage + 1) as OffsetNumber;
         let start = warning_log_len();
@@ -1712,10 +1705,7 @@ mod tests {
     fn add_n(pm: &mut PageMut<'_>, n: usize, len: usize) {
         for i in 0..n {
             let item = alloc::vec![(i + 1) as u8; len];
-            assert_eq!(
-                pm.add_item(&item, 0, PAI_IS_HEAP),
-                Some((i + 1) as OffsetNumber)
-            );
+            assert_eq!(pm.add_item(&item, 0, PAI_IS_HEAP), Some((i + 1) as OffsetNumber));
         }
     }
 
@@ -1736,11 +1726,7 @@ mod tests {
         assert_eq!(r.pd_upper(), (BLCKSZ - 3 * 32) as u16);
         assert!(r.has_free_line_pointers());
         // Tuples 1,3,4 packed against pd_special in line-pointer order.
-        for (off, expect_at, tag) in [
-            (1u16, BLCKSZ - 32, 1u8),
-            (3, BLCKSZ - 64, 3),
-            (4, BLCKSZ - 96, 4),
-        ] {
+        for (off, expect_at, tag) in [(1u16, BLCKSZ - 32, 1u8), (3, BLCKSZ - 64, 3), (4, BLCKSZ - 96, 4),] {
             let id = r.item_id(off);
             assert_eq!(id.lp_off() as usize, expect_at);
             let (ptr, len) = r.item_raw(id);
@@ -1780,10 +1766,8 @@ mod tests {
             // SAFETY: in-page item.
             assert_eq!(unsafe { *ptr }, tag);
         }
-        let lasts: alloc::vec::Vec<usize> = (1..=4u16)
-            .filter(|&o| r.item_id(o).is_used())
-            .map(|o| r.item_id(o).lp_off() as usize)
-            .collect();
+        let lasts: alloc::vec::Vec<usize> = (1..=4u16).filter(|&o| r.item_id(o).is_used())
+            .map(|o| r.item_id(o).lp_off() as usize).collect();
         let mut sorted = lasts.clone();
         sorted.sort_unstable_by(|x, y| y.cmp(x));
         assert_eq!(lasts, sorted); // reverse line-pointer order restored
@@ -1884,10 +1868,7 @@ mod tests {
             let mut item = [0u8; 16];
             item[0] = i as u8;
             item[8..12].copy_from_slice(&(i as u32).to_ne_bytes());
-            assert_eq!(
-                pm.add_item(&item, (i + 1) as OffsetNumber, 0),
-                Some((i + 1) as OffsetNumber)
-            );
+            assert_eq!(pm.add_item(&item, (i + 1) as OffsetNumber, 0), Some((i + 1) as OffsetNumber));
             items.push(item);
         }
         items
@@ -1923,7 +1904,8 @@ mod tests {
     #[test]
     fn index_multi_delete_matches_retail_deletes() {
         // <=2 items go through the retail path; >2 through compactify.
-        let cases: [&[OffsetNumber]; 4] = [&[2, 5], &[1, 4, 7, 8], &[3], &[1, 2, 3, 4, 5, 6, 7, 8]];
+        let cases: [&[OffsetNumber]; 4] =
+            [&[2, 5], &[1, 4, 7, 8], &[3], &[1, 2, 3, 4, 5, 6, 7, 8]];
         for dels in cases {
             let mut t1 = temp_page();
             let mut pm1 = page_mut(&mut t1);
@@ -1937,11 +1919,7 @@ mod tests {
                 pm2.index_tuple_delete(off);
             }
 
-            assert_eq!(
-                surviving_payloads(&pm1),
-                surviving_payloads(&pm2),
-                "dels {dels:?}"
-            );
+            assert_eq!(surviving_payloads(&pm1), surviving_payloads(&pm2), "dels {dels:?}");
             assert_eq!(
                 (pm1.as_ref().pd_lower(), pm1.as_ref().pd_upper()),
                 (pm2.as_ref().pd_lower(), pm2.as_ref().pd_upper()),
@@ -1978,15 +1956,9 @@ mod tests {
             let off = special - 8 * i;
             // SAFETY: off + 8 <= pd_special, inside the BLCKSZ image.
             unsafe {
-                pm.as_mut_ptr()
-                    .add(off)
-                    .cast::<u16>()
-                    .write_unaligned(i as u16);
+                pm.as_mut_ptr().add(off).cast::<u16>().write_unaligned(i as u16);
             }
-            pm.set_item_id(
-                i as OffsetNumber,
-                ItemIdData::new(off as ItemOffset, LP_NORMAL, 8),
-            );
+            pm.set_item_id(i as OffsetNumber, ItemIdData::new(off as ItemOffset, LP_NORMAL, 8),);
         }
         pm.set_pd_lower((SizeOfPageHeaderData + n * core::mem::size_of::<ItemIdData>()) as uint16);
         pm.set_pd_upper((special - 8 * n) as uint16);
@@ -2036,10 +2008,7 @@ mod tests {
             pm.as_ref().pd_lower() as usize,
             SizeOfPageHeaderData + (N - 100) * core::mem::size_of::<ItemIdData>()
         );
-        assert_eq!(
-            pm.as_ref().pd_upper() as usize,
-            pm.as_ref().pd_special() as usize - 8 * (N - 100)
-        );
+        assert_eq!(pm.as_ref().pd_upper() as usize, pm.as_ref().pd_special() as usize - 8 * (N - 100));
     }
 
     // The survivors of a multi-delete must fit C's MaxIndexTuplesPerPage
@@ -2121,10 +2090,7 @@ mod tests {
         add_n(&mut pm, 2, 28);
         assert_eq!(pm.as_ref().pd_lower(), 32);
         pm.set_pd_lower((SizeOfPageHeaderData + (MaxHeapTuplesPerPage + 1) * 4) as uint16);
-        assert_eq!(
-            pm.as_ref().max_offset_number() as usize,
-            MaxHeapTuplesPerPage + 1
-        );
+        assert_eq!(pm.as_ref().max_offset_number() as usize, MaxHeapTuplesPerPage + 1);
         let err = unwind_pg_error(|| pm.repair_fragmentation());
         assert_data_corrupted(
             &err,
@@ -2161,10 +2127,7 @@ mod tests {
         let (pd_lower, pd_upper, pd_special) = (r.pd_lower(), r.pd_upper(), r.pd_special());
         assert_eq!((pd_lower, pd_upper, pd_special), (424, 7392, 8192));
         for i in 1..=100 {
-            pm.set_item_id(
-                i,
-                ItemIdData::new(pd_upper, LP_NORMAL, pd_special - pd_upper),
-            );
+            pm.set_item_id(i, ItemIdData::new(pd_upper, LP_NORMAL, pd_special - pd_upper),);
         }
         let err = unwind_pg_error(|| pm.repair_fragmentation());
         assert_data_corrupted(
@@ -2186,19 +2149,14 @@ mod tests {
         assert_data_corrupted(
             &err,
             ERROR,
-            &alloc::format!(
-                "corrupted line pointer: offset = {}, size = 16",
-                pd_upper - 8
-            ),
+            &alloc::format!("corrupted line pointer: offset = {}, size = 16", pd_upper - 8),
         );
         pm.set_pd_lower(8);
         let err = unwind_pg_error(|| pm.index_tuple_delete(1));
         assert_data_corrupted(
             &err,
             ERROR,
-            &alloc::format!(
-                "corrupted page pointers: lower = 8, upper = {pd_upper}, special = 8176"
-            ),
+            &alloc::format!("corrupted page pointers: lower = 8, upper = {pd_upper}, special = 8176"),
         );
     }
 
@@ -2214,19 +2172,14 @@ mod tests {
         assert_data_corrupted(
             &err,
             ERROR,
-            &alloc::format!(
-                "corrupted line pointer: offset = {}, size = 16",
-                pd_upper + 4
-            ),
+            &alloc::format!("corrupted line pointer: offset = {}, size = 16", pd_upper + 4),
         );
         pm.set_pd_lower(8);
         let err = unwind_pg_error(|| pm.index_multi_delete(&[1, 2, 3]));
         assert_data_corrupted(
             &err,
             ERROR,
-            &alloc::format!(
-                "corrupted page pointers: lower = 8, upper = {pd_upper}, special = 8176"
-            ),
+            &alloc::format!("corrupted page pointers: lower = 8, upper = {pd_upper}, special = 8176"),
         );
     }
 
@@ -2252,9 +2205,7 @@ mod tests {
         assert_data_corrupted(
             &err,
             ERROR,
-            &alloc::format!(
-                "corrupted page pointers: lower = 8, upper = {pd_upper}, special = 8176"
-            ),
+            &alloc::format!("corrupted page pointers: lower = 8, upper = {pd_upper}, special = 8176"),
         );
     }
 
@@ -2270,19 +2221,14 @@ mod tests {
         assert_data_corrupted(
             &err,
             ERROR,
-            &alloc::format!(
-                "corrupted line pointer: offset = {}, size = 16",
-                pd_upper - 8
-            ),
+            &alloc::format!("corrupted line pointer: offset = {}, size = 16", pd_upper - 8),
         );
         pm.set_pd_lower(8);
         let err = unwind_pg_error(|| pm.index_tuple_overwrite(1, &[7u8; 16]));
         assert_data_corrupted(
             &err,
             ERROR,
-            &alloc::format!(
-                "corrupted page pointers: lower = 8, upper = {pd_upper}, special = 8176"
-            ),
+            &alloc::format!("corrupted page pointers: lower = 8, upper = {pd_upper}, special = 8176"),
         );
     }
 

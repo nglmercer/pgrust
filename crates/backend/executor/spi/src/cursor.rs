@@ -8,8 +8,8 @@ use types_dest::CommandDest;
 use types_error::{PgResult, ERRCODE_FEATURE_NOT_SUPPORTED, ERRCODE_INVALID_CURSOR_DEFINITION};
 use types_portal::params::{ParamExternData, PARAM_FLAG_CONST};
 use types_portal::{
-    FetchDirection, ParamListHandle, Portal, StmtListHandle, CURSOR_OPT_NO_SCROLL,
-    CURSOR_OPT_SCROLL,
+    FetchDirection, ParamListHandle, Portal, StmtListHandle,
+    CURSOR_OPT_NO_SCROLL, CURSOR_OPT_SCROLL,
 };
 
 use elog::ereport;
@@ -17,7 +17,8 @@ use elog::ereport;
 use crate::execute::_SPI_checktuples;
 use crate::plan::{single_source, SpiErrorContext, SpiPlanPtr};
 use crate::{
-    _SPI_begin_call, _SPI_end_call, set_spi_processed, set_spi_tuptable, with_current, TuptabHandle,
+    _SPI_begin_call, _SPI_end_call,
+    set_spi_processed, set_spi_tuptable, with_current, TuptabHandle,
 };
 
 pub struct SpiCursor {
@@ -29,10 +30,7 @@ impl SpiCursor {
     // Re-wrap an already-open portal (the portal owns its stmts handle;
     // PortalDrop frees it).
     pub fn from_portal(portal: Portal<'static>) -> SpiCursor {
-        SpiCursor {
-            portal,
-            stmts: StmtListHandle::NULL,
-        }
+        SpiCursor { portal, stmts: StmtListHandle::NULL, }
     }
 }
 
@@ -78,9 +76,7 @@ pub fn SPI_cursor_open(
     nulls: &[bool],
     read_only: bool,
 ) -> PgResult<SpiCursor> {
-    let argtypes = crate::plan::state_snapshot(ptr)
-        .map(|s| s.argtypes)
-        .unwrap_or_default();
+    let argtypes = crate::plan::state_snapshot(ptr).map(|s| s.argtypes).unwrap_or_default();
     let params: Vec<ParamExternData> = if values.is_empty() {
         Vec::new()
     } else {
@@ -265,11 +261,8 @@ pub fn SPI_cursor_fetch(cursor: &SpiCursor, forward: bool, count: i64) -> PgResu
 
     let result = (|| -> PgResult<()> {
         let mut dest = CreateDestReceiver(CommandDest::Spi);
-        let direction = if forward {
-            FetchDirection::FETCH_FORWARD
-        } else {
-            FetchDirection::FETCH_BACKWARD
-        };
+        let direction =
+            if forward { FetchDirection::FETCH_FORWARD } else { FetchDirection::FETCH_BACKWARD };
         let nfetched = pquery::PortalRunFetch(&cursor.portal, direction, count, &mut dest)?;
         with_current(|c| c.processed = nfetched);
         if _SPI_checktuples() {

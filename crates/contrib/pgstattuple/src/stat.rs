@@ -63,8 +63,7 @@ fn pgstat_relation(
         return Err(other_temp_tables_err());
     }
 
-    if RELKIND_HAS_TABLE_AM(rel.rd_rel.relkind) || rel.rd_rel.relkind == RELKIND_SEQUENCE {
-        pgstat_heap(rel, flinfo, fcinfo)
+    if RELKIND_HAS_TABLE_AM(rel.rd_rel.relkind) || rel.rd_rel.relkind == RELKIND_SEQUENCE { pgstat_heap(rel, flinfo, fcinfo)
     } else if rel.rd_rel.relkind == RELKIND_INDEX {
         // see pgstatindex_impl
         if !rel.rd_index.as_ref().is_some_and(|i| i.indisvalid) {
@@ -135,6 +134,7 @@ fn pgstat_heap(
     let mut stat = PgStatTuple::default();
 
     #[allow(clippy::while_let_loop)]
+
     loop {
         let (t_len, t_self, t_table_oid, hdr) =
             match heapam::heap_getnext(&mut hscan, ScanDirection::ForwardScanDirection)? {

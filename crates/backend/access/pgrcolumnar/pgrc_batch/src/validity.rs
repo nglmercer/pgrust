@@ -87,10 +87,7 @@ impl Validity {
     /// tail invariant).
     pub fn count_valid(&self, nrows: usize) -> usize {
         debug_assert!(self.words.len() >= words_for(nrows));
-        self.words[..words_for(nrows)]
-            .iter()
-            .map(|w| w.count_ones() as usize)
-            .sum()
+        self.words[..words_for(nrows)].iter().map(|w| w.count_ones() as usize).sum()
     }
 
     /// All-valid short-circuit (the zero-null proof consumers key on).

@@ -3488,7 +3488,7 @@ fn build_table_inner(spec: &TableSpec, dict: &DictView<'_>, region: &mut gravity
             }
             Ok(gravity_dict::Bits::build(dict, region, &mut |v| {
                 let b = raw::view_bytes(v);
-                Ok(b >= from.as_slice() && to.as_ref().is_none_or(|t| b < t.as_slice()))
+                Ok(b >= from.as_slice() && to.as_ref().is_none_or( |t| b < t.as_slice()))
             })?
             .header())
         }
@@ -4036,10 +4036,10 @@ pub(super) mod owner_tests {
                 let mut g: super::Grow<u8> = super::Grow::new(Some((slot, Kind::Sort)));
                 assert!(g.reserve(&mut step, 4 << 20).is_ok() && g.extend_from_slice(&[7u8; 4 << 20]).is_ok());
                 let one = usage(slot).held - before;
-                assert!((4 << 20..(4 << 20) + (64 << 10)).contains(&one), "the 4 MiB buffer on its owner: {one}");
+                assert!(( 4 << 20.. (4 << 20) + (64 << 10)).contains(&one), "the 4 MiB buffer on its owner: {one}");
                 assert!(g.reserve(&mut step, 1).is_ok());
                 let two = usage(slot).held - before;
-                assert!((8 << 20..(8 << 20) + (64 << 10)).contains(&two), "the grown 8 MiB buffer alone, the old one freed: {two}");
+                assert!(( 8 << 20.. (8 << 20) + (64 << 10)).contains(&two), "the grown 8 MiB buffer alone, the old one freed: {two}");
                 assert_eq!((g.len(), g.capacity()), (4 << 20, 8 << 20));
                 assert!(g.as_slice().iter().all(|&b| b == 7), "the elements moved");
             }

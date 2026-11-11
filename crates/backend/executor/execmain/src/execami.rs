@@ -1,3 +1,4 @@
+
 use ::types_nodes::node_tree::Node;
 use ::types_nodes::NodeTag;
 
@@ -60,9 +61,7 @@ pub fn plan_implicit_scroll_ok(node: Option<Node<'_>>) -> bool {
     }
 }
 
-pub(crate) fn cursor_plan_rewind_replays_seam(
-    pstmt: &::types_nodes::plannodes::PlannedStmt<'_>,
-) -> bool {
+pub(crate) fn cursor_plan_rewind_replays_seam(pstmt: &::types_nodes::plannodes::PlannedStmt<'_>,) -> bool {
     !plan_implicit_scroll_ok(pstmt.planTree)
 }
 

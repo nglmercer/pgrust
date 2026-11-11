@@ -134,11 +134,7 @@ impl Participation {
         let detached = detached();
         let started = started();
         let claimed = claimed();
-        Participation {
-            detached,
-            started,
-            claimed,
-        }
+        Participation { detached, started, claimed, }
     }
 
     /// No claimant was live across the reads: every claim counted had
@@ -156,11 +152,7 @@ impl StandingEngagement {
     /// The leader's [`Participation`] read, `started` being the arm's own
     /// count of participants that passed the bind and began driving.
     pub fn participation(&self, started: &AtomicUsize) -> Participation {
-        Participation::read(
-            || self.detached(),
-            || started.load(SeqCst),
-            || self.claimed(),
-        )
+        Participation::read(|| self.detached(), || started.load(SeqCst), || self.claimed(),)
     }
 
     pub fn claimed(&self) -> usize {
@@ -336,9 +328,7 @@ pub fn note_predrive_death() {
 pub fn try_grant_yield_current() -> bool {
     CURRENT_SERVE_BOARD.with(|slot| {
         let slot = slot.borrow();
-        let Some(board) = slot.as_ref() else {
-            return false;
-        };
+        let Some(board) = slot.as_ref() else { return false; };
         if board.try_grant_yield() {
             YIELD_PENDING.with(|c| c.set(true));
             true
@@ -458,7 +448,8 @@ fn gang() -> &'static (Mutex<GangState>, Condvar) {
 /// PGRUST_RUNTIME_POOLBIND=0 kills this module (launched-path fallback).
 pub fn pool_binding_enabled() -> bool {
     static ON: OnceLock<bool> = OnceLock::new();
-    *ON.get_or_init(|| std::env::var("PGRUST_RUNTIME_POOLBIND").map_or(true, |v| v.trim() != "0"))
+    *ON.get_or_init(||
+        std::env::var("PGRUST_RUNTIME_POOLBIND").map_or(true, |v| v.trim() != "0"))
 }
 
 /// PGPROC-LEASING POOL WORKERS (M2 inc-2 keystone) — rtpool threads take
@@ -479,7 +470,8 @@ pub fn pool_binding_enabled() -> bool {
 ///   layer under THIS switch and flip with it.
 pub fn pooldb_enabled() -> bool {
     static ON: OnceLock<bool> = OnceLock::new();
-    *ON.get_or_init(|| pooldb_posture(std::env::var("PGRUST_RUNTIME_POOLDB").ok().as_deref()))
+    *ON.get_or_init(||
+        pooldb_posture(std::env::var("PGRUST_RUNTIME_POOLDB").ok().as_deref()))
 }
 
 /// The flip's pure parse (unit-pinned): default ON; `0`/`off` kill; any
@@ -576,7 +568,7 @@ pub fn try_engage(shared: &Arc<ParallelShared>, dop: usize) -> Option<Arc<Standi
             *s = SlotState::Live;
         }
     }
-    if !g.slots.contains(&SlotState::Live) {
+    if !g.slots.contains(& SlotState::Live) {
         return None;
     }
     let entry = Arc::new(StandingEngagement {
@@ -789,10 +781,7 @@ pub(crate) fn engage_deferred_visibility() -> types_error::PgResult<()> {
     if let Err(e) = procsignal::ProcSignalReinitStanding(&[]) {
         let _ = elog::elog(
             WARNING,
-            format!(
-                "standing executor ProcSignal re-init failed: {}",
-                e.message()
-            ),
+            format!("standing executor ProcSignal re-init failed: {}", e.message()),
         );
     }
     super::gtrace("w.vis.end");
@@ -849,16 +838,16 @@ pub fn gang_worker_loop(_ordinal: usize) -> GangExit {
                     }
                 }
                 if let Some(entry) = g.current.as_ref() {
-                    let db = entry.shared.database_id;
-                    let mine = init_small::globals::MyDatabaseId();
-                    // DB-pinning (TD-1): unconnected workers adopt the
-                    // engagement's database; connected ones only serve
-                    // their own. Mismatch = parked non-participation.
-                    if mine == InvalidOid || mine == db {
-                        break Wake::Engage(Arc::clone(entry));
+                        let db = entry.shared.database_id;
+                        let mine = init_small::globals::MyDatabaseId();
+                        // DB-pinning (TD-1): unconnected workers adopt the
+                        // engagement's database; connected ones only serve
+                        // their own. Mismatch = parked non-participation.
+                        if mine == InvalidOid || mine == db {
+                            break Wake::Engage(Arc::clone(entry));
+                        }
+                        break Wake::Blocked(Arc::clone(entry));
                     }
-                    break Wake::Blocked(Arc::clone(entry));
-                }
                 g = cv.wait(g).unwrap_or_else(|p| p.into_inner());
             }
         };
@@ -876,8 +865,9 @@ pub fn gang_worker_loop(_ordinal: usize) -> GangExit {
                 // bracket); the exit-callback chain (RemoveProcFromArray)
                 // expects membership — rejoin before proc_exit.
                 if init_small::globals::MyDatabaseId() != InvalidOid {
-                    let _ =
-                        procarray_seams::proc_array_add::call(init_small::globals::MyProcNumber());
+                    let _ = procarray_seams::proc_array_add::call(
+                        init_small::globals::MyProcNumber()
+                    );
                 }
                 return GangExit::Clean;
             }
@@ -939,7 +929,8 @@ fn warm_connect(entry: &Arc<StandingEngagement>) {
             entry.shared.authenticated_user_id,
             bgworker::BGWORKER_BYPASS_ALLOWCONN | bgworker::BGWORKER_BYPASS_ROLELOGINCHECK,
         )
-        .and_then(|()| mbutils::SetClientEncoding(mbutils::GetDatabaseEncoding()).map(|_| ()))
+        .and_then(|()|
+            mbutils::SetClientEncoding(mbutils::GetDatabaseEncoding()).map(|_| ()))
     }));
     super::gtrace("g.warmconn.end");
     match connected {
@@ -1073,7 +1064,8 @@ fn serve_ticket(entry: &Arc<StandingEngagement>, ticket: usize) {
                 shared.authenticated_user_id,
                 bgworker::BGWORKER_BYPASS_ALLOWCONN | bgworker::BGWORKER_BYPASS_ROLELOGINCHECK,
             )
-            .and_then(|()| mbutils::SetClientEncoding(mbutils::GetDatabaseEncoding()).map(|_| ()))
+            .and_then(|()|
+                mbutils::SetClientEncoding(mbutils::GetDatabaseEncoding()).map(|_| ()))
         }));
         super::gtrace("g.conn.end");
         match connected {
@@ -1102,7 +1094,10 @@ fn serve_ticket(entry: &Arc<StandingEngagement>, ticket: usize) {
                 if is_exit_unwind(&*payload) {
                     resume_unwind(payload);
                 }
-                let _ = elog::elog(WARNING, "standing executor connect panicked".to_string());
+                let _ = elog::elog(
+                    WARNING,
+                    "standing executor connect panicked".to_string()
+                );
                 connect_failed_die();
             }
         }
@@ -1125,12 +1120,15 @@ fn serve_ticket(entry: &Arc<StandingEngagement>, ticket: usize) {
             // restore publishes xmin, which only counts while visible),
             // and retake a ProcSignal slot (released at every park — see
             // the tail).
-            if let Err(e) =
-                procarray_seams::proc_array_add::call(init_small::globals::MyProcNumber())
-            {
+            if let Err(e) = procarray_seams::proc_array_add::call(
+                init_small::globals::MyProcNumber()
+            ) {
                 let _ = elog::elog(
                     WARNING,
-                    format!("standing executor procarray re-add failed: {}", e.message()),
+                    format!(
+                        "standing executor procarray re-add failed: {}",
+                        e.message()
+                    ),
                 );
                 entry.refused.fetch_add(1, SeqCst);
                 return;
@@ -1183,7 +1181,10 @@ fn serve_ticket(entry: &Arc<StandingEngagement>, ticket: usize) {
             Err(e) => {
                 let _ = elog::elog(
                     WARNING,
-                    format!("standing executor sticky eviction failed: {}", e.message()),
+                    format!(
+                        "standing executor sticky eviction failed: {}",
+                        e.message()
+                    ),
                 );
                 entry.refused.fetch_add(1, SeqCst);
                 false
@@ -1758,7 +1759,9 @@ pub fn pool_serve(payload: &Arc<dyn std::any::Any + Send + Sync>) -> PoolServe {
         };
         if retired {
             super::query_task_guard::sticky_clear();
-            let _ = procarray_seams::proc_array_add::call(init_small::globals::MyProcNumber());
+            let _ = procarray_seams::proc_array_add::call(
+                init_small::globals::MyProcNumber()
+            );
             ipc::proc_exit(0, init_small::globals::MyProcPid());
         }
     }
@@ -1821,10 +1824,7 @@ mod pooldb_flip_tests {
     #[test]
     fn pooldb_default_on_kill_spellings() {
         assert!(super::pooldb_posture(None), "unset = flipped default ON");
-        assert!(
-            super::pooldb_posture(Some("1")),
-            "historical arming spelling stays ON"
-        );
+        assert!(super::pooldb_posture(Some("1")), "historical arming spelling stays ON");
         assert!(super::pooldb_posture(Some("on")), "affirmative spelling ON");
         assert!(!super::pooldb_posture(Some("0")), "=0 kills");
         assert!(!super::pooldb_posture(Some("off")), "=off kills");
@@ -1873,11 +1873,7 @@ mod participation_tests {
             |b| b.detached += 1, // D refuses and detaches
         ];
         let at = |n: usize| {
-            let mut b = Board {
-                claimed: 1,
-                detached: 0,
-                started: 0,
-            };
+            let mut b = Board { claimed: 1, detached: 0, started: 0, };
             for e in &script[..n] {
                 e(&mut b);
             }
@@ -1887,8 +1883,7 @@ mod participation_tests {
         for i in 0..=n {
             for j in i..=n {
                 for k in j..=n {
-                    let p =
-                        Participation::read(|| at(i).detached, || at(j).started, || at(k).claimed);
+                    let p = Participation::read(|| at(i).detached, || at(j).started, || at(k).claimed);
                     assert!(
                         !p.all_exited_after_start(),
                         "reads after {i}/{j}/{k} events say every participant exited while B drives: {p:?}"
@@ -1899,16 +1894,12 @@ mod participation_tests {
         let old_order_misreads = (0..=n).any(|i| {
             (i..=n).any(|j| {
                 (j..=n).any(|k| {
-                    let (claimed, started, detached) =
-                        (at(i).claimed, at(j).started, at(k).detached);
+                    let (claimed, started, detached) = (at(i).claimed, at(j).started, at(k).detached);
                     claimed > 0 && started > 0 && detached >= claimed
                 })
             })
         });
-        assert!(
-            old_order_misreads,
-            "the script must reproduce the claims-first misread"
-        );
+        assert!(old_order_misreads, "the script must reproduce the claims-first misread");
     }
 
     /// The needle still fires when it should: B finished the pass and

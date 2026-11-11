@@ -46,17 +46,16 @@ static EMITTED: std::sync::Mutex<Vec<(types_error::SqlState, String)>> =
     std::sync::Mutex::new(Vec::new());
 
 fn capture_emitted(err: &types_error::PgError, _output_to_server: &mut bool) {
-    EMITTED
-        .lock()
-        .unwrap()
-        .push((err.sqlstate(), err.message().to_string()));
+    EMITTED.lock().unwrap().push((err.sqlstate(), err.message().to_string()));
 }
 
 static ALLOW_IN_PLACE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 fn fixture_datadir(tag: &str) -> std::path::PathBuf {
-    let dir =
-        std::env::temp_dir().join(format!("pgrust_xlogrecovery_{tag}_{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!(
+        "pgrust_xlogrecovery_{tag}_{}",
+        std::process::id()
+    ));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     init_small::globals::SetDataDir(dir.to_str().unwrap());
@@ -92,17 +91,11 @@ fn check_tablespace_directory_reports_open_failure_like_c() {
         std::fs::remove_file(dir.join("pg_tblspc")).unwrap();
         std::fs::create_dir(dir.join("pg_tblspc")).unwrap();
         use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(
-            dir.join("pg_tblspc"),
-            std::fs::Permissions::from_mode(0o000),
-        )
-        .unwrap();
+        std::fs::set_permissions(dir.join("pg_tblspc"), std::fs::Permissions::from_mode(0o000),)
+            .unwrap();
         let err = check_tablespace_directory().expect_err("EACCES must be an ERROR");
-        std::fs::set_permissions(
-            dir.join("pg_tblspc"),
-            std::fs::Permissions::from_mode(0o700),
-        )
-        .unwrap();
+        std::fs::set_permissions(dir.join("pg_tblspc"), std::fs::Permissions::from_mode(0o700),)
+            .unwrap();
         assert_eq!(err.sqlstate(), types_error::ERRCODE_INSUFFICIENT_PRIVILEGE);
         assert_eq!(
             err.message(),
@@ -184,10 +177,7 @@ fn run_check_hook(
 fn check_recovery_target_rejects_via_guc_check_errdetail() {
     let (r, details) = run_check_hook(&guc_tables::hooks::check_recovery_target, "foo");
     assert!(matches!(r, Ok(false)), "got {r:?}");
-    assert_eq!(
-        details,
-        vec!["The only allowed value is \"immediate\".".to_string()]
-    );
+    assert_eq!(details, vec!["The only allowed value is \"immediate\".".to_string()]);
     let (r, _) = run_check_hook(&guc_tables::hooks::check_recovery_target, "immediate");
     assert!(matches!(r, Ok(true)));
 }
@@ -333,12 +323,8 @@ fn install_boot_seams() {
             xact_seams::get_current_sub_transaction_id::set(|| 1);
         }
         xlogprefetcher::XLogPrefetchShmemInit();
-        guc_tables::vars::maintenance_io_concurrency.install_if_absent(
-            guc_tables::GucVarAccessors {
-                get: || 10,
-                set: |_| {},
-            },
-        );
+        guc_tables::vars::maintenance_io_concurrency
+            .install_if_absent(guc_tables::GucVarAccessors { get: || 10, set: |_| {}, },);
     });
     install_crate_seams();
     install_timeline_seams();
@@ -357,26 +343,14 @@ fn install_timeline_seams() {
 #[test]
 fn timeline_history_helpers() {
     install_timeline_seams();
-    let tles = vec![Tle {
-        tli: 3,
-        begin: 0,
-        end: 0,
-    }];
+    let tles = vec![Tle { tli: 3, begin: 0, end: 0, }];
     assert!(tli_in_history(3, &tles));
     assert!(!tli_in_history(2, &tles));
     assert!(tli_in_history(9, &[]));
     assert_eq!(tli_of_point_in_history(0x12345, &tles).unwrap(), 3);
     let split = vec![
-        Tle {
-            tli: 2,
-            begin: 0x8000,
-            end: 0,
-        },
-        Tle {
-            tli: 1,
-            begin: 0,
-            end: 0x8000,
-        },
+        Tle { tli: 2, begin: 0x8000, end: 0, },
+        Tle { tli: 1, begin: 0, end: 0x8000, },
     ];
     assert_eq!(tli_of_point_in_history(0x7FFF, &split).unwrap(), 1);
     assert_eq!(tli_of_point_in_history(0x8000, &split).unwrap(), 2);
@@ -479,10 +453,7 @@ fn clean_shutdown_boot_path() {
         (7, 8, 9),
         "ShutdownWalRecovery left pg_stat_recovery_prefetch distances unfinalized"
     );
-    assert_eq!(
-        distances.2, 0,
-        "io_depth after the last read is 0 (nothing in flight)"
-    );
+    assert_eq!(distances.2, 0, "io_depth after the last read is 0 (nothing in flight)");
 
     // ApplyWalRecord's timeline-switch epilogue (xlogrecovery.c:2092) resets
     // the prefetcher with XLogPrefetchReconfigure(). Audit
@@ -672,15 +643,8 @@ fn expect_fatal(f: impl FnOnce() -> PgResult<()>) -> types_error::PgError {
     elog::set_emit_log_hook(prev);
     elog::FlushErrorState();
     let payload = result.expect_err("a FATAL report must reach proc_exit(1)");
-    assert_eq!(
-        payload.downcast_ref::<String>().map(String::as_str),
-        Some("proc_exit(1)")
-    );
-    let err = REPORTS
-        .lock()
-        .unwrap()
-        .pop()
-        .expect("FATAL report was emitted");
+    assert_eq!(payload.downcast_ref::<String>().map(String::as_str), Some("proc_exit(1)"));
+    let err = REPORTS.lock().unwrap().pop().expect("FATAL report was emitted");
     assert_eq!(err.level, FATAL);
     err
 }
@@ -725,15 +689,9 @@ fn backup_label_timeline_mismatch_is_fatal_55000_with_detail_like_c() {
     let dir = fixture_datadir("label_tli");
     let content = format!("{LABEL_HEAD}{LABEL_TRAILER}START TIMELINE: 2\n");
     let err = read_label_fatal(&dir, content.as_bytes());
-    assert_eq!(
-        err.sqlstate(),
-        types_error::ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE
-    );
+    assert_eq!(err.sqlstate(), types_error::ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE);
     assert_eq!(err.message(), "invalid data in file \"backup_label\"");
-    assert_eq!(
-        err.detail(),
-        Some("Timeline ID parsed is 2, but expected 1.")
-    );
+    assert_eq!(err.detail(), Some("Timeline ID parsed is 2, but expected 1."));
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -748,18 +706,9 @@ fn backup_label_incremental_is_fatal_55000_with_hint_like_c() {
         "{LABEL_HEAD}{LABEL_TRAILER}START TIMELINE: 1\nINCREMENTAL FROM LSN: 0/2000028\nINCREMENTAL FROM TLI: 1\n"
     );
     let err = read_label_fatal(&dir, content.as_bytes());
-    assert_eq!(
-        err.sqlstate(),
-        types_error::ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE
-    );
-    assert_eq!(
-        err.message(),
-        "this is an incremental backup, not a data directory"
-    );
-    assert_eq!(
-        err.hint(),
-        Some("Use pg_combinebackup to reconstruct a valid data directory.")
-    );
+    assert_eq!(err.sqlstate(), types_error::ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE);
+    assert_eq!(err.message(), "this is an incremental backup, not a data directory");
+    assert_eq!(err.hint(), Some("Use pg_combinebackup to reconstruct a valid data directory."));
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -777,10 +726,7 @@ fn unreadable_file_is_fatal_file_access_like_c(tag: &str, file: &str, read: fn()
     assert_eq!(err.sqlstate(), types_error::ERRCODE_INTERNAL_ERROR);
     assert_eq!(
         err.message(),
-        format!(
-            "could not read file \"{file}\": {}",
-            elog::errno::strerror(libc::ELOOP)
-        )
+        format!("could not read file \"{file}\": {}", elog::errno::strerror(libc::ELOOP))
     );
     if unsafe { libc::geteuid() } != 0 {
         use std::os::unix::fs::PermissionsExt;
@@ -792,10 +738,7 @@ fn unreadable_file_is_fatal_file_access_like_c(tag: &str, file: &str, read: fn()
         assert_eq!(err.sqlstate(), types_error::ERRCODE_INSUFFICIENT_PRIVILEGE);
         assert_eq!(
             err.message(),
-            format!(
-                "could not read file \"{file}\": {}",
-                elog::errno::strerror(libc::EACCES)
-            )
+            format!("could not read file \"{file}\": {}", elog::errno::strerror(libc::EACCES))
         );
     }
     let _ = std::fs::remove_dir_all(&dir);
@@ -825,10 +768,7 @@ fn tablespace_map_invalid_data_is_fatal_55000_like_c() {
     let dir = fixture_datadir("map_invalid");
     for content in [&b"nospace\n"[..], b"16384x /tmp/ts\n", b"16385 /tmp/ts"] {
         let err = read_map_fatal(&dir, content);
-        assert_eq!(
-            err.sqlstate(),
-            types_error::ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE
-        );
+        assert_eq!(err.sqlstate(), types_error::ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE);
         assert_eq!(err.message(), "invalid data in file \"tablespace_map\"");
         assert_eq!(err.detail(), None);
     }
@@ -848,17 +788,10 @@ fn read_label_at_debug1(content: &[u8]) -> (backup_label::BackupLabel, Vec<Strin
     elog::set_emit_log_hook(prev);
     elog::config::set_log_min_messages(prev_min);
     let _ = std::fs::remove_dir_all(&dir);
-    let label = r
-        .expect("a well-formed backup_label is read")
-        .expect("backup_label present");
+    let label = r.expect("a well-formed backup_label is read").expect("backup_label present");
     let reports = REPORTS.lock().unwrap();
     for e in reports.iter() {
-        assert_eq!(
-            e.level,
-            types_error::DEBUG1,
-            "unexpected report {:?}",
-            e.message()
-        );
+        assert_eq!(e.level, types_error::DEBUG1, "unexpected report {:?}", e.message());
     }
     let msgs = reports.iter().map(|e| e.message().to_string()).collect();
     (label, msgs)
@@ -1060,8 +993,7 @@ fn run_stream_idle_scenario() -> StreamIdleRun {
     xlogprefetcher::xlog_prefetch_poke_shared_distances(4032, 64, 0);
     // The segment the walreceiver is writing (opened once data arrives).
     std::fs::write(
-        dir.join("pg_wal")
-            .join(transam_xlog::XLogFileName(1, 1, SEG)),
+        dir.join("pg_wal").join(transam_xlog::XLogFileName(1, 1, SEG)),
         vec![0u8; 8192],
     )
     .unwrap();
@@ -1126,18 +1058,13 @@ fn run_stream_idle_scenario() -> StreamIdleRun {
 fn stream_idle_wait_refreshes_recovery_prefetch_stats_like_c() {
     let run = run_stream_idle_scenario();
     assert_eq!(run.stream_result, XLREAD_SUCCESS);
-    let distances = run
-        .distances_at_first_wake
-        .expect("the idle wait was reached");
+    let distances = run.distances_at_first_wake.expect("the idle wait was reached");
     assert_ne!(
         distances,
         (4032, 64, 0),
         "pg_stat_recovery_prefetch kept its stale distances across the idle wait"
     );
-    assert_eq!(
-        distances.0, 0,
-        "wal_distance while idle and caught up: {distances:?}"
-    );
+    assert_eq!(distances.0, 0, "wal_distance while idle and caught up: {distances:?}");
 }
 
 // xlogrecovery.c:4430: StartupRequestWalReceiverRestart requests the restart
@@ -1155,18 +1082,12 @@ fn walreceiver_restart_request_needs_stream_source_like_c() {
         run.on_stream_reload_logged, 1,
         "on-stream reload with the walreceiver up must log the shutdown request"
     );
-    assert!(
-        run.on_stream_reload_pending,
-        "on-stream reload must set pendingWalRcvRestart"
-    );
+    assert!(run.on_stream_reload_pending, "on-stream reload must set pendingWalRcvRestart");
     assert_eq!(
         run.off_stream_reloads_logged, 0,
         "off-stream reloads must not log \"WAL receiver process shutdown requested\""
     );
-    assert!(
-        !run.off_stream_reload_pending,
-        "off-stream reload set pendingWalRcvRestart"
-    );
+    assert!(!run.off_stream_reload_pending, "off-stream reload set pendingWalRcvRestart");
 }
 
 // xlogrecovery.c:4414-4419: when no expected timeline has the segment,
@@ -1178,8 +1099,7 @@ fn walreceiver_restart_request_needs_stream_source_like_c() {
 fn missing_segment_on_every_timeline_is_logged_at_debug2_like_c() {
     let run = run_stream_idle_scenario();
     assert_eq!(run.pg_wal_result, XLREAD_FAIL);
-    let expected =
-        "could not open file \"pg_wal/000000010000000000000002\": No such file or directory";
+    let expected = "could not open file \"pg_wal/000000010000000000000002\": No such file or directory";
     let hit = run
         .reports
         .iter()
@@ -1187,10 +1107,7 @@ fn missing_segment_on_every_timeline_is_logged_at_debug2_like_c() {
         .unwrap_or_else(|| {
             panic!(
                 "no {expected:?} report; got {:?}",
-                run.reports
-                    .iter()
-                    .map(|e| e.message().to_string())
-                    .collect::<Vec<_>>()
+                run.reports.iter().map(|e| e.message().to_string()).collect::<Vec<_>>()
             )
         });
     assert_eq!(hit.level, types_error::DEBUG2);
@@ -1226,12 +1143,7 @@ fn recovery_apply_delay_logs_debug2_like_c() {
     IN_ARCHIVE_RECOVERY.store(false, Relaxed);
     let loc: XLogRecPtr = SEG as u64 + SizeOfXLogLongPHD as u64;
     // xl_xact_commit without XLOG_XACT_HAS_INFO: xact_time only.
-    let commit = record_bytes(
-        loc,
-        xact::RM_XACT_ID,
-        xact::XLOG_XACT_COMMIT,
-        &0i64.to_ne_bytes(),
-    );
+    let commit = record_bytes(loc, xact::RM_XACT_ID, xact::XLOG_XACT_COMMIT, &0i64.to_ne_bytes(),);
     write_segment_with_record(&dir, loc, &commit);
     RECOVERY_TARGET_TLI.store(1, Relaxed);
 
@@ -1271,23 +1183,14 @@ fn recovery_apply_delay_logs_debug2_like_c() {
     let _ = std::fs::remove_dir_all(&dir);
 
     assert!(delayed.unwrap(), "the commit record was delayed");
-    assert!(
-        APPLY_DELAY_WAKES.load(Relaxed) >= 2,
-        "the wait loop ran at least one pass"
-    );
+    assert!(APPLY_DELAY_WAKES.load(Relaxed) >= 2, "the wait loop ran at least one pass");
     let expected = "recovery apply delay 1000 milliseconds";
-    let hit = reports
-        .iter()
-        .find(|e| e.message() == expected)
-        .unwrap_or_else(|| {
-            panic!(
-                "no {expected:?} report; got {:?}",
-                reports
-                    .iter()
-                    .map(|e| e.message().to_string())
-                    .collect::<Vec<_>>()
-            )
-        });
+    let hit = reports.iter().find(|e| e.message() == expected).unwrap_or_else(|| {
+        panic!(
+            "no {expected:?} report; got {:?}",
+            reports.iter().map(|e| e.message().to_string()).collect::<Vec<_>>()
+        )
+    });
     assert_eq!(hit.level, types_error::DEBUG2);
 }
 
@@ -1298,12 +1201,8 @@ fn commit_record_reader<'a>(
     xact_time: i64,
 ) -> XLogReaderState<'a> {
     let loc: XLogRecPtr = SEG as u64 + SizeOfXLogLongPHD as u64;
-    let commit = record_bytes(
-        loc,
-        xact::RM_XACT_ID,
-        xact::XLOG_XACT_COMMIT,
-        &xact_time.to_ne_bytes(),
-    );
+    let commit =
+        record_bytes(loc, xact::RM_XACT_ID, xact::XLOG_XACT_COMMIT, &xact_time.to_ne_bytes(),);
     write_segment_with_record(dir, loc, &commit);
     RECOVERY_TARGET_TLI.store(1, Relaxed);
     let mut reader = XLogReaderState::allocate(cx.mcx(), SEG).unwrap();
@@ -1358,18 +1257,12 @@ fn recovery_apply_delay_rounds_a_sub_millisecond_remainder_up_like_c() {
     drop(reader);
     let _ = std::fs::remove_dir_all(&dir);
 
-    assert!(
-        delayed.unwrap(),
-        "a 500 us remainder is a 1 ms wait, not an immediate replay"
-    );
+    assert!(delayed.unwrap(), "a 500 us remainder is a 1 ms wait, not an immediate replay");
     let expected = "recovery apply delay 1 milliseconds";
     assert!(
         reports.iter().any(|e| e.message() == expected),
         "no {expected:?} report; got {:?}",
-        reports
-            .iter()
-            .map(|e| e.message().to_string())
-            .collect::<Vec<_>>()
+        reports.iter().map(|e| e.message().to_string()).collect::<Vec<_>>()
     );
 }
 
@@ -1398,14 +1291,8 @@ fn immediate_target_stops_before_the_next_record_and_after_a_xact_record_like_c(
     drop(reader);
     let _ = std::fs::remove_dir_all(&dir);
 
-    assert!(
-        after.unwrap(),
-        "recoveryStopsAfter fires for a xact record once consistency is reached"
-    );
-    assert!(
-        before.unwrap(),
-        "recoveryStopsBefore stops once consistency is reached"
-    );
+    assert!(after.unwrap(), "recoveryStopsAfter fires for a xact record once consistency is reached");
+    assert!(before.unwrap(), "recoveryStopsBefore stops once consistency is reached");
     assert_eq!(reason, "reached consistency");
 }
 
@@ -1418,15 +1305,7 @@ fn immediate_target_stops_before_the_next_record_and_after_a_xact_record_like_c(
 // a186-verified-fp-transam-xlogrecovery-p2-bca11a0cf6e3cad4e15f-1.
 #[test]
 fn check_recovery_target_time_rejects_non_date_tokens_like_c() {
-    for token in [
-        "infinity",
-        "-infinity",
-        "epoch",
-        "now",
-        "today",
-        "tomorrow",
-        "yesterday",
-    ] {
+    for token in ["infinity", "-infinity", "epoch", "now", "today", "tomorrow", "yesterday",] {
         let (r, details) = run_check_hook(&guc_tables::hooks::check_recovery_target_time, token);
         assert!(matches!(r, Ok(false)), "{token}: got {r:?}");
         assert!(details.is_empty(), "{token}: unexpected detail {details:?}");
@@ -1440,10 +1319,8 @@ fn check_recovery_target_time_rejects_non_date_tokens_like_c() {
         details,
         vec!["Timestamp out of range: \"294277-01-01 00:00:00+00\".".to_string()]
     );
-    let (r, details) = run_check_hook(
-        &guc_tables::hooks::check_recovery_target_time,
-        "2024-01-01 00:00:00+00",
-    );
+    let (r, details) =
+        run_check_hook(&guc_tables::hooks::check_recovery_target_time, "2024-01-01 00:00:00+00",);
     assert!(matches!(r, Ok(true)), "got {r:?}");
     assert!(details.is_empty());
     let (r, _) = run_check_hook(&guc_tables::hooks::check_recovery_target_time, "");
@@ -1506,10 +1383,8 @@ fn record_bytes_with_blkref(
 fn install_varsup_once() {
     static ONCE: std::sync::Once = std::sync::Once::new();
     ONCE.call_once(varsup::VarsupShmemInit);
-    guc_tables::vars::max_wal_senders.install_if_absent(guc_tables::GucVarAccessors {
-        get: || 0,
-        set: |_| {},
-    });
+    guc_tables::vars::max_wal_senders
+        .install_if_absent(guc_tables::GucVarAccessors { get: || 0, set: |_| {}, });
 }
 
 // ApplyWalRecord advances the shared replay pointers; the boot-path units
@@ -1526,9 +1401,8 @@ fn reset_replay_pointers() {
 // Reads the single record at `loc` from the fixture's segment through the
 // real reader and wraps it in a Recovery for apply_wal_record.
 fn recovery_at_record(loc: XLogRecPtr) -> Recovery {
-    let context: &'static mcx::MemoryContext = Box::leak(Box::new(mcx::MemoryContext::new(
-        "rm_redo errcontext witness",
-    )));
+    let context: &'static mcx::MemoryContext =
+        Box::leak(Box::new(mcx::MemoryContext::new("rm_redo errcontext witness",)));
     let mut reader = XLogReaderState::allocate(context.mcx(), SEG).unwrap();
     reader.system_identifier = SYS_ID;
     reader.XLogReaderSetDecodeBuffer(guc_tables::vars::wal_decode_buffer_size.read() as usize);
@@ -1640,19 +1514,12 @@ fn apply_wal_record_reports_carry_wal_redo_context_like_c() {
 
     applied.unwrap();
     let find = |msg: &str| {
-        reports
-            .iter()
-            .find(|e| e.message() == msg)
-            .cloned()
-            .unwrap_or_else(|| {
-                panic!(
-                    "no {msg:?} report; got {:?}",
-                    reports
-                        .iter()
-                        .map(|e| e.message().to_string())
-                        .collect::<Vec<_>>()
-                )
-            })
+        reports.iter().find(|e| e.message() == msg).cloned().unwrap_or_else(|| {
+            panic!(
+                "no {msg:?} report; got {:?}",
+                reports.iter().map(|e| e.message().to_string()).collect::<Vec<_>>()
+            )
+        })
     };
     let inside = find("end of backup record reached");
     assert_eq!(inside.level, types_error::DEBUG1);
@@ -1662,11 +1529,7 @@ fn apply_wal_record_reports_carry_wal_redo_context_like_c() {
         "reports inside ApplyWalRecord get rm_redo_error_callback's line"
     );
     let outside = find("probe after ApplyWalRecord");
-    assert_eq!(
-        outside.context(),
-        None,
-        "the frame is popped with ApplyWalRecord"
-    );
+    assert_eq!(outside.context(), None, "the frame is popped with ApplyWalRecord");
 }
 
 // xlog_outdesc (xlogrecovery.c:2327-2344) + xlog_block_info (2366-2398) over
@@ -1698,11 +1561,7 @@ fn xlog_outdesc_and_block_info_render_like_c() {
         blkno: 9,
         ..xlogreader_seams::DecodedBkpBlock::EMPTY
     };
-    let view = ReaderView {
-        ReadRecPtr: 0x1000028,
-        record: Some(unknown),
-        ..Default::default()
-    };
+    let view = ReaderView { ReadRecPtr: 0x1000028, record: Some(unknown), ..Default::default() };
     let mut buf = StringInfo::new_in(cx.mcx()).unwrap();
     xlog_outdesc(&mut buf, &view).unwrap();
     xlog_block_info(&mut buf, &view).unwrap();
@@ -1717,18 +1576,11 @@ fn xlog_outdesc_and_block_info_render_like_c() {
     known.xl_info = transam_xlog::XLOG_BACKUP_END;
     known.main_data = startpoint.as_ptr();
     known.main_data_len = startpoint.len() as u32;
-    let view = ReaderView {
-        ReadRecPtr: 0x1000028,
-        record: Some(known),
-        ..Default::default()
-    };
+    let view = ReaderView { ReadRecPtr: 0x1000028, record: Some(known), ..Default::default() };
     let mut buf = StringInfo::new_in(cx.mcx()).unwrap();
     xlog_outdesc(&mut buf, &view).unwrap();
     xlog_block_info(&mut buf, &view).unwrap();
-    assert_eq!(
-        String::from_utf8_lossy(buf.as_bytes()),
-        "XLOG/BACKUP_END: 0/1000028"
-    );
+    assert_eq!(String::from_utf8_lossy(buf.as_bytes()), "XLOG/BACKUP_END: 0/1000028");
 }
 
 #[test]
@@ -1781,12 +1633,8 @@ fn rescan_fork_interrupt() {
             WALRCV_UP.store(true, Relaxed);
             let dir = RESCAN_FORK_DIR.lock().unwrap().clone().unwrap();
             let loc: XLogRecPtr = SEG as u64 + SizeOfXLogLongPHD as u64;
-            let commit = record_bytes(
-                loc,
-                xact::RM_XACT_ID,
-                xact::XLOG_XACT_COMMIT,
-                &0i64.to_ne_bytes(),
-            );
+            let commit =
+                record_bytes(loc, xact::RM_XACT_ID, xact::XLOG_XACT_COMMIT, &0i64.to_ne_bytes(),);
             write_segment_with_record(&dir, loc, &commit);
         }
         _ => {}
@@ -1827,11 +1675,8 @@ fn checkpoint_fetch_rejects_a_timeline_forked_before_the_reader_position_like_c(
     // Timeline 2 forks from timeline 1 at the segment start, before the
     // checkpoint record the reader is positioned on; the segment is absent
     // until the interrupt hook supplies it.
-    std::fs::write(
-        dir.join("pg_wal").join("00000002.history"),
-        b"1\t0/1000000\tno reason\n",
-    )
-    .unwrap();
+    std::fs::write(dir.join("pg_wal").join("00000002.history"), b"1\t0/1000000\tno reason\n",)
+        .unwrap();
     latch::OwnLatch(targets::recovery_wakeup_latch()).unwrap();
     latch::SetLatch(targets::recovery_wakeup_latch());
     REPORTS.lock().unwrap().clear();
@@ -1860,32 +1705,21 @@ fn checkpoint_fetch_rejects_a_timeline_forked_before_the_reader_position_like_c(
     IN_ARCHIVE_RECOVERY.store(false, Relaxed);
     STANDBY_MODE.store(false, Relaxed);
     let target_tli = RECOVERY_TARGET_TLI.swap(1, Relaxed);
-    let msgs: Vec<String> = REPORTS
-        .lock()
-        .unwrap()
-        .iter()
-        .map(|e| e.message().to_string())
-        .collect();
+    let msgs: Vec<String> =
+        REPORTS.lock().unwrap().iter().map(|e| e.message().to_string()).collect();
     drop(reader);
     if let Some(prev) = prev_cwd {
         let _ = std::env::set_current_dir(prev);
     }
     let _ = std::fs::remove_dir_all(&dir);
 
-    assert_eq!(
-        read.unwrap(),
-        Some(loc),
-        "the record is read once the segment appears"
-    );
+    assert_eq!(read.unwrap(), Some(loc), "the record is read once the segment appears");
     assert!(
         msgs.iter().any(|m| m
             == "new timeline 2 forked off current database system timeline 1 before current recovery point 0/1000028"),
         "C rejects the fork below the reader position; got {msgs:?}"
     );
-    assert!(
-        !msgs.iter().any(|m| m == "new target timeline is 2"),
-        "got {msgs:?}"
-    );
+    assert!(!msgs.iter().any(|m| m == "new target timeline is 2"), "got {msgs:?}");
     assert_eq!(target_tli, 1, "recovery target timeline must stay 1");
 }
 
@@ -1913,11 +1747,7 @@ fn wal_segment_pread_failure_is_reported_with_strerror_like_c() {
     RECOVERY_TARGET_TLI.store(1, Relaxed);
     // A directory where segment 1 belongs: open(O_RDONLY) succeeds, pread
     // fails with EISDIR.
-    std::fs::create_dir(
-        dir.join("pg_wal")
-            .join(transam_xlog::XLogFileName(1, 1, SEG)),
-    )
-    .unwrap();
+    std::fs::create_dir(dir.join("pg_wal").join(transam_xlog::XLogFileName(1, 1, SEG)),).unwrap();
     REPORTS.lock().unwrap().clear();
     let prev = elog::set_emit_log_hook(Some(capture_report));
     let mut src = PageSource::new();
@@ -1942,10 +1772,7 @@ fn wal_segment_pread_failure_is_reported_with_strerror_like_c() {
         .iter()
         .find(|e| e.message().starts_with("could not read from WAL segment"))
         .unwrap_or_else(|| {
-            panic!(
-                "no WAL read report; got {:?}",
-                reports.iter().map(|e| e.message()).collect::<Vec<_>>()
-            )
+            panic!("no WAL read report; got {:?}", reports.iter().map(|e| e.message()).collect::<Vec<_>>())
         });
     assert_eq!(hit.message(), expected);
     assert_eq!(hit.level, LOG);
@@ -2002,12 +1829,8 @@ fn standby_segment_start_check_logs_the_validator_message() {
     page[24..32].copy_from_slice(&SYS_ID.to_ne_bytes());
     page[32..36].copy_from_slice(&(SEG as u32).to_ne_bytes());
     page[36..40].copy_from_slice(&8192u32.to_ne_bytes());
-    std::fs::write(
-        dir.join("pg_wal")
-            .join(transam_xlog::XLogFileName(1, 1, SEG)),
-        &page,
-    )
-    .unwrap();
+    std::fs::write(dir.join("pg_wal").join(transam_xlog::XLogFileName(1, 1, SEG)), &page,)
+        .unwrap();
     REPORTS.lock().unwrap().clear();
     let prev = elog::set_emit_log_hook(Some(capture_report));
     let mut src = PageSource::new();
@@ -2064,13 +1887,7 @@ fn recovery_target_action_shutdown_survives_guc_republish() {
     guc_tables::vars::recoveryTargetAction.write(targets::RECOVERY_TARGET_ACTION_PAUSE);
     targets::set_recovery_target_action_shutdown(true);
     guc_tables::vars::recoveryTargetAction.write(targets::RECOVERY_TARGET_ACTION_PAUSE);
-    assert_eq!(
-        targets::recovery_target_action(),
-        targets::RECOVERY_TARGET_ACTION_SHUTDOWN
-    );
+    assert_eq!(targets::recovery_target_action(), targets::RECOVERY_TARGET_ACTION_SHUTDOWN);
     targets::set_recovery_target_action_shutdown(false);
-    assert_eq!(
-        targets::recovery_target_action(),
-        targets::RECOVERY_TARGET_ACTION_PAUSE
-    );
+    assert_eq!(targets::recovery_target_action(), targets::RECOVERY_TARGET_ACTION_PAUSE);
 }

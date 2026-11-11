@@ -178,7 +178,7 @@ impl<'mcx> MinimalTuple<'mcx> {
         extra: usize,
         zeroed: bool,
     ) -> PgResult<MinimalTuple<'mcx>> {
-        debug_assert!(extra.is_multiple_of(MAXIMUM_ALIGNOF));
+        debug_assert!(extra.is_multiple_of( MAXIMUM_ALIGNOF));
         let size = t_len + extra;
         let base = alloc_image(mcx, size, zeroed)?;
         if !zeroed && extra > 0 {
@@ -260,3 +260,4 @@ impl Drop for MinimalTuple<'_> {
         }
     }
 }
+

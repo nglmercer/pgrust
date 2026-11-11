@@ -1,5 +1,5 @@
 //! The pgrc fixtures `granule_source.rs` and `granule_census.rs` share (each is its own test binary).
-#![allow(clippy::duplicate_mod, dead_code)]
+#![allow(clippy::duplicate_mod,dead_code)]
 
 use std::sync::atomic::AtomicU8;
 use std::sync::Arc;

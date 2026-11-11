@@ -592,8 +592,7 @@ pub fn PortalRun<'mcx>(
     portal: &Portal<'static>,
     count: i64,
     is_top_level: bool,
-    dest: &mut DestReceiver<'mcx>,
-    altdest: Option<&mut DestReceiver<'mcx>>,
+    dest: &mut DestReceiver<'mcx>, altdest: Option<&mut DestReceiver<'mcx>>,
     mut qc: Option<&mut QueryCompletion>,
 ) -> PgResult<bool> {
     if let Some(qc) = qc.as_deref_mut() {

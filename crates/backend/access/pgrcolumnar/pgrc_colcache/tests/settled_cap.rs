@@ -20,11 +20,7 @@ const LOC: pgrc_marks::Locator = (1663, 5, 91_401);
 const SEG7: u64 = 291 * 7000;
 
 fn nogen() -> NoGen {
-    NoGen(Arc::new(Extents::new(vec![SegExtent {
-        part_no: 7,
-        idx: 0,
-        base: SEG7,
-    }])))
+    NoGen(Arc::new(Extents::new(vec![SegExtent { part_no: 7, idx: 0, base: SEG7, }])))
 }
 
 struct TombPage(RefCell<Box<[u64]>>);
@@ -33,11 +29,7 @@ impl TombPage {
     fn new(n: u32) -> TombPage {
         let p = TombPage(RefCell::new(vec![0u64; BLCKSZ / 8].into_boxed_slice()));
         // SAFETY: an 8-aligned BLCKSZ buffer this page owns.
-        let mut page = unsafe {
-            PageMut::from_raw(
-                std::ptr::NonNull::new(p.0.borrow_mut().as_mut_ptr() as *mut u8).unwrap(),
-            )
-        };
+        let mut page = unsafe { PageMut::from_raw(std::ptr::NonNull::new(p.0.borrow_mut().as_mut_ptr() as *mut u8).unwrap(),) };
         page.init(0);
         for pos in 0..n {
             let mut t = [0u8; 40];
@@ -88,17 +80,7 @@ impl TxnOracle for Committed {
 fn a_settled_keying_is_cached_only_under_the_cap() {
     let (reg, imgs) = (Registry::new(), Images::new());
     let before = mem::stats();
-    let tomb = imgs
-        .current(
-            &reg,
-            LOC,
-            LOC.2,
-            Kind::Tomb,
-            &TombPage::new(TOMBS),
-            &Committed,
-        )
-        .expect("current")
-        .expect("an image");
+    let tomb = imgs.current(&reg, LOC, LOC.2, Kind::Tomb, &TombPage::new(TOMBS), &Committed,).expect("current").expect("an image");
     let s0 = mem::stats();
     assert!(s0.cached >= tomb.bytes as u64, "the image is published");
 
@@ -107,40 +89,18 @@ fn a_settled_keying_is_cached_only_under_the_cap() {
     let a = settled(&tomb, &mut nogen()).expect("settled");
     let s1 = mem::stats();
     assert_eq!(a.count, TOMBS as usize);
-    assert!(
-        s1.cached <= s1.cap,
-        "the settled keying took the cached class over the cap: cached {} cap {}",
-        s1.cached,
-        s1.cap
-    );
-    assert!(
-        s1.over_cap > s0.over_cap,
-        "the keying's admission was refused"
-    );
+    assert!(s1.cached <= s1.cap, "the settled keying took the cached class over the cap: cached {} cap {}", s1.cached, s1.cap);
+    assert!(s1.over_cap > s0.over_cap, "the keying's admission was refused");
     let b = settled(&tomb, &mut nogen()).expect("settled");
-    assert!(
-        !Arc::ptr_eq(&a, &b),
-        "over the cap each call keys privately"
-    );
-    assert_eq!(
-        mem::stats().held,
-        s0.held + 2 * 4 * u64::from(TOMBS),
-        "an unadmitted keying stays held"
-    );
+    assert!(!Arc::ptr_eq(&a, &b), "over the cap each call keys privately");
+    assert_eq!(mem::stats().held, s0.held + 2 * 4 * u64::from(TOMBS), "an unadmitted keying stays held");
     drop((a, b));
-    assert_eq!(
-        mem::stats().held,
-        s0.held,
-        "and is credited when its caller drops it"
-    );
+    assert_eq!(mem::stats().held, s0.held, "and is credited when its caller drops it");
 
     // With room: admitted, cached and shared.
     mem::set_cap(mem::DEFAULT_CAP);
     let c = settled(&tomb, &mut nogen()).expect("settled");
-    assert!(
-        Arc::ptr_eq(&c, &settled(&tomb, &mut nogen()).expect("settled")),
-        "a cached keying is shared"
-    );
+    assert!(Arc::ptr_eq(&c, &settled(&tomb, &mut nogen()).expect("settled")), "a cached keying is shared");
     assert_eq!(mem::stats().cached, s0.cached + 4 * u64::from(TOMBS));
     drop(c);
     forget_settled(LOC);
@@ -148,9 +108,5 @@ fn a_settled_keying_is_cached_only_under_the_cap() {
     imgs.drop_image(&reg, LOC);
     mem::sweep_all_for_tests();
     let s2 = mem::stats();
-    assert_eq!(
-        (s2.cached, s2.held, s2.slots),
-        (before.cached, before.held, before.slots),
-        "every byte and slot is gone"
-    );
+    assert_eq!((s2.cached, s2.held, s2.slots), (before.cached, before.held, before.slots), "every byte and slot is gone");
 }

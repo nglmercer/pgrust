@@ -120,9 +120,7 @@ fn decoded_varlena_outputs_are_varlena_shaped() {
     let mut vfs = mem_with_dir();
     let mut kit = Kit::new();
     let mut w = open_writer(vec![text_col(1)], stamp(7, 1));
-    let imgs: Vec<Vec<u8>> = (0..50)
-        .map(|i| img_4b_u(format!("v{i}").as_bytes()))
-        .collect();
+    let imgs: Vec<Vec<u8>> = (0..50).map(|i| img_4b_u(format!("v{i}").as_bytes())).collect();
     for img in &imgs {
         let sources: [&dyn crate::elect::CandidateSource; 1] = [&kit.cands];
         let mut env = SealEnv {
@@ -175,11 +173,8 @@ fn decoded_varlena_outputs_are_varlena_shaped() {
     for (i, &d) in out.datums.iter().enumerate() {
         assert_eq!(d % 8, 0, "varlena datum not 8-aligned (spec §19.4)");
         // SAFETY: datum points into the live arena.
-        let header = u32::from_le_bytes(
-            unsafe { std::slice::from_raw_parts(d as *const u8, 4) }
-                .try_into()
-                .unwrap(),
-        );
+        let header =
+            u32::from_le_bytes(unsafe { std::slice::from_raw_parts(d as *const u8, 4) }.try_into().unwrap(),);
         let len = varlena_4b_u_payload_len(header, "pin").expect("varlena-shaped (§7b)");
         // SAFETY: image is header + len bytes in the arena.
         let got = unsafe { std::slice::from_raw_parts((d + 4) as *const u8, len as usize) };

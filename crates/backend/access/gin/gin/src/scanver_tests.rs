@@ -11,12 +11,12 @@ use std::sync::Once;
 
 use ::datum::Datum;
 use ::gin_vocab::{
-    GinColState, GinCompareFn, GinMetaPageData, GinScanOpaqueData, GinState, GIN_CURRENT_VERSION,
-    GIN_MAX_KEY_COLS,
+    GinColState, GinCompareFn, GinMetaPageData, GinScanOpaqueData, GinState,
+    GIN_CURRENT_VERSION, GIN_MAX_KEY_COLS,
 };
 use ::mcx::{Mcx, MemoryContext, PgVec};
 use ::types_core::{Oid, BLCKSZ, GIN_AM_OID, INVALID_PROC_NUMBER, RELPERSISTENCE_PERMANENT};
-use ::types_error::{PgResult, ERRCODE_FEATURE_NOT_SUPPORTED};
+use ::types_error::{ PgResult, ERRCODE_FEATURE_NOT_SUPPORTED};
 use ::types_fmgr::FmgrInfo;
 use ::types_rel::{
     FormData_pg_class, LockInfoData, LockRelId, Relation, RelationData, LOCKMODE, RELKIND_INDEX,
@@ -74,7 +74,11 @@ fn fake_int8_cmp(
 ) -> PgResult<Datum> {
     let a = fcinfo.arg(0).as_i64();
     let b = fcinfo.arg(1).as_i64();
-    Ok(Datum::from_i32(if a < b { -1 } else { (a > b) as i32 }))
+    Ok(Datum::from_i32(if a < b {
+        -1
+    } else {
+        (a > b) as i32
+    }))
 }
 
 fn dummy_col() -> GinColState {
@@ -125,10 +129,7 @@ fn index_rel(mcx: Mcx<'_>) -> Relation<'_> {
         rd_firstRelfilelocatorSubid: Cell::new(0),
         rd_droppedSubid: Cell::new(0),
         rd_lockInfo: LockInfoData {
-            lockRelId: LockRelId {
-                relId: IDX,
-                dbId: 5,
-            },
+            lockRelId: LockRelId { relId: IDX, dbId: 5, },
         },
         rd_rel: {
             let mut c = FormData_pg_class {
@@ -206,10 +207,7 @@ fn version0_whole_index_scan_raises_clean_reindex_error() {
         "old GIN indexes do not support whole-index scans nor searches for nulls"
     );
     assert_eq!(err.sqlstate(), ERRCODE_FEATURE_NOT_SUPPORTED);
-    assert_eq!(
-        err.hint(),
-        Some("To fix this, do REINDEX INDEX \"old_gin_idx\".")
-    );
+    assert_eq!(err.hint(), Some("To fix this, do REINDEX INDEX \"old_gin_idx\"."));
 
     // A current-version index takes the same path without error.
     set_meta_version(GIN_CURRENT_VERSION);

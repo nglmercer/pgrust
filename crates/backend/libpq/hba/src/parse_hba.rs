@@ -146,15 +146,7 @@ pub fn parse_hba_line(
                 let msg =
                     "hostgssenc record cannot match because GSSAPI is not supported by this build"
                         .to_string();
-                report_config(
-                    elevel,
-                    1399,
-                    "parse_hba_line",
-                    msg.clone(),
-                    None,
-                    line_num,
-                    &file_name,
-                )?;
+                report_config(elevel, 1399, "parse_hba_line", msg.clone(), None, line_num, &file_name,)?;
                 tok_line.err_msg = Some(msg);
             }
         } else if b.get(4) == Some(&b'n') && b.get(6) == Some(&b's') {
@@ -594,8 +586,7 @@ pub fn parse_hba_line(
                 elevel,
                 2052,
                 tok_line,
-                "authentication method \"oauth\" requires argument \"issuer\" to be set"
-                    .to_string()
+                "authentication method \"oauth\" requires argument \"issuer\" to be set".to_string()
             );
         }
 
@@ -633,7 +624,10 @@ pub fn parse_hba_line(
 // must be permitted by oauth_validator_libraries; with the option unset and
 // exactly one library listed, that library is the validator. Returns
 // Some(err_msg) on failure (C's *err_msg + false).
-fn check_oauth_validator(hbaline: &mut HbaLine, elevel: ErrorLevel) -> PgResult<Option<String>> {
+fn check_oauth_validator(
+    hbaline: &mut HbaLine,
+    elevel: ErrorLevel
+) -> PgResult<Option<String>> {
     use types_error::{ERRCODE_CONFIG_FILE_ERROR, ERRCODE_INVALID_PARAMETER_VALUE};
 
     let line_num = hbaline.linenumber;
@@ -668,7 +662,8 @@ fn check_oauth_validator(hbaline: &mut HbaLine, elevel: ErrorLevel) -> PgResult<
         Ok(list) => list.iter().map(|s| pg_path::canonicalize_path(s)).collect(),
         Err(()) => {
             // syntax error in list
-            let msg = "invalid list syntax in parameter \"oauth_validator_libraries\"".to_string();
+            let msg =
+                "invalid list syntax in parameter \"oauth_validator_libraries\"".to_string();
             elog::ereport(elevel)
                 .errcode(ERRCODE_CONFIG_FILE_ERROR)
                 .errmsg(msg.clone())
@@ -695,7 +690,8 @@ fn check_oauth_validator(hbaline: &mut HbaLine, elevel: ErrorLevel) -> PgResult<
         return Ok(None);
     }
 
-    let msg = format!("validator \"{validator}\" is not permitted by oauth_validator_libraries");
+    let msg =
+        format!("validator \"{validator}\" is not permitted by oauth_validator_libraries");
     elog::ereport(elevel)
         .errcode(ERRCODE_INVALID_PARAMETER_VALUE)
         .errmsg(msg.clone())

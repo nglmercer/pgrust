@@ -488,7 +488,7 @@ impl CompState {
             location: -1,
         };
         let class_oid = catalog_namespace::RangeVarGetRelid(&rv, types_rel::NoLock, false)?;
-        Self::rowtype_of(class_oid, relname, OrigTypeName::Names(::mcx::std_vec_from_slice("plpgsql", idents)?))
+        Self::rowtype_of(class_oid, relname, OrigTypeName::Names(::mcx::std_vec_from_slice("plpgsql",idents)?))
     }
 
     fn rowtype_of(class_oid: Oid, relname: &str, origtypname: OrigTypeName) -> PgResult<PlType> {

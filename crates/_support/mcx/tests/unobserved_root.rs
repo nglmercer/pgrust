@@ -37,16 +37,8 @@ fn unobserved_roots_skip_the_observer_and_move_between_threads_at_w8() {
     let observed = MemoryContext::new("unobs-test observed");
     let unobserved = MemoryContext::new_unobserved("unobs-test unobserved");
     let kid = unobserved.new_child("unobs-test kid");
-    assert_eq!(
-        seen("unobs-test observed"),
-        1,
-        "a plain root reaches the observer"
-    );
-    assert_eq!(
-        seen("unobs-test unobserved"),
-        0,
-        "an unobserved root never does"
-    );
+    assert_eq!(seen("unobs-test observed"), 1, "a plain root reaches the observer");
+    assert_eq!(seen("unobs-test unobserved"), 0, "an unobserved root never does");
     assert_eq!(seen("unobs-test kid"), 0, "a child is never a root");
     drop((kid, unobserved, observed));
 
@@ -83,11 +75,7 @@ fn unobserved_roots_skip_the_observer_and_move_between_threads_at_w8() {
         }
         drop(txs);
     });
-    assert_eq!(
-        seen("unobs-test w8"),
-        0,
-        "no unobserved root reached the observer"
-    );
+    assert_eq!(seen("unobs-test w8"), 0, "no unobserved root reached the observer");
     assert_eq!(seen("unobs-test w8 observed"), W * ROUNDS as usize);
 }
 

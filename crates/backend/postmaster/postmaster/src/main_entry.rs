@@ -128,7 +128,7 @@ pub(crate) fn getopt_tokens_partial(
             return (tokens, Some(GetoptError::NonOption(arg.clone())));
         };
         let chars = rest.char_indices();
-        for (i, opt) in chars {
+        for(i, opt) in chars {
             let tail = &rest[i + opt.len_utf8()..];
             match takes_arg(opt) {
                 None => return (tokens, Some(GetoptError::UnknownOption(opt))),

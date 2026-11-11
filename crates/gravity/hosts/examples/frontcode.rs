@@ -204,7 +204,7 @@ impl Fc {
     #[inline(always)]
     fn step(&self, c: usize, pos: &mut usize, buf: &mut [u8]) -> usize {
         let l = self.len[c] as usize;
-        if c.is_multiple_of(self.k) {
+        if c.is_multiple_of( self.k) {
             *pos += 4;
             buf[..l].copy_from_slice(&self.img[*pos..*pos + l]);
             *pos += l;
@@ -576,7 +576,7 @@ fn cpu(parts: &[Arc<OpenPart>], attno: u32, needle: &[u8], w: usize) {
             });
         }
     });
-    let g = *total.lock().unwrap();
+    let g = * total.lock().unwrap();
     let per = |ns: u64| ns as f64 / g.entries as f64;
     let ms = |ns: u64| ns as f64 / 1e6 / w as f64;
     println!("cpu attno {attno} needle {:?}: {} entries, {} hits, {} LIKE/NOT LIKE mismatches (exact form vs the raw scan, all k), wall {:.1} s, W = {w}; ns per entry (per-thread ms over the column)", String::from_utf8_lossy(needle), g.entries, g.hits, g.mismatch, t0.elapsed().as_secs_f64());
@@ -726,7 +726,7 @@ fn expand(parts: &[Arc<OpenPart>], attno: u32, w: usize) {
             });
         }
     });
-    let g = *total.lock().unwrap();
+    let g = * total.lock().unwrap();
     let per_part = |ns: u64| ns as f64 / 1e6 / g.parts as f64;
     let gbs = |ns: u64| g.raw_bytes as f64 / ns as f64;
     println!("expand attno {attno}: {} dict parts, {} entries, raw image {:.1} MB ({:.2} MB per part), W = {w}, wall {:.1} s; {} of {} expansions byte-identical to the raw image (entry images all equal by assertion)", g.parts, g.entries, g.raw_bytes as f64 / 1e6, g.raw_bytes as f64 / 1e6 / g.parts as f64, t0.elapsed().as_secs_f64(), g.identical, g.parts * 4);
@@ -901,7 +901,7 @@ fn index(parts: &[Arc<OpenPart>], attnos: &[u32], w: usize) {
     eprintln!("index: wall {:.1} s, W = {w}", t0.elapsed().as_secs_f64());
     let mb = |b: u64| b as f64 / 1e6;
     for (ai, &attno) in attnos.iter().enumerate() {
-        let s = *stats[ai].lock().unwrap();
+        let s = * stats[ai].lock().unwrap();
         let n = s.entries as f64;
         println!("attno {attno}: {} dict parts, {} entries; index today {:.1} MB raw (12 B/entry), {:.1} MB on disk (zstd-3 whole: {:.1} MB); payload_off derivable from the 8-aligned entry sizes: {} violations; stored char field != UTF-8 count: {} entries; parts with a non-ASCII entry: {}; payload header+padding {:.1} MB ({:.2} B/entry)", s.parts, s.entries, mb(s.entries * 12), mb(s.index_disk), mb(s.zstd_index), s.derivable_violations, s.stored_char_wrong, s.non_ascii_parts, mb(s.pad_bytes), s.pad_bytes as f64 / n);
         println!("  packed, part FOR: byte_len {:.2} bits/entry, char delta {:.2} bits/entry, anchors every {ANCHOR}: {:.1} MB ({:.2} B/entry, {:.3} of raw)", s.len_bits_part as f64 / n, s.delta_bits_part as f64 / n, mb(s.packed_part), s.packed_part as f64 / n, s.packed_part as f64 / (12.0 * n));

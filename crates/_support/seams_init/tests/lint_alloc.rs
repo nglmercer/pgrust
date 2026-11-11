@@ -1,16 +1,14 @@
+
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 
 fn repo_root() -> PathBuf {
     // D793-b: the checkout under test, read at run time, never the compile-time path
-    PathBuf::from(
-        std::env::var_os("CARGO_MANIFEST_DIR")
-            .expect("CARGO_MANIFEST_DIR unset: run under cargo test"),
-    )
-    .join("../../..")
-    .canonicalize()
-    .expect("repo root")
+    PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR unset: run under cargo test"),)
+        .join("../../..")
+        .canonicalize()
+        .expect("repo root")
 }
 
 fn run_lint(tree: Option<&std::path::Path>, allowlist: Option<&std::path::Path>) -> (bool, String) {
@@ -58,10 +56,7 @@ fn alloc_lint_passes() {
         "lint-alloc.sh failed — an infallible std-allocation site was added \
          outside the ratchet ledger (or a budget grew):\n{report}"
     );
-    assert!(
-        report.contains("lint-alloc PASS"),
-        "expected PASS marker in report:\n{report}"
-    );
+    assert!(report.contains("lint-alloc PASS"), "expected PASS marker in report:\n{report}");
 }
 
 #[test]
@@ -80,10 +75,7 @@ fn new_sites_fail_per_category() {
          }\n",
     );
     let (ok, report) = run_lint(Some(&tree), Some(&allow));
-    assert!(
-        !ok,
-        "lint must fail on unallowlisted std-allocation sites:\n{report}"
-    );
+    assert!(!ok, "lint must fail on unallowlisted std-allocation sites:\n{report}");
     for want in [
         "VIOLATION(new-site): [cap] crates/backend/synthetic/src/lib.rs carries 2",
         "VIOLATION(new-site): [reserve] crates/backend/synthetic/src/lib.rs carries 2",
@@ -108,10 +100,7 @@ fn budget_growth_fails_ratchet() {
     let allow = dir.join("one.allow");
     fs::write(&allow, "cap\tcrates/backend/synthetic/src/lib.rs\t1\n").unwrap();
     let (ok, report) = run_lint(Some(&tree), Some(&allow));
-    assert!(
-        !ok,
-        "lint must fail when sites exceed the budget:\n{report}"
-    );
+    assert!(!ok, "lint must fail when sites exceed the budget:\n{report}");
     assert!(
         report.contains("VIOLATION(ratchet): [cap] crates/backend/synthetic/src/lib.rs"),
         "ratchet violation must name category and file:\n{report}"
@@ -147,14 +136,8 @@ fn sanctioned_idioms_and_constants_are_clean() {
          mod tests { pub fn t(n: usize) -> Vec<u8> { Vec::with_capacity(n) } }\n",
     );
     let (ok, report) = run_lint(Some(&tree), Some(&allow));
-    assert!(
-        ok,
-        "sanctioned idioms and constant capacities must be clean:\n{report}"
-    );
-    assert!(
-        !report.contains("VIOLATION"),
-        "no violation expected:\n{report}"
-    );
+    assert!(ok, "sanctioned idioms and constant capacities must be clean:\n{report}");
+    assert!(!report.contains("VIOLATION"), "no violation expected:\n{report}");
     let _ = fs::remove_dir_all(&dir);
 }
 
@@ -173,10 +156,7 @@ fn stale_rows_warn_and_review_markers_are_checked() {
     )
     .unwrap();
     let (ok, report) = run_lint(Some(&tree), Some(&allow));
-    assert!(
-        ok,
-        "a marked row within budget passes; a stale row only warns:\n{report}"
-    );
+    assert!(ok, "a marked row within budget passes; a stale row only warns:\n{report}");
     assert!(
         report.contains("NOTE(review-marker): [cap] crates/backend/synthetic/src/lib.rs"),
         "marker rows must surface as NOTEs:\n{report}"
@@ -187,15 +167,8 @@ fn stale_rows_warn_and_review_markers_are_checked() {
     );
 
     let bad = dir.join("bad.allow");
-    fs::write(
-        &bad,
-        "cap\tcrates/backend/synthetic/src/lib.rs\t1\tALLOC-REVIEW no-who\n",
-    )
-    .unwrap();
+    fs::write(&bad, "cap\tcrates/backend/synthetic/src/lib.rs\t1\tALLOC-REVIEW no-who\n",).unwrap();
     let (ok, report) = run_lint(Some(&tree), Some(&bad));
-    assert!(
-        !ok && report.contains("CONFIG-FAIL"),
-        "malformed marker is a CONFIG-FAIL:\n{report}"
-    );
+    assert!(!ok && report.contains("CONFIG-FAIL"), "malformed marker is a CONFIG-FAIL:\n{report}");
     let _ = fs::remove_dir_all(&dir);
 }

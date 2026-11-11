@@ -91,8 +91,9 @@ fn sequence_options<'mcx>(mcx: Mcx<'mcx>, relid: Oid) -> PgResult<NodeList<'mcx>
         return Err(crate::cache_lookup_failed("sequence", relid));
     };
     let mut options = NodeList::nil();
-    let int_opt =
-        |v: i64| -> PgResult<Node<'mcx>> { Node::mk_float(mcx, str_in(mcx, &v.to_string())?) };
+    let int_opt = |v: i64| -> PgResult<Node<'mcx>> {
+        Node::mk_float(mcx, str_in(mcx, &v.to_string())?)
+    };
     let opts: [(&'static str, Node<'mcx>); 6] = [
         ("cache", int_opt(form.seqcache)?),
         ("cycle", Node::mk_boolean(mcx, form.seqcycle)?),
@@ -147,9 +148,7 @@ pub(crate) fn transformTableLikeClause<'mcx>(
     tlc_node: Node<'mcx>,
     query_string: &str,
 ) -> PgResult<()> {
-    let tlc = tlc_node
-        .as_variant::<TableLikeClause>()
-        .expect("TableLikeClause");
+    let tlc = tlc_node.as_variant::<TableLikeClause>().expect("TableLikeClause");
     let options = tlc.options;
     let src_rv = tlc.relation.expect("TableLikeClause.relation");
     let location = src_rv.location;
@@ -164,18 +163,14 @@ pub(crate) fn transformTableLikeClause<'mcx>(
     };
 
     let rv = rel_vocab_rv(src_rv);
-    let relid =
-        catalog_namespace::RangeVarGetRelid(&rv, AccessShareLock, false).map_err(attach_errpos)?;
+    let relid = catalog_namespace::RangeVarGetRelid(&rv, AccessShareLock, false)
+        .map_err(attach_errpos)?;
     let relation = relation::relation_open(mcx, relid, NoLock)?;
 
     let relkind = relation.rd_rel.relkind;
     match relkind {
-        RELKIND_RELATION
-        | RELKIND_VIEW
-        | RELKIND_MATVIEW
-        | RELKIND_COMPOSITE_TYPE
-        | RELKIND_FOREIGN_TABLE
-        | RELKIND_PARTITIONED_TABLE => {}
+        RELKIND_RELATION | RELKIND_VIEW | RELKIND_MATVIEW | RELKIND_COMPOSITE_TYPE
+        | RELKIND_FOREIGN_TABLE | RELKIND_PARTITIONED_TABLE => {}
         _ => {
             return Err(attach_errpos(Box::new(
                 PgError::new(
@@ -221,10 +216,8 @@ pub(crate) fn transformTableLikeClause<'mcx>(
         }
         // C copies NameStr(attribute->attname) verbatim: pg_attribute names
         // are already NAMEDATALEN-truncated at creation, so no length check.
-        let attname = str_in(
-            mcx,
-            core::str::from_utf8(attribute.attname.name_str()).expect("attname"),
-        )?;
+        let attname =
+            str_in(mcx, core::str::from_utf8(attribute.attname.name_str()).expect("attname"),)?;
         let tn = TypeName {
             typeOid: attribute.atttypid,
             typemod: attribute.atttypmod,
@@ -302,20 +295,15 @@ pub(crate) fn transformTableLikeClause<'mcx>(
         cxt.columns.lappend(mcx, def_node)?;
     }
 
-    let has_not_null = relation
-        .rd_att
-        .constr
-        .as_deref()
-        .map(|c| c.has_not_null)
-        .unwrap_or(false);
+    let has_not_null =
+        relation.rd_att.constr.as_deref().map(|c| c.has_not_null).unwrap_or(false);
     if has_not_null {
         let lst = pg_constraint::RelationGetNotNullConstraints(mcx, &relation, true)?;
         if (options & CREATE_TABLE_LIKE_COMMENTS) != 0 {
             for nnode in lst.iter() {
                 let nn = nnode.as_variant::<Constraint>().expect("Constraint");
                 let conname = nn.conname.expect("copied not-null conname");
-                let con_oid =
-                    pg_constraint::get_relation_constraint_oid(mcx, relid, conname, false)?;
+                let con_oid = pg_constraint::get_relation_constraint_oid(mcx, relid, conname, false)?;
                 if let Some(comment) =
                     commands_comment::GetComment(mcx, con_oid, CONSTRAINT_RELATION_ID, 0)?
                 {
@@ -446,14 +434,8 @@ pub fn expandTableLikeClause<'mcx>(
                 ))));
             };
             let this_default = readfuncs::stringToNode(mcx, defbin.as_str())?;
-            let (mapped, found_whole_row) = rewrite_manip::map_variable_attnos(
-                mcx,
-                this_default,
-                1,
-                0,
-                &attmap,
-                types_core::InvalidOid,
-            )?;
+            let (mapped, found_whole_row) =
+                rewrite_manip::map_variable_attnos(mcx, this_default, 1, 0, &attmap, types_core::InvalidOid,)?;
             if found_whole_row {
                 return Err(whole_row_error(
                     format!(
@@ -479,14 +461,8 @@ pub fn expandTableLikeClause<'mcx>(
                 let ccname = cc.ccname.as_ref().expect("check constraint name").as_str();
                 let ccbin = cc.ccbin.as_ref().expect("check constraint bin").as_str();
                 let ccbin_node = readfuncs::stringToNode(mcx, ccbin)?;
-                let (mapped, found_whole_row) = rewrite_manip::map_variable_attnos(
-                    mcx,
-                    ccbin_node,
-                    1,
-                    0,
-                    &attmap,
-                    types_core::InvalidOid,
-                )?;
+                let (mapped, found_whole_row) =
+                    rewrite_manip::map_variable_attnos(mcx, ccbin_node, 1, 0, &attmap, types_core::InvalidOid,)?;
                 if found_whole_row {
                     return Err(whole_row_error(format!(
                         "Constraint \"{}\" contains a whole-row reference to table \"{}\".",
@@ -583,13 +559,8 @@ pub fn expandTableLikeClause<'mcx>(
     if (options & CREATE_TABLE_LIKE_STATISTICS) != 0 {
         let parent_extstats = relcache::statextlist::RelationGetStatExtList(mcx, relation.rd_id)?;
         for &parent_stat_oid in parent_extstats.iter() {
-            let mut stats_stmt = generateClonedExtStatsStmt(
-                mcx,
-                heap_rel,
-                childrel.rd_id,
-                parent_stat_oid,
-                &attmap,
-            )?;
+            let mut stats_stmt =
+                generateClonedExtStatsStmt(mcx, heap_rel, childrel.rd_id, parent_stat_oid, &attmap,)?;
             if (options & CREATE_TABLE_LIKE_COMMENTS) != 0 {
                 if let Some(comment) =
                     commands_comment::GetComment(mcx, parent_stat_oid, StatisticExtRelationId, 0)?
@@ -611,12 +582,9 @@ pub fn expandTableLikeClause<'mcx>(
 #[inline(never)]
 fn whole_row_error(detail: String) -> Box<PgError> {
     Box::new(
-        PgError::new(
-            ERROR,
-            "cannot convert whole-row table reference".to_string(),
-        )
-        .with_sqlstate(ERRCODE_FEATURE_NOT_SUPPORTED)
-        .with_detail(detail),
+        PgError::new(ERROR, "cannot convert whole-row table reference".to_string(),)
+            .with_sqlstate(ERRCODE_FEATURE_NOT_SUPPORTED)
+            .with_detail(detail),
     )
 }
 
@@ -641,10 +609,7 @@ pub fn generateClonedIndexStmt<'mcx>(
     source_idx: &Relation<'mcx>,
     attmap: &[AttrNumber],
 ) -> PgResult<(IndexStmt<'mcx>, Oid)> {
-    let idxrec = source_idx
-        .rd_index
-        .as_ref()
-        .expect("index relation without rd_index");
+    let idxrec = source_idx.rd_index.as_ref().expect("index relation without rd_index");
     let indrelid = idxrec.indrelid;
     let mut constraint_oid = InvalidOid;
 
@@ -676,7 +641,8 @@ pub fn generateClonedIndexStmt<'mcx>(
         None
     };
     // Temporal (WITHOUT OVERLAPS) unique/PK indexes are indisexclusion.
-    let iswithoutoverlaps = (idxrec.indisprimary || idxrec.indisunique) && idxrec.indisexclusion;
+    let iswithoutoverlaps =
+        (idxrec.indisprimary || idxrec.indisunique) && idxrec.indisexclusion;
 
     let mut stmt = IndexStmt {
         relation: heap_rel,
@@ -742,25 +708,18 @@ pub fn generateClonedIndexStmt<'mcx>(
         let attnum = idxrec.indkey[keyno];
         let opt = source_idx.rd_indoption[keyno];
         let (elem_name, elem_expr, keycoltype) = if attnum != 0 {
-            let attname =
-                lsyscache::get_attname(mcx, indrelid, attnum, false)?.expect("index key column");
+            let attname = lsyscache::get_attname(mcx, indrelid, attnum, false)?
+                .expect("index key column");
             (
                 Some(str_in(mcx, attname.as_str())?),
                 None,
                 lsyscache::get_atttype(indrelid, attnum)?,
             )
         } else {
-            let indexkey = indexpr_item
-                .next()
-                .expect("too few entries in indexprs list");
-            let (mapped, found_whole_row) = rewrite_manip::map_variable_attnos(
-                mcx,
-                indexkey,
-                1,
-                0,
-                attmap,
-                types_core::InvalidOid,
-            )?;
+            let indexkey =
+                indexpr_item.next().expect("too few entries in indexprs list");
+            let (mapped, found_whole_row) =
+                rewrite_manip::map_variable_attnos(mcx, indexkey, 1, 0, attmap, types_core::InvalidOid,)?;
             if found_whole_row {
                 return Err(whole_row_error(format!(
                     "Index \"{}\" contains a whole-row table reference.",
@@ -855,8 +814,8 @@ pub fn generateClonedIndexStmt<'mcx>(
                 .with_sqlstate(ERRCODE_FEATURE_NOT_SUPPORTED),
             ));
         }
-        let attname =
-            lsyscache::get_attname(mcx, indrelid, attnum, false)?.expect("included index column");
+        let attname = lsyscache::get_attname(mcx, indrelid, attnum, false)?
+            .expect("included index column");
         let iparam = IndexElem {
             name: Some(str_in(mcx, attname.as_str())?),
             indexcolname: Some(str_in(
@@ -892,7 +851,10 @@ pub fn generateClonedIndexStmt<'mcx>(
 // untransformRelOptions (reloptions.c) over a text[] datum, as DefElems:
 // each "name=value" element becomes a DefElem with a String arg; an element
 // without '=' gets a NULL arg. A null datum is NIL.
-fn untransform_rel_options<'mcx>(mcx: Mcx<'mcx>, d: datum::Datum) -> PgResult<NodeList<'mcx>> {
+fn untransform_rel_options<'mcx>(
+    mcx: Mcx<'mcx>,
+    d: datum::Datum
+) -> PgResult<NodeList<'mcx>> {
     use types_nodes::parsenodes::{DefElem, DefElemAction};
 
     let mut result = NodeList::nil();
@@ -984,11 +946,7 @@ fn index_reloptions_defelems<'mcx>(mcx: Mcx<'mcx>, index_id: Oid) -> PgResult<No
     let d = unsafe {
         types_tuple::heap_getattr(tup, Anum_pg_class_reloptions, rel.descr(), &mut isnull)
     };
-    let options = if isnull {
-        NodeList::nil()
-    } else {
-        untransform_rel_options(mcx, d)?
-    };
+    let options = if isnull { NodeList::nil() } else { untransform_rel_options(mcx, d)? };
     genam::systable_endscan(mcx, scan)?;
     rel.close(AccessShareLock)?;
     Ok(options)
@@ -1020,8 +978,9 @@ fn read_indclass<'mcx>(mcx: Mcx<'mcx>, index_id: Oid, nkeys: usize) -> PgResult<
     };
     let mut isnull = false;
     // SAFETY: NOT NULL plain-storage oidvector under pg_index's descriptor.
-    let d =
-        unsafe { types_tuple::heap_getattr(tup, Anum_pg_index_indclass, rel.descr(), &mut isnull) };
+    let d = unsafe {
+        types_tuple::heap_getattr(tup, Anum_pg_index_indclass, rel.descr(), &mut isnull)
+    };
     debug_assert!(!isnull);
     // SAFETY: live oidvector image; dim1 bounds the value array.
     let vals = unsafe {
@@ -1144,10 +1103,7 @@ fn generateClonedExtStatsStmt<'mcx>(
     // parse_utilcmd.c:2081 elog(ERROR, "cache lookup failed for statistics
     // object %u") -- catchable XX000.
     let Some(tup) = genam::systable_getnext(mcx, &mut scan)? else {
-        return Err(crate::cache_lookup_failed(
-            "statistics object",
-            source_statsid,
-        ));
+        return Err(crate::cache_lookup_failed("statistics object", source_statsid,));
     };
     let desc = rel.descr();
 
@@ -1188,12 +1144,10 @@ fn generateClonedExtStatsStmt<'mcx>(
         // stxkeys hold the PARENT's attnums; remap through attmap before the
         // child lookup (a dropped parent column renumbers the child), as the
         // expression path below already does.
-        let attname = lsyscache::get_attname(mcx, heap_relid, attmap[attnum as usize - 1], false)?
-            .expect("statistics key column");
-        let selem = StatsElem {
-            name: Some(str_in(mcx, attname.as_str())?),
-            expr: None,
-        };
+        let attname =
+            lsyscache::get_attname(mcx, heap_relid, attmap[attnum as usize - 1], false)?
+                .expect("statistics key column");
+        let selem = StatsElem { name: Some(str_in(mcx, attname.as_str())?), expr: None, };
         def_names.lappend(mcx, Node::mk(mcx, selem)?)?;
     }
 
@@ -1205,9 +1159,8 @@ fn generateClonedExtStatsStmt<'mcx>(
     };
     if !isnull {
         let exprs_str = text_str(mcx, exprs_d)?;
-        let exprs = readfuncs::stringToNode(mcx, exprs_str)?
-            .as_list()
-            .expect("stxexprs is a List");
+        let exprs =
+            readfuncs::stringToNode(mcx, exprs_str)?.as_list().expect("stxexprs is a List");
         for expr in exprs.iter() {
             // C ignores found_whole_row here.
             let (mapped, _) = rewrite_manip::map_variable_attnos(
@@ -1218,10 +1171,7 @@ fn generateClonedExtStatsStmt<'mcx>(
                 attmap,
                 types_core::InvalidOid,
             )?;
-            let selem = StatsElem {
-                name: None,
-                expr: Some(mapped),
-            };
+            let selem = StatsElem { name: None, expr: Some(mapped), };
             def_names.lappend(mcx, Node::mk(mcx, selem)?)?;
         }
     }
@@ -1265,10 +1215,7 @@ mod tests {
     // A 4B-headered 1-D text[] image, elements 4B-headered and INT-aligned,
     // as deconstruct_array_builtin expects stored reloptions to look.
     fn text_array_image(elems: &[&str]) -> Vec<u8> {
-        text_array_image_shaped(
-            &[elems.len() as i32],
-            &elems.iter().map(|e| Some(*e)).collect::<Vec<_>>(),
-        )
+        text_array_image_shaped(&[elems.len() as i32], &elems.iter().map(|e| Some(*e)).collect::<Vec<_>>(),)
     }
 
     // The same image with explicit dims (any dimensionality) and, when an
@@ -1288,20 +1235,20 @@ mod tests {
         }
         if has_nulls {
             let hdr = img.len();
-            img.resize(hdr + elems.len().div_ceil(8), 0);
+            img.resize(hdr +elems.len().div_ceil( 8), 0);
             for (i, e) in elems.iter().enumerate() {
                 if e.is_some() {
                     img[hdr + i / 8] |= 1 << (i % 8);
                 }
             }
-            while !img.len().is_multiple_of(8) {
+            while ! img.len().is_multiple_of( 8) {
                 img.push(0);
             }
             let dataoffset = img.len() as i32;
             img[8..12].copy_from_slice(&dataoffset.to_ne_bytes());
         }
         for e in elems.iter().flatten() {
-            while !img.len().is_multiple_of(4) {
+            while ! img.len().is_multiple_of( 4) {
                 img.push(0);
             }
             img.extend_from_slice(&(((e.len() + 4) as u32) << 2).to_ne_bytes());
@@ -1318,12 +1265,10 @@ mod tests {
     #[test]
     fn untransform_rel_options_accepts_multidim_and_refuses_nulls() {
         let mcx = ctx().mcx();
-        let img = text_array_image_shaped(
-            &[2, 2],
-            &[Some("fillfactor=70"), Some("a=1"), Some("b"), Some("c=d")],
-        );
+        let img = text_array_image_shaped(&[2, 2], &[Some("fillfactor=70"), Some("a=1"), Some("b"), Some("c=d")],);
         let list =
-            untransform_rel_options(mcx, datum::Datum::from_usize(img.as_ptr() as usize)).unwrap();
+            untransform_rel_options(mcx, datum::Datum::from_usize(img.as_ptr() as usize))
+                .unwrap();
         let names: Vec<&str> = list
             .iter()
             .map(|n| n.as_variant::<DefElem>().expect("DefElem").defname.unwrap())
@@ -1333,10 +1278,7 @@ mod tests {
         let img = text_array_image_shaped(&[2], &[Some("fillfactor=70"), None]);
         let err = untransform_rel_options(mcx, datum::Datum::from_usize(img.as_ptr() as usize))
             .unwrap_err();
-        assert_eq!(
-            err.message(),
-            "null array element not allowed in this context"
-        );
+        assert_eq!(err.message(), "null array element not allowed in this context");
         assert_eq!(err.sqlstate(), types_error::ERRCODE_NULL_VALUE_NOT_ALLOWED);
     }
 
@@ -1347,15 +1289,13 @@ mod tests {
         // a '='-less element becomes a NULL-arg DefElem.
         let img = text_array_image(&["fillfactor=70", "no_value_opt", "eq=a=b"]);
         let list =
-            untransform_rel_options(mcx, datum::Datum::from_usize(img.as_ptr() as usize)).unwrap();
+            untransform_rel_options(mcx, datum::Datum::from_usize(img.as_ptr() as usize))
+                .unwrap();
         let opts: Vec<(&str, Option<&str>)> = list
             .iter()
             .map(|n| {
                 let d = n.as_variant::<DefElem>().expect("DefElem");
-                (
-                    d.defname.unwrap(),
-                    d.arg.map(|a| a.as_string().expect("String arg").sval),
-                )
+                (d.defname.unwrap(), d.arg.map(|a| a.as_string().expect("String arg").sval),)
             })
             .collect();
         assert_eq!(
@@ -1367,8 +1307,6 @@ mod tests {
             ]
         );
         // A null datum (no reloptions) is NIL.
-        assert!(untransform_rel_options(mcx, datum::Datum::null())
-            .unwrap()
-            .is_nil());
+        assert!(untransform_rel_options(mcx, datum::Datum::null()).unwrap().is_nil());
     }
 }

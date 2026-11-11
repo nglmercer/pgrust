@@ -6,10 +6,7 @@ use common::*;
 use pagepool::{give, give_span, hooks, prefill, span, take, Class, Hint, Tag, Zero};
 
 #[test]
-#[cfg_attr(
-    pagepool_tsan,
-    ignore = "TSan: its shadow memory faults too, so the minor-fault counts run high"
-)]
+#[cfg_attr(pagepool_tsan, ignore = "TSan: its shadow memory faults too, so the minor-fault counts run high")]
 fn faults() {
     setup();
     warm_takes_fault_zero();
@@ -35,10 +32,7 @@ fn warm_takes_fault_zero() {
     }
     let faults = minflt() - f0;
     eprintln!("MEASURED warm-take faults: {faults} over 1000 rounds of 8 KiB + 4 MiB");
-    assert!(
-        faults <= HOST_SLACK,
-        "{faults} faults over 1000 warm rounds"
-    );
+    assert!(faults <= HOST_SLACK, "{faults} faults over 1000 warm rounds");
 }
 
 fn warm_zero_dense_skips_the_fill() {
@@ -62,11 +56,7 @@ fn cold_superpage_faults_once_per_2mib() {
         eprintln!("SKIP cold superpage faults: THP is never on this host");
         return;
     }
-    let s = span(
-        4 * SUPER,
-        Hint::new(Class::Task, Tag::OTHER).zero(Zero::Sparse),
-    )
-    .unwrap();
+    let s = span(4 * SUPER, Hint::new(Class::Task, Tag::OTHER).zero(Zero::Sparse),).unwrap();
     let fb0 = thp_fallbacks();
     let f0 = minflt();
     touch(s.as_ptr() as usize, s.len());
@@ -75,10 +65,7 @@ fn cold_superpage_faults_once_per_2mib() {
     if fallbacks > 0 {
         eprintln!("SKIP cold superpage faults: the kernel fell back to small pages (fragmented host memory), not judged");
     } else {
-        assert!(
-            faults <= 4,
-            "{faults} faults over 4 cold superpages: THP did not back them"
-        );
+        assert!(faults <= 4, "{faults} faults over 4 cold superpages: THP did not back them");
     }
     // SAFETY: ours, not used again.
     unsafe { give_span(s) };

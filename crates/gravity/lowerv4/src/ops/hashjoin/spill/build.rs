@@ -501,9 +501,8 @@ mod tests {
         let mut r = vec![0u64; len / 8];
         let d = r.as_mut_ptr() as *mut u8;
         // SAFETY: every offset below is inside `r`'s `len` bytes.
-        unsafe {
-            wr::<u8>(d, WORDS, 1); crate::ops::hashjoin::layout::set_pay(d, 1); wr::<u32>(d, REC, 24); wr::<u16>(d, DESC, D_VARLENA); wr::<u8>(d, PHASE, 1);
-            wr::<u64>(d, END, len as u64); wr::<u32>(d, LIMIT, len as u32);
+        unsafe {wr::<u8>(d, WORDS, 1); crate::ops::hashjoin::layout::set_pay(d, 1); wr::<u32>(d, REC, 24); wr::<u16>(d, DESC, D_VARLENA); wr::<u8>(d, PHASE, 1);
+wr::<u64>(d, END, len as u64); wr::<u32>(d, LIMIT, len as u32);
             let mut top = len;
             for (i, &k) in keys.iter().enumerate() {
                 let text = format!("v{k}").repeat(k as usize % 7 + 1);
@@ -513,8 +512,7 @@ mod tests {
                 core::ptr::copy_nonoverlapping(text.as_ptr(), d.add(top + 4), text.len());
                 let rec = d.add(HDR + 24 * i);
                 wr::<i64>(rec, 0, k); wr::<u64>(rec, 8, 0); wr::<u64>(rec, 16, (len - top) as u64);
-            }
-            wr::<u64>(d, TOP, top as u64); wr::<u64>(d, N, keys.len() as u64);
+            }wr::<u64>(d, TOP, top as u64); wr::<u64>(d, N, keys.len() as u64);
         }
         r
     }
@@ -542,8 +540,7 @@ mod tests {
             let mask = wider(0, BITS) & 0x5555_5555_5555_5554;
             let mut out: Vec<(u32, Vec<u8>)> = Vec::new();
             let a = gravity_fn::arena::OpArena::scratch_of(None, gravity_fn::arena::Kind::HashBuild);
-            let kept = scatter(&a, d, len, keys.len(), mask, BITS, &mut |p, b| {
-                out.push((p, b.to_vec()));
+            let kept = scatter(&a, d, len, keys.len(), mask, BITS, &mut |p, b| {out.push((p, b.to_vec()));
                 Ok(())
             }).unwrap();
             let t = Rt::of(d, len);
@@ -573,26 +570,24 @@ mod tests {
     fn a_keeping_build_scatters_its_null_key_records_and_both_sides_split_them() {
         use crate::ops::hashjoin::build::{ALLOW, A_KEEP, A_MARKS, A_TAGS, F_RANGE, KEPT, LOW, NULLKEY};
         let keys: Vec<i64> = (0..300).map(|k| k * 37 % 1000).collect();
-        let is_null = |i: usize| i.is_multiple_of(5);
+        let is_null = |i: usize| i.is_multiple_of( 5);
         let len = 64 << 10;
         let (mut r, mut r2) = (region(&keys, len), region(&[], len));
         let (d, d2) = (r.as_mut_ptr() as *mut u8, r2.as_mut_ptr() as *mut u8);
         // SAFETY: both regions are `region`'s, `len` bytes each, ours alone.
         unsafe {
-            for d in [d, d2] {
-                wr::<u8>(d, ALLOW, A_TAGS | A_KEEP | A_MARKS); wr::<u8>(d, FLAGS, F_RANGE);
+            for d in [d, d2] {wr::<u8>(d, ALLOW, A_TAGS | A_KEEP | A_MARKS); wr::<u8>(d, FLAGS, F_RANGE);
             }
             for i in (0..keys.len()).filter(|&i| is_null(i)) {
                 // a NULL-key row's image word is 0 (the build stores no key), its link says NULLKEY
-                wr::<i64>(d.add(HDR + 24 * i), 0, 0); wr::<u64>(d.add(HDR + 24 * i), 8, NULLKEY);
+wr::<i64>(d.add(HDR + 24 * i), 0, 0); wr::<u64>(d.add(HDR + 24 * i), 8, NULLKEY);
             }
             wr::<u64>(d, KEPT, keys.len().div_ceil(5) as u64);
             let null_part = route(KeyHash::of(&[0]).to_abi(), BITS);
             let mask = 1u64 << null_part;
             let mut out: Vec<Vec<u8>> = Vec::new();
             let a = gravity_fn::arena::OpArena::scratch_of(None, gravity_fn::arena::Kind::HashBuild);
-            let kept = scatter(&a, d, len, keys.len(), mask, BITS, &mut |_, b| {
-                out.push(b.to_vec());
+            let kept = scatter(&a, d, len, keys.len(), mask, BITS, &mut |_, b| {out.push(b.to_vec());
                 Ok(())
             }).unwrap();
             let nulls_out = out.iter().filter(|b| rd::<u64>(b.as_ptr(), 8) & LOW == NULLKEY).count();

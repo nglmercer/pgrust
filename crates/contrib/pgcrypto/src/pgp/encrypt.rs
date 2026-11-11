@@ -68,6 +68,7 @@ pub fn encrypt_symmetric(
     let mut out = Vec::new();
 
     #[allow(clippy::vec_init_then_push)]
+
     let mut esk = Vec::new();
     esk.push(4); // version
     esk.push(ctx.s2k_cipher_algo as u8);

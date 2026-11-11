@@ -99,7 +99,7 @@ pub unsafe fn keys_better(layout: &RecordLayout, reps: &Reps, flags: Option<usiz
     // the loop stops at the flags word, so the flags words must follow the image words directly and end the key words
     // (lowerv4 rec.rs `flags_word`): a slot between them would skip keys
     debug_assert!(
-        flags.is_none_or(|f| f + flag_words(image_keys(layout, f)) == layout.nkeys()),
+        flags.is_none_or( |f| f + flag_words(image_keys(layout, f)) == layout.nkeys()),
         "a count top's flags words follow its image words and end its key words"
     );
     let (mut k, mut t, mut i) = (0usize, 0usize, 0usize);

@@ -2,7 +2,7 @@
 //! lastval/setval, the backend SeqTable cache, and OWNED BY. Loud (named
 //! panics): IF NOT EXISTS.
 
-#![allow(non_snake_case, non_upper_case_globals)]
+#![allow(non_snake_case,non_upper_case_globals)]
 
 mod builtins;
 
@@ -14,8 +14,8 @@ use datum::Datum;
 use mcx::{Mcx, PgFxHashMap};
 use sequence_xlog::{SizeOfXlSeqRec, SEQ_MAGIC, XLOG_SEQ_LOG};
 use types_core::{
-    Buffer, FirstCommandId, FrozenTransactionId, LocalTransactionId, Oid, RelFileNumber, BOOLOID,
-    INT2OID, INT4OID, INT8OID, RELATION_RELATION_ID,
+    Buffer, FirstCommandId, FrozenTransactionId, LocalTransactionId, Oid, RelFileNumber,
+    BOOLOID, INT2OID, INT4OID, INT8OID, RELATION_RELATION_ID,
 };
 use types_core::{RELPERSISTENCE_PERMANENT, RELPERSISTENCE_UNLOGGED};
 use types_error::{
@@ -34,7 +34,8 @@ use types_rel::{
     RELKIND_SEQUENCE, RELKIND_VIEW,
 };
 use types_storage::bufpage::{PageMut, PageRef};
-use types_tuple::{HeapTupleHeaderData, ItemPointerSet, HEAP_XMAX_COMMITTED, HEAP_XMAX_INVALID};
+use types_tuple::{
+    HeapTupleHeaderData, ItemPointerSet, HEAP_XMAX_COMMITTED, HEAP_XMAX_INVALID};
 use xloginsert_seams::{XLogRegBuf, REGBUF_WILL_INIT};
 
 const SEQ_LOG_VALS: i64 = 32;
@@ -108,10 +109,7 @@ fn with_state<R>(f: impl for<'mcx> FnOnce(&mut SeqState<'mcx>) -> R) -> PgResult
 
 fn with_initialized_state<R>(f: impl for<'mcx> FnOnce(&mut SeqState<'mcx>) -> R) -> R {
     STATE.with(|cell| {
-        cell.borrow_mut()
-            .as_mut()
-            .expect("SeqTable initialized")
-            .with_mut(f)
+        cell.borrow_mut().as_mut().expect("SeqTable initialized").with_mut(f)
     })
 }
 
@@ -120,10 +118,7 @@ fn with_elm<R>(relid: Oid, f: impl FnOnce(&mut SeqTableData) -> R) -> R {
 }
 
 fn last_used_sequence() -> Option<Oid> {
-    STATE.with(|cell| {
-        cell.borrow()
-            .as_ref()
-            .and_then(|owner| owner.with(|s| s.last_used))
+    STATE.with(|cell| { cell.borrow().as_ref().and_then(|owner| owner.with(|s| s.last_used))
     })
 }
 
@@ -211,11 +206,8 @@ fn utility_parsestate<'mcx>(
     source_text: &str,
 ) -> PgResult<parser_small1::ParseState<'mcx, 'mcx>> {
     let mut pstate = parser_small1::make_parsestate(mcx, None);
-    pstate.p_sourcetext = Some(
-        mcx::PgString::from_str_in(source_text, mcx)?
-            .into_bytes()
-            .leak(),
-    );
+    pstate.p_sourcetext =
+        Some(mcx::PgString::from_str_in(source_text, mcx)?.into_bytes().leak(),);
     Ok(pstate)
 }
 
@@ -307,10 +299,7 @@ fn read_seq_tuple(rel: &Relation<'_>) -> PgResult<(Buffer, SeqTuple)> {
     let magic = sequence_xlog::seq_page_magic(&page);
     if magic != SEQ_MAGIC {
         return Err(err(
-            format!(
-                "bad magic number in sequence \"{}\": {magic:08X}",
-                rel.name()
-            ),
+            format!("bad magic number in sequence \"{}\": {magic:08X}", rel.name()),
             types_error::ERRCODE_INTERNAL_ERROR,
         ));
     }
@@ -373,12 +362,7 @@ fn fill_seq_with_data(
     tuple: &mut heaptuple::HeapTuple<'_>,
     persistence: u8,
 ) -> PgResult<()> {
-    fill_seq_fork_with_data(
-        rel,
-        tuple,
-        persistence,
-        types_core::ForkNumber::MAIN_FORKNUM,
-    )?;
+    fill_seq_fork_with_data(rel, tuple, persistence, types_core::ForkNumber::MAIN_FORKNUM,)?;
 
     if persistence == RELPERSISTENCE_UNLOGGED {
         let key = types_storage::RelFileLocatorBackend {
@@ -388,12 +372,7 @@ fn fill_seq_with_data(
         smgr::smgropen(key.locator, key.backend)?;
         smgr::smgrcreate(key, types_core::ForkNumber::INIT_FORKNUM, false)?;
         catalog_storage::log_smgrcreate(&key.locator, types_core::ForkNumber::INIT_FORKNUM)?;
-        fill_seq_fork_with_data(
-            rel,
-            tuple,
-            persistence,
-            types_core::ForkNumber::INIT_FORKNUM,
-        )?;
+        fill_seq_fork_with_data(rel, tuple, persistence, types_core::ForkNumber::INIT_FORKNUM,)?;
         bufmgr::FlushRelationBuffers(key)?;
         smgr::smgrclose(key)?;
     }
@@ -460,12 +439,7 @@ fn fill_seq_fork_with_data(
             XLOG_SEQ_LOG,
             0,
             &[&xlrec, tuple.image()],
-            &[XLogRegBuf {
-                block_id: 0,
-                buffer: buf,
-                flags: REGBUF_WILL_INIT,
-                bufdata: &[],
-            }],
+            &[XLogRegBuf { block_id: 0, buffer: buf, flags: REGBUF_WILL_INIT, bufdata: &[], }],
         )?;
         page.set_lsn(recptr);
     }
@@ -528,10 +502,7 @@ fn conflicting_def_elem(
     pstate: Option<&parser_small1::ParseState<'_, '_>>,
     defel: &DefElem<'_>,
 ) -> Box<PgError> {
-    let mut e = err(
-        "conflicting or redundant options".into(),
-        ERRCODE_SYNTAX_ERROR,
-    );
+    let mut e = err("conflicting or redundant options".into(), ERRCODE_SYNTAX_ERROR,);
     e.cursor_position = cursor_at(pstate, defel.location);
     e
 }
@@ -578,13 +549,8 @@ fn init_params<'mcx>(
                 if owned_by.is_some() {
                     return Err(conflicting_def_elem(pstate, defel));
                 }
-                owned_by = Some(
-                    defel
-                        .arg
-                        .expect("owned_by arg")
-                        .as_list()
-                        .expect("owned_by name list"),
-                );
+                owned_by =
+                    Some(defel.arg.expect("owned_by arg").as_list().expect("owned_by name list"),);
                 continue;
             }
             "sequence_name" => {
@@ -615,11 +581,7 @@ fn init_params<'mcx>(
     }
 
     if let Some(d) = as_type {
-        let tn = d
-            .arg
-            .expect("AS arg")
-            .as_variant::<TypeName>()
-            .expect("AS TypeName");
+        let tn = d.arg.expect("AS arg").as_variant::<TypeName>().expect("AS TypeName");
         let (newtypid, _) = parse_utilcmd::typenameTypeIdAndMod(mcx, pstate, tn)?;
         if newtypid != INT2OID && newtypid != INT4OID && newtypid != INT8OID {
             return Err(err(
@@ -655,10 +617,7 @@ fn init_params<'mcx>(
     if let Some(d) = increment_by {
         form.seqincrement = def_get_i64(d)?;
         if form.seqincrement == 0 {
-            return Err(err(
-                "INCREMENT must not be zero".into(),
-                ERRCODE_INVALID_PARAMETER_VALUE,
-            ));
+            return Err(err("INCREMENT must not be zero".into(), ERRCODE_INVALID_PARAMETER_VALUE,));
         }
         dataform.log_cnt = 0;
     } else if is_init {
@@ -666,12 +625,7 @@ fn init_params<'mcx>(
     }
 
     if let Some(d) = is_cycled {
-        form.seqcycle = d
-            .arg
-            .expect("cycle arg")
-            .as_boolean()
-            .expect("Boolean")
-            .boolval;
+        form.seqcycle = d.arg.expect("cycle arg").as_boolean().expect("Boolean").boolval;
         dataform.log_cnt = 0;
     } else if is_init {
         form.seqcycle = false;
@@ -694,11 +648,8 @@ fn init_params<'mcx>(
             dataform.log_cnt = 0;
         }
         _ if is_init || max_value.is_some() || reset_max_value => {
-            form.seqmax = if form.seqincrement > 0 || reset_max_value {
-                type_max
-            } else {
-                -1
-            };
+            form.seqmax =
+                if form.seqincrement > 0 || reset_max_value { type_max } else { -1 };
             dataform.log_cnt = 0;
         }
         _ => {}
@@ -720,11 +671,8 @@ fn init_params<'mcx>(
             dataform.log_cnt = 0;
         }
         _ if is_init || min_value.is_some() || reset_min_value => {
-            form.seqmin = if form.seqincrement < 0 || reset_min_value {
-                type_min
-            } else {
-                1
-            };
+            form.seqmin =
+                if form.seqincrement < 0 || reset_min_value { type_min } else { 1 };
             dataform.log_cnt = 0;
         }
         _ => {}
@@ -742,10 +690,7 @@ fn init_params<'mcx>(
 
     if form.seqmin >= form.seqmax {
         return Err(err(
-            format!(
-                "MINVALUE ({}) must be less than MAXVALUE ({})",
-                form.seqmin, form.seqmax
-            ),
+            format!("MINVALUE ({}) must be less than MAXVALUE ({})", form.seqmin, form.seqmax),
             ERRCODE_INVALID_PARAMETER_VALUE,
         ));
     }
@@ -753,11 +698,7 @@ fn init_params<'mcx>(
     if let Some(d) = start_value {
         form.seqstart = def_get_i64(d)?;
     } else if is_init {
-        form.seqstart = if form.seqincrement > 0 {
-            form.seqmin
-        } else {
-            form.seqmax
-        };
+        form.seqstart = if form.seqincrement > 0 { form.seqmin } else { form.seqmax };
     }
     if form.seqstart < form.seqmin {
         return Err(err(
@@ -779,11 +720,8 @@ fn init_params<'mcx>(
     }
 
     if let Some(d) = restart_value {
-        dataform.last_value = if d.arg.is_some() {
-            def_get_i64(d)?
-        } else {
-            form.seqstart
-        };
+        dataform.last_value =
+            if d.arg.is_some() { def_get_i64(d)? } else { form.seqstart };
         dataform.is_called = false;
         dataform.log_cnt = 0;
     } else if is_init {
@@ -822,10 +760,7 @@ fn init_params<'mcx>(
         form.seqcache = 1;
     }
 
-    Ok(InitParamsOut {
-        need_seq_rewrite,
-        owned_by,
-    })
+    Ok(InitParamsOut { need_seq_rewrite, owned_by, })
 }
 
 fn type_name_of(typid: Oid) -> &'static str {
@@ -884,15 +819,8 @@ pub fn DefineSequence<'mcx>(
             pg_depend::checkMembershipInCurrentExtension(mcx, &address)?;
             elog::ereport(NOTICE)
                 .errcode(ERRCODE_DUPLICATE_TABLE)
-                .errmsg(format!(
-                    "relation \"{}\" already exists, skipping",
-                    rvv.relname
-                ))
-                .finish(types_error::ErrorLocation::new(
-                    file!(),
-                    line!() as i32,
-                    "DefineSequence",
-                ))?;
+                .errmsg(format!("relation \"{}\" already exists, skipping", rvv.relname))
+                .finish(types_error::ErrorLocation::new(file!(), line!() as i32, "DefineSequence",))?;
             return Ok(types_core::InvalidOid);
         }
     }
@@ -906,20 +834,8 @@ pub fn DefineSequence<'mcx>(
         seqcache: 1,
         seqcycle: false,
     };
-    let mut dataform = SeqDataFormLocal {
-        last_value: 0,
-        log_cnt: 0,
-        is_called: false,
-    };
-    let p = init_params(
-        mcx,
-        pstate,
-        &seq.options,
-        seq.for_identity,
-        true,
-        &mut form,
-        &mut dataform,
-    )?;
+    let mut dataform = SeqDataFormLocal { last_value: 0, log_cnt: 0, is_called: false, };
+    let p = init_params(mcx, pstate, &seq.options, seq.for_identity, true, &mut form, &mut dataform,)?;
 
     let mut elts = NodeList::make1(mcx, make_column_def(mcx, "last_value", INT8OID)?)?;
     elts.lappend(mcx, make_column_def(mcx, "log_cnt", INT8OID)?)?;
@@ -979,7 +895,8 @@ fn range_var_callback_owns_relation(rv: &rel_vocab::RangeVar<'_>, relid: Oid) ->
         )?;
     }
     let relnamespace = lsyscache::get_rel_namespace(relid)?;
-    let is_system = catalog::IsCatalogRelationOid(relid) || catalog::IsToastNamespace(relnamespace);
+    let is_system =
+        catalog::IsCatalogRelationOid(relid) || catalog::IsToastNamespace(relnamespace);
     if is_system && !init_small::globals::allowSystemTableMods() {
         return Err(err(
             format!("permission denied: \"{}\" is a system catalog", rv.relname),
@@ -1055,15 +972,8 @@ pub fn AlterSequence<'mcx>(
     }
     if relid == types_core::InvalidOid {
         ::elog::ereport(::types_error::NOTICE)
-            .errmsg(format!(
-                "relation \"{}\" does not exist, skipping",
-                v.relname
-            ))
-            .finish(::types_error::ErrorLocation::new(
-                file!(),
-                line!() as i32,
-                "AlterSequence",
-            ))?;
+            .errmsg(format!("relation \"{}\" does not exist, skipping", v.relname))
+            .finish(::types_error::ErrorLocation::new(file!(), line!() as i32, "AlterSequence",))?;
         return Ok(types_core::InvalidOid);
     }
 
@@ -1072,7 +982,8 @@ pub fn AlterSequence<'mcx>(
     let rel = table::table_open(mcx, SequenceRelationId, RowExclusiveLock)?;
     let keys = [seqrelid_key(relid)];
     let mut scan = genam::systable_beginscan(mcx, &rel, SequenceRelidIndexId, true, None, &keys)?;
-    let tup = genam::systable_getnext(mcx, &mut scan)?.ok_or_else(|| cache_lookup_failed(relid))?;
+    let tup = genam::systable_getnext(mcx, &mut scan)?
+        .ok_or_else(|| cache_lookup_failed(relid))?;
     let otid = tup.t_self;
     let desc = rel.descr();
     let mut isnull = false;
@@ -1099,15 +1010,7 @@ pub fn AlterSequence<'mcx>(
     };
     bufmgr::UnlockReleaseBuffer(buf)?;
 
-    let p = init_params(
-        mcx,
-        pstate,
-        &stmt.options,
-        stmt.for_identity,
-        false,
-        &mut form,
-        &mut dataform,
-    )?;
+    let p = init_params(mcx, pstate, &stmt.options, stmt.for_identity, false, &mut form, &mut dataform,)?;
 
     if p.need_seq_rewrite {
         if relation_needs_wal(&seqrel) {
@@ -1269,11 +1172,9 @@ fn process_owned_by<'mcx>(
     if nnames == 1 {
         let name = owned_by.nth(0).as_string().expect("OWNED BY name").sval;
         if name != "none" {
-            return Err(
-                (*err("invalid OWNED BY option".into(), ERRCODE_SYNTAX_ERROR))
-                    .with_hint("Specify OWNED BY table.column or OWNED BY NONE.")
-                    .into(),
-            );
+            return Err((*err("invalid OWNED BY option".into(), ERRCODE_SYNTAX_ERROR))
+                .with_hint("Specify OWNED BY table.column or OWNED BY NONE.")
+                .into(),);
         }
     } else {
         let mut names: Vec<&str> = ::mcx::std_vec_with_capacity("commands", nnames)?;
@@ -1324,10 +1225,7 @@ fn process_owned_by<'mcx>(
         let att = lsyscache::get_attnum(trel.rd_id, attrname)?;
         if att == 0 {
             return Err(err(
-                format!(
-                    "column \"{attrname}\" of relation \"{}\" does not exist",
-                    trel.name()
-                ),
+                format!("column \"{attrname}\" of relation \"{}\" does not exist", trel.name()),
                 ERRCODE_UNDEFINED_COLUMN,
             ));
         }
@@ -1363,7 +1261,8 @@ fn process_owned_by<'mcx>(
     )?;
 
     if let Some(trel) = tablerel {
-        let refobject = pg_depend::ObjectAddress::sub_set(RELATION_RELATION_ID, trel.rd_id, attnum);
+        let refobject =
+            pg_depend::ObjectAddress::sub_set(RELATION_RELATION_ID, trel.rd_id, attnum);
         let depobject = pg_depend::ObjectAddress::set(RELATION_RELATION_ID, seqrel.rd_id);
         pg_depend::recordDependencyOn(mcx, &depobject, &refobject, deptype)?;
         trel.close(NoLock)?;
@@ -1523,13 +1422,7 @@ pub fn nextval_advance(
     log = log.wrapping_sub(fetch); // adjust for any unfetched numbers
     debug_assert!(log >= 0);
 
-    Ok(NextvalAdvance {
-        result,
-        last,
-        next,
-        log,
-        logit,
-    })
+    Ok(NextvalAdvance { result, last, next, log, logit, })
 }
 
 pub fn nextval_internal(mcx: Mcx<'_>, relid: Oid, check_permissions: bool) -> PgResult<i64> {
@@ -1563,13 +1456,8 @@ pub fn nextval_internal(mcx: Mcx<'_>, relid: Oid, check_permissions: bool) -> Pg
     }
 
     let form = pgs_form(relid)?;
-    let (incby, maxv, minv, cache, cycle) = (
-        form.seqincrement,
-        form.seqmax,
-        form.seqmin,
-        form.seqcache,
-        form.seqcycle,
-    );
+    let (incby, maxv, minv, cache, cycle) =
+        (form.seqincrement, form.seqmax, form.seqmin, form.seqcache, form.seqcycle,);
 
     let (buf, seq) = read_seq_tuple(&seqrel)?;
     let raw = bufmgr::BufferGetPagePtr(buf);
@@ -1633,12 +1521,7 @@ pub fn nextval_internal(mcx: Mcx<'_>, relid: Oid, check_permissions: bool) -> Pg
             XLOG_SEQ_LOG,
             0,
             &[&xlrec, seq.image()],
-            &[XLogRegBuf {
-                block_id: 0,
-                buffer: buf,
-                flags: REGBUF_WILL_INIT,
-                bufdata: &[],
-            }],
+            &[XLogRegBuf { block_id: 0, buffer: buf, flags: REGBUF_WILL_INIT, bufdata: &[], }],
         )?;
         page.set_lsn(recptr);
     }
@@ -1724,7 +1607,9 @@ fn do_setval_entry(relid: Oid, next: i64, iscalled: bool) -> PgResult<()> {
 pub fn do_setval(mcx: Mcx<'_>, relid: Oid, next: i64, iscalled: bool) -> PgResult<()> {
     let seqrel = init_sequence(mcx, relid)?;
 
-    if aclchk::pg_class_aclcheck(relid, miscinit::GetUserId(), ACL_UPDATE)? != aclchk::ACLCHECK_OK {
+    if aclchk::pg_class_aclcheck(relid, miscinit::GetUserId(), ACL_UPDATE)?
+        != aclchk::ACLCHECK_OK
+    {
         return Err(err(
             format!("permission denied for sequence {}", seqrel.name()),
             ERRCODE_INSUFFICIENT_PRIVILEGE,
@@ -1779,12 +1664,7 @@ pub fn do_setval(mcx: Mcx<'_>, relid: Oid, next: i64, iscalled: bool) -> PgResul
             XLOG_SEQ_LOG,
             0,
             &[&xlrec, seq.image()],
-            &[XLogRegBuf {
-                block_id: 0,
-                buffer: buf,
-                flags: REGBUF_WILL_INIT,
-                bufdata: &[],
-            }],
+            &[XLogRegBuf { block_id: 0, buffer: buf, flags: REGBUF_WILL_INIT, bufdata: &[], }],
         )?;
         page.set_lsn(recptr);
     }
@@ -1884,11 +1764,7 @@ mod tests {
             seqcache: 1,
             seqcycle: false,
         };
-        let mut dataform = SeqDataFormLocal {
-            last_value: 0,
-            log_cnt: 0,
-            is_called: false,
-        };
+        let mut dataform = SeqDataFormLocal { last_value: 0, log_cnt: 0, is_called: false, };
         init_params(mcx, None, opts, false, true, &mut form, &mut dataform)?;
         Ok((form, dataform))
     }
@@ -1925,20 +1801,16 @@ mod tests {
         for (name, v, frag) in [
             ("increment", 0, "INCREMENT must not be zero"),
             ("cache", 0, "CACHE (0) must be greater than zero"),
-            (
-                "start",
-                0,
-                "START value (0) cannot be less than MINVALUE (1)",
-            ),
+            ("start", 0, "START value (0) cannot be less than MINVALUE (1)",),
         ] {
             let opts = NodeList::make1(mcx, defel(mcx, name, int_arg(mcx, v))).unwrap();
             let e = run_init(mcx, &opts).err().expect("error expected");
             assert!(e.message().contains(frag), "{name}: {}", e.message());
             assert_eq!(e.sqlstate(), ERRCODE_INVALID_PARAMETER_VALUE);
         }
-        let mut opts = NodeList::make1(mcx, defel(mcx, "increment", int_arg(mcx, 1))).unwrap();
-        opts.lappend(mcx, defel(mcx, "increment", int_arg(mcx, 2)))
-            .unwrap();
+        let mut opts =
+            NodeList::make1(mcx, defel(mcx, "increment", int_arg(mcx, 1))).unwrap();
+        opts.lappend(mcx, defel(mcx, "increment", int_arg(mcx, 2))).unwrap();
         let e = run_init(mcx, &opts).err().expect("error expected");
         assert!(e.message().contains("conflicting or redundant options"));
     }
@@ -1978,20 +1850,8 @@ mod tests {
             seqcache: 1,
             seqcycle: false,
         };
-        let mut dataform = SeqDataFormLocal {
-            last_value: 0,
-            log_cnt: 0,
-            is_called: false,
-        };
-        let r = init_params(
-            mcx,
-            Some(&pstate),
-            opts,
-            false,
-            true,
-            &mut form,
-            &mut dataform,
-        );
+        let mut dataform = SeqDataFormLocal { last_value: 0, log_cnt: 0, is_called: false, };
+        let r = init_params(mcx, Some(&pstate), opts, false, true, &mut form, &mut dataform,);
         parser_small1::free_parsestate(pstate).unwrap();
         r.map(|_| (form, dataform))
     }
@@ -2006,18 +1866,11 @@ mod tests {
         let second = src.rfind("INCREMENT").unwrap() as i32;
         let mut opts =
             NodeList::make1(mcx, defel_at(mcx, "increment", int_arg(mcx, 1), 18)).unwrap();
-        opts.lappend(mcx, defel_at(mcx, "increment", int_arg(mcx, 2), second))
-            .unwrap();
-        let e = run_init_with_source(mcx, src, &opts)
-            .err()
-            .expect("error expected");
+        opts.lappend(mcx, defel_at(mcx, "increment", int_arg(mcx, 2), second)).unwrap();
+        let e = run_init_with_source(mcx, src, &opts).err().expect("error expected");
         assert_eq!(e.message(), "conflicting or redundant options");
         assert_eq!(e.sqlstate(), ERRCODE_SYNTAX_ERROR);
-        assert_eq!(
-            e.cursor_position,
-            Some(second + 1),
-            "cursor on the second INCREMENT"
-        );
+        assert_eq!(e.cursor_position, Some(second + 1), "cursor on the second INCREMENT");
 
         // OWNED BY twice: same arm (sequence.c:1342).
         let src2 = "CREATE SEQUENCE s OWNED BY NONE OWNED BY NONE";
@@ -2026,19 +1879,12 @@ mod tests {
             let n = Node::mk(mcx, types_nodes::String { sval: "none" }).unwrap();
             Some(Node::mk(mcx, NodeList::make1(mcx, n).unwrap()).unwrap())
         }
-        let mut opts2 = NodeList::make1(mcx, defel_at(mcx, "owned_by", none(mcx), 18)).unwrap();
-        opts2
-            .lappend(mcx, defel_at(mcx, "owned_by", none(mcx), second2))
-            .unwrap();
-        let e = run_init_with_source(mcx, src2, &opts2)
-            .err()
-            .expect("error expected");
+        let mut opts2 =
+            NodeList::make1(mcx, defel_at(mcx, "owned_by", none(mcx), 18)).unwrap();
+        opts2.lappend(mcx, defel_at(mcx, "owned_by", none(mcx), second2)).unwrap();
+        let e = run_init_with_source(mcx, src2, &opts2).err().expect("error expected");
         assert_eq!(e.message(), "conflicting or redundant options");
-        assert_eq!(
-            e.cursor_position,
-            Some(second2 + 1),
-            "cursor on the second OWNED BY"
-        );
+        assert_eq!(e.cursor_position, Some(second2 + 1), "cursor on the second OWNED BY");
     }
 
     // sequence.c:1355-1358: "invalid sequence option SEQUENCE NAME" carries
@@ -2051,9 +1897,7 @@ mod tests {
         let name = Node::mk(mcx, types_nodes::String { sval: "foo" }).unwrap();
         let arg = Some(Node::mk(mcx, NodeList::make1(mcx, name).unwrap()).unwrap());
         let opts = NodeList::make1(mcx, defel_at(mcx, "sequence_name", arg, loc)).unwrap();
-        let e = run_init_with_source(mcx, src, &opts)
-            .err()
-            .expect("error expected");
+        let e = run_init_with_source(mcx, src, &opts).err().expect("error expected");
         assert_eq!(e.message(), "invalid sequence option SEQUENCE NAME");
         assert_eq!(e.sqlstate(), ERRCODE_SYNTAX_ERROR);
         assert_eq!(e.cursor_position, Some(loc + 1));
@@ -2077,10 +1921,9 @@ mod tests {
         // Second call on the page C leaves behind (last_value 100, is_called):
         // the cache is exhausted at MAXVALUE.
         assert_eq!(
-            nextval_advance(100, 0, true, 1, 100, 1, 9223372036854775800, false, || {
-                false
+            nextval_advance(100, 0, true, 1, 100, 1, 9223372036854775800, false, || { false
             })
-            .err(),
+                .err(),
             Some(NextvalBound::Max)
         );
     }
@@ -2088,11 +1931,9 @@ mod tests {
     #[test]
     fn init_params_defget_int64_via_float_node() {
         let mcx = ctx().mcx();
-        let opts = NodeList::make1(
-            mcx,
-            defel(mcx, "maxvalue", int_arg(mcx, 9223372036854775806)),
-        )
-        .unwrap();
+        let opts =
+            NodeList::make1(mcx, defel(mcx, "maxvalue", int_arg(mcx, 9223372036854775806)),)
+                .unwrap();
         let (form, _) = run_init(mcx, &opts).unwrap();
         assert_eq!(form.seqmax, 9223372036854775806);
     }
@@ -2116,11 +1957,7 @@ mod tests {
             seqcache: 1,
             seqcycle: false,
         };
-        let mut dataform = SeqDataFormLocal {
-            last_value: 7,
-            log_cnt: 5,
-            is_called: true,
-        };
+        let mut dataform = SeqDataFormLocal { last_value: 7, log_cnt: 5, is_called: true, };
         let p = init_params(mcx, None, &opts, true, false, &mut form, &mut dataform).unwrap();
         assert!(p.need_seq_rewrite);
         assert_eq!(form.seqtypid, INT2OID);
@@ -2145,19 +1982,11 @@ mod tests {
             seqcache: 1,
             seqcycle: false,
         };
-        let mut dataform2 = SeqDataFormLocal {
-            last_value: 1,
-            log_cnt: 0,
-            is_called: false,
-        };
+        let mut dataform2 = SeqDataFormLocal { last_value: 1, log_cnt: 0, is_called: false, };
         let e = init_params(mcx, None, &opts2, true, false, &mut form2, &mut dataform2)
             .err()
             .expect("error expected");
-        assert!(
-            e.message().contains("MAXVALUE (100000) is out of range"),
-            "{}",
-            e.message()
-        );
+        assert!(e.message().contains("MAXVALUE (100000) is out of range"), "{}", e.message());
     }
 
     #[test]
@@ -2250,18 +2079,9 @@ mod session_sequence_tests {
         clear();
         for _ in 0..8 {
             with_state(|s| {
-                s.tab.insert(
-                    42,
-                    SeqTableData {
-                        last: 7,
-                        cached: 10,
-                        last_valid: true,
-                        ..NEW_ELM
-                    },
-                );
+                s.tab.insert(42, SeqTableData { last: 7, cached: 10, last_valid: true, ..NEW_ELM },);
                 s.last_used = Some(42);
-            })
-            .unwrap();
+            }).unwrap();
             assert_eq!(with_elm(42, |e| (e.last, e.cached)), (7, 10));
             assert_eq!(last_used_sequence(), Some(42));
             ResetSequenceCaches();
@@ -2280,8 +2100,7 @@ mod session_sequence_tests {
             let result = std::panic::catch_unwind(clear_sequence_state);
             assert!(result.is_err());
             assert!(s.tab.contains_key(&42));
-        })
-        .unwrap();
+        }).unwrap();
         with_fc_mcx(|mcx| {
             let value = mcx::alloc_leak_in(mcx, 73u64)?;
             assert!(std::panic::catch_unwind(clear_sequence_fmgr).is_err());
@@ -2292,8 +2111,7 @@ mod session_sequence_tests {
                 Ok(())
             })?;
             Ok(())
-        })
-        .unwrap();
+        }).unwrap();
         clear();
     }
 
@@ -2303,8 +2121,7 @@ mod session_sequence_tests {
         let error = with_fc_mcx::<()>(|mcx| {
             let _value = mcx::alloc_leak_in(mcx, [3u8; 256])?;
             Err(err("sequence test error".into(), ERRCODE_SYNTAX_ERROR))
-        })
-        .unwrap_err();
+        }).unwrap_err();
         assert_eq!(error.sqlstate(), ERRCODE_SYNTAX_ERROR);
         clear();
         with_fc_mcx(|_| Ok(())).unwrap();
@@ -2322,13 +2139,11 @@ mod session_sequence_tests {
                     s.tab.insert(oid, NEW_ELM);
                 }
                 let _value = mcx::alloc_leak_in(*s.tab.allocator(), [9u8; 32768]).unwrap();
-            })
-            .unwrap();
+            }).unwrap();
             with_fc_mcx(|mcx| {
                 let _value = mcx::alloc_leak_in(mcx, [3u8; 32768])?;
                 Ok(())
-            })
-            .unwrap();
+            }).unwrap();
             clear();
             assert_eq!(mcx::global_footprint::bytes(), before);
         }
@@ -2358,13 +2173,11 @@ mod session_sequence_cleanup_tests {
             with_state(|s| {
                 s.tab.insert(42, NEW_ELM);
                 s.last_used = Some(42);
-            })
-            .unwrap();
+            }).unwrap();
             with_fc_mcx(|mcx| {
                 let _value = mcx::alloc_leak_in(mcx, [1u8; 32768])?;
                 Ok(())
-            })
-            .unwrap();
+            }).unwrap();
             let callbacks = CLEANUPS.with(|cell| std::mem::take(&mut *cell.borrow_mut()));
             assert_eq!(callbacks.len(), 2);
             for callback in callbacks {

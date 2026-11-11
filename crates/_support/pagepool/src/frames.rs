@@ -38,10 +38,7 @@ pub struct Committed {
     pub faulted: usize,
 }
 
-static ZONE: FrameZone = FrameZone {
-    lo: AtomicUsize::new(0),
-    len: AtomicUsize::new(0),
-};
+static ZONE: FrameZone = FrameZone { lo: AtomicUsize::new(0), len: AtomicUsize::new(0), };
 /// Moved pieces and committed ranges outstanding, and the mappings they may use (half the headroom under
 /// vm.max_map_count at init); past it `Move` faults instead.
 pub(crate) static MOVED: crate::Line<AtomicUsize> = crate::Line(AtomicUsize::new(0));
@@ -143,13 +140,7 @@ fn set_tags(at: usize, len: usize, tag: Tag) {
 fn valid(at: usize, len: usize) -> bool {
     let z = zones();
     let page = os::page_size();
-    len > 0
-        && at.is_multiple_of(page)
-        && len.is_multiple_of(page)
-        && z.frame.has(at)
-        && at
-            .checked_add(len)
-            .is_some_and(|end| end <= z.frame.lo + z.frame.len)
+    len > 0 && at.is_multiple_of( page) && len.is_multiple_of( page) && z.frame.has(at) && at.checked_add(len).is_some_and(|end| end <= z.frame.lo + z.frame.len)
 }
 
 /// Open `[at, at + len)` of the frame zone with RAM: with `Move`, its whole 2 MiB pieces take warm pool superpages
@@ -164,15 +155,8 @@ pub unsafe fn commit(at: usize, len: usize, huge: bool, mode: Mode, tag: Tag) ->
     let (lo, hi) = (at.next_multiple_of(SUPER), (at + len) & !(SUPER - 1));
     let mut moved_to = lo;
     if mode == Mode::Move && huge && hi > lo {
-        while moved_to < hi
-            && MOVED.load(Relaxed) + LIVE.load(Relaxed) + SPAN_MAPS.load(Relaxed)
-                < BUDGET.load(Relaxed)
-        {
-            let Some(i) = superpage::take_one(State::WarmZero)
-                .or_else(|| superpage::take_one(State::WarmDirty))
-            else {
-                break;
-            };
+        while moved_to < hi && MOVED.load(Relaxed) + LIVE.load(Relaxed) + SPAN_MAPS.load(Relaxed) < BUDGET.load(Relaxed) {
+            let Some(i) = superpage::take_one(State::WarmZero).or_else(|| superpage::take_one(State::WarmDirty)) else { break; };
             // SAFETY: a warm superpage we hold, moved into frames' PROT_NONE range; its pool address stays mapped.
             if !unsafe { os::move_pages(superpage::addr_of(i), moved_to, SUPER, true) } {
                 superpage::put_back(i);
@@ -187,10 +171,7 @@ pub unsafe fn commit(at: usize, len: usize, huge: bool, mode: Mode, tag: Tag) ->
             moved_to += SUPER;
         }
     }
-    let fault = [
-        (at, if done.moved > 0 { lo } else { at }),
-        (if done.moved > 0 { moved_to } else { at }, at + len),
-    ];
+    let fault = [(at, if done.moved > 0 { lo } else { at }), (if done.moved > 0 { moved_to } else { at }, at + len),];
     let need: usize = fault.iter().map(|&(a, b)| b.saturating_sub(a)).sum();
     if need > 0 && !stats::under_cap(need) {
         // SAFETY: what we moved in above, given back to the OS (the caller sees a refusal).

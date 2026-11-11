@@ -366,7 +366,7 @@ pub fn i2toi4(arg1: i16) -> i32 {
 
 #[inline]
 pub fn i4toi2(arg1: i32) -> PgResult<i16> {
-    if !(SHRT_MIN..=SHRT_MAX).contains(&arg1) {
+    if !( SHRT_MIN..= SHRT_MAX).contains(&arg1) {
         return Err(smallint_out_of_range(384, "i4toi2"));
     }
     Ok(arg1 as i16)

@@ -16,20 +16,13 @@ fn main() {
         for _ in 0..65536 {
             let p = Allocator::allocate(&mcx, layout).unwrap();
             // SAFETY: every measured allocation has at least one writable byte.
-            unsafe {
-                (p.as_ptr() as *mut u8).write_volatile(1);
-            }
+            unsafe { (p.as_ptr() as *mut u8).write_volatile(1); }
             let mut address = p.as_ptr() as *mut u8 as usize;
             // SAFETY: the empty barrier preserves the pointer without touching memory.
-            unsafe {
-                std::arch::asm!("/* {0} */", inout(reg) address, options(nomem, nostack, preserves_flags));
-            }
+            unsafe { std::arch::asm!("/* {0} */", inout(reg) address, options(nomem, nostack, preserves_flags)); }
             let _ = address;
         }
         ctx.reset();
     }
-    println!(
-        "ns_per_alloc={:.6}",
-        start.elapsed().as_nanos() as f64 / (iters / 65536 * 65536) as f64
-    );
+    println!("ns_per_alloc={:.6}", start.elapsed().as_nanos() as f64 / (iters / 65536 * 65536) as f64);
 }

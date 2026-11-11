@@ -123,7 +123,7 @@ impl RunSpan {
 
     /// Words `lo..hi` of the records, borrowed for the life of `owner` (the holder of the buffers).
     #[inline(always)]
-    pub(crate) fn words<T: ?Sized>(self, _owner: &T, lo: usize, hi: usize) -> &[u64] {
+    pub(crate) fn words< T: ?Sized>(self, _owner: & T, lo: usize, hi: usize) -> & [u64] {
         assert!(lo <= hi && hi <= self.nrecs);
         // SAFETY: `lo..hi` is inside the records, which `owner` keeps alive and unchanged for `'a`.
         unsafe { core::slice::from_raw_parts(self.recs.add(lo), hi - lo) }

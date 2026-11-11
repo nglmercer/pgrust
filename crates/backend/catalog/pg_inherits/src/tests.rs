@@ -18,19 +18,17 @@ fn install() {
     SEAMS.call_once(|| {
         use syscache_seams as s;
         s::lookup_pg_class_ls_shape::set(|relid| {
-            Ok(
-                (relid == KNOWN_REL || relid == KNOWN_IDX).then_some(PgClassLsShape {
-                    relnamespace: 2200,
-                    reltype: SUB_TYPE,
-                    relam: 0,
-                    reltablespace: 0,
-                    relnatts: 1,
-                    relkind: b'r' as i8,
-                    relpersistence: b'p' as i8,
-                    relispartition: false,
-                    relhassubclass: false,
-                }),
-            )
+            Ok((relid == KNOWN_REL || relid == KNOWN_IDX).then_some(PgClassLsShape {
+                relnamespace: 2200,
+                reltype: SUB_TYPE,
+                relam: 0,
+                reltablespace: 0,
+                relnatts: 1,
+                relkind: b'r' as i8,
+                relpersistence: b'p' as i8,
+                relispartition: false,
+                relhassubclass: false,
+            }),)
         });
         s::pg_type_base_shape::set(|typid| {
             Ok((typid == SUB_TYPE).then_some(PgTypeBaseShape {

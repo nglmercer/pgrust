@@ -71,12 +71,7 @@ impl SectionUnwrapper for FrontZstdUnwrap {
         pgrc_codec::wrapper::unwrap_section(section, &mut out)?;
         Ok(out)
     }
-    fn unwrap_dict_payload_section(
-        &self,
-        _hdr: &StreamSectionHdr,
-        section: &[u8],
-        index: &[u8],
-    ) -> FormatResult<Vec<u8>> {
+    fn unwrap_dict_payload_section(&self, _hdr: &StreamSectionHdr, section: &[u8], index: &[u8],) -> FormatResult<Vec<u8>> {
         let mut out = Vec::new();
         pgrc_codec::wrapper::unwrap_dict_payload_section(section, index, &mut out)?;
         Ok(out)
@@ -87,30 +82,14 @@ impl SectionUnwrapper for FrontZstdUnwrap {
         }
         let t = pgrc_codec::onpairwrap::decode_side(side)?;
         let bytes = t.bytes();
-        Ok(Some(pgrc_read::SideTable {
-            table: Box::new(t),
-            bytes,
-        }))
+        Ok(Some(pgrc_read::SideTable { table: Box::new(t), bytes, }))
     }
-    fn unwrap_dict_payload_block_side(
-        &self,
-        side: &pgrc_read::SideTable,
-        src: &[u8],
-        dst: &mut [u8],
-        records: &[u8],
-    ) -> FormatResult<bool> {
-        let Some(t) = side.table.downcast_ref::<pgrc_codec::onpair::DecodeTable>() else {
-            return Ok(false);
-        };
+    fn unwrap_dict_payload_block_side(&self, side: &pgrc_read::SideTable, src: &[u8], dst: &mut [u8], records: &[u8],) -> FormatResult<bool> {
+        let Some(t) = side.table.downcast_ref::<pgrc_codec::onpair::DecodeTable>() else { return Ok(false); };
         pgrc_codec::onpairwrap::unwrap_frame_block(t, src, dst, records)?;
         Ok(true)
     }
-    fn unwrap_dict_payload_block(
-        &self,
-        src: &[u8],
-        dst: &mut [u8],
-        records: &[u8],
-    ) -> FormatResult<bool> {
+    fn unwrap_dict_payload_block(&self, src: &[u8], dst: &mut [u8], records: &[u8],) -> FormatResult<bool> {
         if self.0 != Wrapper::FrontZstd {
             return Ok(false);
         }
@@ -194,8 +173,10 @@ fn decode_granule(cur: &mut StreamCursor<'_>, g: u32) -> (Vec<u64>, Vec<u8>) {
 fn assert_varlena_datum(datum: u64, want_payload: &[u8]) {
     let mut scratch = [0u8; 8];
     // SAFETY: decode arena is live in the caller.
-    let got = unsafe { datum_canonical_bytes(StorageClass::VarlenaVerbatim, datum, &mut scratch) }
-        .expect("canonical bytes");
+    let got = unsafe {
+        datum_canonical_bytes(StorageClass::VarlenaVerbatim, datum, &mut scratch)
+    }
+    .expect("canonical bytes");
     assert_eq!(got, want_payload, "varlena payload mismatch");
 }
 
@@ -302,10 +283,7 @@ fn full_registry_election_goldens() {
         bool_col(3),
         text_col(4),
         // numeric images ride the varlena class, typmod-scaled (no octet-length lane: not a text or bytea column)
-        ColSchema {
-            semantics: TypeSemantics::PackedNumeric { scale: 2 },
-            ..text_col(5)
-        },
+        ColSchema { semantics: TypeSemantics::PackedNumeric { scale: 2 }, ..text_col(5) },
         text_col(6), // incompressible bytea-like payloads
     ];
     let mut w = open_writer(schema, stamp(91, 1));
@@ -347,7 +325,11 @@ fn full_registry_election_goldens() {
 
     // The elected outcomes, GOLDEN (attno order).
     let r = &w.seal_reports()[0];
-    let encodings: Vec<(u32, u16)> = r.elections.iter().map(|e| (e.attno, e.encoding)).collect();
+    let encodings: Vec<(u32, u16)> = r
+        .elections
+        .iter()
+        .map(|e| (e.attno, e.encoding))
+        .collect();
     assert_eq!(
         encodings,
         vec![
@@ -380,20 +362,13 @@ fn full_registry_election_goldens() {
     let (e2, _) = pv.stream(2, 0, StreamRole::Values).expect("col2");
     assert_eq!((e2.encoding, e2.width), (EncodingId::Alp.as_u16(), 0));
     let (e3, _) = pv.stream(3, 0, StreamRole::Values).expect("col3");
-    assert_eq!(
-        (e3.encoding, e3.width),
-        (EncodingId::BoolBitmap.as_u16(), 0)
-    );
+    assert_eq!((e3.encoding, e3.width), (EncodingId::BoolBitmap.as_u16(), 0));
     let (e4, _) = pv.stream(4, 0, StreamRole::Values).expect("col4");
     // 97 NDV bit-packs at 7; the pgrc21-widths byte-align default
     // (PGRUST_PGRC_CODE_WIDTH_BYTE, ON since 2026-08-16) rounds the
     // granule code width up to the byte boundary — golden is 8.
     assert_eq!((e4.encoding, e4.width), (EncodingId::DictCodes.as_u16(), 8));
-    assert_ne!(
-        e4.flags & STREAMF_DICT_EXEC,
-        0,
-        "zero-null dict lane must publish"
-    );
+    assert_ne!(e4.flags & STREAMF_DICT_EXEC, 0, "zero-null dict lane must publish");
     let (e5, _) = pv.stream(5, 0, StreamRole::Values).expect("col5");
     assert_eq!(
         (e5.encoding, e5.width, e5.aux32),
@@ -407,17 +382,11 @@ fn full_registry_election_goldens() {
     // one extent here (multi-frame geometry is pinned by
     // `dict_payload_frame_extents_cut_and_read_back`).
     let (di, di_ext) = pv.stream(4, 0, StreamRole::DictIndex).expect("DictIndex");
-    let (dp, dp_ext) = pv
-        .stream(4, 0, StreamRole::DictPayload)
-        .expect("DictPayload");
+    let (dp, dp_ext) = pv.stream(4, 0, StreamRole::DictPayload).expect("DictPayload");
     assert_eq!(di.encoding, EncodingId::DictCodes.as_u16());
     assert_eq!(dp.encoding, EncodingId::DictCodes.as_u16());
     assert_eq!((di.values, dp.values), (97, 97));
-    assert_eq!(
-        (di_ext.len(), dp_ext.len()),
-        (1, 1),
-        "one frame = one extent"
-    );
+    assert_eq!((di_ext.len(), dp_ext.len()), (1, 1), "one frame = one extent");
 }
 
 #[test]
@@ -711,11 +680,10 @@ fn dict_payload_frame_extents_cut_and_read_back() {
     // Geometry leg: incompressible payloads refuse the wrapper (SB-2 gate),
     // so the UNWRAPPED extent table is cut at frame boundaries.
     let pv = PartView::open(&mut vfs, "part-0.pgrc");
-    let (dp, dp_ext) = pv
-        .stream(1, 0, StreamRole::DictPayload)
-        .expect("DictPayload");
+    let (dp, dp_ext) = pv.stream(1, 0, StreamRole::DictPayload).expect("DictPayload");
     assert_eq!(
-        dp.wrapper, 0,
+        dp.wrapper,
+        0,
         "random payloads must refuse the wrapper (the unwrapped-extents leg needs it)"
     );
     assert_eq!(dp_ext.len(), 3, "ceil(2500/1024) frame extents");
@@ -725,10 +693,7 @@ fn dict_payload_frame_extents_cut_and_read_back() {
         "entries per frame"
     );
     for (f, e) in dp_ext.iter().enumerate() {
-        assert_eq!(
-            e.granule_start, f as u32,
-            "extent {f} carries its frame ordinal"
-        );
+        assert_eq!(e.granule_start, f as u32, "extent {f} carries its frame ordinal");
         assert_eq!(e.granule_count, 1);
     }
     for wpair in dp_ext.windows(2) {
@@ -794,11 +759,7 @@ fn wrapped_stream_reads_back_and_refuses_without_unwrapper() {
     assert_eq!(e.encoding, EncodingId::Verbatim.as_u16());
     // Every arm clears the ≥20% law on this shape and the smallest exact
     // image is elected: the OnPair verbatim arm's when it is priced, else zstd's.
-    let want = if pgrc_codec::onpairwrap::onpair_verbatim_on() {
-        Wrapper::OnPairZstd
-    } else {
-        Wrapper::Zstd
-    };
+    let want = if pgrc_codec::onpairwrap::onpair_verbatim_on() { Wrapper::OnPairZstd } else { Wrapper::Zstd };
     assert_eq!(e.wrapper, want.as_u8(), "the wrapper election engaged");
 
     // Reads back byte-exact through the unwrap path.
@@ -894,22 +855,14 @@ fn hot_fixed_width_stream_wraps_and_noise_does_not() {
 
     let pv = PartView::open(&mut vfs, "part-0.pgrc");
     let (e1, _) = pv.stream(1, 0, StreamRole::Values).expect("col1");
-    assert_eq!(
-        e1.encoding,
-        EncodingId::ByteFor.as_u16(),
-        "seq int8 stays ByteFor"
-    );
+    assert_eq!(e1.encoding, EncodingId::ByteFor.as_u16(), "seq int8 stays ByteFor");
     assert!(
         e1.wrapper == Wrapper::Zstd.as_u8() || e1.wrapper == Wrapper::IntPre.as_u8(),
         "hot compressible ByteFor stream must take the widened wrapper offer (zstd, or its integer pre-pass), got {}",
         e1.wrapper
     );
     let (e2, _) = pv.stream(2, 0, StreamRole::Values).expect("col2");
-    assert_eq!(
-        e2.encoding,
-        EncodingId::Verbatim.as_u16(),
-        "noise demotes to verbatim"
-    );
+    assert_eq!(e2.encoding, EncodingId::Verbatim.as_u16(), "noise demotes to verbatim");
     assert_eq!(
         e2.wrapper,
         Wrapper::None.as_u8(),
@@ -976,26 +929,17 @@ fn wrapped_parts_are_byte_identical_across_runs() {
                 shred: &mut kit.shred,
                 shred_opts: &kit.opts,
             };
-            w.append_row(
-                &[RawDatum::Bytes(&img), RawDatum::Word(i)],
-                &mut kit.ext,
-                &mut env,
-            )
-            .expect("append");
+            w.append_row(&[RawDatum::Bytes(&img), RawDatum::Word(i)], &mut kit.ext, &mut env,)
+                .expect("append");
         }
         publish(&mut w, &mut vfs, &mut kit, 97);
         // Sanity: the fixture actually wrapped (else the pin is vacuous).
         let pv = PartView::open(&mut vfs, "part-0.pgrc");
         let (e, _) = pv.stream(1, 0, StreamRole::Values).expect("col1");
         assert_ne!(e.wrapper, Wrapper::None.as_u8(), "fixture must wrap");
-        vfs.read_full(&format!("{DIR}/part-0.pgrc"))
-            .expect("part bytes")
+        vfs.read_full(&format!("{DIR}/part-0.pgrc")).expect("part bytes")
     };
-    assert_eq!(
-        run(),
-        run(),
-        "wrapped part bytes diverged across identical runs"
-    );
+    assert_eq!(run(), run(), "wrapped part bytes diverged across identical runs");
 }
 
 #[test]
@@ -1029,16 +973,12 @@ fn two_witness_null_law_holds_on_wrapped_parts() {
     }
     publish(&mut w, &mut vfs, &mut kit, 98);
     let r = &w.seal_reports()[0];
-    assert!(
-        r.nonnull_crosschecks > 0,
-        "two-witness checks must have RUN"
-    );
+    assert!(r.nonnull_crosschecks > 0, "two-witness checks must have RUN");
 
     let pv = PartView::open(&mut vfs, "part-0.pgrc");
     let (e, _) = pv.stream(1, 0, StreamRole::Values).expect("col1");
     assert_ne!(e.wrapper, Wrapper::None.as_u8(), "fixture must wrap");
-    pv.stream(1, 0, StreamRole::Validity)
-        .expect("validity stream exists");
+    pv.stream(1, 0, StreamRole::Validity).expect("validity stream exists");
 
     // Read back: the validity mask agrees with the null pattern and valid
     // rows decode byte-exactly through the unwrap path.
@@ -1054,7 +994,7 @@ fn two_witness_null_law_holds_on_wrapped_parts() {
         for r in 0..n as u64 {
             let i = row_base + r;
             let valid = (mask[(r / 64) as usize] >> (r % 64)) & 1 != 0;
-            assert_eq!(valid, !i.is_multiple_of(7), "validity mismatch at row {i}");
+            assert_eq!(valid, ! i.is_multiple_of( 7), "validity mismatch at row {i}");
             if valid {
                 assert_varlena_datum(datums[r as usize], payload_of(i).as_bytes());
             }
@@ -1129,10 +1069,7 @@ fn wrapping_never_moves_a_cut_boundary() {
     };
     let (rows_on, wrapped_on) = run(true);
     let (rows_off, wrapped_off) = run(false);
-    assert!(
-        rows_on.len() > 1,
-        "the fixture must actually cut (else vacuous)"
-    );
+    assert!(rows_on.len() > 1, "the fixture must actually cut (else vacuous)");
     assert!(wrapped_on, "the ON arm must actually wrap (else vacuous)");
     assert!(!wrapped_off, "the OFF control must stay unwrapped");
     assert_eq!(
@@ -1181,14 +1118,9 @@ fn multi_band_overflow_single_extent_reads_back() {
     finish_and_publish(&mut w, &mut vfs, &mut kit, &probe);
 
     let pv = PartView::open(&mut vfs, "part-0.pgrc");
-    let (oe, oext) = pv
-        .stream(1, 0, StreamRole::Overflow)
-        .expect("overflow stream");
+    let (oe, oext) = pv.stream(1, 0, StreamRole::Overflow).expect("overflow stream");
     assert_eq!(oext.len(), 1, "v1 single-extent law: one overflow extent");
-    assert_eq!(
-        oe.values, 2,
-        "both bands' oversize values in the one region"
-    );
+    assert_eq!(oe.values, 2, "both bands' oversize values in the one region");
 
     // The merged reader decodes BOTH bands' oversize rows.
     let part = open_part(&mut vfs, "part-0.pgrc");
@@ -1210,14 +1142,7 @@ fn multi_band_overflow_single_extent_reads_back() {
 // once per part residency, with typed refusal before any payload fault.
 // ---------------------------------------------------------------------------
 
-static TEST_UNWRAPPERS: [&dyn SectionUnwrapper; 6] = [
-    &LZ4_UNWRAP,
-    &ZSTD_UNWRAP,
-    &FRONT_UNWRAP,
-    &PACKED_UNWRAP,
-    &FRONT_ONPAIR_UNWRAP,
-    &ONPAIR_VALUES_UNWRAP,
-];
+static TEST_UNWRAPPERS: [&dyn SectionUnwrapper; 6] = [&LZ4_UNWRAP, &ZSTD_UNWRAP, &FRONT_UNWRAP, &PACKED_UNWRAP, &FRONT_ONPAIR_UNWRAP, &ONPAIR_VALUES_UNWRAP,];
 
 /// The §9.2 timestamp shape at unit scale: µs-since-epoch steps defeat
 /// byte-aligned FOR (per-frame range > 4 bytes ⇒ width 8 ⇒ BelowWinGate ⇒
@@ -1365,27 +1290,19 @@ fn wrapped_dict_sections_read_back_with_residency_and_refusal() {
 
     let pv = PartView::open(&mut vfs, "part-0.pgrc");
     let (v1, _) = pv.stream(1, 0, StreamRole::Values).expect("col1 values");
-    assert_eq!(
-        v1.encoding,
-        EncodingId::DictCodes.as_u16(),
-        "col1 dict-elects"
-    );
+    assert_eq!(v1.encoding, EncodingId::DictCodes.as_u16(), "col1 dict-elects");
     assert_eq!(
         v1.wrapper,
         Wrapper::None.as_u8(),
         "fixture contract: col1 CODE stream must stay unwrapped (random code order)"
     );
-    let (dp1, _) = pv
-        .stream(1, 0, StreamRole::DictPayload)
-        .expect("col1 payload");
+    let (dp1, _) = pv.stream(1, 0, StreamRole::DictPayload).expect("col1 payload");
     assert_ne!(
         dp1.wrapper,
         Wrapper::None.as_u8(),
         "compressible dict PAYLOAD must take the byte-run wrapper offer"
     );
-    let (dp2, _) = pv
-        .stream(2, 0, StreamRole::DictPayload)
-        .expect("col2 payload");
+    let (dp2, _) = pv.stream(2, 0, StreamRole::DictPayload).expect("col2 payload");
     assert_eq!(
         dp2.wrapper,
         Wrapper::None.as_u8(),
@@ -1416,28 +1333,22 @@ fn wrapped_dict_sections_read_back_with_residency_and_refusal() {
     let resident_after_first = part.resident();
     let mut cur2 = StreamCursor::open(Arc::clone(&part), &binding, 1, 0).expect("cursor 2");
     let (_d, _a) = decode_granule(&mut cur2, 0);
-    assert_eq!(
-        part.faults().len(),
-        faults_after_first,
-        "decompress once per residency"
-    );
-    assert_eq!(
-        part.resident(),
-        resident_after_first,
-        "cache hit must not grow residency"
-    );
+    assert_eq!(part.faults().len(), faults_after_first, "decompress once per residency");
+    assert_eq!(part.resident(), resident_after_first, "cache hit must not grow residency");
 
     // DictHandle face over the wrapped payload: entries materialize.
-    let h =
-        pgrc_read::dicthandle::DictHandle::open(Arc::clone(&part), None, &TEST_UNWRAPPERS, 1, 0)
-            .expect("dict handle");
+    let h = pgrc_read::dicthandle::DictHandle::open(
+        Arc::clone(&part),
+        None,
+        &TEST_UNWRAPPERS,
+        1,
+        0
+    )
+    .expect("dict handle");
     assert_eq!(h.ncodes(), 211);
     for code in 0..h.ncodes() {
         let e = h.entry(code).expect("entry");
-        assert!(
-            e.bytes.starts_with(b"shared-prefix-"),
-            "entry payload shape"
-        );
+        assert!(e.bytes.starts_with(b"shared-prefix-"), "entry payload shape");
     }
 
     // TOOTH (refusal-before-fault, the old-binary posture): a binding
@@ -1504,9 +1415,7 @@ fn wrapped_overflow_region_reads_back() {
     publish(&mut w, &mut vfs, &mut kit, 102);
 
     let pv = PartView::open(&mut vfs, "part-0.pgrc");
-    let (oe, oext) = pv
-        .stream(1, 0, StreamRole::Overflow)
-        .expect("overflow stream");
+    let (oe, oext) = pv.stream(1, 0, StreamRole::Overflow).expect("overflow stream");
     assert_eq!(oext.len(), 1, "v1 single-extent law preserved");
     assert_eq!(oe.values, 2);
     assert_ne!(
@@ -1586,10 +1495,7 @@ fn corrupt_wrapped_dict_payload_refuses_typed() {
         };
         cur.decode_full(0, &mut out)
     };
-    assert!(
-        res.is_err(),
-        "corrupt wrapped dict payload must refuse, not decode"
-    );
+    assert!(res.is_err(), "corrupt wrapped dict payload must refuse, not decode");
 }
 
 // ---------------------------------------------------------------------------
@@ -1719,8 +1625,7 @@ fn seal_one_text_column(vfs: &mut MemVfs, values: &[Vec<u8>], fxid: u64) {
             shred: &mut kit.shred,
             shred_opts: &kit.opts,
         };
-        w.append_row(&[RawDatum::Bytes(&img)], &mut kit.ext, &mut env)
-            .expect("append");
+        w.append_row(&[RawDatum::Bytes(&img)], &mut kit.ext, &mut env).expect("append");
     }
     publish(&mut w, vfs, &mut kit, fxid);
 }
@@ -1735,13 +1640,8 @@ fn dict_layers_seal_and_expand_byte_identically() {
     let mut cases: Vec<Vec<Vec<u8>>> = Vec::new();
     // (one distinct value elects CONST, never a dictionary — n starts at 2)
     for n in [2usize, 31, 32, 33, 1023, 1024, 1025, 2200] {
-        cases.push(
-            (0..n)
-                .map(|i| {
-                    format!("https://example.org/Москва/path-{:04}/{i:06}", i % 13).into_bytes()
-                })
-                .collect(),
-        );
+        cases.push((0..n).map(|i| { format!("https://example.org/Москва/path-{:04}/{i:06}", i % 13).into_bytes()
+                }).collect(),);
     }
     let mut edge: Vec<Vec<u8>> = vec![Vec::new(), b"a".to_vec(), "\u{1F600}".as_bytes().to_vec()];
     edge.push(vec![b'x'; OVERSIZE_THRESHOLD as usize - 64]);
@@ -1751,9 +1651,7 @@ fn dict_layers_seal_and_expand_byte_identically() {
         let mut vfs = mem_with_dir();
         // Rows cycle the entries so every entry is observed; order is not
         // sorted (the builder sorts).
-        let rows: Vec<Vec<u8>> = (0..8192usize)
-            .map(|r| entries[(r * 7 + 3) % entries.len()].clone())
-            .collect();
+        let rows: Vec<Vec<u8>> = (0..8192usize).map(|r| entries[(r * 7 + 3) % entries.len()].clone()).collect();
         seal_one_text_column(&mut vfs, &rows, 300 + ci as u64);
         // The v1 images the old writer would emit for the same distinct set.
         let mut b = crate::dict::DictBuilder::new(TextSemantics::Utf8Chars);
@@ -1761,9 +1659,7 @@ fn dict_layers_seal_and_expand_byte_identically() {
             b.observe(e);
         }
         let built = b.build();
-        let v1 = built
-            .emit_sections(DictCharLenForm::Absolute)
-            .expect("emit");
+        let v1 = built.emit_sections(DictCharLenForm::Absolute).expect("emit");
         let n = built.entry_count();
 
         let pv = PartView::open(&mut vfs, "part-0.pgrc");
@@ -1771,54 +1667,23 @@ fn dict_layers_seal_and_expand_byte_identically() {
         let (di, _) = pv.stream(1, 0, StreamRole::DictIndex).expect("index");
         let wraps = n >= 64;
         if wraps {
-            assert_eq!(
-                dp.wrapper,
-                Wrapper::FrontZstd.as_u8(),
-                "case {ci}: payload arm"
-            );
-            assert_eq!(
-                di.wrapper,
-                Wrapper::PackedZstd.as_u8(),
-                "case {ci}: index arm"
-            );
+            assert_eq!(dp.wrapper, Wrapper::FrontZstd.as_u8(), "case {ci}: payload arm");
+            assert_eq!(di.wrapper, Wrapper::PackedZstd.as_u8(), "case {ci}: index arm");
         }
-        assert_eq!(
-            di.flags & 0b11000,
-            0,
-            "packed index rides the Absolute char form"
-        );
+        assert_eq!(di.flags & 0b11000, 0, "packed index rides the Absolute char form");
         let part = open_part(&mut vfs, "part-0.pgrc");
-        let h = pgrc_read::dicthandle::DictHandle::open(
-            Arc::clone(&part),
-            None,
-            &TEST_UNWRAPPERS,
-            1,
-            0,
-        )
-        .expect("handle");
+        let h = pgrc_read::dicthandle::DictHandle::open(Arc::clone(&part), None, &TEST_UNWRAPPERS, 1, 0,).expect("handle");
         assert_eq!(h.ncodes(), n);
         h.prewarm_payload().expect("prewarm");
-        assert!(
-            h.index_bytes().expect("index")
-                == crate::dict::section_payload(&v1.index_section).expect("v1"),
-            "case {ci}: index image"
-        );
-        assert!(
-            h.payload_bytes().expect("payload").expect("resident")
-                == crate::dict::section_payload(&v1.payload_section).expect("v1"),
-            "case {ci}: payload image"
-        );
+        assert!(h.index_bytes().expect("index") == crate::dict::section_payload(&v1.index_section).expect("v1"), "case {ci}: index image");
+        assert!(h.payload_bytes().expect("payload").expect("resident") == crate::dict::section_payload(&v1.payload_section).expect("v1"), "case {ci}: payload image");
         let mut sorted = entries.clone();
         sorted.sort();
         sorted.dedup();
         for (code, e) in sorted.iter().enumerate() {
             let got = h.entry(code as u32).expect("entry");
             assert!(got.bytes == e.as_slice(), "case {ci}: entry {code}");
-            assert_eq!(
-                h.lengths(code as u32).expect("lengths"),
-                (e.len() as u32, utf8_char_count(e)),
-                "case {ci}: real UTF-8 char count"
-            );
+            assert_eq!(h.lengths(code as u32).expect("lengths"), (e.len() as u32, utf8_char_count(e)), "case {ci}: real UTF-8 char count");
         }
         // The cursor face (KernelCtx.dict through the whole-section unwrap).
         let binding = codec_binding();
@@ -1832,20 +1697,11 @@ fn dict_layers_seal_and_expand_byte_identically() {
         if wraps {
             let part2 = open_part(&mut vfs, "part-0.pgrc");
             static V1_UNWRAPPERS: [&dyn SectionUnwrapper; 2] = [&LZ4_UNWRAP, &ZSTD_UNWRAP];
-            let err =
-                match pgrc_read::dicthandle::DictHandle::open(part2, None, &V1_UNWRAPPERS, 1, 0) {
-                    Ok(_) => panic!("must refuse"),
-                    Err(e) => e,
-                };
-            assert!(
-                matches!(
-                    err,
-                    pgrc_read::ReadError::Format(FormatError::WrapperUnsupported {
-                        wrapper: 3 | 4
-                    })
-                ),
-                "{err:?}"
-            );
+            let err = match pgrc_read::dicthandle::DictHandle::open(part2, None, &V1_UNWRAPPERS, 1, 0) {
+                Ok(_) => panic!("must refuse"),
+                Err(e) => e,
+            };
+            assert!(matches!(err, pgrc_read::ReadError::Format(FormatError::WrapperUnsupported { wrapper: 3 | 4 })), "{err:?}");
         }
     }
 }
@@ -1873,17 +1729,11 @@ fn d302_entries() -> Vec<Vec<u8>> {
 fn d302_part() -> (Vec<u8>, (usize, usize)) {
     let entries = d302_entries();
     let mut vfs = mem_with_dir();
-    let rows: Vec<Vec<u8>> = (0..8192usize)
-        .map(|r| entries[(r * 7 + 3) % entries.len()].clone())
-        .collect();
+    let rows: Vec<Vec<u8>> = (0..8192usize).map(|r| entries[(r * 7 + 3) % entries.len()].clone()).collect();
     seal_one_text_column(&mut vfs, &rows, 302);
     let pv = PartView::open(&mut vfs, "part-0.pgrc");
     let (dp, ext) = pv.stream(1, 0, StreamRole::DictPayload).expect("payload");
-    assert_eq!(
-        dp.wrapper,
-        Wrapper::FrontZstd.as_u8(),
-        "the repro's payload arm"
-    );
+    assert_eq!(dp.wrapper, Wrapper::FrontZstd.as_u8(), "the repro's payload arm");
     assert_eq!(ext.len(), 1, "one wrapped extent");
     let span = (ext[0].file_off as usize, ext[0].len as usize);
     (pv.bytes, span)
@@ -1916,9 +1766,7 @@ fn d302_assert_every_entry(h: &pgrc_read::dicthandle::DictHandle, what: &str) {
     want.sort();
     assert_eq!(h.ncodes() as usize, want.len(), "{what}");
     for (code, e) in want.iter().enumerate() {
-        let got = h
-            .entry(code as u32)
-            .unwrap_or_else(|err| panic!("{what}: entry {code}: {err:?}"));
+        let got = h.entry(code as u32).unwrap_or_else(|err| panic!("{what}: entry {code}: {err:?}"));
         assert!(got.bytes == e.as_slice(), "{what}: entry {code}");
     }
 }
@@ -1928,11 +1776,7 @@ fn d302_a_front_coded_dict_past_any_ratio_reads_through_both_arms() {
     let (bytes, (off, len)) = d302_part();
     let hdr = StreamSectionHdr::decode(&bytes[off..off + len]).expect("hdr");
     let comp = hdr.frame_table_off as usize - pgrc_format::part::STREAM_SECTION_HDR_LEN;
-    assert!(
-        hdr.uncompressed_len as usize > 1024 * comp,
-        "past the old 1024x ratio: {} over {comp}",
-        hdr.uncompressed_len
-    );
+    assert!(hdr.uncompressed_len as usize > 1024 * comp, "past the old 1024x ratio: {} over {comp}", hdr.uncompressed_len);
     for block_lazy in [true, false] {
         let h = d302_handle(d302_open(&bytes), block_lazy, &TEST_UNWRAPPERS).expect("handle");
         d302_assert_every_entry(&h, if block_lazy { "block-lazy" } else { "whole" });
@@ -1948,22 +1792,10 @@ fn onpair_entries() -> Vec<Vec<u8>> {
         let z = (st ^ (st >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
         (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB) ^ (z >> 31)
     };
-    let vocab: Vec<String> = (0..3000)
-        .map(|_| {
-            (0..3 + next() % 8)
-                .map(|_| char::from_u32(0x430 + (next() % 32) as u32).unwrap())
-                .collect()
-        })
-        .collect();
-    let mut v: Vec<Vec<u8>> = (0..20_000)
-        .map(|_| {
-            (0..4 + next() % 8)
-                .map(|_| vocab[(next() % 3000) as usize].as_str())
-                .collect::<Vec<_>>()
-                .join(" ")
-                .into_bytes()
-        })
-        .collect();
+    let vocab: Vec<String> = (0..3000).map(|_| { (0..3 + next() % 8).map(|_| char::from_u32(0x430 + (next() % 32) as u32).unwrap()).collect()
+        }).collect();
+    let mut v: Vec<Vec<u8>> = (0..20_000).map(|_| { (0..4 + next() % 8).map(|_| vocab[(next() % 3000) as usize].as_str()).collect::<Vec<_>>().join(" ").into_bytes()
+        }).collect();
     v.sort();
     v.dedup();
     v
@@ -1976,52 +1808,27 @@ fn onpair_dict_payload_reads_every_entry_through_both_arms() {
     }
     let entries = onpair_entries();
     let mut vfs = mem_with_dir();
-    let rows: Vec<Vec<u8>> = (0..3 * entries.len())
-        .map(|r| entries[(r * 7919) % entries.len()].clone())
-        .collect();
+    let rows: Vec<Vec<u8>> = (0..3 * entries.len()).map(|r| entries[(r * 7919) % entries.len()].clone()).collect();
     seal_one_text_column(&mut vfs, &rows, 303);
     let pv = PartView::open(&mut vfs, "part-0.pgrc");
     let (dp, _) = pv.stream(1, 0, StreamRole::DictPayload).expect("payload");
-    assert_eq!(
-        dp.wrapper,
-        Wrapper::FrontOnPairZstd.as_u8(),
-        "the payload arm the election keeps"
-    );
+    assert_eq!(dp.wrapper, Wrapper::FrontOnPairZstd.as_u8(), "the payload arm the election keeps");
     for block_lazy in [true, false] {
         let what = if block_lazy { "block-lazy" } else { "whole" };
         let h = d302_handle(d302_open(&pv.bytes), block_lazy, &TEST_UNWRAPPERS).expect("handle");
         assert_eq!(h.ncodes() as usize, entries.len(), "{what}");
         for (code, e) in entries.iter().enumerate().rev() {
-            let got = h
-                .entry(code as u32)
-                .unwrap_or_else(|err| panic!("{what}: entry {code}: {err:?}"));
+            let got = h.entry(code as u32).unwrap_or_else(|err| panic!("{what}: entry {code}: {err:?}"));
             assert!(got.bytes == e.as_slice(), "{what}: entry {code}");
         }
-        assert_eq!(
-            h.frame_lazy_frames() > 0,
-            block_lazy,
-            "{what}: the arm under test"
-        );
+        assert_eq!(h.frame_lazy_frames() > 0, block_lazy, "{what}: the arm under test");
     }
-    static V1_UNWRAPPERS: [&dyn SectionUnwrapper; 4] =
-        [&LZ4_UNWRAP, &ZSTD_UNWRAP, &FRONT_UNWRAP, &PACKED_UNWRAP];
-    let err = match pgrc_read::dicthandle::DictHandle::open(
-        d302_open(&pv.bytes),
-        None,
-        &V1_UNWRAPPERS,
-        1,
-        0,
-    ) {
+    static V1_UNWRAPPERS: [&dyn SectionUnwrapper; 4] = [&LZ4_UNWRAP, &ZSTD_UNWRAP, &FRONT_UNWRAP, &PACKED_UNWRAP];
+    let err = match pgrc_read::dicthandle::DictHandle::open(d302_open(&pv.bytes), None, &V1_UNWRAPPERS, 1, 0,) {
         Ok(_) => panic!("an older binding must refuse"),
         Err(e) => e,
     };
-    assert!(
-        matches!(
-            err,
-            pgrc_read::ReadError::Format(FormatError::WrapperUnsupported { wrapper: 5 })
-        ),
-        "{err:?}"
-    );
+    assert!(matches!(err, pgrc_read::ReadError::Format(FormatError::WrapperUnsupported { wrapper: 5 })), "{err:?}");
 }
 
 /// Distinct title-like rows demote the dictionary to verbatim values: under `PGRUST_PGRC_ONPAIR_VERBATIM=1` the
@@ -2033,17 +1840,11 @@ fn onpair_verbatim_values_read_back_through_the_cursor() {
     }
     let entries = onpair_entries();
     let mut vfs = mem_with_dir();
-    let rows: Vec<Vec<u8>> = (0..entries.len())
-        .map(|r| entries[(r * 7919) % entries.len()].clone())
-        .collect();
+    let rows: Vec<Vec<u8>> = (0..entries.len()).map(|r| entries[(r * 7919) % entries.len()].clone()).collect();
     seal_one_text_column(&mut vfs, &rows, 304);
     let pv = PartView::open(&mut vfs, "part-0.pgrc");
     let (vs, _) = pv.stream(1, 0, StreamRole::Values).expect("values");
-    assert_eq!(
-        vs.wrapper,
-        Wrapper::OnPairZstd.as_u8(),
-        "the values arm the election keeps"
-    );
+    assert_eq!(vs.wrapper, Wrapper::OnPairZstd.as_u8(), "the values arm the election keeps");
     let part = open_part(&mut vfs, "part-0.pgrc");
     let binding = codec_binding();
     let mut cur = StreamCursor::open(Arc::clone(&part), &binding, 1, 0).expect("cursor");
@@ -2056,22 +1857,9 @@ fn onpair_verbatim_values_read_back_through_the_cursor() {
         r0 += datums.len();
     }
     assert_eq!(r0, rows.len());
-    let old = CodecBinding {
-        registry: pgrc_codec::registry(),
-        unwrappers: &[&LZ4_UNWRAP, &ZSTD_UNWRAP],
-    };
-    let refused =
-        StreamCursor::open(part, &old, 1, 0).and_then(|mut c| c.values_in_granule(0).map(drop));
-    assert!(
-        matches!(
-            refused,
-            Err(pgrc_read::ReadError::Format(
-                FormatError::WrapperUnsupported { wrapper: 6 }
-            ))
-        ),
-        "{:?}",
-        refused.err()
-    );
+    let old = CodecBinding { registry: pgrc_codec::registry(), unwrappers: &[&LZ4_UNWRAP, &ZSTD_UNWRAP], };
+    let refused = StreamCursor::open(part, &old, 1, 0).and_then(|mut c| c.values_in_granule(0).map(drop));
+    assert!(matches!(refused, Err(pgrc_read::ReadError::Format(FormatError::WrapperUnsupported { wrapper: 6 }))), "{:?}", refused.err());
 }
 
 #[test]
@@ -2083,35 +1871,20 @@ fn d302_a_header_its_index_contradicts_refuses_in_both_arms() {
         h.index_bytes().expect("index").to_vec()
     };
     let law = "dict payload uncompressed_len vs dict index";
-    for bad in [
-        u32::MAX - 7,
-        hdr.uncompressed_len + 8,
-        hdr.uncompressed_len - 1,
-    ] {
+    for bad in [u32::MAX - 7, hdr.uncompressed_len + 8, hdr.uncompressed_len - 1,] {
         let mut b = bytes.clone();
         // StreamSectionHdr: uncompressed_len is the u32 at byte 20
         b[off + 20..off + 24].copy_from_slice(&bad.to_le_bytes());
         // block-lazy: the head arrives by an unchecked sub-extent pread, so the law is its witness
         let h = d302_handle(d302_open(&b), true, &TEST_UNWRAPPERS).expect("handle");
         let err = h.entry(0).map(|_| ()).expect_err("block-lazy refuses");
-        assert!(
-            matches!(err, pgrc_read::ReadError::Format(FormatError::Corrupt { at }) if at == law),
-            "block-lazy {bad}: {err:?}"
-        );
+        assert!(matches!(err, pgrc_read::ReadError::Format(FormatError::Corrupt { at }) if at == law), "block-lazy {bad}: {err:?}");
         // whole: the extent is CRC-checked before its unwrap, so the law is witnessed at the unwrap itself (the
         // reservation is after it: a u32::MAX - 7 claim that reached it would zero-fill 4 GiB here)
         let mut out = Vec::new();
-        let err =
-            pgrc_codec::wrapper::unwrap_dict_payload_section(&b[off..off + len], &index, &mut out)
-                .expect_err("whole refuses");
-        assert!(
-            matches!(err, FormatError::Corrupt { at } if at == law),
-            "whole {bad}: {err:?}"
-        );
-        assert!(
-            out.capacity() < 1 << 20,
-            "no image-sized reservation before the refusal"
-        );
+        let err = pgrc_codec::wrapper::unwrap_dict_payload_section(&b[off..off + len], &index, &mut out).expect_err("whole refuses");
+        assert!(matches!(err, FormatError::Corrupt { at } if at == law), "whole {bad}: {err:?}");
+        assert!(out.capacity() < 1 << 20, "no image-sized reservation before the refusal");
     }
 }
 
@@ -2141,8 +1914,7 @@ impl pgrc_read::PartIo for D302FlakyIo {
 
 /// The FrontZstd unwrapper whose first block decompress stops part-way: half the block's span scribbled, then an error.
 struct D302FlakyFront;
-static D302_FLAKY_TRIPPED: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(false);
+static D302_FLAKY_TRIPPED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 impl SectionUnwrapper for D302FlakyFront {
     fn wrapper(&self) -> Wrapper {
         Wrapper::FrontZstd
@@ -2150,33 +1922,20 @@ impl SectionUnwrapper for D302FlakyFront {
     fn unwrap_section(&self, hdr: &StreamSectionHdr, section: &[u8]) -> FormatResult<Vec<u8>> {
         FRONT_UNWRAP.unwrap_section(hdr, section)
     }
-    fn unwrap_dict_payload_section(
-        &self,
-        hdr: &StreamSectionHdr,
-        section: &[u8],
-        index: &[u8],
-    ) -> FormatResult<Vec<u8>> {
+    fn unwrap_dict_payload_section(&self, hdr: &StreamSectionHdr, section: &[u8], index: &[u8],) -> FormatResult<Vec<u8>> {
         FRONT_UNWRAP.unwrap_dict_payload_section(hdr, section, index)
     }
-    fn unwrap_dict_payload_block(
-        &self,
-        src: &[u8],
-        dst: &mut [u8],
-        records: &[u8],
-    ) -> FormatResult<bool> {
+    fn unwrap_dict_payload_block(&self, src: &[u8], dst: &mut [u8], records: &[u8],) -> FormatResult<bool> {
         if !D302_FLAKY_TRIPPED.swap(true, std::sync::atomic::Ordering::SeqCst) {
             let half = dst.len() / 2;
             dst[..half].fill(0xAB);
-            return Err(FormatError::Corrupt {
-                at: "d302 test: a block decompress cut short",
-            });
+            return Err(FormatError::Corrupt { at: "d302 test: a block decompress cut short", });
         }
         FRONT_UNWRAP.unwrap_dict_payload_block(src, dst, records)
     }
 }
 static D302_FLAKY_FRONT: D302FlakyFront = D302FlakyFront;
-static D302_FLAKY_UNWRAPPERS: [&dyn SectionUnwrapper; 4] =
-    [&LZ4_UNWRAP, &ZSTD_UNWRAP, &D302_FLAKY_FRONT, &PACKED_UNWRAP];
+static D302_FLAKY_UNWRAPPERS: [&dyn SectionUnwrapper; 4] = [&LZ4_UNWRAP, &ZSTD_UNWRAP, &D302_FLAKY_FRONT, &PACKED_UNWRAP];
 
 // ---------------------------------------------------------------------------
 // D4084: a block-lazy dictionary image's reservation on the memory ledger
@@ -2184,9 +1943,7 @@ static D302_FLAKY_UNWRAPPERS: [&dyn SectionUnwrapper; 4] =
 
 /// D4084's dictionary: 8192 distinct 128-byte entries (eight 1024-entry blocks).
 fn d4084_entries() -> Vec<Vec<u8>> {
-    (0..8192u32)
-        .map(|i| format!("d4084-{i:06}-{}", "x".repeat(115)).into_bytes())
-        .collect()
+    (0..8192u32).map(|i| format!("d4084-{i:06}-{}", "x".repeat(115)).into_bytes()).collect()
 }
 
 /// A sealed part carrying [`d4084_entries`] (each on four rows) as a FrontZstd dictionary: its bytes and its payload's
@@ -2194,18 +1951,14 @@ fn d4084_entries() -> Vec<Vec<u8>> {
 fn d4084_part() -> (Vec<u8>, usize) {
     let entries = d4084_entries();
     let mut vfs = mem_with_dir();
-    let rows: Vec<Vec<u8>> = (0..4 * entries.len())
-        .map(|r| entries[(r * 7 + 3) % entries.len()].clone())
-        .collect();
+    let rows: Vec<Vec<u8>> = (0..4 * entries.len()).map(|r| entries[(r * 7 + 3) % entries.len()].clone()).collect();
     seal_one_text_column(&mut vfs, &rows, 4084);
     let pv = PartView::open(&mut vfs, "part-0.pgrc");
     let (dp, ext) = pv.stream(1, 0, StreamRole::DictPayload).expect("payload");
     assert_eq!(dp.wrapper, Wrapper::FrontZstd.as_u8(), "a wrapped payload");
     assert_eq!(ext.len(), 1, "one wrapped extent");
     let (off, len) = (ext[0].file_off as usize, ext[0].len as usize);
-    let unc = StreamSectionHdr::decode(&pv.bytes[off..off + len])
-        .expect("hdr")
-        .uncompressed_len as usize;
+    let unc = StreamSectionHdr::decode(&pv.bytes[off..off + len]).expect("hdr").uncompressed_len as usize;
     (pv.bytes, unc)
 }
 
@@ -2219,8 +1972,7 @@ fn d4084_part() -> (Vec<u8>, usize) {
 fn d4084_a_block_lazy_image_nets_zero_on_its_opener_and_its_evictor() {
     let (bytes, unc) = d4084_part();
     let part = d302_open(&bytes);
-    part.stream_directory()
-        .expect("the directory, parsed before the backends under test");
+    part.stream_directory().expect("the directory, parsed before the backends under test");
     // as backend `procno`, on a thread of its own: `f`'s result and the account's change over it, door 1 folded in
     let as_backend = |procno: u32, f: &(dyn Fn() -> u64 + Sync)| -> (u64, i64) {
         std::thread::scope(|s| {
@@ -2241,21 +1993,11 @@ fn d4084_a_block_lazy_image_nets_zero_on_its_opener_and_its_evictor() {
     };
     let (faulted, opener) = as_backend(3084, &|| {
         let h = d302_handle(Arc::clone(&part), true, &TEST_UNWRAPPERS).expect("handle");
-        assert_eq!(
-            h.entry(0).expect("entry 0").bytes.len(),
-            128,
-            "the first entry"
-        );
-        assert!(
-            h.frame_lazy_frames() > 1,
-            "the block-lazy arm, several blocks"
-        );
+        assert_eq!(h.entry(0).expect("entry 0").bytes.len(), 128, "the first entry");
+        assert!(h.frame_lazy_frames() > 1, "the block-lazy arm, several blocks");
         h.resident_payload_bytes()
     });
-    assert!(
-        faulted > 0 && faulted * 4 < unc as u64,
-        "one block of the {unc}-byte image faulted, not the image: {faulted}"
-    );
+    assert!(faulted > 0 && faulted * 4 < unc as u64, "one block of the {unc}-byte image faulted, not the image: {faulted}");
     let (evicted, evictor) = as_backend(3085, &|| part.evict_contents().1);
     assert_eq!(evicted, faulted, "the trim freed the image");
     let slack = 64 << 10;
@@ -2269,46 +2011,20 @@ fn d302_an_interrupted_fill_is_never_trusted() {
     let (bytes, (off, _)) = d302_part();
     let hdr_len = pgrc_format::part::STREAM_SECTION_HDR_LEN;
     // the block-offset table heads the wrapped payload; its first word is its own length, block 0's start
-    let block0 = u32::from_le_bytes(
-        bytes[off + hdr_len..off + hdr_len + 4]
-            .try_into()
-            .expect("len 4"),
-    ) as usize;
+    let block0 = u32::from_le_bytes(bytes[off + hdr_len..off + hdr_len + 4].try_into().expect("len 4"),) as usize;
     // block-lazy: block 0's sub-extent pread fails mid-fill; whole: the extent's read does
     for (block_lazy, fail_off) in [(true, off + hdr_len + block0), (false, off)] {
         let what = if block_lazy { "block-lazy" } else { "whole" };
-        let io = D302FlakyIo {
-            inner: MemPartIo::new(bytes.clone(), 4242, 7),
-            fail_off: fail_off as u64,
-            tripped: false.into(),
-        };
-        let h =
-            d302_handle(d302_open_io(Box::new(io)), block_lazy, &TEST_UNWRAPPERS).expect("handle");
-        let err = h
-            .entry(0)
-            .map(|_| ())
-            .expect_err("the cut-off read surfaces");
-        assert!(
-            matches!(err, pgrc_read::ReadError::Io { errno: 4, .. }),
-            "{what}: {err:?}"
-        );
+        let io = D302FlakyIo { inner: MemPartIo::new(bytes.clone(), 4242, 7), fail_off: fail_off as u64, tripped: false.into(), };
+        let h = d302_handle(d302_open_io(Box::new(io)), block_lazy, &TEST_UNWRAPPERS).expect("handle");
+        let err = h.entry(0).map(|_| ()).expect_err("the cut-off read surfaces");
+        assert!(matches!(err, pgrc_read::ReadError::Io { errno: 4, .. }), "{what}: {err:?}");
         d302_assert_every_entry(&h, what);
     }
     // block-lazy: block 0's decompress stops part-way through its span
     let h = d302_handle(d302_open(&bytes), true, &D302_FLAKY_UNWRAPPERS).expect("handle");
-    let err = h
-        .entry(0)
-        .map(|_| ())
-        .expect_err("the cut-off decompress surfaces");
-    assert!(
-        matches!(
-            err,
-            pgrc_read::ReadError::Format(FormatError::Corrupt {
-                at: "d302 test: a block decompress cut short"
-            })
-        ),
-        "{err:?}"
-    );
+    let err = h.entry(0).map(|_| ()).expect_err("the cut-off decompress surfaces");
+    assert!(matches!(err, pgrc_read::ReadError::Format(FormatError::Corrupt { at: "d302 test: a block decompress cut short" })), "{err:?}");
     assert_eq!(h.frame_lazy_frames(), 1, "the block-lazy arm");
     d302_assert_every_entry(&h, "block-lazy after a cut-off decompress");
 }
@@ -2328,40 +2044,23 @@ fn octet_lane_rides_verbatim_text_not_dict_codes() {
     use pgrc_format::shredlane::OCTET_LENGTH_PATH;
     let mut vfs = mem_with_dir();
     let dict = ColumnPosture {
-        dict: Some(DictPolicy {
-            ndv_cap: 100_000,
-            exec_ok: true,
-            sem: TextSemantics::BytesOnly,
-        }),
+        dict: Some(DictPolicy { ndv_cap: 100_000, exec_ok: true, sem: TextSemantics::BytesOnly, }),
         ..ColumnPosture::default()
     };
-    let mut kit =
-        FullKit::new(CodecCandidates::new(ColumnPosture::default()).with_column(1, 0, dict));
-    let bytea = ColSchema {
-        semantics: TypeSemantics::MemcmpOrdered,
-        ..text_col(4)
-    };
-    let mut w = open_writer(
-        vec![text_col(1), int8_col(2), text_col(3), bytea],
-        stamp(94, 1),
-    );
+    let mut kit = FullKit::new(CodecCandidates::new(ColumnPosture::default()).with_column(1, 0, dict));
+    let bytea = ColSchema { semantics: TypeSemantics::MemcmpOrdered, ..text_col(4) };
+    let mut w = open_writer(vec![text_col(1), int8_col(2), text_col(3), bytea], stamp(94, 1),);
     let rows = 10_000u64;
     let coded = |i: u64| format!("v{:04}", i % 211);
     let verbatim = |i: u64| {
-        (!i.is_multiple_of(13)).then(|| match i % 5 {
+        (!i.is_multiple_of( 13)).then(|| match i % 5 {
             0 => String::new(),
             1 => format!("{}-{i}", "\u{e9}".repeat((i % 17) as usize)),
             _ => format!("{}-{i}", "x".repeat((i % 29) as usize)),
         })
     };
     // one value past the 32 KiB inline ceiling (the overflow stream)
-    let bytes = |i: u64| {
-        (i % 7 != 2).then(|| {
-            if i == 4321 {
-                vec![0xA5; 40_000]
-            } else {
-                i.to_le_bytes().repeat((i % 5) as usize)
-            }
+    let bytes = |i: u64| { (i % 7 != 2).then(|| { if i == 4321 { vec![0xA5; 40_000] } else { i.to_le_bytes().repeat((i % 5) as usize) }
         })
     };
     for i in 0..rows {
@@ -2378,61 +2077,40 @@ fn octet_lane_rides_verbatim_text_not_dict_codes() {
         };
         let cd = c.as_deref().map_or(RawDatum::Null, RawDatum::Bytes);
         let ed = e.as_deref().map_or(RawDatum::Null, RawDatum::Bytes);
-        w.append_row(
-            &[RawDatum::Bytes(&a), RawDatum::Word(i), cd, ed],
-            &mut kit.ext,
-            &mut env,
-        )
-        .expect("append");
+        w.append_row(&[RawDatum::Bytes(&a), RawDatum::Word(i), cd, ed], &mut kit.ext, &mut env,)
+            .expect("append");
     }
     publish(&mut w, &mut vfs, &mut kit, 94);
 
     let part = open_part(&mut vfs, "part-0.pgrc");
-    assert_eq!(
-        pgrc_read::read_path_table(&part).expect("path table"),
-        Some(vec![OCTET_LENGTH_PATH.to_string(); 2])
-    );
+    assert_eq!(pgrc_read::read_path_table(&part).expect("path table"), Some(vec![OCTET_LENGTH_PATH.to_string(); 2]));
     let binding = codec_binding();
     let codes = StreamCursor::open(Arc::clone(&part), &binding, 1, 0).expect("coded column");
     assert_eq!(codes.entry().encoding, EncodingId::DictCodes.as_u16());
     for ord in 1..3 {
-        assert!(
-            StreamCursor::open(Arc::clone(&part), &binding, 1, ord).is_err(),
-            "no lane beside dictionary codes"
-        );
+        assert!(StreamCursor::open(Arc::clone(&part), &binding, 1, ord).is_err(), "no lane beside dictionary codes");
     }
     let check = |attno: u32, ord: u32, want: &dyn Fn(u64) -> Option<usize>| {
-        let mut lane =
-            StreamCursor::open(Arc::clone(&part), &binding, attno, ord).expect("octet lane");
+        let mut lane = StreamCursor::open(Arc::clone(&part), &binding, attno, ord).expect("octet lane");
         let mut col = StreamCursor::open(Arc::clone(&part), &binding, attno, 0).expect("column");
         assert_eq!(lane.entry().class, CLASS_BYVAL);
         let mut row = 0u64;
         for g in 0..lane.granule_count() {
             let n = lane.rows_in_granule(g) as usize;
             let mut lens = vec![0i32; n];
-            assert_eq!(
-                lane.decode_i32(g, &mut lens).expect("decode_i32") as usize,
-                n
-            );
+            assert_eq!(lane.decode_i32(g, &mut lens).expect("decode_i32") as usize, n);
             // the reader's length walk where the column's encoding answers it (verbatim)
             let mut read = vec![0u32; n];
             let walked = col.decode_lengths(g, &mut read).is_ok();
             let mut mask = vec![0u64; n.div_ceil(64).max(1)];
-            let all = matches!(
-                lane.validity(g, &mut mask).expect("validity"),
-                ValidityVerdict::AllValid
-            );
+            let all = matches!(lane.validity(g, &mut mask).expect("validity"), ValidityVerdict::AllValid);
             for (r, len) in lens.iter().enumerate() {
                 let valid = all || (mask[r / 64] >> (r % 64)) & 1 == 1;
                 match want(row) {
                     Some(l) => {
                         assert!(valid, "att {attno} row {row} is not NULL");
                         assert_eq!(*len as usize, l, "att {attno} row {row}");
-                        assert!(
-                            !walked || read[r] as usize == l,
-                            "att {attno} row {row}: the column's decode_lengths {}",
-                            read[r]
-                        );
+                        assert!(!walked || read[r] as usize == l, "att {attno} row {row}: the column's decode_lengths {}", read[r]);
                     }
                     None => assert!(!valid, "att {attno} row {row} is NULL"),
                 }
@@ -2454,11 +2132,7 @@ fn intpre_wraps_int_streams_reads_back_and_refuses_without_unwrapper() {
     let rows = 30_000u64;
     let data = |i: u64, seed: &mut u64, ts: &mut u64| {
         let r = splitmix(seed);
-        *ts = if i.is_multiple_of(6) {
-            1_372_708_800_000_000 + (r % 2_678_400) * 1_000_000
-        } else {
-            *ts + (r % 120) * 1_000_000
-        };
+        *ts = if i.is_multiple_of( 6) { 1_372_708_800_000_000 + (r % 2_678_400) * 1_000_000 } else { *ts + (r % 120) * 1_000_000 };
         (*ts, splitmix(seed), i / 37)
     };
     let run = || -> MemVfs {
@@ -2470,19 +2144,8 @@ fn intpre_wraps_int_streams_reads_back_and_refuses_without_unwrapper() {
         for i in 0..rows {
             let (a, b, c) = data(i, &mut seed, &mut ts);
             let sources: [&dyn crate::elect::CandidateSource; 1] = [&kit.cands];
-            let mut env = SealEnv {
-                vfs: &mut vfs,
-                sources: &sources,
-                resolver: &kit.resolver,
-                shred: &mut kit.shred,
-                shred_opts: &kit.opts,
-            };
-            w.append_row(
-                &[RawDatum::Word(a), RawDatum::Word(b), RawDatum::Word(c)],
-                &mut kit.ext,
-                &mut env,
-            )
-            .expect("append");
+            let mut env = SealEnv { vfs: &mut vfs, sources: &sources, resolver: &kit.resolver, shred: &mut kit.shred, shred_opts: &kit.opts, };
+            w.append_row(&[RawDatum::Word(a), RawDatum::Word(b), RawDatum::Word(c)], &mut kit.ext, &mut env,).expect("append");
         }
         publish(&mut w, &mut vfs, &mut kit, 96);
         pgrc_codec::intpre::force(None);
@@ -2492,17 +2155,9 @@ fn intpre_wraps_int_streams_reads_back_and_refuses_without_unwrapper() {
     let pv = PartView::open(&mut vfs, "part-0.pgrc");
     let (e1, x1) = pv.stream(1, 0, StreamRole::Values).expect("col1");
     assert_eq!(e1.encoding, EncodingId::ByteFor.as_u16());
-    assert_eq!(
-        e1.wrapper,
-        Wrapper::IntPre.as_u8(),
-        "the timestamp-like stream takes the pre-pass"
-    );
+    assert_eq!(e1.wrapper, Wrapper::IntPre.as_u8(), "the timestamp-like stream takes the pre-pass");
     let (e2, _) = pv.stream(2, 0, StreamRole::Values).expect("col2");
-    assert_eq!(
-        e2.wrapper,
-        Wrapper::None.as_u8(),
-        "noise settles to Zstd and fails the 20 % law"
-    );
+    assert_eq!(e2.wrapper, Wrapper::None.as_u8(), "noise settles to Zstd and fails the 20 % law");
     let (e3, _) = pv.stream(3, 0, StreamRole::Values).expect("col3");
     assert!(e3.wrapper == Wrapper::IntPre.as_u8() || e3.wrapper == Wrapper::Zstd.as_u8());
 
@@ -2524,17 +2179,10 @@ fn intpre_wraps_int_streams_reads_back_and_refuses_without_unwrapper() {
         assert_eq!(row as u64, rows);
     }
 
-    let old = CodecBinding {
-        registry: pgrc_codec::registry(),
-        unwrappers: &[&LZ4_UNWRAP, &ZSTD_UNWRAP],
-    };
-    let err = StreamCursor::open(open_part(&mut vfs, "part-0.pgrc"), &old, 1, 0)
-        .expect_err("binding without IntPre");
+    let old = CodecBinding { registry: pgrc_codec::registry(), unwrappers: &[&LZ4_UNWRAP, &ZSTD_UNWRAP], };
+    let err = StreamCursor::open(open_part(&mut vfs, "part-0.pgrc"), &old, 1, 0).expect_err("binding without IntPre");
     assert!(
-        matches!(
-            err,
-            pgrc_read::ReadError::Format(FormatError::WrapperUnsupported { wrapper: 8 })
-        ),
+        matches!(err, pgrc_read::ReadError::Format(FormatError::WrapperUnsupported { wrapper: 8 })),
         "an older binding must refuse id 8 typed, got {err:?}"
     );
 
@@ -2543,14 +2191,8 @@ fn intpre_wraps_int_streams_reads_back_and_refuses_without_unwrapper() {
         let mut plain = Vec::new();
         pgrc_codec::wrapper::unwrap_section(image, &mut plain).expect("unwrap");
         let crc = pgrc_format::wire::crc32c(&plain);
-        assert_eq!(
-            crate::seal::unwrap_kept(image, crc).expect("unwrap_kept"),
-            plain
-        );
-        assert!(
-            crate::seal::unwrap_kept(image, crc ^ 1).is_err(),
-            "a CRC the rebuild misses refuses"
-        );
+        assert_eq!(crate::seal::unwrap_kept(image, crc).expect("unwrap_kept"), plain);
+        assert!(crate::seal::unwrap_kept(image, crc ^ 1).is_err(), "a CRC the rebuild misses refuses");
     }
 
     let mut again = run();

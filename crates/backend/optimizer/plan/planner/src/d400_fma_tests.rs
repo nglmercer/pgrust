@@ -15,13 +15,7 @@ fn pick(fused: u64, unfused: u64) -> f64 {
     f64::from_bits(if FUSED { fused } else { unfused })
 }
 
-fn base_path<'mcx>(
-    mcx: mcx::Mcx<'mcx>,
-    rel: RelId,
-    rows: f64,
-    startup: f64,
-    total: f64,
-) -> Path<'mcx> {
+fn base_path<'mcx>(mcx: mcx::Mcx<'mcx>, rel: RelId, rows: f64, startup: f64, total: f64,) -> Path<'mcx> {
     Path {
         type_: types_pathnodes::tag16(NodeTag::T_Path),
         pathtype: types_pathnodes::tag16(NodeTag::T_SeqScan),
@@ -81,10 +75,7 @@ fn d400_lockrows_total_fuses() {
     let id = crate::pathnode::create_lockrows_path(&mut run, rel, sub, PgVec::new_in(mcx), 0);
     let got = run.root.path(id).base().total_cost;
     // C: 0x1.80f5c28f5c290p+7 fused, 0x1.80f5c28f5c28fp+7 unfused.
-    assert_eq!(
-        got.to_bits(),
-        pick(0x4068_0F5C_28F5_C290, 0x4068_0F5C_28F5_C28F).to_bits()
-    );
+    assert_eq!(got.to_bits(), pick(0x4068_0F5C_28F5_C290, 0x4068_0F5C_28F5_C28F).to_bits());
 }
 
 // pathnode.c:3357 (create_upper_unique_path).
@@ -99,10 +90,7 @@ fn d400_upper_unique_total_fuses() {
     let id = crate::pathnode::create_upper_unique_path(&mut run, rel, sub, 5, 100.0);
     let got = run.root.path(id).base().total_cost;
     // C: 0x1.ce351eb851eb9p+9 fused, ...eb8p+9 unfused.
-    assert_eq!(
-        got.to_bits(),
-        pick(0x408C_E351_EB85_1EB9, 0x408C_E351_EB85_1EB8).to_bits()
-    );
+    assert_eq!(got.to_bits(), pick(0x408C_E351_EB85_1EB9, 0x408C_E351_EB85_1EB8).to_bits());
 }
 
 fn setop(strategy: types_pathnodes::SetOpStrategy) -> (f64, f64) {
@@ -140,33 +128,20 @@ fn setop(strategy: types_pathnodes::SetOpStrategy) -> (f64, f64) {
 // moves the total.
 #[test]
 fn d400_setop_sorted_total_fuses() {
-    let _guc = crate::tests::GUC_LOCK
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
+    let _guc = crate::tests::GUC_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     default_costs();
     let (_, total) = setop(types_pathnodes::SETOP_SORTED);
     // C: 0x1.c167333333333p+10 fused, 0x1.c167333333334p+10 unfused.
-    assert_eq!(
-        total.to_bits(),
-        pick(0x409C_1673_3333_3333, 0x409C_1673_3333_3334).to_bits()
-    );
+    assert_eq!(total.to_bits(), pick(0x409C_1673_3333_3333, 0x409C_1673_3333_3334).to_bits());
 }
 
 // pathnode.c:3859 + 3868 (hashed).
 #[test]
 fn d400_setop_hashed_costs_fuse() {
-    let _guc = crate::tests::GUC_LOCK
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
+    let _guc = crate::tests::GUC_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     default_costs();
     let (startup, total) = setop(types_pathnodes::SETOP_HASHED);
     // C: startup 0x1.94a6e147ae147p+10 fused, ...148p+10 unfused.
-    assert_eq!(
-        startup.to_bits(),
-        pick(0x4099_4A6E_147A_E147, 0x4099_4A6E_147A_E148).to_bits()
-    );
-    assert_eq!(
-        total.to_bits(),
-        pick(0x409C_1673_3333_3333, 0x409C_1673_3333_3334).to_bits()
-    );
+    assert_eq!(startup.to_bits(), pick(0x4099_4A6E_147A_E147, 0x4099_4A6E_147A_E148).to_bits());
+    assert_eq!(total.to_bits(), pick(0x409C_1673_3333_3333, 0x409C_1673_3333_3334).to_bits());
 }

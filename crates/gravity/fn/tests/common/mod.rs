@@ -89,7 +89,7 @@ pub fn procs() -> HashMap<u32, Proc> {
                 prosrc: r.get("prosrc").cloned().unwrap_or_default(),
                 args: r.get("proargtypes").map(|a| a.split_whitespace().map(str::to_owned).collect()).unwrap_or_default(),
                 ret: r["prorettype"].clone(),
-                strict: r.get("proisstrict").is_none_or(|s| s == "t"),
+                strict: r.get("proisstrict").is_none_or( |s| s == "t"),
                 volatile: r.get("provolatile").map_or('i', |s| s.chars().next().unwrap()),
                 kind: r.get("prokind").map_or('f', |s| s.chars().next().unwrap()),
                 retset: r.get("proretset").is_some_and(|s| s == "t"),

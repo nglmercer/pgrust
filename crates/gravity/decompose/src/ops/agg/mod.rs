@@ -549,7 +549,7 @@ fn map_agg<'p>(b: &mut Builder<'p, '_>, a: &'p Agg<'p>, user_eq: bool) -> Result
     let mut two = None;
     match hints[1] {
         Some(Hint::ZoneTopK { attno, desc, nulls_first }) => {
-            if form != GroupForm::Hashed || sh.keys.first().is_none_or(|key| key.attno != attno) {
+            if form != GroupForm::Hashed || sh.keys.first().is_none_or( |key| key.attno != attno) {
                 return Err(Refusal::shape(k, id, "the ZoneTopK key is not the first key of a hashed group"));
             }
             // GP-1b: a descending walk is the planner's under a DESC first sort key (the Sort above orders the groups);

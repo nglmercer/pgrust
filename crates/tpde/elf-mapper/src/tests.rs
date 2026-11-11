@@ -1107,8 +1107,7 @@ fn a64_got_page_load_and_call_reuse_one_slot_and_ignore_got_addends() {
     assert_eq!(&f.bytes[16..32], &[0; 16]);
     assert_eq!(word(&f.bytes, f.offset), 0xffff_ffff);
     assert_eq!(
-        word(&f.bytes, f.offset + 4),
-        !(0xfff << 10) | (1 << 10)
+        word(&f.bytes, f.offset + 4), !(0xfff << 10) | (1 << 10)
     );
     assert_eq!(
         word(&f.bytes, f.offset + 8),

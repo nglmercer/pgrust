@@ -19,7 +19,8 @@ fn fixture_query_copy_roundtrip() {
     let src_ctx = MemoryContext::new("src");
     let dst_ctx = MemoryContext::new("dst");
     let (smcx, dmcx) = (src_ctx.mcx(), dst_ctx.mcx());
-    const EV_ACTION: &str = include_str!("../../readfuncs/src/fixtures/pg_stat_activity.ev_action");
+    const EV_ACTION: &str =
+        include_str!("../../readfuncs/src/fixtures/pg_stat_activity.ev_action");
     let node = readfuncs::stringToNode(smcx, EV_ACTION).unwrap();
     let copy = copy_object(dmcx, node).unwrap();
     assert!(!node.ptr_eq(copy));
@@ -27,21 +28,12 @@ fn fixture_query_copy_roundtrip() {
     // lacks T_RangeTblFunction (equalfuncs residual); the byte-identical
     // out-serialization below is the stricter check anyway (it also compares
     // the location fields equal() ignores).
-    let s = outfuncs::nodeToString(smcx, node)
-        .unwrap()
-        .as_str()
-        .to_string();
-    let c = outfuncs::nodeToString(dmcx, copy)
-        .unwrap()
-        .as_str()
-        .to_string();
+    let s = outfuncs::nodeToString(smcx, node).unwrap().as_str().to_string();
+    let c = outfuncs::nodeToString(dmcx, copy).unwrap().as_str().to_string();
     assert_eq!(s, c, "copy must serialize identically");
     // The copy must survive the source arena: serialize again after drop.
     drop(src_ctx);
-    let c2 = outfuncs::nodeToString(dmcx, copy)
-        .unwrap()
-        .as_str()
-        .to_string();
+    let c2 = outfuncs::nodeToString(dmcx, copy).unwrap().as_str().to_string();
     assert_eq!(c, c2);
 }
 
@@ -65,23 +57,14 @@ fn query_corpus_copy_differential() {
             let query = q.as_query().expect("Query member");
             let copy = crate::copy_query(dmcx, query).unwrap();
             let copy = Node::mk(dmcx, copy).unwrap();
-            let s = outfuncs::nodeToString(smcx, q)
-                .unwrap()
-                .as_str()
-                .to_string();
-            let c = outfuncs::nodeToString(dmcx, copy)
-                .unwrap()
-                .as_str()
-                .to_string();
+            let s = outfuncs::nodeToString(smcx, q).unwrap().as_str().to_string();
+            let c = outfuncs::nodeToString(dmcx, copy).unwrap().as_str().to_string();
             assert_eq!(s, c, "copy_query must serialize identically");
             copies.push((c, copy));
         }
         drop(src_ctx);
         for (before, copy) in copies {
-            let after = outfuncs::nodeToString(dmcx, copy)
-                .unwrap()
-                .as_str()
-                .to_string();
+            let after = outfuncs::nodeToString(dmcx, copy).unwrap().as_str().to_string();
             assert_eq!(before, after, "copy must not reference the source arena");
         }
     }
@@ -112,11 +95,7 @@ fn const_byref_datum_is_deep_copied() {
     let node = Node::mk(smcx, c).unwrap();
     let copy = copy_object(dmcx, node).unwrap();
     let cc = copy.as_variant::<Const>().unwrap();
-    assert_ne!(
-        cc.constvalue.as_usize(),
-        c.constvalue.as_usize(),
-        "byref datum reallocated"
-    );
+    assert_ne!(cc.constvalue.as_usize(), c.constvalue.as_usize(), "byref datum reallocated");
     assert!(equal(node, copy));
     drop(src_ctx);
     let p = cc.constvalue.as_usize() as *const u8;
@@ -173,10 +152,7 @@ fn plan_tree_copy() {
     let sort = Node::mk(
         smcx,
         Sort {
-            plan: Plan {
-                lefttree: Some(seqscan),
-                ..Plan::default()
-            },
+            plan: Plan { lefttree: Some(seqscan), ..Plan::default() },
             numCols: 1,
             sortColIdx: mcx::slice_in(smcx, &[1i16]).unwrap().leak(),
             sortOperators: mcx::slice_in(smcx, &[97u32]).unwrap().leak(),
@@ -198,20 +174,9 @@ fn plan_tree_copy() {
     let ss = inner.as_variant::<SeqScan>().unwrap();
     assert_eq!(ss.scan.scanrelid, 1);
     assert_eq!(ss.scan.plan.plan_rows, 100.0);
-    assert_eq!(
-        ss.pgrc_merge,
-        &[7i16, 2],
-        "the merge mark is copied out of the dropped context"
-    );
+    assert_eq!(ss.pgrc_merge, &[7i16, 2], "the merge mark is copied out of the dropped context");
     assert_eq!(ss.scan.plan.targetlist.len(), 1);
-    let v = ss
-        .scan
-        .plan
-        .targetlist
-        .first()
-        .unwrap()
-        .as_variant::<Var>()
-        .unwrap();
+    let v = ss.scan.plan.targetlist.first().unwrap().as_variant::<Var>().unwrap();
     assert_eq!(v.vartype, 23);
     assert!(ss.scan.plan.extParam.is_member(3));
     assert!(ss.scan.plan.extParam.is_member(77));
@@ -223,16 +188,10 @@ fn utility_planned_stmt_copy() {
     let src_ctx = MemoryContext::new("src");
     let dst_ctx = MemoryContext::new("dst");
     let (smcx, dmcx) = (src_ctx.mcx(), dst_ctx.mcx());
-    let alias = Node::mk(
-        smcx,
-        Alias {
-            aliasname: Some("al"),
-            colnames: NodeList::nil(),
-        },
-    )
-    .unwrap()
-    .as_variant::<Alias>()
-    .unwrap();
+    let alias = Node::mk(smcx, Alias { aliasname: Some("al"), colnames: NodeList::nil(), },)
+        .unwrap()
+        .as_variant::<Alias>()
+        .unwrap();
     let rv = Node::mk(
         smcx,
         RangeVar {
@@ -275,19 +234,11 @@ fn utility_planned_stmt_copy() {
     drop(src_ctx);
     assert!(copy.canSetTag);
     let stmt = copy.utilityStmt.expect("utilityStmt copied");
-    let vs = stmt
-        .as_variant::<types_nodes::parsenodes::VacuumStmt>()
-        .unwrap();
+    let vs = stmt.as_variant::<types_nodes::parsenodes::VacuumStmt>().unwrap();
     assert!(vs.is_vacuumcmd);
     let rel = vs.rels.first().unwrap();
-    let vr = rel
-        .as_variant::<types_nodes::parsenodes::VacuumRelation>()
-        .unwrap();
-    let rv = vr
-        .relation
-        .expect("relation")
-        .as_variant::<RangeVar>()
-        .unwrap();
+    let vr = rel.as_variant::<types_nodes::parsenodes::VacuumRelation>().unwrap();
+    let rv = vr.relation.expect("relation").as_variant::<RangeVar>().unwrap();
     assert_eq!(rv.schemaname, Some("public"));
     assert_eq!(rv.relname, Some("t"));
     assert_eq!(rv.alias.expect("alias").aliasname, Some("al"));
@@ -320,11 +271,7 @@ fn select_stmt_distinct_and_lists() {
     let DistinctClause::On(l) = &s.distinctClause else {
         panic!("DISTINCT ON list must survive the copy");
     };
-    let cr = l
-        .first()
-        .unwrap()
-        .as_variant::<types_nodes::rawnodes::ColumnRef>()
-        .unwrap();
+    let cr = l.first().unwrap().as_variant::<types_nodes::rawnodes::ColumnRef>().unwrap();
     assert_eq!(cr.fields.first().unwrap().as_string().unwrap().sval, "a");
 }
 
@@ -355,10 +302,7 @@ fn alter_extension_contents_stmt_copy_survives() {
     assert_eq!(s.extname, Some("hstore"));
     assert_eq!(s.action, 1);
     assert_eq!(s.objtype, ObjectType::OBJECT_FUNCTION);
-    assert_eq!(
-        s.object.expect("object").as_string().unwrap().sval,
-        "public.f"
-    );
+    assert_eq!(s.object.expect("object").as_string().unwrap().sval, "public.f");
 }
 
 #[test]
@@ -386,15 +330,7 @@ fn typecast_chain(mcx: mcx::Mcx<'_>, depth: usize) -> Node<'_> {
     let mut n = Node::mk(mcx, types_nodes::Integer { ival: 1 }).unwrap();
     for _ in 0..depth {
         let typeName = Some(Node::mk(mcx, TypeName::default()).unwrap());
-        n = Node::mk(
-            mcx,
-            TypeCast {
-                arg: Some(n),
-                typeName,
-                location: -1,
-            },
-        )
-        .unwrap();
+        n = Node::mk(mcx, TypeCast { arg: Some(n), typeName, location: -1, },).unwrap();
     }
     n
 }
@@ -447,13 +383,7 @@ fn copy_recursion_stack_per_level_is_capped() {
     let sublink = copy_bytes_per_level(sublink_chain);
     eprintln!("copyObject stack per level: TypeCast {typecast} B, SubLink/Query {sublink} B");
     let cap = stack_depth_core::per_level_cap(400, 8_000);
-    assert!(
-        typecast <= cap,
-        "TypeCast copy costs {typecast} B/level (cap {cap})"
-    );
+    assert!(typecast <= cap, "TypeCast copy costs {typecast} B/level (cap {cap})");
     let cap = stack_depth_core::per_level_cap(3_200, 28_500);
-    assert!(
-        sublink <= cap,
-        "sub-select copy costs {sublink} B/level (cap {cap})"
-    );
+    assert!(sublink <= cap, "sub-select copy costs {sublink} B/level (cap {cap})");
 }

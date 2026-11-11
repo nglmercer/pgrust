@@ -86,34 +86,19 @@ guc_tables::session_guc_cluster!(GeqoGucs, GEQO_GUCS:
 /// these GUCs were inert before this install existed.
 pub fn install_gucs() {
     use guc_tables::GucVarAccessors;
-    guc_tables::vars::enable_geqo.install(GucVarAccessors {
-        get: enable_geqo,
-        set: set_enable_geqo,
-    });
-    guc_tables::vars::geqo_threshold.install(GucVarAccessors {
-        get: geqo_threshold,
-        set: set_geqo_threshold,
-    });
-    guc_tables::vars::Geqo_effort.install(GucVarAccessors {
-        get: geqo_effort,
-        set: set_geqo_effort,
-    });
-    guc_tables::vars::Geqo_pool_size.install(GucVarAccessors {
-        get: geqo_pool_size,
-        set: set_geqo_pool_size,
-    });
-    guc_tables::vars::Geqo_generations.install(GucVarAccessors {
-        get: geqo_generations,
-        set: set_geqo_generations,
-    });
-    guc_tables::vars::Geqo_selection_bias.install(GucVarAccessors {
-        get: geqo_selection_bias,
-        set: set_geqo_selection_bias,
-    });
-    guc_tables::vars::Geqo_seed.install(GucVarAccessors {
-        get: geqo_seed,
-        set: set_geqo_seed,
-    });
+    guc_tables::vars::enable_geqo
+        .install(GucVarAccessors { get: enable_geqo, set: set_enable_geqo, });
+    guc_tables::vars::geqo_threshold
+        .install(GucVarAccessors { get: geqo_threshold, set: set_geqo_threshold, });
+    guc_tables::vars::Geqo_effort
+        .install(GucVarAccessors { get: geqo_effort, set: set_geqo_effort, });
+    guc_tables::vars::Geqo_pool_size
+        .install(GucVarAccessors { get: geqo_pool_size, set: set_geqo_pool_size, });
+    guc_tables::vars::Geqo_generations
+        .install(GucVarAccessors { get: geqo_generations, set: set_geqo_generations, });
+    guc_tables::vars::Geqo_selection_bias
+        .install(GucVarAccessors { get: geqo_selection_bias, set: set_geqo_selection_bias, });
+    guc_tables::vars::Geqo_seed.install(GucVarAccessors { get: geqo_seed, set: set_geqo_seed, });
 }
 
 /// GA solution of the join-order problem; returns the cheapest join RelId
@@ -125,13 +110,9 @@ pub fn geqo<'mcx>(
 ) -> PgResult<RelId> {
     // C sets join_search_private for the whole search; innerrel_is_unique
     // keys its negative cache off it.
-    run.root.join_search_private = Some(mcx::PgBox::new_in(
-        types_pathnodes::JoinSearchPrivate {},
-        run.mcx,
-    ));
-    let mut state = GeqoState {
-        rng: pg_prng::PgPrng::default(),
-    };
+    run.root.join_search_private =
+        Some(mcx::PgBox::new_in(types_pathnodes::JoinSearchPrivate {}, run.mcx,));
+    let mut state = GeqoState { rng: pg_prng::PgPrng::default(), };
     random::geqo_set_seed(&mut state, geqo_seed());
 
     let pool_size = gimme_pool_size(number_of_rels as i32);
@@ -147,28 +128,12 @@ pub fn geqo<'mcx>(
     let mut edge_table = erx::alloc_edge_table(pool.string_length)?;
 
     for _generation in 0..number_generations {
-        selection::geqo_selection(
-            &mut state,
-            &mut momma,
-            &mut daddy,
-            &pool,
-            geqo_selection_bias(),
-        );
+        selection::geqo_selection(&mut state, &mut momma, &mut daddy, &pool, geqo_selection_bias(),);
 
         // EDGE RECOMBINATION CROSSOVER. C sets `kid = momma` and breeds the new
         // tour into momma's string in place, so momma IS the kid here.
-        erx::gimme_edge_table(
-            &momma.string,
-            &daddy.string,
-            pool.string_length,
-            &mut edge_table,
-        );
-        erx::gimme_tour(
-            &mut state,
-            &mut edge_table,
-            &mut momma.string,
-            pool.string_length,
-        );
+        erx::gimme_edge_table(&momma.string, &daddy.string, pool.string_length, &mut edge_table,);
+        erx::gimme_tour(&mut state, &mut edge_table, &mut momma.string, pool.string_length,);
 
         momma.worth = eval::geqo_eval(run, initial_rels, &momma.string, pool.string_length)?;
         pool::spread_chromo(&momma, &mut pool);

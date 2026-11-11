@@ -57,10 +57,7 @@ fn finish_open<'mcx>(
     }
 
     r.pgstat_enabled
-        .set(pgstat_seams::pgstat_init_relation::call(
-            r.rd_id,
-            r.rd_rel.relkind,
-        ));
+        .set(pgstat_seams::pgstat_init_relation::call(r.rd_id, r.rd_rel.relkind,));
 
     r
 }
@@ -70,7 +67,7 @@ pub fn relation_open<'mcx>(
     relationId: Oid,
     lockmode: LOCKMODE,
 ) -> PgResult<Relation<'mcx>> {
-    debug_assert!((NoLock..=MaxLockMode).contains(&lockmode));
+    debug_assert!(( NoLock..= MaxLockMode).contains(&lockmode));
 
     if lockmode != NoLock {
         lmgr_seams::lock_relation_oid::call(relationId, lockmode)?;
@@ -88,7 +85,7 @@ pub fn try_relation_open<'mcx>(
     relationId: Oid,
     lockmode: LOCKMODE,
 ) -> PgResult<Option<Relation<'mcx>>> {
-    debug_assert!((NoLock..=MaxLockMode).contains(&lockmode));
+    debug_assert!(( NoLock..= MaxLockMode).contains(&lockmode));
 
     if lockmode != NoLock {
         lmgr_seams::lock_relation_oid::call(relationId, lockmode)?;

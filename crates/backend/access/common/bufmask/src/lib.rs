@@ -24,12 +24,7 @@ pub fn mask_page_lsn_and_checksum(page: &mut [u8]) {
     pm.set_lsn(MASK_MARKER as u64);
     let off = core::mem::offset_of!(PageHeaderData, pd_checksum);
     // SAFETY: in-bounds, 2-aligned (header is MAXALIGNed).
-    unsafe {
-        pm.as_mut_ptr()
-            .add(off)
-            .cast::<uint16>()
-            .write(MASK_MARKER as uint16)
-    };
+    unsafe { pm.as_mut_ptr().add(off).cast::<uint16>().write(MASK_MARKER as uint16) };
 }
 
 pub fn mask_page_hint_bits(page: &mut [u8]) {
@@ -62,11 +57,7 @@ pub fn mask_unused_space(page: &mut [u8]) -> PgResult<()> {
     }
     // SAFETY: [pd_lower, pd_upper) validated within the page above.
     unsafe {
-        core::ptr::write_bytes(
-            pm.as_mut_ptr().add(pd_lower),
-            MASK_MARKER,
-            pd_upper - pd_lower,
-        )
+        core::ptr::write_bytes(pm.as_mut_ptr().add(pd_lower), MASK_MARKER, pd_upper - pd_lower,)
     };
     Ok(())
 }
@@ -96,14 +87,8 @@ pub fn mask_page_content(page: &mut [u8]) {
     let upper_off = core::mem::offset_of!(PageHeaderData, pd_upper);
     // SAFETY: header fields, 2-aligned, in-bounds.
     unsafe {
-        pm.as_mut_ptr()
-            .add(lower_off)
-            .cast::<uint16>()
-            .write(MASK_MARKER as uint16);
-        pm.as_mut_ptr()
-            .add(upper_off)
-            .cast::<uint16>()
-            .write(MASK_MARKER as uint16);
+        pm.as_mut_ptr().add(lower_off).cast::<uint16>().write(MASK_MARKER as uint16);
+        pm.as_mut_ptr().add(upper_off).cast::<uint16>().write(MASK_MARKER as uint16);
     }
 }
 
@@ -175,10 +160,7 @@ mod tests {
         pm.init(0);
         let item = [0xAAu8; 32];
         pm.add_item(&item, 0, PAI_IS_HEAP).unwrap();
-        let (pd_lower, pd_upper) = (
-            pm.as_ref().pd_lower() as usize,
-            pm.as_ref().pd_upper() as usize,
-        );
+        let (pd_lower, pd_upper) = (pm.as_ref().pd_lower() as usize, pm.as_ref().pd_upper() as usize,);
         // Poison the free region so the test can see it get masked.
         // SAFETY: [pd_lower, pd_upper) is free space within the page.
         unsafe { core::ptr::write_bytes(pm.as_mut_ptr().add(pd_lower), 0xFF, pd_upper - pd_lower) };
@@ -207,10 +189,7 @@ mod tests {
         let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let _ = mask_unused_space(&mut t.0);
         }));
-        assert!(
-            outcome.is_ok(),
-            "mask_unused_space must raise an error, not panic"
-        );
+        assert!(outcome.is_ok(), "mask_unused_space must raise an error, not panic");
     }
 
     #[test]

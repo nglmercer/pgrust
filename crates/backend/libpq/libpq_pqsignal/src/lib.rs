@@ -63,11 +63,7 @@ impl SignalMasks {
             delete_signal(&mut startup_block_sig, signal);
         }
 
-        Self {
-            unblock_sig,
-            block_sig,
-            startup_block_sig,
-        }
+        Self { unblock_sig, block_sig, startup_block_sig, }
     }
 
     pub fn unblock_sig(&self) -> &sigset_t {
@@ -239,13 +235,7 @@ mod tests {
     #[test]
     fn block_sig_blocks_normal_signals() {
         let masks = SignalMasks::new();
-        for signal in [
-            libc::SIGTERM,
-            libc::SIGINT,
-            libc::SIGALRM,
-            libc::SIGQUIT,
-            libc::SIGHUP,
-        ] {
+        for signal in [libc::SIGTERM, libc::SIGINT, libc::SIGALRM, libc::SIGQUIT, libc::SIGHUP,] {
             assert!(masks.block_sig_contains(signal), "signal {signal}");
         }
     }

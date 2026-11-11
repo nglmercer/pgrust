@@ -134,7 +134,7 @@ fn a_pool_reservation_charges_its_ask_not_the_span_it_took() {
     assert!(d1 >= d0 + 8 * MIB - 2 * RUN, "the span's pages past the ask are dead in the pool: {d0} -> {d1}");
     // a commit opens 3 MiB more: charged in 2 MiB steps, those pages live first
     let rw2 = commit_witness(&mut r, 3 * MIB).expect("a commit inside the reservation");
-    assert!((RUN + 3 * MIB..=RUN + 3 * MIB + SUPER).contains(&rw2), "charged to the opened extent: {rw2}");
+    assert!(( RUN + 3 * MIB..= RUN + 3 * MIB + SUPER).contains(&rw2), "charged to the opened extent: {rw2}");
     let d2 = pagepool::stats().dead;
     assert!(d2 + (rw2 - rw - RUN) <= d1, "the opened extent came live: {d1} -> {d2} (opened {})", rw2 - rw);
     // SAFETY: the ask and the commit are the region's writable bytes

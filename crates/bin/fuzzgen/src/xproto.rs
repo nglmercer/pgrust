@@ -157,7 +157,7 @@ fn encode_numeric_binary(value: &str) -> Vec<u8> {
     }
     digits_str.push_str(int_part);
     digits_str.push_str(frac_part);
-    while !digits_str.len().is_multiple_of(4) {
+    while ! digits_str.len().is_multiple_of( 4) {
         digits_str.push('0');
     }
     let mut words: Vec<u16> = digits_str

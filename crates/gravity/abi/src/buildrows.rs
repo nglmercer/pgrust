@@ -19,7 +19,7 @@ pub const SLICE_HDR: usize = 8;
 /// A carve's cut (the store's start = the entry table's end) is a whole number of entries, so the table below it
 /// holds no partial entry; an entry (16 B) also covers the store header's 8-byte alignment (`open`).
 const ALIGN: usize = HASHBUILD_ENTRY;
-const _: () = assert!(ALIGN.is_multiple_of(8));
+const _: () = assert!(ALIGN.is_multiple_of( 8));
 
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
@@ -28,8 +28,7 @@ struct Slice {
     used: u32,
 }
 
-const fn round_up(n: usize, a: usize) -> usize {
-    n.div_ceil(a) * a
+const fn round_up(n: usize, a: usize) -> usize {n.div_ceil( a) * a
 }
 
 impl RowStore {

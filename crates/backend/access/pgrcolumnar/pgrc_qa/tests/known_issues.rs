@@ -104,11 +104,7 @@ fn regress_issue_462_recovery_repoints_current() {
     // Idempotent: a second recovery is quiescent.
     let again = cleanup_dir(&mut vfs, &mut NoWal, &fx.dir, &probe).expect("re-clean");
     assert!(!again.current_repointed, "second recovery repointed again");
-    assert!(
-        again.removed.is_empty(),
-        "second recovery removed {:?}",
-        again.removed
-    );
+    assert!(again.removed.is_empty(), "second recovery removed {:?}", again.removed);
 }
 
 /// Issue #462, empty-table shape: the ONLY generation is durable but
@@ -132,14 +128,11 @@ fn regress_issue_462_empty_table_unlinks_current() {
     assert!(report.current_repointed, "CURRENT was not unlinked");
     assert_eq!(report.effective_gen, 0);
     assert!(
-        !vfs.exists_path(&format!("{}/{}", fx.dir, CURRENT_FILE_NAME))
-            .expect("stat"),
+        !vfs.exists_path(&format!("{}/{}", fx.dir, CURRENT_FILE_NAME)).expect("stat"),
         "CURRENT survived on an empty table"
     );
     // Both walks agree on EMPTY.
-    assert!(effective_manifest(&mut vfs, &fx.dir, &probe, None)
-        .expect("effective")
-        .is_none());
+    assert!(effective_manifest(&mut vfs, &fx.dir, &probe, None).expect("effective").is_none());
     let files = vfs.snapshot_dir(&fx.dir);
     let rdir = memdir_of(&files);
     match resolve_effective(&rdir, &probe, &TableExpect::default()) {
@@ -163,10 +156,7 @@ fn issue_462_fix_leaves_in_progress_candidate_alone() {
     publish_one(&mut vfs, &fx, 9_808, &probe);
     // 9_808 stays IN PROGRESS: gen2 is the legal pre-commit candidate.
     let report = cleanup_dir(&mut vfs, &mut NoWal, &fx.dir, &probe).expect("clean");
-    assert!(
-        !report.current_repointed,
-        "repointed a legal pre-commit CURRENT"
-    );
+    assert!(!report.current_repointed, "repointed a legal pre-commit CURRENT");
     assert_eq!(report.effective_gen, 1);
     let cur = vfs
         .read_full(&format!("{}/{}", fx.dir, CURRENT_FILE_NAME))

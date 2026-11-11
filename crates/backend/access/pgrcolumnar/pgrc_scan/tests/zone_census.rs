@@ -50,59 +50,24 @@ fn zone_memo_bytes_are_charged_to_the_part_cache_and_debited_with_the_part() {
     partcache::set_account_hook(account);
     let (c0, n0, z0) = (partcache::bytes(), net(), pgrc_read::mem::zone_bytes());
     assert_eq!(c0, 0, "a fresh process: nothing in the part cache yet");
-    let fx = int8_fixture(
-        "int8_zonecensus",
-        7105,
-        40_000,
-        vec![],
-        PartCutPolicy::default(),
-        |i| Some((i * 3) as i64),
-    );
+    let fx = int8_fixture("int8_zonecensus", 7105, 40_000, vec![], PartCutPolicy::default(), |i| Some((i * 3) as i64),);
     let bf = build_fixture(fx);
     let attno = bf.fx.schema[0].attno;
     let parts = open_parts(&bf);
     let (c1, n1) = (partcache::bytes(), net());
     let mut kept = 0;
     for part in &parts {
-        assert!(
-            pgrc_scan::meta::zone_records(part, attno)
-                .expect("read")
-                .is_some(),
-            "a stats section"
-        );
+        assert!(pgrc_scan::meta::zone_records(part, attno).expect("read").is_some(), "a stats section");
         kept += part.zone_resident();
     }
     assert!(kept > 0, "the parts keep zone memos");
-    assert_eq!(
-        partcache::bytes() - c1,
-        kept,
-        "the zone memos are charged to the part cache"
-    );
+    assert_eq!(partcache::bytes() - c1, kept, "the zone memos are charged to the part cache");
     assert_eq!(net() - n1, i128::from(kept), "and to the statement account");
-    assert_eq!(
-        pgrc_read::mem::zone_bytes() - z0,
-        kept,
-        "and counted sticky in the residency plane"
-    );
+    assert_eq!(pgrc_read::mem::zone_bytes() - z0, kept, "and counted sticky in the residency plane");
     drop(parts);
     drop(bf);
-    assert_eq!(
-        partcache::bytes(),
-        c0,
-        "the parts' drops debit exactly what was charged: the part cache is back to 0"
-    );
-    assert_eq!(
-        net(),
-        n0,
-        "the account releases exactly what it was charged"
-    );
-    assert!(
-        !OVER_RELEASED.load(Ordering::SeqCst),
-        "the account never released more than it was charged"
-    );
-    assert_eq!(
-        pgrc_read::mem::zone_bytes(),
-        z0,
-        "the zone memos went with their parts"
-    );
+    assert_eq!(partcache::bytes(), c0, "the parts' drops debit exactly what was charged: the part cache is back to 0");
+    assert_eq!(net(), n0, "the account releases exactly what it was charged");
+    assert!(!OVER_RELEASED.load(Ordering::SeqCst), "the account never released more than it was charged");
+    assert_eq!(pgrc_read::mem::zone_bytes(), z0, "the zone memos went with their parts");
 }

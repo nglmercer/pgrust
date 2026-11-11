@@ -1,7 +1,7 @@
 // extension.c — CREATE/ALTER/DROP EXTENSION + control-file/version-script
 // machinery. Loud: ALTER EXTENSION ADD/DROP + SET SCHEMA, extension_config_dump
 // / config_remove, get_function_sibling_type, pg_get_loaded_modules.
-#![allow(non_snake_case, non_upper_case_globals)]
+#![allow(non_snake_case,non_upper_case_globals)]
 
 use mcx::{Mcx, PgString};
 use types_core::{InvalidOid, Oid, EXTENSION_RELATION_ID};
@@ -49,9 +49,7 @@ pub const Natts_pg_extension: usize = 8;
 #[cold]
 #[inline(never)]
 pub(crate) fn extension_tuple_not_found(oid: Oid) -> Box<PgError> {
-    Box::new(PgError::error(format!(
-        "could not find tuple for extension {oid}"
-    )))
+    Box::new(PgError::error(format!("could not find tuple for extension {oid}")))
 }
 
 // carve-ratifications.md §11 (tcop's non_utf8_query_error): text C would run or spell.
@@ -92,7 +90,8 @@ pub fn get_extension_oid(extname: &str, missing_ok: bool) -> PgResult<Oid> {
 }
 
 pub fn get_extension_name<'mcx>(mcx: Mcx<'mcx>, ext_oid: Oid) -> PgResult<Option<PgString<'mcx>>> {
-    let Some(tuple) = SearchSysCache1(EXTENSIONOID, SysCacheKey::Value(Datum::from_oid(ext_oid)))?
+    let Some(tuple) =
+        SearchSysCache1(EXTENSIONOID, SysCacheKey::Value(Datum::from_oid(ext_oid)))?
     else {
         return Ok(None);
     };
@@ -110,7 +109,8 @@ pub fn get_extension_name<'mcx>(mcx: Mcx<'mcx>, ext_oid: Oid) -> PgResult<Option
 }
 
 pub fn get_extension_schema(ext_oid: Oid) -> PgResult<Oid> {
-    let Some(tuple) = SearchSysCache1(EXTENSIONOID, SysCacheKey::Value(Datum::from_oid(ext_oid)))?
+    let Some(tuple) =
+        SearchSysCache1(EXTENSIONOID, SysCacheKey::Value(Datum::from_oid(ext_oid)))?
     else {
         return Ok(InvalidOid);
     };
@@ -231,9 +231,7 @@ pub fn is_extension_script_filename(filename: &str) -> bool {
 pub fn init_seams() {
     control::install_extension_control_path_guc();
     extension_seams::pg_available_extensions::set(funcs::fc_pg_available_extensions);
-    extension_seams::pg_available_extension_versions::set(
-        funcs::fc_pg_available_extension_versions,
-    );
+    extension_seams::pg_available_extension_versions::set(funcs::fc_pg_available_extension_versions,);
     extension_seams::pg_extension_update_paths::set(funcs::fc_pg_extension_update_paths);
     extension_seams::pg_extension_config_dump::set(funcs::fc_pg_extension_config_dump);
     extension_seams::pg_get_loaded_modules::set(funcs::fc_pg_get_loaded_modules);

@@ -97,7 +97,7 @@ fn eq_strcasecmp(a: &str, b: &[u8]) -> bool {
     a.len() == b.len()
         && a.bytes()
             .zip(b)
-            .all(|(x, &y)| x.eq_ignore_ascii_case(&y))
+            .all(|(x, &y)| x.eq_ignore_ascii_case(& y))
 }
 
 pub(crate) struct Located {

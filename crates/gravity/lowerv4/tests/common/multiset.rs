@@ -424,7 +424,7 @@ fn round_kind(it: &[T]) -> Option<F> {
     let d = it.first()?.1;
     if it.len() < 4 || !is(it.first(), "round", d) || it[1] != (Tok::P('('), d) || it[it.len() - 1] != (Tok::P(')'), d) { return None }
     let args = &it[2..it.len() - 1];
-    if args.contains(&(Tok::P(')'), d)) { return None }   // round(..) is not the whole item
+    if args.contains(& (Tok::P(')'), d)) { return None }   // round(..) is not the whole item
     let parts = args.split(|x| *x == (Tok::P(','), d + 1)).collect::<Vec<_>>();
     if parts.len() > 2 || parts[0].is_empty() { return None }
     let n = match parts.get(1) {

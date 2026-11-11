@@ -35,7 +35,7 @@ fn in_fastutf8() -> bool {
 
 // date.c:138 (and time_in/timetz_in): the input cstring bytes verbatim in
 // the parse-error message.
-fn in_raw(fcinfo: &Fcinfo) -> &[u8] {
+fn in_raw(fcinfo: & Fcinfo) -> & [u8] {
     // SAFETY: catalog arg 0 of the in-functions is cstring (typlen -2).
     unsafe { fcinfo.arg_cstring(0) }.to_bytes()
 }

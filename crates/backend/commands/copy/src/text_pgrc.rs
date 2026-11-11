@@ -93,10 +93,7 @@ fn knobs() -> &'static Knobs {
                 .unwrap_or(2 * grains * DEFAULT_CHUNK_ROWS as u64),
             min_bytes: num("PGRUST_PARALLEL_TEXT_COPY_MIN_BYTES").unwrap_or(64 << 20),
             min_file_bytes: num("PGRUST_PARALLEL_TEXT_COPY_MIN_FILE_BYTES").unwrap_or(1 << 20),
-            max_line_bytes: num("PGRUST_PARALLEL_COPY_MAX_CHUNK_BYTES")
-                .unwrap_or(1024)
-                .max(1)
-                << 20,
+            max_line_bytes: num("PGRUST_PARALLEL_COPY_MAX_CHUNK_BYTES").unwrap_or(1024).max(1) << 20,
             helpers: num("PGRUST_PARALLEL_TEXT_COPY_HELPERS"),
         }
     })
@@ -105,8 +102,7 @@ fn knobs() -> &'static Knobs {
 /// Default a third of the pool (measured lineitem split: ~1.6 us parse +
 /// input per row vs ~3.6 us ingest + seal), at least 2.
 fn helpers_for(req: Option<u64>, workers: usize) -> u64 {
-    req.unwrap_or((workers as u64).div_ceil(3).max(2))
-        .clamp(1, runtime::MAX_EXTERNAL_LANES as u64)
+    req.unwrap_or((workers as u64).div_ceil(3).max(2)).clamp(1, runtime::MAX_EXTERNAL_LANES as u64)
 }
 
 /// Chunks published but not committed, at most (bounds read-ahead memory).
@@ -150,11 +146,7 @@ struct ParseCx<'a, 'mcx> {
 impl<'a, 'mcx> ParseCx<'a, 'mcx> {
     /// BeginCopyFrom's state for the plan, input functions resolved in THIS
     /// backend.
-    fn build(
-        mcx: Mcx<'mcx>,
-        rel: &'a Relation<'mcx>,
-        plan: &'a ParsePlan,
-    ) -> PgResult<ParseCx<'a, 'mcx>> {
+    fn build(mcx: Mcx<'mcx>, rel: &'a Relation<'mcx>, plan: &'a ParsePlan,) -> PgResult<ParseCx<'a, 'mcx>> {
         let tup_desc = &rel.rd_att;
         let num_phys_attrs = tup_desc.natts as usize;
         let mut attnumlist: PgVec<'mcx, i16> = PgVec::new_in(mcx);
@@ -216,10 +208,7 @@ impl<'a, 'mcx> ParseCx<'a, 'mcx> {
                 log_verbosity: crate::CopyLogVerbosityChoice::Default,
                 reject_limit: 0,
             },
-            src: CopySrc::Chunk {
-                cur: ChunkCursor::new(Vec::new(), None),
-                parked: None,
-            },
+            src: CopySrc::Chunk { cur: ChunkCursor::new(Vec::new(), None), parked: None, },
             raw_buf: vec_from_elem_in(mcx, 0u8, RAW_BUF_SIZE + 1),
             raw_buf_index: 0,
             raw_buf_len: 0,
@@ -298,20 +287,13 @@ enum TailCell {
 
 impl TailRows {
     fn new(ncols: usize, owner: Option<memledger::Owner>) -> TailRows {
-        TailRows {
-            charge: HeldCharge::new(owner),
-            ncols,
-            rows: 0,
-            cells: Vec::new(),
-            arena: Vec::new(),
-        }
+        TailRows { charge: HeldCharge::new(owner), ncols, rows: 0, cells: Vec::new(), arena: Vec::new(), }
     }
 
     fn push_row(&mut self, row: &[RawDatum<'_>]) {
         let seen = (self.cells.capacity(), self.arena.capacity());
         for d in row {
-            self.cells.push(match d {
-                // alloc: Exec charged self.charge
+            self.cells.push(match d { // alloc: Exec charged self.charge
                 RawDatum::Null => TailCell::Null,
                 RawDatum::Word(w) => TailCell::Word(*w),
                 RawDatum::Bytes(b) => {
@@ -415,34 +397,22 @@ impl Window {
     /// value plus twice the text (the arena and its growth).
     fn planned(&self, text: u64, rows: u64, ncols: usize) -> u64 {
         let parse = if self.parsed_text != 0 {
-            (u128::from(text) * u128::from(self.parsed_held) / u128::from(self.parsed_text))
-                .min(u128::from(u64::MAX)) as u64
+            (u128::from(text) * u128::from(self.parsed_held) / u128::from(self.parsed_text)).min(u128::from(u64::MAX)) as u64
         } else {
-            rows.saturating_mul(ncols as u64)
-                .saturating_mul(PRIOR_VALUE_BYTES)
-                .saturating_add(text.saturating_mul(2))
+            rows.saturating_mul(ncols as u64).saturating_mul(PRIOR_VALUE_BYTES).saturating_add(text.saturating_mul(2))
         };
         text.saturating_add(parse)
     }
 
     /// Chunk `text` bytes published, charged `planned`.
     fn publish(&mut self, text: u64, planned: u64) {
-        self.slots.push_back(Slot {
-            text,
-            charged: planned,
-            parsed: false,
-        });
+        self.slots.push_back(Slot { text, charged: planned, parsed: false, });
         self.set(self.total.saturating_add(planned));
     }
 
     /// The true-up: chunk `g` parsed into `held` bytes, its charge moves from the estimate to them (up or down).
     fn parsed(&mut self, g: u64, held: u64) {
-        let Some(s) = g
-            .checked_sub(self.base)
-            .and_then(|i| self.slots.get_mut(i as usize))
-        else {
-            return;
-        };
+        let Some(s) = g.checked_sub(self.base).and_then(|i| self.slots.get_mut(i as usize)) else { return; };
         if s.parsed {
             return;
         }
@@ -456,9 +426,7 @@ impl Window {
 
     /// `bytes` of the next chunk to commit moved to the engine (a grain appended).
     fn moved(&mut self, bytes: u64) {
-        let Some(s) = self.slots.front_mut() else {
-            return;
-        };
+        let Some(s) = self.slots.front_mut() else { return; };
         let n = bytes.min(s.charged);
         s.charged -= n;
         self.set(self.total - n);
@@ -474,11 +442,7 @@ impl Window {
 
     /// Planned but not resident: the parses still to come of the chunks published and not parsed.
     fn ahead(&self) -> u64 {
-        self.slots
-            .iter()
-            .filter(|s| !s.parsed)
-            .map(|s| s.charged.saturating_sub(s.text))
-            .sum()
+        self.slots.iter().filter(|s| !s.parsed).map(|s| s.charged.saturating_sub(s.text)).sum()
     }
 
     fn set(&mut self, total: u64) {
@@ -507,10 +471,7 @@ fn parse_chunk(
 ) -> Result<Option<ChunkOut>, Box<PgError>> {
     {
         let st = &mut cx.st;
-        st.src = CopySrc::Chunk {
-            cur: ChunkCursor::new(chunk.segs, chunk.tail_err),
-            parked: None,
-        };
+        st.src = CopySrc::Chunk { cur: ChunkCursor::new(chunk.segs, chunk.tail_err), parked: None, };
         st.raw_buf_index = 0;
         st.raw_buf_len = 0;
         st.raw_reached_eof = false;
@@ -530,16 +491,8 @@ fn parse_chunk(
     let grain = plan.grain;
     let owned = chunk.last || rows_mode;
     let mut out = ChunkOut::default();
-    let mut cur = if owned {
-        None
-    } else {
-        Some(RowChunk::with_owner(natts, grain, owner))
-    };
-    let mut tail = if owned {
-        Some(TailRows::new(natts, owner))
-    } else {
-        None
-    };
+    let mut cur = if owned { None } else { Some(RowChunk::with_owner(natts, grain, owner)) };
+    let mut tail = if owned { Some(TailRows::new(natts, owner)) } else { None };
     let relid = cx.rel.rd_id;
     loop {
         if out.rows % 4096 == 0 {
@@ -553,8 +506,7 @@ fn parse_chunk(
         let row_mcx = cx.row_cx.mcx();
         let more = {
             let base = cx.slot.base_mut();
-            cx.st
-                .next_copy_from(row_mcx, &mut base.tts_values, &mut base.tts_isnull)
+            cx.st.next_copy_from(row_mcx, &mut base.tts_values, &mut base.tts_isnull)
         }
         .map_err(|e| copy_from_error_context(&cx.st, e))?;
         if !more {
@@ -581,35 +533,25 @@ fn parse_chunk(
         } else if let Some(c) = cur.as_mut() {
             c.push_row(&row).map_err(pgrc_am::write_error)?;
             if c.rows() == grain {
-                out.grains.push(std::mem::replace(
-                    c,
-                    RowChunk::with_owner(natts, grain, owner),
-                ));
+                out.grains.push(std::mem::replace(c, RowChunk::with_owner(natts, grain, owner),));
             }
         }
         out.rows += 1;
     }
     if cur.as_ref().is_some_and(|c| c.rows() != 0) || out.rows != chunk.rows {
-        return Err(internal(format!(
-            // alloc: Cold
+        return Err(internal(format!( // alloc: Cold
             "parallel COPY: chunk {g} parsed {} rows where the segmentation counted {}",
             out.rows, chunk.rows
         )));
     }
     out.tail = tail;
-    out.held = out.grains.iter().map(RowChunk::held_bytes).sum::<u64>()
-        + out.tail.as_ref().map_or(0, TailRows::held_bytes);
+    out.held = out.grains.iter().map(RowChunk::held_bytes).sum::<u64>() + out.tail.as_ref().map_or(0, TailRows::held_bytes);
     Ok(Some(out))
 }
 
 /// D4399: with the window (the helpers' chunks), each grain's charge moves to the engine as it is appended, and the
 /// tail's goes once its rows are in the engine.
-fn commit_out(
-    sess: &mut ParSession<'_>,
-    out: ChunkOut,
-    processed: &mut u64,
-    mut win: Option<&mut Window>,
-) -> PgResult<()> {
+fn commit_out(sess: &mut ParSession<'_>, out: ChunkOut, processed: &mut u64, mut win: Option<&mut Window>,) -> PgResult<()> {
     for rc in out.grains {
         if let Some(w) = win.as_deref_mut() {
             w.moved(rc.held_bytes());
@@ -690,8 +632,7 @@ impl Shared {
     fn morsel_body(&self, range: runtime::MorselRange) -> PgResult<()> {
         let p = WORKER_CX.with(|c| c.get());
         if p.is_null() {
-            return Err(PgError::new(ERROR, "parallel COPY chunk without a bound helper").into());
-            // alloc: Cold
+            return Err(PgError::new(ERROR, "parallel COPY chunk without a bound helper").into()); // alloc: Cold
         }
         // SAFETY: set by THIS thread's entry frame around drive_pinned; the
         // frame outlives the drive, and run_morsel only executes on the
@@ -700,22 +641,12 @@ impl Shared {
         for g in range {
             let chunk = lock(&self.chunks).remove(&g);
             let Some(chunk) = chunk else {
-                return Err(internal(format!(
-                    "parallel COPY: chunk {g} claimed before publish"
-                ))); // alloc: Cold
+                return Err(internal(format!("parallel COPY: chunk {g} claimed before publish"))); // alloc: Cold
             };
             if g > self.error_floor.load(Ordering::SeqCst) {
                 continue;
             }
-            match parse_chunk(
-                wcx,
-                &self.plan,
-                chunk,
-                g,
-                Some(&self.error_floor),
-                false,
-                self.owner,
-            ) {
+            match parse_chunk(wcx, &self.plan, chunk, g, Some(&self.error_floor), false, self.owner,) {
                 Ok(Some(out)) => {
                     lock(&self.done).insert(g, out);
                     self.wake_leader();
@@ -743,7 +674,7 @@ impl runtime::TaskSetWork for Shared {
                 Err(unwind) => {
                     let what = gone(&*unwind).unwrap_or("parallel COPY helper panicked in a chunk");
                     self.fail_hard(PgError::new(ERROR, what).into()); // alloc: Cold
-                                                                      // D2933: an exit payload or a plain panic (C's abort()) goes on
+                    // D2933: an exit payload or a plain panic (C's abort()) goes on
                     parallel::standing::resume_exit_or_abort(unwind);
                 }
             },
@@ -792,12 +723,8 @@ impl Drop for WorkerCxPublished {
 }
 
 fn parallel_text_copy_main(pshared: &parallel::ParallelShared) -> PgResult<()> {
-    let Some(private) = pshared.private() else {
-        return Ok(());
-    };
-    let Ok(shared) = private.downcast::<Shared>() else {
-        return Ok(());
-    };
+    let Some(private) = pshared.private() else { return Ok(()); };
+    let Ok(shared) = private.downcast::<Shared>() else { return Ok(()); };
     // unwind-ok: worker-containment
     let r = catch_unwind(AssertUnwindSafe(|| worker_drive(&shared)));
     let outcome = match r {
@@ -805,15 +732,12 @@ fn parallel_text_copy_main(pshared: &parallel::ParallelShared) -> PgResult<()> {
         Err(unwind) => match unwound(unwind) {
             Ok(e) => {
                 shared.fail_hard(e);
-                Err(Box::new(PgError::new(
-                    ERROR,
-                    "parallel COPY helper failed (see leader error)",
-                ))) // alloc: Cold
+                Err(Box::new(PgError::new(ERROR, "parallel COPY helper failed (see leader error)",))) // alloc: Cold
             }
             Err(unwind) => {
                 let what = gone(&*unwind).unwrap_or("parallel COPY helper panicked");
                 shared.fail_hard(PgError::new(ERROR, what).into()); // alloc: Cold
-                                                                    // D2933: an exit payload or a plain panic (C's abort()) goes on
+                // D2933: an exit payload or a plain panic (C's abort()) goes on
                 latch::SetLatch(types_storage::latch::LatchHandle::proc(
                     pshared.parallel_leader_proc_number,
                 ));
@@ -821,9 +745,7 @@ fn parallel_text_copy_main(pshared: &parallel::ParallelShared) -> PgResult<()> {
             }
         },
     };
-    latch::SetLatch(types_storage::latch::LatchHandle::proc(
-        pshared.parallel_leader_proc_number,
-    ));
+    latch::SetLatch(types_storage::latch::LatchHandle::proc(pshared.parallel_leader_proc_number,));
     outcome
 }
 
@@ -885,8 +807,7 @@ fn worker_drive(shared: &Arc<Shared>) -> PgResult<()> {
     if shared.failed_hard.load(Ordering::SeqCst) {
         // Abort the helper transaction so resowner releases residue; the
         // leader rethrows the recorded error, never this message.
-        return Err(Box::new(PgError::new(
-            // alloc: Cold
+        return Err(Box::new(PgError::new( // alloc: Cold
             ERROR,
             "parallel COPY helper failed (see leader error)",
         )));
@@ -897,9 +818,7 @@ fn worker_drive(shared: &Arc<Shared>) -> PgResult<()> {
 /// DestroyParallelContext (the abort path included) calls this BEFORE it
 /// waits for helper exit: every helper's drive must observe completion.
 fn private_shutdown(private: &(dyn std::any::Any + Send + Sync)) {
-    let Some(payload) = private.downcast_ref::<Shared>() else {
-        return;
-    };
+    let Some(payload) = private.downcast_ref::<Shared>() else { return; };
     payload.source.close();
     payload.rt.notify_source_progress();
     if let Some(rg) = payload.rg.get().and_then(|w| w.upgrade()) {
@@ -957,9 +876,7 @@ struct Lead {
 fn read_block_refused() -> PgError {
     PgError::new(ERROR, "out of memory")
         .with_sqlstate(types_error::ERRCODE_OUT_OF_MEMORY)
-        .with_detail(format!(
-            "Failed on request of size {READ_BLOCK} in parallel COPY."
-        )) // alloc: Cold
+        .with_detail(format!("Failed on request of size {READ_BLOCK} in parallel COPY.")) // alloc: Cold
 }
 
 impl Lead {
@@ -969,8 +886,7 @@ impl Lead {
         debug_assert!(!self.input_done);
         // CONVERT W3-2b: the block is the statement's until the helper that parses its last line drops it
         let mut buf = SegBlock::new(self.owner, memledger::Kind::Region);
-        buf.resize(READ_BLOCK, 0)
-            .map_err(|_| read_block_refused())?; // alloc: Exec charged self.owner
+        buf.resize(READ_BLOCK, 0).map_err(|_| read_block_refused())?; // alloc: Exec charged self.owner
         let mut out = Vec::new();
         let (n, err) = cstate.copy_read_stream(buf.as_mut_slice());
         self.bytes_read += n as u64;
@@ -998,11 +914,7 @@ impl Lead {
                 return Ok(());
             }
         }
-        if self.seg.input_complete()
-            && self.frontend
-            && !cstate.raw_reached_eof
-            && self.post_err.is_none()
-        {
+        if self.seg.input_complete() && self.frontend && !cstate.raw_reached_eof && self.post_err.is_none() {
             let mut sink = memledger::ChargedVec::new(self.owner, memledger::Kind::Region);
             sink.with_vec(|v| v.resize(READ_BLOCK, 0u8)); // alloc: Exec charged self.owner
             loop {
@@ -1029,10 +941,7 @@ impl Lead {
 
     /// `copy_read_line`'s drain fails before `line_buf_valid`: bare context.
     fn drain_context(&self, cstate: &CopyFromState<'_, '_>, e: Box<PgError>) -> Box<PgError> {
-        Box::new(e.add_context(format!(
-            "COPY {}, line {}",
-            cstate.relname, self.seg.eoc_lineno
-        ))) // alloc: Cold
+        Box::new(e.add_context(format!("COPY {}, line {}", cstate.relname, self.seg.eoc_lineno))) // alloc: Cold
     }
 }
 
@@ -1074,9 +983,7 @@ fn admit(
     if pgrc_front::logical::active(rel) {
         refuse!("wal_level=logical: bulk rows are logged by the serial path");
     }
-    let Some(rt) = runtime::global() else {
-        refuse!("no runtime pool")
-    };
+    let Some(rt) = runtime::global() else { refuse!("no runtime pool") };
     if parallel::IsParallelWorker() || !init_small::globals::IsUnderPostmaster() {
         refuse!("not a postmaster session leader");
     }
@@ -1142,18 +1049,11 @@ fn admit(
             let size = fd::with_allocated_stdio(*fd, |f| {
                 use std::os::fd::AsRawFd;
                 let mut st = fd::FileInfo::zeroed();
-                if fd::pg_fstat(f.as_raw_fd(), &mut st) == 0 {
-                    st.size
-                } else {
-                    0
-                }
+                if fd::pg_fstat(f.as_raw_fd(), &mut st) == 0 { st.size } else { 0 }
             })
             .unwrap_or(0);
             if size < knobs().min_file_bytes as i64 {
-                refuse!(format!(
-                    "file smaller than the {}B floor",
-                    knobs().min_file_bytes
-                )); // alloc: Cold
+                refuse!(format!("file smaller than the {}B floor", knobs().min_file_bytes)); // alloc: Cold
             }
         }
         CopySrc::Frontend { .. } => {}
@@ -1174,12 +1074,8 @@ fn admit(
             file_encoding: cstate.file_encoding,
             freeze: o.freeze,
             attnumlist: cstate.attnumlist.iter().copied().collect(),
-            force_notnull_flags: (0..natts)
-                .map(|i| cstate.force_notnull_flags.get(i).copied().unwrap_or(false))
-                .collect(),
-            force_null_flags: (0..natts)
-                .map(|i| cstate.force_null_flags.get(i).copied().unwrap_or(false))
-                .collect(),
+            force_notnull_flags: (0..natts).map(|i| cstate.force_notnull_flags.get(i).copied().unwrap_or(false)).collect(),
+            force_null_flags: (0..natts).map(|i| cstate.force_null_flags.get(i).copied().unwrap_or(false)).collect(),
             natts,
             grain: DEFAULT_CHUNK_ROWS,
         },
@@ -1226,8 +1122,7 @@ pub(crate) fn copy_from_text_pgrc<'mcx>(
         lead.read_more(cstate)?;
     }
     if lead.input_done && below(&lead) && lead.post_err.is_none() {
-        ptrace(&format!(
-            // alloc: Cold
+        ptrace(&format!( // alloc: Cold
             "pgrc-text serial below the floor rows={} bytes={}",
             lead.seg.rows_total, lead.bytes_read
         ));
@@ -1241,10 +1136,7 @@ pub(crate) fn copy_from_text_pgrc<'mcx>(
         }
         let parked = std::mem::replace(
             &mut cstate.src,
-            CopySrc::Chunk {
-                cur: ChunkCursor::new(segs, tail_err),
-                parked: None,
-            },
+            CopySrc::Chunk { cur: ChunkCursor::new(segs, tail_err), parked: None, },
         );
         if let CopySrc::Chunk { parked: slot, .. } = &mut cstate.src {
             *slot = Some(Box::new(parked));
@@ -1262,61 +1154,49 @@ pub(crate) fn copy_from_text_pgrc<'mcx>(
 
     let k = helpers_for(kn.helpers, rt.config().workers) as i32;
     // CONVERT W3-2b: built once the session exists, so the helpers take the engine's owner
-    let new_shared = move |owner: Option<memledger::Owner>| {
-        Arc::new(Shared {
-            rt,
-            rg: OnceLock::new(),
-            source: Arc::new(runtime::StreamSource::new()),
-            plan,
-            chunks: Mutex::new(HashMap::new()),
-            done: Mutex::new(BTreeMap::new()),
-            errors: Mutex::new(BTreeMap::new()),
-            error_floor: AtomicU64::new(u64::MAX),
-            failed_hard: AtomicBool::new(false),
-            hard_error: Mutex::new(None),
-            refused: AtomicUsize::new(0),
-            started: AtomicUsize::new(0),
-            leader_proc: init_small::globals::MyProcNumber(),
-            owner,
-        })
+    let new_shared = move |owner: Option<memledger::Owner>| { Arc::new(Shared {
+        rt,
+        rg: OnceLock::new(),
+        source: Arc::new(runtime::StreamSource::new()),
+        plan,
+        chunks: Mutex::new(HashMap::new()),
+        done: Mutex::new(BTreeMap::new()),
+        errors: Mutex::new(BTreeMap::new()),
+        error_floor: AtomicU64::new(u64::MAX),
+        failed_hard: AtomicBool::new(false),
+        hard_error: Mutex::new(None),
+        refused: AtomicUsize::new(0),
+        started: AtomicUsize::new(0),
+        leader_proc: init_small::globals::MyProcNumber(),
+        owner,
+    })
     };
     ensure_hooks_registered();
 
     let mut stash: Option<Box<PgError>> = None;
-    let fed: PgResult<u64> = pgrc_am::ingest::with_parallel_copy_writer(
-        rel,
-        |writer, providers| {
-            let r = pgrc_ingest_par::parallel_ingest(
-                writer,
-                rt,
-                providers,
-                ParIngestOpts::auto(),
-                |sess| {
-                    ptrace(&format!( // alloc: Cold
+    let fed: PgResult<u64> = pgrc_am::ingest::with_parallel_copy_writer(rel, |writer, providers| {
+        let r = pgrc_ingest_par::parallel_ingest(writer, rt, providers, ParIngestOpts::auto(), |sess| {
+            ptrace(&format!( // alloc: Cold
                 "pgrc-text engaged helpers={k} grains={} grain={} parts_in_flight={} chunks_in_flight={}",
                 kn.grains,
                 sess.chunk_rows(),
                 sess.opts().max_parts_in_flight,
                 sess.opts().max_chunks_in_flight
             ));
-                    let shared = new_shared(sess.owner());
-                    let fed = lead_feed(mcx, cstate, rel, &shared, rt, k, &mut lead, sess);
-                    let (peak, waits, ms) = sess.memory_report();
-                    ptrace(&format!(
-                        "pgrc-text memory peak_held={peak} gate_waits={waits} gate_ms={ms}"
-                    )); // alloc: Cold
-                    match fed {
-                        Ok(n) => Ok(n),
-                        Err(e) => {
-                            stash = Some(e);
-                            Err(STASHED)
-                        }
-                    }
-                },
-            );
-            r.map_err(|we| stash.take().unwrap_or_else(|| pgrc_am::write_error(we)))
-        },
-    );
+            let shared = new_shared(sess.owner());
+            let fed = lead_feed(mcx, cstate, rel, &shared, rt, k, &mut lead, sess);
+            let (peak, waits, ms) = sess.memory_report();
+            ptrace(&format!("pgrc-text memory peak_held={peak} gate_waits={waits} gate_ms={ms}")); // alloc: Cold
+            match fed {
+                Ok(n) => Ok(n),
+                Err(e) => {
+                    stash = Some(e);
+                    Err(STASHED)
+                }
+            }
+        },);
+        r.map_err(|we| stash.take().unwrap_or_else(|| pgrc_am::write_error(we)))
+    },);
     let processed = fed?;
 
     tableam::table_finish_bulk_insert(rel, ti_options)?;
@@ -1327,9 +1207,7 @@ pub(crate) fn copy_from_text_pgrc<'mcx>(
 
 enum Ceremony {
     /// No helper took part: `published` chunks wait unclaimed in the map.
-    Refused {
-        published: u64,
-    },
+    Refused { published: u64, },
     Done(u64),
 }
 
@@ -1345,8 +1223,7 @@ fn lead_feed<'mcx>(
     sess: &mut ParSession<'_>,
 ) -> PgResult<u64> {
     if sess.chunk_rows() != shared.plan.grain {
-        ptrace(&format!(
-            // alloc: Cold
+        ptrace(&format!( // alloc: Cold
             "pgrc-text engine grain {} != cut grain {}: the leader parses",
             sess.chunk_rows(),
             shared.plan.grain
@@ -1359,9 +1236,7 @@ fn lead_feed<'mcx>(
     match r? {
         Ceremony::Done(n) => Ok(n),
         Ceremony::Refused { published } => {
-            ptrace(&format!(
-                "pgrc-text no helper took part: the leader parses ({published} chunks published)"
-            )); // alloc: Cold
+            ptrace(&format!("pgrc-text no helper took part: the leader parses ({published} chunks published)")); // alloc: Cold
             leader_parse_all(mcx, cstate, rel, shared, lead, sess, published, false)
         }
     }
@@ -1382,16 +1257,10 @@ fn leader_parse_all<'mcx>(
     let mut processed = 0u64;
     let mut g = 0u64;
     loop {
-        let chunk = if g < published {
-            lock(&shared.chunks).remove(&g)
-        } else {
-            lead.pending.pop_front()
-        };
+        let chunk = if g < published { lock(&shared.chunks).remove(&g) } else { lead.pending.pop_front() };
         let Some(chunk) = chunk else {
             if g < published {
-                return Err(internal(format!(
-                    "parallel COPY: published chunk {g} vanished"
-                ))); // alloc: Cold
+                return Err(internal(format!("parallel COPY: published chunk {g} vanished"))); // alloc: Cold
             }
             if lead.input_done {
                 break;
@@ -1399,19 +1268,8 @@ fn leader_parse_all<'mcx>(
             lead.read_more(cstate)?;
             continue;
         };
-        let Some(out) = parse_chunk(
-            &mut cx,
-            &shared.plan,
-            chunk,
-            g,
-            None,
-            rows_mode,
-            shared.owner,
-        )?
-        else {
-            return Err(internal(format!(
-                "parallel COPY: chunk {g} stopped without an error"
-            ))); // alloc: Cold
+        let Some(out) = parse_chunk(&mut cx, &shared.plan, chunk, g, None, rows_mode, shared.owner,)? else {
+            return Err(internal(format!("parallel COPY: chunk {g} stopped without an error"))); // alloc: Cold
         };
         commit_out(sess, out, &mut processed, None)?;
         g += 1;
@@ -1467,11 +1325,7 @@ fn ceremony(
         let source: Arc<dyn runtime::MorselSource> = Arc::clone(&shared.source) as _;
         let (rg, waiter) = rt.submit_pinned(runtime::QuerySpec {
             query_id: NEXT_QUERY_ID.fetch_add(1, Ordering::SeqCst),
-            tasksets: vec![runtime::TaskSetSpec {
-                source,
-                work,
-                deps: vec![],
-            }],
+            tasksets: vec![runtime::TaskSetSpec { source, work, deps: vec![], }],
         });
         shared
             .rg
@@ -1485,9 +1339,7 @@ fn ceremony(
             return Ok(Ceremony::Refused { published: 0 });
         }
         let window = window(k);
-        ptrace(&format!(
-            "pgrc-text launched helpers={launched} window={window}"
-        )); // alloc: Cold
+        ptrace(&format!("pgrc-text launched helpers={launched} window={window}")); // alloc: Cold
 
         let mut published = 0u64;
         let mut next_commit = 0u64;
@@ -1509,8 +1361,7 @@ fn ceremony(
                 }
             }
             sess.set_ahead(win.ahead());
-            let committed_any =
-                commit_ready(shared, sess, &mut next_commit, &mut processed, &mut win)?;
+            let committed_any = commit_ready(shared, sess, &mut next_commit, &mut processed, &mut win)?;
 
             let mut read_any = false;
             let was_held = held_back;
@@ -1534,9 +1385,7 @@ fn ceremony(
                             AheadStep::Refused(we) => return Err(pgrc_am::write_error(we)),
                         }
                     }
-                    let Some(c) = lead.pending.pop_front() else {
-                        break;
-                    };
+                    let Some(c) = lead.pending.pop_front() else { break; };
                     win.publish(text, planned);
                     lock(&shared.chunks).insert(published + newly, c);
                     newly += 1;
@@ -1558,8 +1407,7 @@ fn ceremony(
                     shared.source.close();
                     rt.notify_source_progress();
                     closed = true;
-                    ptrace(&format!(
-                        // alloc: Cold
+                    ptrace(&format!( // alloc: Cold
                         "pgrc-text input closed chunks={published} rows={} bytes={}",
                         lead.seg.rows_total, lead.bytes_read
                     ));
@@ -1593,8 +1441,7 @@ fn ceremony(
                 if let Some(e) = shared.take_hard_error() {
                     return Err(e);
                 }
-                return Err(Box::new(PgError::new(
-                    // alloc: Cold
+                return Err(Box::new(PgError::new( // alloc: Cold
                     ERROR,
                     "parallel COPY helpers exited before completing the load",
                 )));
@@ -1605,8 +1452,7 @@ fn ceremony(
                 if drain_rg(rt, &rg) && claimed == 0 {
                     return Ok(Ceremony::Refused { published });
                 }
-                return Err(Box::new(PgError::new(
-                    // alloc: Cold
+                return Err(Box::new(PgError::new( // alloc: Cold
                     ERROR,
                     "parallel COPY: every helper refused participation",
                 )));
@@ -1614,9 +1460,7 @@ fn ceremony(
             if !committed_any && !read_any {
                 // D4399: a leader held back at the gate asks again after its poll period
                 let waited = if held_back {
-                    parallel::wait_parallel_finish_quantum_bounded(
-                        AheadGate::POLL.as_millis() as i64
-                    )
+                    parallel::wait_parallel_finish_quantum_bounded(AheadGate::POLL.as_millis() as i64)
                 } else {
                     parallel::wait_parallel_finish_quantum()
                 };
@@ -1629,13 +1473,10 @@ fn ceremony(
 
         commit_ready(shared, sess, &mut next_commit, &mut processed, &mut win)?;
         sess.set_ahead(0);
-        ptrace(&format!(
-            "pgrc-text window peak_bytes={} gate_waits={gate_waits}",
-            win.peak
-        )); // alloc: Cold
-            // D3350: the leader's own pending interrupt first (its FATAL on a terminate or a fast
-            // shutdown, which signals the helpers too), before anything a helper recorded: the helpers'
-            // exits are its consequence, and PostgreSQL's session ends on that FATAL.
+        ptrace(&format!("pgrc-text window peak_bytes={} gate_waits={gate_waits}", win.peak)); // alloc: Cold
+        // D3350: the leader's own pending interrupt first (its FATAL on a terminate or a fast
+        // shutdown, which signals the helpers too), before anything a helper recorded: the helpers'
+        // exits are its consequence, and PostgreSQL's session ends on that FATAL.
         postgres_seams::check_for_interrupts::call()?;
         if let Some(e) = shared.take_hard_error() {
             return Err(e);
@@ -1707,11 +1548,7 @@ mod tests {
             let row: Vec<RawDatum<'_>> = (0..ncols).map(|_| RawDatum::Word(u64::from(i))).collect();
             c.push_row(&row).expect("push");
         }
-        assert!(
-            c.held_bytes() <= ncols as u64 * u64::from(grain) * PRIOR_VALUE_BYTES,
-            "{} bytes",
-            c.held_bytes()
-        );
+        assert!(c.held_bytes() <= ncols as u64 * u64::from(grain) * PRIOR_VALUE_BYTES, "{} bytes", c.held_bytes());
     }
 
     /// D4399: the window's arithmetic. A chunk is charged its plan when published (the prior before any parse, the
@@ -1723,43 +1560,23 @@ mod tests {
         let base = charged();
         let mut w = Window::new();
         let p0 = w.planned(10 * MIB, 1000, 4);
-        assert_eq!(
-            p0,
-            10 * MIB + 1000 * 4 * PRIOR_VALUE_BYTES + 20 * MIB,
-            "the prior: text + values + twice the text"
-        );
+        assert_eq!(p0, 10 * MIB + 1000 * 4 * PRIOR_VALUE_BYTES + 20 * MIB, "the prior: text + values + twice the text");
         w.publish(10 * MIB, p0);
         w.publish(10 * MIB, p0);
         assert_eq!(w.in_flight(), 2);
         assert_eq!(charged() - base, 2 * p0 as i64);
-        assert_eq!(
-            w.ahead(),
-            2 * (p0 - 10 * MIB),
-            "unparsed: all but the text is still to come"
-        );
+        assert_eq!(w.ahead(), 2 * (p0 - 10 * MIB), "unparsed: all but the text is still to come");
         // chunk 0 parsed into 30 MiB: 3x its text from now on
         w.parsed(0, 30 * MIB);
-        assert_eq!(
-            charged() - base,
-            (p0 + 30 * MIB) as i64,
-            "the true-up: the actual bytes, not the plan"
-        );
+        assert_eq!(charged() - base, (p0 + 30 * MIB) as i64, "the true-up: the actual bytes, not the plan");
         assert_eq!(w.ahead(), p0 - 10 * MIB);
-        assert_eq!(
-            w.planned(10 * MIB, 1, 1),
-            40 * MIB,
-            "text + text x the measured expansion"
-        );
+        assert_eq!(w.planned(10 * MIB, 1, 1), 40 * MIB, "text + text x the measured expansion");
         // chunk 1 parsed into more than its plan: the shortfall is charged at once
         w.parsed(1, p0 + 5 * MIB);
         assert_eq!(charged() - base, (30 * MIB + p0 + 5 * MIB) as i64);
         assert_eq!(w.ahead(), 0);
         w.parsed(1, 1);
-        assert_eq!(
-            charged() - base,
-            (30 * MIB + p0 + 5 * MIB) as i64,
-            "a chunk is trued up once"
-        );
+        assert_eq!(charged() - base, (30 * MIB + p0 + 5 * MIB) as i64, "a chunk is trued up once");
         // commit chunk 0: two grains move to the engine, then the rest goes
         w.moved(12 * MIB);
         w.moved(12 * MIB);
@@ -1786,10 +1603,7 @@ mod tests {
         }
         w.parsed(0, 20 * MIB);
         w.parsed(2, 25 * MIB);
-        assert!(
-            charged() - base > (45 * MIB) as i64,
-            "charged while it waits"
-        );
+        assert!(charged() - base > (45 * MIB) as i64, "charged while it waits");
         // the leader's next step at the gate returns the statement's refusal: the body returns its error
         drop(w);
         assert_eq!(charged(), base, "the window's charge is given back whole");

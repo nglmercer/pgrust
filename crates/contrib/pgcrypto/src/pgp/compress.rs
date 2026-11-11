@@ -64,7 +64,7 @@ const HIST_CAP: usize = WINDOW + 256 * 1024;
 fn zlib_needs_dict(hdr: [u8; 2]) -> bool {
     hdr[0] & 0x0f == 8
         && hdr[0] >> 4 <= 7
-        && (((hdr[0] as u32) << 8) | hdr[1] as u32).is_multiple_of(31)
+        && (((hdr[0] as u32) << 8) | hdr[1] as u32).is_multiple_of( 31)
         && hdr[1] & 0x20 != 0
 }
 

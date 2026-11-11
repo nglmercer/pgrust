@@ -184,8 +184,7 @@ pub fn pg_import_system_collations<'mcx>(mcx: Mcx<'mcx>, nspid: Oid) -> PgResult
             }
             let locale = String::from_utf8_lossy(&line[..len - 1]).into_owned();
 
-            let enc =
-                create_collation_from_locale(mcx, &locale, nspid, &mut nvalid, &mut ncreated)?;
+            let enc = create_collation_from_locale(mcx, &locale, nspid, &mut nvalid, &mut ncreated)?;
             if enc < 0 {
                 continue;
             }
@@ -285,14 +284,8 @@ mod tests {
     #[test]
     fn normalize_libc_locale_name_matches_c() {
         // collationcmds.c:619-624 examples.
-        assert_eq!(
-            normalize_libc_locale_name("en_US.utf8").as_deref(),
-            Some("en_US")
-        );
-        assert_eq!(
-            normalize_libc_locale_name("en_US.UTF-8").as_deref(),
-            Some("en_US")
-        );
+        assert_eq!(normalize_libc_locale_name("en_US.utf8").as_deref(), Some("en_US"));
+        assert_eq!(normalize_libc_locale_name("en_US.UTF-8").as_deref(), Some("en_US"));
         assert_eq!(
             normalize_libc_locale_name("br_FR.iso885915@euro").as_deref(),
             Some("br_FR@euro")
@@ -301,9 +294,6 @@ mod tests {
         assert_eq!(normalize_libc_locale_name("en_US"), None);
         assert_eq!(normalize_libc_locale_name("C"), None);
         // A trailing dot still counts as a change (C sets changed on '.').
-        assert_eq!(
-            normalize_libc_locale_name("en_US.").as_deref(),
-            Some("en_US")
-        );
+        assert_eq!(normalize_libc_locale_name("en_US.").as_deref(), Some("en_US"));
     }
 }

@@ -77,7 +77,7 @@ fn a_values_list_holding_an_expression_reads_the_per_execution_table() {
     let row = &rest[..rest.find(") (").expect("its first row") + 1];
     let tail = &rest[rest.find("))}").expect("the lists' end") + 1..];
     let param = "({PARAM :paramkind 0 :paramid 1 :paramtype 23 :paramtypmod -1 :paramcollid 0 :location 23})";
-    let lists = std::iter::once(param).chain(std::iter::repeat_n(row, 299)).collect::<Vec<_>>().join(" ");
+    let lists = std::iter::once(param).chain(std::iter::repeat_n(row,299)).collect::<Vec<_>>().join(" ");
     let big = format!("{head}:values_lists ({lists}{tail}");
     let l = match common::lower_fixture(&big) {
         Some(Ok(l)) => l,

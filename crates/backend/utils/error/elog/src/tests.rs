@@ -1235,6 +1235,7 @@ fn crit_section_run_promotes_escaping_hand_built_error() {
     assert_eq!(config::crit_section_count(), 0);
 
     #[allow(clippy::unnecessary_literal_unwrap)]
+
     let err = Err::<(), _>(Box::new(PgError::new(ERROR, "xlog flush request 0/1234 is not satisfied")))
     .unwrap_err();
     assert_eq!(err.level, ERROR);

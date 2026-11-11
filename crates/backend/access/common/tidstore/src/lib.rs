@@ -206,11 +206,7 @@ impl TidStore {
     /// Drop is TidStoreDestroy. tidstore.c:172: the context maxBlockSize is
     /// the largest power of two no larger than max_bytes/16 (8 KiB floor), so
     /// memory_usage grows in bounded steps against the VACUUM budget.
-    pub fn create_local(
-        parent: Mcx<'_>,
-        max_bytes: usize,
-        insert_only: bool,
-    ) -> PgResult<TidStore> {
+    pub fn create_local(parent: Mcx<'_>, max_bytes: usize, insert_only: bool,) -> PgResult<TidStore> {
         let rt_context = if insert_only {
             parent
                 .context()
@@ -218,9 +214,7 @@ impl TidStore {
         } else {
             parent.context().new_child("TID storage")
         };
-        Ok(TidStore {
-            tree: RadixTree::create_in(rt_context, &LOCAL_TS_NAMES)?,
-        })
+        Ok(TidStore { tree: RadixTree::create_in(rt_context, &LOCAL_TS_NAMES)?, })
     }
 
     /// Local storage; memory_usage is TidStoreCreateShared's DSA total size.
@@ -229,9 +223,7 @@ impl TidStore {
             .context()
             .new_child_bump_with_max_block_size("TID storage", local_max_block_size(max_bytes));
         let dsa = radixtree::DsaSizeModel::for_tidstore(max_bytes)?;
-        Ok(TidStore {
-            tree: RadixTree::create_in_dsa_accounted(rt_context, &SHARED_TS_NAMES, dsa)?,
-        })
+        Ok(TidStore { tree: RadixTree::create_in_dsa_accounted(rt_context, &SHARED_TS_NAMES, dsa)?, })
     }
 
     /// Creates or replaces the entry for `blkno`; `offsets` sorted ascending.
@@ -249,9 +241,7 @@ impl TidStore {
 
     /// Ascending block order; the borrow enforces C's no-modify contract.
     pub fn begin_iterate(&self) -> TidStoreIter<'_> {
-        TidStoreIter {
-            iter: self.tree.begin_iterate(),
-        }
+        TidStoreIter { iter: self.tree.begin_iterate(), }
     }
 
     pub fn memory_usage(&self) -> usize {
@@ -315,27 +305,19 @@ impl SharedTidStore {
     /// TidStoreAttach: a participant's own reference to the shared store.
     pub fn attach(handle: &TidStoreHandle) -> SharedTidStore {
         handle.inner.participants.fetch_add(1, Ordering::AcqRel);
-        SharedTidStore {
-            inner: Arc::clone(&handle.inner),
-            owner: false,
-        }
+        SharedTidStore { inner: Arc::clone(&handle.inner), owner: false, }
     }
 
     /// TidStoreDetach: release this participant's reference (drop does the
     /// same; the named form documents call sites that mirror C's lifecycle).
     pub fn detach(self) {
-        debug_assert!(
-            !self.owner,
-            "the owner destroys (drops) the store, it never detaches"
-        );
+        debug_assert!(!self.owner, "the owner destroys (drops) the store, it never detaches");
         // The Drop impl performs the participant accounting.
     }
 
     /// TidStoreGetHandle: the cheap value other participants attach through.
     pub fn get_handle(&self) -> TidStoreHandle {
-        TidStoreHandle {
-            inner: Arc::clone(&self.inner),
-        }
+        TidStoreHandle { inner: Arc::clone(&self.inner), }
     }
 
     // TidStoreGetDSA has no thread-native equivalent and is deliberately not
@@ -345,15 +327,11 @@ impl SharedTidStore {
     // caller needs a separate area object.
 
     pub fn lock_exclusive(&self) -> SharedTidStoreExclusive<'_> {
-        SharedTidStoreExclusive {
-            tree: self.inner.tree.lock_exclusive(),
-        }
+        SharedTidStoreExclusive { tree: self.inner.tree.lock_exclusive(), }
     }
 
     pub fn lock_share(&self) -> SharedTidStoreShare<'_> {
-        SharedTidStoreShare {
-            tree: self.inner.tree.lock_share(),
-        }
+        SharedTidStoreShare { tree: self.inner.tree.lock_share(), }
     }
 
     pub fn memory_usage(&self) -> usize {
@@ -410,9 +388,7 @@ impl SharedTidStoreShare<'_> {
     }
 
     pub fn begin_iterate(&self) -> TidStoreIter<'_, SharedStore> {
-        TidStoreIter {
-            iter: self.tree.begin_iterate(),
-        }
+        TidStoreIter { iter: self.tree.begin_iterate(), }
     }
 }
 

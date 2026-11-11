@@ -56,7 +56,7 @@ pub fn refused(c: &Compiled<'_>) -> Option<(&'static str, HostCall)> {
         let h = hostcall::of(s);
         if let How::Fmgr(ix) = s.how {
             let f = &c.state.call_facts[ix as usize];
-            if f.node_arg && f.argtypes.contains(&INTERNALOID) {
+            if f.node_arg && f.argtypes.contains(& INTERNALOID) {
                 return Some(("an internal-typed argument to a polymorphic call", h));
             }
         }
@@ -489,7 +489,7 @@ fn owned_why(owned: &[Box<dyn Any>]) -> &'static str {
 /// does, `kind` for an owner of another kind.
 pub fn private_why(owner: &dyn Any) -> &'static str {
     match owner.downcast_ref::<Owner>().map(|o| &o.hold.programs) {
-        Some(Progs::Own(_, why)) => why,
+        Some(Progs::Own(_, why)) =>why,
         Some(Progs::Tpl(..)) => "",
         None => "kind",
     }

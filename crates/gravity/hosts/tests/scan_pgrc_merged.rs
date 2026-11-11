@@ -40,7 +40,7 @@ fn table(name: &'static str, relf: u64, keys: &[Option<OracleVal>], text: bool, 
     use pgrc_write::publish::{effective_manifest, TxnVerdict};
     use pgrc_write::wvfs::WriteVfs;
     let rows = keys.len() as u64;
-    let cut = if per_part.is_multiple_of(64) { 64 } else { per_part as u32 };
+    let cut = if per_part.is_multiple_of( 64) { 64 } else { per_part as u32 };
     let fx = Fixture {
         name,
         dir: format!("/qa/t{relf}"),

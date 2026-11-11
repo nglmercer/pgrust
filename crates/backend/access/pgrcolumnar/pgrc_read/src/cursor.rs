@@ -44,7 +44,7 @@ use pgrc_format::abi::{
 use pgrc_format::dict::{DictLayout, DictSections};
 use pgrc_format::enc::{EncodingId, Wrapper};
 use pgrc_format::geom;
-use pgrc_format::meta::{MetaProbe, ProbeAnswer};
+use pgrc_format::meta::{ MetaProbe, ProbeAnswer};
 use pgrc_format::part::{
     StreamRole, StreamSectionHdr, STREAMF_HAS_OVERFLOW, STREAM_SECTION_HDR_LEN,
 };
@@ -74,13 +74,7 @@ pub trait SectionUnwrapper: Sync {
         Ok(None)
     }
     /// [`Self::unwrap_dict_payload_block`] for a side-block arm; `Ok(false)` = no block grain.
-    fn unwrap_dict_payload_block_side(
-        &self,
-        _side: &SideTable,
-        _src: &[u8],
-        _dst: &mut [u8],
-        _records: &[u8],
-    ) -> FormatResult<bool> {
+    fn unwrap_dict_payload_block_side(&self, _side: &SideTable, _src: &[u8], _dst: &mut [u8], _records: &[u8],) -> FormatResult<bool> {
         Ok(false)
     }
     /// Rebuild the unwrapped section image: `StreamSectionHdr` with
@@ -135,8 +129,7 @@ pub trait SectionUnwrapper: Sync {
         index: &[u8],
         _stop: &mut dyn FnMut() -> bool,
     ) -> FormatResult<Option<Vec<u8>>> {
-        self.unwrap_dict_payload_section(hdr, section, index)
-            .map(Some)
+        self.unwrap_dict_payload_section(hdr, section, index).map(Some)
     }
     /// The resident front-coded form of a FrontZstd section (`crate::dict_resident_frontcoded`):
     /// the inflated frames as `pgrc_format::dict::FcResident` under an unwrapped twin header.
@@ -147,9 +140,7 @@ pub trait SectionUnwrapper: Sync {
         _section: &[u8],
         _index: &[u8],
     ) -> FormatResult<Vec<u8>> {
-        Err(FormatError::Corrupt {
-            at: "front-coded resident form without a binding",
-        })
+        Err(FormatError::Corrupt { at: "front-coded resident form without a binding", })
     }
     /// D3973: [`Self::unwrap_dict_payload_fc_section`] asking `stop` before each block; `Ok(None)` when it said stop.
     fn unwrap_dict_payload_fc_section_until(
@@ -159,8 +150,7 @@ pub trait SectionUnwrapper: Sync {
         index: &[u8],
         _stop: &mut dyn FnMut() -> bool,
     ) -> FormatResult<Option<Vec<u8>>> {
-        self.unwrap_dict_payload_fc_section(hdr, section, index)
-            .map(Some)
+        self.unwrap_dict_payload_fc_section(hdr, section, index).map(Some)
     }
 }
 
@@ -216,9 +206,7 @@ struct ExtentState {
 
 /// The bytes of an extent's parsed tables (frame table, gcounts, validity prefix), as their blocks hold them.
 fn tables_bytes(t: [&Option<Vec<u32>>; 3]) -> u64 {
-    t.iter()
-        .map(|v| v.as_ref().map_or(0, |v| v.capacity() as u64 * 4))
-        .sum()
+    t.iter().map(|v| v.as_ref().map_or(0, |v| v.capacity() as u64 * 4)).sum()
 }
 
 impl ExtentState {
@@ -233,23 +221,9 @@ impl ExtentState {
     /// D3994 (B.1 W): this state while its cursor is parked: the image let go, the parsed tables kept. D4573: `passed` when a
     /// pass (D4315) parked it, not the cursor's park.
     fn park(self, passed: bool) -> ParkedExtent {
-        let ExtentState {
-            bytes,
-            frame_table,
-            gcounts,
-            vbyte_prefix,
-            payload_start,
-            payload_end,
-        } = self;
+        let ExtentState { bytes, frame_table, gcounts, vbyte_prefix, payload_start, payload_end, } = self;
         drop(bytes);
-        ParkedExtent {
-            frame_table,
-            gcounts,
-            vbyte_prefix,
-            payload_start,
-            payload_end,
-            passed,
-        }
+        ParkedExtent { frame_table, gcounts, vbyte_prefix, payload_start, payload_end, passed, }
     }
 }
 
@@ -271,22 +245,8 @@ struct ParkedExtent {
 
 impl ParkedExtent {
     fn unpark(self, bytes: SegBuf) -> ExtentState {
-        let ParkedExtent {
-            frame_table,
-            gcounts,
-            vbyte_prefix,
-            payload_start,
-            payload_end,
-            passed: _,
-        } = self;
-        ExtentState {
-            bytes,
-            frame_table,
-            gcounts,
-            vbyte_prefix,
-            payload_start,
-            payload_end,
-        }
+        let ParkedExtent { frame_table, gcounts, vbyte_prefix, payload_start, payload_end, passed: _, } = self;
+        ExtentState { bytes, frame_table, gcounts, vbyte_prefix, payload_start, payload_end, }
     }
 }
 
@@ -381,10 +341,7 @@ impl RegionState {
 /// first table. Mirrors the reference codec's region math. `pub(crate)`
 /// since M3-L3: the frame-lazy dict payload region (`crate::dicthandle`)
 /// computes the same bounds from its extent-0 fault.
-pub(crate) fn payload_bounds(
-    hdr: &StreamSectionHdr,
-    section_len: usize,
-) -> FormatResult<(u32, u32)> {
+pub(crate) fn payload_bounds(hdr: &StreamSectionHdr, section_len: usize,) -> FormatResult<(u32, u32)> {
     let end = if hdr.frame_table_off != 0 {
         hdr.frame_table_off as usize
     } else if hdr.gcount_table_off != 0 {
@@ -462,10 +419,7 @@ pub struct DictTail {
 }
 
 impl DictTail {
-    pub const NONE: DictTail = DictTail {
-        index: false,
-        payload: false,
-    };
+    pub const NONE: DictTail = DictTail { index: false, payload: false, };
 }
 
 /// D4554: the own tables (`kept`) of the cursors one reader keeps open across statements (a granule source's), on one
@@ -493,18 +447,11 @@ impl Default for KeptPool {
 
 impl KeptPool {
     pub const fn new() -> KeptPool {
-        KeptPool {
-            inner: pgsync::Mutex::new(PoolCharge {
-                charge: memledger::Charge::NONE,
-                at: None,
-                bytes: 0,
-            }),
-        }
+        KeptPool { inner: pgsync::Mutex::new(PoolCharge { charge: memledger::Charge::NONE, at: None, bytes: 0, }), }
     }
 
     /// The bytes of a shared pool's own block (`Arc`'s two counts and the pool).
-    pub const SHARED_BYTES: u64 =
-        (2 * core::mem::size_of::<usize>() + core::mem::size_of::<KeptPool>()) as u64;
+    pub const SHARED_BYTES: u64 = (2 * core::mem::size_of::<usize>() + core::mem::size_of::<KeptPool>()) as u64;
 
     /// D4554: a pool its reader's cursors share, its own block counted in its bytes ([`Self::SHARED_BYTES`]): charged where
     /// the pool is homed, from its first home to its drop, like its cursors' tables.
@@ -531,13 +478,7 @@ impl KeptPool {
         }
         match to {
             Some((o, k)) => {
-                let mut c = memledger::Charge::open(
-                    o,
-                    crate::openpart::release_of(o),
-                    k,
-                    memledger::charge::Door::Heap,
-                    0,
-                );
+                let mut c = memledger::Charge::open(o, crate::openpart::release_of(o), k, memledger::charge::Door::Heap, 0,);
                 let old = core::mem::replace(&mut g.charge, memledger::Charge::NONE);
                 if g.at.is_some() {
                     c.absorb(old);
@@ -574,13 +515,9 @@ impl KeptPool {
     /// a portal or a breaker go to that account's session.
     pub fn park(&self) {
         let at = self.lock().at;
-        if let Some((o, _)) = at.filter(|(o, _)| {
-            !matches!(o, memledger::Owner::Session(_) | memledger::Owner::Cache(_))
+        if let Some((o, _)) = at.filter(|(o, _)| { !matches!(o, memledger::Owner::Session(_) | memledger::Owner::Cache(_))
         }) {
-            self.home(Some((
-                memledger::Owner::Session(o.acct()),
-                memledger::Kind::Region,
-            )));
+            self.home(Some((memledger::Owner::Session(o.acct()), memledger::Kind::Region,)));
         }
     }
 
@@ -640,12 +577,7 @@ pub struct StreamCursor<'b> {
     vstate: Vec<ExtSlot>,
     valstate: Vec<ExtSlot>,
     ovf_state: Option<RegionState>,
-    dict_state: Option<(
-        RegionState,
-        RegionState,
-        u32,
-        pgrc_format::dict::DictCharLenForm,
-    )>,
+    dict_state: Option<(RegionState, RegionState, u32, pgrc_format::dict::DictCharLenForm,)>,
     /// D3994 (B.1 W): the dictionary regions were loaded before the park: loading them again is the same cursor's, not a
     /// new whole-payload assembly for the census.
     parked_dict: bool,
@@ -735,8 +667,8 @@ impl<'b> StreamCursor<'b> {
                 role: role.as_u8(),
             })?
             .clone(); // alloc: Node charged kept_home
-                      // Adjudicate the encoding ID before any kernel-table walk (typed
-                      // unknown-vs-reserved split, born-RED-tested upstream).
+        // Adjudicate the encoding ID before any kernel-table walk (typed
+        // unknown-vs-reserved split, born-RED-tested upstream).
         EncodingId::resolve(values.entry.encoding)?;
         // A STRUCTURAL parent entry (ArrayDual — TY-1) is an election
         // marker, not a decodable stream: readers compose through the
@@ -869,21 +801,9 @@ impl<'b> StreamCursor<'b> {
             owner: None,
         };
         let slots = |v: &Vec<ExtSlot>| (v.capacity() * core::mem::size_of::<ExtSlot>()) as u64;
-        let streams = [
-            Some(&cur.values),
-            cur.validity.as_ref(),
-            cur.overflow.as_ref(),
-            cur.dict_index.as_ref(),
-            cur.dict_payload.as_ref(),
-        ];
-        let copies: u64 = streams
-            .into_iter()
-            .flatten()
-            .map(|s| {
-                (s.extents.capacity() * core::mem::size_of::<pgrc_format::part::ExtentRecord>())
-                    as u64
-            })
-            .sum();
+        let streams = [Some(&cur.values), cur.validity.as_ref(), cur.overflow.as_ref(), cur.dict_index.as_ref(), cur.dict_payload.as_ref(),];
+        let copies: u64 = streams.into_iter().flatten().map(|s| { (s.extents.capacity() * core::mem::size_of::<pgrc_format::part::ExtentRecord>()) as u64
+            }).sum();
         cur.kept_bytes = slots(&cur.vstate) + slots(&cur.valstate) + copies;
         cur.rehome_kept();
         Ok(cur)
@@ -921,10 +841,7 @@ impl<'b> StreamCursor<'b> {
         self.kept_to = None;
         // a use moved off a running statement reads for no breaker of it: the cursor's tables follow the use (the session,
         // the slot depot), and the next breaker names itself again (set_owner)
-        if !matches!(
-            to,
-            memledger::Owner::Statement { .. } | memledger::Owner::Portal { .. }
-        ) {
+        if !matches!(to, memledger::Owner::Statement { .. } | memledger::Owner::Portal { .. }) {
             self.owner = None;
         }
         // D3994 (B.1 W): a parked worker set's cursor lets its images go, as an entry park's does
@@ -936,18 +853,10 @@ impl<'b> StreamCursor<'b> {
 
     /// D4554: `transfer_use` with the use moved in `group` (its part's, `PartUse::transfer_in`: one lock and one parked
     /// count a part for a source's cursors over it).
-    pub fn transfer_use_in(
-        &mut self,
-        group: &mut crate::openpart::UseMoves<'_>,
-        to: memledger::Owner,
-        release: memledger::Release,
-    ) {
+    pub fn transfer_use_in(&mut self, group: &mut crate::openpart::UseMoves<'_>, to: memledger::Owner, release: memledger::Release,) {
         self.part_use.transfer_in(group, to, release);
         self.kept_to = None;
-        if !matches!(
-            to,
-            memledger::Owner::Statement { .. } | memledger::Owner::Portal { .. }
-        ) {
+        if !matches!(to, memledger::Owner::Statement { .. } | memledger::Owner::Portal { .. }) {
             self.owner = None;
         }
         if self.part_use.is_parked() {
@@ -1002,12 +911,10 @@ impl<'b> StreamCursor<'b> {
     /// its part use's owner (its statement or portal; its session or a depot while parked: `transfer_use` moves them with
     /// the use).
     fn kept_home(&self) -> ReadOwner {
-        self.owner
-            .or(self.kept_to.map(|o| (o, memledger::Kind::Region)))
-            .or(match self.part_use.owner() {
-                memledger::Owner::Cache(memledger::Holder::Unbound) => None,
-                o => Some((o, memledger::Kind::Region)),
-            })
+        self.owner.or(self.kept_to.map(|o| (o, memledger::Kind::Region))).or(match self.part_use.owner() {
+            memledger::Owner::Cache(memledger::Holder::Unbound) => None,
+            o => Some((o, memledger::Kind::Region)),
+        })
     }
 
     /// D4554: this cursor's tables onto `pool` from now on (its own charge's bytes there in one step, on this thread); the
@@ -1032,8 +939,7 @@ impl<'b> StreamCursor<'b> {
             return;
         }
         match (&mut self.kept, home) {
-            (Some(c), Some((o, k))) if c.kind() == k => {
-                c.transfer(o, crate::openpart::release_of(o))
+            (Some(c), Some((o, k))) if c.kind() == k => { c.transfer(o, crate::openpart::release_of(o))
             }
             _ => {
                 // the old charge's bytes back on this thread first, where the new one takes them
@@ -1046,12 +952,7 @@ impl<'b> StreamCursor<'b> {
 
     /// `n` more bytes of the cursor's own tables (`kept`, `pool`, `kept_bytes`: the fields, so a stream borrowed beside
     /// stays).
-    fn kept_add(
-        kept: &mut Option<memledger::Charge>,
-        pool: &Option<Arc<KeptPool>>,
-        bytes: &mut u64,
-        n: u64,
-    ) {
+    fn kept_add(kept: &mut Option<memledger::Charge>, pool: &Option<Arc<KeptPool>>, bytes: &mut u64, n: u64,) {
         *bytes += n;
         if let Some(p) = pool {
             p.commit(n);
@@ -1060,12 +961,7 @@ impl<'b> StreamCursor<'b> {
         }
     }
 
-    fn kept_sub(
-        kept: &mut Option<memledger::Charge>,
-        pool: &Option<Arc<KeptPool>>,
-        bytes: &mut u64,
-        n: u64,
-    ) {
+    fn kept_sub(kept: &mut Option<memledger::Charge>, pool: &Option<Arc<KeptPool>>, bytes: &mut u64, n: u64,) {
         let n = n.min(*bytes);
         *bytes -= n;
         if let Some(p) = pool {
@@ -1080,30 +976,10 @@ impl<'b> StreamCursor<'b> {
     #[cfg(test)]
     fn tables_now(&self) -> u64 {
         let slots = |v: &Vec<ExtSlot>| (v.capacity() * core::mem::size_of::<ExtSlot>()) as u64;
-        let streams = [
-            Some(&self.values),
-            self.validity.as_ref(),
-            self.overflow.as_ref(),
-            self.dict_index.as_ref(),
-            self.dict_payload.as_ref(),
-        ];
-        let copies: u64 = streams
-            .into_iter()
-            .flatten()
-            .map(|s| {
-                (s.extents.capacity() * core::mem::size_of::<pgrc_format::part::ExtentRecord>())
-                    as u64
-            })
-            .sum();
-        slots(&self.vstate)
-            + slots(&self.valstate)
-            + copies
-            + self
-                .vstate
-                .iter()
-                .chain(self.valstate.iter())
-                .map(ExtSlot::table_bytes)
-                .sum::<u64>()
+        let streams = [Some(&self.values), self.validity.as_ref(), self.overflow.as_ref(), self.dict_index.as_ref(), self.dict_payload.as_ref(),];
+        let copies: u64 = streams.into_iter().flatten().map(|s| { (s.extents.capacity() * core::mem::size_of::<pgrc_format::part::ExtentRecord>()) as u64
+            }).sum();
+        slots(&self.vstate) + slots(&self.valstate) + copies + self.vstate.iter().chain(self.valstate.iter()).map(ExtSlot::table_bytes).sum::<u64>()
     }
 
     /// The bytes of the cursor's own tables and their owner now.
@@ -1118,8 +994,7 @@ impl<'b> StreamCursor<'b> {
     /// its part use names (`Kind::Region`); `None` while parked.
     pub fn read_owner(&self) -> ReadOwner {
         self.owner.or_else(|| match self.part_use.owner() {
-            o @ (memledger::Owner::Statement { .. } | memledger::Owner::Portal { .. }) => {
-                Some((o, memledger::Kind::Region))
+            o @ (memledger::Owner::Statement { .. } | memledger::Owner::Portal { .. }) => { Some((o, memledger::Kind::Region))
             }
             _ => None,
         })
@@ -1129,14 +1004,8 @@ impl<'b> StreamCursor<'b> {
     /// or portal owns passes to that account's session, which owns the backend's estate between statements.
     pub fn keep_past_statement(&mut self) {
         let o = self.part_use.owner();
-        if matches!(
-            o,
-            memledger::Owner::Statement { .. } | memledger::Owner::Portal { .. }
-        ) {
-            self.part_use.transfer(
-                memledger::Owner::Session(o.acct()),
-                memledger::Release::Session,
-            );
+        if matches!(o, memledger::Owner::Statement { .. } | memledger::Owner::Portal { .. }) {
+            self.part_use.transfer(memledger::Owner::Session(o.acct()), memledger::Release::Session,);
         }
         self.owner = None;
         self.kept_to = None;
@@ -1148,15 +1017,8 @@ impl<'b> StreamCursor<'b> {
     /// D4554: `keep_past_statement` with the use moved in `group` (`transfer_use_in`'s).
     pub fn keep_past_statement_in(&mut self, group: &mut crate::openpart::UseMoves<'_>) {
         let o = self.part_use.owner();
-        if matches!(
-            o,
-            memledger::Owner::Statement { .. } | memledger::Owner::Portal { .. }
-        ) {
-            self.part_use.transfer_in(
-                group,
-                memledger::Owner::Session(o.acct()),
-                memledger::Release::Session,
-            );
+        if matches!(o, memledger::Owner::Statement { .. } | memledger::Owner::Portal { .. }) {
+            self.part_use.transfer_in(group, memledger::Owner::Session(o.acct()), memledger::Release::Session,);
         }
         self.owner = None;
         self.kept_to = None;
@@ -1215,10 +1077,7 @@ impl<'b> StreamCursor<'b> {
         let mut n = 0usize;
         let mut added = 0u64;
         // bounded("other: one cursor's values and validity extents, each parked once")
-        for (ps, slots) in [
-            (Some(&self.values), &mut self.vstate),
-            (self.validity.as_ref(), &mut self.valstate),
-        ] {
+        for (ps, slots) in [(Some(&self.values), &mut self.vstate), (self.validity.as_ref(), &mut self.valstate),] {
             let Some(ps) = ps else { continue };
             // bounded("other: one stream's extents of one part, each parked once")
             for (i, slot) in slots.iter_mut().enumerate() {
@@ -1231,10 +1090,7 @@ impl<'b> StreamCursor<'b> {
                     slot.pass();
                     // the next park drops the passed slot whole (E2): it parks (`loaded`), loaded since or not
                     self.loaded = true;
-                    keys[n] = PassKey {
-                        key: (rec.file_off, rec.len),
-                        g_end,
-                    };
+                    keys[n] = PassKey { key: (rec.file_off, rec.len), g_end, };
                     n += 1;
                     if n == PASS_CHUNK {
                         added += self.part.pass_extents(tag, at.take(), &keys[..n]);
@@ -1321,11 +1177,7 @@ impl<'b> StreamCursor<'b> {
     fn pass_below(&mut self, validity: bool, ei: usize, g: u32) {
         let tag = self.stream_tag();
         let mut at = self.position(g);
-        let (ps, slots) = if validity {
-            (self.validity.as_ref(), &mut self.valstate)
-        } else {
-            (Some(&self.values), &mut self.vstate)
-        };
+        let (ps, slots) = if validity { (self.validity.as_ref(), &mut self.valstate) } else { (Some(&self.values), &mut self.vstate) };
         let Some(ps) = ps else { return };
         let mut keys = [PassKey::default(); PASS_CHUNK];
         let mut n = 0usize;
@@ -1334,10 +1186,7 @@ impl<'b> StreamCursor<'b> {
             if slot.is_loaded() {
                 slot.pass();
                 self.loaded = true;
-                keys[n] = PassKey {
-                    key: (rec.file_off, rec.len),
-                    g_end: rec.granule_start.saturating_add(rec.granule_count),
-                };
+                keys[n] = PassKey { key: (rec.file_off, rec.len), g_end: rec.granule_start.saturating_add(rec.granule_count), };
                 n += 1;
                 if n == PASS_CHUNK {
                     self.part.pass_extents(tag, at.take(), &keys[..n]);
@@ -1373,16 +1222,8 @@ impl<'b> StreamCursor<'b> {
     /// by the watchdog and split as its, not a parked one; the unbind gives it back (`keep_past_statement`; a worker set's
     /// put, to the depot). Only a parked use moves (the session's, the depot's): a running owner's never.
     pub fn rejoin(&mut self, to: memledger::Owner, release: memledger::Release) {
-        let parked = matches!(
-            self.part_use.owner(),
-            memledger::Owner::Session(_) | memledger::Owner::Cache(memledger::Holder::Parked)
-        );
-        if parked
-            && matches!(
-                to,
-                memledger::Owner::Statement { .. } | memledger::Owner::Portal { .. }
-            )
-        {
+        let parked = matches!(self.part_use.owner(), memledger::Owner::Session(_) | memledger::Owner::Cache(memledger::Holder::Parked));
+        if parked && matches!(to, memledger::Owner::Statement { .. } | memledger::Owner::Portal { .. }) {
             self.part_use.transfer(to, release);
             self.kept_to = None;
             self.rehome_kept();
@@ -1390,22 +1231,9 @@ impl<'b> StreamCursor<'b> {
     }
 
     /// D4554: `rejoin` with the use moved in `group` (`transfer_use_in`'s).
-    pub fn rejoin_in(
-        &mut self,
-        group: &mut crate::openpart::UseMoves<'_>,
-        to: memledger::Owner,
-        release: memledger::Release,
-    ) {
-        let parked = matches!(
-            self.part_use.owner(),
-            memledger::Owner::Session(_) | memledger::Owner::Cache(memledger::Holder::Parked)
-        );
-        if parked
-            && matches!(
-                to,
-                memledger::Owner::Statement { .. } | memledger::Owner::Portal { .. }
-            )
-        {
+    pub fn rejoin_in(&mut self, group: &mut crate::openpart::UseMoves<'_>, to: memledger::Owner, release: memledger::Release,) {
+        let parked = matches!(self.part_use.owner(), memledger::Owner::Session(_) | memledger::Owner::Cache(memledger::Holder::Parked));
+        if parked && matches!(to, memledger::Owner::Statement { .. } | memledger::Owner::Portal { .. }) {
             self.part_use.transfer_in(group, to, release);
             self.kept_to = None;
             self.rehome_kept();
@@ -1424,13 +1252,9 @@ impl<'b> StreamCursor<'b> {
     /// staged regions are not read again; unwrapped regions are the values run's (`prefetch_granule_runs`). Returns the
     /// run face's census.
     pub fn stage_dict(&self, payload: bool, max_run: u64, max_hole: u64) -> [u64; 5] {
-        let (Some(di), Some(dp)) = (self.dict_index.as_ref(), self.dict_payload.as_ref()) else {
-            return [0; 5];
-        };
+        let (Some(di), Some(dp)) = (self.dict_index.as_ref(), self.dict_payload.as_ref()) else { return [0; 5]; };
         let raw = crate::openpart::ROLE_STAGE_RAW;
-        let Some(&first) = di.extents.first() else {
-            return [0; 5];
-        };
+        let Some(&first) = di.extents.first() else { return [0; 5]; };
         let mut recs = [(0u32, first, di.role as u8 | raw); 2];
         let mut n = 0;
         for (ds, on) in [(di, true), (dp, payload)] {
@@ -1445,15 +1269,7 @@ impl<'b> StreamCursor<'b> {
         }
         // bounded("small-fixed: the two dictionary regions")
         recs[..n].sort_unstable_by_key(|r| r.1.file_off);
-        let r = self.part.prefetch_extent_run_holes_roles_for(
-            self.read_owner(),
-            &di.entry,
-            &recs[..n],
-            max_run,
-            max_hole,
-            None,
-            None,
-        );
+        let r = self.part.prefetch_extent_run_holes_roles_for(self.read_owner(), &di.entry, &recs[..n], max_run, max_hole, None, None,);
         [r.0, r.1, r.2, r.3, r.4]
     }
 
@@ -1477,17 +1293,9 @@ impl<'b> StreamCursor<'b> {
         if g_lo >= g_hi {
             return;
         }
-        for ps in [Some(&self.values), self.validity.as_ref()]
-            .into_iter()
-            .flatten()
-        {
-            let i0 = ps
-                .extents
-                .partition_point(|r| r.granule_start + r.granule_count <= g_lo);
-            let i1 = ps
-                .extents
-                .partition_point(|r| r.granule_start < g_hi)
-                .max(i0);
+        for ps in [Some(&self.values), self.validity.as_ref()].into_iter().flatten() {
+            let i0 = ps.extents.partition_point(|r| r.granule_start + r.granule_count <= g_lo);
+            let i1 = ps.extents.partition_point(|r| r.granule_start < g_hi).max(i0);
             ps.extents[i0..i1].iter().for_each(|r| f(r.file_off, r.len));
         }
     }
@@ -1524,38 +1332,21 @@ impl<'b> StreamCursor<'b> {
     /// preads then overlap in the device's queue instead of going one at a time. `max_hole` / `piece` in bytes.
     /// At most `limit` bytes (the caller's in-flight budget). Returns `(calls, bytes)` advised; a hot claim (everything
     /// resident) makes no syscall.
-    pub fn advise_granule_runs(
-        &self,
-        runs: &[(u32, u32)],
-        max_hole: u64,
-        piece: u64,
-        limit: u64,
-    ) -> (u64, u64) {
+    pub fn advise_granule_runs(&self, runs: &[(u32, u32)], max_hole: u64, piece: u64, limit: u64,) -> (u64, u64) {
         let mut acc = (0u64, 0u64);
-        for ps in [Some(&self.values), self.validity.as_ref()]
-            .into_iter()
-            .flatten()
-        {
+        for ps in [Some(&self.values), self.validity.as_ref()].into_iter().flatten() {
             let wrapped = ps.entry.wrapper != Wrapper::None.as_u8();
             let exts = &ps.extents;
             let recs = runs
                 .iter()
                 .scan(0usize, |next, &(g_lo, g_hi)| {
-                    let i0 = exts
-                        .partition_point(|r| r.granule_start + r.granule_count <= g_lo)
-                        .max(*next);
+                    let i0 = exts.partition_point(|r| r.granule_start + r.granule_count <= g_lo).max(*next);
                     let i1 = exts.partition_point(|r| r.granule_start < g_hi).max(i0);
                     *next = i1;
                     Some(&exts[i0..i1])
                 })
                 .flatten();
-            let (c, b) = self.part.advise_extents_in_pieces(
-                recs,
-                wrapped,
-                max_hole,
-                piece,
-                limit.saturating_sub(acc.1),
-            );
+            let (c, b) = self.part.advise_extents_in_pieces(recs, wrapped, max_hole, piece, limit.saturating_sub(acc.1),);
             acc = (acc.0 + c, acc.1 + b);
         }
         acc
@@ -1569,12 +1360,7 @@ impl<'b> StreamCursor<'b> {
     /// past it in a Vec reserved fallibly, and when that reserve fails the runs go one by one in
     /// stack chunks as they did before this call existed. One run of at most `RUN_CHUNK` extents
     /// reads exactly as before.
-    pub fn prefetch_granule_runs(
-        &self,
-        runs: &[(u32, u32)],
-        max_run: u64,
-        max_hole: u64,
-    ) -> [u64; 5] {
+    pub fn prefetch_granule_runs(&self, runs: &[(u32, u32)], max_run: u64, max_hole: u64,) -> [u64; 5] {
         self.prefetch_granule_runs_tail(runs, max_run, max_hole, DictTail::NONE, &[])
     }
 
@@ -1589,29 +1375,16 @@ impl<'b> StreamCursor<'b> {
     /// into the segment cache (`OpenPart::section_run_record`): a zone lane's Stats / Bloom / PSMA cluster sits right
     /// after its streams, so the granule verdicts' meta comes in the codes' pread, not one of its own. A section past
     /// the hole or the run cap is a pread of its own, as it was.
-    pub fn prefetch_granule_runs_tail(
-        &self,
-        runs: &[(u32, u32)],
-        max_run: u64,
-        max_hole: u64,
-        tail: DictTail,
-        sections: &[usize],
-    ) -> [u64; 5] {
+    pub fn prefetch_granule_runs_tail(&self, runs: &[(u32, u32)], max_run: u64, max_hole: u64, tail: DictTail, sections: &[usize],) -> [u64; 5] {
         type Rec = (u32, pgrc_format::part::ExtentRecord, u8);
         const RUN_CHUNK: usize = 32;
         const DICT_SLOTS: usize = 4 + TAIL_SECTIONS;
         let mut acc = [0u64; 5];
         let owner = self.read_owner();
         // a prefetch: a cancel ends it with what it read (`prefetch_extent_run_holes_roles` stops on its own step too)
-        let mut step =
-            cancelpoll::step("pgrc_read prefetch_granule_runs_tail: a claim's runs in chunks");
-        for ps in [Some(&self.values), self.validity.as_ref()]
-            .into_iter()
-            .flatten()
-        {
-            let Ok(wrapper) = Wrapper::from_u8(ps.entry.wrapper) else {
-                continue;
-            };
+        let mut step = cancelpoll::step("pgrc_read prefetch_granule_runs_tail: a claim's runs in chunks");
+        for ps in [Some(&self.values), self.validity.as_ref()].into_iter().flatten() {
+            let Ok(wrapper) = Wrapper::from_u8(ps.entry.wrapper) else { continue; };
             let uw = if wrapper == Wrapper::None {
                 None
             } else {
@@ -1621,15 +1394,8 @@ impl<'b> StreamCursor<'b> {
                 }
             };
             let span = |g_lo: u32, g_hi: u32| {
-                let i0 = ps
-                    .extents
-                    .partition_point(|r| r.granule_start + r.granule_count <= g_lo);
-                (
-                    i0,
-                    ps.extents
-                        .partition_point(|r| r.granule_start < g_hi)
-                        .max(i0),
-                )
+                let i0 = ps.extents.partition_point(|r| r.granule_start + r.granule_count <= g_lo);
+                (i0, ps.extents.partition_point(|r| r.granule_start < g_hi).max(i0),)
             };
             // the runs' extents in file order, each once (an extent a previous run covers is skipped)
             let extents_of = || {
@@ -1649,27 +1415,16 @@ impl<'b> StreamCursor<'b> {
             let entry = &ps.entry;
             let mut rebuild = |raw: &[u8]| -> ReadResult<Vec<u8>> {
                 let hdr = StreamSectionHdr::decode(raw)?;
-                if hdr.encoding != entry.encoding
-                    || hdr.width != entry.width
-                    || hdr.wrapper != entry.wrapper
-                {
-                    return Err(ReadError::Format(FormatError::Corrupt {
-                        at: "section header vs stream entry",
-                    }));
+                if hdr.encoding != entry.encoding || hdr.width != entry.width || hdr.wrapper != entry.wrapper {
+                    return Err(ReadError::Format(FormatError::Corrupt { at: "section header vs stream entry", }));
                 }
                 // D4216: an extent's rebuild is its whole image's fill and inflate: per piece, the statement's cancel
-                let mut step = cancelpoll::step(
-                    "pgrc_read prefetch_granule_runs_tail: a wrapped extent's rebuild",
-                );
+                let mut step = cancelpoll::step("pgrc_read prefetch_granule_runs_tail: a wrapped extent's rebuild",);
                 let uw = uw.expect("wrapped stream has its unwrapper");
-                let rebuilt = uw
-                    .unwrap_section_until(&hdr, raw, &mut || step.tick().is_err())?
-                    .ok_or(ReadError::Canceled)?;
+                let rebuilt = uw.unwrap_section_until(&hdr, raw, &mut || step.tick().is_err())?.ok_or(ReadError::Canceled)?;
                 let twin = StreamSectionHdr::decode(&rebuilt)?;
                 if twin.wrapper != Wrapper::None.as_u8() {
-                    return Err(ReadError::Format(FormatError::Corrupt {
-                        at: "unwrapped section still wrapped",
-                    }));
+                    return Err(ReadError::Format(FormatError::Corrupt { at: "unwrapped section still wrapped", }));
                 }
                 Ok(rebuilt)
             };
@@ -1682,10 +1437,7 @@ impl<'b> StreamCursor<'b> {
                     return;
                 }
                 let mut n = n;
-                for (ds, staged) in [
-                    (self.dict_index.as_ref(), tail.index),
-                    (self.dict_payload.as_ref(), tail.payload),
-                ] {
+                for (ds, staged) in [(self.dict_index.as_ref(), tail.index), (self.dict_payload.as_ref(), tail.payload),] {
                     let Some(ds) = ds else { continue };
                     if n + ds.extents.len() > RUN_CHUNK + DICT_SLOTS {
                         continue;
@@ -1704,11 +1456,7 @@ impl<'b> StreamCursor<'b> {
                         if !staged || ds.extents.len() != 1 {
                             continue;
                         }
-                        push((
-                            0,
-                            ds.extents[0],
-                            ds.role as u8 | crate::openpart::ROLE_STAGE_RAW,
-                        ));
+                        push((0, ds.extents[0], ds.role as u8 | crate::openpart::ROLE_STAGE_RAW,));
                     }
                     n += ds.extents.len();
                 }
@@ -1732,29 +1480,13 @@ impl<'b> StreamCursor<'b> {
                 }
             };
             // past one stack chunk: every record in one call, the dictionary tail under the slot rule of the last chunk
-            let mut all: memledger::ChargedVec<Rec> = if total > RUN_CHUNK {
-                read_vec(owner)
-            } else {
-                memledger::ChargedVec::none()
-            };
-            if total > RUN_CHUNK
-                && all
-                    .with_vec(|v| v.try_reserve_exact(total + RUN_CHUNK + DICT_SLOTS))
-                    .is_ok()
-            {
-                // alloc: Exec charged owner
+            let mut all: memledger::ChargedVec<Rec> = if total > RUN_CHUNK { read_vec(owner) } else { memledger::ChargedVec::none() };
+            if total > RUN_CHUNK && all.with_vec(|v| v.try_reserve_exact(total + RUN_CHUNK + DICT_SLOTS)).is_ok() { // alloc: Exec charged owner
                 all.with_vec(|v| v.extend(extents_of().map(|i| (i as u32, ps.extents[i], role)))); // alloc: Exec charged owner
-                dict_tail((total - 1) % RUN_CHUNK + 1, &mut |r| {
-                    all.with_vec(|v| v.push(r))
+                dict_tail((total - 1) % RUN_CHUNK + 1, &mut |r| { all.with_vec(|v| v.push(r))
                 }); // alloc: Exec charged owner
-                let rb: Option<&mut dyn FnMut(&[u8]) -> ReadResult<Vec<u8>>> = if uw.is_some() {
-                    Some(&mut rebuild)
-                } else {
-                    None
-                };
-                let r = self.part.prefetch_extent_run_holes_roles_for(
-                    owner, entry, &all, max_run, max_hole, rb, None,
-                );
+                let rb: Option<&mut dyn FnMut(&[u8]) -> ReadResult<Vec<u8>>> = if uw.is_some() { Some(&mut rebuild) } else { None };
+                let r = self.part.prefetch_extent_run_holes_roles_for(owner, entry, &all, max_run, max_hole, rb, None,);
                 // bounded("const-domain: the run census's five counts")
                 for (a, v) in acc.iter_mut().zip([r.0, r.1, r.2, r.3, r.4]) {
                     *a += v;
@@ -1762,11 +1494,8 @@ impl<'b> StreamCursor<'b> {
                 continue;
             }
             // The extent list in stack chunks: a resident pass allocates nothing.
-            let mut recs: [Rec; RUN_CHUNK + DICT_SLOTS] =
-                [(0u32, ps.extents[0], role); RUN_CHUNK + DICT_SLOTS];
-            let mut chunked = |step: &mut cancelpoll::Step,
-                               it: &mut dyn Iterator<Item = usize>,
-                               acc: &mut [u64; 5]| {
+            let mut recs: [Rec; RUN_CHUNK + DICT_SLOTS] = [(0u32, ps.extents[0], role); RUN_CHUNK + DICT_SLOTS];
+            let mut chunked = |step: &mut cancelpoll::Step, it: &mut dyn Iterator<Item = usize>, acc: &mut [u64; 5]| {
                 let mut it = it.peekable();
                 while it.peek().is_some() {
                     if step.tick().is_err() {
@@ -1787,20 +1516,8 @@ impl<'b> StreamCursor<'b> {
                         });
                         n = m;
                     }
-                    let rb: Option<&mut dyn FnMut(&[u8]) -> ReadResult<Vec<u8>>> = if uw.is_some() {
-                        Some(&mut rebuild)
-                    } else {
-                        None
-                    };
-                    let r = self.part.prefetch_extent_run_holes_roles_for(
-                        owner,
-                        entry,
-                        &recs[..n],
-                        max_run,
-                        max_hole,
-                        rb,
-                        None,
-                    );
+                    let rb: Option<&mut dyn FnMut(&[u8]) -> ReadResult<Vec<u8>>> = if uw.is_some() { Some(&mut rebuild) } else { None };
+                    let r = self.part.prefetch_extent_run_holes_roles_for(owner, entry, &recs[..n], max_run, max_hole, rb, None,);
                     // bounded("const-domain: the run census's five counts")
                     for (a, v) in acc.iter_mut().zip([r.0, r.1, r.2, r.3, r.4]) {
                         *a += v;
@@ -1901,11 +1618,7 @@ impl<'b> StreamCursor<'b> {
     /// Granule `g`'s values ctx (validity attached, no overflow or dictionary) handed to
     /// `f`: a consumer's own kernel over the stream's frames (gravity's fixed lane runs
     /// `pgrc_codec::packednum::mantissa_full` here — this crate stays codec-agnostic).
-    pub fn granule_ctx<R>(
-        &mut self,
-        g: u32,
-        f: impl FnOnce(&KernelCtx<'_>) -> FormatResult<R>,
-    ) -> ReadResult<R> {
+    pub fn granule_ctx<R>(&mut self, g: u32, f: impl FnOnce(&KernelCtx<'_>) -> FormatResult<R>,) -> ReadResult<R> {
         let (ei, gie, values_g, _rows_g) = self.ensure_values(g)?;
         let vslice = self.ensure_validity_slice(g, values_g)?;
         let ctx = self.build_ctx(g, ei, gie, values_g, vslice, false, false)?;
@@ -2011,25 +1724,23 @@ impl<'b> StreamCursor<'b> {
                 at: "granule ordinal",
             }));
         }
-        let (values_g, vslice) =
-            match self.load_validity_extent(g)? {
-                // No validity stream: all-valid (spec §6.1). The kernel
-                // short-circuits on `validity_bytes = None` before any count
-                // geometry, so the closed form serves both root and child
-                // streams here.
-                None => (self.rows_in_granule(g), None),
-                Some((ei, gie)) => {
-                    let st = self.valstate[ei].loaded().expect("just loaded");
-                    let values_g =
-                        match &st.gcounts {
-                            Some(gc) => *gc.get(gie as usize).ok_or(ReadError::Format(
-                                FormatError::Bounds { at: "gcount index" },
-                            ))?,
-                            None => self.rows_in_granule(g),
-                        };
-                    (values_g, self.validity_slice_at(ei, gie, values_g)?)
-                }
-            };
+        let (values_g, vslice) = match self.load_validity_extent(g)? {
+            // No validity stream: all-valid (spec §6.1). The kernel
+            // short-circuits on `validity_bytes = None` before any count
+            // geometry, so the closed form serves both root and child
+            // streams here.
+            None => (self.rows_in_granule(g), None),
+            Some((ei, gie)) => {
+                let st = self.valstate[ei].loaded().expect("just loaded");
+                let values_g = match &st.gcounts {
+                    Some(gc) => *gc.get(gie as usize).ok_or(ReadError::Format(
+                        FormatError::Bounds { at: "gcount index" },
+                    ))?,
+                    None => self.rows_in_granule(g),
+                };
+                (values_g, self.validity_slice_at(ei, gie, values_g)?)
+            }
+        };
         let ctx = self.build_empty_ctx(g, values_g, vslice);
         (vt.validity)(&ctx, out).map_err(Into::into)
     }
@@ -2123,36 +1834,12 @@ impl<'b> StreamCursor<'b> {
             }
             Self::kept_sub(&mut self.kept, &self.pool, &mut self.kept_bytes, gone);
             let st = match parked {
-                ExtSlot::Parked(p) => p.unpark(extent_image(
-                    &self.part,
-                    self.binding,
-                    &self.values,
-                    ei as u32,
-                    rec,
-                    self.residency,
-                    self.read_owner(),
-                )?),
-                _ => load_extent(
-                    &self.part,
-                    self.binding,
-                    &self.values,
-                    ei as u32,
-                    rec,
-                    false,
-                    self.residency,
-                    self.read_owner(),
-                )?,
+                ExtSlot::Parked(p) => p.unpark(extent_image(&self.part, self.binding, &self.values, ei as u32, rec, self.residency, self.read_owner(),)?),
+                _ => load_extent(&self.part, self.binding, &self.values, ei as u32, rec, false, self.residency, self.read_owner(),)?,
             };
             self.part.unpass((rec.file_off, rec.len));
-            self.read_hi = self
-                .read_hi
-                .max(rec.granule_start.saturating_add(rec.granule_count));
-            Self::kept_add(
-                &mut self.kept,
-                &self.pool,
-                &mut self.kept_bytes,
-                st.table_bytes(),
-            );
+            self.read_hi = self.read_hi.max(rec.granule_start.saturating_add(rec.granule_count));
+            Self::kept_add(&mut self.kept, &self.pool, &mut self.kept_bytes, st.table_bytes(),);
             self.vstate[ei] = ExtSlot::Loaded(st);
             self.loaded = true;
             if self.pass_on_load {
@@ -2162,11 +1849,9 @@ impl<'b> StreamCursor<'b> {
         let rows_g = self.rows_in_granule(g);
         let st = self.vstate[ei].loaded().expect("just loaded");
         let values_g = match &st.gcounts {
-            Some(gc) => *gc
-                .get(gie as usize)
-                .ok_or(ReadError::Format(FormatError::Bounds {
-                    at: "gcount index",
-                }))?,
+            Some(gc) => *gc.get(gie as usize).ok_or(ReadError::Format(FormatError::Bounds {
+                at: "gcount index",
+            }))?,
             None => rows_g,
         };
         Ok((ei, gie, values_g, rows_g))
@@ -2195,33 +1880,11 @@ impl<'b> StreamCursor<'b> {
             }
             Self::kept_sub(&mut self.kept, &self.pool, &mut self.kept_bytes, gone);
             let st = match parked {
-                ExtSlot::Parked(p) => p.unpark(extent_image(
-                    &self.part,
-                    self.binding,
-                    vs,
-                    ei as u32,
-                    &rec,
-                    self.residency,
-                    self.read_owner(),
-                )?),
-                _ => load_extent(
-                    &self.part,
-                    self.binding,
-                    vs,
-                    ei as u32,
-                    &rec,
-                    true,
-                    self.residency,
-                    self.read_owner(),
-                )?,
+                ExtSlot::Parked(p) => p.unpark(extent_image(&self.part, self.binding, vs, ei as u32, &rec, self.residency, self.read_owner(),)?),
+                _ => load_extent(&self.part, self.binding, vs, ei as u32, &rec, true, self.residency, self.read_owner(),)?,
             };
             self.part.unpass((rec.file_off, rec.len));
-            Self::kept_add(
-                &mut self.kept,
-                &self.pool,
-                &mut self.kept_bytes,
-                st.table_bytes(),
-            );
+            Self::kept_add(&mut self.kept, &self.pool, &mut self.kept_bytes, st.table_bytes(),);
             self.valstate[ei] = ExtSlot::Loaded(st);
             self.loaded = true;
             if self.pass_on_load {
@@ -2244,14 +1907,10 @@ impl<'b> StreamCursor<'b> {
         let (b0, b1) = (
             *prefix
                 .get(gie as usize)
-                .ok_or(ReadError::Format(FormatError::Bounds {
-                    at: "validity prefix",
-                }))?,
+                .ok_or(ReadError::Format(FormatError::Bounds { at: "validity prefix", }))?,
             *prefix
                 .get(gie as usize + 1)
-                .ok_or(ReadError::Format(FormatError::Bounds {
-                    at: "validity prefix",
-                }))?,
+                .ok_or(ReadError::Format(FormatError::Bounds { at: "validity prefix", }))?,
         );
         // Two-witness discipline at the slice level: the bitmap must be
         // sized for exactly this granule's values (spec §6.6). Real on the
@@ -2305,15 +1964,7 @@ impl<'b> StreamCursor<'b> {
         if self.dict_state.is_some() {
             return Ok(());
         }
-        let idx = load_region_res(
-            &self.part,
-            self.binding.unwrappers,
-            di,
-            "dict index stream",
-            None,
-            self.residency,
-            self.read_owner(),
-        )?;
+        let idx = load_region_res(&self.part, self.binding.unwrappers, di, "dict index stream", None, self.residency, self.read_owner(),)?;
         let pay = load_region_res(
             &self.part,
             self.binding.unwrappers,
@@ -2327,13 +1978,11 @@ impl<'b> StreamCursor<'b> {
         // dict_state / is_dict-class probes) — the attribution witness. D3994
         // (B.1 W): a parked cursor taking its dictionary back is not a new one.
         if !core::mem::take(&mut self.parked_dict) {
-            crate::dicthandle::DICT_WHOLE_FAULT_BYTES.fetch_add(
-                pay.payload().len() as u64,
-                core::sync::atomic::Ordering::Relaxed,
-            );
+            crate::dicthandle::DICT_WHOLE_FAULT_BYTES
+                .fetch_add(pay.payload().len() as u64, core::sync::atomic::Ordering::Relaxed,);
         }
-        let entry_count = u32::try_from(di.entry.values).map_err(|_| {
-            ReadError::Format(FormatError::Corrupt {
+        let entry_count =
+            u32::try_from(di.entry.values).map_err(|_| { ReadError::Format(FormatError::Corrupt {
                 at: "dict entry count",
             })
         })?;
@@ -2344,8 +1993,9 @@ impl<'b> StreamCursor<'b> {
         }
         // M5d char-len record: the DictIndex dir entry names the
         // `char_field` form; the ctx carries it so `dict_entry` stays pure.
-        let charlen_form = pgrc_format::dict::DictCharLenForm::from_flags(di.entry.flags)
-            .map_err(ReadError::Format)?;
+        let charlen_form =
+            pgrc_format::dict::DictCharLenForm::from_flags(di.entry.flags)
+                .map_err(ReadError::Format)?;
         self.dict_state = Some((idx, pay, entry_count, charlen_form));
         self.loaded = true;
         Ok(())
@@ -2375,24 +2025,14 @@ impl<'b> StreamCursor<'b> {
             None
         };
         let dict = if with_dict {
-            let fc = self
-                .dict_payload
-                .as_ref()
-                .is_some_and(|dp| dp.entry.wrapper == Wrapper::FrontZstd.as_u8())
-                && crate::dict_resident_frontcoded();
-            self.dict_state
-                .as_ref()
-                .map(|(i, p, n, form)| DictSections {
-                    index: i.payload(),
-                    payload: p.payload(),
-                    entry_count: *n,
-                    charlen_form: *form,
-                    form: if fc {
-                        pgrc_format::dict::DictPayloadForm::FrontCoded
-                    } else {
-                        pgrc_format::dict::DictPayloadForm::Expanded
-                    },
-                })
+            let fc = self.dict_payload.as_ref().is_some_and(|dp| dp.entry.wrapper == Wrapper::FrontZstd.as_u8()) && crate::dict_resident_frontcoded();
+            self.dict_state.as_ref().map(|(i, p, n, form)| DictSections {
+                index: i.payload(),
+                payload: p.payload(),
+                entry_count: *n,
+                charlen_form: *form,
+                form: if fc { pgrc_format::dict::DictPayloadForm::FrontCoded } else { pgrc_format::dict::DictPayloadForm::Expanded },
+            })
         } else {
             None
         };
@@ -2465,7 +2105,9 @@ fn checked_extent_granules(
     part: &OpenPart,
     rec: &pgrc_format::part::ExtentRecord,
 ) -> ReadResult<usize> {
-    if rec.granule_count > part.footer().granule_count || rec.granule_count > MAX_EXTENT_GRANULES {
+    if rec.granule_count > part.footer().granule_count
+        || rec.granule_count > MAX_EXTENT_GRANULES
+    {
         return Err(ReadError::Format(FormatError::Corrupt {
             at: "extent granule_count exceeds part budget",
         }));
@@ -2488,8 +2130,7 @@ fn extent_image(
     let bytes = if entry_wrapper == Wrapper::None {
         let bytes = match residency {
             Residency::Shared => part.extent_bytes(&ps.entry, rec, extent_idx)?,
-            Residency::Private => {
-                part.extent_bytes_uncached_for(owner, &ps.entry, rec, extent_idx)?
+            Residency::Private => { part.extent_bytes_uncached_for(owner, &ps.entry, rec, extent_idx)?
             }
             Residency::Cached => part.extent_bytes_cached_for(owner, &ps.entry, rec, extent_idx)?,
         };
@@ -2506,11 +2147,11 @@ fn extent_image(
     } else {
         // Typed refusal BEFORE any payload fault (the cursor-open pin,
         // repeated here so the predicate is correct standalone).
-        let uw = binding
-            .unwrapper_for(entry_wrapper)
-            .ok_or(ReadError::Format(FormatError::WrapperUnsupported {
+        let uw = binding.unwrapper_for(entry_wrapper).ok_or(ReadError::Format(
+            FormatError::WrapperUnsupported {
                 wrapper: entry_wrapper.as_u8(),
-            }))?;
+            }
+        ))?;
         let mut rebuild = |raw: &[u8]| -> ReadResult<Vec<u8>> {
             let hdr = StreamSectionHdr::decode(raw)?;
             if hdr.encoding != ps.entry.encoding
@@ -2523,9 +2164,7 @@ fn extent_image(
             }
             // D4228: an extent's rebuild is its whole image's fill and inflate: per piece, the statement's cancel
             let mut step = cancelpoll::step("pgrc_read load_extent: a wrapped extent's rebuild");
-            let rebuilt = uw
-                .unwrap_section_until(&hdr, raw, &mut || step.tick().is_err())?
-                .ok_or(ReadError::Canceled)?;
+            let rebuilt = uw.unwrap_section_until(&hdr, raw, &mut || step.tick().is_err())?.ok_or(ReadError::Canceled)?;
             let twin = StreamSectionHdr::decode(&rebuilt)?;
             if twin.wrapper != Wrapper::None.as_u8() {
                 return Err(ReadError::Format(FormatError::Corrupt {
@@ -2535,23 +2174,10 @@ fn extent_image(
             Ok(rebuilt)
         };
         match residency {
-            Residency::Shared => {
-                part.unwrapped_extent_bytes_for(owner, &ps.entry, rec, extent_idx, &mut rebuild)?
+            Residency::Shared => { part.unwrapped_extent_bytes_for(owner, &ps.entry, rec, extent_idx, &mut rebuild)?
             }
-            Residency::Private => part.unwrapped_extent_bytes_uncached_for(
-                owner,
-                &ps.entry,
-                rec,
-                extent_idx,
-                &mut rebuild,
-            )?,
-            Residency::Cached => part.unwrapped_extent_bytes_cached_for(
-                owner,
-                &ps.entry,
-                rec,
-                extent_idx,
-                &mut rebuild,
-            )?,
+            Residency::Private => part.unwrapped_extent_bytes_uncached_for(owner, &ps.entry, rec, extent_idx, &mut rebuild,)?,
+            Residency::Cached => part.unwrapped_extent_bytes_cached_for(owner, &ps.entry, rec, extent_idx, &mut rebuild,)?,
         }
     };
     Ok(bytes)
@@ -2590,19 +2216,16 @@ fn load_extent(
         let ng = checked_extent_granules(part, rec)?;
         let off = hdr.gcount_table_off as usize;
         let need = ng * 4;
-        let end = off
-            .checked_add(need)
-            .ok_or(ReadError::Format(FormatError::Bounds {
-                at: "gcount table",
-            }))?;
+        let end = off.checked_add(need).ok_or(ReadError::Format(FormatError::Bounds {
+            at: "gcount table",
+        }))?;
         if off < STREAM_SECTION_HDR_LEN || end > bytes.len() {
             return Err(ReadError::Format(FormatError::Bounds {
                 at: "gcount table",
             }));
         }
         let mut v: Vec<u32> = Vec::new();
-        v.try_reserve(ng).map_err(|_| {
-            // alloc: Node charged kept_home
+        v.try_reserve(ng).map_err(|_| { // alloc: Node charged kept_home
             ReadError::Format(FormatError::Corrupt {
                 at: "gcount table allocation",
             })
@@ -2634,8 +2257,7 @@ fn load_extent(
         let ng = checked_extent_granules(part, rec)?;
         let payload_len = (payload_end - payload_start) as usize;
         let mut prefix: Vec<u32> = Vec::new();
-        prefix.try_reserve(ng + 1).map_err(|_| {
-            // alloc: Node charged kept_home
+        prefix.try_reserve(ng + 1).map_err(|_| { // alloc: Node charged kept_home
             ReadError::Format(FormatError::Corrupt {
                 at: "validity prefix allocation",
             })
@@ -2688,15 +2310,7 @@ pub(crate) fn load_region_with(
     what: &'static str,
     dict_index: Option<&[u8]>,
 ) -> ReadResult<RegionState> {
-    load_region_res(
-        part,
-        unwrappers,
-        ps,
-        what,
-        dict_index,
-        Residency::Shared,
-        None,
-    )
+    load_region_res(part, unwrappers, ps, what, dict_index, Residency::Shared, None,)
 }
 
 /// [`load_region_with`] under a cursor's [`Residency`]: `Private` reads a
@@ -2744,11 +2358,7 @@ fn load_region_res(
         let total: usize = ps.extents.iter().map(|e| e.len as usize).sum();
         let mut off = 0usize;
         let mut segs: memledger::ChargedVec<SegBuf> = read_vec(owner);
-        segs.try_reserve(ps.extents.len())
-            .map_err(|_| ReadError::Io {
-                at: "byte-run region extents",
-                errno: libc::ENOMEM,
-            })?; // alloc: Exec charged owner
+        segs.try_reserve(ps.extents.len()).map_err(|_| ReadError::Io { at: "byte-run region extents", errno: libc::ENOMEM, })?; // alloc: Exec charged owner
         for (i, rec) in ps.extents.iter().enumerate() {
             step.tick()?;
             let seg = extent(rec, i as u32)?;
@@ -2798,30 +2408,20 @@ fn load_region_res(
                 wrapper: entry_wrapper.as_u8(),
             }))?;
         let mut rebuild = |raw: &[u8]| -> ReadResult<Vec<u8>> {
-            let mut step =
-                cancelpoll::step("pgrc_read load_region_res: a wrapped region's rebuild");
+            let mut step = cancelpoll::step("pgrc_read load_region_res: a wrapped region's rebuild");
             let hdr = StreamSectionHdr::decode(raw)?;
             if hdr.encoding != ps.entry.encoding || hdr.wrapper != ps.entry.wrapper {
                 return Err(ReadError::Format(FormatError::Corrupt { at: what }));
             }
             let rebuilt = match dict_index {
-                Some(index)
-                    if entry_wrapper == Wrapper::FrontZstd && crate::dict_resident_frontcoded() =>
-                {
-                    uw.unwrap_dict_payload_fc_section_until(&hdr, raw, index, &mut || {
-                        step.tick().is_err()
-                    })?
-                    .ok_or(ReadError::Canceled)?
+                Some(index) if entry_wrapper == Wrapper::FrontZstd && crate::dict_resident_frontcoded() => {
+                    uw.unwrap_dict_payload_fc_section_until(&hdr, raw, index, &mut || { step.tick().is_err()
+                    })?.ok_or(ReadError::Canceled)?
                 }
                 // D3887: a large dictionary's payload is seconds of inflate and expand: per block, the statement's cancel
-                Some(index) => uw
-                    .unwrap_dict_payload_section_until(&hdr, raw, index, &mut || {
-                        step.tick().is_err()
-                    })?
-                    .ok_or(ReadError::Canceled)?,
-                None => uw
-                    .unwrap_section_until(&hdr, raw, &mut || step.tick().is_err())?
-                    .ok_or(ReadError::Canceled)?,
+                Some(index) => uw.unwrap_dict_payload_section_until(&hdr, raw, index, &mut || { step.tick().is_err()
+                    })?.ok_or(ReadError::Canceled)?,
+                None => uw.unwrap_section_until(&hdr, raw, &mut || step.tick().is_err())?.ok_or(ReadError::Canceled)?,
             };
             let twin = StreamSectionHdr::decode(&rebuilt)?;
             if twin.wrapper != Wrapper::None.as_u8() {
@@ -2832,14 +2432,11 @@ fn load_region_res(
             Ok(rebuilt)
         };
         match residency {
-            Residency::Shared => {
-                part.unwrapped_extent_bytes_for(owner, &ps.entry, &rec, 0, &mut rebuild)?
+            Residency::Shared => { part.unwrapped_extent_bytes_for(owner, &ps.entry, &rec, 0, &mut rebuild)?
             }
-            Residency::Private => {
-                part.unwrapped_extent_bytes_uncached_for(owner, &ps.entry, &rec, 0, &mut rebuild)?
+            Residency::Private => { part.unwrapped_extent_bytes_uncached_for(owner, &ps.entry, &rec, 0, &mut rebuild)?
             }
-            Residency::Cached => {
-                part.unwrapped_extent_bytes_cached_for(owner, &ps.entry, &rec, 0, &mut rebuild)?
+            Residency::Cached => { part.unwrapped_extent_bytes_cached_for(owner, &ps.entry, &rec, 0, &mut rebuild)?
             }
         }
     };
@@ -2872,15 +2469,10 @@ mod tests {
         let sess = Owner::Session(stmt.acct());
         let row = |o: Owner| charge::owner_row(o).committed;
         let (s0, e0) = (row(stmt), row(sess));
-        let mut cur =
-            StreamCursor::open(part.clone(), reference_binding_leaked(), 1, 0).expect("open");
+        let mut cur = StreamCursor::open(part.clone(), reference_binding_leaked(), 1, 0).expect("open");
         let (n, at) = cur.kept();
         assert!(n > 0, "the slots and stream copies");
-        assert_eq!(
-            (at, row(stmt) - s0),
-            (Some(stmt), n as i64),
-            "the statement's from the open"
-        );
+        assert_eq!((at, row(stmt) - s0), (Some(stmt), n as i64), "the statement's from the open");
         let mut vw = vec![0u64; 1 << 12];
         cur.validity(0, &mut vw).expect("validity");
         let (n2, _) = cur.kept();
@@ -2888,84 +2480,34 @@ mod tests {
         assert_eq!(row(stmt) - s0, n2 as i64, "the load's tables charged");
         let op = charge::op_begin(stmt, 1, 0);
         cur.set_owner(Some((op, memledger::Kind::HashAgg)));
-        assert_eq!(
-            (cur.kept().1, row(op), row(stmt) - s0),
-            (Some(op), n2 as i64, 0),
-            "on the breaker"
-        );
+        assert_eq!((cur.kept().1, row(op), row(stmt) - s0), (Some(op), n2 as i64, 0), "on the breaker");
         assert_eq!(cur.read_owner(), Some((op, memledger::Kind::HashAgg)));
         cur.keep_past_statement();
-        assert_eq!(
-            (cur.kept().1, row(op), row(sess) - e0),
-            (Some(sess), 0, n2 as i64),
-            "the park: the session's"
-        );
+        assert_eq!((cur.kept().1, row(op), row(sess) - e0), (Some(sess), 0, n2 as i64), "the park: the session's");
         assert_eq!(cur.read_owner(), None, "a parked cursor reads for no one");
         cur.rejoin(stmt, release);
-        assert_eq!(
-            (cur.kept().1, row(sess) - e0, row(stmt) - s0),
-            (Some(stmt), 0, n2 as i64),
-            "the rejoin: the statement's"
-        );
+        assert_eq!((cur.kept().1, row(sess) - e0, row(stmt) - s0), (Some(stmt), 0, n2 as i64), "the rejoin: the statement's");
         // a worker set's park (the slot depot): kept_uses_to parks the use and the bytes follow it, then the source's
         // transfer_held moves the bytes alone to the depot (the holders' rows are process-wide: only owners are compared)
-        let (parked, depot) = (
-            Owner::Cache(memledger::Holder::Parked),
-            Owner::Cache(memledger::Holder::SlotDepot),
-        );
+        let (parked, depot) = (Owner::Cache(memledger::Holder::Parked), Owner::Cache(memledger::Holder::SlotDepot),);
         cur.transfer_use(parked, memledger::Release::Evict);
-        assert_eq!(
-            (cur.kept().1, row(stmt) - s0),
-            (Some(parked), 0),
-            "the bytes follow the use to Parked"
-        );
+        assert_eq!((cur.kept().1, row(stmt) - s0), (Some(parked), 0), "the bytes follow the use to Parked");
         // D4573: this second park keeps the extent the first one parked, its table with it (it dropped the table before,
         // and the next statement parsed it again)
-        assert_eq!(
-            (cur.kept().0, cur.tables_now()),
-            (n2, n2),
-            "the depot park: the parked extent's table kept, charged"
-        );
-        assert_eq!(
-            cur.valstate
-                .iter()
-                .filter(|s| matches!(s, ExtSlot::Parked(_)))
-                .count(),
-            1,
-            "the extent parked, not gone"
-        );
+        assert_eq!((cur.kept().0, cur.tables_now()), (n2, n2), "the depot park: the parked extent's table kept, charged");
+        assert_eq!(cur.valstate.iter().filter(|s| matches!(s, ExtSlot::Parked(_))).count(), 1, "the extent parked, not gone");
         cur.transfer_kept(depot, memledger::Release::Evict);
-        assert_eq!(
-            (cur.kept().1, cur.use_owner()),
-            (Some(depot), parked),
-            "the depot holds the bytes, Parked the use"
-        );
+        assert_eq!((cur.kept().1, cur.use_owner()), (Some(depot), parked), "the depot holds the bytes, Parked the use");
         // the take: the taking statement's bytes at once (transfer_held), its use at the bind's rejoin
         cur.transfer_kept(stmt, release);
-        assert_eq!(
-            (cur.kept().1, cur.use_owner(), row(stmt) - s0),
-            (Some(stmt), parked, n2 as i64),
-            "the take"
-        );
+        assert_eq!((cur.kept().1, cur.use_owner(), row(stmt) - s0), (Some(stmt), parked, n2 as i64), "the take");
         cur.rejoin(stmt, release);
-        assert_eq!(
-            (cur.kept().1, cur.use_owner(), row(stmt) - s0),
-            (Some(stmt), stmt, n2 as i64),
-            "the take's rejoin"
-        );
+        assert_eq!((cur.kept().1, cur.use_owner(), row(stmt) - s0), (Some(stmt), stmt, n2 as i64), "the take's rejoin");
         // the next read takes the image back and parses nothing again: the kept table serves it
         cur.validity(0, &mut vw).expect("validity after the take");
-        assert_eq!(
-            (cur.kept().0, cur.tables_now(), row(stmt) - s0),
-            (n2, n2, n2 as i64),
-            "the reread: no table built again"
-        );
+        assert_eq!((cur.kept().0, cur.tables_now(), row(stmt) - s0), (n2, n2, n2 as i64), "the reread: no table built again");
         drop(cur);
-        assert_eq!(
-            (row(stmt) - s0, row(sess) - e0),
-            (0, 0),
-            "nothing left at the drop"
-        );
+        assert_eq!((row(stmt) - s0, row(sess) - e0), (0, 0), "nothing left at the drop");
         charge::op_end(op);
         memledger::statement_end();
         memledger::unbind_backend();
@@ -2989,63 +2531,33 @@ mod tests {
         let (s0, e0) = (row(stmt), row(sess));
         let pool = Arc::new(KeptPool::new());
         pool.home(Some((stmt, memledger::Kind::Region)));
-        let mut a =
-            StreamCursor::open(part.clone(), reference_binding_leaked(), 1, 0).expect("open");
-        let mut c =
-            StreamCursor::open(part.clone(), reference_binding_leaked(), 1, 0).expect("open");
+        let mut a = StreamCursor::open(part.clone(), reference_binding_leaked(), 1, 0).expect("open");
+        let mut c = StreamCursor::open(part.clone(), reference_binding_leaked(), 1, 0).expect("open");
         let (na, nc) = (a.kept().0, c.kept().0);
         a.set_pool(Arc::clone(&pool));
         c.set_pool(Arc::clone(&pool));
-        assert_eq!(
-            (pool.bytes(), row(stmt) - s0, a.kept().1),
-            (na + nc, (na + nc) as i64, Some(stmt)),
-            "both on the pool, the statement's"
-        );
+        assert_eq!((pool.bytes(), row(stmt) - s0, a.kept().1), (na + nc, (na + nc) as i64, Some(stmt)), "both on the pool, the statement's");
         let mut vw = vec![0u64; 1 << 12];
         a.validity(0, &mut vw).expect("validity");
         let na2 = a.kept().0;
         assert!(na2 > na, "a load's tables");
-        assert_eq!(
-            (pool.bytes(), row(stmt) - s0),
-            (na2 + nc, (na2 + nc) as i64),
-            "the load commits on the pool"
-        );
+        assert_eq!((pool.bytes(), row(stmt) - s0), (na2 + nc, (na2 + nc) as i64), "the load commits on the pool");
         // a cursor's own moves move nothing; the pool's one move moves them all
         let depot = Owner::Cache(memledger::Holder::SlotDepot);
         a.transfer_kept(depot, memledger::Release::Evict);
         a.keep_past_statement();
         c.keep_past_statement();
-        assert_eq!(
-            row(stmt) - s0,
-            (na2 + nc) as i64,
-            "the cursors' own moves left the pool where it was"
-        );
+        assert_eq!(row(stmt) - s0, (na2 + nc) as i64, "the cursors' own moves left the pool where it was");
         pool.park();
-        assert_eq!(
-            (pool.owner(), row(stmt) - s0, row(sess) - e0),
-            (Some(sess), 0, (na2 + nc) as i64),
-            "the park: the session's, at once"
-        );
+        assert_eq!((pool.owner(), row(stmt) - s0, row(sess) - e0), (Some(sess), 0, (na2 + nc) as i64), "the park: the session's, at once");
         a.rejoin(stmt, release);
         c.rejoin(stmt, release);
         pool.home(Some((stmt, memledger::Kind::Region)));
-        assert_eq!(
-            (row(sess) - e0, row(stmt) - s0),
-            (0, (na2 + nc) as i64),
-            "the rejoin: the statement's again"
-        );
+        assert_eq!((row(sess) - e0, row(stmt) - s0), (0, (na2 + nc) as i64), "the rejoin: the statement's again");
         drop(c);
-        assert_eq!(
-            (pool.bytes(), row(stmt) - s0),
-            (na2, na2 as i64),
-            "a drop takes its bytes off the pool"
-        );
+        assert_eq!((pool.bytes(), row(stmt) - s0), (na2, na2 as i64), "a drop takes its bytes off the pool");
         drop(a);
-        assert_eq!(
-            (pool.bytes(), row(stmt) - s0, row(sess) - e0),
-            (0, 0, 0),
-            "nothing left"
-        );
+        assert_eq!((pool.bytes(), row(stmt) - s0, row(sess) - e0), (0, 0, 0), "nothing left");
         drop(pool);
         memledger::statement_end();
         memledger::unbind_backend();
@@ -3067,83 +2579,34 @@ mod tests {
         memledger::statement_begin();
         let (stmt, _) = charge::context();
         let s0 = charge::owner_row(stmt).committed;
-        let mut cur =
-            StreamCursor::open(part.clone(), reference_binding_leaked(), 1, 0).expect("open");
+        let mut cur = StreamCursor::open(part.clone(), reference_binding_leaked(), 1, 0).expect("open");
         cur.set_pass_behind(true);
         let mut vw = vec![0u64; 1 << 12];
         let mut most = 0;
         for g in 0..4 {
             cur.validity(g, &mut vw).expect("validity");
-            assert_eq!(
-                cur.kept().0,
-                cur.tables_now(),
-                "granule {g}: the loads and the passes are counted"
-            );
+            assert_eq!(cur.kept().0, cur.tables_now(), "granule {g}: the loads and the passes are counted");
             most = most.max(cur.kept().0);
         }
-        let passed = cur
-            .valstate
-            .iter()
-            .filter(|s| matches!(s, ExtSlot::Parked(_)))
-            .count();
-        assert!(
-            passed >= 2,
-            "the reads passed the extents behind them ({passed} parked)"
-        );
+        let passed = cur.valstate.iter().filter(|s| matches!(s, ExtSlot::Parked(_))).count();
+        assert!(passed >= 2, "the reads passed the extents behind them ({passed} parked)");
         cur.park_images();
-        assert!(
-            cur.valstate
-                .iter()
-                .all(|s| !matches!(s, ExtSlot::Loaded(_))),
-            "no image held past the park"
-        );
-        assert_eq!(
-            cur.kept().0,
-            cur.tables_now(),
-            "the park: the passed extents' tables left with their bytes (trunk: kept the bytes)"
-        );
+        assert!(cur.valstate.iter().all(|s| !matches!(s, ExtSlot::Loaded(_))), "no image held past the park");
+        assert_eq!(cur.kept().0, cur.tables_now(), "the park: the passed extents' tables left with their bytes (trunk: kept the bytes)");
         assert!(cur.kept().0 < most, "the park dropped tables");
-        assert_eq!(
-            charge::owner_row(stmt).committed - s0,
-            cur.kept().0 as i64,
-            "the charge holds what the cursor holds"
-        );
+        assert_eq!(charge::owner_row(stmt).committed - s0, cur.kept().0 as i64, "the charge holds what the cursor holds");
         // D4573: a second park (a worker set's: its source's unbind, then its use's move to the slot depot) keeps what the
         // first one kept
-        let (kept, parked) = (
-            cur.kept().0,
-            cur.valstate
-                .iter()
-                .filter(|s| matches!(s, ExtSlot::Parked(_)))
-                .count(),
-        );
-        assert!(
-            parked >= 1,
-            "the park kept the extent it parked itself ({parked} parked)"
-        );
+        let (kept, parked) = (cur.kept().0, cur.valstate.iter().filter(|s| matches!(s, ExtSlot::Parked(_))).count(),);
+        assert!(parked >= 1, "the park kept the extent it parked itself ({parked} parked)");
         cur.park_images();
-        assert_eq!(
-            (cur.kept().0, cur.tables_now()),
-            (kept, kept),
-            "the second park: the tables kept"
-        );
-        assert_eq!(
-            cur.valstate
-                .iter()
-                .filter(|s| matches!(s, ExtSlot::Parked(_)))
-                .count(),
-            parked,
-            "the second park: nothing dropped"
-        );
+        assert_eq!((cur.kept().0, cur.tables_now()), (kept, kept), "the second park: the tables kept");
+        assert_eq!(cur.valstate.iter().filter(|s| matches!(s, ExtSlot::Parked(_))).count(), parked, "the second park: nothing dropped");
         // a later read unparks the kept extent and loads the dropped ones again: still counted
         cur.validity(0, &mut vw).expect("validity again");
         assert_eq!(cur.kept().0, cur.tables_now(), "the reload");
         drop(cur);
-        assert_eq!(
-            charge::owner_row(stmt).committed - s0,
-            0,
-            "nothing left at the drop"
-        );
+        assert_eq!(charge::owner_row(stmt).committed - s0, 0, "nothing left at the drop");
         memledger::statement_end();
         memledger::unbind_backend();
     }

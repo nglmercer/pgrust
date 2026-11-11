@@ -83,7 +83,7 @@ pub fn fc_gin_clean_pending_list(
         )?;
     }
 
-    let is_valid = indexRel.rd_index.as_ref().is_some_and(|i| i.indisvalid);
+    let is_valid = indexRel.rd_index.as_ref().is_some_and( |i| i.indisvalid);
 
     let pages_deleted: i64 = if is_valid {
         let mut stats = ::types_nbtree::IndexBulkDeleteResult::default();

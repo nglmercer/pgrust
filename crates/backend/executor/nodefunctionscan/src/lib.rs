@@ -87,12 +87,7 @@ fn make_arg_ctx(mcx: Mcx<'_>) -> PgResult<NonNull<MemoryContext>> {
     let raw = mcx.allocate(layout).map_err(|_| mcx.oom(layout.size()))?;
     let p: NonNull<MemoryContext> = raw.cast();
     // SAFETY: fresh allocation of the exact layout.
-    unsafe {
-        p.write(
-            mcx.context()
-                .new_child_wholesale("Table function arguments"),
-        )
-    };
+    unsafe { p.write(mcx.context().new_child_wholesale("Table function arguments"),) };
     // SAFETY: fires exactly once, before the arena bytes are reclaimed.
     mcx.context()
         .register_reset_callback(move || unsafe { core::ptr::drop_in_place(p.as_ptr()) });
@@ -106,15 +101,17 @@ impl<'mcx> ScanNode<'mcx> for FunctionScanState<'mcx> {
     }
 
     /// `FunctionRecheck`: nothing to check.
-    fn epq_recheck(&mut self, _estate: &mut EStateData<'mcx>, _slot: ExecSlotId) -> PgResult<bool> {
+    fn epq_recheck(
+        &mut self,
+        _estate: &mut EStateData<'mcx>,
+        _slot: ExecSlotId
+    ) -> PgResult<bool> {
         Ok(true)
     }
 
     fn scan_next(&mut self, estate: &mut EStateData<'mcx>) -> PgResult<bool> {
-        let forward = matches!(
-            estate.es_direction,
-            ::types_scan::ScanDirection::ForwardScanDirection
-        );
+        let forward =
+            matches!(estate.es_direction, ::types_scan::ScanDirection::ForwardScanDirection);
         let mcx = estate.es_query_cxt;
 
         if self.simple {
@@ -304,7 +301,8 @@ pub fn exec_init_function_scan<'mcx>(
     let mut scan_tupdesc = if simple {
         tupdesc::CreateTupleDescCopy(mcx, &funcstates[0].tupdesc)?
     } else {
-        let mut d = tupdesc::CreateTemplateTupleDesc(mcx, natts + if ordinality { 1 } else { 0 })?;
+        let mut d =
+            tupdesc::CreateTemplateTupleDesc(mcx, natts + if ordinality { 1 } else { 0 })?;
         let mut attno: i16 = 0;
         for fs in funcstates.iter() {
             for j in 1..=fs.colcount {
@@ -331,11 +329,7 @@ pub fn exec_init_function_scan<'mcx>(
     let ps_ExprContext = estate.exec_assign_expr_context();
     let ss_ScanTupleSlot = estate.exec_init_extra_tuple_slot(
         Some(Rc::new(scan_tupdesc)),
-        if simple {
-            TupleSlotKind::MinimalTuple
-        } else {
-            TupleSlotKind::Virtual
-        },
+        if simple { TupleSlotKind::MinimalTuple } else { TupleSlotKind::Virtual },
     );
     if !simple {
         for fs in funcstates.iter_mut() {
@@ -403,7 +397,8 @@ fn exec_init_table_function_result<'mcx>(
     ::executils::with_subplan_compile_env(estate, |env| -> PgResult<()> {
         for arg in &func.args {
             args.push(
-                exec_init_expr_subplans(mcx, Some(arg), pb, env)?.expect("non-NULL arg expression"),
+                exec_init_expr_subplans(mcx, Some(arg), pb, env)?
+                    .expect("non-NULL arg expression"),
             );
         }
         Ok(())
@@ -587,10 +582,7 @@ fn run_elided<'mcx>(
     let work_mem = init_small::globals::work_mem();
     let mut store = Tuplestore::begin_heap(random_access, false, work_mem);
     estate.ecxt_mut(ecxt).reset();
-    let elided = setexpr
-        .elided_func_state
-        .as_mut()
-        .expect("run_elided has elidedFuncState");
+    let elided = setexpr.elided_func_state.as_mut().expect("run_elided has elidedFuncState");
     // The row is copied into the tuplestore before the next per-tuple reset.
     // SAFETY: the ExprContext outlives this call frame.
     unsafe { elided.arm_result_mcx_raw(estate.ecxt(ecxt).per_tuple_mcx()) };
@@ -600,11 +592,7 @@ fn run_elided<'mcx>(
         if elided.has_subplan() || !elided.param_exec_deps().is_empty() {
             ::executils::exec_eval_expr_with_subplans(elided, estate, ecxt)?
         } else {
-            let mut slots = EvalSlots {
-                scan: None,
-                inner: None,
-                outer: None,
-            };
+            let mut slots = EvalSlots { scan: None, inner: None, outer: None, };
             exec_eval_expr(elided, &mut slots)?
         };
     if setexpr.returns_tuple {
@@ -640,14 +628,12 @@ fn run_value_per_call<'mcx>(
     if random_access {
         allowed |= SFRM_Materialize_Random;
     }
-    let flinfo = setexpr
-        .flinfo
-        .as_mut()
-        .expect("ValuePerCall path has a resolved function");
+    let flinfo = setexpr.flinfo.as_mut().expect("ValuePerCall path has a resolved function");
     let mut rsinfo = ReturnSetInfo::new(allowed);
     // SAFETY: expectedDesc contract — points at the scan tupdesc, which
     // outlives this call frame; rsinfo dies with the frame.
-    rsinfo.expectedDesc = Some(core::ptr::NonNull::from(expected_desc).cast::<core::ffi::c_void>());
+    rsinfo.expectedDesc =
+        Some(core::ptr::NonNull::from(expected_desc).cast::<core::ffi::c_void>());
     let nargs = setexpr.args.len();
     debug_assert!(nargs <= types_core::FUNC_MAX_ARGS);
     let mut fcinfo = LocalFcinfo::<{ types_core::FUNC_MAX_ARGS }>::new(setexpr.collation);
@@ -670,11 +656,7 @@ fn run_value_per_call<'mcx>(
             if arg.has_subplan() || !arg.param_exec_deps().is_empty() {
                 ::executils::exec_eval_expr_with_subplans(arg, estate, ecxt)?
             } else {
-                let mut slots = EvalSlots {
-                    scan: None,
-                    inner: None,
-                    outer: None,
-                };
+                let mut slots = EvalSlots { scan: None, inner: None, outer: None, };
                 exec_eval_expr(arg, &mut slots)?
             };
         if isnull {
@@ -731,9 +713,7 @@ fn run_value_per_call<'mcx>(
         let fcu = if flinfo.fn_stats < ::types_fmgr::TRACK_FUNC_ALL
             && ::pgstat::function::pgstat_track_functions() > flinfo.fn_stats as i32
         {
-            Some(::pgstat::function::pgstat_init_function_usage(
-                flinfo.fn_oid,
-            )?)
+            Some(::pgstat::function::pgstat_init_function_usage(flinfo.fn_oid,)?)
         } else {
             None
         };
@@ -911,7 +891,8 @@ fn put_composite_row<'mcx>(
     let _flat;
     let p = unsafe {
         if !::types_tuple::varatt::varatt_is_4b_u(src) {
-            let image = core::slice::from_raw_parts(src, ::types_tuple::varatt::varsize_any(src));
+            let image =
+                core::slice::from_raw_parts(src, ::types_tuple::varatt::varsize_any(src));
             _flat = ::detoast_seams::detoast_attr::call(scratch, image)?;
             _flat.as_ptr()
         } else {

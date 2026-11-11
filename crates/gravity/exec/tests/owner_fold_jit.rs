@@ -23,7 +23,7 @@ fn layouts(count: usize, seed: u64, pool: &[SlotKind]) -> Vec<RecordLayout> {
     let mut out = Vec::new();
     while out.len() < count {
         let nw = 1 + (lcg(&mut rng) % MAX_RECORD_KEYS as u64) as usize;
-        let validity = lcg(&mut rng).is_multiple_of(2);
+        let validity = lcg(&mut rng).is_multiple_of( 2);
         let kinds: Vec<SlotKind> = pool.iter().copied().filter(|k| (if validity { VALID_KINDS } else { NN_KINDS }).contains(k)).collect();
         let ns = 1 + (lcg(&mut rng) % (MAX_RECORD_SLOTS as u64 - 1)) as usize;
         let mut slots: Vec<SlotKind> = (0..ns).map(|_| kinds[(lcg(&mut rng) % kinds.len() as u64) as usize]).collect();
@@ -41,7 +41,7 @@ fn layouts(count: usize, seed: u64, pool: &[SlotKind]) -> Vec<RecordLayout> {
             continue;
         }
         let l = RecordLayout::with_sentinel(&keys, &slots, validity, sentinel);
-        let pw = if lcg(&mut rng).is_multiple_of(3) { 1 + (lcg(&mut rng) % nw as u64) as u8 } else { 0 };
+        let pw = if lcg(&mut rng).is_multiple_of(3) { 1 + (lcg(&mut rng) % nw as u64) as u8 } else {0 };
         out.push(l.partitioned_by(pw));
     }
     out
@@ -52,14 +52,14 @@ fn make_record(buf: &mut [u8; 256], layout: &RecordLayout, keys: &[u64], v: u64,
     let r = unsafe { Rec::at(buf.as_mut_ptr(), layout) };
     r.open(keys);
     for j in 0..layout.nslots() {
-        if layout.has_validity() && layout.slot_off(j) != layout.sentinel_off() && (v >> (8 + j)).is_multiple_of(3) {
+        if layout.has_validity() && layout.slot_off(j) != layout.sentinel_off() && (v >> (8 + j)).is_multiple_of( 3) {
             continue;
         }
         let s = v.rotate_left(7 * j as u32);
         match layout.slot_kind(j) {
             Count => r.add_count(j, 1 + (s % 3) as i64),
             SumI64 => r.add_i64(j, (s % 1000) as i64 - 500),
-            SumI128 => r.add_i128(j, ((s % (1 << 40)) as i128 * 1_000_000_007).wrapping_mul(if s.is_multiple_of(2) { 1 } else { -(1 << 50) })),
+            SumI128 => r.add_i128(j, ((s % (1 << 40)) as i128 * 1_000_000_007).wrapping_mul(if s.is_multiple_of( 2) { 1 } else { -(1 << 50) })),
             MinI64 => r.min_i64(j, (s % 5000) as i64 - 2500),
             MaxI64 => r.max_i64(j, (s % 5000) as i64 - 2500),
             AvgI128 => r.add_avg(j, (s % 5000) as i128 - 2500, 1),

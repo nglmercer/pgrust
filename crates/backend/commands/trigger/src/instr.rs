@@ -42,32 +42,17 @@ pub struct StmtTrigRel {
 }
 
 impl StmtTrigRel {
-    pub fn new(
-        kind: u8,
-        relid: Oid,
-        relname: &str,
-        desc: Option<&TriggerDesc<'_>>,
-        options: i32,
-    ) -> PgResult<Self> {
+    pub fn new(kind: u8, relid: Oid, relname: &str, desc: Option<&TriggerDesc<'_>>, options: i32,) -> PgResult<Self> {
         let n = desc.map_or(0, |d| d.triggers.len());
         let mut triggers = Vec::new();
-        triggers.try_reserve_exact(n).map_err(|_| {
-            mcx::oom_named(
-                "StmtTrigRel",
-                n * core::mem::size_of::<(String, Oid, Oid, Instrumentation)>(),
-            )
+        triggers.try_reserve_exact(n).map_err(|_| { mcx::oom_named("StmtTrigRel", n * core::mem::size_of::<(String, Oid, Oid, Instrumentation)>(),)
         })?;
         for t in desc.iter().flat_map(|d| d.triggers.iter()) {
             let mut i = Instrumentation::default();
             ::instrument::instr_init(&mut i, options);
             triggers.push((t.tgname.as_str().to_owned(), t.tgoid, t.tgconstraint, i));
         }
-        Ok(StmtTrigRel {
-            kind,
-            relid,
-            relname: relname.to_owned(),
-            triggers,
-        })
+        Ok(StmtTrigRel { kind, relid, relname: relname.to_owned(), triggers, })
     }
 }
 
@@ -95,15 +80,8 @@ pub fn begin(options: i32, opened: Vec<StmtTrigRel>) -> PgResult<u64> {
     LEVELS.with(|l| {
         let mut l = l.borrow_mut();
         l.retain(|x| x.query_depth < query_depth);
-        l.try_reserve(1)
-            .map_err(|_| mcx::oom_named("trigger instr level", core::mem::size_of::<Level>()))?;
-        l.push(Level {
-            token,
-            query_depth,
-            trigger_depth,
-            options,
-            rels: opened,
-        });
+        l.try_reserve(1).map_err(|_| mcx::oom_named("trigger instr level", core::mem::size_of::<Level>()))?;
+        l.push(Level { token, query_depth, trigger_depth, options, rels: opened, });
         Ok(token)
     })
 }
@@ -143,9 +121,7 @@ pub(crate) fn at_subxact_abort(query_depth: i32) {
 pub(crate) fn active() -> bool {
     LEVELS.with(|l| {
         let l = l.borrow();
-        l.last().is_some_and(|x| {
-            x.query_depth == crate::queue::query_depth()
-                && x.trigger_depth == crate::exec::trigger_depth()
+        l.last().is_some_and(|x| { x.query_depth == crate::queue::query_depth() && x.trigger_depth == crate::exec::trigger_depth()
         })
     })
 }
@@ -153,19 +129,12 @@ pub(crate) fn active() -> bool {
 /// InstrStartNode on trigger `tgoid` of `rel` in the active level (ExecGetTriggerResultRel's relation: an opened one, else
 /// a trig-target one made now with the descriptor `desc`, or the relcache's when none is given); false when no level is
 /// active or the trigger is not in the relation's descriptor.
-pub(crate) fn start(
-    rel: &Relation<'_>,
-    desc: Option<&TriggerDesc<'_>>,
-    tgoid: Oid,
-) -> PgResult<bool> {
+pub(crate) fn start(rel: &Relation<'_>, desc: Option<&TriggerDesc<'_>>, tgoid: Oid,) -> PgResult<bool> {
     if !active() {
         return Ok(false);
     }
     let relid = rel.rd_id;
-    let known = LEVELS.with(|l| {
-        l.borrow()
-            .last()
-            .is_some_and(|x| x.rels.iter().any(|r| r.relid == relid))
+    let known = LEVELS.with(|l| { l.borrow().last().is_some_and(|x| x.rels.iter().any(|r| r.relid == relid))
     });
     if !known {
         let options = LEVELS.with(|l| l.borrow().last().map_or(0, |x| x.options));
@@ -181,11 +150,7 @@ pub(crate) fn start(
         LEVELS.with(|l| -> PgResult<()> {
             let mut l = l.borrow_mut();
             let x = l.last_mut().expect("an active level");
-            x.rels.try_reserve(1).map_err(|_| {
-                mcx::oom_named(
-                    "trigger instr relation",
-                    core::mem::size_of::<StmtTrigRel>(),
-                )
+            x.rels.try_reserve(1).map_err(|_| { mcx::oom_named("trigger instr relation", core::mem::size_of::<StmtTrigRel>(),)
             })?;
             x.rels.push(r);
             Ok(())
@@ -193,11 +158,7 @@ pub(crate) fn start(
     }
     Ok(LEVELS.with(|l| {
         let mut l = l.borrow_mut();
-        let Some(i) = l
-            .last_mut()
-            .and_then(|x| x.rels.iter_mut().find(|r| r.relid == relid))
-            .and_then(|r| r.triggers.iter_mut().find(|t| t.1 == tgoid))
-        else {
+        let Some(i) = l.last_mut().and_then(|x| x.rels.iter_mut().find(|r| r.relid == relid)).and_then(|r| r.triggers.iter_mut().find(|t| t.1 == tgoid)) else {
             return false;
         };
         // a level a failed call left started (its statement errored and a later one at this depth reads it before the
@@ -214,11 +175,7 @@ pub(crate) fn start(
 pub(crate) fn stop(relid: Oid, tgoid: Oid) {
     LEVELS.with(|l| {
         let mut l = l.borrow_mut();
-        if let Some(i) = l
-            .last_mut()
-            .and_then(|x| x.rels.iter_mut().find(|r| r.relid == relid))
-            .and_then(|r| r.triggers.iter_mut().find(|t| t.1 == tgoid))
-        {
+        if let Some(i) = l.last_mut().and_then(|x| x.rels.iter_mut().find(|r| r.relid == relid)).and_then(|r| r.triggers.iter_mut().find(|t| t.1 == tgoid)) {
             ::instrument::instr_stop_node(&mut i.3, 1.0);
         }
     });
@@ -236,17 +193,9 @@ impl LevelSink {
 }
 
 impl crate::queue::AfterTriggerInstrSink for LevelSink {
-    fn start(
-        &mut self,
-        relid: Oid,
-        rel: &Relation<'_>,
-        trigdesc: &TriggerDesc<'static>,
-        tgindx: usize,
-    ) -> PgResult<()> {
+    fn start(&mut self, relid: Oid, rel: &Relation<'_>, trigdesc: &TriggerDesc<'static>, tgindx: usize,) -> PgResult<()> {
         self.started = None;
-        let Some(t) = trigdesc.triggers.get(tgindx) else {
-            return Ok(());
-        };
+        let Some(t) = trigdesc.triggers.get(tgindx) else { return Ok(()); };
         debug_assert_eq!(relid, rel.rd_id);
         if start(rel, Some(trigdesc), t.tgoid)? {
             self.started = Some((relid, t.tgoid));

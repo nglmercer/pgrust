@@ -1,5 +1,4 @@
-#![allow(clippy::duplicate_mod)]
-//! The crate rig's write execution (M4-plan §8 "the crate rig cannot execute a write", risk 8; M4-RIG). A write fixture
+#![allow(clippy::duplicate_mod)]//! The crate rig's write execution (M4-plan §8 "the crate rig cannot execute a write", risk 8; M4-RIG). A write fixture
 //! (`tests/fixtures/m4/<name>.write`) names a census plan fixture, the tables it reads and writes (int, bool and text columns),
 //! the rows before, and PostgreSQL 18.6's answer: the rows the statement returns, its completion count and every table
 //! after. The statement's program runs through gravity_driver over in-memory tables: each source site serves its

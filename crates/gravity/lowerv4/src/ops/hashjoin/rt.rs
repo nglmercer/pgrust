@@ -128,8 +128,8 @@ mod tests {
             wr::<u8>(d, PHASE, 1); wr::<u8>(d, WORDS, 1); wr::<u32>(d, REC, 24); crate::ops::hashjoin::layout::set_pay(d, 1); wr::<u8>(d, ALLOW, allow); wr::<u8>(d, FLAGS, F_RANGE);
             let some = keys.iter().flatten();
             wr::<i64>(d, LO, some.clone().copied().min().unwrap_or(i64::MAX)); wr::<i64>(d, HI, some.copied().max().unwrap_or(i64::MIN));
-            wr::<u64>(d, N, keys.len() as u64); wr::<u64>(d, KEPT, keys.iter().filter(|k| k.is_none()).count() as u64);
-            wr::<u64>(d, TOP, len as u64); wr::<u64>(d, END, len as u64);
+wr::<u64>(d, N, keys.len() as u64); wr::<u64>(d, KEPT, keys.iter().filter(|k| k.is_none()).count() as u64);
+wr::<u64>(d, TOP, len as u64); wr::<u64>(d, END, len as u64);
             for (i, k) in keys.iter().enumerate() {
                 let r = d.add(HDR + 24 * i);
                 wr::<i64>(r, 0, k.unwrap_or(0)); wr::<u64>(r, 8, if k.is_none() { NULLKEY } else { 0 }); wr::<u64>(r, 16, i as u64);

@@ -787,7 +787,7 @@ pub unsafe fn owner_fold_dense(params: *const u64, t: *mut HashAgg, recs: *const
     if plain_owner(params, t)
         && Fold::ident(&(*t).layout).is_some() {
             return owner_fold_ident(params, t, recs, nrecs, split, cand);
-        }
+    }
     owner_fold(params, t, recs, nrecs, split, cand)
 }
 

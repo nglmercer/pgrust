@@ -576,7 +576,7 @@ impl EndMech for BuildEnd<'_> {
                 Rep::VarlenaPtr => plain && !c.cell.image_only() && gravity_fn::typesem::text_payload(c.cell.typid),
                 _ => false,
             };
-            bp.is_some_and(|bp| code && self.hoist.is_none_or(|h| h.0 != a) && (crate::dict::coderep::sk_bpchar_of(tf(c.cell.typid).as_ref()) != 0) == bp)
+            bp.is_some_and(|bp| code &&self.hoist.is_none_or(|h| h.0 != a) && (crate::dict::coderep::sk_bpchar_of(tf(c.cell.typid).as_ref()) != 0) == bp)
         };
         let live = match vbits.is_some() || self.arms || self.foreign {
             true => 0,

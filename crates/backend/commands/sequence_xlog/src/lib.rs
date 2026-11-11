@@ -1,6 +1,6 @@
 //! sequence.c rmgr half: XLOG_SEQ_LOG redo + on-page constants.
 
-#![allow(non_snake_case, non_upper_case_globals)]
+#![allow(non_snake_case,non_upper_case_globals)]
 
 use types_core::{OffsetNumber, BLCKSZ};
 use types_error::{PgError, PgResult};
@@ -44,10 +44,7 @@ fn panic_err(msg: String) -> Box<PgError> {
 }
 
 pub fn seq_redo(record: &mut XLogReaderState) -> PgResult<()> {
-    let rec = record
-        .record
-        .as_ref()
-        .expect("seq_redo with no decoded record");
+    let rec = record.record.as_ref().expect("seq_redo with no decoded record");
     let info = rec.xl_info & !XLR_INFO_MASK;
     if info != XLOG_SEQ_LOG {
         return Err(panic_err(format!("seq_redo: unknown op code {info}")));

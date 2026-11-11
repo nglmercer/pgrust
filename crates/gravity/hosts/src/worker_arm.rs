@@ -906,7 +906,7 @@ mod tests {
                 s -= 1;
             }
             let rest = text[i + 1..].trim_start();
-            if s == i || &text[s..i] == "macro_rules" || !rest.starts_with(['(', '[', '{']) {
+            if s == i || &text[s..i] == "macro_rules" || !rest.starts_with([ '(', '[', '{']) {
                 continue;
             }
             let args = bracketed(rest);

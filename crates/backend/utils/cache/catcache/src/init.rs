@@ -49,6 +49,7 @@ pub(crate) fn catalog_cache_initialize_cache(cache_id: i32) -> PgResult<()> {
         cache.cc_relname = Some(mcx::PgString::from_str_in(relation.name(), mcx)?);
 
         #[allow(clippy::needless_range_loop)]
+
         for i in 0..nkeys as usize {
             let keytype: Oid = if keyno[i] > 0 {
                 let a = td.attr((keyno[i] - 1) as usize);

@@ -97,7 +97,7 @@ fn registry_serves_the_hot_verbatim_kernels_and_the_oracle_is_distinct() {
 // naive per-value readers (the pre-fix kernel shape; frozen layouts)
 // ---------------------------------------------------------------------------
 
-fn open_naive(built: &Built, g: u32, encoding: EncodingId) -> (&[u8], u32, u32) {
+fn open_naive(built: & Built, g: u32, encoding: EncodingId) -> (& [u8], u32, u32) {
     let section = built.section();
     let hdr = StreamSectionHdr::decode(section).expect("hdr");
     assert_eq!(hdr.encoding, encoding.as_u16(), "witnessed encoding");
@@ -318,15 +318,7 @@ fn ffor_kernel_matches_naive_reader() {
             .collect();
         let signed = shape % 2 == 1;
         let inputs: Vec<EncodeInput<'_>> = gs.iter().map(|g| g.input(class)).collect();
-        let built = build_stream(
-            &mut FforEncoder {
-                signed,
-                carry: None,
-            },
-            &inputs,
-            0,
-            signed,
-        );
+        let built = build_stream(&mut FforEncoder { signed, carry: None, }, &inputs, 0, signed,);
         for g in 0..gs.len() as u32 {
             let (datums, _a) = dec_full(&built, g);
             assert_eq!(
@@ -465,7 +457,9 @@ fn dict_gather_matches_naive_materialization_across_the_width_lattice() {
                     "w{w} granule {g} row {r}: datum escaped the payload region"
                 );
                 // SAFETY: containment proven above; image lives in `payload`.
-                let got = unsafe { core::slice::from_raw_parts(d as *const u8, e.image.len()) };
+                let got = unsafe {
+                    core::slice::from_raw_parts(d as *const u8, e.image.len())
+                };
                 assert_eq!(got, e.image, "w{w} granule {g} row {r}: image bytes");
             }
         }
@@ -736,12 +730,9 @@ fn verbatim_varlena_lengths_match_hot_and_oracle_payloads() {
                 .map(|r| {
                     let payload: Vec<u8> = match r % 89 {
                         0 => Vec::new(),
-                        1 if rows == 8192 && r < 1500 => {
-                            vec![0xCD; OVERSIZE_THRESHOLD as usize + 3 + (r % 5) as usize]
+                        1 if rows == 8192 && r < 1500 => { vec![0xCD; OVERSIZE_THRESHOLD as usize + 3 + (r % 5) as usize]
                         }
-                        2 => "\u{e9}\u{4e2d}\u{1f600}"
-                            .repeat(1 + (r % 7) as usize)
-                            .into_bytes(),
+                        2 => "\u{e9}\u{4e2d}\u{1f600}".repeat(1 + (r % 7) as usize).into_bytes(),
                         _ => {
                             let n = (splitmix(&mut seed) % 40) as usize;
                             (0..n).map(|_| splitmix(&mut seed) as u8).collect()
@@ -753,11 +744,7 @@ fn verbatim_varlena_lengths_match_hot_and_oracle_payloads() {
                 })
                 .collect();
             want.push(lens);
-            GranuleData {
-                rows,
-                datums,
-                validity,
-            }
+            GranuleData { rows, datums, validity, }
         })
         .collect();
     let class = StorageClass::VarlenaVerbatim;
@@ -781,7 +768,7 @@ fn verbatim_varlena_lengths_match_hot_and_oracle_payloads() {
         let (o, _oa) = dec_full_via(oracle, &built, g);
         let bits = built.granules[g as usize].1.as_deref();
         for r in 0..n as usize {
-            let live = bits.is_none_or(|b| (b[r / 8] >> (r % 8)) & 1 != 0);
+            let live = bits.is_none_or( |b| (b[r / 8] >> (r % 8)) & 1 != 0);
             if !live {
                 checked_null = true;
                 continue;
@@ -793,15 +780,8 @@ fn verbatim_varlena_lengths_match_hot_and_oracle_payloads() {
     }
     assert!(checked_null, "NULL rows must be exercised");
     // A non-varlena section refuses.
-    let wclass = StorageClass::ByvalWord {
-        width: 4,
-        signed: false,
-    };
-    let wg = [GranuleData {
-        rows: 10,
-        datums: (0..10).collect(),
-        validity: None,
-    }];
+    let wclass = StorageClass::ByvalWord { width: 4, signed: false, };
+    let wg = [GranuleData { rows: 10, datums: (0..10).collect(), validity: None, }];
     let winputs: Vec<EncodeInput<'_>> = wg.iter().map(|g| g.input(wclass)).collect();
     let wbuilt = build_stream(&mut VerbatimEncoder { class: wclass }, &winputs, 0, false);
     let mut wl = vec![0u32; 10];

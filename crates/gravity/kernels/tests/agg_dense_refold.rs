@@ -43,7 +43,7 @@ fn rows(n: usize, lo: i64, span: u64, users: u64, seed: u64) -> Vec<Row> {
     (0..n)
         .map(|_| {
             let x = lcg(&mut rng);
-            let r = lo + if x.is_multiple_of(3) { (x / 3 % 16) as i64 } else { (x / 3 % span) as i64 };
+            let r = lo + if x.is_multiple_of( 3) { (x / 3 % 16) as i64 } else { (x / 3 % span) as i64 };
             let u = lcg(&mut rng) % users;
             Row { r, u, c: (u % 7) as i64 + 1, s: (u % 1000) as i64 - 500, a: (u % 91) as i64 }
         })

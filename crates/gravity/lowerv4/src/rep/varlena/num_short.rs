@@ -305,7 +305,7 @@ mod tests {
         let mut fits = 0;
         let ats: &[usize] = if img[0] & 1 == 0 { &[0, 4] } else { &[0, 1, 3, 4, 6, 7] };
         for &at in ats {
-            let mut buf = [0xA5u8; 40]; // alloc: Program
+            let mut buf =[0xA5u8; 40]; // alloc: Program
             let base = (buf.as_ptr() as usize).next_multiple_of(8) - buf.as_ptr() as usize + 8 + at;
             buf[base..base + img.len()].copy_from_slice(img);
             let p = buf[base..].as_ptr();
@@ -339,7 +339,7 @@ mod tests {
             let (wlo, whi) = weights(scale);
             for &(v, d) in vals.iter() {
                 let (neg, w, d, g) = parts(v, d);
-                if !(-64..=63).contains(&w) || d > 63 {
+                if !( -64..= 63).contains(&w) || d > 63 {
                     continue;
                 }
                 for ds in [false, true] {
@@ -399,7 +399,7 @@ mod tests {
                 let (neg, w, d, g) = parts(v, d);
                 for four in [false, true] {
                     let img = varlena(&payload(neg, w, d, &g, false), four, false);
-                    let mut buf = [0xA5u8; 48]; // alloc: Program
+                    let mut buf =[0xA5u8; 48]; // alloc: Program
                     let base = (buf.as_ptr() as usize).next_multiple_of(8) - buf.as_ptr() as usize + 8;
                     buf[base..base + img.len()].copy_from_slice(&img);
                     for ds in [false, true] {

@@ -42,7 +42,6 @@ pub use order_key::bloom::{
     bloom_bytes_for, bloom_fold, bloom_insert, bloom_insert_hashed, bloom_may_contain,
     bloom_may_contain_packed, bloom_pack, bloom_tile, BLOOM_BYTES_MIN,
 };
-
 use crate::format::class::StorageClass;
 use crate::format::geom::GRANULE_ROWS;
 
@@ -63,11 +62,7 @@ pub fn bloom_value_bytes(class: StorageClass) -> u64 {
 /// P5-12: the hash functions a column of `class` builds its blooms with: `cost_profile::bloom::bloom_k` over
 /// [`GRANULE_ROWS`]-row granules of [`bloom_value_bytes`] in the warm device regime (the module doc there).
 pub fn bloom_k_for(class: StorageClass) -> u32 {
-    cost_profile::bloom::bloom_k(
-        GRANULE_ROWS as u64,
-        bloom_value_bytes(class),
-        &cost_profile::device::Device::WARM,
-    )
+    cost_profile::bloom::bloom_k(GRANULE_ROWS as u64, bloom_value_bytes(class), &cost_profile::device::Device::WARM,)
 }
 
 /// The block a granule builds into before its NDV is known: a whole granule of distinct values under `k`.
@@ -111,18 +106,13 @@ pub fn bloom_part_choice(k: u32, cands: &[Option<BloomCandidate>]) -> Option<(u3
     let max_own = cands.iter().flatten().map(|c| c.own).max()?;
     let wasted = |c: &BloomCandidate| warm.fixed_ns + c.lane_bytes as f64 * warm.random_ns_per_byte;
     let with = |c: &BloomCandidate, b: u32| {
-        b as f64 * cold.seq_ns_per_byte
-            + bloom_false_positive_at(c.ndv as f64, k, b.min(c.own)) * wasted(c)
+        b as f64 * cold.seq_ns_per_byte + bloom_false_positive_at(c.ndv as f64, k, b.min(c.own)) * wasted(c)
     };
     let mut best: Option<(f64, u32)> = None;
     let mut b = BLOOM_BYTES_MIN.min(max_own);
     loop {
-        let total: f64 = cands
-            .iter()
-            .flatten()
-            .map(|c| with(c, b).min(wasted(c)))
-            .sum();
-        if best.is_none_or(|(t, _)| total < t) {
+        let total: f64 = cands.iter().flatten().map(|c| with(c, b).min(wasted(c))).sum();
+        if best.is_none_or( |(t, _)| total < t) {
             best = Some((total, b));
         }
         if b >= max_own {
@@ -131,10 +121,7 @@ pub fn bloom_part_choice(k: u32, cands: &[Option<BloomCandidate>]) -> Option<(u3
         b *= 2;
     }
     let (_, b) = best?;
-    let armed: Vec<bool> = cands
-        .iter()
-        .map(|c| c.is_some_and(|c| with(&c, b) < wasted(&c)))
-        .collect();
+    let armed: Vec<bool> = cands.iter().map(|c| c.is_some_and(|c| with(&c, b) < wasted(&c))).collect();
     armed.iter().any(|&a| a).then_some((b, armed))
 }
 

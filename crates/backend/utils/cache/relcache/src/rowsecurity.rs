@@ -23,6 +23,7 @@ pub struct RdRowSecurity {
     pub policies: Vec<RowSecurityPolicyMeta>,
 }
 
+#[allow(clippy::iter_cloned_collect)]
 pub fn RelationGetRowSecurityDesc<'mcx>(mcx: Mcx<'mcx>, relid: Oid) -> PgResult<Rc<RdRowSecurity>> {
     // C3: a recorded lowering depends on the relation (its invalidation drops these); the fill's scan is the entry's
     gravity_deps::note_rel(relid);
@@ -37,7 +38,7 @@ pub fn RelationGetRowSecurityDesc<'mcx>(mcx: Mcx<'mcx>, relid: Oid) -> PgResult<
             policy_name: PgString::from_str_in(row.polname, cmcx)?,
             polcmd: row.polcmd,
             permissive: row.polpermissive,
-            roles: row.polroles.to_vec(),
+            roles: row.polroles.iter().copied().collect(),
             qual_src: match row.polqual {
                 Some(s) => Some(PgString::from_str_in(s, cmcx)?),
                 None => None,

@@ -81,14 +81,11 @@ fn main() {
         .iter()
         .map(|&i| {
             let c = &fr.meta.columns[i];
-            c.phys == Phys::ByteArray
-                && matches!(c.logical, Logical::String | Logical::Enum | Logical::Json)
+            c.phys == Phys::ByteArray && matches!(c.logical, Logical::String | Logical::Enum | Logical::Json)
         })
         .collect();
-    let mut batches: Vec<ColumnBatch> = cols
-        .iter()
-        .map(|&i| ColumnBatch::new_for(fr.meta.columns[i].phys))
-        .collect();
+    let mut batches: Vec<ColumnBatch> =
+        cols.iter().map(|&i| ColumnBatch::new_for(fr.meta.columns[i].phys)).collect();
     let meta = fr.meta_arc();
     for rg in 0..meta.row_groups.len() {
         let mut rgr = match fr.row_group(rg, &cols, &vutf8) {
@@ -102,12 +99,7 @@ fn main() {
         while rgr.rows_remaining() > 0 {
             let n = rgr.rows_remaining().min(batch_n as u64) as usize;
             if let Err(e) = rgr.read_batches(&mut batches, n) {
-                let _ = writeln!(
-                    w,
-                    "ERROR\t{} {}",
-                    e.message,
-                    e.detail.as_deref().unwrap_or("")
-                );
+                let _ = writeln!(w, "ERROR\t{} {}", e.message, e.detail.as_deref().unwrap_or(""));
                 let _ = w.flush();
                 std::process::exit(2);
             }
@@ -148,8 +140,7 @@ fn main() {
                             let [lo, hi, jd] = v[k];
                             let nanos = u64::from(hi) << 32 | u64::from(lo);
                             let days = u64::from(jd).wrapping_sub(2_440_588);
-                            let ns =
-                                days.wrapping_mul(86_400_000_000_000).wrapping_add(nanos) as i64;
+                            let ns = days.wrapping_mul(86_400_000_000_000).wrapping_add(nanos) as i64;
                             let _ = writeln!(w, "{ns}");
                         }
                         BatchData::Bytes { .. } => {

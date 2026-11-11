@@ -1272,7 +1272,7 @@ fn dst_p1_spill_crates_have_zero_raw_fs_sites() {
 // C sizes max_safe_fds for one backend process; in pgrust all sessions share a single descriptor table, so compute_max_safe_fds divides the limit.
 #[test]
 fn generous_limit_reproduces_c_arithmetic() {
-    let c_answer = 1000 - ::types_storage::NUM_RESERVED_FDS;
+    let c_answer =1000 - ::types_storage::NUM_RESERVED_FDS;
     assert_eq!(
         vfd::compute_max_safe_fds(1000, 1000, Some(1_048_576), 300, 120),
         c_answer

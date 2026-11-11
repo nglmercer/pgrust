@@ -6,9 +6,7 @@
 use crate::central;
 use crate::reserve::zones;
 use crate::superpage::{self, State, SUPER};
-use crate::sync::{
-    tls as thread_local, AtomicBool, AtomicPtr, AtomicU32, AtomicU64, AtomicU8, AtomicUsize,
-    Ordering::*,
+use crate::sync::{tls as thread_local, AtomicBool, AtomicPtr, AtomicU32, AtomicU64, AtomicU8, AtomicUsize, Ordering::*,
 };
 use crate::{api, os, run, span, state, stats, Class};
 use core::cell::Cell;
@@ -16,10 +14,7 @@ use core::cell::Cell;
 #[derive(Clone, Copy, Debug)]
 pub enum Pressure {
     None,
-    Release {
-        bytes: usize,
-        class: Option<Class>,
-    },
+    Release { bytes: usize, class: Option<Class>, },
     /// Release every warm byte.
     Floor,
 }
@@ -135,11 +130,7 @@ static FAST_SWITCH: AtomicU32 = AtomicU32::new(0);
 pub(crate) fn fast_on() -> bool {
     match FAST_SWITCH.load(Relaxed) {
         0 => {
-            let v = if os::env_is_one(c"PGRUST_POOL_FAST_RELEASE") {
-                2
-            } else {
-                1
-            };
+            let v = if os::env_is_one(c"PGRUST_POOL_FAST_RELEASE") { 2 } else { 1 };
             FAST_SWITCH.store(v, Relaxed);
             v == 2
         }
@@ -155,32 +146,12 @@ pub(crate) fn force_fast(on: bool) {
 /// ask's time to the end of the pass that served it, in `R1_BIN_MS` bins (ms, upper bounds; the last bin open); and
 /// every `return_warm_now` (the purger's and the ladder thread's own), by step: calls, bytes released, ns.
 pub const R1_STEPS: usize = 5;
-pub const R1_STEP_ROWS: [&str; R1_STEPS] = [
-    "r1_warm_dirty",
-    "r1_dead",
-    "r1_lazy_warm",
-    "r1_warm_zero",
-    "r1_free_runs",
-];
+pub const R1_STEP_ROWS: [&str; R1_STEPS] = ["r1_warm_dirty", "r1_dead", "r1_lazy_warm", "r1_warm_zero", "r1_free_runs",];
 pub const R1_BINS: usize = 16;
 pub const R1_BIN_MS: [u64; R1_BINS - 1] = [1, 2, 3, 4, 5, 6, 8, 10, 12, 15, 20, 30, 50, 100, 200];
 pub const R1_BIN_ROWS: [&str; R1_BINS] = [
-    "r1_land_lt1",
-    "r1_land_lt2",
-    "r1_land_lt3",
-    "r1_land_lt4",
-    "r1_land_lt5",
-    "r1_land_lt6",
-    "r1_land_lt8",
-    "r1_land_lt10",
-    "r1_land_lt12",
-    "r1_land_lt15",
-    "r1_land_lt20",
-    "r1_land_lt30",
-    "r1_land_lt50",
-    "r1_land_lt100",
-    "r1_land_lt200",
-    "r1_land_ge200",
+    "r1_land_lt1", "r1_land_lt2", "r1_land_lt3", "r1_land_lt4", "r1_land_lt5", "r1_land_lt6", "r1_land_lt8", "r1_land_lt10",
+    "r1_land_lt12", "r1_land_lt15", "r1_land_lt20", "r1_land_lt30", "r1_land_lt50", "r1_land_lt100", "r1_land_lt200", "r1_land_ge200",
 ];
 static ASK_NS: AtomicU64 = AtomicU64::new(0);
 static LANDS: AtomicU64 = AtomicU64::new(0);
@@ -263,10 +234,7 @@ pub fn note_end_give(now: bool, bytes: usize) {
 fn note_land(asked_ns: u64, bytes: usize) {
     let ns = pg_clock::mono_ns().saturating_sub(asked_ns);
     let ms = ns / 1_000_000;
-    let bin = R1_BIN_MS
-        .iter()
-        .position(|&b| ms < b)
-        .unwrap_or(R1_BINS - 1);
+    let bin = R1_BIN_MS.iter().position(|&b| ms < b).unwrap_or(R1_BINS - 1);
     LANDS.fetch_add(1, Relaxed);
     LAND_NS.fetch_add(ns, Relaxed);
     LAND_MAX_NS.fetch_max(ns, Relaxed);
@@ -295,11 +263,7 @@ static GUARD_SWITCH: AtomicU32 = AtomicU32::new(0);
 pub(crate) fn guard_on() -> bool {
     match GUARD_SWITCH.load(Relaxed) {
         0 => {
-            let v = if os::env_is_one(c"PGRUST_POOL_GROW_GUARD") {
-                2
-            } else {
-                1
-            };
+            let v = if os::env_is_one(c"PGRUST_POOL_GROW_GUARD") { 2 } else { 1 };
             GUARD_SWITCH.store(v, Relaxed);
             v == 2
         }
@@ -327,16 +291,8 @@ pub(crate) fn pressed(bytes: usize) -> bool {
 /// bounds; the last open), and the asks that found another releaser running (none released).
 pub const GUARD_BINS: usize = 8;
 pub const GUARD_BIN_US: [u64; GUARD_BINS - 1] = [10, 50, 100, 500, 1_000, 5_000, 10_000];
-pub const GUARD_BIN_ROWS: [&str; GUARD_BINS] = [
-    "grow_guard_us_lt10",
-    "grow_guard_us_lt50",
-    "grow_guard_us_lt100",
-    "grow_guard_us_lt500",
-    "grow_guard_us_lt1000",
-    "grow_guard_us_lt5000",
-    "grow_guard_us_lt10000",
-    "grow_guard_us_ge10000",
-];
+pub const GUARD_BIN_ROWS: [&str; GUARD_BINS] =
+    ["grow_guard_us_lt10", "grow_guard_us_lt50", "grow_guard_us_lt100", "grow_guard_us_lt500", "grow_guard_us_lt1000", "grow_guard_us_lt5000", "grow_guard_us_lt10000", "grow_guard_us_ge10000",];
 static GUARDS: AtomicU64 = AtomicU64::new(0);
 static GUARD_BYTES: AtomicU64 = AtomicU64::new(0);
 static GUARD_NS: AtomicU64 = AtomicU64::new(0);
@@ -432,18 +388,10 @@ fn guard_release(want: usize, fresh: u32) -> usize {
         got += span::release_warm(want - got, None);
     }
     if got < want {
-        got += release_free(
-            State::WarmDirty,
-            (want - got).min(crate::warmres::spare_cap()),
-            0,
-        );
+        got += release_free(State::WarmDirty, (want - got).min(crate::warmres::spare_cap()), 0,);
     }
     if got < want {
-        got += release_free(
-            State::WarmZero,
-            (want - got).min(crate::warmres::spare_cap()),
-            0,
-        );
+        got += release_free(State::WarmZero, (want - got).min(crate::warmres::spare_cap()), 0,);
     }
     let ns = pg_clock::mono_ns().saturating_sub(t0);
     stats::PURGE_NS.fetch_add(ns, Relaxed);
@@ -453,11 +401,7 @@ fn guard_release(want: usize, fresh: u32) -> usize {
     GUARD_NS.fetch_add(ns, Relaxed);
     GUARD_MAX_NS.fetch_max(ns, Relaxed);
     let us = ns / 1_000;
-    GUARD_HIST[GUARD_BIN_US
-        .iter()
-        .position(|&b| us < b)
-        .unwrap_or(GUARD_BINS - 1)]
-    .fetch_add(1, Relaxed);
+    GUARD_HIST[GUARD_BIN_US.iter().position(|&b| us < b).unwrap_or(GUARD_BINS - 1)].fetch_add(1, Relaxed);
     got
 }
 
@@ -481,11 +425,7 @@ static HOST_WHOLE_ASK: AtomicBool = AtomicBool::new(false);
 pub(crate) fn host_on() -> bool {
     match HOST_SWITCH.load(Relaxed) {
         0 => {
-            let v = if os::env_on_by_default(c"PGRUST_POOL_HOST_PRESSURE") {
-                2
-            } else {
-                1
-            };
+            let v = if os::env_on_by_default(c"PGRUST_POOL_HOST_PRESSURE") { 2 } else { 1 };
             HOST_SWITCH.store(v, Relaxed);
             v == 2
         }
@@ -546,11 +486,7 @@ fn host_release() -> usize {
     let age = cfg.host_age_ms;
     superpage::spin(&PURGING);
     let mut got = release_free(State::WarmDirty, crate::warmres::spare_cap(), age);
-    got += if age == 0 {
-        span::release_warm(usize::MAX, None)
-    } else {
-        span::age_warm(age, usize::MAX, usize::MAX, cfg.purge_batch).0
-    };
+    got += if age == 0 { span::release_warm(usize::MAX, None) } else { span::age_warm(age, usize::MAX, usize::MAX, cfg.purge_batch).0 };
     got += release_free(State::WarmZero, crate::warmres::spare_cap(), age);
     superpage::unspin(&PURGING);
     got
@@ -598,11 +534,8 @@ pub fn return_warm() -> usize {
         let _ = ASK_NS.compare_exchange(0, pg_clock::mono_ns().max(1), Relaxed, Relaxed);
         LANDING_AT.store(tick().max(1), Relaxed);
         let can = (can as u64).min(ASK_BYTES);
-        let bump =
-            |w: u64| ((w >> ASK_BITS).wrapping_add(1) << ASK_BITS) | (w & ASK_BYTES).max(can);
-        let was = LANDING
-            .fetch_update(AcqRel, Acquire, |w| Some(bump(w)))
-            .unwrap_or_else(|w| w);
+        let bump = |w: u64| ((w >> ASK_BITS).wrapping_add(1) << ASK_BITS) | (w & ASK_BYTES).max(can);
+        let was = LANDING.fetch_update(AcqRel, Acquire, |w| Some(bump(w))).unwrap_or_else(|w| w);
         let t = THREAD.load(Acquire);
         if !t.is_null() {
             // SAFETY: published once by `start`, never freed.
@@ -633,8 +566,7 @@ pub fn return_warm_now(want: usize) -> usize {
     state::set_low(true);
     home_lists(None);
     let want = if fast { want.min(releasable()) } else { want };
-    let mut got = step(0, || {
-        release_free(State::WarmDirty, want.min(crate::warmres::spare_cap()), 0)
+    let mut got = step(0, || { release_free(State::WarmDirty, want.min(crate::warmres::spare_cap()), 0)
     });
     if got < want {
         got += step(1, || api::release_dead(want - got, fast));
@@ -643,12 +575,7 @@ pub fn return_warm_now(want: usize) -> usize {
         got += step(2, || span::release_warm(want - got, None));
     }
     if got < want {
-        got += step(3, || {
-            release_free(
-                State::WarmZero,
-                (want - got).min(crate::warmres::spare_cap()),
-                0,
-            )
+        got += step(3, || { release_free(State::WarmZero, (want - got).min(crate::warmres::spare_cap()), 0,)
         });
     }
     if got < want {
@@ -743,11 +670,7 @@ fn purge(want: usize, class: Option<Class>) -> usize {
     home_lists(class);
     let mut got = release_free(State::WarmDirty, want.min(crate::warmres::spare_cap()), 0);
     if got < want {
-        got += release_free(
-            State::WarmZero,
-            (want - got).min(crate::warmres::spare_cap()),
-            0,
-        );
+        got += release_free(State::WarmZero, (want - got).min(crate::warmres::spare_cap()), 0,);
     }
     if got < want {
         got += api::release_dead(want - got, fast_on());
@@ -816,20 +739,14 @@ fn release_free(st: State, want: usize, min_age_ms: u32) -> usize {
         let base = c * superpage::stride_slots();
         let mut i = base;
         while i < base + superpage::per_chunk() && got < want {
-            let ok = |i: u32| {
-                age_bin(i).is_some_and(|b| b as usize >= cut) && superpage::meta(i).state() == st
+            let ok = |i: u32| { age_bin(i).is_some_and(|b| b as usize >= cut) && superpage::meta(i).state() == st
             };
             if !ok(i) || !take_in(i, st) {
                 i += 1;
                 continue;
             }
             let mut j = i + 1;
-            while j < base + superpage::per_chunk()
-                && j - i < batch
-                && got + ((j - i) as usize) * SUPER < want
-                && ok(j)
-                && take_in(j, st)
-            {
+            while j < base + superpage::per_chunk() && j - i < batch && got + ((j - i) as usize) * SUPER < want && ok(j) && take_in(j, st) {
                 j += 1;
             }
             got += release_run(i, j - i, st);
@@ -876,17 +793,11 @@ fn age_pass() {
     superpage::spin(&PURGING);
     let over = warm - cfg.warm_cap;
     // ppres: with PGRUST_POOL_RESERVE on, WarmDirty is the reserve too (recycled in place): the pass takes only the spare.
-    let got = release_free(
-        State::WarmDirty,
-        over.min(crate::warmres::age_cap()),
-        cfg.decay_ms,
-    );
+    let got = release_free(State::WarmDirty, over.min(crate::warmres::age_cap()), cfg.decay_ms,);
     // pagepool P3 (F1): WarmZero up to the claimer's target stays. Under it the claimer prefaults again what this pass
     // gives back (it fills to its target), a release and a refault a decay apart for as long as the server idles (ppsmall
     // 19:11Z: ~13 MB/s idle). Past the target (it halves at idle) there is no refill, so that much goes.
-    let spare = (superpage::count(State::WarmZero) * SUPER)
-        .saturating_sub(crate::claimer::target())
-        .min(crate::warmres::age_cap());
+    let spare = (superpage::count(State::WarmZero) * SUPER).saturating_sub(crate::claimer::target()).min(crate::warmres::age_cap());
     if got < over && spare > 0 {
         release_free(State::WarmZero, (over - got).min(spare), cfg.decay_ms);
     }
@@ -945,11 +856,7 @@ fn lazy_pass(now: u32, force: bool, spent: usize) -> usize {
         return 0;
     }
     // ppround card 14: a pass every PEAK_MS while the claim climbs (`PRESENT_MS` otherwise)
-    let period = if CLIMBING.load(Relaxed) {
-        PEAK_MS
-    } else {
-        crate::present::PRESENT_MS
-    };
+    let period = if CLIMBING.load(Relaxed) { PEAK_MS } else { crate::present::PRESENT_MS };
     if !force && now.wrapping_sub(LAZY_AT.load(Relaxed)) < period {
         return 0;
     }
@@ -958,20 +865,9 @@ fn lazy_pass(now: u32, force: bool, spent: usize) -> usize {
     // ppround card 14 (`PGRUST_POOL_PEAK_RELEASE`): the claim's climb over the last `CLIMB_MS`
     let climb = climbing(now, stats::claimed());
     CLIMBING.store(climb, Relaxed);
-    PASS_END.store(
-        if force {
-            u64::MAX
-        } else {
-            t0 + if climb { PEAK_PASS_NS } else { PASS_NS }
-        },
-        Relaxed,
-    );
+    PASS_END.store(if force { u64::MAX } else { t0 + if climb { PEAK_PASS_NS } else { PASS_NS } }, Relaxed,);
     let batch = cfg.purge_batch;
-    let mut budget = if cfg.age_pass_max == 0 {
-        usize::MAX
-    } else {
-        cfg.age_pass_max.saturating_sub(spent)
-    };
+    let mut budget = if cfg.age_pass_max == 0 { usize::MAX } else { cfg.age_pass_max.saturating_sub(spent) };
     let mut got = 0;
     let mut take = |(g, r): (usize, usize), budget: &mut usize| {
         got += g;
@@ -989,32 +885,16 @@ fn lazy_pass(now: u32, force: bool, spent: usize) -> usize {
             // apart; SKIP, no free-run walk under `SKIP_MIN` of resident free runs and no dead walk under `SKIP_MIN` dead;
             // DEAD1, the dead walk's mark makes a dead run ripe at once (one mark, not two)
             let lev = peak_levers();
-            let walk = lev & LEVER_AGE == 0
-                || WALK_LATE.load(Relaxed)
-                || now.wrapping_sub(WALK_AT.load(Relaxed)) >= WALK_MS;
+            let walk = lev & LEVER_AGE == 0 || WALK_LATE.load(Relaxed) || now.wrapping_sub(WALK_AT.load(Relaxed)) >= WALK_MS;
             if walk {
                 WALK_AT.store(now, Relaxed);
                 let pos = |v: isize| v.max(0) as usize;
-                let runs_ok =
-                    lev & LEVER_SKIP == 0 || pos(stats::FREE_RUNS.load(Relaxed)) >= SKIP_MIN;
+                let runs_ok = lev & LEVER_SKIP == 0 || pos(stats::FREE_RUNS.load(Relaxed)) >= SKIP_MIN;
                 let dead_ok = lev & LEVER_SKIP == 0 || pos(stats::DEAD.load(Relaxed)) >= SKIP_MIN;
-                let runs = if runs_ok {
-                    state::age_free_runs(budget)
-                } else {
-                    (0, 0)
-                };
+                let runs = if runs_ok { state::age_free_runs(budget) } else { (0, 0) };
                 take(runs, &mut budget);
                 let dead = if dead_ok {
-                    api::dead_pass(
-                        if lev & LEVER_DEAD1 != 0 {
-                            api::DeadPass::Mark1
-                        } else {
-                            api::DeadPass::Mark
-                        },
-                        0,
-                        0,
-                        batch,
-                    );
+                    api::dead_pass(if lev & LEVER_DEAD1 != 0 { api::DeadPass::Mark1 } else { api::DeadPass::Mark }, 0, 0, batch,);
                     api::dead_pass(api::DeadPass::Ripe, usize::MAX, budget, batch)
                 } else {
                     (0, 0)
@@ -1022,10 +902,7 @@ fn lazy_pass(now: u32, force: bool, spent: usize) -> usize {
                 take(dead, &mut budget);
                 // WARM1: a freed lazy span ages out after one walk period, not the decay
                 if lev & LEVER_WARM1 != 0 {
-                    take(
-                        span::age_warm(WALK_MS.min(cfg.lazy_decay_ms), usize::MAX, budget, batch),
-                        &mut budget,
-                    );
+                    take(span::age_warm(WALK_MS.min(cfg.lazy_decay_ms), usize::MAX, budget, batch), &mut budget,);
                 }
                 WALK_LATE.store(lev & LEVER_AGE != 0 && pass_late(), Relaxed);
                 PEAK_SKIPS.fetch_add(!runs_ok as u64 + !dead_ok as u64, Relaxed);
@@ -1034,40 +911,26 @@ fn lazy_pass(now: u32, force: bool, spent: usize) -> usize {
                 PEAK_WAITS.fetch_add(1, Relaxed);
             }
         }
-        take(
-            span::age_warm(cfg.lazy_decay_ms, usize::MAX, budget, batch),
-            &mut budget,
-        );
-        take(
-            api::dead_pass(api::DeadPass::Ripe, usize::MAX, budget, batch),
-            &mut budget,
-        );
+        take(span::age_warm(cfg.lazy_decay_ms, usize::MAX, budget, batch), &mut budget,);
+        take(api::dead_pass(api::DeadPass::Ripe, usize::MAX, budget, batch), &mut budget,);
         if due {
             MARK_AT.store(now, Relaxed);
             take(state::age_free_runs(budget), &mut budget);
             api::dead_pass(api::DeadPass::Mark, 0, 0, batch);
-            take(
-                api::dead_pass(api::DeadPass::Ripe, usize::MAX, budget, batch),
-                &mut budget,
-            );
+            take(api::dead_pass(api::DeadPass::Ripe, usize::MAX, budget, batch), &mut budget,);
             // pppress card 8 (`pool_thp_partial` 3): a new decay for the activity bits, after the passes that read them
             state::clear_active();
         }
     }
-    if cfg.lazy_cap > 0 && budget > 0 && (force || now.wrapping_sub(CAP_AT.load(Relaxed)) >= CAP_MS)
-    {
+    if cfg.lazy_cap > 0 && budget > 0 && (force || now.wrapping_sub(CAP_AT.load(Relaxed)) >= CAP_MS) {
         CAP_AT.store(now, Relaxed);
         let pos = |v: isize| v.max(0) as usize;
-        let over = (pos(stats::LAZY_WARM.load(Relaxed)) + pos(stats::DEAD.load(Relaxed)))
-            .saturating_sub(cfg.lazy_cap);
+        let over = (pos(stats::LAZY_WARM.load(Relaxed)) + pos(stats::DEAD.load(Relaxed))).saturating_sub(cfg.lazy_cap);
         if over > 0 {
             let (g, r) = span::age_warm(0, over, budget, batch);
             take((g, r), &mut budget);
             if g < over && budget > 0 {
-                take(
-                    api::dead_pass(api::DeadPass::Any, over - g, budget, batch),
-                    &mut budget,
-                );
+                take(api::dead_pass(api::DeadPass::Any, over - g, budget, batch), &mut budget,);
             }
         }
     }
@@ -1098,9 +961,7 @@ pub(crate) fn peak_on() -> bool {
     match PEAK_SWITCH.load(Relaxed) {
         0 => {
             // v3: an odd value is on, its other bits the levers (1: v2 as it was; 31: every lever)
-            let v = os::env_str(c"PGRUST_POOL_PEAK_RELEASE")
-                .and_then(|s| s.trim().parse::<u32>().ok())
-                .unwrap_or(0);
+            let v = os::env_str(c"PGRUST_POOL_PEAK_RELEASE").and_then(|s| s.trim().parse::<u32>().ok()).unwrap_or(0);
             let on = v & 1 == 1 && v <= 31;
             PEAK_LEVERS.store(if on { v & !1 } else { 0 }, Relaxed);
             PEAK_SWITCH.store(if on { 2 } else { 1 }, Relaxed);
@@ -1133,10 +994,7 @@ pub(crate) fn peak_levers() -> u32 {
 }
 
 pub(crate) fn force_peak_levers(levers: u32) {
-    PEAK_LEVERS.store(
-        levers & (LEVER_SKIP | LEVER_AGE | LEVER_DEAD1 | LEVER_WARM1),
-        Relaxed,
-    );
+    PEAK_LEVERS.store(levers & (LEVER_SKIP | LEVER_AGE | LEVER_DEAD1 | LEVER_WARM1), Relaxed,);
 }
 
 static PEAK_LEVERS: AtomicU32 = AtomicU32::new(0);
@@ -1297,11 +1155,7 @@ fn serve_ask() -> usize {
     }
     let r1_got = got;
     // D4872 (B): the host's whole-memory ask, after R1's and the ladder's
-    let host = if HOST_WHOLE_ASK.swap(false, Acquire) {
-        host_release()
-    } else {
-        0
-    };
+    let host = if HOST_WHOLE_ASK.swap(false, Acquire) { host_release() } else { 0 };
     if HOST_ASKED.swap(false, Relaxed) {
         HOST_BYTES.fetch_add(host as u64, Relaxed);
     }
@@ -1336,11 +1190,7 @@ pub fn serve_ask_now() -> usize {
 
 fn run() {
     let cfg = zones().cfg;
-    let wait = if cfg.release_mode < 2 && cfg.decay_ms > 0 {
-        (cfg.decay_ms / 4).clamp(10, 1_000)
-    } else {
-        3_600_000
-    };
+    let wait = if cfg.release_mode < 2 && cfg.decay_ms > 0 { (cfg.decay_ms / 4).clamp(10, 1_000) } else { 3_600_000 };
     let window = cfg.idle_drain_ms.saturating_mul(4).max(1);
     // pagepool P3 (c): the purger also sweeps the pool's present bytes every PRESENT_MS (present.rs); the age pass keeps
     // its own cadence (`wait`), run on an ask's wake as before, so the shorter park changes no release (the claimer's
@@ -1364,16 +1214,11 @@ fn run() {
         }
         serve_ask();
         // C.23: given base spans back first (a dirty one blocks the next carve), out of the pass's remap budget
-        let spent = crate::span::clean_base(if cfg.age_pass_max == 0 {
-            usize::MAX
-        } else {
-            cfg.age_pass_max
-        });
+        let spent = crate::span::clean_base(if cfg.age_pass_max == 0 { usize::MAX } else { cfg.age_pass_max });
         cut_in();
         let now = tick();
         if returned || asked || now.wrapping_sub(age_at) >= wait {
-            if cfg.release_mode < 2 && cfg.decay_ms > 0 && now.wrapping_sub(home_at) >= cfg.decay_ms
-            {
+            if cfg.release_mode < 2 && cfg.decay_ms > 0 && now.wrapping_sub(home_at) >= cfg.decay_ms {
                 idle_home_pass();
                 home_at = now;
             }
@@ -1383,10 +1228,7 @@ fn run() {
         }
         // pagepool P3 (F1): the free runs of small blocks reach their superpages' bitmaps only once their lists go home:
         // with lazy release on and age release off, idle lists go home every lazy decay
-        if !(cfg.release_mode < 2 && cfg.decay_ms > 0)
-            && cfg.lazy_decay_ms > 0
-            && now.wrapping_sub(home_at) >= cfg.lazy_decay_ms
-        {
+        if !(cfg.release_mode < 2 && cfg.decay_ms > 0) && cfg.lazy_decay_ms > 0 && now.wrapping_sub(home_at) >= cfg.lazy_decay_ms {
             idle_home_pass();
             home_at = now;
         }
@@ -1394,23 +1236,11 @@ fn run() {
         cut_in();
         crate::claimer::decay(tick(), window, &LAST_DECAY);
         crate::present::refresh_if_due(tick());
-        if ASK.load(Acquire) == 0
-            && LANDING.load(Acquire) == 0
-            && !RETURN_ASK.load(Acquire)
-            && !HOST_WHOLE_ASK.load(Acquire)
-        {
-            let wait = if crate::claimer::target() > cfg.warm_zero {
-                wait.min(window / 2).max(1)
-            } else {
-                wait
-            };
+        if ASK.load(Acquire) == 0 && LANDING.load(Acquire) == 0 && !RETURN_ASK.load(Acquire) && !HOST_WHOLE_ASK.load(Acquire) {
+            let wait = if crate::claimer::target() > cfg.warm_zero { wait.min(window / 2).max(1) } else { wait };
             let left = wait.saturating_sub(tick().wrapping_sub(age_at)).max(1);
             // ppround card 14: PEAK_MS while the claim climbs
-            let tick_ms = if CLIMBING.load(Relaxed) {
-                PEAK_MS
-            } else {
-                crate::present::PRESENT_MS
-            };
+            let tick_ms = if CLIMBING.load(Relaxed) { PEAK_MS } else { crate::present::PRESENT_MS };
             std::thread::park_timeout(core::time::Duration::from_millis(left.min(tick_ms) as u64));
         }
     }
@@ -1426,17 +1256,9 @@ pub(crate) fn start() -> bool {
 #[cfg(target_os = "linux")]
 fn spawn() -> bool {
     STOP.store(false, Relaxed);
-    let Ok(h) = std::thread::Builder::new()
-        .name("pg:poolpurge".into())
-        .spawn(pagegive::pinned(run))
-    else {
-        return false;
-    };
+    let Ok(h) = std::thread::Builder::new().name("pg:poolpurge".into()).spawn(pagegive::pinned(run)) else { return false; };
     let t = Box::into_raw(Box::new(h.thread().clone()));
-    if THREAD
-        .compare_exchange(core::ptr::null_mut(), t, AcqRel, Acquire)
-        .is_err()
-    {
+    if THREAD.compare_exchange(core::ptr::null_mut(), t, AcqRel, Acquire).is_err() {
         // SAFETY: ours, never published.
         drop(unsafe { Box::from_raw(t) });
     }
@@ -1462,10 +1284,7 @@ pub(crate) fn ask_split(at: usize) -> bool {
     }) {
         return true;
     }
-    if !SPLIT_ASKS
-        .iter()
-        .any(|s| s.compare_exchange(0, at, AcqRel, Relaxed).is_ok())
-    {
+    if !SPLIT_ASKS.iter().any(|s| s.compare_exchange(0, at, AcqRel, Relaxed).is_ok()) {
         return false;
     }
     SPLIT_ASKED.fetch_add(1, Relaxed);

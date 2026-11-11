@@ -29,20 +29,25 @@ use types_storage::storage::ProcSignalBarrierType;
 use types_tuple::{HeapTupleData, NameData};
 
 use crate::{
-    cache_lookup_failed, errdetail_busy_db, get_db_info, have_createdb_privilege, loc, name_key,
-    TableSpaceRelationId, GLOBALTABLESPACE_OID, XLOG_DBASE_DROP,
+    cache_lookup_failed, errdetail_busy_db, get_db_info, have_createdb_privilege, loc, name_key, TableSpaceRelationId, GLOBALTABLESPACE_OID, XLOG_DBASE_DROP,
 };
 
 fn text_datum_string(mcx: Mcx<'_>, d: Datum) -> PgResult<String> {
     let p = d.as_usize() as *const u8;
     // SAFETY: d comes off a not-null text column: a live varlena image
     // readable through its varsize_any extent.
-    let image = unsafe { core::slice::from_raw_parts(p, types_tuple::varatt::varsize_any(p)) };
+    let image = unsafe {
+        core::slice::from_raw_parts(p, types_tuple::varatt::varsize_any(p))
+    };
     let payload = varlena::open_image(mcx, image)?;
     Ok(String::from_utf8_lossy(payload.as_bytes()).into_owned())
 }
 
-fn getattr(tup: &HeapTupleData<'_>, attno: i32, rel: &Relation<'_>) -> (Datum, bool) {
+fn getattr(
+    tup: &HeapTupleData<'_>,
+    attno: i32,
+    rel: &Relation<'_>
+) -> (Datum, bool) {
     let mut isnull = false;
     // SAFETY: pg_database row read under this relation's descriptor.
     let d = unsafe { types_tuple::heap_getattr(tup, attno, rel.descr(), &mut isnull) };
@@ -100,16 +105,15 @@ pub fn RenameDatabase(mcx: Mcx<'_>, oldname: &str, newname: &str) -> PgResult<Oi
     if let Some((notherbackends, npreparedxacts)) = procarray::CountOtherDBBackends(db_id)? {
         return Err(ereport(ERROR)
             .errcode(ERRCODE_OBJECT_IN_USE)
-            .errmsg(format!(
-                "database \"{oldname}\" is being accessed by other users"
-            ))
+            .errmsg(format!("database \"{oldname}\" is being accessed by other users"))
             .errdetail(errdetail_busy_db(notherbackends, npreparedxacts))
             .into_error()
             .into());
     }
 
     let (_nd, key) = name_key(mcx, oldname)?;
-    let mut scan = genam::systable_beginscan(mcx, &rel, DatabaseNameIndexId, true, None, &[key])?;
+    let mut scan =
+        genam::systable_beginscan(mcx, &rel, DatabaseNameIndexId, true, None, &[key])?;
     let Some(tup) = genam::systable_getnext(mcx, &mut scan)? else {
         return Err(cache_lookup_failed("database", db_id));
     };
@@ -186,16 +190,19 @@ pub fn movedb(mcx: Mcx<'_>, dbname: &str, tblspcname: &str) -> PgResult<()> {
 
     if src_tblspcoid == dst_tblspcoid {
         pgdbrel.close(types_storage::lock::NoLock)?;
-        lmgr::UnlockSharedObjectForSession(DATABASE_RELATION_ID, db_id, 0, AccessExclusiveLock)?;
+        lmgr::UnlockSharedObjectForSession(
+            DATABASE_RELATION_ID,
+            db_id,
+            0,
+            AccessExclusiveLock
+        )?;
         return Ok(());
     }
 
     if let Some((notherbackends, npreparedxacts)) = procarray::CountOtherDBBackends(db_id)? {
         return Err(ereport(ERROR)
             .errcode(ERRCODE_OBJECT_IN_USE)
-            .errmsg(format!(
-                "database \"{dbname}\" is being accessed by other users"
-            ))
+            .errmsg(format!("database \"{dbname}\" is being accessed by other users"))
             .errdetail(errdetail_busy_db(notherbackends, npreparedxacts))
             .into_error()
             .into());
@@ -377,9 +384,7 @@ pub fn AlterDatabase<'mcx>(
     let mut noptions = 0usize;
 
     for opt in stmt.options.iter() {
-        let defel = opt
-            .as_def_elem()
-            .expect("ALTER DATABASE options are DefElems");
+        let defel = opt.as_def_elem().expect("ALTER DATABASE options are DefElems");
         noptions += 1;
         let slot: &mut Option<&DefElem> = match defel.defname.unwrap_or("") {
             "is_template" => &mut distemplate,
@@ -463,7 +468,8 @@ pub fn AlterDatabase<'mcx>(
 
     let rel = table::table_open(mcx, DATABASE_RELATION_ID, RowExclusiveLock)?;
     let (_nd, key) = name_key(mcx, dbname)?;
-    let mut scan = genam::systable_beginscan(mcx, &rel, DatabaseNameIndexId, true, None, &[key])?;
+    let mut scan =
+        genam::systable_beginscan(mcx, &rel, DatabaseNameIndexId, true, None, &[key])?;
     let Some(tuple) = genam::systable_getnext(mcx, &mut scan)? else {
         return Err(ereport(ERROR)
             .errcode(ERRCODE_UNDEFINED_DATABASE)
@@ -475,9 +481,7 @@ pub fn AlterDatabase<'mcx>(
     lmgr::LockTuple(&rel, &otid, InplaceUpdateTupleLock)?;
 
     let dboid = getattr(tuple, Anum_pg_database_oid, &rel).0.as_oid();
-    let datconnlimit = getattr(tuple, Anum_pg_database_datconnlimit, &rel)
-        .0
-        .as_i32();
+    let datconnlimit = getattr(tuple, Anum_pg_database_datconnlimit, &rel).0.as_i32();
 
     if crate::database_is_invalid_form(datconnlimit) {
         return Err(ereport(FATAL)
@@ -539,7 +543,8 @@ pub fn AlterDatabaseRefreshColl<'mcx>(
 
     let rel = table::table_open(mcx, DATABASE_RELATION_ID, RowExclusiveLock)?;
     let (_nd, key) = name_key(mcx, dbname)?;
-    let mut scan = genam::systable_beginscan(mcx, &rel, DatabaseNameIndexId, true, None, &[key])?;
+    let mut scan =
+        genam::systable_beginscan(mcx, &rel, DatabaseNameIndexId, true, None, &[key])?;
     let Some(tuple) = genam::systable_getnext(mcx, &mut scan)? else {
         return Err(ereport(ERROR)
             .errcode(ERRCODE_UNDEFINED_DATABASE)
@@ -549,9 +554,7 @@ pub fn AlterDatabaseRefreshColl<'mcx>(
     };
 
     let db_id = getattr(tuple, Anum_pg_database_oid, &rel).0.as_oid();
-    let datlocprovider = getattr(tuple, Anum_pg_database_datlocprovider, &rel)
-        .0
-        .as_u8();
+    let datlocprovider = getattr(tuple, Anum_pg_database_datlocprovider, &rel).0.as_u8();
 
     if !aclchk::object_ownercheck(DATABASE_RELATION_ID, db_id, miscinit::GetUserId())? {
         return Err(not_owner(dbname));
@@ -602,8 +605,14 @@ pub fn AlterDatabaseRefreshColl<'mcx>(
             values[Anum_pg_database_datcollversion as usize - 1] =
                 Datum::from_usize(version_text.as_bytes().as_ptr() as usize);
             replace[Anum_pg_database_datcollversion as usize - 1] = true;
-            let mut newtuple =
-                heaptuple::heap_modify_tuple(mcx, tuple, rel.descr(), &values, &isnull, &replace)?;
+            let mut newtuple = heaptuple::heap_modify_tuple(
+                mcx,
+                tuple,
+                rel.descr(),
+                &values,
+                &isnull,
+                &replace
+            )?;
             catalog_indexing::CatalogTupleUpdate(mcx, &rel, &otid, &mut newtuple)?;
         }
         _ => {
@@ -647,7 +656,8 @@ pub fn AlterDatabaseSet<'mcx>(mcx: Mcx<'mcx>, stmt: &AlterDatabaseSetStmt<'mcx>)
 pub fn AlterDatabaseOwner(mcx: Mcx<'_>, dbname: &str, new_owner_id: Oid) -> PgResult<Oid> {
     let rel = table::table_open(mcx, DATABASE_RELATION_ID, RowExclusiveLock)?;
     let (_nd, key) = name_key(mcx, dbname)?;
-    let mut scan = genam::systable_beginscan(mcx, &rel, DatabaseNameIndexId, true, None, &[key])?;
+    let mut scan =
+        genam::systable_beginscan(mcx, &rel, DatabaseNameIndexId, true, None, &[key])?;
     let Some(tuple) = genam::systable_getnext(mcx, &mut scan)? else {
         return Err(ereport(ERROR)
             .errcode(ERRCODE_UNDEFINED_DATABASE)
@@ -701,8 +711,9 @@ pub fn AlterDatabaseOwner(mcx: Mcx<'_>, dbname: &str, new_owner_id: Oid) -> PgRe
             let p = acl_d.as_usize() as *const u8;
             // SAFETY: non-null datacl datum: a live varlena image inside the
             // scanned tuple, readable through its varsize_any extent.
-            let image =
-                unsafe { core::slice::from_raw_parts(p, types_tuple::varatt::varsize_any(p)) };
+            let image = unsafe {
+                core::slice::from_raw_parts(p, types_tuple::varatt::varsize_any(p))
+            };
             let payload = varlena::open_image(mcx, image)?;
             let items = adt_acl::varlena::decode_acl_payload(mcx, payload.as_bytes())?;
             let new_items = adt_acl::aclnewowner(mcx, &items, datdba, new_owner_id)?;

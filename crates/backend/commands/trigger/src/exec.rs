@@ -11,8 +11,8 @@ use types_nodes::Bitmapset;
 use types_rel::Relation;
 use types_slot::SlotData;
 use types_trigger::{
-    Trigger, TRIGGER_DISABLED, TRIGGER_EVENT_OPMASK, TRIGGER_EVENT_UPDATE, TRIGGER_FIRES_ON_ORIGIN,
-    TRIGGER_FIRES_ON_REPLICA,
+    Trigger, TRIGGER_DISABLED, TRIGGER_EVENT_OPMASK, TRIGGER_EVENT_UPDATE,
+    TRIGGER_FIRES_ON_ORIGIN, TRIGGER_FIRES_ON_REPLICA,
 };
 use types_trigger_call::TriggerData;
 use types_tuple::htup::FirstLowInvalidHeapAttributeNumber;
@@ -29,11 +29,9 @@ impl TriggerFmgrCache {
     pub fn get(&mut self, tgindx: usize, tgfoid: types_core::Oid) -> PgResult<&mut FmgrInfo> {
         if self.finfo.len() <= tgindx {
             let needed = tgindx + 1 - self.finfo.len();
-            self.finfo.try_reserve(needed).map_err(|_| {
-                mcx::oom_named(
-                    "TriggerFmgrCache",
-                    needed * core::mem::size_of::<Option<FmgrInfo>>(),
-                )
+            self.finfo
+                .try_reserve(needed)
+                .map_err(|_| { mcx::oom_named("TriggerFmgrCache", needed * core::mem::size_of::<Option<FmgrInfo>>(),)
             })?;
             self.finfo.resize_with(tgindx + 1, || None);
         }
@@ -120,12 +118,7 @@ fn expand_generated_columns_in_expr<'mcx>(
     varno: i32,
 ) -> PgResult<Option<types_nodes::Node<'mcx>>> {
     const VIRTUAL_GEN: i8 = types_core::catalog::ATTRIBUTE_GENERATED_VIRTUAL as i8;
-    if !rel
-        .rd_att
-        .constr
-        .as_deref()
-        .is_some_and(|c| c.has_generated_virtual)
-    {
+    if !rel.rd_att.constr.as_deref().is_some_and(|c| c.has_generated_virtual) {
         return Ok(None);
     }
     if let Some(v) = node.as_var() {
@@ -184,7 +177,8 @@ fn expand_generated_columns_in_expr<'mcx>(
         // rewriteManip.c:1858-1873 (ReplaceVarsFromTargetList_callback):
         // a system column (varattno < 0) has no targetlist entry, and the
         // REPLACEVARS_CHANGE_VARNO arm leaves the Var alone.
-        if v.varattno < 0 || rel.rd_att.attr(v.varattno as usize - 1).attgenerated != VIRTUAL_GEN {
+        if v.varattno < 0 || rel.rd_att.attr(v.varattno as usize - 1).attgenerated != VIRTUAL_GEN
+        {
             return Ok(None);
         }
         let e = build_generation_expression(mcx, rel, v.varattno as usize)?;
@@ -243,10 +237,9 @@ impl<'a, 'mcx> TriggerWhenEval<'a, 'mcx> {
     fn compile(&mut self, idx: usize, trigger: &Trigger<'_>, rel: &Relation<'mcx>) -> PgResult<()> {
         if self.cache.states.len() <= idx {
             let needed = idx + 1 - self.cache.states.len();
-            self.cache.states.try_reserve(needed).map_err(|_| {
-                self.mcx.oom(
-                    needed * core::mem::size_of::<Option<PgBox<'mcx, execexpr::ExprState<'mcx>>>>(),
-                )
+            self.cache.states
+                .try_reserve(needed)
+                .map_err(|_| { self.mcx.oom(needed * core::mem::size_of::<Option<PgBox<'mcx, execexpr::ExprState<'mcx>>>>(),)
             })?;
             self.cache.states.resize_with(idx + 1, || None);
         }
@@ -272,12 +265,10 @@ impl<'a, 'mcx> TriggerWhenEval<'a, 'mcx> {
         }
         let mut state = execexpr::exec_init_qual(self.mcx, &planned, execexpr::ParamBind::NONE)?;
         let parent = self.mcx;
-        let per_tuple = self.cache.per_tuple.get_or_insert_with(|| {
-            Box::new(
-                parent
-                    .context()
-                    .new_child_wholesale("TriggerWhen per-tuple"),
-            )
+        let per_tuple = self
+            .cache
+            .per_tuple
+            .get_or_insert_with(|| { Box::new(parent.context().new_child_wholesale("TriggerWhen per-tuple"),)
         });
         if let Some(st) = state.as_deref_mut() {
             // SAFETY: the boxed context is owned by the cache that owns this
@@ -305,11 +296,7 @@ impl<'a, 'mcx> TriggerWhenEval<'a, 'mcx> {
         }
         self.compile(idx, trigger, rel)?;
         self.reset_per_tuple();
-        let mut slots = execexpr::EvalSlots {
-            scan: None,
-            inner: old_slot,
-            outer: new_slot,
-        };
+        let mut slots = execexpr::EvalSlots { scan: None, inner: old_slot, outer: new_slot, };
         execexpr::exec_qual(self.cache.states[idx].as_deref_mut(), &mut slots)
     }
 
@@ -334,9 +321,7 @@ impl<'a, 'mcx> TriggerWhenEval<'a, 'mcx> {
         self.reset_per_tuple();
         let mcx = self.mcx;
         let stage = |slot: &mut Option<SlotData<'mcx>>, tup: Option<&HeapTupleData<'_>>| {
-            let Some(tup) = tup else {
-                return Ok::<_, Box<PgError>>(None);
-            };
+            let Some(tup) = tup else { return Ok::<_, Box<PgError>>(None); };
             let s = slot.get_or_insert_with(|| {
                 exectuples::make_tuple_table_slot(
                     mcx,
@@ -357,26 +342,13 @@ impl<'a, 'mcx> TriggerWhenEval<'a, 'mcx> {
             exectuples::exec_store_heap_tuple(s, mcx, staged);
             Ok(Some(()))
         };
-        let TriggerWhenCache {
-            states,
-            scratch_old,
-            scratch_new,
-            ..
-        } = &mut *self.cache;
+        let TriggerWhenCache { states, scratch_old, scratch_new, .. } = &mut *self.cache;
         stage(scratch_old, old_tup)?;
         stage(scratch_new, new_tup)?;
         let mut slots = execexpr::EvalSlots {
             scan: None,
-            inner: if old_tup.is_some() {
-                scratch_old.as_mut()
-            } else {
-                None
-            },
-            outer: if new_tup.is_some() {
-                scratch_new.as_mut()
-            } else {
-                None
-            },
+            inner: if old_tup.is_some() { scratch_old.as_mut() } else { None },
+            outer: if new_tup.is_some() { scratch_new.as_mut() } else { None },
         };
         let ok = execexpr::exec_qual(states[idx].as_deref_mut(), &mut slots)?;
         if let Some(s) = scratch_old.as_mut() {
@@ -407,8 +379,7 @@ pub fn ExecBSInsertTriggers<'mcx>(
     }
     let tg_event = TRIGGER_EVENT_INSERT | TRIGGER_EVENT_BEFORE;
     for (i, trigger) in trigdesc.triggers.iter().enumerate() {
-        if trigger.tgtype
-            & (TRIGGER_TYPE_LEVEL_MASK | TRIGGER_TYPE_TIMING_MASK | TRIGGER_TYPE_INSERT)
+        if trigger.tgtype & (TRIGGER_TYPE_LEVEL_MASK | TRIGGER_TYPE_TIMING_MASK | TRIGGER_TYPE_INSERT)
             != TRIGGER_TYPE_STATEMENT | TRIGGER_TYPE_BEFORE | TRIGGER_TYPE_INSERT
         {
             continue;
@@ -440,8 +411,9 @@ pub fn ExecBSTruncateTriggers<'mcx>(
     when: &mut TriggerWhenEval<'_, 'mcx>,
 ) -> PgResult<()> {
     use types_trigger::{
-        TRIGGER_EVENT_BEFORE, TRIGGER_EVENT_TRUNCATE, TRIGGER_TYPE_BEFORE, TRIGGER_TYPE_LEVEL_MASK,
-        TRIGGER_TYPE_STATEMENT, TRIGGER_TYPE_TIMING_MASK, TRIGGER_TYPE_TRUNCATE,
+        TRIGGER_EVENT_BEFORE, TRIGGER_EVENT_TRUNCATE, TRIGGER_TYPE_BEFORE,
+        TRIGGER_TYPE_LEVEL_MASK, TRIGGER_TYPE_STATEMENT, TRIGGER_TYPE_TIMING_MASK,
+        TRIGGER_TYPE_TRUNCATE,
     };
     if !trigdesc.trig_truncate_before_statement {
         return Ok(());
@@ -551,8 +523,7 @@ fn insert_row_triggers<'mcx>(
     };
     let tg_event = TRIGGER_EVENT_INSERT | TRIGGER_EVENT_ROW | event_timing;
     for (i, trigger) in trigdesc.triggers.iter().enumerate() {
-        if trigger.tgtype
-            & (TRIGGER_TYPE_LEVEL_MASK | TRIGGER_TYPE_TIMING_MASK | TRIGGER_TYPE_INSERT)
+        if trigger.tgtype & (TRIGGER_TYPE_LEVEL_MASK | TRIGGER_TYPE_TIMING_MASK | TRIGGER_TYPE_INSERT)
             != TRIGGER_TYPE_ROW | type_timing | TRIGGER_TYPE_INSERT
         {
             continue;
@@ -700,8 +671,7 @@ fn store_returned_tuple<'mcx>(
     let nulled = check_modified_virtual_generated(mcx, rel, returned)?;
     let returned = nulled.as_ref().map_or(returned, |t| t.as_tuple());
     // SAFETY: the returned tuple is a live heap-tuple image of t_len bytes.
-    let img =
-        unsafe { core::slice::from_raw_parts(returned.header_ptr(), returned.t_len as usize) };
+    let img = unsafe { core::slice::from_raw_parts(returned.header_ptr(), returned.t_len as usize) };
     let mut buf = mcx::vec_with_capacity_in(mcx, img.len())?;
     mcx::vec_append_bytes(&mut buf, img).map_err(|_| mcx.oom(img.len()))?;
     let ptr = buf.as_ptr();
@@ -733,8 +703,7 @@ pub fn ExecBRDeleteTriggers<'mcx>(
     // trigtuple = ExecFetchSlotHeapTuple(slot, true, &should_free).
     let ((img, len, tid, toid), _trig_owned) = fetch_raw(mcx, oldslot)?;
     for (i, trigger) in trigdesc.triggers.iter().enumerate() {
-        if trigger.tgtype
-            & (TRIGGER_TYPE_LEVEL_MASK | TRIGGER_TYPE_TIMING_MASK | TRIGGER_TYPE_DELETE)
+        if trigger.tgtype & (TRIGGER_TYPE_LEVEL_MASK | TRIGGER_TYPE_TIMING_MASK | TRIGGER_TYPE_DELETE)
             != TRIGGER_TYPE_ROW | TRIGGER_TYPE_BEFORE | TRIGGER_TYPE_DELETE
         {
             continue;
@@ -790,8 +759,7 @@ pub fn ExecBRUpdateTriggers<'mcx>(
     let mut new_raw: Option<RawTuple> = None;
     let mut _new_owned: Option<heaptuple::HeapTuple<'mcx>> = None;
     for (i, trigger) in trigdesc.triggers.iter().enumerate() {
-        if trigger.tgtype
-            & (TRIGGER_TYPE_LEVEL_MASK | TRIGGER_TYPE_TIMING_MASK | TRIGGER_TYPE_UPDATE)
+        if trigger.tgtype & (TRIGGER_TYPE_LEVEL_MASK | TRIGGER_TYPE_TIMING_MASK | TRIGGER_TYPE_UPDATE)
             != TRIGGER_TYPE_ROW | TRIGGER_TYPE_BEFORE | TRIGGER_TYPE_UPDATE
         {
             continue;
@@ -820,7 +788,8 @@ pub fn ExecBRUpdateTriggers<'mcx>(
         let trig_nn = NonNull::from(&mut trigtuple);
         let new_nn = NonNull::from(&mut newtuple);
         let finfo = fmgr.get(i, trigger.tgfoid)?;
-        let mut tdata = TriggerData::from_raw(tg_event, rel, Some(trig_nn), Some(new_nn), trigger);
+        let mut tdata =
+            TriggerData::from_raw(tg_event, rel, Some(trig_nn), Some(new_nn), trigger);
         tdata.tg_updatedcols = updatedcols_ptr;
         match ExecCallTriggerFunc(mcx, &mut tdata, finfo, None)? {
             None => return Ok(false), // "do nothing"
@@ -849,11 +818,7 @@ fn check_modified_virtual_generated<'mcx>(
 ) -> PgResult<Option<heaptuple::HeapTuple<'mcx>>> {
     const VIRTUAL_GEN: i8 = types_core::catalog::ATTRIBUTE_GENERATED_VIRTUAL as i8;
     let tupdesc = &*rel.rd_att;
-    if !tupdesc
-        .constr
-        .as_deref()
-        .is_some_and(|c| c.has_generated_virtual)
-    {
+    if !tupdesc.constr.as_deref().is_some_and(|c| c.has_generated_virtual) {
         return Ok(None);
     }
     let mut cols: mcx::PgVec<'_, i32> = mcx::PgVec::new_in(mcx);
@@ -928,8 +893,7 @@ pub(crate) fn call_trigger_func<'a, 'mcx>(
         ::instrument::instr_start_node(i);
     }
     let counted = match instr.is_none() && level && crate::instr::active() {
-        true => crate::instr::start(trigdata.tg_relation, None, trigdata.tg_trigger.tgoid)?
-            .then_some((trigdata.tg_relation.rd_id, trigdata.tg_trigger.tgoid)),
+        true => crate::instr::start(trigdata.tg_relation, None, trigdata.tg_trigger.tgoid)?.then_some((trigdata.tg_relation.rd_id, trigdata.tg_trigger.tgoid)),
         false => None,
     };
     let mut fcinfo = LocalFcinfo::<0>::fresh(types_core::InvalidOid);
@@ -941,9 +905,7 @@ pub(crate) fn call_trigger_func<'a, 'mcx>(
     let fcu = if finfo.fn_stats < TRACK_FUNC_ALL
         && ::pgstat::function::pgstat_track_functions() > finfo.fn_stats as i32
     {
-        Some(::pgstat::function::pgstat_init_function_usage(
-            finfo.fn_oid,
-        )?)
+        Some(::pgstat::function::pgstat_init_function_usage(finfo.fn_oid,)?)
     } else {
         None
     };
@@ -1017,8 +979,7 @@ mod tests {
         let ctx = mcx::MemoryContext::new("t");
         let mcx = ctx.mcx();
         let mut cols = Bitmapset::empty();
-        cols.add_member(mcx, 1 - FirstLowInvalidHeapAttributeNumber)
-            .unwrap();
+        cols.add_member(mcx, 1 - FirstLowInvalidHeapAttributeNumber).unwrap();
         assert!(update_of_cols_match(&[1], Some(&cols)));
         assert!(!update_of_cols_match(&[2], Some(&cols)));
     }

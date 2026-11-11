@@ -143,11 +143,7 @@ fn wait(spins: &mut u32) {
 fn storm<A: GlobalAlloc + Sync>(a: &A, threads: usize, per: usize, sz: &[usize]) -> f64 {
     let pairs = threads / 2;
     let rings: Vec<Ring> = (0..pairs)
-        .map(|_| Ring {
-            buf: (0..4096).map(|_| AtomicUsize::new(0)).collect(),
-            head: Pad(AtomicUsize::new(0)),
-            tail: Pad(AtomicUsize::new(0)),
-        })
+        .map(|_| Ring { buf: (0..4096).map(|_| AtomicUsize::new(0)).collect(), head: Pad(AtomicUsize::new(0)), tail: Pad(AtomicUsize::new(0)), })
         .collect();
     let t0 = Instant::now();
     std::thread::scope(|s| {
@@ -217,23 +213,12 @@ fn on_thread<T: Send>(f: impl FnOnce() -> T + Send) -> T {
 }
 
 fn load() -> String {
-    std::fs::read_to_string("/proc/loadavg")
-        .unwrap_or_default()
-        .split_whitespace()
-        .take(3)
-        .collect::<Vec<_>>()
-        .join(" ")
+    std::fs::read_to_string("/proc/loadavg").unwrap_or_default().split_whitespace().take(3).collect::<Vec<_>>().join(" ")
 }
 
 /// `lanes` threads each run `per` sessions in a row, a new thread per session (connection churn at that concurrency),
 /// each session ending with `end` when given (the server's session-end release); faults allocating per session.
-fn sessions<A: GlobalAlloc + Sync>(
-    a: &A,
-    sz: &[usize],
-    lanes: usize,
-    per: usize,
-    end: Option<fn()>,
-) -> Vec<i64> {
+fn sessions<A: GlobalAlloc + Sync>(a: &A, sz: &[usize], lanes: usize, per: usize, end: Option<fn()>,) -> Vec<i64> {
     std::thread::scope(|s| {
         let hs: Vec<_> = (0..lanes)
             .map(|_| {
@@ -258,12 +243,7 @@ fn sessions<A: GlobalAlloc + Sync>(
 
 fn summary(v: &[i64]) -> String {
     let sum: i64 = v.iter().sum();
-    format!(
-        "mean {:.1} max {} last {}",
-        sum as f64 / v.len() as f64,
-        v.iter().max().unwrap(),
-        v.last().unwrap()
-    )
+    format!("mean {:.1} max {} last {}", sum as f64 / v.len() as f64, v.iter().max().unwrap(), v.last().unwrap())
 }
 
 fn arm<A: GlobalAlloc + Sync>(name: &str, a: &A, cells: &str, end: fn()) {
@@ -333,23 +313,15 @@ fn arm<A: GlobalAlloc + Sync>(name: &str, a: &A, cells: &str, end: fn()) {
         }
     }
     if name == "pool" {
-        eprintln!(
-            "MEASURED pool small-tier runs: {:?}; pool {:?}",
-            pagepool::small_counts(),
-            pagepool::stats()
-        );
+        eprintln!("MEASURED pool small-tier runs: {:?}; pool {:?}", pagepool::small_counts(), pagepool::stats());
     }
 }
 
 #[test]
 fn small_bench() {
-    assert!(
-        pagepool::init(&pagepool::Config::from_policy()),
-        "pagepool::init refused"
-    );
+    assert!(pagepool::init(&pagepool::Config::from_policy()), "pagepool::init refused");
     let arms = std::env::var("SMALL_BENCH_ARMS").unwrap_or_else(|_| "pool,mi".into());
-    let cells =
-        std::env::var("SMALL_BENCH_CELLS").unwrap_or_else(|_| "single,churn,storm,fresh".into());
+    let cells = std::env::var("SMALL_BENCH_CELLS").unwrap_or_else(|_| "single,churn,storm,fresh".into());
     for a in arms.split(',') {
         match a {
             "pool" => arm("pool", &Shim(PoolAlloc), &cells, || {
@@ -357,9 +329,7 @@ fn small_bench() {
             }),
             // trunk's session-end release (postgres.rs set_allocator_release: mi_collect(true))
             // SAFETY: no preconditions.
-            "mi" => arm("mi", &Shim(MiMalloc), &cells, || unsafe {
-                libmimalloc_sys::mi_collect(true)
-            }),
+            "mi" => arm("mi", &Shim(MiMalloc), &cells, || unsafe { libmimalloc_sys::mi_collect(true) }),
             _ => panic!("arm {a}"),
         }
     }

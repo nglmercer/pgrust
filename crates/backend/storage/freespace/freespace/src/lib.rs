@@ -1,8 +1,7 @@
 //! freespace.c/fsmpage.c/indexfsm.c INSERT + vacuum-range lanes; the
 //! whole-map-vacuum/truncate/redo lanes are loud named panics.
 
-#![allow(non_snake_case)]
-#![allow(non_upper_case_globals)]
+#![allow(non_snake_case, non_upper_case_globals)]
 
 mod fsmpage;
 
@@ -312,7 +311,7 @@ fn fsm_space_needed_to_cat(needed: Size) -> PgResult<u8> {
     if needed == 0 {
         return Ok(1);
     }
-    let cat = needed.div_ceil(FSM_CAT_STEP);
+    let cat =needed.div_ceil( FSM_CAT_STEP);
     if cat > 255 {
         return Ok(255);
     }

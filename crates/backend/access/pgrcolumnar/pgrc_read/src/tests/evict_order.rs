@@ -24,23 +24,18 @@ fn an_eviction_gives_the_images_bytes_to_the_evicting_thread_before_their_frees(
     let mut col = seq_i64_col(1, rows);
     col.extent_cuts = vec![8, 16, 24];
     let b = build_part(&PartSpec::new(rows, vec![col]));
-    let part =
-        Arc::new(OpenPart::open(Box::new(b.mem_io(1, 4595)), &PartExpect::none()).expect("open"));
+    let part = Arc::new(OpenPart::open(Box::new(b.mem_io(1, 4595)), &PartExpect::none()).expect("open"));
     let dir = part.stream_directory().expect("dir");
     let ps = dir.lookup(1, 0, StreamRole::Values).expect("values stream");
     let keys: Vec<(u64, u64)> = ps.extents.iter().map(|r| (r.file_off, r.len)).collect();
     assert_eq!(keys.len(), 4);
-    assert!(
-        keys.iter().all(|k| k.1 > memledger::DOOR_FOLD_BYTES as u64),
-        "each image's free folds at once: {keys:?}"
-    );
+    assert!(keys.iter().all(|k| k.1 > memledger::DOOR_FOLD_BYTES as u64), "each image's free folds at once: {keys:?}");
 
     let p = Arc::clone(&part);
     std::thread::spawn(move || {
         memledger::bind_backend(2595, 9000 + 2595);
         let (r, _) = door1(|| {
-            let cur = StreamCursor::open(Arc::clone(&p), reference_binding_leaked(), 1, 0)
-                .expect("cursor");
+            let cur = StreamCursor::open(Arc::clone(&p), reference_binding_leaked(), 1, 0).expect("cursor");
             cur.prefetch_granules(0, cur.granule_count(), 8 << 20, 256 << 10)
         });
         assert_eq!(r[0], 4, "the four extents cached");
@@ -60,21 +55,9 @@ fn an_eviction_gives_the_images_bytes_to_the_evicting_thread_before_their_frees(
         let ((n, bytes), low) = door1(|| p.evict_extent_images(&keys));
         memledger::fold();
         let after = memledger::account_row(a).account_bytes;
-        assert_eq!(
-            (n, resident - p.resident()),
-            (4, bytes),
-            "the four images evicted"
-        );
-        assert!(
-            low >= before - SLACK,
-            "after a free the evicting row read {} B below its start ({bytes} B evicted)",
-            before - low
-        );
-        assert!(
-            (after - before).abs() < SLACK,
-            "the evicting row nets zero: {} B",
-            after - before
-        );
+        assert_eq!((n, resident - p.resident()), (4, bytes), "the four images evicted");
+        assert!(low >= before - SLACK, "after a free the evicting row read {} B below its start ({bytes} B evicted)", before - low);
+        assert!((after - before).abs() < SLACK, "the evicting row nets zero: {} B", after - before);
         memledger::unbind_backend();
     })
     .join()

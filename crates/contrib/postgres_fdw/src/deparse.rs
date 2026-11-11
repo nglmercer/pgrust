@@ -565,10 +565,10 @@ fn walk_opt_list<'mcx>(
     case_arg_cxt: Option<&LocCxt>,
 ) -> PgResult<bool> {
     for n in list.iter().flatten() {
-        if !foreign_expr_walker(glob, n, inner, case_arg_cxt)? {
-            return Ok(false);
+            if !foreign_expr_walker(glob, n, inner, case_arg_cxt)? {
+                return Ok(false);
+            }
         }
-    }
     Ok(true)
 }
 
@@ -1820,7 +1820,7 @@ fn deparse_select_stmt_inner<'mcx>(
     let where_conds: Vec<types_pathnodes::RinfoId> = if is_upper {
         fpinfo(run.root.rel(ctx.scanrel)).borrow().remote_conds.iter().copied().collect()
     } else {
-        ::mcx::std_vec_from_slice("postgres_fdw", remote_conds)?
+        ::mcx::std_vec_from_slice("postgres_fdw",remote_conds)?
     };
 
     // FROM + WHERE.

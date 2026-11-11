@@ -29,11 +29,7 @@ fn swept() -> (usize, usize, usize) {
     refresh_present().expect("a sweep");
     let (p, f, c) = present_split().expect("present_split");
     assert!(f + c <= p, "free {f} + cache {c} within present {p}");
-    assert_eq!(
-        (free_present(), cache_present()),
-        (Some(f), Some(c)),
-        "the one-row readers read the same sweep"
-    );
+    assert_eq!((free_present(), cache_present()), (Some(f), Some(c)), "the one-row readers read the same sweep");
     (p, f, c)
 }
 
@@ -68,18 +64,11 @@ fn a_free_runs_touched_pages_count_and_a_released_run_reads_zero() {
         let own = resident(a, 9 * RUN);
         assert_eq!(own, 9 * RUN, "written: resident");
         // its superpage's other runs are free: a huge-page fault may have made them present (and free) too
-        assert!(
-            f1 <= f0 + SUPER - 9 * RUN,
-            "a live block's pages never count: {f0} -> {f1}"
-        );
+        assert!(f1 <= f0 + SUPER - 9 * RUN, "a live block's pages never count: {f0} -> {f1}");
         // SAFETY: ours, given once
         unsafe { give(b, 9 * RUN) };
         let (_, f2, _) = swept();
-        assert_eq!(
-            f2 - f1,
-            own,
-            "given back: its touched runs are free and present ({f1} -> {f2})"
-        );
+        assert_eq!(f2 - f1, own, "given back: its touched runs are free and present ({f1} -> {f2})");
         let _ = purge_now(usize::MAX >> 1, None);
         let (_, f3, _) = swept();
         assert_eq!(resident(a, 9 * RUN), 0, "released");
@@ -100,10 +89,7 @@ fn a_live_spans_pages_never_count_and_its_dead_runs_do() {
         let a = s.as_ptr() as usize;
         touch(a, MIB);
         let (_, f1, c1) = swept();
-        assert_eq!(
-            f1, f0,
-            "a live span's touched and untouched pages never count"
-        );
+        assert_eq!(f1, f0, "a live span's touched and untouched pages never count");
         assert_eq!(c1, c0, "not a CACHE span");
         // its first MiB dead (written, so present): free until taken back
         let p = NonNull::new(a as *mut u8).expect("the span");
@@ -111,11 +97,7 @@ fn a_live_spans_pages_never_count_and_its_dead_runs_do() {
         let dead = unsafe { give_pages(p, 0, MIB) };
         assert_eq!(dead, MIB);
         let (_, f2, _) = swept();
-        assert_eq!(
-            f2 - f1,
-            resident(a, MIB),
-            "its dead runs' present pages count ({f1} -> {f2})"
-        );
+        assert_eq!(f2 - f1, resident(a, MIB), "its dead runs' present pages count ({f1} -> {f2})");
         // SAFETY: the range we gave dead
         let _ = unsafe { take_pages(p, 0, MIB) };
         let (_, f3, _) = swept();
@@ -136,24 +118,14 @@ fn cache_tag_allocations_count_in_cache_present() {
         let a = s.as_ptr() as usize;
         touch(a, 2 * MIB);
         let (_, f1, c1) = swept();
-        assert_eq!(
-            c1 - c0,
-            resident(a, 4 * MIB),
-            "a CACHE span's present pages ({c0} -> {c1})"
-        );
+        assert_eq!(c1 - c0, resident(a, 4 * MIB), "a CACHE span's present pages ({c0} -> {c1})");
         assert_eq!(f1, f0, "live: not free");
         // a CACHE runs block too (past LIST_RUNS: its give puts it straight back; a short one would sit on a shelf,
         // inside a run that still reads allocated, which this count does not see)
-        let b = take(9 * RUN, RUN, h)
-            .expect("a CACHE runs block")
-            .cast::<u8>();
+        let b = take(9 * RUN, RUN, h).expect("a CACHE runs block").cast::<u8>();
         touch(b.as_ptr() as usize, 9 * RUN);
         let (_, _, c2) = swept();
-        assert_eq!(
-            c2 - c1,
-            9 * RUN,
-            "a CACHE runs block's pages ({c1} -> {c2})"
-        );
+        assert_eq!(c2 - c1, 9 * RUN, "a CACHE runs block's pages ({c1} -> {c2})");
         // SAFETY: ours, given once
         unsafe {
             give(b, 9 * RUN);
@@ -171,20 +143,9 @@ fn cache_tag_allocations_count_in_cache_present() {
 fn swept_build() -> (usize, usize, usize, usize) {
     let (p, f, c) = swept();
     let (p2, f2, c2, b) = present_split_build().expect("present_split_build");
-    assert_eq!(
-        (p2, f2, c2),
-        (p, f, c),
-        "present_split_build reads present_split's sweep"
-    );
-    assert!(
-        f + c + b <= p,
-        "free {f} + cache {c} + build {b} within present {p}"
-    );
-    assert_eq!(
-        build_present(),
-        Some(b),
-        "the one-row reader reads the same sweep"
-    );
+    assert_eq!((p2, f2, c2), (p, f, c), "present_split_build reads present_split's sweep");
+    assert!(f + c + b <= p, "free {f} + cache {c} + build {b} within present {p}");
+    assert_eq!(build_present(), Some(b), "the one-row reader reads the same sweep");
     (p, f, c, b)
 }
 
@@ -199,27 +160,13 @@ fn build_tag_allocations_count_in_build_present_never_in_cache() {
         let a = s.as_ptr() as usize;
         touch(a, 2 * MIB);
         let (_, f1, c1, b1) = swept_build();
-        assert_eq!(
-            b1 - b0,
-            resident(a, 4 * MIB),
-            "a BUILD span's present pages ({b0} -> {b1})"
-        );
-        assert_eq!(
-            (f1, c1),
-            (f0, c0),
-            "live and not the cache's: neither free nor cache"
-        );
+        assert_eq!(b1 - b0, resident(a, 4 * MIB), "a BUILD span's present pages ({b0} -> {b1})");
+        assert_eq!((f1, c1), (f0, c0), "live and not the cache's: neither free nor cache");
         // a BUILD runs block too (past LIST_RUNS, as the CACHE witness)
-        let r = take(9 * RUN, RUN, h)
-            .expect("a BUILD runs block")
-            .cast::<u8>();
+        let r = take(9 * RUN, RUN, h).expect("a BUILD runs block").cast::<u8>();
         touch(r.as_ptr() as usize, 9 * RUN);
         let (_, _, c2, b2) = swept_build();
-        assert_eq!(
-            b2 - b1,
-            9 * RUN,
-            "a BUILD runs block's pages ({b1} -> {b2})"
-        );
+        assert_eq!(b2 - b1, 9 * RUN, "a BUILD runs block's pages ({b1} -> {b2})");
         assert_eq!(c2, c0, "BUILD bytes never in cache");
         // SAFETY: ours, given once
         unsafe {
@@ -246,9 +193,7 @@ fn a_retagged_build_block_moves_to_the_cache_term_and_back() {
         let s = span(4 * MIB, h).expect("a BUILD pool span");
         let sa = s.as_ptr() as usize;
         touch(sa, 2 * MIB);
-        let r = take(9 * RUN, RUN, h)
-            .expect("a BUILD runs block")
-            .cast::<u8>();
+        let r = take(9 * RUN, RUN, h).expect("a BUILD runs block").cast::<u8>();
         touch(r.as_ptr() as usize, 9 * RUN);
         let mut l = span(64 * MIB, h).expect("a lazy span");
         assert!(l.is_lazy());
@@ -264,52 +209,21 @@ fn a_retagged_build_block_moves_to_the_cache_term_and_back() {
         let p = |a: usize| NonNull::new(a as *mut u8).expect("a block");
         // SAFETY: our live blocks, nothing else gives or resizes them
         let all = |t: Tag| unsafe { [retag(p(sa), t), retag(r, t), retag(p(la), t)] };
-        assert_eq!(
-            all(Tag::DICT),
-            [true; 3],
-            "a span, a runs block and a lazy span retag"
-        );
+        assert_eq!(all(Tag::DICT), [true; 3], "a span, a runs block and a lazy span retag");
         let (_, f2, c2, b2) = swept_build();
-        assert_eq!(
-            (c2 - c0, b2, f2),
-            (own, b0, f1),
-            "retagged DICT: the cache term's, no longer build's, free as it was"
-        );
-        assert_eq!(
-            (use_of(Tag::BUILD), use_of(Tag::DICT) - ud0),
-            (ub0, ub1 - ub0),
-            "their in-use bytes moved whole"
-        );
+        assert_eq!((c2 - c0, b2, f2), (own, b0, f1), "retagged DICT: the cache term's, no longer build's, free as it was");
+        assert_eq!((use_of(Tag::BUILD), use_of(Tag::DICT) - ud0), (ub0, ub1 - ub0), "their in-use bytes moved whole");
         assert_eq!(all(Tag::DICT), [true; 3], "again: no change");
-        assert_eq!(
-            use_of(Tag::DICT) - ud0,
-            ub1 - ub0,
-            "a second retag moves nothing"
-        );
+        assert_eq!(use_of(Tag::DICT) - ud0, ub1 - ub0, "a second retag moves nothing");
         assert_eq!(all(Tag::BUILD), [true; 3], "and back");
         let (_, _, c3, b3) = swept_build();
         assert_eq!((c3, b3), (c0, b1), "back to BUILD's");
-        assert_eq!(
-            (use_of(Tag::BUILD), use_of(Tag::DICT)),
-            (ub1, ud0),
-            "in-use bytes back"
-        );
+        assert_eq!((use_of(Tag::BUILD), use_of(Tag::DICT)), (ub1, ud0), "in-use bytes back");
         // an address inside a block is no block's start: refused, nothing moved
         // SAFETY: inside our live span (refused before anything is changed)
-        assert!(
-            !unsafe { retag(p(sa + RUN), Tag::DICT) },
-            "a span's interior is not retagged"
-        );
-        assert_eq!(
-            (use_of(Tag::BUILD), use_of(Tag::DICT)),
-            (ub1, ud0),
-            "a refusal moves nothing"
-        );
-        assert_eq!(
-            all(Tag::DICT),
-            [true; 3],
-            "given while DICT's: the give reads the tag"
-        );
+        assert!(!unsafe { retag(p(sa + RUN), Tag::DICT) }, "a span's interior is not retagged");
+        assert_eq!((use_of(Tag::BUILD), use_of(Tag::DICT)), (ub1, ud0), "a refusal moves nothing");
+        assert_eq!(all(Tag::DICT), [true; 3], "given while DICT's: the give reads the tag");
         // by pointer, as a BuildBuf gives: a `Span` value names its take's tag, so a retagged span is given by its start
         #[allow(clippy::forget_non_drop)]
         core::mem::forget((s, l));
@@ -322,11 +236,7 @@ fn a_retagged_build_block_moves_to_the_cache_term_and_back() {
         flush_shelf();
         let (_, _, c4, b4) = swept_build();
         assert_eq!((c4, b4), (c0, b0), "given back: neither's");
-        assert_eq!(
-            (use_of(Tag::BUILD), use_of(Tag::DICT)),
-            (ub0, ud0),
-            "in-use bytes balanced per tag"
-        );
+        assert_eq!((use_of(Tag::BUILD), use_of(Tag::DICT)), (ub0, ud0), "in-use bytes balanced per tag");
         balanced();
     });
 }
@@ -350,10 +260,7 @@ fn a_warm_lazy_spans_pages_count_until_released() {
         unsafe { give_span(l) };
         let (_, f2, _) = swept();
         // warm (released on pressure only in this pool): its committed pages hold no live block
-        assert!(
-            f2 >= f1 + own,
-            "a warm lazy span's present pages count ({f1} -> {f2}, its {own})"
-        );
+        assert!(f2 >= f1 + own, "a warm lazy span's present pages count ({f1} -> {f2}, its {own})");
         let _ = purge_now(usize::MAX >> 1, None);
         let (_, f3, _) = swept();
         assert!(f3 + own <= f2, "released: {f2} -> {f3}");
@@ -400,11 +307,7 @@ fn listed_free_blocks_stay_listed_until_their_runs_go_free() {
         assert_eq!(listed() - l0, given, "flushed: on the central lists");
         let _ = purge_now(usize::MAX >> 1, None);
         let s = stats();
-        assert_eq!(
-            listed() - l0,
-            given,
-            "homed: parked in runs that still hold a live block ({s:?})"
-        );
+        assert_eq!(listed() - l0, given, "homed: parked in runs that still hold a live block ({s:?})");
         assert!(s.parked >= given, "parked: {s:?}");
         for (_, b) in keep.drain(..) {
             // SAFETY: ours, given once
@@ -444,10 +347,7 @@ fn a_release_larger_than_the_swept_present_comes_off_free_only() {
         let r0 = stats().released_bytes;
         let _ = purge_now(usize::MAX >> 1, None);
         let gone = (stats().released_bytes - r0) as usize;
-        assert!(
-            gone > p,
-            "released more than the sweep read present: {gone} > {p}"
-        );
+        assert!(gone > p, "released more than the sweep read present: {gone} > {p}");
         let (p2, f2, c2) = present_split().expect("present_split");
         assert_eq!(c2, c, "cache never drops ({p} {f} {c} -> {p2} {f2} {c2})");
         assert!(p2 >= c2 && p2 > 0, "present never to 0 ({p} -> {p2})");
@@ -473,10 +373,7 @@ fn free_and_cache_stay_within_present_under_load() {
             for t in 0..4usize {
                 let stop = &stop;
                 sc.spawn(move || {
-                    let h = Hint::new(
-                        Class::Task,
-                        if t % 2 == 0 { Tag::OTHER } else { Tag::CACHE },
-                    );
+                    let h = Hint::new(Class::Task, if t % 2 == 0 { Tag::OTHER } else { Tag::CACHE },);
                     let mut held: Vec<(NonNull<u8>, usize)> = Vec::new();
                     let mut i = 0usize;
                     while !stop.load(std::sync::atomic::Ordering::Relaxed) {
@@ -506,10 +403,7 @@ fn free_and_cache_stay_within_present_under_load() {
             while t0.elapsed() < std::time::Duration::from_millis(800) {
                 let _ = swept();
                 let (p, f, c) = present_split().expect("present_split");
-                assert!(
-                    f + c <= p,
-                    "published: free {f} + cache {c} within present {p}"
-                );
+                assert!(f + c <= p, "published: free {f} + cache {c} within present {p}");
                 let _ = hooks::clean_base();
                 n += 1;
             }

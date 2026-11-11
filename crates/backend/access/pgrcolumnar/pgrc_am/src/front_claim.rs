@@ -42,10 +42,7 @@ pub(crate) struct Cells {
 
 impl Cells {
     pub(crate) const fn new() -> Cells {
-        Cells {
-            next: 1,
-            map: BTreeMap::new(),
-        }
+        Cells { next: 1, map: BTreeMap::new(), }
     }
 
     /// A transaction's first write to `heap` (or any write that found it empty): the epoch its registration is for,
@@ -94,22 +91,13 @@ pub fn front_write(rel: &Relation<'_>, heap: Oid, found_empty: bool) -> PgResult
     ensure_exit_hook()?;
     promote();
     let sub = xact::GetCurrentSubTransactionId();
-    if !found_empty
-        && crate::session::with_front_seen(|s| s.iter().any(|&(h, x, _)| h == heap && x == sub))
-    {
+    if !found_empty && crate::session::with_front_seen(|s| s.iter().any(|&(h, x, _)| h == heap && x == sub)) {
         return Ok(());
     }
     let epoch = pgsync::lock(&HEAPS).write(heap, found_empty);
     if let Some(e) = epoch {
         inval::invalidate::CacheInvalidateRelcache(rel)?;
-        let _ = elog::elog(
-            types_error::DEBUG1,
-            format!(
-                "pgrc front_claim: relcache invalidation of \"{}\" (front heap {heap} epoch {e}{})",
-                rel.name(),
-                if found_empty { ", found empty" } else { "" }
-            ),
-        ); // alloc: Cold
+        let _ = elog::elog(types_error::DEBUG1, format!("pgrc front_claim: relcache invalidation of \"{}\" (front heap {heap} epoch {e}{})", rel.name(), if found_empty { ", found empty" } else { "" }),); // alloc: Cold
     }
     crate::session::with_front_seen(|s| s.push((heap, sub, epoch)));
     Ok(())
@@ -125,10 +113,7 @@ pub(crate) fn at_xact_event(end: Option<bool>) {
     if committed {
         let top = types_core::xact::TopSubTransactionId;
         crate::session::with_front_pending(|p| {
-            p.extend(
-                seen.into_iter()
-                    .filter_map(|(h, x, e)| if x == top { e.map(|e| (h, e)) } else { None }),
-            )
+            p.extend(seen.into_iter().filter_map(|(h, x, e)| if x == top { e.map(|e| (h, e)) } else { None }),)
         });
     }
 }
@@ -141,17 +126,7 @@ fn promote() {
     let mut g = pgsync::lock(&HEAPS);
     for (heap, epoch) in pending {
         let covered = g.cover(heap, epoch);
-        let _ = elog::elog(
-            types_error::DEBUG1,
-            format!(
-                "pgrc front_claim: cover of front heap {heap} epoch {epoch} {}",
-                if covered {
-                    "applied"
-                } else {
-                    "discarded (epoch moved)"
-                }
-            ),
-        ); // alloc: Cold
+        let _ = elog::elog(types_error::DEBUG1, format!("pgrc front_claim: cover of front heap {heap} epoch {epoch} {}", if covered { "applied" } else { "discarded (epoch moved)" }),); // alloc: Cold
     }
 }
 
@@ -177,11 +152,7 @@ mod tests {
     fn empty_finder_then_uncovered_then_cover_promoted() {
         let mut c = Cells::new();
         let e1 = c.write(7, true).expect("the empty-finder registers");
-        assert_eq!(
-            c.write(7, false),
-            Some(e1),
-            "uncovered: every first write registers at the same epoch"
-        );
+        assert_eq!(c.write(7, false), Some(e1), "uncovered: every first write registers at the same epoch");
         c.cover(7, e1);
         assert_eq!(c.write(7, false), None, "covered: nothing registered");
     }
@@ -203,11 +174,7 @@ mod tests {
         let e2 = c.write(7, true).unwrap();
         assert_ne!(e1, e2);
         assert!(!c.cover(7, e1), "a stale cover is discarded");
-        assert_eq!(
-            c.write(7, false),
-            Some(e2),
-            "the stale cover must not cover the new epoch"
-        );
+        assert_eq!(c.write(7, false), Some(e2), "the stale cover must not cover the new epoch");
         c.cover(7, e2);
         assert_eq!(c.write(7, false), None);
     }
@@ -218,9 +185,7 @@ mod tests {
         let e1 = c.write(7, true).unwrap();
         c.cover(7, e1);
         assert_eq!(c.write(7, false), None);
-        let e2 = c
-            .write(7, true)
-            .expect("the heap emptied: the next writer registers");
+        let e2 = c.write(7, true).expect("the heap emptied: the next writer registers");
         assert_eq!(c.write(7, false), Some(e2));
     }
 

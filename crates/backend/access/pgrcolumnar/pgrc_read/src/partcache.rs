@@ -99,8 +99,7 @@ pub fn set_budget(b: u64) {
 #[inline]
 pub fn over_budget() -> bool {
     let have = bytes();
-    mempolicy::cache::part_cache_over(have, budget(), RETRY_AT.load(Ordering::Relaxed))
-        && own_cushion().is_none_or(|c| have > c)
+    mempolicy::cache::part_cache_over(have, budget(), RETRY_AT.load(Ordering::Relaxed)) && own_cushion().is_none_or(|c| have > c)
 }
 
 /// The level a trim brings the cache down to (`mempolicy::cache::part_cache_trim_target_by`: a quarter under the budget,
@@ -116,13 +115,7 @@ pub fn trim_target() -> u64 {
 pub fn own_trim_target() -> u64 {
     match TRIM_STEP.load(Ordering::Relaxed) {
         0 => trim_target(),
-        step => mempolicy::cache::part_cache_own_target(
-            budget(),
-            bytes(),
-            step,
-            own_cushion(),
-            shed_on(),
-        ),
+        step => mempolicy::cache::part_cache_own_target(budget(), bytes(), step, own_cushion(), shed_on(),),
     }
 }
 
@@ -338,18 +331,14 @@ pub(crate) fn note_dropped(parts: u64, bytes: u64) {
 
 /// D4570: `(parts dropped, bytes their drops gave back)` (tests; the census).
 pub fn dropped_counters() -> (u64, u64) {
-    (
-        DROPPED_PARTS.load(Ordering::Relaxed),
-        DROPPED_BYTES.load(Ordering::Relaxed),
-    )
+    (DROPPED_PARTS.load(Ordering::Relaxed), DROPPED_BYTES.load(Ordering::Relaxed),)
 }
 
 /// D4315: `n` cached bytes became evictable while their part stays in use (a scan read past them): a trim that failed
 /// for parts in use waits for evictable bytes as for new ones, so they bring its retry level down.
 pub(crate) fn note_passed(n: u64) {
     if RETRY_AT.load(Ordering::Relaxed) != 0 {
-        let _ = RETRY_AT.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |r| {
-            (r != 0).then(|| r.saturating_sub(n).max(1))
+        let _ = RETRY_AT.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |r| { (r != 0).then(|| r.saturating_sub(n).max(1))
         });
     }
     if over_budget() {
@@ -372,10 +361,7 @@ pub fn set_trim_hook(f: fn()) {
 
 /// After a trim to `target` left `have` bytes: past the target, the next trim waits for an eighth of the budget more.
 pub(crate) fn note_result(have: u64, target: u64) {
-    RETRY_AT.store(
-        mempolicy::cache::part_cache_retry_at(have, target, budget()),
-        Ordering::Relaxed,
-    );
+    RETRY_AT.store(mempolicy::cache::part_cache_retry_at(have, target, budget()), Ordering::Relaxed,);
 }
 
 /// D3063 (2a): the account the cache's bytes are reported to as they are faulted (`true`) and freed (`false`): the
@@ -401,8 +387,7 @@ fn account(n: u64, charged: bool, rec: &mut Charged) {
     let p = ACCOUNT.load(Ordering::Acquire);
     if p != 0 {
         // SAFETY: only set_account_hook stores here, always from a fn(u64, bool, &mut Charged).
-        let f: fn(u64, bool, &mut Charged) =
-            unsafe { core::mem::transmute::<usize, fn(u64, bool, &mut Charged)>(p) };
+        let f: fn(u64, bool, &mut Charged) = unsafe { core::mem::transmute::<usize, fn(u64, bool, &mut Charged)>(p) };
         f(n, charged, rec);
     }
 }
@@ -413,8 +398,7 @@ fn account(n: u64, charged: bool, rec: &mut Charged) {
 pub(crate) const LEDGER: memledger::Acct = memledger::Acct::of(memledger::Consumer::PartCache);
 
 /// C8: the owner of every byte the part cache holds.
-pub(crate) const OWNER: memledger::Owner =
-    memledger::Owner::Cache(memledger::Holder::Of(memledger::Consumer::PartCache));
+pub(crate) const OWNER: memledger::Owner = memledger::Owner::Cache(memledger::Holder::Of(memledger::Consumer::PartCache));
 
 /// D4552 (a): the part cache's account as a home: a registry-opened part's state (its maps' nodes, its stream directory,
 /// its part-grain dictionary payloads) is allocated and freed there, whichever thread changes or drops it.
@@ -425,13 +409,7 @@ pub(crate) fn home() -> memledger::Home {
 /// D4084 (C8 move 1): the charge of `n` bytes a holder of the cache's contents just allocated on this thread: on the
 /// cache's account from now, back on the freeing thread's at its drop.
 pub(crate) fn holder_charge(n: u64) -> memledger::Charge {
-    memledger::Charge::open(
-        OWNER,
-        memledger::Release::Evict,
-        memledger::Kind::Region,
-        memledger::charge::Door::Heap,
-        n,
-    )
+    memledger::Charge::open(OWNER, memledger::Release::Evict, memledger::Kind::Region, memledger::charge::Door::Heap, n,)
 }
 
 /// D4802: the bytes into the census since start ([`count`]): with the census level, the bytes that left it (a
@@ -454,8 +432,7 @@ pub(crate) fn count(n: u64, rec: &mut Charged) {
 /// `n` bytes out of the census (saturating: a debit never wraps it); the bytes it held of them.
 #[inline]
 pub(crate) fn uncount(n: u64, rec: &mut Charged) -> u64 {
-    let cur = match BYTES.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |c| {
-        Some(c.saturating_sub(n))
+    let cur = match BYTES.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |c| { Some(c.saturating_sub(n))
     }) {
         Ok(c) | Err(c) => c,
     };
@@ -476,8 +453,7 @@ pub(crate) fn owe(n: u64) {
 
 /// An owed image's last holder dropped it: out of the owed bytes and the census.
 pub(crate) fn repay(n: u64) {
-    let _ = OWED.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |v| {
-        Some(v.saturating_sub(n))
+    let _ = OWED.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |v| { Some(v.saturating_sub(n))
     });
     // D4795 (2a): an image outlives its part's record here, so its statement keeps it to its end (as before)
     uncount(n, &mut Charged::default());
@@ -660,9 +636,5 @@ pub fn park_poisoned_bytes() -> u64 {
 
 /// `(trims, parts evicted, bytes evicted)` (the census; tests).
 pub fn counters() -> (u64, u64, u64) {
-    (
-        TRIMS.load(Ordering::Relaxed),
-        EVICTED_PARTS.load(Ordering::Relaxed),
-        EVICTED_BYTES.load(Ordering::Relaxed),
-    )
+    (TRIMS.load(Ordering::Relaxed), EVICTED_PARTS.load(Ordering::Relaxed), EVICTED_BYTES.load(Ordering::Relaxed),)
 }

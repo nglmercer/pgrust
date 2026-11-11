@@ -313,7 +313,7 @@ fn gen_substr(g: &mut Gen) -> Vec<StmtKind> {
 fn gen_split(g: &mut Gen) -> Vec<StmtKind> {
     g.fire("regex:split");
     let s = subject_lit(g);
-    let p: &str = g.rng.pick(&["\\s+", "[.-]", "", "a", "[^a-z]+", "b*"]);
+    let p: &str =g.rng.pick(&["\\s+", "[.-]", "", "a", "[^a-z]+", "b*"]);
     if g.rng.chance(1, 2) {
         // SRF form: total order via ordinality.
         raw(format!(
@@ -336,7 +336,7 @@ fn gen_split(g: &mut Gen) -> Vec<StmtKind> {
 fn gen_op(g: &mut Gen) -> Vec<StmtKind> {
     g.fire("regex:op");
     let s = subject_lit(g);
-    let op: &str = g.rng.pick(&["~", "~*", "!~", "!~*"]);
+    let op: &str =g.rng.pick(&["~", "~*", "!~", "!~*"]);
     let p = ok_pat(g);
     raw(format!("SELECT {} {} '{}';", s, op, esc(p)))
 }
@@ -350,7 +350,7 @@ fn gen_op(g: &mut Gen) -> Vec<StmtKind> {
 fn gen_catastrophic(g: &mut Gen) -> Vec<StmtKind> {
     g.fire("regex:cat");
     // Evil patterns anchored so a mismatch forces the whole search.
-    let pat: &str = g.rng.pick(&[
+    let pat: &str =g.rng.pick(&[
         "(a+)+$",
         "(a*)*$",
         "(a|a)*$",
@@ -364,7 +364,7 @@ fn gen_catastrophic(g: &mut Gen) -> Vec<StmtKind> {
     // Short 'a' run + a tail that defeats the anchor → maximal work.
     let n = 12 + g.rng.below(20); // 12..=31 'a's, safely non-hanging on a real engine
     let subj = format!("{}{}", "a".repeat(n as usize), "!");
-    let op: &str = g.rng.pick(&["~", "!~"]);
+    let op: &str =g.rng.pick(&["~", "!~"]);
     raw(format!("SELECT '{}' {} '{}';", subj, op, esc(pat)))
 }
 
@@ -440,7 +440,7 @@ fn gen_backref(g: &mut Gen) -> Vec<StmtKind> {
             ("(a|b)\\1", "aa"),
         ])
     };
-    let op: &str = g.rng.pick(&["~", "!~"]);
+    let op: &str =g.rng.pick(&["~", "!~"]);
     raw(format!("SELECT '{}' {} '{}';", esc(subj), op, esc(pat)))
 }
 
@@ -450,16 +450,14 @@ fn gen_backref(g: &mut Gen) -> Vec<StmtKind> {
 fn gen_charclass(g: &mut Gen) -> Vec<StmtKind> {
     g.fire("regex:charclass");
     let err = err_arm(g);
-    let pat: &str = if err {
-        g.rng.pick(&[
+    let pat: &str = if err {g.rng.pick(&[
             "[z-a]",       // invalid range (2201B)
             "[[:foo:]]",   // unknown char class
             "[a",          // unterminated bracket
             "[[.no-such.]]", // unknown collating element
             "[[=@=]]",     // maybe-empty equivalence class edge
         ])
-    } else {
-        g.rng.pick(&[
+    } else {g.rng.pick(&[
             "[abc]",
             "[^abc]",
             "[a-z0-9]",
@@ -482,7 +480,7 @@ fn gen_charclass(g: &mut Gen) -> Vec<StmtKind> {
 /// boundaries, and the non-capturing lookahead/lookbehind constraints.
 fn gen_anchor(g: &mut Gen) -> Vec<StmtKind> {
     g.fire("regex:anchor");
-    let pat: &str = g.rng.pick(&[
+    let pat: &str =g.rng.pick(&[
         "^abc",
         "abc$",
         "\\Aabc",
@@ -508,14 +506,12 @@ fn gen_anchor(g: &mut Gen) -> Vec<StmtKind> {
 fn gen_flags(g: &mut Gen) -> Vec<StmtKind> {
     g.fire("regex:flags");
     let err = err_arm(g);
-    let pat: &str = if err {
-        g.rng.pick(&[
+    let pat: &str = if err {g.rng.pick(&[
             "a(?i)b",   // embedded option not at start → error in ARE
             "(?z)a",    // unknown embedded option
             "***?a",    // bad *** director
         ])
-    } else {
-        g.rng.pick(&[
+    } else {g.rng.pick(&[
             "(?i)abc",
             "(?x) a b c",
             "(?s).",
@@ -538,7 +534,7 @@ fn gen_flags(g: &mut Gen) -> Vec<StmtKind> {
 fn gen_invalid(g: &mut Gen) -> Vec<StmtKind> {
     g.fire("regex:invalid");
     g.fire("regex:err");
-    let pat: &str = g.rng.pick(&[
+    let pat: &str =g.rng.pick(&[
         "(",         // unbalanced (
         ")",         // unbalanced )
         "(a",        // unclosed group

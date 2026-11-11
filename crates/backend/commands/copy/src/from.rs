@@ -18,7 +18,8 @@ use stringinfo::StringInfo;
 use types_core::Oid;
 use types_dest::CommandDest;
 use types_error::{
-    ErrorLocation, PgError, PgResult, ERRCODE_UNDEFINED_FUNCTION, ERRCODE_WRONG_OBJECT_TYPE, ERROR,
+    ErrorLocation, PgError, PgResult, ERRCODE_UNDEFINED_FUNCTION,
+    ERRCODE_WRONG_OBJECT_TYPE, ERROR,
 };
 use types_fmgr::FmgrInfo;
 use types_nodes::nodes_enums::CmdType;
@@ -27,23 +28,17 @@ use types_rel::Relation;
 use types_tuple::NameData;
 
 use crate::fromparse::{EolType, INPUT_BUF_SIZE, RAW_BUF_SIZE};
-use crate::{force_flags, CopyFormatOptions, CopyGetAttnums, RELKIND_RELATION};
+use crate::{
+    force_flags, CopyFormatOptions, CopyGetAttnums, RELKIND_RELATION
+};
 
 pub(crate) enum CopySrc<'mcx, 's> {
-    File {
-        fd: i32,
-        filename: &'s str,
-    },
+    File { fd: i32, filename: &'s str, },
     // COPY FROM PROGRAM (copyfrom.c is_program arm): `fd` is an
     // OpenPipeStream index; the child's stdout feeds the same refill path a
     // file does. Closed via ClosePipeFromProgram semantics in EndCopyFrom.
-    Program {
-        fd: i32,
-        filename: &'s str,
-    },
-    Frontend {
-        msgbuf: StringInfo<'mcx>,
-    },
+    Program { fd: i32, filename: &'s str, },
+    Frontend { msgbuf: StringInfo<'mcx>, },
     // copyfrom.c:1850 (`cstate->copy_file = stdin`): the pipe source of a
     // non-remote session — single-user mode's COPY ... FROM STDIN. The read
     // path mirrors C's greedy fread(maxread): bytes past the \. terminator
@@ -64,19 +59,14 @@ pub(crate) enum CopySrc<'mcx, 's> {
     // glue. That obligation is pushed onto the caller — the ONLY constructor of
     // this variant is the `unsafe fn BeginCopyFromCallback`, whose safety
     // contract forbids exactly such captures. Do not add a safe constructor.
-    Callback {
-        cb: Box<dyn FnMut(&mut [u8], usize) -> PgResult<usize> + 'static>,
-    },
+    Callback { cb: Box<dyn FnMut(&mut [u8], usize) -> PgResult<usize> + 'static>, },
     /// FORMAT 'parquet': typed column batches from a server-side file (the
     /// reader owns the file handle; drop closes it on every exit path).
     Parquet(Box<crate::fromparquet::ParquetSrc>),
     /// Parallel text COPY (text_pgrc.rs): a cut chunk's bytes. `parked`
     /// holds the statement's own source while the serial body reads the
     /// buffered prefix; EndCopyFrom restores it.
-    Chunk {
-        cur: crate::textseg::ChunkCursor,
-        parked: Option<Box<CopySrc<'mcx, 's>>>,
-    },
+    Chunk { cur: crate::textseg::ChunkCursor, parked: Option<Box<CopySrc<'mcx, 's>>>, },
 }
 
 pub struct CopyFromState<'mcx, 's> {
@@ -168,9 +158,7 @@ impl CopyFromState<'_, '_> {
 
     /// `cstate->escontext->error_occurred` (file_fdw's soft-error probe).
     pub fn soft_error_occurred(&self) -> bool {
-        self.escontext
-            .as_ref()
-            .is_some_and(|n| n.ctx.error_occurred())
+        self.escontext.as_ref().is_some_and(|n| n.ctx.error_occurred())
     }
 
     pub fn reset_soft_error(&mut self) {
@@ -301,12 +289,7 @@ fn begin_copy_from_guts<'mcx: 's, 's>(
     let convert_select_flags = if opts.convert_selectively {
         let mut flags = vec_from_elem_in(mcx, false, num_phys_attrs);
         let empty = NodeList::nil();
-        let sel = CopyGetAttnums(
-            mcx,
-            tup_desc,
-            Some(rel),
-            opts.convert_select.unwrap_or(&empty),
-        )?;
+        let sel = CopyGetAttnums(mcx, tup_desc, Some(rel), opts.convert_select.unwrap_or(&empty),)?;
         for &attnum in sel.iter() {
             if !attnumlist.contains(&attnum) {
                 let att = tup_desc.attr(attnum as usize - 1);
@@ -381,9 +364,8 @@ fn begin_copy_from_guts<'mcx: 's, 's>(
             };
             let defexpr = clauses::eval_const_expressions(mcx, defexpr)?;
             nodes_core::fix_opfuncids(defexpr)?;
-            let mut state =
-                execexpr::exec_init_expr(mcx, Some(defexpr), execexpr::ParamBind::NONE)?
-                    .expect("column default expression");
+            let mut state = execexpr::exec_init_expr(mcx, Some(defexpr), execexpr::ParamBind::NONE)?
+                .expect("column default expression");
             state.arm_result_mcx(mcx);
             defexprs[i] = Some(state);
             if !in_list {
@@ -395,9 +377,8 @@ fn begin_copy_from_guts<'mcx: 's, 's>(
         }
     }
     for &attnum in attnumlist.iter() {
-        let (in_fn, typioparam) = attr_in_funcs[attnum as usize - 1]
-            .take()
-            .expect("listed column is not dropped");
+        let (in_fn, typioparam) =
+            attr_in_funcs[attnum as usize - 1].take().expect("listed column is not dropped");
         in_functions.push(in_fn);
         typioparams.push(typioparam);
         atttypmods.push(tup_desc.attr(attnum as usize - 1).atttypmod);
@@ -411,8 +392,10 @@ fn begin_copy_from_guts<'mcx: 's, 's>(
         // internal and errors cleanly here).
         if data_source_cb.is_some() {
             return Err(Box::new(
-                PgError::error("COPY FROM with parquet format only supports reading from a file")
-                    .with_sqlstate(types_error::ERRCODE_FEATURE_NOT_SUPPORTED),
+                PgError::error(
+                    "COPY FROM with parquet format only supports reading from a file"
+                )
+                .with_sqlstate(types_error::ERRCODE_FEATURE_NOT_SUPPORTED),
             ));
         }
         let (psrc, file_len) = crate::fromparquet::open_source(
@@ -442,80 +425,68 @@ fn begin_copy_from_guts<'mcx: 's, 's>(
         CopySrc::Callback { cb }
     } else {
         match filename {
-            Some(filename) if is_program => {
-                // copyfrom.c is_program arm: popen the command, read its stdout.
-                let fd = fd::OpenPipeStream(filename, "r")?;
-                if fd < 0 {
-                    ereport(ERROR)
-                        .with_saved_errno(
-                            std::io::Error::last_os_error().raw_os_error().unwrap_or(0),
-                        )
-                        .errcode_for_file_access()
-                        .errmsg(format!("could not execute command \"{filename}\": {PCT_M}"))
-                        .finish(loc("BeginCopyFrom"))?;
-                }
-                progress_type = backend_progress::progress::PROGRESS_COPY_TYPE_PROGRAM;
-                CopySrc::Program { fd, filename }
+        Some(filename) if is_program => {
+            // copyfrom.c is_program arm: popen the command, read its stdout.
+            let fd = fd::OpenPipeStream(filename, "r")?;
+            if fd < 0 {
+                ereport(ERROR)
+                    .with_saved_errno(std::io::Error::last_os_error().raw_os_error().unwrap_or(0),)
+                    .errcode_for_file_access()
+                    .errmsg(format!("could not execute command \"{filename}\": {PCT_M}"))
+                    .finish(loc("BeginCopyFrom"))?;
             }
-            Some(filename) => {
-                let fd = fd::AllocateFile(filename, "rb")?;
-                if fd < 0 {
-                    // copy errno because ereport subfunctions might change it
-                    let save_errno = std::io::Error::last_os_error().raw_os_error().unwrap_or(0);
-                    let mut e = ereport(ERROR)
-                        .with_saved_errno(save_errno)
-                        .errcode_for_file_access()
-                        .errmsg(format!(
-                            "could not open file \"{filename}\" for reading: {PCT_M}"
-                        ));
-                    if crate::open_failure_hint_applies(save_errno) {
-                        e = e.errhint(
+            progress_type = backend_progress::progress::PROGRESS_COPY_TYPE_PROGRAM;
+            CopySrc::Program { fd, filename }
+        }
+        Some(filename) => {
+            let fd = fd::AllocateFile(filename, "rb")?;
+            if fd < 0 {
+                // copy errno because ereport subfunctions might change it
+                let save_errno = std::io::Error::last_os_error().raw_os_error().unwrap_or(0);
+                let mut e = ereport(ERROR)
+                    .with_saved_errno(save_errno)
+                    .errcode_for_file_access()
+                    .errmsg(format!("could not open file \"{filename}\" for reading: {PCT_M}"));
+                if crate::open_failure_hint_applies(save_errno) {
+                    e = e.errhint(
                         "COPY FROM instructs the PostgreSQL server process to read a file. You \
                          may want a client-side facility such as psql's \\copy.",
                     );
-                    }
-                    e.finish(loc("BeginCopyFrom"))?;
                 }
-                progress_type = PROGRESS_COPY_TYPE_FILE;
-                // fstat (copyfrom.c:1886): a failure is an error, never a silent
-                // "not a directory, size 0".
-                let (is_dir, size) = match fd::with_allocated_stdio(fd, |f| f.metadata()) {
-                    Some(Ok(m)) => (m.is_dir(), m.len()),
-                    Some(Err(e)) => return Err(crate::could_not_stat_file(filename, &e)),
-                    None => panic!("COPY FROM: AllocateFile index {fd} vanished"),
-                };
-                if is_dir {
-                    return Err(Box::new(
-                        PgError::error(format!("\"{filename}\" is a directory"))
-                            .with_sqlstate(ERRCODE_WRONG_OBJECT_TYPE),
-                    ));
-                }
-                progress_bytes_total = size as i64;
-                CopySrc::File { fd, filename }
+                e.finish(loc("BeginCopyFrom"))?;
             }
-            None => {
-                // copyfrom.c:1847: a pipe COPY outside a remote session
-                // (single-user mode) reads from the process's stdin instead of
-                // the frontend protocol.
-                if elog::config::where_to_send_output() != CommandDest::Remote {
-                    CopySrc::Stdin
-                } else {
-                    receive_copy_begin(mcx, attnumlist.len(), opts.binary)?
-                }
+            progress_type = PROGRESS_COPY_TYPE_FILE;
+            // fstat (copyfrom.c:1886): a failure is an error, never a silent
+            // "not a directory, size 0".
+            let (is_dir, size) = match fd::with_allocated_stdio(fd, |f| f.metadata()) {
+                Some(Ok(m)) => (m.is_dir(), m.len()),
+                Some(Err(e)) => return Err(crate::could_not_stat_file(filename, &e)),
+                None => panic!("COPY FROM: AllocateFile index {fd} vanished"),
+            };
+            if is_dir {
+                return Err(Box::new(
+                    PgError::error(format!("\"{filename}\" is a directory"))
+                        .with_sqlstate(ERRCODE_WRONG_OBJECT_TYPE),
+                ));
             }
+            progress_bytes_total = size as i64;
+            CopySrc::File { fd, filename }
+        }
+        None => {
+            // copyfrom.c:1847: a pipe COPY outside a remote session
+            // (single-user mode) reads from the process's stdin instead of
+            // the frontend protocol.
+            if elog::config::where_to_send_output() != CommandDest::Remote {
+                CopySrc::Stdin
+            } else {
+                receive_copy_begin(mcx, attnumlist.len(), opts.binary)?
+            }
+        }
         }
     };
     pgstat_progress_update_multi_param(
-        &[
-            PROGRESS_COPY_COMMAND,
-            PROGRESS_COPY_TYPE,
-            PROGRESS_COPY_BYTES_TOTAL,
-        ],
-        &[
-            PROGRESS_COPY_COMMAND_FROM,
-            progress_type,
-            progress_bytes_total,
-        ],
+        &[PROGRESS_COPY_COMMAND, PROGRESS_COPY_TYPE, PROGRESS_COPY_BYTES_TOTAL,],
+        &[PROGRESS_COPY_COMMAND_FROM, progress_type, progress_bytes_total,],
     );
 
     let max_fields = attnumlist.len();
@@ -612,9 +583,7 @@ pub fn CopyFrom<'mcx>(
     } else {
         None
     };
-    let has_instead = trigdesc
-        .as_ref()
-        .is_some_and(|td| td.trig_insert_instead_row);
+    let has_instead = trigdesc.as_ref().is_some_and(|td| td.trig_insert_instead_row);
     if tableam_vocab::is_pgrcolumnar_am_oid(rel.rd_rel.relam) {
         ::pgrc_front::route::admit_insert(false)?;
     }
@@ -631,7 +600,8 @@ pub fn CopyFrom<'mcx>(
     // (RELKIND_HAS_STORAGE arm; partitioned roots have none).
     let mut ti_options = if relkind == RELKIND_RELATION
         && (rel.rd_createSubid.get() != types_core::xact::InvalidSubTransactionId
-            || rel.rd_firstRelfilelocatorSubid.get() != types_core::xact::InvalidSubTransactionId)
+            || rel.rd_firstRelfilelocatorSubid.get()
+                != types_core::xact::InvalidSubTransactionId)
     {
         tableam_vocab::TABLE_INSERT_SKIP_FSM
     } else {
@@ -651,7 +621,8 @@ pub fn CopyFrom<'mcx>(
             ));
         }
         snapmgr::InvalidateCatalogSnapshot();
-        if !snapmgr::ThereAreNoPriorRegisteredSnapshots() || !portalmem::ThereAreNoReadyPortals() {
+        if !snapmgr::ThereAreNoPriorRegisteredSnapshots() || !portalmem::ThereAreNoReadyPortals()
+        {
             return Err(Box::new(
                 PgError::error("cannot perform COPY FREEZE because of prior transaction activity")
                     .with_sqlstate(types_error::ERRCODE_INVALID_TRANSACTION_STATE),
@@ -696,21 +667,19 @@ pub fn CopyFrom<'mcx>(
             trigdesc.is_some(),
             ti_options,
         )? {
-            debug_assert!(
-                trigdesc.is_none(),
-                "parallel COPY engaged on a trigger-bearing rel"
-            );
+            debug_assert!(trigdesc.is_none(), "parallel COPY engaged on a trigger-bearing rel");
             return Ok(processed);
         }
         // Parallel COPY FROM text / CSV into pgrcolumnar (text_pgrc.rs),
         // the same contract.
-        if let Some(processed) =
-            crate::text_pgrc::copy_from_text_pgrc(mcx, cstate, rel, trigdesc.is_some(), ti_options)?
-        {
-            debug_assert!(
-                trigdesc.is_none(),
-                "parallel COPY engaged on a trigger-bearing rel"
-            );
+        if let Some(processed) = crate::text_pgrc::copy_from_text_pgrc(
+            mcx,
+            cstate,
+            rel,
+            trigdesc.is_some(),
+            ti_options
+        )? {
+            debug_assert!(trigdesc.is_none(), "parallel COPY engaged on a trigger-bearing rel");
             return Ok(processed);
         }
     }
@@ -725,7 +694,8 @@ pub fn CopyFrom<'mcx>(
     // 961/972): the capture registry keys off the query depth it opens. A
     // triggerless partitioned target still needs it — routed-into leaves may
     // carry their own row triggers.
-    let open_trigger_query = trigdesc.is_some() || relkind == types_rel::RELKIND_PARTITIONED_TABLE;
+    let open_trigger_query =
+        trigdesc.is_some() || relkind == types_rel::RELKIND_PARTITIONED_TABLE;
     if open_trigger_query {
         trigger::AfterTriggerBeginQuery();
     }
@@ -747,11 +717,8 @@ pub fn CopyFrom<'mcx>(
     // run (a trigger's SPI insert advances the counter).
     let mycid = xact::GetCurrentCommandId(true)?;
     if let Some(td) = &trigdesc {
-        let mut when = trigger::TriggerWhenEval {
-            mcx,
-            cache: &mut trig_when,
-            modified_cols: None,
-        };
+        let mut when =
+            trigger::TriggerWhenEval { mcx, cache: &mut trig_when, modified_cols: None, };
         trigger::ExecBSInsertTriggers(mcx, rel, td, &mut trig_fmgr, &mut when)?;
     }
     // CopyFromErrorCallback scope: C installs error_context_stack here, after
@@ -807,17 +774,9 @@ pub fn CopyFrom<'mcx>(
         Ok(n) => {
             skipped_rows_notice(cstate)?;
             if let Some(td) = &trigdesc {
-                let mut when = trigger::TriggerWhenEval {
-                    mcx,
-                    cache: &mut trig_when,
-                    modified_cols: None,
-                };
-                trigger::ExecASInsertTriggers(
-                    rel,
-                    td,
-                    transition_capture.as_ref(),
-                    Some(&mut when),
-                )?;
+                let mut when =
+                    trigger::TriggerWhenEval { mcx, cache: &mut trig_when, modified_cols: None, };
+                trigger::ExecASInsertTriggers(rel, td, transition_capture.as_ref(), Some(&mut when),)?;
             }
             if open_trigger_query {
                 trigger::AfterTriggerEndQuery(None, &[(rel.rd_id, trigdesc.clone())])?;
@@ -870,19 +829,7 @@ fn pgrc_index_placed<'mcx>(
     let mut eval: Option<MemoryContext> = None;
     tableam::table_take_placed(mcx, rel, &mut |s| {
         let cx = eval.get_or_insert_with(|| MemoryContext::new_bump("CopyIndexEvalPlaced"));
-        let out = execindexing::ExecInsertIndexTuples(
-            mcx,
-            cx.mcx(),
-            index_state,
-            rel,
-            s,
-            None,
-            false,
-            None,
-            &[],
-            false,
-        )
-        .map(|_| ());
+        let out = execindexing::ExecInsertIndexTuples(mcx, cx.mcx(), index_state, rel, s, None, false, None, &[], false,).map(|_| ());
         cx.reset();
         out
     })
@@ -917,6 +864,7 @@ fn copy_from_body<'mcx>(
     // one at a time (CIM_SINGLE, copyfrom.c:1007-1016 with ri_BatchSize 1).
     mut foreign: Option<&mut CopyForeign<'mcx>>,
 ) -> PgResult<u64> {
+
     // The DoCopy perminfo's insertedCols (copy.c): constraint-error DETAILs
     // always include the columns the user provided data for (execMain.c
     // ExecBuildSlotValueDescription).
@@ -937,12 +885,7 @@ fn copy_from_body<'mcx>(
     // TRIGGERS: rows of a pgrcolumnar target that an AFTER ROW INSERT trigger or a NEW TABLE capture fetches back
     // need positions, which the bulk lane's parts do not have until publish: those go row by row into the segment.
     let pgrc_positions = is_pgrc(rel)
-        && ::pgrc_front::route::needs_position(
-            trig.as_ref().map(|t| &**t.td),
-            trig.as_ref()
-                .and_then(|t| t.tc)
-                .is_some_and(|tc| tc.tcs_insert_new_table),
-        );
+        && ::pgrc_front::route::needs_position(trig.as_ref().map(|t| &**t.td), trig.as_ref().and_then(|t| t.tc).is_some_and(|tc| tc.tcs_insert_new_table),);
     let volatile_single = cstate.volatile_defexprs || where_clause_volatile(cstate)?;
     if volatile_single {
         if let Some(f) = foreign.as_deref_mut() {
@@ -956,11 +899,8 @@ fn copy_from_body<'mcx>(
     // C ri_PartitionCheckExpr: compiled once per COPY, on first use.
     let mut partition_check: Option<mcx::PgBox<'mcx, execexpr::ExprState<'mcx>>> = None;
 
-    let has_generated_stored = rel
-        .rd_att
-        .constr
-        .as_deref()
-        .is_some_and(|c| c.has_generated_stored);
+    let has_generated_stored =
+        rel.rd_att.constr.as_deref().is_some_and(|c| c.has_generated_stored);
     let mut generated_exprs = None;
     let mut virtual_nn_exprs = None;
 
@@ -989,29 +929,15 @@ fn copy_from_body<'mcx>(
         input_row_cx.reset();
         {
             let base = slot.base_mut();
-            if !next_copy_row(
-                cstate,
-                mcx,
-                input_row_cx.mcx(),
-                &mut base.tts_values,
-                &mut base.tts_isnull,
-            )? {
+            if !next_copy_row(cstate, mcx, input_row_cx.mcx(), &mut base.tts_values, &mut base.tts_isnull,)? {
                 break;
             }
         }
-        if cstate
-            .escontext
-            .as_ref()
-            .is_some_and(|n| n.ctx.error_occurred())
-        {
-            cstate
-                .escontext
-                .as_mut()
-                .unwrap()
-                .ctx
-                .reset_error_occurred();
+        if cstate.escontext.as_ref().is_some_and(|n| n.ctx.error_occurred()) {
+            cstate.escontext.as_mut().unwrap().ctx.reset_error_occurred();
             pgstat_progress_update_param(PROGRESS_COPY_TUPLES_SKIPPED, cstate.num_errors as i64);
-            if cstate.opts.reject_limit > 0 && cstate.num_errors > cstate.opts.reject_limit as u64 {
+            if cstate.opts.reject_limit > 0 && cstate.num_errors > cstate.opts.reject_limit as u64
+            {
                 return Err(reject_limit_exceeded(cstate.opts.reject_limit));
             }
             continue;
@@ -1021,11 +947,7 @@ fn copy_from_body<'mcx>(
         slot.base_mut().tts_tableOid = rel.rd_id;
 
         if let Some(qual) = qualexpr.as_deref_mut() {
-            let mut eval = execexpr::EvalSlots {
-                scan: Some(slot),
-                inner: None,
-                outer: None,
-            };
+            let mut eval = execexpr::EvalSlots { scan: Some(slot), inner: None, outer: None, };
             // SAFETY: input_row_cx is stable and live until the result is consumed;
             // restore the statement context before either success or error leaves this scope.
             unsafe { qual.arm_result_mcx_raw(input_row_cx.mcx()) };
@@ -1042,18 +964,14 @@ fn copy_from_body<'mcx>(
         // suppresses the row and it is not counted.
         if has_br {
             let t = trig.as_deref_mut().expect("has_br implies trig");
-            let mut when = trigger::TriggerWhenEval {
-                mcx,
-                cache: &mut *t.when,
-                modified_cols: None,
-            };
+            let mut when =
+                trigger::TriggerWhenEval { mcx, cache: &mut *t.when, modified_cols: None, };
             // The trigger call runs in the per-row context (copyfrom.c:1327
             // under GetPerTupleMemoryContext); the slot keeps its own copy.
             if !trigger::ExecBRInsertTriggersIn(
                 mcx,
                 input_row_cx.mcx(),
-                rel,
-                t.td,
+                rel,t.td,
                 t.fmgr,
                 &mut when,
                 slot,
@@ -1066,16 +984,12 @@ fn copy_from_body<'mcx>(
         // (copyfrom.c:1340-1343).
         if has_ir {
             let t = trig.as_deref_mut().expect("has_ir implies trig");
-            let mut when = trigger::TriggerWhenEval {
-                mcx,
-                cache: &mut *t.when,
-                modified_cols: None,
-            };
+            let mut when =
+                trigger::TriggerWhenEval { mcx, cache: &mut *t.when, modified_cols: None, };
             trigger::ExecIRInsertTriggersIn(
                 mcx,
                 input_row_cx.mcx(),
-                rel,
-                t.td,
+                rel,t.td,
                 t.fmgr,
                 &mut when,
                 slot,
@@ -1088,11 +1002,7 @@ fn copy_from_body<'mcx>(
 
         if has_generated_stored {
             nodemodifytable::exec_compute_stored_generated_in_row(
-                mcx,
-                input_row_cx.mcx(),
-                &mut generated_exprs,
-                rel,
-                slot,
+                mcx, input_row_cx.mcx(), &mut generated_exprs, rel, slot,
             )?;
         }
 
@@ -1116,13 +1026,7 @@ fn copy_from_body<'mcx>(
         // a partition has no tuple routing (proute == NULL), so every row is
         // checked against the partition constraint, BR trigger or not.
         if rel.rd_rel.relispartition
-            && !execpartition::exec_partition_check_in(
-                mcx,
-                input_row_cx.mcx(),
-                &mut partition_check,
-                rel,
-                slot,
-            )?
+            && !execpartition::exec_partition_check_in(mcx, input_row_cx.mcx(), &mut partition_check, rel, slot,)?
         {
             return Err(execpartition::partition_constraint_violation(
                 mcx,
@@ -1200,11 +1104,8 @@ fn copy_from_body<'mcx>(
                 PgVec::new_in(mcx)
             };
             if let Some(t) = trig.as_deref_mut() {
-                let mut when = trigger::TriggerWhenEval {
-                    mcx,
-                    cache: &mut *t.when,
-                    modified_cols: None,
-                };
+                let mut when =
+                    trigger::TriggerWhenEval { mcx, cache: &mut *t.when, modified_cols: None, };
                 trigger::ExecARInsertTriggers(
                     mcx,
                     rel,
@@ -1298,10 +1199,7 @@ pub(crate) struct CopyForeign<'mcx> {
 
 // ExecForeignBatchInsert's flush of the rows the provider buffered
 // (copyfrom.c:483-522): the rows the remote reports inserted are counted.
-fn flush_copy_foreign(
-    cstate: &mut CopyFromState<'_, '_>,
-    f: &mut CopyForeign<'_>,
-) -> PgResult<u64> {
+fn flush_copy_foreign(cstate: &mut CopyFromState<'_, '_>, f: &mut CopyForeign<'_>,) -> PgResult<u64> {
     if let Some(flush) = f.routine.flush {
         cstate.relname_only = f.batched;
         flush(f.state.as_mut(), &mut f.estate)?;
@@ -1359,22 +1257,19 @@ fn begin_copy_foreign_insert<'mcx>(
         false,
         false,
     )?;
-    let range_table = mcx::alloc_leak_in(
-        mcx,
-        core::mem::replace(&mut pstate.p_rtable, NodeList::nil()),
-    )?;
-    let perminfos = mcx::alloc_leak_in(
-        mcx,
-        core::mem::replace(&mut pstate.p_rteperminfos, NodeList::nil()),
-    )?;
+    let range_table = mcx::alloc_leak_in(mcx, core::mem::replace(&mut pstate.p_rtable, NodeList::nil()),)?;
+    let perminfos =
+        mcx::alloc_leak_in(mcx, core::mem::replace(&mut pstate.p_rteperminfos, NodeList::nil()),)?;
     parser_small1::free_parsestate(pstate)?;
     let mut estate = executils::EStateData::new_in(mcx);
     let mut unpruned = types_nodes::Bitmapset::empty();
     unpruned.add_member(mcx, 1)?;
     estate.exec_init_range_table(range_table, perminfos, unpruned)?;
     estate.exec_get_range_table_relation(1, true)?;
-    let slot = estate
-        .exec_init_extra_tuple_slot(Some(rel.rd_att.clone()), types_slot::TupleSlotKind::Virtual);
+    let slot = estate.exec_init_extra_tuple_slot(
+        Some(rel.rd_att.clone()),
+        types_slot::TupleSlotKind::Virtual
+    );
     let node = mcx::alloc_leak_in(
         mcx,
         types_nodes::plannodes::ModifyTable {
@@ -1389,11 +1284,8 @@ fn begin_copy_foreign_insert<'mcx>(
     // file_fdw failed CheckValidResultRel above).
     let no_state = || {
         Box::new(
-            PgError::error(format!(
-                "cannot insert into foreign table \"{}\"",
-                rel.name()
-            ))
-            .with_sqlstate(types_error::ERRCODE_FEATURE_NOT_SUPPORTED),
+            PgError::error(format!("cannot insert into foreign table \"{}\"", rel.name()))
+                .with_sqlstate(types_error::ERRCODE_FEATURE_NOT_SUPPORTED),
         )
     };
     let Some(begin) = routine.begin_insert else {
@@ -1403,15 +1295,8 @@ fn begin_copy_foreign_insert<'mcx>(
     let Some(state) = begin(node, &mut estate, rel, 1, 1, &empty, &empty, false)? else {
         return Err(no_state());
     };
-    let batched =
-        routine.flush.is_some() && routine.batch_size.is_some_and(|b| b(state.as_ref()) > 1);
-    Ok(CopyForeign {
-        estate,
-        slot,
-        routine,
-        state,
-        batched,
-    })
+    let batched = routine.flush.is_some() && routine.batch_size.is_some_and(|b| b(state.as_ref()) > 1);
+    Ok(CopyForeign { estate, slot, routine, state, batched, })
 }
 
 pub fn next_copy_row<'mcx>(
@@ -1457,7 +1342,8 @@ fn init_where_qual<'mcx>(
 }
 
 fn skipped_rows_notice(cstate: &CopyFromState<'_, '_>) -> PgResult<()> {
-    if cstate.num_errors > 0 && cstate.opts.log_verbosity >= crate::CopyLogVerbosityChoice::Default
+    if cstate.num_errors > 0
+        && cstate.opts.log_verbosity >= crate::CopyLogVerbosityChoice::Default
     {
         let n = cstate.num_errors;
         let msg = if n == 1 {
@@ -1465,9 +1351,7 @@ fn skipped_rows_notice(cstate: &CopyFromState<'_, '_>) -> PgResult<()> {
         } else {
             format!("{n} rows were skipped due to data type incompatibility")
         };
-        ereport(types_error::NOTICE)
-            .errmsg(msg)
-            .finish(loc("CopyFrom"))?;
+        ereport(types_error::NOTICE).errmsg(msg).finish(loc("CopyFrom"))?;
     }
     Ok(())
 }
@@ -1521,6 +1405,7 @@ fn copy_from_partitioned_body<'mcx>(
     mycid: types_core::CommandId,
     leaf_indexes: &mut Vec<Option<execindexing::ResultRelIndexState<'mcx>>>,
 ) -> PgResult<u64> {
+
     // The DoCopy perminfo's insertedCols (copy.c): constraint-error DETAILs
     // always include the columns the user provided data for (execMain.c
     // ExecBuildSlotValueDescription), root-numbered.
@@ -1536,7 +1421,8 @@ fn copy_from_partitioned_body<'mcx>(
     // C CopyFrom's estate (CreateExecutorState) carries the routing's
     // es_partition_directory; freed with it at the end (FreeExecutorState).
     let mut partition_directory: Option<execpartition::PartitionDirectory<'mcx>> = None;
-    let mut router = execpartition::PartitionTupleRouting::new(mcx, rel, &mut partition_directory)?;
+    let mut router =
+        execpartition::PartitionTupleRouting::new(mcx, rel, &mut partition_directory)?;
     // C GetPerTupleExprContext: expression partition keys evaluate here,
     // reset per row.
     let mut route_eval_cx = MemoryContext::new_wholesale("CopyRouteEvalPerTuple");
@@ -1553,7 +1439,8 @@ fn copy_from_partitioned_body<'mcx>(
     // CIM_SINGLE arms of copyfrom.c:1028-1052; the non-batch bistate exists
     // for CIM_MULTI_CONDITIONAL too (copyfrom.c:1083), pin released on
     // partition switch (copyfrom.c:1258-1260).
-    let single_insert = force_single || cstate.volatile_defexprs || where_clause_volatile(cstate)?;
+    let single_insert =
+        force_single || cstate.volatile_defexprs || where_clause_volatile(cstate)?;
     let mut single_bistate = heapam::GetBulkInsertState();
     let mut prev_leaf: Option<usize> = None;
     // es_insert_pending_result_relations: foreign leaves holding a buffered
@@ -1575,29 +1462,15 @@ fn copy_from_partitioned_body<'mcx>(
         input_row_cx.reset();
         {
             let base = rootslot.base_mut();
-            if !next_copy_row(
-                cstate,
-                mcx,
-                input_row_cx.mcx(),
-                &mut base.tts_values,
-                &mut base.tts_isnull,
-            )? {
+            if !next_copy_row(cstate, mcx, input_row_cx.mcx(), &mut base.tts_values, &mut base.tts_isnull,)? {
                 break;
             }
         }
-        if cstate
-            .escontext
-            .as_ref()
-            .is_some_and(|n| n.ctx.error_occurred())
-        {
-            cstate
-                .escontext
-                .as_mut()
-                .unwrap()
-                .ctx
-                .reset_error_occurred();
+        if cstate.escontext.as_ref().is_some_and(|n| n.ctx.error_occurred()) {
+            cstate.escontext.as_mut().unwrap().ctx.reset_error_occurred();
             pgstat_progress_update_param(PROGRESS_COPY_TUPLES_SKIPPED, cstate.num_errors as i64);
-            if cstate.opts.reject_limit > 0 && cstate.num_errors > cstate.opts.reject_limit as u64 {
+            if cstate.opts.reject_limit > 0 && cstate.num_errors > cstate.opts.reject_limit as u64
+            {
                 return Err(reject_limit_exceeded(cstate.opts.reject_limit));
             }
             continue;
@@ -1607,11 +1480,8 @@ fn copy_from_partitioned_body<'mcx>(
         rootslot.base_mut().tts_tableOid = rel.rd_id;
 
         if let Some(qual) = qualexpr.as_deref_mut() {
-            let mut eval = execexpr::EvalSlots {
-                scan: Some(&mut rootslot),
-                inner: None,
-                outer: None,
-            };
+            let mut eval =
+                execexpr::EvalSlots { scan: Some(&mut rootslot), inner: None, outer: None, };
             // SAFETY: input_row_cx is stable and live until the result is consumed;
             // restore the statement context before either success or error leaves this scope.
             unsafe { qual.arm_result_mcx_raw(input_row_cx.mcx()) };
@@ -1633,21 +1503,14 @@ fn copy_from_partitioned_body<'mcx>(
         )?;
         if leaf_checks.len() <= leaf {
             let needed = leaf + 1 - leaf_checks.len();
-            leaf_checks.try_reserve(needed).map_err(|_| {
-                mcx.oom(
-                    needed
-                        * core::mem::size_of::<
-                            Option<mcx::PgVec<'mcx, nodemodifytable::CheckExpr<'mcx>>>,
-                        >(),
-                )
-            })?;
+            leaf_checks
+                .try_reserve(needed)
+                .map_err(|_| mcx.oom(needed * core::mem::size_of::<Option<mcx::PgVec<'mcx, nodemodifytable::CheckExpr<'mcx>>>>()))?;
             leaf_checks.resize_with(leaf + 1, || None);
             let needed_idx = leaf + 1 - leaf_indexes.len();
-            leaf_indexes.try_reserve(needed_idx).map_err(|_| {
-                mcx.oom(
-                    needed_idx
-                        * core::mem::size_of::<Option<execindexing::ResultRelIndexState<'mcx>>>(),
-                )
+            leaf_indexes
+                .try_reserve(needed_idx)
+                .map_err(|_| { mcx.oom(needed_idx * core::mem::size_of::<Option<execindexing::ResultRelIndexState<'mcx>>>(),)
             })?;
             leaf_indexes.resize_with(leaf + 1, || None);
         }
@@ -1680,11 +1543,11 @@ fn copy_from_partitioned_body<'mcx>(
             // TRIGGERS: a pgrcolumnar leaf's AFTER ROW INSERT triggers fetch its rows back by position, which the
             // bulk lane's parts do not have until publish: the single-insert arm (into the segment).
             let use_multi = foreign.is_none()
-                && !td
-                    .as_ref()
-                    .is_some_and(|t| t.trig_insert_before_row || t.trig_insert_instead_row)
+                && !td.as_ref().is_some_and(|t|
+                    t.trig_insert_before_row || t.trig_insert_instead_row)
                 && !(is_pgrc(lrel) && ::pgrc_front::route::needs_position(td.as_deref(), false));
-            let c2r = tupdesc::build_attrmap_by_name_if_req(mcx, &lrel.rd_att, &rel.rd_att, false)?;
+            let c2r =
+                tupdesc::build_attrmap_by_name_if_req(mcx, &lrel.rd_att, &rel.rd_att, false)?;
             leaf_trig[leaf] = Some(LeafTrig {
                 td,
                 fmgr: trigger::TriggerFmgrCache::default(),
@@ -1706,10 +1569,7 @@ fn copy_from_partitioned_body<'mcx>(
             }
         }
         let leaf_use_multi = !single_insert
-            && leaf_trig[leaf]
-                .as_ref()
-                .expect("leaf initialized")
-                .use_multi;
+            && leaf_trig[leaf].as_ref().expect("leaf initialized").use_multi;
 
         if prev_leaf != Some(leaf) {
             // copyfrom.c:1245-1260: flush pending inserts before a
@@ -1723,11 +1583,11 @@ fn copy_from_partitioned_body<'mcx>(
                     || lt.td.as_ref().is_some_and(|t| t.trig_insert_before_row))
                 && !pending_foreign.is_empty()
             {
-                for idx in core::mem::replace(&mut pending_foreign, mcx::PgVec::new_in(mcx)).iter()
+                for idx in
+                    core::mem::replace(&mut pending_foreign, mcx::PgVec::new_in(mcx)).iter()
                 {
                     let lt = leaf_trig[*idx].as_mut().expect("pending leaf initialized");
-                    processed +=
-                        flush_copy_foreign(cstate, lt.foreign.as_mut().expect("foreign leaf"))?;
+                    processed += flush_copy_foreign(cstate, lt.foreign.as_mut().expect("foreign leaf"))?;
                 }
             }
             if !leaf_use_multi && buffered_tuples > 0 {
@@ -1757,8 +1617,9 @@ fn copy_from_partitioned_body<'mcx>(
             let lrel = router.leaf_rel(leaf);
             if leaf_slots.len() <= leaf {
                 let needed = leaf + 1 - leaf_slots.len();
-                leaf_slots.try_reserve(needed).map_err(|_| {
-                    mcx.oom(needed * core::mem::size_of::<Option<types_slot::SlotData<'mcx>>>())
+                leaf_slots
+                    .try_reserve(needed)
+                    .map_err(|_| { mcx.oom(needed * core::mem::size_of::<Option<types_slot::SlotData<'mcx>>>())
                 })?;
                 leaf_slots.resize_with(leaf + 1, || None);
             }
@@ -1775,26 +1636,14 @@ fn copy_from_partitioned_body<'mcx>(
                 None => &mut rootslot,
             };
             use_slot.base_mut().tts_tableOid = lrel.rd_id;
-            let LeafTrig {
-                td,
-                fmgr,
-                when: when_cache,
-                c2r,
-                pcheck,
-                gen,
-                vnn,
-                foreign,
-                ..
-            } = leaf_trig[leaf].as_mut().expect("leaf initialized");
+            let LeafTrig { td, fmgr, when: when_cache, c2r, pcheck, gen, vnn, foreign, .. } =
+                leaf_trig[leaf].as_mut().expect("leaf initialized");
             let has_br = td.as_ref().is_some_and(|t| t.trig_insert_before_row);
             // BEFORE ROW INSERT triggers on the leaf (copyfrom.c:1327-1331);
             // a NULL return suppresses the row and it is not counted.
             if has_br {
-                let mut when = trigger::TriggerWhenEval {
-                    mcx,
-                    cache: &mut *when_cache,
-                    modified_cols: None,
-                };
+                let mut when =
+                    trigger::TriggerWhenEval { mcx, cache: &mut *when_cache, modified_cols: None, };
                 if !trigger::ExecBRInsertTriggersIn(
                     mcx,
                     input_row_cx.mcx(),
@@ -1808,18 +1657,9 @@ fn copy_from_partitioned_body<'mcx>(
                 }
             }
             // Compute stored generated columns on the leaf (copyfrom.c:1345-1350).
-            if lrel
-                .rd_att
-                .constr
-                .as_deref()
-                .is_some_and(|c| c.has_generated_stored)
-            {
+            if lrel.rd_att.constr.as_deref().is_some_and(|c| c.has_generated_stored) {
                 nodemodifytable::exec_compute_stored_generated_in_row(
-                    mcx,
-                    input_row_cx.mcx(),
-                    gen,
-                    lrel,
-                    use_slot,
+                    mcx, input_row_cx.mcx(), gen, lrel, use_slot,
                 )?;
             }
             // copyfrom.c:1357: a foreign leaf's constraints are the remote's.
@@ -1837,15 +1677,7 @@ fn copy_from_partitioned_body<'mcx>(
             }
             // ExecPartitionCheck (copyfrom.c:1361-1368): a routed row is
             // re-checked only when a BR trigger could have moved it.
-            if has_br
-                && !execpartition::exec_partition_check_in(
-                    mcx,
-                    input_row_cx.mcx(),
-                    pcheck,
-                    lrel,
-                    use_slot,
-                )?
-            {
+            if has_br && !execpartition::exec_partition_check_in(mcx, input_row_cx.mcx(), pcheck, lrel, use_slot,)? {
                 return Err(execpartition::partition_constraint_violation(
                     mcx,
                     lrel,
@@ -1929,11 +1761,8 @@ fn copy_from_partitioned_body<'mcx>(
                     child_desc: lrel.rd_att.as_ref(),
                     root_desc: rel.rd_att.as_ref(),
                 });
-                let mut when = trigger::TriggerWhenEval {
-                    mcx,
-                    cache: &mut *when_cache,
-                    modified_cols: None,
-                };
+                let mut when =
+                    trigger::TriggerWhenEval { mcx, cache: &mut *when_cache, modified_cols: None, };
                 trigger::ExecARInsertTriggers(
                     mcx,
                     lrel,
@@ -1954,10 +1783,7 @@ fn copy_from_partitioned_body<'mcx>(
         let bidx = match buffers.iter().position(|b| b.leaf == leaf) {
             Some(i) => i,
             None => {
-                let slots = spare_slots
-                    .get_mut(leaf)
-                    .map(core::mem::take)
-                    .unwrap_or_default();
+                let slots = spare_slots.get_mut(leaf).map(core::mem::take).unwrap_or_default();
                 let mut linenos = Vec::new();
                 linenos
                     .try_reserve_exact(slots.len())
@@ -1993,18 +1819,9 @@ fn copy_from_partitioned_body<'mcx>(
             slot.base_mut().tts_tableOid = lrel.rd_id;
             let lt = leaf_trig[leaf].as_mut().expect("leaf initialized");
             // Compute stored generated columns on the leaf (copyfrom.c:1345-1350).
-            if lrel
-                .rd_att
-                .constr
-                .as_deref()
-                .is_some_and(|c| c.has_generated_stored)
-            {
+            if lrel.rd_att.constr.as_deref().is_some_and(|c| c.has_generated_stored) {
                 nodemodifytable::exec_compute_stored_generated_in_row(
-                    mcx,
-                    input_row_cx.mcx(),
-                    &mut lt.gen,
-                    lrel,
-                    slot,
+                    mcx, input_row_cx.mcx(), &mut lt.gen, lrel, slot,
                 )?;
             }
             nodemodifytable::exec_constraints_in_row(
@@ -2056,8 +1873,9 @@ fn copy_from_partitioned_body<'mcx>(
                 }
                 if spare_slots.len() <= evicted.leaf {
                     let needed = evicted.leaf + 1 - spare_slots.len();
-                    spare_slots.try_reserve(needed).map_err(|_| {
-                        mcx.oom(needed * core::mem::size_of::<Vec<types_slot::SlotData<'mcx>>>())
+                    spare_slots
+                        .try_reserve(needed)
+                        .map_err(|_| { mcx.oom(needed * core::mem::size_of::<Vec<types_slot::SlotData<'mcx>>>())
                     })?;
                     spare_slots.resize_with(evicted.leaf + 1, Vec::new);
                 }
@@ -2134,12 +1952,8 @@ fn flush_part_buffers<'mcx>(
         // capture never reaches here — it forces the single-insert arm.
         let LeafTrig { td, fmgr, when, .. } =
             leaf_trig[buf.leaf].as_mut().expect("leaf initialized");
-        let mut trig = td.as_ref().map(|td| CopyTrig {
-            td,
-            tc: transition_capture,
-            when,
-            fmgr,
-        });
+        let mut trig =
+            td.as_ref().map(|td| CopyTrig { td, tc: transition_capture, when, fmgr, });
         flush_multi_insert(
             mcx,
             cstate,
@@ -2188,8 +2002,7 @@ fn flush_multi_insert<'mcx>(
             eval_cx.reset();
             cstate.cur_lineno = linenos[i];
             // IXBULKSORT: a pgrcolumnar bulk row with no position yet waits for its placed ID (pgrc_index_placed)
-            let placed_later =
-                is_pgrc(rel) && !types_tuple::itemptr::ItemPointerIsValid(&slot.base().tts_tid);
+            let placed_later = is_pgrc(rel) && !types_tuple::itemptr::ItemPointerIsValid(&slot.base().tts_tid);
             let recheck_indexes = if index_state.num_indices() > 0 && !placed_later {
                 execindexing::ExecInsertIndexTuples(
                     mcx,
@@ -2207,11 +2020,8 @@ fn flush_multi_insert<'mcx>(
                 PgVec::new_in(mcx)
             };
             if let Some(t) = trig.as_deref_mut() {
-                let mut when = trigger::TriggerWhenEval {
-                    mcx,
-                    cache: &mut *t.when,
-                    modified_cols: None,
-                };
+                let mut when =
+                    trigger::TriggerWhenEval { mcx, cache: &mut *t.when, modified_cols: None, };
                 trigger::ExecARInsertTriggers(
                     mcx,
                     rel,
@@ -2266,7 +2076,10 @@ impl Drop for CopyFromEmitContext {
 // attached on Err propagation instead of via error_context_stack.
 #[cold]
 #[inline(never)]
-pub fn copy_from_error_context(cstate: &CopyFromState<'_, '_>, e: Box<PgError>) -> Box<PgError> {
+pub fn copy_from_error_context(
+    cstate: &CopyFromState<'_, '_>,
+    e: Box<PgError>
+) -> Box<PgError> {
     Box::new(e.add_context(copy_from_error_context_text(cstate)))
 }
 
@@ -2417,10 +2230,7 @@ fn cannot_copy_to_relkind(rel: &Relation<'_>) -> Box<PgError> {
         ),
         b'm' => (format!("cannot copy to materialized view \"{name}\""), None),
         b'S' => (format!("cannot copy to sequence \"{name}\""), None),
-        _ => (
-            format!("cannot copy to non-table relation \"{name}\""),
-            None,
-        ),
+        _ => (format!("cannot copy to non-table relation \"{name}\""), None,),
     };
     let mut e = PgError::error(msg).with_sqlstate(ERRCODE_WRONG_OBJECT_TYPE);
     if let Some(h) = hint {

@@ -35,10 +35,10 @@ fn no_binary_io(recv: bool, rngtypid: Oid) -> Box<PgError> {
 }
 
 pub fn cached_multirange_io_data(
-    flinfo: &mut FmgrInfo,
+    flinfo: & mut FmgrInfo,
     mltrngtypid: Oid,
     func: IOFuncSelector,
-) -> PgResult<&mut MultirangeIOData> {
+) -> PgResult<& mut MultirangeIOData> {
     let need = match flinfo.fn_extra_ref::<MultirangeIOData>() {
         Some(c) => c.mi.mltrngtypid != mltrngtypid,
         None => true,

@@ -69,12 +69,7 @@ impl Drop for LoadCharge {
 pub(crate) fn load_room_now() -> Option<u64> {
     let resident = mcx::governor::probe_resident()? as u64;
     let dirty = mcx::governor::probe_dirty().map_or(0, |d| d as u64);
-    let room = mempolicy::load::load_room(
-        mcx::governor::limit() as u64,
-        mcx::governor::bar() as u64,
-        resident,
-        dirty,
-    );
+    let room = mempolicy::load::load_room(mcx::governor::limit() as u64, mcx::governor::bar() as u64, resident, dirty,);
     (room != u64::MAX).then_some(room)
 }
 
@@ -102,9 +97,7 @@ pub(crate) fn governed(headroom: Option<u64>) -> Option<u64> {
 pub(crate) fn dop(rt: &runtime::Runtime) -> i32 {
     static N: OnceLock<Option<u64>> = OnceLock::new();
     let req = *N.get_or_init(|| {
-        std::env::var("PGRUST_PARALLEL_COPY_DOP")
-            .ok()
-            .and_then(|v| v.trim().parse().ok())
+        std::env::var("PGRUST_PARALLEL_COPY_DOP").ok().and_then(|v| v.trim().parse().ok())
     });
     dop_for(req, rt.config().workers) as i32
 }
@@ -112,8 +105,7 @@ pub(crate) fn dop(rt: &runtime::Runtime) -> i32 {
 /// The pure rule behind [`dop`]: the request, else the pool's workers, never
 /// above the external-lane budget.
 pub(crate) fn dop_for(req: Option<u64>, workers: usize) -> u64 {
-    req.unwrap_or(workers as u64)
-        .clamp(1, runtime::MAX_EXTERNAL_LANES as u64)
+    req.unwrap_or(workers as u64).clamp(1, runtime::MAX_EXTERNAL_LANES as u64)
 }
 
 /// The pgrcolumnar parquet path (parquet_pgrc.rs) is ON by default: it is

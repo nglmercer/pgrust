@@ -33,12 +33,12 @@ fn null_arg(funcname: &'static str) -> PgResult<()> {
     elog(ERROR, format!("null argument to {funcname} is not allowed")).map(|_| ())
 }
 
-fn arg_bytes(fcinfo: &Fcinfo, i: usize) -> PgResult<&[u8]> {
+fn arg_bytes(fcinfo: & Fcinfo, i: usize) -> PgResult<& [u8]> {
     // SAFETY: catalog arg `i` is text, non-null per caller.
     Ok(unsafe { fcinfo.arg_varlena_packed(i)? }.data())
 }
 
-fn arg_str(fcinfo: &Fcinfo, i: usize) -> PgResult<&str> {
+fn arg_str(fcinfo: & Fcinfo, i: usize) -> PgResult<& str> {
     // SAFETY: catalog arg `i` is text (or name-shaped text), non-null per caller.
     let bytes = unsafe { fcinfo.arg_varlena_packed(i)? }.data();
     Ok(core::str::from_utf8(bytes).expect("pg_upgrade_support: text arg is UTF-8"))

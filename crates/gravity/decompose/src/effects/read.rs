@@ -523,7 +523,7 @@ pub fn quiet_args(funcid: u32, args: &NodeList<'_>) -> bool {
     // front key would miss on another one
     let at = types_core::quiet::privilege_args(funcid).filter(|&n| n == args.len());
     let text_of = |n: usize| args.iter().nth(n - 1).and_then(|a| a.as_const()).filter(|c| !c.constisnull);
-    let privilege = || at.and_then(text_of).and_then(crate::expr::const_bytes).and_then(|b| types_core::quiet::privilege_quiet(funcid, b));
+    let privilege = || at.and_then(text_of).and_then( crate::expr::const_bytes).and_then(|b| types_core::quiet::privilege_quiet(funcid, b));
     let text = text_arg_class(funcid, args, &logged) == Some(true) || bit_index_class(funcid, args, &logged) == Some(true);
     text || unit_class(funcid, args) == Some(true) || args.len() == 2 && divisor == Some(true) || privilege() == Some(true) || epoch_ns_class(funcid, args)
 }
@@ -547,13 +547,13 @@ pub fn epoch_ns_class(funcid: u32, args: &NodeList<'_>) -> bool {
         call(n).is_some_and(|(fid, a)| {
             fid == q::EPOCH_NS_EXTRACT
                 && a.len() == 2
-                && a.iter().next().and_then(|u| u.as_const()).and_then(crate::expr::const_bytes).is_some_and(|u| q::dt_unit(u, true) == Some(q::DtUnit::Epoch))
+                && a.iter().next().and_then(|u| u.as_const()).and_then( crate::expr::const_bytes).is_some_and(|u| q::dt_unit(u, true) == Some(q::DtUnit::Epoch))
                 && a.iter().nth(1).is_some_and(clock)
         })
     };
     // k is numeric_mul's second argument: the call's signature makes the constant's image a numeric's (a domain over
     // numeric has the same image), so no type test is needed before decoding it
-    let k = |n: Node<'_>| n.as_const().and_then(crate::expr::const_bytes).is_some_and(q::epoch_ns_k_quiet);
+    let k = |n: Node<'_>| n.as_const().and_then( crate::expr::const_bytes).is_some_and(q::epoch_ns_k_quiet);
     let product = |a: &NodeList<'_>| a.len() == 2 && a.iter().next().is_some_and(epoch) && a.iter().nth(1).is_some_and(k);
     match funcid {
         q::EPOCH_NS_MUL => product(args),
@@ -572,7 +572,7 @@ pub fn unit_class(funcid: u32, args: &NodeList<'_>) -> Option<bool> {
     if !types_core::quiet::datetime_unit_fn(funcid) || args.len() != 2 {
         return None;
     }
-    let unit = args.iter().next().and_then(|a| a.as_const()).and_then(crate::expr::const_bytes);
+    let unit = args.iter().next().and_then(|a| a.as_const()).and_then( crate::expr::const_bytes);
     Some(unit.is_some_and(|u| types_core::quiet::datetime_unit_quiet(funcid, u) == Some(true)))
 }
 
@@ -732,7 +732,7 @@ pub fn pattern_quiet(p: &types_nodes::primnodes::Param) -> Option<bool> {
 /// keyed as `pattern_good`'s class (exec front.rs), never as the bytes.
 pub fn pattern_operand<'p>(funcid: u32, args: &NodeList<'p>) -> Option<(crate::effects::Pattern, &'p [u8])> {
     let form = crate::effects::builtin_pattern(funcid)?;
-    let pat = args.iter().nth(1).and_then(|a| a.as_const()).filter(|c| !c.constisnull).and_then(crate::expr::const_bytes_keyed)?;
+    let pat = args.iter().nth(1).and_then(|a| a.as_const()).filter(|c| !c.constisnull).and_then( crate::expr::const_bytes_keyed)?;
     (args.len() == 2).then_some((form, pat))
 }
 
@@ -759,7 +759,7 @@ pub fn pattern_good(form: crate::effects::Pattern, pat: &[u8], coll: u32, bytes_
 /// class, V4R-110).
 pub fn pattern_list<'p>(funcid: u32, args: &NodeList<'p>) -> Option<(crate::effects::Pattern, &'p [u8])> {
     let form = crate::effects::builtin_pattern(funcid)?;
-    let body = args.iter().nth(1).and_then(|a| a.as_const()).filter(|c| !c.constisnull).and_then(crate::expr::const_bytes_keyed)?;
+    let body = args.iter().nth(1).and_then(|a| a.as_const()).filter(|c| !c.constisnull).and_then( crate::expr::const_bytes_keyed)?;
     (args.len() == 2).then_some((form, body))
 }
 

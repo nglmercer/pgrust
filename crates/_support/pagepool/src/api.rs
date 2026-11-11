@@ -21,10 +21,7 @@ const POISON: u8 = 0xdb;
 
 #[inline]
 fn slice(p: usize, len: usize) -> Option<NonNull<[u8]>> {
-    Some(NonNull::slice_from_raw_parts(
-        NonNull::new(p as *mut u8)?,
-        len,
-    ))
+    Some(NonNull::slice_from_raw_parts(NonNull::new(p as *mut u8)?, len,))
 }
 
 /// `bytes` at `align` (a power of two, 2 MiB at most) for `hint`; the slice's length is what may be used.
@@ -33,8 +30,7 @@ pub fn take(bytes: usize, align: usize, hint: Hint) -> Option<NonNull<[u8]>> {
     if hint.zero == Zero::No && crate::on() && !debug() && align.is_power_of_two() {
         let size = match run::bucket_of(bytes, align) {
             Some(b) => Some(central::bucket_slot(b)),
-            None if bytes <= LIST_RUNS as usize * RUN && align <= RUN => {
-                Some(central::runs_slot(bytes.div_ceil(RUN) as u32))
+            None if bytes <= LIST_RUNS as usize * RUN && align <= RUN => { Some(central::runs_slot(bytes.div_ceil(RUN) as u32))
             }
             None => None,
         };
@@ -67,13 +63,7 @@ fn take_slow(bytes: usize, align: usize, hint: Hint) -> Option<NonNull<[u8]>> {
     }
     // pppress (`PGRUST_POOL_SPAN_FIT`): a span whose last superpage the ask fills only in part, on base pages
     let fit = fits(bytes);
-    let mut s = if fit {
-        span::base_span(bytes, hint)
-            .inspect(|_| fitted(bytes))
-            .or_else(|| span::span(bytes, hint))?
-    } else {
-        span::span(bytes, hint)?
-    };
+    let mut s = if fit { span::base_span(bytes, hint).inspect(|_| fitted(bytes)).or_else(|| span::span(bytes, hint))? } else { span::span(bytes, hint)? };
     // ONE RULE (ppround's FIT_TAIL, pppress card 13 (2)): a lazy span commits, and so counts in use, what `usable`
     // reports for the ask, the size door 1 charges. A fitted base span: its ask to the page with FIT_TAIL. A warm lazy
     // span taken again, which may be up to twice the ask (`span::lazy_span_locked`): the ask's superpages, the slots
@@ -128,11 +118,7 @@ static FIT_TAIL_MISSES: crate::Line<AtomicU64> = crate::Line(AtomicU64::new(0));
 pub(crate) fn fit_tail_on() -> bool {
     match FIT_TAIL_SWITCH.load(Relaxed) {
         0 => {
-            let v = if os::env_on_by_default(c"PGRUST_POOL_FIT_TAIL") {
-                2
-            } else {
-                1
-            };
+            let v = if os::env_on_by_default(c"PGRUST_POOL_FIT_TAIL") { 2 } else { 1 };
             FIT_TAIL_SWITCH.store(v, Relaxed);
             v == 2
         }
@@ -147,12 +133,7 @@ pub(crate) fn force_fit_tail(on: bool) {
 /// ppround: (`PGRUST_POOL_FIT_TAIL` on, fitted asks that fell back to a whole pool span, their excess bytes live now, the
 /// misses the table had no room for).
 pub fn fit_tail() -> (bool, u64, usize, u64) {
-    (
-        fit_tail_on(),
-        FIT_TAIL_MISSES.load(Relaxed),
-        MISS_BYTES.load(Relaxed).max(0) as usize,
-        MISS_UNNAMED.load(Relaxed),
-    )
+    (fit_tail_on(), FIT_TAIL_MISSES.load(Relaxed), MISS_BYTES.load(Relaxed).max(0) as usize, MISS_UNNAMED.load(Relaxed),)
 }
 
 /// ppround (`PGRUST_POOL_FIT_TAIL`, memacct's condition (a)): a fitted ask that missed the base sub-zone holds a whole
@@ -171,17 +152,9 @@ static MISS_UNNAMED: AtomicU64 = AtomicU64::new(0);
 fn missed(a: usize, excess: usize, tag: Tag) {
     FIT_TAIL_MISSES.fetch_add(1, Relaxed);
     let page = os::page_size();
-    debug_assert!(
-        a.is_multiple_of(SUPER)
-            && excess.is_multiple_of(page)
-            && excess / page < 512
-            && SUPER / page <= 512
-    );
-    let w = a | (tag.0 as usize) << 9 | (excess / page);
-    if !MISS
-        .iter()
-        .any(|e| e.compare_exchange(0, w, Relaxed, Relaxed).is_ok())
-    {
+    debug_assert!(a.is_multiple_of( SUPER) && excess.is_multiple_of( page) && excess / page < 512 && SUPER / page <= 512);
+    let w = a | (tag.0 as usize) << 9 | ( excess / page);
+    if !MISS.iter().any(|e| e.compare_exchange(0, w, Relaxed, Relaxed).is_ok()) {
         MISS_UNNAMED.fetch_add(1, Relaxed);
         return;
     }
@@ -195,10 +168,7 @@ fn missed(a: usize, excess: usize, tag: Tag) {
 /// its superpages) handed out, as `usable` said at its take or last resize: a lazy span (base or not) its commit, a
 /// missed span its length less the excess, a pool span its length. `pagepool::usable_size` by pointer reads it, so a
 /// copy of that length (C realloc, `cache_realloc`) never touches the uncommitted tail.
-#[cfg_attr(
-    not(all(feature = "global", not(target_family = "wasm"))),
-    allow(dead_code)
-)]
+#[cfg_attr(not(all(feature = "global", not(target_family = "wasm"))), allow(dead_code))]
 pub(crate) fn span_handed(a: usize, len: usize) -> usize {
     if fit_tail_on() {
         if let Some(excess) = miss_of(a, false) {
@@ -254,11 +224,7 @@ static FIT_TAIL_BYTES: crate::Line<AtomicU64> = crate::Line(AtomicU64::new(0));
 pub(crate) fn fit_on() -> bool {
     match FIT_SWITCH.load(Relaxed) {
         0 => {
-            let v = if os::env_is_one(c"PGRUST_POOL_SPAN_FIT") {
-                2
-            } else {
-                1
-            };
+            let v = if os::env_is_one(c"PGRUST_POOL_SPAN_FIT") { 2 } else { 1 };
             FIT_SWITCH.store(v, Relaxed);
             v == 2
         }
@@ -329,8 +295,7 @@ fn refill_block(key: Key, b: u8, s: usize, hint: Hint) -> Option<(usize, bool)> 
     let batch = match central::pop(key) {
         Some(batch) => batch,
         None => {
-            let batch = run::carve(b, hint)
-                .or_else(|| crate::purger::reclaim(hint.class, || run::carve(b, hint)));
+            let batch = run::carve(b, hint).or_else(|| crate::purger::reclaim(hint.class, || run::carve(b, hint)));
             // pppress card 6: what the carve claimed while the ladder pressed goes back now, no lock held
             crate::purger::settle();
             let mut batch = batch?;
@@ -363,8 +328,7 @@ fn take_runs(k: u32, align_runs: u32, hint: Hint) -> Option<NonNull<[u8]>> {
             return slice(p, bytes);
         }
     }
-    let got = run::take_run(k, align_runs, hint)
-        .or_else(|| crate::purger::reclaim(hint.class, || run::take_run(k, align_runs, hint)));
+    let got = run::take_run(k, align_runs, hint).or_else(|| crate::purger::reclaim(hint.class, || run::take_run(k, align_runs, hint)));
     // pppress card 6: as refill_block's
     crate::purger::settle();
     let (p, zero) = got?;
@@ -390,13 +354,7 @@ fn fill(p: usize, len: usize, want: Zero, zero: bool) {
     }
     if zero {
         // SAFETY: the block we hand out, open read-write.
-        unsafe {
-            core::ptr::write_bytes(
-                p as *mut u8,
-                0,
-                core::mem::size_of::<central::Link>().min(len),
-            )
-        };
+        unsafe { core::ptr::write_bytes(p as *mut u8, 0, core::mem::size_of::<central::Link>().min(len),) };
     } else {
         zero_fill(p, len);
     }
@@ -421,15 +379,7 @@ pub(crate) fn give_run_home(a: usize, hint: Hint) {
     }
     stats::in_use(hint.tag, -(RUN as isize));
     central::set_link_next(a, central::NONE);
-    central::home(
-        Key::new(hint.class, central::bucket_slot(b)),
-        central::Batch {
-            head: central::idx_of(a),
-            n: 1,
-            bytes: RUN as u32,
-            zero: false,
-        },
-    );
+    central::home(Key::new(hint.class, central::bucket_slot(b)), central::Batch { head: central::idx_of(a), n: 1, bytes: RUN as u32, zero: false, },);
 }
 
 /// Give back what `take(bytes, align, hint)` handed out, with the take's own three: a block or a short run goes onto
@@ -460,17 +410,13 @@ pub unsafe fn give_hinted(p: NonNull<u8>, bytes: usize, align: usize, hint: Hint
 
 #[cfg(debug_assertions)]
 fn check_hint(a: usize, size: u8, hint: Hint) {
-    let i = run::lookup(a as *const u8)
-        .expect("pagepool: give_hinted of an address the pool does not own");
+    let i = run::lookup(a as *const u8).expect("pagepool: give_hinted of an address the pool does not own");
     let ok = match i.kind {
         Kind::Blocks { bucket } => central::bucket_slot(bucket) == size,
         Kind::Run { runs } => runs as u32 <= LIST_RUNS && central::runs_slot(runs as u32) == size,
         _ => false,
     };
-    assert!(
-        ok && i.base == a && i.class == hint.class && i.tag == hint.tag,
-        "pagepool: give_hinted with another take's size or hint: {i:?} {hint:?}"
-    );
+    assert!(ok && i.base == a && i.class == hint.class && i.tag == hint.tag, "pagepool: give_hinted with another take's size or hint: {i:?} {hint:?}");
 }
 
 /// Give back a block whose size is not known (C free); its usable size.
@@ -490,8 +436,7 @@ unsafe fn give_now(a: usize) -> usize {
     let z = zones();
     if z.lazy.has(a) {
         // SAFETY: the caller's contract: `a` is a live span's start.
-        let s = unsafe { span::span_at(NonNull::new_unchecked(a as *mut u8)) }
-            .expect("pagepool: give of an address that is no live span");
+        let s = unsafe { span::span_at(NonNull::new_unchecked(a as *mut u8)) }.expect("pagepool: give of an address that is no live span");
         let len = s.len();
         // ppround (`PGRUST_POOL_FIT_TAIL`): a missed span's excess back onto in-use, which the give takes off whole
         let _ = miss_of(a, true);
@@ -501,15 +446,13 @@ unsafe fn give_now(a: usize) -> usize {
     let m = superpage::meta(superpage::index_of(a));
     if m.state() == State::Span {
         // SAFETY: as above.
-        let s = unsafe { span::span_at(NonNull::new_unchecked(a as *mut u8)) }
-            .expect("pagepool: give of a span's interior");
+        let s = unsafe { span::span_at(NonNull::new_unchecked(a as *mut u8)) }.expect("pagepool: give of a span's interior");
         let len = s.len();
         let _ = miss_of(a, true);
         unsafe { span::give_span(s) };
         return len;
     }
-    let info =
-        run::lookup(a as *const u8).expect("pagepool: give of an address the pool does not own");
+    let info = run::lookup(a as *const u8).expect("pagepool: give of an address the pool does not own");
     match info.kind {
         Kind::Blocks { bucket } => {
             let s = run::bucket_bytes(bucket);
@@ -519,22 +462,14 @@ unsafe fn give_now(a: usize) -> usize {
             if debug() {
                 poison(a, s);
             }
-            shelf::push_free(
-                Key::new(info.class, central::bucket_slot(bucket)),
-                info.tag,
-                a,
-            );
+            shelf::push_free(Key::new(info.class, central::bucket_slot(bucket)), info.tag, a,);
             s
         }
         Kind::Run { runs } => {
             let bytes = runs as usize * RUN;
             undead(a, bytes, info.tag);
             if runs as u32 <= LIST_RUNS {
-                shelf::push_free(
-                    Key::new(info.class, central::runs_slot(runs as u32)),
-                    info.tag,
-                    a,
-                );
+                shelf::push_free(Key::new(info.class, central::runs_slot(runs as u32)), info.tag, a,);
             } else {
                 stats::in_use(info.tag, -(bytes as isize));
                 run::free_run(a, runs as u32, info.class);
@@ -557,12 +492,7 @@ pub unsafe fn give_many<I: IntoIterator<Item = (NonNull<u8>, usize)>>(blocks: I)
 /// Resize: the same bucket, a run's runs, a span (a lazy span may move: use the result, never `p`). None: the caller copies.
 /// # Safety
 /// `p` came from `take` with `old` bytes or fewer and is its caller's; on Some the result replaces it.
-pub unsafe fn resize(
-    p: NonNull<u8>,
-    old: usize,
-    new: usize,
-    align: usize,
-) -> Option<NonNull<[u8]>> {
+pub unsafe fn resize(p: NonNull<u8>, old: usize, new: usize, align: usize,) -> Option<NonNull<[u8]>> {
     let _ = old;
     let a = p.as_ptr() as usize;
     if new == 0 || !align.is_power_of_two() {
@@ -572,13 +502,11 @@ pub unsafe fn resize(
     match info.kind {
         Kind::Blocks { bucket } => {
             let s = run::bucket_bytes(bucket);
-            (new <= s && a.is_multiple_of(align))
-                .then(|| slice(a, s))
-                .flatten()
+            (new <= s && a.is_multiple_of( align)).then(|| slice(a, s)).flatten()
         }
         Kind::Run { runs } => {
             let nk = new.div_ceil(RUN);
-            if !a.is_multiple_of(align) || nk > MAX_RUNS as usize {
+            if ! a.is_multiple_of( align) || nk > MAX_RUNS as usize {
                 return None;
             }
             let (k, nk) = (runs as u32, nk as u32);
@@ -606,17 +534,14 @@ pub unsafe fn resize(
             let mut s = unsafe { span::span_at(p) }?;
             // ppround (`PGRUST_POOL_FIT_TAIL`): a missed span, or any other non-base span to a size `usable` reports to
             // the page, moves (the caller copies): what it would hand out in place is no longer `usable(new)`
-            if fit_tail_on()
-                && !(s.is_lazy() && span::is_base(&s))
-                && (fits(new) || miss_of(a, false).is_some())
-            {
+            if fit_tail_on() && !(s.is_lazy() && span::is_base(&s)) && (fits(new) || miss_of(a, false).is_some()) {
                 return None;
             }
             if fit_tail_on() && s.is_lazy() && span::is_base(&s) {
                 // ppround (`PGRUST_POOL_FIT_TAIL`): in place up to its superpages, committed to what `usable` says; a
                 // shrink under the commit moves (its pages past the new size may be resident)
                 let want = usable(new, align);
-                if want > s.len() || want < s.committed() || !a.is_multiple_of(align) {
+                if want > s.len() || want < s.committed() || ! a.is_multiple_of( align) {
                     return None;
                 }
                 let len = handed(&mut s, want);
@@ -627,14 +552,7 @@ pub unsafe fn resize(
                 // size: grown to it (maybe moved), or its superpages past it dropped, then committed up to it
                 let want = usable(new, align);
                 // SAFETY: the caller's span, its owner's.
-                let ok = unsafe {
-                    if want > s.len() {
-                        span::grow_span(&mut s, want)
-                    } else {
-                        span::shrink_span(&mut s, want);
-                        true
-                    }
-                };
+                let ok = unsafe { if want > s.len() { span::grow_span(&mut s, want) } else { span::shrink_span(&mut s, want); true } };
                 if !ok {
                     return None;
                 }
@@ -712,16 +630,11 @@ pub unsafe fn retag(p: NonNull<u8>, tag: Tag) -> bool {
     if !crate::on() || miss_of(a, false).is_some() {
         return false;
     }
-    if zones().lazy.has(a)
-        || (crate::reserve::in_pool(a)
-            && superpage::meta(superpage::index_of(a)).state() == State::Span)
-    {
+    if zones().lazy.has(a) || (crate::reserve::in_pool(a) && superpage::meta(superpage::index_of(a)).state() == State::Span) {
         // SAFETY: the caller's.
         return unsafe { span::retag(a, tag) };
     }
-    let Some(info) = run::lookup(a as *const u8) else {
-        return false;
-    };
+    let Some(info) = run::lookup(a as *const u8) else { return false; };
     match info.kind {
         Kind::Run { runs } if info.base == a => {
             let bytes = runs as usize * RUN;
@@ -758,10 +671,7 @@ pub unsafe fn give_pages(block: NonNull<u8>, at: usize, len: usize) -> usize {
     let mut n = 0isize;
     let mut r = lo;
     while r < hi {
-        if dead_slot(r)
-            .compare_exchange(LIVE, DEAD, AcqRel, Relaxed)
-            .is_ok()
-        {
+        if dead_slot(r).compare_exchange(LIVE, DEAD, AcqRel, Relaxed).is_ok() {
             n += 1;
         }
         r += RUN;
@@ -807,8 +717,7 @@ fn revive(lo: usize, hi: usize, tag: Tag) -> (bool, usize) {
         loop {
             match d.load(Acquire) {
                 DEAD if d.compare_exchange(DEAD, LIVE, AcqRel, Relaxed).is_ok() => dead += 1,
-                RELEASED if d.compare_exchange(RELEASED, LIVE, AcqRel, Relaxed).is_ok() => {
-                    released += 1
+                RELEASED if d.compare_exchange(RELEASED, LIVE, AcqRel, Relaxed).is_ok() => { released += 1
                 }
                 SEEN if d.compare_exchange(SEEN, LIVE, AcqRel, Relaxed).is_ok() => dead += 1,
                 RIPE if d.compare_exchange(RIPE, LIVE, AcqRel, Relaxed).is_ok() => dead += 1,
@@ -855,11 +764,7 @@ pub(crate) fn release_dead(want: usize, fast: bool) -> usize {
     let z = zones();
     let total = (z.pool.len + z.lazy.len) / RUN;
     let (used, base) = span::lazy_bounds();
-    let skip = if fast {
-        ((z.pool.len + used) / RUN, (z.pool.len + base) / RUN)
-    } else {
-        (total, total)
-    };
+    let skip = if fast { ((z.pool.len + used) / RUN, (z.pool.len + base) / RUN) } else { (total, total) };
     let max_batch = z.cfg.purge_batch / RUN;
     let mut got = 0usize;
     let mut i = 0usize;
@@ -876,11 +781,7 @@ pub(crate) fn release_dead(want: usize, fast: bool) -> usize {
         }
         let j = if keep && span::huge_at(a) {
             // D4760 (`pool_thp_partial` 1): whole dead superpages only; the rest of the dead runs stay held
-            let j = if a.is_multiple_of(SUPER) {
-                grab_whole(z.pool.lo, i, total, max_batch, true)
-            } else {
-                i
-            };
+            let j = if a.is_multiple_of( SUPER) { grab_whole(z.pool.lo, i, total, max_batch, true) } else { i };
             if j == i {
                 stats::THP_KEPT.fetch_add(1, Relaxed);
                 stats::THP_KEPT_BYTES.fetch_add(RUN as u64, Relaxed);
@@ -931,9 +832,7 @@ fn grab_whole(base: usize, i: usize, hi: usize, max: usize, any: bool) -> usize 
         while k < PER {
             let d = dead_slot(base + (j + k) * RUN);
             let st = d.load(Relaxed);
-            if !(st == RIPE || (any && matches!(st, DEAD | SEEN)))
-                || d.compare_exchange(st, RELEASING, AcqRel, Relaxed).is_err()
-            {
+            if !(st == RIPE || (any && matches!(st, DEAD | SEEN))) || d.compare_exchange(st, RELEASING, AcqRel, Relaxed).is_err() {
                 break;
             }
             was[k] = st;
@@ -953,9 +852,7 @@ fn grab_whole(base: usize, i: usize, hi: usize, max: usize, any: bool) -> usize 
 /// A dead run to RELEASING: a RIPE one, or (`any`) any dead one.
 fn grab(d: &AtomicU8, any: bool) -> bool {
     d.compare_exchange(RIPE, RELEASING, AcqRel, Relaxed).is_ok()
-        || (any
-            && (d.compare_exchange(SEEN, RELEASING, AcqRel, Relaxed).is_ok()
-                || d.compare_exchange(DEAD, RELEASING, AcqRel, Relaxed).is_ok()))
+        || (any && (d.compare_exchange(SEEN, RELEASING, AcqRel, Relaxed).is_ok() || d.compare_exchange(DEAD, RELEASING, AcqRel, Relaxed).is_ok()))
 }
 
 /// pagepool P3 (F1 / F2): what one `dead_pass` does.
@@ -976,12 +873,7 @@ pub(crate) enum DeadPass {
 /// part. Contiguous runs go back together, `batch` bytes a call at most (`os::age_release`: a range with no page resident
 /// goes back with no remap). Releasing stops at `want` bytes released (as counted), `budget` resident bytes given back,
 /// or the pass's time (`purger::pass_late`). Returns (bytes released as counted, resident bytes given back).
-pub(crate) fn dead_pass(
-    pass: DeadPass,
-    want: usize,
-    budget: usize,
-    batch: usize,
-) -> (usize, usize) {
+pub(crate) fn dead_pass(pass: DeadPass, want: usize, budget: usize, batch: usize,) -> (usize, usize) {
     if DEAD_RUNS.load(Relaxed) <= 0 || (pass == DeadPass::Ripe && !RIPE_LEFT.load(Relaxed)) {
         return (0, 0);
     }
@@ -991,11 +883,7 @@ pub(crate) fn dead_pass(
     let (mut got, mut remapped) = (0usize, 0usize);
     let mut ripe = false;
     // a Ripe pass resumes where a budget stopped the last one, round to it
-    let from = if pass == DeadPass::Ripe {
-        RIPE_FROM.load(Relaxed).min(total)
-    } else {
-        0
-    };
+    let from = if pass == DeadPass::Ripe { RIPE_FROM.load(Relaxed).min(total) } else { 0 };
     let mut stop = None;
     let keep = crate::thp_partial() == crate::THP_KEEP;
     'scan: for (lo, hi) in [(from, total), (0, from)] {
@@ -1004,19 +892,14 @@ pub(crate) fn dead_pass(
             let d = dead_slot(z.pool.lo + i * RUN);
             let st = d.load(Relaxed);
             if pass == DeadPass::Mark1 {
-                if st == RIPE
-                    || (matches!(st, SEEN | DEAD)
-                        && d.compare_exchange(st, RIPE, AcqRel, Relaxed).is_ok())
-                {
+                if st == RIPE || (matches!(st, SEEN | DEAD) && d.compare_exchange(st, RIPE, AcqRel, Relaxed).is_ok()) {
                     ripe = true;
                 }
                 i += 1;
                 continue;
             }
             if pass == DeadPass::Mark {
-                if st == RIPE
-                    || (st == SEEN && d.compare_exchange(SEEN, RIPE, AcqRel, Relaxed).is_ok())
-                {
+                if st == RIPE || (st == SEEN && d.compare_exchange(SEEN, RIPE, AcqRel, Relaxed).is_ok()) {
                     ripe = true;
                 } else if st == DEAD {
                     let _ = d.compare_exchange(DEAD, SEEN, AcqRel, Relaxed);
@@ -1048,7 +931,7 @@ pub(crate) fn dead_pass(
             }
             let j = if keep && span::huge_at(a) {
                 // D4760 (`pool_thp_partial` 1): whole dead superpages only; a superpage in part waits, held
-                if !a.is_multiple_of(SUPER) {
+                if ! a.is_multiple_of( SUPER) {
                     i += (SUPER - a % SUPER) / RUN;
                     continue;
                 }
@@ -1156,25 +1039,19 @@ pub(crate) fn check_poison(p: usize, s: usize) {
     // SAFETY: a free block we hold, open read-write.
     let b = unsafe { core::slice::from_raw_parts((p + skip) as *const u8, s - skip) };
     if let Some(off) = b.iter().position(|&x| x != POISON) {
-        panic!(
-            "pagepool: block {p:#x} ({s} B) written at +{} after it was given back",
-            off + skip
-        );
+        panic!("pagepool: block {p:#x} ({s} B) written at +{} after it was given back", off + skip);
     }
 }
 
 const QUARANTINE: usize = 64;
 static Q_LOCK: AtomicU32 = AtomicU32::new(0);
-static Q: [core::sync::atomic::AtomicUsize; QUARANTINE] =
-    [const { core::sync::atomic::AtomicUsize::new(0) }; QUARANTINE];
+static Q: [core::sync::atomic::AtomicUsize; QUARANTINE] = [const { core::sync::atomic::AtomicUsize::new(0) }; QUARANTINE];
 static Q_NEXT: AtomicU32 = AtomicU32::new(0);
 
 /// The debug arm: blocks wait `QUARANTINE` gives before they are reused. Some(usable): `a` was queued.
 fn quarantine(a: usize) -> Option<usize> {
     let info = run::lookup(a as *const u8)?;
-    let Kind::Blocks { bucket } = info.kind else {
-        return None;
-    };
+    let Kind::Blocks { bucket } = info.kind else { return None; };
     poison(a, run::bucket_bytes(bucket));
     superpage::spin(&Q_LOCK);
     let i = Q_NEXT.fetch_add(1, Relaxed) as usize % QUARANTINE;

@@ -120,91 +120,26 @@ fn test_validator_gated_to_test_builds() {
 #[test]
 fn test_validator_grammar() {
     let v = &TEST_VALIDATOR;
-    let mut r = ValidatorModuleResult {
-        authorized: false,
-        authn_id: None,
-    };
-    assert!(v
-        .validate(
-            ValidatorEnv {
-                issuer: None,
-                scope: None
-            },
-            "valid-alice",
-            "alice",
-            &mut r
-        )
-        .unwrap());
+    let mut r = ValidatorModuleResult { authorized: false, authn_id: None, };
+    assert!(v.validate(ValidatorEnv { issuer: None, scope: None }, "valid-alice", "alice", &mut r).unwrap());
     assert!(r.authorized);
     assert_eq!(r.authn_id.as_deref(), Some("alice"));
 
-    let mut r = ValidatorModuleResult {
-        authorized: false,
-        authn_id: None,
-    };
-    assert!(v
-        .validate(
-            ValidatorEnv {
-                issuer: None,
-                scope: None
-            },
-            "noauthz-bob",
-            "bob",
-            &mut r
-        )
-        .unwrap());
+    let mut r = ValidatorModuleResult { authorized: false, authn_id: None, };
+    assert!(v.validate(ValidatorEnv { issuer: None, scope: None }, "noauthz-bob", "bob", &mut r).unwrap());
     assert!(!r.authorized);
     assert_eq!(r.authn_id.as_deref(), Some("bob"));
 
-    let mut r = ValidatorModuleResult {
-        authorized: false,
-        authn_id: None,
-    };
-    assert!(v
-        .validate(
-            ValidatorEnv {
-                issuer: None,
-                scope: None
-            },
-            "noident",
-            "bob",
-            &mut r
-        )
-        .unwrap());
+    let mut r = ValidatorModuleResult { authorized: false, authn_id: None, };
+    assert!(v.validate(ValidatorEnv { issuer: None, scope: None }, "noident", "bob", &mut r).unwrap());
     assert!(r.authorized);
     assert_eq!(r.authn_id, None);
 
-    let mut r = ValidatorModuleResult {
-        authorized: false,
-        authn_id: None,
-    };
-    assert!(!v
-        .validate(
-            ValidatorEnv {
-                issuer: None,
-                scope: None
-            },
-            "modulefail",
-            "bob",
-            &mut r
-        )
-        .unwrap());
+    let mut r = ValidatorModuleResult { authorized: false, authn_id: None, };
+    assert!(!v.validate(ValidatorEnv { issuer: None, scope: None }, "modulefail", "bob", &mut r).unwrap());
 
-    let mut r = ValidatorModuleResult {
-        authorized: false,
-        authn_id: None,
-    };
-    assert!(v
-        .validate(
-            ValidatorEnv {
-                issuer: None,
-                scope: None
-            },
-            "garbage",
-            "bob",
-            &mut r
-        )
-        .unwrap());
+    let mut r = ValidatorModuleResult { authorized: false, authn_id: None, };
+    assert!(v.validate(ValidatorEnv { issuer: None, scope: None }, "garbage", "bob", &mut r).unwrap());
     assert!(!r.authorized);
     assert_eq!(r.authn_id, None);
 }

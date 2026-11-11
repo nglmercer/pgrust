@@ -196,7 +196,7 @@ pub(crate) fn fc_g_int_compress(f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -
             len -= 2;
         }
         let lenr = internal_size(&dr[..len as usize]);
-        if !(0..=MAXNUMELTS).contains(&lenr) {
+        if !( 0..= MAXNUMELTS).contains(&lenr) {
             return Err(PgError::error(
                 "data is too sparse, recreate index using gist__intbig_ops opclass instead",
             )
@@ -241,7 +241,7 @@ pub(crate) fn fc_g_int_decompress(
 
     let din = input.elems();
     let lenr = internal_size(din);
-    if !(0..=MAXNUMELTS).contains(&lenr) {
+    if !( 0..= MAXNUMELTS).contains(&lenr) {
         return Err(PgError::error(
             "compressed array is too big, recreate index using gist__intbig_ops opclass instead",
         )

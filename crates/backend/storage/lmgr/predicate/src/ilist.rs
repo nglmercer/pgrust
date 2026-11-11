@@ -30,7 +30,8 @@ pub unsafe fn dlist_init(head: *mut dlist_head) {
 
 #[inline]
 pub unsafe fn dlist_is_empty(head: *const dlist_head) -> bool {
-    std::ptr::eq((*head).head.next, (&raw const (*head).head))
+    std::ptr::eq(
+    (*head).head.next, (&raw const (*head).head))
 }
 
 #[inline]

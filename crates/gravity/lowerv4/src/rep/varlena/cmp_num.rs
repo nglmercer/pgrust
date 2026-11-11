@@ -226,11 +226,9 @@ mod tests {
     fn img(v: i128, d: u32, long: bool) -> Vec<u8> {
         let (neg, d4) = (v < 0, d.div_ceil(4) * 4);
         let (mut x, mut g, mut low) = (v.unsigned_abs() * 10u128.pow(d4 - d), Vec::new(), -(d4 as i32 / 4)); // alloc: Program
-        while x > 0 {
-            g.push((x % 10_000) as u16); x /= 10_000; // alloc: Program
+        while x > 0 {g.push((x % 10_000) as u16); x /= 10_000; // alloc: Program
         }
-        while g.first() == Some(&0) {
-            g.remove(0); low += 1;
+        while g.first() == Some(&0) {g.remove(0); low += 1;
         }
         g.reverse();
         let (neg, w) = if g.is_empty() { (false, 0) } else { (neg, low + g.len() as i32 - 1) };

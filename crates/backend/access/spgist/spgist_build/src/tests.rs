@@ -134,12 +134,7 @@ fn index_rel(mcx: Mcx<'_>) -> Relation<'_> {
         rd_newRelfilelocatorSubid: Cell::new(0),
         rd_firstRelfilelocatorSubid: Cell::new(0),
         rd_droppedSubid: Cell::new(0),
-        rd_lockInfo: LockInfoData {
-            lockRelId: LockRelId {
-                relId: INDEX_OID,
-                dbId: 5,
-            },
-        },
+        rd_lockInfo: LockInfoData { lockRelId: LockRelId { relId: INDEX_OID, dbId: 5, }, },
         rd_rel: FormData_pg_class {
             relname: name,
             relnamespace: 2200,
@@ -222,11 +217,7 @@ fn build_on_nonempty_index_is_a_c_shaped_error() {
     NBLOCKS.store(0, Relaxed);
     let err = res.expect_err("a non-empty main fork must be refused");
     assert_eq!(err.level(), ERROR, "elog(ERROR) level: {err:?}");
-    assert_eq!(
-        err.sqlstate(),
-        ERRCODE_INTERNAL_ERROR,
-        "elog(ERROR) sqlstate: {err:?}"
-    );
+    assert_eq!(err.sqlstate(), ERRCODE_INTERNAL_ERROR, "elog(ERROR) sqlstate: {err:?}");
     assert_eq!(err.message(), "index \"t_spgidx\" already contains data");
     assert_eq!(err.hint(), None, "elog(ERROR) carries no HINT: {err:?}");
 
@@ -274,11 +265,7 @@ fn init_pages_balance_the_critical_section() {
     DIRTY_FAIL.store(false, Relaxed);
     crate::spgbuild_init_pages(metabuffer, rootbuffer, nullbuffer)
         .unwrap_or_else(|e| panic!("init pages on the fake pool: {e:?}"));
-    assert_eq!(
-        take_crit_section_count(),
-        0,
-        "END_CRIT_SECTION after the last dirty"
-    );
+    assert_eq!(take_crit_section_count(), 0, "END_CRIT_SECTION after the last dirty");
     let root = spgist::spg_buf_page_mut(rootbuffer);
     assert!(::types_spgist::SpGistPageIsLeaf(&root.as_ref()));
     let nulls = spgist::spg_buf_page_mut(nullbuffer);

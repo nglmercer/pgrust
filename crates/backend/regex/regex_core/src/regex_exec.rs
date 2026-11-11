@@ -771,7 +771,7 @@ fn miss(
                     if !lacon(v, g, cnfa, cp, ca.co)? {
                         continue; // LACON arc cannot be traversed
                     }
-                    bset(d.work, ca.to as usize);
+                    bset( d.work, ca.to as usize);
                     dolacons = true;
                     if ca.to == cnfa.post {
                         ispost = true;

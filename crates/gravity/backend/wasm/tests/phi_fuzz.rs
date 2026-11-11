@@ -1,5 +1,4 @@
-#![cfg(feature = "wasmtime-oracle")]
-//! `gravity_tpde/tests/phi_fuzz.rs`'s random phi programs (the generator
+#![cfg(feature = "wasmtime-oracle")]//! `gravity_tpde/tests/phi_fuzz.rs`'s random phi programs (the generator
 //! below is that file's, copied verbatim so the seeds name the same
 //! programs), wasm under wasmtime vs the interpreter, bit-identical
 //! results and the host's cell after the run. `GRAVITY_PHI_FUZZ_N`

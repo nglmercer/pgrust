@@ -185,21 +185,10 @@ pub(crate) fn observe_rows_batched(
         StorageClass::ByvalWord { .. }
         | StorageClass::F32
         | StorageClass::F64
-        | StorageClass::Bool => {
-            observe_words(profile, psma_populate, cur, dist, s, base, input, first, n)
+        | StorageClass::Bool => { observe_words(profile, psma_populate, cur, dist, s, base, input, first, n)
         }
-        StorageClass::Fixed { .. } | StorageClass::VarlenaVerbatim => observe_bytes(
-            profile,
-            psma_populate,
-            cur,
-            dist,
-            bank,
-            s,
-            base,
-            input,
-            first,
-            n,
-        ),
+        StorageClass::Fixed { .. } | StorageClass::VarlenaVerbatim =>
+            observe_bytes(profile, psma_populate, cur, dist, bank, s, base, input, first, n,),
     }
 }
 
@@ -256,8 +245,7 @@ fn observe_words(
         s.keys.clear();
         match profile.key {
             KeyDerivation::SignedWord => {
-                s.keys
-                    .extend(s.vals.iter().map(|&w| signed_word_key(w).raw())); // alloc: Node charged kept
+                s.keys.extend(s.vals.iter().map(|&w| signed_word_key(w).raw())); // alloc: Node charged kept
             }
             KeyDerivation::UnsignedWordSmall => {
                 if s.vals.iter().all(|&w| unsigned_small_key(w).is_some()) {
@@ -283,21 +271,18 @@ fn observe_words(
             }
             KeyDerivation::UnsignedWordFlip => {
                 s.keys
-                    .extend(s.vals.iter().map(|&w| unsigned_flip_key(w).raw()));
-                // alloc: Node charged kept
+                    .extend(s.vals.iter().map(|&w| unsigned_flip_key(w).raw())); // alloc: Node charged kept
             }
             KeyDerivation::Bool => {
                 s.keys.extend(s.vals.iter().map(|&w| bool_key(w).raw())); // alloc: Node charged kept
             }
             KeyDerivation::Float32 => {
                 s.keys
-                    .extend(s.vals.iter().map(|&w| f32_key_from_datum(w).raw()));
-                // alloc: Node charged kept
+                    .extend(s.vals.iter().map(|&w| f32_key_from_datum(w).raw())); // alloc: Node charged kept
             }
             KeyDerivation::Float64 => {
                 s.keys
-                    .extend(s.vals.iter().map(|&w| f64_key_from_datum(w).raw()));
-                // alloc: Node charged kept
+                    .extend(s.vals.iter().map(|&w| f64_key_from_datum(w).raw())); // alloc: Node charged kept
             }
             // `MetaProfile::derive` never pairs a byte derivation with a
             // word class; degrade (not panic) if a foreign profile appears.
@@ -378,11 +363,7 @@ fn observe_words(
             _ => unreachable!("word path"),
         };
         let is_bool = matches!(profile.class, StorageClass::Bool);
-        let mask = if width >= 8 {
-            u64::MAX
-        } else {
-            (1u64 << (8 * width)) - 1
-        };
+        let mask = if width >= 8 { u64::MAX } else { (1u64 << (8 * width)) - 1 };
         if let Some(d) = dist {
             if d.word_memo_ready() {
                 observe_words_memo(profile, cur, d, &s.vals, width, is_bool, mask);
@@ -538,13 +519,7 @@ pub(crate) fn hash_and_chars(bytes: &[u8], bank: Option<(u64, u64)>) -> (u64, u6
         }
         n_cont += cont(w);
     }
-    (
-        mix64(a),
-        mix64(b),
-        c,
-        d,
-        (bytes.len() as u32).wrapping_sub(n_cont),
-    )
+    (mix64(a), mix64(b), c, d, (bytes.len() as u32).wrapping_sub(n_cont),)
 }
 
 /// Rehydrate one captured canonical span. SAFETY: every `(addr, len)` in
@@ -587,8 +562,7 @@ fn observe_bytes(
         cur.nonnull += 1;
         match unsafe { datum_canonical_bytes(profile.class, input.datums[r as usize], &mut tmp) } {
             Ok(b) => {
-                s.ptrs
-                    .push((b.as_ptr() as usize, b.len().min(u32::MAX as usize) as u32)); // alloc: Node charged kept
+                s.ptrs.push((b.as_ptr() as usize, b.len().min(u32::MAX as usize) as u32)); // alloc: Node charged kept
                 s.prow.push(base + r); // alloc: Node charged kept
             }
             Err(_) => {
@@ -711,9 +685,7 @@ fn observe_bytes(
         let same = |i: usize| -> bool { s.same[i] };
         // `bank`: the O-10 logical digests ride the same pass (four chains,
         // one load per word) when the seal asked for them.
-        let seeds = bank
-            .is_some()
-            .then_some(crate::format::bank::BANK_LANE_SEEDS);
+        let seeds = bank.is_some().then_some(crate::format::bank::BANK_LANE_SEEDS);
         let (mut plo, mut phi, mut pcl) = (0u64, 0u64, 0u32);
         for i in 0..s.ptrs.len() {
             if same(i) {
@@ -741,10 +713,8 @@ fn observe_bytes(
             } else {
                 match bank.as_deref_mut() {
                     Some(bk) => {
-                        let (h1, h2, lo, hi) = crate::hash::meta_hash128_and_digests(
-                            v,
-                            crate::format::bank::BANK_LANE_SEEDS,
-                        );
+                        let (h1, h2, lo, hi) =
+                            crate::hash::meta_hash128_and_digests(v, crate::format::bank::BANK_LANE_SEEDS,);
                         (plo, phi) = (lo, hi);
                         bk.add(lo, hi);
                         (h1, h2)
@@ -858,11 +828,7 @@ fn feed_hll_bloom(profile: &MetaProfile, cur: &mut CurGranule, h1: &[u64], h2: &
         let skip_last = seed::armed();
         #[cfg(not(test))]
         let skip_last = false;
-        let upto = if skip_last {
-            h1.len().saturating_sub(1)
-        } else {
-            h1.len()
-        };
+        let upto = if skip_last { h1.len().saturating_sub(1) } else { h1.len() };
         // PGRC-WRITER-FAST `run`: HLL is max-register idempotent — a
         // repeat of the previous hash sets nothing new.
         let mut prev: Option<u64> = None;
@@ -967,11 +933,8 @@ pub(crate) fn observe_codes_granule(
     s.rows.clear();
     match input.validity {
         None => {
-            s.codes.extend(
-                input.datums[..input.rows as usize]
-                    .iter()
-                    .map(|&c| c as u32),
-            ); // alloc: Node charged kept
+            s.codes
+                .extend(input.datums[..input.rows as usize].iter().map(|&c| c as u32),); // alloc: Node charged kept
             if need_rows {
                 s.rows.extend(base..base + input.rows); // alloc: Node charged kept
             }
@@ -987,10 +950,7 @@ pub(crate) fn observe_codes_granule(
             }
         }
     }
-    debug_assert!(
-        s.codes.iter().all(|&c| (c as usize) < t.blen.len()),
-        "code out of dict range"
-    );
+    debug_assert!(s.codes.iter().all(|&c| (c as usize) < t.blen.len()), "code out of dict range");
     cur.nonnull += s.codes.len() as u32;
     if s.codes.is_empty() {
         return;

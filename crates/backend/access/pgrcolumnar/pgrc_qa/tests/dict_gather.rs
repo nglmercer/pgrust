@@ -35,7 +35,7 @@ use pgrc_write::wvfs::WriteVfs;
 fn low_ndv_fixture() -> Fixture {
     let val = |i: u64| -> Vec<u8> {
         let k = i % 40;
-        if k.is_multiple_of(3) {
+        if k.is_multiple_of( 3) {
             format!("v{k:02}").into_bytes() // inline-form length
         } else {
             format!("value-{k:02}-{}", "x".repeat((k % 7) as usize + 10)).into_bytes()

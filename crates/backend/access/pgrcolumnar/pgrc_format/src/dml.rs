@@ -44,18 +44,10 @@ impl Tombstone {
         use crate::rowid::{ROWID_FIRST, ROWID_LIMIT};
         let (rowident, succ) = (v[0] as u64, v[1] as u64);
         if rowident >= ROWID_LIMIT {
-            return Err(FormatError::Corrupt {
-                at: "Tombstone row ID",
-            });
+            return Err(FormatError::Corrupt { at: "Tombstone row ID", });
         }
-        if succ != SUCC_NONE
-            && succ != SUCC_MOVED
-            && succ != SUCC_LOCK
-            && !(ROWID_FIRST..ROWID_LIMIT).contains(&succ)
-        {
-            return Err(FormatError::Corrupt {
-                at: "Tombstone succ",
-            });
+        if succ != SUCC_NONE && succ != SUCC_MOVED && succ != SUCC_LOCK && !(ROWID_FIRST..ROWID_LIMIT).contains(&succ) {
+            return Err(FormatError::Corrupt { at: "Tombstone succ", });
         }
         Ok(Tombstone { rowident, succ })
     }
@@ -314,40 +306,16 @@ mod tests {
     fn tombstone_datums_round_trip_and_refuse_ids_outside_the_space() {
         use crate::rowid::{ROWID_FIRST, ROWID_LIMIT};
         for t in [
-            Tombstone {
-                rowident: 0,
-                succ: SUCC_NONE,
-            },
-            Tombstone {
-                rowident: ROWID_LIMIT - 1,
-                succ: SUCC_MOVED,
-            },
-            Tombstone {
-                rowident: 9,
-                succ: SUCC_LOCK,
-            },
-            Tombstone {
-                rowident: ROWID_FIRST,
-                succ: ROWID_FIRST,
-            },
-            Tombstone {
-                rowident: 1 << 39,
-                succ: ROWID_LIMIT - 1,
-            },
+            Tombstone { rowident: 0, succ: SUCC_NONE, },
+            Tombstone { rowident: ROWID_LIMIT - 1, succ: SUCC_MOVED, },
+            Tombstone { rowident: 9, succ: SUCC_LOCK, },
+            Tombstone { rowident: ROWID_FIRST, succ: ROWID_FIRST, },
+            Tombstone { rowident: 1 << 39, succ: ROWID_LIMIT - 1, },
         ] {
             assert_eq!(Tombstone::from_datums(t.datums()).unwrap(), t);
         }
-        assert!(
-            Tombstone::from_datums([5, ROWID_LIMIT as i64]).is_err(),
-            "a successor past the ID space"
-        );
-        assert!(
-            Tombstone::from_datums([5, 290]).is_err(),
-            "a successor below the first ID"
-        );
-        assert!(
-            Tombstone::from_datums([ROWID_LIMIT as i64, 0]).is_err(),
-            "a row past the ID space"
-        );
+        assert!(Tombstone::from_datums([5, ROWID_LIMIT as i64]).is_err(), "a successor past the ID space");
+        assert!(Tombstone::from_datums([5, 290]).is_err(), "a successor below the first ID");
+        assert!(Tombstone::from_datums([ROWID_LIMIT as i64, 0]).is_err(), "a row past the ID space");
     }
 }

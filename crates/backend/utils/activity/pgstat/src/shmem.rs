@@ -274,8 +274,7 @@ pub(crate) fn copy_entry(src: PgStat_HashKey, dst: PgStat_HashKey) {
 pub(crate) fn update_relation_entry(key: PgStat_HashKey, f: impl FnOnce(&mut PgStat_StatTabEntry)) {
     let mut store = pgsync::lock(&SHARED_STATS);
     store.entry(key).or_insert_with(|| {
-        let _home = holder();
-        SharedEntry::Relation(PgStat_StatTabEntry::default())
+        let _home = holder(); SharedEntry::Relation(PgStat_StatTabEntry::default())
     });
     let Some(SharedEntry::Relation(tabentry)) = store.get_mut(&key) else {
         unreachable!("relation key holds non-relation shared entry")
@@ -289,8 +288,7 @@ pub(crate) fn update_backend_entry(
 ) {
     let mut store = pgsync::lock(&SHARED_STATS);
     store.entry(key).or_insert_with(|| {
-        let _home = holder();
-        SharedEntry::Backend(Box::default())
+        let _home = holder(); SharedEntry::Backend(Box::default())
     });
     let Some(SharedEntry::Backend(entry)) = store.get_mut(&key) else {
         unreachable!("backend key holds non-backend shared entry")
@@ -304,8 +302,7 @@ pub(crate) fn update_replslot_entry(
 ) {
     let mut store = pgsync::lock(&SHARED_STATS);
     store.entry(key).or_insert_with(|| {
-        let _home = holder();
-        SharedEntry::ReplSlot(Default::default())
+        let _home = holder(); SharedEntry::ReplSlot(Default::default())
     });
     let Some(SharedEntry::ReplSlot(entry)) = store.get_mut(&key) else {
         unreachable!("replslot key holds non-replslot shared entry")
@@ -319,8 +316,7 @@ pub(crate) fn update_subscription_entry(
 ) {
     let mut store = pgsync::lock(&SHARED_STATS);
     store.entry(key).or_insert_with(|| {
-        let _home = holder();
-        SharedEntry::Subscription(Default::default())
+        let _home = holder(); SharedEntry::Subscription(Default::default())
     });
     let Some(SharedEntry::Subscription(entry)) = store.get_mut(&key) else {
         unreachable!("subscription key holds non-subscription shared entry")
@@ -331,8 +327,7 @@ pub(crate) fn update_subscription_entry(
 pub(crate) fn update_database_entry(key: PgStat_HashKey, f: impl FnOnce(&mut PgStat_StatDBEntry)) {
     let mut store = pgsync::lock(&SHARED_STATS);
     store.entry(key).or_insert_with(|| {
-        let _home = holder();
-        SharedEntry::Database(PgStat_StatDBEntry::default())
+        let _home = holder(); SharedEntry::Database(PgStat_StatDBEntry::default())
     });
     let Some(SharedEntry::Database(dbentry)) = store.get_mut(&key) else {
         unreachable!("database key holds non-database shared entry")
@@ -544,8 +539,7 @@ fn reset_entry_contents(entry: &mut SharedEntry, ts: TimestampTz) {
 fn reset_database_timestamp(store: &mut Store, dboid: types_core::Oid, ts: TimestampTz) {
     let key = PgStat_HashKey { kind: PGSTAT_KIND_DATABASE, dboid, objid: 0 };
     store.entry(key).or_insert_with(|| {
-        let _home = holder();
-        SharedEntry::Database(PgStat_StatDBEntry::default())
+        let _home = holder(); SharedEntry::Database(PgStat_StatDBEntry::default())
     });
     let Some(SharedEntry::Database(d)) = store.get_mut(&key) else {
         unreachable!("database key holds non-database shared entry")

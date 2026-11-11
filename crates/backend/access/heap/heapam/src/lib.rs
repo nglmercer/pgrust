@@ -1,6 +1,6 @@
 //! heapam.c SCAN/FETCH read lane; DML (insert/update/delete/lock) is phase 2.
 
-#![allow(non_camel_case_types, non_snake_case, non_upper_case_globals)]
+#![allow(non_camel_case_types, non_snake_case,non_upper_case_globals)]
 
 use core::ptr::NonNull;
 
@@ -261,13 +261,11 @@ pub fn HeapTupleHeaderAdvanceConflictHorizon(
 
     // Ignore tuples inserted by an aborted transaction or updated/deleted by
     // the inserting transaction itself.
-    if (tuple.xmin_committed()
+    if ( tuple.xmin_committed()
         || (!tuple.xmin_invalid() && transam_seams::transaction_id_did_commit::call(xmin)?))
-        && xmax != xmin
-        && TransactionIdFollows(xmax, *snapshot_conflict_horizon)
-    {
-        *snapshot_conflict_horizon = xmax;
-    }
+        && xmax != xmin && TransactionIdFollows(xmax, *snapshot_conflict_horizon) {
+            *snapshot_conflict_horizon = xmax;
+        }
     Ok(())
 }
 
@@ -365,8 +363,7 @@ fn initscan(
     let allow_strat: bool;
     let allow_sync: bool;
     if !scan.rs_base.rs_rd.uses_local_buffers()
-        && scan.rs_nblocks
-            > (bufmgr_seams::active_buffers_or(init_small::globals::NBuffers()) as BlockNumber) / 4
+        && scan.rs_nblocks > (bufmgr_seams::active_buffers_or(init_small::globals::NBuffers()) as BlockNumber) / 4
     {
         allow_strat = (scan.rs_base.rs_flags & SO_ALLOW_STRAT) != 0;
         allow_sync = (scan.rs_base.rs_flags & SO_ALLOW_SYNC) != 0;
@@ -1026,8 +1023,7 @@ fn heap_key_test(
                     cur_key.sk_func.invoke(&mut fcinfo)
                 }
                 Err(_) => {
-                    let ctx =
-                        ::mcx::MemoryContext::new_wholesale("heap key test scratch (reentrant)");
+                    let ctx = ::mcx::MemoryContext::new_wholesale("heap key test scratch (reentrant)");
                     // SAFETY: as above.
                     unsafe { fcinfo.set_result_mcx(ctx.mcx()) };
                     fcinfo.set_arg(0, atp);
@@ -1077,7 +1073,13 @@ fn heapgettup<'mcx>(scan: &mut HeapScanDescData<'mcx>, dir: ScanDirection) -> Pg
                 "corrupt heap page: pd_lower overflows the line-pointer bound"
             );
             if continue_page {
-                heapgettup_continue_page(&page, dir, scan.rs_coffset, &mut linesleft, &mut lineoff);
+                heapgettup_continue_page(
+                    &page,
+                    dir,
+                    scan.rs_coffset,
+                    &mut linesleft,
+                    &mut lineoff
+                );
             } else {
                 heapgettup_start_page(&page, dir, &mut linesleft, &mut lineoff);
             }
@@ -1217,11 +1219,7 @@ fn heapgettup_pagemode<'mcx>(
                 break;
             }
             linesleft = scan.rs_ntuples as i32;
-            lineindex = if ScanDirectionIsForward(dir) {
-                0
-            } else {
-                linesleft - 1
-            };
+            lineindex = if ScanDirectionIsForward(dir) { 0 } else { linesleft - 1 };
         }
         continue_page = false;
 

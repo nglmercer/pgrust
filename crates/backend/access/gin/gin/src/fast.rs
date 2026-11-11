@@ -18,13 +18,13 @@ use init_small::globals::{EndCriticalSection, StartCriticalSection};
 use crate::bulk::BuildAccumulator;
 use crate::entrypage::gintuple_get_key;
 use crate::insert::ginEntryInsert;
-use crate::util::{
-    ginExtractEntries, gin_pending_list_cleanup_size, set_meta_pd_lower, GinInitBuffer,
+use crate::util::{ ginExtractEntries, gin_pending_list_cleanup_size, set_meta_pd_lower, GinInitBuffer,
     GinNewBuffer,
 };
 use crate::{
     meta_of, page_bytes, page_bytes_mut, page_mut, page_opaque, page_ref, relation_needs_wal,
-    write_meta_to, write_opaque, GinPageIsDeleted, GIN_EXCLUSIVE, GIN_SHARE, GIN_UNLOCK, RM_GIN,
+    write_meta_to, write_opaque, GinPageIsDeleted, GIN_EXCLUSIVE, GIN_SHARE, GIN_UNLOCK,
+    RM_GIN,
 };
 
 const GIN_PAGE_FREESIZE: usize =
@@ -235,8 +235,8 @@ fn make_sublist(
     }
 
     res.tail = bm::buffer_get_block_number::call(cur_buffer);
-    res.tailFreeSize =
-        write_list_page(rel, cur_buffer, &tuples[start_tuple..], InvalidBlockNumber)? as u32;
+    res.tailFreeSize = write_list_page(rel, cur_buffer, &tuples[start_tuple..], InvalidBlockNumber)?
+        as u32;
     res.nPendingPages += 1;
     res.nPendingHeapTuples = 1;
     Ok(())
@@ -287,7 +287,11 @@ pub(crate) fn ginHeapTupleFastInsert<'s>(
 
         bm::lock_buffer::call(metabuffer, GIN_EXCLUSIVE)?;
         meta_locked = true;
-        predicate_seams::check_for_serializable_conflict_in::call(rel, None, GIN_METAPAGE_BLKNO)?;
+        predicate_seams::check_for_serializable_conflict_in::call(
+            rel,
+            None,
+            GIN_METAPAGE_BLKNO
+        )?;
 
         // SAFETY: pin + exclusive lock held.
         let mut metadata = { meta_of(page_bytes(&unsafe { page_ref(metabuffer) })) };
@@ -329,7 +333,11 @@ pub(crate) fn ginHeapTupleFastInsert<'s>(
         write_meta_to(bytes, &metadata);
     } else {
         // Insert into the tail page; metapage stays locked.
-        predicate_seams::check_for_serializable_conflict_in::call(rel, None, GIN_METAPAGE_BLKNO)?;
+        predicate_seams::check_for_serializable_conflict_in::call(
+            rel,
+            None,
+            GIN_METAPAGE_BLKNO
+        )?;
         // SAFETY: pin + exclusive lock held.
         let mut metadata = { meta_of(page_bytes(&unsafe { page_ref(metabuffer) })) };
 
@@ -354,6 +362,7 @@ pub(crate) fn ginHeapTupleFastInsert<'s>(
             write_opaque(&mut page, &opaque);
 
             #[allow(clippy::explicit_counter_loop)]
+
             for t in collector.tuples.iter() {
                 // SAFETY: owned image.
                 let tupsize = unsafe { itup::index_tuple_size(t.as_ptr()) };
@@ -530,8 +539,7 @@ fn shift_list(
 
         if relation_needs_wal(rel) {
             let data = crate::wal::ginxlog_delete_listpages(&metadata, ndeleted as i32);
-            let mut bufs: Vec<XLogRegBuf<'_>> =
-                ::mcx::std_vec_with_capacity("access", 1 + ndeleted)?;
+            let mut bufs: Vec<XLogRegBuf<'_>> = ::mcx::std_vec_with_capacity("access", 1 + ndeleted)?;
             bufs.push(XLogRegBuf {
                 block_id: 0,
                 buffer: metabuffer,
@@ -702,23 +710,13 @@ pub fn ginInsertCleanup<'s>(
 
     loop {
         // SAFETY: pin + share lock held.
-        debug_assert!(!GinPageIsDeleted(&page_opaque(&unsafe {
-            page_ref(buffer)
-        })));
+        debug_assert!(!GinPageIsDeleted(&page_opaque(&unsafe { page_ref(buffer) })));
 
         if blkno == blkno_finish && !full_clean {
             cleanup_finish = true;
         }
 
-        process_pending_page(
-            op_ctx.mcx(),
-            rel,
-            state,
-            &mut accum,
-            &mut ka,
-            buffer,
-            FirstOffsetNumber,
-        )?;
+        process_pending_page(op_ctx.mcx(), rel, state, &mut accum, &mut ka, buffer, FirstOffsetNumber,)?;
 
         // ginfast.c:895 vacuum_delay_point(false).
         crate::vacuum::vacuum_delay_point()?;
@@ -740,16 +738,7 @@ pub fn ginInsertCleanup<'s>(
                     break;
                 };
                 let dump_ctx = MemoryContext::new_wholesale("gin cleanup dump scratch");
-                ginEntryInsert(
-                    dump_ctx.mcx(),
-                    rel,
-                    state,
-                    attnum,
-                    key,
-                    category,
-                    list,
-                    None,
-                )?;
+                ginEntryInsert(dump_ctx.mcx(), rel, state, attnum, key, category, list, None,)?;
                 // ginfast.c:932 vacuum_delay_point(false).
                 crate::vacuum::vacuum_delay_point()?;
             }
@@ -770,15 +759,7 @@ pub fn ginInsertCleanup<'s>(
                 drop(accum);
                 op_ctx.reset();
                 accum = unsafe { erase(BuildAccumulator::new(op_ctx.mcx(), *state)) };
-                process_pending_page(
-                    op_ctx.mcx(),
-                    rel,
-                    state,
-                    &mut accum,
-                    &mut ka,
-                    buffer,
-                    maxoff + 1,
-                )?;
+                process_pending_page(op_ctx.mcx(), rel, state, &mut accum, &mut ka, buffer, maxoff + 1,)?;
                 accum.begin_scan()?;
                 #[allow(clippy::while_let_loop)]
                 loop {
@@ -786,16 +767,7 @@ pub fn ginInsertCleanup<'s>(
                         break;
                     };
                     let dump_ctx = MemoryContext::new_wholesale("gin cleanup dump scratch");
-                    ginEntryInsert(
-                        dump_ctx.mcx(),
-                        rel,
-                        state,
-                        attnum,
-                        key,
-                        category,
-                        list,
-                        None,
-                    )?;
+                    ginEntryInsert(dump_ctx.mcx(), rel, state, attnum, key, category, list, None,)?;
                 }
             }
 
@@ -850,10 +822,7 @@ mod rem_b006_tests {
         assert_eq!(collector_capacity(1 << 25, 1, 1 << 25).unwrap(), 1 << 26);
         assert_eq!(collector_capacity(0, 1 << 26, 0).unwrap(), 1 << 26);
         let err = collector_capacity(1 << 26, 1, 1 << 26).unwrap_err();
-        assert_eq!(
-            err.message(),
-            "invalid memory alloc request size 1073741824"
-        );
+        assert_eq!(err.message(), "invalid memory alloc request size 1073741824");
         assert_eq!(err.sqlstate(), ERRCODE_INTERNAL_ERROR);
         let err = collector_capacity(0, 1 << 27, 0).unwrap_err();
         assert_eq!(err.message(), "too many entries for GIN index");
@@ -866,9 +835,7 @@ mod rem_b006_tests {
         let ctx = MemoryContext::new_bump("collector");
         let mut collector = GinTupleCollector::new(ctx.mcx());
         for count in [1, 16, 17, 33] {
-            let capacity =
-                collector_capacity(collector.tuples.len(), count, collector.tuples.capacity())
-                    .unwrap();
+            let capacity = collector_capacity(collector.tuples.len(), count, collector.tuples.capacity()).unwrap();
             let additional = capacity - collector.tuples.len();
             ::mcx::vec_reserve_huge(&mut collector.tuples, additional).unwrap();
             for _ in 0..count {
@@ -904,10 +871,7 @@ mod rem_b006_tests {
         // errstart); close it here so the thread is reusable.
         init_small::globals::SetCritSectionCount(0);
         let err = res.expect_err("overflowing list page must be a catchable error");
-        assert_eq!(
-            err.message(),
-            "failed to add item to index page in \"t_gin\""
-        );
+        assert_eq!(err.message(), "failed to add item to index page in \"t_gin\"");
         assert_eq!(err.sqlstate(), ERRCODE_INTERNAL_ERROR);
     }
 }

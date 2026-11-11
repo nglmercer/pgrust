@@ -1,5 +1,4 @@
-#[allow(unused_imports)]
-use core::hash::{Hash, Hasher};
+#[allow(unused_imports)]use core::hash::{Hash, Hasher};
 
 use gravity_abi::ctx::{ctx_size, lane};
 use gravity_abi::hash::Fnv128;

@@ -57,7 +57,7 @@ pub fn whole_part_claims(code_groups: bool, answerable: bool, sparse: bool, live
 /// and what its extra claims cost are both per tail part).
 pub fn tail_from_part(live_parts: u64, width: u16) -> Option<u64> {
     let w = width as u64;
-    (w >= 2 && live_parts > w && !live_parts.is_multiple_of(w)).then(|| live_parts / w * w)
+    (w >= 2 && live_parts > w && ! live_parts.is_multiple_of( w)).then(|| live_parts / w * w)
 }
 
 pub(crate) fn forced_width() -> Option<u16> {

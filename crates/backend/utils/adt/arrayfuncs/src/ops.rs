@@ -90,10 +90,10 @@ enum TcWant {
 const F_HASH_RECORD: Oid = 6192;
 
 fn cached_typentry(
-    flinfo: &mut FmgrInfo,
+    flinfo: & mut FmgrInfo,
     element_type: Oid,
     want: TcWant,
-) -> PgResult<&mut TcMemo> {
+) -> PgResult<& mut TcMemo> {
     let need = match flinfo.fn_extra_ref::<TcMemo>() {
         Some(m) => m.entry.type_id != element_type,
         None => true,

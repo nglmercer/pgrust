@@ -684,7 +684,7 @@ fn own_all_lent(step: &mut cancelpoll::Step, merge: &dyn Merge, ctx: *mut gravit
         bufs.parts.resize(1 << pbits, 0); // alloc: Cold
         merge.part_record_bytes(partials, files, pbits, &mut bufs.parts)
     };
-    let table = if counted { 4 * bufs.parts.iter().copied().max().unwrap_or(0) as usize } else { (4 * held) >> pbits };
+    let table = if counted { 4 * bufs.parts.iter().copied().max().unwrap_or(0) as usize } else { ( 4 * held) >> pbits };
     let bytes = match kept {
         Some(k) => k.region(table.max(64 * rec).max(KEPT_TABLE_MIN)).min(wall).min(owner_first_at()).next_multiple_of(8),
         None => bytes,

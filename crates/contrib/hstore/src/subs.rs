@@ -42,12 +42,12 @@ pub(crate) fn assign<'m>(
     key: Datum,
     replace: NullableDatum,
 ) -> PgResult<Datum> {
-    let key = ::mcx::std_vec_from_slice("hstore", text_payload(mcx, key)?)?;
+    let key = ::mcx::std_vec_from_slice("hstore",text_payload(mcx, key)?)?;
     check_key_len(key.len())?;
     let val = if replace.isnull {
         None
     } else {
-        let v = ::mcx::std_vec_from_slice("hstore", text_payload(mcx, replace.value)?)?;
+        let v = ::mcx::std_vec_from_slice("hstore",text_payload(mcx, replace.value)?)?;
         check_val_len(v.len())?;
         Some(v)
     };

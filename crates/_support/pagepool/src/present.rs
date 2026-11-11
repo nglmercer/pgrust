@@ -81,14 +81,7 @@ pub fn present() -> Option<usize> {
 ///   only, at most its non-free part;
 /// - `unswept` (`stats::RELEASED_UNSWEPT`: a frame's pages, outside what the sweep reads) comes off nothing.
 ///   cache is capped at present - free and never lowered otherwise.
-pub(crate) fn less_released(
-    p: usize,
-    f: usize,
-    c: usize,
-    gone: u64,
-    live_gone: u64,
-    unswept: u64,
-) -> (usize, usize, usize) {
+pub(crate) fn less_released(p: usize, f: usize, c: usize, gone: u64, live_gone: u64, unswept: u64,) -> (usize, usize, usize) {
     let to = |x: u64| usize::try_from(x).unwrap_or(usize::MAX);
     let free_gone = to(gone.saturating_sub(live_gone).saturating_sub(unswept));
     let fsub = free_gone.min(f);
@@ -144,11 +137,7 @@ pub fn present_split_build() -> Option<(usize, usize, usize, usize)> {
         let f = FREE_SW.load(Relaxed);
         let c = CACHE_SW.load(Relaxed);
         let b = BUILD_SW.load(Relaxed);
-        let (r, l, u) = (
-            RELEASED_AT.load(Relaxed),
-            LIVE_AT.load(Relaxed),
-            UNSWEPT_AT.load(Relaxed),
-        );
+        let (r, l, u) = (RELEASED_AT.load(Relaxed), LIVE_AT.load(Relaxed), UNSWEPT_AT.load(Relaxed),);
         fence(Acquire);
         if GEN.load(Relaxed) != g {
             continue;
@@ -231,22 +220,15 @@ pub fn present_age_ms() -> Option<u64> {
     if !crate::on() || SWEPT.load(Acquire) == NONE {
         return None;
     }
-    Some(u64::from(
-        crate::purger::tick().wrapping_sub(SWEPT_AT.load(Relaxed)),
-    ))
+    Some(u64::from(crate::purger::tick().wrapping_sub(SWEPT_AT.load(Relaxed)),))
 }
 
 /// The purger's cadence: a sweep when `PRESENT_MS` (or `DUTY` times the last sweep's cost) passed since the last one and
 /// some count moved since (`stats::activity`), else once `QUIET_MS` passed. Whether it swept.
 pub(crate) fn refresh_if_due(now: u32) -> bool {
-    let every = PRESENT_MS.max(
-        u32::try_from(SWEEP_NS.load(Relaxed).saturating_mul(DUTY) / 1_000_000).unwrap_or(u32::MAX),
-    );
+    let every = PRESENT_MS.max(u32::try_from(SWEEP_NS.load(Relaxed).saturating_mul(DUTY) / 1_000_000).unwrap_or(u32::MAX),);
     let since = now.wrapping_sub(SWEPT_AT.load(Relaxed));
-    if SWEPT.load(Relaxed) != NONE
-        && (since < every
-            || (since < QUIET_MS && crate::stats::activity() == SWEPT_ACT.load(Relaxed)))
-    {
+    if SWEPT.load(Relaxed) != NONE && (since < every || (since < QUIET_MS && crate::stats::activity() == SWEPT_ACT.load(Relaxed))) {
         return false;
     }
     refresh().is_some()
@@ -263,9 +245,7 @@ pub fn present_fresh() -> Option<usize> {
     if !crate::on() {
         return None;
     }
-    if SWEPT.load(Acquire) != NONE
-        && crate::purger::tick().wrapping_sub(SWEPT_AT.load(Relaxed)) < FRESH_MS
-    {
+    if SWEPT.load(Acquire) != NONE && crate::purger::tick().wrapping_sub(SWEPT_AT.load(Relaxed)) < FRESH_MS {
         return present();
     }
     if let Some(p) = refresh() {
@@ -324,23 +304,14 @@ pub fn present_sweep_by(mincore: bool) -> Option<(usize, usize, bool, u64)> {
         return None;
     }
     let t0 = pg_clock::mono_ns();
-    imp::sweep(mincore).map(|s| {
-        (
-            s.all,
-            s.zero,
-            s.scanned,
-            pg_clock::mono_ns().saturating_sub(t0),
-        )
+    imp::sweep(mincore).map(|s| { (s.all, s.zero, s.scanned, pg_clock::mono_ns().saturating_sub(t0),)
     })
 }
 
 /// Card 11: `PGRUST_POOL_PRESENT_MINCORE=1` (mincore always), read once at the pool's init.
 pub(crate) fn init_reader() {
     #[cfg(all(target_os = "linux", not(miri)))]
-    imp::MINCORE.store(
-        crate::os::env_is_one(c"PGRUST_POOL_PRESENT_MINCORE"),
-        Relaxed,
-    );
+    imp::MINCORE.store(crate::os::env_is_one(c"PGRUST_POOL_PRESENT_MINCORE"), Relaxed,);
 }
 
 /// pagepool P3 (F1 / F2): the pages of `[at, at + len)` (page-aligned) now, as (resident bytes, zero-page bytes; card 11:
@@ -386,8 +357,7 @@ pub fn residency_seam(at: usize, len: usize, mincore: bool) -> Option<(usize, us
     #[cfg(all(target_os = "linux", not(miri)))]
     {
         let mut vec = [0u8; imp::VEC];
-        imp::range(at, len, crate::os::page_size(), &mut vec, mincore)
-            .map(|p| (p.resident, p.zero, p.scanned))
+        imp::range(at, len, crate::os::page_size(), &mut vec, mincore).map(|p| (p.resident, p.zero, p.scanned))
     }
     #[cfg(not(all(target_os = "linux", not(miri))))]
     {
@@ -457,11 +427,7 @@ mod imp {
                 State::WarmZero | State::WarmDirty => s.free += end - a,
                 State::Span => {
                     let h = (w >> 32) as u32;
-                    let tag = if h < zones().nsuper {
-                        Tag(superpage::meta(h).tag())
-                    } else {
-                        Tag::OTHER
-                    };
+                    let tag = if h < zones().nsuper { Tag(superpage::meta(h).tag()) } else { Tag::OTHER };
                     split_live(a, end, tag, s);
                 }
                 State::Partial | State::Full => {
@@ -523,17 +489,9 @@ mod imp {
         let z = zones();
         let page = os::page_size();
         let by_scan = !mincore && fd().is_some();
-        let step = if by_scan {
-            u32::MAX
-        } else {
-            (VEC * page / SUPER).max(1) as u32
-        };
+        let step = if by_scan { u32::MAX } else { (VEC * page / SUPER).max(1) as u32 };
         let mut vec = [0u8; VEC];
-        let mut total = Pages {
-            resident: 0,
-            zero: 0,
-            scanned: by_scan,
-        };
+        let mut total = Pages { resident: 0, zero: 0, scanned: by_scan, };
         let mut split = Split::default();
         let mut i = 0u32;
         while i < z.nsuper {
@@ -546,15 +504,7 @@ mod imp {
                 j += 1;
             }
             // pppress card V: each resident stretch classified as it is counted, in this one pass
-            total.add(range_by(
-                superpage::addr_of(i),
-                (j - i) as usize * SUPER,
-                page,
-                &mut vec,
-                mincore,
-                &mut split,
-                &split_pool,
-            )?);
+            total.add(range_by(superpage::addr_of(i), (j - i) as usize * SUPER, page, &mut vec, mincore, &mut split, &split_pool,)?);
             i = j;
         }
         let mut err = None;
@@ -569,15 +519,7 @@ mod imp {
                         split_live(lo, hi, tag, s);
                     }
                 };
-                match range_by(
-                    at,
-                    len.next_multiple_of(SUPER),
-                    page,
-                    &mut vec,
-                    mincore,
-                    &mut split,
-                    &by,
-                ) {
+                match range_by(at, len.next_multiple_of(SUPER), page, &mut vec, mincore, &mut split, &by,) {
                     Some(p) => total.add(p),
                     None => err = Some(()),
                 }
@@ -587,62 +529,26 @@ mod imp {
             return None;
         }
         let meta_lo = z.frame.lo + z.frame.len;
-        let meta = range(
-            meta_lo,
-            (z.all.lo + z.all.len).saturating_sub(meta_lo),
-            page,
-            &mut vec,
-            mincore,
-        )?;
+        let meta = range(meta_lo, (z.all.lo + z.all.len).saturating_sub(meta_lo), page, &mut vec, mincore,)?;
         total.add(meta);
         // each counted stretch went to at most one of them (a scan refused part way through had its classing undone
         // before mincore read the range again), so free + cache <= resident by construction; the mins only guard it
         let free = split.free.min(total.resident);
         let cache = split.cache.min(total.resident - free);
         let build = split.build.min(total.resident - free - cache);
-        Some(Sweep {
-            all: total.resident,
-            meta: meta.resident,
-            zero: total.zero,
-            scanned: total.scanned,
-            free,
-            cache,
-            build,
-        })
+        Some(Sweep { all: total.resident, meta: meta.resident, zero: total.zero, scanned: total.scanned, free, cache, build, })
     }
 
     /// The pages of `[at, at + len)`, any length: by PAGEMAP_SCAN, else (`mincore`, or refused) by mincore, `VEC` pages
     /// a call.
-    pub(super) fn range(
-        at: usize,
-        len: usize,
-        page: usize,
-        vec: &mut [u8; VEC],
-        mincore: bool,
-    ) -> Option<Pages> {
-        range_by(
-            at,
-            len,
-            page,
-            vec,
-            mincore,
-            &mut Split::default(),
-            &|_, _, _| {},
-        )
+    pub(super) fn range(at: usize, len: usize, page: usize, vec: &mut [u8; VEC], mincore: bool,) -> Option<Pages> {
+        range_by(at, len, page, vec, mincore, &mut Split::default(), &|_, _, _| {},)
     }
 
     /// pppress card V: `range`, with `by(lo, hi, s)` classing each resident stretch it counts (present, not the zero
     /// page) into `s`, in address order. A scan refused part way through (its pages then read again by mincore) has its
     /// classing undone first, so each counted stretch is classed once.
-    fn range_by(
-        at: usize,
-        len: usize,
-        page: usize,
-        vec: &mut [u8; VEC],
-        mincore: bool,
-        s: &mut Split,
-        by: &dyn Fn(usize, usize, &mut Split),
-    ) -> Option<Pages> {
+    fn range_by(at: usize, len: usize, page: usize, vec: &mut [u8; VEC], mincore: bool, s: &mut Split, by: &dyn Fn(usize, usize, &mut Split),) -> Option<Pages> {
         if !mincore {
             if let Some(fd) = fd() {
                 let keep = *s;
@@ -659,11 +565,7 @@ mod imp {
             total += resident(a, n, page, vec, &mut |lo, hi| by(lo, hi, s))?;
             a += n;
         }
-        Some(Pages {
-            resident: total,
-            zero: 0,
-            scanned: false,
-        })
+        Some(Pages { resident: total, zero: 0, scanned: false, })
     }
 
     /// D4877: a give-back's read of `[at, at + len)` (`residency_of`): its bytes in RAM, the zero page apart. As `range`,
@@ -681,21 +583,13 @@ mod imp {
 
     /// The resident bytes of `[at, at + len)` (page-aligned, at most `VEC` pages); an unmapped range (ENOMEM) reads 0.
     /// `f` on each stretch of resident pages.
-    fn resident(
-        at: usize,
-        len: usize,
-        page: usize,
-        vec: &mut [u8; VEC],
-        f: &mut dyn FnMut(usize, usize),
-    ) -> Option<usize> {
+    fn resident(at: usize, len: usize, page: usize, vec: &mut [u8; VEC], f: &mut dyn FnMut(usize, usize),) -> Option<usize> {
         let n = len.div_ceil(page);
         debug_assert!(n <= VEC);
         // SAFETY: mincore only reads the page tables of `[at, at + len)` and writes `n` bytes into `vec` (n <= VEC).
-        let rc =
-            unsafe { libc::mincore(at as *mut libc::c_void, n * page, vec.as_mut_ptr().cast()) };
+        let rc = unsafe { libc::mincore(at as *mut libc::c_void, n * page, vec.as_mut_ptr().cast()) };
         if rc != 0 {
-            return (std::io::Error::last_os_error().raw_os_error() == Some(libc::ENOMEM))
-                .then_some(0);
+            return (std::io::Error::last_os_error().raw_os_error() == Some(libc::ENOMEM)).then_some(0);
         }
         let (mut total, mut run) = (0, None::<usize>);
         for (k, b) in vec[..n].iter().enumerate() {
@@ -780,17 +674,12 @@ mod imp {
     const PAGE_IS_PFNZERO: u64 = 1 << 5;
     const PAGE_IS_HUGE: u64 = 1 << 6;
     const REGIONS: usize = 256;
-    const _: () =
-        assert!(core::mem::size_of::<ScanArg>() == 96 && core::mem::size_of::<Region>() == 24);
+    const _: () = assert!(core::mem::size_of::<ScanArg>() == 96 && core::mem::size_of::<Region>() == 24);
 
     /// pppress card 10: whether a page of `[at, at + len)` is present and PMD-mapped (one region at most: the first).
     pub(super) fn huge(at: usize, len: usize) -> Option<bool> {
         let fd = fd()?;
-        let mut v = [Region {
-            start: 0,
-            end: 0,
-            categories: 0,
-        }; 1];
+        let mut v = [Region { start: 0, end: 0, categories: 0, }; 1];
         let mut arg = ScanArg {
             size: core::mem::size_of::<ScanArg>() as u64,
             flags: 0,
@@ -813,25 +702,10 @@ mod imp {
     /// The present pages of `[at, at + len)` by PAGEMAP_SCAN, those mapping the zero page apart; with `ram`, also the
     /// pages of its SWAPPED stretches mincore reads resident (`in_ram`). `None`: the ioctl failed (ENOTTY / EINVAL /
     /// EOPNOTSUPP: no PAGEMAP_SCAN here, mincore from then on).
-    fn scan(
-        fd: i32,
-        at: usize,
-        len: usize,
-        page: usize,
-        mut ram: Option<&mut [u8; VEC]>,
-        f: &mut dyn FnMut(usize, usize),
-    ) -> Option<Pages> {
+    fn scan(fd: i32, at: usize, len: usize, page: usize, mut ram: Option<&mut [u8; VEC]>, f: &mut dyn FnMut(usize, usize),) -> Option<Pages> {
         let end = at + len;
-        let mut v = [Region {
-            start: 0,
-            end: 0,
-            categories: 0,
-        }; REGIONS];
-        let mut p = Pages {
-            resident: 0,
-            zero: 0,
-            scanned: true,
-        };
+        let mut v = [Region { start: 0, end: 0, categories: 0, }; REGIONS];
+        let mut p = Pages { resident: 0, zero: 0, scanned: true, };
         // 7.0 can set walk_end before the last region returned with the vector not full, and a split under the walk
         // can return a stretch twice: resume only on a full vector, and count each byte once (past `covered`)
         let (mut from, mut covered) = (at, at);
@@ -847,22 +721,13 @@ mod imp {
                 max_pages: 0,
                 category_inverted: 0,
                 category_mask: if ram.is_some() { 0 } else { PAGE_IS_PRESENT },
-                category_anyof_mask: if ram.is_some() {
-                    PAGE_IS_PRESENT | PAGE_IS_SWAPPED
-                } else {
-                    0
-                },
-                return_mask: PAGE_IS_PRESENT
-                    | PAGE_IS_PFNZERO
-                    | if ram.is_some() { PAGE_IS_SWAPPED } else { 0 },
+                category_anyof_mask: if ram.is_some() { PAGE_IS_PRESENT | PAGE_IS_SWAPPED } else { 0 },
+                return_mask: PAGE_IS_PRESENT | PAGE_IS_PFNZERO | if ram.is_some() { PAGE_IS_SWAPPED } else { 0 },
             };
             // SAFETY: PAGEMAP_SCAN reads `arg`, writes its walk_end and at most `vec_len` regions into `v`.
             let n = unsafe { libc::ioctl(fd, PAGEMAP_SCAN as _, &mut arg) };
             if n < 0 {
-                if matches!(
-                    std::io::Error::last_os_error().raw_os_error(),
-                    Some(libc::ENOTTY | libc::EINVAL | libc::EOPNOTSUPP)
-                ) {
+                if matches!(std::io::Error::last_os_error().raw_os_error(), Some(libc::ENOTTY | libc::EINVAL | libc::EOPNOTSUPP)) {
                     FD.store(-1, Relaxed);
                 }
                 return None;

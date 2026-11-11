@@ -155,7 +155,7 @@ pub(crate) fn spilled<'e>(b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, a:
 /// The lean branch of a class.num_wide product `t` (every leaf a NOT NULL packed column, a constant or an int column)
 /// into `acc`: its exact i256 term from the words (`wide_term` over a memo seeded with them: no leaf is special).
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn wide<'e>(b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, row: &RowVals, a: &AggDecl<'_>, class: &dyn FoldClass, t: &Tree, acc: &Acc<'_>) -> Option<Lean<'e>> {
+pub(crate) fn wide< 'e>(b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, row: &RowVals, a: &AggDecl<'_>, class: &dyn FoldClass, t: & Tree, acc: &Acc<'_>) -> Option<Lean<'e>> {
     let avg = match a.reg {
         R::SumNumWide => false,
         R::AvgNumWide => true,
@@ -213,7 +213,7 @@ pub(crate) fn wide<'e>(b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, row: 
 /// NOT NULL packed `Window` column at its scale or a constant, a window with no verbatim leaf folds the finite term of
 /// the words (pgrc packs only finite values: no leaf's sentinel test, specials code or select), through class.num_packed's
 /// fold under the same guard `g`; a verbatim window runs the caller's generic step.
-pub(crate) fn tree<'e>(b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, row: &RowVals, a: &AggDecl<'_>, t: &Tree, acc: &Acc<'_>, g: Option<Value>) -> Option<Lean<'e>> {
+pub(crate) fn tree< 'e>(b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, row: &RowVals, a: &AggDecl<'_>, t: & Tree, acc: &Acc<'_>, g: Option<Value>) -> Option<Lean<'e>> {
     let &Acc::Slot { base, off, valid } = acc else { return None };
     let mut cols = PgVec::new_in(env.mcx);
     if env.mult.is_some() || !leaves(t, &mut cols) || cols.is_empty() || int_leaf(t) {

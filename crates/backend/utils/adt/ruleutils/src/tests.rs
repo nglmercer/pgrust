@@ -173,7 +173,7 @@ fn install() {
             Ok((relid == REL_OID).then(|| name("orders")))
         });
         s::lookup_pg_class_ls_shape::set(|relid| {
-            Ok((relid == REL_OID).then_some(syscache_seams::PgClassLsShape {
+            Ok((relid == REL_OID).then_some( syscache_seams::PgClassLsShape {
                 relnamespace: 2200,
                 reltype: 0,
                 relam: 0,

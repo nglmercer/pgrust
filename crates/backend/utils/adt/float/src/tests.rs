@@ -1,7 +1,5 @@
 // The PI/E literals are the exact decimal inputs PostgreSQL's float tests use (text I/O round trips), not approximations.
-#![allow(clippy::approx_constant)]
-
-use super::*;
+#![allow(clippy::approx_constant)]use super::*;
 use crate::aggregates::*;
 use crate::builtins::*;
 

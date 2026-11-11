@@ -104,7 +104,7 @@ fn tracked(f: impl FnOnce()) -> usize {
 const REL: u32 = 4242;
 
 fn value(i: u64) -> Option<i64> {
-    if i.is_multiple_of(13) {
+    if i.is_multiple_of( 13) {
         None
     } else {
         Some((i as i64 * 7919) % 100_003 - 50_000)
@@ -1406,7 +1406,7 @@ fn verbatim_fixture(with_empty: bool, distinct: bool) -> BuiltFixture {
     use pgrc_write::publish::{effective_manifest, TxnVerdict};
     let rows = 35_424u64;
     let relfilenumber = if distinct { 7308 } else if with_empty { 7307 } else { 7306 };
-    let value = |i: u64| if with_empty && i.is_multiple_of(7) { Vec::new() } else if distinct { format!("u{i:06}").into_bytes() } else { tv(i) };
+    let value = |i: u64| if with_empty && i.is_multiple_of( 7) { Vec::new() } else if distinct { format!("u{i:06}").into_bytes() } else { tv(i) };
     let fx = Fixture {
         name: "gravity_text_verbatim",
         dir: format!("/qa/t{relfilenumber}"),
@@ -1449,7 +1449,7 @@ fn a_verbatim_text_column_publishes_byte_ranked_codes_cached_with_its_fingerprin
         let list = part_list(&bf);
         let total = list.granules();
         assert_eq!(list.len(), 2);
-        let value = |i: u64| if with_empty && i.is_multiple_of(7) { Vec::new() } else { tv(i) };
+        let value = |i: u64| if with_empty && i.is_multiple_of( 7) { Vec::new() } else { tv(i) };
         let recipe = GranuleRecipe::for_test_codes(if with_empty { REL_TEXT + 2 } else { REL_TEXT + 1 }, &[1], &[1], Arc::new(PartRegistry::new(64 << 20))).with_tables(vec![TableSpec { over: 0, func: TableFn::Fingerprint }]);
         let resolved = Resolved::for_recipe(&recipe, list.clone());
         let mut src = GranuleRangeSource::new(recipe);
@@ -1998,7 +1998,7 @@ fn text_int_fixture() -> BuiltFixture {
     use pgrc_qa::corpus::{append_rows_with_sources, finish_with_sources, open_writer};
     use pgrc_write::publish::{effective_manifest, TxnVerdict};
     let rows = 35_424u64;
-    let value = |i: u64| if (16_384..24_576).contains(&i) || !i.is_multiple_of(9) { Vec::new() } else { tv(i) };
+    let value = |i: u64| if (16_384..24_576).contains(&i) || ! i.is_multiple_of( 9) { Vec::new() } else { tv(i) };
     let fx = Fixture {
         name: "gravity_text_int",
         dir: "/qa/t7311".to_string(),
@@ -2074,7 +2074,7 @@ fn walk_selected(src: &mut GranuleRangeSource, total: u64, k: usize, check: impl
 
 /// `text_int_fixture`'s text value of the row whose int lane is `a`.
 fn text_int_value(a: u64) -> Vec<u8> {
-    if (16_384..24_576).contains(&a) || !a.is_multiple_of(9) { Vec::new() } else { tv(a) }
+    if (16_384..24_576).contains(&a) || ! a.is_multiple_of( 9) { Vec::new() } else { tv(a) }
 }
 
 /// A text comparison with any constant, `''` or another, prunes by the part's code zones and selects its rows on the
@@ -2277,7 +2277,7 @@ const REL_CLASSES: u32 = 4263;
 fn class_value(k: usize, i: u64) -> Option<OracleVal> {
     match k {
         0 => (i % 13 != 4).then(|| OracleVal::Word((i as f64 * 0.25 - 100.0).to_bits())),
-        1 => Some(OracleVal::Word(i.is_multiple_of(3) as u64)),
+        1 => Some(OracleVal::Word(i.is_multiple_of( 3) as u64)),
         2 => Some(OracleVal::Bytes((i as u128).wrapping_mul(0x0101_0101_0101_0101_0101_0101_0101_0101).to_le_bytes().to_vec())),
         // one image past the 32 KiB inline ceiling (the overflow stream) and past the first arena
         3 => (i % 13 != 7).then(|| OracleVal::Bytes(if i == 20_001 { vec![b'z'; 40_000] } else { format!("t{}", i % 977).into_bytes() })),
@@ -2409,7 +2409,7 @@ const REL_SHRED: u32 = 4264;
 
 /// Row `i`'s document: `k` an int, `name` a text, `flag` a bool, `score` a number of two decimals; NULL every 13th row.
 fn shred_doc(i: u64) -> Option<String> {
-    (i % 13 != 5).then(|| format!(r#"{{"k": {}, "name": "tok{:04}", "flag": {}, "score": {}.25}}"#, i % 1000, i % 97, i.is_multiple_of(2), i % 1000))
+    (i % 13 != 5).then(|| format!(r#"{{"k": {}, "name": "tok{:04}", "flag": {}, "score": {}.25}}"#, i % 1000, i % 97, i.is_multiple_of( 2), i % 1000))
 }
 
 /// A jsonb column of `shred_doc` documents sealed with the production shred source: two parts of
@@ -2583,7 +2583,7 @@ fn mixed_doc(i: u64) -> Option<String> {
     if i < MIXED_CUT {
         return shred_doc(i);
     }
-    (i % 13 != 5).then(|| format!(r#"{{"k": {}, "flag": "{}", "score": {}.25}}"#, i % 1000, if i.is_multiple_of(2) { "yes" } else { "no" }, i % 1000))
+    (i % 13 != 5).then(|| format!(r#"{{"k": {}, "flag": "{}", "score": {}.25}}"#, i % 1000, if i.is_multiple_of( 2) { "yes" } else { "no" }, i % 1000))
 }
 
 #[test]
@@ -2639,7 +2639,7 @@ fn one_scan_over_a_part_that_elected_a_path_and_one_that_did_not_publishes_the_s
                     }
                     if doc && first {
                         assert_eq!(byref_bytes(*(l[2].ptr as *const u64).add(r), None), format!("tok{:04}", i % 97).into_bytes(), "row {i} name");
-                        assert_eq!(*l[3].ptr.add(r), i.is_multiple_of(2) as u8, "row {i} flag");
+                        assert_eq!(*l[3].ptr.add(r),i.is_multiple_of( 2) as u8, "row {i} flag");
                     }
                 }
                 i += 1;
@@ -2821,7 +2821,7 @@ fn a_path_entries_window_puts_each_sealed_entry_in_a_one_key_document() {
 const REL_MONEY: u32 = 4271;
 
 fn cents(i: u64) -> Option<i64> {
-    if i.is_multiple_of(101) {
+    if i.is_multiple_of( 101) {
         None
     } else {
         Some((i as i64 * 7919) % 200_003 - 100_000)
@@ -3196,7 +3196,7 @@ fn mixed_text_fixture() -> BuiltFixture {
     use pgrc_qa::corpus::{append_rows_with_sources, finish_with_sources, open_writer};
     use pgrc_write::publish::{effective_manifest, TxnVerdict};
     let rows = 35_424u64;
-    let value = |i: u64| if i.is_multiple_of(7) { Vec::new() } else if i < 24_576 { tv(i) } else { format!("u{i:06}-{}", "x".repeat((i % 13) as usize)).into_bytes() };
+    let value = |i: u64| if i.is_multiple_of( 7) { Vec::new() } else if i < 24_576 { tv(i) } else { format!("u{i:06}-{}", "x".repeat((i % 13) as usize)).into_bytes() };
     let fx = Fixture {
         name: "gravity_text_mixed",
         dir: "/qa/t7318".to_string(),

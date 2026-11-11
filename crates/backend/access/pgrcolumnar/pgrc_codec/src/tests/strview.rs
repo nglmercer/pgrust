@@ -17,7 +17,7 @@ use pgrc_format::wire::varlena_4b_u_payload_len;
 
 /// The §7b shape check: pointer is 8-aligned and heads a valid 4B-U image.
 fn varlena_shaped(datum: u64) -> Result<(), &'static str> {
-    if !datum.is_multiple_of(8) {
+    if ! datum.is_multiple_of( 8) {
         return Err("not 8-aligned");
     }
     // SAFETY: test datums point at live arena/backing images.
@@ -106,9 +106,7 @@ fn dict_gather_datums_are_zero_copy_views_into_the_dictionary() {
     let ndv = 500u32;
     let (index, payload) = super::roundtrip::dict_fixture(ndv);
     let rows = 8192u32;
-    let datums = (0..rows)
-        .map(|_| splitmix(&mut seed) % ndv as u64)
-        .collect();
+    let datums = (0..rows).map(|_| splitmix(&mut seed) % ndv as u64).collect();
     let gd = GranuleData {
         rows,
         datums,

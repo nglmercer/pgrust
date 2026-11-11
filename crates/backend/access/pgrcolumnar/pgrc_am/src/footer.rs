@@ -118,8 +118,7 @@ use types_rel::Relation;
 use crate::probe::SnapshotCommitCheck;
 
 pub use pgrc_write::facts::{
-    CODEC_DICT, CODEC_FIXED, CODEC_TEXT, CODEC_UNKNOWN, CODEC_WORD, QUAL_CLASS_BLOOM,
-    QUAL_CLASS_DICT, QUAL_CLASS_ZONE,
+    CODEC_DICT, CODEC_FIXED, CODEC_TEXT, CODEC_UNKNOWN, CODEC_WORD, QUAL_CLASS_BLOOM, QUAL_CLASS_DICT, QUAL_CLASS_ZONE,
 };
 
 /// Per-column cost facts for the planner (attnum-1 indexed), folded from
@@ -191,14 +190,7 @@ impl ZoneFacts {
     pub fn new(attno: u32, map: ZoneMap) -> PgResult<ZoneFacts> {
         let ranges = map.decode().map_err(crate::format_error)?;
         let summary = ZoneSummary::build(&ranges); // alloc: Cold charged its keeper (heap_bytes: the generation's held_bytes, else the resident part list's zones charge)
-        Ok(ZoneFacts {
-            attno,
-            col: Arc::new(ZoneColumn {
-                map,
-                summary,
-                expanded: Arc::from(ranges),
-            }),
-        }) // alloc: Cold charged its keeper (heap_bytes, as above)
+        Ok(ZoneFacts { attno, col: Arc::new(ZoneColumn { map, summary, expanded: Arc::from(ranges), }), }) // alloc: Cold charged its keeper (heap_bytes, as above)
     }
 
     pub fn ranges(&self) -> Arc<[(i64, i64)]> {
@@ -209,16 +201,8 @@ impl ZoneFacts {
     pub fn heap_bytes(&self) -> usize {
         const ARC: usize = 2 * core::mem::size_of::<usize>();
         let s = self.col.summary();
-        let lists = s.min_lt.capacity()
-            + s.min_le.capacity()
-            + s.max_lt.capacity()
-            + s.max_le.capacity()
-            + s.eq_whole.capacity();
-        2 * ARC
-            + core::mem::size_of::<ZoneColumn>()
-            + 8 * s.keys.capacity()
-            + 4 * lists
-            + 16 * self.col.ranges().len()
+        let lists = s.min_lt.capacity() + s.min_le.capacity() + s.max_lt.capacity() + s.max_le.capacity() + s.eq_whole.capacity();
+        2 * ARC + core::mem::size_of::<ZoneColumn>() + 8 * s.keys.capacity() + 4 * lists + 16 * self.col.ranges().len()
     }
 }
 
@@ -255,33 +239,22 @@ impl SessionFacts {
                 + c.codec.capacity()
                 + c.ncodes.capacity() * size_of::<u64>()
         });
-        f.ndv
-            .as_ref()
-            .map_or(0, |n| n.capacity() * size_of::<u64>())
-            + cols
-            + f.zones.capacity() * size_of::<ZoneFacts>()
+        f.ndv.as_ref().map_or(0, |n| n.capacity() * size_of::<u64>()) + cols + f.zones.capacity() * size_of::<ZoneFacts>()
     }
 
     /// Facts of no generation (tests).
     #[cfg(test)]
     pub(crate) fn detached(facts: FooterFacts) -> SessionFacts {
-        SessionFacts {
-            of: std::sync::Weak::new(),
-            facts,
-        }
+        SessionFacts { of: std::sync::Weak::new(), facts, }
     }
 
     fn of(gen: &Arc<crate::catalog::Generation>, facts: FooterFacts) -> SessionFacts {
-        SessionFacts {
-            of: Arc::downgrade(gen),
-            facts,
-        }
+        SessionFacts { of: Arc::downgrade(gen), facts, }
     }
 
     /// The facts when they were folded from `gen` itself.
     fn for_gen(&self, gen: &Arc<crate::catalog::Generation>) -> Option<&FooterFacts> {
-        (std::sync::Weak::as_ptr(&self.of) == Arc::as_ptr(gen) && self.facts.gen == gen.gen)
-            .then_some(&self.facts)
+        (std::sync::Weak::as_ptr(&self.of) == Arc::as_ptr(gen) && self.facts.gen == gen.gen).then_some(&self.facts)
     }
 }
 
@@ -393,11 +366,7 @@ pub fn footer_codecs(rel: &Relation<'_>) -> PgResult<Option<CodecFacts>> {
     let Some(facts) = with_facts(rel, true)? else {
         return Ok(None);
     };
-    Ok(facts.cols.map(|c| CodecFacts {
-        granules: facts.granules,
-        codec: c.codec,
-        ncodes: c.ncodes,
-    }))
+    Ok(facts.cols.map(|c| CodecFacts { granules: facts.granules, codec: c.codec, ncodes: c.ncodes, }))
 }
 
 /// One column's zone facts — the planner's summary and, on demand, the
@@ -407,11 +376,7 @@ pub fn footer_zone_column(rel: &Relation<'_>, attno: u32) -> PgResult<Option<Arc
     let Some(facts) = with_facts(rel, true)? else {
         return Ok(None);
     };
-    Ok(facts
-        .zones
-        .iter()
-        .find(|z| z.attno == attno)
-        .map(|z| Arc::clone(&z.col)))
+    Ok(facts.zones.iter().find(|z| z.attno == attno).map(|z| Arc::clone(&z.col)))
 }
 
 /// What the committed parts attest about their order: the planner's `sorted_by` witness
@@ -436,19 +401,11 @@ pub fn committed_order(rel: &Relation<'_>) -> PgResult<CommittedOrder> {
         crate::catalog::Lookup::Gen(g) => g,
         crate::catalog::Lookup::Empty => {
             let parts = crate::catalog::override_facts(r.slot).map_or(0, |f| f.parts);
-            return Ok(if parts > 1 {
-                CommittedOrder::Many
-            } else {
-                CommittedOrder::NoParts
-            });
+            return Ok(if parts > 1 { CommittedOrder::Many } else { CommittedOrder::NoParts });
         }
         crate::catalog::Lookup::Unknown => return Err(crate::catalog::not_loaded(rel, &r.dir)),
     };
-    order_of(
-        gen.parts.len(),
-        || part_count(rel),
-        || gen.sort_key(|part| Ok(part_sort_key(part)?.keys)),
-    )
+    order_of(gen.parts.len(), || part_count(rel), || gen.sort_key(|part| Ok(part_sort_key(part)?.keys)),)
 }
 
 /// [`committed_order`] over a visible generation of `nparts` parts. A generation without parts (F1's CREATE publishes
@@ -473,15 +430,10 @@ fn order_of(
 /// One part's SortKey record (part grain, attno 0); an absent section reads as `nkeys = 0`
 /// (OD-8: legal, unlicensed).
 pub(crate) fn part_sort_key(part: &OpenPart) -> PgResult<SortKeyRecord> {
-    let Some(idx) = part.find_section(SectionKind::SortKey, 0, 0) else {
-        return Ok(SortKeyRecord::default());
-    };
+    let Some(idx) = part.find_section(SectionKind::SortKey, 0, 0) else { return Ok(SortKeyRecord::default()); };
     let body = meta_section_body(part, idx)?;
     SortKeyRecord::decode(&body).map_err(|e| {
-        Box::new(
-            PgError::error(format!("pgrcolumnar: SortKey record: {e:?}"))
-                .with_sqlstate(types_error::ERRCODE_DATA_CORRUPTED),
-        )
+        Box::new(PgError::error(format!("pgrcolumnar: SortKey record: {e:?}")).with_sqlstate(types_error::ERRCODE_DATA_CORRUPTED),)
     })
 }
 
@@ -520,12 +472,7 @@ fn resolve(rel: &Relation<'_>) -> PgResult<Resolved> {
         }
         crate::fastadd::presence(&schemas, fp, g.schema_fp)?;
     }
-    Ok(Resolved {
-        slot,
-        dir,
-        schemas,
-        found,
-    })
+    Ok(Resolved { slot, dir, schemas, found, })
 }
 
 /// The plan rig's external publish (`planner_facts`): install `facts` as the relation's fold —
@@ -543,7 +490,7 @@ pub(crate) fn publish_facts(rel: &Relation<'_>, mut facts: FooterFacts) -> PgRes
         crate::catalog::Lookup::Empty => {
             facts.gen = 0;
             crate::catalog::set_override_facts(r.slot, Arc::new(facts)); // alloc: Cold charged the entry's charge (catalog RelEntry::held_bytes)
-                                                                         // a relation without a generation serves the override, never the session's fold
+            // a relation without a generation serves the override, never the session's fold
             crate::session::with_footer_facts(|m| m.remove(&r.slot.2));
         }
         crate::catalog::Lookup::Unknown => return Err(crate::catalog::not_loaded(rel, &r.dir)),
@@ -563,14 +510,12 @@ fn with_facts(rel: &Relation<'_>, deep: bool) -> PgResult<Option<FooterFacts>> {
     let r = resolve(rel)?;
     let gen = match r.found {
         crate::catalog::Lookup::Gen(g) => g,
-        crate::catalog::Lookup::Empty => {
-            return Ok(crate::catalog::override_facts(r.slot).map(|f| (*f).clone()))
+        crate::catalog::Lookup::Empty => { return Ok(crate::catalog::override_facts(r.slot).map(|f| (*f).clone()))
         }
         crate::catalog::Lookup::Unknown => return Err(crate::catalog::not_loaded(rel, &r.dir)),
     };
     let relfilenumber = r.slot.2;
-    let cached = crate::session::with_footer_facts(|m| {
-        m.get(&relfilenumber).and_then(|f| f.for_gen(&gen)).cloned()
+    let cached = crate::session::with_footer_facts(|m| { m.get(&relfilenumber).and_then(|f| f.for_gen(&gen)).cloned()
     });
     if let Some(f) = &cached {
         if !deep || f.ndv.is_some() {
@@ -583,16 +528,7 @@ fn with_facts(rel: &Relation<'_>, deep: bool) -> PgResult<Option<FooterFacts>> {
             Some(f) => (f.ndv, f.cols, f.zones),
             None => (None, None, Vec::new()),
         };
-        let facts = FooterFacts {
-            gen: gen.gen,
-            rows: sums.rows,
-            bytes: sums.bytes,
-            granules: sums.granules,
-            parts: sums.parts,
-            ndv,
-            cols,
-            zones,
-        };
+        let facts = FooterFacts { gen: gen.gen, rows: sums.rows, bytes: sums.bytes, granules: sums.granules, parts: sums.parts, ndv, cols, zones, };
         crate::session::with_footer_facts(|m| {
             m.insert(relfilenumber, SessionFacts::of(&gen, facts.clone()));
         });
@@ -601,23 +537,12 @@ fn with_facts(rel: &Relation<'_>, deep: bool) -> PgResult<Option<FooterFacts>> {
     let schemas = &r.schemas;
     // Dense by attnum: a dropped column's gap serves zeros.
     let attnos: Vec<u32> = (1..=schemas.last().map_or(0, |s| s.attno)).collect();
-    let class_of = |attno: u32| {
-        schemas
-            .iter()
-            .find(|s| s.attno == attno)
-            .map_or(u8::MAX, |s| s.class.id())
+    let class_of = |attno: u32| { schemas.iter().find(|s| s.attno == attno).map_or(u8::MAX, |s| s.class.id())
     };
-    let zone_rule = |c: &ColFacts| {
-        schemas
-            .iter()
-            .find(|s| s.attno == c.attno)
-            .is_some_and(word_zone_column)
+    let zone_rule = |c: &ColFacts| { schemas.iter().find(|s| s.attno == c.attno).is_some_and(word_zone_column)
     };
-    let Some(facts) =
-        gen.facts(|image| served_to_footer(image, &sums, &attnos, &class_of, &zone_rule))?
-    else {
-        return Err(Box::new(PgError::error(format!(
-            // alloc: Cold
+    let Some(facts) = gen.facts(|image| served_to_footer(image, &sums, &attnos, &class_of, &zone_rule))? else {
+        return Err(Box::new(PgError::error(format!( // alloc: Cold
             "pgrcolumnar: the planner facts of {} generation {} were not loaded at server start",
             r.dir, gen.gen
         ))));
@@ -639,12 +564,7 @@ struct ManifestSums {
 
 impl ManifestSums {
     fn of(m: &Manifest) -> ManifestSums {
-        let mut s = ManifestSums {
-            rows: 0,
-            bytes: 0,
-            granules: 0,
-            parts: m.parts.len() as u64,
-        };
+        let mut s = ManifestSums { rows: 0, bytes: 0, granules: 0, parts: m.parts.len() as u64, };
         for rec in &m.parts {
             s.rows += rec.rows;
             s.bytes += rec.file_len;
@@ -654,48 +574,31 @@ impl ManifestSums {
     }
 }
 
-pub fn serve_generation_without_catalog(
-    gen: &crate::catalog::Generation,
-) -> PgResult<Option<FooterFacts>> {
-    let Some(image) = gen.image() else {
-        return Ok(None);
-    };
-    if image.cols.iter().any(|c| {
-        c.flags & pgrc_format::facts::COLF_ZONES != 0 && zone_rule_without_catalog(c).is_none()
+pub fn serve_generation_without_catalog(gen: &crate::catalog::Generation,) -> PgResult<Option<FooterFacts>> {
+    let Some(image) = gen.image() else { return Ok(None); };
+    if image.cols.iter().any(|c| { c.flags & pgrc_format::facts::COLF_ZONES != 0 && zone_rule_without_catalog(c).is_none()
     }) {
         return Ok(None);
     }
     let sums = ManifestSums::of(&gen.manifest);
     let attnos: Vec<u32> = (1..=image.cols.iter().map(|c| c.attno).max().unwrap_or(0)).collect(); // alloc: Cold
-    served_to_footer(&image, &sums, &attnos, &|_| u8::MAX, &|c| {
-        zone_rule_without_catalog(c).unwrap_or(false)
-    })
-    .map(Some)
+    served_to_footer(&image, &sums, &attnos, &|_| u8::MAX, &|c| { zone_rule_without_catalog(c).unwrap_or(false)
+    }).map(Some)
 }
 
 /// The fold over a catalog generation's open parts (the startup load's backfill of a
 /// generation without its facts file): the same fold the publisher runs, in manifest order.
 pub fn fold_generation(gen: &crate::catalog::Generation) -> PgResult<FactsImage> {
     let mut acc = FactsAcc::new();
-    acc.fold_open_parts(
-        gen.parts
-            .iter()
-            .zip(&gen.manifest.parts)
-            .map(|(p, rec)| (&*p.part, rec.file_len)),
-    )
-    .map_err(crate::read_error)?;
-    acc.into_image(gen.gen, gen.publisher_fxid, gen.schema_fp)
-        .map_err(crate::format_error)
+    acc.fold_open_parts(gen.parts.iter().zip(&gen.manifest.parts).map(|(p, rec)| (&*p.part, rec.file_len)),).map_err(crate::read_error)?;
+    acc.into_image(gen.gen, gen.publisher_fxid, gen.schema_fp).map_err(crate::format_error)
 }
 
 /// A column whose zone key is the datum word itself (the planner lowers a
 /// constant to it unaided): `SignedWord`, `UnsignedWordSmall`, `Bool`.
 fn word_zone_column(s: &ColSchema) -> bool {
-    MetaProfile::derive(s.class, s.collation_class, s.semantics).is_ok_and(|p| {
-        matches!(
-            p.key,
-            KeyDerivation::SignedWord | KeyDerivation::UnsignedWordSmall | KeyDerivation::Bool
-        )
+    MetaProfile::derive(s.class, s.collation_class, s.semantics)
+        .is_ok_and(|p| { matches!(p.key, KeyDerivation::SignedWord | KeyDerivation::UnsignedWordSmall | KeyDerivation::Bool)
     })
 }
 
@@ -711,10 +614,7 @@ fn served_to_footer(
     zone_rule: &dyn Fn(&ColFacts) -> bool,
 ) -> PgResult<FooterFacts> {
     let served: Vec<ServedCol> = serve(image, zone_rule).map_err(|e| {
-        Box::new(
-            PgError::error(format!("pgrcolumnar: facts image: {e}"))
-                .with_sqlstate(types_error::ERRCODE_DATA_CORRUPTED),
-        ) // alloc: Cold
+        Box::new(PgError::error(format!("pgrcolumnar: facts image: {e}")).with_sqlstate(types_error::ERRCODE_DATA_CORRUPTED),) // alloc: Cold
     })?;
     let n = attnos.len();
     let mut ndv = crate::alloc::try_vec(n, "footer")?;
@@ -729,11 +629,7 @@ fn served_to_footer(
     };
     let mut zones = Vec::new();
     for &attno in attnos {
-        match served
-            .binary_search_by_key(&attno, |c| c.attno)
-            .ok()
-            .map(|i| &served[i])
-        {
+        match served.binary_search_by_key(&attno, |c| c.attno).ok().map(|i| &served[i]) {
             Some(c) => {
                 ndv.push(c.ndv);
                 cols.disk_bytes.push(c.disk_bytes);
@@ -759,34 +655,17 @@ fn served_to_footer(
             }
         }
     }
-    Ok(FooterFacts {
-        gen: image.header.gen,
-        rows: sums.rows,
-        bytes: sums.bytes,
-        granules: sums.granules,
-        parts: sums.parts,
-        ndv: Some(ndv),
-        cols: Some(cols),
-        zones,
-    })
+    Ok(FooterFacts { gen: image.header.gen, rows: sums.rows, bytes: sums.bytes, granules: sums.granules, parts: sums.parts, ndv: Some(ndv), cols: Some(cols), zones, })
 }
 
 /// Slice + decode the ONE part-grain record at the tail of a Stats section
 /// body (ANALYZE's per-part read; the fold's own copy is
 /// `pgrc_write::facts::part_stats_record`).
-pub(crate) fn part_stats_record(
-    body: &[u8],
-    granules: u32,
-    bands: u32,
-    attno: u32,
-) -> PgResult<StatsRecord> {
+pub(crate) fn part_stats_record(body: &[u8], granules: u32, bands: u32, attno: u32,) -> PgResult<StatsRecord> {
     pgrc_write::facts::part_stats_record(body, granules, bands, attno).map_err(|e| {
-        Box::<PgError>::new(
-            // alloc: Cold
-            PgError::error(format!(
-                "pgrcolumnar: Stats section for column {attno}: {e}"
-            )) // alloc: Cold
-            .with_sqlstate(types_error::ERRCODE_DATA_CORRUPTED),
+        Box::<PgError>::new( // alloc: Cold
+            PgError::error(format!("pgrcolumnar: Stats section for column {attno}: {e}")) // alloc: Cold
+                .with_sqlstate(types_error::ERRCODE_DATA_CORRUPTED),
         )
     })
 }
@@ -796,14 +675,10 @@ pub(crate) fn part_stats_record(
 /// per-part reads).
 pub(crate) fn meta_section_body(part: &OpenPart, idx: usize) -> PgResult<Vec<u8>> {
     let flags = part.sections()[idx].flags;
-    let raw = part
-        .section_bytes_uncached(idx)
-        .map_err(crate::read_error)?;
+    let raw = part.section_bytes_uncached(idx).map_err(crate::read_error)?;
     if flags & pgrc_format::part::SECTIONF_META_ZSTD != 0 {
-        pgrc_codec::wrapper::meta_unwrap_body(raw.bytes()).map_err(|e| {
-            Box::new(PgError::error(format!(
-                "pgrcolumnar meta section unwrap: {e}"
-            )))
+        pgrc_codec::wrapper::meta_unwrap_body(raw.bytes())
+            .map_err(|e| { Box::new(PgError::error(format!("pgrcolumnar meta section unwrap: {e}")))
         }) // alloc: Cold
     } else {
         Ok(raw.bytes().to_vec())
@@ -829,15 +704,9 @@ mod order_tests {
     fn a_generation_without_parts_answers_from_the_published_count() {
         let zero = |published: Option<u64>| order_of(0, || Ok(published), never).expect("order");
         assert!(matches!(zero(None), CommittedOrder::NoParts));
-        assert!(
-            matches!(zero(Some(0)), CommittedOrder::NoParts),
-            "a served fold of no parts"
-        );
+        assert!(matches!(zero(Some(0)), CommittedOrder::NoParts), "a served fold of no parts");
         assert!(matches!(zero(Some(1)), CommittedOrder::NoParts));
-        assert!(
-            matches!(zero(Some(2)), CommittedOrder::Many),
-            "the rig's 100 M template: many parts"
-        );
+        assert!(matches!(zero(Some(2)), CommittedOrder::Many), "the rig's 100 M template: many parts");
         assert!(matches!(zero(Some(PARTS_UNKNOWN)), CommittedOrder::Many));
     }
 
@@ -847,14 +716,8 @@ mod order_tests {
         let keys: Arc<[SortKeyEntry]> = Arc::from(Vec::new());
         let one = order_of(1, never, || Ok(Arc::clone(&keys))).expect("order");
         assert!(matches!(one, CommittedOrder::OnePart(k) if Arc::ptr_eq(&k, &keys)));
-        assert!(matches!(
-            order_of(2, never, never).expect("order"),
-            CommittedOrder::Many
-        ));
-        assert!(matches!(
-            order_of(17, never, never).expect("order"),
-            CommittedOrder::Many
-        ));
+        assert!(matches!(order_of(2, never, never).expect("order"), CommittedOrder::Many));
+        assert!(matches!(order_of(17, never, never).expect("order"), CommittedOrder::Many));
     }
 }
 
@@ -864,25 +727,8 @@ mod genid_tests {
     use pgrc_format::manifest::{Manifest, ManifestHeader};
 
     fn generation(gen: u64) -> Arc<crate::catalog::Generation> {
-        let header = ManifestHeader {
-            gen,
-            prev_gen: 0,
-            publisher_fxid: 10,
-            relfilenumber: 9,
-            schema_fingerprint: 1,
-            magic: 0,
-            format_version: 0,
-            spc: 1663,
-            db: 5,
-            part_count: 0,
-            next_part_no: 0,
-            flags: 0,
-            reserved: 0,
-        };
-        Arc::new(
-            crate::catalog::Generation::detached(Manifest::new(header, Vec::new()))
-                .expect("generation"),
-        )
+        let header = ManifestHeader { gen, prev_gen: 0, publisher_fxid: 10, relfilenumber: 9, schema_fingerprint: 1, magic: 0, format_version: 0, spc: 1663, db: 5, part_count: 0, next_part_no: 0, flags: 0, reserved: 0, };
+        Arc::new(crate::catalog::Generation::detached(Manifest::new(header, Vec::new())).expect("generation"),)
     }
 
     /// GENID / D1128: a session's facts serve only the generation they were folded from, never another content under
@@ -890,26 +736,11 @@ mod genid_tests {
     #[test]
     fn session_facts_serve_only_their_own_generation() {
         let g = generation(2);
-        let facts = FooterFacts {
-            gen: 2,
-            rows: 7,
-            bytes: 0,
-            granules: 0,
-            parts: 1,
-            ndv: None,
-            cols: None,
-            zones: Vec::new(),
-        };
+        let facts = FooterFacts { gen: 2, rows: 7, bytes: 0, granules: 0, parts: 1, ndv: None, cols: None, zones: Vec::new(), };
         let s = SessionFacts::of(&g, facts);
         assert_eq!(s.for_gen(&g).map(|f| f.rows), Some(7));
-        assert!(
-            s.for_gen(&generation(2)).is_none(),
-            "the same number, another generation"
-        );
+        assert!(s.for_gen(&generation(2)).is_none(), "the same number, another generation");
         drop(g);
-        assert!(
-            s.for_gen(&generation(2)).is_none(),
-            "the Weak keeps the allocation: no later generation takes its address"
-        );
+        assert!(s.for_gen(&generation(2)).is_none(), "the Weak keeps the allocation: no later generation takes its address");
     }
 }

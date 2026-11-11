@@ -42,9 +42,7 @@ fn checkpoint_byte_roundtrip() {
 // here instead of racing.
 static CONTROL_FILE_LOCK_GATE: std::sync::Mutex<()> = std::sync::Mutex::new(());
 fn control_file_lock_gate() -> std::sync::MutexGuard<'static, ()> {
-    CONTROL_FILE_LOCK_GATE
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
+    CONTROL_FILE_LOCK_GATE.lock().unwrap_or_else(|e| e.into_inner())
 }
 
 // CreateLWLocks publishes MainLWLockArray exactly once per process; tests
@@ -171,9 +169,7 @@ fn insert_flush_smoke() {
     use std::sync::atomic::Ordering::Relaxed;
 
     let _gate = control_file_lock_gate();
-    let _generation = crate::insert::recovery_generation_tests::GENERATION
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
+    let _generation = crate::insert::recovery_generation_tests::GENERATION.lock().unwrap_or_else(|e| e.into_inner());
 
     let dir = std::env::temp_dir().join(format!("pgrust_xlog_test_{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
@@ -233,7 +229,8 @@ fn insert_flush_smoke() {
         cf.float8ByVal = true;
         cf.crc = controldata_utils::crc_of_image(&cf.to_disk_bytes());
         let mut image = vec![0u8; PG_CONTROL_FILE_SIZE];
-        image[..controldata_utils::SIZEOF_CONTROL_FILE_DATA].copy_from_slice(&cf.to_disk_bytes());
+        image[..controldata_utils::SIZEOF_CONTROL_FILE_DATA]
+            .copy_from_slice(&cf.to_disk_bytes());
         std::fs::write(dir.join("global/pg_control"), &image).unwrap();
     }
     ReadControlFile().unwrap();
@@ -263,12 +260,8 @@ fn insert_flush_smoke() {
     assert!(!guc_tables::backing::in_hot_standby_guc());
     ctl.InsertTimeLineID.store(1, Relaxed);
     ctl.PrevTimeLineID.store(1, Relaxed);
-    ctl.Insert
-        .PrevBytePos
-        .store(XLogRecPtrToBytePos(redo), Relaxed);
-    ctl.Insert
-        .CurrBytePos
-        .store(XLogRecPtrToBytePos(end_of_log), Relaxed);
+    ctl.Insert.PrevBytePos.store(XLogRecPtrToBytePos(redo), Relaxed);
+    ctl.Insert.CurrBytePos.store(XLogRecPtrToBytePos(end_of_log), Relaxed);
     ctl.Insert.fullPageWrites.store(true, Relaxed);
     ctl.Insert.RedoRecPtr.store(redo, Relaxed);
     ctl.RedoRecPtr.store(redo, Relaxed);
@@ -285,8 +278,7 @@ fn insert_flush_smoke() {
         crate::insert::write_u64(page, 8, page_begin);
     }
     ctl.xlblocks[first_idx].store(page_begin + XLOG_BLCKSZ as u64, Relaxed);
-    ctl.InitializedUpTo
-        .store(page_begin + XLOG_BLCKSZ as u64, Relaxed);
+    ctl.InitializedUpTo.store(page_begin + XLOG_BLCKSZ as u64, Relaxed);
     crate::write::set_logwrt_result(end_of_log, end_of_log);
     ctl.logInsertResult.store(end_of_log, Relaxed);
     ctl.logWriteResult.store(end_of_log, Relaxed);
@@ -493,10 +485,7 @@ fn insert_flush_smoke() {
         let insert_end = GetXLogInsertEndRecPtr();
         assert_eq!(insert_end, GetXLogInsertRecPtr(), "mid-page: both agree");
         let fill = INSERT_FREESPACE(insert_end);
-        assert!(
-            fill >= SizeOfXLogRecord + 8,
-            "need room for one record on this page"
-        );
+        assert!(fill >= SizeOfXLogRecord + 8, "need room for one record on this page");
         let body: Vec<u8> = vec![0x5A; fill - SizeOfXLogRecord];
         let tot_len = SizeOfXLogRecord + body.len();
         assert_eq!(MAXALIGN(tot_len), tot_len);
@@ -507,11 +496,7 @@ fn insert_flush_smoke() {
         let crc = crc32c::pg_comp_crc32c(crc32c::CRC32C_INIT, &body);
         h[20..24].copy_from_slice(&crc.to_ne_bytes());
         let end = XLogInsertRecord(&mut h, &[&body], 0, 0, 0, false).unwrap();
-        assert_eq!(
-            end % XLOG_BLCKSZ as u64,
-            0,
-            "record ends on the page boundary"
-        );
+        assert_eq!(end % XLOG_BLCKSZ as u64, 0, "record ends on the page boundary");
         assert_eq!(GetXLogInsertEndRecPtr(), end);
         assert_eq!(GetXLogInsertRecPtr(), end + SizeOfXLogShortPHD as u64);
         XLogFlush(GetXLogInsertEndRecPtr()).unwrap();
@@ -528,15 +513,9 @@ fn insert_flush_smoke() {
         );
     }
 
-    let segpath = dir.join(format!(
-        "pg_wal/{}",
-        XLogFileName(1, XLByteToSeg(end_of_log, seg), seg)
-    ));
+    let segpath = dir.join(format!("pg_wal/{}", XLogFileName(1, XLByteToSeg(end_of_log, seg), seg)));
     let file = std::fs::read(&segpath).unwrap_or_else(|e| {
-        let names: Vec<_> = std::fs::read_dir(dir.join("pg_wal"))
-            .unwrap()
-            .map(|x| x.unwrap().file_name())
-            .collect();
+        let names: Vec<_> = std::fs::read_dir(dir.join("pg_wal")).unwrap().map(|x| x.unwrap().file_name()).collect();
         panic!("segment missing: {e}; pg_wal = {names:?}")
     });
     assert_eq!(file.len(), seg as usize);
@@ -560,10 +539,7 @@ fn insert_flush_smoke() {
         static WAL_FILE_MSGS: std::sync::Mutex<Vec<(types_error::ErrorLevel, String)>> =
             std::sync::Mutex::new(Vec::new());
         fn capture(err: &types_error::PgError, _out: &mut bool) {
-            WAL_FILE_MSGS
-                .lock()
-                .unwrap()
-                .push((err.level, err.message().to_string()));
+            WAL_FILE_MSGS.lock().unwrap().push((err.level, err.message().to_string()));
         }
         let prev_min = elog::config::log_min_messages();
         elog::config::set_log_min_messages(types_error::DEBUG2);
@@ -577,17 +553,9 @@ fn insert_flush_smoke() {
         crate::startup::SetInstallXLogFileSegmentActive().unwrap();
         elog::set_emit_log_hook(prev);
         elog::config::set_log_min_messages(prev_min);
-        assert!(
-            err.message().starts_with("could not open file"),
-            "{}",
-            err.message()
-        );
-        assert!(dir
-            .join(format!("pg_wal/{}", XLogFileName(1, next_seg, seg)))
-            .exists());
-        assert!(!dir
-            .join(format!("pg_wal/{}", XLogFileName(1, next_seg + 1, seg)))
-            .exists());
+        assert!(err.message().starts_with("could not open file"), "{}", err.message());
+        assert!(dir.join(format!("pg_wal/{}", XLogFileName(1, next_seg, seg))).exists());
+        assert!(!dir.join(format!("pg_wal/{}", XLogFileName(1, next_seg + 1, seg))).exists());
         let msgs: Vec<String> = WAL_FILE_MSGS
             .lock()
             .unwrap()
@@ -632,9 +600,7 @@ fn insert_flush_smoke() {
     }
     unsafe {
         let page = ctl.page_ptr(first_idx);
-        assert!(std::slice::from_raw_parts(page, XLOG_BLCKSZ)
-            .iter()
-            .all(|&b| b == 0));
+        assert!(std::slice::from_raw_parts(page, XLOG_BLCKSZ).iter().all(|&b| b == 0));
     }
 
     let _ = std::fs::remove_dir_all(&dir);
@@ -692,9 +658,7 @@ fn checkpoint_no_sync_seams_child() {
     std::fs::write(dir.join("global/pg_control"), &image).unwrap();
     ReadControlFile().unwrap();
     XLOGShmemInit();
-    crate::ctl::XLogCtl()
-        .SharedRecoveryState
-        .store(RECOVERY_STATE_DONE, Relaxed);
+    crate::ctl::XLogCtl().SharedRecoveryState.store(RECOVERY_STATE_DONE, Relaxed);
     xlogutils::set_in_recovery(false);
 
     // CheckpointStats.ckpt_start_t (xlog.c:6964) is stamped before the
@@ -719,10 +683,7 @@ fn checkpoint_without_sync_seams_is_loud() {
         ])
         .output()
         .unwrap();
-    assert!(
-        !out.status.success(),
-        "checkpoint must not succeed: {out:?}"
-    );
+    assert!(!out.status.success(), "checkpoint must not succeed: {out:?}");
     let text = format!(
         "{}{}",
         String::from_utf8_lossy(&out.stdout),
@@ -748,10 +709,7 @@ fn wait_xlog_insertions_without_pgproc_child() {
     fd::InitFileAccess();
     create_lwlocks_once();
     XLOGShmemInit();
-    assert_eq!(
-        init_small::globals::MyProcNumber(),
-        types_core::INVALID_PROC_NUMBER
-    );
+    assert_eq!(init_small::globals::MyProcNumber(), types_core::INVALID_PROC_NUMBER);
 
     // Nothing has been inserted (logInsertResult == 0), so a request past it
     // reaches the wait loop; C never gets that far without a PGPROC.
@@ -873,31 +831,16 @@ fn read_control_file_one_byte_segment_size_is_singular() {
 fn xlog_filename_parse_roundtrip() {
     let seg = 16 * 1024 * 1024;
     with_seg(seg, || {
-        for segno in [
-            1u64,
-            255,
-            256,
-            0xFF_FFFF,
-            0x1_0000_0000 / seg as u64,
-            12345678,
-        ] {
+        for segno in [1u64, 255, 256, 0xFF_FFFF, 0x1_0000_0000 / seg as u64, 12345678,] {
             let name = XLogFileName(3, segno, seg);
             assert!(crate::removal::IsXLogFileName(&name), "{name}");
             assert_eq!(crate::removal::XLogFromFileName(&name, seg), (3, segno));
         }
         assert!(!crate::removal::IsXLogFileName("00000001000000000000000g"));
-        assert!(!crate::removal::IsXLogFileName(
-            "000000010000000000000001.partial"
-        ));
-        assert!(crate::removal::IsPartialXLogFileName(
-            "000000010000000000000001.partial"
-        ));
-        assert!(!crate::removal::IsPartialXLogFileName(
-            "AAAAAAAAAAAAAAAAAAAAAAA\u{e9}BBBBBBB"
-        ));
-        assert!(!crate::removal::IsPartialXLogFileName(
-            "AAAAAAAAAAAAAAAAAAAAAAA\u{e9}.partial"
-        ));
+        assert!(!crate::removal::IsXLogFileName("000000010000000000000001.partial"));
+        assert!(crate::removal::IsPartialXLogFileName("000000010000000000000001.partial"));
+        assert!(!crate::removal::IsPartialXLogFileName("AAAAAAAAAAAAAAAAAAAAAAA\u{e9}BBBBBBB"));
+        assert!(!crate::removal::IsPartialXLogFileName("AAAAAAAAAAAAAAAAAAAAAAA\u{e9}.partial"));
     });
 }
 
@@ -918,17 +861,13 @@ fn keep_log_seg_matches_c() {
 
         // A slot restart_lsn pins its segment.
         let mut segno = 90;
-        assert!(
-            !crate::removal::keep_log_seg_with(recptr, &mut segno, 40 * seg as u64 + 7, &none).0
-        );
+        assert!(!crate::removal::keep_log_seg_with(recptr, &mut segno, 40 * seg as u64 + 7, &none).0);
         assert_eq!(segno, 40);
 
         // max_slot_wal_keep_size caps the slot horizon and reports it.
         guc_tables::vars::max_slot_wal_keep_size_mb.write(16 * 10);
         let mut segno = 90;
-        assert!(
-            crate::removal::keep_log_seg_with(recptr, &mut segno, 40 * seg as u64 + 7, &none).0
-        );
+        assert!(crate::removal::keep_log_seg_with(recptr, &mut segno, 40 * seg as u64 + 7, &none).0);
         assert_eq!(segno, 100 - 10);
 
         // wal_keep_size holds segments back without any slot.
@@ -963,10 +902,7 @@ fn keep_log_seg_counts_spool_bytes() {
 
         guc_tables::vars::max_slot_wal_keep_size_mb.write(1024);
         let (mut segno, keep) = (99, 95 * s + 7);
-        assert_eq!(
-            crate::removal::keep_log_seg_with(recptr, &mut segno, keep, &l),
-            (false, keep)
-        );
+        assert_eq!(crate::removal::keep_log_seg_with(recptr, &mut segno, keep, &l), (false, keep));
         assert_eq!(segno, 95);
 
         guc_tables::vars::max_slot_wal_keep_size_mb.write(256);
@@ -975,34 +911,19 @@ fn keep_log_seg_counts_spool_bytes() {
         assert!(capped);
         let kept = |segno: u64, cut: u64| (100 - segno) * s + l.bytes_from(cut);
         assert_eq!(segno, cut / s);
-        assert!(
-            kept(segno, cut) <= 256 * mb && kept(segno, cut - 1) > 256 * mb,
-            "cut {cut:#x} is the lowest that fits"
-        );
+        assert!(kept(segno, cut) <= 256 * mb && kept(segno, cut - 1) > 256 * mb, "cut {cut:#x} is the lowest that fits");
         let horizon = crate::removal::spool_keep(segno, cut, &l).horizon;
-        assert_eq!(
-            horizon, cut,
-            "a slot at or past the cut keeps every entry it needs"
-        );
+        assert_eq!(horizon, cut, "a slot at or past the cut keeps every entry it needs");
 
         guc_tables::vars::max_slot_wal_keep_size_mb.write(-1);
         guc_tables::vars::wal_keep_size_mb.write(256);
         let mut segno = 100;
         let (_, cut) = crate::removal::keep_log_seg_with(recptr, &mut segno, InvalidXLogRecPtr, &l);
-        assert!(
-            kept(segno, cut) >= 256 * mb && kept(segno, cut) < 256 * mb + 4 * mb + s,
-            "{segno} {cut:#x}"
-        );
-        assert!(
-            segno > 100 - 16,
-            "{segno}: the WAL of a few segments is kept, not 16"
-        );
+        assert!(kept(segno, cut) >= 256 * mb && kept(segno, cut) < 256 * mb + 4 * mb + s, "{segno} {cut:#x}");
+        assert!(segno > 100 - 16, "{segno}: the WAL of a few segments is kept, not 16");
 
         let empty = pgrc_spool::Ledger::new();
-        assert_eq!(
-            crate::removal::spool_keep(95, 95 * s + 99, &empty).horizon,
-            95 * s
-        );
+        assert_eq!(crate::removal::spool_keep(95, 95 * s + 99, &empty).horizon, 95 * s);
         guc_tables::vars::wal_keep_size_mb.write(0);
     });
 }
@@ -1013,28 +934,13 @@ fn spool_asks_for_a_checkpoint_at_every_segment_past_the_budget() {
     let budget = 3 * s;
     let ask = |dist: u64, own: u64| crate::removal::spool_ask(dist, own, budget, s);
     assert!(!ask(budget - mb, 4 * mb), "below the budget");
-    assert!(
-        ask(budget + 2 * mb, 4 * mb),
-        "the entry that reaches the budget asks"
-    );
+    assert!(ask(budget + 2 * mb, 4 * mb), "the entry that reaches the budget asks");
     assert!(ask(budget, 4 * mb), "reaching it exactly asks");
-    assert!(
-        !ask(budget + 6 * mb, 4 * mb),
-        "the next entry within the same segment does not"
-    );
+    assert!(!ask(budget + 6 * mb, 4 * mb), "the next entry within the same segment does not");
     assert!(ask(budget + s + mb, 4 * mb));
-    assert!(
-        ask(budget + 40 * s, 65 * s),
-        "one huge entry across many segments asks once"
-    );
-    assert!(
-        !ask(budget + s + mb, 0),
-        "no entry of its own (a WAL-only step) does not"
-    );
-    assert!(
-        crate::removal::spool_ask(s + mb, 4 * mb, 0, s),
-        "CheckPointSegments 1 (budget 0): every segment asks"
-    );
+    assert!(ask(budget + 40 * s, 65 * s), "one huge entry across many segments asks once");
+    assert!(!ask(budget + s + mb, 0), "no entry of its own (a WAL-only step) does not");
+    assert!(crate::removal::spool_ask(s + mb, 4 * mb, 0, s), "CheckPointSegments 1 (budget 0): every segment asks");
 }
 
 #[test]
@@ -1162,10 +1068,7 @@ fn wal_consistency_checking_hook_accepts_and_parses() {
     for spec in [None, Some(""), Some("   ")] {
         let (ok, extra) = check(spec);
         assert!(ok, "{spec:?} must be accepted");
-        assert!(
-            flags_of(&extra).iter().all(|&b| !b),
-            "{spec:?} => all false"
-        );
+        assert!(flags_of(&extra).iter().all(|&b| !b), "{spec:?} => all false");
     }
 
     // "all" selects exactly the maskable rmgrs.
@@ -1227,10 +1130,7 @@ fn wal_consistency_checking_parses_quoted_identifiers_like_c() {
     // The detail echoes the DOWNCASED unquoted word (downcase_truncate_identifier).
     assert_eq!(parse("Foo").unwrap_err(), "Unrecognized key word: \"foo\".");
     // A quoted word is echoed verbatim, with "" collapsed to ".
-    assert_eq!(
-        parse("\"he\"\"ap\"").unwrap_err(),
-        "Unrecognized key word: \"he\"ap\"."
-    );
+    assert_eq!(parse("\"he\"\"ap\"").unwrap_err(), "Unrecognized key word: \"he\"ap\".");
     assert_eq!(parse("\"\"").unwrap_err(), "Unrecognized key word: \"\".");
     // Trailing junk after a closing quote and an unterminated quote are
     // SplitIdentifierString `false` returns.
@@ -1250,11 +1150,7 @@ fn get_sync_bit_sets_o_direct_for_debug_io_direct_wal() {
     let bit = crate::write::get_sync_bit(guc_tables::consts::WAL_SYNC_METHOD_FDATASYNC);
     fd::set_io_direct_flags(saved_flags);
     init_small::globals::set_enableFsync(saved_fsync);
-    assert_eq!(
-        bit,
-        vfs::PG_O_DIRECT,
-        "io_direct_flags & IO_DIRECT_WAL must open WAL with PG_O_DIRECT"
-    );
+    assert_eq!(bit, vfs::PG_O_DIRECT, "io_direct_flags & IO_DIRECT_WAL must open WAL with PG_O_DIRECT");
 
     // xlog.c:3231: debug_io_direct=wal_init opens the temp segment direct.
     let saved_flags = fd::io_direct_flags();
@@ -1275,22 +1171,13 @@ fn get_sync_bit_sets_o_direct_for_debug_io_direct_wal() {
 #[test]
 fn checkpoint_display_activity_matches_c_titles() {
     use crate::startup::checkpoint_display_activity as act;
-    assert_eq!(
-        act(CHECKPOINT_IS_SHUTDOWN, false),
-        "performing shutdown checkpoint"
-    );
-    assert_eq!(
-        act(CHECKPOINT_END_OF_RECOVERY, false),
-        "performing end-of-recovery checkpoint"
-    );
+    assert_eq!(act(CHECKPOINT_IS_SHUTDOWN, false), "performing shutdown checkpoint");
+    assert_eq!(act(CHECKPOINT_END_OF_RECOVERY, false), "performing end-of-recovery checkpoint");
     assert_eq!(
         act(CHECKPOINT_END_OF_RECOVERY | CHECKPOINT_IS_SHUTDOWN, false),
         "performing end-of-recovery shutdown checkpoint"
     );
-    assert_eq!(
-        act(CHECKPOINT_IS_SHUTDOWN | CHECKPOINT_IMMEDIATE, true),
-        "performing shutdown restartpoint"
-    );
+    assert_eq!(act(CHECKPOINT_IS_SHUTDOWN | CHECKPOINT_IMMEDIATE, true), "performing shutdown restartpoint");
 }
 
 // issue_xlog_fsync (xlog.c:8771-8785): the PANIC text names the primitive
@@ -1299,10 +1186,7 @@ fn checkpoint_display_activity_matches_c_titles() {
 #[test]
 fn issue_xlog_fsync_failure_messages_match_c() {
     use crate::write::fsync_failure_message;
-    assert_eq!(
-        fsync_failure_message(WAL_SYNC_METHOD_FSYNC),
-        "could not fsync file \"%s\": %m"
-    );
+    assert_eq!(fsync_failure_message(WAL_SYNC_METHOD_FSYNC), "could not fsync file \"%s\": %m");
     assert_eq!(
         fsync_failure_message(WAL_SYNC_METHOD_FSYNC_WRITETHROUGH),
         "could not fsync write-through file \"%s\": %m"
@@ -1347,8 +1231,7 @@ fn reset_install_xlog_file_segment_active_takes_control_file_lock() {
     );
     let err = reset.expect_err("contended acquire without a PGPROC is a PANIC error");
     assert!(
-        err.message()
-            .contains("cannot wait without a PGPROC structure"),
+        err.message().contains("cannot wait without a PGPROC structure"),
         "got: {}",
         err.message()
     );
@@ -1387,10 +1270,7 @@ fn online_checkpoint_record(
         main_data_len: buf.len() as u32,
         ..Default::default()
     };
-    xlogreader_seams::XLogReaderState {
-        record: Some(rec),
-        ..Default::default()
-    }
+    xlogreader_seams::XLogReaderState { record: Some(rec), ..Default::default() }
 }
 
 #[test]
@@ -1410,10 +1290,8 @@ fn online_checkpoint_redo_advances_oldest_xid_across_wraparound() {
     let pre_wrap_oldest: types_core::TransactionId = 4_294_900_000;
     tv.oldestXid.store(pre_wrap_oldest, Relaxed);
     tv.oldestXidDB.store(1, Relaxed);
-    tv.nextXid.store(
-        types_core::FullTransactionId::from_epoch_and_xid(1, 2000).value,
-        Relaxed,
-    );
+    tv.nextXid
+        .store(types_core::FullTransactionId::from_epoch_and_xid(1, 2000).value, Relaxed,);
 
     // The primary froze everything after wrapping: oldestXid = 1500 is
     // modularly later than 4_294_900_000 (TransactionIdPrecedes is true)
@@ -1428,10 +1306,7 @@ fn online_checkpoint_redo_advances_oldest_xid_across_wraparound() {
     ckpt.nextMultiOffset = 1;
     ckpt.oldestMulti = 1;
     ckpt.oldestMultiDB = 1;
-    assert!(types_core::TransactionIdPrecedes(
-        pre_wrap_oldest,
-        ckpt.oldestXid
-    ));
+    assert!(types_core::TransactionIdPrecedes(pre_wrap_oldest, ckpt.oldestXid));
 
     let mut buf = Vec::new();
     let mut state = online_checkpoint_record(&ckpt, &mut buf);
@@ -1442,11 +1317,7 @@ fn online_checkpoint_redo_advances_oldest_xid_across_wraparound() {
         1500,
         "online checkpoint redo must adopt a modularly-later oldestXid across wraparound"
     );
-    assert_eq!(
-        tv.oldestXidDB.load(Relaxed),
-        5,
-        "SetTransactionIdLimit carries oldestXidDB"
-    );
+    assert_eq!(tv.oldestXidDB.load(Relaxed), 5, "SetTransactionIdLimit carries oldestXidDB");
     // SetTransactionIdLimit (varsup.c:424-444) recomputes the wrap limit
     // from the adopted horizon.
     assert_eq!(
@@ -1519,19 +1390,13 @@ fn wal_read_from_buffers_child() {
     // xlog.c:1759-1760: in recovery nothing is served (SharedRecoveryState is
     // still RECOVERY_STATE_CRASH from XLOGShmemInit).
     assert!(RecoveryInProgress());
-    assert_eq!(
-        crate::WALReadFromBuffers(&mut dst, start, count, 1).unwrap(),
-        0
-    );
+    assert_eq!(crate::WALReadFromBuffers(&mut dst, start, count, 1).unwrap(), 0);
 
     ctl.SharedRecoveryState.store(RECOVERY_STATE_DONE, Relaxed);
     assert!(!RecoveryInProgress());
 
     // xlog.c:1759-1760: a historical timeline never reads the buffers.
-    assert_eq!(
-        crate::WALReadFromBuffers(&mut dst, start, count, 2).unwrap(),
-        0
-    );
+    assert_eq!(crate::WALReadFromBuffers(&mut dst, start, count, 2).unwrap(), 0);
 
     // xlog.c:1768-1773: past logInsertResult is an ERROR with C's message.
     let too_far = inserted - 10;
@@ -1553,11 +1418,7 @@ fn wal_read_from_buffers_child() {
     assert_eq!(got, count);
     #[allow(clippy::needless_range_loop)]
     for i in 0..count {
-        let expect = if i < XLOG_BLCKSZ - 40 {
-            pat0(40 + i)
-        } else {
-            pat1(i - (XLOG_BLCKSZ - 40))
-        };
+        let expect = if i < XLOG_BLCKSZ - 40 { pat0(40 + i) } else { pat1(i - (XLOG_BLCKSZ - 40)) };
         assert_eq!(dst[i], expect, "byte {i}");
     }
 
@@ -1576,10 +1437,7 @@ fn wal_read_from_buffers_child() {
     // The slot of the first page recycled for a later page: nothing served.
     let slots = ctl.XLogCacheBlck as u64 + 1;
     ctl.xlblocks[idx0].store(p0 + blcksz + slots * blcksz, Relaxed);
-    assert_eq!(
-        crate::WALReadFromBuffers(&mut dst, start, count, 1).unwrap(),
-        0
-    );
+    assert_eq!(crate::WALReadFromBuffers(&mut dst, start, count, 1).unwrap(), 0);
 
     // A zero-length request is a no-op.
     ctl.xlblocks[idx0].store(p0 + blcksz, Relaxed);
@@ -1616,10 +1474,7 @@ fn wal_read_from_buffers_serves_hot_pages_like_c() {
 fn delay_chkpt_wait_events_are_c_exact() {
     use crate::startup::*;
     assert_eq!(delay_chkpt_wait_event(DELAY_CHKPT_START), 0x0800_0000 + 10);
-    assert_eq!(
-        delay_chkpt_wait_event(DELAY_CHKPT_COMPLETE),
-        0x0800_0000 + 9
-    );
+    assert_eq!(delay_chkpt_wait_event(DELAY_CHKPT_COMPLETE), 0x0800_0000 + 9);
     assert_eq!(WAIT_EVENT_CHECKPOINT_DELAY_START, 0x0800_000A);
     assert_eq!(WAIT_EVENT_CHECKPOINT_DELAY_COMPLETE, 0x0800_0009);
 }
@@ -1632,10 +1487,7 @@ fn xlog_temp_path_is_named_by_the_backend_pid() {
     let a = crate::write::xlog_temp_path();
     let b = crate::write::xlog_temp_path();
     let pfx = format!("pg_wal/xlogtemp.{}.", init_small::globals::process_id());
-    assert!(
-        a.starts_with(&pfx) && b.starts_with(&pfx),
-        "{a} / {b} vs {pfx}"
-    );
+    assert!(a.starts_with(&pfx) && b.starts_with(&pfx), "{a} / {b} vs {pfx}");
     assert_ne!(a, b, "every call names its own temp segment");
 }
 
@@ -1643,10 +1495,7 @@ fn xlog_temp_path_is_named_by_the_backend_pid() {
 fn checkpoint_phase_milliseconds_saturate_at_int_max() {
     assert_eq!(crate::startup::timestamp_difference_milliseconds(0, 0), 0);
     assert_eq!(crate::startup::timestamp_difference_milliseconds(5, 0), 0);
-    assert_eq!(
-        crate::startup::timestamp_difference_milliseconds(0, 1001),
-        2
-    );
+    assert_eq!(crate::startup::timestamp_difference_milliseconds(0, 1001), 2);
     assert_eq!(
         crate::startup::timestamp_difference_milliseconds(0, i64::MAX / 2),
         i32::MAX as i64
@@ -1655,26 +1504,14 @@ fn checkpoint_phase_milliseconds_saturate_at_int_max() {
 
 #[test]
 fn checkpoint_phase_milliseconds_saturate_on_overflowing_difference() {
-    assert_eq!(
-        crate::startup::timestamp_difference_milliseconds(i64::MIN, 3),
-        i32::MAX as i64
-    );
-    assert_eq!(
-        crate::startup::timestamp_difference_milliseconds(1_000, 1_500_000),
-        1_499
-    );
+    assert_eq!(crate::startup::timestamp_difference_milliseconds(i64::MIN, 3), i32::MAX as i64);
+    assert_eq!(crate::startup::timestamp_difference_milliseconds(1_000, 1_500_000), 1_499);
 }
 
 #[test]
 fn write_rs_never_calls_std_process_id_outside_tests() {
-    let body = include_str!("write.rs")
-        .split("#[cfg(test)]")
-        .next()
-        .unwrap();
-    assert!(
-        !body.contains("std::process::id()"),
-        "write.rs: use init_small::globals::process_id()"
-    );
+    let body = include_str!("write.rs").split("#[cfg(test)]").next().unwrap();
+    assert!(!body.contains("std::process::id()"), "write.rs: use init_small::globals::process_id()");
 }
 
 // xlog.c:7603: with unresolved invalid-page references RecoveryRestartPoint
@@ -1688,9 +1525,7 @@ fn restartpoint_declined_for_invalid_pages_is_logged_at_debug2_like_c() {
     static MSGS: std::sync::Mutex<Vec<(types_error::ErrorLevel, String)>> =
         std::sync::Mutex::new(Vec::new());
     fn capture(err: &types_error::PgError, _out: &mut bool) {
-        MSGS.lock()
-            .unwrap()
-            .push((err.level, err.message().to_string()));
+        MSGS.lock().unwrap().push((err.level, err.message().to_string()));
     }
     if !xlogrecovery_seams::reached_consistency::is_installed() {
         xlogrecovery_seams::reached_consistency::set(|| false);

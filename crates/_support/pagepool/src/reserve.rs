@@ -8,13 +8,10 @@ use core::cell::UnsafeCell;
 use core::mem::MaybeUninit;
 use core::sync::atomic::{AtomicBool, Ordering::*};
 
+
 /// The central lists' block index grain (u32 offsets: a pool zone of 2 TiB at most).
 pub(crate) const GRAIN_SHIFT: u32 = 9;
-const MAX_POOL: usize = if usize::BITS >= 64 {
-    1 << (32 + GRAIN_SHIFT) as u64
-} else {
-    usize::MAX
-};
+const MAX_POOL: usize = if usize::BITS >= 64 { 1 << (32 + GRAIN_SHIFT) as u64 } else { usize::MAX };
 const TABLE_ALIGN: usize = 64 << 10;
 /// The reservation's and the frame zone's alignment.
 const ALIGN: usize = if cfg!(miri) { SUPER } else { 1 << 30 };
@@ -82,12 +79,7 @@ fn table(cursor: &mut usize, bytes: usize) -> usize {
 
 pub(crate) fn reserve(cfg: &Config) -> Option<&'static Zones> {
     let page = os::page_size();
-    if page > RUN
-        || cfg.chunk < SUPER
-        || !cfg.chunk.is_multiple_of(SUPER)
-        || cfg.va < cfg.chunk
-        || cfg.purge_batch < SUPER
-    {
+    if page > RUN || cfg.chunk < SUPER || ! cfg.chunk.is_multiple_of( SUPER) || cfg.va < cfg.chunk || cfg.purge_batch < SUPER {
         return None;
     }
     let chunks = cfg.va.div_ceil(cfg.chunk);
@@ -102,42 +94,22 @@ pub(crate) fn reserve(cfg: &Config) -> Option<&'static Zones> {
     let nlazy = lazy_len / SUPER;
     let words = nsuper.div_ceil(64);
     let mut m = 0usize;
-    let supers = table(
-        &mut m,
-        nsuper * core::mem::size_of::<crate::superpage::SuperMeta>(),
-    );
-    let runs = table(
-        &mut m,
-        pool_len / RUN * core::mem::size_of::<crate::run::RunMeta>(),
-    );
+    let supers = table(&mut m, nsuper * core::mem::size_of::<crate::superpage::SuperMeta>(),);
+    let runs = table(&mut m, pool_len / RUN * core::mem::size_of::<crate::run::RunMeta>(),);
     let tags = table(&mut m, pool_len >> GRAIN_SHIFT);
     let dead = table(&mut m, (pool_len + lazy_len) / RUN);
-    let bits = [
-        table(&mut m, words * 8),
-        table(&mut m, words * 8),
-        table(&mut m, words * 8),
-    ];
+    let bits = [table(&mut m, words * 8), table(&mut m, words * 8), table(&mut m, words * 8),];
     let chunk_locks = table(&mut m, chunks * 4);
-    let lazy_slots = table(
-        &mut m,
-        nlazy * core::mem::size_of::<crate::span::LazySlot>(),
-    );
+    let lazy_slots = table(&mut m, nlazy * core::mem::size_of::<crate::span::LazySlot>(),);
     let frame_tags = table(&mut m, frame_len >> 18);
     let frame_origin = table(&mut m, frame_len / SUPER * 4);
     let meta_len = m.next_multiple_of(SUPER);
     let frame_off = (pool_len + lazy_len).next_multiple_of(ALIGN);
     let total = frame_off.checked_add(frame_len)?.checked_add(meta_len)?;
-    let (chunks32, nsuper32, nlazy32) = (
-        u32::try_from(chunks).ok()?,
-        u32::try_from(nsuper).ok()?,
-        u32::try_from(nlazy).ok()?,
-    );
+    let (chunks32, nsuper32, nlazy32) = (u32::try_from(chunks).ok()?, u32::try_from(nsuper).ok()?, u32::try_from(nlazy).ok()?,);
     // SAFETY: a fresh reservation, ours for the process's life.
     let lo = unsafe { os::reserve(total, ALIGN) }?;
-    let meta = Zone {
-        lo: lo + frame_off + frame_len,
-        len: meta_len,
-    };
+    let meta = Zone { lo: lo + frame_off + frame_len, len: meta_len, };
     // SAFETY: inside our fresh reservation, nothing live there.
     if !unsafe { os::open(meta.lo, meta.len, false, c"pgrust:pool-meta") } {
         return None;
@@ -152,14 +124,8 @@ pub(crate) fn reserve(cfg: &Config) -> Option<&'static Zones> {
     let z = Zones {
         all: Zone { lo, len: total },
         pool: Zone { lo, len: pool_len },
-        lazy: Zone {
-            lo: lo + pool_len,
-            len: lazy_len,
-        },
-        frame: Zone {
-            lo: lo + frame_off,
-            len: frame_len,
-        },
+        lazy: Zone { lo: lo + pool_len, len: lazy_len, },
+        frame: Zone { lo: lo + frame_off, len: frame_len, },
         chunk: cfg.chunk,
         stride,
         chunks: chunks32,

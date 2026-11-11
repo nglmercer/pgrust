@@ -12,43 +12,14 @@ use std::sync::Arc;
 
 const FXID: u64 = 42;
 const CHUNK_ROWS: u32 = 128;
-const POLICY: PartCutPolicy = PartCutPolicy {
-    max_rows: 256,
-    max_bytes: u64::MAX,
-    cut_granule_rows: CHUNK_ROWS,
-};
+const POLICY: PartCutPolicy = PartCutPolicy { max_rows: 256, max_bytes: u64::MAX, cut_granule_rows: CHUNK_ROWS, };
 
-fn logged_engine(
-    shared: &SharedMemVfs,
-    log: &Arc<Mutex<WalLog>>,
-    policy: PartCutPolicy,
-) -> Arc<ParEngine> {
+fn logged_engine(shared: &SharedMemVfs, log: &Arc<Mutex<WalLog>>, policy: PartCutPolicy,) -> Arc<ParEngine> {
     let schema = vec![int8_col(1), text_col(2)];
-    let spec = PartSpec {
-        spc: SPC,
-        db: DB,
-        relfilenumber: RELFILENUMBER,
-        schema_fingerprint: pgrc_format::ident::schema_fingerprint(&schema),
-    };
+    let spec = PartSpec { spc: SPC, db: DB, relfilenumber: RELFILENUMBER, schema_fingerprint: pgrc_format::ident::schema_fingerprint(&schema), };
     let providers = logged_par_providers(shared, log);
-    let opts = ParIngestOpts {
-        chunk_rows: CHUNK_ROWS,
-        max_chunks_in_flight: 4,
-        max_parts_in_flight: 1,
-    };
-    Arc::new(
-        ParEngine::new(
-            providers,
-            schema,
-            spec,
-            DIR.to_string(),
-            FXID,
-            policy,
-            opts,
-            0,
-        )
-        .expect("engine"),
-    )
+    let opts = ParIngestOpts { chunk_rows: CHUNK_ROWS, max_chunks_in_flight: 4, max_parts_in_flight: 1, };
+    Arc::new(ParEngine::new(providers, schema, spec, DIR.to_string(), FXID, policy, opts, 0,).expect("engine"),)
 }
 
 fn run_dop4(engine: &Arc<ParEngine>, chunks: Vec<RowChunk>) {
@@ -67,10 +38,7 @@ fn run_dop4_holding(engine: &Arc<ParEngine>, chunks: Vec<RowChunk>, hold: Option
             if hold == Some(id as u64) {
                 let t0 = std::time::Instant::now();
                 while engine.assigned_parts() == 0 {
-                    assert!(
-                        t0.elapsed() < std::time::Duration::from_secs(30),
-                        "no part assigned before the held chunk"
-                    );
+                    assert!(t0.elapsed() < std::time::Duration::from_secs(30), "no part assigned before the held chunk");
                     std::thread::yield_now();
                 }
             }
@@ -87,28 +55,15 @@ type FileLog = BTreeMap<String, Vec<(u64, Vec<u8>, bool)>>;
 fn file_log(log: &WalLog) -> FileLog {
     let mut out = FileLog::new();
     for r in &log.records {
-        if let WalRecord::File {
-            name,
-            off,
-            bytes,
-            create,
-            ..
-        } = r
-        {
-            out.entry(name.clone())
-                .or_default()
-                .push((*off, bytes.clone(), *create));
+        if let WalRecord::File { name, off, bytes, create, .. } = r {
+            out.entry(name.clone()).or_default().push((*off, bytes.clone(), *create));
         }
     }
     out
 }
 
 fn temps(vfs: &mut MemVfs) -> Vec<String> {
-    vfs.list_dir(DIR)
-        .expect("list")
-        .into_iter()
-        .filter(|n| n.starts_with("tmp-"))
-        .collect()
+    vfs.list_dir(DIR).expect("list").into_iter().filter(|n| n.starts_with("tmp-")).collect()
 }
 
 #[test]
@@ -122,33 +77,16 @@ fn every_part_is_logged_as_serial_logs_it_and_replay_rebuilds_it() {
             .with_sink(Box::new(RecordingSink::new(DIR, serial.clone())));
         for i in 0..n_rows {
             let sources: [&dyn crate::elect::CandidateSource; 1] = [&kit.cands];
-            let mut env = SealEnv {
-                vfs: &mut vfs,
-                sources: &sources,
-                resolver: &kit.resolver,
-                shred: &mut kit.shred,
-                shred_opts: &kit.opts,
-            };
-            with_mixed_row(i, |row| {
-                w.append_row(row, &mut kit.ext, &mut env).expect("append")
+            let mut env = SealEnv { vfs: &mut vfs, sources: &sources, resolver: &kit.resolver, shred: &mut kit.shred, shred_opts: &kit.opts, };
+            with_mixed_row(i, |row| { w.append_row(row, &mut kit.ext, &mut env).expect("append")
             });
         }
         let sources: [&dyn crate::elect::CandidateSource; 1] = [&kit.cands];
-        let mut env = SealEnv {
-            vfs: &mut vfs,
-            sources: &sources,
-            resolver: &kit.resolver,
-            shred: &mut kit.shred,
-            shred_opts: &kit.opts,
-        };
+        let mut env = SealEnv { vfs: &mut vfs, sources: &sources, resolver: &kit.resolver, shred: &mut kit.shred, shred_opts: &kit.opts, };
         w.finish(&mut env).expect("finish");
     }
     let want = file_log(&lock(&serial));
-    assert!(
-        want.len() >= 4,
-        "enough parts to interleave: {}",
-        want.len()
-    );
+    assert!(want.len() >= 4, "enough parts to interleave: {}", want.len());
 
     let shared = shared_mem_with_dir();
     let log = WalLog::shared();
@@ -157,17 +95,9 @@ fn every_part_is_logged_as_serial_logs_it_and_replay_rebuilds_it() {
     let sealed = engine.collect().expect("collect");
     assert_eq!(sealed.len(), want.len());
     let g = lock(&log);
-    assert_eq!(
-        file_log(&g),
-        want,
-        "the leader logs each worker part exactly as the serial writer logs it"
-    );
+    assert_eq!(file_log(&g), want, "the leader logs each worker part exactly as the serial writer logs it");
     for (p, _) in &sealed {
-        assert!(
-            g.dirty[DIR].contains(&p.tmp_name),
-            "{} finished through file_done",
-            p.tmp_name
-        );
+        assert!(g.dirty[DIR].contains(&p.tmp_name), "{} finished through file_done", p.tmp_name);
     }
     let upto = g.records.len();
     drop(g);
@@ -176,12 +106,7 @@ fn every_part_is_logged_as_serial_logs_it_and_replay_rebuilds_it() {
     lock(&log).replay(&mut fresh, upto).expect("replay");
     for (p, _) in &sealed {
         let path = format!("{DIR}/{}", p.tmp_name);
-        assert_eq!(
-            fresh.read_full(&path).expect("replayed"),
-            shared.with(|v| v.read_full(&path).expect("tmp")),
-            "{}",
-            p.tmp_name
-        );
+        assert_eq!(fresh.read_full(&path).expect("replayed"), shared.with(|v| v.read_full(&path).expect("tmp")), "{}", p.tmp_name);
     }
 }
 
@@ -192,8 +117,7 @@ fn poisoned_chunks(chunk: u64) -> Vec<RowChunk> {
     let mut cur = RowChunk::new(2, CHUNK_ROWS);
     for i in 0..8 * CHUNK_ROWS as u64 {
         if i == poison_row {
-            cur.push_row(&[RawDatum::Bytes(b"xx"), RawDatum::Null])
-                .expect("capture");
+            cur.push_row(&[RawDatum::Bytes(b"xx"), RawDatum::Null]).expect("capture");
         } else {
             with_mixed_row(i, |row| cur.push_row(row).expect("capture"));
         }
@@ -216,37 +140,18 @@ fn a_failed_session_reclaims_its_temps_under_one_record() {
     engine.cleanup_temps().expect("cleanup");
 
     let g = lock(&log);
-    let Some(WalRecord::Reclaim { rec, .. }) = g.records.last() else {
-        panic!("RECLAIM is the last record")
-    };
+    let Some(WalRecord::Reclaim { rec, .. }) = g.records.last() else { panic!("RECLAIM is the last record") };
     let assigned = rec.names.len() as u32;
     assert!(assigned > 0);
-    assert_eq!(
-        rec.names,
-        (0..assigned)
-            .map(|i| temp_file_name(FXID, i))
-            .collect::<Vec<_>>()
-    );
-    assert_eq!(
-        g.records
-            .iter()
-            .filter(|r| matches!(r, WalRecord::Reclaim { .. }))
-            .count(),
-        1
-    );
+    assert_eq!(rec.names, (0..assigned).map(|i| temp_file_name(FXID, i)).collect::<Vec<_>>());
+    assert_eq!(g.records.iter().filter(|r| matches!(r, WalRecord::Reclaim { .. })).count(), 1);
     let upto = g.records.len();
     drop(g);
-    assert!(
-        shared.with(temps).is_empty(),
-        "the primary unlinked every temp"
-    );
+    assert!(shared.with( temps).is_empty(), "the primary unlinked every temp");
 
     let mut fresh = mem_with_dir();
     lock(&log).replay(&mut fresh, upto).expect("replay");
-    assert!(
-        temps(&mut fresh).is_empty(),
-        "redo of the whole log leaves no temp either"
-    );
+    assert!(temps(&mut fresh).is_empty(), "redo of the whole log leaves no temp either");
 }
 
 /// A session that fails before any part closes named no temp, so it logs nothing and leaves nothing to reclaim.
@@ -259,11 +164,8 @@ fn a_session_failing_before_any_part_logs_nothing() {
     engine.collect().expect_err("the poisoned session errors");
     engine.cleanup_temps().expect("cleanup");
     assert_eq!(engine.assigned_parts(), 0);
-    assert!(
-        lock(&log).records.is_empty(),
-        "no record for a session that named no temp"
-    );
-    assert!(shared.with(temps).is_empty());
+    assert!(lock(&log).records.is_empty(), "no record for a session that named no temp");
+    assert!(shared.with( temps).is_empty());
 }
 
 /// WR: at a threshold between the parts' sizes, the leader logs each worker's part as the serial writer does: the
@@ -275,19 +177,8 @@ fn a_parallel_copy_at_the_threshold_logs_what_a_serial_one_logs() {
         let mut out = View::new();
         for r in &log.records {
             match r {
-                WalRecord::File {
-                    name,
-                    off,
-                    bytes,
-                    create,
-                    ..
-                } => out
-                    .entry(name.clone())
-                    .or_default()
-                    .0
-                    .push((*off, bytes.clone(), *create)),
-                WalRecord::FileRef { name, len, crc, .. } => {
-                    out.entry(name.clone()).or_default().1 = Some((*len, *crc))
+                WalRecord::File { name, off, bytes, create, .. } => out.entry(name.clone()).or_default().0.push((*off, bytes.clone(), *create)),
+                WalRecord::FileRef { name, len, crc, .. } => { out.entry(name.clone()).or_default().1 = Some((*len, *crc))
                 }
                 _ => {}
             }
@@ -299,18 +190,12 @@ fn a_parallel_copy_at_the_threshold_logs_what_a_serial_one_logs() {
         let log = WalLog::shared();
         let mut vfs = mem_with_dir();
         serial_mixed(&mut vfs, &log, n_rows);
-        let mut sizes: Vec<u64> = file_log(&lock(&log))
-            .values()
-            .map(|c| c.iter().map(|(_, b, _)| b.len() as u64).sum())
-            .collect();
+        let mut sizes: Vec<u64> = file_log(&lock(&log)).values().map(|c| c.iter().map(|(_, b, _)| b.len() as u64).sum()).collect();
         sizes.sort_unstable();
         sizes
     };
     let ref_min = serial_sizes[serial_sizes.len() / 2];
-    assert!(
-        serial_sizes[0] < ref_min,
-        "the threshold splits the parts: {serial_sizes:?}"
-    );
+    assert!(serial_sizes[0] < ref_min, "the threshold splits the parts: {serial_sizes:?}");
 
     let serial = spool_log(ref_min, None);
     let mut vfs = mem_with_spool();
@@ -335,24 +220,11 @@ fn serial_mixed(vfs: &mut MemVfs, log: &Arc<Mutex<WalLog>>, n_rows: u64) {
         .with_sink(Box::new(RecordingSink::new(DIR, log.clone())));
     for i in 0..n_rows {
         let sources: [&dyn crate::elect::CandidateSource; 1] = [&kit.cands];
-        let mut env = SealEnv {
-            vfs: &mut *vfs,
-            sources: &sources,
-            resolver: &kit.resolver,
-            shred: &mut kit.shred,
-            shred_opts: &kit.opts,
-        };
-        with_mixed_row(i, |row| {
-            w.append_row(row, &mut kit.ext, &mut env).expect("append")
+        let mut env = SealEnv { vfs: &mut *vfs, sources: &sources, resolver: &kit.resolver, shred: &mut kit.shred, shred_opts: &kit.opts, };
+        with_mixed_row(i, |row| { w.append_row(row, &mut kit.ext, &mut env).expect("append")
         });
     }
     let sources: [&dyn crate::elect::CandidateSource; 1] = [&kit.cands];
-    let mut env = SealEnv {
-        vfs,
-        sources: &sources,
-        resolver: &kit.resolver,
-        shred: &mut kit.shred,
-        shred_opts: &kit.opts,
-    };
+    let mut env = SealEnv { vfs, sources: &sources, resolver: &kit.resolver, shred: &mut kit.shred, shred_opts: &kit.opts, };
     w.finish(&mut env).expect("finish");
 }

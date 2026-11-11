@@ -8,7 +8,6 @@ use std::cell::Cell;
 use std::sync::atomic::{
     AtomicBool, AtomicI32, AtomicI64, AtomicU32, AtomicU64, Ordering::Relaxed,
 };
-
 use condition_variable::{
     ConditionVariable, ConditionVariableBroadcast, ConditionVariableCancelSleep,
     ConditionVariableTimedSleep,
@@ -341,10 +340,7 @@ pub(crate) fn getRecordTimestamp(
     Ok(None)
 }
 
-fn record_end_xid(
-    reader: &xlogreader::XLogReaderState<'_>,
-    xact_info: u8,
-) -> PgResult<TransactionId> {
+fn record_end_xid(reader: &xlogreader::XLogReaderState<'_>, xact_info: u8,) -> PgResult<TransactionId> {
     let info = reader.XLogRecGetInfo();
     let data = reader.XLogRecGetData();
     Ok(match xact_info {
@@ -369,10 +365,7 @@ pub(crate) fn recoveryStopsBefore(reader: &xlogreader::XLogReaderState<'_>) -> P
     let target = recovery_target();
 
     if target == RecoveryTargetType::Immediate && crate::reached_consistency() {
-        let _ = elog(
-            LOG,
-            "recovery stopping after reaching consistency".to_string(),
-        );
+        let _ = elog(LOG, "recovery stopping after reaching consistency".to_string(),);
         clear_stop(false);
         return Ok(true);
     }
@@ -428,8 +421,7 @@ pub(crate) fn recoveryStopsBefore(reader: &xlogreader::XLogReaderState<'_>) -> P
             LOG,
             format!(
                 "recovery stopping before {} of transaction {}, time {}",
-                if is_commit { "commit" } else { "abort" },
-                record_xid,
+                if is_commit { "commit" } else { "abort" },record_xid,
                 ts_str(record_xtime.unwrap_or(0))
             ),
         );
@@ -514,8 +506,7 @@ pub(crate) fn recoveryStopsAfter(reader: &xlogreader::XLogReaderState<'_>) -> Pg
                     LOG,
                     format!(
                         "recovery stopping after {} of transaction {}, time {}",
-                        if is_commit { "commit" } else { "abort" },
-                        record_xid,
+                        if is_commit { "commit" } else { "abort" },record_xid,
                         ts_str(record_xtime.unwrap_or(0))
                     ),
                 );
@@ -525,10 +516,7 @@ pub(crate) fn recoveryStopsAfter(reader: &xlogreader::XLogReaderState<'_>) -> Pg
     }
 
     if target == RecoveryTargetType::Immediate && crate::reached_consistency() {
-        let _ = elog(
-            LOG,
-            "recovery stopping after reaching consistency".to_string(),
-        );
+        let _ = elog(LOG, "recovery stopping after reaching consistency".to_string(),);
         clear_stop(true);
         return Ok(true);
     }
@@ -577,8 +565,11 @@ pub(crate) fn recoveryPausesHere(end_of_recovery: bool) -> PgResult<()> {
             return Ok(());
         }
         ConfirmRecoveryPaused();
-        let _ =
-            ConditionVariableTimedSleep(&RECOVERY_NOT_PAUSED_CV, 1000, WAIT_EVENT_RECOVERY_PAUSE);
+        let _ = ConditionVariableTimedSleep(
+            &RECOVERY_NOT_PAUSED_CV,
+            1000,
+            WAIT_EVENT_RECOVERY_PAUSE
+        );
     }
     ConditionVariableCancelSleep();
     Ok(())
@@ -644,11 +635,7 @@ pub(crate) fn recoveryApplyDelay(reader: &xlogreader::XLogReaderState<'_>) -> Pg
 
 // RecoveryRequiresIntParameter (xlogrecovery.c:4712-4786): every report —
 // the two WARNINGs and the FATAL — carries errcode(ERRCODE_INVALID_PARAMETER_VALUE).
-pub fn RecoveryRequiresIntParameter(
-    param_name: &str,
-    curr_value: i32,
-    min_value: i32,
-) -> PgResult<()> {
+pub fn RecoveryRequiresIntParameter(param_name: &str, curr_value: i32, min_value: i32,) -> PgResult<()> {
     if curr_value >= min_value {
         return Ok(());
     }
@@ -699,6 +686,7 @@ pub fn RecoveryRequiresIntParameter(
         .errhint("You can restart the server after making the necessary configuration changes.")
         .finish(loc("RecoveryRequiresIntParameter"))
 }
+
 
 // C's error_multiple_recovery_targets (xlogrecovery.c:4832) is an
 // ereport(ERROR, ERRCODE_INVALID_PARAMETER_VALUE, errmsg, errdetail) raised
@@ -774,7 +762,7 @@ pub(crate) fn install_guc_hooks() {
         Ok(true)
     });
     hooks::assign_recovery_target.install(|newval, _extra| {
-        if newval.is_some_and(|v| !v.is_empty()) {
+        if newval.is_some_and( |v| !v.is_empty()) {
             guard_target(RecoveryTargetType::Immediate);
             set_recovery_target(RecoveryTargetType::Immediate);
         } else {
@@ -794,7 +782,7 @@ pub(crate) fn install_guc_hooks() {
         Ok(true)
     });
     hooks::assign_recovery_target_lsn.install(|newval, extra| {
-        if newval.is_some_and(|v| !v.is_empty()) {
+        if newval.is_some_and( |v| !v.is_empty()) {
             guard_target(RecoveryTargetType::Lsn);
             set_recovery_target(RecoveryTargetType::Lsn);
             let lsn = *extra
@@ -817,14 +805,15 @@ pub(crate) fn install_guc_hooks() {
         }
         Ok(true)
     });
-    hooks::assign_recovery_target_name.install(|newval, _extra| match newval {
-        Some(v) if !v.is_empty() => {
-            guard_target(RecoveryTargetType::Name);
-            set_recovery_target(RecoveryTargetType::Name);
-            RECOVERY_TARGET_NAME.with(|c| *c.borrow_mut() = v.to_string());
-        }
-        _ => unset_target(RecoveryTargetType::Name),
-    });
+    hooks::assign_recovery_target_name.install(|newval, _extra|
+        match newval {
+            Some(v) if !v.is_empty() => {
+                guard_target(RecoveryTargetType::Name);
+                set_recovery_target(RecoveryTargetType::Name);
+                RECOVERY_TARGET_NAME.with(|c| *c.borrow_mut() = v.to_string());
+            }
+            _ => unset_target(RecoveryTargetType::Name),
+        });
 
     // check_recovery_target_time (xlogrecovery.c:4960-5010): the four literal
     // special values are rejected first; then ParseDateTime + DecodeDateTime,
@@ -883,7 +872,7 @@ pub(crate) fn install_guc_hooks() {
         Ok(true)
     });
     hooks::assign_recovery_target_time.install(|newval, _extra| {
-        if newval.is_some_and(|v| !v.is_empty()) {
+        if newval.is_some_and( |v| !v.is_empty()) {
             guard_target(RecoveryTargetType::Time);
             set_recovery_target(RecoveryTargetType::Time);
         } else {
@@ -895,7 +884,7 @@ pub(crate) fn install_guc_hooks() {
     hooks::assign_recovery_target_timeline.install(assign_recovery_target_timeline);
     hooks::check_recovery_target_xid.install(check_recovery_target_xid);
     hooks::assign_recovery_target_xid.install(|newval, extra| {
-        if newval.is_some_and(|v| !v.is_empty()) {
+        if newval.is_some_and( |v| !v.is_empty()) {
             guard_target(RecoveryTargetType::Xid);
             set_recovery_target(RecoveryTargetType::Xid);
             let xid = *extra
@@ -963,7 +952,10 @@ fn check_recovery_target_timeline(
     }
 }
 
-fn assign_recovery_target_timeline(newval: Option<&str>, extra: Option<&guc_tables::GucHookExtra>) {
+fn assign_recovery_target_timeline(
+    newval: Option<&str>,
+    extra: Option<&guc_tables::GucHookExtra>
+) {
     {
         let goal = *extra
             .and_then(|e| e.downcast_ref::<RecoveryTargetTimeLineGoal>())
@@ -1063,23 +1055,14 @@ mod recovery_target_parse_tests {
     fn check_tli(v: &str) -> PgResult<(bool, Option<RecoveryTargetTimeLineGoal>)> {
         let mut newval = Some(v.to_string());
         let mut extra = None;
-        let ok = check_recovery_target_timeline(
-            &mut newval,
-            &mut extra,
-            ::types_guc::GucSource::PGC_S_FILE,
-        )?;
+        let ok = check_recovery_target_timeline(&mut newval, &mut extra, ::types_guc::GucSource::PGC_S_FILE,)?;
         Ok((ok, extra.as_ref().and_then(|e| e.downcast_ref().copied())))
     }
 
     fn assigned_tli(v: &str) -> TimeLineID {
         let mut newval = Some(v.to_string());
         let mut extra = None;
-        assert!(check_recovery_target_timeline(
-            &mut newval,
-            &mut extra,
-            ::types_guc::GucSource::PGC_S_FILE
-        )
-        .unwrap());
+        assert!(check_recovery_target_timeline(&mut newval, &mut extra, ::types_guc::GucSource::PGC_S_FILE).unwrap());
         assign_recovery_target_timeline(newval.as_deref(), extra.as_ref());
         recovery_target_tli_requested()
     }
@@ -1090,8 +1073,7 @@ mod recovery_target_parse_tests {
     fn check_xid(v: &str) -> Option<Option<u32>> {
         let mut newval = Some(v.to_string());
         let mut extra = None;
-        match check_recovery_target_xid(&mut newval, &mut extra, ::types_guc::GucSource::PGC_S_FILE)
-        {
+        match check_recovery_target_xid(&mut newval, &mut extra, ::types_guc::GucSource::PGC_S_FILE) {
             Ok(true) => Some(extra.as_ref().and_then(|e| e.downcast_ref().copied())),
             _ => None,
         }
@@ -1119,31 +1101,31 @@ mod recovery_target_parse_tests {
             ("1", 1),
             ("42", 42),
             ("7", 7),
-            ("0x10", 16), // base 0: hex
+            ("0x10", 16),                     // base 0: hex
             ("0X10", 16),
             ("0xff", 255),
-            ("010", 8), // base 0: octal
+            ("010", 8),                       // base 0: octal
             ("0", 0),
-            ("0x", 0),   // parses the "0", 'x' is garbage
-            ("0x1G", 1), // "0x1", trailing G ignored
-            (" 7", 7),   // leading C-locale space
+            ("0x", 0),                        // parses the "0", 'x' is garbage
+            ("0x1G", 1),                      // "0x1", trailing G ignored
+            (" 7", 7),                        // leading C-locale space
             ("\t7", 7),
-            ("\x0b7", 7), // VT is C-locale space
+            ("\x0b7", 7),                     // VT is C-locale space
             (" 0x10", 16),
             ("+5", 5),
-            ("-1", 4294967295), // wraps to u64::MAX, truncates to u32
+            ("-1", 4294967295),               // wraps to u64::MAX, truncates to u32
             ("-5", 4294967291),
-            ("abc", 0),     // no conversion: accepted as 0 (!)
-            ("", 0),        //   ditto — later FATAL "timeline 0 does not exist"
-            ("latest2", 0), // not a named form; no conversion -> 0
+            ("abc", 0),                       // no conversion: accepted as 0 (!)
+            ("", 0),                          //   ditto — later FATAL "timeline 0 does not exist"
+            ("latest2", 0),                   // not a named form; no conversion -> 0
             ("++1", 0),
             ("- 1", 0),
-            ("123abc", 123), // trailing garbage ignored
+            ("123abc", 123),                  // trailing garbage ignored
             ("12 ", 12),
             ("4294967295", 4294967295),
-            ("4294967296", 0),                    // u32 truncation of 2^32
+            ("4294967296", 0),                // u32 truncation of 2^32
             ("18446744073709551615", 4294967295), // ULONG_MAX truncates to 2^32-1
-            ("-18446744073709551615", 1),         // wraps to 1, no ERANGE
+            ("-18446744073709551615", 1),     // wraps to 1, no ERANGE
         ];
         for &(input, tli) in accepted {
             let (ok, goal) = check_tli(input).unwrap();
@@ -1155,12 +1137,8 @@ mod recovery_target_parse_tests {
         // The ONLY rejects: u64-magnitude overflow (glibc ERANGE) — reported
         // C-style as GUC_check_errdetail + `return false`
         // (xlogrecovery.c:5047-5048), never as a hook Err.
-        for input in [
-            "18446744073709551616",
-            "-18446744073709551616",
-            "99999999999999999999999",
-            "0xffffffffffffffffff",
-        ] {
+        for input in ["18446744073709551616", "-18446744073709551616",
+                      "99999999999999999999999", "0xffffffffffffffffff",] {
             assert!(
                 matches!(check_tli(input), Ok((false, None))),
                 "C rejects {input:?} with ERANGE"
@@ -1182,32 +1160,25 @@ mod recovery_target_parse_tests {
             ("\x0b7", 7),
             ("+5", 5),
             ("-1", 4294967295),
-            ("abc", 0),    // silently becomes XID 0 (!)
-            ("latest", 0), // xid has no named forms; garbage -> 0
+            ("abc", 0),                       // silently becomes XID 0 (!)
+            ("latest", 0),                    // xid has no named forms; garbage -> 0
             ("123abc", 123),
             ("12 ", 12),
             ("4294967295", 4294967295),
-            ("4294967296", 0), // (TransactionId) truncation of 2^32
+            ("4294967296", 0),                // (TransactionId) truncation of 2^32
             ("18446744073709551615", 4294967295),
             ("-18446744073709551615", 1),
         ];
         for &(input, xid) in accepted {
-            assert_eq!(
-                check_xid(input),
-                Some(Some(xid)),
-                "parsed XID for {input:?}"
-            );
+            assert_eq!(check_xid(input), Some(Some(xid)), "parsed XID for {input:?}");
         }
 
         // Empty string: accepted, no parse (unsets the target).
         assert_eq!(check_xid(""), Some(None));
 
         // ERANGE rejects (check hook returns false).
-        for input in [
-            "18446744073709551616",
-            "-18446744073709551616",
-            "99999999999999999999999",
-        ] {
+        for input in ["18446744073709551616", "-18446744073709551616",
+                      "99999999999999999999999",] {
             assert_eq!(check_xid(input), None, "C rejects {input:?} with ERANGE");
         }
     }

@@ -21,14 +21,14 @@
 use crate::section::{frame_base, frame_start, open_section, payload_region};
 use alp::bitpack;
 use pgrc_format::abi::{
-    narrow_each, refuse_decode_codes, refuse_dict_handle, validity_from_ctx, CodecVtable,
-    DecodeOut, EncodeInput, GranuleEncoder, KernelCtx, KernelKey, NarrowInt, NarrowOut, Selection,
-    ValidityVerdict,
+    narrow_each,
+    refuse_decode_codes, refuse_dict_handle, validity_from_ctx, CodecVtable, DecodeOut,
+    EncodeInput, GranuleEncoder, KernelCtx, KernelKey, NarrowInt, NarrowOut, Selection, ValidityVerdict,
 };
 use pgrc_format::class::CLASS_BYVAL;
 use pgrc_format::enc::EncodingId;
 use pgrc_format::geom::{FRAME_VALUES, GRANULE_ROWS};
-use pgrc_format::meta::{MetaProbe, ProbeAnswer};
+use pgrc_format::meta::{ MetaProbe, ProbeAnswer};
 use pgrc_format::part::{OverflowSink, StreamSectionWriter};
 use pgrc_format::{FormatError, FormatResult};
 
@@ -265,11 +265,7 @@ fn ff_narrow<T: NarrowInt>(ctx: &KernelCtx<'_>, out: &mut [T]) -> FormatResult<u
 }
 
 fn ff_dec_narrow(ctx: &KernelCtx<'_>, out: NarrowOut<'_>) -> FormatResult<u32> {
-    narrow_each(
-        out,
-        |o| ff_narrow::<i16>(ctx, o),
-        |o| ff_narrow::<i32>(ctx, o),
-    )
+    narrow_each(out, |o| ff_narrow::<i16>(ctx, o), |o| ff_narrow::<i32>(ctx, o),)
 }
 
 fn ff_dec_sel(
@@ -306,10 +302,7 @@ fn ff_dec_sel(
         if j - i <= SPARSE_ROWS {
             for k in i..j {
                 let slot = (sel.rows[k] as u32 % FRAME_VALUES) as usize;
-                out.datums[k] =
-                    frame
-                        .base
-                        .wrapping_add(bitpack::get_le(frame.words, frame.bw, slot));
+                out.datums[k] = frame.base.wrapping_add(bitpack::get_le(frame.words, frame.bw, slot));
             }
         } else {
             unpack_frame(&frame, &mut words, &mut buf);

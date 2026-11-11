@@ -67,27 +67,14 @@ fn reads_live_captured_view_rule() {
     assert_eq!((te0.resorigtbl, te0.resorigcol), (16384, 1));
     assert!(!te0.resjunk);
     let v0 = te0.expr.as_var().unwrap();
-    assert_eq!(
-        (v0.varno, v0.varattno, v0.vartype, v0.vartypmod),
-        (1, 1, 23, -1)
-    );
+    assert_eq!((v0.varno, v0.varattno, v0.vartype, v0.vartypmod), (1, 1, 23, -1));
     assert_eq!(v0.varcollid, 0);
     assert!(v0.varnullingrels.is_empty());
     assert_eq!(v0.varlevelsup, 0);
     assert_eq!((v0.varnosyn, v0.varattnosyn), (1, 1));
     assert_eq!(v0.location, -1);
-    let v1 = q
-        .targetList
-        .nth(1)
-        .as_target_entry()
-        .unwrap()
-        .expr
-        .as_var()
-        .unwrap();
-    assert_eq!(
-        (v1.varno, v1.varattno, v1.vartype, v1.varcollid),
-        (1, 2, 25, 100)
-    );
+    let v1 = q.targetList.nth(1).as_target_entry().unwrap().expr.as_var().unwrap();
+    assert_eq!((v1.varno, v1.varattno, v1.vartype, v1.varcollid), (1, 2, 25, 100));
 }
 
 // Captured from live PostgreSQL 18.3 initdb:
@@ -166,25 +153,13 @@ fn reads_pg_stat_activity_view_rule() {
     assert_eq!(outer.rtindex, 5);
     assert!(outer.usingClause.is_nil() && outer.join_using_alias.is_none());
     assert!(outer.alias.is_none());
-    assert!(outer
-        .quals
-        .expect("outer join quals")
-        .as_op_expr()
-        .is_some());
+    assert!(outer.quals.expect("outer join quals").as_op_expr().is_some());
     let inner = outer.larg.as_join_expr().expect("inner JoinExpr");
     assert_eq!(inner.jointype, JoinType::JOIN_LEFT);
     assert_eq!(inner.rtindex, 3);
     assert_eq!(inner.larg.as_range_tbl_ref().unwrap().rtindex, 1);
     assert_eq!(inner.rarg.as_range_tbl_ref().unwrap().rtindex, 2);
-    assert_eq!(
-        inner
-            .quals
-            .expect("inner join quals")
-            .as_op_expr()
-            .unwrap()
-            .opno,
-        607
-    );
+    assert_eq!(inner.quals.expect("inner join quals").as_op_expr().unwrap().opno, 607);
     assert_eq!(outer.rarg.as_range_tbl_ref().unwrap().rtindex, 4);
 
     assert_eq!(q.targetList.len(), 22);
@@ -241,20 +216,13 @@ fn unknown_node_label_is_a_typed_refusal() {
     for text in ["{PLANNEDSTMT :commandType 1}", "{UNRECOGNIZED_NODE}"] {
         let e = err_of(text);
         assert_eq!(e.sqlstate(), ERRCODE_FEATURE_NOT_SUPPORTED, "{text:?}");
-        assert!(
-            e.message().contains("read arm unported"),
-            "{text:?}: {}",
-            e.message()
-        );
+        assert!(e.message().contains("read arm unported"), "{text:?}: {}", e.message());
     }
     let e = err_of("{foo bar}");
     assert_eq!(e.sqlstate(), ERRCODE_INTERNAL_ERROR);
     assert_eq!(e.message(), "badly formatted node string \"foo bar}\"...");
     let e = err_of("{abcdefghijklmnopqrstuvwxyz0123456789 :x 1}");
-    assert_eq!(
-        e.message(),
-        "badly formatted node string \"abcdefghijklmnopqrstuvwxyz012345\"..."
-    );
+    assert_eq!(e.message(), "badly formatted node string \"abcdefghijklmnopqrstuvwxyz012345\"...");
 }
 
 #[test]
@@ -289,10 +257,7 @@ fn coerce_to_domain_value_conbin() {
     let op = n.as_op_expr().unwrap();
     assert_eq!((op.opno, op.opfuncid), (521, 147));
     let dv = op.args.nth(0).as_coerce_to_domain_value().unwrap();
-    assert_eq!(
-        (dv.typeId, dv.typeMod, dv.collation, dv.location),
-        (23, -1, 0, -1)
-    );
+    assert_eq!((dv.typeId, dv.typeMod, dv.collation, dv.location), (23, -1, 0, -1));
 }
 
 #[test]
@@ -350,13 +315,7 @@ fn search_cycle_ev_action() {
     let cc = cte.cycle_clause.unwrap().as_cte_cycle_clause().unwrap();
     assert_eq!(cc.cycle_mark_column, Some("is_c"));
     assert_eq!(cc.cycle_path_column, Some("pth"));
-    assert!(cc
-        .cycle_mark_value
-        .unwrap()
-        .as_const()
-        .unwrap()
-        .constvalue
-        .as_bool());
+    assert!(cc.cycle_mark_value.unwrap().as_const().unwrap().constvalue.as_bool());
     assert_eq!(cc.cycle_mark_type, 16);
 }
 
@@ -383,20 +342,8 @@ fn reads_nil_element_in_node_list_field() {
     let node = stringToNode(mcx, &s).unwrap();
     let q = node.as_list().unwrap().nth(0).as_query().unwrap();
     assert_eq!(q.groupingSets.len(), 2);
-    assert_eq!(
-        q.groupingSets
-            .nth(0)
-            .as_int_list()
-            .unwrap()
-            .iter()
-            .collect::<Vec<_>>(),
-        [1]
-    );
-    let empty = q
-        .groupingSets
-        .nth(1)
-        .as_list()
-        .expect("NIL member reads as a List");
+    assert_eq!(q.groupingSets.nth(0).as_int_list().unwrap().iter().collect::<Vec<_>>(), [1]);
+    let empty = q.groupingSets.nth(1).as_list().expect("NIL member reads as a List");
     assert!(empty.is_nil());
 }
 
@@ -406,9 +353,7 @@ fn reads_nil_element_in_node_list_field() {
 #[test]
 fn bare_null_marker_reads_as_none() {
     let ctx = MemoryContext::new("t");
-    assert!(crate::stringToNodeNullable(ctx.mcx(), "<>")
-        .unwrap()
-        .is_none());
+    assert!(crate::stringToNodeNullable(ctx.mcx(), "<>").unwrap().is_none());
 }
 
 // The non-null entry keeps the loud panic for columns that never hold "<>"
@@ -431,9 +376,7 @@ fn empty_and_whitespace_input_is_the_null_node() {
     for text in ["", " ", "\t", "\n", "   \t\n  "] {
         let ctx = MemoryContext::new("t");
         assert!(
-            crate::stringToNodeNullable(ctx.mcx(), text)
-                .unwrap()
-                .is_none(),
+            crate::stringToNodeNullable(ctx.mcx(), text).unwrap().is_none(),
             "{text:?} should read as the NULL node (C parity)"
         );
     }
@@ -464,9 +407,7 @@ fn in_range_integer_tokens_read_as_integer_nodes() {
 fn out_of_range_integer_token_does_not_wrap() {
     let ctx = MemoryContext::new("t");
     // used to silently build Integer(1403065407); C builds Float "9992999999"
-    let n = crate::stringToNodeNullable(ctx.mcx(), "9992999999")
-        .unwrap()
-        .unwrap();
+    let n = crate::stringToNodeNullable(ctx.mcx(), "9992999999").unwrap().unwrap();
     assert_eq!(n.as_float().expect("T_Float").fval, "9992999999");
 }
 
@@ -475,9 +416,7 @@ fn int32_min_token_follows_cs_magnitude_rule() {
     let ctx = MemoryContext::new("t");
     // C's nodeTokenType strips the sign first, so INT32_MIN's magnitude
     // ERANGEs and C builds a FLOAT node; the port must not build an Integer.
-    let n = crate::stringToNodeNullable(ctx.mcx(), "-2147483648")
-        .unwrap()
-        .unwrap();
+    let n = crate::stringToNodeNullable(ctx.mcx(), "-2147483648").unwrap().unwrap();
     assert_eq!(n.as_float().expect("T_Float").fval, "-2147483648");
 }
 
@@ -493,21 +432,13 @@ fn err_of(text: &str) -> Box<PgError> {
     let ctx = MemoryContext::new("t");
     match crate::stringToNodeNullable(ctx.mcx(), text) {
         Err(e) => e,
-        Ok(n) => panic!(
-            "{text:?} parsed (some node: {}) instead of raising",
-            n.is_some()
-        ),
+        Ok(n) => panic!("{text:?} parsed (some node: {}) instead of raising", n.is_some()),
     }
 }
 
 fn assert_elog(text: &str, message: &str) {
     let e = err_of(text);
-    assert_eq!(
-        e.sqlstate(),
-        ERRCODE_INTERNAL_ERROR,
-        "{text:?}: {}",
-        e.message()
-    );
+    assert_eq!(e.sqlstate(), ERRCODE_INTERNAL_ERROR, "{text:?}: {}", e.message());
     assert_eq!(e.message(), message, "{text:?}");
 }
 
@@ -516,16 +447,7 @@ fn assert_elog(text: &str, message: &str) {
 // token (before: panic "T_Float value node").
 #[test]
 fn float_value_tokens_read_as_float_nodes() {
-    for t in [
-        "1.5",
-        "+1.5",
-        "-0.25",
-        ".5",
-        "1e5",
-        "12abc",
-        "9992999999",
-        "-2147483648",
-    ] {
+    for t in ["1.5", "+1.5", "-0.25", ".5", "1e5", "12abc", "9992999999", "-2147483648",] {
         let ctx = MemoryContext::new("t");
         let n = crate::stringToNodeNullable(ctx.mcx(), t).unwrap().unwrap();
         assert_eq!(n.node_tag(), NodeTag::T_Float, "{t:?}");
@@ -542,12 +464,7 @@ fn plus_signed_integer_tokens_read_as_integer_nodes() {
     for (t, v) in [("+1", 1), ("+2147483647", i32::MAX), ("-0", 0), ("+007", 7)] {
         let ctx = MemoryContext::new("t");
         let n = crate::stringToNodeNullable(ctx.mcx(), t).unwrap().unwrap();
-        assert_eq!(
-            n.as_integer()
-                .unwrap_or_else(|| panic!("{t:?} is T_Integer"))
-                .ival,
-            v
-        );
+        assert_eq!(n.as_integer().unwrap_or_else(|| panic!("{t:?} is T_Integer")).ival, v);
     }
     let ctx = MemoryContext::new("t");
     let l = crate::stringToNode(ctx.mcx(), "(+1)").unwrap();
@@ -590,14 +507,7 @@ fn xid_lists_and_bitmapsets_in_node_read() {
 // "unterminated Bitmapset structure" (before: panic "unterminated input").
 #[test]
 fn unterminated_structures_raise_cs_elog() {
-    for t in [
-        "(",
-        "(i 1 2",
-        "(o 1",
-        "(x 1",
-        "(1 2",
-        "({RANGETBLREF :rtindex 1}",
-    ] {
+    for t in ["(", "(i 1 2", "(o 1", "(x 1", "(1 2", "({RANGETBLREF :rtindex 1}",] {
         assert_elog(t, "unterminated List structure");
     }
     assert_elog("(b 1", "unterminated Bitmapset structure");
@@ -637,18 +547,9 @@ fn bad_typed_list_members_raise_cs_elog() {
 // NULL at end of input exactly like C's nodeRead, then hits this check.
 #[test]
 fn missing_close_brace_raises_cs_elog() {
-    assert_elog(
-        "{RANGETBLREF :rtindex 1",
-        "did not find '}' at end of input node",
-    );
-    assert_elog(
-        "{RANGETBLREF :rtindex 1 )",
-        "did not find '}' at end of input node",
-    );
-    assert_elog(
-        "{FROMEXPR :fromlist <> :quals",
-        "did not find '}' at end of input node",
-    );
+    assert_elog("{RANGETBLREF :rtindex 1", "did not find '}' at end of input node",);
+    assert_elog("{RANGETBLREF :rtindex 1 )", "did not find '}' at end of input node",);
+    assert_elog("{FROMEXPR :fromlist <> :quals", "did not find '}' at end of input node",);
 }
 
 // readfuncs.c:209 _readBitmapset (READ_BITMAPSET_FIELD): "incomplete
@@ -658,10 +559,7 @@ fn missing_close_brace_raises_cs_elog() {
 fn malformed_bitmapset_field_raises_cs_elog() {
     let head = "{VAR :varno 1 :varattno 1 :vartype 23 :vartypmod -1 :varcollid 0 :varnullingrels ";
     let tail = " :varlevelsup 0 :location -1}";
-    assert_elog(
-        &format!("{head}(b notanint){tail}"),
-        "unrecognized integer: \"notanint\"",
-    );
+    assert_elog(&format!("{head}(b notanint){tail}"), "unrecognized integer: \"notanint\"",);
     assert_elog(&format!("{head}<>{tail}"), "unrecognized token: \"\"");
     assert_elog(&format!("{head}(i 1){tail}"), "unrecognized token: \"i\"");
     assert_elog(&format!("{head}(b 1"), "unterminated Bitmapset structure");
@@ -678,10 +576,7 @@ fn malformed_bitmapset_field_raises_cs_elog() {
 fn malformed_datum_raises_cs_elog() {
     let head = "{CONST :consttype 23 :consttypmod -1 :constcollid 0 :constlen 4 \
                 :constbyval true :constisnull false :location -1 :constvalue ";
-    assert_elog(
-        &format!("{head}9 [ 0 0 0 0 0 0 0 0 ]}}"),
-        "byval datum but length = 9",
-    );
+    assert_elog(&format!("{head}9 [ 0 0 0 0 0 0 0 0 ]}}"), "byval datum but length = 9",);
     assert_elog(
         &format!("{head}4 x 1 0 0 0 0 0 0 0 ]}}"),
         "expected \"[\" to start datum, but got \"x 1 0 0 0 0 0 0 0 ]}\"; length = 4",
@@ -712,23 +607,14 @@ fn unrecognized_rte_kind_raises_cs_elog() {
         "{RANGETBLENTRY :alias <> :eref <> :rtekind 99 :lateral false :inFromCl false :securityQuals ()}",
         "unrecognized RTE kind: 99",
     );
-    assert_elog(
-        "{RANGETBLENTRY :alias <> :eref <> :rtekind -1",
-        "unrecognized RTE kind: -1",
-    );
+    assert_elog("{RANGETBLENTRY :alias <> :eref <> :rtekind -1", "unrecognized RTE kind: -1",);
 }
 
 // readfuncs.c:301 _readBoolExpr: "unrecognized boolop \"%.*s\"".
 #[test]
 fn unrecognized_boolop_raises_cs_elog() {
-    assert_elog(
-        "{BOOLEXPR :boolop badop :args () :location -1}",
-        "unrecognized boolop \"badop\"",
-    );
-    assert_elog(
-        "{BOOLEXPR :boolop <> :args () :location -1}",
-        "unrecognized boolop \"\"",
-    );
+    assert_elog("{BOOLEXPR :boolop badop :args () :location -1}", "unrecognized boolop \"badop\"",);
+    assert_elog("{BOOLEXPR :boolop <> :args () :location -1}", "unrecognized boolop \"\"",);
 }
 
 // READ_INT_FIELD is atoi(token) and READ_BOOL_FIELD is strtobool(token) ==
@@ -736,24 +622,12 @@ fn unrecognized_boolop_raises_cs_elog() {
 // token" / "bad bool").
 #[test]
 fn scalar_fields_follow_cs_atoi_and_strtobool() {
-    for (t, v) in [
-        ("12abc", 12),
-        ("zz", 0),
-        ("99999999999", 99999999999i64 as i32),
-        ("+3", 3),
-    ] {
+    for (t, v) in [("12abc", 12), ("zz", 0), ("99999999999", 99999999999i64 as i32), ("+3", 3),] {
         let ctx = MemoryContext::new("t");
         let n = crate::stringToNode(ctx.mcx(), &format!("{{RANGETBLREF :rtindex {t}}}")).unwrap();
         assert_eq!(n.as_range_tbl_ref().unwrap().rtindex, v, "{t:?}");
     }
-    for (t, v) in [
-        ("true", true),
-        ("tru", true),
-        ("t", true),
-        ("false", false),
-        ("yes", false),
-        ("<>", false),
-    ] {
+    for (t, v) in [("true", true), ("tru", true), ("t", true), ("false", false), ("yes", false), ("<>", false),] {
         let ctx = MemoryContext::new("t");
         let n = crate::stringToNode(
             ctx.mcx(),
@@ -847,41 +721,23 @@ fn a_const_read_arm_matches_c() {
         assert_eq!(c.location, -1, "{text:?}: READ_LOCATION_FIELD restores -1");
         c.val
     };
-    assert!(
-        matches!(read("{A_CONST :val 42 :location 7}"), Some(ValUnion::Integer(i)) if i.ival == 42)
-    );
-    assert!(
-        matches!(read("{A_CONST :val -7 :location -1}"), Some(ValUnion::Integer(i)) if i.ival == -7)
-    );
-    assert!(
-        matches!(read("{A_CONST :val 1.5 :location -1}"), Some(ValUnion::Float(f)) if f.fval == "1.5")
-    );
+    assert!(matches!(read("{A_CONST :val 42 :location 7}"), Some(ValUnion::Integer(i)) if i.ival == 42));
+    assert!(matches!(read("{A_CONST :val -7 :location -1}"), Some(ValUnion::Integer(i)) if i.ival == -7));
+    assert!(matches!(read("{A_CONST :val 1.5 :location -1}"), Some(ValUnion::Float(f)) if f.fval == "1.5"));
     assert!(matches!(
         read("{A_CONST :val 9992999999 :location -1}"),
         Some(ValUnion::Float(f)) if f.fval == "9992999999"
     ));
-    assert!(
-        matches!(read("{A_CONST :val true :location -1}"), Some(ValUnion::Boolean(b)) if b.boolval)
-    );
-    assert!(
-        matches!(read("{A_CONST :val false :location -1}"), Some(ValUnion::Boolean(b)) if !b.boolval)
-    );
-    assert!(
-        matches!(read("{A_CONST :val \"abc\" :location -1}"), Some(ValUnion::String(s)) if s.sval == "abc")
-    );
-    assert!(
-        matches!(read("{A_CONST :val \"\" :location -1}"), Some(ValUnion::String(s)) if s.sval.is_empty())
-    );
+    assert!(matches!(read("{A_CONST :val true :location -1}"), Some(ValUnion::Boolean(b)) if b.boolval));
+    assert!(matches!(read("{A_CONST :val false :location -1}"), Some(ValUnion::Boolean(b)) if !b.boolval));
+    assert!(matches!(read("{A_CONST :val \"abc\" :location -1}"), Some(ValUnion::String(s)) if s.sval == "abc"));
+    assert!(matches!(read("{A_CONST :val \"\" :location -1}"), Some(ValUnion::String(s)) if s.sval.is_empty()));
     assert!(matches!(
         read("{A_CONST :val \"a\\ b\" :location -1}"),
         Some(ValUnion::String(s)) if s.sval == "a b"
     ));
-    assert!(
-        matches!(read("{A_CONST :val b101 :location -1}"), Some(ValUnion::BitString(b)) if b.bsval == "b101")
-    );
-    assert!(
-        matches!(read("{A_CONST :val x1F :location -1}"), Some(ValUnion::BitString(b)) if b.bsval == "x1F")
-    );
+    assert!(matches!(read("{A_CONST :val b101 :location -1}"), Some(ValUnion::BitString(b)) if b.bsval == "b101"));
+    assert!(matches!(read("{A_CONST :val x1F :location -1}"), Some(ValUnion::BitString(b)) if b.bsval == "x1F"));
     assert!(read("{A_CONST NULL :location 3}").is_none());
     // readfuncs.c:341: a value token that is not one of the five value
     // node kinds (here a List, T_List = 1) is C's elog.
@@ -924,15 +780,8 @@ fn a_expr_read_arm_matches_c() {
         let e = n.as_a_expr().unwrap_or_else(|| panic!("{text:?}: A_Expr"));
         assert_eq!(e.kind, kind, "{text:?}");
         assert_eq!(e.name.len(), 1, "{text:?}");
-        assert_eq!(
-            e.name.nth(0).as_string().expect("String").sval,
-            "~~",
-            "{text:?}"
-        );
-        assert!(
-            e.lexpr.is_some_and(|l| l.as_a_const().is_some()),
-            "{text:?}"
-        );
+        assert_eq!(e.name.nth(0).as_string().expect("String").sval, "~~", "{text:?}");
+        assert!(e.lexpr.is_some_and(|l| l.as_a_const().is_some()), "{text:?}");
         assert!(e.rexpr.is_none(), "{text:?}");
         assert_eq!(
             (e.rexpr_list_start, e.rexpr_list_end, e.location),
@@ -968,38 +817,18 @@ fn extensible_node_read_arm_matches_c() {
     // WRITE_STRING_FIELD emits the bare outToken form; nullable_string
     // debackslashes it and keeps any quote characters it carries.
     let e = err_of("{EXTENSIBLENODE :extnodename custom_ext}");
-    assert_eq!(
-        e.sqlstate(),
-        types_error::ERRCODE_UNDEFINED_OBJECT,
-        "{}",
-        e.message()
-    );
-    assert_eq!(
-        e.message(),
-        "ExtensibleNodeMethods \"custom_ext\" was not registered"
-    );
+    assert_eq!(e.sqlstate(), types_error::ERRCODE_UNDEFINED_OBJECT, "{}", e.message());
+    assert_eq!(e.message(), "ExtensibleNodeMethods \"custom_ext\" was not registered");
     let e = err_of("{EXTENSIBLENODE :extnodename \"custom_ext\"}");
-    assert_eq!(
-        e.message(),
-        "ExtensibleNodeMethods \"\"custom_ext\"\" was not registered"
-    );
+    assert_eq!(e.message(), "ExtensibleNodeMethods \"\"custom_ext\"\" was not registered");
     let e = err_of("{EXTENSIBLENODE :extnodename \\1ext}");
-    assert_eq!(
-        e.message(),
-        "ExtensibleNodeMethods \"1ext\" was not registered"
-    );
+    assert_eq!(e.message(), "ExtensibleNodeMethods \"1ext\" was not registered");
     let e = err_of("{EXTENSIBLENODE :extnodename \"\"}");
     assert_eq!(e.sqlstate(), types_error::ERRCODE_UNDEFINED_OBJECT);
     assert_eq!(e.message(), "ExtensibleNodeMethods \"\" was not registered");
     // nullable_string: a "<>" token (length 0) is NULL; so is end of input.
-    assert_elog(
-        "{EXTENSIBLENODE :extnodename <>}",
-        "extnodename has to be supplied",
-    );
-    assert_elog(
-        "{EXTENSIBLENODE :extnodename",
-        "extnodename has to be supplied",
-    );
+    assert_elog("{EXTENSIBLENODE :extnodename <>}", "extnodename has to be supplied",);
+    assert_elog("{EXTENSIBLENODE :extnodename", "extnodename has to be supplied",);
     assert_elog("{EXTENSIBLENODE", "extnodename has to be supplied");
 }
 
@@ -1023,11 +852,7 @@ fn token_scan_matches_pg_strtok() {
                 p += 1;
             } else {
                 while p < buf.len() && !space(buf[p]) && !special(buf[p]) {
-                    p += if buf[p] == b'\\' && p + 1 < buf.len() {
-                        2
-                    } else {
-                        1
-                    };
+                    p += if buf[p] == b'\\' && p + 1 < buf.len() { 2 } else { 1 };
                 }
             }
             out.push((start, p));
@@ -1037,19 +862,12 @@ fn token_scan_matches_pg_strtok() {
     let ctx = MemoryContext::new("t");
     let mut seed: u64 = 0x9e37_79b9_7f4a_7c15;
     for _ in 0..20_000 {
-        seed = seed
-            .wrapping_mul(6_364_136_223_846_793_005)
-            .wrapping_add(1_442_695_040_888_963_407);
+        seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1_442_695_040_888_963_407);
         let len = (seed >> 58) as usize;
         let buf: Vec<u8> = (0..len)
             .map(|i| ABC[((seed.rotate_left(7 * i as u32 + 3) >> 40) as usize) % ABC.len()])
             .collect();
-        let mut r = crate::Reader {
-            mcx: ctx.mcx(),
-            buf: &buf,
-            pos: 0,
-            tok_start: 0,
-        };
+        let mut r = crate::Reader { mcx: ctx.mcx(), buf: &buf, pos: 0, tok_start: 0, };
         let mut got = Vec::new();
         while let Some(t) = r.next_token() {
             got.push((r.tok_start, r.pos));

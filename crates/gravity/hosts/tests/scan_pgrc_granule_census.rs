@@ -167,7 +167,7 @@ fn cond_run(rel: u32, list: &Arc<gravity_hosts::ops::scan::pgrc::granule_source:
     let (attnos, filter_only) = lanes;
     let mut recipe = GranuleRecipe::for_test(rel, attnos, registry.clone()).with_verdict_cell().with_verdict_lane(2);
     for k in 0..attnos.len() {
-        recipe = recipe.with_profile(k, *profile);
+        recipe = recipe.with_profile(k, * profile);
     }
     recipe.verdicts.set(1, fp);
     recipe.verdicts.set(2, 9);
@@ -213,7 +213,7 @@ fn int8_profile() -> pgrc_meta::profile::MetaProfile {
 
 /// The oracle: every row of every granule of `list` (lane 0 = attno 1), no zone, no cache, keyed (part, granule).
 fn granule_values(rel: u32, list: &Arc<gravity_hosts::ops::scan::pgrc::granule_source::PartList>, registry: &Arc<PartRegistry>, profile: &pgrc_meta::profile::MetaProfile) -> std::collections::BTreeMap<(u32, u32), Vec<i64>> {
-    let recipe = GranuleRecipe::for_test(rel, &[1], registry.clone()).with_profile(0, *profile);
+    let recipe = GranuleRecipe::for_test(rel, &[1], registry.clone()).with_profile(0, * profile);
     let resolved = Resolved::for_recipe(&recipe, list.clone());
     let mut src = GranuleRangeSource::new(recipe);
     src.bind(&binding_ref(&resolved)).unwrap();
@@ -612,7 +612,7 @@ fn a_parallel_scans_census_deltas_are_its_sources_counts_after_unbind() {
 
 /// V4R-19 (A): per presented window `(part, granule, lane 0's aux, lane 0's element 0)` under `enables` (slot 3 `late`).
 fn const_run(list: &Arc<gravity_hosts::ops::scan::pgrc::granule_source::PartList>, registry: &Arc<PartRegistry>, profile: &pgrc_meta::profile::MetaProfile, enables: u64, late: u64) -> Vec<(u32, u32, u32, i64)> {
-    let recipe = GranuleRecipe::for_test(4256, &[1], registry.clone()).with_profile(0, *profile).with_verdict_cell();
+    let recipe = GranuleRecipe::for_test(4256, &[1], registry.clone()).with_profile(0, * profile).with_verdict_cell();
     recipe.verdicts.set(3, late);
     recipe.verdicts.set(0, enables);
     let resolved = Resolved::for_recipe(&recipe, list.clone());

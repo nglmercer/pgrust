@@ -146,7 +146,8 @@ pub fn check_valid_foreign_result_rel<'mcx>(
             .with_sqlstate(types_error::ERRCODE_FEATURE_NOT_SUPPORTED),
         ));
     }
-    if let Some(mask) = foreigncmds_seams::fdw_is_foreign_rel_updatable::call(mcx, kind, rel.rd_id)?
+    if let Some(mask) =
+        foreigncmds_seams::fdw_is_foreign_rel_updatable::call(mcx, kind, rel.rd_id)?
     {
         if mask & (1 << operation as i32) == 0 {
             return Err(Box::new(
@@ -233,6 +234,8 @@ pub fn add_generated_extra_updated_cols<'mcx>(
     Ok(())
 }
 
+
+
 // ExecComputeStoredGenerated + ExecInitGenerated (nodeModifyTable.c). The
 // slot must be virtual: retained by-ref values point at subplan/projection
 // memory that survives the clear+restore (C datumCopies instead).
@@ -268,14 +271,7 @@ pub fn exec_compute_stored_generated_in<'mcx>(
     rel: &Relation<'mcx>,
     slot: &mut SlotData<'mcx>,
 ) -> PgResult<()> {
-    exec_compute_stored_generated_impl::<true>(
-        mcx,
-        row_mcx,
-        generated_exprs,
-        updated_cols,
-        rel,
-        slot,
-    )
+    exec_compute_stored_generated_impl::<true>(mcx, row_mcx, generated_exprs, updated_cols, rel, slot,)
 }
 
 // `updated_cols` is ExecInitGenerated's UPDATE filter (nodeModifyTable.c:496):
@@ -504,9 +500,7 @@ fn exec_constraints_impl<'mcx, const ROW: bool>(
         if constr.has_not_null {
             exec_not_null_constraints(mcx, rel, slot, root_rel, modified_cols)?;
             if constr.has_generated_virtual {
-                if let Some(i) =
-                    exec_rel_gen_virtual_notnull(mcx, row_mcx, virtual_nn_exprs, rel, slot)?
-                {
+                if let Some(i) = exec_rel_gen_virtual_notnull(mcx, row_mcx, virtual_nn_exprs, rel, slot)? {
                     return Err(not_null_violation(
                         mcx,
                         rel,

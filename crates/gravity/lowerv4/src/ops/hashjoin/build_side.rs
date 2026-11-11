@@ -189,8 +189,7 @@ impl Shape {
             if !q {
                 valued[i / 64] |= m;
             }
-        }
-        self.valued.set(valued); self.rel.set(out);
+        }self.valued.set(valued); self.rel.set(out);
     }
 }
 

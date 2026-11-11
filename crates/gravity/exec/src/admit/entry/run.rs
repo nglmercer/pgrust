@@ -599,7 +599,7 @@ impl Serve {
         let n = e.node();
         let i = n.program().sites.iter().position(|d| matches!(d.kind, gravity_program::SiteKind::RowOf { .. }))?;
         let p = n.site_pos(i);
-        (p.is_valid() && p.off != 0).then_some((p.rel, ((p.block as u64) << 16) | p.off as u64))
+        (p.is_valid() && p.off != 0).then_some( (p.rel, ((p.block as u64) << 16) | p.off as u64))
     }
 
     /// D421: the program emits the row identity after the statement's columns: the descriptor keeps the statement's.
@@ -667,7 +667,7 @@ impl Serve {
                 Some(p) => {
                     let mut open = None;
                     let _ = self.run.with_open(|x, b| {
-                        let _: () = open = Some((x as *mut gravity_driver::Exec, b as *mut gravity_driver::Binding<'_>));
+                        let _: () =open = Some((x as *mut gravity_driver::Exec, b as *mut gravity_driver::Binding<'_>));
                         Ok::<(), ()>(())
                     });
                     match open {
@@ -795,7 +795,7 @@ impl Serve {
         let mut open = None;
         if self.producers.is_some() && on_demand_protos(&self.a.program) {
             let _ = self.run.with_open(|x, b| {
-                let _: () = open = Some((x as *mut gravity_driver::Exec, b as *mut gravity_driver::Binding<'_>));
+                let _: () =open = Some((x as *mut gravity_driver::Exec, b as *mut gravity_driver::Binding<'_>));
                 Ok::<(), ()>(())
             });
         }
@@ -893,8 +893,7 @@ impl RowSend<'_> {
                 let (oid, tid) = crate::admit::entry::current_of::pack(if n[k] != 0 { 0 } else { v[k] }, v[k + 1]);
                 match self.sidecar {
                     Some(h) => tuplestore::hold::tidstore_put(h, oid, tid).map_err(gravity_hosts::stash),
-                    None => {
-                        self.last.set(Some((oid, tid)));
+                    None => {self.last.set(Some((oid, tid)));
                         Ok(())
                     },
                 }

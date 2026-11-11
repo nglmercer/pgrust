@@ -43,13 +43,13 @@
 use crate::section::{frame_start, granule_frame_base, open_section, payload_region};
 use alp::bitpack;
 use pgrc_format::abi::{
-    refuse_decode_codes, refuse_decode_narrow, refuse_dict_handle, validity_from_ctx, CodecVtable,
-    DecodeOut, EncodeInput, GranuleEncoder, KernelCtx, KernelKey, Selection, ValidityVerdict,
+    refuse_decode_codes, refuse_decode_narrow, refuse_dict_handle, validity_from_ctx, CodecVtable, DecodeOut,
+    EncodeInput, GranuleEncoder, KernelCtx, KernelKey, Selection, ValidityVerdict,
 };
 use pgrc_format::class::{CLASS_F32, CLASS_F64};
 use pgrc_format::enc::EncodingId;
 use pgrc_format::geom::{FRAME_VALUES, GRANULE_ROWS};
-use pgrc_format::meta::{MetaProbe, ProbeAnswer};
+use pgrc_format::meta::{ MetaProbe, ProbeAnswer};
 use pgrc_format::part::{OverflowSink, StreamSectionWriter};
 use pgrc_format::{FormatError, FormatResult};
 
@@ -377,9 +377,7 @@ fn check_exc_pos(pos_bytes: &[u8], len: usize, at: &'static str) -> FormatResult
 /// IXPERF F1: the index of the LAST exception at vector position `i` (a patch
 /// applies them in order, so the last one stands).
 fn exc_index(pos_bytes: &[u8], i: usize) -> Option<usize> {
-    pos_bytes
-        .chunks_exact(2)
-        .rposition(|p| u16::from_le_bytes(p.try_into().expect("len 2")) as usize == i)
+    pos_bytes.chunks_exact(2).rposition(|p| u16::from_le_bytes(p.try_into().expect("len 2")) as usize == i)
 }
 
 /// Sink for decoded vectors: either dense (full decode) or gather
@@ -455,11 +453,7 @@ impl<'s> Sink<'s> {
         match self {
             Sink::Dense { .. } => false,
             Sink::Gather { rows, next, .. } => {
-                let k = rows[*next..]
-                    .iter()
-                    .take(SPARSE_ROWS + 1)
-                    .take_while(|&&r| (r as usize) < v0 + len)
-                    .count();
+                let k = rows[*next..].iter().take(SPARSE_ROWS + 1).take_while(|&&r| (r as usize) < v0 + len).count();
                 k > 0 && k <= SPARSE_ROWS
             }
         }
@@ -467,16 +461,9 @@ impl<'s> Sink<'s> {
 
     /// IXPERF F1: gather each survivor in rows [v0, v0+len) as `value(row -
     /// v0)` (the per-value twin of [`Sink::vector`], the same order check).
-    fn gather_each(
-        &mut self,
-        v0: usize,
-        len: usize,
-        mut value: impl FnMut(usize) -> u64,
-    ) -> FormatResult<()> {
+    fn gather_each(&mut self, v0: usize, len: usize, mut value: impl FnMut(usize) -> u64,) -> FormatResult<()> {
         match self {
-            Sink::Dense { .. } => Err(FormatError::Corrupt {
-                at: "alp per-value dense sink",
-            }),
+            Sink::Dense { .. } => Err(FormatError::Corrupt { at: "alp per-value dense sink", }),
             Sink::Gather { rows, out, next } => {
                 while *next < rows.len() {
                     let r = rows[*next] as usize;
@@ -568,8 +555,7 @@ fn walk_frame(frame: &[u8], expect_values: u32, sink: &mut Sink<'_>) -> FormatRe
                 if !sink.skippable(v0, len) {
                     let span = &bytes[v0 * 8..(v0 + len) * 8];
                     if sink.sparse(v0, len) {
-                        sink.gather_each(v0, len, |i| {
-                            u64::from_le_bytes(span[i * 8..i * 8 + 8].try_into().expect("len 8"))
+                        sink.gather_each(v0, len, |i| { u64::from_le_bytes(span[i * 8..i * 8 + 8].try_into().expect("len 8"))
                         })?;
                     } else if let Some(dst) = sink.dense_span(len)? {
                         // Dense: one flat widen straight into the output.
@@ -629,12 +615,9 @@ fn walk_frame(frame: &[u8], expect_values: u32, sink: &mut Sink<'_>) -> FormatRe
                     let val_bytes = c.take(exc * 8)?;
                     check_exc_pos(pos_bytes, len, "alp exc pos")?;
                     sink.gather_each(v0, len, |i| match exc_index(pos_bytes, i) {
-                        Some(e) => u64::from_le_bytes(
-                            val_bytes[e * 8..e * 8 + 8].try_into().expect("len 8"),
-                        ),
+                        Some(e) => u64::from_le_bytes(val_bytes[e * 8..e * 8 + 8].try_into().expect("len 8"),),
                         None => {
-                            let d =
-                                for_base.wrapping_add(bitpack::get_le(packed, bit_width, i) as i64);
+                            let d = for_base.wrapping_add(bitpack::get_le(packed, bit_width, i) as i64);
                             ((d as f64) * fact * frac).to_bits()
                         }
                     })?;
@@ -737,17 +720,9 @@ fn walk_frame(frame: &[u8], expect_values: u32, sink: &mut Sink<'_>) -> FormatRe
                     sink.gather_each(v0, len, |i| {
                         let right = bitpack::get_le(rpacked, right_bw as u32, i);
                         match exc_index(pos_bytes, i) {
-                            Some(e) => {
-                                ((u16::from_le_bytes(
-                                    left_bytes[e * 2..e * 2 + 2].try_into().expect("len 2"),
-                                ) as u64)
-                                    << right_bw)
-                                    | right
+                            Some(e) => { ((u16::from_le_bytes(left_bytes[e * 2..e * 2 + 2].try_into().expect("len 2"),) as u64) << right_bw) | right
                             }
-                            None => {
-                                table[bitpack::get_le(lpacked, left_bw as u32, i) as usize
-                                    & (MAX_RD_DICT - 1)]
-                                    | right
+                            None => { table[bitpack::get_le(lpacked, left_bw as u32, i) as usize & (MAX_RD_DICT - 1)] | right
                             }
                         }
                     })?;
@@ -878,9 +853,7 @@ fn walk_frame32(frame: &[u8], expect_values: u32, sink: &mut Sink<'_>) -> Format
                 if !sink.skippable(v0, len) {
                     let span = &bytes[v0 * 4..(v0 + len) * 4];
                     if sink.sparse(v0, len) {
-                        sink.gather_each(v0, len, |i| {
-                            u32::from_le_bytes(span[i * 4..i * 4 + 4].try_into().expect("len 4"))
-                                as u64
+                        sink.gather_each(v0, len, |i| { u32::from_le_bytes(span[i * 4..i * 4 + 4].try_into().expect("len 4")) as u64
                         })?;
                     } else if let Some(dst) = sink.dense_span(len)? {
                         // Dense: one flat u32 widen straight into the output.
@@ -940,12 +913,9 @@ fn walk_frame32(frame: &[u8], expect_values: u32, sink: &mut Sink<'_>) -> Format
                     let val_bytes = c.take(exc * 4)?;
                     check_exc_pos(pos_bytes, len, "alp exc pos")?;
                     sink.gather_each(v0, len, |i| match exc_index(pos_bytes, i) {
-                        Some(e) => u32::from_le_bytes(
-                            val_bytes[e * 4..e * 4 + 4].try_into().expect("len 4"),
-                        ) as u64,
+                        Some(e) => u32::from_le_bytes(val_bytes[e * 4..e * 4 + 4].try_into().expect("len 4"),) as u64,
                         None => {
-                            let d = for_base
-                                .wrapping_add(bitpack::get_le(packed, bit_width, i) as u32 as i32);
+                            let d = for_base.wrapping_add(bitpack::get_le(packed, bit_width, i) as u32 as i32);
                             (((d as f64) * fact * frac) as f32).to_bits() as u64
                         }
                     })?;

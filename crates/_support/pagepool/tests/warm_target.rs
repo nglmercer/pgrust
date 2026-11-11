@@ -42,22 +42,15 @@ fn warm_target_grows_and_decays() {
     let mut held = Vec::new();
     let mut want = FLOOR;
     for round in 0..4 {
-        wait_for("the claimer marked its target met", 5, |_| {
-            hooks::claimer_met()
+        wait_for("the claimer marked its target met", 5, |_| { hooks::claimer_met()
         });
         hooks::claimer_hold(true);
         let m0 = stats().warm_misses;
         held.extend(burst(want / SUPER + 2));
         let s = stats();
-        assert!(
-            s.warm_misses > m0,
-            "round {round}: the burst ran the warm list dry: {s:?}"
-        );
+        assert!(s.warm_misses > m0, "round {round}: the burst ran the warm list dry: {s:?}");
         want = (want * 2).min(MAX);
-        assert_eq!(
-            s.warm_target, want,
-            "round {round}: one doubling per refill, capped"
-        );
+        assert_eq!(s.warm_target, want, "round {round}: one doubling per refill, capped");
         hooks::claimer_hold(false);
         wait_for("the claimer met the new target", 5, |s| s.warm_zero >= want);
     }
@@ -67,14 +60,8 @@ fn warm_target_grows_and_decays() {
     }
     hooks::claimer_idle(4);
     let s = stats();
-    assert_eq!(
-        s.warm_target, FLOOR,
-        "idle halved the target back to the floor: {s:?}"
-    );
-    assert_eq!(
-        s.releases, 0,
-        "the decay lowers the target; it releases nothing (pressure-only mode)"
-    );
+    assert_eq!(s.warm_target, FLOOR, "idle halved the target back to the floor: {s:?}");
+    assert_eq!(s.releases, 0, "the decay lowers the target; it releases nothing (pressure-only mode)");
     stop();
     balanced();
 }

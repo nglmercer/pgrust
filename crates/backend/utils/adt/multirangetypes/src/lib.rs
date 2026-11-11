@@ -61,9 +61,9 @@ impl MultirangeInfo {
 
 // multirange_get_typcache (multirangetypes.c): fn_extra memo.
 pub fn cached_multirange_info(
-    flinfo: &mut FmgrInfo,
+    flinfo: & mut FmgrInfo,
     mltrngtypid: Oid,
-) -> PgResult<&mut MultirangeInfo> {
+) -> PgResult<& mut MultirangeInfo> {
     let need = match flinfo.fn_extra_ref::<MultirangeInfo>() {
         Some(mi) => mi.mltrngtypid != mltrngtypid,
         None => true,

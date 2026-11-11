@@ -54,8 +54,7 @@ pub(crate) fn get_ext_ver_list(control: &ExtensionControlFile) -> PgResult<Vec<E
         if let Some(errno) = e.raw_os_error() {
             b = b.with_saved_errno(errno).errcode_for_file_access();
         }
-        b.errmsg(format!("could not open directory \"{location}\": {PCT_M}"))
-            .into_error()
+        b.errmsg(format!("could not open directory \"{location}\": {PCT_M}")).into_error()
     })?;
     for de in entries {
         let de = de.map_err(|e| {
@@ -63,13 +62,10 @@ pub(crate) fn get_ext_ver_list(control: &ExtensionControlFile) -> PgResult<Vec<E
             if let Some(errno) = e.raw_os_error() {
                 b = b.with_saved_errno(errno).errcode_for_file_access();
             }
-            b.errmsg(format!("could not read directory \"{location}\": {PCT_M}"))
-                .into_error()
+            b.errmsg(format!("could not read directory \"{location}\": {PCT_M}")).into_error()
         })?;
         let fname = de.file_name();
-        let Some(fname) = fname.to_str() else {
-            continue;
-        };
+        let Some(fname) = fname.to_str() else { continue; };
         if !is_extension_script_filename(fname) {
             continue;
         }
@@ -132,7 +128,8 @@ pub(crate) fn identify_update_path<'a>(
 }
 
 pub(crate) fn find_update_path(
-    #[allow(clippy::ptr_arg)] evi_list: &mut Vec<EviData>,
+    #[allow(clippy::ptr_arg)]
+    evi_list: &mut Vec<EviData>,
     evi_start: usize,
     evi_target: usize,
     reject_indirect: bool,
@@ -187,9 +184,7 @@ pub(crate) fn find_update_path(
     let mut evi = evi_target;
     while evi != evi_start {
         result.push(evi_list[evi].name.clone());
-        evi = evi_list[evi]
-            .previous
-            .expect("path reconstruction from a known distance");
+        evi = evi_list[evi].previous.expect("path reconstruction from a known distance");
     }
     result.reverse();
     result
@@ -219,7 +214,8 @@ pub(crate) fn find_install_path(
             None => true,
             Some(start) => {
                 path.len() < best_path.len()
-                    || (path.len() == best_path.len() && evi_list[start].name < evi_list[evi1].name)
+                    || (path.len() == best_path.len()
+                        && evi_list[start].name < evi_list[evi1].name)
             }
         };
         if better {

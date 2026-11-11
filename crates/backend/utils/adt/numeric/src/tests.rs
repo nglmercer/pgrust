@@ -1748,7 +1748,7 @@ fn fixed_kernels_agree_randomized_wide() {
         let v1 = VarView {
             ndigits: n1 as i32,
             weight: (rng.next() % 31) as i32 - 15,
-            sign: if rng.next().is_multiple_of(2) {
+            sign: if rng.next().is_multiple_of( 2) {
                 NUMERIC_POS
             } else {
                 NUMERIC_NEG
@@ -1759,7 +1759,7 @@ fn fixed_kernels_agree_randomized_wide() {
         let v2 = VarView {
             ndigits: n2 as i32,
             weight: (rng.next() % 31) as i32 - 15,
-            sign: if rng.next().is_multiple_of(2) {
+            sign: if rng.next().is_multiple_of( 2) {
                 NUMERIC_POS
             } else {
                 NUMERIC_NEG

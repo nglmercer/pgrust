@@ -194,7 +194,7 @@ impl ScanState {
         let vars = HashMap::new();
         for line in query.split('\n') {
             // The first item of the first line that yields one decides the count.
-            if let Some(item) = st.scan_line(line, &vars).into_iter().next() {
+            if let Some( item) = st.scan_line(line, &vars).into_iter().next() {
                 return match item {
                     ScanItem::Statement(_, n) => n,
                     ScanItem::Backslash(_) => st.count_copy_from_stdin(),
@@ -271,7 +271,7 @@ impl ScanState {
                             push!(chars[i + 1]);
                             i += 2;
                             continue;
-                        }
+                    }
                     i += 1;
                 }
                 QuoteState::EString => {

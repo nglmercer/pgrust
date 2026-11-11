@@ -59,15 +59,19 @@ pub const fn breakers_bits(bits: u8) -> [Breaker; 3] {
     ]
 }
 
+#[allow(dead_code)]
 pub(crate) unsafe fn spill(ctx: *mut Ctx, op: u32, arg: i64) -> i64 {
     crate::util::spill(ctx, op, arg)
 }
 
+#[allow(dead_code)]
 pub(crate) const STACK: usize = 64;
 
+#[allow(dead_code)]
 pub(crate) const MEMO: usize = 1024;
 
 /// Outer token `token` (and the sub-tokens a split queues) against the refilled build table;
+#[allow(dead_code)]
 pub(crate) unsafe fn outer_split(ctx: *mut Ctx, outer_off: i64, t: u32, memo: &mut [(u32, u32, u32); MEMO], ostream: i64) -> core::result::Result<(u32, u32), i64> {
     if let Some(&(_, lo, hi)) = memo.iter().find(|m| m.0 == t) {
         return Ok((lo, hi));

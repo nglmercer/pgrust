@@ -274,10 +274,7 @@ pub fn findNewestTimeLine(
 
 // C: xlogtemp.<pid>. Unique per call here: segment creation on other threads shares the namespace.
 fn xlog_temp_path() -> String {
-    format!(
-        "{XLOGDIR}/xlogtemp.{}",
-        init_small::globals::temp_file_tag()
-    )
+    format!("{XLOGDIR}/xlogtemp.{}", init_small::globals::temp_file_tag())
 }
 
 fn create_temp_history_file(tmppath: &str, func: &'static str) -> PgResult<i32> {

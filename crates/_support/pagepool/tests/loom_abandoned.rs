@@ -25,11 +25,7 @@ struct Lock(AtomicU32);
 
 impl Spin for Lock {
     fn lock(&self) {
-        while self
-            .0
-            .compare_exchange_weak(0, 1, Acquire, Relaxed)
-            .is_err()
-        {
+        while self.0.compare_exchange_weak(0, 1, Acquire, Relaxed).is_err() {
             loom::thread::yield_now();
         }
     }
@@ -52,10 +48,7 @@ impl Nodes for Runs {
         // the link lies in the run's memory: reading it reads the run
         // SAFETY: loom's cell; a concurrent give-back is reported, not raced.
         let gone = self.mem[i as usize].with(|p| unsafe { *p });
-        assert_eq!(
-            gone, 0,
-            "a remover read the alink of run {i} after it was given back"
-        );
+        assert_eq!(gone, 0, "a remover read the alink of run {i} after it was given back");
         self.link[i as usize].load(Relaxed)
     }
     fn set_next_batch(&self, i: u32, v: u32) {
@@ -84,10 +77,7 @@ fn two_runs() -> Arc<Ab> {
     let ab = Arc::new(Ab {
         stack: Stack::with(L(AtomicU64::new(NONE as u64))),
         lock: Lock(AtomicU32::new(0)),
-        runs: Runs {
-            link: [AtomicU32::new(NONE), AtomicU32::new(NONE)],
-            mem: [UnsafeCell::new(0), UnsafeCell::new(0)],
-        },
+        runs: Runs { link: [AtomicU32::new(NONE), AtomicU32::new(NONE)], mem: [UnsafeCell::new(0), UnsafeCell::new(0)], },
     });
     ab.stack.push(&ab.runs, 0);
     ab.stack.push(&ab.runs, 1);
@@ -104,12 +94,7 @@ fn settle(ab: &Ab) {
         c = ab.runs.link[c as usize].load(Relaxed);
     }
     for i in 0..2 {
-        assert!(
-            listed[i as usize] != ab.runs.gone(i),
-            "run {i}: listed {} given back {}",
-            listed[i as usize],
-            ab.runs.gone(i)
-        );
+        assert!(listed[i as usize] != ab.runs.gone(i), "run {i}: listed {} given back {}", listed[i as usize], ab.runs.gone(i));
     }
 }
 

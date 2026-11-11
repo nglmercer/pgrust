@@ -65,10 +65,7 @@ pub struct ReservoirStateData {
 }
 
 pub fn reservoir_init_selection_state(seed: u32, n: u32) -> ReservoirStateData {
-    let mut rs = ReservoirStateData {
-        w: 0.0,
-        randstate: PgPrng::seeded(seed as u64),
-    };
+    let mut rs = ReservoirStateData { w: 0.0, randstate: PgPrng::seeded(seed as u64), };
     rs.w = (-sampler_random_fract(&mut rs.randstate).ln() / n as f64).exp();
     rs
 }

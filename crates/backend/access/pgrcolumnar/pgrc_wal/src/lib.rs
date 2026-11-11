@@ -16,19 +16,11 @@ pub use insert::{sink_for, XlogSink};
 pub use redo::pgrc_redo;
 
 pub fn locator(loc: DirLoc) -> RelFileLocator {
-    RelFileLocator {
-        spcOid: loc.spc,
-        dbOid: loc.db,
-        relNumber: loc.relnumber,
-    }
+    RelFileLocator { spcOid: loc.spc, dbOid: loc.db, relNumber: loc.relnumber, }
 }
 
 pub fn dir_loc(l: RelFileLocator) -> DirLoc {
-    DirLoc {
-        spc: l.spcOid,
-        db: l.dbOid,
-        relnumber: l.relNumber,
-    }
+    DirLoc { spc: l.spcOid, db: l.dbOid, relnumber: l.relNumber, }
 }
 
 pub fn init_seams() {

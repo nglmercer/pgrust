@@ -113,7 +113,7 @@ fn list_preds_of<'q>(slots: impl Iterator<Item = &'q Proto>, words: &[u64], null
         let mut members = Vec::new(); // alloc: Exec
         // a probe-word list (`WORD_ZONE_LIST_HASH`): each member's probe word, made from its image as the lowering makes a
         // constant's (P5-11 / P5-13 `HashEq`); a member the host does not read in place gives the list none
-        let hash = gravity_program::protos::word_zone_list_hash(q.arg).then_some(if ef.len == -1 { gravity_program::BOUND_TEXT_HASH } else { gravity_program::BOUND_FIXED_HASH | ef.len as u8 });
+        let hash = gravity_program::protos::word_zone_list_hash(q.arg).then_some( if ef.len == -1 { gravity_program::BOUND_TEXT_HASH } else { gravity_program::BOUND_FIXED_HASH | ef.len as u8 });
         // sortpath (4): a path lane's list: each member's prefix key (`WORD_ZONE_LIST_PREFIX`), a text image's as the
         // lowering makes a constant's (SRC-09); a member it cannot read gives the list none
         let prefix = gravity_program::protos::word_zone_list_prefix(q.arg) && ef.len == -1;

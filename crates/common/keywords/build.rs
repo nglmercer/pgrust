@@ -42,7 +42,7 @@ fn main() {
         kw_string.push(0);
     }
     // Pad so the compare loop can never index past the buffer.
-    kw_string.extend(std::iter::repeat_n(0, max_kw_len + 1));
+    kw_string.extend(std::iter::repeat_n(0,max_kw_len + 1));
 
     let mut out = String::new();
     let _ = writeln!(out, "pub const SCANKEYWORDS_NUM_KEYWORDS: usize = {num_keywords};");

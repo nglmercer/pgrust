@@ -22,10 +22,7 @@ fn with_rel<R>(f: impl FnOnce(&mut RelOptInfo<'_>) -> R) -> R {
 // to keep exercising the algorithm rather than the default value. Save/restore
 // keeps the process-global GUC clean for sibling tests.
 fn pin_c_thresholds() -> (i32, i32) {
-    let save = (
-        gucs::min_parallel_table_scan_size(),
-        gucs::min_parallel_index_scan_size(),
-    );
+    let save = (gucs::min_parallel_table_scan_size(), gucs::min_parallel_index_scan_size(),);
     gucs::set_min_parallel_table_scan_size(1024);
     gucs::set_min_parallel_index_scan_size(64);
     save

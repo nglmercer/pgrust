@@ -10,8 +10,8 @@ use cache_syscache::cacheinfo::{AUTHMEMROLEMEM, AUTHOID, DATABASEOID, NAMESPACEO
 use crate::lookup::get_namespace_oid;
 use crate::{
     with_path, with_path_state_mut, OidIsValid, ACTIVE_PATH_GENERATION, BASE_CREATION_NAMESPACE,
-    BASE_SEARCH_PATH_VALID, BASE_TEMP_CREATION_PENDING, MY_TEMP_NAMESPACE, NAMESPACE_SEARCH_PATH,
-    NAMESPACE_USER,
+    BASE_SEARCH_PATH_VALID, BASE_TEMP_CREATION_PENDING, MY_TEMP_NAMESPACE,
+    NAMESPACE_SEARCH_PATH, NAMESPACE_USER,
 };
 
 const ACL_USAGE: u64 = 1 << 8;
@@ -64,17 +64,17 @@ impl SpCache<'_> {
     }
 }
 
-fn append_oids<'mcx>(mcx: Mcx<'mcx>, pool: &mut PgVec<'mcx, Oid>, src: &[Oid]) -> PgResult<Span> {
+fn append_oids<'mcx>(
+    mcx: Mcx<'mcx>,
+    pool: &mut PgVec<'mcx, Oid>,
+    src: &[Oid]
+) -> PgResult<Span> {
     let off = pool.len();
-    pool.try_reserve(src.len())
-        .map_err(|_| mcx.oom(src.len() * 4))?;
+    pool.try_reserve(src.len()).map_err(|_| mcx.oom(src.len() * 4))?;
     for &o in src {
         pool.push(o);
     }
-    Ok(Span {
-        off: off as u32,
-        len: src.len() as u32,
-    })
+    Ok(Span { off: off as u32, len: src.len() as u32, })
 }
 
 mcx::bind!(SpCacheTy => SpCache<'mcx>);
@@ -95,9 +95,7 @@ fn spcache_created() -> bool {
 fn with_spcache<R>(f: impl for<'mcx> FnOnce(&mut SpCache<'mcx>) -> R) -> R {
     SPCACHE.with(|slot| {
         let mut s = slot.borrow_mut();
-        s.as_mut()
-            .expect("spcache used before spcache_init")
-            .with_mut(f)
+        s.as_mut().expect("spcache used before spcache_init").with_mut(f)
     })
 }
 
@@ -106,9 +104,7 @@ fn with_spcache_mcx<R>(
 ) -> PgResult<R> {
     SPCACHE.with(|slot| {
         let mut s = slot.borrow_mut();
-        s.as_mut()
-            .expect("spcache used before spcache_init")
-            .with_mut_mcx(f)
+        s.as_mut().expect("spcache used before spcache_init").with_mut_mcx(f)
     })
 }
 
@@ -131,15 +127,18 @@ fn spcache_init() -> PgResult<()> {
         // Dropping the old McxOwned frees its context wholesale (C:
         // MemoryContextReset of SearchPathCacheContext).
         *slot.borrow_mut() = None;
-        let fresh = McxOwned::try_new(MemoryContext::new("search_path processing cache"), |m| {
-            Ok(SpCache {
-                names: vec_with_capacity_in(m, 256)?,
-                oids: vec_with_capacity_in(m, 64)?,
-                entries: vec_with_capacity_in(m, 16)?,
-                by_role: PgHashMap::with_capacity_in(4, m),
-                last: None,
-            })
-        })?;
+        let fresh = McxOwned::try_new(
+            MemoryContext::new("search_path processing cache"),
+            |m| {
+                Ok(SpCache {
+                    names: vec_with_capacity_in(m, 256)?,
+                    oids: vec_with_capacity_in(m, 64)?,
+                    entries: vec_with_capacity_in(m, 16)?,
+                    by_role: PgHashMap::with_capacity_in(4, m),
+                    last: None,
+                })
+            }
+        )?;
         *slot.borrow_mut() = Some(fresh);
         SEARCH_PATH_CACHE_VALID.with(|c| c.set(true));
         Ok(())
@@ -172,11 +171,7 @@ fn spcache_insert(searchPath: &str, roleid: Oid) -> PgResult<u32> {
                 return Ok(i);
             }
         }
-        if let Some(&i) = c
-            .by_role
-            .get(&roleid)
-            .and_then(|inner| inner.get(searchPath))
-        {
+        if let Some(&i) = c.by_role.get(&roleid).and_then(|inner| inner.get(searchPath)) {
             c.last = Some(i);
             return Ok(i);
         }
@@ -184,14 +179,9 @@ fn spcache_insert(searchPath: &str, roleid: Oid) -> PgResult<u32> {
         let idx = c.entries.len() as u32;
         let name_off = c.names.len() as u32;
         mcx::vec_append_bytes(&mut c.names, searchPath.as_bytes())?;
-        c.entries
-            .try_reserve(1)
-            .map_err(|_| m.oom(core::mem::size_of::<SpEntry>()))?;
+        c.entries.try_reserve(1).map_err(|_| m.oom(core::mem::size_of::<SpEntry>()))?;
         c.entries.push(SpEntry {
-            name: Span {
-                off: name_off,
-                len: searchPath.len() as u32,
-            },
+            name: Span { off: name_off, len: searchPath.len() as u32, },
             roleid,
             oidlist: NIL,
             final_path: NIL,
@@ -222,8 +212,7 @@ fn database_encoding() -> wchar::pg_enc {
 fn preprocessNamespacePath(searchPath: &str, roleid: Oid) -> PgResult<(Vec<Oid>, bool)> {
     let scratch = MemoryContext::new("preprocessNamespacePath");
     let mcx = scratch.mcx();
-    let Some(namelist) =
-        varlena::split_identifier_string(mcx, searchPath, b',', database_encoding())?
+    let Some(namelist) = varlena::split_identifier_string(mcx, searchPath, b',', database_encoding())?
     else {
         return Err(Box::new(
             types_error::PgError::error("invalid list syntax")
@@ -327,8 +316,8 @@ fn cachedNamespacePath<R>(
         c.entries[idx].final_path.len == 0 || hook_set || c.entries[idx].force_recompute
     });
     if need_final {
-        let oidlist: Vec<Oid> = with_spcache(|c| {
-            ::mcx::std_vec_from_slice("catalog_namespace", c.oid_span(c.entries[idx].oidlist))
+        let oidlist: Vec<Oid> =
+            with_spcache(|c| { ::mcx::std_vec_from_slice("catalog_namespace", c.oid_span(c.entries[idx].oidlist))
         })?;
         let (final_path, first_ns) = finalNamespacePath(&oidlist)?;
         with_spcache_mcx(|m, c| {
@@ -337,10 +326,7 @@ fn cachedNamespacePath<R>(
             let span = if cap >= n && cap > 0 {
                 let off = c.entries[idx].final_path.off as usize;
                 c.oids[off..off + n as usize].copy_from_slice(&final_path);
-                Span {
-                    off: off as u32,
-                    len: n,
-                }
+                Span { off: off as u32, len: n, }
             } else {
                 let span = append_oids(m, &mut c.oids, &final_path)?;
                 c.entries[idx].final_cap = n;
@@ -377,9 +363,7 @@ pub(crate) fn recomputeNamespacePath() -> PgResult<()> {
 /// D4010: the resolved path's fingerprint, its namespace OIDs in order (a few words: hashed at each ask, so no cache can
 /// outlive a session swap of the path).
 fn path_fingerprint() -> u64 {
-    with_path(|p| {
-        p.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, &o| {
-            (h ^ u64::from(o)).wrapping_mul(0x0000_0100_0000_01b3)
+    with_path(|p| { p.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, &o| { (h ^ u64::from(o)).wrapping_mul(0x0000_0100_0000_01b3)
         })
     })
 }
@@ -396,9 +380,7 @@ fn recompute_path() -> PgResult<()> {
         return Ok(());
     }
 
-    let search_path = NAMESPACE_SEARCH_PATH
-        .with(|s| s.borrow().clone())
-        .unwrap_or_default();
+    let search_path = NAMESPACE_SEARCH_PATH.with(|s| s.borrow().clone()).unwrap_or_default();
     let pathChanged = cachedNamespacePath(&search_path, roleid, |entry, final_path| {
         with_path_state_mut(|ps| {
             let changed = !(BASE_CREATION_NAMESPACE.with(Cell::get) == entry.first_ns

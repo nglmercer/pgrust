@@ -11,7 +11,8 @@ use crate::list::OptNodeList;
 use crate::list::{IntList, NodeList, OidList, XidList};
 use crate::node_tree::{BitString, Boolean, Float, Integer, Node, String};
 use crate::parsenodes::{
-    AccessPriv, AlterTableCmd, AlterTableStmt, CTECycleClause, CTESearchClause, CommonTableExpr,
+    AccessPriv, AlterTableCmd, AlterTableStmt, CTECycleClause,
+    CTESearchClause, CommonTableExpr,
     CopyStmt, DeallocateStmt, DeclareCursorStmt, DefElem, DropStmt, ExecuteStmt, ExplainStmt,
     FetchStmt, GrantStmt, GroupingSet, NotifyStmt, PrepareStmt, Query, RTEPermissionInfo,
     RangeTblEntry, RangeTblFunction, RoleSpec, RowMarkClause, SetOperationStmt, TransactionStmt,
@@ -19,14 +20,11 @@ use crate::parsenodes::{
     WithCheckOption, WithClause,
 };
 use crate::primnodes::{
-    Aggref, Alias, AlternativeSubPlan, ArrayCoerceExpr, ArrayExpr, BoolExpr, BooleanTest, CaseExpr,
-    CaseTestExpr, CaseWhen, CoalesceExpr, CoerceToDomain, CoerceToDomainValue, CoerceViaIO,
-    CollateExpr, Const, ConvertRowtypeExpr, CurrentOfExpr, DistinctExpr, FieldSelect, FieldStore,
-    FromExpr, FuncExpr, GroupingFunc, InferenceElem, JoinExpr, MergeAction, MergeSupportFunc,
-    MinMaxExpr, NamedArgExpr, NextValueExpr, NullTest, OnConflictExpr, OpExpr, Param,
-    PlaceHolderVar, RangeTblRef, RangeVar, RelabelType, ReturningExpr, RowCompareExpr, RowExpr,
-    SQLValueFunction, ScalarArrayOpExpr, SetToDefault, SubLink, SubPlan, SubscriptingRef,
-    TableFunc, TargetEntry, Var, WindowFunc, WindowFuncRunCondition, XmlExpr,
+    Aggref, Alias, AlternativeSubPlan, ArrayCoerceExpr, ArrayExpr, BoolExpr, BooleanTest, CaseExpr, CaseTestExpr,
+    CaseWhen, CoalesceExpr, CoerceToDomain, CoerceToDomainValue, CoerceViaIO, CollateExpr, Const, ConvertRowtypeExpr, CurrentOfExpr, DistinctExpr, FieldSelect, FieldStore, FromExpr, FuncExpr, GroupingFunc, InferenceElem, JoinExpr, MergeAction, MergeSupportFunc,
+    MinMaxExpr, NamedArgExpr, NextValueExpr,
+    NullTest, OnConflictExpr, OpExpr, Param, PlaceHolderVar, RangeTblRef, RangeVar, RelabelType, ReturningExpr, RowCompareExpr, RowExpr,
+    SQLValueFunction, ScalarArrayOpExpr, SetToDefault, SubLink, SubPlan, SubscriptingRef, TableFunc, TargetEntry, Var, WindowFunc, WindowFuncRunCondition, XmlExpr,
 };
 use crate::rawnodes::{
     A_ArrayExpr, A_Const, A_Expr, A_Indices, A_Indirection, A_Star, CallStmt, CollateClause,
@@ -85,9 +83,7 @@ pub fn equal(a: Node<'_>, b: Node<'_>) -> bool {
     stack_depth_core::check_stack_depth_or_panic();
     macro_rules! cmp {
         ($as_variant:ident) => {
-            a.$as_variant()
-                .unwrap()
-                .node_equal(b.$as_variant().unwrap())
+            a.$as_variant().unwrap().node_equal(b.$as_variant().unwrap())
         };
     }
     match tag {
@@ -490,12 +486,7 @@ impl NodeEqual for Const {
         if self.constisnull {
             return true;
         }
-        datum_is_equal(
-            self.constvalue,
-            b.constvalue,
-            self.constbyval,
-            self.constlen,
-        )
+        datum_is_equal(self.constvalue, b.constvalue, self.constbyval, self.constlen,)
     }
 }
 
@@ -594,9 +585,7 @@ impl NodeEqual for RowExpr<'_> {
 
 impl NodeEqual for ReturningExpr<'_> {
     fn node_equal(&self, b: &Self) -> bool {
-        self.retlevelsup == b.retlevelsup
-            && self.retold == b.retold
-            && equal(self.retexpr, b.retexpr)
+        self.retlevelsup == b.retlevelsup && self.retold == b.retold && equal(self.retexpr, b.retexpr)
     }
 }
 
@@ -1670,7 +1659,9 @@ impl NodeEqual for A_ArrayExpr<'_> {
 
 impl NodeEqual for A_Indices<'_> {
     fn node_equal(&self, b: &Self) -> bool {
-        self.is_slice == b.is_slice && equal_opt(self.lidx, b.lidx) && equal_opt(self.uidx, b.uidx)
+        self.is_slice == b.is_slice
+            && equal_opt(self.lidx, b.lidx)
+            && equal_opt(self.uidx, b.uidx)
     }
 }
 
@@ -1899,9 +1890,7 @@ impl NodeEqual for IndexStmt<'_> {
             && self.accessMethod == b.accessMethod
             && self.tableSpace == b.tableSpace
             && self.indexParams.node_equal(&b.indexParams)
-            && self
-                .indexIncludingParams
-                .node_equal(&b.indexIncludingParams)
+            && self.indexIncludingParams.node_equal(&b.indexIncludingParams)
             && self.options.node_equal(&b.options)
             && equal_opt(self.whereClause, b.whereClause)
             && self.excludeOpNames.node_equal(&b.excludeOpNames)

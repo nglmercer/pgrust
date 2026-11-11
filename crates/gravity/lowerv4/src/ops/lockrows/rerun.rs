@@ -221,7 +221,7 @@ fn verdict_held(gx: &Gx<'_, '_>, k: usize, marks: &[RowMark], road: Road<'_>, la
         false
     };
     // an outer-first probe PG's later rechecks may run build-first (not FILL_OUTER: S2 left INNER / SEMI / RIGHT SEMI)
-    let flips = |q: usize, o: &Op<'_>| matches!(o, Op::Join(JoinDesc::Probe { slot, outer_first: true, .. }) if producer(q, *slot).is_some_and(&empty));
+    let flips = |q: usize, o: &Op<'_>| matches!(o, Op::Join(JoinDesc::Probe { slot, outer_first: true, .. }) if producer(q, *slot).is_some_and(& empty));
     // the producers PG runs whenever a pipeline that always runs does, from `k`. Its hash joins from the last probe down:
     // a probe runs while every later one is outer-first and no later one flips (over an empty build a build-first join
     // runs nothing of its outer side); a build-first probe builds first; an outer-first one builds at its outer's first
@@ -284,7 +284,7 @@ fn verdict_held(gx: &Gx<'_, '_>, k: usize, marks: &[RowMark], road: Road<'_>, la
                 runs.extend_in(producer(q, *slot));
             }
             // lockrows REFFAM: a build-first probe over a build that cannot be empty (`empty`) runs its outer side
-            if !outer_first && producer(q, *slot).is_none_or(&empty) || flips(q, o) {
+            if !outer_first && producer(q, *slot).is_none_or(& empty) || flips(q, o) {
                 cut = true;
                 break;
             }
@@ -335,7 +335,7 @@ fn verdict_held(gx: &Gx<'_, '_>, k: usize, marks: &[RowMark], road: Road<'_>, la
             Op::Join(JoinDesc::Probe { slot, .. }) => producer(q, *slot),
             _ => None,
         };
-        q == k && crate::rerun::epq::marks::epq_probe(gx, k) == Some(i) && b.is_some_and(&rerun)
+        q == k && crate::rerun::epq::marks::epq_probe(gx, k) == Some(i) && b.is_some_and(& rerun)
     };
     let skipped = |q: usize| (from[q]..ps[q].ops.len()).any(|i| flips(q, &ps[q].ops[i]) && !exact(q, i) && !crate::effects::span_quiet(gx, &ps[q], from[q], i, copied[q]));
     if (0..=k).any(|q| (q == k || q < k && rerun(q)) && skipped(q)) {

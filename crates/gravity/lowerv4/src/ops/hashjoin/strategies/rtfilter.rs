@@ -301,11 +301,9 @@ mod tests {
         let run = |flags: u8| {
             let mut got = Vec::new();
             // SAFETY: `buf` (4 KiB) holds the header and three 24-byte records (two key words and the link) from HDR.
-            let n = unsafe {
-                wr::<u8>(d, 15, KIND); wr::<u8>(d, PHASE, 2); wr::<u8>(d, FLAGS, flags); wr::<u8>(d, WORDS, 2); wr::<u32>(d, REC, 24);
-                wr::<u64>(d, N, 3); wr::<i64>(d, LO, 5); wr::<i64>(d, HI, 40);
-                for (i, (a, b)) in [(40i64, 7i64), (5, -3), (17, 1 << 40)].into_iter().enumerate() {
-                    wr::<i64>(d, HDR + 24 * i, a); wr::<i64>(d, HDR + 24 * i + 8, b);
+            let n = unsafe {wr::<u8>(d, 15, KIND); wr::<u8>(d, PHASE, 2); wr::<u8>(d, FLAGS, flags); wr::<u8>(d, WORDS, 2); wr::<u32>(d, REC, 24);
+wr::<u64>(d, N, 3); wr::<i64>(d, LO, 5); wr::<i64>(d, HI, 40);
+                for (i, (a, b)) in [(40i64, 7i64), (5, -3), (17, 1 << 40)].into_iter().enumerate() {wr::<i64>(d, HDR + 24 * i, a); wr::<i64>(d, HDR + 24 * i + 8, b);
                 }
                 export(d, &[], None, &mut |k, a, b| got.push((k, a as i64, b as i64)))
             };

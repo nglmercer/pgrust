@@ -200,7 +200,8 @@ pub fn ldap_url_parse(url: &str) -> Result<LdapUrlDesc, i32> {
     };
 
     // host[:port], with [v6]:port bracket form.
-    let (host_part, port_part): (&str, Option<&str>) = if let Some(h) = hostport.strip_prefix('[') {
+    let (host_part, port_part): (&str, Option<&str>) = if let Some(h) = hostport.strip_prefix('[')
+    {
         let Some(close) = h.find(']') else {
             return Err(LDAP_URL_ERR_BADENCLOSURE);
         };
@@ -231,11 +232,7 @@ pub fn ldap_url_parse(url: &str) -> Result<LdapUrlDesc, i32> {
 
     // LDAP_PVT_URL_PARSE_DEF_PORT (part of HISTORIC).
     if desc.port == 0 && desc.scheme != "ldapi" {
-        desc.port = if desc.scheme == "ldaps" {
-            LDAPS_PORT
-        } else {
-            LDAP_PORT
-        };
+        desc.port = if desc.scheme == "ldaps" { LDAPS_PORT } else { LDAP_PORT };
     }
 
     let Some(sections) = sections else {
@@ -295,14 +292,8 @@ mod tests {
         assert_eq!(d.dn.as_deref(), Some("dc=a"));
         assert_eq!(d.filter.as_deref(), Some("(x=y)"));
         assert_eq!(ldap_url_parse("url:LDAPS://h").unwrap().scheme, "ldaps");
-        assert_eq!(
-            ldap_url_parse("<ldap://h/>").unwrap().host.as_deref(),
-            Some("h")
-        );
-        assert_eq!(
-            ldap_url_parse("<ldap://h").err(),
-            Some(LDAP_URL_ERR_BADENCLOSURE)
-        );
+        assert_eq!(ldap_url_parse("<ldap://h/>").unwrap().host.as_deref(), Some("h"));
+        assert_eq!(ldap_url_parse("<ldap://h").err(), Some(LDAP_URL_ERR_BADENCLOSURE));
     }
 
     // fp-libpq-hba#3: extensions parse into lud_exts, which hba.c ignores.
@@ -312,14 +303,8 @@ mod tests {
         assert_eq!(d.filter.as_deref(), Some("(x=y)"));
         assert_eq!(d.attrs, vec!["uid".to_string()]);
         assert!(ldap_url_parse("ldap://h/dc=a????").is_ok());
-        assert_eq!(
-            ldap_url_parse("ldap://h/dc=a????,").err(),
-            Some(LDAP_URL_ERR_BADEXTS)
-        );
-        assert_eq!(
-            ldap_url_parse("ldap://h/dc=a????a?b").err(),
-            Some(LDAP_URL_ERR_BADURL)
-        );
+        assert_eq!(ldap_url_parse("ldap://h/dc=a????,").err(), Some(LDAP_URL_ERR_BADEXTS));
+        assert_eq!(ldap_url_parse("ldap://h/dc=a????a?b").err(), Some(LDAP_URL_ERR_BADURL));
     }
 
     // ldap_pvt_hex_unescape writes into a C string: a %00 ends the component
@@ -346,9 +331,6 @@ mod tests {
         assert_eq!(ldap_url_parse("ldap://h:0/dc=x").unwrap().port, 389);
         assert_eq!(ldap_url_parse("ldap://h:1234").unwrap().port, 1234);
         assert_eq!(ldap_url_parse("ldap://h").unwrap().dn, None);
-        assert_eq!(
-            ldap_url_parse("ldap://a:b:389/").err(),
-            Some(LDAP_URL_ERR_BADURL)
-        );
+        assert_eq!(ldap_url_parse("ldap://a:b:389/").err(), Some(LDAP_URL_ERR_BADURL));
     }
 }

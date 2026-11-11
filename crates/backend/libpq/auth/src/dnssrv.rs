@@ -109,9 +109,10 @@ fn str2dn(s: &str) -> Result<Vec<Vec<Ava>>, ()> {
                             if pos >= n {
                                 return Err(());
                             }
-                            if let (Some(h), Some(l)) =
-                                (hex_val(b[pos]), b.get(pos + 1).copied().and_then(hex_val))
-                            {
+                            if let (Some(h), Some(l)) = (
+                                hex_val(b[pos]),
+                                b.get(pos + 1).copied().and_then(hex_val)
+                            ) {
                                 out.push((h << 4) | l);
                                 pos += 2;
                             } else {
@@ -137,9 +138,10 @@ fn str2dn(s: &str) -> Result<Vec<Vec<Ava>>, ()> {
                             if pos >= n {
                                 return Err(());
                             }
-                            if let (Some(h), Some(l)) =
-                                (hex_val(b[pos]), b.get(pos + 1).copied().and_then(hex_val))
-                            {
+                            if let (Some(h), Some(l)) = (
+                                hex_val(b[pos]),
+                                b.get(pos + 1).copied().and_then(hex_val)
+                            ) {
                                 out.push((h << 4) | l);
                                 pos += 2;
                             } else {
@@ -219,11 +221,7 @@ pub fn ldap_dn2domain(dn_in: &str) -> Result<Option<String>, ()> {
             }
         }
     }
-    Ok(if domain.is_empty() {
-        None
-    } else {
-        Some(domain)
-    })
+    Ok(if domain.is_empty() { None } else { Some(domain) })
 }
 
 // ---------- res_query: the glibc resolver subset for one query ----------
@@ -323,10 +321,8 @@ impl ResolvConf {
         let text = std::fs::read_to_string("/etc/resolv.conf").unwrap_or_default();
         let mut conf = ResolvConf::parse(&text);
         if conf.nameservers.is_empty() {
-            conf.nameservers.push(SocketAddr::new(
-                IpAddr::from([127, 0, 0, 1]),
-                NS_DEFAULTPORT,
-            ));
+            conf.nameservers
+                .push(SocketAddr::new(IpAddr::from([127, 0, 0, 1]), NS_DEFAULTPORT,));
         }
         if let Some(opts) = crate::ldapconf::getenv("RES_OPTIONS") {
             conf.set_options(&opts);
@@ -462,9 +458,7 @@ fn send_dg(ns: SocketAddr, query: &[u8], seconds: u32) -> Dg {
     } else {
         "[::]:0".parse().expect("literal")
     };
-    let Ok(sock) = UdpSocket::bind(bind) else {
-        return Dg::Error;
-    };
+    let Ok(sock) = UdpSocket::bind(bind) else { return Dg::Error; };
     if sock.connect(ns).is_err() || sock.send(query).is_err() {
         return Dg::Error;
     }
@@ -741,41 +735,22 @@ mod dnssrv_tests {
 
     #[test]
     fn dn2domain_keeps_only_the_trailing_dc_run() {
-        assert_eq!(
-            ldap_dn2domain("ou=blah,dc=foo,dc=bar").unwrap().as_deref(),
-            Some("foo.bar")
-        );
+        assert_eq!(ldap_dn2domain("ou=blah,dc=foo,dc=bar").unwrap().as_deref(), Some("foo.bar"));
         // an RDN after the DC run resets it (dnssrv.c:100-102)
-        assert_eq!(
-            ldap_dn2domain("dc=a,ou=x,dc=b,dc=c").unwrap().as_deref(),
-            Some("b.c")
-        );
+        assert_eq!(ldap_dn2domain("dc=a,ou=x,dc=b,dc=c").unwrap().as_deref(), Some("b.c"));
         assert_eq!(ldap_dn2domain("dc=a,dc=b,ou=x").unwrap(), None);
         assert_eq!(ldap_dn2domain("ou=people,ou=x").unwrap(), None);
         assert_eq!(ldap_dn2domain("").unwrap(), None);
         // case-insensitive attribute, the DC OID, ';' and spaces
-        assert_eq!(
-            ldap_dn2domain("DC=Foo; 0.9.2342.19200300.100.1.25 = bar")
-                .unwrap()
-                .as_deref(),
-            Some("Foo.bar")
-        );
+        assert_eq!(ldap_dn2domain("DC=Foo; 0.9.2342.19200300.100.1.25 = bar").unwrap().as_deref(), Some("Foo.bar"));
         // multi-valued RDN: only its last AVA counts, the others reset
-        assert_eq!(
-            ldap_dn2domain("dc=a,ou=x+dc=b").unwrap().as_deref(),
-            Some("b")
-        );
+        assert_eq!(ldap_dn2domain("dc=a,ou=x+dc=b").unwrap().as_deref(), Some("b"));
         assert_eq!(ldap_dn2domain("dc=a,dc=b+ou=x").unwrap(), None);
         // non-string (#hex) and empty values are not domain components
         assert_eq!(ldap_dn2domain("dc=#0403666f6f").unwrap(), None);
         assert_eq!(ldap_dn2domain("dc=").unwrap(), None);
         // escapes and quoting
-        assert_eq!(
-            ldap_dn2domain("dc=ex\\2dample,dc=\"com\"")
-                .unwrap()
-                .as_deref(),
-            Some("ex-ample.com")
-        );
+        assert_eq!(ldap_dn2domain("dc=ex\\2dample,dc=\"com\"").unwrap().as_deref(), Some("ex-ample.com"));
         // parse failures: C's "could not extract domain name from ldapbasedn"
         assert!(ldap_dn2domain("garbage").is_err());
         assert!(ldap_dn2domain("dc=a,").is_err());
@@ -836,15 +811,9 @@ mod dnssrv_tests {
                 "10.0.0.3:53".parse::<SocketAddr>().unwrap(),
             ]
         );
-        assert_eq!(
-            (c.retrans, c.retry, c.rotate),
-            (RES_MAXRETRANS, RES_MAXRETRY, true)
-        );
+        assert_eq!((c.retrans, c.retry, c.rotate), (RES_MAXRETRANS, RES_MAXRETRY, true));
         let d = ResolvConf::parse("");
-        assert_eq!(
-            (d.retrans, d.retry, d.rotate),
-            (RES_TIMEOUT, RES_DFLRETRY, false)
-        );
+        assert_eq!((d.retrans, d.retry, d.rotate), (RES_TIMEOUT, RES_DFLRETRY, false));
         assert!(d.nameservers.is_empty());
     }
 
@@ -853,30 +822,10 @@ mod dnssrv_tests {
         let mut seed = 0.0f32;
         srv_srand(&mut seed, 12345);
         let mut recs = vec![
-            SrvRecord {
-                priority: 20,
-                weight: 0,
-                port: 1,
-                hostname: "d".into(),
-            },
-            SrvRecord {
-                priority: 10,
-                weight: 5,
-                port: 1,
-                hostname: "b".into(),
-            },
-            SrvRecord {
-                priority: 0,
-                weight: 0,
-                port: 1,
-                hostname: "a".into(),
-            },
-            SrvRecord {
-                priority: 10,
-                weight: 100,
-                port: 1,
-                hostname: "c".into(),
-            },
+            SrvRecord { priority: 20, weight: 0, port: 1, hostname: "d".into(), },
+            SrvRecord { priority: 10, weight: 5, port: 1, hostname: "b".into(), },
+            SrvRecord { priority: 0, weight: 0, port: 1, hostname: "a".into(), },
+            SrvRecord { priority: 10, weight: 100, port: 1, hostname: "c".into(), },
         ];
         order_srv_records(&mut seed, &mut recs);
         let names: Vec<&str> = recs.iter().map(|r| r.hostname.as_str()).collect();
@@ -899,51 +848,20 @@ mod dnssrv_tests {
     fn domain2hostlist_over_udp_tc_then_tcp() {
         let dns = FakeDns::start(
             vec![
-                SrvRec {
-                    priority: 5,
-                    weight: 0,
-                    port: 3890,
-                    target: "second.example.test",
-                },
-                SrvRec {
-                    priority: 0,
-                    weight: 0,
-                    port: 389,
-                    target: "first.example.test",
-                },
-                SrvRec {
-                    priority: 1,
-                    weight: 0,
-                    port: 0,
-                    target: "dropped.example.test",
-                },
+                SrvRec { priority: 5, weight: 0, port: 3890, target: "second.example.test", },
+                SrvRec { priority: 0, weight: 0, port: 389, target: "first.example.test", },
+                SrvRec { priority: 1, weight: 0, port: 0, target: "dropped.example.test", },
             ],
             true,
         );
-        let conf = ResolvConf {
-            nameservers: vec![dns.addr],
-            retrans: 2,
-            retry: 1,
-            rotate: false,
-        };
+        let conf = ResolvConf { nameservers: vec![dns.addr], retrans: 2, retry: 1, rotate: false, };
         assert_eq!(
             ldap_domain2hostlist("example.test", &conf).unwrap(),
-            vec![
-                ("first.example.test".to_string(), 389),
-                ("second.example.test".to_string(), 3890)
-            ]
+            vec![("first.example.test".to_string(), 389), ("second.example.test".to_string(), 3890)]
         );
         let empty = FakeDns::start(vec![], false);
-        let conf = ResolvConf {
-            nameservers: vec![empty.addr],
-            retrans: 2,
-            retry: 1,
-            rotate: false,
-        };
-        assert_eq!(
-            ldap_domain2hostlist("example.test", &conf),
-            Err(LDAP_UNAVAILABLE)
-        );
+        let conf = ResolvConf { nameservers: vec![empty.addr], retrans: 2, retry: 1, rotate: false, };
+        assert_eq!(ldap_domain2hostlist("example.test", &conf), Err(LDAP_UNAVAILABLE));
         assert_eq!(ldap_domain2hostlist("", &conf), Err(LDAP_PARAM_ERROR));
     }
 }

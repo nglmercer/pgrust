@@ -209,7 +209,7 @@ pub fn program(pipelines: &[gravity_program::Pipeline], protos: &[gravity_progra
         let closed = |p: &Proto| members_in(pipelines, protos, p.pipeline as usize).members.iter().all(|&m| held(w, m));
         let inits = || protos.iter().filter(|p| p.kind == ProtoKind::Init).filter(holds);
         let subhash = || protos.iter().filter(|p| lazy_set(p)).filter(holds);
-        if !inits().chain(subhash()).all(closed) {
+        if !inits().chain(subhash()).all( closed) {
             return Err(PART);
         }
         let ctes = || protos.iter().filter(|p| p.kind == ProtoKind::Cte).filter(holds);

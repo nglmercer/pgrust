@@ -540,8 +540,7 @@ pub(crate) fn estimate_path_cost_size<'mcx>(
             let grouped_tlist =
                 fpinfo(run.root.rel(rel_id)).borrow().grouped_tlist.clone_in(mcx)?;
             let clauses = planner::relnode::pgvec_clone_shallow(
-                mcx,
-                run.root.processed_groupClause,
+                mcx,run.root.processed_groupClause,
             );
             let group_exprs =
                 types_pathnodes::run::sortgrouplist_exprs(run, &clauses, &grouped_tlist);
@@ -780,7 +779,7 @@ fn adjust_foreign_grouping_path_cost(
         run.root.expr_node(id).as_sort_group_clause().expect("group clause cell").sortop != 0
     });
     if !grouping_is_sortable
-        || !types_pathnodes::pathkeys_contained_in(pathkeys, run.root.group_pathkeys)
+        || !types_pathnodes::pathkeys_contained_in(pathkeys,run.root.group_pathkeys)
     {
         let (_disabled_nodes, startup_cost, total_cost) = planner::costsize::cost_sort_shape(
             0,
@@ -1102,6 +1101,7 @@ fn get_useful_ecs_for_relation<'mcx>(
 // a relation might be useful — the query's own pathkeys (to avoid a local
 // sort) and, with remote estimates, single-key orderings that could enable
 // a merge join.
+#[allow(clippy::iter_cloned_collect)]
 fn get_useful_pathkeys_for_relation<'mcx>(
     run: &mut PlannerRun<'mcx>,
     rel: RelId,
@@ -1113,7 +1113,7 @@ fn get_useful_pathkeys_for_relation<'mcx>(
     // considering, because it might let us avoid a local sort.
     fpinfo(run.root.rel(rel)).borrow_mut().qp_is_pushdown_safe = false;
     if !run.root.query_pathkeys.is_empty() {
-        let query_pathkeys: Vec<PathKey> = run.root.query_pathkeys.to_vec();
+        let query_pathkeys: Vec<PathKey> = run.root.query_pathkeys.iter().copied().collect();
         let mut query_pathkeys_ok = true;
         for pathkey in &query_pathkeys {
             // The planner and executor have no clever strategy for taking
@@ -2060,6 +2060,7 @@ fn make_path_private<'mcx>(
 
 // add_foreign_ordered_paths (postgres_fdw.c:6897): a foreign path that
 // performs the final sort remotely, added to the ordered_rel.
+#[allow(clippy::iter_cloned_collect)]
 fn add_foreign_ordered_paths<'mcx>(
     run: &mut PlannerRun<'mcx>,
     input_rel: RelId,
@@ -2087,9 +2088,7 @@ fn add_foreign_ordered_paths<'mcx>(
     // standard_qp_callback()).
     let input_kind = run.root.rel(input_rel).reloptkind;
     if input_kind == RELOPT_BASEREL || input_kind == RELOPT_JOINREL {
-        debug_assert!(types_pathnodes::pathkeys_contained_in(
-            run.root.query_pathkeys,
-            run.root.sort_pathkeys
+        debug_assert!(types_pathnodes::pathkeys_contained_in(run.root.query_pathkeys,run.root.sort_pathkeys
         ) && run.root.query_pathkeys.len() == run.root.sort_pathkeys.len());
         // Safe to push down if the query_pathkeys is safe to push down.
         let qp_safe = fpinfo(run.root.rel(input_rel)).borrow().qp_is_pushdown_safe;
@@ -2108,7 +2107,7 @@ fn add_foreign_ordered_paths<'mcx>(
     // which is stored into the fdw_private list of the resulting path.
 
     // Assess if it is safe to push down the final sort.
-    let sort_pathkeys: Vec<PathKey> = run.root.sort_pathkeys.to_vec();
+    let sort_pathkeys: Vec<PathKey> = run.root.sort_pathkeys.iter().copied().collect();
     for pathkey in &sort_pathkeys {
         let pathkey_ec = pathkey.pk_eclass.expect("canonical pathkey has an eclass");
         // is_foreign_expr would detect volatile expressions as well, but
@@ -2185,7 +2184,7 @@ fn add_foreign_ordered_paths<'mcx>(
 // the final processing (FOR UPDATE/SHARE, LIMIT/OFFSET, possibly the final
 // sort) remotely, added to the final_rel. The FinalPathExtraData fields
 // arrive unpacked.
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::iter_cloned_collect, clippy::too_many_arguments)]
 fn add_foreign_final_paths<'mcx>(
     run: &mut PlannerRun<'mcx>,
     input_rel: RelId,
@@ -2324,7 +2323,7 @@ fn add_foreign_final_paths<'mcx>(
             .outerrel
             .expect("ordered rel has outerrel");
         has_final_sort = true;
-        pathkeys = run.root.sort_pathkeys.to_vec();
+        pathkeys = run.root.sort_pathkeys.iter().copied().collect();
     }
 
     // The input_rel should be a base, join, or grouping relation.

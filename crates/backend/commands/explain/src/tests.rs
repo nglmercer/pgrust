@@ -322,14 +322,8 @@ fn leaked_mcx() -> Mcx<'static> {
 fn select_1_query(mcx: Mcx<'_>) -> Query<'_> {
     let konst = Node::mk_const(mcx, INT4OID, -1, 0, 4, Datum::from_i32(1), false, true).unwrap();
     let tle = Node::mk_target_entry(mcx, konst, 1, Some("?column?"), false).unwrap();
-    let jointree = mcx::alloc_leak_in(
-        mcx,
-        FromExpr {
-            fromlist: NodeList::nil(),
-            quals: None,
-        },
-    )
-    .unwrap();
+    let jointree =
+        mcx::alloc_leak_in(mcx, FromExpr { fromlist: NodeList::nil(), quals: None, },).unwrap();
     Query {
         commandType: CmdType::CMD_SELECT,
         canSetTag: true,
@@ -344,17 +338,10 @@ fn select_1_query(mcx: Mcx<'_>) -> Query<'_> {
 fn union_all_query(mcx: Mcx<'static>) -> Query<'static> {
     use types_nodes::list::{IntList, OidList};
     let leaf = |v: i32| {
-        let konst =
-            Node::mk_const(mcx, INT4OID, -1, 0, 4, Datum::from_i32(v), false, true).unwrap();
+        let konst = Node::mk_const(mcx, INT4OID, -1, 0, 4, Datum::from_i32(v), false, true).unwrap();
         let tle = Node::mk_target_entry(mcx, konst, 1, Some("?column?"), false).unwrap();
-        let jointree = mcx::alloc_leak_in(
-            mcx,
-            FromExpr {
-                fromlist: NodeList::nil(),
-                quals: None,
-            },
-        )
-        .unwrap();
+        let jointree =
+            mcx::alloc_leak_in(mcx, FromExpr { fromlist: NodeList::nil(), quals: None, },).unwrap();
         Query {
             commandType: CmdType::CMD_SELECT,
             canSetTag: true,
@@ -369,10 +356,7 @@ fn union_all_query(mcx: Mcx<'static>) -> Query<'static> {
         let colnames = NodeList::make1(mcx, Node::mk_string(mcx, "?column?").unwrap()).unwrap();
         let eref = mcx::alloc_leak_in(
             mcx,
-            types_nodes::primnodes::Alias {
-                aliasname: Some(name),
-                colnames,
-            },
+            types_nodes::primnodes::Alias { aliasname: Some(name), colnames, },
         )
         .unwrap();
         let mut rte = Node::build::<types_nodes::parsenodes::RangeTblEntry>(mcx).unwrap();
@@ -400,14 +384,8 @@ fn union_all_query(mcx: Mcx<'static>) -> Query<'static> {
     .unwrap();
     let v = Node::mk_var(mcx, 1, 1, INT4OID, -1, 0, 0).unwrap();
     let tle = Node::mk_target_entry(mcx, v, 1, Some("?column?"), false).unwrap();
-    let jointree = mcx::alloc_leak_in(
-        mcx,
-        FromExpr {
-            fromlist: NodeList::nil(),
-            quals: None,
-        },
-    )
-    .unwrap();
+    let jointree =
+        mcx::alloc_leak_in(mcx, FromExpr { fromlist: NodeList::nil(), quals: None, },).unwrap();
     Query {
         commandType: CmdType::CMD_SELECT,
         canSetTag: true,
@@ -422,15 +400,7 @@ fn union_all_query(mcx: Mcx<'static>) -> Query<'static> {
 }
 
 fn opt<'mcx>(mcx: Mcx<'mcx>, name: &'static str, arg: Option<Node<'mcx>>) -> Node<'mcx> {
-    Node::mk(
-        mcx,
-        DefElem {
-            defname: Some(name),
-            arg,
-            ..DefElem::default()
-        },
-    )
-    .unwrap()
+    Node::mk(mcx, DefElem { defname: Some(name), arg, ..DefElem::default() },).unwrap()
 }
 
 fn explain_stmt<'mcx>(mcx: Mcx<'mcx>, options: &[Node<'mcx>]) -> ExplainStmt<'mcx> {
@@ -440,10 +410,7 @@ fn explain_stmt<'mcx>(mcx: Mcx<'mcx>, options: &[Node<'mcx>]) -> ExplainStmt<'mc
     } else {
         NodeList::from_slice(mcx, options).unwrap()
     };
-    ExplainStmt {
-        query: Some(query),
-        options,
-    }
+    ExplainStmt { query: Some(query), options, }
 }
 
 fn make_portal(mcx: Mcx<'_>) -> Portal<'_> {
@@ -548,10 +515,7 @@ fn run_explain(options: &[&'static str]) -> Vec<String> {
 // captured 2026-07-02).
 #[test]
 fn explain_select_1_matches_pg() {
-    assert_eq!(
-        run_explain(&[]),
-        ["Result  (cost=0.00..0.01 rows=1 width=4)"]
-    );
+    assert_eq!(run_explain(&[]), ["Result  (cost=0.00..0.01 rows=1 width=4)"]);
 }
 
 #[test]
@@ -561,10 +525,7 @@ fn explain_union_all_matches_pg() {
     let query = Node::mk(mcx, union_all_query(mcx)).unwrap();
     let stmt = mcx::alloc_leak_in(
         mcx,
-        ExplainStmt {
-            query: Some(query),
-            options: NodeList::nil(),
-        },
+        ExplainStmt { query: Some(query), options: NodeList::nil(), },
     )
     .unwrap();
     assert_eq!(
@@ -645,18 +606,10 @@ fn explain_utility_statement_matches_pg() {
         },
     )
     .unwrap();
-    let stmt = mcx::alloc_leak_in(
-        mcx,
-        ExplainStmt {
-            query: Some(query),
-            options: NodeList::nil(),
-        },
-    )
-    .unwrap();
-    assert_eq!(
-        run_explain_stmt(mcx, stmt),
-        ["Utility statements have no plan structure"]
-    );
+    let stmt =
+        mcx::alloc_leak_in(mcx, ExplainStmt { query: Some(query), options: NodeList::nil(), },)
+            .unwrap();
+    assert_eq!(run_explain_stmt(mcx, stmt), ["Utility statements have no plan structure"]);
 }
 
 #[test]
@@ -682,11 +635,9 @@ fn option_errors_match_c_sqlstates() {
     assert_eq!(err.sqlstate(), ERRCODE_INVALID_PARAMETER_VALUE);
 
     let mut es = NewExplainState(mcx).unwrap();
-    let opts = NodeList::from_slice(
-        mcx,
-        &[opt(mcx, "generic_plan", None), opt(mcx, "analyze", None)],
-    )
-    .unwrap();
+    let opts =
+        NodeList::from_slice(mcx, &[opt(mcx, "generic_plan", None), opt(mcx, "analyze", None)],)
+            .unwrap();
     let err = ParseExplainOptionList(&mut es, mcx, &opts, "").unwrap_err();
     assert_eq!(err.sqlstate(), ERRCODE_INVALID_PARAMETER_VALUE);
 }
@@ -744,7 +695,8 @@ fn engine_option_parses_and_requires_analyze() {
     // ENGINE + ANALYZE parses.
     let mut es = NewExplainState(mcx).unwrap();
     let opts =
-        NodeList::from_slice(mcx, &[opt(mcx, "engine", None), opt(mcx, "analyze", None)]).unwrap();
+        NodeList::from_slice(mcx, &[opt(mcx, "engine", None), opt(mcx, "analyze", None)])
+            .unwrap();
     ParseExplainOptionList(&mut es, mcx, &opts, "").unwrap();
     assert!(es.engine && es.analyze);
 }
@@ -842,27 +794,15 @@ fn explain_analyze_timed_shape_matches_pg() {
     assert_eq!(rows.len(), 3, "{rows:?}");
     let head = "Result  (cost=0.00..0.01 rows=1 width=4) (actual time=";
     let tail = " rows=1.00 loops=1)";
-    assert!(
-        rows[0].starts_with(head) && rows[0].ends_with(tail),
-        "{}",
-        rows[0]
-    );
+    assert!(rows[0].starts_with(head) && rows[0].ends_with(tail), "{}", rows[0]);
     let times = &rows[0][head.len()..rows[0].len() - tail.len()];
     let (start, total) = times.split_once("..").expect("time=START..TOTAL");
     for t in [start, total] {
         let (_, frac) = t.split_once('.').expect("ms with fraction");
         assert_eq!(frac.len(), 3, "%.3f millisecond format: {t}");
     }
-    assert!(
-        rows[1].starts_with("Planning Time: ") && rows[1].ends_with(" ms"),
-        "{}",
-        rows[1]
-    );
-    assert!(
-        rows[2].starts_with("Execution Time: ") && rows[2].ends_with(" ms"),
-        "{}",
-        rows[2]
-    );
+    assert!(rows[1].starts_with("Planning Time: ") && rows[1].ends_with(" ms"), "{}", rows[1]);
+    assert!(rows[2].starts_with("Execution Time: ") && rows[2].ends_with(" ms"), "{}", rows[2]);
 }
 
 // Pinned against real PostgreSQL 18.3: EXPLAIN (ANALYZE, TIMING OFF, SUMMARY
@@ -872,14 +812,8 @@ fn explain_analyze_never_executed_matches_pg() {
     install_fixtures();
     let mcx = leaked_mcx();
     let zero = Node::mk_const(mcx, 20, -1, 0, 8, Datum::from_i64(0), false, true).unwrap();
-    let query = Node::mk(
-        mcx,
-        Query {
-            limitCount: Some(zero),
-            ..select_1_query(mcx)
-        },
-    )
-    .unwrap();
+    let query =
+        Node::mk(mcx, Query { limitCount: Some(zero), ..select_1_query(mcx) },).unwrap();
     let opts: Vec<Node<'_>> = ["timing", "summary", "buffers", "costs"]
         .iter()
         .map(|n| off(mcx, n))
@@ -887,18 +821,12 @@ fn explain_analyze_never_executed_matches_pg() {
         .collect();
     let stmt = mcx::alloc_leak_in(
         mcx,
-        ExplainStmt {
-            query: Some(query),
-            options: NodeList::from_slice(mcx, &opts).unwrap(),
-        },
+        ExplainStmt { query: Some(query), options: NodeList::from_slice(mcx, &opts).unwrap(), },
     )
     .unwrap();
     assert_eq!(
         run_explain_stmt(mcx, stmt),
-        [
-            "Limit (actual rows=0.00 loops=1)",
-            "  ->  Result (never executed)"
-        ]
+        ["Limit (actual rows=0.00 loops=1)", "  ->  Result (never executed)"]
     );
 }
 
@@ -925,10 +853,7 @@ fn show_wal_usage_matches_c_shape() {
         wal_buffers_full: 7,
     };
     crate::show_wal_usage(&mut es, &u).unwrap();
-    assert_eq!(
-        es_text(&es),
-        "WAL: records=1 fpi=2 bytes=4242 buffers full=7\n"
-    );
+    assert_eq!(es_text(&es), "WAL: records=1 fpi=2 bytes=4242 buffers full=7\n");
 
     // All-zero usage prints nothing in text format.
     let mut es = NewExplainState(mcx).unwrap();
@@ -951,10 +876,7 @@ fn show_buffer_usage_matches_c_shape() {
     };
     assert!(crate::peek_buffer_usage(&es, &u));
     crate::show_buffer_usage(&mut es, &u).unwrap();
-    assert_eq!(
-        es_text(&es),
-        "Buffers: shared hit=3 read=2, temp written=5\n"
-    );
+    assert_eq!(es_text(&es), "Buffers: shared hit=3 read=2, temp written=5\n");
 
     u = Default::default();
     assert!(!crate::peek_buffer_usage(&es, &u));
@@ -1097,14 +1019,8 @@ fn explain_format_json_union_all_matches_pg() {
     let mcx = leaked_mcx();
     let query = Node::mk(mcx, union_all_query(mcx)).unwrap();
     let opts = NodeList::make1(mcx, fmt(mcx, "json")).unwrap();
-    let stmt = mcx::alloc_leak_in(
-        mcx,
-        ExplainStmt {
-            query: Some(query),
-            options: opts,
-        },
-    )
-    .unwrap();
+    let stmt =
+        mcx::alloc_leak_in(mcx, ExplainStmt { query: Some(query), options: opts, },).unwrap();
     let member = |relationship: &str| {
         format!(
             concat!(
@@ -1201,7 +1117,7 @@ mod order_by_limit_e2e {
                 Ok(Some(n))
             });
             syscache_seams::lookup_pg_class_ls_shape::set(|relid| {
-                Ok((relid == TBL).then_some(syscache_seams::PgClassLsShape {
+                Ok((relid == TBL).then_some( syscache_seams::PgClassLsShape {
                     relnamespace: 2200,
                     reltype: 0,
                     relam: 2,
@@ -1249,12 +1165,10 @@ mod order_by_limit_e2e {
                 Ok(v)
             });
             syscache_seams::lookup_pg_opfamily_shape::set(|opfid| {
-                Ok(
-                    (opfid == INT4_BTREE_FAM).then(|| syscache_seams::PgOpfamilyShape {
-                        opfmethod: 403,
-                        opfname: types_tuple::NameData::default(),
-                    }),
-                )
+                Ok((opfid == INT4_BTREE_FAM).then(|| syscache_seams::PgOpfamilyShape {
+                    opfmethod: 403,
+                    opfname: types_tuple::NameData::default(),
+                }),)
             });
             syscache_seams::lookup_pg_amop_by_strategy::set(|opfamily, left, right, strategy| {
                 Ok(match (opfamily, left, right, strategy) {
@@ -1275,22 +1189,16 @@ mod order_by_limit_e2e {
                 Ok(typid.wrapping_mul(0x9e37_79b1))
             });
             indexcmds_seams::get_default_opclass::set(|typid, am| {
-                Ok(if typid == INT4OID && am == 403 {
-                    INT4_BTREE_OPCLASS
-                } else {
-                    0
-                })
+                Ok(if typid == INT4OID && am == 403 { INT4_BTREE_OPCLASS } else { 0 })
             });
             syscache_seams::lookup_pg_opclass_shape::set(|opclass| {
-                Ok(
-                    (opclass == INT4_BTREE_OPCLASS).then_some(syscache_seams::PgOpclassShape {
-                        opcmethod: 403,
-                        opcfamily: INT4_BTREE_FAM,
-                        opcintype: INT4OID,
-                        // int4 opclasses store no separate key type (pg_opclass: 0).
-                        opckeytype: ::types_core::InvalidOid,
-                    }),
-                )
+                Ok((opclass == INT4_BTREE_OPCLASS).then_some( syscache_seams::PgOpclassShape {
+                    opcmethod: 403,
+                    opcfamily: INT4_BTREE_FAM,
+                    opcintype: INT4OID,
+                    // int4 opclasses store no separate key type (pg_opclass: 0).
+                    opckeytype: ::types_core::InvalidOid,
+                }),)
             });
         });
     }
@@ -1370,10 +1278,7 @@ mod order_by_limit_e2e {
                 rd_firstRelfilelocatorSubid: Cell::new(0),
                 rd_droppedSubid: Cell::new(0),
                 rd_lockInfo: types_rel::LockInfoData {
-                    lockRelId: types_rel::LockRelId {
-                        relId: TBL,
-                        dbId: 5,
-                    },
+                    lockRelId: types_rel::LockRelId { relId: TBL, dbId: 5, },
                 },
                 rd_rel,
                 rd_att,
@@ -1386,17 +1291,13 @@ mod order_by_limit_e2e {
                 pgstat_enabled: Cell::new(false),
                 pgstat_link: core::cell::Cell::new((0, core::ptr::null_mut())),
                 rd_amcache: Default::default(),
-                rd_amcache_hash: Default::default(),
-                rd_amcache_gin: Default::default(),
-                rd_amcache_spgist: Default::default(),
-                rd_amcache_bloom: Default::default(),
+                rd_amcache_hash: Default::default(), rd_amcache_gin: Default::default(), rd_amcache_spgist: Default::default(), rd_amcache_bloom: Default::default(),
                 rd_support: ::mcx::PgVec::new_in(mcx),
                 rd_supportinfo: Default::default(),
                 rd_opcoptions: Default::default(),
                 rd_indexlist: Default::default(),
-                rd_trigdesc: Default::default(),
-                rd_hastriggers: false,
-                rd_hasrules: false,
+            rd_trigdesc: Default::default(),
+            rd_hastriggers: false, rd_hasrules: false,
             },
             None,
         )
@@ -1405,20 +1306,10 @@ mod order_by_limit_e2e {
     // Analyzer output for `SELECT pk FROM t ORDER BY val LIMIT 2`.
     fn order_by_limit_query(mcx: Mcx<'static>) -> Query<'static> {
         let mut colnames = NodeList::nil();
-        colnames
-            .lappend(mcx, Node::mk_string(mcx, "pk").unwrap())
-            .unwrap();
-        colnames
-            .lappend(mcx, Node::mk_string(mcx, "val").unwrap())
-            .unwrap();
-        let eref = mcx::alloc_leak_in(
-            mcx,
-            Alias {
-                aliasname: Some("t"),
-                colnames,
-            },
-        )
-        .unwrap();
+        colnames.lappend(mcx, Node::mk_string(mcx, "pk").unwrap()).unwrap();
+        colnames.lappend(mcx, Node::mk_string(mcx, "val").unwrap()).unwrap();
+        let eref =
+            mcx::alloc_leak_in(mcx, Alias { aliasname: Some("t"), colnames, },).unwrap();
         let mut rte = Node::build::<types_nodes::parsenodes::RangeTblEntry>(mcx).unwrap();
         rte.rtekind = RTEKind::RTE_RELATION;
         rte.relid = TBL;
@@ -1430,10 +1321,7 @@ mod order_by_limit_e2e {
         let rtr = Node::mk_range_tbl_ref(mcx, 1).unwrap();
         let jointree = mcx::alloc_leak_in(
             mcx,
-            FromExpr {
-                fromlist: NodeList::make1(mcx, rtr).unwrap(),
-                quals: None,
-            },
+            FromExpr { fromlist: NodeList::make1(mcx, rtr).unwrap(), quals: None, },
         )
         .unwrap();
 
@@ -1502,10 +1390,7 @@ mod order_by_limit_e2e {
         let query = Node::mk(mcx, order_by_limit_query(mcx)).unwrap();
         let stmt = mcx::alloc_leak_in(
             mcx,
-            ExplainStmt {
-                query: Some(query),
-                options: NodeList::nil(),
-            },
+            ExplainStmt { query: Some(query), options: NodeList::nil(), },
         )
         .unwrap();
         assert_eq!(
@@ -1523,15 +1408,10 @@ mod order_by_limit_e2e {
     // and the covering variant for the IOS shape.
     fn index_scan_pstmt<'mcx>(mcx: Mcx<'mcx>, index_only: bool) -> &'mcx PlannedStmt<'mcx> {
         let mut eref_cols = NodeList::make1(mcx, Node::mk_string(mcx, "pk").unwrap()).unwrap();
-        eref_cols
-            .lappend(mcx, Node::mk_string(mcx, "payload").unwrap())
-            .unwrap();
+        eref_cols.lappend(mcx, Node::mk_string(mcx, "payload").unwrap()).unwrap();
         let eref = mcx::alloc_leak_in(
             mcx,
-            Alias {
-                aliasname: Some("t"),
-                colnames: eref_cols,
-            },
+            Alias { aliasname: Some("t"), colnames: eref_cols, },
         )
         .unwrap();
         let mut rte = Node::build::<types_nodes::parsenodes::RangeTblEntry>(mcx).unwrap();
@@ -1628,14 +1508,8 @@ mod order_by_limit_e2e {
         let mcx = leaked_mcx();
         let query = Node::mk(mcx, order_by_limit_query(mcx)).unwrap();
         let opts = NodeList::make1(mcx, super::fmt(mcx, "json")).unwrap();
-        let stmt = mcx::alloc_leak_in(
-            mcx,
-            ExplainStmt {
-                query: Some(query),
-                options: opts,
-            },
-        )
-        .unwrap();
+        let stmt =
+            mcx::alloc_leak_in(mcx, ExplainStmt { query: Some(query), options: opts, },).unwrap();
         assert_eq!(
             run_explain_stmt(mcx, stmt),
             [concat!(
@@ -1691,17 +1565,9 @@ mod order_by_limit_e2e {
         // without it set_rtable_names falls back to get_rel_name.
         let mk_rte = |alias: &'static str, explicit: bool| {
             let mut colnames = NodeList::make1(mcx, Node::mk_string(mcx, "pk").unwrap()).unwrap();
-            colnames
-                .lappend(mcx, Node::mk_string(mcx, "val").unwrap())
-                .unwrap();
-            let eref = mcx::alloc_leak_in(
-                mcx,
-                Alias {
-                    aliasname: Some(alias),
-                    colnames,
-                },
-            )
-            .unwrap();
+            colnames.lappend(mcx, Node::mk_string(mcx, "val").unwrap()).unwrap();
+            let eref =
+                mcx::alloc_leak_in(mcx, Alias { aliasname: Some(alias), colnames, },).unwrap();
             let mut rte = Node::build::<types_nodes::parsenodes::RangeTblEntry>(mcx).unwrap();
             rte.rtekind = RTEKind::RTE_RELATION;
             rte.relid = TBL;
@@ -1712,10 +1578,7 @@ mod order_by_limit_e2e {
                 rte.alias = Some(
                     mcx::alloc_leak_in(
                         mcx,
-                        Alias {
-                            aliasname: Some(alias),
-                            colnames: NodeList::nil(),
-                        },
+                        Alias { aliasname: Some(alias), colnames: NodeList::nil(), },
                     )
                     .unwrap(),
                 );
@@ -1829,26 +1692,11 @@ mod order_by_limit_e2e {
 #[test]
 fn foreign_scan_names_match_c() {
     use types_nodes::CmdType::*;
-    assert_eq!(
-        crate::node::foreign_scan_names(CMD_SELECT),
-        ("Foreign Scan", "Foreign Scan", "Select")
-    );
-    assert_eq!(
-        crate::node::foreign_scan_names(CMD_INSERT),
-        ("Foreign Insert", "Foreign Scan", "Insert")
-    );
-    assert_eq!(
-        crate::node::foreign_scan_names(CMD_UPDATE),
-        ("Foreign Update", "Foreign Scan", "Update")
-    );
-    assert_eq!(
-        crate::node::foreign_scan_names(CMD_DELETE),
-        ("Foreign Delete", "Foreign Scan", "Delete")
-    );
-    assert_eq!(
-        crate::node::foreign_scan_names(CMD_UTILITY),
-        ("???", "Foreign Scan", "???")
-    );
+    assert_eq!(crate::node::foreign_scan_names(CMD_SELECT), ("Foreign Scan", "Foreign Scan", "Select"));
+    assert_eq!(crate::node::foreign_scan_names(CMD_INSERT), ("Foreign Insert", "Foreign Scan", "Insert"));
+    assert_eq!(crate::node::foreign_scan_names(CMD_UPDATE), ("Foreign Update", "Foreign Scan", "Update"));
+    assert_eq!(crate::node::foreign_scan_names(CMD_DELETE), ("Foreign Delete", "Foreign Scan", "Delete"));
+    assert_eq!(crate::node::foreign_scan_names(CMD_UTILITY), ("???", "Foreign Scan", "???"));
 }
 
 #[test]

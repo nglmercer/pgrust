@@ -1408,7 +1408,7 @@ pub(super) fn trim() {
     let _ = MEMO.try_with(|cell| {
         if let Ok(mut g) = cell.try_borrow_mut() {
             if let Some(memo) = g.as_mut() {
-                memo.with_mut(evict);
+                memo.with_mut( evict);
             }
         }
     });

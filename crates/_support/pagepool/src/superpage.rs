@@ -97,21 +97,14 @@ impl SuperMeta {
 
     #[inline]
     pub(crate) fn set(&self, st: State, class: Class, bin: u32, tag: u8, head: u32) {
-        let w = st as u64
-            | (class as u64) << 4
-            | (bin as u64 & BIN_MASK) << BIN_SHIFT
-            | (tag as u64) << 10
-            | (head as u64) << 32;
+        let w = st as u64 | (class as u64) << 4 | (bin as u64 & BIN_MASK) << BIN_SHIFT | (tag as u64) << 10 | (head as u64) << 32;
         self.word.store(w, Release);
     }
 
     #[inline]
     pub(crate) fn set_bin(&self, bin: u32) {
         let w = self.word.load(Relaxed);
-        self.word.store(
-            (w & !(BIN_MASK << BIN_SHIFT)) | (bin as u64 & BIN_MASK) << BIN_SHIFT,
-            Release,
-        );
+        self.word.store((w & !(BIN_MASK << BIN_SHIFT)) | (bin as u64 & BIN_MASK) << BIN_SHIFT, Release,);
     }
 }
 
@@ -196,8 +189,7 @@ fn took(i: u32, st: State) -> State {
     COUNT[bm(st)].fetch_sub(1, Relaxed);
     crate::warmres::door(st, -(SUPER as i64));
     let m = meta(i);
-    m.zero_runs
-        .store(if st == State::WarmDirty { 0 } else { ALL_RUNS }, Relaxed);
+    m.zero_runs.store(if st == State::WarmDirty { 0 } else { ALL_RUNS }, Relaxed);
     m.set(State::Busy, Class::Task, 0, st as u8, NONE);
     st
 }
@@ -322,10 +314,7 @@ pub(crate) fn free_contig(chunk: u32, n: u32, pref: Pref) -> Option<Taken> {
                 }
             }
         }
-        got = Some(Taken {
-            first: base + i,
-            cold,
-        });
+        got = Some(Taken { first: base + i, cold, });
         break;
     }
     unspin(lock);

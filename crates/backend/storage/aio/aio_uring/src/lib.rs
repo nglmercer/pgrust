@@ -462,9 +462,9 @@ mod imp {
         }
         // O_DIRECT DMA contract: pool pages are PG_IO_ALIGN_SIZE-aligned and
         // whole blocks are 4k multiples, so addr/off/len all satisfy DIO.
-        const _: () = assert!(types_core::BLCKSZ.is_multiple_of(4096));
+        const _: () = assert!(types_core::BLCKSZ.is_multiple_of( 4096));
         debug_assert!(offset % 4096 == 0);
-        debug_assert!((bufmgr::BufferGetBlockPtr(buffer) as usize).is_multiple_of(4096));
+        debug_assert!((bufmgr::BufferGetBlockPtr(buffer) as usize).is_multiple_of( 4096));
         let slot = st.free.trailing_zeros();
         let gen = st.next_gen;
         st.next_gen += 1;

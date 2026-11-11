@@ -801,7 +801,7 @@ impl Ctx {
                 println!("ok");
                 self.found_existing_pgdata = true;
             }
-            2..=4 => {
+            2..= 4 => {
                 return Err(format!(
                     "directory \"{}\" exists but is not empty\nIf you want to create a new database system, either remove or empty the directory \"{}\" or run {} with an argument other than \"{}\".",
                     self.pg_data.display(), self.pg_data.display(), self.progname, self.pg_data.display()
@@ -831,7 +831,7 @@ impl Ctx {
                     fsutil::chmod(&xdir, self.dir_mode).map_err(|e| e.to_string())?;
                     self.found_existing_xlogdir = true;
                 }
-                2..=4 => return Err(format!("directory \"{}\" exists but is not empty", xdir.display())),
+                2..= 4 => return Err(format!("directory \"{}\" exists but is not empty", xdir.display())),
                 _ => return Err(format!("could not access directory \"{}\"", xdir.display())),
             }
             std::os::unix::fs::symlink(&xdir, &subdirloc).map_err(|e| format!("could not create symbolic link \"{}\": {e}", subdirloc.display()))?;

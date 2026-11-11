@@ -11,7 +11,9 @@ use types_error::{
     ERRCODE_INVALID_PARAMETER_VALUE, ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE,
     ERRCODE_OUT_OF_MEMORY, ERRCODE_PROGRAM_LIMIT_EXCEEDED, ERROR,
 };
-use types_storage::storage::{XidCacheStatus, NUM_LOCK_PARTITIONS, PGPROC_MAX_CACHED_SUBXIDS};
+use types_storage::storage::{
+    XidCacheStatus, NUM_LOCK_PARTITIONS, PGPROC_MAX_CACHED_SUBXIDS
+};
 
 use crate::codec::{
     maxalign, BufferLayout, TwoPhaseFileHeader, TwoPhaseRecordOnDisk, MAX_ALLOC_SIZE,
@@ -157,18 +159,12 @@ pub(crate) fn mark_as_preparing_guts(
     let g: &GXact = st.gxact(idx);
     let proc = lmgr_proc::GetPGProcByNumber(unsafe { g.pgprocno.get() });
 
-    unsafe {
-        proc.links
-            .set(types_storage::storage::proclist_node::detached())
-    };
+    unsafe { proc.links.set(types_storage::storage::proclist_node::detached()) };
     proc.waitStatus
         .store(types_storage::storage::PROC_WAIT_STATUS_OK, Relaxed);
     let my_procno = init_small::globals::MyProcNumber();
     let my_lxid = if my_procno >= 0 {
-        lmgr_proc::GetPGProcByNumber(my_procno)
-            .vxid
-            .lxid
-            .load(Relaxed)
+        lmgr_proc::GetPGProcByNumber(my_procno).vxid.lxid.load(Relaxed)
     } else {
         0
     };
@@ -200,12 +196,10 @@ pub(crate) fn mark_as_preparing_guts(
         unsafe { proc.myProcLocks[i].set(types_storage::ilist::dlist_head::new()) };
     }
     // Subxid data is filled later by GXactLoadSubxactData.
-    unsafe {
-        proc.subxidStatus.set(XidCacheStatus {
-            count: 0,
-            overflowed: false,
-        })
-    };
+    unsafe { proc.subxidStatus.set(XidCacheStatus {
+        count: 0,
+        overflowed: false,
+    }) };
 
     unsafe { g.prepared_at.set(prepared_at) };
     unsafe { g.xid.set(xid) };
@@ -294,9 +288,7 @@ pub(crate) fn lock_gxact(gid: &str, user: Oid) -> PgResult<i32> {
                 return Err(ereport(ERROR)
                     .errcode(types_error::ERRCODE_FEATURE_NOT_SUPPORTED)
                     .errmsg("prepared transaction belongs to another database")
-                    .errhint(
-                        "Connect to the database where the transaction was prepared to finish it.",
-                    )
+                    .errhint("Connect to the database where the transaction was prepared to finish it.",)
                     .finish(here("LockGXact"))
                     .unwrap_err());
             }
@@ -692,10 +684,7 @@ pub fn StandbyTransactionIdIsPrepared(xid: TransactionId) -> PgResult<bool> {
     let Some(buf) = crate::files::read_twophase_file(xid, true)? else {
         return Ok(false);
     };
-    let hdr = corrupt_guard(
-        TwoPhaseFileHeader::from_bytes(&buf),
-        "StandbyTransactionIdIsPrepared",
-    )?;
+    let hdr = corrupt_guard(TwoPhaseFileHeader::from_bytes(&buf), "StandbyTransactionIdIsPrepared",)?;
     Ok(hdr.xid == xid)
 }
 
@@ -848,10 +837,7 @@ fn scan_u32(s: &str) -> (Option<u32>, &str) {
     let mut v: u64 = 0;
     let mut overflow = false;
     while i < b.len() && b[i].is_ascii_digit() {
-        match v
-            .checked_mul(10)
-            .and_then(|v| v.checked_add((b[i] - b'0') as u64))
-        {
+        match v.checked_mul(10).and_then(|v| v.checked_add((b[i] - b'0') as u64)) {
             Some(next) => v = next,
             None => overflow = true,
         }

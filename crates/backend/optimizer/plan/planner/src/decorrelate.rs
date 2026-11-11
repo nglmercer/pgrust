@@ -65,8 +65,8 @@ use types_nodes::list::{IntList, NodeList};
 use types_nodes::nodes_enums::CmdType;
 use types_nodes::parsenodes::{CommonTableExpr, Query, RTEKind, RangeTblEntry, SortGroupClause};
 use types_nodes::primnodes::{
-    Aggref, Alias, CoalesceExpr, Const, FromExpr, JoinExpr, OpExpr, SubLink, SubLinkType,
-    TargetEntry, Var, AGGKIND_NORMAL,
+    Aggref, Alias, CoalesceExpr, Const, FromExpr, JoinExpr, OpExpr, SubLink, SubLinkType, TargetEntry, Var,
+    AGGKIND_NORMAL,
 };
 use types_nodes::{Bitmapset, JoinType, Node, NodeTag};
 
@@ -79,16 +79,11 @@ const SUBQUERY_ALIAS: &str = "gravity_decorrelated";
 const JOIN_ALIAS: &str = "unnamed_join";
 const EMPTY_NULL_AGGS: [&str; 7] = ["sum", "avg", "min", "max", "bool_and", "bool_or", "every"];
 
-pub(crate) fn alternative<'mcx>(
-    mcx: Mcx<'mcx>,
-    parse: &Query<'mcx>,
-) -> PgResult<Option<&'mcx mut Query<'mcx>>> {
+pub(crate) fn alternative<'mcx>(mcx: Mcx<'mcx>, parse: &Query<'mcx>,) -> PgResult<Option<&'mcx mut Query<'mcx>>> {
     if !any_sublinks(parse) {
         return Ok(None);
     }
-    let Some(q) = transform_level(mcx, parse)? else {
-        return Ok(None);
-    };
+    let Some(q) = transform_level(mcx, parse)? else { return Ok(None); };
     let copy = copyfuncs::copy_query(mcx, &q)?;
     Ok(Some(mcx::leak_in(mcx::alloc_in(mcx, copy)?)))
 }
@@ -98,21 +93,13 @@ fn any_sublinks(q: &Query<'_>) -> bool {
         return true;
     }
     q.rtable.iter().any(|n| {
-        n.as_range_tbl_entry()
-            .and_then(|r| r.subquery)
-            .is_some_and(any_sublinks)
-    }) || (!q.cteList.is_nil()
-        && cte_walk() != CteWalk::Off
-        && q.cteList
-            .iter()
-            .any(|n| cte_body(n).is_some_and(any_sublinks)))
+        n.as_range_tbl_entry().and_then(|r| r.subquery).is_some_and(any_sublinks)
+    }) || (!q.cteList.is_nil() && cte_walk() != CteWalk::Off && q.cteList.iter().any(|n| cte_body(n).is_some_and(any_sublinks)))
 }
 
 fn cte_body<'mcx>(n: Node<'mcx>) -> Option<&'mcx Query<'mcx>> {
     let cte = n.as_common_table_expr().expect("cteList cell");
-    cte.ctequery
-        .and_then(|q| q.as_query())
-        .filter(|q| !cte.cterecursive && q.commandType == CmdType::CMD_SELECT)
+    cte.ctequery.and_then(|q| q.as_query()).filter(|q| !cte.cterecursive && q.commandType == CmdType::CMD_SELECT)
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -145,18 +132,10 @@ fn cte_walk() -> CteWalk {
 /// b)`): PostgreSQL's own canonicalize_qual, which preprocess_expression applies to that WHERE before the SubPlan's first
 /// row, so the factored form is the one PostgreSQL evaluates. None when it changes nothing or
 /// `pgrust.gravity_decorrelate_or_factor` is off; callers try the WHERE as written first.
-pub(crate) fn or_factored<'mcx>(
-    mcx: Mcx<'mcx>,
-    quals: Option<Node<'mcx>>,
-) -> PgResult<Option<Node<'mcx>>> {
-    let Some(q) = quals.filter(|q| q.node_tag() != NodeTag::T_List) else {
-        return Ok(None);
-    };
+pub(crate) fn or_factored<'mcx>(mcx: Mcx<'mcx>, quals: Option<Node<'mcx>>,) -> PgResult<Option<Node<'mcx>>> {
+    let Some(q) = quals.filter(|q| q.node_tag() != NodeTag::T_List) else { return Ok(None); };
     if guc_seams::knob_read::is_installed()
-        && matches!(
-            guc_seams::knob_read::call(guc_seams::Knob::GravityDecorrelateOrFactor),
-            guc_seams::KnobRead::Word(0..=3)
-        )
+        && matches!(guc_seams::knob_read::call(guc_seams::Knob::GravityDecorrelateOrFactor), guc_seams::KnobRead::Word(0..=3))
     {
         return Ok(None);
     }
@@ -174,11 +153,7 @@ fn cte_walked(cte: &CommonTableExpr<'_>, mode: CteWalk) -> PgResult<bool> {
     if crate::cte::cte_inlines(cte)? {
         return Ok(true);
     }
-    let needs = if cte.ctematerialized == CTEMaterialize::CTEMaterializeAlways {
-        CteWalk::Materialized
-    } else {
-        CteWalk::Shared
-    };
+    let needs = if cte.ctematerialized == CTEMaterialize::CTEMaterializeAlways { CteWalk::Materialized } else { CteWalk::Shared };
     Ok(mode >= needs && crate::cte::cte_plain_select(cte)?)
 }
 
@@ -235,42 +210,25 @@ fn transform_level<'mcx>(mcx: Mcx<'mcx>, q: &Query<'mcx>) -> PgResult<Option<Que
     for n in q.rtable.iter() {
         let rte = n.as_range_tbl_entry().expect("rtable cell");
         match rte.subquery {
-            Some(sub) if descend && rte.rtekind == RTEKind::RTE_SUBQUERY => {
-                match transform_level(mcx, sub)? {
-                    Some(new) => {
-                        let copy = crate::prepjointree::rte_copy_with_perminfoindex(
-                            mcx,
-                            rte,
-                            rte.perminfoindex,
-                        )?;
-                        let new = mcx::alloc_leak_in(mcx, new)?;
-                        // SAFETY: the copy is exclusively ours until it enters the list.
-                        unsafe { copy.with_mut::<RangeTblEntry, _>(|r| r.subquery = Some(new)) };
-                        rtable.lappend(mcx, copy)?;
-                        changed = true;
-                    }
-                    None => rtable.lappend(mcx, n)?,
+            Some(sub) if descend && rte.rtekind == RTEKind::RTE_SUBQUERY => { match transform_level(mcx, sub)? {
+                Some(new) => {
+                    let copy = crate::prepjointree::rte_copy_with_perminfoindex(mcx, rte, rte.perminfoindex,)?;
+                    let new = mcx::alloc_leak_in(mcx, new)?;
+                    // SAFETY: the copy is exclusively ours until it enters the list.
+                    unsafe { copy.with_mut::<RangeTblEntry, _>(|r| r.subquery = Some(new)) };
+                    rtable.lappend(mcx, copy)?;
+                    changed = true;
                 }
+                None => rtable.lappend(mcx, n)?,
+            }
             }
             _ => rtable.lappend(mcx, n)?,
         }
     }
     let ctes = transform_ctes(mcx, q)?;
-    let Some(jt) = q.jointree else {
-        return Ok(None);
-    };
-    let group_rti = q
-        .rtable
-        .iter()
-        .position(|n| n.as_range_tbl_entry().expect("rtable cell").rtekind == RTEKind::RTE_GROUP)
-        .map_or(0, |i| i as i32 + 1);
-    let mut ctx = Level {
-        mcx,
-        rtable,
-        joins: Vec::new(),
-        outer_ok: outer_admits(q),
-        group_rti,
-    };
+    let Some(jt) = q.jointree else { return Ok(None); };
+    let group_rti = q.rtable.iter().position(|n| n.as_range_tbl_entry().expect("rtable cell").rtekind == RTEKind::RTE_GROUP).map_or(0, |i| i as i32 + 1);
+    let mut ctx = Level { mcx, rtable, joins: Vec::new(), outer_ok: outer_admits(q), group_rti, };
     let quals = ctx.mutate_quals(jt.quals)?;
     let mut tlist = NodeList::with_capacity(mcx, q.targetList.len())?;
     let mut tlist_changed = false;
@@ -288,13 +246,7 @@ fn transform_level<'mcx>(mcx: Mcx<'mcx>, q: &Query<'mcx>) -> PgResult<Option<Que
         Some(n) => ctx.mutate(n, false)?,
         None => None,
     };
-    if !(changed
-        || ctes.is_some()
-        || quals.is_some()
-        || tlist_changed
-        || having.is_some()
-        || !ctx.joins.is_empty())
-    {
+    if !(changed || ctes.is_some() || quals.is_some() || tlist_changed || having.is_some() || !ctx.joins.is_empty()) {
         return Ok(None);
     }
     let mut out = crate::subselect::query_cells_copy(mcx, q)?;
@@ -406,13 +358,8 @@ impl<'mcx> Level<'mcx> {
 
     fn sublink_below(&mut self, sl: &SubLink<'mcx>) -> PgResult<Option<Node<'mcx>>> {
         let mcx = self.mcx;
-        let sub = sl
-            .subselect
-            .as_query()
-            .expect("a transformed SubLink holds a Query");
-        let Some(new) = transform_level(mcx, sub)? else {
-            return Ok(None);
-        };
+        let sub = sl.subselect.as_query().expect("a transformed SubLink holds a Query");
+        let Some(new) = transform_level(mcx, sub)? else { return Ok(None); };
         Ok(Some(Node::mk(
             mcx,
             SubLink {
@@ -431,10 +378,7 @@ impl<'mcx> Level<'mcx> {
         if sl.subLinkType != SubLinkType::EXPR_SUBLINK || sl.testexpr.is_some() {
             return Ok(None);
         }
-        let sub = sl
-            .subselect
-            .as_query()
-            .expect("a transformed SubLink holds a Query");
+        let sub = sl.subselect.as_query().expect("a transformed SubLink holds a Query");
         if !sub_admits(sub) || !rtable_eager_safe(sub)? {
             return Ok(None);
         }
@@ -448,12 +392,7 @@ impl<'mcx> Level<'mcx> {
         }
     }
 
-    fn decorrelate_where(
-        &mut self,
-        sub: &'mcx Query<'mcx>,
-        jt: &'mcx FromExpr<'mcx>,
-        quals: Option<Node<'mcx>>,
-    ) -> PgResult<Option<Node<'mcx>>> {
+    fn decorrelate_where(&mut self, sub: &'mcx Query<'mcx>, jt: &'mcx FromExpr<'mcx>, quals: Option<Node<'mcx>>,) -> PgResult<Option<Node<'mcx>>> {
         let mcx = self.mcx;
         let mut keys: Vec<(Node<'mcx>, Node<'mcx>, &'mcx OpExpr<'mcx>, bool)> = Vec::new();
         let mut kept = NodeList::nil();
@@ -465,9 +404,7 @@ impl<'mcx> Level<'mcx> {
                 kept.lappend(mcx, c)?;
                 continue;
             }
-            let Some(key) = correlation_key(c)? else {
-                return Ok(None);
-            };
+            let Some(key) = correlation_key(c)? else { return Ok(None); };
             if self.group_rti != 0 && names_rte(key.1, self.group_rti, 1)? {
                 return Ok(None);
             }
@@ -476,20 +413,11 @@ impl<'mcx> Level<'mcx> {
         if keys.is_empty() || keys.len() > MAX_KEYS {
             return Ok(None);
         }
-        let te = sub
-            .targetList
-            .first()
-            .and_then(|n| n.as_target_entry())
-            .expect("one target entry");
-        if vars::contain_vars_of_level(te.expr, 1)? || clauses::contain_volatile_functions(te.expr)?
-        {
+        let te = sub.targetList.first().and_then(|n| n.as_target_entry()).expect("one target entry");
+        if vars::contain_vars_of_level(te.expr, 1)? || clauses::contain_volatile_functions(te.expr)? {
             return Ok(None);
         }
-        let mut aggs = AggCollector {
-            mcx,
-            count: 0,
-            admitted: true,
-        };
+        let mut aggs = AggCollector { mcx, count: 0, admitted: true, };
         aggs.walk(te.expr)?;
         if !aggs.admitted || aggs.count == 0 || aggs.count > MAX_AGGS {
             return Ok(None);
@@ -501,18 +429,8 @@ impl<'mcx> Level<'mcx> {
         nulling.add_member(mcx, join_rti)?;
 
         let mut g = crate::subselect::query_cells_copy(mcx, sub)?;
-        let gquals = if kept.is_nil() {
-            None
-        } else {
-            Some(clauses::make_ands_explicit(mcx, &kept)?)
-        };
-        g.jointree = Some(mcx::alloc_leak_in(
-            mcx,
-            FromExpr {
-                fromlist: jt.fromlist.clone_in(mcx)?,
-                quals: gquals,
-            },
-        )?);
+        let gquals = if kept.is_nil() { None } else { Some(clauses::make_ands_explicit(mcx, &kept)?) };
+        g.jointree = Some(mcx::alloc_leak_in(mcx, FromExpr { fromlist: jt.fromlist.clone_in(mcx)?, quals: gquals, },)?);
         let mut gtlist = NodeList::nil();
         let mut group = NodeList::nil();
         let mut colnames = NodeList::nil();
@@ -521,12 +439,7 @@ impl<'mcx> Level<'mcx> {
             let (inner, outer) = (*inner, *outer);
             let (ity, itm) = ::costsize::expr_type_typmod(inner);
             let icoll = crate::pathkeys::expr_collation(inner);
-            let tc = typcache::lookup_type_cache(
-                ity,
-                typcache::TYPECACHE_EQ_OPR
-                    | typcache::TYPECACHE_LT_OPR
-                    | typcache::TYPECACHE_HASH_PROC,
-            )?;
+            let tc = typcache::lookup_type_cache(ity, typcache::TYPECACHE_EQ_OPR | typcache::TYPECACHE_LT_OPR | typcache::TYPECACHE_HASH_PROC,)?;
             let resno = (i + 1) as i16;
             gtlist.lappend(
                 mcx,
@@ -560,35 +473,14 @@ impl<'mcx> Level<'mcx> {
             colnames.lappend(mcx, Node::mk_string(mcx, KEY_NAMES[i])?)?;
             let gvar = Node::mk(
                 mcx,
-                Var {
-                    varno: sub_rti,
-                    varattno: resno,
-                    vartype: ity,
-                    vartypmod: itm,
-                    varcollid: icoll,
-                    varnosyn: sub_rti as u32,
-                    varattnosyn: resno,
-                    ..Default::default()
-                },
+                Var { varno: sub_rti, varattno: resno, vartype: ity, vartypmod: itm, varcollid: icoll, varnosyn: sub_rti as u32, varattnosyn: resno, ..Default::default() },
             )?;
             let outer = rewrite_manip::copy_node(mcx, outer)?;
             rewrite_manip::IncrementVarSublevelsUp(outer, -1, 1)?;
-            let args = if *inner_left {
-                NodeList::make2(mcx, gvar, outer)?
-            } else {
-                NodeList::make2(mcx, outer, gvar)?
-            };
+            let args = if *inner_left { NodeList::make2(mcx, gvar, outer)? } else { NodeList::make2(mcx, outer, gvar)? };
             on.lappend(mcx, Node::mk(mcx, OpExpr { args, ..**op })?)?;
         }
-        let mut lift = AggLift {
-            mcx,
-            sub_rti,
-            nkeys: keys.len(),
-            next: 0,
-            tlist: NodeList::nil(),
-            colnames: NodeList::nil(),
-            nulling,
-        };
+        let mut lift = AggLift { mcx, sub_rti, nkeys: keys.len(), next: 0, tlist: NodeList::nil(), colnames: NodeList::nil(), nulling, };
         // The wrapper moves up one level to the SubLink's position: its references to levels 2 and up shift by one (a
         // copy: the shift is in place and the original SubLink is still planned).
         let replacement = rewrite_manip::copy_node(mcx, lift.mutate(te.expr)?.unwrap_or(te.expr))?;
@@ -604,26 +496,13 @@ impl<'mcx> Level<'mcx> {
         g.distinctClause = NodeList::nil();
         g.sortClause = NodeList::nil();
         let gnode = Node::mk(mcx, g)?;
-        if vars::contain_vars_of_level(gnode, 1)? || rewrite_manip::contain_aggs_of_level(gnode, 1)?
-        {
+        if vars::contain_vars_of_level(gnode, 1)? || rewrite_manip::contain_aggs_of_level(gnode, 1)? {
             return Ok(None);
         }
         let g = gnode.as_query().expect("a Query node");
 
-        let alias = mcx::alloc_leak_in(
-            mcx,
-            Alias {
-                aliasname: Some(SUBQUERY_ALIAS),
-                colnames: NodeList::nil(),
-            },
-        )?;
-        let eref = mcx::alloc_leak_in(
-            mcx,
-            Alias {
-                aliasname: Some(SUBQUERY_ALIAS),
-                colnames,
-            },
-        )?;
+        let alias = mcx::alloc_leak_in(mcx, Alias { aliasname: Some(SUBQUERY_ALIAS), colnames: NodeList::nil(), },)?;
+        let eref = mcx::alloc_leak_in(mcx, Alias { aliasname: Some(SUBQUERY_ALIAS), colnames, },)?;
         self.rtable.lappend(
             mcx,
             Node::mk(
@@ -639,26 +518,15 @@ impl<'mcx> Level<'mcx> {
                 },
             )?,
         )?;
-        self.rtable
-            .lappend(mcx, join_rte(mcx, JoinType::JOIN_LEFT)?)?;
+        self.rtable.lappend(mcx, join_rte(mcx, JoinType::JOIN_LEFT)?)?;
         debug_assert_eq!(self.rtable.len() as i32, join_rti);
-        self.joins.push(PendingJoin {
-            sub_rti,
-            join_rti,
-            on: clauses::make_ands_explicit(mcx, &on)?,
-        });
+        self.joins.push(PendingJoin { sub_rti, join_rti, on: clauses::make_ands_explicit(mcx, &on)?, });
         Ok(Some(replacement))
     }
 }
 
 pub(crate) fn join_rte<'mcx>(mcx: Mcx<'mcx>, jointype: JoinType) -> PgResult<Node<'mcx>> {
-    let eref = mcx::alloc_leak_in(
-        mcx,
-        Alias {
-            aliasname: Some(JOIN_ALIAS),
-            colnames: NodeList::nil(),
-        },
-    )?;
+    let eref = mcx::alloc_leak_in(mcx, Alias { aliasname: Some(JOIN_ALIAS), colnames: NodeList::nil(), },)?;
     Node::mk(
         mcx,
         RangeTblEntry {
@@ -678,11 +546,7 @@ pub(crate) fn join_rte<'mcx>(mcx: Mcx<'mcx>, jointype: JoinType) -> PgResult<Nod
     )
 }
 
-pub(crate) fn fold_fromlist<'mcx>(
-    mcx: Mcx<'mcx>,
-    rtable: &mut NodeList<'mcx>,
-    fromlist: &NodeList<'mcx>,
-) -> PgResult<Node<'mcx>> {
+pub(crate) fn fold_fromlist<'mcx>(mcx: Mcx<'mcx>, rtable: &mut NodeList<'mcx>, fromlist: &NodeList<'mcx>,) -> PgResult<Node<'mcx>> {
     let mut cur = fromlist.nth(0);
     for item in fromlist.iter().skip(1) {
         rtable.lappend(mcx, join_rte(mcx, JoinType::JOIN_INNER)?)?;
@@ -791,9 +655,7 @@ fn nested_eager_safe(q: &Query<'_>) -> PgResult<bool> {
             return Ok(false);
         }
     }
-    let Some(jt) = q.jointree else {
-        return Ok(false);
-    };
+    let Some(jt) = q.jointree else { return Ok(false); };
     Ok(rtable_eager_safe(q)? && from_expr_eager_safe(jt)?)
 }
 
@@ -814,9 +676,7 @@ fn jointree_item_eager_safe(node: Node<'_>) -> PgResult<bool> {
         return Ok(true);
     }
     if let Some(j) = node.as_join_expr() {
-        return Ok(j.quals.map_or(Ok(true), eager_safe)?
-            && jointree_item_eager_safe(j.larg)?
-            && jointree_item_eager_safe(j.rarg)?);
+        return Ok(j.quals.map_or(Ok(true), eager_safe)? && jointree_item_eager_safe(j.larg)? && jointree_item_eager_safe(j.rarg)?);
     }
     match node.as_from_expr() {
         Some(f) => from_expr_eager_safe(f),
@@ -870,11 +730,8 @@ fn eager_safe_in(node: Node<'_>, aggs: bool) -> PgResult<bool> {
                 | NodeTag::T_DistinctExpr
                 | NodeTag::T_NullIfExpr
                 | NodeTag::T_ScalarArrayOpExpr => {
-                    let leaky =
-                        |f| Ok(!(lsyscache::get_func_leakproof(f)? && lsyscache::func_strict(f)?));
-                    if nodes_core::check_functions_in_node(n, &mut { leaky })?
-                        || !crate::createplan::collation_determinate(n)?
-                    {
+                    let leaky = |f| Ok(!(lsyscache::get_func_leakproof(f)? && lsyscache::func_strict(f)?));
+                    if nodes_core::check_functions_in_node(n, &mut { leaky })? || !crate::createplan::collation_determinate(n)? {
                         return Ok(true);
                     }
                 }
@@ -888,47 +745,30 @@ fn eager_safe_in(node: Node<'_>, aggs: bool) -> PgResult<bool> {
 
 /// `(inner, outer, op, inner_is_left)` when `c` is `inner = outer` on the inner type's btree
 /// equality; None otherwise.
-pub(crate) fn correlation_key<'mcx>(
-    c: Node<'mcx>,
-) -> PgResult<Option<(Node<'mcx>, Node<'mcx>, &'mcx OpExpr<'mcx>, bool)>> {
-    let Some(op) = c.as_op_expr() else {
-        return Ok(None);
-    };
+pub(crate) fn correlation_key<'mcx>(c: Node<'mcx>,) -> PgResult<Option<(Node<'mcx>, Node<'mcx>, &'mcx OpExpr<'mcx>, bool)>> {
+    let Some(op) = c.as_op_expr() else { return Ok(None); };
     if op.args.len() != 2 || op.opretset || clauses::contain_volatile_functions(c)? {
         return Ok(None);
     }
     let (l, r) = (op.args.nth(0), op.args.nth(1));
-    let (l1, r1) = (
-        vars::contain_vars_of_level(l, 1)?,
-        vars::contain_vars_of_level(r, 1)?,
-    );
+    let (l1, r1) = (vars::contain_vars_of_level(l, 1)?, vars::contain_vars_of_level(r, 1)?,);
     let (inner, outer, inner_left) = match (l1, r1) {
         (false, true) => (l, r, true),
         (true, false) => (r, l, false),
         _ => return Ok(None),
     };
-    if vars::contain_vars_of_level(outer, 0)?
-        || contains_aggs_or_sublinks(outer)?
-        || contains_aggs_or_sublinks(inner)?
-    {
+    if vars::contain_vars_of_level(outer, 0)? || contains_aggs_or_sublinks(outer)? || contains_aggs_or_sublinks(inner)? {
         return Ok(None);
     }
     let (ity, _) = ::costsize::expr_type_typmod(inner);
-    let tc = typcache::lookup_type_cache(
-        ity,
-        typcache::TYPECACHE_EQ_OPR | typcache::TYPECACHE_LT_OPR | typcache::TYPECACHE_HASH_PROC,
-    )?;
+    let tc = typcache::lookup_type_cache(ity, typcache::TYPECACHE_EQ_OPR | typcache::TYPECACHE_LT_OPR | typcache::TYPECACHE_HASH_PROC,)?;
     if tc.eq_opr() == 0 || tc.lt_opr() == 0 || tc.btree_opf() == 0 {
         return Ok(None);
     }
-    if lsyscache::get_op_opfamily_strategy(op.opno, tc.btree_opf())?
-        != lsyscache::BTEqualStrategyNumber as i32
-    {
+    if lsyscache::get_op_opfamily_strategy(op.opno, tc.btree_opf())? != lsyscache::BTEqualStrategyNumber as i32 {
         return Ok(None);
     }
-    if lsyscache::type_is_collatable(ity)?
-        && op.inputcollid != crate::pathkeys::expr_collation(inner)
-    {
+    if lsyscache::type_is_collatable(ity)? && op.inputcollid != crate::pathkeys::expr_collation(inner) {
         return Ok(None);
     }
     Ok(Some((inner, outer, op, inner_left)))
@@ -951,10 +791,7 @@ fn contains_aggs_or_sublinks(node: Node<'_>) -> PgResult<bool> {
     struct W(bool);
     impl<'m> nodes_core::NodeWalker<'m> for W {
         fn visit(&mut self, n: Node<'m>) -> PgResult<bool> {
-            if matches!(
-                n.node_tag(),
-                NodeTag::T_Aggref | NodeTag::T_SubLink | NodeTag::T_GroupingFunc
-            ) {
+            if matches!(n.node_tag(), NodeTag::T_Aggref | NodeTag::T_SubLink | NodeTag::T_GroupingFunc) {
                 self.0 = true;
                 return Ok(true);
             }
@@ -970,9 +807,7 @@ fn empty_input_value(mcx: Mcx<'_>, agg: &Aggref<'_>) -> PgResult<Option<bool>> {
     if lsyscache::get_func_namespace(agg.aggfnoid)? != types_core::catalog::PG_CATALOG_NAMESPACE {
         return Ok(None);
     }
-    let Some(name) = lsyscache::get_func_name(mcx, agg.aggfnoid)? else {
-        return Ok(None);
-    };
+    let Some(name) = lsyscache::get_func_name(mcx, agg.aggfnoid)? else { return Ok(None); };
     let name = name.as_str();
     if name == "count" {
         return Ok(Some(true));
@@ -1013,8 +848,7 @@ impl<'mcx> nodes_core::NodeWalker<'mcx> for AggCollector<'mcx> {
                 None => true,
             };
             for a in agg.args.iter() {
-                safe =
-                    safe && eager_safe(a.as_target_entry().expect("an aggregate argument").expr)?;
+                safe = safe && eager_safe(a.as_target_entry().expect("an aggregate argument").expr)?;
             }
             if agg_admits(self.mcx, agg)?.is_none() || !safe {
                 self.admitted = false;
@@ -1052,19 +886,10 @@ impl<'mcx> AggLift<'mcx> {
                 mcx,
                 Node::mk(
                     mcx,
-                    TargetEntry {
-                        expr: node,
-                        resno,
-                        resname: Some(AGG_NAMES[i]),
-                        ressortgroupref: 0,
-                        resorigtbl: 0,
-                        resorigcol: 0,
-                        resjunk: false,
-                    },
+                    TargetEntry { expr: node, resno, resname: Some(AGG_NAMES[i]), ressortgroupref: 0, resorigtbl: 0, resorigcol: 0, resjunk: false, },
                 )?,
             )?;
-            self.colnames
-                .lappend(mcx, Node::mk_string(mcx, AGG_NAMES[i])?)?;
+            self.colnames.lappend(mcx, Node::mk_string(mcx, AGG_NAMES[i])?)?;
             let var = Node::mk(
                 mcx,
                 Var {
@@ -1097,12 +922,7 @@ impl<'mcx> AggLift<'mcx> {
             )?;
             return Ok(Some(Node::mk(
                 mcx,
-                CoalesceExpr {
-                    coalescetype: INT8OID,
-                    coalescecollid: 0,
-                    args: NodeList::make2(mcx, var, zero)?,
-                    location: -1,
-                },
+                CoalesceExpr { coalescetype: INT8OID, coalescecollid: 0, args: NodeList::make2(mcx, var, zero)?, location: -1, },
             )?));
         }
         nodes_core::expression_tree_mutator(mcx, node, &mut |n| self.mutate(n))
@@ -1113,9 +933,7 @@ impl<'mcx> AggLift<'mcx> {
 mod tests {
     use super::*;
     use types_nodes::parsenodes::RangeTblFunction;
-    use types_nodes::primnodes::{
-        BoolExpr, BoolExprType, CaseExpr, CaseWhen, FuncExpr, NullTest, NullTestType,
-    };
+    use types_nodes::primnodes::{BoolExpr, BoolExprType, CaseExpr, CaseWhen, FuncExpr, NullTest, NullTestType,};
 
     const TBL: u32 = 16384;
     const INT4: u32 = 23;
@@ -1135,18 +953,7 @@ mod tests {
     }
 
     fn rel_rte(mcx: Mcx<'_>) -> Node<'_> {
-        Node::mk(
-            mcx,
-            RangeTblEntry {
-                rtekind: RTEKind::RTE_RELATION,
-                relid: TBL,
-                relkind: b'r',
-                rellockmode: 1,
-                inFromCl: true,
-                ..Default::default()
-            },
-        )
-        .unwrap()
+        Node::mk(mcx, RangeTblEntry { rtekind: RTEKind::RTE_RELATION, relid: TBL, relkind: b'r', rellockmode: 1, inFromCl: true, ..Default::default() },).unwrap()
     }
 
     fn var(mcx: Mcx<'_>, varno: i32, attno: i16, levelsup: u32) -> Node<'_> {
@@ -1157,157 +964,50 @@ mod tests {
         Node::mk_const(mcx, INT4, -1, 0, 4, datum::Datum::from_i32(v), false, true).unwrap()
     }
 
-    fn op<'m>(
-        mcx: Mcx<'m>,
-        (opno, opfuncid): (u32, u32),
-        restype: u32,
-        l: Node<'m>,
-        r: Node<'m>,
-    ) -> Node<'m> {
-        Node::mk(
-            mcx,
-            OpExpr {
-                opno,
-                opfuncid,
-                opresulttype: restype,
-                opretset: false,
-                opcollid: 0,
-                inputcollid: 0,
-                args: NodeList::make2(mcx, l, r).unwrap(),
-                location: -1,
-            },
-        )
-        .unwrap()
+    fn op<'m>(mcx: Mcx<'m>, (opno, opfuncid): (u32, u32), restype: u32, l: Node<'m>, r: Node<'m>,) -> Node<'m> {
+        Node::mk(mcx, OpExpr { opno, opfuncid, opresulttype: restype, opretset: false, opcollid: 0, inputcollid: 0, args: NodeList::make2(mcx, l, r).unwrap(), location: -1, },).unwrap()
     }
 
     fn count_star(mcx: Mcx<'_>) -> Node<'_> {
-        Node::mk(
-            mcx,
-            Aggref {
-                aggfnoid: COUNT_STAR,
-                aggtype: INT8,
-                aggstar: true,
-                ..Aggref::default()
-            },
-        )
-        .unwrap()
+        Node::mk(mcx, Aggref { aggfnoid: COUNT_STAR, aggtype: INT8, aggstar: true, ..Aggref::default() },).unwrap()
     }
 
     fn sum_of<'m>(mcx: Mcx<'m>, expr: Node<'m>, filter: Option<Node<'m>>) -> Node<'m> {
         let mut aggargtypes = types_nodes::list::OidList::nil();
         aggargtypes.lappend(mcx, INT4).unwrap();
-        let args = NodeList::make1(
-            mcx,
-            Node::mk_target_entry(mcx, expr, 1, None, false).unwrap(),
-        )
-        .unwrap();
-        Node::mk(
-            mcx,
-            Aggref {
-                aggfnoid: SUM_INT4,
-                aggtype: INT8,
-                aggargtypes,
-                args,
-                aggfilter: filter,
-                ..Aggref::default()
-            },
-        )
-        .unwrap()
+        let args = NodeList::make1(mcx, Node::mk_target_entry(mcx, expr, 1, None, false).unwrap(),).unwrap();
+        Node::mk(mcx, Aggref { aggfnoid: SUM_INT4, aggtype: INT8, aggargtypes, args, aggfilter: filter, ..Aggref::default() },).unwrap()
     }
 
     fn from_expr<'m>(mcx: Mcx<'m>, quals: Option<Node<'m>>) -> Option<&'m FromExpr<'m>> {
         let rtr = Node::mk_range_tbl_ref(mcx, 1).unwrap();
-        Some(
-            mcx::alloc_leak_in(
-                mcx,
-                FromExpr {
-                    fromlist: NodeList::make1(mcx, rtr).unwrap(),
-                    quals,
-                },
-            )
-            .unwrap(),
-        )
+        Some(mcx::alloc_leak_in(mcx, FromExpr { fromlist: NodeList::make1(mcx, rtr).unwrap(), quals, },).unwrap(),)
     }
 
-    fn select<'m>(
-        mcx: Mcx<'m>,
-        rtable: NodeList<'m>,
-        tlist: &[Node<'m>],
-        quals: Option<Node<'m>>,
-    ) -> Query<'m> {
+    fn select<'m>(mcx: Mcx<'m>, rtable: NodeList<'m>, tlist: &[Node<'m>], quals: Option<Node<'m>>,) -> Query<'m> {
         let mut target_list = NodeList::nil();
         for (i, e) in tlist.iter().enumerate() {
-            target_list
-                .lappend(
-                    mcx,
-                    Node::mk_target_entry(mcx, *e, (i + 1) as i16, None, false).unwrap(),
-                )
-                .unwrap();
+            target_list.lappend(mcx, Node::mk_target_entry(mcx, *e, (i + 1) as i16, None, false).unwrap(),).unwrap();
         }
         let has_aggs = tlist.iter().any(|e| e.as_aggref().is_some());
-        Query {
-            commandType: CmdType::CMD_SELECT,
-            canSetTag: true,
-            hasAggs: has_aggs,
-            rtable,
-            jointree: from_expr(mcx, quals),
-            targetList: target_list,
-            ..Query::default()
-        }
+        Query { commandType: CmdType::CMD_SELECT, canSetTag: true, hasAggs: has_aggs, rtable, jointree: from_expr(mcx, quals), targetList: target_list, ..Query::default() }
     }
 
     fn sublink<'m>(mcx: Mcx<'m>, sub: Query<'m>) -> Node<'m> {
-        Node::mk(
-            mcx,
-            SubLink {
-                subLinkType: SubLinkType::EXPR_SUBLINK,
-                subLinkId: 0,
-                testexpr: None,
-                operName: NodeList::nil(),
-                subselect: Node::mk(mcx, sub).unwrap(),
-                location: -1,
-            },
-        )
-        .unwrap()
+        Node::mk(mcx, SubLink { subLinkType: SubLinkType::EXPR_SUBLINK, subLinkId: 0, testexpr: None, operName: NodeList::nil(), subselect: Node::mk(mcx, sub).unwrap(), location: -1, },).unwrap()
     }
 
-    fn sub<'m>(
-        mcx: Mcx<'m>,
-        agg: Node<'m>,
-        outer_key: Node<'m>,
-        kept: Option<Node<'m>>,
-    ) -> Node<'m> {
+    fn sub<'m>(mcx: Mcx<'m>, agg: Node<'m>, outer_key: Node<'m>, kept: Option<Node<'m>>,) -> Node<'m> {
         let key = op(mcx, INT4EQ, BOOL, var(mcx, 1, 2, 0), outer_key);
         let quals = match kept {
-            Some(k) => Node::mk(
-                mcx,
-                BoolExpr {
-                    boolop: BoolExprType::AND_EXPR,
-                    args: NodeList::make2(mcx, key, k).unwrap(),
-                    location: -1,
-                },
-            )
-            .unwrap(),
+            Some(k) => Node::mk(mcx, BoolExpr { boolop: BoolExprType::AND_EXPR, args: NodeList::make2(mcx, key, k).unwrap(), location: -1, },).unwrap(),
             None => key,
         };
-        sublink(
-            mcx,
-            select(
-                mcx,
-                NodeList::make1(mcx, rel_rte(mcx)).unwrap(),
-                &[agg],
-                Some(quals),
-            ),
-        )
+        sublink(mcx, select(mcx, NodeList::make1(mcx, rel_rte(mcx)).unwrap(), &[agg], Some(quals),),)
     }
 
     fn outer<'m>(mcx: Mcx<'m>, tlist: &[Node<'m>], quals: Option<Node<'m>>) -> Query<'m> {
-        let mut q = select(
-            mcx,
-            NodeList::make1(mcx, rel_rte(mcx)).unwrap(),
-            tlist,
-            quals,
-        );
+        let mut q = select(mcx, NodeList::make1(mcx, rel_rte(mcx)).unwrap(), tlist, quals,);
         q.hasSubLinks = true;
         q
     }
@@ -1319,8 +1019,7 @@ mod tests {
     fn grouped_rte<'m>(q: &Query<'m>) -> Option<&'m Query<'m>> {
         q.rtable.iter().find_map(|n| {
             let r = n.as_range_tbl_entry().unwrap();
-            (r.alias.is_some_and(|a| a.aliasname == Some(SUBQUERY_ALIAS)))
-                .then(|| r.subquery.unwrap())
+            (r.alias.is_some_and(|a| a.aliasname == Some(SUBQUERY_ALIAS))).then(|| r.subquery.unwrap())
         })
     }
 
@@ -1328,53 +1027,24 @@ mod tests {
     fn tlist_top_count_is_a_grouped_left_join() {
         let ctx = cx();
         let mcx = ctx.mcx();
-        let q = outer(
-            mcx,
-            &[sub(mcx, count_star(mcx), var(mcx, 1, 2, 1), None)],
-            None,
-        );
+        let q = outer(mcx, &[sub(mcx, count_star(mcx), var(mcx, 1, 2, 1), None)], None,);
         let alt = rewritten(mcx, &q).expect("admitted");
         let g = grouped_rte(alt).expect("the grouped subquery");
         assert_eq!(g.groupClause.len(), 1);
         assert_eq!(g.targetList.len(), 2);
-        assert!(
-            g.jointree.unwrap().quals.is_none(),
-            "the correlation conjunct left the inner"
-        );
+        assert!(g.jointree.unwrap().quals.is_none(), "the correlation conjunct left the inner");
         let join = alt.jointree.unwrap().fromlist.nth(0);
         assert_eq!(join.as_join_expr().unwrap().jointype, JoinType::JOIN_LEFT);
         let te = alt.targetList.nth(0).as_target_entry().unwrap();
-        assert!(
-            te.expr.as_coalesce_expr().is_some(),
-            "count(*) is coalesce(a1, 0)"
-        );
+        assert!(te.expr.as_coalesce_expr().is_some(), "count(*) is coalesce(a1, 0)");
     }
 
     #[test]
     fn where_conjunct_operand_is_admitted() {
         let ctx = cx();
         let mcx = ctx.mcx();
-        let cmp = op(
-            mcx,
-            INT8GT,
-            BOOL,
-            sub(mcx, count_star(mcx), var(mcx, 1, 2, 1), None),
-            Node::mk_const(mcx, INT8, -1, 0, 8, datum::Datum::from_i64(0), false, true).unwrap(),
-        );
-        let and = Node::mk(
-            mcx,
-            BoolExpr {
-                boolop: BoolExprType::AND_EXPR,
-                args: NodeList::make2(
-                    mcx,
-                    op(mcx, INT4GT, BOOL, var(mcx, 1, 1, 0), int4(mcx, 0)),
-                    cmp,
-                )
-                .unwrap(),
-                location: -1,
-            },
-        )
-        .unwrap();
+        let cmp = op(mcx, INT8GT, BOOL, sub(mcx, count_star(mcx), var(mcx, 1, 2, 1), None), Node::mk_const(mcx, INT8, -1, 0, 8, datum::Datum::from_i64(0), false, true).unwrap(),);
+        let and = Node::mk(mcx, BoolExpr { boolop: BoolExprType::AND_EXPR, args: NodeList::make2(mcx, op(mcx, INT4GT, BOOL, var(mcx, 1, 1, 0), int4(mcx, 0)), cmp,).unwrap(), location: -1, },).unwrap();
         let q = outer(mcx, &[var(mcx, 1, 1, 0)], Some(and));
         let alt = rewritten(mcx, &q).expect("admitted");
         assert!(grouped_rte(alt).is_some());
@@ -1385,17 +1055,10 @@ mod tests {
         let ctx = cx();
         let mcx = ctx.mcx();
         let kept = op(mcx, INT4GT, BOOL, var(mcx, 1, 1, 0), int4(mcx, 0));
-        let q = outer(
-            mcx,
-            &[sub(mcx, count_star(mcx), var(mcx, 1, 2, 1), Some(kept))],
-            None,
-        );
+        let q = outer(mcx, &[sub(mcx, count_star(mcx), var(mcx, 1, 2, 1), Some(kept))], None,);
         let alt = rewritten(mcx, &q).expect("admitted");
         let g = grouped_rte(alt).expect("the grouped subquery");
-        assert!(
-            g.jointree.unwrap().quals.unwrap().as_op_expr().is_some(),
-            "the kept conjunct stays in the inner"
-        );
+        assert!(g.jointree.unwrap().quals.unwrap().as_op_expr().is_some(), "the kept conjunct stays in the inner");
     }
 
     #[test]
@@ -1409,89 +1072,19 @@ mod tests {
         let mcx = ctx.mcx();
         let text = |attno, coll| Node::mk_var(mcx, 1, attno, TEXT, -1, coll, 0).unwrap();
         let texteq = |inputcollid| {
-            Node::mk(
-                mcx,
-                OpExpr {
-                    opno: TEXTEQ.0,
-                    opfuncid: TEXTEQ.1,
-                    opresulttype: BOOL,
-                    opretset: false,
-                    opcollid: 0,
-                    inputcollid,
-                    args: NodeList::make2(mcx, text(3, 950), text(4, 951)).unwrap(),
-                    location: -1,
-                },
-            )
-            .unwrap()
+            Node::mk(mcx, OpExpr { opno: TEXTEQ.0, opfuncid: TEXTEQ.1, opresulttype: BOOL, opretset: false, opcollid: 0, inputcollid, args: NodeList::make2(mcx, text(3, 950), text(4, 951)).unwrap(), location: -1, },).unwrap()
         };
         assert!(!crate::createplan::collation_determinate(texteq(0)).unwrap());
         assert!(crate::createplan::collation_determinate(texteq(950)).unwrap());
-        assert!(
-            crate::createplan::collation_determinate(op(
-                mcx,
-                INT4GT,
-                BOOL,
-                var(mcx, 1, 1, 0),
-                int4(mcx, 0)
-            ))
-            .unwrap(),
-            "no collatable argument"
-        );
-        let co = || {
-            Node::mk(
-                mcx,
-                CoalesceExpr {
-                    coalescetype: TEXT,
-                    coalescecollid: 0,
-                    args: NodeList::make2(mcx, text(3, 950), text(4, 951)).unwrap(),
-                    location: -1,
-                },
-            )
-            .unwrap()
+        assert!(crate::createplan::collation_determinate(op(mcx, INT4GT, BOOL, var(mcx, 1, 1, 0), int4(mcx, 0))).unwrap(), "no collatable argument");
+        let co = || { Node::mk(mcx, CoalesceExpr { coalescetype: TEXT, coalescecollid: 0, args: NodeList::make2(mcx, text(3, 950), text(4, 951)).unwrap(), location: -1, },).unwrap()
         };
-        let both = Node::mk(
-            mcx,
-            OpExpr {
-                opno: TEXTEQ.0,
-                opfuncid: TEXTEQ.1,
-                opresulttype: BOOL,
-                opretset: false,
-                opcollid: 0,
-                inputcollid: 0,
-                args: NodeList::make2(mcx, co(), co()).unwrap(),
-                location: -1,
-            },
-        )
-        .unwrap();
+        let both = Node::mk(mcx, OpExpr { opno: TEXTEQ.0, opfuncid: TEXTEQ.1, opresulttype: BOOL, opretset: false, opcollid: 0, inputcollid: 0, args: NodeList::make2(mcx, co(), co()).unwrap(), location: -1, },).unwrap();
         assert!(!crate::createplan::collation_determinate(both).unwrap());
-        let q = outer(
-            mcx,
-            &[sub(
-                mcx,
-                count_star(mcx),
-                var(mcx, 1, 2, 1),
-                Some(texteq(0)),
-            )],
-            None,
-        );
-        assert!(
-            rewritten(mcx, &q).is_none(),
-            "the indeterminate texteq refuses"
-        );
-        let q = outer(
-            mcx,
-            &[sub(
-                mcx,
-                count_star(mcx),
-                var(mcx, 1, 2, 1),
-                Some(texteq(950)),
-            )],
-            None,
-        );
-        assert!(
-            rewritten(mcx, &q).is_some(),
-            "under COLLATE \"C\" it is admitted"
-        );
+        let q = outer(mcx, &[sub(mcx, count_star(mcx), var(mcx, 1, 2, 1), Some(texteq(0)),)], None,);
+        assert!(rewritten(mcx, &q).is_none(), "the indeterminate texteq refuses");
+        let q = outer(mcx, &[sub(mcx, count_star(mcx), var(mcx, 1, 2, 1), Some(texteq(950)),)], None,);
+        assert!(rewritten(mcx, &q).is_some(), "under COLLATE \"C\" it is admitted");
     }
 
     #[test]
@@ -1499,11 +1092,7 @@ mod tests {
         let ctx = cx();
         let mcx = ctx.mcx();
         let kept = op(mcx, INT4EQ, BOOL, var(mcx, 1, 1, 0), var(mcx, 1, 1, 2));
-        let q = outer(
-            mcx,
-            &[sub(mcx, count_star(mcx), var(mcx, 1, 2, 1), Some(kept))],
-            None,
-        );
+        let q = outer(mcx, &[sub(mcx, count_star(mcx), var(mcx, 1, 2, 1), Some(kept))], None,);
         let alt = rewritten(mcx, &q).expect("admitted");
         let g = grouped_rte(alt).expect("the grouped subquery");
         let kept = g.jointree.unwrap().quals.unwrap().as_op_expr().unwrap();
@@ -1514,43 +1103,11 @@ mod tests {
     fn level_one_reference_inside_a_function_rte_refuses() {
         let ctx = cx();
         let mcx = ctx.mcx();
-        let series = Node::mk(
-            mcx,
-            FuncExpr {
-                funcid: GENERATE_SERIES,
-                funcresulttype: INT4,
-                funcretset: true,
-                args: NodeList::make2(mcx, int4(mcx, 1), var(mcx, 1, 2, 1)).unwrap(),
-                ..FuncExpr::default()
-            },
-        )
-        .unwrap();
-        let rtf = Node::mk(
-            mcx,
-            RangeTblFunction {
-                funcexpr: Some(series),
-                funccolcount: 1,
-                ..RangeTblFunction::default()
-            },
-        )
-        .unwrap();
-        let rte = Node::mk(
-            mcx,
-            RangeTblEntry {
-                rtekind: RTEKind::RTE_FUNCTION,
-                functions: NodeList::make1(mcx, rtf).unwrap(),
-                inFromCl: true,
-                ..Default::default()
-            },
-        )
-        .unwrap();
+        let series = Node::mk(mcx, FuncExpr { funcid: GENERATE_SERIES, funcresulttype: INT4, funcretset: true, args: NodeList::make2(mcx, int4(mcx, 1), var(mcx, 1, 2, 1)).unwrap(), ..FuncExpr::default() },).unwrap();
+        let rtf = Node::mk(mcx, RangeTblFunction { funcexpr: Some(series), funccolcount: 1, ..RangeTblFunction::default() },).unwrap();
+        let rte = Node::mk(mcx, RangeTblEntry { rtekind: RTEKind::RTE_FUNCTION, functions: NodeList::make1(mcx, rtf).unwrap(), inFromCl: true, ..Default::default() },).unwrap();
         let key = op(mcx, INT4EQ, BOOL, var(mcx, 1, 1, 0), var(mcx, 1, 2, 1));
-        let inner = select(
-            mcx,
-            NodeList::make1(mcx, rte).unwrap(),
-            &[count_star(mcx)],
-            Some(key),
-        );
+        let inner = select(mcx, NodeList::make1(mcx, rte).unwrap(), &[count_star(mcx)], Some(key),);
         let q = outer(mcx, &[sublink(mcx, inner)], None);
         assert!(rewritten(mcx, &q).is_none());
     }
@@ -1559,29 +1116,10 @@ mod tests {
     fn level_one_reference_inside_a_subquery_rte_refuses() {
         let ctx = cx();
         let mcx = ctx.mcx();
-        let nested = select(
-            mcx,
-            NodeList::make1(mcx, rel_rte(mcx)).unwrap(),
-            &[var(mcx, 1, 2, 0)],
-            Some(op(mcx, INT4EQ, BOOL, var(mcx, 1, 1, 0), var(mcx, 1, 2, 2))),
-        );
-        let rte = Node::mk(
-            mcx,
-            RangeTblEntry {
-                rtekind: RTEKind::RTE_SUBQUERY,
-                subquery: Some(mcx::alloc_leak_in(mcx, nested).unwrap()),
-                inFromCl: true,
-                ..Default::default()
-            },
-        )
-        .unwrap();
+        let nested = select(mcx, NodeList::make1(mcx, rel_rte(mcx)).unwrap(), &[var(mcx, 1, 2, 0)], Some(op(mcx, INT4EQ, BOOL, var(mcx, 1, 1, 0), var(mcx, 1, 2, 2))),);
+        let rte = Node::mk(mcx, RangeTblEntry { rtekind: RTEKind::RTE_SUBQUERY, subquery: Some(mcx::alloc_leak_in(mcx, nested).unwrap()), inFromCl: true, ..Default::default() },).unwrap();
         let key = op(mcx, INT4EQ, BOOL, var(mcx, 1, 1, 0), var(mcx, 1, 2, 1));
-        let inner = select(
-            mcx,
-            NodeList::make1(mcx, rte).unwrap(),
-            &[count_star(mcx)],
-            Some(key),
-        );
+        let inner = select(mcx, NodeList::make1(mcx, rte).unwrap(), &[count_star(mcx)], Some(key),);
         let q = outer(mcx, &[sublink(mcx, inner)], None);
         assert!(rewritten(mcx, &q).is_none());
     }
@@ -1590,29 +1128,9 @@ mod tests {
     fn outer_aggregate_in_a_kept_conjunct_refuses() {
         let ctx = cx();
         let mcx = ctx.mcx();
-        let outer_count = Node::mk(
-            mcx,
-            Aggref {
-                aggfnoid: COUNT_STAR,
-                aggtype: INT8,
-                aggstar: true,
-                agglevelsup: 1,
-                ..Aggref::default()
-            },
-        )
-        .unwrap();
-        let kept = op(
-            mcx,
-            INT8GT,
-            BOOL,
-            outer_count,
-            Node::mk_const(mcx, INT8, -1, 0, 8, datum::Datum::from_i64(0), false, true).unwrap(),
-        );
-        let mut q = outer(
-            mcx,
-            &[sub(mcx, count_star(mcx), var(mcx, 1, 2, 1), Some(kept))],
-            None,
-        );
+        let outer_count = Node::mk(mcx, Aggref { aggfnoid: COUNT_STAR, aggtype: INT8, aggstar: true, agglevelsup: 1, ..Aggref::default() },).unwrap();
+        let kept = op(mcx, INT8GT, BOOL, outer_count, Node::mk_const(mcx, INT8, -1, 0, 8, datum::Datum::from_i64(0), false, true).unwrap(),);
+        let mut q = outer(mcx, &[sub(mcx, count_star(mcx), var(mcx, 1, 2, 1), Some(kept))], None,);
         q.hasAggs = true;
         assert!(rewritten(mcx, &q).is_none());
     }
@@ -1621,27 +1139,8 @@ mod tests {
     fn sublink_under_case_refuses() {
         let ctx = cx();
         let mcx = ctx.mcx();
-        let when = Node::mk(
-            mcx,
-            CaseWhen {
-                expr: Some(op(mcx, INT4GT, BOOL, var(mcx, 1, 2, 0), int4(mcx, 0))),
-                result: Some(sub(mcx, count_star(mcx), var(mcx, 1, 2, 1), None)),
-                location: -1,
-            },
-        )
-        .unwrap();
-        let case = Node::mk(
-            mcx,
-            CaseExpr {
-                casetype: INT8,
-                casecollid: 0,
-                arg: None,
-                args: NodeList::make1(mcx, when).unwrap(),
-                defresult: None,
-                location: -1,
-            },
-        )
-        .unwrap();
+        let when = Node::mk(mcx, CaseWhen { expr: Some(op(mcx, INT4GT, BOOL, var(mcx, 1, 2, 0), int4(mcx, 0))), result: Some(sub(mcx, count_star(mcx), var(mcx, 1, 2, 1), None)), location: -1, },).unwrap();
+        let case = Node::mk(mcx, CaseExpr { casetype: INT8, casecollid: 0, arg: None, args: NodeList::make1(mcx, when).unwrap(), defresult: None, location: -1, },).unwrap();
         let q = outer(mcx, &[case], None);
         assert!(rewritten(mcx, &q).is_none());
     }
@@ -1650,27 +1149,8 @@ mod tests {
     fn sublink_under_or_refuses() {
         let ctx = cx();
         let mcx = ctx.mcx();
-        let cmp = op(
-            mcx,
-            INT8GT,
-            BOOL,
-            sub(mcx, count_star(mcx), var(mcx, 1, 2, 1), None),
-            Node::mk_const(mcx, INT8, -1, 0, 8, datum::Datum::from_i64(0), false, true).unwrap(),
-        );
-        let or = Node::mk(
-            mcx,
-            BoolExpr {
-                boolop: BoolExprType::OR_EXPR,
-                args: NodeList::make2(
-                    mcx,
-                    op(mcx, INT4GT, BOOL, var(mcx, 1, 1, 0), int4(mcx, 0)),
-                    cmp,
-                )
-                .unwrap(),
-                location: -1,
-            },
-        )
-        .unwrap();
+        let cmp = op(mcx, INT8GT, BOOL, sub(mcx, count_star(mcx), var(mcx, 1, 2, 1), None), Node::mk_const(mcx, INT8, -1, 0, 8, datum::Datum::from_i64(0), false, true).unwrap(),);
+        let or = Node::mk(mcx, BoolExpr { boolop: BoolExprType::OR_EXPR, args: NodeList::make2(mcx, op(mcx, INT4GT, BOOL, var(mcx, 1, 1, 0), int4(mcx, 0)), cmp,).unwrap(), location: -1, },).unwrap();
         let q = outer(mcx, &[var(mcx, 1, 1, 0)], Some(or));
         assert!(rewritten(mcx, &q).is_none());
     }
@@ -1679,21 +1159,7 @@ mod tests {
     fn sublink_in_a_coalesce_arm_refuses() {
         let ctx = cx();
         let mcx = ctx.mcx();
-        let c = Node::mk(
-            mcx,
-            CoalesceExpr {
-                coalescetype: INT8,
-                coalescecollid: 0,
-                args: NodeList::make2(
-                    mcx,
-                    var(mcx, 1, 2, 0),
-                    sub(mcx, count_star(mcx), var(mcx, 1, 2, 1), None),
-                )
-                .unwrap(),
-                location: -1,
-            },
-        )
-        .unwrap();
+        let c = Node::mk(mcx, CoalesceExpr { coalescetype: INT8, coalescecollid: 0, args: NodeList::make2(mcx, var(mcx, 1, 2, 0), sub(mcx, count_star(mcx), var(mcx, 1, 2, 1), None),).unwrap(), location: -1, },).unwrap();
         let q = outer(mcx, &[c], None);
         assert!(rewritten(mcx, &q).is_none());
     }
@@ -1702,16 +1168,7 @@ mod tests {
     fn sublink_below_a_tlist_expression_refuses() {
         let ctx = cx();
         let mcx = ctx.mcx();
-        let nt = Node::mk(
-            mcx,
-            NullTest {
-                arg: Some(sub(mcx, count_star(mcx), var(mcx, 1, 2, 1), None)),
-                nulltesttype: NullTestType::IS_NOT_NULL,
-                argisrow: false,
-                location: -1,
-            },
-        )
-        .unwrap();
+        let nt = Node::mk(mcx, NullTest { arg: Some(sub(mcx, count_star(mcx), var(mcx, 1, 2, 1), None)), nulltesttype: NullTestType::IS_NOT_NULL, argisrow: false, location: -1, },).unwrap();
         let q = outer(mcx, &[nt], None);
         assert!(rewritten(mcx, &q).is_none());
     }
@@ -1720,68 +1177,18 @@ mod tests {
     fn grouped_outer_key_naming_the_group_rte_refuses() {
         let ctx = cx();
         let mcx = ctx.mcx();
-        let group = Node::mk(
-            mcx,
-            RangeTblEntry {
-                rtekind: RTEKind::RTE_GROUP,
-                groupexprs: NodeList::make1(mcx, var(mcx, 1, 2, 0)).unwrap(),
-                ..Default::default()
-            },
-        )
-        .unwrap();
-        let mut q = outer(
-            mcx,
-            &[
-                var(mcx, 2, 1, 0),
-                sub(mcx, count_star(mcx), var(mcx, 2, 1, 1), None),
-            ],
-            None,
-        );
+        let group = Node::mk(mcx, RangeTblEntry { rtekind: RTEKind::RTE_GROUP, groupexprs: NodeList::make1(mcx, var(mcx, 1, 2, 0)).unwrap(), ..Default::default() },).unwrap();
+        let mut q = outer(mcx, &[var(mcx, 2, 1, 0), sub(mcx, count_star(mcx), var(mcx, 2, 1, 1), None),], None,);
         q.rtable.lappend(mcx, group).unwrap();
         q.hasGroupRTE = true;
-        q.groupClause = NodeList::make1(
-            mcx,
-            Node::mk(
-                mcx,
-                SortGroupClause {
-                    tleSortGroupRef: 1,
-                    eqop: INT4EQ.0,
-                    sortop: 97,
-                    reverse_sort: false,
-                    nulls_first: false,
-                    hashable: true,
-                },
-            )
-            .unwrap(),
-        )
-        .unwrap();
+        q.groupClause = NodeList::make1(mcx, Node::mk(mcx, SortGroupClause { tleSortGroupRef: 1, eqop: INT4EQ.0, sortop: 97, reverse_sort: false, nulls_first: false, hashable: true, },).unwrap(),).unwrap();
         // SAFETY: the entry is ours alone.
-        unsafe {
-            q.targetList
-                .nth(0)
-                .with_mut::<TargetEntry, _>(|t| t.ressortgroupref = 1)
-        }
-        .unwrap();
+        unsafe { q.targetList.nth(0).with_mut::<TargetEntry, _>(|t| t.ressortgroupref = 1) }.unwrap();
         assert!(rewritten(mcx, &q).is_none());
-        let cmp = op(
-            mcx,
-            INT8GT,
-            BOOL,
-            sub(mcx, count_star(mcx), var(mcx, 1, 2, 1), None),
-            Node::mk_const(mcx, INT8, -1, 0, 8, datum::Datum::from_i64(0), false, true).unwrap(),
-        );
-        q.targetList = NodeList::make1(
-            mcx,
-            Node::mk_target_entry(mcx, var(mcx, 2, 1, 0), 1, None, false).unwrap(),
-        )
-        .unwrap();
+        let cmp = op(mcx, INT8GT, BOOL, sub(mcx, count_star(mcx), var(mcx, 1, 2, 1), None), Node::mk_const(mcx, INT8, -1, 0, 8, datum::Datum::from_i64(0), false, true).unwrap(),);
+        q.targetList = NodeList::make1(mcx, Node::mk_target_entry(mcx, var(mcx, 2, 1, 0), 1, None, false).unwrap(),).unwrap();
         // SAFETY: as above.
-        unsafe {
-            q.targetList
-                .nth(0)
-                .with_mut::<TargetEntry, _>(|t| t.ressortgroupref = 1)
-        }
-        .unwrap();
+        unsafe { q.targetList.nth(0).with_mut::<TargetEntry, _>(|t| t.ressortgroupref = 1) }.unwrap();
         q.jointree = from_expr(mcx, Some(cmp));
         assert!(rewritten(mcx, &q).is_some());
     }
@@ -1790,38 +1197,12 @@ mod tests {
     fn sublink_in_having_refuses() {
         let ctx = cx();
         let mcx = ctx.mcx();
-        let cmp = op(
-            mcx,
-            INT8GT,
-            BOOL,
-            sub(mcx, count_star(mcx), var(mcx, 1, 2, 1), None),
-            Node::mk_const(mcx, INT8, -1, 0, 8, datum::Datum::from_i64(0), false, true).unwrap(),
-        );
+        let cmp = op(mcx, INT8GT, BOOL, sub(mcx, count_star(mcx), var(mcx, 1, 2, 1), None), Node::mk_const(mcx, INT8, -1, 0, 8, datum::Datum::from_i64(0), false, true).unwrap(),);
         let mut q = outer(mcx, &[var(mcx, 1, 2, 0)], None);
         q.havingQual = Some(cmp);
-        q.groupClause = NodeList::make1(
-            mcx,
-            Node::mk(
-                mcx,
-                SortGroupClause {
-                    tleSortGroupRef: 1,
-                    eqop: INT4EQ.0,
-                    sortop: 97,
-                    reverse_sort: false,
-                    nulls_first: false,
-                    hashable: true,
-                },
-            )
-            .unwrap(),
-        )
-        .unwrap();
+        q.groupClause = NodeList::make1(mcx, Node::mk(mcx, SortGroupClause { tleSortGroupRef: 1, eqop: INT4EQ.0, sortop: 97, reverse_sort: false, nulls_first: false, hashable: true, },).unwrap(),).unwrap();
         // SAFETY: the entry is ours alone.
-        unsafe {
-            q.targetList
-                .nth(0)
-                .with_mut::<TargetEntry, _>(|t| t.ressortgroupref = 1)
-        }
-        .unwrap();
+        unsafe { q.targetList.nth(0).with_mut::<TargetEntry, _>(|t| t.ressortgroupref = 1) }.unwrap();
         assert!(rewritten(mcx, &q).is_none());
     }
 
@@ -1829,13 +1210,7 @@ mod tests {
     fn sublink_in_an_aggregate_filter_refuses() {
         let ctx = cx();
         let mcx = ctx.mcx();
-        let cmp = op(
-            mcx,
-            INT8GT,
-            BOOL,
-            sub(mcx, count_star(mcx), var(mcx, 1, 2, 1), None),
-            Node::mk_const(mcx, INT8, -1, 0, 8, datum::Datum::from_i64(0), false, true).unwrap(),
-        );
+        let cmp = op(mcx, INT8GT, BOOL, sub(mcx, count_star(mcx), var(mcx, 1, 2, 1), None), Node::mk_const(mcx, INT8, -1, 0, 8, datum::Datum::from_i64(0), false, true).unwrap(),);
         let q = outer(mcx, &[sum_of(mcx, var(mcx, 1, 2, 0), Some(cmp))], None);
         assert!(rewritten(mcx, &q).is_none());
     }
@@ -1845,16 +1220,7 @@ mod tests {
         let ctx = cx();
         let mcx = ctx.mcx();
         // t2.val = t.val + 1: int4pl is not leakproof.
-        let q = outer(
-            mcx,
-            &[sub(
-                mcx,
-                count_star(mcx),
-                op(mcx, INT4PL, INT4, var(mcx, 1, 2, 1), int4(mcx, 1)),
-                None,
-            )],
-            None,
-        );
+        let q = outer(mcx, &[sub(mcx, count_star(mcx), op(mcx, INT4PL, INT4, var(mcx, 1, 2, 1), int4(mcx, 1)), None,)], None,);
         assert!(rewritten(mcx, &q).is_none());
     }
 
@@ -1862,58 +1228,18 @@ mod tests {
     fn leaky_aggregate_argument_refuses() {
         let ctx = cx();
         let mcx = ctx.mcx();
-        let q = outer(
-            mcx,
-            &[sub(
-                mcx,
-                sum_of(
-                    mcx,
-                    op(mcx, INT4PL, INT4, var(mcx, 1, 1, 0), int4(mcx, 1)),
-                    None,
-                ),
-                var(mcx, 1, 2, 1),
-                None,
-            )],
-            None,
-        );
+        let q = outer(mcx, &[sub(mcx, sum_of(mcx, op(mcx, INT4PL, INT4, var(mcx, 1, 1, 0), int4(mcx, 1)), None,), var(mcx, 1, 2, 1), None,)], None,);
         assert!(rewritten(mcx, &q).is_none());
-        let q = outer(
-            mcx,
-            &[sub(
-                mcx,
-                sum_of(mcx, var(mcx, 1, 1, 0), None),
-                var(mcx, 1, 2, 1),
-                None,
-            )],
-            None,
-        );
-        assert!(
-            rewritten(mcx, &q).is_some(),
-            "a plain Var argument is admitted"
-        );
+        let q = outer(mcx, &[sub(mcx, sum_of(mcx, var(mcx, 1, 1, 0), None), var(mcx, 1, 2, 1), None,)], None,);
+        assert!(rewritten(mcx, &q).is_some(), "a plain Var argument is admitted");
     }
 
     #[test]
     fn leaky_aggregate_filter_refuses() {
         let ctx = cx();
         let mcx = ctx.mcx();
-        let filter = op(
-            mcx,
-            INT4GT,
-            BOOL,
-            op(mcx, INT4PL, INT4, var(mcx, 1, 1, 0), int4(mcx, 1)),
-            int4(mcx, 0),
-        );
-        let q = outer(
-            mcx,
-            &[sub(
-                mcx,
-                sum_of(mcx, var(mcx, 1, 1, 0), Some(filter)),
-                var(mcx, 1, 2, 1),
-                None,
-            )],
-            None,
-        );
+        let filter = op(mcx, INT4GT, BOOL, op(mcx, INT4PL, INT4, var(mcx, 1, 1, 0), int4(mcx, 1)), int4(mcx, 0),);
+        let q = outer(mcx, &[sub(mcx, sum_of(mcx, var(mcx, 1, 1, 0), Some(filter)), var(mcx, 1, 2, 1), None,)], None,);
         assert!(rewritten(mcx, &q).is_none());
     }
 
@@ -1921,18 +1247,8 @@ mod tests {
     fn leaky_kept_conjunct_refuses() {
         let ctx = cx();
         let mcx = ctx.mcx();
-        let kept = op(
-            mcx,
-            INT4GT,
-            BOOL,
-            op(mcx, INT4PL, INT4, var(mcx, 1, 1, 0), int4(mcx, 1)),
-            int4(mcx, 0),
-        );
-        let q = outer(
-            mcx,
-            &[sub(mcx, count_star(mcx), var(mcx, 1, 2, 1), Some(kept))],
-            None,
-        );
+        let kept = op(mcx, INT4GT, BOOL, op(mcx, INT4PL, INT4, var(mcx, 1, 1, 0), int4(mcx, 1)), int4(mcx, 0),);
+        let q = outer(mcx, &[sub(mcx, count_star(mcx), var(mcx, 1, 2, 1), Some(kept))], None,);
         assert!(rewritten(mcx, &q).is_none());
     }
 
@@ -1941,43 +1257,11 @@ mod tests {
         let ctx = cx();
         let mcx = ctx.mcx();
         // (SELECT count(*) FROM generate_series(1, 3) g(i) WHERE g.i = t.val): the SRF is not leakproof.
-        let series = Node::mk(
-            mcx,
-            FuncExpr {
-                funcid: GENERATE_SERIES,
-                funcresulttype: INT4,
-                funcretset: true,
-                args: NodeList::make2(mcx, int4(mcx, 1), int4(mcx, 3)).unwrap(),
-                ..FuncExpr::default()
-            },
-        )
-        .unwrap();
-        let rtf = Node::mk(
-            mcx,
-            RangeTblFunction {
-                funcexpr: Some(series),
-                funccolcount: 1,
-                ..RangeTblFunction::default()
-            },
-        )
-        .unwrap();
-        let rte = Node::mk(
-            mcx,
-            RangeTblEntry {
-                rtekind: RTEKind::RTE_FUNCTION,
-                functions: NodeList::make1(mcx, rtf).unwrap(),
-                inFromCl: true,
-                ..Default::default()
-            },
-        )
-        .unwrap();
+        let series = Node::mk(mcx, FuncExpr { funcid: GENERATE_SERIES, funcresulttype: INT4, funcretset: true, args: NodeList::make2(mcx, int4(mcx, 1), int4(mcx, 3)).unwrap(), ..FuncExpr::default() },).unwrap();
+        let rtf = Node::mk(mcx, RangeTblFunction { funcexpr: Some(series), funccolcount: 1, ..RangeTblFunction::default() },).unwrap();
+        let rte = Node::mk(mcx, RangeTblEntry { rtekind: RTEKind::RTE_FUNCTION, functions: NodeList::make1(mcx, rtf).unwrap(), inFromCl: true, ..Default::default() },).unwrap();
         let key = op(mcx, INT4EQ, BOOL, var(mcx, 1, 1, 0), var(mcx, 1, 2, 1));
-        let inner = select(
-            mcx,
-            NodeList::make1(mcx, rte).unwrap(),
-            &[count_star(mcx)],
-            Some(key),
-        );
+        let inner = select(mcx, NodeList::make1(mcx, rte).unwrap(), &[count_star(mcx)], Some(key),);
         let q = outer(mcx, &[sublink(mcx, inner)], None);
         assert!(rewritten(mcx, &q).is_none());
     }
@@ -1988,34 +1272,13 @@ mod tests {
         let mcx = ctx.mcx();
         fn build<'m>(mcx: Mcx<'m>, e: Node<'m>) -> Query<'m> {
             let nested = select(mcx, NodeList::make1(mcx, rel_rte(mcx)).unwrap(), &[e], None);
-            let rte = Node::mk(
-                mcx,
-                RangeTblEntry {
-                    rtekind: RTEKind::RTE_SUBQUERY,
-                    subquery: Some(mcx::alloc_leak_in(mcx, nested).unwrap()),
-                    inFromCl: true,
-                    ..Default::default()
-                },
-            )
-            .unwrap();
+            let rte = Node::mk(mcx, RangeTblEntry { rtekind: RTEKind::RTE_SUBQUERY, subquery: Some(mcx::alloc_leak_in(mcx, nested).unwrap()), inFromCl: true, ..Default::default() },).unwrap();
             let key = op(mcx, INT4EQ, BOOL, var(mcx, 1, 1, 0), var(mcx, 1, 2, 1));
-            let inner = select(
-                mcx,
-                NodeList::make1(mcx, rte).unwrap(),
-                &[count_star(mcx)],
-                Some(key),
-            );
+            let inner = select(mcx, NodeList::make1(mcx, rte).unwrap(), &[count_star(mcx)], Some(key),);
             outer(mcx, &[sublink(mcx, inner)], None)
         }
-        assert!(rewritten(
-            mcx,
-            &build(mcx, op(mcx, INT4PL, INT4, var(mcx, 1, 1, 0), int4(mcx, 1)))
-        )
-        .is_none());
-        assert!(
-            rewritten(mcx, &build(mcx, var(mcx, 1, 1, 0))).is_some(),
-            "a plain Var target is admitted"
-        );
+        assert!(rewritten(mcx, &build(mcx, op(mcx, INT4PL, INT4, var(mcx, 1, 1, 0), int4(mcx, 1)))).is_none());
+        assert!(rewritten(mcx, &build(mcx, var(mcx, 1, 1, 0))).is_some(), "a plain Var target is admitted");
     }
 
     #[test]
@@ -2023,40 +1286,13 @@ mod tests {
         let ctx = cx();
         let mcx = ctx.mcx();
         fn build<'m>(mcx: Mcx<'m>, cmd: CmdType) -> Query<'m> {
-            let source = outer(
-                mcx,
-                &[sub(mcx, count_star(mcx), var(mcx, 1, 2, 1), None)],
-                None,
-            );
-            let rte = Node::mk(
-                mcx,
-                RangeTblEntry {
-                    rtekind: RTEKind::RTE_SUBQUERY,
-                    subquery: Some(mcx::alloc_leak_in(mcx, source).unwrap()),
-                    inFromCl: true,
-                    ..Default::default()
-                },
-            )
-            .unwrap();
+            let source = outer(mcx, &[sub(mcx, count_star(mcx), var(mcx, 1, 2, 1), None)], None,);
+            let rte = Node::mk(mcx, RangeTblEntry { rtekind: RTEKind::RTE_SUBQUERY, subquery: Some(mcx::alloc_leak_in(mcx, source).unwrap()), inFromCl: true, ..Default::default() },).unwrap();
             let rtable = NodeList::make2(mcx, rel_rte(mcx), rte).unwrap();
-            Query {
-                commandType: cmd,
-                canSetTag: true,
-                resultRelation: 1,
-                rtable,
-                jointree: from_expr(mcx, None),
-                ..Query::default()
-            }
+            Query { commandType: cmd, canSetTag: true, resultRelation: 1, rtable, jointree: from_expr(mcx, None), ..Query::default() }
         }
-        assert!(
-            rewritten(mcx, &build(mcx, CmdType::CMD_MERGE)).is_none(),
-            "a MERGE's source keeps its SubLink"
-        );
-        for cmd in [
-            CmdType::CMD_UPDATE,
-            CmdType::CMD_DELETE,
-            CmdType::CMD_INSERT,
-        ] {
+        assert!(rewritten(mcx, &build(mcx, CmdType::CMD_MERGE)).is_none(), "a MERGE's source keeps its SubLink");
+        for cmd in [CmdType::CMD_UPDATE, CmdType::CMD_DELETE, CmdType::CMD_INSERT,] {
             assert!(rewritten(mcx, &build(mcx, cmd)).is_some(), "{cmd:?}");
         }
     }
@@ -2065,23 +1301,9 @@ mod tests {
     fn cte_rte_refuses() {
         let ctx = cx();
         let mcx = ctx.mcx();
-        let rte = Node::mk(
-            mcx,
-            RangeTblEntry {
-                rtekind: RTEKind::RTE_CTE,
-                ctename: Some("c"),
-                inFromCl: true,
-                ..Default::default()
-            },
-        )
-        .unwrap();
+        let rte = Node::mk(mcx, RangeTblEntry { rtekind: RTEKind::RTE_CTE, ctename: Some("c"), inFromCl: true, ..Default::default() },).unwrap();
         let key = op(mcx, INT4EQ, BOOL, var(mcx, 1, 1, 0), var(mcx, 1, 2, 1));
-        let inner = select(
-            mcx,
-            NodeList::make1(mcx, rte).unwrap(),
-            &[count_star(mcx)],
-            Some(key),
-        );
+        let inner = select(mcx, NodeList::make1(mcx, rte).unwrap(), &[count_star(mcx)], Some(key),);
         let q = outer(mcx, &[sublink(mcx, inner)], None);
         assert!(rewritten(mcx, &q).is_none());
     }

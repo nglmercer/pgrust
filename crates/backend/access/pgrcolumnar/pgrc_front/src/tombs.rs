@@ -26,10 +26,7 @@ pub fn state(gen: Option<&Generation>) -> PgResult<TombsRecord> {
     match gen {
         None => Ok(TombsRecord::default()),
         Some(g) => decode(&g.manifest.ext).map_err(|e| {
-            Box::new(
-                PgError::error(format!("pgrcolumnar: generation {}: {e}", g.gen))
-                    .with_sqlstate(types_error::ERRCODE_DATA_CORRUPTED),
-            )
+            Box::new(PgError::error(format!("pgrcolumnar: generation {}: {e}", g.gen)).with_sqlstate(types_error::ERRCODE_DATA_CORRUPTED),)
         }),
     }
 }
@@ -86,10 +83,7 @@ fn named(parent: Oid, slot: u8) -> PgResult<Option<Oid>> {
             None if slot == 0 => return Ok(None),
             None if waited >= NAMED_WAIT_MS => {
                 return Err(Box::new(
-                    PgError::error(format!(
-                        "pgrcolumnar: relation {parent} has no tombstone relation {slot}"
-                    ))
-                    .with_sqlstate(types_error::ERRCODE_DATA_CORRUPTED),
+                    PgError::error(format!("pgrcolumnar: relation {parent} has no tombstone relation {slot}")).with_sqlstate(types_error::ERRCODE_DATA_CORRUPTED),
                 ))
             }
             None => {
@@ -102,9 +96,7 @@ fn named(parent: Oid, slot: u8) -> PgResult<Option<Oid>> {
 }
 
 pub fn all(parent: Oid) -> PgResult<Vec<(u8, Oid)>> {
-    (0..TOMB_SLOTS)
-        .filter_map(|s| relid(parent, s).map(|r| r.map(|r| (s, r))).transpose())
-        .collect()
+    (0..TOMB_SLOTS).filter_map(|s| relid(parent, s).map(|r| r.map(|r| (s, r))).transpose()).collect()
 }
 
 pub struct Opened<'mcx> {
@@ -126,12 +118,7 @@ pub fn open_existing<'mcx>(mcx: Mcx<'mcx>, parent: Oid) -> PgResult<Vec<Opened<'
     open_slots(mcx, parent, &all_slots(), relid)
 }
 
-fn open_slots<'mcx>(
-    mcx: Mcx<'mcx>,
-    parent: Oid,
-    slots: &[u8],
-    find: fn(Oid, u8) -> PgResult<Option<Oid>>,
-) -> PgResult<Vec<Opened<'mcx>>> {
+fn open_slots<'mcx>(mcx: Mcx<'mcx>, parent: Oid, slots: &[u8], find: fn(Oid, u8) -> PgResult<Option<Oid>>,) -> PgResult<Vec<Opened<'mcx>>> {
     let mut out = ::mcx::stdvec::try_vec(slots.len(), "pgrc tombstone heaps")?;
     for &slot in slots {
         let r = match find(parent, slot) {
@@ -152,6 +139,7 @@ fn open_slots<'mcx>(
     }
     Ok(out)
 }
+
 
 /// `cache_syscache::cacheinfo::RELNAMENSP`: `inval` takes the id, and `cache_syscache` depends on
 /// this crate (`the_relnamensp_cache_id_is_cacheinfos` checks the number).
@@ -187,32 +175,17 @@ fn hooked() -> bool {
     RELIDS_HOOKED.with(|h| match h.get() {
         Some(on) => on,
         None => {
-            let on = inval::invalidate::CacheRegisterSyscacheCallback(
-                RELNAMENSP_CACHE_ID,
-                relnamensp_changed,
-                datum::Datum::null(),
-            )
-            .is_ok();
+            let on = inval::invalidate::CacheRegisterSyscacheCallback(RELNAMENSP_CACHE_ID, relnamensp_changed, datum::Datum::null(),).is_ok();
             h.set(Some(on));
             on
         }
     })
 }
 
-fn filed(
-    parent: Oid,
-    stale: bool,
-    accept: &mut dyn FnMut() -> PgResult<()>,
-) -> PgResult<Option<Vec<(u8, Oid)>>> {
+fn filed(parent: Oid, stale: bool, accept: &mut dyn FnMut() -> PgResult<()>,) -> PgResult<Option<Vec<(u8, Oid)>>> {
     let db = init_small::globals::MyDatabaseId();
-    let Some(f) = RELIDS.with(|c| {
-        c.borrow()
-            .iter()
-            .find(|f| f.db == db && f.parent == parent)
-            .cloned()
-    }) else {
-        return Ok(None);
-    };
+    let Some(f) = RELIDS.with(|c| { c.borrow().iter().find(|f| f.db == db && f.parent == parent).cloned()
+    }) else { return Ok(None); };
     if stale {
         return Ok(Some(f.heaps));
     }
@@ -236,12 +209,7 @@ fn file(parent: Oid, at: u64, heaps: &[(u8, Oid)]) {
         if c.len() >= RELIDS_SLOTS {
             c.remove(0);
         }
-        c.push(Filed {
-            db,
-            parent,
-            epoch: at,
-            heaps: kept,
-        }); // alloc: Cold
+        c.push(Filed { db, parent, epoch: at, heaps: kept, }); // alloc: Cold
     });
 }
 
@@ -251,8 +219,7 @@ pub fn all_cached(parent: Oid) -> PgResult<Vec<(u8, Oid)>> {
         return all(parent);
     }
     let stale = injection_point::is_attached(TOMBS_STALE_POINT);
-    if let Some(heaps) = filed(parent, stale, &mut || {
-        inval_seams::accept_invalidation_messages::call()
+    if let Some(heaps) = filed(parent, stale, &mut || { inval_seams::accept_invalidation_messages::call()
     })? {
         crate::ixfetch::stats(|s| s.tomb_hits += 1);
         return Ok(heaps);
@@ -292,10 +259,7 @@ pub fn close_all(heaps: Vec<Opened<'_>>) -> PgResult<()> {
 
 pub fn blocks<'mcx>(mcx: Mcx<'mcx>, parent: Oid) -> PgResult<u32> {
     let heaps = open_existing(mcx, parent)?;
-    let n = heaps.iter().try_fold(0u32, |n, h| {
-        Ok::<_, Box<PgError>>(
-            n + bufmgr::RelationGetNumberOfBlocksInFork(&h.rel, ForkNumber::MAIN_FORKNUM)?,
-        )
+    let n = heaps.iter().try_fold(0u32, |n, h| { Ok::<_, Box<PgError>>(n + bufmgr::RelationGetNumberOfBlocksInFork(&h.rel, ForkNumber::MAIN_FORKNUM)?,)
     });
     close_all(heaps)?;
     n
@@ -314,9 +278,7 @@ pub fn reader_slots(view: Option<&TombsRecord>, newest: &TombsRecord) -> Vec<u8>
 /// blocks, unless its colcache image says it holds LOCK rows only (row locks delete nothing). A heap without an image
 /// (the cap 0 or over it, the seam not installed) counts as bearing, as every heap with blocks did before LOCK.
 pub fn bearing<'mcx>(mcx: Mcx<'mcx>, rel: &Relation<'mcx>, lock_rows_bear: bool) -> PgResult<bool> {
-    let view = crate::ring::statement_view(rel)?
-        .map(|g| state(Some(&*g)))
-        .transpose()?;
+    let view = crate::ring::statement_view(rel)?.map(|g| state(Some(&*g))).transpose()?;
     let slots = reader_slots(view.as_ref(), &newest_state(rel)?);
     let heaps = open_existing(mcx, rel.rd_id)?;
     let out = (|| {
@@ -324,10 +286,7 @@ pub fn bearing<'mcx>(mcx: Mcx<'mcx>, rel: &Relation<'mcx>, lock_rows_bear: bool)
             if bufmgr::RelationGetNumberOfBlocksInFork(&h.rel, ForkNumber::MAIN_FORKNUM)? == 0 {
                 continue;
             }
-            if lock_rows_bear
-                || !pgrc_front_seams::tomb_lock_only::is_installed()
-                || pgrc_front_seams::tomb_lock_only::call(&h.rel)? != Some(true)
-            {
+            if lock_rows_bear || !pgrc_front_seams::tomb_lock_only::is_installed() || pgrc_front_seams::tomb_lock_only::call(&h.rel)? != Some(true) {
                 return Ok(true);
             }
         }
@@ -358,37 +317,18 @@ impl<'a, 'mcx> Writer<'a, 'mcx> {
             },
             None => None,
         };
-        Ok(Writer {
-            mcx,
-            rel,
-            cur: (st.cur, cur),
-            ret,
-        })
+        Ok(Writer { mcx, rel, cur: (st.cur, cur), ret, })
     }
 
     pub fn heaps(&self) -> Vec<&Relation<'mcx>> {
-        std::iter::once(&self.cur.1)
-            .chain(self.ret.as_ref().map(|o| &o.rel))
-            .collect()
+        std::iter::once(&self.cur.1).chain(self.ret.as_ref().map(|o| &o.rel)).collect()
     }
 
-    pub fn insert_lock(
-        &mut self,
-        rowident: u64,
-        cid: CommandId,
-        mode: tableam_vocab::LockTupleMode,
-    ) -> PgResult<TombInsert> {
+    pub fn insert_lock(&mut self, rowident: u64, cid: CommandId, mode: tableam_vocab::LockTupleMode,) -> PgResult<TombInsert> {
         loop {
             let (slot, rel) = (self.cur.0, self.rel);
             let mut current = || newest_state(rel).map(|s| s.cur == slot);
-            match pgrc_front_seams::tomb_insert_lock::call(
-                self.mcx,
-                &self.cur.1,
-                rowident,
-                cid,
-                mode,
-                &mut current,
-            )? {
+            match pgrc_front_seams::tomb_insert_lock::call(self.mcx, &self.cur.1, rowident, cid, mode, &mut current,)? {
                 TombInsert::Retry => self.refresh()?,
                 out => return Ok(out),
             }
@@ -401,9 +341,7 @@ impl<'a, 'mcx> Writer<'a, 'mcx> {
     /// rechecked (lock-then-recheck, as segments): `false` if a fold committed meanwhile (its LOCK rows are void, the
     /// caller probes again on a fresh writer).
     pub fn hold(&mut self, i: usize) -> PgResult<bool> {
-        let Some(ret) = self.ret.as_ref().filter(|_| i == 1) else {
-            return Ok(true);
-        };
+        let Some(ret) = self.ret.as_ref().filter(|_| i == 1) else { return Ok(true); };
         lmgr::LockRelationOid(ret.rel.rd_id, RowExclusiveLock)?;
         Ok(probe_slots(&newest_state(self.rel)?).contains(&ret.slot))
     }
@@ -426,8 +364,7 @@ impl<'a, 'mcx> Writer<'a, 'mcx> {
         loop {
             let (slot, rel) = (self.cur.0, self.rel);
             let mut current = || newest_state(rel).map(|s| s.cur == slot);
-            match pgrc_front_seams::tomb_insert::call(self.mcx, &self.cur.1, t, cid, &mut current)?
-            {
+            match pgrc_front_seams::tomb_insert::call(self.mcx, &self.cur.1, t, cid, &mut current)? {
                 TombInsert::Retry => self.refresh()?,
                 out => return Ok(out),
             }
@@ -458,11 +395,7 @@ fn open_cur<'mcx>(mcx: Mcx<'mcx>, rel: &Relation<'mcx>, slot: u8) -> PgResult<Re
         }
         None => {
             return Err(Box::new(
-                PgError::error(format!(
-                    "pgrcolumnar: relation {} has no tombstone relation {slot}",
-                    rel.rd_id
-                ))
-                .with_sqlstate(types_error::ERRCODE_DATA_CORRUPTED),
+                PgError::error(format!("pgrcolumnar: relation {} has no tombstone relation {slot}", rel.rd_id)).with_sqlstate(types_error::ERRCODE_DATA_CORRUPTED),
             ))
         }
     };
@@ -474,66 +407,28 @@ mod tests {
     use super::*;
 
     fn st(cur: u8, ret: Option<(u8, u64)>) -> TombsRecord {
-        TombsRecord {
-            cur,
-            ret: ret.map(|(slot, folded)| RetiredTombs { slot, folded }),
-        }
+        TombsRecord { cur, ret: ret.map(|(slot, folded)| RetiredTombs { slot, folded }), }
     }
 
     #[test]
     fn writers_skip_a_folded_heap_and_readers_add_the_newest_current_one() {
         assert_eq!(probe_slots(&TombsRecord::default()), vec![0]);
-        assert_eq!(
-            probe_slots(&st(1, Some((0, 0)))),
-            vec![1, 0],
-            "unfolded: probed"
-        );
-        assert_eq!(
-            probe_slots(&st(1, Some((0, 77)))),
-            vec![1],
-            "folded: skipped"
-        );
-        assert_eq!(
-            read_slots(&TombsRecord::default(), &st(1, Some((0, 0)))),
-            vec![0, 1]
-        );
-        assert_eq!(
-            read_slots(&st(1, Some((0, 77))), &st(1, Some((0, 77)))),
-            vec![1]
-        );
-        assert_eq!(
-            read_slots(&st(1, Some((0, 0))), &st(1, Some((0, 77)))),
-            vec![0, 1]
-        );
-        assert_eq!(
-            read_slots(&st(0, Some((1, 0))), &st(0, Some((1, 90)))),
-            vec![0, 1]
-        );
-        assert_eq!(
-            read_slots(&st(0, Some((1, 90))), &st(0, Some((1, 90)))),
-            vec![0]
-        );
-        assert_eq!(
-            read_slots(&st(1, Some((0, 77))), &st(0, Some((1, 0)))),
-            vec![0, 1]
-        );
+        assert_eq!(probe_slots(&st(1, Some((0, 0)))), vec![1, 0], "unfolded: probed");
+        assert_eq!(probe_slots(&st(1, Some((0, 77)))), vec![1], "folded: skipped");
+        assert_eq!(read_slots(&TombsRecord::default(), &st(1, Some((0, 0)))), vec![0, 1]);
+        assert_eq!(read_slots(&st(1, Some((0, 77))), &st(1, Some((0, 77)))), vec![1]);
+        assert_eq!(read_slots(&st(1, Some((0, 0))), &st(1, Some((0, 77)))), vec![0, 1]);
+        assert_eq!(read_slots(&st(0, Some((1, 0))), &st(0, Some((1, 90)))), vec![0, 1]);
+        assert_eq!(read_slots(&st(0, Some((1, 90))), &st(0, Some((1, 90)))), vec![0]);
+        assert_eq!(read_slots(&st(1, Some((0, 77))), &st(0, Some((1, 0)))), vec![0, 1]);
     }
 
     #[test]
     fn front_bearing_skips_a_retired_heap_only_once_both_the_view_and_the_newest_have_it_folded() {
-        assert_eq!(
-            reader_slots(Some(&st(1, Some((0, 77)))), &st(1, Some((0, 77)))),
-            vec![1]
-        );
+        assert_eq!(reader_slots(Some(&st(1, Some((0, 77)))), &st(1, Some((0, 77)))), vec![1]);
         assert_eq!(reader_slots(None, &st(1, Some((0, 77)))), vec![1]);
-        assert_eq!(
-            reader_slots(Some(&st(1, Some((0, 0)))), &st(1, Some((0, 77)))),
-            vec![0, 1]
-        );
-        assert_eq!(
-            reader_slots(Some(&TombsRecord::default()), &st(1, Some((0, 77)))),
-            vec![0, 1]
-        );
+        assert_eq!(reader_slots(Some(&st(1, Some((0, 0)))), &st(1, Some((0, 77)))), vec![0, 1]);
+        assert_eq!(reader_slots(Some(&TombsRecord::default()), &st(1, Some((0, 77)))), vec![0, 1]);
         assert_eq!(reader_slots(None, &st(1, Some((0, 0)))), vec![0, 1]);
         assert_eq!(reader_slots(None, &TombsRecord::default()), vec![0]);
     }
@@ -562,33 +457,19 @@ mod tests {
         file(7, epoch(), &[]);
         file(8, epoch(), &[(0, 900), (1, 901)]);
         assert_eq!(filed(7, false, &mut none).unwrap(), Some(vec![]));
-        assert_eq!(
-            filed(8, false, &mut none).unwrap(),
-            Some(vec![(0, 900), (1, 901)])
-        );
+        assert_eq!(filed(8, false, &mut none).unwrap(), Some(vec![(0, 900), (1, 901)]));
         assert_eq!(accepts, 1, "only the answer lacking a slot accepts");
         let db = init_small::globals::MyDatabaseId();
         init_small::globals::SetMyDatabaseId(0x7e57_d000);
-        assert_eq!(
-            filed(8, false, &mut unasked).unwrap(),
-            None,
-            "another database"
-        );
+        assert_eq!(filed(8, false, &mut unasked).unwrap(), None, "another database");
         init_small::globals::SetMyDatabaseId(db);
         let mut made = || -> PgResult<()> {
             relnamensp_changed(datum::Datum::null(), RELNAMENSP_CACHE_ID, 1);
             Ok(())
         };
         assert_eq!(filed(7, false, &mut made).unwrap(), None);
-        assert_eq!(
-            filed(8, false, &mut quiet).unwrap(),
-            None,
-            "every answer goes stale at once"
-        );
-        assert_eq!(
-            filed(8, true, &mut unasked).unwrap(),
-            Some(vec![(0, 900), (1, 901)])
-        );
+        assert_eq!(filed(8, false, &mut quiet).unwrap(), None, "every answer goes stale at once");
+        assert_eq!(filed(8, true, &mut unasked).unwrap(), Some(vec![(0, 900), (1, 901)]));
     }
 
     #[test]
@@ -604,23 +485,13 @@ mod tests {
         for p in 100..100 + RELIDS_SLOTS as Oid {
             file(p, epoch(), &[]);
         }
-        assert_eq!(
-            filed(7, false, &mut quiet).unwrap(),
-            None,
-            "the oldest left"
-        );
+        assert_eq!(filed(7, false, &mut quiet).unwrap(), None, "the oldest left");
         assert_eq!(RELIDS.with(|c| c.borrow().len()), RELIDS_SLOTS);
     }
 
     #[test]
     fn the_relnamensp_cache_id_is_cacheinfos() {
-        let src = std::fs::read_to_string(
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("../../../utils/cache/cache_syscache/src/cacheinfo.rs"),
-        )
-        .unwrap();
-        assert!(src.contains(&format!(
-            "pub const RELNAMENSP: i32 = {RELNAMENSP_CACHE_ID};"
-        )));
+        let src = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../utils/cache/cache_syscache/src/cacheinfo.rs"),).unwrap();
+        assert!(src.contains(&format!("pub const RELNAMENSP: i32 = {RELNAMENSP_CACHE_ID};")));
     }
 }

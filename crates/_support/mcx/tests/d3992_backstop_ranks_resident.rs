@@ -11,24 +11,11 @@ const MIB: usize = 1 << 20;
 /// them back.
 fn mapped(n: usize) -> memledger::Charge {
     let (owner, release) = memledger::charge::context();
-    memledger::Charge::open(
-        owner,
-        release,
-        memledger::Kind::Mapped,
-        memledger::charge::Door::Mapped,
-        n as u64,
-    )
+    memledger::Charge::open(owner, release, memledger::Kind::Mapped, memledger::charge::Door::Mapped, n as u64,)
 }
 
 /// A statement charged `charged` bytes with `resident` on its ledger account; it returns the cancel it saw.
-fn statement(
-    procno: u32,
-    pid: i32,
-    charged: usize,
-    resident: usize,
-    ready: mpsc::Sender<()>,
-    done: Arc<Barrier>,
-) -> std::thread::JoinHandle<Option<String>> {
+fn statement(procno: u32, pid: i32, charged: usize, resident: usize, ready: mpsc::Sender<()>, done: Arc<Barrier>,) -> std::thread::JoinHandle<Option<String>> {
     std::thread::spawn(move || {
         governor::register(procno as i32, pid);
         memledger::bind_backend(procno, pid as u32);
@@ -59,28 +46,10 @@ fn the_backstop_cancels_the_resident_statement_not_the_reserved_one() {
     ready.recv().unwrap();
     ready.recv().unwrap();
     let v = governor::cancel_largest_victim(90, 32 * MIB).expect("a victim");
-    assert_eq!(
-        v.backend,
-        Some((32, 7032)),
-        "the statement holding resident memory, not the 4 GiB reservation: {v:?}"
-    );
-    assert_eq!(
-        (v.bytes, v.charged),
-        (600 * MIB, 700 * MIB),
-        "ranked by resident bytes, the charge beside"
-    );
+    assert_eq!(v.backend, Some((32, 7032)), "the statement holding resident memory, not the 4 GiB reservation: {v:?}");
+    assert_eq!((v.bytes, v.charged), (600 * MIB, 700 * MIB), "ranked by resident bytes, the charge beside");
     done.wait();
-    assert_eq!(
-        reserved.join().unwrap(),
-        None,
-        "the reserved statement runs on"
-    );
-    let detail = resident
-        .join()
-        .unwrap()
-        .expect("the resident statement's 53200");
-    assert!(
-        detail.contains("ranked by resident memory (614400 kB resident, 716800 kB charged)"),
-        "{detail}"
-    );
+    assert_eq!(reserved.join().unwrap(), None, "the reserved statement runs on");
+    let detail = resident.join().unwrap().expect("the resident statement's 53200");
+    assert!(detail.contains("ranked by resident memory (614400 kB resident, 716800 kB charged)"), "{detail}");
 }

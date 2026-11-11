@@ -1,4 +1,4 @@
-#![allow(clippy::duplicate_mod, dead_code)]
+#![allow(clippy::duplicate_mod,dead_code)]
 
 use std::sync::atomic::{AtomicI64, AtomicU64, AtomicU8, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -406,7 +406,7 @@ pub fn gen_kv(r: u64) -> Option<[i64; 2]> {
 }
 
 pub fn gen_inner(r: u64) -> Option<[i64; 2]> {
-    if r.is_multiple_of(5) {
+    if r.is_multiple_of( 5) {
         Some([(r % 37) as i64, (r * 10) as i64])
     } else {
         None

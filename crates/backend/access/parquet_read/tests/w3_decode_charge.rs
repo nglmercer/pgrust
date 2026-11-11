@@ -9,10 +9,8 @@
 use std::alloc::{GlobalAlloc, Layout, System};
 
 use memledger::charge::{context, owner_row};
-use memledger::{
-    account_row, bind_backend, door_heap, fold, statement_begin, statement_end, unbind_backend,
-    Acct, Owner,
-};
+use memledger::{account_row, bind_backend, door_heap, fold, statement_begin, statement_end, unbind_backend, Acct, Owner,};
+#[cfg_attr(not(all(feature = "snappy", feature = "brotli")), allow(unused_imports))]
 use parquet_read::{ColumnBatch, FastRowGroup, FileReader, Phys, RowGroupReader};
 
 struct Door1;
@@ -47,10 +45,7 @@ fn on(procno: u32, f: impl FnOnce(Acct, Owner) + Send + 'static) {
         bind_backend(procno, 8300 + procno);
         statement_begin();
         let (o, _) = context();
-        assert!(
-            matches!(o, Owner::Statement { .. }),
-            "a running statement's context is its owner"
-        );
+        assert!(matches!(o, Owner::Statement { .. }), "a running statement's context is its owner");
         f(Acct::backend(procno), o);
         statement_end();
         unbind_backend();
@@ -73,41 +68,22 @@ fn fixture(name: &str) -> String {
 }
 
 #[test]
+// The fixture uses Snappy/Brotli pages, so it needs the `snappy` and `brotli` features.
+#[cfg(all(feature = "snappy", feature = "brotli"))]
 fn a_row_group_reader_charges_chunks_pages_levels_and_dictionaries_and_gives_them_back() {
     on(51, |a, o| {
         let base = account(a);
-        for name in [
-            "basic.parquet",
-            "zstd.parquet",
-            "dictfallback.parquet",
-            "gzip.parquet",
-        ] {
+        for name in ["basic.parquet", "zstd.parquet", "dictfallback.parquet", "gzip.parquet",] {
             let path = fixture(name);
             let fr = FileReader::open(&path).expect("fixture");
             let file = fr.try_clone_file().expect("dup");
             let cols: Vec<usize> = (0..fr.meta.columns.len()).collect();
-            let vutf8: Vec<bool> = fr
-                .meta
-                .columns
-                .iter()
-                .map(|c| c.phys == Phys::ByteArray)
-                .collect();
-            let mut batches: Vec<ColumnBatch> = fr
-                .meta
-                .columns
-                .iter()
-                .map(|c| ColumnBatch::new_for(c.phys))
-                .collect();
+            let vutf8: Vec<bool> = fr.meta.columns.iter().map(|c| c.phys == Phys::ByteArray).collect();
+            let mut batches: Vec<ColumnBatch> = fr.meta.columns.iter().map(|c| ColumnBatch::new_for(c.phys)).collect();
             for rg in 0..fr.meta.row_groups.len() {
-                let mut rgr =
-                    RowGroupReader::open_on(&file, &path, &fr.meta, rg, &cols, &vutf8, Some(o))
-                        .expect("open");
+                let mut rgr = RowGroupReader::open_on(&file, &path, &fr.meta, rg, &cols, &vutf8, Some(o)).expect("open");
                 let chunks = rgr.compressed_bytes as i64;
-                assert!(
-                    committed(o) >= chunks,
-                    "{name} rg {rg}: the chunks are the statement's ({} < {chunks})",
-                    committed(o)
-                );
+                assert!(committed(o) >= chunks, "{name} rg {rg}: the chunks are the statement's ({} < {chunks})", committed(o));
                 let mut peak = committed(o);
                 while rgr.rows_remaining() > 0 {
                     let n = rgr.rows_remaining().min(333) as usize;
@@ -115,35 +91,19 @@ fn a_row_group_reader_charges_chunks_pages_levels_and_dictionaries_and_gives_the
                     peak = peak.max(committed(o));
                 }
                 if matches!(name, "zstd.parquet" | "gzip.parquet") {
-                    assert!(
-                        peak > chunks,
-                        "{name} rg {rg}: the decompressed pages are the statement's too"
-                    );
+                    assert!(peak > chunks, "{name} rg {rg}: the decompressed pages are the statement's too");
                 }
                 drop(rgr);
-                assert_eq!(
-                    committed(o),
-                    0,
-                    "{name} rg {rg}: every byte leaves with the reader"
-                );
+                assert_eq!(committed(o), 0, "{name} rg {rg}: every byte leaves with the reader");
             }
         }
-        assert!(
-            (account(a) - base).abs() < SLACK,
-            "the account is back: {} vs {base}",
-            account(a)
-        );
+        assert!((account(a) - base).abs() < SLACK, "the account is back: {} vs {base}", account(a));
         let fr = FileReader::open(&fixture("basic.parquet")).expect("fixture");
         let file = fr.try_clone_file().expect("dup");
         let cols: Vec<usize> = (0..fr.meta.columns.len()).collect();
         let vutf8 = vec![false; cols.len()];
-        let plain =
-            RowGroupReader::open(&file, fr.path(), &fr.meta, 0, &cols, &vutf8).expect("open");
-        assert_eq!(
-            committed(o),
-            0,
-            "a reader opened without an owner charges nothing"
-        );
+        let plain = RowGroupReader::open(&file, fr.path(), &fr.meta, 0, &cols, &vutf8).expect("open");
+        assert_eq!(committed(o), 0, "a reader opened without an owner charges nothing");
         drop(plain);
     });
 }
@@ -155,47 +115,21 @@ fn a_row_group_reader_charges_chunks_pages_levels_and_dictionaries_and_gives_the
 fn a_file_readers_footer_is_its_owners_until_the_last_arc_drops() {
     on(53, |a, o| {
         let base = account(a);
-        for name in [
-            "basic.parquet",
-            "zstd.parquet",
-            "dictfallback.parquet",
-            "gzip.parquet",
-            "sortable.parquet",
-        ] {
+        for name in ["basic.parquet", "zstd.parquet", "dictfallback.parquet", "gzip.parquet", "sortable.parquet",] {
             let fr = FileReader::open_on(&fixture(name), Some(o)).expect("fixture");
             let held = fr.meta.heap_bytes() as i64;
             assert!(held > 0, "{name}: the footer holds heap bytes");
-            assert_eq!(
-                fr.meta.held_bytes() as i64,
-                held,
-                "{name}: the charge is synced to the footer's capacities"
-            );
+            assert_eq!(fr.meta.held_bytes() as i64, held, "{name}: the charge is synced to the footer's capacities");
             assert_eq!(committed(o), held, "{name}: the owner holds the parsed footer; the read's footer bytes left with the parse");
             let meta = fr.meta_arc();
             drop(fr);
-            assert_eq!(
-                committed(o),
-                held,
-                "{name}: an Arc of the footer keeps it the owner's"
-            );
+            assert_eq!(committed(o), held, "{name}: an Arc of the footer keeps it the owner's");
             std::thread::spawn(move || drop(meta)).join().unwrap();
-            assert_eq!(
-                committed(o),
-                0,
-                "{name}: the last Arc's drop, on another thread, gives it back"
-            );
+            assert_eq!(committed(o), 0, "{name}: the last Arc's drop, on another thread, gives it back");
         }
-        assert!(
-            (account(a) - base).abs() < SLACK,
-            "the account is back: {} vs {base}",
-            account(a)
-        );
+        assert!((account(a) - base).abs() < SLACK, "the account is back: {} vs {base}", account(a));
         let fr = FileReader::open(&fixture("basic.parquet")).expect("fixture");
-        assert_eq!(
-            (committed(o), fr.meta.held_bytes()),
-            (0, 0),
-            "a reader opened without an owner charges nothing"
-        );
+        assert_eq!((committed(o), fr.meta.held_bytes()), (0, 0), "a reader opened without an owner charges nothing");
     });
 }
 
@@ -204,12 +138,7 @@ fn the_fast_decoder_charges_its_chunks_and_pages_and_gives_them_back() {
     on(52, |a, o| {
         let base = account(a);
         let mut opened = 0;
-        for name in [
-            "basic.parquet",
-            "zstd.parquet",
-            "dictfallback.parquet",
-            "sortable.parquet",
-        ] {
+        for name in ["basic.parquet", "zstd.parquet", "dictfallback.parquet", "sortable.parquet",] {
             let path = fixture(name);
             let fr = FileReader::open(&path).expect("fixture");
             let file = fr.try_clone_file().expect("dup");
@@ -217,66 +146,36 @@ fn the_fast_decoder_charges_its_chunks_and_pages_and_gives_them_back() {
                 .filter(|&c| {
                     let s = &fr.meta.columns[c];
                     s.max_rep == 0
-                        && matches!(
-                            s.phys,
-                            Phys::Int32
-                                | Phys::Int64
-                                | Phys::Float
-                                | Phys::Double
-                                | Phys::ByteArray
-                        )
+                        && matches!(s.phys, Phys::Int32 | Phys::Int64 | Phys::Float | Phys::Double | Phys::ByteArray)
                 })
                 .collect();
             if cols.is_empty() {
                 continue;
             }
-            let vutf8: Vec<bool> = cols
-                .iter()
-                .map(|&c| fr.meta.columns[c].phys == Phys::ByteArray)
-                .collect();
+            let vutf8: Vec<bool> = cols.iter().map(|&c| fr.meta.columns[c].phys == Phys::ByteArray).collect();
             for rg in 0..fr.meta.row_groups.len() {
-                let Ok(mut frg) =
-                    FastRowGroup::open_on(&file, &path, &fr.meta, rg, &cols, &vutf8, Some(o))
-                else {
-                    continue;
-                };
+                let Ok(mut frg) = FastRowGroup::open_on(&file, &path, &fr.meta, rg, &cols, &vutf8, Some(o)) else { continue; };
                 opened += 1;
                 let chunks = frg.compressed_bytes as i64;
-                assert!(
-                    committed(o) >= chunks,
-                    "{name} rg {rg}: the chunks are the statement's"
-                );
+                assert!(committed(o) >= chunks, "{name} rg {rg}: the chunks are the statement's");
                 let rows = frg.num_rows as usize;
                 let mut peak = committed(o);
                 for col in frg.cols.iter_mut() {
                     let mut left = rows;
                     while left > 0 {
-                        let Ok(run) = col.next_run(left.min(1024)) else {
-                            break;
-                        };
+                        let Ok(run) = col.next_run(left.min(1024)) else { break; };
                         left -= run.n;
                         peak = peak.max(committed(o));
                     }
                 }
                 if name == "zstd.parquet" {
-                    assert!(
-                        peak > chunks,
-                        "{name} rg {rg}: the decompressed pages are the statement's too"
-                    );
+                    assert!(peak > chunks, "{name} rg {rg}: the decompressed pages are the statement's too");
                 }
                 drop(frg);
-                assert_eq!(
-                    committed(o),
-                    0,
-                    "{name} rg {rg}: every byte leaves with the row group"
-                );
+                assert_eq!(committed(o), 0, "{name} rg {rg}: every byte leaves with the row group");
             }
         }
         assert!(opened > 0, "some fixture is fast-decodable");
-        assert!(
-            (account(a) - base).abs() < SLACK,
-            "the account is back: {} vs {base}",
-            account(a)
-        );
+        assert!((account(a) - base).abs() < SLACK, "the account is back: {} vs {base}", account(a));
     });
 }

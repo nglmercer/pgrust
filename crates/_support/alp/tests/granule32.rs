@@ -38,10 +38,7 @@ fn roundtrip(values: &[f32]) -> GranuleEncodedF32 {
     assert_eq!(r.total_values, values.len());
     assert_eq!(r.raw_bytes, values.len() * 4);
     // frame_bytes is EXACT: the emitted frames' total length, nothing else.
-    assert_eq!(
-        r.frame_bytes,
-        enc.frames.iter().map(|f| f.len()).sum::<usize>()
-    );
+    assert_eq!(r.frame_bytes, enc.frames.iter().map(|f| f.len()).sum::<usize>());
     // Raw arm accounting is closed-form: header per granule + bit images.
     assert_eq!(r.raw_frame_bytes, 4 * r.ngranules + r.raw_bytes);
     // Per-granule raw fallback bounds every arm's emitted size.
@@ -50,22 +47,14 @@ fn roundtrip(values: &[f32]) -> GranuleEncodedF32 {
     // ... and every individual frame is bounded by its raw image.
     for (g, frame) in enc.frames.iter().enumerate() {
         let glen = values[g * GRANULE_VALUES..].len().min(GRANULE_VALUES);
-        assert!(
-            frame.len() <= 4 + 4 * glen,
-            "granule {g}: {} bytes",
-            frame.len()
-        );
+        assert!(frame.len() <= 4 + 4 * glen, "granule {g}: {} bytes", frame.len());
     }
     // analyze() is encode() minus the frames (election determinism).
     assert_eq!(granule32::analyze(values), *r);
     let decoded = enc.decode().expect("decode");
     assert_eq!(decoded.len(), values.len());
     for (i, (a, b)) in values.iter().zip(decoded.iter()).enumerate() {
-        assert_eq!(
-            a.to_bits(),
-            b.to_bits(),
-            "bit mismatch at {i}: {a:?} vs {b:?}"
-        );
+        assert_eq!(a.to_bits(), b.to_bits(), "bit mismatch at {i}: {a:?} vs {b:?}");
     }
     // The bit-image surface agrees with the f32 surface exactly.
     let mut bits: Vec<u32> = Vec::new();
@@ -82,9 +71,7 @@ fn roundtrip(values: &[f32]) -> GranuleEncodedF32 {
 fn decimal_origin_elects_alp() {
     let mut rng = Rng::new(0x51);
     // The f4_decimal2 shape: two-decimal values under 1000.
-    let values: Vec<f32> = (0..65_536)
-        .map(|_| rng.below(100_000) as f32 / 100.0)
-        .collect();
+    let values: Vec<f32> = (0..65_536).map(|_| rng.below(100_000) as f32 / 100.0).collect();
     let enc = roundtrip(&values);
     let r = &enc.report;
     assert_eq!(r.granules_using(Scheme::Alp), 8, "{r:?}");
@@ -104,9 +91,7 @@ fn decimal_origin_elects_alp() {
 #[test]
 fn random_bits_fall_to_raw() {
     let mut rng = Rng::new(0x52);
-    let values: Vec<f32> = (0..65_536)
-        .map(|_| f32::from_bits(rng.next_u64() as u32))
-        .collect();
+    let values: Vec<f32> = (0..65_536).map(|_| f32::from_bits(rng.next_u64() as u32)).collect();
     let enc = roundtrip(&values);
     let r = &enc.report;
     assert_eq!(r.granules_using(Scheme::Raw), 8, "{r:?}");
@@ -126,8 +111,8 @@ fn specials_are_bit_exact_across_frame_boundaries() {
         f32::INFINITY,
         f32::NEG_INFINITY,
         -0.0,
-        f32::from_bits(1),       // smallest subnormal
-        f32::MIN_POSITIVE / 8.0, // subnormal
+        f32::from_bits(1),           // smallest subnormal
+        f32::MIN_POSITIVE / 8.0,     // subnormal
     ];
     let mut values: Vec<f32> = (0..2 * GRANULE_VALUES + 100)
         .map(|_| rng.below(1_000_000) as f32 / 100.0)
@@ -141,10 +126,7 @@ fn specials_are_bit_exact_across_frame_boundaries() {
         values[n - 1 - k] = s;
     }
     let enc = roundtrip(&values); // bit-exact assert lives in the harness
-    assert!(
-        enc.report.exceptions > 0,
-        "specials must surface as exceptions"
-    );
+    assert!(enc.report.exceptions > 0, "specials must surface as exceptions");
 }
 
 #[test]
@@ -152,9 +134,7 @@ fn short_tail_and_single_value_roundtrip() {
     roundtrip(&[1.25f32]);
     roundtrip(&[f32::NAN]);
     let mut rng = Rng::new(0x54);
-    let values: Vec<f32> = (0..GRANULE_VALUES + 7)
-        .map(|_| rng.below(10_000) as f32 / 10.0)
-        .collect();
+    let values: Vec<f32> = (0..GRANULE_VALUES + 7).map(|_| rng.below(10_000) as f32 / 10.0).collect();
     roundtrip(&values);
     // Fast-round domain boundary: values straddling 2^22.
     let boundary: Vec<f32> = (0..1500)
@@ -181,9 +161,7 @@ fn mixed_regimes_split_per_granule() {
 #[test]
 fn corrupt_frames_refuse_typed_never_panic() {
     let mut rng = Rng::new(0x56);
-    let values: Vec<f32> = (0..GRANULE_VALUES)
-        .map(|_| rng.below(100_000) as f32 / 100.0)
-        .collect();
+    let values: Vec<f32> = (0..GRANULE_VALUES).map(|_| rng.below(100_000) as f32 / 100.0).collect();
     let enc = granule32::encode(&values);
     let frame = &enc.frames[0];
     // Every truncation refuses (typed, output restored).

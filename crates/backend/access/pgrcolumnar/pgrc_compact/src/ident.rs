@@ -36,34 +36,22 @@ pub fn input_ids(inputs: &[Input<'_>]) -> FormatResult<Vec<Vec<u64>>> {
 
 pub fn identities(inputs: &[Input<'_>], order: &[(u16, u32)]) -> FormatResult<Vec<u64>> {
     let all = input_ids(inputs)?;
-    Ok(order
-        .iter()
-        .map(|&(n, o)| all[n as usize][o as usize])
-        .collect())
+    Ok(order.iter().map(|&(n, o)| all[n as usize][o as usize]).collect())
 }
 
 /// `ROWMAP2_FORCE_REV=<fences|labels|frameix>` (a test knob, read once per output map, never per row).
 fn forced() -> Option<RevForm> {
-    std::env::var("ROWMAP2_FORCE_REV")
-        .ok()
-        .and_then(|v| RevForm::from_name(&v))
-        .filter(|f| *f != RevForm::Mono)
+    std::env::var("ROWMAP2_FORCE_REV").ok().and_then(|v| RevForm::from_name(&v)).filter(|f| *f != RevForm::Mono)
 }
 
 /// `Err` for a permuted output past the frame table's 2^24 rows (parts hold at most 2^20).
-pub fn build_map(
-    _kind: &JobKind,
-    inputs: &[Input<'_>],
-    order: &[(u16, u32)],
-) -> Result<OutMap, pgrc_format::FormatError> {
+pub fn build_map(_kind: &JobKind, inputs: &[Input<'_>], order: &[(u16, u32)],) -> Result<OutMap, pgrc_format::FormatError> {
     let ids = identities(inputs, order)?;
     pgrc_format::rowmap::encode(&ids, Opts { force: forced() }).map(OutMap::Granules)
 }
 
 pub fn renumbered(base: u64, n: u64) -> Result<OutMap, pgrc_format::FormatError> {
-    let len = u32::try_from(n).map_err(|_| pgrc_format::FormatError::Corrupt {
-        at: "RowIdentMap: a part past u32 rows",
-    })?;
+    let len = u32::try_from(n).map_err(|_| pgrc_format::FormatError::Corrupt { at: "RowIdentMap: a part past u32 rows", })?;
     pgrc_format::rowmap::encode_runs(&[(base, len)], Opts::default()).map(OutMap::Granules)
 }
 

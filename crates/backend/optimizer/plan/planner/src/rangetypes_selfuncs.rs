@@ -48,19 +48,14 @@ impl RangeSelCtx {
         Self::from_entry(e)
     }
 
-    pub(crate) fn from_entry(e: std::rc::Rc<typcache::TypeCacheEntry>) -> PgResult<RangeSelCtx> {
+    pub(crate) fn from_entry(
+        e: std::rc::Rc<typcache::TypeCacheEntry>
+    ) -> PgResult<RangeSelCtx> {
         let subdiff = {
             let f = e.rng_subdiff_finfo();
-            if f.fn_oid != 0 {
-                Some(f.clone())
-            } else {
-                None
-            }
+            if f.fn_oid != 0 { Some(f.clone()) } else { None }
         };
-        Ok(RangeSelCtx {
-            ri: RangeInfo::from_entry(e)?,
-            subdiff,
-        })
+        Ok(RangeSelCtx { ri: RangeInfo::from_entry(e)?, subdiff, })
     }
 }
 
@@ -71,11 +66,7 @@ pub(crate) fn varlena_image<'a>(d: Datum) -> &'a [u8] {
     let p = d.as_usize() as *const u8;
     // SAFETY: live varlena datum out of a decoded stats array or a Const.
     unsafe {
-        assert_eq!(
-            *p & 0x03,
-            0,
-            "packed varlena in range selectivity; detoast lane"
-        );
+        assert_eq!(*p & 0x03, 0, "packed varlena in range selectivity; detoast lane");
         core::slice::from_raw_parts(p, adt_rangetypes::varsize_4b(p))
     }
 }
@@ -117,7 +108,8 @@ pub fn rangesel<'mcx>(
     args: &[NodeId],
     varrelid: i32,
 ) -> PgResult<f64> {
-    let Some((vardata, other, varonleft)) = get_restriction_variable(run, args, varrelid)? else {
+    let Some((vardata, other, varonleft)) = get_restriction_variable(run, args, varrelid)?
+    else {
         return Ok(default_range_selectivity(operator));
     };
     let Some(c) = other.as_const() else {
@@ -153,12 +145,7 @@ pub fn rangesel<'mcx>(
             };
             let mut ctx2 = c2;
             let img = adt_rangetypes::range_serialize(
-                mcx,
-                &mut ctx2.ri,
-                &mut lower,
-                &mut upper,
-                false,
-                None,
+                mcx, &mut ctx2.ri, &mut lower, &mut upper, false, None,
             )?
             .expect("point range never soft-fails");
             constrange = Some(adt_multirangetypes::leak_image(img));
@@ -175,13 +162,8 @@ pub fn rangesel<'mcx>(
     }
 
     let selec = match constrange {
-        Some(cr) => calc_rangesel(
-            run,
-            ctx.as_mut().expect("typcache set with constrange"),
-            &vardata,
-            cr,
-            operator,
-        )?,
+        Some(cr) =>
+            calc_rangesel(run, ctx.as_mut().expect("typcache set with constrange"), &vardata, cr, operator,)?,
         None => default_range_selectivity(operator),
     };
     Ok(clamp_probability(selec))
@@ -355,7 +337,8 @@ fn calc_hist_selectivity<'mcx>(
         OID_RANGE_OVERLAP_OP | OID_RANGE_CONTAINS_ELEM_OP => {
             let mut s =
                 calc_hist_selectivity_scalar(run.mcx, ctx, &const_lower, &hist_upper, false)?;
-            s += 1.0 - calc_hist_selectivity_scalar(run.mcx, ctx, &const_upper, &hist_lower, true)?;
+            s += 1.0
+                - calc_hist_selectivity_scalar(run.mcx, ctx, &const_upper, &hist_lower, true)?;
             1.0 - s
         }
         OID_RANGE_CONTAINS_OP => calc_hist_selectivity_contains(
@@ -370,7 +353,9 @@ fn calc_hist_selectivity<'mcx>(
             if const_lower.infinite {
                 calc_hist_selectivity_scalar(run.mcx, ctx, &const_upper, &hist_upper, true)?
             } else if const_upper.infinite {
-                1.0 - calc_hist_selectivity_scalar(run.mcx, ctx, &const_lower, &hist_lower, false)?
+                1.0 - calc_hist_selectivity_scalar(
+                    run.mcx, ctx, &const_lower, &hist_lower, false
+                )?
             } else {
                 calc_hist_selectivity_contained(
                     run.mcx,
@@ -452,7 +437,12 @@ fn length_hist_bsearch(length_hist_values: &[Datum], value: f64, equal: bool) ->
     lower
 }
 
-fn subdiff(mcx: Mcx<'_>, ctx: &mut RangeSelCtx, val2: Datum, val1: Datum) -> PgResult<f64> {
+fn subdiff(
+    mcx: Mcx<'_>,
+    ctx: &mut RangeSelCtx,
+    val2: Datum,
+    val1: Datum
+) -> PgResult<f64> {
     let f = ctx.subdiff.as_mut().expect("caller checked has_subdiff");
     Ok(types_fmgr::function_call2_coll_in(f, ctx.ri.collation, mcx, val2, val1)?.as_f64())
 }
@@ -483,17 +473,9 @@ fn get_position(
         #[allow(clippy::manual_clamp)]
         Ok(position.max(0.0).min(1.0))
     } else if hist1.infinite && !hist2.infinite {
-        Ok(if value.infinite && value.lower {
-            0.0
-        } else {
-            1.0
-        })
+        Ok(if value.infinite && value.lower { 0.0 } else { 1.0 })
     } else if !hist1.infinite && hist2.infinite {
-        Ok(if value.infinite && !value.lower {
-            1.0
-        } else {
-            0.0
-        })
+        Ok(if value.infinite && !value.lower { 1.0 } else { 0.0 })
     } else {
         Ok(0.5)
     }
@@ -531,11 +513,7 @@ fn get_distance(
             Ok(1.0)
         }
     } else if bound1.infinite && bound2.infinite {
-        Ok(if bound1.lower == bound2.lower {
-            0.0
-        } else {
-            f64::INFINITY
-        })
+        Ok(if bound1.lower == bound2.lower { 0.0 } else { f64::INFINITY })
     } else {
         Ok(f64::INFINITY)
     }
@@ -604,7 +582,8 @@ fn calc_length_hist_frac(
     #[allow(clippy::if_same_then_else)]
     if i >= length_hist_nvalues - 1 {
         pos = 0.0;
-    } else if length_hist_values[i as usize].as_f64() == length_hist_values[i as usize + 1].as_f64()
+    } else if length_hist_values[i as usize].as_f64()
+        == length_hist_values[i as usize + 1].as_f64()
     {
         pos = 0.0;
     } else {
@@ -676,7 +655,8 @@ pub(crate) fn calc_hist_selectivity_contained(
             dist = get_distance(mcx, ctx, &hist_lower[i as usize], &upper)?;
         }
 
-        let length_hist_frac = calc_length_hist_frac(length_hist_values, prev_dist, dist, true);
+        let length_hist_frac =
+            calc_length_hist_frac(length_hist_values, prev_dist, dist, true);
         sum_frac += length_hist_frac * bin_width / (hist_nvalues - 1) as f64;
 
         if final_bin {
@@ -776,11 +756,8 @@ mod d400_fma_tests {
             .map(|&v| datum::Datum::from_f64(v))
             .collect();
         let got = super::calc_length_hist_frac(&vals, 0.0, 34.061, false);
-        let want: u64 = if cfg!(target_arch = "aarch64") {
-            0x3FD0_5176_39C4_1241
-        } else {
-            0x3FD0_5176_39C4_1240
-        };
+        let want: u64 =
+            if cfg!(target_arch = "aarch64") { 0x3FD0_5176_39C4_1241 } else { 0x3FD0_5176_39C4_1240 };
         assert_eq!(got.to_bits(), want);
     }
 }

@@ -115,7 +115,7 @@ pub fn GUCArrayAdd(array: &[String], name: &str, value: &str) -> PgResult<Vec<St
     let newval = format!("{name}={value}");
     let prefix_len = name.len() + 1;
 
-    let mut out: Vec<String> = ::mcx::std_vec_from_slice("misc", array)?;
+    let mut out: Vec<String> = ::mcx::std_vec_from_slice("misc",array)?;
     for entry in out.iter_mut() {
         if entry.len() >= prefix_len && entry.as_bytes()[..prefix_len] == newval.as_bytes()[..prefix_len] {
             *entry = newval;

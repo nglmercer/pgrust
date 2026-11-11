@@ -21,9 +21,7 @@ pub(crate) fn session_origin_or_default() -> types_core::RepOriginId {
 }
 
 fn oom() -> Box<PgError> {
-    Box::new(PgError::error(
-        "out of memory building transaction WAL record",
-    ))
+    Box::new(PgError::error("out of memory building transaction WAL record",))
 }
 
 /// `RelFileLocator` array as `{ Oid spcOid; Oid dbOid; RelFileNumber relNumber; }` each.

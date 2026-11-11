@@ -80,7 +80,7 @@ pub(crate) fn find(px: &mut Px<'_, '_>, g: &GroupDecl<'_>) -> Option<Dep> {
     let topped = gx.drainers(g).first().is_some_and(|&k| gx.end_need(k) == crate::face::kinds::KindId::RunsTopkGroups);
     let streamed = gx.pipelines()[q].ops.iter().any(|op| matches!(op, Op::GroupRun(_)));
     // D4620: a cascade's base's records are rewritten key by key (a set's NULL columns): every key keeps its image
-    if !(road || carry) || crate::ops::agg::cascade::base_group(gx, g) || g.form != GroupForm::Hashed || g.two_pass.is_some() || g.set.is_some() || g.keys.len() > u64::BITS as usize || gx.group_at(q).is_none_or(|x| x.slot != g.slot) || streamed {
+    if !(road || carry) || crate::ops::agg::cascade::base_group(gx, g) || g.form != GroupForm::Hashed || g.two_pass.is_some() || g.set.is_some() || g.keys.len() > u64::BITS as usize ||gx.group_at(q).is_none_or(|x| x.slot != g.slot) || streamed {
         return None;
     }
     for kd in g.keys.iter().filter(|kd| road && matches!(kd.kind, KeyKind::I32 | KeyKind::I64) && kd.resno > 0) {

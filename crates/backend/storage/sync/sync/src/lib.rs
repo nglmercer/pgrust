@@ -1,4 +1,4 @@
-#![allow(non_snake_case, non_upper_case_globals)]
+#![allow(non_snake_case,non_upper_case_globals)]
 
 //! src/backend/storage/sync/sync.c — pending-fsync/unlink tracking for the
 //! checkpointer and standalone backends.

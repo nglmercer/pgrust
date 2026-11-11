@@ -52,11 +52,7 @@ struct Registry {
     gen: u64,
 }
 
-static REG: Mutex<Registry> = Mutex::new(Registry {
-    slots: Vec::new(),
-    free: Vec::new(),
-    gen: 0,
-}); // alloc: Cold
+static REG: Mutex<Registry> = Mutex::new(Registry { slots: Vec::new(), free: Vec::new(), gen: 0, }); // alloc: Cold
 
 struct Scratch {
     /// (slot, born, gen, lo, span, resident bytes; `usize::MAX` = not read)
@@ -67,12 +63,7 @@ struct Scratch {
     cursor: usize,
 }
 
-static PASS: Mutex<Scratch> = Mutex::new(Scratch {
-    snap: Vec::new(),
-    buf: Vec::new(),
-    passes: 0,
-    cursor: 0,
-}); // alloc: Cold
+static PASS: Mutex<Scratch> = Mutex::new(Scratch { snap: Vec::new(), buf: Vec::new(), passes: 0, cursor: 0, }); // alloc: Cold
 
 /// A residency reader: `read(lo, hi, scratch)` is the bytes of [lo, hi) resident now (mincore in the server), `None` for a
 /// range unmapped meanwhile.
@@ -93,38 +84,20 @@ pub struct PassRead {
 
 /// `fresh`: none of its pages resident yet (a mapping just made); otherwise resident until a pass reads it. `NONE` when
 /// the registry cannot grow: its account then counts it whole.
-pub fn register(
-    lo: usize,
-    span: usize,
-    charged: usize,
-    acct: Acct,
-    mapped: bool,
-    fresh: bool,
-) -> u32 {
+pub fn register(lo: usize, span: usize, charged: usize, acct: Acct, mapped: bool, fresh: bool,) -> u32 {
     register_at(lo, span, charged, acct, mapped, fresh, NrHome::NONE)
 }
 
 /// LEDGER2 design A: `register` for a range its charge owns: its not-resident bytes book on `home` (`Charge::nr_home`)
 /// as well as on its account.
-pub fn register_at(
-    lo: usize,
-    span: usize,
-    charged: usize,
-    acct: Acct,
-    mapped: bool,
-    fresh: bool,
-    mut home: NrHome,
-) -> u32 {
+pub fn register_at(lo: usize, span: usize, charged: usize, acct: Acct, mapped: bool, fresh: bool, mut home: NrHome,) -> u32 {
     let mut r = REG.lock().unwrap_or_else(|e| e.into_inner());
     let slot = match r.free.pop() {
         Some(i) => i,
         None => {
             let n = r.slots.len();
             let free_more = (n + 1).saturating_sub(r.free.len());
-            if n >= NONE as usize
-                || r.slots.try_reserve(1).is_err()
-                || r.free.try_reserve(free_more).is_err()
-            {
+            if n >= NONE as usize || r.slots.try_reserve(1).is_err() || r.free.try_reserve(free_more).is_err() {
                 return NONE;
             }
             r.slots.push(None);
@@ -135,20 +108,7 @@ pub fn register_at(
     let nr = if fresh { charged as i64 } else { 0 };
     note_not_resident(acct, nr, mapped);
     home.post(nr);
-    r.slots[slot as usize] = Some(Entry {
-        lo,
-        span,
-        charged,
-        acct,
-        mapped,
-        nr,
-        home,
-        born: r.gen,
-        gen: r.gen,
-        seen: 0,
-        due: 0,
-        read_at: u64::MAX,
-    });
+    r.slots[slot as usize] = Some(Entry { lo, span, charged, acct, mapped, nr, home, born: r.gen, gen: r.gen, seen: 0, due: 0, read_at: u64::MAX, });
     slot
 }
 
@@ -170,32 +130,15 @@ fn update_with(id: u32, lo: usize, span: usize, charged: usize, acct: Acct, home
     let mut r = REG.lock().unwrap_or_else(|e| e.into_inner());
     r.gen += 1;
     let gen = r.gen;
-    let Some(Some(e)) = r.slots.get_mut(id as usize) else {
-        return;
-    };
-    let nr =
-        e.nr.saturating_add(charged.saturating_sub(e.charged) as i64)
-            .min(charged as i64);
+    let Some(Some(e)) = r.slots.get_mut(id as usize) else { return; };
+    let nr = e.nr.saturating_add(charged.saturating_sub(e.charged) as i64).min(charged as i64);
     note_not_resident(e.acct, -e.nr, e.mapped);
     note_not_resident(acct, nr, e.mapped);
     let mut to = home.unwrap_or(e.home);
     // the new home's first, so an ended operator's cell that only these bytes keep frees after its last one leaves
     to.post(nr);
     e.home.post(-e.nr);
-    *e = Entry {
-        lo,
-        span,
-        charged,
-        acct,
-        mapped: e.mapped,
-        nr,
-        home: to,
-        born: e.born,
-        gen,
-        seen: 0,
-        due: e.due,
-        read_at: e.read_at,
-    };
+    *e = Entry { lo, span, charged, acct, mapped: e.mapped, nr, home: to, born: e.born, gen, seen: 0, due: e.due, read_at: e.read_at, };
 }
 
 /// D4404: entry `id`'s resident bytes at its last read (its charged bytes less the ones not resident then; a fresh mapping
@@ -224,9 +167,7 @@ pub fn unregister(id: u32) {
         return;
     }
     let mut r = REG.lock().unwrap_or_else(|e| e.into_inner());
-    let Some(slot) = r.slots.get_mut(id as usize) else {
-        return;
-    };
+    let Some(slot) = r.slots.get_mut(id as usize) else { return; };
     if let Some(mut e) = slot.take() {
         note_not_resident(e.acct, -e.nr, e.mapped);
         e.home.post(-e.nr);
@@ -244,12 +185,7 @@ pub fn unregister(id: u32) {
 pub fn pass(read: ReadFn, budget: usize) -> Option<PassRead> {
     READER.store(read as *mut (), Ordering::Release);
     let mut guard = PASS.lock().unwrap_or_else(|e| e.into_inner());
-    let Scratch {
-        snap,
-        buf,
-        passes,
-        cursor,
-    } = &mut *guard;
+    let Scratch { snap, buf, passes, cursor, } = &mut *guard;
     if buf.is_empty() {
         if buf.try_reserve_exact(STEP_PAGES).is_err() {
             return None;
@@ -273,9 +209,7 @@ pub fn pass(read: ReadFn, budget: usize) -> Option<PassRead> {
         let (n, mut spent, mut next) = (r.slots.len(), 0usize, 0);
         for k in 0..n {
             let i = (*cursor + k) % n;
-            let Some(e) = r.slots[i]
-                .filter(|e| e.seen == e.gen && (full || e.nr != 0) && (all || *passes >= e.due))
-            else {
+            let Some(e) = r.slots[i].filter(|e| e.seen == e.gen && (full || e.nr != 0) && (all || *passes >= e.due)) else {
                 continue;
             };
             if spent >= budget {
@@ -292,31 +226,16 @@ pub fn pass(read: ReadFn, budget: usize) -> Option<PassRead> {
         item.5 = read(item.3, item.3.saturating_add(item.4), buf).unwrap_or(usize::MAX);
         bytes += item.4 as u64;
     }
-    apply(
-        &mut REG.lock().unwrap_or_else(|e| e.into_inner()),
-        snap,
-        *passes,
-        Some(budget),
-    );
+    apply(&mut REG.lock().unwrap_or_else(|e| e.into_inner()), snap, *passes, Some(budget),);
     *passes += 1;
-    Some(PassRead {
-        regions: snap.len() as u64,
-        bytes,
-    })
+    Some(PassRead { regions: snap.len() as u64, bytes, })
 }
 
 /// What a read found, onto the entries it read (`born` unchanged; an unread one keeps its last numbers) in pass interval
 /// `at`. `budget`: a pass's, which schedules an entry's next bounded read; `None` (a refresh) leaves the schedule as it was.
-fn apply(
-    r: &mut Registry,
-    snap: &[(u32, u64, u64, usize, usize, usize)],
-    at: u64,
-    budget: Option<usize>,
-) {
+fn apply(r: &mut Registry, snap: &[(u32, u64, u64, usize, usize, usize)], at: u64, budget: Option<usize>,) {
     for &(id, born, gen, _, _, resident) in snap.iter() {
-        let Some(Some(e)) = r.slots.get_mut(id as usize) else {
-            continue;
-        };
+        let Some(Some(e)) = r.slots.get_mut(id as usize) else { continue; };
         if e.born != born || resident == usize::MAX {
             continue;
         }
@@ -402,9 +321,7 @@ pub fn set_hint_wake(wake: fn()) {
 pub fn hint(a: Acct) {
     let v = u64::from(a.0) + 1;
     let posted = HINTS.iter().any(|h| h.load(Ordering::Relaxed) == v)
-        || HINTS.iter().any(|h| {
-            h.compare_exchange(0, v, Ordering::AcqRel, Ordering::Relaxed)
-                .is_ok()
+        || HINTS.iter().any(|h| { h.compare_exchange(0, v, Ordering::AcqRel, Ordering::Relaxed).is_ok()
         });
     if !posted {
         HINTS_DROPPED.fetch_add(1, Ordering::Relaxed);
@@ -435,11 +352,7 @@ pub fn refresh_hinted() -> u64 {
 
 /// D4812: `(hints posted, hints dropped with every slot taken, accounts the residency thread read again for them)`.
 pub fn hint_counts() -> (u64, u64, u64) {
-    (
-        HINTED.load(Ordering::Relaxed),
-        HINTS_DROPPED.load(Ordering::Relaxed),
-        HINTS_READ.load(Ordering::Relaxed),
-    )
+    (HINTED.load(Ordering::Relaxed), HINTS_DROPPED.load(Ordering::Relaxed), HINTS_READ.load(Ordering::Relaxed),)
 }
 
 #[cfg(test)]
@@ -479,11 +392,7 @@ mod tests {
         let b = Acct::backend(4051);
         let id = register(0x1000_0000, 64 * MIB, 64 * MIB, a, true, true);
         assert_ne!(id, NONE);
-        assert_eq!(
-            nr(a),
-            (64 * MIB as i64, 64 * MIB as i64),
-            "a fresh mapping: nothing resident"
-        );
+        assert_eq!(nr(a), (64 * MIB as i64, 64 * MIB as i64), "a fresh mapping: nothing resident");
 
         RESIDENT.store(16 * MIB, Ordering::Relaxed);
         assert!(pass(fake, usize::MAX).is_some());
@@ -491,18 +400,10 @@ mod tests {
 
         RESIDENT.store(usize::MAX, Ordering::Relaxed);
         assert!(pass(fake, usize::MAX).is_some());
-        assert_eq!(
-            nr(a).1,
-            48 * MIB as i64,
-            "an unread range keeps its last numbers"
-        );
+        assert_eq!(nr(a).1, 48 * MIB as i64, "an unread range keeps its last numbers");
 
         update(id, 0x1000_0000, 96 * MIB, 96 * MIB, b);
-        assert_eq!(
-            (nr(a).1, nr(b).1),
-            (0, 80 * MIB as i64),
-            "moved with its growth not resident"
-        );
+        assert_eq!((nr(a).1, nr(b).1), (0, 80 * MIB as i64), "moved with its growth not resident");
 
         RESIDENT.store(96 * MIB, Ordering::Relaxed);
         assert!(pass(fake, usize::MAX).is_some());
@@ -511,11 +412,7 @@ mod tests {
         for _ in 0..FULL_EVERY {
             assert!(pass(fake, usize::MAX).is_some());
         }
-        assert_eq!(
-            READS.load(Ordering::Relaxed) - reads,
-            1,
-            "wholly resident and unchanged: read at the full pass only"
-        );
+        assert_eq!(READS.load(Ordering::Relaxed) - reads, 1, "wholly resident and unchanged: read at the full pass only");
 
         unregister(id);
         assert_eq!((nr(a), nr(b)), ((0, 0), (0, 0)));
@@ -526,20 +423,13 @@ mod tests {
         RESIDENT.store(MIB, Ordering::Relaxed);
         let reads = READS.load(Ordering::Relaxed);
         assert!(pass(fake, 4 * MIB).is_some());
-        assert_eq!(
-            (READS.load(Ordering::Relaxed) - reads, nr(a).1, nr(b).1),
-            (2, 3 * MIB as i64, 3 * MIB as i64)
-        );
+        assert_eq!((READS.load(Ordering::Relaxed) - reads, nr(a).1, nr(b).1), (2, 3 * MIB as i64, 3 * MIB as i64));
         RESIDENT.store(2 * MIB, Ordering::Relaxed);
         assert!(pass(fake, 4 * MIB).is_some());
         assert_eq!(READS.load(Ordering::Relaxed) - reads, 3);
         assert_eq!(nr(a).1 + nr(b).1, 5 * MIB as i64, "one of the two read");
         assert!(pass(fake, 4 * MIB).is_some());
-        assert_eq!(
-            (READS.load(Ordering::Relaxed) - reads, nr(a).1, nr(b).1),
-            (4, 2 * MIB as i64, 2 * MIB as i64),
-            "the other next"
-        );
+        assert_eq!((READS.load(Ordering::Relaxed) - reads, nr(a).1, nr(b).1), (4, 2 * MIB as i64, 2 * MIB as i64), "the other next");
         unregister(x);
         unregister(y);
         assert_eq!((nr(a), nr(b)), ((0, 0), (0, 0)));
@@ -576,35 +466,19 @@ mod tests {
         let u = register(0x7000_0000, 8 * MIB, 8 * MIB, b, true, true);
         RESIDENT.store(0, Ordering::Relaxed);
         assert!(pass(fake, 4 * MIB).is_some());
-        assert_eq!(
-            (nr(c).1, nr(b).1),
-            (8 * MIB as i64, 8 * MIB as i64),
-            "read untouched"
-        );
+        assert_eq!((nr(c).1, nr(b).1), (8 * MIB as i64, 8 * MIB as i64), "read untouched");
         RESIDENT.store(8 * MIB, Ordering::Relaxed);
         let reads = READS.load(Ordering::Relaxed);
         assert_eq!(refresh_acct(c), Some(8 * MIB as u64));
-        assert_eq!(
-            (READS.load(Ordering::Relaxed) - reads, nr(c).1, nr(b).1),
-            (1, 0, 8 * MIB as i64),
-            "filled: read at once"
-        );
-        assert_eq!(
-            refresh_acct(c),
-            Some(0),
-            "wholly resident: nothing to read again"
-        );
+        assert_eq!((READS.load(Ordering::Relaxed) - reads, nr(c).1, nr(b).1), (1, 0, 8 * MIB as i64), "filled: read at once");
+        assert_eq!(refresh_acct(c), Some(0), "wholly resident: nothing to read again");
         // a range still partly resident is read again at most once a pass interval
         RESIDENT.store(2 * MIB, Ordering::Relaxed);
         update(w, 0x6000_0000, 8 * MIB, 8 * MIB, c);
         assert!(pass(fake, 4 * MIB).is_some());
         assert_eq!(nr(c).1, 6 * MIB as i64, "read by the pass: changed");
         RESIDENT.store(4 * MIB, Ordering::Relaxed);
-        assert_eq!(
-            refresh_acct(c),
-            Some(8 * MIB as u64),
-            "the first refresh after a pass reads it"
-        );
+        assert_eq!(refresh_acct(c), Some(8 * MIB as u64), "the first refresh after a pass reads it");
         assert_eq!(nr(c).1, 4 * MIB as i64);
         assert_eq!(refresh_acct(c), Some(0), "not again before the next pass");
         unregister(w);
@@ -630,108 +504,44 @@ mod tests {
             crate::statement_begin();
             let st = context().0;
             let op = op_begin(st, Kind::Sort as u32, 64 * MIB as u64);
-            assert!(
-                matches!(op, Owner::Op { .. }),
-                "an operator cell of its own"
-            );
+            assert!(matches!(op, Owner::Op { .. }), "an operator cell of its own");
             // a mapping of 32 MiB on the statement, just made: none of it resident
-            let mut c = Charge::open(
-                st,
-                Release::Statement,
-                Kind::Sort,
-                Door::Mapped,
-                32 * MIB as u64,
-            );
-            let id = register_at(
-                0x5100_0000,
-                32 * MIB,
-                32 * MIB,
-                c.acct(),
-                true,
-                true,
-                c.nr_home(),
-            );
+            let mut c = Charge::open(st, Release::Statement, Kind::Sort, Door::Mapped, 32 * MIB as u64,);
+            let id = register_at(0x5100_0000, 32 * MIB, 32 * MIB, c.acct(), true, true, c.nr_home(),);
             assert_ne!(id, NONE);
             let u = usage(st);
-            assert_eq!(
-                (u.held, u.not_resident, u.subtree_resident()),
-                (32 * M, 32 * M, 0),
-                "a fresh mapping: nothing in memory"
-            );
+            assert_eq!((u.held, u.not_resident, u.subtree_resident()), (32 * M, 32 * M, 0), "a fresh mapping: nothing in memory");
             // the pass finds 8 MiB resident: the owner and its account agree
             RESIDENT.store(8 * MIB, Ordering::Relaxed);
             assert!(pass(fake, usize::MAX).is_some());
             let u = usage(st);
-            assert_eq!(
-                (u.not_resident, u.subtree_resident()),
-                (24 * M, 8 * M),
-                "resident = held - not resident"
-            );
-            assert_eq!(
-                nr(a).1,
-                24 * M,
-                "its account's not-resident bytes, the same"
-            );
+            assert_eq!((u.not_resident, u.subtree_resident()), (24 * M, 8 * M), "resident = held - not resident");
+            assert_eq!(nr(a).1, 24 * M, "its account's not-resident bytes, the same");
             // the charge moves to the operator and the range is listed again with its home (`RegionBuf::move_to`)
             c.transfer(op, Release::Statement);
             update_at(id, 0x5100_0000, 32 * MIB, 32 * MIB, c.acct(), c.nr_home());
             let (us, uo) = (usage(st), usage(op));
-            assert_eq!(
-                (uo.held, uo.not_resident, uo.subtree_resident()),
-                (32 * M, 24 * M, 8 * M),
-                "on the operator now"
-            );
-            assert_eq!(
-                (us.held, us.not_resident),
-                (0, 0),
-                "off the statement's own"
-            );
-            assert_eq!(
-                (us.subtree, us.subtree_not_resident, us.subtree_resident()),
-                (32 * M, 24 * M, 8 * M),
-                "in its subtree"
-            );
+            assert_eq!((uo.held, uo.not_resident, uo.subtree_resident()), (32 * M, 24 * M, 8 * M), "on the operator now");
+            assert_eq!((us.held, us.not_resident), (0, 0), "off the statement's own");
+            assert_eq!((us.subtree, us.subtree_not_resident, us.subtree_resident()), (32 * M, 24 * M, 8 * M), "in its subtree");
             // a growth of the listed range counts as not resident until a pass reads it
             c.commit(16 * MIB as u64);
             update_at(id, 0x5100_0000, 48 * MIB, 48 * MIB, c.acct(), c.nr_home());
             assert_eq!((usage(op).held, usage(op).not_resident), (48 * M, 40 * M));
             RESIDENT.store(12 * MIB, Ordering::Relaxed);
             assert!(pass(fake, usize::MAX).is_some());
-            assert_eq!(
-                (usage(op).not_resident, usage(op).subtree_resident()),
-                (36 * M, 12 * M),
-                "read again: 12 MiB in memory"
-            );
+            assert_eq!((usage(op).not_resident, usage(op).subtree_resident()), (36 * M, 12 * M), "read again: 12 MiB in memory");
             // an ended operator stays keyed and in its statement's subtree while its bytes are on it
             op_end(op);
-            assert_eq!(
-                (usage(op).not_resident, usage(st).subtree_not_resident),
-                (36 * M, 36 * M),
-                "ended, still counted"
-            );
+            assert_eq!((usage(op).not_resident, usage(st).subtree_not_resident), (36 * M, 36 * M), "ended, still counted");
             // the statement ends: the operator's numbers, its not-resident bytes with them, go where its charges go
             crate::statement_end();
             let ses = usage(Owner::Session(a));
-            assert_eq!(
-                (usage(op), usage(st)),
-                (
-                    crate::charge::Usage::default(),
-                    crate::charge::Usage::default()
-                ),
-                "both ended"
-            );
-            assert_eq!(
-                (ses.held, ses.not_resident, ses.subtree_resident()),
-                (48 * M, 36 * M, 12 * M),
-                "on the session"
-            );
+            assert_eq!((usage(op), usage(st)), (crate::charge::Usage::default(), crate::charge::Usage::default()), "both ended");
+            assert_eq!((ses.held, ses.not_resident, ses.subtree_resident()), (48 * M, 36 * M, 12 * M), "on the session");
             // the range leaves (its region's drop: off the registry first), then its charge
             unregister(id);
-            assert_eq!(
-                (usage(Owner::Session(a)).not_resident, nr(a)),
-                (0, (0, 0)),
-                "nothing left behind"
-            );
+            assert_eq!((usage(Owner::Session(a)).not_resident, nr(a)), (0, (0, 0)), "nothing left behind");
             drop(c);
             assert_eq!(usage(Owner::Session(a)).held, 0);
             crate::unbind_backend();
@@ -754,50 +564,15 @@ mod tests {
             crate::statement_begin();
             let st = context().0;
             let op = op_begin(st, Kind::HashAgg as u32, 0);
-            let c = Charge::open(
-                op,
-                Release::Statement,
-                Kind::HashAgg,
-                Door::Mapped,
-                8 * MIB as u64,
-            );
-            let id = register_at(
-                0x5200_0000,
-                8 * MIB,
-                8 * MIB,
-                c.acct(),
-                true,
-                true,
-                c.nr_home(),
-            );
+            let c = Charge::open(op, Release::Statement, Kind::HashAgg, Door::Mapped, 8 * MIB as u64,);
+            let id = register_at(0x5200_0000, 8 * MIB, 8 * MIB, c.acct(), true, true, c.nr_home(),);
             op_end(op);
             drop(c);
-            assert_eq!(
-                (usage(op).held, usage(op).not_resident),
-                (0, 8 * M),
-                "its not-resident bytes keep it keyed"
-            );
+            assert_eq!((usage(op).held, usage(op).not_resident), (0, 8 * M), "its not-resident bytes keep it keyed");
             // the reaper's charge takes the range (`reap::defer`)
-            let r = Charge::open(
-                Owner::Cache(Holder::Reaping),
-                Release::Evict,
-                Kind::Mapped,
-                Door::Mapped,
-                8 * MIB as u64,
-            );
-            update_at(
-                id,
-                0x5200_0000,
-                8 * MIB,
-                8 * MIB,
-                Acct::REAPING,
-                r.nr_home(),
-            );
-            assert_eq!(
-                usage(op),
-                crate::charge::Usage::default(),
-                "freed with its last byte"
-            );
+            let r = Charge::open(Owner::Cache(Holder::Reaping), Release::Evict, Kind::Mapped, Door::Mapped, 8 * MIB as u64,);
+            update_at(id, 0x5200_0000, 8 * MIB, 8 * MIB, Acct::REAPING, r.nr_home(),);
+            assert_eq!(usage(op), crate::charge::Usage::default(), "freed with its last byte");
             assert_eq!(usage(st).subtree_not_resident, 0);
             unregister(id);
             drop(r);

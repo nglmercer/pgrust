@@ -44,13 +44,8 @@ fn owner(slot: &Slot, stop: &AtomicBool, admits: &AtomicU64) {
     while !stop.load(Ordering::Relaxed) {
         i += 1;
         let base = pgsync::lock(slot).clone();
-        let k = base
-            .as_ref()
-            .map_or_else(|| Arc::new(Charge::new(K)), |b| Arc::clone(&b.0[0]));
-        let img = Arc::new(Img(vec![
-            k,
-            Arc::new(Charge::new(if i.is_multiple_of(2) { N } else { N2 })),
-        ]));
+        let k = base.as_ref().map_or_else(|| Arc::new(Charge::new(K)), |b| Arc::clone(&b.0[0]));
+        let img = Arc::new(Img(vec![k, Arc::new(Charge::new(if i.is_multiple_of( 2) { N } else { N2 })),]));
         if !mem::make_room() {
             unmap(slot);
             continue;
@@ -79,19 +74,12 @@ fn unmapper(slot: &Slot, stop: &AtomicBool, mut x: u64) {
 
 #[test]
 fn concurrent_admissions_and_unmaps_keep_cached_under_the_cap() {
-    let secs = std::env::var("PGRC_ADMIT_STRESS_SECS")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(3u64);
+    let secs = std::env::var("PGRC_ADMIT_STRESS_SECS").ok().and_then(|s| s.parse().ok()).unwrap_or(3u64);
     let bg = Charge::new(BG);
     assert!(mem::make_room(), "the default cap has room");
     bg.publish();
     let s0 = mem::stats();
-    assert_eq!(
-        (s0.cached, s0.held),
-        (BG as u64, 0),
-        "this process holds nothing else"
-    );
+    assert_eq!((s0.cached, s0.held), (BG as u64, 0), "this process holds nothing else");
     // Room for every line at its small version plus one more re-decode: a refresh of N is admitted beside its pinned
     // base, one of N2 is refused.
     let cap = s0.cached + (PAIRS * (K + 2 * N)) as u64;
@@ -122,22 +110,12 @@ fn concurrent_admissions_and_unmaps_keep_cached_under_the_cap() {
         admits.load(Ordering::Relaxed),
         s1.over_cap - s0.over_cap
     );
-    assert_eq!(
-        overs, 0,
-        "cached over the cap in {overs} of {samples} samples (peak {peak}, cap {cap})"
-    );
-    assert!(
-        admits.load(Ordering::Relaxed) > 0 && s1.over_cap > s0.over_cap,
-        "the lines ran at the cap: some admitted, some refused"
-    );
+    assert_eq!(overs, 0, "cached over the cap in {overs} of {samples} samples (peak {peak}, cap {cap})");
+    assert!(admits.load(Ordering::Relaxed) > 0 && s1.over_cap > s0.over_cap, "the lines ran at the cap: some admitted, some refused");
 
     slots.iter().for_each(unmap);
     let s2 = mem::stats();
-    assert_eq!(
-        (s2.cached, s2.held),
-        (s0.cached, s0.held),
-        "every line's byte is credited"
-    );
+    assert_eq!((s2.cached, s2.held), (s0.cached, s0.held), "every line's byte is credited");
     drop(bg);
     mem::set_cap(mem::DEFAULT_CAP);
 }
