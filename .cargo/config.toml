@@ -6,3 +6,9 @@
 # this and gets no trim; the tripwire is be_secure_openssl's src/openssl_trim.rs.
 [env]
 OPENSSL_SRC_PERL = { value = "scripts/openssl-src-perl.sh", relative = true }
+
+# Day-to-day commands that skip `fuzzgen` (a ~123k-line test-case generator nothing else depends on).
+# `cargo lint` is what CI-style clippy runs minus that crate; `cargo check-dev` is the quick compile check.
+[alias]
+lint = "clippy --workspace --exclude fuzzgen --all-targets --locked -- -D warnings"
+check-dev = "check --workspace --exclude fuzzgen --all-targets --locked"
