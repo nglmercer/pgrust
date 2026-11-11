@@ -364,7 +364,7 @@ fn zone_prune_fires_and_census_is_dop_identical() {
         ScanPredicate {
             attno: 1,
             // 30000*3 lies in granule 3 (row 30000 of 40000).
-            eq: ScanConst::Word(((30_000u64 * 3))),
+            eq: ScanConst::Word(30_000u64 * 3),
         },
         profile,
     ));
@@ -665,7 +665,7 @@ fn dv_composes_with_zone_pruning() {
     scan.predicate = Some((
         ScanPredicate {
             attno: 1,
-            eq: ScanConst::Word(((30_000u64 * 3))),
+            eq: ScanConst::Word(30_000u64 * 3),
         },
         profile,
     ));

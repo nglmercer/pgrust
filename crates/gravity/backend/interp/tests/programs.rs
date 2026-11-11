@@ -707,7 +707,7 @@ fn load_zext_and_fused_immediate_compares() {
         } else if x > 70000 {
             300
         } else {
-            (((x.wrapping_add(4095)) & 255) << 3)
+            ((x.wrapping_add(4095)) & 255) << 3
         };
         assert_eq!(run(&p, "cls", &[x as u64]), vec![want as u64], "cls {x}");
     }

@@ -30,7 +30,7 @@ fn a_fill_lands_at_the_declared_base_and_at_own_without_one() {
         let fill = |h: i64, off: u64, cap: u64| spill(ctx, SPILL_RUN_FILL, (h as u64 | off << 16 | cap << 48) as i64);
         assert_eq!(spill(ctx, SPILL_RUNS, 1), rig.host.runs.len() as i64);
         // the stream word rides in the open's argument, not in the handle
-        let h = spill(ctx, SPILL_RUN_OPEN, ((1i64 << 32)));
+        let h = spill(ctx, SPILL_RUN_OPEN, 1i64 << 32);
         assert_eq!(spill(ctx, SPILL_RUN_BASE, buf.as_mut_ptr() as i64), 0);
         assert_eq!(fill(h, 8, 48), 48);
         let got = core::slice::from_raw_parts((buf.as_ptr() as *const u8).add(8), 48);

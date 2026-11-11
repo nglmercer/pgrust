@@ -11487,6 +11487,7 @@ dependencies = [
  "mimalloc",
  "oauth_validators",
  "pagepool",
+ "parquet_read",
  "pg_locale",
  "pg_path",
  "pgsync",

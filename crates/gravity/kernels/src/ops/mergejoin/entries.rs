@@ -66,8 +66,8 @@ mod tests {
     /// Row `i`'s value: NULL every 5th, a long one every 7th, else short.
     fn value(i: usize) -> Option<Vec<u8>> {
         match i {
-            _ if i % 5 == 0 => None,
-            _ if i % 7 == 0 => Some(format!("{i:0>3000}").into_bytes()), // alloc: Cold
+            _ if i.is_multiple_of(5) => None,
+            _ if i.is_multiple_of(7) => Some(format!("{i:0>3000}").into_bytes()), // alloc: Cold
             _ => Some(format!("v{i}").into_bytes()), // alloc: Cold
         }
     }

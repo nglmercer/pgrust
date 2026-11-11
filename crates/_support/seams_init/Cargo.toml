@@ -8,6 +8,11 @@ publish.workspace = true
 name = "seams_init"
 path = "src/lib.rs"
 
+# pgcrypto is a contrib extension and OFF by default (it pulls nine RustCrypto crates). main_main's `pgcrypto` and
+# `full` features turn it on; a server built without it answers CREATE EXTENSION pgcrypto as a C install without the module.
+[features]
+pgcrypto = ["dep:pgcrypto"]
+
 [dependencies]
 pgrc_companion = { path = "../../backend/catalog/pgrc_companion" }
 heapam_xlog = { path = "../../backend/access/heap/heapam_xlog" }
@@ -303,7 +308,7 @@ file_fdw = { path = "../../contrib/file_fdw" }
 postgres_fdw = { path = "../../contrib/postgres_fdw" }
 ltree = { path = "../../contrib/ltree" }
 intarray = { path = "../../contrib/intarray" }
-pgcrypto = { path = "../../contrib/pgcrypto" }
+pgcrypto = { path = "../../contrib/pgcrypto", optional = true }
 pg_stat_statements = { path = "../../contrib/pg_stat_statements" }
 pg_buffercache = { path = "../../contrib/pg_buffercache" }
 auto_explain = { path = "../../contrib/auto_explain" }

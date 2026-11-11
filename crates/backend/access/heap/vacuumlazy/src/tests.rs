@@ -351,7 +351,7 @@ fn with_scan_parts<R>(
         ..
     } = vr;
     let env = ScanEnv {
-        rel: rel,
+        rel,
         cutoffs: &*cutoffs,
         vistest: *vistest,
         aggressive: *aggressive,

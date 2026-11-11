@@ -4,6 +4,13 @@ version = "0.0.0"
 edition.workspace = true
 publish.workspace = true
 
+# Snappy and Brotli pages need crates nothing else in the tree uses, so they are OFF by default (main_main's `parquet-codecs`
+# and `full` features turn them on). Without a codec, a page that uses it is refused at the decompress call with a plain
+# error. lz4, gzip (miniz_oxide) and zstd stay on: the columnar store, basebackup and pgcrypto already build them.
+[features]
+snappy = ["dep:snap"]
+brotli = ["dep:brotli-decompressor"]
+
 [dependencies]
 pgsync = { path = "../../../_support/pgsync" }
 # CONVERT wave 3 (cvwrite job 2): the decoder's buffers are charged to the loading statement's owner (src/held.rs).
@@ -15,10 +22,10 @@ types_error = { path = "../../../_support/types/types_error" }
 # same blocks), zstd = the C binding already in-tree for the columnar
 # store's frame codec, miniz_oxide = pure-Rust inflate for GZIP pages
 # (already in the lockfile), brotli-decompressor = pure-Rust brotli.
-snap = "1"
+snap = { version = "1", optional = true }
 lz4_flex = "0.11"
 miniz_oxide = "0.8"
-brotli-decompressor = "4"
+brotli-decompressor = { version = "4", optional = true }
 # Batched UTF-8 validation for string pages (dictionary values validated
 # once per chunk; fallback pages validated per batch).
 simdutf8 = "0.1"
