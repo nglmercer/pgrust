@@ -316,7 +316,7 @@ impl Kept<'_> {
                 }
             };
             let (kc, nz) = (lx.b.iconst(Type::I64, kind as i64), lx.b.conv(ConvOp::Zext, Type::I64, null));
-            (lx.b.store(at, 24 * i as i32, kc), lx.b.store(at, 24 * i as i32 + 8, d), lx.b.store(at, 24 * i as i32 + 16, nz));
+            lx.b.store(at, 24 * i as i32, kc); lx.b.store(at, 24 * i as i32 + 8, d); lx.b.store(at, 24 * i as i32 + 16, nz);
             layout.kinds.push_in(kind);
             layout.cells.push_in(cell);
         }

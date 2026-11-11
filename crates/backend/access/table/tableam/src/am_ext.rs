@@ -51,7 +51,10 @@ pub fn table_take_placed<'mcx>(
         return Ok(());
     }
     let mut placer = |tid: ItemPointerData| {
-        let id = ::pgrc_format::rowid::id_of(::types_tuple::ItemPointerGetBlockNumber(&tid), ::types_tuple::ItemPointerGetOffsetNumber(&tid))?;
+        let id = ::pgrc_format::rowid::id_of(
+            ::types_tuple::ItemPointerGetBlockNumber(&tid),
+            ::types_tuple::ItemPointerGetOffsetNumber(&tid),
+        )?;
         let (block, off) = ::pgrc_am::rowid_alloc::tid_of(::pgrc_am::ingest::place(rel, id)?);
         let mut at = ItemPointerData::invalid();
         ::types_tuple::ItemPointerSet(&mut at, block, off);
@@ -59,7 +62,11 @@ pub fn table_take_placed<'mcx>(
     };
     // a row is placed only after its part's cut: until then (most drains of a statement) nothing is tried
     let place: Option<&mut dyn FnMut(ItemPointerData) -> Option<ItemPointerData>> =
-        if ::pgrc_am::ingest::placements_waiting(rel) { Some(&mut placer) } else { None };
+        if ::pgrc_am::ingest::placements_waiting(rel) {
+            Some(&mut placer)
+        } else {
+            None
+        };
     let batches = ::pgrc_front::xact::take_indexed(rel.rd_id, place)?;
     if !::pgrc_am::ingest::bulk_open(rel) && ::pgrc_front::xact::unplaced(rel.rd_id) {
         return Err(Box::new(
@@ -70,12 +77,23 @@ pub fn table_take_placed<'mcx>(
     if batches.is_empty() {
         return Ok(());
     }
-    let mut slot = ::exectuples::make_tuple_table_slot(mcx, TupleSlotKind::HeapTuple, Some(rel.rd_att.clone()));
+    let mut slot = ::exectuples::make_tuple_table_slot(
+        mcx,
+        TupleSlotKind::HeapTuple,
+        Some(rel.rd_att.clone()),
+    );
     let mut out = Ok(());
     'rows: for (mut rows, tids) in batches {
         for (image, tid) in rows.images_mut().zip(tids) {
             // SAFETY: a heap tuple image, 8-byte aligned, alive until the slot is cleared below.
-            let t = unsafe { ::types_tuple::htup::HeapTupleData::from_raw_parts(image.as_ptr(), image.len() as u32, tid, rel.rd_id) };
+            let t = unsafe {
+                ::types_tuple::htup::HeapTupleData::from_raw_parts(
+                    image.as_ptr(),
+                    image.len() as u32,
+                    tid,
+                    rel.rd_id,
+                )
+            };
             ::exectuples::exec_store_heap_tuple(&mut slot, mcx, t);
             let base = slot.base_mut();
             base.tts_tid = tid;
@@ -92,7 +110,10 @@ pub fn table_take_placed<'mcx>(
 
 /// The attributes (by `attno - 1`; `None` = every one) the fetches of `scan` must deliver; the others may read
 /// NULL. Heap fetches read whole tuples and ignore it; a pgrcolumnar fetch decodes only these (IX1 L0, OC-A a).
-pub fn table_index_fetch_set_needed_attrs(scan: &mut IndexFetchTableData<'_>, needed: Option<Box<[bool]>>) {
+pub fn table_index_fetch_set_needed_attrs(
+    scan: &mut IndexFetchTableData<'_>,
+    needed: Option<Box<[bool]>>,
+) {
     match scan {
         IndexFetchTableData::Heap(_) => {}
         IndexFetchTableData::Pgrc(p) => p.set_needed_attrs(needed),
@@ -124,7 +145,12 @@ mod tests {
         let mcx = ctx.mcx();
         let heap = crate::tests::make(mcx, 1, RELKIND_RELATION, HEAP_TABLE_AM_OID);
 
-        for op in [CmdType::CMD_INSERT, CmdType::CMD_UPDATE, CmdType::CMD_DELETE, CmdType::CMD_MERGE] {
+        for op in [
+            CmdType::CMD_INSERT,
+            CmdType::CMD_UPDATE,
+            CmdType::CMD_DELETE,
+            CmdType::CMD_MERGE,
+        ] {
             assert!(table_modify_admit(&heap, op, false).is_ok());
         }
         assert!(table_modify_admit(&heap, CmdType::CMD_INSERT, true).is_ok());

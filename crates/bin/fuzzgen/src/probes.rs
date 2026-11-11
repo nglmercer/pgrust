@@ -322,6 +322,7 @@ pub fn txn_control(sql: &str) -> Option<&'static str> {
 /// DDL that takes a relation lock the pg_locks probe can see.
 pub fn takes_relation_lock(sql: &str) -> bool {
     let w = leading_words(sql, 3);
+    #[allow(clippy::match_like_matches_macro)]
     match (w.first().map(String::as_str), w.get(1).map(String::as_str)) {
         (Some("ALTER"), Some("TABLE" | "INDEX" | "MATERIALIZED" | "VIEW" | "SEQUENCE")) => true,
         (Some("CREATE"), Some("INDEX" | "UNIQUE" | "TRIGGER" | "RULE" | "POLICY")) => true,

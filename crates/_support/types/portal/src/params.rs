@@ -26,8 +26,11 @@ pub struct ParamExecData {
 }
 
 impl ParamExecData {
-    pub const EMPTY: ParamExecData =
-        ParamExecData { value: Datum::null(), isnull: true, exec_plan: false };
+    pub const EMPTY: ParamExecData = ParamExecData {
+        value: Datum::null(),
+        isnull: true,
+        exec_plan: false,
+    };
 }
 
 // C ParamListInfo.paramCompile's runtime half: every PARAM_EXTERN becomes an
@@ -362,10 +365,22 @@ mod tests {
     /// a NULL handle and for a freed one.
     #[test]
     fn slot_reads_a_live_list_only() {
-        let params = [ParamExternData { value: Datum::from_i32(7), isnull: false, pflags: 0, ptype: 25 }];
+        let params = [ParamExternData {
+            value: Datum::from_i32(7),
+            isnull: false,
+            pflags: 0,
+            ptype: 25,
+        }];
         let h = unsafe { register_hooked(&params) };
-        assert_eq!(slot(h, 1).map(|p| (p.value.as_i32(), p.ptype, p.pflags)), Some((7, 25, 0)));
-        assert!(slot(h, 0).is_none() && slot(h, 2).is_none() && slot(ParamListHandle::NULL, 1).is_none());
+        assert_eq!(
+            slot(h, 1).map(|p| (p.value.as_i32(), p.ptype, p.pflags)),
+            Some((7, 25, 0))
+        );
+        assert!(
+            slot(h, 0).is_none()
+                && slot(h, 2).is_none()
+                && slot(ParamListHandle::NULL, 1).is_none()
+        );
         free(h);
         assert!(slot(h, 1).is_none());
     }

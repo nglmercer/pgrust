@@ -416,6 +416,7 @@ impl Parser {
 
     fn expression_inner(&mut self, minimum: u8) -> Result<Expr, String> {
         let mut left = self.primary()?;
+        #[allow(clippy::while_let_loop)]
         loop {
             let Some(Token::Operator(op)) = self.tokens.get(self.position) else {
                 break;

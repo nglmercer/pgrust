@@ -131,7 +131,10 @@ struct GranuleBits {
 
 impl GranuleBits {
     fn new() -> GranuleBits {
-        GranuleBits { words: Box::new([0; GRANULE_WORDS]), count: 0 }
+        GranuleBits {
+            words: Box::new([0; GRANULE_WORDS]),
+            count: 0,
+        }
     }
 
     fn set(&mut self, row: u16) {
@@ -166,7 +169,10 @@ impl DvCompile {
     /// tombstone replay cannot skew counts.
     pub fn mark(&mut self, granule: u32, row: u16) {
         debug_assert!((row as u32) < GRANULE_ROWS);
-        self.granules.entry(granule).or_insert_with(GranuleBits::new).set(row);
+        self.granules
+            .entry(granule)
+            .or_insert_with(GranuleBits::new)
+            .set(row);
     }
 
     /// Total deleted rows accumulated (the header fact the reader
@@ -187,7 +193,11 @@ impl DvCompile {
     /// mints the manifest triplet from the returned image via
     /// [`DvTriplet::for_payload`].
     pub fn encode(&self, part_no: u32, gen: u64) -> FormatResult<Vec<u8>> {
-        let ordinals: Vec<(u32, Vec<u16>)> = self.granules.iter().map(|(g, bits)| -> FormatResult<(u32, Vec<u16>)> { Ok((*g, bits.rows()?)) }).collect::<FormatResult<_>>()?;
+        let ordinals: Vec<(u32, Vec<u16>)> = self
+            .granules
+            .iter()
+            .map(|(g, bits)| -> FormatResult<(u32, Vec<u16>)> { Ok((*g, bits.rows()?)) })
+            .collect::<FormatResult<_>>()?;
         let blocks: Vec<(u32, DvBlockKind, &[u16])> = ordinals
             .iter()
             .map(|(g, rows)| (*g, dv_block_kind_for(rows.len() as u32), rows.as_slice()))
@@ -204,7 +214,9 @@ impl DvCompile {
         let mut c = DvCompile::new();
         let mut rd = DvReader::open(payload)?;
         if rd.header.part_no != part_no {
-            return Err(FormatError::Corrupt { at: "DV header part_no vs its part at compile" });
+            return Err(FormatError::Corrupt {
+                at: "DV header part_no vs its part at compile",
+            });
         }
         while let Some(block) = rd.next_block()? {
             match block.kind {
@@ -212,13 +224,18 @@ impl DvCompile {
                     for pair in block.payload.chunks_exact(2) {
                         let row = u16::from_le_bytes([pair[0], pair[1]]);
                         if u32::from(row) >= GRANULE_ROWS {
-                            return Err(FormatError::Corrupt { at: "DV list row past the granule" });
+                            return Err(FormatError::Corrupt {
+                                at: "DV list row past the granule",
+                            });
                         }
                         c.mark(block.granule, row);
                     }
                 }
                 DvBlockKind::Bitmap => {
-                    let g = c.granules.entry(block.granule).or_insert_with(GranuleBits::new);
+                    let g = c
+                        .granules
+                        .entry(block.granule)
+                        .or_insert_with(GranuleBits::new);
                     for (w, chunk) in g.words.iter_mut().zip(block.payload.chunks_exact(8)) {
                         *w |= u64::from_le_bytes(chunk.try_into().expect("8 bytes"));
                     }
@@ -282,10 +299,7 @@ pub enum DmlPublishStep {
     /// DM-2 bump: one part's Dv triplet replaces its predecessor in a new
     /// manifest generation; the sidecar file for (part_no, dv, dv_gen) is
     /// durable BEFORE this generation is written (module-law ordering).
-    DvBump {
-        part_no: u32,
-        triplet: DvTriplet,
-    },
+    DvBump { part_no: u32, triplet: DvTriplet },
     /// DM-3 merge: base + delta chain + Dv retire; ONE fresh part (fresh
     /// elections, re-sealed exact facts, zero triplet) replaces them in a
     /// new generation. The FooterFacts session cache invalidates by the
@@ -355,15 +369,26 @@ mod dml_scaffold_tests {
             old.mark(2, r);
         }
         let old_payload = old.encode(7, 3).expect("encode");
-        let (payload, t) = compile_part_dv(Some(&old_payload), 7, &[(0, 6), (2, 5), (4, 1)], 9).expect("compile").expect("new rows");
+        let (payload, t) = compile_part_dv(Some(&old_payload), 7, &[(0, 6), (2, 5), (4, 1)], 9)
+            .expect("compile")
+            .expect("new rows");
         assert_eq!((t.dv_gen, t.dv_len), (9, payload.len() as u64));
         let mut want = DvCompile::new();
-        [(0, 5), (0, 6), (4, 1)].iter().for_each(|&(g, r)| want.mark(g, r));
+        [(0, 5), (0, 6), (4, 1)]
+            .iter()
+            .for_each(|&(g, r)| want.mark(g, r));
         (0..600u16).for_each(|r| want.mark(2, r));
-        assert_eq!(payload, want.encode(7, 9).expect("encode"), "the new DV is the whole set, at the new generation");
+        assert_eq!(
+            payload,
+            want.encode(7, 9).expect("encode"),
+            "the new DV is the whole set, at the new generation"
+        );
         let rd = DvReader::open(&payload).expect("open");
         assert_eq!((rd.header.gen, rd.header.deleted_rows), (9, 603));
-        assert!(DvCompile::seeded(&old_payload, 8).is_err(), "a DV of another part");
+        assert!(
+            DvCompile::seeded(&old_payload, 8).is_err(),
+            "a DV of another part"
+        );
     }
 
     #[test]
@@ -373,14 +398,23 @@ mod dml_scaffold_tests {
         payload[crc_at..end].copy_from_slice(&(GRANULE_ROWS as u16).to_le_bytes());
         let crc = crc32c(&payload[..end]);
         payload[end..].copy_from_slice(&crc.to_le_bytes());
-        assert!(matches!(DvCompile::seeded(&payload, 7), Err(FormatError::Corrupt { at: "DV list row past the granule" })));
+        assert!(matches!(
+            DvCompile::seeded(&payload, 7),
+            Err(FormatError::Corrupt {
+                at: "DV list row past the granule"
+            })
+        ));
     }
 
     #[test]
     fn a_seed_re_encodes_byte_identical() {
         let mut old = DvCompile::new();
-        [(0, 0), (0, (GRANULE_ROWS - 1) as u16), (9, 63), (9, 64)].iter().for_each(|&(g, r)| old.mark(g, r));
-        (0..GRANULE_ROWS as u16).step_by(3).for_each(|r| old.mark(4, r));
+        [(0, 0), (0, (GRANULE_ROWS - 1) as u16), (9, 63), (9, 64)]
+            .iter()
+            .for_each(|&(g, r)| old.mark(g, r));
+        (0..GRANULE_ROWS as u16)
+            .step_by(3)
+            .for_each(|r| old.mark(4, r));
         old.mark(4, (GRANULE_ROWS - 1) as u16);
         let payload = old.encode(7, 3).expect("encode");
         let seeded = DvCompile::seeded(&payload, 7).expect("seed");
@@ -394,8 +428,15 @@ mod dml_scaffold_tests {
         let mut old = DvCompile::new();
         old.mark(1, 1);
         let old_payload = old.encode(7, 3).expect("encode");
-        assert!(compile_part_dv(Some(&old_payload), 7, &[], 4).expect("compile").is_none());
-        assert!(compile_part_dv(Some(&old_payload), 7, &[(1, 1)], 4).expect("compile").is_none(), "already folded");
+        assert!(compile_part_dv(Some(&old_payload), 7, &[], 4)
+            .expect("compile")
+            .is_none());
+        assert!(
+            compile_part_dv(Some(&old_payload), 7, &[(1, 1)], 4)
+                .expect("compile")
+                .is_none(),
+            "already folded"
+        );
     }
 
     #[test]

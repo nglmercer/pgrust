@@ -62,6 +62,7 @@ impl Default for Head {
     }
 }
 
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn cmp_rows(nkey: usize, spec: SortSpec, a: *const u8, b: *const u8) -> Ordering {
     for k in 0..nkey {
         let (x, y) = (a as *const u64, b as *const u64);
@@ -1611,7 +1612,9 @@ mod d4373_permute_in_place {
                     assert!(!permute_in_place(core::ptr::null_mut(), ra, &|j| idx[j], Some(shape(&slots)), &|| false));
                     by_copy(b.as_mut_ptr() as *mut SortRun, &idx);
                     assert!(a == b, "n {n}: the same bytes as the copy's");
+                    #[allow(clippy::unnecessary_cast)]
                     let base = (*ra).row(0) as *const u8;
+                    #[allow(clippy::needless_range_loop)]
                     for j in 0..n {
                         let row = base.add(j * RB);
                         let copy = row.add(8 + (row.add(12) as *const u32).read_unaligned() as usize);
@@ -1630,6 +1633,7 @@ mod d4373_permute_in_place {
             let mut a = run_of(n);
             let ra = a.as_mut_ptr() as *mut SortRun;
             assert!(permute_in_place(core::ptr::null_mut(), ra, &|j| idx[j], Some(shape(&slots)), &|| true), "stopped at the first poll");
+            #[allow(clippy::unnecessary_cast)]
             let base = (*ra).row(0) as *const u8;
             let mut seen = vec![false; n]; // alloc: Cold
             for j in 0..n {

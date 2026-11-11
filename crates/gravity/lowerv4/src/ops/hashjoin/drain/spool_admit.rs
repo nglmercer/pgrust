@@ -18,6 +18,7 @@ use types_nodes::Node;
 use crate::face::kinds::KindId;
 use crate::graph::{EndKind, Gx};
 use crate::effects::op_raise_free;
+#[allow(unused_imports)]
 use crate::effects::visible::drain::{graph_acts, order_free, order_free_as, pipe_acts, quiet, subplans, user_end, user_index, SEEN};
 use crate::ops::hashjoin::drain::lower::drain_of;
 
@@ -550,7 +551,7 @@ fn writes(p: &PipelineNode<'_>, own: Option<usize>) -> bool {
 fn probe_side_safe(gx: &Gx<'_, '_>, q: usize) -> bool {
     use crate::ops::hashjoin::build_class::{feed, side_by, Side};
     let p = &gx.pipelines()[q];
-    let Some((j, Op::Join(JoinDesc::Probe { slot, qual, keys, .. }))) = p.ops.iter().enumerate().last() else { return false };
+    let Some((j, Op::Join(JoinDesc::Probe { slot, qual, keys, .. }))) = p.ops.iter().enumerate().next_back() else { return false };
     let bound = |id: i32| gx.graph.params.iter().any(|x| x.0 == id);
     let still = |n: Node<'_>| crate::effects::raise_free_by(gx, n, &bound, false) && !crate::effects::user_fn(gx, n) && !crate::effects::volatile(gx, n);
     let probed = |s: &u8| p.ops.iter().any(|o| matches!(o, Op::Join(JoinDesc::Probe { slot, .. }) if slot == s));
@@ -1170,6 +1171,7 @@ fn distinct(gx: &Gx<'_, '_>, k: usize, mut pos: usize, mut a: i16, depth: u8) ->
     // an op that drops rows or keeps them, its columns the row's
     let drops = |o: &Op<'_>| matches!(o, Op::Filter(_) | Op::Gate(_) | Op::Lock(_)) || crate::frame::iface::holds_limit(core::slice::from_ref(o));
     let mut scan = false;
+    #[allow(clippy::while_let_loop)]
     loop {
         let Some(i) = p.ops[..pos].iter().rposition(|o| !drops(o) && !matches!(o, Op::Window(_) | Op::Sort(_))) else { break };
         let Op::Project(l) = &p.ops[i] else { return false };
@@ -1204,7 +1206,7 @@ fn distinct(gx: &Gx<'_, '_>, k: usize, mut pos: usize, mut a: i16, depth: u8) ->
 }
 
 /// `e` through any RelabelType, as a Var.
-fn bare_var<'p>(e: Node<'p>) -> Option<&'p types_nodes::primnodes::Var> {
+fn bare_var<'p>(e: Node<'p>) -> Option<&'p types_nodes::primnodes::Var<'p>> {
     gravity_decompose::expr::through_relabel(e).unwrap_or(e).as_var()
 }
 

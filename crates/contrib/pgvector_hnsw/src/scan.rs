@@ -399,6 +399,7 @@ fn resume_scan_items(scan: &mut IndexScanDescData<'_>) -> PgResult<()> {
     Ok(())
 }
 
+#[allow(clippy::if_same_then_else)]
 pub fn hnswgettuple(
     scan: &mut IndexScanDescData<'_>,
     _direction: types_scan::ScanDirection,
@@ -450,6 +451,7 @@ pub fn hnswgettuple(
             } else if so.tuples >= guc_tables::vars::hnsw_max_scan_tuples.read() as i64
                 || so.mem_used > so.max_memory
             {
+                #[allow(clippy::unnecessary_unwrap)]
                 if so.discarded.as_ref().expect("some").is_empty() {
                     (false, false, true)
                 } else {

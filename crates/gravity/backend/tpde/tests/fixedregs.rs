@@ -22,6 +22,7 @@ fn run(p: &Program, name: &str, args: &[u64]) -> Vec<u64> {
 
 /// The ledger of function 0, and its disassembly on AArch64 (empty
 /// elsewhere).
+#[allow(dead_code)]
 fn ledger(p: &Program) -> (Vec<gravity_tpde::RegEvent>, String) {
     use mcx::MemoryContext;
     let ctx = MemoryContext::new("fixedregs");
@@ -49,6 +50,7 @@ fn ledger(p: &Program) -> (Vec<gravity_tpde::RegEvent>, String) {
     (events, text)
 }
 
+#[allow(dead_code)]
 fn count(events: &[gravity_tpde::RegEvent], kind: RegallocEvent, blocks: &[u32]) -> usize {
     events.iter().filter(|e| e.event == kind && e.block.is_some_and(|b| blocks.contains(&b))).count()
 }

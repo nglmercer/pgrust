@@ -62,10 +62,7 @@ pub fn name_list_string(names: &NodeList<'_>) -> PgResult<String> {
     Ok(s)
 }
 
-pub fn defGetString<'r, 'mcx: 'r, 'a: 'r>(
-    mcx: Mcx<'mcx>,
-    def: &DefElem<'a>,
-) -> PgResult<&'r str> {
+pub fn defGetString<'r, 'mcx: 'r, 'a: 'r>(mcx: Mcx<'mcx>, def: &DefElem<'a>) -> PgResult<&'r str> {
     let defname = def.defname.unwrap_or("");
     let Some(arg) = def.arg else {
         return Err(ereport(ERROR)
@@ -81,14 +78,20 @@ pub fn defGetString<'r, 'mcx: 'r, 'a: 'r>(
             Ok(str_in(mcx, s.as_str())?)
         }
         NodeTag::T_Float => Ok(arg.as_float().unwrap().fval),
-        NodeTag::T_Boolean => Ok(if arg.as_boolean().unwrap().boolval { "true" } else { "false" }),
+        NodeTag::T_Boolean => Ok(if arg.as_boolean().unwrap().boolval {
+            "true"
+        } else {
+            "false"
+        }),
         NodeTag::T_String => Ok(arg.as_string().unwrap().sval),
-        NodeTag::T_TypeName => {
-            Ok(str_in(mcx, &type_name_string(arg.as_type_name().expect("TypeName")))?)
-        }
-        NodeTag::T_List => {
-            Ok(str_in(mcx, &name_list_string(arg.as_list().expect("List"))?)?)
-        }
+        NodeTag::T_TypeName => Ok(str_in(
+            mcx,
+            &type_name_string(arg.as_type_name().expect("TypeName")),
+        )?),
+        NodeTag::T_List => Ok(str_in(
+            mcx,
+            &name_list_string(arg.as_list().expect("List"))?,
+        )?),
         NodeTag::T_A_Star => Ok("*"),
         t => Err(unrecognized_node_type(t)),
     }
@@ -140,7 +143,10 @@ pub fn defGetBoolean(def: &DefElem<'_>) -> PgResult<bool> {
     }
     Err(ereport(ERROR)
         .errcode(ERRCODE_SYNTAX_ERROR)
-        .errmsg(format!("{} requires a Boolean value", def.defname.unwrap_or("")))
+        .errmsg(format!(
+            "{} requires a Boolean value",
+            def.defname.unwrap_or("")
+        ))
         .into_error()
         .into())
 }

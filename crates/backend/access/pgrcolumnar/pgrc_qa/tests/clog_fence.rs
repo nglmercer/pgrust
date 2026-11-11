@@ -7,6 +7,8 @@
 //! BY NAME; and the fence — not luck — is what discriminates (the
 //! lying-probe tooth flips the verdict).
 
+use pgrc_format::dirlayout::{manifest_file_name, part_file_name};
+use pgrc_format::manifest::Manifest;
 use pgrc_qa::adapters::{memdir_of, Probe};
 use pgrc_qa::corpus::{
     append_fixture_rows, finish, int8_fixture, open_writer, verify_manifest, Fixture,
@@ -14,8 +16,6 @@ use pgrc_qa::corpus::{
 use pgrc_qa::simvfs::SimVfs;
 use pgrc_qa::walmodel::replay;
 use pgrc_qa::XorShift;
-use pgrc_format::dirlayout::{manifest_file_name, part_file_name};
-use pgrc_format::manifest::Manifest;
 use pgrc_read::manifest_walk::{resolve_effective, TableExpect};
 use pgrc_write::cleanup::cleanup_dir;
 use pgrc_write::publish::{effective_manifest, TxnVerdict};
@@ -51,7 +51,9 @@ fn fence_fixture() -> Fixture {
 }
 
 fn logged(fx: &Fixture, fxid: u64, log: &SharedLog) -> TableWriter {
-    open_writer(fx, fxid).expect("open").with_sink(Box::new(RecordingSink::new(&fx.dir, log.clone())))
+    open_writer(fx, fxid)
+        .expect("open")
+        .with_sink(Box::new(RecordingSink::new(&fx.dir, log.clone())))
 }
 
 /// gen1 committed; gen2 published by FXID_DEAD, never committed; then a
@@ -144,9 +146,16 @@ fn a_kept_in_progress_generation_keeps_its_parts() {
     let probe = Probe::new(TxnVerdict::Aborted)
         .set(FXID_GEN1, TxnVerdict::Committed)
         .set(FXID_DEAD, TxnVerdict::InProgress);
-    let report = cleanup_dir(&mut vfs, &mut RecordingSink::new(&fx.dir, log.clone()), &fx.dir, &probe).expect("recover");
+    let report = cleanup_dir(
+        &mut vfs,
+        &mut RecordingSink::new(&fx.dir, log.clone()),
+        &fx.dir,
+        &probe,
+    )
+    .expect("recover");
     let files = vfs.snapshot_dir(&fx.dir);
-    let m2 = Manifest::decode(files.get(&manifest_file_name(2)).expect("manifest-2 kept")).expect("manifest-2 decodes");
+    let m2 = Manifest::decode(files.get(&manifest_file_name(2)).expect("manifest-2 kept"))
+        .expect("manifest-2 decodes");
     assert!(!m2.parts.is_empty());
     for p in &m2.parts {
         assert!(
@@ -167,8 +176,13 @@ fn recycled_xid_cannot_resurrect_and_name_is_reclaimed() {
         .set(FXID_LIVE, TxnVerdict::InProgress);
 
     // Recovery cleans the dead residue (manifest-2 + its orphan parts).
-    let report = cleanup_dir(&mut vfs, &mut RecordingSink::new(&fx.dir, log.clone()), &fx.dir, &probe)
-        .expect("recover");
+    let report = cleanup_dir(
+        &mut vfs,
+        &mut RecordingSink::new(&fx.dir, log.clone()),
+        &fx.dir,
+        &probe,
+    )
+    .expect("recover");
     assert!(
         report.removed.iter().any(|n| n == &manifest_file_name(2)),
         "dead manifest-2 not reclaimed: removed = {:?}",
@@ -237,7 +251,13 @@ fn all_uncommitted_is_an_empty_table_and_fully_reclaimed() {
         .expect("reader walk")
         .is_none());
     // Cleanup reclaims EVERYTHING except (possibly) CURRENT.
-    cleanup_dir(&mut vfs, &mut RecordingSink::new(&fx.dir, log.clone()), &fx.dir, &dead).expect("recover");
+    cleanup_dir(
+        &mut vfs,
+        &mut RecordingSink::new(&fx.dir, log.clone()),
+        &fx.dir,
+        &dead,
+    )
+    .expect("recover");
     let after = vfs.list_dir(&fx.dir).expect("listdir");
     for n in &after {
         assert_eq!(

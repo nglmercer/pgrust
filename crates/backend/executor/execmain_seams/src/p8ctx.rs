@@ -1,4 +1,3 @@
-
 use core::cell::Cell;
 use core::sync::atomic::{AtomicU8, Ordering::Relaxed};
 
@@ -57,7 +56,10 @@ impl Drop for CtxGuard {
 
 fn ctx_scope(bit: u8) -> CtxGuard {
     if !armed() {
-        return CtxGuard { prev: 0, active: false };
+        return CtxGuard {
+            prev: 0,
+            active: false,
+        };
     }
     let prev = CTX.with(|c| {
         let p = c.get();

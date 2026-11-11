@@ -1,9 +1,7 @@
 // predicate_internals.h structs, #[repr(C)] so the intrusive-dlist pointer
 // arithmetic in engine.rs matches C's layout assumptions.
 
-#![allow(non_snake_case)]
-#![allow(non_upper_case_globals)]
-#![allow(non_camel_case_types)]
+#![allow(non_camel_case_types, non_snake_case, non_upper_case_globals)]
 
 use lwlock::LWLock;
 use types_core::{
@@ -296,6 +294,7 @@ sxact_flag_accessor!(SxactIsROUnsafe, SXACT_FLAG_RO_UNSAFE);
 sxact_flag_accessor!(SxactIsPartiallyReleased, SXACT_FLAG_PARTIALLY_RELEASED);
 
 #[inline]
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn SxactIsOnFinishedList(sxact: *const SERIALIZABLEXACT) -> bool {
     !crate::ilist::dlist_node_is_detached(&(*sxact).finishedLink)
 }

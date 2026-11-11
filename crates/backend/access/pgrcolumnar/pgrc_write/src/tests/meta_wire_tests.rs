@@ -123,8 +123,12 @@ fn stats_of(pv: &PartView, attno: u32) -> (Vec<StatsRecord>, Vec<StatsRecord>, S
         "stats section shape"
     );
     let mut c = Cur::new(&body);
-    let g: Vec<StatsRecord> = (0..gc).map(|_| StatsRecord::decode(&mut c).expect("g")).collect();
-    let b: Vec<StatsRecord> = (0..bc).map(|_| StatsRecord::decode(&mut c).expect("b")).collect();
+    let g: Vec<StatsRecord> = (0..gc)
+        .map(|_| StatsRecord::decode(&mut c).expect("g"))
+        .collect();
+    let b: Vec<StatsRecord> = (0..bc)
+        .map(|_| StatsRecord::decode(&mut c).expect("b"))
+        .collect();
     let p = StatsRecord::decode(&mut c).expect("part record");
     (g, b, p)
 }
@@ -136,10 +140,7 @@ fn stats_of(pv: &PartView, attno: u32) -> (Vec<StatsRecord>, Vec<StatsRecord>, S
 #[test]
 fn standin_writes_no_usable_metadata_at_all() {
     let mut vfs = mem_with_dir();
-    let cols = vec![
-        ascending_int8(int8_col(1)),
-        text_payloads(text_col(2)),
-    ];
+    let cols = vec![ascending_int8(int8_col(1)), text_payloads(text_col(2))];
     let mut builders = standin_builders(2);
     let (sealed, _) = seal_with(&mut vfs, &cols, &mut builders, 0);
     let pv = PartView::open(&mut vfs, &sealed.tmp_name);
@@ -158,7 +159,11 @@ fn standin_writes_no_usable_metadata_at_all() {
         // `nonnull` was the ONE honest field (the two-witness leg).
         assert!(p.nonnull > 0, "nonnull was always exact");
         // No aux sections whatsoever.
-        for kind in [SectionKind::Psma, SectionKind::Bloom, SectionKind::NdvRegisters] {
+        for kind in [
+            SectionKind::Psma,
+            SectionKind::Bloom,
+            SectionKind::NdvRegisters,
+        ] {
             assert!(
                 pv.section_bytes(kind, attno, 0).is_none(),
                 "stand-in emitted {kind:?} for attno {attno}"
@@ -256,12 +261,16 @@ fn real_builder_writes_exact_keys_sortedness_and_aggregates() {
         let lo = gi as u64 * GRANULE_ROWS as u64;
         let hi = (lo + GRANULE_ROWS as u64).min(ROWS);
         let expect_min = (lo..hi).find(|i| i % 7 != 0).expect("a nonnull row");
-        let expect_max = (lo..hi).filter(|i| i % 7 != 0).next_back().expect("a nonnull row");
+        let expect_max = (lo..hi).rfind(|i| i % 7 != 0).expect("a nonnull row");
         assert_eq!(rec.key_kind, KeyKind::Exact.as_u8(), "granule {gi}");
         assert_eq!(rec.min_key, expect_min as i64, "granule {gi} min");
         assert_eq!(rec.max_key, expect_max as i64, "granule {gi} max");
         // Strictly increasing nonnull sequence.
-        assert_eq!(rec.sortedness, Sortedness::Ascending.as_u8(), "granule {gi}");
+        assert_eq!(
+            rec.sortedness,
+            Sortedness::Ascending.as_u8(),
+            "granule {gi}"
+        );
         assert!(rec.ndv_est > 0, "granule {gi} NDV");
     }
 
@@ -276,7 +285,7 @@ fn real_builder_writes_exact_keys_sortedness_and_aggregates() {
     assert_eq!(p.min_key, g[0].min_key, "part min");
     assert_eq!(p.max_key, g[g.len() - 1].max_key, "part max");
     assert_eq!(p.min_key, 1, "first nonnull row is 1 (row 0 is null)");
-    let last_nonnull = (0..ROWS).filter(|i| i % 7 != 0).next_back().expect("nonnull");
+    let last_nonnull = (0..ROWS).rfind(|i| i % 7 != 0).expect("nonnull");
     assert_eq!(p.max_key, last_nonnull as i64);
     assert_eq!(p.sortedness, Sortedness::Ascending.as_u8());
 
@@ -319,7 +328,11 @@ fn real_builder_emits_aux_sections_for_a_text_column() {
 
     // text COLLATE "C" is bloomable AND key-derivable (coarse prefix keys):
     // the whole aux plane arms.
-    for kind in [SectionKind::Psma, SectionKind::Bloom, SectionKind::NdvRegisters] {
+    for kind in [
+        SectionKind::Psma,
+        SectionKind::Bloom,
+        SectionKind::NdvRegisters,
+    ] {
         let body = pv
             .meta_body(kind, 2, 0)
             .unwrap_or_else(|| panic!("{kind:?} missing — the aux plane did not arm"));
@@ -331,7 +344,11 @@ fn real_builder_emits_aux_sections_for_a_text_column() {
     // Coarse keys (prefix): present, and NEVER claimed Exact.
     assert_eq!(p.key_kind, KeyKind::Coarse.as_u8());
     for rec in &g {
-        assert_ne!(rec.key_kind, KeyKind::Exact.as_u8(), "prefix keys are coarse");
+        assert_ne!(
+            rec.key_kind,
+            KeyKind::Exact.as_u8(),
+            "prefix keys are coarse"
+        );
     }
     // Byte-length stats carry (LenStats::BytesAndChars for text).
     assert_eq!(p.byte_len_min, 5, "\"vNNNN\" is 5 bytes");
@@ -364,8 +381,11 @@ fn binding() -> CodecBinding<'static> {
 fn decode_all(vfs: &mut MemVfs, name: &str, attno: u32, class: StorageClass) -> Vec<Vec<u8>> {
     let bytes = vfs.read_full(&format!("{DIR}/{name}")).expect("part bytes");
     let part = Arc::new(
-        OpenPart::open(Box::new(MemPartIo::new(bytes, 4242, 7)), &PartExpect::none())
-            .expect("open part"),
+        OpenPart::open(
+            Box::new(MemPartIo::new(bytes, 4242, 7)),
+            &PartExpect::none(),
+        )
+        .expect("open part"),
     );
     let b = binding();
     let mut cur = StreamCursor::open(Arc::clone(&part), &b, attno, 0).expect("cursor");
@@ -409,7 +429,13 @@ fn real_stats_do_not_change_a_single_decoded_value() {
     let (bp, _) = seal_with(&mut vfs, &cols, &mut real, 1);
 
     for (attno, class) in [
-        (1u32, StorageClass::ByvalWord { width: 8, signed: true }),
+        (
+            1u32,
+            StorageClass::ByvalWord {
+                width: 8,
+                signed: true,
+            },
+        ),
         (2u32, StorageClass::VarlenaVerbatim),
     ] {
         let va = decode_all(&mut vfs, &a.tmp_name, attno, class);
@@ -448,7 +474,11 @@ fn col_with(attno: u32, class: StorageClass, semantics: TypeSemantics) -> ColSch
     ColSchema {
         attno,
         class,
-        typlen: if matches!(class, StorageClass::VarlenaVerbatim) { -1 } else { 8 },
+        typlen: if matches!(class, StorageClass::VarlenaVerbatim) {
+            -1
+        } else {
+            8
+        },
         typbyval: !matches!(class, StorageClass::VarlenaVerbatim),
         typalign: b'd',
         collation_class: CollationClass::C,
@@ -465,7 +495,10 @@ fn opaque_semantics_emits_no_keys() {
     let mut vfs = mem_with_dir();
     let schema = col_with(
         1,
-        StorageClass::ByvalWord { width: 8, signed: true },
+        StorageClass::ByvalWord {
+            width: 8,
+            signed: true,
+        },
         TypeSemantics::Opaque,
     );
     let cols = vec![ascending_int8(schema)];
@@ -488,7 +521,10 @@ fn inconsistent_semantics_degrade_rather_than_refuse() {
     // `TextCollated` requires VarlenaVerbatim; this column is an int8 word.
     let schema = col_with(
         1,
-        StorageClass::ByvalWord { width: 8, signed: true },
+        StorageClass::ByvalWord {
+            width: 8,
+            signed: true,
+        },
         TypeSemantics::TextCollated,
     );
     let cols = vec![ascending_int8(schema)];
@@ -559,9 +595,15 @@ fn per_row_hash(rows: &[Option<Vec<u8>>]) -> (u64, u64, u64) {
 #[test]
 fn bank_deferred_hash_equals_the_per_row_fold_on_every_path() {
     let shapes: [(&str, fn(u64) -> Option<Vec<u8>>); 3] = [
-        ("few", |i| (i % 11 != 0).then(|| format!("d{}", i % 13).into_bytes())),
-        ("many", |i| (i % 11 != 0).then(|| format!("unique value {i:08} {}", i * 7919).into_bytes())),
-        ("runs", |i| (i % 97 != 0).then(|| format!("r{}", i / 500).into_bytes())),
+        ("few", |i| {
+            (i % 11 != 0).then(|| format!("d{}", i % 13).into_bytes())
+        }),
+        ("many", |i| {
+            (i % 11 != 0).then(|| format!("unique value {i:08} {}", i * 7919).into_bytes())
+        }),
+        ("runs", |i| {
+            (i % 97 != 0).then(|| format!("r{}", i / 500).into_bytes())
+        }),
     ];
     for (name, f) in shapes {
         let rows: Vec<Option<Vec<u8>>> = (0..ROWS).map(f).collect();
@@ -575,7 +617,11 @@ fn bank_deferred_hash_equals_the_per_row_fold_on_every_path() {
                 }
             }
             assert!(c.bank_deferred());
-            assert_eq!(c.logical_hash().expect("walk").digest(), want, "{name} walk");
+            assert_eq!(
+                c.logical_hash().expect("walk").digest(),
+                want,
+                "{name} walk"
+            );
             let cols = vec![c];
             let mut vfs = mem_with_dir();
             let mut builders = if real {

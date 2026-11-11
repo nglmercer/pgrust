@@ -1,5 +1,4 @@
-#![allow(non_snake_case)]
-#![allow(clippy::too_many_arguments)]
+#![allow(clippy::too_many_arguments, non_snake_case)]
 
 pub use types_relscan::*;
 
@@ -12,16 +11,13 @@ use core::mem::MaybeUninit;
 use std::rc::Rc;
 
 use datum::Datum;
-use tableam::{BatchFetch, INDEX_FETCH_BATCH_MAX};
 use mcx::Mcx;
+use tableam::{BatchFetch, INDEX_FETCH_BATCH_MAX};
 use types_core::Oid;
-use types_error::{
-    PgError, PgResult, ERRCODE_FEATURE_NOT_SUPPORTED, ERRCODE_WRONG_OBJECT_TYPE,
-};
+use types_error::{PgError, PgResult, ERRCODE_FEATURE_NOT_SUPPORTED, ERRCODE_WRONG_OBJECT_TYPE};
 use types_nbtree::{IndexBulkDeleteResult, IndexUniqueCheck};
 use types_rel::{
-    MaxLockMode, NoLock, Relation, RelationData, LOCKMODE, RELKIND_INDEX,
-    RELKIND_PARTITIONED_INDEX,
+    MaxLockMode, NoLock, Relation, RelationData, LOCKMODE, RELKIND_INDEX, RELKIND_PARTITIONED_INDEX,
 };
 use types_scan::scankey::ScanKeyData;
 use types_scan::sdir::ScanDirection;
@@ -368,8 +364,7 @@ pub fn index_beginscan_bitmap<'mcx>(
     snapshot: Rc<SnapshotData<'mcx>>,
     nkeys: i32,
 ) -> PgResult<IndexScanDescData<'mcx>> {
-    let mut scan =
-        index_beginscan_internal(mcx, indexRelation, nkeys, 0, false, Some(&snapshot))?;
+    let mut scan = index_beginscan_internal(mcx, indexRelation, nkeys, 0, false, Some(&snapshot))?;
     scan.xs_snapshot = Some(snapshot);
     Ok(scan)
 }
@@ -692,9 +687,9 @@ pub fn index_fetch_heap<'mcx>(
                         xs_snapshot,
                         ..
                     } = scan;
-                    let heapfetch = xs_heapfetch
-                        .as_mut()
-                        .expect("index_fetch_heap: xs_heapfetch not armed (C would dereference NULL)");
+                    let heapfetch = xs_heapfetch.as_mut().expect(
+                        "index_fetch_heap: xs_heapfetch not armed (C would dereference NULL)",
+                    );
                     fetch::batch_fill(mcx, heapfetch, xs_heaptid, rest, xs_snapshot)?;
                     fetch::batch_next(mcx, heapfetch, xs_heaptid, slot)
                 };
@@ -896,7 +891,7 @@ fn am_rescan(
         IndexScanOpaque::Mock(_) => {
             mock::rescan(scan);
             Ok(())
-        },
+        }
         #[allow(unreachable_patterns)]
         _ => mock_outside_tests(),
     }
@@ -933,7 +928,7 @@ fn am_markpos(scan: &mut IndexScanDescData<'_>) -> PgResult<()> {
         IndexScanOpaque::Mock(_) => {
             mock::markpos(scan);
             Ok(())
-        },
+        }
         #[allow(unreachable_patterns)]
         _ => mock_outside_tests(),
     }
@@ -942,7 +937,9 @@ fn am_markpos(scan: &mut IndexScanDescData<'_>) -> PgResult<()> {
 fn am_restrpos(scan: &mut IndexScanDescData<'_>) -> PgResult<()> {
     match scan.opaque {
         IndexScanOpaque::Btree(_) => nbtree::btrestrpos(scan),
-        IndexScanOpaque::Hash(_) => unreachable!("hash lacks amrestrpos (guarded by has_amrestrpos)"),
+        IndexScanOpaque::Hash(_) => {
+            unreachable!("hash lacks amrestrpos (guarded by has_amrestrpos)")
+        }
         IndexScanOpaque::Gin(_) => unreachable!("gin lacks amrestrpos (guarded by has_amrestrpos)"),
         IndexScanOpaque::Gist(_) => Err(missing_procedure("amrestrpos", scan.index_rel())),
         IndexScanOpaque::Spgist(_) => unreachable!("has_amrestrpos gate"),
@@ -1024,9 +1021,7 @@ fn am_insert<'mcx>(
             // downcast once per row on a cache slot C derefs as void*; the
             // resolve-once state lives inside (rule-5 ii_AmCache mirror).
             if am_cache.is_none() {
-                *am_cache = Some(Box::new(
-                    None::<gist::GistInsertAmCache<'static>>,
-                ));
+                *am_cache = Some(Box::new(None::<gist::GistInsertAmCache<'static>>));
             }
             let slot = am_cache
                 .as_mut()
@@ -1038,14 +1033,20 @@ fn am_insert<'mcx>(
             // (ResultRelIndexState holds the relation open).
             let slot: &mut Option<gist::GistInsertAmCache<'mcx>> =
                 unsafe { core::mem::transmute(slot) };
-            gist::gistinsert(mcx, indexRelation, values, isnull, heap_t_ctid, heapRelation, slot)
+            gist::gistinsert(
+                mcx,
+                indexRelation,
+                values,
+                isnull,
+                heap_t_ctid,
+                heapRelation,
+                slot,
+            )
         }
         IndexAmKind::Spgist => {
             debug_assert!(checkUnique == IndexUniqueCheck::UNIQUE_CHECK_NO);
             if am_cache.is_none() {
-                *am_cache = Some(Box::new(
-                    None::<spgist::SpgInsertAmCache<'static>>,
-                ));
+                *am_cache = Some(Box::new(None::<spgist::SpgInsertAmCache<'static>>));
             }
             let slot = am_cache
                 .as_mut()
@@ -1059,9 +1060,7 @@ fn am_insert<'mcx>(
         }
         IndexAmKind::Brin => {
             if am_cache.is_none() {
-                *am_cache = Some(Box::new(
-                    None::<types_brin::BrinInsertState<'static>>,
-                ));
+                *am_cache = Some(Box::new(None::<types_brin::BrinInsertState<'static>>));
             }
             let slot = am_cache
                 .as_mut()
@@ -1075,11 +1074,25 @@ fn am_insert<'mcx>(
         }
         IndexAmKind::Hnsw => {
             debug_assert!(checkUnique == IndexUniqueCheck::UNIQUE_CHECK_NO);
-            pgvector_hnsw::hnswinsert(mcx, indexRelation, values, isnull, heap_t_ctid, heapRelation)
+            pgvector_hnsw::hnswinsert(
+                mcx,
+                indexRelation,
+                values,
+                isnull,
+                heap_t_ctid,
+                heapRelation,
+            )
         }
         IndexAmKind::Bloom => {
             debug_assert!(checkUnique == IndexUniqueCheck::UNIQUE_CHECK_NO);
-            bloom::blinsert(mcx, indexRelation, values, isnull, heap_t_ctid, heapRelation)
+            bloom::blinsert(
+                mcx,
+                indexRelation,
+                values,
+                isnull,
+                heap_t_ctid,
+                heapRelation,
+            )
         }
         #[cfg(any(test, feature = "mock"))]
         IndexAmKind::Mock => Ok(true),
@@ -1127,7 +1140,9 @@ mod fetch {
 
     #[cfg(not(test))]
     pub fn begin<'mcx>(heapRelation: &Relation<'mcx>) -> PgResult<IndexFetchTableData<'mcx>> {
-        Ok(IndexFetchTableData::Table(tableam::table_index_fetch_begin(heapRelation)?))
+        Ok(IndexFetchTableData::Table(
+            tableam::table_index_fetch_begin(heapRelation)?,
+        ))
     }
 
     #[cfg(test)]
@@ -1157,7 +1172,9 @@ mod fetch {
     }
 
     pub fn end(heapfetch: IndexFetchTableData<'_>) {
-        if let IndexFetchTableData::Table(t) = heapfetch { tableam::table_index_fetch_end(t) }
+        if let IndexFetchTableData::Table(t) = heapfetch {
+            tableam::table_index_fetch_end(t)
+        }
     }
 
     pub fn tuple<'mcx>(

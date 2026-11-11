@@ -55,6 +55,7 @@ impl GenerateSeriesNumeric {
         })
     }
 
+    #[allow(clippy::should_implement_trait)]
     pub fn next(&mut self) -> PgResult<Option<NumericImage>> {
         let cmp = cmp_var(self.current.view(), self.stop.view());
         let more = (self.step.sign == NUMERIC_POS && cmp <= 0)

@@ -22,12 +22,21 @@ use types_startup::{ClientSocket, Port};
 
 static REGCOMP_CALLS: AtomicUsize = AtomicUsize::new(0);
 
-fn regcomp_first_only(_pattern: &[PgWChar], _cflags: i32, _collation: Oid) -> PgResult<RegcompResult> {
+fn regcomp_first_only(
+    _pattern: &[PgWChar],
+    _cflags: i32,
+    _collation: Oid,
+) -> PgResult<RegcompResult> {
     let n = REGCOMP_CALLS.fetch_add(1, Ordering::SeqCst);
     Ok(if n == 0 {
-        RegcompResult::Compiled(RegexCompiled { engine: std::rc::Rc::new(()), re_nsub: 0 })
+        RegcompResult::Compiled(RegexCompiled {
+            engine: std::rc::Rc::new(()),
+            re_nsub: 0,
+        })
     } else {
-        RegcompResult::Failed(RegexFailure { message: "out of memory".to_string() })
+        RegcompResult::Failed(RegexFailure {
+            message: "out of memory".to_string(),
+        })
     })
 }
 
@@ -87,6 +96,12 @@ fn regex_role_token_recompile_failure_does_not_panic() {
     // panic the backend.
     let mut port = unix_port("alice", "postgres");
     hba::hba_getauthmethod(&mut port).unwrap();
-    assert!(REGCOMP_CALLS.load(Ordering::SeqCst) >= 2, "execution-time compile attempted");
-    assert_eq!(port.hba.as_ref().map(|h| h.auth_method), Some(uaImplicitReject));
+    assert!(
+        REGCOMP_CALLS.load(Ordering::SeqCst) >= 2,
+        "execution-time compile attempted"
+    );
+    assert_eq!(
+        port.hba.as_ref().map(|h| h.auth_method),
+        Some(uaImplicitReject)
+    );
 }

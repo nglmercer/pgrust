@@ -27,27 +27,32 @@ use crate::face::step::StepMech;
 use crate::frame::px::Px;
 use gravity_decompose::ops::shared::agg::GroupDecl;
 
+#[allow(unused_imports)]
 pub(crate) use emit_group::{W_PTRS, W_STATE};
 pub(crate) use rec::GroupRec as Rec;
 
 /// The keyed record of group `g`: its layout, key words and slots.
+#[allow(dead_code)]
 pub(crate) fn rec<'g, 'p>(px: &mut Px<'g, 'p>, g: &'g GroupDecl<'p>) -> Rec<'g, 'p> {
     Rec::new(px, g)
 }
 
 /// The fold end over pipeline `k` (the hashed group's table, its owner phase).
+#[allow(dead_code)]
 pub(crate) fn end<'g, 'p>(px: &mut Px<'g, 'p>, k: usize) -> PgBox<'g, dyn EndMech + 'g> {
     crate::mechs_used::fetched(Variant::Kind(KindId::KeyedHashagg));
     crate::ops::agg::hashagg::make(px, k)
 }
 
 /// The fold as step `j` of pipeline `k` (a streamed sorted group over the keyed record).
+#[allow(dead_code)]
 pub(crate) fn step<'g, 'p>(px: &mut Px<'g, 'p>, k: usize, j: usize) -> PgBox<'g, dyn StepMech + 'g> {
     crate::mechs_used::fetched(Variant::Kind(KindId::KeyedHashagg));
     crate::ops::group::stream::make(px, k, j)
 }
 
 /// The group emit of pipeline `k`, with HAVING, sorted when a top asks.
+#[allow(dead_code)]
 pub(crate) fn emit<'g, 'p>(px: &mut Px<'g, 'p>, k: usize) -> PgBox<'g, dyn SourceMech + 'g> {
     crate::mechs_used::fetched(Variant::Kind(KindId::KeyedEmitGroup));
     emit_group::make(px, k)

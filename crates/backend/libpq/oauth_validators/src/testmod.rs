@@ -35,7 +35,10 @@ impl OAuthValidator for TestValidator {
         role: &str,
         result: &mut ValidatorModuleResult,
     ) -> PgResult<bool> {
-        elog::elog(LOG, format!("oauth_validator: token=\"{token}\", role=\"{role}\""))?;
+        elog::elog(
+            LOG,
+            format!("oauth_validator: token=\"{token}\", role=\"{role}\""),
+        )?;
         elog::elog(
             LOG,
             format!(
@@ -45,7 +48,9 @@ impl OAuthValidator for TestValidator {
             ),
         )?;
         result.authorized = guc_tables::backing::oauth_validator_authorize_tokens();
-        result.authn_id = Some(guc_tables::backing::oauth_validator_authn_id().unwrap_or_else(|| role.to_string()));
+        result.authn_id = Some(
+            guc_tables::backing::oauth_validator_authn_id().unwrap_or_else(|| role.to_string()),
+        );
         Ok(true)
     }
 }
@@ -90,7 +95,10 @@ impl OAuthValidator for PrefixValidator {
         role: &str,
         result: &mut ValidatorModuleResult,
     ) -> PgResult<bool> {
-        elog::elog(LOG, format!("oauth_test_validator: token=\"{token}\", role=\"{role}\""))?;
+        elog::elog(
+            LOG,
+            format!("oauth_test_validator: token=\"{token}\", role=\"{role}\""),
+        )?;
         if token == "modulefail" {
             return Ok(false);
         }

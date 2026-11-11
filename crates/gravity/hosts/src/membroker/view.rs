@@ -1210,7 +1210,7 @@ where
     }
     let counts = CLASSES.iter().zip(r.miss_class).chain(SIZES.iter().zip(r.miss_size)).chain(BINS.iter().zip(r.populate_us));
     for (class, v) in counts.chain([(&"takes_zero", r.zero_takes), (&"takes_dirty", r.dirty_takes), (&"refills", r.refills)]) {
-        put("counter", "pool_reserve", *class, [n(v), None, None, None], None, None, None)?;
+        put("counter", "pool_reserve", class, [n(v), None, None, None], None, None, None)?;
     }
     put("counter", "pool_reserve", "populate", [n(r.populate_n), n(r.populate_ns), n(r.populate_max_ns), None], None, None, None)?;
     put("counter", "pool_reserve", "shed", [n(r.shed_runs), n(r.shed), None, None], None, None, None)?;
@@ -1351,6 +1351,7 @@ pub fn fc_pgrust_memory_owners(flinfo: Option<&mut FmgrInfo>, fcinfo: &mut Fcinf
     // the unnamed roots holding the most, by name, so the big ones get named one by one
     let mut roots: mcx::PgVec<'_, (&'static str, i64)> = mcx::PgVec::new_in(mcx);
     memledger::charge::unnamed_roots(|n, b| roots.push((n, b)));
+    #[allow(clippy::unnecessary_sort_by)]
     roots.sort_unstable_by(|x, y| y.1.cmp(&x.1));
     for &(name, bytes) in roots.iter().take(UNNAMED_ROOTS_SHOWN) {
         let zero = Datum::from_i64(0);

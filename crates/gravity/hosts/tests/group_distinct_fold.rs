@@ -122,7 +122,8 @@ fn plain_form_counts_the_partitions_and_the_leader_sums_the_owners() {
     // one owner over every partition, then the partitions split between two owners: the totals add up
     let one = own(&f, &fns, &pairs, 4, 64 << 10);
     assert_eq!(unsafe { plain_total(one.as_ptr() as *const u8) }, want);
-    let (a, b): (Vec<Pair>, Vec<Pair>) = pairs.iter().cloned().partition(|p| (partition_hash(&layout, &p.keys)).part(4 as u32) % 2 == 0);
+    #[allow(clippy::unnecessary_cast)]
+    let (a, b): (Vec<Pair>, Vec<Pair>) = pairs.iter().cloned().partition(|p| (partition_hash(&layout, &p.keys)).part(4 as u32).is_multiple_of(2));
     let (ra, rb) = (own(&f, &fns, &a, 4, 64 << 10), own(&f, &fns, &b, 4, 64 << 10));
     assert_eq!(top(&ra).total + top(&rb).total, want);
     assert_eq!(top(&ra).len, 0, "the plain form keeps no records");
@@ -260,6 +261,7 @@ fn every_region_size_holds_a_pair_table_at_its_capacity() {
                     let mut k = vec![i; nk];
                     k[nk - 1] = i * 3;
                     let r = t.find_or_insert(&k).expect("under the load");
+                    #[allow(clippy::needless_range_loop)]
                     for j in 0..slots.len() {
                         match slots[j] {
                             SlotKind::Count => r.add_count(j, 1),

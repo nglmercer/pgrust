@@ -1,5 +1,4 @@
-#![allow(non_snake_case)]
-#![allow(non_upper_case_globals)]
+#![allow(non_snake_case, non_upper_case_globals)]
 
 use std::cell::RefCell;
 use std::mem::ManuallyDrop;
@@ -65,6 +64,7 @@ fn InitializeRelfilenumberMap() -> PgResult<()> {
     let mcx = ::mcx::session_root("RelfilenumberMap cache").mcx();
     // D4682: the teardown retires this root; clear the slot first, so a reused thread's next session builds a new one.
     ::mcx::register_session_cleanup(Box::new(|| {
+        #[allow(clippy::drop_non_drop)]
         let _ = MAP.try_with(|c| drop(c.borrow_mut().take()));
     }));
     let map = RelfilenumberMap {

@@ -17,7 +17,11 @@ fn maps() -> Vec<(usize, usize, String)> {
         let mut f = l.split_whitespace();
         let (r, p) = (f.next().unwrap(), f.next().unwrap());
         let (lo, hi) = r.split_once('-').unwrap();
-        v.push((usize::from_str_radix(lo, 16).unwrap(), usize::from_str_radix(hi, 16).unwrap(), p.to_string()));
+        v.push((
+            usize::from_str_radix(lo, 16).unwrap(),
+            usize::from_str_radix(hi, 16).unwrap(),
+            p.to_string(),
+        ));
     }
     v
 }
@@ -29,10 +33,24 @@ fn alone(s: &Span, what: &str) {
     let m = maps();
     let mine: Vec<_> = m.iter().filter(|(a, b, _)| *a < hi && *b > lo).collect();
     assert!(!mine.is_empty(), "{what}: mapped");
-    assert_eq!((mine[0].0, mine[mine.len() - 1].1), (lo, hi), "{what}: no mapping shared with a neighbour: {mine:x?}");
-    assert!(mine.iter().all(|(_, _, p)| p == "rw-p"), "{what}: read-write: {mine:x?}");
-    let fence = m.iter().find(|(a, b, _)| *a <= hi && hi < *b).expect("the fence is reserved");
-    assert_eq!((fence.0, fence.2.as_str()), (hi, "---p"), "{what}: its fence is PROT_NONE");
+    assert_eq!(
+        (mine[0].0, mine[mine.len() - 1].1),
+        (lo, hi),
+        "{what}: no mapping shared with a neighbour: {mine:x?}"
+    );
+    assert!(
+        mine.iter().all(|(_, _, p)| p == "rw-p"),
+        "{what}: read-write: {mine:x?}"
+    );
+    let fence = m
+        .iter()
+        .find(|(a, b, _)| *a <= hi && hi < *b)
+        .expect("the fence is reserved");
+    assert_eq!(
+        (fence.0, fence.2.as_str()),
+        (hi, "---p"),
+        "{what}: its fence is PROT_NONE"
+    );
 }
 
 #[cfg(not(target_os = "linux"))]
@@ -51,14 +69,21 @@ fn lazy_spans_are_fenced() {
     unsafe {
         commit_to(&mut a, 64 * MIB);
         touch(a0 as usize, 64 * MIB);
-        assert!(grow_span(&mut a, 96 * MIB), "nothing past the last span's fence");
+        assert!(
+            grow_span(&mut a, 96 * MIB),
+            "nothing past the last span's fence"
+        );
     }
     assert_eq!((a.as_ptr(), a.len()), (a0, 96 * MIB), "in place");
     alone(&a, "a, grown in place");
 
     // a neighbour starts one fence slot past it
     let b = span(64 * MIB, h()).unwrap();
-    assert_eq!(b.as_ptr() as usize, a0 as usize + a.len() + SUPER, "one fence slot between neighbours");
+    assert_eq!(
+        b.as_ptr() as usize,
+        a0 as usize + a.len() + SUPER,
+        "one fence slot between neighbours"
+    );
     alone(&b, "b, new");
 
     // a cannot grow in place over b: it moves, and its old fence goes with its old range

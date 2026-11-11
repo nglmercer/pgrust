@@ -16,14 +16,24 @@ fn a_global_allocation_is_never_refused_by_the_claim_cap() {
     let big: Vec<Vec<u8>> = (0..96).map(|i| vec![i as u8; 1 << 20]).collect();
     let small: Vec<Box<[u8; 100]>> = (0..200_000).map(|_| Box::new([7u8; 100])).collect();
     let s = pagepool::stats();
-    assert!(s.claimed > cap, "the global path claimed past the cap: {s:?}");
+    assert!(
+        s.claimed > cap,
+        "the global path claimed past the cap: {s:?}"
+    );
     while let Some(b) = pagepool::take(2 << 20, 64, Hint::new(Class::Task, Tag::OTHER)) {
         held.push(b);
         assert!(held.len() < 4096);
     }
     let t = pagepool::stats();
-    assert!(t.claimed <= s.claimed, "a take outside PoolAlloc claims nothing past the cap ({} warm ones): {t:?}", held.len());
-    assert_eq!(big.iter().map(|v| v[0] as usize).sum::<usize>(), (0..96).sum::<usize>());
+    assert!(
+        t.claimed <= s.claimed,
+        "a take outside PoolAlloc claims nothing past the cap ({} warm ones): {t:?}",
+        held.len()
+    );
+    assert_eq!(
+        big.iter().map(|v| v[0] as usize).sum::<usize>(),
+        (0..96).sum::<usize>()
+    );
     assert!(small.iter().all(|b| b[99] == 7));
     pagepool::set_cap(0);
 }

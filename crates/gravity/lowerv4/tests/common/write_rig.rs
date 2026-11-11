@@ -18,10 +18,12 @@ use gravity_program::{LaneId, SiteDesc, WritePlan};
 use super::common::multiset::{Outcome, Row};
 use super::common::{cancel_error, Mode, RigCatalog};
 
+#[allow(dead_code)]
 type Datum = u64;
 
 /// A column's type: what the rig holds and renders as PG's text output (text by bytes: the C collation).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[allow(dead_code)]
 pub enum Ty {
     Bool,
     Int2,
@@ -32,12 +34,14 @@ pub enum Ty {
 
 /// A cell's value: a by-value word, or a varlena image (4-byte header) whose address is the datum.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[allow(dead_code)]
 pub enum Val {
     W(Datum),
     T(Vec<u8>),
 }
 
 impl Val {
+    #[allow(dead_code)]
     fn datum(&self) -> Datum {
         match self {
             Val::W(d) => *d,
@@ -46,6 +50,7 @@ impl Val {
     }
 }
 
+#[allow(dead_code)]
 fn image(payload: &[u8]) -> Vec<u8> {
     let mut v = (((payload.len() + 4) as u32) << 2).to_le_bytes().to_vec();
     v.extend_from_slice(payload);
@@ -53,11 +58,13 @@ fn image(payload: &[u8]) -> Vec<u8> {
 }
 
 /// The payload of the varlena at `d` (1-byte or 4-byte header, never compressed or external).
+#[allow(clippy::redundant_guards, dead_code)]
 fn payload(d: Datum) -> Result<Vec<u8>, String> {
     let p = d as *const u8;
     // SAFETY: a text column's datum addresses a varlena the program or the rig keeps alive for the row op.
     let (hdr, len) = unsafe {
         match *p {
+            #[allow(clippy::redundant_guards)]
             b if b == 1 => return Err("an external (TOAST) datum".into()),
             b if b & 1 == 1 => (1, (b >> 1) as usize),
             b if b & 3 == 0 => (4, ((p as *const u32).read_unaligned() >> 2) as usize),
@@ -71,6 +78,7 @@ fn payload(d: Datum) -> Result<Vec<u8>, String> {
 /// The non-NULL elements of the one-dimensional-or-more array image at `d`, as `ty`'s datums (PG's ArrayType: the 16-byte
 /// header, dims and lower bounds, the null bitmap when dataoffset is set, then the elements at their alignment; a text
 /// element's datum addresses its varlena, 1- or 4-byte header).
+#[allow(dead_code)]
 fn elements(ty: Ty, d: Datum) -> Vec<Datum> {
     let p = d as *const u8;
     // SAFETY: a search array's word addresses an untoasted array image the program or the fixture keeps alive for the seek.
@@ -108,6 +116,7 @@ fn elements(ty: Ty, d: Datum) -> Vec<Datum> {
 }
 
 impl Ty {
+    #[allow(dead_code)]
     fn of(s: &str) -> Result<Ty, String> {
         Ok(match s {
             "bool" => Ty::Bool,
@@ -159,11 +168,13 @@ impl Ty {
 }
 
 /// One cell: `None` is NULL.
+#[allow(dead_code)]
 pub type Cell = Option<Val>;
 
 /// A table: its columns, its unique column sets (index name, 0-based columns), and one slot per position (block = slot,
 /// offset 1); a deleted or updated-away row's slot is `None`, an update appends the new version (a new position).
 #[derive(Clone, Debug)]
+#[allow(dead_code)]
 pub struct Table {
     pub name: String,
     pub cols: Vec<(String, Ty)>,
@@ -176,6 +187,7 @@ pub struct Table {
 
 impl Table {
     /// The live rows as PG's text, sorted (a multiset).
+    #[allow(dead_code)]
     pub fn digest(&self) -> Vec<Row> {
         let mut v: Vec<Row> = self.slots.iter().enumerate().filter(|(i, _)| self.ver.get(*i) != Some(&1)).filter_map(|(_, s)| s.as_ref()).map(|r| r.iter().zip(&self.cols).map(|(c, (_, t))| c.as_ref().map(|v| t.render(v))).collect()).collect();
         v.sort();
@@ -192,6 +204,7 @@ impl Table {
 
 /// A seek operator per index key, in `key_attnos` order (btree strategies).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[allow(dead_code)]
 pub enum Op {
     Lt,
     Le,
@@ -204,6 +217,7 @@ pub enum Op {
 
 /// One parsed `.write` fixture.
 #[derive(Clone, Debug)]
+#[allow(dead_code)]
 pub struct WriteCase {
     pub name: String,
     pub plan: String,
@@ -223,12 +237,14 @@ pub struct WriteCase {
 /// One lock call's answer (M4-LOCK): locked, skipped (SKIP LOCKED / a deleted row), or a newer version now at slot `n`
 /// (the EvalPlanQual recheck runs on it).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[allow(dead_code)]
 pub enum LockAns {
     Done,
     Skip,
     Recheck(u32),
 }
 
+#[allow(dead_code)]
 fn cells(t: &Table, line: &str) -> Result<Vec<Cell>, String> {
     let f: Vec<&str> = line.split('\t').collect();
     if f.len() != t.cols.len() {
@@ -243,6 +259,7 @@ fn cells(t: &Table, line: &str) -> Result<Vec<Cell>, String> {
 /// A locking statement's `lock: <answer> ..` (`done`, `skip`, `recheck=<slot>`: the host's answer per lock call, in
 /// order; `done` past the list) and `[locked]` (`<oid><TAB><slot>` per row the statement must lock: the slots are the
 /// `[before]` rows' 0-based order, an update's new version the next slot).
+#[allow(dead_code)]
 pub fn parse_write(name: &str, text: &str) -> Result<WriteCase, String> {
     let (mut plan, mut tables, mut seeks, mut refused) = (None, BTreeMap::<u32, Table>::new(), BTreeMap::new(), None);
     let (mut locks, mut locked) = (Vec::new(), None::<Vec<(u32, u32)>>);
@@ -345,6 +362,7 @@ pub fn parse_write(name: &str, text: &str) -> Result<WriteCase, String> {
 
 /// A writer or locker fault the rig must catch (its selftest): each makes some mode's verdict fail.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[allow(dead_code)]
 pub enum Fault {
     None,
     /// An error or cancel keeps the rows written before it (no rollback).
@@ -354,6 +372,7 @@ pub enum Fault {
 }
 
 /// What the tables and the writer share for one execution.
+#[allow(dead_code)]
 struct State {
     tables: BTreeMap<u32, Table>,
     seeks: BTreeMap<u32, Vec<Op>>,
@@ -373,8 +392,10 @@ struct State {
     taken: Option<usize>,
 }
 
+#[allow(dead_code)]
 type Shared = std::rc::Rc<std::cell::RefCell<State>>;
 
+#[allow(dead_code)]
 struct TableSource {
     st: Shared,
     rel: u32,
@@ -506,10 +527,12 @@ impl gravity_driver::Source for TableSource {
     }
 }
 
+#[allow(dead_code)]
 fn host(sqlstate: &str, msg: String) -> gravity_driver::Error {
     gravity_driver::Error::host(format!("{sqlstate}\t{msg}"))
 }
 
+#[allow(dead_code)]
 struct TableWriter {
     st: Shared,
     rel: u32,
@@ -518,6 +541,7 @@ struct TableWriter {
 }
 
 impl TableWriter {
+    #[allow(dead_code)]
     fn apply(&self, st: &mut State, op: WriteOp, pos: ScanPos, values: &[Datum], isnull: &[u8]) -> gravity_driver::Result<gravity_driver::Outcome> {
         let name = st.tables.get(&self.rel).map(|t| t.name.clone()).unwrap_or_default();
         if op != WriteOp::Insert && st.tables.get(&self.rel).is_some_and(|t| t.ver.get(pos.block as usize) == Some(&1)) {
@@ -624,6 +648,7 @@ impl Writer for TableWriter {
 
 /// The lock host: records every locked position and answers from the fixture's `lock:` script, in order, then `Done`;
 /// a `recheck=<slot>` answer names the newer version the recheck node substitutes (`recheck_pos`).
+#[allow(dead_code)]
 struct TableLocker {
     st: Shared,
     epq: bool,
@@ -670,6 +695,7 @@ impl Locker for TableLocker {
     fn unbind(&mut self) {}
 }
 
+#[allow(dead_code)]
 struct TableDerive(Shared);
 
 impl gravity_driver::Derive for TableDerive {
@@ -702,6 +728,7 @@ impl gravity_driver::Derive for TableDerive {
 
 /// One execution's answer: the outcome (rows or error), the completion count, every table after, every position locked.
 #[derive(Debug, PartialEq)]
+#[allow(dead_code)]
 pub struct Ran {
     pub outcome: Outcome,
     pub tag: u64,
@@ -733,6 +760,7 @@ pub fn lower_declared(text: &str) -> Option<gravity_lower::Result<String>> {
 
 /// The census plan fixture `c.plan` lowered by v4 and run over `c`'s tables in `mode` with `fault` planted; `Err` is why
 /// no outcome (`refused: ..` the lowering's, else a rig failure).
+#[allow(dead_code)]
 pub fn run_write(c: &WriteCase, mode: Mode, fault: Fault) -> Result<Ran, String> {
     let rig = mcx::MemoryContext::new("GravityPlanRig");
     // a census plan, else a lane's own plan fixture in tests/fixtures/m4 (M4-RET's ret-*: no census plan is a trigger-free DELETE RETURNING)
@@ -810,8 +838,10 @@ pub fn run_write(c: &WriteCase, mode: Mode, fault: Fault) -> Result<Ran, String>
     Ok(Ran { outcome, tag, after: tables.iter().map(|(o, t)| (*o, t.digest())).collect(), locked })
 }
 
+#[allow(dead_code)]
 type DriveResult = Result<(Result<Outcome, gravity_driver::Error>, u64), String>;
 
+#[allow(dead_code)]
 fn drive_write(program: &std::sync::Arc<gravity_program::Program>, params: &[u64], nulls: &[u8], mode: Mode, flag: &AtomicU8, derive: &mut TableDerive, lives: &super::common::on_demand::Lives) -> DriveResult {
     use gravity_driver::{Binding, BindingParts, Call, CommandId, Entry, Grant, Identity, PerTuple, Pins, Reservation, Snapshot, Step};
     let mut sink = Rows { out: &program.out, rows: Vec::new(), err: None };
@@ -857,6 +887,7 @@ fn drive_write(program: &std::sync::Arc<gravity_program::Program>, params: &[u64
         }
     };
     let tag = b.rows_processed;
+    #[allow(clippy::drop_non_drop)]
     drop(b);
     if let Some(e) = sink.err {
         return Err(e);
@@ -866,6 +897,7 @@ fn drive_write(program: &std::sync::Arc<gravity_program::Program>, params: &[u64
 
 /// exec epq.rs's recheck over the rig: the recheck node with `site` substituted by `pos` and every other site held at
 /// `positions`; a surviving row is pushed to the statement's sink; the count it adds (a lock's row counts one).
+#[allow(dead_code)]
 fn recheck(entry: &mut gravity_driver::Entry, program: &std::sync::Arc<gravity_program::Program>, derive: &mut TableDerive, b: &mut gravity_driver::Binding<'_>, positions: &[ScanPos], site: usize, pos: ScanPos) -> Result<u64, gravity_driver::Error> {
     let natts = program.out.len();
     let (mut values, mut isnull, mut region) = (vec![0u64; natts], vec![0u8; natts], Vec::new());
@@ -890,6 +922,7 @@ fn recheck(entry: &mut gravity_driver::Entry, program: &std::sync::Arc<gravity_p
 }
 
 /// The rows a write returns (RETURNING), rendered by the out columns' types.
+#[allow(dead_code)]
 struct Rows<'o> {
     out: &'o [gravity_program::OutCol],
     rows: Vec<Row>,
@@ -927,6 +960,7 @@ impl gravity_driver::Sink for Rows<'_> {
 
 /// `ran` against PG's answer in `c` under `mode`: the rows returned (as a multiset), the count and every table; a cancel's
 /// 57014 wants every table as before the statement. `Err` is the report.
+#[allow(dead_code)]
 pub fn judge(c: &WriteCase, mode: Mode, ran: &Ran) -> Result<(), String> {
     let before: BTreeMap<u32, Vec<Row>> = c.tables.iter().map(|(o, t)| (*o, t.digest())).collect();
     let bag = |o: &Outcome| match o {

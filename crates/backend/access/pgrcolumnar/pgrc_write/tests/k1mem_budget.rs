@@ -186,18 +186,42 @@ fn d259_cell(i: u64, c: usize) -> Cell {
 }
 
 fn d259_schema(ncols: u32) -> Vec<ColSchema> {
-    (1..=ncols).map(|a| if (3..=7).contains(&((a - 1) % 10)) { text_col(a) } else { int8_col(a) }).collect()
+    (1..=ncols)
+        .map(|a| {
+            if (3..=7).contains(&((a - 1) % 10)) {
+                text_col(a)
+            } else {
+                int8_col(a)
+            }
+        })
+        .collect()
 }
 
 fn d259() -> Tbl {
     let schema = d259_schema(10);
-    Tbl { dict: schema.iter().filter(|s| s.typlen == -1).map(|s| s.attno).collect(), schema, cell: d259_cell }
+    Tbl {
+        dict: schema
+            .iter()
+            .filter(|s| s.typlen == -1)
+            .map(|s| s.attno)
+            .collect(),
+        schema,
+        cell: d259_cell,
+    }
 }
 
 /// Three D259s side by side (thirty columns): a part far wider than any one of its columns.
 fn wide() -> Tbl {
     let schema = d259_schema(30);
-    Tbl { dict: schema.iter().filter(|s| s.typlen == -1).map(|s| s.attno).collect(), schema, cell: d259_cell }
+    Tbl {
+        dict: schema
+            .iter()
+            .filter(|s| s.typlen == -1)
+            .map(|s| s.attno)
+            .collect(),
+        schema,
+        cell: d259_cell,
+    }
 }
 
 /// compbench: an id and two 128-hex texts.
@@ -206,13 +230,29 @@ fn cb() -> Tbl {
         0 => Cell::W(i),
         _ => txt(&hex(i * 2 + 10 + c as u64, 64)),
     };
-    Tbl { schema: vec![int8_col(1), text_col(2), text_col(3)], dict: vec![2, 3], cell }
+    Tbl {
+        schema: vec![int8_col(1), text_col(2), text_col(3)],
+        dict: vec![2, 3],
+        cell,
+    }
 }
 
 fn cands(t: &Tbl) -> CodecCandidates {
-    let storage = ColumnPosture { cold: true, ..ColumnPosture::default() };
-    let dict = ColumnPosture { dict: Some(DictPolicy { ndv_cap: 1 << 24, exec_ok: true, sem: TextSemantics::Utf8Chars }), ..storage };
-    t.dict.iter().fold(CodecCandidates::new(storage), |c, &a| c.with_column(a, 0, dict))
+    let storage = ColumnPosture {
+        cold: true,
+        ..ColumnPosture::default()
+    };
+    let dict = ColumnPosture {
+        dict: Some(DictPolicy {
+            ndv_cap: 1 << 24,
+            exec_ok: true,
+            sem: TextSemantics::Utf8Chars,
+        }),
+        ..storage
+    };
+    t.dict.iter().fold(CodecCandidates::new(storage), |c, &a| {
+        c.with_column(a, 0, dict)
+    })
 }
 
 #[derive(Debug)]
@@ -229,10 +269,22 @@ struct Measure {
 }
 
 fn writer(t: &Tbl, threads: usize) -> TableWriter {
-    let mut w = open_writer_policy(t.schema.clone(), stamp(77, 1), PartCutPolicy { max_rows: u64::MAX, max_bytes: u64::MAX, ..PartCutPolicy::default() });
+    let mut w = open_writer_policy(
+        t.schema.clone(),
+        stamp(77, 1),
+        PartCutPolicy {
+            max_rows: u64::MAX,
+            max_bytes: u64::MAX,
+            ..PartCutPolicy::default()
+        },
+    );
     if threads > 0 {
         let resolver: Arc<dyn VerifyResolver + Send + Sync> = Arc::new(CodecResolver);
-        w.set_pool(SealPool { pool: Arc::new(ThreadPool(threads)), sources: vec![Arc::new(cands(t))], resolver });
+        w.set_pool(SealPool {
+            pool: Arc::new(ThreadPool(threads)),
+            sources: vec![Arc::new(cands(t))],
+            resolver,
+        });
     }
     w
 }
@@ -240,14 +292,23 @@ fn writer(t: &Tbl, threads: usize) -> TableWriter {
 fn whole(t: &Tbl, n: u64, threads: usize) -> Measure {
     let base = LIVE.load(Relaxed);
     PEAK.store(base, Relaxed);
-    let (mut vfs, mut kit, c) = (NullVfs { inner: mem_with_dir(), written: 0 }, Kit::new(), cands(t));
+    let (mut vfs, mut kit, c) = (
+        NullVfs {
+            inner: mem_with_dir(),
+            written: 0,
+        },
+        Kit::new(),
+        cands(t),
+    );
     let mut w = writer(t, threads);
     let t0 = std::time::Instant::now();
     let ncols = t.schema.len();
     let mut chunk = RowChunk::new(ncols, CHUNK);
     for i in 0..n {
         let cells: Vec<Cell> = (0..ncols).map(|col| (t.cell)(i, col)).collect();
-        chunk.push_row(&cells.iter().map(Cell::raw).collect::<Vec<_>>()).expect("capture");
+        chunk
+            .push_row(&cells.iter().map(Cell::raw).collect::<Vec<_>>())
+            .expect("capture");
         if chunk.rows() == CHUNK || i + 1 == n {
             w.append_chunk(&chunk).expect("chunk");
             chunk = RowChunk::new(ncols, CHUNK);
@@ -257,21 +318,50 @@ fn whole(t: &Tbl, n: u64, threads: usize) -> Measure {
     let buffered = LIVE.load(Relaxed).saturating_sub(base);
     let resolver = CodecResolver;
     let sources: [&dyn CandidateSource; 1] = [&c];
-    let mut env = SealEnv { vfs: &mut vfs, sources: &sources, resolver: &resolver, shred: &mut kit.shred, shred_opts: &kit.opts };
+    let mut env = SealEnv {
+        vfs: &mut vfs,
+        sources: &sources,
+        resolver: &resolver,
+        shred: &mut kit.shred,
+        shred_opts: &kit.opts,
+    };
     w.finish(&mut env).expect("finish");
-    let (peak, after, secs) = (PEAK.load(Relaxed) - base, LIVE.load(Relaxed).saturating_sub(base), t0.elapsed().as_secs_f64());
-    Measure { buffered, peak, after, part: vfs.written, secs }
+    let (peak, after, secs) = (
+        PEAK.load(Relaxed) - base,
+        LIVE.load(Relaxed).saturating_sub(base),
+        t0.elapsed().as_secs_f64(),
+    );
+    Measure {
+        buffered,
+        peak,
+        after,
+        part: vfs.written,
+        secs,
+    }
 }
 
 fn streamed(t: &Tbl, n: u64, threads: usize) -> Measure {
     let base = LIVE.load(Relaxed);
     PEAK.store(base, Relaxed);
-    let (mut vfs, mut kit, c) = (NullVfs { inner: mem_with_dir(), written: 0 }, Kit::new(), cands(t));
+    let (mut vfs, mut kit, c) = (
+        NullVfs {
+            inner: mem_with_dir(),
+            written: 0,
+        },
+        Kit::new(),
+        cands(t),
+    );
     let mut w = writer(t, threads);
     let t0 = std::time::Instant::now();
     let resolver = CodecResolver;
     let sources: [&dyn CandidateSource; 1] = [&c];
-    let mut env = SealEnv { vfs: &mut vfs, sources: &sources, resolver: &resolver, shred: &mut kit.shred, shred_opts: &kit.opts };
+    let mut env = SealEnv {
+        vfs: &mut vfs,
+        sources: &sources,
+        resolver: &resolver,
+        shred: &mut kit.shred,
+        shred_opts: &kit.opts,
+    };
     let mut feed = |col: usize, out: &mut ColBuffer| -> WriteResult<()> {
         let (mut chunk, mut scratch) = (RowChunk::new(1, CHUNK), Vec::new());
         for i in 0..n {
@@ -283,9 +373,23 @@ fn streamed(t: &Tbl, n: u64, threads: usize) -> Measure {
         }
         chunk.append_column(0, out, &mut NoExternalDetoast, &mut scratch)
     };
-    assert!(w.seal_streamed(&mut env, n, &mut feed).expect("streamed seal"), "the default grain");
-    let (peak, after, secs) = (PEAK.load(Relaxed) - base, LIVE.load(Relaxed).saturating_sub(base), t0.elapsed().as_secs_f64());
-    Measure { buffered: 0, peak, after, part: vfs.written, secs }
+    assert!(
+        w.seal_streamed(&mut env, n, &mut feed)
+            .expect("streamed seal"),
+        "the default grain"
+    );
+    let (peak, after, secs) = (
+        PEAK.load(Relaxed) - base,
+        LIVE.load(Relaxed).saturating_sub(base),
+        t0.elapsed().as_secs_f64(),
+    );
+    Measure {
+        buffered: 0,
+        peak,
+        after,
+        part: vfs.written,
+        secs,
+    }
 }
 
 /// A part of thirty D259 columns (about 11 MB of column buffers per 100,000 rows... per column set) seals in well
@@ -300,8 +404,17 @@ fn a_streamed_seal_holds_a_column_not_the_part() {
         let s = streamed(&t, ROWS, threads);
         eprintln!("K1MEM wide rows={ROWS} threads={threads}: whole {w:?}; streamed {s:?}");
         assert_eq!(s.part, w.part, "the same part");
-        assert!(w.peak > 3 * BUDGET, "the part is far larger than the budget: whole-part seal peak {:.1} MB", w.peak as f64 / MB);
-        assert!(s.peak <= BUDGET, "{threads} threads: streamed seal peak {:.1} MB over the budget {:.1} MB", s.peak as f64 / MB, BUDGET as f64 / MB);
+        assert!(
+            w.peak > 3 * BUDGET,
+            "the part is far larger than the budget: whole-part seal peak {:.1} MB",
+            w.peak as f64 / MB
+        );
+        assert!(
+            s.peak <= BUDGET,
+            "{threads} threads: streamed seal peak {:.1} MB over the budget {:.1} MB",
+            s.peak as f64 / MB,
+            BUDGET as f64 / MB
+        );
         assert!(s.after < 1 << 20, "nothing kept: {} bytes", s.after);
     }
 }
@@ -309,9 +422,14 @@ fn a_streamed_seal_holds_a_column_not_the_part() {
 #[test]
 #[ignore = "measurement: K1MEM_ROWS / K1MEM_TABLE / K1MEM_THREADS"]
 fn k1mem_probe() {
-    let n: u64 = std::env::var("K1MEM_ROWS").ok().and_then(|s| s.parse().ok()).unwrap_or(200_000);
+    let n: u64 = std::env::var("K1MEM_ROWS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(200_000);
     let which = std::env::var("K1MEM_TABLE").unwrap_or_else(|_| "d259,cb".into());
-    let ths: Vec<usize> = std::env::var("K1MEM_THREADS").map_or(vec![0, 4], |s| s.split(',').map(|x| x.parse().expect("threads")).collect());
+    let ths: Vec<usize> = std::env::var("K1MEM_THREADS").map_or(vec![0, 4], |s| {
+        s.split(',').map(|x| x.parse().expect("threads")).collect()
+    });
     for th in ths {
         for (name, t) in [("d259", d259()), ("cb", cb()), ("wide", wide())] {
             if !which.split(',').any(|w| w == name) {

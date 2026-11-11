@@ -62,7 +62,12 @@ fn init_grant_role_options_defaults() {
 fn plan_single_revoke_missing_grant_returns_false() {
     let members = [row(1, 100, 200, 10, false)];
     let mut actions = noop_actions(1);
-    let popt = GrantRoleOptions { specified: 0, admin: false, inherit: false, set: true };
+    let popt = GrantRoleOptions {
+        specified: 0,
+        admin: false,
+        inherit: false,
+        set: true,
+    };
     let found = plan_single_revoke(
         &members,
         &mut actions,
@@ -80,7 +85,12 @@ fn plan_single_revoke_missing_grant_returns_false() {
 fn plan_single_revoke_deletes_plain_grant() {
     let members = [row(1, 100, 200, 10, false)];
     let mut actions = noop_actions(1);
-    let popt = GrantRoleOptions { specified: 0, admin: false, inherit: false, set: true };
+    let popt = GrantRoleOptions {
+        specified: 0,
+        admin: false,
+        inherit: false,
+        set: true,
+    };
     let found = plan_single_revoke(
         &members,
         &mut actions,
@@ -140,7 +150,12 @@ fn plan_recursive_revoke_restrict_errors_on_dependent_grant() {
     // 10 grants ADMIN to 200; 200 grants to 300.
     let members = [row(1, 100, 200, 10, true), row(2, 100, 300, 200, false)];
     let mut actions = noop_actions(2);
-    let popt = GrantRoleOptions { specified: 0, admin: false, inherit: false, set: true };
+    let popt = GrantRoleOptions {
+        specified: 0,
+        admin: false,
+        inherit: false,
+        set: true,
+    };
     let e = plan_single_revoke(
         &members,
         &mut actions,
@@ -158,7 +173,12 @@ fn plan_recursive_revoke_restrict_errors_on_dependent_grant() {
 fn plan_recursive_revoke_cascade_deletes_dependents() {
     let members = [row(1, 100, 200, 10, true), row(2, 100, 300, 200, false)];
     let mut actions = noop_actions(2);
-    let popt = GrantRoleOptions { specified: 0, admin: false, inherit: false, set: true };
+    let popt = GrantRoleOptions {
+        specified: 0,
+        admin: false,
+        inherit: false,
+        set: true,
+    };
     assert!(plan_single_revoke(
         &members,
         &mut actions,
@@ -205,7 +225,12 @@ fn plan_recursive_revoke_stops_when_other_admin_grant_survives() {
         row(3, 100, 300, 200, false),
     ];
     let mut actions = noop_actions(3);
-    let popt = GrantRoleOptions { specified: 0, admin: false, inherit: false, set: true };
+    let popt = GrantRoleOptions {
+        specified: 0,
+        admin: false,
+        inherit: false,
+        set: true,
+    };
     assert!(plan_single_revoke(
         &members,
         &mut actions,
@@ -281,9 +306,7 @@ fn def_get_string_remaining_arms_match_c() {
     let names = [string_node("a"), string_node("b")];
     let def = DefElem {
         defname: Some("opt"),
-        arg: Some(
-            Node::mk(mcx, types_nodes::NodeList::from_slice(mcx, &names).unwrap()).unwrap(),
-        ),
+        arg: Some(Node::mk(mcx, types_nodes::NodeList::from_slice(mcx, &names).unwrap()).unwrap()),
         ..DefElem::default()
     };
     assert_eq!(def_get_string(&def).unwrap(), "a.b");
@@ -323,7 +346,10 @@ mod check_password_hook_chain {
     ) -> PgResult<()> {
         SEEN.lock().unwrap().push(format!("second:{password}"));
         if password == "refuse" {
-            return Err(err("second refuses".into(), ERRCODE_INVALID_PARAMETER_VALUE));
+            return Err(err(
+                "second refuses".into(),
+                ERRCODE_INVALID_PARAMETER_VALUE,
+            ));
         }
         Ok(())
     }
@@ -344,12 +370,21 @@ mod check_password_hook_chain {
         run_check_password_hook(mcx, "alice", "abcdefg1", Datum::from_i64(7), false).unwrap();
         assert_eq!(
             std::mem::take(&mut *SEEN.lock().unwrap()),
-            vec!["second:abcdefg1".to_string(), "first:alice:abcdefg1:Plaintext:7:false".to_string()]
+            vec![
+                "second:abcdefg1".to_string(),
+                "first:alice:abcdefg1:Plaintext:7:false".to_string()
+            ]
         );
 
         // get_password_type classifies the supplied string (user.c:400).
-        run_check_password_hook(mcx, "alice", "md5e5f1b3fb6e6c8f8a2a4b4f9a7b3c1d2e", Datum::null(), true)
-            .unwrap();
+        run_check_password_hook(
+            mcx,
+            "alice",
+            "md5e5f1b3fb6e6c8f8a2a4b4f9a7b3c1d2e",
+            Datum::null(),
+            true,
+        )
+        .unwrap();
         assert_eq!(
             std::mem::take(&mut *SEEN.lock().unwrap())[1],
             "first:alice:md5e5f1b3fb6e6c8f8a2a4b4f9a7b3c1d2e:Md5:0:true"
@@ -358,6 +393,9 @@ mod check_password_hook_chain {
         let e = run_check_password_hook(mcx, "alice", "refuse", Datum::null(), true)
             .expect_err("the newest hook refuses");
         assert_eq!(e.message(), "second refuses");
-        assert_eq!(std::mem::take(&mut *SEEN.lock().unwrap()), vec!["second:refuse".to_string()]);
+        assert_eq!(
+            std::mem::take(&mut *SEEN.lock().unwrap()),
+            vec!["second:refuse".to_string()]
+        );
     }
 }

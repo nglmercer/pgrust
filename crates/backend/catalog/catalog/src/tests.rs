@@ -15,7 +15,9 @@ const MY_TEMP_TOAST_NS: Oid = 16999;
 static LOGS: Mutex<Vec<(ErrorLevel, String, Option<String>)>> = Mutex::new(Vec::new());
 
 fn capture_log(elevel: ErrorLevel, msg: String, detail: Option<String>) -> PgResult<()> {
-    LOGS.lock().unwrap_or_else(|e| e.into_inner()).push((elevel, msg, detail));
+    LOGS.lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .push((elevel, msg, detail));
     Ok(())
 }
 
@@ -30,7 +32,9 @@ fn install_seams() {
         elog_seams::ereport_msg::set(capture_log);
         // fmgr.c:132 fmgr_info_cxt_security: a lookup miss is elog(ERROR).
         fmgr_seams::fmgr_info::set(|fid| {
-            Err(Box::new(PgError::error(format!("cache lookup failed for function {fid}"))))
+            Err(Box::new(PgError::error(format!(
+                "cache lookup failed for function {fid}"
+            ))))
         });
         init_seams();
     });
@@ -39,7 +43,9 @@ fn install_seams() {
 fn rel_with_ns(mcx: Mcx<'_>, relid: Oid, relnamespace: Oid) -> RelationData<'_> {
     let mut relname = NameData::default();
     relname.namestrcpy("t");
-    RelationData { rd_locator: Default::default(), rd_smgr: Default::default(),
+    RelationData {
+        rd_locator: Default::default(),
+        rd_smgr: Default::default(),
         rd_id: relid,
         rd_backend: INVALID_PROC_NUMBER,
         rd_islocaltemp: false,
@@ -49,7 +55,10 @@ fn rel_with_ns(mcx: Mcx<'_>, relid: Oid, relnamespace: Oid) -> RelationData<'_> 
         rd_firstRelfilelocatorSubid: Cell::new(0),
         rd_droppedSubid: Cell::new(0),
         rd_lockInfo: LockInfoData {
-            lockRelId: LockRelId { relId: relid, dbId: 5 },
+            lockRelId: LockRelId {
+                relId: relid,
+                dbId: 5,
+            },
         },
         rd_rel: FormData_pg_class {
             relname,
@@ -93,13 +102,17 @@ fn rel_with_ns(mcx: Mcx<'_>, relid: Oid, relnamespace: Oid) -> RelationData<'_> 
         pgstat_enabled: Cell::new(false),
         pgstat_link: core::cell::Cell::new((0, core::ptr::null_mut())),
         rd_amcache: Default::default(),
-        rd_amcache_hash: Default::default(), rd_amcache_gin: Default::default(), rd_amcache_spgist: Default::default(), rd_amcache_bloom: Default::default(),
+        rd_amcache_hash: Default::default(),
+        rd_amcache_gin: Default::default(),
+        rd_amcache_spgist: Default::default(),
+        rd_amcache_bloom: Default::default(),
         rd_support: PgVec::new_in(mcx),
         rd_supportinfo: Default::default(),
         rd_opcoptions: Default::default(),
         rd_indexlist: Default::default(),
-            rd_trigdesc: Default::default(),
-            rd_hastriggers: false, rd_hasrules: false,
+        rd_trigdesc: Default::default(),
+        rd_hastriggers: false,
+        rd_hasrules: false,
     }
 }
 
@@ -280,8 +293,14 @@ fn temp_relfilenumber_probes_under_leader_proc_number() {
     assert_eq!(crate::oid::relfilenumber_proc_number(b't').unwrap(), 3);
     init_small::globals::SetParallelLeaderProcNumber(INVALID_PROC_NUMBER);
     assert_eq!(crate::oid::relfilenumber_proc_number(b't').unwrap(), 7);
-    assert_eq!(crate::oid::relfilenumber_proc_number(b'p').unwrap(), INVALID_PROC_NUMBER);
-    assert_eq!(crate::oid::relfilenumber_proc_number(b'u').unwrap(), INVALID_PROC_NUMBER);
+    assert_eq!(
+        crate::oid::relfilenumber_proc_number(b'p').unwrap(),
+        INVALID_PROC_NUMBER
+    );
+    assert_eq!(
+        crate::oid::relfilenumber_proc_number(b'u').unwrap(),
+        INVALID_PROC_NUMBER
+    );
     init_small::globals::SetMyProcNumber(INVALID_PROC_NUMBER);
 }
 
@@ -290,7 +309,9 @@ fn temp_relfilenumber_probes_under_leader_proc_number() {
 #[test]
 fn oid_eq_key_propagates_fmgr_info_error() {
     install_seams();
-    let err = crate::oid::oid_eq_key(1, 5).err().expect("fmgr_info failure must propagate");
+    let err = crate::oid::oid_eq_key(1, 5)
+        .err()
+        .expect("fmgr_info failure must propagate");
     assert_eq!(err.sqlstate(), ERRCODE_INTERNAL_ERROR);
     assert_eq!(err.message(), "cache lookup failed for function 184");
 }
@@ -369,8 +390,16 @@ fn get_new_oid_log_interval_schedule() {
     assert_eq!(
         schedule,
         [
-            2_000_000, 4_000_000, 8_000_000, 16_000_000, 32_000_000, 64_000_000, 128_000_000,
-            256_000_000, 384_000_000, 512_000_000
+            2_000_000,
+            4_000_000,
+            8_000_000,
+            16_000_000,
+            32_000_000,
+            64_000_000,
+            128_000_000,
+            256_000_000,
+            384_000_000,
+            512_000_000
         ]
     );
 }

@@ -32,8 +32,10 @@ fn setup() {
         waitevent_seams::pgstat_report_wait_end::set(|| {
             WAIT_EVENTS.lock().unwrap().push(0);
         });
-        guc_tables::vars::temp_file_limit
-            .install_if_absent(guc_tables::GucVarAccessors { get: || -1, set: |_| {} });
+        guc_tables::vars::temp_file_limit.install_if_absent(guc_tables::GucVarAccessors {
+            get: || -1,
+            set: |_| {},
+        });
     });
     fd::vfd::InitFileAccess();
     WAIT_EVENTS.lock().unwrap().clear();
@@ -49,7 +51,11 @@ struct TempGone(std::path::PathBuf);
 
 impl Drop for TempGone {
     fn drop(&mut self) {
-        let _ = if self.0.is_dir() { std::fs::remove_dir_all(&self.0) } else { std::fs::remove_file(&self.0) };
+        let _ = if self.0.is_dir() {
+            std::fs::remove_dir_all(&self.0)
+        } else {
+            std::fs::remove_file(&self.0)
+        };
     }
 }
 
@@ -71,7 +77,8 @@ fn scratch_files_leave_nothing_behind() {
     drop(src);
     drop(gone);
     assert!(!dir.exists(), "{} left behind", dir.display());
-    let file = TempGone(std::env::temp_dir().join(format!("rewriteheap-gone-{}", std::process::id())));
+    let file =
+        TempGone(std::env::temp_dir().join(format!("rewriteheap-gone-{}", std::process::id())));
     std::fs::write(&file.0, b"x").unwrap();
     let path = file.0.clone();
     drop(file);
@@ -86,7 +93,11 @@ fn mapping_file_write_reports_logical_rewrite_write() {
     let (mut src, _gone) = scratch_mapping_file("map-write");
     let waldata = [0xA5u8; 2 * LOGICAL_REWRITE_MAPPING_SIZE];
     logical_mapping_file_write(&mut src, &waldata).unwrap();
-    assert_eq!(src.off, waldata.len() as u64, "src->off advanced by the bytes written");
+    assert_eq!(
+        src.off,
+        waldata.len() as u64,
+        "src->off advanced by the bytes written"
+    );
     assert_eq!(std::fs::read(&src.path).unwrap(), waldata.to_vec());
     assert_eq!(
         take_events(),
@@ -202,12 +213,19 @@ fn checkpoint_fsync_reports_logical_rewrite_checkpoint_sync() {
 fn mapping_files_are_vfds_not_raw_descriptors() {
     let _s = serial();
     setup();
-    let mut lim = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
+    let mut lim = libc::rlimit {
+        rlim_cur: 0,
+        rlim_max: 0,
+    };
     // SAFETY: plain getrlimit/setrlimit on this process's RLIMIT_NOFILE.
     unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut lim) };
-    let low = libc::rlimit { rlim_cur: 256, rlim_max: lim.rlim_max };
+    let low = libc::rlimit {
+        rlim_cur: 256,
+        rlim_max: lim.rlim_max,
+    };
     unsafe { libc::setrlimit(libc::RLIMIT_NOFILE, &low) };
-    let _gone = TempGone(std::env::temp_dir().join(format!("rewriteheap-many-{}", std::process::id())));
+    let _gone =
+        TempGone(std::env::temp_dir().join(format!("rewriteheap-many-{}", std::process::id())));
     let opened: Vec<PgResult<RewriteMappingFile>> = (0..400)
         .map(|i| {
             let dir = std::env::temp_dir().join(format!("rewriteheap-many-{}", std::process::id()));
@@ -258,12 +276,18 @@ fn mapping_short_write_reports_no_space() {
     let _ = std::fs::remove_file(&path);
     let _gone = TempGone(path.clone());
     let mut src = open_mapping_file(path.clone()).unwrap();
-    let mut lim = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
+    let mut lim = libc::rlimit {
+        rlim_cur: 0,
+        rlim_max: 0,
+    };
     // SAFETY: SIGXFSZ disposition and RLIMIT_FSIZE of this test process.
     unsafe {
         libc::signal(libc::SIGXFSZ, libc::SIG_IGN);
         libc::getrlimit(libc::RLIMIT_FSIZE, &mut lim);
-        let low = libc::rlimit { rlim_cur: 4, rlim_max: lim.rlim_max };
+        let low = libc::rlimit {
+            rlim_cur: 4,
+            rlim_max: lim.rlim_max,
+        };
         libc::setrlimit(libc::RLIMIT_FSIZE, &low);
     }
     let r = logical_mapping_file_write(&mut src, &[0u8; LOGICAL_REWRITE_MAPPING_SIZE]);
@@ -271,6 +295,9 @@ fn mapping_short_write_reports_no_space() {
     drop(src);
     let _ = std::fs::remove_file(&path);
     let msg = r.unwrap_err().message().to_string();
-    assert!(msg.contains("wrote 4 of") && msg.contains("No space left on device"), "{msg}");
+    assert!(
+        msg.contains("wrote 4 of") && msg.contains("No space left on device"),
+        "{msg}"
+    );
     take_events();
 }

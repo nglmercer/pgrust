@@ -269,6 +269,7 @@ fn lookup_opclass_info(opc: Oid, amsupport: usize) -> PgResult<OpClassEnt> {
             // D4682: the teardown retires this root; clear the slot first, so a reused thread's next
             // session builds a new one.
             ::mcx::register_session_cleanup(Box::new(|| {
+                #[allow(clippy::drop_non_drop)]
                 let _ = OPCLASS_CACHE.try_with(|c| drop(c.borrow_mut().take()));
             }));
             ManuallyDrop::new(PgHashMap::with_capacity_in(64, mcx))

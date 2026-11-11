@@ -427,6 +427,7 @@ fn AddVerboseIntPart(
 }
 
 /// C `EncodeInterval`. Returns the output length (no NUL).
+#[allow(clippy::nonminimal_bool)]
 pub fn EncodeInterval(itm: &pg_itm, style: i32, buf: &mut [u8]) -> usize {
     let mut p = 0usize;
     let mut year = itm.tm_year;

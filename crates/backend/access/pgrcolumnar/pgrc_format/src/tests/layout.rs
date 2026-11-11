@@ -55,7 +55,10 @@ fn stats_record_wire_offsets_pinned() {
     assert_eq!(offset_of!(StatsRecord, max_key), StatsRecord::OFF_MAX_KEY);
     assert_eq!(offset_of!(StatsRecord, nonnull), StatsRecord::OFF_NONNULL);
     assert_eq!(offset_of!(StatsRecord, key_kind), StatsRecord::OFF_KEY_KIND);
-    assert_eq!(offset_of!(StatsRecord, sortedness), StatsRecord::OFF_SORTEDNESS);
+    assert_eq!(
+        offset_of!(StatsRecord, sortedness),
+        StatsRecord::OFF_SORTEDNESS
+    );
 }
 
 #[test]
@@ -189,8 +192,14 @@ fn grain_ladder_pinned_and_closed_forms_hold_at_every_grain() {
         assert_eq!(frames_in_granule_at(1, grain), 1);
     }
     // The default forms delegate to the `_at` forms exactly.
-    assert_eq!(granule_count(100_000) as u64, granule_count_at(100_000, GranuleGrain::DEFAULT));
-    assert_eq!(band_count(100_000) as u64, band_count_at(100_000, GranuleGrain::DEFAULT));
+    assert_eq!(
+        granule_count(100_000) as u64,
+        granule_count_at(100_000, GranuleGrain::DEFAULT)
+    );
+    assert_eq!(
+        band_count(100_000) as u64,
+        band_count_at(100_000, GranuleGrain::DEFAULT)
+    );
     assert_eq!(
         rows_in_granule(8193, 1),
         rows_in_granule_at(8193, GranuleGrain::DEFAULT, 1)
@@ -270,7 +279,10 @@ fn footer_carries_the_grain_and_validates_it() {
     };
     let mut enc = Vec::new();
     bad.encode_into(&mut enc);
-    assert!(FooterFixed::decode(&enc).is_err(), "grain/echo skew refuses");
+    assert!(
+        FooterFixed::decode(&enc).is_err(),
+        "grain/echo skew refuses"
+    );
     bad.granule_rows = 512; // not on the ladder at all
     let mut enc2 = Vec::new();
     bad.encode_into(&mut enc2);

@@ -159,6 +159,7 @@ impl PlanMemo {
 
     /// Records `verdict` for `key`; returns the entry it displaced (the LRU of
     /// a full set), whose served plan the caller must release.
+    #[allow(unused_assignments)]
     pub fn insert(&mut self, key: PlanKey, verdict: Verdict) -> Option<(PlanKey, Verdict)> {
         self.clock = self.clock.wrapping_add(1);
         let clock = self.clock;

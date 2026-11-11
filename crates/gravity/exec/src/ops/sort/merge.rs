@@ -693,6 +693,7 @@ pub(crate) mod tests {
     pub(crate) fn vcheck(leader: &[u64], runs: &[Vec<Vec<u8>>]) {
         let r = unsafe { &*(leader.as_ptr() as *const SortRun) };
         let got: Vec<Vec<u8>> = (0..r.len as usize).map(|i| unsafe {
+            #[allow(clippy::unnecessary_cast)]
             let slot = (r.rows_ptr() as *const u8).add(i * VRB + 16);
             let (size, off) = ((slot as *const u32).read_unaligned() as usize, (slot.add(4) as *const u32).read_unaligned() as usize);
             core::slice::from_raw_parts(slot.add(off + 4), size - 4).to_vec()

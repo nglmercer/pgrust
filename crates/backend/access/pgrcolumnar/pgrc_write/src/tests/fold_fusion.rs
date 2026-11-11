@@ -30,7 +30,10 @@ fn text_schema() -> ColSchema {
 fn word_schema() -> ColSchema {
     ColSchema {
         attno: 1,
-        class: StorageClass::ByvalWord { width: 8, signed: true },
+        class: StorageClass::ByvalWord {
+            width: 8,
+            signed: true,
+        },
         typlen: 8,
         typbyval: true,
         typalign: b'i',
@@ -63,9 +66,8 @@ fn run_arm(
     let mut ovf_buf: Vec<u8> = Vec::new();
     {
         let key = enc.key();
-        let mut w =
-            StreamSectionWriter::begin(&mut sec, key.encoding, key.width, Wrapper::None)
-                .expect("begin");
+        let mut w = StreamSectionWriter::begin(&mut sec, key.encoding, key.width, Wrapper::None)
+            .expect("begin");
         let mut ovf = OverflowSink::new(&mut ovf_buf);
         for g in 0..gc {
             let start = g as usize * grain.rows() as usize;
@@ -76,7 +78,8 @@ fn run_arm(
                 enc.encode_granule_observed(&input, &mut w, &mut ovf, builder.as_mut(), g)
                     .expect("fused encode");
             } else {
-                enc.encode_granule(&input, &mut w, &mut ovf).expect("encode");
+                enc.encode_granule(&input, &mut w, &mut ovf)
+                    .expect("encode");
                 builder.observe_granule(&input, g);
             }
         }
@@ -124,7 +127,11 @@ fn fused_fold_identical_verbatim_varlena() {
     }
     assert_arms_identical(
         &col,
-        || Box::new(VerbatimEncoder { class: StorageClass::VarlenaVerbatim }),
+        || {
+            Box::new(VerbatimEncoder {
+                class: StorageClass::VarlenaVerbatim,
+            })
+        },
         "verbatim varlena",
     );
 }
@@ -140,16 +147,13 @@ fn fused_fold_identical_bytefor() {
         if i % 13 == 0 {
             col.append_null();
         } else {
-            col.append_word(1_000_000 + (seed % 60_000)).expect("append");
+            col.append_word(1_000_000 + (seed % 60_000))
+                .expect("append");
         }
     }
     assert_arms_identical(
         &col,
-        || {
-            Box::new(pgrc_codec::bytefor::ByteForEncoder::new_bytefor(
-                8, 2, true,
-            ))
-        },
+        || Box::new(pgrc_codec::bytefor::ByteForEncoder::new_bytefor(8, 2, true)),
         "byte_for",
     );
 }
@@ -157,6 +161,7 @@ fn fused_fold_identical_bytefor() {
 #[test]
 fn fused_fold_identical_deltafor() {
     let mut col = ColBuffer::new(word_schema());
+    #[allow(clippy::unusual_byte_groupings)]
     let mut seed = 0xDE17_Au64;
     for i in 0..9000u64 {
         seed = seed
@@ -184,14 +189,18 @@ fn fused_fold_identical_verbatim_words() {
         if i % 11 == 0 {
             col.append_null();
         } else {
-            col.append_word(i.wrapping_mul(0x9E37_79B9)).expect("append");
+            col.append_word(i.wrapping_mul(0x9E37_79B9))
+                .expect("append");
         }
     }
     assert_arms_identical(
         &col,
         || {
             Box::new(VerbatimEncoder {
-                class: StorageClass::ByvalWord { width: 8, signed: true },
+                class: StorageClass::ByvalWord {
+                    width: 8,
+                    signed: true,
+                },
             })
         },
         "verbatim words",

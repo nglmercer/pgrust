@@ -34,8 +34,20 @@ fn record_shape_pins() {
         use crate::format::class::StorageClass as C;
         let k = crate::bloom::bloom_k_for;
         assert_eq!(k(C::Bool), 4);
-        assert_eq!(k(C::ByvalWord { width: 2, signed: true }), 4);
-        assert_eq!(k(C::ByvalWord { width: 4, signed: true }), 5);
+        assert_eq!(
+            k(C::ByvalWord {
+                width: 2,
+                signed: true
+            }),
+            4
+        );
+        assert_eq!(
+            k(C::ByvalWord {
+                width: 4,
+                signed: true
+            }),
+            5
+        );
         assert_eq!(k(C::F64), 6);
         assert_eq!(k(C::Fixed { len: 16 }), 7);
         assert_eq!(k(C::VarlenaVerbatim), 5);

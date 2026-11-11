@@ -59,6 +59,7 @@ fn seeded_unknown_encoding_id_fires() {
 /// registry path a real reader takes (a part carrying it is refused, never
 /// misread), and the unassigned 13..=127 band refuses UNKNOWN.
 #[test]
+#[allow(clippy::assertions_on_constants)]
 fn retired_fsst_id_refuses_reserved_and_unassigned_band_refuses() {
     assert_eq!(
         EncodingId::resolve(crate::enc::ENC_FSST_RESERVED),
@@ -71,7 +72,10 @@ fn retired_fsst_id_refuses_reserved_and_unassigned_band_refuses() {
         class: crate::class::CLASS_VARLENA,
         width: 0,
     };
-    assert_eq!(reg.resolve(key).err(), Some(FormatError::ReservedEncoding { id: 12 }));
+    assert_eq!(
+        reg.resolve(key).err(),
+        Some(FormatError::ReservedEncoding { id: 12 })
+    );
     // An id inside the 13..=127 A-lane band refuses UNKNOWN, distinguishable
     // from ids beyond the band by its payload.
     let seeded = KernelKey {
@@ -239,9 +243,18 @@ fn wrapper_vocabulary() {
             Err(FormatError::WrapperUnsupported { wrapper: id })
         );
     }
-    assert_eq!(Wrapper::FrontZstd.dict_role(), Some(crate::part::StreamRole::DictPayload));
-    assert_eq!(Wrapper::PackedZstd.dict_role(), Some(crate::part::StreamRole::DictIndex));
-    assert_eq!(Wrapper::FrontOnPairZstd.dict_role(), Some(crate::part::StreamRole::DictPayload));
+    assert_eq!(
+        Wrapper::FrontZstd.dict_role(),
+        Some(crate::part::StreamRole::DictPayload)
+    );
+    assert_eq!(
+        Wrapper::PackedZstd.dict_role(),
+        Some(crate::part::StreamRole::DictIndex)
+    );
+    assert_eq!(
+        Wrapper::FrontOnPairZstd.dict_role(),
+        Some(crate::part::StreamRole::DictPayload)
+    );
     assert_eq!(Wrapper::Zstd.dict_role(), None);
     // The format-crate section writer refuses wrappers (M3-C owns block
     // assembly, spec §6.4).
@@ -377,10 +390,24 @@ fn sortkey_corruption_refuses() {
 #[test]
 fn sortkey_path_record() {
     use crate::sortkey::{SortKeyEntry, SORT_KEY_KIND_TEXT_PATH};
-    let e = |attno, pad| SortKeyEntry { attno, dir: 0, nulls: 1, collation_class: 0, pad };
+    let e = |attno, pad| SortKeyEntry {
+        attno,
+        dir: 0,
+        nulls: 1,
+        collation_class: 0,
+        pad,
+    };
     let rec = SortKeyRecord {
-        keys: vec![e(3, SORT_KEY_KIND_TEXT_PATH), e(1, 0), e(3, SORT_KEY_KIND_TEXT_PATH)],
-        paths: vec![vec![b"kind".to_vec()], Vec::new(), vec![b"commit".to_vec(), b"collection".to_vec()]],
+        keys: vec![
+            e(3, SORT_KEY_KIND_TEXT_PATH),
+            e(1, 0),
+            e(3, SORT_KEY_KIND_TEXT_PATH),
+        ],
+        paths: vec![
+            vec![b"kind".to_vec()],
+            Vec::new(),
+            vec![b"commit".to_vec(), b"collection".to_vec()],
+        ],
     };
     let enc = rec.encode();
     assert_eq!(SortKeyRecord::decode(&enc).unwrap(), rec);

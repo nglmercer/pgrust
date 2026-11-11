@@ -18,9 +18,9 @@ use types_nodes::rawnodes::SelectStmt;
 use types_nodes::{Node, NodeList, NodeTag};
 
 #[cfg(test)]
-mod tests;
-#[cfg(test)]
 mod expr_tags_test;
+#[cfg(test)]
+mod tests;
 
 pub mod makefuncs;
 pub mod node_funcs;
@@ -178,9 +178,7 @@ pub fn expression_tree_walker_dyn<'mcx>(
         | NodeTag::T_SortGroupClause
         | NodeTag::T_CTESearchClause
         | NodeTag::T_MergeSupportFunc => Ok(false),
-        NodeTag::T_WithCheckOption => {
-            walk_opt(node.as_with_check_option().unwrap().qual, w)
-        }
+        NodeTag::T_WithCheckOption => walk_opt(node.as_with_check_option().unwrap().qual, w),
         NodeTag::T_Aggref => {
             let a = node.as_variant::<Aggref>().unwrap();
             Ok(walk_list(&a.aggdirectargs, w)?
@@ -245,9 +243,7 @@ pub fn expression_tree_walker_dyn<'mcx>(
             let a = node.as_array_coerce_expr().unwrap();
             Ok(w.visit(a.arg)? || walk_opt(a.elemexpr, w)?)
         }
-        NodeTag::T_ConvertRowtypeExpr => {
-            w.visit(node.as_convert_rowtype_expr().unwrap().arg)
-        }
+        NodeTag::T_ConvertRowtypeExpr => w.visit(node.as_convert_rowtype_expr().unwrap().arg),
         NodeTag::T_BooleanTest => walk_opt(node.as_boolean_test().unwrap().arg, w),
         NodeTag::T_DistinctExpr => {
             let d = node.as_distinct_expr().unwrap();
@@ -408,9 +404,7 @@ pub fn expression_tree_walker_dyn<'mcx>(
             Ok(walk_opt(a.qual, w)? || walk_list(&a.targetList, w)?)
         }
         NodeTag::T_List => walk_list(node.as_list().unwrap(), w),
-        NodeTag::T_RangeTblFunction => {
-            walk_opt(node.as_range_tbl_function().unwrap().funcexpr, w)
-        }
+        NodeTag::T_RangeTblFunction => walk_opt(node.as_range_tbl_function().unwrap().funcexpr, w),
         NodeTag::T_TableSampleClause => {
             let tsc = node.as_table_sample_clause().unwrap();
             Ok(walk_list(&tsc.args, w)? || walk_opt(tsc.repeatable, w)?)
@@ -440,14 +434,18 @@ pub fn expression_tree_walker_dyn<'mcx>(
                 || walk_list(&oc.exclRelTlist, w)?)
         }
         NodeTag::T_PartitionBoundSpec => {
-            let pbs = node.as_variant::<types_nodes::rawnodes::PartitionBoundSpec>().unwrap();
+            let pbs = node
+                .as_variant::<types_nodes::rawnodes::PartitionBoundSpec>()
+                .unwrap();
             Ok(walk_list(&pbs.listdatums, w)?
                 || walk_list(&pbs.lowerdatums, w)?
                 || walk_list(&pbs.upperdatums, w)?)
         }
         // Range-bound list elements: MINVALUE/MAXVALUE carry no value node.
         NodeTag::T_PartitionRangeDatum => {
-            let prd = node.as_variant::<types_nodes::rawnodes::PartitionRangeDatum>().unwrap();
+            let prd = node
+                .as_variant::<types_nodes::rawnodes::PartitionRangeDatum>()
+                .unwrap();
             walk_opt(prd.value, w)
         }
         // IndexClause / PlaceHolderInfo are not Node variants here (planner
@@ -580,9 +578,7 @@ pub fn range_table_entry_walker_dyn<'mcx>(
         RTEKind::RTE_TABLEFUNC => walk_opt(rte.tablefunc, w)?,
         RTEKind::RTE_VALUES => walk_list(&rte.values_lists, w)?,
         RTEKind::RTE_CTE | RTEKind::RTE_NAMEDTUPLESTORE | RTEKind::RTE_RESULT => false,
-        RTEKind::RTE_GROUP => {
-            flags & QTW_IGNORE_GROUPEXPRS == 0 && walk_list(&rte.groupexprs, w)?
-        }
+        RTEKind::RTE_GROUP => flags & QTW_IGNORE_GROUPEXPRS == 0 && walk_list(&rte.groupexprs, w)?,
     };
     if hit {
         return Ok(true);
@@ -658,9 +654,12 @@ pub fn query_tree_mutator_dyn<'mcx>(
     m: &mut dyn FnMut(Node<'mcx>) -> PgResult<Option<Node<'mcx>>>,
     flags: u32,
 ) -> PgResult<Node<'mcx>> {
-    let query: &Query<'mcx> = qnode
-        .as_query()
-        .unwrap_or_else(|| panic!("query_tree_mutator over a non-Query node: {:?}", qnode.node_tag()));
+    let query: &Query<'mcx> = qnode.as_query().unwrap_or_else(|| {
+        panic!(
+            "query_tree_mutator over a non-Query node: {:?}",
+            qnode.node_tag()
+        )
+    });
     let newquery = mutate_query_fields(mcx, query, m, flags)?;
     if flags & QTW_DONT_COPY_QUERY != 0 {
         // C: "modify the passed Query in place" — the caller owns the tree
@@ -709,11 +708,17 @@ fn mutate_query_fields<'mcx>(
     if let Some(jt) = q.jointree {
         let root = Node::mk(
             mcx,
-            FromExpr { fromlist: jt.fromlist.clone_in(mcx)?, quals: jt.quals },
+            FromExpr {
+                fromlist: jt.fromlist.clone_in(mcx)?,
+                quals: jt.quals,
+            },
         )?;
         let out = m(root)?.unwrap_or(root);
         nq.jointree = Some(out.as_variant::<FromExpr>().unwrap_or_else(|| {
-            panic!("query_tree_mutator: jointree callback returned {:?}", out.node_tag())
+            panic!(
+                "query_tree_mutator: jointree callback returned {:?}",
+                out.node_tag()
+            )
         }));
     }
     if let Some(n) = mutate_opt_dyn(q.setOperations, m)? {
@@ -957,10 +962,7 @@ fn flat_copy_query<'mcx>(mcx: Mcx<'mcx>, q: &Query<'mcx>) -> PgResult<Query<'mcx
 }
 
 /// C `FLATCOPY(newrte, rte, RangeTblEntry)`; see [`flat_copy_query`].
-fn flat_copy_rte<'mcx>(
-    mcx: Mcx<'mcx>,
-    r: &RangeTblEntry<'mcx>,
-) -> PgResult<RangeTblEntry<'mcx>> {
+fn flat_copy_rte<'mcx>(mcx: Mcx<'mcx>, r: &RangeTblEntry<'mcx>) -> PgResult<RangeTblEntry<'mcx>> {
     Ok(RangeTblEntry {
         alias: r.alias,
         eref: r.eref,
@@ -1200,9 +1202,7 @@ pub fn raw_expression_tree_walker_dyn<'mcx>(
                 || walk_opt(jtc.on_error, w)?
                 || walk_list(&jtc.columns, w)?)
         }
-        NodeTag::T_JsonTablePathSpec => {
-            walk_opt(node.as_json_table_path_spec().unwrap().string, w)
-        }
+        NodeTag::T_JsonTablePathSpec => walk_opt(node.as_json_table_path_spec().unwrap().string, w),
         NodeTag::T_JsonOutput => {
             let o = node.as_json_output().unwrap();
             walk_opt(o.typeName, w)
@@ -1370,9 +1370,7 @@ pub fn raw_expression_tree_walker_dyn<'mcx>(
         // C: "collation and opclass names are deemed uninteresting".
         NodeTag::T_IndexElem => walk_opt(node.as_index_elem().unwrap().expr, w),
         NodeTag::T_GroupingSet => walk_list(&node.as_grouping_set().unwrap().content, w),
-        NodeTag::T_LockingClause => {
-            walk_list(&node.as_locking_clause().unwrap().lockedRels, w)
-        }
+        NodeTag::T_LockingClause => walk_list(&node.as_locking_clause().unwrap().lockedRels, w),
         NodeTag::T_WithClause => walk_list(&node.as_with_clause().unwrap().ctes, w),
         NodeTag::T_InferClause => {
             let ic = node.as_infer_clause().unwrap();
@@ -1385,9 +1383,7 @@ pub fn raw_expression_tree_walker_dyn<'mcx>(
                 || walk_opt(oc.whereClause, w)?)
         }
         // C: "search_clause and cycle_clause are not interesting here".
-        NodeTag::T_CommonTableExpr => {
-            walk_opt(node.as_common_table_expr().unwrap().ctequery, w)
-        }
+        NodeTag::T_CommonTableExpr => walk_opt(node.as_common_table_expr().unwrap().ctequery, w),
         other => Err(unrecognized_node_type(other)),
     }
 }
@@ -2807,10 +2803,7 @@ pub fn expression_tree_mutator_dyn<'mcx>(
 
 /// Mutate an optional child; `None` = unchanged (absent child included).
 /// Generic wrapper over the erased-callback engine (de-mono byte-shell).
-pub fn mutate_opt<'mcx, F>(
-    n: Option<Node<'mcx>>,
-    m: &mut F,
-) -> PgResult<Option<Node<'mcx>>>
+pub fn mutate_opt<'mcx, F>(n: Option<Node<'mcx>>, m: &mut F) -> PgResult<Option<Node<'mcx>>>
 where
     F: FnMut(Node<'mcx>) -> PgResult<Option<Node<'mcx>>>,
 {
@@ -2925,9 +2918,9 @@ pub fn fix_opfuncids(node: Node<'_>) -> PgResult<()> {
                 // exclusively; no reference derived from `node` is live.
                 unsafe {
                     match node.node_tag() {
-                        NodeTag::T_OpExpr => {
-                            node.with_mut::<OpExpr, _>(|o| o.opfuncid = opfuncid).unwrap()
-                        }
+                        NodeTag::T_OpExpr => node
+                            .with_mut::<OpExpr, _>(|o| o.opfuncid = opfuncid)
+                            .unwrap(),
                         NodeTag::T_DistinctExpr => node
                             .with_mut::<DistinctExpr, _>(|d| d.opfuncid = opfuncid)
                             .unwrap(),

@@ -46,7 +46,10 @@ pub fn sections_file_name(gen: u64) -> String {
 /// Parse `sections-<gen>.pgrcx` → gen.
 pub fn parse_sections_file_name(name: &str) -> Option<u64> {
     let rest = name.strip_prefix("sections-")?.strip_suffix(".pgrcx")?;
-    if rest.is_empty() || (rest.len() > 1 && rest.starts_with('0')) || !rest.bytes().all(|b| b.is_ascii_digit()) {
+    if rest.is_empty()
+        || (rest.len() > 1 && rest.starts_with('0'))
+        || !rest.bytes().all(|b| b.is_ascii_digit())
+    {
         return None;
     }
     rest.parse().ok()
@@ -65,8 +68,14 @@ pub fn run_tmp_file_name(gen: u64, seq: u32) -> String {
 
 /// Parse `srun-<gen>-<seq>.pgrcr` → (gen, seq).
 pub fn parse_run_file_name(name: &str) -> Option<(u64, u32)> {
-    let (gen, seq) = name.strip_prefix("srun-")?.strip_suffix(".pgrcr")?.split_once('-')?;
-    Some((parse_decimal_u64(gen)?, parse_decimal_u64(seq).and_then(|v| u32::try_from(v).ok())?))
+    let (gen, seq) = name
+        .strip_prefix("srun-")?
+        .strip_suffix(".pgrcr")?
+        .split_once('-')?;
+    Some((
+        parse_decimal_u64(gen)?,
+        parse_decimal_u64(seq).and_then(|v| u32::try_from(v).ok())?,
+    ))
 }
 
 /// `runrev-<run_id>.pgrcv` — SORTRUNS-E0: a sorted run's reverse (`crate::runrev`), named by the run's ID (the
@@ -143,7 +152,10 @@ pub fn is_temp_file_name(name: &str) -> bool {
 /// Every file name a table directory may hold. WAL records carry names, and redo writes only names that classify.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FileClass {
-    Tmp { fxid: u64, seq: u32 },
+    Tmp {
+        fxid: u64,
+        seq: u32,
+    },
     Part(u32),
     Manifest(u64),
     Current,
@@ -178,9 +190,15 @@ pub fn classify(name: &str) -> Option<FileClass> {
     if name == SEGEXT_FILE_NAME {
         return Some(FileClass::SegExt);
     }
-    if let Some(rest) = name.strip_prefix("tmp-").and_then(|r| r.strip_suffix(".pgrct")) {
+    if let Some(rest) = name
+        .strip_prefix("tmp-")
+        .and_then(|r| r.strip_suffix(".pgrct"))
+    {
         let (fxid, seq) = rest.split_once('-')?;
-        return Some(FileClass::Tmp { fxid: parse_decimal_u64(fxid)?, seq: parse_decimal_u64(seq).and_then(|v| u32::try_from(v).ok())? });
+        return Some(FileClass::Tmp {
+            fxid: parse_decimal_u64(fxid)?,
+            seq: parse_decimal_u64(seq).and_then(|v| u32::try_from(v).ok())?,
+        });
     }
     if let Some(n) = parse_part_file_name(name) {
         return Some(FileClass::Part(n));
@@ -205,7 +223,8 @@ pub fn classify(name: &str) -> Option<FileClass> {
     }
     if let Some(stem) = name.strip_suffix(".tmp") {
         let g = crate::bankstats::parse_bankstats_file_name(stem)?;
-        return (crate::bankstats::bankstats_file_name(g) == stem).then_some(FileClass::BankStatsTmp(g));
+        return (crate::bankstats::bankstats_file_name(g) == stem)
+            .then_some(FileClass::BankStatsTmp(g));
     }
     let g = crate::bankstats::parse_bankstats_file_name(name)?;
     (crate::bankstats::bankstats_file_name(g) == name).then_some(FileClass::BankStats(g))
@@ -237,12 +256,27 @@ mod tests {
             (CURRENT_FILE_NAME.to_string(), FileClass::Current),
             (CURRENT_TMP_FILE_NAME.to_string(), FileClass::CurrentTmp),
             (sections_file_name(9), FileClass::Sections(9)),
-            (sidecar_file_name(17, SidecarKind::Dv, 4), FileClass::Sidecar(17, SidecarKind::Dv, 4)),
-            (sidecar_file_name(5, SidecarKind::RowIdentMap, 1), FileClass::Sidecar(5, SidecarKind::RowIdentMap, 1)),
-            (crate::bankstats::bankstats_file_name(9), FileClass::BankStats(9)),
-            (format!("{}.tmp", crate::bankstats::bankstats_file_name(9)), FileClass::BankStatsTmp(9)),
+            (
+                sidecar_file_name(17, SidecarKind::Dv, 4),
+                FileClass::Sidecar(17, SidecarKind::Dv, 4),
+            ),
+            (
+                sidecar_file_name(5, SidecarKind::RowIdentMap, 1),
+                FileClass::Sidecar(5, SidecarKind::RowIdentMap, 1),
+            ),
+            (
+                crate::bankstats::bankstats_file_name(9),
+                FileClass::BankStats(9),
+            ),
+            (
+                format!("{}.tmp", crate::bankstats::bankstats_file_name(9)),
+                FileClass::BankStatsTmp(9),
+            ),
             (run_file_name(9, 0), FileClass::Run(9, 0)),
-            (run_file_name(u64::MAX, u32::MAX), FileClass::Run(u64::MAX, u32::MAX)),
+            (
+                run_file_name(u64::MAX, u32::MAX),
+                FileClass::Run(u64::MAX, u32::MAX),
+            ),
             (run_tmp_file_name(9, 2), FileClass::RunTmp(9, 2)),
             (ROWID_FILE_NAME.to_string(), FileClass::Rowid),
             (SEGEXT_FILE_NAME.to_string(), FileClass::SegExt),
@@ -252,17 +286,66 @@ mod tests {
         for (name, class) in &cases {
             assert_eq!(classify(name), Some(*class), "{name}");
         }
-        for bad in ["", ".", "..", "../part-1.pgrc", "part-1.pgrc/x", "part-01.pgrc", "tmp-1.pgrct", "tmp-1-x.pgrct", "CURRENT2", "manifest-0x1.pgrcm", "bankstats-01.pgrcbs", "sections-1.pgrcx.tmp", "pg_internal.init", "srun-1.pgrcr", "srun-1-01.pgrcr", "srun-01-1.pgrcr", "srun-1-2-3.pgrcr", "srun-1-4294967296.pgrcr", "srun-1-2.pgrcr.tmp.tmp", "srun-01-2.pgrcr.tmp", "srun--2.pgrcr", "rowid.tmp", "rowid2", "ROWID", "segext.tmp", "SEGEXT", "runrev-.pgrcv", "runrev-012.pgrcv", "runrev-12.pgrcv.tmp", "runrev-12-1.pgrcv", "runrev-x.pgrcv", "runrev-18446744073709551616.pgrcv", "part-3-runrev-1.pgrcs"] {
+        for bad in [
+            "",
+            ".",
+            "..",
+            "../part-1.pgrc",
+            "part-1.pgrc/x",
+            "part-01.pgrc",
+            "tmp-1.pgrct",
+            "tmp-1-x.pgrct",
+            "CURRENT2",
+            "manifest-0x1.pgrcm",
+            "bankstats-01.pgrcbs",
+            "sections-1.pgrcx.tmp",
+            "pg_internal.init",
+            "srun-1.pgrcr",
+            "srun-1-01.pgrcr",
+            "srun-01-1.pgrcr",
+            "srun-1-2-3.pgrcr",
+            "srun-1-4294967296.pgrcr",
+            "srun-1-2.pgrcr.tmp.tmp",
+            "srun-01-2.pgrcr.tmp",
+            "srun--2.pgrcr",
+            "rowid.tmp",
+            "rowid2",
+            "ROWID",
+            "segext.tmp",
+            "SEGEXT",
+            "runrev-.pgrcv",
+            "runrev-012.pgrcv",
+            "runrev-12.pgrcv.tmp",
+            "runrev-12-1.pgrcv",
+            "runrev-x.pgrcv",
+            "runrev-18446744073709551616.pgrcv",
+            "part-3-runrev-1.pgrcs",
+        ] {
             assert_eq!(classify(bad), None, "{bad}");
         }
     }
 
     #[test]
     fn table_dir_names_round_trip() {
-        assert_eq!(parse_table_dir_name(&table_dir_name(16384)), Some((None, 16384)));
+        assert_eq!(
+            parse_table_dir_name(&table_dir_name(16384)),
+            Some((None, 16384))
+        );
         assert_eq!(temp_table_dir_name(3, 16384), "pgrc_t3_16384");
-        assert_eq!(parse_table_dir_name("pgrc_t3_16384"), Some((Some(3), 16384)));
-        for bad in ["pgrc_", "pgrc_t", "pgrc_t3", "pgrc_t3_", "pgrc_016384", "pgrc_x", "16384", "pgrc_t03_1"] {
+        assert_eq!(
+            parse_table_dir_name("pgrc_t3_16384"),
+            Some((Some(3), 16384))
+        );
+        for bad in [
+            "pgrc_",
+            "pgrc_t",
+            "pgrc_t3",
+            "pgrc_t3_",
+            "pgrc_016384",
+            "pgrc_x",
+            "16384",
+            "pgrc_t03_1",
+        ] {
             assert_eq!(parse_table_dir_name(bad), None, "{bad}");
         }
     }
@@ -271,7 +354,13 @@ mod tests {
     fn sections_file_names_round_trip_and_nothing_else_parses() {
         assert_eq!(sections_file_name(12), "sections-12.pgrcx");
         assert_eq!(parse_sections_file_name("sections-12.pgrcx"), Some(12));
-        for bad in ["sections-012.pgrcx", "sections-.pgrcx", "sections-12.pgrcx.tmp", "manifest-12.pgrcm", "sections-x.pgrcx"] {
+        for bad in [
+            "sections-012.pgrcx",
+            "sections-.pgrcx",
+            "sections-12.pgrcx.tmp",
+            "manifest-12.pgrcm",
+            "sections-x.pgrcx",
+        ] {
             assert_eq!(parse_sections_file_name(bad), None, "{bad}");
         }
     }

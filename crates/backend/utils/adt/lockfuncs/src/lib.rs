@@ -6,6 +6,7 @@ use ::mcx::Mcx;
 use ::types_core::{
     Oid, BOOLOID, INT2OID, INT4OID, OIDOID, RECORDOID, TEXTOID, TIMESTAMPTZOID, XIDOID,
 };
+#[allow(unused_imports)]
 use ::types_error::{PgError, PgResult};
 use ::types_fmgr::{
     byref_result, varlena_result, FmgrBuiltin, FmgrInfo, FunctionCallInfoBaseData as Fcinfo,

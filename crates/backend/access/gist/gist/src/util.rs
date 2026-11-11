@@ -6,13 +6,13 @@ use ::datum::Datum;
 use ::mcx::{Mcx, PgVec};
 use ::nbtree::itup::{index_form_tuple, index_getattr, maxalign, ItupBuf};
 use ::types_core::{
-    AttrNumber, BlockNumber, ForkNumber, InvalidBlockNumber, OffsetNumber,
-    XLogRecPtr, RELPERSISTENCE_TEMP,
+    AttrNumber, BlockNumber, ForkNumber, InvalidBlockNumber, OffsetNumber, XLogRecPtr,
+    RELPERSISTENCE_TEMP,
 };
 use ::types_error::{PgError, PgResult, ERRCODE_INDEX_CORRUPTED, ERRCODE_INTERNAL_ERROR};
 use ::types_gist::{
-    GISTPageOpaqueData, GistEntryVector, GistPageIsDeleted,
-    GISTENTRY, GIST_PAGE_ID, GiSTPageSize, TUPLE_IS_INVALID, TUPLE_IS_VALID,
+    GISTPageOpaqueData, GiSTPageSize, GistEntryVector, GistPageIsDeleted, GISTENTRY, GIST_PAGE_ID,
+    TUPLE_IS_INVALID, TUPLE_IS_VALID,
 };
 use ::types_rel::Relation;
 use ::types_storage::bufpage::{PageMut, PageRef};
@@ -27,11 +27,13 @@ const SIZEOF_ITEM_ID_DATA: usize = 4;
 pub type ITup = *const u8;
 
 #[inline]
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn index_tuple_size(itup: ITup) -> usize {
     ::nbtree::itup::index_tuple_size(itup)
 }
 
 #[inline]
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn itup_slice<'a>(itup: ITup) -> &'a [u8] {
     core::slice::from_raw_parts(itup, index_tuple_size(itup))
 }
@@ -49,6 +51,7 @@ pub(crate) unsafe fn itup_get_tid(itup: ITup) -> ItemPointerData {
 }
 
 #[inline]
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn itup_block_number(itup: ITup) -> BlockNumber {
     let hi = itup.cast::<u16>().read_unaligned() as u32;
     let lo = itup.add(2).cast::<u16>().read_unaligned() as u32;
@@ -179,9 +182,7 @@ pub fn gistfillbuffer(
 ) -> PgResult<()> {
     let _ = rel_name; // gistutil.c:49's message names the item, not the index.
     let mut off = if off == InvalidOffsetNumber {
-        if page.as_ref().pd_lower() as usize
-            <= ::types_storage::bufpage::SizeOfPageHeaderData
-        {
+        if page.as_ref().pd_lower() as usize <= ::types_storage::bufpage::SizeOfPageHeaderData {
             FirstOffsetNumber
         } else {
             page.as_ref().max_offset_number() + 1
@@ -244,10 +245,7 @@ pub fn gistfitpage(itvec: &[&[u8]]) -> bool {
 }
 
 /// gistextractpage: copy every tuple off the page.
-pub fn gistextractpage<'mcx>(
-    mcx: Mcx<'mcx>,
-    page: &PageRef<'_>,
-) -> PgResult<Vec<ItupBuf<'mcx>>> {
+pub fn gistextractpage<'mcx>(mcx: Mcx<'mcx>, page: &PageRef<'_>) -> PgResult<Vec<ItupBuf<'mcx>>> {
     let maxoff = page.max_offset_number();
     let mut itvec = ::mcx::std_vec_with_capacity("access", maxoff as usize)?;
     for i in FirstOffsetNumber..=maxoff {
@@ -330,7 +328,15 @@ pub fn gistFormTuple<'mcx>(
 ) -> PgResult<ItupBuf<'mcx>> {
     let natts = r.rd_att.natts as usize;
     let mut compatt = [Datum::null(); ::types_core::fmgr::INDEX_MAX_KEYS as usize];
-    gistCompressValues(mcx, giststate, r, attdata, isnull, isleaf, &mut compatt[..natts])?;
+    gistCompressValues(
+        mcx,
+        giststate,
+        r,
+        attdata,
+        isnull,
+        isleaf,
+        &mut compatt[..natts],
+    )?;
 
     // Non-leaf tuples form over the truncated descriptor: INCLUDE attrs are
     // dropped (gistutil.c:583-585).
@@ -502,8 +508,24 @@ pub fn gistgetadjusted<'mcx>(
     let mut oldisnull = [false; K];
     let mut addentries = [GISTENTRY::default(); K];
     let mut addisnull = [false; K];
-    gistDeCompressAtt(mcx, giststate, r, oldtup, 0, &mut oldentries, &mut oldisnull)?;
-    gistDeCompressAtt(mcx, giststate, r, addtup, 0, &mut addentries, &mut addisnull)?;
+    gistDeCompressAtt(
+        mcx,
+        giststate,
+        r,
+        oldtup,
+        0,
+        &mut oldentries,
+        &mut oldisnull,
+    )?;
+    gistDeCompressAtt(
+        mcx,
+        giststate,
+        r,
+        addtup,
+        0,
+        &mut addentries,
+        &mut addisnull,
+    )?;
 
     let mut attr = [Datum::null(); K];
     let mut isnull = [false; K];
@@ -695,10 +717,7 @@ pub fn gistFetchTupleValues(
 }
 
 /// gistNewBuffer: pinned + exclusively locked; caller initializes the page.
-pub fn gistNewBuffer<'mcx>(
-    r: &Relation<'mcx>,
-    heaprel: &Relation<'mcx>,
-) -> PgResult<BufferPin> {
+pub fn gistNewBuffer<'mcx>(r: &Relation<'mcx>, heaprel: &Relation<'mcx>) -> PgResult<BufferPin> {
     loop {
         let blkno = freespace::GetFreeIndexPage(r)?;
         if blkno == InvalidBlockNumber {
@@ -760,8 +779,8 @@ pub fn gistPageRecyclable(page: &PageRef<'_>) -> PgResult<bool> {
 #[cfg(test)]
 mod page_recyclable_tests {
     use super::*;
-    use ::types_core::BLCKSZ;
     use ::types_core::xact::FullTransactionId;
+    use ::types_core::BLCKSZ;
     use ::types_storage::bufpage::PageMut;
     use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -811,8 +830,8 @@ mod page_recyclable_tests {
 #[cfg(test)]
 mod copy_page_item_tests {
     use super::*;
-    use ::types_core::BLCKSZ;
     use ::mcx::MemoryContext;
+    use ::types_core::BLCKSZ;
     use ::types_storage::bufpage::PageMut;
 
     #[repr(align(8))]
@@ -829,7 +848,8 @@ mod copy_page_item_tests {
         let mut img = std::vec![0u8; lp_len];
         // t_info low 13 bits carry the self-declared tuple size.
         img[6..8].copy_from_slice(&declared_size.to_ne_bytes());
-        page.add_item(&img, InvalidOffsetNumber, 0).expect("add_item")
+        page.add_item(&img, InvalidOffsetNumber, 0)
+            .expect("add_item")
     }
 
     #[test]

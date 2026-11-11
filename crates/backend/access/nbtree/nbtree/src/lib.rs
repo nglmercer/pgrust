@@ -3,17 +3,14 @@
 //! scan), insert/split, and the VACUUM lane (bulkdelete/cleanup + page
 //! deletion) plus row comparisons. Phase 2, loud panics, never silent:
 //! dedup, mark/restore across primitive scans.
-#![allow(non_snake_case)]
-#![allow(non_upper_case_globals)]
-#![allow(clippy::too_many_arguments)]
-#![allow(irrefutable_let_patterns)]
+#![allow(clippy::too_many_arguments, irrefutable_let_patterns, non_snake_case, non_upper_case_globals)]
 
 mod dedup;
 mod delete;
 mod fcframe;
-mod insert;
 pub mod image;
 pub mod imagerel;
+mod insert;
 pub mod itup;
 mod page;
 mod pagedel;
@@ -30,12 +27,12 @@ mod wal;
 #[cfg(test)]
 mod tests;
 
+pub use image::IndexImage;
+pub use imagerel::ImageRel;
 pub use insert::btinsert;
 pub use page::{bt_getrootheight, bt_initmetapage, bt_metaversion, bt_pageinit};
 pub use parallel::{bt_parallel_abort, btparallelrescan};
 pub use pivots::{bt_pivots, Pivots};
-pub use image::IndexImage;
-pub use imagerel::ImageRel;
 pub use readrel::BtReadRel;
 pub use vacuum::{
     bt_chunked_bulkdelete_begin, bt_chunked_bulkdelete_finish, bt_chunked_cleanup_begin,
@@ -59,8 +56,8 @@ use utils::bt_killitems;
 pub use fcframe::OrderProcFrame;
 pub use search::{bt_peek_same_block_tids, BtScanInsert};
 pub use utils::{
-    bt_allequalimage, bt_check_third_page, bt_keep_natts_fast, bt_kill_by_block, bt_mkscankey, bt_truncate,
-    BTreeShmemInit, BTreeShmemResetAfterCrash, BTreeShmemSize,
+    bt_allequalimage, bt_check_third_page, bt_keep_natts_fast, bt_kill_by_block, bt_mkscankey,
+    bt_truncate, BTreeShmemInit, BTreeShmemResetAfterCrash, BTreeShmemSize,
 };
 
 /// skey.h SK_ROW_HEADER contract: sk_argument holds the pointer word of the
@@ -254,15 +251,25 @@ pub fn btgettuple(scan: &mut IndexScanDescData<'_>, dir: ScanDirection) -> PgRes
 /// A reader that marks the dead entries of the leaves it read later, by block (`bt_kill_by_block`): from now on the
 /// scan reads each leaf's LSN under its read lock although an index-only scan keeps the pin (`lsnWithPin`).
 pub fn bt_scan_lsn_with_pin(scan: &mut IndexScanDescData<'_>) {
-    let IndexScanOpaque::Btree(so) = &mut scan.opaque else { non_btree_opaque() };
+    let IndexScanOpaque::Btree(so) = &mut scan.opaque else {
+        non_btree_opaque()
+    };
     so.lsnWithPin = true;
 }
 
 /// The entry btgettuple returned last: its leaf's block, its offset on the leaf (a posting tuple's TIDs share one) and
 /// the leaf's LSN when the scan read it (`bt_scan_lsn_with_pin`, else 0). `None` without a current leaf.
 #[inline]
-pub fn bt_scan_entry(scan: &IndexScanDescData<'_>) -> Option<(::types_core::BlockNumber, ::types_core::OffsetNumber, ::types_core::XLogRecPtr)> {
-    let IndexScanOpaque::Btree(so) = &scan.opaque else { non_btree_opaque() };
+pub fn bt_scan_entry(
+    scan: &IndexScanDescData<'_>,
+) -> Option<(
+    ::types_core::BlockNumber,
+    ::types_core::OffsetNumber,
+    ::types_core::XLogRecPtr,
+)> {
+    let IndexScanOpaque::Btree(so) = &scan.opaque else {
+        non_btree_opaque()
+    };
     let pos = &so.currPos;
     if !BTScanPosIsValid(pos) || pos.itemIndex < pos.firstItem || pos.itemIndex > pos.lastItem {
         return None;
@@ -349,9 +356,10 @@ fn getbitmap_loop<R: BtReadRel + ?Sized>(
             loop {
                 ctx.so.currPos.itemIndex += 1;
                 if ctx.so.currPos.itemIndex > ctx.so.currPos.lastItem
-                    && !search::bt_next(ctx, ::types_scan::sdir::ForwardScanDirection)? {
-                        break;
-                    }
+                    && !search::bt_next(ctx, ::types_scan::sdir::ForwardScanDirection)?
+                {
+                    break;
+                }
                 // SAFETY: itemIndex in [firstItem, lastItem], written by bt_readpage.
                 let item = unsafe { ctx.so.currPos.item(ctx.so.currPos.itemIndex as usize) };
                 tbm.add_tuples(core::slice::from_ref(&item.heapTid), false)?;

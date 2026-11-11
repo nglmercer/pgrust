@@ -75,6 +75,7 @@ impl HeldPlan {
 /// transaction's end, as PostgreSQL's).
 /// D2578: also the run's hold on its initial pruning decision (`prune::decide`), read by its `src.prune` / rerun sets.
 #[derive(Default)]
+#[allow(dead_code)]
 pub struct Held(Vec<Relation<'static>>, Option<crate::ops::append::prune::Decided>);
 
 struct Walk<'a, 'p> {

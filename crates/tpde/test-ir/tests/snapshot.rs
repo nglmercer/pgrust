@@ -7,6 +7,7 @@ use tpde_core::{
     ir_adaptor::{HighestValueIndexProvider, IrAdaptor, PhiRef},
     Analyzer, BlockIndex,
 };
+#[allow(unused_imports)]
 use tpde_test_ir::{IRBlockRef, IRFuncRef, IRValueRef, Op, TestIR, TestIRAdaptor};
 
 fn name(text: &str) -> &str {

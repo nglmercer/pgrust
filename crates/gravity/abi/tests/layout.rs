@@ -98,6 +98,7 @@ fn morsel_range_clamps_and_measures() {
 }
 
 #[test]
+#[allow(clippy::unusual_byte_groupings)]
 fn status_round_trips() {
     let all = [Status::Ok(0), Status::Ok(8192), Status::Stop, Status::Cancelled, Status::Error, Status::Raised { mask: 1 }, Status::Raised { mask: (1 << 54) | 3 }, Status::Suspend { out_full: false }, Status::Suspend { out_full: true }, Status::Recheck { site: 0 }, Status::Recheck { site: 7 }, Status::Unsupported { kind: 1 }, Status::Unsupported { kind: 200 }, Status::Fault { site: 0, lane: 3, code: 0, part: 0 }, Status::Fault { site: 7, lane: 31, code: (1 << 24) - 1, part: 511 }, Status::Fault { site: 1, lane: 2, code: 5, part: (1 << 15) - 1 }];
     for s in all {

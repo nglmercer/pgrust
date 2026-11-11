@@ -13,12 +13,24 @@ const MIB: usize = 1 << 20;
 /// them back.
 fn mapped(n: usize) -> memledger::Charge {
     let (owner, release) = memledger::charge::context();
-    memledger::Charge::open(owner, release, memledger::Kind::Mapped, memledger::charge::Door::Mapped, n as u64)
+    memledger::Charge::open(
+        owner,
+        release,
+        memledger::Kind::Mapped,
+        memledger::charge::Door::Mapped,
+        n as u64,
+    )
 }
 
 /// A statement on backend `procno` charging and committing `held`; `freed_elsewhere` more is freed on its account (bytes
 /// another account committed) before it reports ready.
-fn statement(procno: u32, held: usize, freed_elsewhere: usize, ready: mpsc::Sender<()>, done: Arc<Barrier>) -> std::thread::JoinHandle<bool> {
+fn statement(
+    procno: u32,
+    held: usize,
+    freed_elsewhere: usize,
+    ready: mpsc::Sender<()>,
+    done: Arc<Barrier>,
+) -> std::thread::JoinHandle<bool> {
     std::thread::spawn(move || {
         let pid = 7000 + procno as i32;
         governor::register(procno as i32, pid);
@@ -54,7 +66,11 @@ fn a_statement_whose_row_drifted_below_its_start_ranks_by_its_charge() {
         ready.recv().unwrap();
     }
     let v = governor::cancel_largest_victim(90, 32 * MIB).expect("a victim");
-    assert_eq!((v.backend, v.bytes), (Some((81, 7081)), 400 * MIB), "its 400 MiB charge, not its row clamped at 0: {v:?}");
+    assert_eq!(
+        (v.backend, v.bytes),
+        (Some((81, 7081)), 400 * MIB),
+        "its 400 MiB charge, not its row clamped at 0: {v:?}"
+    );
     done.wait();
     assert!(drifted.join().unwrap());
     assert!(!honest.join().unwrap());

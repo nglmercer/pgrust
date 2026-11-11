@@ -87,6 +87,7 @@ impl SourceMech for Src {
     fn open(&self, b: &mut FunctionBuilder<'_>, _env: &mut Env) -> Value {
         b.iconst(I64, 0)
     }
+    #[allow(clippy::field_reassign_with_default)]
     fn next_window(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, l_eof: Block) -> Win {
         let cursor = b.load_zext(Type::I32, env.ctx, (site_off(0) + site::CURSOR) as i32);
         let (n, w) = (b.iconst(I64, self.0), b.iconst(I64, self.1));

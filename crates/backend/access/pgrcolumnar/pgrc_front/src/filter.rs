@@ -34,7 +34,8 @@ impl Granule {
                 }
                 if l.len() > LIST_PROMOTE_AT {
                     let mut words = Box::new([0u64; DV_GRANULE_WORDS]);
-                    l.iter().for_each(|&r| words[r as usize / 64] |= 1 << (r % 64));
+                    l.iter()
+                        .for_each(|&r| words[r as usize / 64] |= 1 << (r % 64));
                     *self = Granule::Bits(words);
                 }
             }
@@ -44,7 +45,9 @@ impl Granule {
 
     fn or_into(&self, mask: &mut [u64; DV_GRANULE_WORDS]) {
         match self {
-            Granule::List(l) => l.iter().for_each(|&r| mask[r as usize / 64] |= 1 << (r % 64)),
+            Granule::List(l) => l
+                .iter()
+                .for_each(|&r| mask[r as usize / 64] |= 1 << (r % 64)),
             Granule::Bits(w) => mask.iter_mut().zip(w.iter()).for_each(|(d, s)| *d |= s),
         }
     }
@@ -62,12 +65,18 @@ pub struct TombFilter {
 
 impl TombFilter {
     pub fn with_parts(n: usize) -> TombFilter {
-        TombFilter { parts: (0..n).map(|_| BTreeMap::new()).collect(), ..TombFilter::default() }
+        TombFilter {
+            parts: (0..n).map(|_| BTreeMap::new()).collect(),
+            ..TombFilter::default()
+        }
     }
 
     pub fn add_part_row(&mut self, part: usize, granule: u32, row: u32) {
         debug_assert!(row < GRANULE_ROWS);
-        self.parts[part].entry(granule).or_insert_with(|| Granule::List(Vec::new())).insert(row as u16);
+        self.parts[part]
+            .entry(granule)
+            .or_insert_with(|| Granule::List(Vec::new()))
+            .insert(row as u16);
     }
 
     pub fn add_segment_row(&mut self, slot: u16, pos: u32) {
@@ -79,7 +88,10 @@ impl TombFilter {
     }
 
     fn add_busy_segment_row(&mut self, slot: u16, pos: u32, xmax: TransactionId) {
-        self.busy_segments.entry(slot).or_default().push((pos, xmax));
+        self.busy_segments
+            .entry(slot)
+            .or_default()
+            .push((pos, xmax));
     }
 
     pub fn finished(self) -> TombFilter {
@@ -125,7 +137,9 @@ impl DeletionFilter for TombFilter {
 /// SSI at relation grain on the parent, as heap_beginscan's seqscan lock (the companions' own scans lock only the
 /// companions). Every scan takes it, a table without tombstones or without a publish included: it is read all the same.
 pub fn predicate_lock(rel: &Relation<'_>, snap: &Snapshot<'_>) -> PgResult<()> {
-    match snap.as_deref().filter(|s| s.snapshot_type != SnapshotType::SNAPSHOT_ANY && xact::IsolationIsSerializable()) {
+    match snap.as_deref().filter(|s| {
+        s.snapshot_type != SnapshotType::SNAPSHOT_ANY && xact::IsolationIsSerializable()
+    }) {
         Some(s) => predicate_seams::predicate_lock_relation::call(rel, s),
         None => Ok(()),
     }
@@ -138,11 +152,24 @@ pub fn conflict_in(rel: &Relation<'_>) -> PgResult<()> {
     if !xact::IsolationIsSerializable() {
         return Ok(());
     }
-    predicate_seams::check_for_serializable_conflict_in::call(rel, None, types_core::InvalidBlockNumber)
+    predicate_seams::check_for_serializable_conflict_in::call(
+        rel,
+        None,
+        types_core::InvalidBlockNumber,
+    )
 }
 
-pub fn build<'mcx>(mcx: Mcx<'mcx>, rel: &Relation<'mcx>, gen: Option<&Arc<Generation>>, newer: &[SegmentRecord], snap: &Snapshot<'mcx>) -> PgResult<Option<TombFilter>> {
-    if snap.as_ref().is_none_or(|s| s.snapshot_type == SnapshotType::SNAPSHOT_ANY) {
+pub fn build<'mcx>(
+    mcx: Mcx<'mcx>,
+    rel: &Relation<'mcx>,
+    gen: Option<&Arc<Generation>>,
+    newer: &[SegmentRecord],
+    snap: &Snapshot<'mcx>,
+) -> PgResult<Option<TombFilter>> {
+    if snap
+        .as_ref()
+        .is_none_or(|s| s.snapshot_type == SnapshotType::SNAPSHOT_ANY)
+    {
         return Ok(None);
     }
     predicate_lock(rel, snap)?;
@@ -150,7 +177,10 @@ pub fn build<'mcx>(mcx: Mcx<'mcx>, rel: &Relation<'mcx>, gen: Option<&Arc<Genera
     if gen.is_none() && newer.is_empty() {
         return Ok(None);
     }
-    let slots = crate::tombs::read_slots(&crate::tombs::state(gen.map(|g| &**g))?, &crate::tombs::newest_state(rel)?);
+    let slots = crate::tombs::read_slots(
+        &crate::tombs::state(gen.map(|g| &**g))?,
+        &crate::tombs::newest_state(rel)?,
+    );
     let heaps = crate::tombs::open_read(mcx, rel.rd_id, &slots)?;
     let mut out: Option<(TombFilter, Vec<Option<Arc<pgrc_am::catalog::RowMap>>>)> = None;
     let res = (|| {
@@ -160,7 +190,10 @@ pub fn build<'mcx>(mcx: Mcx<'mcx>, rel: &Relation<'mcx>, gen: Option<&Arc<Genera
             }
             let nparts = gen.map_or(0, |g| g.parts.len());
             if out.is_none() {
-                out = Some((TombFilter::with_parts(nparts), ::mcx::stdvec::try_filled(nparts, None, "pgrc tombstone filter")?));
+                out = Some((
+                    TombFilter::with_parts(nparts),
+                    ::mcx::stdvec::try_filled(nparts, None, "pgrc tombstone filter")?,
+                ));
             }
             if let Some((f, maps)) = out.as_mut() {
                 scan(mcx, rel, &h.rel, gen, newer, snap, f, maps)?;
@@ -184,27 +217,48 @@ fn scan<'mcx>(
     maps: &mut [Option<Arc<pgrc_am::catalog::RowMap>>],
 ) -> PgResult<()> {
     let view = gen.map_or(&[][..], |g| &g.segments[..]);
-    let live: HashMap<u32, u16> = view.iter().chain(newer).filter(|r| r.state != SegState::Sealed).map(|r| (r.part_no, r.slot)).collect();
+    let live: HashMap<u32, u16> = view
+        .iter()
+        .chain(newer)
+        .filter(|r| r.state != SegState::Sealed)
+        .map(|r| (r.part_no, r.slot))
+        .collect();
     let dir = pgrc_am::dirpath::table_dir_path(rel.rd_locator.get(), rel.rd_backend);
     let ext = pgrc_am::rowid_alloc::extents(&dir)?;
     // SnapshotDirty: the tombstone heaps read under a snapshot of their own (a dirty read writes each tuple's xids into
     // its snapshot, and the reader's out-fields are the rows' to set); a tombstone whose inserter is still in progress
     // keeps its row visible, busy
-    let dirty = snap.as_deref().is_some_and(|s| s.snapshot_type == SnapshotType::SNAPSHOT_DIRTY);
+    let dirty = snap
+        .as_deref()
+        .is_some_and(|s| s.snapshot_type == SnapshotType::SNAPSHOT_DIRTY);
     let tsnap: Snapshot<'mcx> = match dirty {
-        true => Some(Rc::new(SnapshotData::sentinel(mcx, SnapshotType::SNAPSHOT_DIRTY))),
+        true => Some(Rc::new(SnapshotData::sentinel(
+            mcx,
+            SnapshotType::SNAPSHOT_DIRTY,
+        ))),
         false => snap.clone(),
     };
-    let mut hs = heapam::heap_beginscan(mcx, tomb, tsnap.clone(), 0, PgVec::new_in(mcx), None, SO_TYPE_SEQSCAN | SO_ALLOW_PAGEMODE)?;
+    let mut hs = heapam::heap_beginscan(
+        mcx,
+        tomb,
+        tsnap.clone(),
+        0,
+        PgVec::new_in(mcx),
+        None,
+        SO_TYPE_SEQSCAN | SO_ALLOW_PAGEMODE,
+    )?;
     let out = (|| {
         while let Some(tup) = heapam::heap_getnext(&mut hs, ScanDirection::ForwardScanDirection)? {
             let busy = match tsnap.as_deref() {
-                Some(s) if dirty && s.dirty_xmin.get() != InvalidTransactionId => Some(s.dirty_xmin.get()),
+                Some(s) if dirty && s.dirty_xmin.get() != InvalidTransactionId => {
+                    Some(s.dirty_xmin.get())
+                }
                 _ => None,
             };
             let (mut v, mut n) = ([datum::Datum::null(); 2], [false; 2]);
             types_tuple::heap_deform_tuple(tup, &tomb.rd_att, &mut v, &mut n);
-            let t = Tombstone::from_datums([v[0].as_i64(), v[1].as_i64()]).map_err(|e| corrupt(format!("{e}")))?;
+            let t = Tombstone::from_datums([v[0].as_i64(), v[1].as_i64()])
+                .map_err(|e| corrupt(format!("{e}")))?;
             if t.is_lock() {
                 continue;
             }
@@ -225,7 +279,9 @@ fn scan<'mcx>(
                     None => Arc::clone(maps[i].insert(gen.row_map(i, &dir)?)),
                 })
             };
-            let Some((i, ord, _)) = gen.locate(t.rowident, &mut map_of)? else { continue };
+            let Some((i, ord, _)) = gen.locate(t.rowident, &mut map_of)? else {
+                continue;
+            };
             let rec = &gen.manifest.parts[i];
             let grain = match rec.granule_rows {
                 0 => GRANULE_ROWS,
@@ -243,7 +299,10 @@ fn scan<'mcx>(
 }
 
 fn corrupt(what: String) -> Box<PgError> {
-    Box::new(PgError::error(format!("pgrcolumnar: tombstone {what}")).with_sqlstate(types_error::ERRCODE_DATA_CORRUPTED))
+    Box::new(
+        PgError::error(format!("pgrcolumnar: tombstone {what}"))
+            .with_sqlstate(types_error::ERRCODE_DATA_CORRUPTED),
+    )
 }
 
 #[cfg(test)]
@@ -260,7 +319,11 @@ mod tests {
             x ^= x >> 7;
             x ^= x << 17;
             let (part, g) = ((x % 3) as usize, (x >> 8) as u32 % 4);
-            let row = if (part, g) == (0, 0) { (x >> 20) as u32 % GRANULE_ROWS } else { (x >> 20) as u32 % 16 * 97 };
+            let row = if (part, g) == (0, 0) {
+                (x >> 20) as u32 % GRANULE_ROWS
+            } else {
+                (x >> 20) as u32 % 16 * 97
+            };
             f.add_part_row(part, g, row);
             oracle.entry((part, g)).or_default().insert(row);
             if i % 7 == 0 {
@@ -277,7 +340,9 @@ mod tests {
                 let want = oracle.get(&(part, g));
                 assert_eq!(mask.is_some(), want.is_some(), "part {part} granule {g}");
                 if let (Some(m), Some(w)) = (mask, want) {
-                    let got: Vec<u32> = (0..GRANULE_ROWS).filter(|&r| m[r as usize / 64] >> (r % 64) & 1 == 1).collect();
+                    let got: Vec<u32> = (0..GRANULE_ROWS)
+                        .filter(|&r| m[r as usize / 64] >> (r % 64) & 1 == 1)
+                        .collect();
                     assert_eq!(got, w.iter().copied().collect::<Vec<_>>());
                 }
             }

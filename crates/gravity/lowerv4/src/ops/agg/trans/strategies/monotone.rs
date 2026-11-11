@@ -67,6 +67,7 @@ pub(crate) struct Mono<'p> {
     steps: [Option<Step<'p>>; DEPTH],
     pub(crate) fact: Monotone,
     pub(crate) col: i16,
+    #[allow(dead_code)]
     pub(crate) ty: u32,
     pub(crate) raise_ty: Option<u32>,
 }

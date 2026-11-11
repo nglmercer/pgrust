@@ -302,6 +302,7 @@ fn foreign_modify_batch_size<'mcx>(
         .filter(|&&a| rel.rd_att.attr(a as usize - 1).attgenerated == 0)
         .count();
     let opt = get_batch_size_option(mcx, rel.rd_id)?;
+    #[allow(clippy::manual_checked_ops)]
     Ok(if p_nums > 0 { opt.min((65535 / p_nums) as i32).max(1) } else { opt.max(1) })
 }
 
@@ -313,6 +314,7 @@ fn foreign_modify_batch_size<'mcx>(
 // + one execute per batch — is identical).
 struct PgFdwModifyState {
     conn_key: Oid,
+    #[allow(dead_code)]
     rti: u32,
     p_name: Option<String>,
     query: String,

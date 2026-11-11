@@ -1020,6 +1020,7 @@ mod name_ssup_tests {
     // The key sits right before a PROT_NONE page.
     #[cfg(unix)]
     #[test]
+    #[allow(unused_assignments, unused_attributes)]
     fn namec_reads_cstring_keys_only_through_their_nul() {
         // SAFETY: sysconf is always callable.
         let page = unsafe { libc::sysconf(libc::_SC_PAGESIZE) } as usize;
@@ -1045,6 +1046,7 @@ mod name_ssup_tests {
         let mut full = [0u8; 64];
         full[..9].copy_from_slice(b"abs_27457");
         let key = Datum::from_usize(at as usize);
+        #[allow(unused_attributes)]
         let other = Datum::from_usize(full.as_ptr() as usize);
         assert_eq!(apply_cmp(SortComparator::NameC, key, other), 0);
         assert_eq!(apply_cmp(SortComparator::NameC, other, key), 0);

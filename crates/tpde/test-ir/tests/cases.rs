@@ -7,6 +7,7 @@ pub struct Case {
     pub name: &'static str,
     pub source: &'static str,
     pub accepted: bool,
+    #[allow(dead_code)]
     pub analyze: bool,
 }
 macro_rules! good {

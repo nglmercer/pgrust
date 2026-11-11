@@ -1612,6 +1612,7 @@ impl Held {
     /// A life's charge handed to the pool mid-statement (its region to the free list): G's room comes back; false = no capacity.
     /// D4043: a purse draw too (the dev check's table_owner_pin_free: an owner pin drawn from the purse and given back at its
     /// slot's free stayed carved from G for the rest of the statement): the pool takes its bytes and the purse gets them back.
+    #[allow(clippy::wrong_self_convention)]
     pub(crate) fn to_pool(&mut self) -> bool {
         self.unsmall();
         let n = self.charged.as_ref().map_or(0, |c| c.2);
@@ -1783,6 +1784,7 @@ pub(crate) fn share_of(program: &gravity_program::Program, p: usize, pipe: &grav
     // leader and four 1 GiB worker shares (reserved 5.8 GiB): halving never lowered the need, the floor road admitted it
     // alone past the pool, and the first open past G's remainder was an unnamed 53200
     let (floor, wf) = match pipe.breaker() {
+        #[allow(clippy::nonminimal_bool)]
         Some(b) if !(starts_small(pipe, grant) && !program.code_of(p).is_hand()) && !serial_owner && !grant.trimmed => {
             let worker = worker_floor(pipe, floor, width);
             let (raised, raised_w) = crate::mem::feedback::raise(program.key.0, b.slot, floor, worker);

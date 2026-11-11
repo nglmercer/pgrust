@@ -89,6 +89,7 @@ fn pipes<'a, 'p>(g: &'a PipelineGraph<'p>) -> Vec<&'a PipelineNode<'p>> {
 struct Nest {
     invariant: bool,
     volatility: Volatility,
+    #[allow(dead_code)]
     raise_free: bool,
     /// (pos, opno, opfamily, types, coll, outer_left, outer_raise_free)
     eq: Option<(u16, u32, u32, (u32, u32), u32, bool, bool)>,

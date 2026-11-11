@@ -102,6 +102,7 @@ pub(crate) fn finish<'g, 'p>(px: &mut Px<'g, 'p>, k: usize, j: usize, e: Node<'p
     let Some(g) = px.placed(ex).ext.clone().filter(|x| x.is::<GuardFp>()) else { return ex };
     let Some(c) = crate::table::keyimg::code_if(&node).and_then(|m| m.form(e)).and_then(|f| f[0].as_case_expr()) else { return ex };
     let ids: Vec<ExId> = c.args.iter().filter_map(|w| w.as_case_when()?.expr).map(|p| crate::step::expr::compile_at(px, k, j, p, None, node)).collect(); // alloc: Program
+    #[allow(clippy::option_map_unit_fn)]
     g.downcast_ref::<GuardFp>().map(|g| *g.preds.borrow_mut() = ids);
     ex
 }

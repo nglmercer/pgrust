@@ -632,6 +632,7 @@ pub fn text_position_setup<'a>(
             state.skiptable[i] = core::mem::MaybeUninit::new(len2 as i32);
         }
         let last = len2 - 1;
+        #[allow(clippy::needless_range_loop)]
         for i in 0..last {
             state.skiptable[t2[i] as usize & skiptablemask] =
                 core::mem::MaybeUninit::new((last - i) as i32);

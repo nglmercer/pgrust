@@ -34,7 +34,9 @@ pub fn part_streams(rel: &Relation<'_>) -> PgResult<String> {
             let path = match (e.path_ord, paths.as_ref()) {
                 (0, _) => "-".to_string(),
                 // a text result holds no NUL: the octet-length lane's reserved path prints as `\0octet_length`
-                (o, Some(p)) => p.get(o as usize - 1).map_or_else(|| format!("#{o}"), |x| x.replace('\0', "\\0")),
+                (o, Some(p)) => p
+                    .get(o as usize - 1)
+                    .map_or_else(|| format!("#{o}"), |x| x.replace('\0', "\\0")),
                 (o, None) => format!("#{o}"),
             };
             let bytes: u64 = st.extents.iter().map(|x| x.len).sum();
@@ -50,10 +52,17 @@ pub fn part_streams(rel: &Relation<'_>) -> PgResult<String> {
 
 /// `f(part_no, rows, part)` over `rel`'s committed parts of the visible generation, in manifest order (the row scan's
 /// resolution: the catalog's generation, its parts held open).
-fn each_part(rel: &Relation<'_>, mut f: impl FnMut(u64, u64, &pgrc_read::OpenPart) -> PgResult<()>) -> PgResult<()> {
+fn each_part(
+    rel: &Relation<'_>,
+    mut f: impl FnMut(u64, u64, &pgrc_read::OpenPart) -> PgResult<()>,
+) -> PgResult<()> {
     let resolved = crate::scan::resolve_scan_parts_pinned(rel, None)?;
     for (spec, pin) in resolved.scan.parts.iter().zip(&resolved.pins) {
-        f(spec.expect.part_no.unwrap_or(0) as u64, spec.rows, pin.part().as_ref())?;
+        f(
+            spec.expect.part_no.unwrap_or(0) as u64,
+            spec.rows,
+            pin.part().as_ref(),
+        )?;
     }
     Ok(())
 }
@@ -66,7 +75,8 @@ pub fn part_layout(rel: &Relation<'_>) -> PgResult<String> {
         let key = match part.find_section(SectionKind::SortKey, 0, 0) {
             Some(idx) => {
                 let body = crate::footer::meta_section_body(part, idx)?;
-                let k = SortKeyRecord::decode(&body).map_err(|e| err(format!("pgrc_part_layout: SortKey record: {e:?}")))?; // alloc: Cold
+                let k = SortKeyRecord::decode(&body)
+                    .map_err(|e| err(format!("pgrc_part_layout: SortKey record: {e:?}")))?; // alloc: Cold
                 let keys: Vec<String> = k
                     .keys
                     .iter()
@@ -83,7 +93,11 @@ pub fn part_layout(rel: &Relation<'_>) -> PgResult<String> {
                         s
                     })
                     .collect();
-                if keys.is_empty() { "-".to_string() } else { keys.join("|") }
+                if keys.is_empty() {
+                    "-".to_string()
+                } else {
+                    keys.join("|")
+                }
             }
             None => "-".to_string(),
         };
@@ -106,7 +120,10 @@ pub fn part_layout(rel: &Relation<'_>) -> PgResult<String> {
                 }
             }
         }
-        out.push_str(&format!("part {part_no} rows={rows} key={key} paths={}\n", lanes.join(",")));
+        out.push_str(&format!(
+            "part {part_no} rows={rows} key={key} paths={}\n",
+            lanes.join(",")
+        ));
         Ok(())
     })?;
     Ok(out)

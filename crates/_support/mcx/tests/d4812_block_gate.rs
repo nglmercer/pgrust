@@ -92,14 +92,21 @@ fn one_block(ctx: &MemoryContext) -> Result<(), Option<Box<types_error::PgError>
     match catch_unwind(AssertUnwindSafe(|| ctx.mcx().alloc_uninit_bytes(block))) {
         Ok(Ok(_)) => Ok(()),
         Ok(Err(_)) => Err(None),
-        Err(payload) => Err(Some(*payload.downcast::<Box<types_error::PgError>>().expect("the governor's payload is a PgError"))),
+        Err(payload) => Err(Some(
+            *payload
+                .downcast::<Box<types_error::PgError>>()
+                .expect("the governor's payload is a PgError"),
+        )),
     }
 }
 
 /// A small chunk from `ctx` (under the gate's least block): whether it was taken with no error.
 fn small(ctx: &MemoryContext) -> bool {
     let chunk = Layout::from_size_align(64, 8).unwrap();
-    matches!(catch_unwind(AssertUnwindSafe(|| ctx.mcx().alloc_uninit_bytes(chunk))), Ok(Ok(_)))
+    matches!(
+        catch_unwind(AssertUnwindSafe(|| ctx.mcx().alloc_uninit_bytes(chunk))),
+        Ok(Ok(_))
+    )
 }
 
 /// Publish one sample by hand, as the watchdog's would be, and never another: the ladder on at `LINE`, the cancel line
@@ -132,7 +139,16 @@ fn grow(ctx: &MemoryContext, max: usize) -> (usize, End) {
         match catch_unwind(AssertUnwindSafe(|| ctx.mcx().alloc_uninit_bytes(block))) {
             Ok(Ok(_)) => grown += BLOCK,
             Ok(Err(_)) => return (grown, End::Refused),
-            Err(payload) => return (grown, End::Raised(*payload.downcast::<Box<types_error::PgError>>().expect("the governor's payload is a PgError"))),
+            Err(payload) => {
+                return (
+                    grown,
+                    End::Raised(
+                        *payload
+                            .downcast::<Box<types_error::PgError>>()
+                            .expect("the governor's payload is a PgError"),
+                    ),
+                )
+            }
         }
     }
     (grown, End::Max)
@@ -179,7 +195,14 @@ std::thread_local! {
 
 /// The live rungs' work an asker's thread did, by actuator (`ACTUATORS`' order).
 static ON_ASKER: [AtomicU64; 6] = [const { AtomicU64::new(0) }; 6];
-const ACTUATORS: [&str; 6] = ["read (a cgroup read)", "reclaim (R2a)", "cancel (R6)", "evict_protected (R2b)", "alloc_return (R1)", "trim_parked (R2p)"];
+const ACTUATORS: [&str; 6] = [
+    "read (a cgroup read)",
+    "reclaim (R2a)",
+    "cancel (R6)",
+    "evict_protected (R2b)",
+    "alloc_return (R1)",
+    "trim_parked (R2p)",
+];
 /// The ladder pass's wakes (memledger's futex wake hook).
 static WAKES: AtomicU64 = AtomicU64::new(0);
 /// An interrupt pending (as InterruptPending, raised by another thread's cancel), for the gate's interrupt probe.
@@ -258,20 +281,55 @@ fn cancel_d4812_the_block_gate_runs_no_trim_reclaim_purge_or_cancel_on_the_alloc
     .join()
     .unwrap();
     calm();
-    let did: Vec<String> = ON_ASKER.iter().zip(&before).zip(ACTUATORS).filter(|((c, b), _)| c.load(SeqCst) != **b).map(|((c, b), name)| format!("{name} x{}", c.load(SeqCst) - b)).collect();
-    assert!(did.is_empty(), "the block gate ran on the allocating thread: {}", did.join(", "));
-    assert!(matches!(end, End::Raised(_)), "the asker held the most past the line and was refused: {end:?}");
-    assert!(WAKES.load(SeqCst) > wakes, "the ladder pass was woken for R1, R2p and R2a");
+    let did: Vec<String> = ON_ASKER
+        .iter()
+        .zip(&before)
+        .zip(ACTUATORS)
+        .filter(|((c, b), _)| c.load(SeqCst) != **b)
+        .map(|((c, b), name)| format!("{name} x{}", c.load(SeqCst) - b))
+        .collect();
+    assert!(
+        did.is_empty(),
+        "the block gate ran on the allocating thread: {}",
+        did.join(", ")
+    );
+    assert!(
+        matches!(end, End::Raised(_)),
+        "the asker held the most past the line and was refused: {end:?}"
+    );
+    assert!(
+        WAKES.load(SeqCst) > wakes,
+        "the ladder pass was woken for R1, R2p and R2a"
+    );
     let eps = block_episodes(seq);
-    let posted = [Rung::AllocReturn, Rung::TrimParked, Rung::EvictElastic, Rung::EvictProtected];
-    assert!(!eps.is_empty() && eps.iter().all(|(_, ran)| posted.iter().all(|r| ran & (1 << *r as u8) == 0)), "no posted rung ran inline: {eps:?}");
+    let posted = [
+        Rung::AllocReturn,
+        Rung::TrimParked,
+        Rung::EvictElastic,
+        Rung::EvictProtected,
+    ];
+    assert!(
+        !eps.is_empty()
+            && eps
+                .iter()
+                .all(|(_, ran)| posted.iter().all(|r| ran & (1 << *r as u8) == 0)),
+        "no posted rung ran inline: {eps:?}"
+    );
     // its refusal is R6's run for its own statement (the pass's cancel actuator never ran here, above)
     let r6 = 1 << Rung::Cancel as u8;
-    assert_eq!(eps.last().map(|e| (e.0, e.1 & r6)), Some((Outcome::Refused, r6)), "{eps:?}");
+    assert_eq!(
+        eps.last().map(|e| (e.0, e.1 & r6)),
+        Some((Outcome::Refused, r6)),
+        "{eps:?}"
+    );
 }
 
 /// What a statement thread of the next test saw: its block, the time it took, and its small chunk after it.
-type Seen = (Result<(), Option<Box<types_error::PgError>>>, Duration, bool);
+type Seen = (
+    Result<(), Option<Box<types_error::PgError>>>,
+    Duration,
+    bool,
+);
 
 #[test]
 fn cancel_d4812_an_innocent_asker_takes_its_block_and_the_statement_r6_picks_is_the_one_refused() {
@@ -281,14 +339,23 @@ fn cancel_d4812_an_innocent_asker_takes_its_block_and_the_statement_r6_picks_is_
     let seq = last_seq();
     // the hog holds 256 MiB, the innocent asker 32 MiB, both grown with the gate off; each holds its bytes until both
     // reported (bytes freed meanwhile would end the other's wait under the line)
-    let statement = |procno: i32, held: usize, ready: mpsc::Sender<()>, go: mpsc::Receiver<()>, done: mpsc::Sender<Seen>, release: mpsc::Receiver<()>| {
+    let statement = |procno: i32,
+                     held: usize,
+                     ready: mpsc::Sender<()>,
+                     go: mpsc::Receiver<()>,
+                     done: mpsc::Sender<Seen>,
+                     release: mpsc::Receiver<()>| {
         std::thread::spawn(move || {
             governor::register(procno, procno * 10);
             governor::statement_start(0, true);
             let ctx = MemoryContext::new("d4812 statement");
             governor::arm(true);
             let (grown, end) = grow(&ctx, held);
-            assert!(grown == held && matches!(end, End::Max), "{procno}: grew {} MiB: {end:?}", grown / MIB);
+            assert!(
+                grown == held && matches!(end, End::Max),
+                "{procno}: grew {} MiB: {end:?}",
+                grown / MIB
+            );
             ready.send(()).unwrap();
             go.recv().unwrap();
             let small_first = small(&ctx);
@@ -296,8 +363,13 @@ fn cancel_d4812_an_innocent_asker_takes_its_block_and_the_statement_r6_picks_is_
             let block = one_block(&ctx);
             let took = t.elapsed();
             // the hog, refused: while it unwinds, R6's pick cancels no second statement (its cancel is the one in flight)
-            let second = if block.is_err() { governor::try_cancel_largest_victim(1, 0) } else { Ok(None) };
-            done.send((block, took, small_first && matches!(second, Ok(None)))).unwrap();
+            let second = if block.is_err() {
+                governor::try_cancel_largest_victim(1, 0)
+            } else {
+                Ok(None)
+            };
+            done.send((block, took, small_first && matches!(second, Ok(None))))
+                .unwrap();
             release.recv().unwrap();
             governor::arm(false);
             drop(ctx);
@@ -326,23 +398,36 @@ fn cancel_d4812_an_innocent_asker_takes_its_block_and_the_statement_r6_picks_is_
     hog.join().unwrap();
     asker.join().unwrap();
     calm();
-    assert!(asker_block.is_ok(), "the innocent asker was refused: {asker_block:?}");
+    assert!(
+        asker_block.is_ok(),
+        "the innocent asker was refused: {asker_block:?}"
+    );
     assert!(asker_small, "the innocent asker's chunk before its block");
-    assert!(asker_took >= Duration::from_millis(BOUND_MS * 9 / 10), "it waited its bound first: {asker_took:?}");
+    assert!(
+        asker_took >= Duration::from_millis(BOUND_MS * 9 / 10),
+        "it waited its bound first: {asker_took:?}"
+    );
     assert!(hog_ok, "the hog's chunk before its block was taken (the asker canceled no one), and no second cancel while it unwinds");
     match hog_block {
         Err(Some(e)) => assert_eq!(e.sqlstate(), types_error::ERRCODE_OUT_OF_MEMORY, "{e:?}"),
         other => panic!("the hog's block past the line: {other:?}"),
     }
     let outcomes: Vec<Outcome> = block_episodes(seq).iter().map(|e| e.0).collect();
-    assert_eq!(outcomes, [Outcome::Overran, Outcome::Refused], "the asker overran its bound, the hog was refused");
+    assert_eq!(
+        outcomes,
+        [Outcome::Overran, Outcome::Refused],
+        "the asker overran its bound, the hog was refused"
+    );
 }
 
 #[test]
 fn cancel_d4812_a_block_past_the_line_with_interrupts_held_off_is_taken_at_once_and_counted() {
     let _one = serial();
     fakes();
-    let (waits, skipped) = (ladder_stats::site(Site::Block).waits, governor::block_gate_counts().skipped);
+    let (waits, skipped) = (
+        ladder_stats::site(Site::Block).waits,
+        governor::block_gate_counts().skipped,
+    );
     let (block, took) = std::thread::spawn(|| {
         governor::register(4004, 40_040);
         governor::statement_start(0, true);
@@ -363,8 +448,15 @@ fn cancel_d4812_a_block_past_the_line_with_interrupts_held_off_is_taken_at_once_
     .unwrap();
     calm();
     assert!(block.is_ok(), "{block:?}");
-    assert!(took < Duration::from_millis(BOUND_MS / 2), "taken at once, never waited: {took:?}");
-    assert_eq!(governor::block_gate_counts().skipped, skipped + 1, "counted");
+    assert!(
+        took < Duration::from_millis(BOUND_MS / 2),
+        "taken at once, never waited: {took:?}"
+    );
+    assert_eq!(
+        governor::block_gate_counts().skipped,
+        skipped + 1,
+        "counted"
+    );
     assert_eq!(ladder_stats::site(Site::Block).waits, waits, "no wait");
 }
 
@@ -395,9 +487,15 @@ fn cancel_d4812_a_pending_interrupt_ends_the_gates_wait_within_one_step() {
     PENDING.store(false, SeqCst);
     calm();
     assert_eq!(grown, 64 * MIB);
-    assert!(block.is_ok(), "the block is taken, the interrupt answered at the caller's next check: {block:?}");
+    assert!(
+        block.is_ok(),
+        "the block is taken, the interrupt answered at the caller's next check: {block:?}"
+    );
     let lag = ended.saturating_duration_since(raised);
-    assert!(lag < Duration::from_millis(40), "the wait ended {lag:?} after the interrupt (one 5 ms step, plus the scheduler)");
+    assert!(
+        lag < Duration::from_millis(40),
+        "the wait ended {lag:?} after the interrupt (one 5 ms step, plus the scheduler)"
+    );
     let outcomes: Vec<Outcome> = block_episodes(seq).iter().map(|e| e.0).collect();
     assert_eq!(outcomes, [Outcome::Interrupted]);
 }
@@ -438,5 +536,8 @@ fn cancel_d4812_a_self_cancel_leaves_no_condemnation_and_the_next_statement_runs
         other => panic!("the statement R6 picks is refused at its block: {other:?}"),
     }
     assert_eq!(condemned, 0, "no condemnation left for a second 53200");
-    assert!(matches!(second, End::Max) && after, "the next statement runs clean: {second:?}");
+    assert!(
+        matches!(second, End::Max) && after,
+        "the next statement runs clean: {second:?}"
+    );
 }

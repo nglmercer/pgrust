@@ -142,8 +142,18 @@ fn at_add_foreign_key_constraint<'mcx>(
     // One referencing a pgrcolumnar table stays refused (it needs a unique index and FOR KEY SHARE on the referenced
     // rows). A partitioned pkrel's relam only names its partitions' default; the key's unique index is on its leaves,
     // and a pgrcolumnar leaf takes none, so no pgrcolumnar leaf is under a referenced key.
-    let fenced = (types_rel::RELKIND_HAS_TABLE_AM(pkrel.rd_rel.relkind) && tableam_vocab::is_pgrcolumnar_am_oid(pkrel.rd_rel.relam)).then_some(&pkrel);
-    if let Some(e) = fenced.map(|r| err(format!("cannot add foreign key referencing columnar relation \"{}\"", r.name()), types_error::ERRCODE_FEATURE_NOT_SUPPORTED)) {
+    let fenced = (types_rel::RELKIND_HAS_TABLE_AM(pkrel.rd_rel.relkind)
+        && tableam_vocab::is_pgrcolumnar_am_oid(pkrel.rd_rel.relam))
+    .then_some(&pkrel);
+    if let Some(e) = fenced.map(|r| {
+        err(
+            format!(
+                "cannot add foreign key referencing columnar relation \"{}\"",
+                r.name()
+            ),
+            types_error::ERRCODE_FEATURE_NOT_SUPPORTED,
+        )
+    }) {
         pkrel.close(NoLock)?;
         return Err(e);
     }
@@ -319,6 +329,7 @@ fn at_add_foreign_key_constraint<'mcx>(
 
     checkFkeyPermissions(&pkrel, &pkattnum[..numpks])?;
 
+    #[allow(clippy::needless_range_loop)]
     for i in 0..numfks {
         let attgenerated = rel.rd_att.attr(fkattnum[i] as usize - 1).attgenerated;
         if attgenerated != 0 {
@@ -632,7 +643,7 @@ fn at_add_foreign_key_constraint<'mcx>(
 
 // addFkRecurseReferenced (tablecmds.c): action triggers on the referenced
 // side, recursing to referenced-side partitions.
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::only_used_in_recursion, clippy::too_many_arguments)]
 fn add_fk_recurse_referenced<'mcx>(
     mcx: Mcx<'mcx>,
     conname: &str,
@@ -781,10 +792,9 @@ fn add_fk_recurse_referencing<'mcx>(
                 let conname = match fkconstraint.conname {
                     Some(n) => str_in(mcx, n)?,
                     None => {
-                        let name = lsyscache::get_constraint_name(mcx, parent_constr)?
-                            .ok_or_else(|| {
-                                crate::cache_lookup_failed("constraint", parent_constr)
-                            })?;
+                        let name = lsyscache::get_constraint_name(mcx, parent_constr)?.ok_or_else(
+                            || crate::cache_lookup_failed("constraint", parent_constr),
+                        )?;
                         str_in(mcx, name.as_str())?
                     }
                 };
@@ -2855,6 +2865,7 @@ pub(crate) fn ATExecAlterConstraint<'mcx>(
     if con.conparentid != InvalidOid {
         let mut parent = con.conparentid;
         let mut ancestor = Option::None;
+        #[allow(clippy::while_let_loop)]
         loop {
             let Some((grandparent, name, conrelid)) = constraint_parent_probe(mcx, parent)? else {
                 break;

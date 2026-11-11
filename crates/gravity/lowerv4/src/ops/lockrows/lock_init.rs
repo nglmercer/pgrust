@@ -170,7 +170,7 @@ fn checks(px: &Px<'_, '_>, k: usize, node: i32, ir: bool, at: Option<(usize, usi
         let of = px.gx.with_producers([i.pipeline as usize]);
         of.contains(&k) || run.iter().any(|a| of.contains(a)) || at.is_some_and(|(q, _)| of.contains(&q))
     };
-    let inside = ir && px.gx.graph.init_plans.iter().any(|i| holds(i));
+    let inside = ir && px.gx.graph.init_plans.iter().any(&holds);
     // lockrows M4 (lk-0061): one attached inside another InitPlan's pipelines (a min() sublink's MinMaxAgg InitPlan) is
     // read there alone; the recheck copies the outer one's value, so neither PG's nor the runner's recheck runs it again
     let nested = |i: &gravity_decompose::InitPlan<'_>| {
@@ -189,6 +189,7 @@ fn checks(px: &Px<'_, '_>, k: usize, node: i32, ir: bool, at: Option<(usize, usi
         // D4154 INITMULTI: or, for the M4 pair's B (marks.rs's runner recheck, plan.rs `PlanState`), in the build of an INNER
         // hash join below the lock, or below the breaker under it (D4157 INITSORT; `fed_reads`)
         let pair_b = !ir && crate::ops::lockrows::plan::multi_b(px, node);
+        #[allow(clippy::nonminimal_bool)]
         if !read_first(px.gx, p, j, i, false) && !forces(px.gx, node, i) && !unread(px.gx, node, i) && !(pair_b && fed_reads(px.gx, at.map_or(k, |a| a.0), j, i)) {
             shape(node, INIT_READ);
         }

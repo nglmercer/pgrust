@@ -11,9 +11,7 @@ use types_error::{
 use types_fmgr::FmgrInfo;
 
 use crate::run::PlannerRun;
-use crate::selfuncs::{
-    self, clamp_probability, VariableStatData, DEFAULT_MATCH_SEL,
-};
+use crate::selfuncs::{self, clamp_probability, VariableStatData, DEFAULT_MATCH_SEL};
 use types_pathnodes::NodeId;
 
 pub use planner_seams::PatternType;
@@ -66,7 +64,10 @@ fn text_const<'mcx>(mcx: Mcx<'mcx>, s: &[u8], typ: Oid) -> PgResult<PrefixConst>
     let mut img = mcx::vec_with_capacity_in(mcx, total)?;
     mcx::vec_append_bytes(&mut img, &datum::varlena::set_varsize_4b(total))?;
     mcx::vec_append_bytes(&mut img, s)?;
-    Ok(PrefixConst { value: Datum::from_usize(img.leak().as_ptr() as usize), typ })
+    Ok(PrefixConst {
+        value: Datum::from_usize(img.leak().as_ptr() as usize),
+        typ,
+    })
 }
 
 pub fn patternsel<'mcx>(
@@ -102,7 +103,11 @@ pub(crate) fn patternsel_common<'mcx>(
     ptype: PatternType,
     negate: bool,
 ) -> PgResult<f64> {
-    let default = if negate { 1.0 - DEFAULT_MATCH_SEL } else { DEFAULT_MATCH_SEL };
+    let default = if negate {
+        1.0 - DEFAULT_MATCH_SEL
+    } else {
+        DEFAULT_MATCH_SEL
+    };
 
     let Some((vardata, other, varonleft)) =
         selfuncs::get_restriction_variable(run, args, varrelid)?
@@ -179,12 +184,22 @@ pub(crate) fn patternsel_common<'mcx>(
             false,
         )?;
     } else {
-        let opfuncid = if opfuncid != 0 { opfuncid } else { lsyscache::get_opcode(oprid)? };
+        let opfuncid = if opfuncid != 0 {
+            opfuncid
+        } else {
+            lsyscache::get_opcode(oprid)?
+        };
         let mut opproc = fmgr_core::fmgr_info(opfuncid)?;
 
         let (mut selec, hist_size) = selfuncs::histogram_selectivity(
             run.mcx,
-            &vardata, &mut opproc, collation, constval, true, 10, 1,
+            &vardata,
+            &mut opproc,
+            collation,
+            constval,
+            true,
+            10,
+            1,
         )?;
 
         if hist_size < 100 {
@@ -212,9 +227,8 @@ pub(crate) fn patternsel_common<'mcx>(
 
         selec = selec.clamp(0.0001, 0.9999);
 
-        let (mcv_selec, sumcommon) = selfuncs::mcv_selectivity(
-            run, &vardata, &mut opproc, collation, constval, true,
-        )?;
+        let (mcv_selec, sumcommon) =
+            selfuncs::mcv_selectivity(run, &vardata, &mut opproc, collation, constval, true)?;
 
         selec = crate::fma_sites::mcv_merge(selec, nullfrac, sumcommon, mcv_selec);
         result = selec;
@@ -293,7 +307,9 @@ fn like_fixed_prefix<'mcx>(
             return Err(Box::new(
                 PgError::error("could not determine which collation to use for ILIKE".to_string())
                     .with_sqlstate(ERRCODE_INDETERMINATE_COLLATION)
-                    .with_hint("Use the COLLATE clause to set the collation explicitly.".to_string()),
+                    .with_hint(
+                        "Use the COLLATE clause to set the collation explicitly.".to_string(),
+                    ),
             ));
         }
         locale = Some(pg_locale::pg_newlocale_from_collation(collation)?);
@@ -367,8 +383,11 @@ fn regex_fixed_prefix<'mcx>(
             } else {
                 regex_selectivity(patt, case_insensitive, prefix_bytes.len())?
             };
-            let status =
-                if exact { PrefixStatus::Exact } else { PrefixStatus::Partial };
+            let status = if exact {
+                PrefixStatus::Exact
+            } else {
+                PrefixStatus::Partial
+            };
             Ok((status, Some(prefix), rest))
         }
     }
@@ -542,6 +561,7 @@ fn like_selectivity(patt: &[u8], _case_insensitive: bool) -> f64 {
     sel
 }
 
+#[allow(clippy::only_used_in_recursion)]
 fn regex_selectivity_sub(patt: &[u8], case_insensitive: bool) -> PgResult<f64> {
     // C like_support.c:1360.
     stack_depth::check_stack_depth()?;
@@ -578,7 +598,11 @@ fn regex_selectivity_sub(patt: &[u8], case_insensitive: bool) -> PgResult<f64> {
                 pos += 1;
             }
             if paren_depth == 0 {
-                sel *= if negclass { 1.0 - CHAR_RANGE_SEL } else { CHAR_RANGE_SEL };
+                sel *= if negclass {
+                    1.0 - CHAR_RANGE_SEL
+                } else {
+                    CHAR_RANGE_SEL
+                };
             }
         } else if c == b'.' {
             if paren_depth == 0 {
@@ -621,10 +645,7 @@ fn regex_selectivity(
 ) -> PgResult<f64> {
     let pattlen = patt.len();
     let mut sel;
-    if pattlen > 0
-        && patt[pattlen - 1] == b'$'
-        && (pattlen == 1 || patt[pattlen - 2] != b'\\')
-    {
+    if pattlen > 0 && patt[pattlen - 1] == b'$' && (pattlen == 1 || patt[pattlen - 2] != b'\\') {
         sel = regex_selectivity_sub(&patt[..pattlen - 1], case_insensitive)?;
     } else {
         sel = regex_selectivity_sub(patt, case_insensitive)?;
@@ -717,12 +738,20 @@ pub fn match_pattern_prefix<'mcx>(
     indexcollation: Oid,
 ) -> PgResult<Option<mcx::PgVec<'mcx, types_nodes::Node<'mcx>>>> {
     let mcx = run.mcx;
-    let Some(patt) = rightop.as_const() else { return Ok(None) };
+    let Some(patt) = rightop.as_const() else {
+        return Ok(None);
+    };
     if patt.constisnull {
         return Ok(None);
     }
-    let (pstatus, prefix, _rest) =
-        pattern_fixed_prefix(mcx, patt.constvalue, patt.consttype, ptype, expr_coll, false)?;
+    let (pstatus, prefix, _rest) = pattern_fixed_prefix(
+        mcx,
+        patt.constvalue,
+        patt.consttype,
+        ptype,
+        expr_coll,
+        false,
+    )?;
     if pstatus == PrefixStatus::None {
         return Ok(None);
     }
@@ -733,33 +762,64 @@ pub fn match_pattern_prefix<'mcx>(
     let (eqopr, ltopr, geopr, collation_aware, rdatatype) = match ldatatype {
         TEXTOID => {
             if opfamily == TEXT_PATTERN_BTREE_FAM_OID {
-                (TEXT_EQUAL_OPERATOR, TEXT_PATTERN_LESS_OPERATOR,
-                 TEXT_PATTERN_GREATER_EQUAL_OPERATOR, false, TEXTOID)
+                (
+                    TEXT_EQUAL_OPERATOR,
+                    TEXT_PATTERN_LESS_OPERATOR,
+                    TEXT_PATTERN_GREATER_EQUAL_OPERATOR,
+                    false,
+                    TEXTOID,
+                )
             } else if opfamily == TEXT_SPGIST_FAM_OID {
                 preopr = TEXT_PREFIX_OPERATOR;
-                (TEXT_EQUAL_OPERATOR, TEXT_PATTERN_LESS_OPERATOR,
-                 TEXT_PATTERN_GREATER_EQUAL_OPERATOR, false, TEXTOID)
+                (
+                    TEXT_EQUAL_OPERATOR,
+                    TEXT_PATTERN_LESS_OPERATOR,
+                    TEXT_PATTERN_GREATER_EQUAL_OPERATOR,
+                    false,
+                    TEXTOID,
+                )
             } else {
-                (TEXT_EQUAL_OPERATOR, TEXT_LESS_OPERATOR,
-                 TEXT_GREATER_EQUAL_OPERATOR, true, TEXTOID)
+                (
+                    TEXT_EQUAL_OPERATOR,
+                    TEXT_LESS_OPERATOR,
+                    TEXT_GREATER_EQUAL_OPERATOR,
+                    true,
+                    TEXTOID,
+                )
             }
         }
         NAMEOID => (
-            NAME_EQUAL_TEXT_OPERATOR, NAME_LESS_TEXT_OPERATOR,
-            NAME_GREATER_EQUAL_TEXT_OPERATOR, true, TEXTOID,
+            NAME_EQUAL_TEXT_OPERATOR,
+            NAME_LESS_TEXT_OPERATOR,
+            NAME_GREATER_EQUAL_TEXT_OPERATOR,
+            true,
+            TEXTOID,
         ),
         BPCHAROID => {
             if opfamily == BPCHAR_PATTERN_BTREE_FAM_OID {
-                (BPCHAR_EQUAL_OPERATOR, BPCHAR_PATTERN_LESS_OPERATOR,
-                 BPCHAR_PATTERN_GREATER_EQUAL_OPERATOR, false, BPCHAROID)
+                (
+                    BPCHAR_EQUAL_OPERATOR,
+                    BPCHAR_PATTERN_LESS_OPERATOR,
+                    BPCHAR_PATTERN_GREATER_EQUAL_OPERATOR,
+                    false,
+                    BPCHAROID,
+                )
             } else {
-                (BPCHAR_EQUAL_OPERATOR, BPCHAR_LESS_OPERATOR,
-                 BPCHAR_GREATER_EQUAL_OPERATOR, true, BPCHAROID)
+                (
+                    BPCHAR_EQUAL_OPERATOR,
+                    BPCHAR_LESS_OPERATOR,
+                    BPCHAR_GREATER_EQUAL_OPERATOR,
+                    true,
+                    BPCHAROID,
+                )
             }
         }
         BYTEAOID => (
-            BYTEA_EQUAL_OPERATOR, BYTEA_LESS_OPERATOR,
-            BYTEA_GREATER_EQUAL_OPERATOR, false, BYTEAOID,
+            BYTEA_EQUAL_OPERATOR,
+            BYTEA_LESS_OPERATOR,
+            BYTEA_GREATER_EQUAL_OPERATOR,
+            false,
+            BYTEAOID,
         ),
         _ => return Ok(None),
     };
@@ -791,15 +851,19 @@ pub fn match_pattern_prefix<'mcx>(
     }
 
     if preopr != 0 && lsyscache::op_in_opfamily(preopr, opfamily)? {
-        let expr = make_opclause(mcx, preopr, leftop, const_node(mcx, prefix)?, indexcollation)?;
+        let expr = make_opclause(
+            mcx,
+            preopr,
+            leftop,
+            const_node(mcx, prefix)?,
+            indexcollation,
+        )?;
         let mut out = mcx::PgVec::new_in(mcx);
         out.push(expr);
         return Ok(Some(out));
     }
 
-    if collation_aware
-        && !pg_locale::pg_newlocale_from_collation(indexcollation)?.collate_is_c
-    {
+    if collation_aware && !pg_locale::pg_newlocale_from_collation(indexcollation)?.collate_is_c {
         return Ok(None);
     }
 
@@ -807,7 +871,13 @@ pub fn match_pattern_prefix<'mcx>(
         return Ok(None);
     }
     let mut out = mcx::PgVec::new_in(mcx);
-    out.push(make_opclause(mcx, geopr, leftop, const_node(mcx, prefix)?, indexcollation)?);
+    out.push(make_opclause(
+        mcx,
+        geopr,
+        leftop,
+        const_node(mcx, prefix)?,
+        indexcollation,
+    )?);
 
     if !lsyscache::op_in_opfamily(ltopr, opfamily)? {
         return Ok(Some(out));
@@ -835,7 +905,10 @@ mod tests {
         let d = text_const(cx.mcx(), b"a", BYTEAOID).unwrap().value;
         let e = like_fixed_prefix(cx.mcx(), d, BYTEAOID, true, 0).unwrap_err();
         assert_eq!(e.sqlstate(), ERRCODE_FEATURE_NOT_SUPPORTED);
-        assert_eq!(e.message(), "case insensitive matching not supported on type bytea");
+        assert_eq!(
+            e.message(),
+            "case insensitive matching not supported on type bytea"
+        );
     }
 
     #[test]
@@ -844,7 +917,10 @@ mod tests {
         let d = text_const(cx.mcx(), b"a", TEXTOID).unwrap().value;
         let e = like_fixed_prefix(cx.mcx(), d, TEXTOID, true, 0).unwrap_err();
         assert_eq!(e.sqlstate(), ERRCODE_INDETERMINATE_COLLATION);
-        assert_eq!(e.message(), "could not determine which collation to use for ILIKE");
+        assert_eq!(
+            e.message(),
+            "could not determine which collation to use for ILIKE"
+        );
         assert_eq!(
             e.hint(),
             Some("Use the COLLATE clause to set the collation explicitly.")
@@ -857,6 +933,9 @@ mod tests {
         let d = text_const(cx.mcx(), b"a", BYTEAOID).unwrap().value;
         let e = regex_fixed_prefix(cx.mcx(), d, BYTEAOID, false, 0, true).unwrap_err();
         assert_eq!(e.sqlstate(), ERRCODE_FEATURE_NOT_SUPPORTED);
-        assert_eq!(e.message(), "regular-expression matching not supported on type bytea");
+        assert_eq!(
+            e.message(),
+            "regular-expression matching not supported on type bytea"
+        );
     }
 }

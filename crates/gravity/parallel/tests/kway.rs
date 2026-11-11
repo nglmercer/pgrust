@@ -27,6 +27,7 @@ fn the_k_way_merge_equals_the_repeated_two_way_merge_with_far_fewer_comparisons(
     let m = RowsOrdered { natts: 2, cap_rows: total as u32, keys: [0, 0, 0, 0], nkeys: 1 };
     let mut state = vec![0u8; 2 * SortedRun::bytes(2, total as u32) as usize + 8];
     let mut sink = LegSink::new(true);
+    #[allow(clippy::needless_range_loop)]
     for i in 0..runs.len() {
         // a run copied into a `total`-capacity layout so RowsOrdered's row() arithmetic matches
         let wide = run_of(total as u32, &(0..views[i].nrows as usize).map(|j| views[i].row(j, cap).0[0]).collect::<Vec<_>>());

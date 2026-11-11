@@ -438,6 +438,7 @@ fn tid_clause(q: Node<'_>, varno: i32, form: TidForm, k: Kind, id: i32) -> Resul
     } else {
         return Err(Refusal::shape(k, id, "a tid clause without ctid"));
     };
+    #[allow(clippy::match_like_matches_macro)]
     let ok = match (form, tid_op(opno)) {
         (TidForm::Points | TidForm::Current, Some(TidOp::Eq)) => true,
         (TidForm::Range, Some(TidOp::Less { .. } | TidOp::Greater { .. })) => true,

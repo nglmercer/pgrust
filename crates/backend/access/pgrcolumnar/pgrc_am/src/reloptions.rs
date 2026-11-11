@@ -21,17 +21,24 @@ use types_tuple::FormData_pg_attribute;
 pub const SORTED_BY_ENFORCED: bool = true;
 
 fn declared<'a>(rel: &'a Relation<'_>) -> Option<&'a types_rel::PgrcolumnarOptions> {
-    rel.rd_options.as_ref().and_then(|o| o.pgrcolumnar()).filter(|o| !o.sorted_by().is_empty())
+    rel.rd_options
+        .as_ref()
+        .and_then(|o| o.pgrcolumnar())
+        .filter(|o| !o.sorted_by().is_empty())
 }
 
 fn live_att<'a>(atts: &'a [FormData_pg_attribute], col: &str) -> Option<&'a FormData_pg_attribute> {
-    atts.iter().find(|a| !a.attisdropped && a.attname.name_str() == col.as_bytes())
+    atts.iter()
+        .find(|a| !a.attisdropped && a.attname.name_str() == col.as_bytes())
 }
 
 /// SORTRUNS-E0 L3a: `sort_runs = on` (default off): the compaction worker's run pass merges the table's full parts
 /// into key-ordered runs (`pgrc_front::compact::run_pass`; it needs a sort key too, `runmerge::table_sort_key`).
 pub fn sort_runs(rel: &Relation<'_>) -> bool {
-    rel.rd_options.as_ref().and_then(|o| o.pgrcolumnar()).is_some_and(|o| o.sort_runs())
+    rel.rd_options
+        .as_ref()
+        .and_then(|o| o.pgrcolumnar())
+        .is_some_and(|o| o.sort_runs())
 }
 
 /// The declared key as live attnos with each key's jsonb path (empty = the
@@ -49,7 +56,10 @@ pub fn sorted_by_keys(rel: &Relation<'_>) -> Option<Vec<(u32, Vec<Vec<u8>>)>> {
             if !k.path.is_empty() && a.atttypid != types_core::catalog::JSONBOID {
                 return None;
             }
-            Some((a.attnum as u32, k.path.into_iter().map(String::into_bytes).collect()))
+            Some((
+                a.attnum as u32,
+                k.path.into_iter().map(String::into_bytes).collect(),
+            ))
         })
         .collect()
 }
@@ -57,7 +67,13 @@ pub fn sorted_by_keys(rel: &Relation<'_>) -> Option<Vec<(u32, Vec<Vec<u8>>)>> {
 /// The declared key's leading plain columns as live attnos: the order a
 /// consumer that knows only columns may read (a path key ends the prefix).
 pub fn sorted_by_attnos(rel: &Relation<'_>) -> Option<Vec<u32>> {
-    Some(sorted_by_keys(rel)?.into_iter().take_while(|(_, p)| p.is_empty()).map(|(a, _)| a).collect())
+    Some(
+        sorted_by_keys(rel)?
+            .into_iter()
+            .take_while(|(_, p)| p.is_empty())
+            .map(|(a, _)| a)
+            .collect(),
+    )
 }
 
 /// A backend's resolved leading keys, `(database, relid, attno)` (0: no key, or a void one), dropped by its relcache
@@ -77,7 +93,12 @@ pub fn sorted_by_lead_attno(rel: &Relation<'_>) -> Option<u32> {
         return resolve();
     }
     let (db, relid) = (init_small::globals::MyDatabaseId(), rel.rd_id);
-    if let Some(a) = LEAD.with(|l| l.borrow().iter().find(|e| e.0 == db && e.1 == relid).map(|e| e.2)) {
+    if let Some(a) = LEAD.with(|l| {
+        l.borrow()
+            .iter()
+            .find(|e| e.0 == db && e.1 == relid)
+            .map(|e| e.2)
+    }) {
         return (a != 0).then_some(a);
     }
     let a = resolve();
@@ -108,7 +129,12 @@ pub fn cluster_key(rel: &Relation<'_>) -> Vec<ClusterKeyDecl> {
     sorted_by_keys(rel)
         .unwrap_or_default()
         .into_iter()
-        .map(|(attno, path)| ClusterKeyDecl { attno, dir: SortDir::Asc, nulls: NullsOrder::Last, path })
+        .map(|(attno, path)| ClusterKeyDecl {
+            attno,
+            dir: SortDir::Asc,
+            nulls: NullsOrder::Last,
+            path,
+        })
         .collect()
 }
 
@@ -127,7 +153,9 @@ pub fn table_has_data(rel: &Relation<'_>) -> PgResult<bool> {
         return Ok(true);
     }
     let relfilenumber = rel.rd_locator.get().relNumber as u64;
-    Ok(crate::session::with_writers(|w| w.registered_stamps().any(|(r, _)| r == relfilenumber)))
+    Ok(crate::session::with_writers(|w| {
+        w.registered_stamps().any(|(r, _)| r == relfilenumber)
+    }))
 }
 
 /// What the planner may claim: the declared attnos (1-based) when the
@@ -142,7 +170,10 @@ pub fn table_has_data(rel: &Relation<'_>) -> PgResult<bool> {
 /// claim from the newest generation alone (one attested part after `pgrc_compact 'sorted'`) dropped the Sort over a scan
 /// of the reader's two or more parts (wrong order; with D4469's merge mark, 'no sort witness' over unattested parts).
 /// A composed view claims nothing.
-pub fn planner_sorted_attnos(rel: &Relation<'_>, view: Option<&crate::catalog::Generation>) -> PgResult<Vec<i16>> {
+pub fn planner_sorted_attnos(
+    rel: &Relation<'_>,
+    view: Option<&crate::catalog::Generation>,
+) -> PgResult<Vec<i16>> {
     if !SORTED_BY_ENFORCED {
         return Ok(Vec::new());
     }
@@ -150,14 +181,20 @@ pub fn planner_sorted_attnos(rel: &Relation<'_>, view: Option<&crate::catalog::G
     if declared(rel).is_some_and(|o| o.sorted_by_partial()) {
         return Ok(Vec::new());
     }
-    let Some(attnos) = sorted_by_attnos(rel) else { return Ok(Vec::new()) };
+    let Some(attnos) = sorted_by_attnos(rel) else {
+        return Ok(Vec::new());
+    };
     let mut n = match crate::footer::committed_order(rel)? {
         crate::footer::CommittedOrder::NoParts => attnos.len(),
         crate::footer::CommittedOrder::OnePart(keys) => attested_prefix(&attnos, &keys),
         crate::footer::CommittedOrder::Many => 0,
     };
     if let Some(v) = view {
-        n = if v.composed() { 0 } else { n.min(claim_len(&attnos, Some(v))?) };
+        n = if v.composed() {
+            0
+        } else {
+            n.min(claim_len(&attnos, Some(v))?)
+        };
     }
     Ok(attnos[..n].iter().map(|&a| a as i16).collect())
 }
@@ -165,10 +202,15 @@ pub fn planner_sorted_attnos(rel: &Relation<'_>, view: Option<&crate::catalog::G
 /// The length of the claim [`planner_sorted_attnos`] grants over generation `gen` (`None` = no generation yet, no
 /// part) for the declared key `attnos`: all of it at no part, the attested prefix at one part, none at two or more.
 fn claim_len(attnos: &[u32], gen: Option<&crate::catalog::Generation>) -> PgResult<usize> {
-    let Some(g) = gen else { return Ok(attnos.len()) };
+    let Some(g) = gen else {
+        return Ok(attnos.len());
+    };
     Ok(match g.parts.len() {
         0 => attnos.len(),
-        1 => attested_prefix(attnos, &g.sort_key(|part| Ok(crate::footer::part_sort_key(part)?.keys))?),
+        1 => attested_prefix(
+            attnos,
+            &g.sort_key(|part| Ok(crate::footer::part_sort_key(part)?.keys))?,
+        ),
         _ => 0,
     })
 }
@@ -182,28 +224,50 @@ fn claim_len(attnos: &[u32], gen: Option<&crate::catalog::Generation>) -> PgResu
 /// so does every publish when `stacked` (CONCLOAD: a bulk load over another transaction's parts in progress; plans
 /// hold a claim only over a whole generation, never a view that hides parts, so the invalidation at its commit reaches
 /// every plan that could hold one).
-pub fn inval_on_claim_change(rel: &Relation<'_>, slot: crate::catalog::RelSlot, prev_gen: u64, gen: &crate::catalog::Generation, stacked: bool) -> PgResult<()> {
+pub fn inval_on_claim_change(
+    rel: &Relation<'_>,
+    slot: crate::catalog::RelSlot,
+    prev_gen: u64,
+    gen: &crate::catalog::Generation,
+    stacked: bool,
+) -> PgResult<()> {
     if !SORTED_BY_ENFORCED {
         return Ok(());
     }
-    let Some(attnos) = sorted_by_attnos(rel) else { return Ok(()) };
+    let Some(attnos) = sorted_by_attnos(rel) else {
+        return Ok(());
+    };
     if stacked {
         inval::invalidate::CacheInvalidateRelcache(rel)?;
-        let _ = elog::elog(types_error::DEBUG1, format!("pgrc claim change: relcache invalidation of \"{}\" (stacked bulk load)", rel.name())); // alloc: Cold
+        let _ = elog::elog(
+            types_error::DEBUG1,
+            format!(
+                "pgrc claim change: relcache invalidation of \"{}\" (stacked bulk load)",
+                rel.name()
+            ),
+        ); // alloc: Cold
         return Ok(());
     }
     let after = claim_len(&attnos, Some(gen))?;
     let before = if prev_gen == 0 {
         Some(attnos.len())
     } else {
-        match crate::catalog::generations(slot).and_then(|(gens, _)| gens.into_iter().find(|g| g.gen == prev_gen)) {
+        match crate::catalog::generations(slot)
+            .and_then(|(gens, _)| gens.into_iter().find(|g| g.gen == prev_gen))
+        {
             Some(g) => Some(claim_len(&attnos, Some(&g))?),
             None => None,
         }
     };
     if before != Some(after) {
         inval::invalidate::CacheInvalidateRelcache(rel)?;
-        let _ = elog::elog(types_error::DEBUG1, format!("pgrc claim change: relcache invalidation of \"{}\" (claim {before:?} -> {after})", rel.name())); // alloc: Cold
+        let _ = elog::elog(
+            types_error::DEBUG1,
+            format!(
+                "pgrc claim change: relcache invalidation of \"{}\" (claim {before:?} -> {after})",
+                rel.name()
+            ),
+        ); // alloc: Cold
     }
     Ok(())
 }
@@ -228,6 +292,11 @@ pub fn attested_prefix(declared: &[u32], attested: &[SortKeyEntry]) -> usize {
     declared
         .iter()
         .zip(attested)
-        .take_while(|&(&a, k)| k.attno == a && k.pad == 0 && k.dir == SortDir::Asc as u8 && k.nulls == NullsOrder::Last as u8)
+        .take_while(|&(&a, k)| {
+            k.attno == a
+                && k.pad == 0
+                && k.dir == SortDir::Asc as u8
+                && k.nulls == NullsOrder::Last as u8
+        })
         .count()
 }

@@ -2876,6 +2876,7 @@ mod tests {
     /// Side A of an errpath step: an ErrorResponse carrying every field
     /// code the protocol defines (S V C M D H P p q W s t c d n F L R) —
     /// a not-null violation raised from a plpgsql EXECUTE, verbose.
+    #[allow(clippy::vec_init_then_push)]
     fn obs_error_fixture() -> ObservationRecord {
         let err = fields(&[
             ('S', "ERROR"),
@@ -2897,6 +2898,7 @@ mod tests {
             ('L', "1975"),
             ('R', "ExecConstraints"),
         ]);
+        #[allow(clippy::vec_init_then_push)]
         let mut wire = Vec::new();
         wire.push(WireMsg::ErrorResponse(err));
         wire.push(WireMsg::ReadyForQuery { status: 'E' });

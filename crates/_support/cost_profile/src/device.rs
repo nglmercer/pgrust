@@ -1,4 +1,3 @@
-
 use crate::fit::break_even_div;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -9,8 +8,16 @@ pub struct Device {
 }
 
 impl Device {
-    pub const COLD: Device = Device { fixed_ns: 542_000.0, random_ns_per_byte: 3.37, seq_ns_per_byte: 1.62 };
-    pub const WARM: Device = Device { fixed_ns: 620.0, random_ns_per_byte: 0.037, seq_ns_per_byte: 0.036 };
+    pub const COLD: Device = Device {
+        fixed_ns: 542_000.0,
+        random_ns_per_byte: 3.37,
+        seq_ns_per_byte: 1.62,
+    };
+    pub const WARM: Device = Device {
+        fixed_ns: 620.0,
+        random_ns_per_byte: 0.037,
+        seq_ns_per_byte: 0.036,
+    };
 
     pub const fn at_residency(resident: Option<(u64, u64)>) -> Device {
         let (cached, pages) = match resident {
@@ -21,13 +28,18 @@ impl Device {
         let c = 1.0 - w;
         Device {
             fixed_ns: w * Device::WARM.fixed_ns + c * Device::COLD.fixed_ns,
-            random_ns_per_byte: w * Device::WARM.random_ns_per_byte + c * Device::COLD.random_ns_per_byte,
+            random_ns_per_byte: w * Device::WARM.random_ns_per_byte
+                + c * Device::COLD.random_ns_per_byte,
             seq_ns_per_byte: w * Device::WARM.seq_ns_per_byte + c * Device::COLD.seq_ns_per_byte,
         }
     }
 
     pub const fn coalesce_gap(&self) -> u64 {
-        if self.seq_ns_per_byte.is_nan() || self.seq_ns_per_byte <= 0.0 || self.fixed_ns.is_nan() || self.fixed_ns <= 0.0 {
+        if self.seq_ns_per_byte.is_nan()
+            || self.seq_ns_per_byte <= 0.0
+            || self.fixed_ns.is_nan()
+            || self.fixed_ns <= 0.0
+        {
             return 0;
         }
         let g = self.fixed_ns / self.seq_ns_per_byte;
@@ -40,7 +52,10 @@ impl Device {
 
     pub const fn stream_div(&self, block: u64) -> usize {
         let b = block as f64;
-        break_even_div(self.fixed_ns + b * self.random_ns_per_byte, b * self.seq_ns_per_byte)
+        break_even_div(
+            self.fixed_ns + b * self.random_ns_per_byte,
+            b * self.seq_ns_per_byte,
+        )
     }
 
     pub fn faults_to_stream(&self, nblocks: u64, block: u64) -> u64 {
@@ -81,8 +96,17 @@ mod tests {
 
     #[test]
     fn the_reference_regimes_give_the_fitted_thresholds() {
-        assert_eq!((Device::COLD.coalesce_gap(), Device::WARM.coalesce_gap()), (334_567, 17_222));
-        assert_eq!((Device::COLD.stream_div(16 << 10), Device::WARM.stream_div(16 << 10)), (23, 3));
+        assert_eq!(
+            (Device::COLD.coalesce_gap(), Device::WARM.coalesce_gap()),
+            (334_567, 17_222)
+        );
+        assert_eq!(
+            (
+                Device::COLD.stream_div(16 << 10),
+                Device::WARM.stream_div(16 << 10)
+            ),
+            (23, 3)
+        );
     }
 
     #[test]
@@ -91,9 +115,16 @@ mod tests {
         assert_eq!(Device::at_residency(Some((0, 0))), Device::COLD);
         assert_eq!(Device::at_residency(Some((0, 10))), Device::COLD);
         assert_eq!(Device::at_residency(Some((10, 10))), Device::WARM);
-        assert_eq!(Device::at_residency(Some((12, 10))), Device::WARM, "a count past the pages is all cached");
+        assert_eq!(
+            Device::at_residency(Some((12, 10))),
+            Device::WARM,
+            "a count past the pages is all cached"
+        );
         let half = Device::at_residency(Some((5, 10)));
-        assert!(half.coalesce_gap() < Device::COLD.coalesce_gap() && half.coalesce_gap() > Device::WARM.coalesce_gap());
+        assert!(
+            half.coalesce_gap() < Device::COLD.coalesce_gap()
+                && half.coalesce_gap() > Device::WARM.coalesce_gap()
+        );
         let s = half.stream_div(16 << 10);
         assert!((3..=23).contains(&s), "{s}");
     }
@@ -102,7 +133,10 @@ mod tests {
     fn probes_touch_at_most_their_count_and_at_most_every_block() {
         assert_eq!((blocks_touched(0, 98), blocks_touched(5, 0)), (0.0, 0.0));
         assert!((blocks_touched(1, 98) - 1.0).abs() < 1e-9);
-        assert!((blocks_touched(7, 1) - 1.0).abs() < 1e-9, "one block: touched once");
+        assert!(
+            (blocks_touched(7, 1) - 1.0).abs() < 1e-9,
+            "one block: touched once"
+        );
         let ten = blocks_touched(10, 98);
         assert!(ten > 9.5 && ten < 10.0, "{ten}");
         let many = blocks_touched(10_000, 98);
@@ -114,22 +148,46 @@ mod tests {
         let b = 3 << 10;
         assert!(!Device::COLD.stream_pays(1, 49, b) && Device::COLD.stream_pays(2, 49, b));
         assert!(!Device::WARM.stream_pays(8, 49, b) && Device::WARM.stream_pays(10, 49, b));
-        assert!(!Device::COLD.stream_pays(0, 49, b) && !Device::COLD.stream_pays(5, 0, b), "no probes or no blocks never stream");
+        assert!(
+            !Device::COLD.stream_pays(0, 49, b) && !Device::COLD.stream_pays(5, 0, b),
+            "no probes or no blocks never stream"
+        );
         assert!(Device::COLD.stream_pays(u64::MAX, 49, b));
     }
 
     #[test]
     fn a_reader_streams_once_its_faults_have_cost_one_stream_with_its_fixed_cost() {
         let b = 16 << 10;
-        assert_eq!((Device::COLD.faults_to_stream(20, b), Device::COLD.faults_to_stream(98, b)), (2, 6));
-        assert!(Device::WARM.faults_to_stream(20, b) > 10, "{}", Device::WARM.faults_to_stream(20, b));
-        assert_eq!((Device::COLD.faults_to_stream(1, b), Device::COLD.faults_to_stream(0, b)), (1, 1), "one block or none: the first fault reads it");
+        assert_eq!(
+            (
+                Device::COLD.faults_to_stream(20, b),
+                Device::COLD.faults_to_stream(98, b)
+            ),
+            (2, 6)
+        );
+        assert!(
+            Device::WARM.faults_to_stream(20, b) > 10,
+            "{}",
+            Device::WARM.faults_to_stream(20, b)
+        );
+        assert_eq!(
+            (
+                Device::COLD.faults_to_stream(1, b),
+                Device::COLD.faults_to_stream(0, b)
+            ),
+            (1, 1),
+            "one block or none: the first fault reads it"
+        );
     }
 
     #[test]
     fn degenerate_inputs_stay_defined() {
         assert_eq!(Device::COLD.stream_div(0), usize::MAX);
-        let free = Device { fixed_ns: 0.0, random_ns_per_byte: 0.0, seq_ns_per_byte: 0.0 };
+        let free = Device {
+            fixed_ns: 0.0,
+            random_ns_per_byte: 0.0,
+            seq_ns_per_byte: 0.0,
+        };
         assert_eq!(free.coalesce_gap(), 0);
     }
 }

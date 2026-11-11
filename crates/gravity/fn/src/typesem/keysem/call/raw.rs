@@ -60,6 +60,7 @@ impl Slot {
     }
 
     /// Whether `r` runs this binding.
+    #[allow(dead_code)]
     pub(super) fn runs(&self, r: &Running) -> bool {
         self.0 == r.0
     }

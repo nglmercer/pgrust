@@ -112,7 +112,10 @@ pub(crate) fn make_auth_token(token: &[u8], quoted: bool) -> PgResult<AuthToken>
 
 pub(crate) fn copy_auth_token(input: &AuthToken) -> AuthToken {
     // C's copy_auth_token drops the compiled regex (make_auth_token copy).
-    AuthToken { regex: false, ..input.clone() }
+    AuthToken {
+        regex: false,
+        ..input.clone()
+    }
 }
 
 // regcomp_auth_token (hba.c:302): '/'-prefixed tokens compile a regex
@@ -139,7 +142,11 @@ pub(crate) fn regcomp_auth_token(
     let pattern = &crate::token_bytes(token)[1..];
     let cx = mcx::MemoryContext::new("regcomp_auth_token");
     let wstr = mbutils_seams::pg_mb2wchar_with_len::call(cx.mcx(), pattern)?;
-    match regex_core_seams::pg_regcomp::call(&wstr, REG_ADVANCED, types_core::catalog::C_COLLATION_OID)? {
+    match regex_core_seams::pg_regcomp::call(
+        &wstr,
+        REG_ADVANCED,
+        types_core::catalog::C_COLLATION_OID,
+    )? {
         RegcompResult::Compiled(re) => {
             // Parsed auth lines are shared across threads; the Rc-based
             // carrier cannot live in them. Validation happened; the executing
@@ -178,7 +185,8 @@ pub(crate) fn regexec_auth_token(
 
     debug_assert!(token.regex && token.string.starts_with('/'));
     let cx = mcx::MemoryContext::new("regexec_auth_token");
-    let wpat = mbutils_seams::pg_mb2wchar_with_len::call(cx.mcx(), &crate::token_bytes(token)[1..])?;
+    let wpat =
+        mbutils_seams::pg_mb2wchar_with_len::call(cx.mcx(), &crate::token_bytes(token)[1..])?;
     // Recompile of a parse-validated pattern (see regcomp_auth_token). C
     // executes the stored regex_t and cannot fail here; a recompile
     // refusal (engine state diverged since parse time) is surfaced as a
@@ -220,7 +228,10 @@ pub fn open_auth_file(
     }
 
     match std::fs::File::open(filename) {
-        Ok(file) => Ok(Some(FileHandle { reader: RefCell::new(BufReader::new(file)), depth })),
+        Ok(file) => Ok(Some(FileHandle {
+            reader: RefCell::new(BufReader::new(file)),
+            depth,
+        })),
         Err(e) => {
             let errno = e.raw_os_error().unwrap_or(0);
             ereport(elevel)

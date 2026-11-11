@@ -19,7 +19,9 @@ use types_nodes::jointype::JoinType;
 use types_nodes::Node;
 
 use crate::effects::visible::errorhold::quiet_cmp;
+#[allow(unused_imports)]
 use crate::effects::initdb_index;
+#[allow(unused_imports)]
 use crate::effects::visible::drain::{source_still, steps, user_clause};
 use crate::frame::px::Px;
 use crate::face::kinds::KindId;
@@ -44,6 +46,7 @@ impl<'g> Gx<'g, '_> {
         let ps = self.pipelines();
         let top = |q: usize| {
             let p = ps.get(q)?;
+            #[allow(clippy::question_mark)]
             let Some(b) = crate::frame::iface::breaker_of(&p.desc) else { return None };
             let (j, i, n) = p.ops.iter().enumerate().rev().find_map(|(j, o)| if let Op::Append(AppendDesc::Arm { i, n, .. }) = o { Some((j, *i, *n)) } else { None })?;
             let node = p.node_ops.iter().rev().find(|x| x.first_op as usize <= j).map_or(p.node_id, |x| x.node_id);

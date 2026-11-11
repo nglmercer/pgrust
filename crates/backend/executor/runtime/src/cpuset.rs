@@ -92,7 +92,13 @@ impl CpuPlan {
         if !self.pinned || self.node.is_none() {
             return None;
         }
-        let mut set: Vec<usize> = self.pools.iter().flatten().copied().filter(|c| boot.contains(c)).collect(); // alloc: Cold
+        let mut set: Vec<usize> = self
+            .pools
+            .iter()
+            .flatten()
+            .copied()
+            .filter(|c| boot.contains(c))
+            .collect(); // alloc: Cold
         set.sort_unstable();
         set.dedup();
         (!set.is_empty() && set.len() < boot.len()).then_some(set)
@@ -107,8 +113,17 @@ pub fn plan() -> &'static CpuPlan {
     PLAN.get_or_init(|| {
         let boot = allowed_cpus();
         let set = std::env::var("PGRUST_CPU_AFFINITY_SET").ok();
-        let node_override = std::env::var("PGRUST_RUNTIME_NUMA_NODE").ok().and_then(|v| v.trim().parse().ok());
-        select(&boot, set.as_deref(), pinning_requested(), NumaMode::from_env(), &topology(), node_override)
+        let node_override = std::env::var("PGRUST_RUNTIME_NUMA_NODE")
+            .ok()
+            .and_then(|v| v.trim().parse().ok());
+        select(
+            &boot,
+            set.as_deref(),
+            pinning_requested(),
+            NumaMode::from_env(),
+            &topology(),
+            node_override,
+        )
     })
 }
 
@@ -150,7 +165,9 @@ pub fn select(
     cpus.extend_from_slice(boot);
     if let Some(raw) = set {
         match parse_cpu_list(raw) {
-            None => notes.push(format!("PGRUST_CPU_AFFINITY_SET ({raw:?}) is unparseable; using the boot mask")),
+            None => notes.push(format!(
+                "PGRUST_CPU_AFFINITY_SET ({raw:?}) is unparseable; using the boot mask"
+            )),
             Some(req) => {
                 let inter: Vec<usize> = req.iter().copied().filter(|c| boot.contains(c)).collect();
                 if inter.is_empty() {
@@ -188,32 +205,69 @@ pub fn select(
         }
         if pools.len() > 1 {
             let first = pools[0].clone();
-            let id = nodes.iter().find(|n| n.cpus.contains(&first[0])).map_or(0, |n| n.id);
-            return CpuPlan { cpus: first, node: Some((id, nodes.len())), pools, explicit_set, pinned, notes };
+            let id = nodes
+                .iter()
+                .find(|n| n.cpus.contains(&first[0]))
+                .map_or(0, |n| n.id);
+            return CpuPlan {
+                cpus: first,
+                node: Some((id, nodes.len())),
+                pools,
+                explicit_set,
+                pinned,
+                notes,
+            };
         }
     }
     // The node rule: only a pinned pool without an explicit list, on a
     // machine with more than one node.
-    if pinned && !explicit_set && matches!(mode, NumaMode::Node | NumaMode::PerNode) && nodes.len() > 1 {
+    if pinned
+        && !explicit_set
+        && matches!(mode, NumaMode::Node | NumaMode::PerNode)
+        && nodes.len() > 1
+    {
         let pick = node_override
-            .and_then(|id| nodes.iter().find(|n| n.id == id && n.cpus.iter().any(|c| cpus.contains(c))))
-            .or_else(|| nodes.iter().find(|n| n.cpus.iter().any(|c| cpus.contains(c))));
+            .and_then(|id| {
+                nodes
+                    .iter()
+                    .find(|n| n.id == id && n.cpus.iter().any(|c| cpus.contains(c)))
+            })
+            .or_else(|| {
+                nodes
+                    .iter()
+                    .find(|n| n.cpus.iter().any(|c| cpus.contains(c)))
+            });
         if let Some(n) = pick {
             if node_override.is_some_and(|id| id != n.id) {
-                notes.push(format!("PGRUST_RUNTIME_NUMA_NODE names a node with no allowed cpus; using node {}", n.id));
+                notes.push(format!(
+                    "PGRUST_RUNTIME_NUMA_NODE names a node with no allowed cpus; using node {}",
+                    n.id
+                ));
             }
             cpus.retain(|c| n.cpus.contains(c));
             node = Some((n.id, nodes.len()));
         }
     }
-    CpuPlan { pools: vec![cpus.clone()], cpus, node, explicit_set, pinned, notes }
+    CpuPlan {
+        pools: vec![cpus.clone()],
+        cpus,
+        node,
+        explicit_set,
+        pinned,
+        notes,
+    }
 }
 
 /// The calling process's allowed CPUs (Linux: `/proc/self/status`
 /// `Cpus_allowed_list`, the same source the cpuaff e2e reads); elsewhere
 /// `0..available_parallelism`.
 pub fn allowed_cpus() -> Vec<usize> {
-    let fallback = || (0..std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1)).collect();
+    let fallback = || {
+        (0..std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(1))
+            .collect()
+    };
     #[cfg(target_os = "linux")]
     {
         if let Ok(s) = std::fs::read_to_string("/proc/self/status") {
@@ -239,8 +293,15 @@ pub fn topology() -> Vec<Node> {
             for e in rd.flatten() {
                 let name = e.file_name();
                 let name = name.to_string_lossy();
-                let Some(id) = name.strip_prefix("node").and_then(|s| s.parse::<usize>().ok()) else { continue };
-                let Ok(list) = std::fs::read_to_string(e.path().join("cpulist")) else { continue };
+                let Some(id) = name
+                    .strip_prefix("node")
+                    .and_then(|s| s.parse::<usize>().ok())
+                else {
+                    continue;
+                };
+                let Ok(list) = std::fs::read_to_string(e.path().join("cpulist")) else {
+                    continue;
+                };
                 if let Some(cpus) = parse_cpu_list(list.trim()) {
                     out.push(Node { id, cpus });
                 }
@@ -262,7 +323,10 @@ pub fn parse_cpu_list(s: &str) -> Option<Vec<usize>> {
     for item in s.split(',') {
         let item = item.trim();
         if let Some((lo, hi)) = item.split_once('-') {
-            let (lo, hi) = (lo.trim().parse::<usize>().ok()?, hi.trim().parse::<usize>().ok()?);
+            let (lo, hi) = (
+                lo.trim().parse::<usize>().ok()?,
+                hi.trim().parse::<usize>().ok()?,
+            );
             if lo > hi {
                 return None;
             }
@@ -309,7 +373,16 @@ mod tests {
     use super::*;
 
     fn two_nodes() -> Vec<Node> {
-        vec![Node { id: 0, cpus: (0..96).collect() }, Node { id: 1, cpus: (96..192).collect() }]
+        vec![
+            Node {
+                id: 0,
+                cpus: (0..96).collect(),
+            },
+            Node {
+                id: 1,
+                cpus: (96..192).collect(),
+            },
+        ]
     }
 
     #[test]
@@ -346,7 +419,14 @@ mod tests {
     #[test]
     fn explicit_set_beats_the_node_rule() {
         let boot: Vec<usize> = (0..192).collect();
-        let p = select(&boot, Some("0-95,96-191"), true, NumaMode::Node, &two_nodes(), None);
+        let p = select(
+            &boot,
+            Some("0-95,96-191"),
+            true,
+            NumaMode::Node,
+            &two_nodes(),
+            None,
+        );
         assert_eq!(p.cpus, boot);
         assert!(p.explicit_set);
         assert_eq!(p.node, None);
@@ -355,9 +435,18 @@ mod tests {
     #[test]
     fn unpinned_or_all_spans_every_allowed_cpu() {
         let boot: Vec<usize> = (0..192).collect();
-        assert_eq!(select(&boot, None, false, NumaMode::Node, &two_nodes(), None).cpus, boot);
-        assert_eq!(select(&boot, None, true, NumaMode::All, &two_nodes(), None).cpus, boot);
-        assert_eq!(select(&boot, None, true, NumaMode::Off, &two_nodes(), None).cpus, boot);
+        assert_eq!(
+            select(&boot, None, false, NumaMode::Node, &two_nodes(), None).cpus,
+            boot
+        );
+        assert_eq!(
+            select(&boot, None, true, NumaMode::All, &two_nodes(), None).cpus,
+            boot
+        );
+        assert_eq!(
+            select(&boot, None, true, NumaMode::Off, &two_nodes(), None).cpus,
+            boot
+        );
     }
 
     #[test]
@@ -376,7 +465,10 @@ mod tests {
         assert_eq!(p.node, Some((0, 2)));
         // Single-node machine: identical to the default.
         let boot: Vec<usize> = (0..16).collect();
-        assert_eq!(select(&boot, None, true, NumaMode::PerNode, &[], None), select(&boot, None, true, NumaMode::Node, &[], None));
+        assert_eq!(
+            select(&boot, None, true, NumaMode::PerNode, &[], None),
+            select(&boot, None, true, NumaMode::Node, &[], None)
+        );
     }
 
     #[test]
@@ -401,16 +493,44 @@ mod tests {
         assert_eq!(p.helper_cpus(&boot), Some((96..192).collect()));
         // every allowed CPU (all / off / unpinned / per-node over both nodes): nothing to narrow
         for mode in [NumaMode::All, NumaMode::Off, NumaMode::PerNode] {
-            assert_eq!(select(&boot, None, true, mode, &two_nodes(), None).helper_cpus(&boot), None, "{mode:?}");
+            assert_eq!(
+                select(&boot, None, true, mode, &two_nodes(), None).helper_cpus(&boot),
+                None,
+                "{mode:?}"
+            );
         }
-        assert_eq!(select(&boot, None, false, NumaMode::Node, &two_nodes(), None).helper_cpus(&boot), None, "unpinned");
+        assert_eq!(
+            select(&boot, None, false, NumaMode::Node, &two_nodes(), None).helper_cpus(&boot),
+            None,
+            "unpinned"
+        );
         // one node: the plan is the boot mask
-        let one = vec![Node { id: 0, cpus: (0..16).collect() }];
+        let one = vec![Node {
+            id: 0,
+            cpus: (0..16).collect(),
+        }];
         let b16: Vec<usize> = (0..16).collect();
-        assert_eq!(select(&b16, None, true, NumaMode::Node, &one, None).helper_cpus(&b16), None);
-        assert_eq!(select(&b16, None, true, NumaMode::Node, &[], None).helper_cpus(&b16), None);
+        assert_eq!(
+            select(&b16, None, true, NumaMode::Node, &one, None).helper_cpus(&b16),
+            None
+        );
+        assert_eq!(
+            select(&b16, None, true, NumaMode::Node, &[], None).helper_cpus(&b16),
+            None
+        );
         // an explicit list is the operator's: the helpers are left alone
-        assert_eq!(select(&boot, Some("0-13"), true, NumaMode::Node, &two_nodes(), None).helper_cpus(&boot), None);
+        assert_eq!(
+            select(
+                &boot,
+                Some("0-13"),
+                true,
+                NumaMode::Node,
+                &two_nodes(),
+                None
+            )
+            .helper_cpus(&boot),
+            None
+        );
         // a container that allows part of each node: the workers' part of node 0
         let part: Vec<usize> = (40..140).collect();
         let p = select(&part, None, true, NumaMode::Node, &two_nodes(), None);
@@ -420,9 +540,23 @@ mod tests {
     #[test]
     fn parse_and_format() {
         assert_eq!(parse_cpu_list("1-14"), Some((1..=14).collect()));
-        assert_eq!(parse_cpu_list(" 0-3, 8 - 11 ,15"), Some(vec![0, 1, 2, 3, 8, 9, 10, 11, 15]));
+        assert_eq!(
+            parse_cpu_list(" 0-3, 8 - 11 ,15"),
+            Some(vec![0, 1, 2, 3, 8, 9, 10, 11, 15])
+        );
         assert_eq!(parse_cpu_list("4,2,2,3,3-5"), Some(vec![2, 3, 4, 5]));
-        for bad in ["", " ", "a", "1,,2", "1-", "-3", "3-1", "1;2", "0-1023,1024", "1024"] {
+        for bad in [
+            "",
+            " ",
+            "a",
+            "1,,2",
+            "1-",
+            "-3",
+            "3-1",
+            "1;2",
+            "0-1023,1024",
+            "1024",
+        ] {
             assert_eq!(parse_cpu_list(bad), None, "input {bad:?}");
         }
         assert_eq!(format_cpu_list(&[0, 1, 3, 4, 7]), "0-1,3-4,7");

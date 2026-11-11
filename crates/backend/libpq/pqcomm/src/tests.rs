@@ -185,7 +185,10 @@ fn partial_writes_complete_on_flush() {
     WRITE_CHUNK.with(|c| c.set(3));
     assert_eq!(pq_putmessage(b'N', b"abcdef").unwrap(), 0);
     assert_eq!(pq_flush().unwrap(), 0);
-    assert_eq!(wire(), vec![b'N', 0, 0, 0, 10, b'a', b'b', b'c', b'd', b'e', b'f']);
+    assert_eq!(
+        wire(),
+        vec![b'N', 0, 0, 0, 10, b'a', b'b', b'c', b'd', b'e', b'f']
+    );
 }
 
 #[test]
@@ -366,7 +369,9 @@ fn getmessage_incomplete_body() {
 #[test]
 fn getmessage_body_larger_than_recv_buffer() {
     setup();
-    let body: Vec<u8> = (0..PQ_RECV_BUFFER_SIZE * 2 + 33).map(|i| (i % 251) as u8).collect();
+    let body: Vec<u8> = (0..PQ_RECV_BUFFER_SIZE * 2 + 33)
+        .map(|i| (i % 251) as u8)
+        .collect();
     let mut msg = ((body.len() + 4) as u32).to_be_bytes().to_vec();
     msg.extend_from_slice(&body);
     feed(&msg);
@@ -422,7 +427,10 @@ fn keepalive_guc_hooks_log_outside_the_port_borrow() {
     let prev_prefix = elog::config::log_line_prefix_format();
     elog::config::set_log_line_prefix(Some("%u ".to_string()));
 
-    let mut port = Port::new(&ClientSocket { sock: -1, raddr: ip::SockAddr::zeroed() });
+    let mut port = Port::new(&ClientSocket {
+        sock: -1,
+        raddr: ip::SockAddr::zeroed(),
+    });
     let mut ss: libc::sockaddr_storage = unsafe { std::mem::zeroed() };
     ss.ss_family = libc::AF_INET as libc::sa_family_t;
     let n = std::mem::size_of::<libc::sockaddr_storage>().min(port.laddr.addr.len());
@@ -435,7 +443,11 @@ fn keepalive_guc_hooks_log_outside_the_port_borrow() {
     assert!(init_small::globals::HaveMyProcPort());
 
     crate::socket::assign_tcp_keepalives_idle(30);
-    assert_eq!(crate::socket::show_tcp_keepalives_idle(), "-1", "the failed default read is stored on the Port");
+    assert_eq!(
+        crate::socket::show_tcp_keepalives_idle(),
+        "-1",
+        "the failed default read is stored on the Port"
+    );
     crate::socket::assign_tcp_keepalives_count(3);
     assert_eq!(crate::socket::show_tcp_keepalives_count(), "-1");
 
@@ -444,7 +456,11 @@ fn keepalive_guc_hooks_log_outside_the_port_borrow() {
     assert_eq!(
         seen,
         vec![
-            format!("getsockopt({}) failed: {}", crate::socket::PG_TCP_KEEPALIVE_IDLE_STR, bad),
+            format!(
+                "getsockopt({}) failed: {}",
+                crate::socket::PG_TCP_KEEPALIVE_IDLE_STR,
+                bad
+            ),
             format!("getsockopt(TCP_KEEPCNT) failed: {}", bad),
         ]
     );
@@ -457,16 +473,24 @@ fn keepalive_guc_hooks_log_outside_the_port_borrow() {
 #[test]
 fn a_terminate_raised_while_a_notice_is_sent_ends_the_caller() {
     setup();
-    let prev = (elog::config::where_to_send_output(), elog::config::client_min_messages());
+    let prev = (
+        elog::config::where_to_send_output(),
+        elog::config::client_min_messages(),
+    );
     elog::config::set_where_to_send_output(types_dest::CommandDest::Remote);
     elog::config::set_client_min_messages(types_error::NOTICE);
     WRITE_FATAL.with(|c| c.set(true));
-    let r = elog::elog(types_error::NOTICE, "a notice to a client that does not read");
+    let r = elog::elog(
+        types_error::NOTICE,
+        "a notice to a client that does not read",
+    );
     let fired = !WRITE_FATAL.with(|c| c.replace(false));
     elog::config::set_where_to_send_output(prev.0);
     elog::config::set_client_min_messages(prev.1);
     assert!(fired, "the NOTICE reached the wire (secure_write)");
-    let e = r.expect_err("the terminate raised during the send must end the elog's caller, not be discarded");
+    let e = r.expect_err(
+        "the terminate raised during the send must end the elog's caller, not be discarded",
+    );
     assert_eq!(e.level(), types_error::FATAL);
     assert_eq!(e.sqlstate(), types_error::ERRCODE_ADMIN_SHUTDOWN);
 }
@@ -476,7 +500,10 @@ fn a_terminate_raised_while_a_notice_is_sent_ends_the_caller() {
 // (batch-232 fp-libpq-pqcomm#1).
 #[test]
 fn unix_socket_path_is_clipped_to_maxpgpath() {
-    assert_eq!(socket::unix_socket_path_for("/tmp", 5432), "/tmp/.s.PGSQL.5432");
+    assert_eq!(
+        socket::unix_socket_path_for("/tmp", 5432),
+        "/tmp/.s.PGSQL.5432"
+    );
     let dir = "/".to_string() + &"d".repeat(1100);
     let path = socket::unix_socket_path_for(&dir, 5432);
     assert_eq!(path.len(), 1023);

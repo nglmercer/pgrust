@@ -18,6 +18,7 @@ use crate::cell::{At, Cell, CellHome, CellLife};
 use crate::face::kinds::KindId;
 use crate::admit::refusal::Reason;
 use crate::ops::Table;
+#[allow(unused_imports)]
 use crate::rep::{self, BlockLane, BlockRef, CellRef, DatumArm, Kept, Lx, RetainHome};
 
 pub(crate) const ROWS: Table = Table { kinds: &[(KindId::RepCodeDatum, &ARM)], ..crate::ops::NONE };
@@ -190,14 +191,17 @@ mod tests {
     /// B4b-1: a datum cell off a lane (a spill pair's kept text, a frame slot) never reads as a code word; a code's record
     /// word does.
     #[test]
+    #[allow(dropping_copy_types)]
     fn a_datum_cell_off_a_lane_refuses_to_read_as_a_code_word() {
         let dict = DictRef { lane: 2, fp_table: 1 };
         let life = CellLife { until: Until::Part, home: CellHome::FrameSlot };
         let datum = Cell { rep: Rep::VarlenaPtr, typid: 25, num: NumTypmod::NONE, life, at: At::Slot(0), null: Nullable::Maybe };
+        #[allow(dropping_copy_types)]
         match run(&datum, |cx, r| drop(super::word(cx, r))) {
             Err(crate::Refusal { reason: Reason::Bug { payload }, node: 9, .. }) => assert_eq!(payload, "a datum cell read as a code word"),
             other => panic!("not a Bug at node 9: {other:?}"),
         }
+        #[allow(unused_attributes)]
         let code = Cell { rep: Rep::Code { dict }, ..datum };
         assert!(run(&code, |cx, r| drop(super::word(cx, r))).is_ok(), "a code's record word reads as its word");
     }
@@ -206,6 +210,7 @@ mod tests {
     /// form but its hash image, by name at its node, before a kept cell could drop the marker; under a same-dictionary
     /// scope its image is the Fp128 pair, never the code; a FrameSlot code cell of the same dictionary keeps the code.
     #[test]
+    #[allow(dropping_copy_types, unused_attributes)]
     fn an_image_only_key_cell_refuses_every_form_but_its_hash_image() {
         let dict = DictRef { lane: 2, fp_table: 1 };
         let c = Cell { rep: Rep::Code { dict }, typid: 25, num: NumTypmod::NONE, life: CellLife { until: Until::Row, home: CellHome::ImageOnly }, at: At::Lane(LaneId::col(2)), null: Nullable::Maybe };
@@ -218,12 +223,16 @@ mod tests {
             other => panic!("not a Bug at node 9: {other:?}"),
         };
         assert_eq!(bug(run(&c, |cx, r| drop(rep::datum(cx, r, tf)))), "an image-only key cell read as a datum");
+        #[allow(unused_attributes)]
         assert_eq!(bug(run(&c, |cx, r| drop(rep::retain(cx, r, tf, Until::Life, RetainHome::Frame)))), "an image-only key cell read as a kept word");
         assert_eq!(bug(run(&c, |cx, r| drop(rep::block(cx, r, tf, BlockRef { elem: r.val, rows: r.val })))), "an image-only key cell read as a block");
+        #[allow(unused_attributes)]
         assert_eq!(bug(run(&c, |cx, r| drop(super::word(cx, r)))), "an image-only key cell read as a word");
         assert_eq!(bug(run(&c, |cx, r| drop(crate::rep::code::order::rank(cx, r, coll)))), "an image-only key cell read as a rank");
+        #[allow(unused_attributes)]
         assert_eq!(bug(run(&c, |cx, r| drop(rep::order_words(cx, r, tf, coll)))), "an image-only key cell read as an order image");
         let words = |c: &Cell| run(c, |cx, r| rep::hash_image(cx, r, tf, rep::Scope::SameDict(dict)).w.map(|w| w.is_some())).expect("a hash image");
+        #[allow(unused_attributes)]
         assert_eq!(words(&c), [true, true], "the Fp128 pair");
         assert_eq!(words(&plain), [true, false], "the same-dictionary code");
     }

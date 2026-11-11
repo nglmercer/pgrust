@@ -395,6 +395,7 @@ fn hash_agrees(typid: Oid, depth: u32) -> R<bool> {
     // a core `=` under a user default btree opclass, family or comparison (a user opclass put in a core family with its own
     // FUNCTION 1, m6_multirange_keys' mrk_q1_ops / mrk_q2_ops in text_ops: a SQL comparator, or bpcharcmp for varchar):
     // PostgreSQL's sorted plans group by that comparison, its hashed ones by the `=`. A user `=` owns its comparison.
+    #[allow(clippy::nonminimal_bool)]
     if !(eq != 0 && !super::builtin(eq)) && super::super::user_equality(typid)? {
         return Ok(false);
     }

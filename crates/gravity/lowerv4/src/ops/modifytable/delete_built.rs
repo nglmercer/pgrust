@@ -149,7 +149,7 @@ pub(super) fn union_feeds<'g>(gx: &crate::graph::Gx<'g, '_>, k: usize, w: &Write
 fn same_layout(gx: &crate::graph::Gx<'_, '_>, w: &WriteDesc<'_>) -> bool {
     use gravity_decompose::ops::modifytable::partwrite::root_attno;
     let layout = |t: &gravity_decompose::ops::shared::modifytable::Target<'_>| {
-        let n = gx.facts.rel(t.relid)?.natts.max(0) as i16;
+        let n = gx.facts.rel(t.relid)?.natts.max(0);
         Some((1..=n).map(|a| (gx.facts.att(t.relid, a).map(|f| f.typid), root_attno(t, a))).collect_in(gx.mcx))
     };
     let Some(first) = w.targets.first().and_then(layout) else { return false };

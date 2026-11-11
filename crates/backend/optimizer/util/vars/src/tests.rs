@@ -29,7 +29,13 @@ fn pull_varnos_collects_varnos_and_nullingrels() {
     nulling.add_member(mcx, 5).unwrap();
     let v2 = Node::mk(
         mcx,
-        Var { varno: 2, varattno: 1, vartype: 23, varnullingrels: nulling, ..Default::default() },
+        Var {
+            varno: 2,
+            varattno: 1,
+            vartype: 23,
+            varnullingrels: nulling,
+            ..Default::default()
+        },
     )
     .unwrap();
     let expr = Node::mk_list(mcx, NodeList::make2(mcx, v1, v2).unwrap()).unwrap();
@@ -39,13 +45,13 @@ fn pull_varnos_collects_varnos_and_nullingrels() {
 }
 
 #[test]
+#[allow(clippy::field_reassign_with_default)]
 fn pull_varnos_recurses_into_rte_subquery() {
     let ctx = cx();
     let mcx = ctx.mcx();
 
     // Inner query's tlist references an outer var (varlevelsup 1, varno 3).
-    let inner_te =
-        Node::mk_target_entry(mcx, var(mcx, 3, 1, 1), 1, None, false).unwrap();
+    let inner_te = Node::mk_target_entry(mcx, var(mcx, 3, 1, 1), 1, None, false).unwrap();
     let mut inner = Query::default();
     inner.targetList = NodeList::make1(mcx, inner_te).unwrap();
     inner.jointree = Some(Node::mk_mut(mcx, FromExpr::default()).unwrap().seal_ref());
@@ -70,6 +76,7 @@ fn pull_varnos_recurses_into_rte_subquery() {
 }
 
 #[test]
+#[allow(clippy::field_reassign_with_default)]
 fn pull_varnos_recurses_into_sublink_subselect() {
     let ctx = cx();
     let mcx = ctx.mcx();
@@ -96,12 +103,18 @@ fn pull_varnos_recurses_into_sublink_subselect() {
         },
     )
     .unwrap();
-    let expr = Node::mk_list(mcx, NodeList::make2(mcx, var(mcx, 1, 1, 0), sublink).unwrap())
-        .unwrap();
+    let expr = Node::mk_list(
+        mcx,
+        NodeList::make2(mcx, var(mcx, 1, 1, 0), sublink).unwrap(),
+    )
+    .unwrap();
 
     let varnos = pull_varnos(mcx, expr).unwrap();
     assert!(varnos.is_member(1), "top-level var");
-    assert!(varnos.is_member(2), "outer reference inside sublink subselect");
+    assert!(
+        varnos.is_member(2),
+        "outer reference inside sublink subselect"
+    );
     assert!(!varnos.is_member(7), "subselect-local var must be excluded");
     assert_eq!(varnos.num_members(), 2);
 }
@@ -142,7 +155,13 @@ fn contain_and_locate_vars() {
 
     let located = Node::mk(
         mcx,
-        Var { varno: 1, varattno: 1, vartype: 23, location: 42, ..Default::default() },
+        Var {
+            varno: 1,
+            varattno: 1,
+            vartype: 23,
+            location: 42,
+            ..Default::default()
+        },
     )
     .unwrap();
     let te = Node::mk_target_entry(mcx, located, 1, None, false).unwrap();
@@ -194,6 +213,7 @@ fn dummy_rte(mcx: Mcx<'_>) -> Node<'_> {
     Node::mk(mcx, RangeTblEntry::default()).unwrap()
 }
 
+#[allow(clippy::field_reassign_with_default)]
 fn join_rte<'a>(mcx: Mcx<'a>, alias: Node<'a>) -> Node<'a> {
     let mut rte = RangeTblEntry::default();
     rte.rtekind = RTEKind::RTE_JOIN;
@@ -205,6 +225,7 @@ fn rtable_with_join<'a>(mcx: Mcx<'a>, alias: Node<'a>) -> NodeList<'a> {
     NodeList::make2(mcx, dummy_rte(mcx), join_rte(mcx, alias)).unwrap()
 }
 
+#[allow(clippy::field_reassign_with_default)]
 fn query_tlist_var<'a>(mcx: Mcx<'a>, v: Node<'a>) -> Node<'a> {
     let te = Node::mk_target_entry(mcx, v, 1, None, false).unwrap();
     let mut q = Query::default();
@@ -286,6 +307,7 @@ fn flatten_join_alias_unsupported_expr_is_ereport() {
 }
 
 #[test]
+#[allow(clippy::field_reassign_with_default)]
 fn flatten_group_exprs_rewrites_window_start_offset() {
     let ctx = cx();
     let mcx = ctx.mcx();
@@ -334,36 +356,75 @@ fn flatten_join_alias_vars_expands_subquery_placeholder_relids() {
     let ctx = cx();
     let mcx = ctx.mcx();
     let rtable = NodeList::make3(
-        mcx, dummy_rte(mcx), dummy_rte(mcx), join_rte(mcx, var(mcx, 1, 1, 0)),
-    ).unwrap();
-    let join = Node::mk(mcx, JoinExpr {
-        jointype: types_nodes::jointype::JoinType::JOIN_INNER,
-        isNatural: false,
-        larg: Node::mk(mcx, RangeTblRef { rtindex: 1 }).unwrap(),
-        rarg: Node::mk(mcx, RangeTblRef { rtindex: 2 }).unwrap(),
-        usingClause: NodeList::nil(), join_using_alias: None,
-        quals: None, alias: None, rtindex: 3,
-    }).unwrap();
-    let jt = Node::mk_mut(mcx, FromExpr {
-        fromlist: NodeList::make1(mcx, join).unwrap(), quals: None,
-    }).unwrap().seal_ref();
+        mcx,
+        dummy_rte(mcx),
+        dummy_rte(mcx),
+        join_rte(mcx, var(mcx, 1, 1, 0)),
+    )
+    .unwrap();
+    let join = Node::mk(
+        mcx,
+        JoinExpr {
+            jointype: types_nodes::jointype::JoinType::JOIN_INNER,
+            isNatural: false,
+            larg: Node::mk(mcx, RangeTblRef { rtindex: 1 }).unwrap(),
+            rarg: Node::mk(mcx, RangeTblRef { rtindex: 2 }).unwrap(),
+            usingClause: NodeList::nil(),
+            join_using_alias: None,
+            quals: None,
+            alias: None,
+            rtindex: 3,
+        },
+    )
+    .unwrap();
+    let jt = Node::mk_mut(
+        mcx,
+        FromExpr {
+            fromlist: NodeList::make1(mcx, join).unwrap(),
+            quals: None,
+        },
+    )
+    .unwrap()
+    .seal_ref();
     for levelsup in [0, 1, 2] {
         let mut phrels = Bitmapset::empty();
         phrels.add_member(mcx, 3).unwrap();
         let mut nulling = Bitmapset::empty();
         nulling.add_member(mcx, 4).unwrap();
-        let phv = Node::mk(mcx, PlaceHolderVar {
-            phexpr: var(mcx, 1, 1, levelsup), phrels,
-            phnullingrels: nulling, phid: 1, phlevelsup: levelsup,
-        }).unwrap();
+        let phv = Node::mk(
+            mcx,
+            PlaceHolderVar {
+                phexpr: var(mcx, 1, 1, levelsup),
+                phrels,
+                phnullingrels: nulling,
+                phid: 1,
+                phlevelsup: levelsup,
+            },
+        )
+        .unwrap();
         let q = query_tlist_var(mcx, phv);
         let out = flatten_join_alias_vars(mcx, &rtable, Some(jt), None, q).unwrap();
-        let result = out.as_query().unwrap().targetList.nth(0)
-            .as_target_entry().unwrap().expr.as_place_holder_var().unwrap();
+        let result = out
+            .as_query()
+            .unwrap()
+            .targetList
+            .nth(0)
+            .as_target_entry()
+            .unwrap()
+            .expr
+            .as_place_holder_var()
+            .unwrap();
         let expected = if levelsup == 1 { vec![1, 2] } else { vec![3] };
         assert_eq!(result.phrels.iter().collect::<Vec<_>>(), expected);
         assert_eq!(result.phnullingrels.iter().collect::<Vec<_>>(), vec![4]);
-        assert_eq!(phv.as_place_holder_var().unwrap().phrels.iter().collect::<Vec<_>>(), vec![3]);
+        assert_eq!(
+            phv.as_place_holder_var()
+                .unwrap()
+                .phrels
+                .iter()
+                .collect::<Vec<_>>(),
+            vec![3]
+        );
     }
 }
 
@@ -377,7 +438,13 @@ fn contain_var_clause_seam_propagates_stack_depth_error() {
         let arg = var(mcx, 1, 1, 0);
         let op = Node::mk(
             mcx,
-            OpExpr { opno: 96, opfuncid: 65, opresulttype: 16, args: NodeList::make2(mcx, arg, arg).unwrap(), ..Default::default() },
+            OpExpr {
+                opno: 96,
+                opfuncid: 65,
+                opresulttype: 16,
+                args: NodeList::make2(mcx, arg, arg).unwrap(),
+                ..Default::default()
+            },
         )
         .unwrap();
         stack_depth_core::set_stack_base();

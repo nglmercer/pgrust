@@ -1,9 +1,10 @@
 use crate::{appendf, block_data, has_block_data, rec_data, rec_info, Rec, XLR_INFO_MASK};
 use gin_vocab::{
-    size_of_gin_posting_list, SHORTALIGN, GIN_INSERT_ISDATA, GIN_INSERT_ISLEAF, GIN_SEGMENT_ADDITEMS,
-    GIN_SEGMENT_DELETE, GIN_SEGMENT_INSERT, GIN_SEGMENT_REPLACE, GinMetaPageData, XLOG_GIN_CREATE_PTREE,
-    XLOG_GIN_DELETE_LISTPAGE, XLOG_GIN_DELETE_PAGE, XLOG_GIN_INSERT, XLOG_GIN_INSERT_LISTPAGE,
-    XLOG_GIN_SPLIT, XLOG_GIN_UPDATE_META_PAGE, XLOG_GIN_VACUUM_DATA_LEAF_PAGE, XLOG_GIN_VACUUM_PAGE,
+    size_of_gin_posting_list, GinMetaPageData, GIN_INSERT_ISDATA, GIN_INSERT_ISLEAF,
+    GIN_SEGMENT_ADDITEMS, GIN_SEGMENT_DELETE, GIN_SEGMENT_INSERT, GIN_SEGMENT_REPLACE, SHORTALIGN,
+    XLOG_GIN_CREATE_PTREE, XLOG_GIN_DELETE_LISTPAGE, XLOG_GIN_DELETE_PAGE, XLOG_GIN_INSERT,
+    XLOG_GIN_INSERT_LISTPAGE, XLOG_GIN_SPLIT, XLOG_GIN_UPDATE_META_PAGE,
+    XLOG_GIN_VACUUM_DATA_LEAF_PAGE, XLOG_GIN_VACUUM_PAGE,
 };
 use stringinfo::StringInfo;
 use types_error::PgResult;
@@ -63,8 +64,16 @@ pub fn gin_desc(buf: &mut StringInfo<'_>, record: &XLogReaderState) -> PgResult<
             appendf!(
                 buf,
                 "isdata: {} isleaf: {}",
-                if flags & GIN_INSERT_ISDATA != 0 { 'T' } else { 'F' },
-                if flags & GIN_INSERT_ISLEAF != 0 { 'T' } else { 'F' }
+                if flags & GIN_INSERT_ISDATA != 0 {
+                    'T'
+                } else {
+                    'F'
+                },
+                if flags & GIN_INSERT_ISLEAF != 0 {
+                    'T'
+                } else {
+                    'F'
+                }
             )?;
             if flags & GIN_INSERT_ISLEAF == 0 {
                 // ginxlogInsert (2 bytes) followed by BlockIdData[2] (both
@@ -91,11 +100,7 @@ pub fn gin_desc(buf: &mut StringInfo<'_>, record: &XLogReaderState) -> PgResult<
                 if flags & GIN_INSERT_ISDATA == 0 {
                     // ginxlogInsertEntry: offset 0, isDelete 2.
                     let is_delete = Rec(payload).u8(2, "ginxlogInsertEntry")?;
-                    appendf!(
-                        buf,
-                        " isdelete: {}",
-                        if is_delete != 0 { 'T' } else { 'F' }
-                    )?;
+                    appendf!(buf, " isdelete: {}", if is_delete != 0 { 'T' } else { 'F' })?;
                 } else if flags & GIN_INSERT_ISLEAF != 0 {
                     desc_recompress_leaf(buf, payload)?;
                 } else {
@@ -123,13 +128,25 @@ pub fn gin_desc(buf: &mut StringInfo<'_>, record: &XLogReaderState) -> PgResult<
             appendf!(
                 buf,
                 "isrootsplit: {}",
-                if flags & gin_vocab::GIN_SPLIT_ROOT != 0 { 'T' } else { 'F' }
+                if flags & gin_vocab::GIN_SPLIT_ROOT != 0 {
+                    'T'
+                } else {
+                    'F'
+                }
             )?;
             appendf!(
                 buf,
                 " isdata: {} isleaf: {}",
-                if flags & GIN_INSERT_ISDATA != 0 { 'T' } else { 'F' },
-                if flags & GIN_INSERT_ISLEAF != 0 { 'T' } else { 'F' }
+                if flags & GIN_INSERT_ISDATA != 0 {
+                    'T'
+                } else {
+                    'F'
+                },
+                if flags & GIN_INSERT_ISLEAF != 0 {
+                    'T'
+                } else {
+                    'F'
+                }
             )?;
         }
         XLOG_GIN_VACUUM_PAGE => {}

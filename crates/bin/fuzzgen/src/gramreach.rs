@@ -68,6 +68,7 @@ fn stmt_rules() -> &'static StmtRules {
             .expect("stmt nonterminal in YYTNAME");
         let mut kind_of_rule: Vec<Option<usize>> = vec![None; gt::YYNRULES + 1];
         let mut kinds: Vec<&'static str> = Vec::new();
+        #[allow(clippy::needless_range_loop)]
         for r in 1..=gt::YYNRULES {
             if gt::YYR1[r] as usize != stmt_sym {
                 continue;

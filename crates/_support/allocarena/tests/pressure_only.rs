@@ -5,7 +5,8 @@
 //! session after its ReadyForQuery). Its own test binary: the purge delay is process-wide.
 
 #[global_allocator]
-static GLOBAL: init_small::oom::Rescue<mimalloc::MiMalloc> = init_small::oom::Rescue(mimalloc::MiMalloc);
+static GLOBAL: init_small::oom::Rescue<mimalloc::MiMalloc> =
+    init_small::oom::Rescue(mimalloc::MiMalloc);
 
 // The arenas before mimalloc's constructor, as the server's, with the purge delay at -1 (v3 mi_option_purge_delay = 15).
 extern "C" fn before_mimalloc() {
@@ -33,10 +34,16 @@ const BIG: usize = 8 << 20;
 
 #[test]
 fn under_pressure_only_freed_pages_stay_until_the_pressure_purge() {
-    assert!(allocarena::general_arenas() >= 1, "the general arenas are installed");
+    assert!(
+        allocarena::general_arenas() >= 1,
+        "the general arenas are installed"
+    );
     let b = std::hint::black_box(vec![3u8; SIZE]);
     let p = b.as_ptr() as usize;
-    assert!(allocarena::in_arenas(b.as_ptr()) && !allocarena::in_cache_arena(b.as_ptr()), "a general arena's block");
+    assert!(
+        allocarena::in_arenas(b.as_ptr()) && !allocarena::in_cache_arena(b.as_ptr()),
+        "a general arena's block"
+    );
     drop(b);
     // a forced collect on another thread: with the delay at -1 it purges nothing
     std::thread::spawn(|| {
@@ -49,15 +56,31 @@ fn under_pressure_only_freed_pages_stay_until_the_pressure_purge() {
     .unwrap();
     // SAFETY: as above, on this thread.
     unsafe { libmimalloc_sys::mi_collect(true) };
-    assert!(resident(p, SIZE) >= SIZE * 9 / 10, "no purge at -1, forced collects included: {} resident", resident(p, SIZE));
+    assert!(
+        resident(p, SIZE) >= SIZE * 9 / 10,
+        "no purge at -1, forced collects included: {} resident",
+        resident(p, SIZE)
+    );
     allocarena::set_reuse(true);
-    assert!(allocarena::reusable_bytes() >= SIZE as u64 / 2, "the freed range is reusable: {}", allocarena::reusable_bytes());
+    assert!(
+        allocarena::reusable_bytes() >= SIZE as u64 / 2,
+        "the freed range is reusable: {}",
+        allocarena::reusable_bytes()
+    );
     // the reuse claim takes it with nothing marked purge-pending
     let self0 = allocarena::alloc_sources().0;
     let g = std::hint::black_box(Vec::<u8>::with_capacity(BIG));
     let q = g.as_ptr() as usize;
-    assert!(allocarena::alloc_sources().0 >= self0 + BIG as u64, "a self-claim of the committed free run: {:?}", allocarena::alloc_sources());
-    assert!(resident(q, BIG) >= BIG * 9 / 10, "resident before its first write: {} of {BIG}", resident(q, BIG));
+    assert!(
+        allocarena::alloc_sources().0 >= self0 + BIG as u64,
+        "a self-claim of the committed free run: {:?}",
+        allocarena::alloc_sources()
+    );
+    assert!(
+        resident(q, BIG) >= BIG * 9 / 10,
+        "resident before its first write: {} of {BIG}",
+        resident(q, BIG)
+    );
     drop(g);
     // SAFETY: as above.
     unsafe { libmimalloc_sys::mi_collect(false) };
@@ -68,13 +91,36 @@ fn under_pressure_only_freed_pages_stay_until_the_pressure_purge() {
     let n = allocarena::purge_unused(false);
     allocarena::set_purge_phase(0);
     let t1 = allocarena::purge_times();
-    assert_eq!(t1[2][0], t0[2][0] + 1, "one event after ReadyForQuery: {t0:?} -> {t1:?}");
-    assert!(t1[2][1] > t0[2][1] && t1[2][2] >= t1[2][1] - t0[2][1], "timed, the longest at least this one: {t1:?}");
+    assert_eq!(
+        t1[2][0],
+        t0[2][0] + 1,
+        "one event after ReadyForQuery: {t0:?} -> {t1:?}"
+    );
+    assert!(
+        t1[2][1] > t0[2][1] && t1[2][2] >= t1[2][1] - t0[2][1],
+        "timed, the longest at least this one: {t1:?}"
+    );
     assert_eq!(t1[2][3], t0[2][3] + n, "its bytes: {t1:?}");
-    assert_eq!((t1[0], t1[1], t1[3], t1[4]), (t0[0], t0[1], t0[3], t0[4]), "no other class moved");
+    assert_eq!(
+        (t1[0], t1[1], t1[3], t1[4]),
+        (t0[0], t0[1], t0[3], t0[4]),
+        "no other class moved"
+    );
     assert!(n >= SIZE as u64 / 2, "decommitted {n}");
-    assert!(resident(p, SIZE) <= SIZE / 16, "the freed range went back: {} resident", resident(p, SIZE));
-    assert!(allocarena::purged_bytes().1 >= others0 + SIZE as u64 / 2, "counted: {:?}", allocarena::purged_bytes());
-    assert!(allocarena::reusable_bytes() < SIZE as u64 / 4, "nothing left to reuse: {}", allocarena::reusable_bytes());
+    assert!(
+        resident(p, SIZE) <= SIZE / 16,
+        "the freed range went back: {} resident",
+        resident(p, SIZE)
+    );
+    assert!(
+        allocarena::purged_bytes().1 >= others0 + SIZE as u64 / 2,
+        "counted: {:?}",
+        allocarena::purged_bytes()
+    );
+    assert!(
+        allocarena::reusable_bytes() < SIZE as u64 / 4,
+        "nothing left to reuse: {}",
+        allocarena::reusable_bytes()
+    );
     allocarena::set_reuse(false);
 }

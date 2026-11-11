@@ -65,6 +65,7 @@ fn dat_entries(path: &Path) -> Vec<HashMap<String, String>> {
                     let after = &after[q + 1..];
                     // the closing quote: a `\'` inside the value is an escaped quote (numeric's descr)
                     let mut e = 0;
+                    #[allow(clippy::while_let_loop)]
                     loop {
                         let Some(i) = after[e..].find('\'') else { break };
                         e += i;

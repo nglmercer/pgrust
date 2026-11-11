@@ -216,6 +216,7 @@ fn pg_eucjp_mblen(s: &[u8]) -> i32 {
     pg_euc_mblen(s)
 }
 
+#[allow(clippy::if_same_then_else)]
 fn pg_eucjp_dsplen(s: &[u8]) -> i32 {
     if s[0] == SS2 {
         1
@@ -354,6 +355,7 @@ fn pg_euctw_mblen(s: &[u8]) -> i32 {
 }
 
 fn pg_euctw_dsplen(s: &[u8]) -> i32 {
+    #[allow(clippy::if_same_then_else)]
     if s[0] == SS2 {
         2
     } else if s[0] == SS3 {
@@ -675,6 +677,7 @@ fn pg_wchar2mule_with_len(from: &[pg_wchar], to: &mut [u8]) -> i32 {
     cnt
 }
 
+#[allow(clippy::if_same_then_else)]
 pub fn pg_mule_mblen(s: &[u8]) -> i32 {
     let b = s[0];
     if is_lc1(b) {
@@ -692,6 +695,7 @@ pub fn pg_mule_mblen(s: &[u8]) -> i32 {
 
 fn pg_mule_dsplen(s: &[u8]) -> i32 {
     let b = s[0];
+    #[allow(clippy::if_same_then_else)]
     if is_lc1(b) {
         1
     } else if is_lcprv1(b) {
@@ -940,6 +944,7 @@ fn pg_johab_verifychar(s: &[u8]) -> i32 {
     if !is_highbit_set(s[0]) {
         return mbl;
     }
+    #[allow(clippy::needless_range_loop)]
     for i in 1..mbl as usize {
         if !is_euc_range_valid(s[i]) {
             return -1;
@@ -957,6 +962,7 @@ fn pg_mule_verifychar(s: &[u8]) -> i32 {
     if (s.len() as i32) < mbl {
         return -1;
     }
+    #[allow(clippy::needless_range_loop)]
     for i in 1..mbl as usize {
         if !is_highbit_set(s[i]) {
             return -1;
@@ -1011,6 +1017,7 @@ fn pg_big5_verifychar(s: &[u8]) -> i32 {
     if mbl == 2 && nonutf8_invalid_pair(s) {
         return -1;
     }
+    #[allow(clippy::needless_range_loop)]
     for i in 1..mbl as usize {
         if s[i] == 0 {
             return -1;
@@ -1031,6 +1038,7 @@ fn pg_gbk_verifychar(s: &[u8]) -> i32 {
     if mbl == 2 && nonutf8_invalid_pair(s) {
         return -1;
     }
+    #[allow(clippy::needless_range_loop)]
     for i in 1..mbl as usize {
         if s[i] == 0 {
             return -1;
@@ -1051,6 +1059,7 @@ fn pg_uhc_verifychar(s: &[u8]) -> i32 {
     if mbl == 2 && nonutf8_invalid_pair(s) {
         return -1;
     }
+    #[allow(clippy::needless_range_loop)]
     for i in 1..mbl as usize {
         if s[i] == 0 {
             return -1;

@@ -259,6 +259,7 @@ impl IndexMaint {
     /// updated column in `RelationGetIndexExpressions`. The predicate is not consulted. `None` (an INSERT, or no column list)
     /// = no hint, as ExecInsert passes. Called after `open` (the expression walk reads the opened index): the first
     /// UPDATE row, as ExecUpdatePrologue opens them.
+    #[allow(clippy::unnecessary_unwrap)]
     pub fn set_updated(&mut self, mcx: Mcx<'static>, all_updated: Option<&Bitmapset<'_>>) -> PgResult<()> {
         if self.generic.is_some() {
             let cache = self.cache_mcx();

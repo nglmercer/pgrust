@@ -34,6 +34,7 @@ impl<'a, 'm> Adaptor<'a, 'm> {
         self.inner.ir
     }
 
+    #[allow(dead_code)]
     pub fn current_function(&self) -> u32 {
         self.inner.cur_func
     }

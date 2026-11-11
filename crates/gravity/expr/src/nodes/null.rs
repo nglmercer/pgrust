@@ -73,6 +73,7 @@ pub(crate) fn fields_all(d: Datum, nulls: bool) -> PgResult<bool> {
             (None, Some(desc)) => every_field(&tuple, desc, nulls),
             (None, None) => unreachable!("a descriptor was looked up or copied"),
         };
+        #[allow(clippy::forget_non_drop)]
         core::mem::forget(tuple);
         Ok(all)
     })

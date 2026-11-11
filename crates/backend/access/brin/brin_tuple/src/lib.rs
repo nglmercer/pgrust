@@ -1,18 +1,15 @@
 //! brin_tuple.c: BrinMemTuple <-> on-disk BrinTuple conversion.
-#![allow(non_snake_case)]
-#![allow(non_upper_case_globals)]
+#![allow(non_snake_case, non_upper_case_globals)]
 
 use ::datum::Datum;
 use ::mcx::{vec_append_bytes, vec_with_capacity_in, Mcx, MemoryContext, PgVec};
 use ::types_brin::*;
 use ::types_core::BlockNumber;
 use ::types_error::{PgError, PgResult, ERRCODE_DATA_CORRUPTED};
-use ::types_tuple::tupmacs::{
-    att_isnull, att_nominal_alignby, att_pointer_alignby, fetchatt,
-};
+use ::types_tuple::tupmacs::{att_isnull, att_nominal_alignby, att_pointer_alignby, fetchatt};
 use ::types_tuple::varatt::{
-    varatt_is_1b, varatt_is_1b_e, varsize_1b, varsize_4b, varsize_any, varsize_external,
-    VARHDRSZ, VARHDRSZ_EXTERNAL,
+    varatt_is_1b, varatt_is_1b_e, varsize_1b, varsize_4b, varsize_any, varsize_external, VARHDRSZ,
+    VARHDRSZ_EXTERNAL,
 };
 use ::types_tuple::{bits8, TYPSTORAGE_EXTENDED, TYPSTORAGE_MAIN};
 
@@ -81,10 +78,7 @@ pub fn brin_form_tuple<'mcx>(
                 unsafe {
                     let mut p = value.as_usize() as *const u8;
                     if varatt_is_1b_e(p) {
-                        let flat = detoast::detoast_external_attr(
-                            mcx,
-                            external_image(p),
-                        )?;
+                        let flat = detoast::detoast_external_attr(mcx, external_image(p))?;
                         value = Datum::from_usize(flat.leak().as_ptr() as usize);
                         p = value.as_usize() as *const u8;
                     }
@@ -207,8 +201,7 @@ pub fn brin_form_placeholder_tuple<'mcx>(
     rettuple.resize(len, 0);
     brin_tuple_set_blkno(&mut rettuple, blkno);
     debug_assert!(len & (BRIN_OFFSET_MASK as usize) == len);
-    rettuple[4] =
-        len as u8 | BRIN_NULLS_MASK | BRIN_PLACEHOLDER_MASK | BRIN_EMPTY_RANGE_MASK;
+    rettuple[4] = len as u8 | BRIN_NULLS_MASK | BRIN_PLACEHOLDER_MASK | BRIN_EMPTY_RANGE_MASK;
 
     for bit in 0..natts {
         rettuple[SizeOfBrinTuple + bit / 8] |= 1 << (bit % 8);
@@ -435,6 +428,7 @@ fn brin_deconstruct_tuple(
 
     let mut stored = 0usize;
     let mut off = 0usize;
+    #[allow(clippy::needless_range_loop)]
     for attnum in 0..natts {
         let nstored = bdesc.bd_info[attnum].oi_nstored as usize;
         if allnulls[attnum] {
@@ -518,11 +512,18 @@ mod tests {
                 let mut tp = ((n << 2) | bits).to_ne_bytes().to_vec();
                 tp.extend_from_slice(&[0u8; 4]);
                 let err = checked_attr_len(&tp, 0, -1).unwrap_err();
-                assert_eq!(err.sqlstate(), types_error::ERRCODE_DATA_CORRUPTED, "VARSIZE {n} bits {bits}");
+                assert_eq!(
+                    err.sqlstate(),
+                    types_error::ERRCODE_DATA_CORRUPTED,
+                    "VARSIZE {n} bits {bits}"
+                );
             }
         }
         // The header alone (VARSIZE 4) is a well-formed empty value.
-        assert_eq!(checked_attr_len(&(4u32 << 2).to_ne_bytes(), 0, -1).unwrap(), 4);
+        assert_eq!(
+            checked_attr_len(&(4u32 << 2).to_ne_bytes(), 0, -1).unwrap(),
+            4
+        );
     }
 
     #[test]

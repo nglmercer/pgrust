@@ -87,6 +87,7 @@ pub(crate) enum GetoptError {
     NonOption(String),
 }
 
+#[allow(dead_code)]
 pub(crate) fn getopt_tokens(args: &[String]) -> Result<Vec<(char, Option<String>)>, GetoptError> {
     match getopt_tokens_partial(args) {
         (tokens, None) => Ok(tokens),

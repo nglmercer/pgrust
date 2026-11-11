@@ -93,7 +93,9 @@ pub trait WriteVfs {
     /// A second name for the file at `from` (a hard link). The default refuses; callers that can copy instead check
     /// [`WriteError::is_link_unsupported`].
     fn link_path(&mut self, _from: &str, _to: &str) -> WriteResult<()> {
-        Err(WriteError::Contract { detail: LINK_UNSUPPORTED })
+        Err(WriteError::Contract {
+            detail: LINK_UNSUPPORTED,
+        })
     }
     /// Whether `a` and `b` are on one file system (a hard link between them can work).
     fn same_device(&mut self, _a: &str, _b: &str) -> WriteResult<bool> {
@@ -106,7 +108,11 @@ pub trait WriteVfs {
     /// A read handle on a part file, for the footer reads of a stats load or refold (`stats.rs`). The default reads
     /// the whole file into memory (the model vfs's); `RealVfs` opens it for positioned reads.
     fn part_io(&mut self, path: &str) -> WriteResult<Box<dyn pgrc_read::PartIo>> {
-        Ok(Box::new(pgrc_read::MemPartIo::new(self.read_full(path)?, 0, 0)))
+        Ok(Box::new(pgrc_read::MemPartIo::new(
+            self.read_full(path)?,
+            0,
+            0,
+        )))
     }
 }
 
@@ -119,7 +125,9 @@ impl WriteError {
     pub fn is_link_unsupported(&self) -> bool {
         match self {
             WriteError::Contract { detail } => *detail == LINK_UNSUPPORTED,
-            WriteError::Io { errno, .. } => [libc::EXDEV, libc::EPERM, libc::EMLINK, libc::ENOTSUP].contains(errno),
+            WriteError::Io { errno, .. } => {
+                [libc::EXDEV, libc::EPERM, libc::EMLINK, libc::ENOTSUP].contains(errno)
+            }
             _ => false,
         }
     }
@@ -214,7 +222,12 @@ pub fn fsync_counted(raw: i32) -> i32 {
 pub const FSYNC_BATCH: usize = 64;
 
 impl RealVfs {
-    fn open_flags(&mut self, path: &str, flags: libc::c_int, op: &'static str) -> WriteResult<WvFd> {
+    fn open_flags(
+        &mut self,
+        path: &str,
+        flags: libc::c_int,
+        op: &'static str,
+    ) -> WriteResult<WvFd> {
         let c = cpath(path, op)?;
         let raw = vfs::open(&c, flags, 0o600 as libc::mode_t);
         if raw < 0 {
@@ -339,7 +352,13 @@ impl WriteVfs for RealVfs {
                 match *st {
                     0 => {}
                     FSYNC_NOT_RUN => self.fsync_file(fd)?,
-                    errno => return Err(WriteError::Io { op: "fsync", path: fd.path.to_string(), errno }), // alloc: Cold
+                    errno => {
+                        return Err(WriteError::Io {
+                            op: "fsync",
+                            path: fd.path.to_string(),
+                            errno,
+                        })
+                    } // alloc: Cold
                 }
             }
         }
@@ -362,11 +381,21 @@ impl WriteVfs for RealVfs {
 
     fn part_io(&mut self, path: &str) -> WriteResult<Box<dyn pgrc_read::PartIo>> {
         let c = cpath(path, "part open")?;
-        pgrc_read::VfsPartIo::open(&c).map(|io| Box::new(io) as Box<dyn pgrc_read::PartIo>).map_err(|e| match e {
-            pgrc_read::ReadError::Io { errno, .. } => WriteError::Io { op: "part open", path: path.to_string(), errno },
-            pgrc_read::ReadError::Format(f) => WriteError::Format(f),
-            _ => WriteError::Io { op: "part open", path: path.to_string(), errno: 0 },
-        })
+        pgrc_read::VfsPartIo::open(&c)
+            .map(|io| Box::new(io) as Box<dyn pgrc_read::PartIo>)
+            .map_err(|e| match e {
+                pgrc_read::ReadError::Io { errno, .. } => WriteError::Io {
+                    op: "part open",
+                    path: path.to_string(),
+                    errno,
+                },
+                pgrc_read::ReadError::Format(f) => WriteError::Format(f),
+                _ => WriteError::Io {
+                    op: "part open",
+                    path: path.to_string(),
+                    errno: 0,
+                },
+            })
     }
 
     fn read_prefix(&mut self, path: &str, max: usize) -> WriteResult<Vec<u8>> {
@@ -690,7 +719,12 @@ impl WriteVfs for MemVfs {
     }
 
     fn pwrite_at(&mut self, fd: &WvFd, off: u64, bytes: &[u8]) -> WriteResult<()> {
-        self.tick(format!("pwrite {} off={} len={}", fd.path, off, bytes.len()))?;
+        self.tick(format!(
+            "pwrite {} off={} len={}",
+            fd.path,
+            off,
+            bytes.len()
+        ))?;
         let ino = *self.open.get(&fd.key).ok_or(WriteError::Io {
             op: "pwrite",
             path: fd.path.clone(),
@@ -809,19 +843,40 @@ impl WriteVfs for MemVfs {
     }
 
     fn link_count(&mut self, path: &str) -> WriteResult<u64> {
-        let ino = self.ino_of(path)?.ok_or(WriteError::Io { op: "stat", path: path.to_string(), errno: libc::ENOENT })?;
-        Ok(self.dirs.values().flat_map(|d| d.cur.values()).filter(|&&i| i == ino).count() as u64)
+        let ino = self.ino_of(path)?.ok_or(WriteError::Io {
+            op: "stat",
+            path: path.to_string(),
+            errno: libc::ENOENT,
+        })?;
+        Ok(self
+            .dirs
+            .values()
+            .flat_map(|d| d.cur.values())
+            .filter(|&&i| i == ino)
+            .count() as u64)
     }
 
     /// A second dirent for the same inode: a write through either name shows through both. Volatile until the new
     /// name's directory is fsynced, like any dirent.
     fn link_path(&mut self, from: &str, to: &str) -> WriteResult<()> {
         self.tick(format!("link {from} -> {to}"))?;
-        let ino = self.ino_of(from)?.ok_or(WriteError::Io { op: "link", path: from.to_string(), errno: libc::ENOENT })?;
+        let ino = self.ino_of(from)?.ok_or(WriteError::Io {
+            op: "link",
+            path: from.to_string(),
+            errno: libc::ENOENT,
+        })?;
         let (tdir, tname) = split_path(to)?;
-        let td = self.dirs.get_mut(tdir).ok_or(WriteError::Io { op: "link", path: to.to_string(), errno: libc::ENOENT })?;
+        let td = self.dirs.get_mut(tdir).ok_or(WriteError::Io {
+            op: "link",
+            path: to.to_string(),
+            errno: libc::ENOENT,
+        })?;
         if td.cur.contains_key(tname) {
-            return Err(WriteError::Io { op: "link", path: to.to_string(), errno: libc::EEXIST });
+            return Err(WriteError::Io {
+                op: "link",
+                path: to.to_string(),
+                errno: libc::EEXIST,
+            });
         }
         td.cur.insert(tname.to_string(), ino);
         Ok(())

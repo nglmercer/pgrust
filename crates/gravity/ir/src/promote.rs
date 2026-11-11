@@ -367,6 +367,7 @@ impl<'a> Promoter<'a> {
     /// What an instruction does to the cells.
     /// A store to `ptr + offset`: refuses the cells whose root is loaded from that slot.
     fn slot_stored(&self, ptr: Value, offset: i32, refused: &mut [Option<Why>]) {
+        #[allow(clippy::needless_range_loop)]
         for ci in 0..self.cells.len() {
             if let Root::LoadedFrom { ptr: rp, offset: ro } = self.cells[ci].root {
                 if ptr == rp && offset == ro {
@@ -1113,20 +1114,20 @@ pub(crate) fn op_values_mut(op: &mut Op, f: &mut impl FnMut(&mut Value)) {
 
 pub(crate) fn term_values_mut(t: &mut Terminator, f: &mut impl FnMut(&mut Value)) {
     match t {
-        Terminator::Br(e) => e.args.iter_mut().for_each(|v| f(v)),
+        Terminator::Br(e) => e.args.iter_mut().for_each(&mut *f),
         Terminator::CondBr { cond, then_edge, else_edge } => {
             f(cond);
-            then_edge.args.iter_mut().for_each(|v| f(v));
-            else_edge.args.iter_mut().for_each(|v| f(v));
+            then_edge.args.iter_mut().for_each(&mut *f);
+            else_edge.args.iter_mut().for_each(&mut *f);
         }
         Terminator::Switch { value, cases, default } => {
             f(value);
             for c in cases.iter_mut() {
-                c.edge.args.iter_mut().for_each(|v| f(v));
+                c.edge.args.iter_mut().for_each(&mut *f);
             }
-            default.args.iter_mut().for_each(|v| f(v));
+            default.args.iter_mut().for_each(&mut *f);
         }
-        Terminator::Return(vs) => vs.iter_mut().for_each(|v| f(v)),
+        Terminator::Return(vs) => vs.iter_mut().for_each(f),
         Terminator::Unreachable => {}
     }
 }

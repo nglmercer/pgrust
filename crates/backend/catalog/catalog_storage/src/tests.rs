@@ -47,7 +47,8 @@ fn subcommit_lowers_nest_level() {
     // stay >= level and get lowered to -1 == level-1 shape; assert mechanics
     // through direct state.
     AtSubCommit_smgr();
-    PENDING.with_borrow(|p| assert_eq!(p[0].nest_level, xact::GetCurrentTransactionNestLevel() - 1));
+    PENDING
+        .with_borrow(|p| assert_eq!(p[0].nest_level, xact::GetCurrentTransactionNestLevel() - 1));
     PENDING.with_borrow_mut(|p| p.clear());
 }
 
@@ -57,7 +58,9 @@ fn pending_syncs_registry_abort_and_parallel_discard() {
     let a = RelFileLocator::new(1663, 5, 16500);
     AddPendingSync(a);
     assert!(RelFileLocatorSkippingWAL(a));
-    assert!(!RelFileLocatorSkippingWAL(RelFileLocator::new(1663, 5, 16501)));
+    assert!(!RelFileLocatorSkippingWAL(RelFileLocator::new(
+        1663, 5, 16501
+    )));
 
     smgrDoPendingSyncs(false, false).unwrap();
     assert!(!RelFileLocatorSkippingWAL(a));
@@ -108,11 +111,23 @@ fn relation_create_storage_invalid_relpersistence_is_internal_error() {
 fn temp_storage_is_keyed_by_the_leader_proc_number() {
     init_small::globals::SetMyProcNumber(7);
     init_small::globals::SetParallelLeaderProcNumber(3);
-    assert_eq!(storage_proc_number(RELPERSISTENCE_TEMP).unwrap(), (3, false));
+    assert_eq!(
+        storage_proc_number(RELPERSISTENCE_TEMP).unwrap(),
+        (3, false)
+    );
     init_small::globals::SetParallelLeaderProcNumber(INVALID_PROC_NUMBER);
-    assert_eq!(storage_proc_number(RELPERSISTENCE_TEMP).unwrap(), (7, false));
-    assert_eq!(storage_proc_number(RELPERSISTENCE_UNLOGGED).unwrap(), (INVALID_PROC_NUMBER, false));
-    assert_eq!(storage_proc_number(RELPERSISTENCE_PERMANENT).unwrap(), (INVALID_PROC_NUMBER, true));
+    assert_eq!(
+        storage_proc_number(RELPERSISTENCE_TEMP).unwrap(),
+        (7, false)
+    );
+    assert_eq!(
+        storage_proc_number(RELPERSISTENCE_UNLOGGED).unwrap(),
+        (INVALID_PROC_NUMBER, false)
+    );
+    assert_eq!(
+        storage_proc_number(RELPERSISTENCE_PERMANENT).unwrap(),
+        (INVALID_PROC_NUMBER, true)
+    );
     init_small::globals::SetMyProcNumber(INVALID_PROC_NUMBER);
 }
 
@@ -146,7 +161,11 @@ fn serialize_pending_syncs_omits_commit_time_deletes() {
 
     let serialized = SerializePendingSyncs();
     let numbers: Vec<u32> = serialized.iter().map(|(l, _)| l.relNumber).collect();
-    assert_eq!(numbers, vec![16520], "dropped-at-commit relation must not reach workers");
+    assert_eq!(
+        numbers,
+        vec![16520],
+        "dropped-at-commit relation must not reach workers"
+    );
 
     // The leader's own registry is untouched (only the serialized copy filters).
     assert!(RelFileLocatorSkippingWAL(dropped));
@@ -163,7 +182,11 @@ fn require_fsync_marks_only_the_pending_locator() {
     AddPendingSync(heap);
     PendingSyncRequireFsync(part);
     PendingSyncRequireFsync(RelFileLocator::new(1663, 5, 16532));
-    let got = PENDING_SYNCS.with_borrow(|p| p.iter().map(|s| (s.rlocator, s.is_truncated)).collect::<Vec<_>>());
+    let got = PENDING_SYNCS.with_borrow(|p| {
+        p.iter()
+            .map(|s| (s.rlocator, s.is_truncated))
+            .collect::<Vec<_>>()
+    });
     assert_eq!(got, vec![(part, true), (heap, false)]);
     PENDING_SYNCS.with_borrow_mut(|p| p.clear());
 }

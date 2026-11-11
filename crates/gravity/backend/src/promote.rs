@@ -186,6 +186,7 @@ mod tests {
         let mut b = pb.define(f);
         let k = b.iconst(gravity_ir::Type::I64, 0);
         b.ret(&[k]);
+        #[allow(clippy::drop_non_drop)]
         drop(b);
         let program = pb.finish();
         let key = crate::cache::key_of(&program);

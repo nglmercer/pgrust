@@ -26,7 +26,10 @@ use std::io::Write;
 pub mod interrupts;
 mod step;
 
-pub use step::{lock_or_cancel, set_step_gap_ms, sort_by, step, step_gaps, step_on, step_static, Canceled, Each, Step, BATCH, LOCK_PARK, PIECE, SORT_RUN, STEP_GAP_MS};
+pub use step::{
+    lock_or_cancel, set_step_gap_ms, sort_by, step, step_gaps, step_on, step_static, Canceled,
+    Each, Step, BATCH, LOCK_PARK, PIECE, SORT_RUN, STEP_GAP_MS,
+};
 
 /// The abort bit of the byte (gravity_abi `ctx::ABORT_BIT`, init_small's; gravity exec asserts they agree).
 pub const ABORT_BIT: u8 = 1;
@@ -81,7 +84,13 @@ impl Scope {
         if STALL_MS.load(Ordering::Relaxed) != 0 {
             injected_stall();
         }
-        Scope { prev, prev_lent, prev_seen, prev_last, site }
+        Scope {
+            prev,
+            prev_lent,
+            prev_seen,
+            prev_last,
+            site,
+        }
     }
 }
 
@@ -257,7 +266,10 @@ fn cancel_at_on() -> bool {
 #[cold]
 #[inline(never)]
 fn cancel_at(label: &'static str, byte: *const AtomicU8) {
-    if let Some(c) = CANCEL_AT.get().filter(|c| !byte.is_null() && label.starts_with(c.label)) {
+    if let Some(c) = CANCEL_AT
+        .get()
+        .filter(|c| !byte.is_null() && label.starts_with(c.label))
+    {
         (c.fire)(byte);
     }
 }
@@ -288,7 +300,10 @@ pub fn probe_on() -> bool {
 
 /// The longest gap the probe logged in this process (ms) and the number it logged.
 pub fn probe_max() -> (u64, u64) {
-    (MAX_NS.load(Ordering::Relaxed) / 1_000_000, GAPS.load(Ordering::Relaxed))
+    (
+        MAX_NS.load(Ordering::Relaxed) / 1_000_000,
+        GAPS.load(Ordering::Relaxed),
+    )
 }
 
 /// A labelled host step, for the probe's report of what held a gap (`phase("pgrc dict region build")`); nothing when the
@@ -357,7 +372,13 @@ impl Probe {
         from: ("", None),
         open: [("", 0); DEPTH],
         depth: 0,
-        held: [Held { label: "", depth: 0, n: 0, ns: 0, max: 0 }; HELD],
+        held: [Held {
+            label: "",
+            depth: 0,
+            n: 0,
+            ns: 0,
+            max: 0,
+        }; HELD],
         nheld: 0,
         other: (0, 0),
         cov0: 0,
@@ -402,7 +423,13 @@ impl Probe {
             }
         }
         if self.nheld < HELD {
-            self.held[self.nheld] = Held { label, depth, n: 1, ns, max: whole };
+            self.held[self.nheld] = Held {
+                label,
+                depth,
+                n: 1,
+                ns,
+                max: whole,
+            };
             self.nheld += 1;
         } else {
             self.other = (self.other.0.saturating_add(1), self.other.1 + ns);
@@ -419,18 +446,34 @@ impl Probe {
     #[cold]
     fn report(&mut self, now: u64, gap: u64, end: &str, site: Site) {
         let cpu = pg_clock::posix::thread_cpu_ns();
-        let os_end = if self.os.is_some() { pg_clock::posix::thread_use() } else { None };
+        let os_end = if self.os.is_some() {
+            pg_clock::posix::thread_use()
+        } else {
+            None
+        };
         MAX_NS.fetch_max(gap, Ordering::Relaxed);
         GAPS.fetch_add(1, Ordering::Relaxed);
         let ms = |ns: u64| ns / 1_000_000;
         let t = std::thread::current();
         let mut e = std::io::stderr().lock();
-        let _ = write!(e, "poll-gap: {} ms without an abort poll on thread {}, ended by {}", ms(gap), t.name().unwrap_or("?"), end);
+        let _ = write!(
+            e,
+            "poll-gap: {} ms without an abort poll on thread {}, ended by {}",
+            ms(gap),
+            t.name().unwrap_or("?"),
+            end
+        );
         let open = self.depth.min(DEPTH);
         if open > 0 {
             let _ = write!(e, "; inside");
             for (i, (label, t0)) in self.open[..open].iter().enumerate() {
-                let _ = write!(e, "{} {} ({} ms)", if i == 0 { "" } else { " >" }, label, ms(now.saturating_sub(*t0)));
+                let _ = write!(
+                    e,
+                    "{} {} ({} ms)",
+                    if i == 0 { "" } else { " >" },
+                    label,
+                    ms(now.saturating_sub(*t0))
+                );
             }
         }
         let held = &mut self.held[..self.nheld];
@@ -438,11 +481,25 @@ impl Probe {
         if !held.is_empty() {
             let _ = write!(e, "; held by");
             for (i, h) in held.iter().enumerate() {
-                let _ = write!(e, "{} {} {} ms (depth {})", if i == 0 { "" } else { "," }, h.label, ms(h.ns), h.depth);
+                let _ = write!(
+                    e,
+                    "{} {} {} ms (depth {})",
+                    if i == 0 { "" } else { "," },
+                    h.label,
+                    ms(h.ns),
+                    h.depth
+                );
             }
             let _ = write!(e, "; steps");
             for (i, h) in held.iter().enumerate() {
-                let _ = write!(e, "{} {} x{} longest {} ms", if i == 0 { "" } else { "," }, h.label, h.n, ms(h.max));
+                let _ = write!(
+                    e,
+                    "{} {} x{} longest {} ms",
+                    if i == 0 { "" } else { "," },
+                    h.label,
+                    h.n,
+                    ms(h.max)
+                );
             }
             if self.other.0 > 0 {
                 let _ = write!(e, ", {} more step(s) {} ms", self.other.0, ms(self.other.1));
@@ -462,7 +519,12 @@ impl Probe {
         }
         // a 0 start reading is a failed read or a build with no thread CPU clock (wasm): no on-CPU part, not a false 0 ms
         if self.cpu.0 != 0 && self.cpu.1 != 0 && cpu >= self.cpu.1 {
-            let _ = write!(e, "; on-CPU {} ms of {} ms", ms(cpu - self.cpu.1), ms(now.saturating_sub(self.cpu.0)));
+            let _ = write!(
+                e,
+                "; on-CPU {} ms of {} ms",
+                ms(cpu - self.cpu.1),
+                ms(now.saturating_sub(self.cpu.0))
+            );
         }
         if let (Some(a), Some(b)) = (self.os, os_end) {
             let _ = write_os_part(&mut e, &a, &b);
@@ -481,10 +543,30 @@ pub(crate) fn write_os_part(
     b: &pg_clock::posix::ThreadUse,
 ) -> std::io::Result<()> {
     let ms = |x: u64, y: u64| y.saturating_sub(x) / 1_000_000;
-    write!(e, "; user {} ms, system {} ms", ms(a.user_ns, b.user_ns), ms(a.sys_ns, b.sys_ns))?;
-    write!(e, "; faults {} minor, {} major", b.minflt.saturating_sub(a.minflt), b.majflt.saturating_sub(a.majflt))?;
-    write!(e, "; blocks {} in, {} out", b.inblock.saturating_sub(a.inblock), b.oublock.saturating_sub(a.oublock))?;
-    write!(e, "; switches {} voluntary, {} involuntary", b.nvcsw.saturating_sub(a.nvcsw), b.nivcsw.saturating_sub(a.nivcsw))?;
+    write!(
+        e,
+        "; user {} ms, system {} ms",
+        ms(a.user_ns, b.user_ns),
+        ms(a.sys_ns, b.sys_ns)
+    )?;
+    write!(
+        e,
+        "; faults {} minor, {} major",
+        b.minflt.saturating_sub(a.minflt),
+        b.majflt.saturating_sub(a.majflt)
+    )?;
+    write!(
+        e,
+        "; blocks {} in, {} out",
+        b.inblock.saturating_sub(a.inblock),
+        b.oublock.saturating_sub(a.oublock)
+    )?;
+    write!(
+        e,
+        "; switches {} voluntary, {} involuntary",
+        b.nvcsw.saturating_sub(a.nvcsw),
+        b.nivcsw.saturating_sub(a.nivcsw)
+    )?;
     if let (Some(x), Some(y)) = (a.rq_ns, b.rq_ns) {
         write!(e, "; run-queue wait {} ms", ms(x, y))?;
     }
@@ -498,7 +580,12 @@ fn probe_enter(site: &'static core::panic::Location<'static>) -> u64 {
         let mut p = p.borrow_mut();
         let prev = p.last;
         if prev != 0 {
-            p.mark(now, "a nested kernel call's start", Some(site), "a nested kernel call's start");
+            p.mark(
+                now,
+                "a nested kernel call's start",
+                Some(site),
+                "a nested kernel call's start",
+            );
         } else {
             p.last = now;
             let at = GAP_NS.load(Ordering::Relaxed);
@@ -513,7 +600,12 @@ fn probe_exit(prev_last: u64, site: &'static core::panic::Location<'static>) {
     let now = pg_clock::mono_ns().max(1);
     PROBE.with(|p| {
         let mut p = p.borrow_mut();
-        p.mark(now, "the kernel call's end", Some(site), "a nested kernel call's end");
+        p.mark(
+            now,
+            "the kernel call's end",
+            Some(site),
+            "a nested kernel call's end",
+        );
         p.last = if prev_last != 0 { now } else { 0 };
     })
 }
@@ -528,7 +620,14 @@ fn polled_slow(site: &'static core::panic::Location<'static>) {
 #[cold]
 fn wait_slow(site: &'static core::panic::Location<'static>) {
     let now = pg_clock::mono_ns().max(1);
-    PROBE.with(|p| p.borrow_mut().mark(now, "an interruptible wait's start", Some(site), "an interruptible wait's start"))
+    PROBE.with(|p| {
+        p.borrow_mut().mark(
+            now,
+            "an interruptible wait's start",
+            Some(site),
+            "an interruptible wait's start",
+        )
+    })
 }
 
 /// An interruptible wait's end (D3962): inside a kernel call, a new stretch from `now` (the wait is no gap), begun at the
@@ -568,7 +667,9 @@ fn phase_exit() {
     let now = pg_clock::mono_ns();
     PROBE.with(|p| {
         let mut p = p.borrow_mut();
-        let Some(d) = p.depth.checked_sub(1) else { return };
+        let Some(d) = p.depth.checked_sub(1) else {
+            return;
+        };
         p.depth = d;
         if d >= DEPTH {
             return;

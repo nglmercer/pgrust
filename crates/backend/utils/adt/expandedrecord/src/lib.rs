@@ -653,6 +653,7 @@ pub fn expanded_record_fetch_tupdesc(
     erh: &mut ExpandedRecordHeader,
 ) -> PgResult<&TupleDescData<'static>> {
     if erh.er_tupdesc.is_some() {
+        #[allow(clippy::unnecessary_unwrap)]
         return Ok(erh.er_tupdesc.as_ref().unwrap());
     }
     let tupdesc =
@@ -669,6 +670,7 @@ pub fn expanded_record_get_tupdesc(
     erh: &mut ExpandedRecordHeader,
 ) -> PgResult<&TupleDescData<'static>> {
     if erh.er_tupdesc.is_some() {
+        #[allow(clippy::unnecessary_unwrap)]
         Ok(erh.er_tupdesc.as_ref().unwrap())
     } else {
         expanded_record_fetch_tupdesc(erh)

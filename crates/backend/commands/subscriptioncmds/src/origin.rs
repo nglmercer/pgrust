@@ -31,11 +31,7 @@ pub(crate) fn replorigin_get_progress(
     ::origin::replorigin_get_progress(node, flush)
 }
 
-pub(crate) fn replorigin_drop_by_name(
-    mcx: Mcx<'_>,
-    name: &str,
-    missing_ok: bool,
-) -> PgResult<()> {
+pub(crate) fn replorigin_drop_by_name(mcx: Mcx<'_>, name: &str, missing_ok: bool) -> PgResult<()> {
     // C DropSubscription/AlterSubscription pass nowait=false.
     ::origin::replorigin_drop_by_name(mcx, name, missing_ok, false)
 }

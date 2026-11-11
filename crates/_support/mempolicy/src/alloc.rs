@@ -12,5 +12,9 @@ pub const RUNG1_COOLDOWN_MS: u64 = 1000;
 
 /// The retained reading's period now.
 pub fn retained_every_ms(short: bool) -> i64 {
-    if short { RETAINED_SHORT_MS } else { RETAINED_IDLE_MS }
+    if short {
+        RETAINED_SHORT_MS
+    } else {
+        RETAINED_IDLE_MS
+    }
 }

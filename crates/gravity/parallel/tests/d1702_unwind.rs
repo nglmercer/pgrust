@@ -3,6 +3,7 @@
 //! own call started (a rerun set, `OnDemand::rerun_members`), unwinds through the inner call's publication, the emit
 //! call's, and `run_body`'s installed slot: the entry holds no pointer into the dead run after it, and runs its next
 //! statement. Width 1, as d1702_nested_frames.rs (the defect's witness) runs.
+#[allow(clippy::duplicate_mod)]
 mod common;
 
 use core::cell::Cell;

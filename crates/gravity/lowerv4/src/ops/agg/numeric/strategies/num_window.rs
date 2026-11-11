@@ -305,7 +305,7 @@ mod tests {
         let wide = |m| mcx::box_in(Tree::PastWord { m: Some(m), scale: 1, digits: 21 }, cx.mcx());
         let k = |m, scale| mcx::box_in(Tree::Const { m, scale, digits: 3 }, cx.mcx());
         let run = |t: &Tree| -> i128 {
-            let mut half = |hi: bool| {
+            let half = |hi: bool| {
                 crate::frame::stop::tests::run1(&[], &mut |b, env| {
                     let row = RowVals { row: crate::cell::Row::new_in(env.mcx), vals: mcx::PgVec::new_in(env.mcx), cols: mcx::PgVec::new_in(env.mcx), carry: crate::frame::row::Carry::new(env.zero, env.mcx), next: env.zero, at: env.zero };
                     let mut memo = crate::ops::agg::numeric::strategies::memo_num::Memo::new(false, env.mcx);

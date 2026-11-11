@@ -18,7 +18,9 @@ use crate::frame::px::Px;
 use crate::frame::row::{Carry, RowVals};
 use crate::graph::Gx;
 use crate::admit::refusal::{Reason, ShapeWhy};
+#[allow(unused_imports)]
 use crate::ops::mergejoin::strategies::ksort::{MERGE_KSORT, MERGE_WIDEEMIT};
+#[allow(unused_imports)]
 use crate::table::emit_runs::EMIT_PARMERGE;
 use crate::rep::keylane::{ivl, Key};
 
@@ -274,6 +276,7 @@ impl Shape {
     pub(crate) fn datums(&self) -> i32 { 16 * self.keys.len() as i32 }
     pub(crate) fn nulls(&self) -> i32 { self.datums() + 8 * self.cols.len() as i32 }
     pub(crate) fn var(&self) -> bool { self.cols.iter().any(|c| matches!(c.form, Form::Var { .. })) || self.keys.iter().enumerate().any(|(i, x)| crate::rep::keylane::var_key(i, x.tail, x.proc)) }
+    #[allow(dead_code)]
     pub(crate) fn tails(&self) -> bool { self.keys.iter().any(|k| k.tail != 0) }
     /// Each key's having an image tail (`natural::mark`).
     pub(crate) fn tailed<'m>(&self, mcx: Mcx<'m>) -> PgVec<'m, bool> { self.keys.iter().map(|k| k.tail != 0).collect_in(mcx) }
@@ -384,6 +387,7 @@ fn table(b: &mut FunctionBuilder<'_>, s: &Shape) -> (Value, StackSlot) {
         vars.iter().for_each(|&(c, o)| w.extend([c as u32, o]));
         for (i, k) in s.keys.iter().enumerate() {
             let (text, bpchar) = crate::rep::keylane::key_tf(&s.cols[k.col as usize].tf, k).image.bytes_form().unwrap_or((false, false));
+            #[allow(clippy::if_same_then_else)]
             let coll = if k.proc != 0 { k.coll.oid } else if text && k.tail != 0 && !k.coll.bytes_order { k.coll.oid } else { 0 };
             let ext = if i >= 4 { (k.tail as u32) << h::KFLAG_SPEC_SHIFT } else { 0 };
             // KFLAG_EQTIE: a hosted key whose comparator cannot raise on two equal copies ties them with no call: a builtin over

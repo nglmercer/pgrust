@@ -254,6 +254,7 @@ pub(crate) unsafe fn index(ctx: *mut Ctx, run: *mut SortRun, nkey: usize, cmp: &
     if bits & RUN_ORDERED != 0 || nkey == 0 || n < 2 {
         return Ok(None);
     }
+    #[allow(clippy::unnecessary_cast)]
     let base = (*run).row(0) as *const u8;
     let row = |i: u32| base.add(i as usize * rb);
     let pending = || !ctx.is_null() && cancel_pending(ctx);
@@ -562,6 +563,7 @@ pub(crate) struct SortCopy {
     len: usize,
     // LEDGER2 step 5: the scratch arena `ext` was carved from (`allocator`), this copy's alone: dropped with it, after the
     // fields above
+    #[allow(dead_code)]
     scratch: Option<OpArena>,
 }
 

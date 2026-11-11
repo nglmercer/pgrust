@@ -82,9 +82,19 @@ pub fn idle_stage(release_ms: i32, passivate_ms: i32, in_xact: Option<bool>) -> 
         return (false, 0);
     }
     let in_xact = in_xact.is_some();
-    let (release_ms, passivate_ms) = (release_ms.max(0), if in_xact { 0 } else { passivate_ms.max(0) });
+    let (release_ms, passivate_ms) = (
+        release_ms.max(0),
+        if in_xact { 0 } else { passivate_ms.max(0) },
+    );
     let release_first = release_ms > 0 && (passivate_ms == 0 || release_ms < passivate_ms);
-    (release_first, if release_first { release_ms } else { passivate_ms })
+    (
+        release_first,
+        if release_first {
+            release_ms
+        } else {
+            passivate_ms
+        },
+    )
 }
 
 /// decide(Idle): whether a session idle in a transaction block has anything to release: pool bytes its suspended
@@ -214,8 +224,17 @@ mod tests {
 
     #[test]
     fn the_idle_loop_keeps_its_cadence() {
-        assert_eq!((idle_period_ms(true, 50, 10_000), idle_period_ms(false, 50, 10_000)), (50, 2_500));
-        assert_eq!((idle_period_ms(false, 50, 8), idle_period_ms(false, 50, 400)), (5, 100));
+        assert_eq!(
+            (
+                idle_period_ms(true, 50, 10_000),
+                idle_period_ms(false, 50, 10_000)
+            ),
+            (50, 2_500)
+        );
+        assert_eq!(
+            (idle_period_ms(false, 50, 8), idle_period_ms(false, 50, 400)),
+            (5, 100)
+        );
         assert!(idle_due(100, 0, 10_100, 10_000) && !idle_due(100, 0, 10_099, 10_000));
         assert!(!idle_due(100, 100, u64::MAX, 10_000), "answered already");
         assert!(past_bar(11, 10) && !past_bar(10, 10) && !past_bar(u64::MAX, 0));
@@ -224,15 +243,26 @@ mod tests {
     #[test]
     fn the_caps_follow_the_pool() {
         let pool = 66u64 << 30;
-        assert_eq!((park_bytes(pool), region_depot_bytes(pool), slot_depot_bytes(pool)), (6 << 30, 11 << 30, 22 << 30));
-        assert_eq!(park_bytes(0), PARK_BYTES, "no pool installed: the fixed value");
+        assert_eq!(
+            (
+                park_bytes(pool),
+                region_depot_bytes(pool),
+                slot_depot_bytes(pool)
+            ),
+            (6 << 30, 11 << 30, 22 << 30)
+        );
+        assert_eq!(
+            park_bytes(0),
+            PARK_BYTES,
+            "no pool installed: the fixed value"
+        );
         assert_eq!(idle_keep(16 << 30), 4 << 30);
     }
 
     #[test]
     fn the_nested_pool_keeps_up_to_its_bound() {
-        use crate::consts::{get, set, K};
         use super::nested_kept_keeps;
+        use crate::consts::{get, set, K};
         let _one = pgsync::lock(&crate::consts::TEST_LOCK);
         crate::consts::reset();
         let cap = get(K::NestedKeptBytes);
@@ -247,30 +277,86 @@ mod tests {
 
     #[test]
     fn a_suspended_portal_lends_its_room() {
-        assert_eq!((suspend_lend(54 << 20, false), suspend_lend(0, false), suspend_lend(1 << 20, true)), (54 << 20, 0, 0));
+        assert_eq!(
+            (
+                suspend_lend(54 << 20, false),
+                suspend_lend(0, false),
+                suspend_lend(1 << 20, true)
+            ),
+            (54 << 20, 0, 0)
+        );
     }
 
     #[test]
     fn a_statement_end_trims_regions_first_and_releases_past_the_threshold() {
-        assert_eq!((end_regions_to(10, 4, 6), end_regions_to(10, 8, 6), end_regions_to(10, 2, 14)), (None, Some(4), Some(0)));
+        assert_eq!(
+            (
+                end_regions_to(10, 4, 6),
+                end_regions_to(10, 8, 6),
+                end_regions_to(10, 2, 14)
+            ),
+            (None, Some(4), Some(0))
+        );
         assert_eq!((end_slots_over(10, 14), end_slots_over(10, 10)), (4, 0));
-        assert!(end_release(64 << 20, 64 << 20) && !end_release(64 << 20, 0) && !end_release((64 << 20) - 1, 64 << 20));
+        assert!(
+            end_release(64 << 20, 64 << 20)
+                && !end_release(64 << 20, 0)
+                && !end_release((64 << 20) - 1, 64 << 20)
+        );
     }
 
     #[test]
     fn a_statement_end_under_pressure_gives_the_pools_free_memory_back() {
-        assert_eq!((pool_end(false, false), pool_end(true, false), pool_end(true, true), pool_end(false, true)), (PoolEnd::Keep, PoolEnd::Ask, PoolEnd::Now, PoolEnd::Now));
+        assert_eq!(
+            (
+                pool_end(false, false),
+                pool_end(true, false),
+                pool_end(true, true),
+                pool_end(false, true)
+            ),
+            (PoolEnd::Keep, PoolEnd::Ask, PoolEnd::Now, PoolEnd::Now)
+        );
     }
 
     #[test]
     fn an_idle_session_releases_first_and_passivates_only_outside_a_transaction() {
-        assert_eq!((idle_stage(1000, 30_000, None), idle_after_release(1000, 30_000, false)), ((true, 1000), 29_000));
-        assert_eq!((idle_stage(1000, 0, None), idle_stage(0, 30_000, None), idle_stage(40_000, 30_000, None)), ((true, 1000), (false, 30_000), (false, 30_000)));
-        assert_eq!((idle_stage(1000, 30_000, Some(true)), idle_after_release(1000, 30_000, true)), ((true, 1000), 0));
-        assert_eq!((idle_stage(0, 30_000, Some(true)), idle_stage(-1, -1, None)), ((false, 0), (false, 0)));
-        assert_eq!(idle_stage(1000, 30_000, Some(false)), (false, 0), "a block with nothing to give back arms nothing");
+        assert_eq!(
+            (
+                idle_stage(1000, 30_000, None),
+                idle_after_release(1000, 30_000, false)
+            ),
+            ((true, 1000), 29_000)
+        );
+        assert_eq!(
+            (
+                idle_stage(1000, 0, None),
+                idle_stage(0, 30_000, None),
+                idle_stage(40_000, 30_000, None)
+            ),
+            ((true, 1000), (false, 30_000), (false, 30_000))
+        );
+        assert_eq!(
+            (
+                idle_stage(1000, 30_000, Some(true)),
+                idle_after_release(1000, 30_000, true)
+            ),
+            ((true, 1000), 0)
+        );
+        assert_eq!(
+            (idle_stage(0, 30_000, Some(true)), idle_stage(-1, -1, None)),
+            ((false, 0), (false, 0))
+        );
+        assert_eq!(
+            idle_stage(1000, 30_000, Some(false)),
+            (false, 0),
+            "a block with nothing to give back arms nothing"
+        );
         let mib = 1u64 << 20;
         assert!(idle_in_xact(1, 0, 64 * mib) && idle_in_xact(0, 64 * mib, 64 * mib));
-        assert!(!idle_in_xact(0, 64 * mib - 1, 64 * mib) && !idle_in_xact(0, u64::MAX, 0) && !idle_in_xact(-5, 0, 64 * mib));
+        assert!(
+            !idle_in_xact(0, 64 * mib - 1, 64 * mib)
+                && !idle_in_xact(0, u64::MAX, 0)
+                && !idle_in_xact(-5, 0, 64 * mib)
+        );
     }
 }

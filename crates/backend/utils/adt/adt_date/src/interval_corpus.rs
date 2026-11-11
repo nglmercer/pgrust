@@ -2,6 +2,7 @@
 // psql (datestyle='ISO,MDY', intervalstyle as tagged, timezone='GMT').
 // Expected format: "OK|<text>" or "ERR|<sqlstate>|<message>".
 
+#[allow(dead_code)]
 pub static INTERVAL_IN_OK: &[(&str, &str)] = &[
     ("1 microsecond", "OK|00:00:00.000001"),
     ("1 microseconds", "OK|00:00:00.000001"),
@@ -474,6 +475,7 @@ pub static INTERVAL_IN_OK: &[(&str, &str)] = &[
     ("-600 mil", "OK|-600000 years"),
 ];
 
+#[allow(dead_code)]
 pub static INTERVAL_IN_ERR: &[(&str, &str)] = &[
     ("bogus", "ERR|22007|invalid input syntax for type interval: \"bogus\""),
     ("1 parsec", "ERR|22007|invalid input syntax for type interval: \"1 parsec\""),
@@ -507,6 +509,7 @@ pub static INTERVAL_IN_ERR: &[(&str, &str)] = &[
     ("92233720368547758.08 hours", "ERR|22015|interval field value out of range: \"92233720368547758.08 hours\""),
 ];
 
+#[allow(dead_code)]
 pub static INTERVAL_OUT_SQL_STANDARD: &[(&str, &str)] = &[
     ("1 year 2 mons 3 days 04:05:06.789", "OK|+1-2 +3 +4:05:06.789"),
     ("-1 year -2 mons +3 days -04:05:06.789", "OK|-1-2 +3 -4:05:06.789"),
@@ -526,6 +529,7 @@ pub static INTERVAL_OUT_SQL_STANDARD: &[(&str, &str)] = &[
     ("1 week 1 us", "OK|7 0:00:00.000001"),
 ];
 
+#[allow(dead_code)]
 pub static INTERVAL_OUT_POSTGRES_VERBOSE: &[(&str, &str)] = &[
     ("1 year 2 mons 3 days 04:05:06.789", "OK|@ 1 year 2 mons 3 days 4 hours 5 mins 6.789 secs"),
     ("-1 year -2 mons +3 days -04:05:06.789", "OK|@ 1 year 2 mons -3 days 4 hours 5 mins 6.789 secs ago"),
@@ -545,6 +549,7 @@ pub static INTERVAL_OUT_POSTGRES_VERBOSE: &[(&str, &str)] = &[
     ("1 week 1 us", "OK|@ 7 days 0.000001 secs"),
 ];
 
+#[allow(dead_code)]
 pub static INTERVAL_OUT_ISO_8601: &[(&str, &str)] = &[
     ("1 year 2 mons 3 days 04:05:06.789", "OK|P1Y2M3DT4H5M6.789S"),
     ("-1 year -2 mons +3 days -04:05:06.789", "OK|P-1Y-2M3DT-4H-5M-6.789S"),
@@ -564,6 +569,7 @@ pub static INTERVAL_OUT_ISO_8601: &[(&str, &str)] = &[
     ("1 week 1 us", "OK|P7DT0.000001S"),
 ];
 
+#[allow(dead_code)]
 pub static INTERVAL_TYPMOD: &[(&str, &str, &str)] = &[
     ("1 year 2 mons 3 days 04:05:06.789999", "interval(3)", "OK|1 year 2 mons 3 days 04:05:06.79"),
     ("04:05:06.789999", "interval(0)", "OK|04:05:07"),
@@ -588,6 +594,7 @@ pub static INTERVAL_TYPMOD: &[(&str, &str, &str)] = &[
     ("infinity", "interval(0)", "OK|infinity"),
 ];
 
+#[allow(dead_code)]
 pub static ARITH: &[(&str, &str, &str, &str)] = &[
     ("ts_pl", "2001-02-03 04:05:06", "1 month", "OK|2001-03-03 04:05:06"),
     ("ts_mi", "2001-02-03 04:05:06", "1 month", "OK|2001-01-03 04:05:06"),
@@ -1437,6 +1444,7 @@ pub static ARITH: &[(&str, &str, &str, &str)] = &[
     ("tstz2ts", "2003-12-31 00:00:00 UTC", "", "OK|2003-12-31 00:00:00"),
 ];
 
+#[allow(dead_code)]
 pub static SORT_INPUT: &[&str] = &[
     "1 year",
     "13 mons",
@@ -1463,6 +1471,7 @@ pub static SORT_INPUT: &[&str] = &[
     "180 days 5 hours",
 ];
 
+#[allow(dead_code)]
 pub static SORT_EXPECTED: &[&str] = &[
     "-infinity",
     "-1 mon",

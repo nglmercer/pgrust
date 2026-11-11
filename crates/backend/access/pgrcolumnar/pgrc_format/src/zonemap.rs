@@ -117,7 +117,12 @@ impl ZoneMap {
     /// Encode `ranges` (granule order; any `lo > hi` is the empty range).
     pub fn encode(ranges: &[(i64, i64)]) -> FormatResult<ZoneMap> {
         let n = ranges.len();
-        let base = ranges.iter().filter(|&&r| exception_kind(r) == 0).map(|r| r.0).min().unwrap_or(0);
+        let base = ranges
+            .iter()
+            .filter(|&&r| exception_kind(r) == 0)
+            .map(|r| r.0)
+            .min()
+            .unwrap_or(0);
         // the regular minimum sequence (exceptions repeat the previous one) and the two widths per mode
         let mut prev = base;
         let (mut off_max, mut delta_w, mut span_max, mut nexcept) = (0u64, 1u8, 0u64, 0u32);
@@ -133,9 +138,18 @@ impl ZoneMap {
             prev = lo;
         }
         let off_w = unsigned_width(off_max);
-        let (mode, min_w) = if delta_w < off_w { (MODE_DELTA, delta_w) } else { (MODE_OFFSET, off_w) };
+        let (mode, min_w) = if delta_w < off_w {
+            (MODE_DELTA, delta_w)
+        } else {
+            (MODE_OFFSET, off_w)
+        };
         let span_w = unsigned_width(span_max);
-        let mut out = crate::try_vec(ZONEMAP_HEADER_LEN + nexcept as usize * ZONEMAP_EXCEPT_LEN + n * (min_w as usize + span_w as usize), "zonemap")?; // alloc: Cold
+        let mut out = crate::try_vec(
+            ZONEMAP_HEADER_LEN
+                + nexcept as usize * ZONEMAP_EXCEPT_LEN
+                + n * (min_w as usize + span_w as usize),
+            "zonemap",
+        )?; // alloc: Cold
         out.extend_from_slice(&[mode, min_w, span_w, 0]);
         put_u32(&mut out, nexcept);
         put_i64(&mut out, base);
@@ -159,10 +173,17 @@ impl ZoneMap {
             prev = lo;
         }
         for &r in ranges {
-            let span = if exception_kind(r) == 0 { (r.1 as i128 - r.0 as i128) as u64 } else { 0 };
+            let span = if exception_kind(r) == 0 {
+                (r.1 as i128 - r.0 as i128) as u64
+            } else {
+                0
+            };
             put_word(&mut out, span, span_w);
         }
-        Ok(ZoneMap { granules: n as u32, bytes: out.into() })
+        Ok(ZoneMap {
+            granules: n as u32,
+            bytes: out.into(),
+        })
     }
 
     /// A map from its persisted bytes, structure checked (`granules` is
@@ -181,24 +202,40 @@ impl ZoneMap {
         c.i64(at)?;
         let n = c.u32(at)?;
         c.u32(at)?;
-        if mode > MODE_DELTA || !matches!(min_w, 1 | 2 | 4 | 8) || !matches!(span_w, 1 | 2 | 4 | 8) || n != granules {
-            return Err(FormatError::Corrupt { at: "zone map header" });
+        if mode > MODE_DELTA
+            || !matches!(min_w, 1 | 2 | 4 | 8)
+            || !matches!(span_w, 1 | 2 | 4 | 8)
+            || n != granules
+        {
+            return Err(FormatError::Corrupt {
+                at: "zone map header",
+            });
         }
-        let expect = ZONEMAP_HEADER_LEN + nexcept * ZONEMAP_EXCEPT_LEN + n as usize * (min_w as usize + span_w as usize);
+        let expect = ZONEMAP_HEADER_LEN
+            + nexcept * ZONEMAP_EXCEPT_LEN
+            + n as usize * (min_w as usize + span_w as usize);
         if bytes.len() != expect {
-            return Err(FormatError::Corrupt { at: "zone map length" });
+            return Err(FormatError::Corrupt {
+                at: "zone map length",
+            });
         }
         let mut prev_g: Option<u32> = None;
         for _ in 0..nexcept {
             let g = c.u32(at)?;
             let k = c.u8(at)?;
             c.take(3, at)?;
-            if g >= n || prev_g.is_some_and(|p| g <= p) || !matches!(k, EXCEPT_EMPTY | EXCEPT_FULL) {
-                return Err(FormatError::Corrupt { at: "zone map exceptions" });
+            if g >= n || prev_g.is_some_and(|p| g <= p) || !matches!(k, EXCEPT_EMPTY | EXCEPT_FULL)
+            {
+                return Err(FormatError::Corrupt {
+                    at: "zone map exceptions",
+                });
             }
             prev_g = Some(g);
         }
-        Ok(ZoneMap { granules, bytes: bytes.into() })
+        Ok(ZoneMap {
+            granules,
+            bytes: bytes.into(),
+        })
     }
 
     pub fn granules(&self) -> u32 {
@@ -233,9 +270,19 @@ impl ZoneMap {
                 _ => (base as i128 + unsigned_at(mins, g, min_w) as i128) as i64,
             };
             prev = lo;
-            let next_exc = (e < nexcept).then(|| u32::from_le_bytes(exc[e * ZONEMAP_EXCEPT_LEN..e * ZONEMAP_EXCEPT_LEN + 4].try_into().expect("len 4")) as usize);
+            let next_exc = (e < nexcept).then(|| {
+                u32::from_le_bytes(
+                    exc[e * ZONEMAP_EXCEPT_LEN..e * ZONEMAP_EXCEPT_LEN + 4]
+                        .try_into()
+                        .expect("len 4"),
+                ) as usize
+            });
             if next_exc == Some(g) {
-                out.push(if exc[e * ZONEMAP_EXCEPT_LEN + 4] == EXCEPT_EMPTY { EMPTY_RANGE } else { FULL_RANGE });
+                out.push(if exc[e * ZONEMAP_EXCEPT_LEN + 4] == EXCEPT_EMPTY {
+                    EMPTY_RANGE
+                } else {
+                    FULL_RANGE
+                });
                 e += 1;
                 continue;
             }
@@ -286,8 +333,16 @@ pub struct ZoneSummary {
 
 impl ZoneSummary {
     pub fn build(ranges: &[(i64, i64)]) -> ZoneSummary {
-        let mut mins: Vec<i64> = ranges.iter().filter(|(lo, hi)| lo <= hi).map(|r| r.0).collect(); // alloc: Cold
-        let mut maxs: Vec<i64> = ranges.iter().filter(|(lo, hi)| lo <= hi).map(|r| r.1).collect(); // alloc: Cold
+        let mut mins: Vec<i64> = ranges
+            .iter()
+            .filter(|(lo, hi)| lo <= hi)
+            .map(|r| r.0)
+            .collect(); // alloc: Cold
+        let mut maxs: Vec<i64> = ranges
+            .iter()
+            .filter(|(lo, hi)| lo <= hi)
+            .map(|r| r.1)
+            .collect(); // alloc: Cold
         mins.sort_unstable();
         maxs.sort_unstable();
         let n = mins.len();
@@ -301,17 +356,28 @@ impl ZoneSummary {
         }
         keys.sort_unstable();
         keys.dedup();
-        let rank = |sorted: &[i64], k: i64, le: bool| sorted.partition_point(|&v| if le { v <= k } else { v < k }) as u32;
+        let rank = |sorted: &[i64], k: i64, le: bool| {
+            sorted.partition_point(|&v| if le { v <= k } else { v < k }) as u32
+        };
         let min_lt: Vec<u32> = keys.iter().map(|&k| rank(&mins, k, false)).collect(); // alloc: Cold
         let min_le: Vec<u32> = keys.iter().map(|&k| rank(&mins, k, true)).collect(); // alloc: Cold
         let max_lt: Vec<u32> = keys.iter().map(|&k| rank(&maxs, k, false)).collect(); // alloc: Cold
         let max_le: Vec<u32> = keys.iter().map(|&k| rank(&maxs, k, true)).collect(); // alloc: Cold
-        let mut wholes: Vec<i64> = ranges.iter().filter(|(lo, hi)| lo == hi).map(|r| r.0).collect(); // alloc: Cold
+        let mut wholes: Vec<i64> = ranges
+            .iter()
+            .filter(|(lo, hi)| lo == hi)
+            .map(|r| r.0)
+            .collect(); // alloc: Cold
         wholes.sort_unstable();
-        let eq_whole: Vec<u32> = keys.iter().map(|&k| rank(&wholes, k, true) - rank(&wholes, k, false)).collect(); // alloc: Cold
+        let eq_whole: Vec<u32> = keys
+            .iter()
+            .map(|&k| rank(&wholes, k, true) - rank(&wholes, k, false))
+            .collect(); // alloc: Cold
         let mut max_gap = 0u32;
         for i in 1..keys.len() {
-            max_gap = max_gap.max(min_lt[i] - min_le[i - 1]).max(max_lt[i] - max_le[i - 1]);
+            max_gap = max_gap
+                .max(min_lt[i] - min_le[i - 1])
+                .max(max_lt[i] - max_le[i - 1]);
         }
         ZoneSummary {
             granules: ranges.len() as u32,
@@ -336,55 +402,114 @@ mod tests {
     fn round_trip(ranges: &[(i64, i64)]) -> ZoneMap {
         let m = ZoneMap::encode(ranges).unwrap();
         assert_eq!(m.decode().unwrap(), ranges);
-        assert_eq!(ZoneMap::from_bytes(m.bytes(), ranges.len() as u32).expect("parse"), m);
+        assert_eq!(
+            ZoneMap::from_bytes(m.bytes(), ranges.len() as u32).expect("parse"),
+            m
+        );
         m
     }
 
     #[test]
     fn monotone_minima_delta_code_to_one_byte_and_random_words_stay_native() {
         // a sorted_by int4 column: minima climb slowly, spans are small
-        let sorted: Vec<(i64, i64)> = (0..1000).map(|g| (1_000_000 + g * 3, 1_000_000 + g * 3 + 2)).collect();
+        let sorted: Vec<(i64, i64)> = (0..1000)
+            .map(|g| (1_000_000 + g * 3, 1_000_000 + g * 3 + 2))
+            .collect();
         let m = round_trip(&sorted);
-        assert_eq!((m.bytes()[0], m.bytes()[1], m.bytes()[2]), (MODE_DELTA, 1, 1));
+        assert_eq!(
+            (m.bytes()[0], m.bytes()[1], m.bytes()[2]),
+            (MODE_DELTA, 1, 1)
+        );
         assert_eq!(m.bytes().len(), ZONEMAP_HEADER_LEN + 1000 * 2);
         // an int2 column with a full-domain span per granule: 2 + 2 bytes, never more than the native width
         let small: Vec<(i64, i64)> = (0..100).map(|g| (-32768 + g % 7, 32767 - g % 5)).collect();
         let m = round_trip(&small);
         assert_eq!((m.bytes()[1], m.bytes()[2]), (1, 2));
         // a random int8 column: 8 + 8 bytes
-        let wide = [(i64::MIN + 1, i64::MAX - 1), (-3, i64::MAX / 2), (i64::MIN / 2, 7)];
+        let wide = [
+            (i64::MIN + 1, i64::MAX - 1),
+            (-3, i64::MAX / 2),
+            (i64::MIN / 2, 7),
+        ];
         let m = round_trip(&wide);
-        assert_eq!((m.bytes()[0], m.bytes()[1], m.bytes()[2]), (MODE_OFFSET, 8, 8));
+        assert_eq!(
+            (m.bytes()[0], m.bytes()[1], m.bytes()[2]),
+            (MODE_OFFSET, 8, 8)
+        );
     }
 
     #[test]
     fn exceptions_hold_their_slots_and_extremes_survive() {
-        let ranges = [EMPTY_RANGE, (5, 9), FULL_RANGE, EMPTY_RANGE, (6, 6), (i64::MIN, i64::MIN), (i64::MAX, i64::MAX), FULL_RANGE];
+        let ranges = [
+            EMPTY_RANGE,
+            (5, 9),
+            FULL_RANGE,
+            EMPTY_RANGE,
+            (6, 6),
+            (i64::MIN, i64::MIN),
+            (i64::MAX, i64::MAX),
+            FULL_RANGE,
+        ];
         let m = round_trip(&ranges);
         assert_eq!(u32::from_le_bytes(m.bytes()[4..8].try_into().unwrap()), 4);
         round_trip(&[]);
         round_trip(&[EMPTY_RANGE]);
         round_trip(&[FULL_RANGE, FULL_RANGE]);
-        round_trip(&[(i64::MIN, i64::MAX - 1), (i64::MAX - 1, i64::MAX - 1), (i64::MIN, i64::MIN)]);
-        assert_eq!(ZoneMap::default().decode().unwrap(), Vec::<(i64, i64)>::new());
+        round_trip(&[
+            (i64::MIN, i64::MAX - 1),
+            (i64::MAX - 1, i64::MAX - 1),
+            (i64::MIN, i64::MIN),
+        ]);
+        assert_eq!(
+            ZoneMap::default().decode().unwrap(),
+            Vec::<(i64, i64)>::new()
+        );
     }
 
     #[test]
     fn delta_wraps_at_eight_bytes_and_refusals_are_typed() {
         // consecutive minima 2^63 apart: the delta overflows i64 and wraps; offsets fit u64
-        let ranges = [(i64::MIN, i64::MIN), (i64::MAX, i64::MAX), (i64::MIN, i64::MAX), (0, 0)];
+        let ranges = [
+            (i64::MIN, i64::MIN),
+            (i64::MAX, i64::MAX),
+            (i64::MIN, i64::MAX),
+            (0, 0),
+        ];
         round_trip(&ranges);
         let m = ZoneMap::encode(&[(1, 2), (3, 4)]).unwrap();
-        assert!(matches!(ZoneMap::from_bytes(m.bytes(), 3), Err(FormatError::Corrupt { at: "zone map header" })));
-        assert!(matches!(ZoneMap::from_bytes(&m.bytes()[..m.bytes().len() - 1], 2), Err(FormatError::Corrupt { at: "zone map length" })));
-        assert!(matches!(ZoneMap::from_bytes(&m.bytes()[..8], 2), Err(FormatError::Truncated { .. })));
+        assert!(matches!(
+            ZoneMap::from_bytes(m.bytes(), 3),
+            Err(FormatError::Corrupt {
+                at: "zone map header"
+            })
+        ));
+        assert!(matches!(
+            ZoneMap::from_bytes(&m.bytes()[..m.bytes().len() - 1], 2),
+            Err(FormatError::Corrupt {
+                at: "zone map length"
+            })
+        ));
+        assert!(matches!(
+            ZoneMap::from_bytes(&m.bytes()[..8], 2),
+            Err(FormatError::Truncated { .. })
+        ));
         let mut bad = m.bytes().to_vec();
         bad[1] = 3;
-        assert!(matches!(ZoneMap::from_bytes(&bad, 2), Err(FormatError::Corrupt { at: "zone map header" })));
+        assert!(matches!(
+            ZoneMap::from_bytes(&bad, 2),
+            Err(FormatError::Corrupt {
+                at: "zone map header"
+            })
+        ));
         let m = ZoneMap::encode(&[(1, 2), EMPTY_RANGE, (3, 4)]).unwrap();
         let mut bad = m.bytes().to_vec();
         bad[ZONEMAP_HEADER_LEN + 4] = 9;
-        assert!(matches!(ZoneMap::from_bytes(&bad, 3), Err(FormatError::Corrupt { at: "zone map exceptions" })));
+        assert!(matches!(
+            ZoneMap::from_bytes(&bad, 3),
+            Err(FormatError::Corrupt {
+                at: "zone map exceptions"
+            })
+        ));
     }
 
     #[test]
@@ -426,18 +551,50 @@ mod summary_tests {
         assert_eq!(s.keyed as usize, keyed.len());
         assert_eq!(s.granules as usize, ranges.len());
         assert!(s.keys.len() <= 2 * (SUMMARY_BUCKETS + 1));
-        assert!(s.keys.windows(2).all(|w| w[0] < w[1]), "ascending, distinct");
+        assert!(
+            s.keys.windows(2).all(|w| w[0] < w[1]),
+            "ascending, distinct"
+        );
         for (i, &k) in s.keys.iter().enumerate() {
-            assert!(keyed.iter().any(|r| r.0 == k || r.1 == k), "every grid key is a real bound");
-            assert_eq!(s.min_lt[i] as usize, keyed.iter().filter(|r| r.0 < k).count());
-            assert_eq!(s.min_le[i] as usize, keyed.iter().filter(|r| r.0 <= k).count());
-            assert_eq!(s.max_lt[i] as usize, keyed.iter().filter(|r| r.1 < k).count());
-            assert_eq!(s.max_le[i] as usize, keyed.iter().filter(|r| r.1 <= k).count());
-            assert_eq!(s.eq_whole[i] as usize, keyed.iter().filter(|r| r.0 == k && r.1 == k).count());
+            assert!(
+                keyed.iter().any(|r| r.0 == k || r.1 == k),
+                "every grid key is a real bound"
+            );
+            assert_eq!(
+                s.min_lt[i] as usize,
+                keyed.iter().filter(|r| r.0 < k).count()
+            );
+            assert_eq!(
+                s.min_le[i] as usize,
+                keyed.iter().filter(|r| r.0 <= k).count()
+            );
+            assert_eq!(
+                s.max_lt[i] as usize,
+                keyed.iter().filter(|r| r.1 < k).count()
+            );
+            assert_eq!(
+                s.max_le[i] as usize,
+                keyed.iter().filter(|r| r.1 <= k).count()
+            );
+            assert_eq!(
+                s.eq_whole[i] as usize,
+                keyed.iter().filter(|r| r.0 == k && r.1 == k).count()
+            );
         }
         if !keyed.is_empty() {
-            assert_eq!((s.lo, s.hi), (keyed.iter().map(|r| r.0).min().unwrap(), keyed.iter().map(|r| r.1).max().unwrap()));
-            assert!((s.max_gap as usize) < keyed.len().div_ceil(SUMMARY_BUCKETS), "gap {} of {}", s.max_gap, keyed.len());
+            assert_eq!(
+                (s.lo, s.hi),
+                (
+                    keyed.iter().map(|r| r.0).min().unwrap(),
+                    keyed.iter().map(|r| r.1).max().unwrap()
+                )
+            );
+            assert!(
+                (s.max_gap as usize) < keyed.len().div_ceil(SUMMARY_BUCKETS),
+                "gap {} of {}",
+                s.max_gap,
+                keyed.len()
+            );
         }
         s
     }
@@ -445,7 +602,9 @@ mod summary_tests {
     #[test]
     fn the_grid_counts_are_exact_and_the_gaps_bounded() {
         // the tuned hits shape: contiguous slices, two granules per key, one empty granule
-        let mut sorted: Vec<(i64, i64)> = (0..12_207i64).map(|g| (17 + g / 2, 17 + (g + 1) / 2)).collect();
+        let mut sorted: Vec<(i64, i64)> = (0..12_207i64)
+            .map(|g| (17 + g / 2, 17 + (g + 1) / 2))
+            .collect();
         sorted.push(EMPTY_RANGE);
         let s = check(&sorted);
         assert_eq!(s.keyed, 12_207);
@@ -456,7 +615,9 @@ mod summary_tests {
         assert_eq!(s.keys, vec![17, 262_115]);
         assert_eq!(s.max_gap, 0);
         // few distinct bounds: the whole domain is on the grid
-        let dates: Vec<(i64, i64)> = (0..3000i64).map(|g| (15_888 + g % 7, 15_888 + (g % 7).max(g % 11 % 7))).collect();
+        let dates: Vec<(i64, i64)> = (0..3000i64)
+            .map(|g| (15_888 + g % 7, 15_888 + (g % 7).max(g % 11 % 7)))
+            .collect();
         let s = check(&dates);
         assert!(s.keys.len() <= 7);
         // pseudo-random int8 bounds: every value distinct, the gap bound holds

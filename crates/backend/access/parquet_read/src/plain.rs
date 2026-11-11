@@ -18,11 +18,14 @@ macro_rules! plain_fixed {
             out: &mut Vec<$ty>,
         ) -> PgResult<()> {
             const W: usize = core::mem::size_of::<$ty>();
-            let need = n.checked_mul(W).ok_or_else(|| corrupt_page("value count overflow"))?;
+            let need = n
+                .checked_mul(W)
+                .ok_or_else(|| corrupt_page("value count overflow"))?;
             if *pos + need > end || end > buf.len() {
                 return Err(corrupt_page("values end before the declared count"));
             }
-            out.try_reserve(n).map_err(|_| { // alloc: Exec charged the cursor's dict charge or the batch keeper's charge (ColumnBatch::held_bytes)
+            out.try_reserve(n).map_err(|_| {
+                // alloc: Exec charged the cursor's dict charge or the batch keeper's charge (ColumnBatch::held_bytes)
                 Box::new(PgError::error("out of memory decoding parquet values")) // alloc: Cold
             })?;
             let src = &buf[*pos..*pos + need];
@@ -48,11 +51,14 @@ pub(crate) fn plain_i96(
     n: usize,
     out: &mut Vec<[u32; 3]>,
 ) -> PgResult<()> {
-    let need = n.checked_mul(12).ok_or_else(|| corrupt_page("value count overflow"))?;
+    let need = n
+        .checked_mul(12)
+        .ok_or_else(|| corrupt_page("value count overflow"))?;
     if *pos + need > end || end > buf.len() {
         return Err(corrupt_page("values end before the declared count"));
     }
-    out.try_reserve(n).map_err(|_| Box::new(PgError::error("out of memory decoding parquet values")))?; // alloc: Exec charged the cursor's dict charge or the batch keeper's charge (ColumnBatch::held_bytes)
+    out.try_reserve(n)
+        .map_err(|_| Box::new(PgError::error("out of memory decoding parquet values")))?; // alloc: Exec charged the cursor's dict charge or the batch keeper's charge (ColumnBatch::held_bytes)
     for c in buf[*pos..*pos + need].chunks_exact(12) {
         let w = |i: usize| u32::from_le_bytes(c[i..i + 4].try_into().expect("4-byte slice"));
         out.push([w(0), w(4), w(8)]); // alloc: Exec charged the cursor's dict charge or the batch keeper's charge (ColumnBatch::held_bytes)

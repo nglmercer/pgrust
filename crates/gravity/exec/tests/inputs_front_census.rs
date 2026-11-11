@@ -467,6 +467,7 @@ fn estimates(text: &str) -> Vec<(&'static str, usize, usize, f64, bool)> {
             let (at, b) = (from + i, from + i + pat.len());
             let len = text[b..].find([' ', '}', ')']).unwrap_or(text.len() - b);
             from = b + len;
+            #[allow(clippy::sliced_string_as_bytes)]
             if !matches!(text[..at].as_bytes().last(), Some(b'.' | b':')) {
                 continue;
             }

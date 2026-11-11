@@ -48,9 +48,9 @@ use transam_xlog::control_file::{
     TOAST_MAX_CHUNK_SIZE,
 };
 use transam_xlog::{
-    SizeOfXLogRecord, XLogRecPtrToBytePos, CHECKPOINT_FORCE, CHECKPOINT_IMMEDIATE,
-    CHECKPOINT_WAIT, DB_IN_PRODUCTION, MAXALIGN, RM_XLOG_ID, WAL_LEVEL_REPLICA,
-    XLOG_CHECKPOINT_SHUTDOWN, XLP_LONG_HEADER,
+    SizeOfXLogRecord, XLogRecPtrToBytePos, CHECKPOINT_FORCE, CHECKPOINT_IMMEDIATE, CHECKPOINT_WAIT,
+    DB_IN_PRODUCTION, MAXALIGN, RM_XLOG_ID, WAL_LEVEL_REPLICA, XLOG_CHECKPOINT_SHUTDOWN,
+    XLP_LONG_HEADER,
 };
 use types_core::{
     BackendType, ForkNumber, InvalidBlockNumber, Oid, XLogRecPtr, BLCKSZ, INVALID_PROC_NUMBER,
@@ -58,9 +58,7 @@ use types_core::{
 };
 use types_error::PgResult;
 use types_fmgr::{FmgrInfo, FunctionCallInfoBaseData};
-use types_nbtree::{
-    BTPageOpaqueData, BTP_DELETED, BTP_HALF_DEAD, BTP_LEAF, P_NONE as BT_P_NONE,
-};
+use types_nbtree::{BTPageOpaqueData, BTP_DELETED, BTP_HALF_DEAD, BTP_LEAF, P_NONE as BT_P_NONE};
 use types_rel::{
     FormData_pg_class, FormData_pg_index, LockInfoData, LockRelId, Relation, RelationData,
     LOCKMODE, RELKIND_INDEX, RELKIND_RELATION,
@@ -328,8 +326,16 @@ fn vfs_mkdir_p(path: &str) {
 }
 
 fn vfs_write_file(path: &str, data: &[u8]) {
-    let fd = vfs::open(&cpath(path), libc::O_RDWR | libc::O_CREAT | libc::O_TRUNC, 0o600);
-    assert!(fd >= 0, "vfs_write_file open({path}): errno {}", vfs::get_errno());
+    let fd = vfs::open(
+        &cpath(path),
+        libc::O_RDWR | libc::O_CREAT | libc::O_TRUNC,
+        0o600,
+    );
+    assert!(
+        fd >= 0,
+        "vfs_write_file open({path}): errno {}",
+        vfs::get_errno()
+    );
     if !data.is_empty() {
         assert_eq!(vfs::pwrite(fd, data, 0), data.len() as isize, "{path}");
     }
@@ -338,7 +344,11 @@ fn vfs_write_file(path: &str, data: &[u8]) {
 
 fn vfs_read_range(path: &str, off: i64, len: usize) -> Vec<u8> {
     let fd = vfs::open(&cpath(path), libc::O_RDONLY, 0);
-    assert!(fd >= 0, "vfs_read_range open({path}): errno {}", vfs::get_errno());
+    assert!(
+        fd >= 0,
+        "vfs_read_range open({path}): errno {}",
+        vfs::get_errno()
+    );
     let mut buf = vec![0u8; len];
     let n = vfs::pread(fd, &mut buf, off);
     assert!(n >= 0, "{path}");
@@ -480,9 +490,7 @@ fn install_stub_seams() {
     be_fsstubs_seams::at_eoxact_large_object::set(|_| Ok(()));
     namespace_seams::at_eoxact_namespace::set(|_, _| {});
     catalog_index_seams::reset_reindex_state::set(|_| {});
-    catalog_storage_seams::smgr_get_pending_deletes::set(|mcx, _for_commit| {
-        Ok(PgVec::new_in(mcx))
-    });
+    catalog_storage_seams::smgr_get_pending_deletes::set(|mcx, _for_commit| Ok(PgVec::new_in(mcx)));
     catalog_storage_seams::smgr_do_pending_deletes::set(|_| Ok(()));
     catalog_storage_seams::smgr_do_pending_syncs::set(|_, _| Ok(()));
     // inc-4 initdb arm: real initdb datadirs carry DATA CHECKSUMS (the PG 18
@@ -641,11 +649,9 @@ fn install_real() {
     procarray::ProcArrayAdd(lmgr_proc::MyProc().unwrap()).unwrap();
 
     if resowner::CurrentResourceOwner().is_null() {
-        let owner = resowner::ResourceOwnerCreate(
-            types_resowner::ResourceOwner::NULL,
-            "sim-crash-sweep",
-        )
-        .unwrap();
+        let owner =
+            resowner::ResourceOwnerCreate(types_resowner::ResourceOwner::NULL, "sim-crash-sweep")
+                .unwrap();
         resowner::SetCurrentResourceOwner(owner);
     }
 }
@@ -717,7 +723,10 @@ fn test_relation<'mcx>(mcx: Mcx<'mcx>, oid: Oid) -> RelationData<'mcx> {
         rd_firstRelfilelocatorSubid: Cell::new(0),
         rd_droppedSubid: Cell::new(0),
         rd_lockInfo: LockInfoData {
-            lockRelId: LockRelId { relId: oid, dbId: 5 },
+            lockRelId: LockRelId {
+                relId: oid,
+                dbId: 5,
+            },
         },
         rd_rel,
         rd_att: int4_tupdesc(mcx),
@@ -794,7 +803,10 @@ fn rig_index_data<'mcx>(
         rd_firstRelfilelocatorSubid: Cell::new(0),
         rd_droppedSubid: Cell::new(0),
         rd_lockInfo: LockInfoData {
-            lockRelId: LockRelId { relId: oid, dbId: 5 },
+            lockRelId: LockRelId {
+                relId: oid,
+                dbId: 5,
+            },
         },
         rd_rel: FormData_pg_class {
             relname,
@@ -915,12 +927,16 @@ fn install_arm_catalog_stubs(arm: &str) {
         "gin" => {
             syscache_seams::lookup_pg_amproc::set(|_of, _lt, _rt, procnum| {
                 Ok(match procnum {
-                    2 => 2743, // GIN_EXTRACTVALUE_PROC -> ginarrayextract (array_ops)
+                    2 => 2743,                   // GIN_EXTRACTVALUE_PROC -> ginarrayextract (array_ops)
                     _ => types_core::InvalidOid, // array_ops: no compare/comparePartial
                 })
             });
             syscache_seams::lookup_pg_type_shape::set(|typid| {
-                assert_eq!(typid, types_core::INT4OID, "gin arm extracts int4 elements only");
+                assert_eq!(
+                    typid,
+                    types_core::INT4OID,
+                    "gin arm extracts int4 elements only"
+                );
                 Ok(Some(types_tuple::PgTypeShape {
                     typlen: 4,
                     typbyval: true,
@@ -939,7 +955,11 @@ fn install_arm_catalog_stubs(arm: &str) {
             namespace_seams::is_temp_toast_namespace::set(|_| false);
             // brin_build_desc's disk tupdesc consults the stored type shape.
             syscache_seams::lookup_pg_type_shape::set(|typid| {
-                assert_eq!(typid, types_core::INT4OID, "brin arm stores int4 summaries only");
+                assert_eq!(
+                    typid,
+                    types_core::INT4OID,
+                    "brin arm stores int4 summaries only"
+                );
                 Ok(Some(types_tuple::PgTypeShape {
                     typlen: 4,
                     typbyval: true,
@@ -1108,7 +1128,10 @@ fn gin_decode_posting(data: &[u8], nitems: usize) -> Result<Vec<(u32, u16)>, Str
         segoff += (8 + nbytes + 1) & !1usize; // SHORTALIGN'd segment size
     }
     if out.len() != nitems {
-        return Err(format!("decoded {} items, tuple claims {nitems}", out.len()));
+        return Err(format!(
+            "decoded {} items, tuple claims {nitems}",
+            out.len()
+        ));
     }
     Ok(out)
 }
@@ -1237,8 +1260,12 @@ fn mint_and_boot_writer(arm: &str) {
     let ctl = transam_xlog::ctl::XLogCtl();
     ctl.InsertTimeLineID.store(1, Relaxed);
     ctl.PrevTimeLineID.store(1, Relaxed);
-    ctl.Insert.CurrBytePos.store(XLogRecPtrToBytePos(end_of_log), Relaxed);
-    ctl.Insert.PrevBytePos.store(XLogRecPtrToBytePos(CKPT_LOC), Relaxed);
+    ctl.Insert
+        .CurrBytePos
+        .store(XLogRecPtrToBytePos(end_of_log), Relaxed);
+    ctl.Insert
+        .PrevBytePos
+        .store(XLogRecPtrToBytePos(CKPT_LOC), Relaxed);
     ctl.Insert.fullPageWrites.store(true, Relaxed);
     ctl.Insert.RedoRecPtr.store(CKPT_LOC, Relaxed);
     ctl.RedoRecPtr.store(CKPT_LOC, Relaxed);
@@ -1269,9 +1296,10 @@ fn mint_and_boot_writer(arm: &str) {
         ctl.InitializedUpTo.store(page_begin + 8192, Relaxed);
     }
     xlogutils::set_in_recovery(false);
-    procarray::TransamVariables()
-        .nextXid
-        .store(types_core::FullTransactionId::from_epoch_and_xid(0, 3).value, Relaxed);
+    procarray::TransamVariables().nextXid.store(
+        types_core::FullTransactionId::from_epoch_and_xid(0, 3).value,
+        Relaxed,
+    );
     // inc-6 (V5-O5 fix): the real boot path stamps the wraparound limits from
     // the checkpoint (StartupXLOG -> SetTransactionIdLimit); this hand-poked
     // writer boot skipped that since inc-2, leaving xidVacLimit/xidWarnLimit
@@ -1286,7 +1314,10 @@ fn mint_and_boot_writer(arm: &str) {
     // The heap relation file (initdb-side artifact: exists before the sweep).
     smgr::smgropen(RLOC, INVALID_PROC_NUMBER).unwrap();
     smgr::smgrcreate(
-        types_storage::RelFileLocatorBackend { locator: RLOC, backend: INVALID_PROC_NUMBER },
+        types_storage::RelFileLocatorBackend {
+            locator: RLOC,
+            backend: INVALID_PROC_NUMBER,
+        },
         ForkNumber::MAIN_FORKNUM,
         false,
     )
@@ -1302,17 +1333,15 @@ fn mint_and_boot_writer(arm: &str) {
         smgr::smgropen(rloc, INVALID_PROC_NUMBER).unwrap();
         smgr::smgrcreate(idx_key, ForkNumber::MAIN_FORKNUM, false).unwrap();
         for (b, p) in pages.iter().enumerate() {
-            smgr::smgrextend(idx_key, ForkNumber::MAIN_FORKNUM, b as u32, &p.0, false)
-                .unwrap();
+            smgr::smgrextend(idx_key, ForkNumber::MAIN_FORKNUM, b as u32, &p.0, false).unwrap();
         }
     };
     match arm {
         "btree" | "lpreuse" => {
             let mut p = P([0u8; BLCKSZ]);
             // SAFETY: aligned, exclusively owned stack page.
-            let mut pm = unsafe {
-                PageMut::from_raw(core::ptr::NonNull::new(p.0.as_mut_ptr()).unwrap())
-            };
+            let mut pm =
+                unsafe { PageMut::from_raw(core::ptr::NonNull::new(p.0.as_mut_ptr()).unwrap()) };
             nbtree::bt_initmetapage(&mut pm, BT_P_NONE, 0, false);
             mint_index(IDX_RLOC, &mut [p]);
         }
@@ -1331,9 +1360,8 @@ fn mint_and_boot_writer(arm: &str) {
             // REVMAP_EXTEND cut class), not minted here.
             let mut meta = P([0u8; BLCKSZ]);
             // SAFETY: aligned, exclusively owned stack page.
-            let mut pm = unsafe {
-                PageMut::from_raw(core::ptr::NonNull::new(meta.0.as_mut_ptr()).unwrap())
-            };
+            let mut pm =
+                unsafe { PageMut::from_raw(core::ptr::NonNull::new(meta.0.as_mut_ptr()).unwrap()) };
             brin_pageops::brin_metapage_init(&mut pm, BR_PPR, types_brin::BRIN_CURRENT_VERSION);
             mint_index(BRIN_IDX_RLOC, &mut [meta]);
         }
@@ -1361,8 +1389,7 @@ fn boot_initdb_writer() -> (String, u32) {
         std::env::var("PGRUST_PGSHAREDIR").is_ok(),
         "orchestrator must set PGRUST_PGSHAREDIR for the initdb arm"
     );
-    let assets =
-        vfs::sim_boot::compose_boot_namespace(&dd).expect("compose_boot_namespace failed");
+    let assets = vfs::sim_boot::compose_boot_namespace(&dd).expect("compose_boot_namespace failed");
     println!("{assets}");
     init_small::globals::SetDataDir(&dd);
     init_small::globals::set_enableFsync(true);
@@ -1377,7 +1404,10 @@ fn boot_initdb_writer() -> (String, u32) {
     // minted arm; base/5 is the real postgres database directory).
     smgr::smgropen(RLOC, INVALID_PROC_NUMBER).unwrap();
     smgr::smgrcreate(
-        types_storage::RelFileLocatorBackend { locator: RLOC, backend: INVALID_PROC_NUMBER },
+        types_storage::RelFileLocatorBackend {
+            locator: RLOC,
+            backend: INVALID_PROC_NUMBER,
+        },
         ForkNumber::MAIN_FORKNUM,
         false,
     )
@@ -1425,8 +1455,7 @@ fn red_overeager_recycle() {
 fn red_plant_validating_stale_record(gap_xid: u32) {
     const REC_LEN: usize = SizeOfXLogRecord + 2 + 8;
     let ctl = transam_xlog::ctl::XLogCtl();
-    let insert_lsn =
-        transam_xlog::XLogBytePosToRecPtr(ctl.Insert.CurrBytePos.load(Relaxed));
+    let insert_lsn = transam_xlog::XLogBytePosToRecPtr(ctl.Insert.CurrBytePos.load(Relaxed));
     let prev_lsn = transam_xlog::XLogBytePosToRecPtr(ctl.Insert.PrevBytePos.load(Relaxed));
     // Deterministic workload: the plant must sit mid-page (no page-header
     // interleaving) and within one segment.
@@ -1473,15 +1502,17 @@ fn red_plant_validating_stale_record(gap_xid: u32) {
 /// stopped proving anything.
 fn red_zero_leftmost_leaf() {
     let idx_path = format!("/base/5/{IDX_OID}");
-    let read_blk =
-        |b: u32| vfs_read_range(&idx_path, b as i64 * BLCKSZ as i64, BLCKSZ);
+    let read_blk = |b: u32| vfs_read_range(&idx_path, b as i64 * BLCKSZ as i64, BLCKSZ);
     // On-disk state = the txn-3 checkpoint image (no eviction at this scale):
     // a consistent tree whose left spine is final for this workload.
     let meta = read_blk(0);
     let hdr = 24usize; // SizeOfPageHeaderData: BTMetaPageData starts here
     let mut blk = u32::from_ne_bytes(meta[hdr + 8..hdr + 12].try_into().unwrap());
     let mut level = u32::from_ne_bytes(meta[hdr + 12..hdr + 16].try_into().unwrap());
-    assert!(blk != BT_P_NONE, "idx-stale red needs a rooted on-disk tree");
+    assert!(
+        blk != BT_P_NONE,
+        "idx-stale red needs a rooted on-disk tree"
+    );
     while level > 0 {
         let page = read_blk(blk);
         let opaque = bt_opaque_of(&page);
@@ -1493,11 +1524,18 @@ fn red_zero_leftmost_leaf() {
         level -= 1;
     }
     let leaf = read_blk(blk);
-    assert!(bt_opaque_of(&leaf).btpo_flags & BTP_LEAF != 0, "descend ends on a leaf");
+    assert!(
+        bt_opaque_of(&leaf).btpo_flags & BTP_LEAF != 0,
+        "descend ends on a leaf"
+    );
     // Raw vfs write + fsync: durable page loss planted beneath the product's
     // WAL/buffer layers (disk-borne damage, not engine activity).
     let fdno = vfs::open(&cpath(&idx_path), libc::O_RDWR, 0);
-    assert!(fdno >= 0, "idx-stale plant open: errno {}", vfs::get_errno());
+    assert!(
+        fdno >= 0,
+        "idx-stale plant open: errno {}",
+        vfs::get_errno()
+    );
     let zeros = vec![0u8; BLCKSZ];
     assert_eq!(
         vfs::pwrite(fdno, &zeros, blk as i64 * BLCKSZ as i64),
@@ -1560,12 +1598,8 @@ fn run_one_btree_txn<'m>(
     } else {
         for i in 0..BT_ROWS {
             let key = bt_key(keys, t, i);
-            let mut tup = heaptuple::heap_form_tuple(
-                mcx,
-                tupdesc,
-                &[datum::Datum::from_i32(key)],
-                &[false],
-            )?;
+            let mut tup =
+                heaptuple::heap_form_tuple(mcx, tupdesc, &[datum::Datum::from_i32(key)], &[false])?;
             heapam::heap_insert(rel, tup.as_tuple_mut(), 0, 0, None)?;
             let tid = tup.as_tuple().t_self;
             if t == 1 {
@@ -1711,7 +1745,10 @@ fn run_one_lpreuse_txn<'m>(
 /// would carry no durability ops to cut on.
 fn flush_wal_tail() -> PgResult<()> {
     let lsn = transam_xlog::XLogBytePosToRecPtr(
-        transam_xlog::ctl::XLogCtl().Insert.CurrBytePos.load(Relaxed),
+        transam_xlog::ctl::XLogCtl()
+            .Insert
+            .CurrBytePos
+            .load(Relaxed),
     );
     transam_xlog::XLogFlush(lsn)
 }
@@ -1872,8 +1909,16 @@ fn sim_sweep_writer_child() {
     } else {
         None
     };
-    let gin_idx = if arm == "gin" { Some(gin_index_rel(mcx)) } else { None };
-    let brin_idx = if arm == "brin" { Some(brin_index_rel(mcx)) } else { None };
+    let gin_idx = if arm == "gin" {
+        Some(gin_index_rel(mcx))
+    } else {
+        None
+    };
+    let brin_idx = if arm == "brin" {
+        Some(brin_index_rel(mcx))
+    } else {
+        None
+    };
     let mut txn1_tids: Vec<ItemPointerData> = Vec::new();
     let mut lp_del_tids: Vec<ItemPointerData> = Vec::new();
     let mut vac_span: Option<(u64, u64)> = None;
@@ -1985,7 +2030,11 @@ fn sim_sweep_writer_child() {
                 xact::CommitTransactionCommand()?;
                 Ok(())
             }));
-            let name: &'static str = if t == GIN_CLEAN_AFTER[0] { "clean1" } else { "clean2" };
+            let name: &'static str = if t == GIN_CLEAN_AFTER[0] {
+                "clean1"
+            } else {
+                "clean2"
+            };
             windows.push((name, lo, SimVfs::op_seq() - ops_at_start));
             match r {
                 Ok(Ok(())) => {}
@@ -2038,8 +2087,9 @@ fn sim_sweep_writer_child() {
                     break;
                 }
                 Err(_) => {
-                    stopped =
-                        Some(format!("brin summarize after txn {t} panicked (engine stop)"));
+                    stopped = Some(format!(
+                        "brin summarize after txn {t} panicked (engine stop)"
+                    ));
                     break;
                 }
             }
@@ -2108,10 +2158,7 @@ fn sim_sweep_writer_child() {
                     blocks.dedup();
                     for b in &blocks {
                         let buf = bufmgr::ReadBuffer(&rel, *b)?;
-                        bufmgr_seams::lock_buffer::call(
-                            buf,
-                            bufmgr_seams::BUFFER_LOCK_EXCLUSIVE,
-                        )?;
+                        bufmgr_seams::lock_buffer::call(buf, bufmgr_seams::BUFFER_LOCK_EXCLUSIVE)?;
                         let mut presult = pruneheap::PruneFreezeResult::default();
                         let mut off_loc: types_core::OffsetNumber = 0;
                         // The REAL product horizon (procarray GlobalVisTestFor):
@@ -2130,10 +2177,7 @@ fn sim_sweep_writer_child() {
                             None,
                             None,
                         )?;
-                        bufmgr_seams::lock_buffer::call(
-                            buf,
-                            bufmgr_seams::BUFFER_LOCK_UNLOCK,
-                        )?;
+                        bufmgr_seams::lock_buffer::call(buf, bufmgr_seams::BUFFER_LOCK_UNLOCK)?;
                         bufmgr::ReleaseBuffer(buf)?;
                         REUSE_BLOCKS.with(|q| q.borrow_mut().push_back(*b));
                     }
@@ -2289,7 +2333,10 @@ fn sim_sweep_writer_child() {
     let mut meta = String::new();
     meta.push_str(&format!("k={k}\n"));
     meta.push_str(&format!("seed={:#x}\n", per_point_seed(k)));
-    meta.push_str(&format!("arm={}\n", if arm.is_empty() { "minted" } else { &arm }));
+    meta.push_str(&format!(
+        "arm={}\n",
+        if arm.is_empty() { "minted" } else { &arm }
+    ));
     meta.push_str(&format!("datadir={datadir}\n"));
     meta.push_str(&format!("base_xid={base_xid}\n"));
     meta.push_str(&format!("acked={acked}\n"));
@@ -2361,9 +2408,7 @@ fn mvcc_snapshot<'m>(mcx: Mcx<'m>, base_xid: u32) -> SnapshotData<'m> {
 fn page_tuple(page_addr: *mut u8, off: u16) -> HeapTupleData<'static> {
     // SAFETY: pinned buffer page, held across the visibility check.
     let page = unsafe {
-        types_storage::bufpage::PageRef::from_raw(
-            core::ptr::NonNull::new(page_addr).unwrap(),
-        )
+        types_storage::bufpage::PageRef::from_raw(core::ptr::NonNull::new(page_addr).unwrap())
     };
     let id = page.item_id(off);
     let (ptr, len) = page.item_raw(id);
@@ -2407,8 +2452,7 @@ fn sim_sweep_recover_child() {
         // writer used (fresh process-shared universe, boot cwd = the pack
         // datadir, SIM-ASSETS = the post-crash composition identity).
         let dd = format!("{}{}", pack.join("root").to_str().unwrap(), writer_dd);
-        let assets =
-            vfs::sim_boot::compose_boot_namespace(&dd).expect("recover compose failed");
+        let assets = vfs::sim_boot::compose_boot_namespace(&dd).expect("recover compose failed");
         println!("{assets}");
         init_small::globals::SetDataDir(&dd);
     } else {
@@ -3301,8 +3345,9 @@ fn sim_sweep_recover_child() {
         }))
         .is_err();
         if panicked {
-            violations
-                .push(format!("{tag}: property verification panicked on the recovered image"));
+            violations.push(format!(
+                "{tag}: property verification panicked on the recovered image"
+            ));
         }
     }
 
@@ -3318,7 +3363,13 @@ fn sim_sweep_recover_child() {
 
 fn spawn_child(test_name: &str, envs: &[(&str, String)]) -> (bool, String) {
     let mut cmd = std::process::Command::new(std::env::current_exe().unwrap());
-    cmd.args([test_name, "--exact", "--ignored", "--test-threads=1", "--nocapture"]);
+    cmd.args([
+        test_name,
+        "--exact",
+        "--ignored",
+        "--test-threads=1",
+        "--nocapture",
+    ]);
     for (k, v) in envs {
         cmd.env(k, v);
     }
@@ -3355,7 +3406,11 @@ fn run_point_tagged(
 ) -> (String, String) {
     let pack = base.join(format!(
         "pack_k{k}{tag}{}",
-        if red.is_empty() { String::new() } else { format!("_red_{red}") }
+        if red.is_empty() {
+            String::new()
+        } else {
+            format!("_red_{red}")
+        }
     ));
     let mut wenvs: Vec<(&str, String)> = vec![
         (ROLE_ENV, "writer".into()),
@@ -3496,8 +3551,16 @@ fn stratify(
     for (k, kind, _, _) in trace {
         if matches!(
             kind.as_str(),
-            "Fsync" | "Fdatasync" | "Rename" | "Unlink" | "Open" | "Ftruncate"
-                | "TruncatePath" | "Mkdir" | "Rmdir" | "Fallocate"
+            "Fsync"
+                | "Fdatasync"
+                | "Rename"
+                | "Unlink"
+                | "Open"
+                | "Ftruncate"
+                | "TruncatePath"
+                | "Mkdir"
+                | "Rmdir"
+                | "Fallocate"
         ) {
             pick.insert(*k);
         }
@@ -3553,8 +3616,16 @@ fn product_shaped_crash_recovery_sweep() {
 
     // Fault-free baseline defines the op span and proves the writer rig.
     let (rtext, meta) = run_point(&base, 0, "", &[]);
-    assert_eq!(meta_field(&meta, "acked"), TXNS.to_string(), "baseline acks all: {meta}");
-    assert_eq!(meta_field(&meta, "cuts"), "0", "baseline must not cut: {meta}");
+    assert_eq!(
+        meta_field(&meta, "acked"),
+        TXNS.to_string(),
+        "baseline acks all: {meta}"
+    );
+    assert_eq!(
+        meta_field(&meta, "cuts"),
+        "0",
+        "baseline must not cut: {meta}"
+    );
     assert!(
         rtext.contains("SIM_RECOVER_DONE violations=0"),
         "baseline recovery must be clean:\n{rtext}"
@@ -3562,14 +3633,22 @@ fn product_shaped_crash_recovery_sweep() {
     let n: u64 = meta_field(&meta, "ops").parse().unwrap();
     assert!(n > 200, "scaled workload too small to stratify ({n} ops)");
     let trace = parse_trace(&meta);
-    assert_eq!(trace.len() as u64, n, "trace must cover the whole workload span");
+    assert_eq!(
+        trace.len() as u64,
+        n,
+        "trace must cover the whole workload span"
+    );
     // The inc-3 scale-up must actually reach its new cut classes.
     assert!(
-        trace.iter().any(|(_, kind, class, _)| kind == "Rename" && class == "Wal"),
+        trace
+            .iter()
+            .any(|(_, kind, class, _)| kind == "Rename" && class == "Wal"),
         "workload must cross a WAL segment (install/recycle renames)"
     );
     assert!(
-        trace.iter().any(|(_, kind, class, _)| kind == "PWriteV" && class == "Heap"),
+        trace
+            .iter()
+            .any(|(_, kind, class, _)| kind == "PWriteV" && class == "Heap"),
         "workload must write heap pages mid-run (multi-page + eviction)"
     );
     // inc-4 SEGMENT-RECYCLE CUT CLASSES: the workload must both RECYCLE a
@@ -3643,7 +3722,11 @@ fn product_shaped_crash_recovery_sweep() {
         CKPT_AFTER.len(),
         failures.len()
     );
-    assert_eq!(cut_points as usize, points.len(), "every sweep point must cut");
+    assert_eq!(
+        cut_points as usize,
+        points.len(),
+        "every sweep point must cut"
+    );
     assert!(
         failures.is_empty(),
         "PRODUCT-SHAPED CRASH-RECOVERY VIOLATIONS ({}):\n{}",
@@ -3663,7 +3746,10 @@ fn normalize_pid(s: &str) -> String {
         let split = pos + "xlogtemp.".len();
         out.push_str(&rest[..split]);
         rest = &rest[split..];
-        let nd = rest.chars().take_while(|c| c.is_ascii_digit() || *c == '.').count();
+        let nd = rest
+            .chars()
+            .take_while(|c| c.is_ascii_digit() || *c == '.')
+            .count();
         if nd > 0 {
             out.push_str("PID");
         }
@@ -3676,7 +3762,10 @@ fn normalize_pid(s: &str) -> String {
 /// Flatten a pack tree to (pid-normalized file name, bytes) pairs in sorted
 /// walk order — the byte-compare unit of the determinism gates.
 fn tree_digest(dir: &std::path::Path, acc: &mut Vec<(String, Vec<u8>)>) {
-    let mut entries: Vec<_> = std::fs::read_dir(dir).unwrap().map(|e| e.unwrap()).collect();
+    let mut entries: Vec<_> = std::fs::read_dir(dir)
+        .unwrap()
+        .map(|e| e.unwrap())
+        .collect();
     entries.sort_by_key(|e| e.file_name());
     for e in entries {
         if e.file_type().unwrap().is_dir() {
@@ -3748,11 +3837,13 @@ fn sweep_point_replay_determinism_x3() {
             assert!(ok, "recover k={k} rep {rep} failed:\n{rtext}");
             let mut tree = Vec::new();
             tree_digest(&pack.join("root"), &mut tree);
-            let meta =
-                normalize_pid(&std::fs::read_to_string(pack.join("meta.txt")).unwrap());
-            let state = marker_line(&rtext, "SIM_RECOVER_STATE")
-                .unwrap_or_else(|| "MISSING".to_string());
-            assert_ne!(state, "MISSING", "k={k} rep {rep}: recover state line absent");
+            let meta = normalize_pid(&std::fs::read_to_string(pack.join("meta.txt")).unwrap());
+            let state =
+                marker_line(&rtext, "SIM_RECOVER_STATE").unwrap_or_else(|| "MISSING".to_string());
+            assert_ne!(
+                state, "MISSING",
+                "k={k} rep {rep}: recover state line absent"
+            );
             runs.push((tree, meta, state));
             let _ = std::fs::remove_dir_all(&pack);
         }
@@ -3771,7 +3862,10 @@ fn sweep_point_replay_determinism_x3() {
                 runs[0].1, runs[rep].1,
                 "k={k}: meta (incl. fault log) must be byte-identical"
             );
-            assert_eq!(runs[0].2, runs[rep].2, "k={k}: recovered state must be identical");
+            assert_eq!(
+                runs[0].2, runs[rep].2,
+                "k={k}: recovered state must be identical"
+            );
         }
         eprintln!("DETERMINISM x3 OK at k={k}: {}", runs[0].2);
     }
@@ -3822,7 +3916,11 @@ fn red_overeager_recycle_of_needed_segment_is_caught() {
     let (rtext, meta) = run_point(&base, 0, "recycle-needed", &[]);
     let _ = std::fs::remove_dir_all(&base);
 
-    assert_eq!(meta_field(&meta, "acked"), "8", "red arm acks through txn 8: {meta}");
+    assert_eq!(
+        meta_field(&meta, "acked"),
+        "8",
+        "red arm acks through txn 8: {meta}"
+    );
     assert_eq!(meta_field(&meta, "cuts"), "1", "red arm must cut: {meta}");
     assert!(
         rtext.contains("VIOLATION:")
@@ -3850,7 +3948,11 @@ fn red_stale_recycled_residue_replay_is_caught() {
     let (rtext, meta) = run_point(&base, 0, "stale-residue", &[]);
     let _ = std::fs::remove_dir_all(&base);
 
-    assert_eq!(meta_field(&meta, "acked"), "7", "red arm acks through txn 7: {meta}");
+    assert_eq!(
+        meta_field(&meta, "acked"),
+        "7",
+        "red arm acks through txn 7: {meta}"
+    );
     assert_eq!(meta_field(&meta, "cuts"), "1", "red arm must cut: {meta}");
     assert!(
         rtext.contains("VIOLATION:") && rtext.contains("clog commit gap"),
@@ -3901,18 +4003,29 @@ fn initdb_image_cut_sweep() {
         INITDB_TXNS.to_string(),
         "initdb baseline acks all: {meta}"
     );
-    assert_eq!(meta_field(&meta, "cuts"), "0", "initdb baseline must not cut: {meta}");
+    assert_eq!(
+        meta_field(&meta, "cuts"),
+        "0",
+        "initdb baseline must not cut: {meta}"
+    );
     assert_eq!(meta_field(&meta, "arm"), "initdb", "{meta}");
     assert!(
         rtext.contains("SIM_RECOVER_DONE violations=0"),
         "initdb baseline recovery must be clean:\n{rtext}"
     );
     let base_xid: u32 = meta_field(&meta, "base_xid").parse().unwrap();
-    assert!(base_xid > 3, "initdb arm must run in the REAL xid range, got {base_xid}");
+    assert!(
+        base_xid > 3,
+        "initdb arm must run in the REAL xid range, got {base_xid}"
+    );
     let n: u64 = meta_field(&meta, "ops").parse().unwrap();
     assert!(n > 100, "initdb workload too small to stratify ({n} ops)");
     let trace = parse_trace(&meta);
-    assert_eq!(trace.len() as u64, n, "trace must cover the whole workload span");
+    assert_eq!(
+        trace.len() as u64,
+        n,
+        "trace must cover the whole workload span"
+    );
     let baseline_state = marker_line(&rtext, "SIM_RECOVER_STATE").unwrap_or_default();
     assert!(
         baseline_state.contains(&format!("visible_rows={}", INITDB_TXNS * ROWS_PER_TXN)),
@@ -3962,7 +4075,11 @@ fn initdb_image_cut_sweep() {
          whole-node kill, provider-seam composition), {} violations",
         failures_v.len()
     );
-    assert_eq!(cut_points as usize, points.len(), "every initdb sweep point must cut");
+    assert_eq!(
+        cut_points as usize,
+        points.len(),
+        "every initdb sweep point must cut"
+    );
     assert!(
         failures_v.is_empty(),
         "INITDB-IMAGE CRASH-RECOVERY VIOLATIONS ({}):\n{}",
@@ -3973,7 +4090,11 @@ fn initdb_image_cut_sweep() {
     // The arm's RED: the product fsync knob off — acked-loss must be caught
     // on the composed image too (teeth end-to-end for this arm).
     let (rtext, meta) = run_point(&base, 0, "fsync", &extra);
-    assert_eq!(meta_field(&meta, "acked"), INITDB_TXNS.to_string(), "{meta}");
+    assert_eq!(
+        meta_field(&meta, "acked"),
+        INITDB_TXNS.to_string(),
+        "{meta}"
+    );
     assert!(
         rtext.contains("VIOLATION:") && rtext.contains("ACKED txn"),
         "the initdb arm must flag acked-data loss when the product fsync layer \
@@ -4006,17 +4127,30 @@ fn initdb_image_cut_sweep() {
         let mut tree = Vec::new();
         tree_digest(&pack.join("root"), &mut tree);
         let meta = normalize_pid(&std::fs::read_to_string(pack.join("meta.txt")).unwrap());
-        let state = marker_line(&rtext, "SIM_RECOVER_STATE")
-            .unwrap_or_else(|| "MISSING".to_string());
-        assert_ne!(state, "MISSING", "initdb det k={pin} rep {rep}: state line absent");
+        let state =
+            marker_line(&rtext, "SIM_RECOVER_STATE").unwrap_or_else(|| "MISSING".to_string());
+        assert_ne!(
+            state, "MISSING",
+            "initdb det k={pin} rep {rep}: state line absent"
+        );
         runs.push((tree, meta, state));
         let _ = std::fs::remove_dir_all(&pack);
     }
-    assert!(runs[0].1.contains("cuts=1"), "initdb det pin must cut: {}", runs[0].1);
+    assert!(
+        runs[0].1.contains("cuts=1"),
+        "initdb det pin must cut: {}",
+        runs[0].1
+    );
     for rep in 1..3 {
-        assert_eq!(runs[0].0, runs[rep].0, "initdb det k={pin}: pack trees differ");
+        assert_eq!(
+            runs[0].0, runs[rep].0,
+            "initdb det k={pin}: pack trees differ"
+        );
         assert_eq!(runs[0].1, runs[rep].1, "initdb det k={pin}: metas differ");
-        assert_eq!(runs[0].2, runs[rep].2, "initdb det k={pin}: recovered state differs");
+        assert_eq!(
+            runs[0].2, runs[rep].2,
+            "initdb det k={pin}: recovered state differs"
+        );
     }
     eprintln!("INITDB DETERMINISM x3 OK at k={pin}: {}", runs[0].2);
 
@@ -4043,7 +4177,10 @@ fn find_or_mint_initdb_dd(tag: &str) -> Option<std::path::PathBuf> {
         Ok(p) => Some(std::path::PathBuf::from(p)),
         Err(_) => {
             let mut found = None;
-            for cand in ["/tmp/pgrust_pginstall/bin/initdb", "/opt/homebrew/bin/initdb"] {
+            for cand in [
+                "/tmp/pgrust_pginstall/bin/initdb",
+                "/opt/homebrew/bin/initdb",
+            ] {
                 if std::path::Path::new(cand).exists() {
                     found = Some(cand);
                     break;
@@ -4162,8 +4299,16 @@ fn btree_index_crash_recovery_sweep() {
     let extra: Vec<(&str, String)> = vec![(ARM_ENV, "btree".into())];
 
     let (rtext, meta) = run_point(&base, 0, "", &extra);
-    assert_eq!(meta_field(&meta, "acked"), BT_TXNS.to_string(), "btree baseline acks all: {meta}");
-    assert_eq!(meta_field(&meta, "cuts"), "0", "btree baseline must not cut: {meta}");
+    assert_eq!(
+        meta_field(&meta, "acked"),
+        BT_TXNS.to_string(),
+        "btree baseline acks all: {meta}"
+    );
+    assert_eq!(
+        meta_field(&meta, "cuts"),
+        "0",
+        "btree baseline must not cut: {meta}"
+    );
     assert!(
         rtext.contains("SIM_RECOVER_DONE violations=0"),
         "btree baseline recovery must be clean:\n{rtext}"
@@ -4175,7 +4320,11 @@ fn btree_index_crash_recovery_sweep() {
     );
     let n: u64 = meta_field(&meta, "ops").parse().unwrap();
     let trace = parse_trace(&meta);
-    assert_eq!(trace.len() as u64, n, "trace must cover the whole workload span");
+    assert_eq!(
+        trace.len() as u64,
+        n,
+        "trace must cover the whole workload span"
+    );
     // The index cut classes must EXIST: index-file page writes + the vacuum
     // window (btbulkdelete removed exactly txn 1's entries).
     let idx_path_frag = format!("/base/5/{IDX_OID}");
@@ -4240,7 +4389,11 @@ fn btree_index_crash_recovery_sweep() {
          btbulkdelete, whole-node kill), {} violations",
         failures_v.len()
     );
-    assert_eq!(cut_points as usize, points.len(), "every btree sweep point must cut");
+    assert_eq!(
+        cut_points as usize,
+        points.len(),
+        "every btree sweep point must cut"
+    );
     assert!(
         failures_v.is_empty(),
         "BTREE-INDEX CRASH-RECOVERY VIOLATIONS ({}):\n{}",
@@ -4273,17 +4426,29 @@ fn btree_index_crash_recovery_sweep() {
             let mut tree = Vec::new();
             tree_digest(&pack.join("root"), &mut tree);
             let m = normalize_pid(&std::fs::read_to_string(pack.join("meta.txt")).unwrap());
-            let state = marker_line(&rtext, "SIM_RECOVER_STATE")
-                .unwrap_or_else(|| "MISSING".to_string());
-            assert_ne!(state, "MISSING", "btree det k={pin} rep {rep}: state line absent");
+            let state =
+                marker_line(&rtext, "SIM_RECOVER_STATE").unwrap_or_else(|| "MISSING".to_string());
+            assert_ne!(
+                state, "MISSING",
+                "btree det k={pin} rep {rep}: state line absent"
+            );
             runs.push((tree, m, state));
             let _ = std::fs::remove_dir_all(&pack);
         }
-        assert!(runs[0].1.contains("cuts=1"), "btree det pin k={pin} must cut");
+        assert!(
+            runs[0].1.contains("cuts=1"),
+            "btree det pin k={pin} must cut"
+        );
         for rep in 1..3 {
-            assert_eq!(runs[0].0, runs[rep].0, "btree det k={pin}: pack trees differ");
+            assert_eq!(
+                runs[0].0, runs[rep].0,
+                "btree det k={pin}: pack trees differ"
+            );
             assert_eq!(runs[0].1, runs[rep].1, "btree det k={pin}: metas differ");
-            assert_eq!(runs[0].2, runs[rep].2, "btree det k={pin}: recovered state differs");
+            assert_eq!(
+                runs[0].2, runs[rep].2,
+                "btree det k={pin}: recovered state differs"
+            );
         }
         eprintln!("BTREE DETERMINISM x3 OK at k={pin}: {}", runs[0].2);
     }
@@ -4308,8 +4473,16 @@ fn red_stale_btree_page_is_caught() {
     let (rtext, meta) = run_point(&base, 0, "idx-stale", &extra);
     let _ = std::fs::remove_dir_all(&base);
 
-    assert_eq!(meta_field(&meta, "acked"), "5", "idx-stale red acks txns 1-5: {meta}");
-    assert_eq!(meta_field(&meta, "cuts"), "1", "idx-stale red must cut: {meta}");
+    assert_eq!(
+        meta_field(&meta, "acked"),
+        "5",
+        "idx-stale red acks txns 1-5: {meta}"
+    );
+    assert_eq!(
+        meta_field(&meta, "cuts"),
+        "1",
+        "idx-stale red must cut: {meta}"
+    );
     assert!(
         rtext.contains("VIOLATION:") && rtext.contains("index"),
         "the sweep must flag the zeroed pre-checkpoint index leaf via the \
@@ -4343,8 +4516,16 @@ fn torn_write_fpw_repair_sweep() {
     };
     let heap_ws = class_writes("Heap");
     let wal_ws = class_writes("Wal");
-    assert!(heap_ws.len() >= 20, "workload must flush heap pages ({})", heap_ws.len());
-    assert!(wal_ws.len() >= 20, "workload must write WAL ({})", wal_ws.len());
+    assert!(
+        heap_ws.len() >= 20,
+        "workload must flush heap pages ({})",
+        heap_ws.len()
+    );
+    assert!(
+        wal_ws.len() >= 20,
+        "workload must write WAL ({})",
+        wal_ws.len()
+    );
     // Evenly spread torn points: the j-th class write, torn at a seeded
     // sector prefix (1..15 sectors of an 8 KB page).
     let mut specs: Vec<(String, u64)> = Vec::new();
@@ -4358,7 +4539,10 @@ fn torn_write_fpw_repair_sweep() {
         let p = 512 * (1 + per_point_seed(wal_ws[(j - 1) as usize]) % 15);
         specs.push((format!("wal:{j}:{p}"), wal_ws[(j - 1) as usize]));
     }
-    eprintln!("TORN-WRITE SWEEP: {} torn points (heap + wal classes)", specs.len());
+    eprintln!(
+        "TORN-WRITE SWEEP: {} torn points (heap + wal classes)",
+        specs.len()
+    );
 
     let failures = std::sync::Mutex::new(Vec::<String>::new());
     let next = std::sync::atomic::AtomicUsize::new(0);
@@ -4522,8 +4706,15 @@ fn red_torn_write_without_fpw_is_caught() {
     let (rtext, meta) = run_point(&base, 0, "fpw-torn", &extra);
     let _ = std::fs::remove_dir_all(&base);
 
-    assert_eq!(meta_field(&meta, "cuts"), "1", "fpw-torn red must cut mid-write: {meta}");
-    assert!(meta.contains("faultlog: TORN"), "fpw-torn red must tear: {meta}");
+    assert_eq!(
+        meta_field(&meta, "cuts"),
+        "1",
+        "fpw-torn red must cut mid-write: {meta}"
+    );
+    assert!(
+        meta.contains("faultlog: TORN"),
+        "fpw-torn red must tear: {meta}"
+    );
     assert!(
         rtext.contains("VIOLATION:"),
         "with full-page writes disabled the torn heap page must be caught:\n{rtext}"
@@ -4547,7 +4738,10 @@ fn emfile_exhaustion_battery() {
 
     let (_, meta) = run_point(&base, 0, "", &[]);
     let trace = parse_trace(&meta);
-    let n_open = trace.iter().filter(|(_, kind, _, _)| kind == "Open").count() as u64;
+    let n_open = trace
+        .iter()
+        .filter(|(_, kind, _, _)| kind == "Open")
+        .count() as u64;
     assert!(n_open >= 8, "workload must open files ({n_open} opens)");
 
     let mut specs: Vec<String> = Vec::new();
@@ -4557,7 +4751,10 @@ fn emfile_exhaustion_battery() {
     for i in 0..5u64 {
         specs.push(format!("sticky:{}", 1 + i * (n_open - 1) / 4));
     }
-    eprintln!("EMFILE BATTERY: {} injection points over {n_open} opens", specs.len());
+    eprintln!(
+        "EMFILE BATTERY: {} injection points over {n_open} opens",
+        specs.len()
+    );
 
     let results = std::sync::Mutex::new(Vec::<(String, u32, String, usize)>::new());
     let failures = std::sync::Mutex::new(Vec::<String>::new());
@@ -4597,7 +4794,10 @@ fn emfile_exhaustion_battery() {
                             .push(format!("emfile {spec}: {}", &line[p + 11..]));
                     }
                 }
-                results.lock().unwrap().push((spec.clone(), acked, stopped, nviol));
+                results
+                    .lock()
+                    .unwrap()
+                    .push((spec.clone(), acked, stopped, nviol));
             });
         }
     });
@@ -4661,7 +4861,10 @@ fn emfile_exhaustion_battery() {
     for rep in 1..3 {
         assert_eq!(runs[0].0, runs[rep].0, "emfile det: pack trees differ");
         assert_eq!(runs[0].1, runs[rep].1, "emfile det: metas differ");
-        assert_eq!(runs[0].2, runs[rep].2, "emfile det: recovered state differs");
+        assert_eq!(
+            runs[0].2, runs[rep].2,
+            "emfile det: recovered state differs"
+        );
     }
     eprintln!("EMFILE DETERMINISM x3 OK ({spec}): {}", runs[0].2);
     let _ = std::fs::remove_dir_all(&base);
@@ -4682,7 +4885,11 @@ fn red_emfile_acked_loss_is_caught() {
     let (rtext, meta) = run_point(&base, 0, "emfile-ack", &[]);
     let _ = std::fs::remove_dir_all(&base);
 
-    assert_eq!(meta_field(&meta, "cuts"), "1", "emfile-ack red must cut: {meta}");
+    assert_eq!(
+        meta_field(&meta, "cuts"),
+        "1",
+        "emfile-ack red must cut: {meta}"
+    );
     assert!(
         meta_field(&meta, "stopped").contains("acked anyway"),
         "emfile-ack red must hit the buggy-ack path: {meta}"
@@ -4778,19 +4985,35 @@ fn determinism_x3(base: &std::path::Path, pins: &[u64], extra: &[(&str, String)]
             let mut tree = Vec::new();
             tree_digest(&pack.join("root"), &mut tree);
             let m = normalize_pid(&std::fs::read_to_string(pack.join("meta.txt")).unwrap());
-            let state = marker_line(&rtext, "SIM_RECOVER_STATE")
-                .unwrap_or_else(|| "MISSING".to_string());
-            assert_ne!(state, "MISSING", "{label} det k={pin} rep {rep}: state line absent");
+            let state =
+                marker_line(&rtext, "SIM_RECOVER_STATE").unwrap_or_else(|| "MISSING".to_string());
+            assert_ne!(
+                state, "MISSING",
+                "{label} det k={pin} rep {rep}: state line absent"
+            );
             runs.push((tree, m, state));
             let _ = std::fs::remove_dir_all(&pack);
         }
-        assert!(runs[0].1.contains("cuts=1"), "{label} det pin k={pin} must cut");
+        assert!(
+            runs[0].1.contains("cuts=1"),
+            "{label} det pin k={pin} must cut"
+        );
         for rep in 1..3 {
-            assert_eq!(runs[0].0, runs[rep].0, "{label} det k={pin}: pack trees differ");
+            assert_eq!(
+                runs[0].0, runs[rep].0,
+                "{label} det k={pin}: pack trees differ"
+            );
             assert_eq!(runs[0].1, runs[rep].1, "{label} det k={pin}: metas differ");
-            assert_eq!(runs[0].2, runs[rep].2, "{label} det k={pin}: recovered state differs");
+            assert_eq!(
+                runs[0].2, runs[rep].2,
+                "{label} det k={pin}: recovered state differs"
+            );
         }
-        eprintln!("{} DETERMINISM x3 OK at k={pin}: {}", label.to_uppercase(), runs[0].2);
+        eprintln!(
+            "{} DETERMINISM x3 OK at k={pin}: {}",
+            label.to_uppercase(),
+            runs[0].2
+        );
     }
 }
 
@@ -4810,8 +5033,16 @@ fn gin_pending_list_crash_recovery_sweep() {
     let extra: Vec<(&str, String)> = vec![(ARM_ENV, "gin".into())];
 
     let (rtext, meta) = run_point(&base, 0, "", &extra);
-    assert_eq!(meta_field(&meta, "acked"), GIN_TXNS.to_string(), "gin baseline acks all: {meta}");
-    assert_eq!(meta_field(&meta, "cuts"), "0", "gin baseline must not cut: {meta}");
+    assert_eq!(
+        meta_field(&meta, "acked"),
+        GIN_TXNS.to_string(),
+        "gin baseline acks all: {meta}"
+    );
+    assert_eq!(
+        meta_field(&meta, "cuts"),
+        "0",
+        "gin baseline must not cut: {meta}"
+    );
     assert!(
         rtext.contains("SIM_RECOVER_DONE violations=0"),
         "gin baseline recovery must be clean:\n{rtext}"
@@ -4823,7 +5054,11 @@ fn gin_pending_list_crash_recovery_sweep() {
     );
     let n: u64 = meta_field(&meta, "ops").parse().unwrap();
     let trace = parse_trace(&meta);
-    assert_eq!(trace.len() as u64, n, "trace must cover the whole workload span");
+    assert_eq!(
+        trace.len() as u64,
+        n,
+        "trace must cover the whole workload span"
+    );
     // The gin cut classes must EXIST: gin-index-file page writes (pending
     // list + entry tree + checkpoint flushes) and both cleanup windows.
     let gin_path_frag = format!("/base/5/{GIN_IDX_OID}");
@@ -4835,7 +5070,10 @@ fn gin_pending_list_crash_recovery_sweep() {
     let wins = meta_windows(&meta);
     let (c1_lo, c1_hi) = wins["clean1"];
     let (c2_lo, c2_hi) = wins["clean2"];
-    assert!(c1_lo < c1_hi && c2_lo < c2_hi && c2_hi <= n, "cleanup windows sane: {wins:?}");
+    assert!(
+        c1_lo < c1_hi && c2_lo < c2_hi && c2_hi <= n,
+        "cleanup windows sane: {wins:?}"
+    );
 
     let windows = [
         (k_gidx.saturating_sub(2), k_gidx + 10),
@@ -4855,7 +5093,11 @@ fn gin_pending_list_crash_recovery_sweep() {
          {} violations",
         failures.len()
     );
-    assert_eq!(cut_points as usize, points.len(), "every gin sweep point must cut");
+    assert_eq!(
+        cut_points as usize,
+        points.len(),
+        "every gin sweep point must cut"
+    );
     assert!(
         failures.is_empty(),
         "GIN PENDING-LIST CRASH-RECOVERY VIOLATIONS ({}):\n{}",
@@ -4882,8 +5124,16 @@ fn brin_summarize_crash_recovery_sweep() {
     let extra: Vec<(&str, String)> = vec![(ARM_ENV, "brin".into())];
 
     let (rtext, meta) = run_point(&base, 0, "", &extra);
-    assert_eq!(meta_field(&meta, "acked"), BR_TXNS.to_string(), "brin baseline acks all: {meta}");
-    assert_eq!(meta_field(&meta, "cuts"), "0", "brin baseline must not cut: {meta}");
+    assert_eq!(
+        meta_field(&meta, "acked"),
+        BR_TXNS.to_string(),
+        "brin baseline acks all: {meta}"
+    );
+    assert_eq!(
+        meta_field(&meta, "cuts"),
+        "0",
+        "brin baseline must not cut: {meta}"
+    );
     assert!(
         rtext.contains("SIM_RECOVER_DONE violations=0"),
         "brin baseline recovery must be clean:\n{rtext}"
@@ -4895,7 +5145,11 @@ fn brin_summarize_crash_recovery_sweep() {
     );
     let n: u64 = meta_field(&meta, "ops").parse().unwrap();
     let trace = parse_trace(&meta);
-    assert_eq!(trace.len() as u64, n, "trace must cover the whole workload span");
+    assert_eq!(
+        trace.len() as u64,
+        n,
+        "trace must cover the whole workload span"
+    );
     let brin_path_frag = format!("/base/5/{BRIN_IDX_OID}");
     let k_bidx = trace
         .iter()
@@ -4928,7 +5182,11 @@ fn brin_summarize_crash_recovery_sweep() {
          kill), {} violations",
         failures.len()
     );
-    assert_eq!(cut_points as usize, points.len(), "every brin sweep point must cut");
+    assert_eq!(
+        cut_points as usize,
+        points.len(),
+        "every brin sweep point must cut"
+    );
     assert!(
         failures.is_empty(),
         "BRIN SUMMARIZATION CRASH-RECOVERY VIOLATIONS ({}):\n{}",
@@ -4961,7 +5219,11 @@ fn lpreuse_vacuum_content_crash_recovery_sweep() {
         LP_TXNS.to_string(),
         "lpreuse baseline acks all: {meta}"
     );
-    assert_eq!(meta_field(&meta, "cuts"), "0", "lpreuse baseline must not cut: {meta}");
+    assert_eq!(
+        meta_field(&meta, "cuts"),
+        "0",
+        "lpreuse baseline must not cut: {meta}"
+    );
     assert!(
         rtext.contains("SIM_RECOVER_DONE violations=0"),
         "lpreuse baseline recovery must be clean:\n{rtext}"
@@ -4989,10 +5251,17 @@ fn lpreuse_vacuum_content_crash_recovery_sweep() {
     // is also the relation's cached insertion target, so reinserts fill it
     // through targblock and its queue entry never pops.
     let reuse_left: u32 = meta_field(&meta, "lp_reuse_left").parse().unwrap();
-    assert!(reuse_left <= 1, "reinserts must drain the freed-block queue: {meta}");
+    assert!(
+        reuse_left <= 1,
+        "reinserts must drain the freed-block queue: {meta}"
+    );
     let n: u64 = meta_field(&meta, "ops").parse().unwrap();
     let trace = parse_trace(&meta);
-    assert_eq!(trace.len() as u64, n, "trace must cover the whole workload span");
+    assert_eq!(
+        trace.len() as u64,
+        n,
+        "trace must cover the whole workload span"
+    );
     let idx_path_frag = format!("/base/5/{IDX_OID}");
     let k_idx = trace
         .iter()
@@ -5003,7 +5272,10 @@ fn lpreuse_vacuum_content_crash_recovery_sweep() {
     let (v_lo, v_hi) = wins["vac"];
     assert!(v_lo < v_hi && v_hi <= n);
 
-    let windows = [(k_idx.saturating_sub(2), k_idx + 10), (v_lo, v_hi.min(v_lo + 24))];
+    let windows = [
+        (k_idx.saturating_sub(2), k_idx + 10),
+        (v_lo, v_hi.min(v_lo + 24)),
+    ];
     let points = stratify(&trace, n, 90, &windows);
     eprintln!(
         "LP-REUSE SWEEP: stratified {} cut points over {n} ops (first index write \
@@ -5017,7 +5289,11 @@ fn lpreuse_vacuum_content_crash_recovery_sweep() {
          reinserts, whole-node kill), {} violations",
         failures.len()
     );
-    assert_eq!(cut_points as usize, points.len(), "every lpreuse sweep point must cut");
+    assert_eq!(
+        cut_points as usize,
+        points.len(),
+        "every lpreuse sweep point must cut"
+    );
     assert!(
         failures.is_empty(),
         "LP-REUSE VACUUM-CONTENT CRASH-RECOVERY VIOLATIONS ({}):\n{}",
@@ -5050,9 +5326,16 @@ fn run_weakened_redo_red(
             (ARM_ENV, arm.into()),
         ],
     );
-    assert!(ok && wtext.contains("SIM_WRITER_DONE"), "writer failed:\n{wtext}");
+    assert!(
+        ok && wtext.contains("SIM_WRITER_DONE"),
+        "writer failed:\n{wtext}"
+    );
     let meta = std::fs::read_to_string(pack.join("meta.txt")).unwrap();
-    assert_eq!(meta_field(&meta, "cuts"), "1", "red writer must cut: {meta}");
+    assert_eq!(
+        meta_field(&meta, "cuts"),
+        "1",
+        "red writer must cut: {meta}"
+    );
     let (ok, clean) = spawn_child(
         "sim_sweep_recover_child",
         &[
@@ -5094,7 +5377,11 @@ fn red_gin_lost_listpage_redo_is_caught() {
     let (meta, red) = run_weakened_redo_red(&base, "gin", "gin-pending", "gin-listpage");
     let _ = std::fs::remove_dir_all(&base);
 
-    assert_eq!(meta_field(&meta, "acked"), "3", "gin red stops pre-cleanup: {meta}");
+    assert_eq!(
+        meta_field(&meta, "acked"),
+        "3",
+        "gin red stops pre-cleanup: {meta}"
+    );
     assert!(
         red.contains("VIOLATION:") && red.contains("gin index coverage diverges"),
         "the weakened listpage redo must be caught by the gin coverage property:\n{red}"
@@ -5152,7 +5439,11 @@ fn red_btree_lost_vacuum_content_redo_is_caught_silently() {
     let (meta, red) = run_weakened_redo_red(&base, "lpreuse", "lpr-stale", "btvac-keep");
     let _ = std::fs::remove_dir_all(&base);
 
-    assert_eq!(meta_field(&meta, "acked"), LP_TXNS.to_string(), "full lifecycle ran: {meta}");
+    assert_eq!(
+        meta_field(&meta, "acked"),
+        LP_TXNS.to_string(),
+        "full lifecycle ran: {meta}"
+    );
     assert!(
         red.contains("VIOLATION:")
             && (red.contains("!= heap value")
@@ -5185,7 +5476,11 @@ fn red_heap_lost_prune_redo_is_caught() {
     let (meta, red) = run_weakened_redo_red(&base, "lpreuse", "lpr-stale", "heap-prune-keep");
     let _ = std::fs::remove_dir_all(&base);
 
-    assert_eq!(meta_field(&meta, "acked"), LP_TXNS.to_string(), "full lifecycle ran: {meta}");
+    assert_eq!(
+        meta_field(&meta, "acked"),
+        LP_TXNS.to_string(),
+        "full lifecycle ran: {meta}"
+    );
     assert!(
         red.contains("VIOLATION:"),
         "the dropped-LP_UNUSED redo must be caught (replay failure, resurrected/lost \

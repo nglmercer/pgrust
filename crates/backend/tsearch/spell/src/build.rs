@@ -1069,6 +1069,7 @@ impl<'mcx> IspellDict<'mcx> {
 
         if self.use_flag_aliases {
             for i in 0..self.spell.len() {
+                #[allow(clippy::needless_late_init)]
                 let curaffix;
                 if !self.spell[i].flag.is_empty() {
                     let flagbytes = self.spell[i].flag.as_slice().to_vec();

@@ -243,6 +243,7 @@ fn compile_in_at<'g, 'p>(px: &mut Px<'g, 'p>, node: Node<'p>, outer: Outer<'_, '
     }
     // B2-31: a claim whose program reads no scan column itself leaves every read to its operands, which compile under `rw`
     // and check there (the claimed subtree's own nodes stay in `c`, reached from no root)
+    #[allow(clippy::nonminimal_bool)]
     if !(ext.as_deref().is_some_and(|x| x.is::<ExtPlan>()) && !reads_scan(&c, px.mcx())) {
         crate::ops::scan::pgrc::strategies::jsonb_nums::check(px, rw, &c, id); // P1b: a late guarded column's reads
         crate::ops::scan::pgrc::strategies::jsonb_fwd::check(px, rw, &c, id); // P1c: a late forwarded column's reads
@@ -502,7 +503,7 @@ pub(crate) fn fallback_cols<'g>(c: &Compiled<'_>, codes: &[(i16, u8, u8)], mcx: 
         hot.extend_in(col(&p.nodes[i]));
         let skip = fallback(i);
         arms.extend_in(skip);
-        stack.extend_in(gravity_expr::emit::kids(p, id).into_iter().filter(|&k| Some(k) != skip));
+        stack.extend_in(gravity_expr::emit::kids(p, id).filter(|&k| Some(k) != skip));
     }
     for s in p.islands.iter() {
         hot.extend_in(p.nodes[s.first.0 as usize..=s.root.0 as usize].iter().filter_map(col));
@@ -656,6 +657,7 @@ pub(crate) fn raise_if(b: &mut FunctionBuilder<'_>, env: &Env, row: &RowVals, er
 
 #[cfg(test)]
 pub(crate) mod tests {
+    #[allow(unused_imports)]
     use std::any::Any;
     use std::rc::Rc;
     use std::sync::Mutex;
@@ -800,7 +802,7 @@ pub(crate) mod tests {
         // exec admit.rs `template`: each literal word takes its own occurrence of the literal in the key's traversal
         let lits: Vec<usize> = plan.seq.words.iter().zip(plan.nodes.iter()).filter(|(w, _)| matches!(w, WordSrc::Const { .. })).filter_map(|(_, n)| n.map(|n| n.as_raw().as_ptr() as usize)).collect(); // alloc: Cold
         let mut once = lits.clone();
-        (once.sort_unstable(), once.dedup());
+        once.sort_unstable(); once.dedup();
         assert_eq!(once.len(), lits.len(), "D390: a literal with two words (a literal outside the key's traversal)");
         let words = plan.seq.words.iter().map(|w| if let WordSrc::Const { value, .. } = w { value.value.as_i64() as u64 } else { 0 }).collect(); // alloc: Cold
         (exs, id, words)
@@ -1032,7 +1034,7 @@ pub(crate) mod tests {
         match r {
             Ok(()) => assert!(crate::ops::built_kinds().has(KindId::ExprSaop), "claimed while expr.saop is unbuilt"),
             r => {
-                let reason = r.err().expect("refused while expr.saop is unbuilt").reason;
+                let reason = r.expect_err("refused while expr.saop is unbuilt").reason;
                 assert!(matches!(reason, Reason::NotBuilt { variant: Variant::Kind(KindId::ExprSaop), .. }), "{reason}");
             }
         }

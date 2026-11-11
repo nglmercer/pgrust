@@ -2,32 +2,30 @@
 //! gistsplit.c + gistbuild.c plain path + gistxlog.c producers). LOUD lanes:
 //! vacuum (gistbulkdelete/gistvacuumcleanup), sorted build
 //! (point_ops sortsupport), KNN/ordered scans, unlogged/temp relations.
-#![allow(non_snake_case)]
-#![allow(non_upper_case_globals)]
-#![allow(clippy::too_many_arguments)]
+#![allow(clippy::too_many_arguments, non_snake_case, non_upper_case_globals)]
 
+#[cfg(test)]
+mod fetch_tests;
 pub mod get;
 pub mod insert;
+#[cfg(test)]
+mod interrupt_tests;
 pub mod scan;
 pub mod split;
 pub mod state;
 #[cfg(test)]
 mod state_tests;
-#[cfg(test)]
-mod interrupt_tests;
-#[cfg(test)]
-mod fetch_tests;
 pub mod util;
 pub mod vacuum;
 pub mod wal;
 
+use ::datum::Datum;
 use ::mcx::MemoryContext;
-use ::types_core::{InvalidSubTransactionId, Buffer};
+use ::types_core::{Buffer, InvalidSubTransactionId};
 use ::types_error::PgResult;
 use ::types_rel::Relation;
 use ::types_storage::bufpage::PageMut;
 use ::types_tuple::itemptr::ItemPointerData;
-use ::datum::Datum;
 
 pub use get::{gistgetbitmap, gistgettuple};
 pub use insert::gistdoinsert;
@@ -112,15 +110,22 @@ pub fn gistinsert<'mcx>(
 
     {
         let mcx = cache.temp.mcx();
-        let mut itup =
-            util::gistFormTuple(mcx, &mut cache.giststate, r, values, isnull, true)?;
+        let mut itup = util::gistFormTuple(mcx, &mut cache.giststate, r, values, isnull, true)?;
         // SAFETY: owned image; t_tid is the leading 6 bytes.
         unsafe {
             itup.as_mut_ptr()
                 .cast::<ItemPointerData>()
                 .write_unaligned(*ht_ctid);
         }
-        gistdoinsert(mcx, r, itup.as_ptr(), 0, &mut cache.giststate, heapRel, false)?;
+        gistdoinsert(
+            mcx,
+            r,
+            itup.as_ptr(),
+            0,
+            &mut cache.giststate,
+            heapRel,
+            false,
+        )?;
     }
     cache.temp.reset();
     Ok(false)

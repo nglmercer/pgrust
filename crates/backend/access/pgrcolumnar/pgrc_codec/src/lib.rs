@@ -65,8 +65,8 @@ pub mod intpre;
 pub mod jsonbshred;
 pub mod lz4;
 pub mod onpair;
-pub mod onpairwrap;
 pub mod onpairvals;
+pub mod onpairwrap;
 pub mod packednum;
 pub mod section;
 pub mod verbhot;
@@ -75,8 +75,8 @@ pub mod wrapper;
 pub use dispatch::{registry, stream_kernel_key};
 pub use election::{
     elect_array, elect_bool, elect_float, elect_int, elect_numeric, elect_stream_wrapper,
-    elect_text_dict, encode_stream, wins_by_ten_percent, wins_by_twenty_percent, Demotion,
-    DictArm, Election, StreamBuild,
+    elect_text_dict, encode_stream, wins_by_ten_percent, wins_by_twenty_percent, Demotion, DictArm,
+    Election, StreamBuild,
 };
 pub use pgrc_format as format;
 

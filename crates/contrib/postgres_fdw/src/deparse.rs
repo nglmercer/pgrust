@@ -63,6 +63,7 @@ const SUBQUERY_COL_ALIAS_PREFIX: &str = "c";
 // deparse appends is dropped (buffer truncates) rather than raised, matching
 // the `write!`-discards pattern used elsewhere on cold formatting paths; the
 // deparse buffer is small and per-plan.
+#[allow(dead_code)]
 pub(crate) trait Push {
     fn push_str(&mut self, s: &str);
     fn push(&mut self, c: char);
@@ -268,6 +269,7 @@ fn foreign_expr_walker<'mcx>(
                 if let Some((class, ts_weakened)) = class_id {
                     let objid = c.constvalue.as_oid();
                     // TS objects below FirstNormalObjectId are always shippable.
+                    #[allow(clippy::nonminimal_bool)]
                     if !(ts_weakened && objid < FIRST_NORMAL_OBJECT_ID)
                         && !is_shippable_obj(glob, objid, class)?
                     {

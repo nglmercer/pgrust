@@ -3,6 +3,7 @@
 //! takes the cell; the same plan with its join also emitting `f3` raw (tests/d514/raw-read.plan, hand-edited) keeps
 //! the bare column, so the lowerer's "a column the row does not carry" refusal stands.
 use std::fs;
+#[allow(unused_imports)]
 use std::path::Path;
 
 use gravity_decompose::{corpus, decompose_in, dump};

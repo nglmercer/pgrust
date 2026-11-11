@@ -1439,6 +1439,7 @@ impl<'mcx> FuncFrame<'mcx> {
 }
 
 /// Emit-time address of a call's arg cell (kernel stencils bake it).
+#[allow(dead_code)]
 pub(crate) fn call_arg_addr(call: &FuncCall, argno: usize) -> *mut NullableDatum {
     debug_assert!(argno < call.nargs as usize);
     // SAFETY: live fcinfo image with nargs args.
@@ -1572,7 +1573,9 @@ impl CmpOp {
     // The conformance test in tests.rs pins this to the exact 90-OID golden
     // mapping.
     pub fn for_fn_oid(oid: Oid) -> Option<CmpOp> {
-        Some(CmpOp::from_lanereg_shape(crate::batchreg::aot_qual_cmp(oid)?))
+        Some(CmpOp::from_lanereg_shape(crate::batchreg::aot_qual_cmp(
+            oid,
+        )?))
     }
 
     fn from_lanereg_shape(s: crate::batchreg::CmpShape) -> CmpOp {
@@ -2282,6 +2285,7 @@ impl<'mcx> ExprState<'mcx> {
     }
 
     #[inline(always)]
+    #[allow(dead_code)]
     pub(crate) fn result_addr(&self) -> *mut NullableDatum {
         self.resnd.as_ptr()
     }
@@ -2444,6 +2448,7 @@ impl<'mcx> ExprState<'mcx> {
     /// because ExprContextData arena-boxes it (P1 panic-arena-corruption:
     /// es_exprcontexts growth relocated the struct and the armed program kept
     /// allocating through the abandoned copy).
+    #[allow(clippy::missing_safety_doc)]
     pub unsafe fn arm_result_mcx_raw(&mut self, mcx: Mcx<'_>) {
         for f in self.frames.iter() {
             // SAFETY: frame image live for 'mcx, sole reference; the caller

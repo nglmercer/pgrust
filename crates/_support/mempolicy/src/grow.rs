@@ -24,7 +24,10 @@ pub fn work_from_grant(bytes: u64) -> bool {
 /// grant). Its breakers grow on demand past it.
 #[inline]
 pub fn grow_want(estimate: u64, scale: u64, cap: u64) -> u64 {
-    estimate.saturating_mul(scale.max(1)).max(START_BYTES).min(cap)
+    estimate
+        .saturating_mul(scale.max(1))
+        .max(START_BYTES)
+        .min(cap)
 }
 
 /// Grow mode with work_mem unset (its source the default): no work_mem ceiling. A breaker's ceiling is the most a region
@@ -32,7 +35,11 @@ pub fn grow_want(estimate: u64, scale: u64, cap: u64) -> u64 {
 /// "no ceiling, no spill road" everywhere): past it, or where the pool has no room now, the breaker spills.
 #[inline]
 pub fn grow_ceiling(lane: u64, max: u64) -> u64 {
-    if lane == 0 { max } else { lane.min(max).max(START_BYTES) }
+    if lane == 0 {
+        max
+    } else {
+        lane.min(max).max(START_BYTES)
+    }
 }
 
 #[inline]
@@ -63,7 +70,10 @@ pub fn leader_ceiling(c: u64, width: u16, one_table: bool, max: u64) -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use super::{ceiling, grow_to, leader_ceiling, spills_at_ceiling, start_bytes, work_from_grant, START_BYTES};
+    use super::{
+        ceiling, grow_to, leader_ceiling, spills_at_ceiling, start_bytes, work_from_grant,
+        START_BYTES,
+    };
 
     const MIB: u64 = 1 << 20;
 
@@ -71,11 +81,29 @@ mod tests {
     fn todays_region_sizes() {
         assert_eq!(start_bytes(64 << 20, 4096), START_BYTES as u32);
         assert_eq!(start_bytes(1 << 20, 4096), 1 << 20, "never past the share");
-        assert_eq!(start_bytes(64 << 20, MIB), 4 << 20, "four phase-1 tables at least");
+        assert_eq!(
+            start_bytes(64 << 20, MIB),
+            4 << 20,
+            "four phase-1 tables at least"
+        );
         assert_eq!(start_bytes(1001, 0), 1000, "whole words");
-        assert_eq!((grow_to(8, 3, 100), grow_to(8, 30, 100), grow_to(80, 30, 100)), (16, 30, 100));
+        assert_eq!(
+            (
+                grow_to(8, 3, 100),
+                grow_to(8, 30, 100),
+                grow_to(80, 30, 100)
+            ),
+            (16, 30, 100)
+        );
         assert!(spills_at_ceiling(9, 8) && !spills_at_ceiling(8, 8));
-        assert_eq!((ceiling(0, 1, 1), ceiling(8 * MIB, 4 * MIB, u64::MAX), ceiling(8 * MIB, u64::MAX, 2 * MIB)), (0, 4 * MIB, 2 * MIB));
+        assert_eq!(
+            (
+                ceiling(0, 1, 1),
+                ceiling(8 * MIB, 4 * MIB, u64::MAX),
+                ceiling(8 * MIB, u64::MAX, 2 * MIB)
+            ),
+            (0, 4 * MIB, 2 * MIB)
+        );
         assert_eq!(leader_ceiling(8 * MIB, 8, false, u64::MAX), 72 * MIB);
         assert_eq!(leader_ceiling(8 * MIB, 8, true, u64::MAX), 8 * MIB);
         assert_eq!(leader_ceiling(8 * MIB, 1, false, u64::MAX), 8 * MIB);
@@ -87,15 +115,39 @@ mod tests {
     #[test]
     fn grow_mode_starts_at_the_estimate_and_has_no_work_mem_ceiling() {
         use super::{grow_ceiling, grow_want};
-        assert_eq!(grow_want(10 * MIB, 1, 1 << 40), 10 * MIB, "the estimate, no 64 MiB floor");
+        assert_eq!(
+            grow_want(10 * MIB, 1, 1 << 40),
+            10 * MIB,
+            "the estimate, no 64 MiB floor"
+        );
         assert_eq!(grow_want(10 * MIB, 2, 1 << 40), 20 * MIB, "scaled");
-        assert_eq!(grow_want(0, 1, 1 << 40), START_BYTES, "at least one region start");
-        assert_eq!(grow_want(1 << 30, 1, 64 * MIB), 64 * MIB, "at most the GUCs' grant");
+        assert_eq!(
+            grow_want(0, 1, 1 << 40),
+            START_BYTES,
+            "at least one region start"
+        );
+        assert_eq!(
+            grow_want(1 << 30, 1, 64 * MIB),
+            64 * MIB,
+            "at most the GUCs' grant"
+        );
         let wall = u32::MAX as u64;
         assert_eq!(grow_ceiling(0, wall), wall, "unarmed: the region wall");
-        assert_eq!(grow_ceiling(24 << 30, wall), wall, "a pool past the wall: the wall");
-        assert_eq!(grow_ceiling(1 << 30, wall), 1 << 30, "a small pool: its big lane");
-        assert_eq!(grow_ceiling(1, wall), START_BYTES, "never under one start (never 0)");
+        assert_eq!(
+            grow_ceiling(24 << 30, wall),
+            wall,
+            "a pool past the wall: the wall"
+        );
+        assert_eq!(
+            grow_ceiling(1 << 30, wall),
+            1 << 30,
+            "a small pool: its big lane"
+        );
+        assert_eq!(
+            grow_ceiling(1, wall),
+            START_BYTES,
+            "never under one start (never 0)"
+        );
     }
 
     #[test]

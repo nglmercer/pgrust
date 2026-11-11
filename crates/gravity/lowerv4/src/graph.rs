@@ -356,6 +356,7 @@ impl<'g, 'p> Gx<'g, 'p> {
     /// the arms after it, the group the last arm declares.
     pub fn group_at(&self, k: usize) -> Option<&'g GroupDecl<'p>> {
         let graph: &'g PipelineGraph<'p> = self.graph;
+        #[allow(clippy::question_mark)]
         let Some(b) = breaker_of(&self.pipelines()[k].desc) else { return None };
         // D3585: in its lowering, the graph's runs are walked once (an arm's walk to its run's end was quadratic in the arms)
         if let Some(next) = self.group_next() {

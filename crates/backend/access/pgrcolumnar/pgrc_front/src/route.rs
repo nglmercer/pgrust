@@ -1,4 +1,3 @@
-
 use std::cell::Cell;
 
 use mcx::Mcx;
@@ -6,11 +5,15 @@ use types_core::{CommandId, ForkNumber, Oid};
 use types_error::{PgError, PgResult};
 use types_rel::{NoLock, Relation, RowExclusiveLock, ShareUpdateExclusiveLock};
 use types_slot::SlotData;
-use types_tuple::{ItemPointerData, ItemPointerGetBlockNumber, ItemPointerGetOffsetNumberNoCheck, ItemPointerSet};
 use types_storage::waiteventset::{WL_EXIT_ON_PM_DEATH, WL_LATCH_SET, WL_TIMEOUT};
+use types_tuple::{
+    ItemPointerData, ItemPointerGetBlockNumber, ItemPointerGetOffsetNumberNoCheck, ItemPointerSet,
+};
 
 use pgrc_am::rowid_alloc;
-use pgrc_format::rowid::{seg_local, tid_of, SEGEXT_SOFT_ENTRIES, SEG_EXTENT_IDS, SEG_SOFT_EXTENTS};
+use pgrc_format::rowid::{
+    seg_local, tid_of, SEGEXT_SOFT_ENTRIES, SEG_EXTENT_IDS, SEG_SOFT_EXTENTS,
+};
 
 use crate::maint;
 use crate::ring::{self, ActiveSeg};
@@ -68,7 +71,9 @@ pub fn backpressure(db: Oid, rel: &Relation<'_>, cid: u32) -> PgResult<()> {
     maint::queue(db, parent);
     // the row cap waits only on a seal or a rotation in flight, the things that lower it; over it with neither, the
     // table's rotation starts (one a table) and the wait is on that, never on a rotation the wait itself would block.
-    let ext_wait = || -> PgResult<bool> { Ok((!holds_active || maint::sealing_in_progress(parent)) && ext_over()?) };
+    let ext_wait = || -> PgResult<bool> {
+        Ok((!holds_active || maint::sealing_in_progress(parent)) && ext_over()?)
+    };
     let rows_go = over && maint::start_stall_rotation(db, parent);
     if !rows_go && !ext_wait()? {
         return Ok(());
@@ -113,19 +118,41 @@ fn exempt_rest(parent: Oid, cid: u32) {
 /// The statement's spent backpressure budget on `parent` (`cid`: its command).
 fn spent_on(parent: Oid, cid: u32) -> u32 {
     let (r, c, spent) = WAITED.with(|w| w.get());
-    if (r, c) == (parent, cid) { spent } else { 0 }
+    if (r, c) == (parent, cid) {
+        spent
+    } else {
+        0
+    }
 }
 
-fn wait_while(parent: Oid, cid: u32, mut spent: u32, event: u32, more: &mut dyn FnMut() -> PgResult<bool>) -> PgResult<()> {
+fn wait_while(
+    parent: Oid,
+    cid: u32,
+    mut spent: u32,
+    event: u32,
+    more: &mut dyn FnMut() -> PgResult<bool>,
+) -> PgResult<()> {
     let from = spent;
     let out = nap_while(parent, cid, &mut spent, event, more);
     maint::note_bp_ms(parent, u64::from(spent - from));
     out
 }
 
-fn nap_while(parent: Oid, cid: u32, spent: &mut u32, event: u32, more: &mut dyn FnMut() -> PgResult<bool>) -> PgResult<()> {
+fn nap_while(
+    parent: Oid,
+    cid: u32,
+    spent: &mut u32,
+    event: u32,
+    more: &mut dyn FnMut() -> PgResult<bool>,
+) -> PgResult<()> {
     while *spent < BACKPRESSURE_MS && more()? {
-        if latch_seams::wait_latch_my_latch::call(WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH, NAP_MS as i64, event) & WL_LATCH_SET != 0 {
+        if latch_seams::wait_latch_my_latch::call(
+            WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
+            NAP_MS as i64,
+            event,
+        ) & WL_LATCH_SET
+            != 0
+        {
             latch_seams::reset_latch_my_latch::call();
         }
         *spent += NAP_MS;
@@ -152,7 +179,10 @@ pub fn l0_backpressure(rel: &Relation<'_>) -> PgResult<()> {
     }
     let cid = xact::GetCurrentCommandId(false)?;
     let spent = spent_on(parent, cid);
-    if spent >= BACKPRESSURE_MS || lmgr::CheckRelationOidLockedByMe(parent, ShareUpdateExclusiveLock, true) || maint::maint_held(parent) {
+    if spent >= BACKPRESSURE_MS
+        || lmgr::CheckRelationOidLockedByMe(parent, ShareUpdateExclusiveLock, true)
+        || maint::maint_held(parent)
+    {
         return Ok(());
     }
     for s in crate::segments(parent)? {
@@ -168,14 +198,19 @@ pub fn l0_backpressure(rel: &Relation<'_>) -> PgResult<()> {
     let low = cap - cap / 16;
     wait_while(parent, cid, spent, l0_event(), &mut || {
         let n = l0();
-        Ok(u64::from(n) >= low && (maint::compact_queued(db, parent) || maint::compacting(parent)) && !maint::futile(parent, n))
+        Ok(u64::from(n) >= low
+            && (maint::compact_queued(db, parent) || maint::compacting(parent))
+            && !maint::futile(parent, n))
     })
 }
 
 fn l0_event() -> u32 {
     L0_EVENT.with(|e| {
         if e.get() == 0 {
-            e.set(waitevent::custom::WaitEventExtensionNew(L0_CAP_EVENT).unwrap_or(waitevent::PG_WAIT_EXTENSION));
+            e.set(
+                waitevent::custom::WaitEventExtensionNew(L0_CAP_EVENT)
+                    .unwrap_or(waitevent::PG_WAIT_EXTENSION),
+            );
         }
         e.get()
     })
@@ -211,7 +246,12 @@ fn active_segment<'mcx>(mcx: Mcx<'mcx>, rel: &Relation<'mcx>) -> PgResult<Active
     pgrc_am::refuse_v1_format(rel)?;
     lmgr::LockRelationOid(rel.rd_id, ShareUpdateExclusiveLock)?;
     crate::ensure_companions(mcx, rel.rd_id)?;
-    ring::active(rel)?.ok_or_else(|| Box::new(PgError::error(format!("pgrcolumnar: relation {} has no active segment", rel.rd_id))))
+    ring::active(rel)?.ok_or_else(|| {
+        Box::new(PgError::error(format!(
+            "pgrcolumnar: relation {} has no active segment",
+            rel.rd_id
+        )))
+    })
 }
 
 /// Whether a worker may activate `rel` in its own transaction while this one waits for it. Not a temp table (another
@@ -226,17 +266,36 @@ fn detached(rel: &Relation<'_>) -> bool {
 
 pub fn row_id(rel: &Relation<'_>, seg: &ActiveSeg, block: u32, off: u16) -> PgResult<u64> {
     let Some(local) = seg_local(block, off) else {
-        return Err(Box::new(PgError::error(format!("pgrcolumnar: segment {} is past its position range", seg.relid)).with_sqlstate(types_error::ERRCODE_PROGRAM_LIMIT_EXCEEDED)));
+        return Err(Box::new(
+            PgError::error(format!(
+                "pgrcolumnar: segment {} is past its position range",
+                seg.relid
+            ))
+            .with_sqlstate(types_error::ERRCODE_PROGRAM_LIMIT_EXCEEDED),
+        ));
     };
     let idx = (u64::from(local) / SEG_EXTENT_IDS) as u32;
     Ok(crate::pathcache::extent_base(rel, seg.part_no, idx)? + u64::from(local) % SEG_EXTENT_IDS)
 }
 
-pub fn insert_row<'mcx>(mcx: Mcx<'mcx>, rel: &Relation<'mcx>, slot: &mut SlotData<'mcx>, cid: CommandId, options: i32) -> PgResult<u64> {
+pub fn insert_row<'mcx>(
+    mcx: Mcx<'mcx>,
+    rel: &Relation<'mcx>,
+    slot: &mut SlotData<'mcx>,
+    cid: CommandId,
+    options: i32,
+) -> PgResult<u64> {
     insert_row_in(mcx, rel, slot, cid, options, None)
 }
 
-pub fn insert_row_in<'mcx>(mcx: Mcx<'mcx>, rel: &Relation<'mcx>, slot: &mut SlotData<'mcx>, cid: CommandId, options: i32, held: Option<ActiveSeg>) -> PgResult<u64> {
+pub fn insert_row_in<'mcx>(
+    mcx: Mcx<'mcx>,
+    rel: &Relation<'mcx>,
+    slot: &mut SlotData<'mcx>,
+    cid: CommandId,
+    options: i32,
+    held: Option<ActiveSeg>,
+) -> PgResult<u64> {
     let db = init_small::globals::MyDatabaseId();
     backpressure(db, rel, cid)?;
     let seg = match held {
@@ -248,7 +307,10 @@ pub fn insert_row_in<'mcx>(mcx: Mcx<'mcx>, rel: &Relation<'mcx>, slot: &mut Slot
     let segloc = segrel.rd_locator.get();
     segrel.close(NoLock)?;
     let tid = r?;
-    let (block, off) = (ItemPointerGetBlockNumber(&tid), ItemPointerGetOffsetNumberNoCheck(&tid));
+    let (block, off) = (
+        ItemPointerGetBlockNumber(&tid),
+        ItemPointerGetOffsetNumberNoCheck(&tid),
+    );
     pgrc_marks::written((segloc.spcOid, segloc.dbOid, segloc.relNumber), block);
     let id = row_id(rel, &seg, block, off)?;
     maint::inserted(db, rel.rd_id, seg.relid, block);
@@ -259,7 +321,13 @@ pub fn insert_row_in<'mcx>(mcx: Mcx<'mcx>, rel: &Relation<'mcx>, slot: &mut Slot
     Ok(id)
 }
 
-fn heap_insert_slot<'mcx>(mcx: Mcx<'mcx>, seg: &Relation<'mcx>, slot: &mut SlotData<'mcx>, cid: CommandId, options: i32) -> PgResult<ItemPointerData> {
+fn heap_insert_slot<'mcx>(
+    mcx: Mcx<'mcx>,
+    seg: &Relation<'mcx>,
+    slot: &mut SlotData<'mcx>,
+    cid: CommandId,
+    options: i32,
+) -> PgResult<ItemPointerData> {
     exectuples::exec_materialize_slot(slot, mcx)?;
     let tuple = match slot {
         SlotData::Heap(h) => h.tuple.as_mut(),
@@ -287,7 +355,10 @@ pub fn admit_insert(on_conflict: bool) -> PgResult<()> {
 /// An INSERT whose rows an AFTER ROW INSERT trigger or a NEW TABLE capture fetches back by position must not buffer
 /// them (a buffered row has no position until the flush, and the bulk lane's parts none until publish): they take the
 /// single-row segment path, as heap COPY turns multi-insert off for BEFORE / INSTEAD row triggers.
-pub fn needs_position(trig: Option<&types_trigger::TriggerDesc<'_>>, new_table_capture: bool) -> bool {
+pub fn needs_position(
+    trig: Option<&types_trigger::TriggerDesc<'_>>,
+    new_table_capture: bool,
+) -> bool {
     new_table_capture || trig.is_some_and(|t| t.trig_insert_after_row || t.trig_insert_new_table)
 }
 
@@ -298,28 +369,53 @@ mod tests {
     #[test]
     fn on_conflict_refuses_and_typed_triggers_need_positions() {
         assert!(admit_insert(false).is_ok());
-        assert_eq!(admit_insert(true).unwrap_err().sqlstate(), types_error::ERRCODE_FEATURE_NOT_SUPPORTED);
+        assert_eq!(
+            admit_insert(true).unwrap_err().sqlstate(),
+            types_error::ERRCODE_FEATURE_NOT_SUPPORTED
+        );
         assert!(!needs_position(None, false));
         assert!(needs_position(None, true));
     }
 
     #[test]
+    #[allow(clippy::assertions_on_constants, unused_attributes)]
     fn extents_over_at_either_soft_cap() {
         use pgrc_format::rowid::{SegExtent, SEGEXT_MAX_ENTRIES};
         let ext = |segs: u32, wide: u32| {
             let mut t = Vec::new();
             for p in 0..segs {
                 for idx in 0..if p == 0 { wide } else { 1 } {
-                    t.push(SegExtent { part_no: p, idx, base: 291 + SEG_EXTENT_IDS * t.len() as u64 });
+                    t.push(SegExtent {
+                        part_no: p,
+                        idx,
+                        base: 291 + SEG_EXTENT_IDS * t.len() as u64,
+                    });
                 }
             }
             rowid_alloc::Extents::new(t)
         };
         assert!(!extents_over(&ext(1, 1)));
-        assert!(!extents_over(&ext(1, SEG_SOFT_EXTENTS - 1)), "one under the per-segment cap");
-        assert!(extents_over(&ext(1, SEG_SOFT_EXTENTS)), "a segment at its soft cap waits for the rotation");
-        assert!(!extents_over(&ext(SEGEXT_SOFT_ENTRIES as u32 - 1, 1)), "one under the table cap");
-        assert!(extents_over(&ext(SEGEXT_SOFT_ENTRIES as u32, 1)), "a table at its soft cap waits for the seals");
-        assert!(SEGEXT_SOFT_ENTRIES < SEGEXT_MAX_ENTRIES, "the soft cap is below the hard one");
+        assert!(
+            !extents_over(&ext(1, SEG_SOFT_EXTENTS - 1)),
+            "one under the per-segment cap"
+        );
+        assert!(
+            extents_over(&ext(1, SEG_SOFT_EXTENTS)),
+            "a segment at its soft cap waits for the rotation"
+        );
+        #[allow(unused_attributes)]
+        assert!(
+            !extents_over(&ext(SEGEXT_SOFT_ENTRIES as u32 - 1, 1)),
+            "one under the table cap"
+        );
+        assert!(
+            extents_over(&ext(SEGEXT_SOFT_ENTRIES as u32, 1)),
+            "a table at its soft cap waits for the seals"
+        );
+        #[allow(unused_attributes)]
+        assert!(
+            SEGEXT_SOFT_ENTRIES < SEGEXT_MAX_ENTRIES,
+            "the soft cap is below the hard one"
+        );
     }
 }

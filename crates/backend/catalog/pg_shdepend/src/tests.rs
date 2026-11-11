@@ -46,7 +46,12 @@ fn oid_list_diff_removes_common_entries() {
 }
 
 fn info(classId: Oid, objectId: Oid, objectSubId: i32, deptype: u8) -> ShDependObjectInfo {
-    ShDependObjectInfo { classId, objectId, objectSubId, deptype: deptype as i8 }
+    ShDependObjectInfo {
+        classId,
+        objectId,
+        objectSubId,
+        deptype: deptype as i8,
+    }
 }
 
 #[test]
@@ -74,7 +79,6 @@ fn comparator_orders_oid_class_subid_deptype() {
         Ordering::Equal
     );
 }
-
 
 // pg_shdepend.c:1287 storeObjectDescription: an object being dropped
 // concurrently (getObjectDescription NULL, e.g. a vanished large object)

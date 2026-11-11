@@ -11,8 +11,7 @@
 // incremental file format (INCREMENTAL_MAGIC header + block list + blocks).
 // Backup-time page-checksum verification is implemented; WAL=true is handled
 // inline.
-#![allow(non_snake_case)]
-#![allow(clippy::too_many_arguments)]
+#![allow(clippy::too_many_arguments, non_snake_case)]
 
 use std::cell::Cell;
 
@@ -25,9 +24,9 @@ use mcx::Mcx;
 use repl_gram::{BaseBackupCmd, ReplOption, ReplOptionArg};
 use types_core::{Oid, TimeLineID, XLogRecPtr};
 use types_error::{
-    ErrorLocation, PgResult, DEBUG1, DEBUG2,
-    ERRCODE_NUMERIC_VALUE_OUT_OF_RANGE, ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE,
-    ERRCODE_PROGRAM_LIMIT_EXCEEDED, ERRCODE_SYNTAX_ERROR, ERROR, WARNING,
+    ErrorLocation, PgResult, DEBUG1, DEBUG2, ERRCODE_NUMERIC_VALUE_OUT_OF_RANGE,
+    ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE, ERRCODE_PROGRAM_LIMIT_EXCEEDED, ERRCODE_SYNTAX_ERROR,
+    ERROR, WARNING,
 };
 
 use manifest::checksum::{
@@ -43,9 +42,9 @@ use sink::{
 };
 // TablespaceInfo is homed in xlogbackup (shared by do_pg_backup_start + the
 // sink chain) to avoid a transam_xlog -> sink layering inversion.
-use xlogbackup::TablespaceInfo;
 use fd::PgPath;
 use walsender::WalSndState;
+use xlogbackup::TablespaceInfo;
 
 mod pgrc;
 
@@ -57,7 +56,11 @@ fn loc(func: &'static str) -> ErrorLocation {
 }
 
 // SINK_BUFFER_LENGTH = Max(32768, BLCKSZ).
-const SINK_BUFFER_LENGTH: usize = if 32768 > types_core::BLCKSZ { 32768 } else { types_core::BLCKSZ };
+const SINK_BUFFER_LENGTH: usize = if 32768 > types_core::BLCKSZ {
+    32768
+} else {
+    types_core::BLCKSZ
+};
 const TAR_BLOCK_SIZE: usize = 512;
 
 const INVALID_OID: Oid = types_core::InvalidOid;
@@ -80,9 +83,15 @@ const S_IFMT: u32 = 0o170000;
 const S_IFDIR: u32 = 0o040000;
 const S_IFREG: u32 = 0o100000;
 const S_IFLNK: u32 = 0o120000;
-fn S_ISDIR(m: u32) -> bool { m & S_IFMT == S_IFDIR }
-fn S_ISREG(m: u32) -> bool { m & S_IFMT == S_IFREG }
-fn S_ISLNK(m: u32) -> bool { m & S_IFMT == S_IFLNK }
+fn S_ISDIR(m: u32) -> bool {
+    m & S_IFMT == S_IFDIR
+}
+fn S_ISREG(m: u32) -> bool {
+    m & S_IFMT == S_IFREG
+}
+fn S_ISLNK(m: u32) -> bool {
+    m & S_IFMT == S_IFLNK
+}
 
 const O_RDONLY: i32 = 0;
 
@@ -112,14 +121,38 @@ struct ExcludeListItem {
 }
 
 const EXCLUDE_FILES: &[ExcludeListItem] = &[
-    ExcludeListItem { name: "postgresql.auto.conf.tmp", match_prefix: false },
-    ExcludeListItem { name: "current_logfiles.tmp", match_prefix: false },
-    ExcludeListItem { name: "pg_internal.init", match_prefix: true },
-    ExcludeListItem { name: BACKUP_LABEL_FILE, match_prefix: false },
-    ExcludeListItem { name: TABLESPACE_MAP, match_prefix: false },
-    ExcludeListItem { name: "backup_manifest", match_prefix: false },
-    ExcludeListItem { name: "postmaster.pid", match_prefix: false },
-    ExcludeListItem { name: "postmaster.opts", match_prefix: false },
+    ExcludeListItem {
+        name: "postgresql.auto.conf.tmp",
+        match_prefix: false,
+    },
+    ExcludeListItem {
+        name: "current_logfiles.tmp",
+        match_prefix: false,
+    },
+    ExcludeListItem {
+        name: "pg_internal.init",
+        match_prefix: true,
+    },
+    ExcludeListItem {
+        name: BACKUP_LABEL_FILE,
+        match_prefix: false,
+    },
+    ExcludeListItem {
+        name: TABLESPACE_MAP,
+        match_prefix: false,
+    },
+    ExcludeListItem {
+        name: "backup_manifest",
+        match_prefix: false,
+    },
+    ExcludeListItem {
+        name: "postmaster.pid",
+        match_prefix: false,
+    },
+    ExcludeListItem {
+        name: "postmaster.opts",
+        match_prefix: false,
+    },
 ];
 
 // ---------------------------------------------------------------------------
@@ -236,7 +269,12 @@ impl<'a> DirListing<'a> {
     fn new(path: &'a PgPath, rescan: bool) -> PgResult<Self> {
         let names = read_dir_names(path)?;
         let listed = rescan.then(|| names.iter().cloned().collect());
-        Ok(DirListing { path, names: names.into_iter(), listed, vanished: false })
+        Ok(DirListing {
+            path,
+            names: names.into_iter(),
+            listed,
+            vanished: false,
+        })
     }
 
     fn vanished(&mut self) {
@@ -248,11 +286,16 @@ impl<'a> DirListing<'a> {
             if let Some(n) = self.names.next() {
                 return Ok(Some(n));
             }
-            let Some(listed) = self.listed.as_mut() else { return Ok(None) };
+            let Some(listed) = self.listed.as_mut() else {
+                return Ok(None);
+            };
             if !std::mem::take(&mut self.vanished) {
                 return Ok(None);
             }
-            let fresh: Vec<PgPath> = read_dir_names(self.path)?.into_iter().filter(|n| listed.insert(n.clone())).collect();
+            let fresh: Vec<PgPath> = read_dir_names(self.path)?
+                .into_iter()
+                .filter(|n| listed.insert(n.clone()))
+                .collect();
             self.names = fresh.into_iter();
         }
     }
@@ -339,7 +382,11 @@ fn tar_create_header(
     print_tar_number(&mut h[100..108], (mode & 0o7777) as u64);
     print_tar_number(&mut h[108..116], uid as u64);
     print_tar_number(&mut h[116..124], gid as u64);
-    let sz = if linktarget.is_some() || S_ISDIR(mode) { 0 } else { size as u64 };
+    let sz = if linktarget.is_some() || S_ISDIR(mode) {
+        0
+    } else {
+        size as u64
+    };
     print_tar_number(&mut h[124..136], sz);
     print_tar_number(&mut h[136..148], mtime as u64);
     // checksum [148,156) computed last
@@ -484,7 +531,8 @@ fn parse_basebackup_options(options: &[ReplOption]) -> PgResult<BasebackupOption
     let mut opt = BasebackupOptions::default();
     NOVERIFY_CHECKSUMS.with(|c| c.set(false));
 
-    let (mut o_label, mut o_progress, mut o_checkpoint, mut o_nowait) = (false, false, false, false);
+    let (mut o_label, mut o_progress, mut o_checkpoint, mut o_nowait) =
+        (false, false, false, false);
     let (mut o_wal, mut o_incremental, mut o_maxrate, mut o_tsmap) = (false, false, false, false);
     let (mut o_noverify, mut o_manifest, mut o_manifest_cksums) = (false, false, false);
     let mut o_target = false;
@@ -499,41 +547,54 @@ fn parse_basebackup_options(options: &[ReplOption]) -> PgResult<BasebackupOption
         let name = o.name.as_str();
         match name {
             "label" => {
-                if o_label { dup_err(name)?; }
+                if o_label {
+                    dup_err(name)?;
+                }
                 opt.label = opt_string(o)?;
                 o_label = true;
             }
             "progress" => {
-                if o_progress { dup_err(name)?; }
+                if o_progress {
+                    dup_err(name)?;
+                }
                 opt.progress = opt_bool(o)?;
                 o_progress = true;
             }
             "checkpoint" => {
                 let v = opt_string(o)?;
-                if o_checkpoint { dup_err(name)?; }
+                if o_checkpoint {
+                    dup_err(name)?;
+                }
                 if strcasecmp(&v, "fast") {
                     opt.fastcheckpoint = true;
                 } else if strcasecmp(&v, "spread") {
                     opt.fastcheckpoint = false;
                 } else {
-                    ereport(ERROR).errcode(ERRCODE_SYNTAX_ERROR)
+                    ereport(ERROR)
+                        .errcode(ERRCODE_SYNTAX_ERROR)
                         .errmsg(format!("unrecognized checkpoint type: \"{v}\""))
                         .finish(loc("parse_basebackup_options"))?;
                 }
                 o_checkpoint = true;
             }
             "wait" => {
-                if o_nowait { dup_err(name)?; }
+                if o_nowait {
+                    dup_err(name)?;
+                }
                 opt.nowait = !opt_bool(o)?;
                 o_nowait = true;
             }
             "wal" => {
-                if o_wal { dup_err(name)?; }
+                if o_wal {
+                    dup_err(name)?;
+                }
                 opt.includewal = opt_bool(o)?;
                 o_wal = true;
             }
             "incremental" => {
-                if o_incremental { dup_err(name)?; }
+                if o_incremental {
+                    dup_err(name)?;
+                }
                 opt.incremental = opt_bool(o)?;
                 // C basebackup.c line ~792: the summarize_wal prerequisite
                 // gate, raised at option-parse time exactly as in C.
@@ -545,7 +606,9 @@ fn parse_basebackup_options(options: &[ReplOption]) -> PgResult<BasebackupOption
                 o_incremental = true;
             }
             "max_rate" => {
-                if o_maxrate { dup_err(name)?; }
+                if o_maxrate {
+                    dup_err(name)?;
+                }
                 let mr = opt_int(o)?;
                 if !(MAX_RATE_LOWER..=MAX_RATE_UPPER).contains(&mr) {
                     ereport(ERROR).errcode(ERRCODE_NUMERIC_VALUE_OUT_OF_RANGE)
@@ -559,25 +622,36 @@ fn parse_basebackup_options(options: &[ReplOption]) -> PgResult<BasebackupOption
                 o_maxrate = true;
             }
             "tablespace_map" => {
-                if o_tsmap { dup_err(name)?; }
+                if o_tsmap {
+                    dup_err(name)?;
+                }
                 opt.sendtblspcmapfile = opt_bool(o)?;
                 o_tsmap = true;
             }
             "verify_checksums" => {
-                if o_noverify { dup_err(name)?; }
+                if o_noverify {
+                    dup_err(name)?;
+                }
                 let verify = opt_bool(o)?;
                 NOVERIFY_CHECKSUMS.with(|c| c.set(!verify));
                 o_noverify = true;
             }
             "manifest" => {
                 let v = opt_string(o)?;
-                if o_manifest { dup_err(name)?; }
+                if o_manifest {
+                    dup_err(name)?;
+                }
                 opt.manifest = if let Some(b) = adt_bool::parse_bool(&v) {
-                    if b { BackupManifestOption::Yes } else { BackupManifestOption::No }
+                    if b {
+                        BackupManifestOption::Yes
+                    } else {
+                        BackupManifestOption::No
+                    }
                 } else if strcasecmp(&v, "force-encode") {
                     BackupManifestOption::ForceEncode
                 } else {
-                    ereport(ERROR).errcode(ERRCODE_SYNTAX_ERROR)
+                    ereport(ERROR)
+                        .errcode(ERRCODE_SYNTAX_ERROR)
                         .errmsg(format!("unrecognized manifest option: \"{v}\""))
                         .finish(loc("parse_basebackup_options"))?;
                     unreachable!()
@@ -586,11 +660,14 @@ fn parse_basebackup_options(options: &[ReplOption]) -> PgResult<BasebackupOption
             }
             "manifest_checksums" => {
                 let v = opt_string(o)?;
-                if o_manifest_cksums { dup_err(name)?; }
+                if o_manifest_cksums {
+                    dup_err(name)?;
+                }
                 match parse_checksum_type(v.as_bytes()) {
                     Some(t) => opt.manifest_checksum_type = t,
                     None => {
-                        ereport(ERROR).errcode(ERRCODE_SYNTAX_ERROR)
+                        ereport(ERROR)
+                            .errcode(ERRCODE_SYNTAX_ERROR)
                             .errmsg(format!("unrecognized checksum algorithm: \"{v}\""))
                             .finish(loc("parse_basebackup_options"))?;
                     }
@@ -598,24 +675,31 @@ fn parse_basebackup_options(options: &[ReplOption]) -> PgResult<BasebackupOption
                 o_manifest_cksums = true;
             }
             "target" => {
-                if o_target { dup_err(name)?; }
+                if o_target {
+                    dup_err(name)?;
+                }
                 target_str = Some(opt_string(o)?);
                 o_target = true;
             }
             "target_detail" => {
                 let v = opt_string(o)?;
-                if o_target_detail { dup_err(name)?; }
+                if o_target_detail {
+                    dup_err(name)?;
+                }
                 target_detail_str = Some(v);
                 o_target_detail = true;
             }
             "compression" => {
                 let v = opt_string(o)?;
-                if o_compression { dup_err(name)?; }
+                if o_compression {
+                    dup_err(name)?;
+                }
                 // parse_compress_algorithm is case-sensitive, as C's strcmp.
                 match parse_compress_algorithm(&v) {
                     Some(alg) => opt.compression = alg,
                     None => {
-                        ereport(ERROR).errcode(ERRCODE_SYNTAX_ERROR)
+                        ereport(ERROR)
+                            .errcode(ERRCODE_SYNTAX_ERROR)
                             .errmsg(format!("unrecognized compression algorithm: \"{v}\""))
                             .finish(loc("parse_basebackup_options"))?;
                     }
@@ -623,12 +707,15 @@ fn parse_basebackup_options(options: &[ReplOption]) -> PgResult<BasebackupOption
                 o_compression = true;
             }
             "compression_detail" => {
-                if o_compression_detail { dup_err(name)?; }
+                if o_compression_detail {
+                    dup_err(name)?;
+                }
                 compression_detail_str = Some(opt_string(o)?);
                 o_compression_detail = true;
             }
             _ => {
-                ereport(ERROR).errcode(ERRCODE_SYNTAX_ERROR)
+                ereport(ERROR)
+                    .errcode(ERRCODE_SYNTAX_ERROR)
                     .errmsg(format!("unrecognized base backup option: \"{name}\""))
                     .finish(loc("parse_basebackup_options"))?;
             }
@@ -640,7 +727,8 @@ fn parse_basebackup_options(options: &[ReplOption]) -> PgResult<BasebackupOption
     }
     if matches!(opt.manifest, BackupManifestOption::No) {
         if o_manifest_cksums {
-            ereport(ERROR).errcode(ERRCODE_SYNTAX_ERROR)
+            ereport(ERROR)
+                .errcode(ERRCODE_SYNTAX_ERROR)
                 .errmsg("manifest checksums require a backup manifest")
                 .finish(loc("parse_basebackup_options"))?;
         }
@@ -650,7 +738,8 @@ fn parse_basebackup_options(options: &[ReplOption]) -> PgResult<BasebackupOption
     match target_str.as_deref() {
         None => {
             if target_detail_str.is_some() {
-                ereport(ERROR).errcode(ERRCODE_SYNTAX_ERROR)
+                ereport(ERROR)
+                    .errcode(ERRCODE_SYNTAX_ERROR)
                     .errmsg("target detail cannot be used without target")
                     .finish(loc("parse_basebackup_options"))?;
             }
@@ -658,7 +747,8 @@ fn parse_basebackup_options(options: &[ReplOption]) -> PgResult<BasebackupOption
         }
         Some("client") => {
             if target_detail_str.is_some() {
-                ereport(ERROR).errcode(ERRCODE_SYNTAX_ERROR)
+                ereport(ERROR)
+                    .errcode(ERRCODE_SYNTAX_ERROR)
                     .errmsg("target \"client\" does not accept a target detail")
                     .finish(loc("parse_basebackup_options"))?;
             }
@@ -673,17 +763,18 @@ fn parse_basebackup_options(options: &[ReplOption]) -> PgResult<BasebackupOption
     }
 
     if o_compression_detail && !o_compression {
-        ereport(ERROR).errcode(ERRCODE_SYNTAX_ERROR)
+        ereport(ERROR)
+            .errcode(ERRCODE_SYNTAX_ERROR)
             .errmsg("compression detail cannot be specified unless compression is enabled")
             .finish(loc("parse_basebackup_options"))?;
     }
     if o_compression {
         opt.compression_specification =
             parse_compress_specification(opt.compression, compression_detail_str.as_deref());
-        if let Some(error_detail) =
-            validate_compress_specification(&opt.compression_specification)
+        if let Some(error_detail) = validate_compress_specification(&opt.compression_specification)
         {
-            ereport(ERROR).errcode(ERRCODE_SYNTAX_ERROR)
+            ereport(ERROR)
+                .errcode(ERRCODE_SYNTAX_ERROR)
                 .errmsg(format!("invalid compression specification: {error_detail}"))
                 .finish(loc("parse_basebackup_options"))?;
         }
@@ -860,11 +951,13 @@ fn perform_base_backup<'mcx>(
             Some(ib) => Some(ib.PrepareForIncrementalBackup(mcx, &mut backup_state)?),
             None => None,
         };
-        let incr: Option<(&basebackup_incremental::IncrementalBackupInfo, &blkreftable::BlockRefTable<'_>)> =
-            match (ib.as_deref(), brtab.as_ref()) {
-                (Some(ib), Some(brtab)) => Some((ib, brtab)),
-                _ => None,
-            };
+        let incr: Option<(
+            &basebackup_incremental::IncrementalBackupInfo,
+            &blkreftable::BlockRefTable<'_>,
+        )> = match (ib.as_deref(), brtab.as_ref()) {
+            (Some(ib), Some(brtab)) => Some((ib, brtab)),
+            _ => None,
+        };
 
         // Node for the base directory, sent last.
         state.tablespaces.push(TablespaceInfo {
@@ -886,7 +979,16 @@ fn perform_base_backup<'mcx>(
                     (ti.path.clone(), ti.oid)
                 };
                 let size = match path {
-                    None => sendDir(sink, state, &PgPath::from("."), 1, true, true, &mut manifest, None)?,
+                    None => sendDir(
+                        sink,
+                        state,
+                        &PgPath::from("."),
+                        1,
+                        true,
+                        true,
+                        &mut manifest,
+                        None,
+                    )?,
                     Some(p) => sendTablespace(sink, state, &p, oid, true, &mut manifest, None)?,
                 };
                 state.tablespaces[i].size = size;
@@ -910,17 +1012,36 @@ fn perform_base_backup<'mcx>(
                 // backup_label first.
                 // build_backup_content_default wasn't in the checked-out inc-4
                 // xlogbackup; call the guaranteed-present lower-level fn.
-                let backup_label =
-                    xlogbackup::build_backup_content(mcx, &backup_state, false, transam_xlog::wal_segment_size())?;
+                let backup_label = xlogbackup::build_backup_content(
+                    mcx,
+                    &backup_state,
+                    false,
+                    transam_xlog::wal_segment_size(),
+                )?;
                 sendFileWithContent(sink, state, BACKUP_LABEL_FILE, &backup_label, &mut manifest)?;
 
                 let mut sendtblspclinks = true;
                 if opt.sendtblspcmapfile {
-                    sendFileWithContent(sink, state, TABLESPACE_MAP, &tablespace_map, &mut manifest)?;
+                    sendFileWithContent(
+                        sink,
+                        state,
+                        TABLESPACE_MAP,
+                        &tablespace_map,
+                        &mut manifest,
+                    )?;
                     sendtblspclinks = false;
                 }
 
-                sendDir(sink, state, &PgPath::from("."), 1, false, sendtblspclinks, &mut manifest, incr)?;
+                sendDir(
+                    sink,
+                    state,
+                    &PgPath::from("."),
+                    1,
+                    false,
+                    sendtblspclinks,
+                    &mut manifest,
+                    incr,
+                )?;
 
                 // pg_control last (basebackup.c:333).
                 let control = PgPath::from(XLOG_CONTROL_FILE);
@@ -930,11 +1051,32 @@ fn perform_base_backup<'mcx>(
                         return stat_error(&control, "file", errnum, "perform_base_backup");
                     }
                 };
-                sendFile(sink, state, &control, &control, &statbuf, false, INVALID_OID, INVALID_OID, None, &mut manifest, None, 0)?;
+                sendFile(
+                    sink,
+                    state,
+                    &control,
+                    &control,
+                    &statbuf,
+                    false,
+                    INVALID_OID,
+                    INVALID_OID,
+                    None,
+                    &mut manifest,
+                    None,
+                    0,
+                )?;
             } else {
                 let archive_name = format!("{oid}.tar");
                 bbsink_begin_archive(sink, state, &archive_name)?;
-                sendTablespace(sink, state, path.as_deref().unwrap(), oid, false, &mut manifest, incr)?;
+                sendTablespace(
+                    sink,
+                    state,
+                    path.as_deref().unwrap(),
+                    oid,
+                    false,
+                    &mut manifest,
+                    incr,
+                )?;
             }
 
             // If this is the main data directory, don't treat this as the end
@@ -988,11 +1130,10 @@ fn perform_base_backup<'mcx>(
         for name in read_dir_names(&PgPath::from("pg_wal"))? {
             // IsXLogFileName/IsTLHistoryFileName only ever match ASCII hex
             // names; anything else is skipped exactly as C skips it.
-            let Some(name) = name.as_str().map(str::to_owned) else { continue };
-            if is_xlog_file_name(&name)
-                && name[8..] >= firstoff[8..]
-                && name[8..] <= lastoff[8..]
-            {
+            let Some(name) = name.as_str().map(str::to_owned) else {
+                continue;
+            };
+            if is_xlog_file_name(&name) && name[8..] >= firstoff[8..] && name[8..] <= lastoff[8..] {
                 wal_file_list.push(name);
             } else if transam_xlog::IsTLHistoryFileName(&name) {
                 history_file_list.push(name);
@@ -1120,7 +1261,20 @@ fn perform_base_backup<'mcx>(
                 Ok(s) => s,
                 Err(errnum) => return stat_error(&pathbuf, "file", errnum, "perform_base_backup"),
             };
-            sendFile(sink, state, &pathbuf, &pathbuf, &statbuf, false, INVALID_OID, INVALID_OID, None, &mut manifest, None, 0)?;
+            sendFile(
+                sink,
+                state,
+                &pathbuf,
+                &pathbuf,
+                &statbuf,
+                false,
+                INVALID_OID,
+                INVALID_OID,
+                None,
+                &mut manifest,
+                None,
+                0,
+            )?;
 
             // Unconditionally mark file as archived.
             let done_path = transam_xlog::StatusFilePath(fname, ".done");
@@ -1135,7 +1289,14 @@ fn perform_base_backup<'mcx>(
     bbsink_archive_contents(sink, state, 2 * TAR_BLOCK_SIZE)?;
     bbsink_end_archive(sink, state)?;
 
-    AddWALInfoToBackupManifest(mcx, &mut manifest, state.startptr, state.starttli, endptr, endtli)?;
+    AddWALInfoToBackupManifest(
+        mcx,
+        &mut manifest,
+        state.startptr,
+        state.starttli,
+        endptr,
+        endtli,
+    )?;
     // backup_manifest.c SendBackupManifest: nothing is sent (no manifest
     // archive at all) unless a manifest was requested.
     if manifest::IsManifestEnabled(&manifest) {
@@ -1275,7 +1436,12 @@ fn fstat_fd(fd: i32, path: &str) -> PgResult<LstatInfo> {
     let rc = unsafe { libc::fstat(fd, &mut st) };
     if rc != 0 {
         // basebackup.c:552: could not stat file "%s": %m
-        return stat_error(&PgPath::from(path), "file", fd::get_errno(), "perform_base_backup");
+        return stat_error(
+            &PgPath::from(path),
+            "file",
+            fd::get_errno(),
+            "perform_base_backup",
+        );
     }
     Ok(LstatInfo {
         size: st.st_size,
@@ -1319,13 +1485,21 @@ fn sendFileWithContent(
     let mut done = 0usize;
     while done < len {
         let nbytes = sink.buffer_length().min(len - done);
-        sink.buffer_slice_mut(nbytes).copy_from_slice(&content[done..done + nbytes]);
+        sink.buffer_slice_mut(nbytes)
+            .copy_from_slice(&content[done..done + nbytes]);
         bbsink_archive_contents(sink, state, nbytes)?;
         done += nbytes;
     }
     _tarWritePadding(sink, state, len)?;
 
-    AddFileToBackupManifest(manifest, INVALID_OID, filename.as_bytes(), len as i64, statbuf.mtime, &mut ctx)
+    AddFileToBackupManifest(
+        manifest,
+        INVALID_OID,
+        filename.as_bytes(),
+        len as i64,
+        statbuf.mtime,
+        &mut ctx,
+    )
 }
 
 /// The per-relation-file incremental context threaded from
@@ -1361,10 +1535,23 @@ fn sendTablespace(
         None => return Ok(0), // tablespace went away — not an error
     };
     let mut size = _tarWriteHeader(
-        sink, state, TABLESPACE_VERSION_DIRECTORY.as_bytes(), None, &statbuf, sizeonly,
+        sink,
+        state,
+        TABLESPACE_VERSION_DIRECTORY.as_bytes(),
+        None,
+        &statbuf,
+        sizeonly,
     )?;
     size += sendDir_spc(
-        sink, state, &pathbuf, path.len() as i32, sizeonly, true, manifest, spcoid, incr,
+        sink,
+        state,
+        &pathbuf,
+        path.len() as i32,
+        sizeonly,
+        true,
+        manifest,
+        spcoid,
+        incr,
     )?;
     Ok(size)
 }
@@ -1379,7 +1566,17 @@ fn sendDir(
     manifest: &mut BackupManifestInfo,
     incr: IncrCtx<'_, '_>,
 ) -> PgResult<i64> {
-    sendDir_spc(sink, state, path, basepathlen, sizeonly, sendtblspclinks, manifest, INVALID_OID, incr)
+    sendDir_spc(
+        sink,
+        state,
+        path,
+        basepathlen,
+        sizeonly,
+        sendtblspclinks,
+        manifest,
+        INVALID_OID,
+        incr,
+    )
 }
 
 // basebackup.c:1456 compares the "./"-relative PGDATA path against each
@@ -1387,7 +1584,9 @@ fn sendDir(
 // (basebackup.c:1168), so an absolute tablespace path is never sliced.
 fn tablespace_within_pgdata(pathbuf: &[u8], spcoid: Oid, tablespaces: &[TablespaceInfo]) -> bool {
     spcoid == INVALID_OID
-        && tablespaces.iter().any(|ti| ti.rpath.as_deref().map(str::as_bytes) == pathbuf.get(2..))
+        && tablespaces
+            .iter()
+            .any(|ti| ti.rpath.as_deref().map(str::as_bytes) == pathbuf.get(2..))
 }
 
 // sendDir (basebackup.c:1244). With `sizeonly` nothing is emitted: the walk
@@ -1422,10 +1621,7 @@ fn sendDir_spc(
     // with parent "./base" or a tablespace version path, or "./global".
     let is_global_dir = path.as_bytes() == b"./global";
     let (is_relation_dir, dboid): (bool, u32) = match path.iter().rposition(|&b| b == b'/') {
-        Some(idx)
-            if idx + 1 < path.len()
-                && path[idx + 1..].iter().all(u8::is_ascii_digit) =>
-        {
+        Some(idx) if idx + 1 < path.len() && path[idx + 1..].iter().all(u8::is_ascii_digit) => {
             let parent = &path[..idx];
             if parent == b"./base" || parent.ends_with(TABLESPACE_VERSION_DIRECTORY.as_bytes()) {
                 let digits = core::str::from_utf8(&path[idx + 1..]).unwrap_or("0");
@@ -1437,7 +1633,10 @@ fn sendDir_spc(
         _ => (is_global_dir, 0),
     };
 
-    let pgrc_table_dir = core::str::from_utf8(path.file_name()).ok().and_then(pgrc_format::dirlayout::parse_table_dir_name).is_some_and(|(temp, _)| temp.is_none());
+    let pgrc_table_dir = core::str::from_utf8(path.file_name())
+        .ok()
+        .and_then(pgrc_format::dirlayout::parse_table_dir_name)
+        .is_some_and(|(temp, _)| temp.is_none());
     let mut listing = DirListing::new(path, !sizeonly && pgrc_table_dir)?;
     while let Some(d_name) = listing.next()? {
         if d_name == "." || d_name == ".." || d_name == ".DS_Store" {
@@ -1457,19 +1656,25 @@ fn sendDir_spc(
         // promoted: promotion mid-backup corrupts the backup.
         check_for_interrupts()?;
         if transam_xlog::RecoveryInProgress() != BACKUP_STARTED_IN_RECOVERY.with(Cell::get) {
-            return ereport(ERROR).errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE)
+            return ereport(ERROR)
+                .errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE)
                 .errmsg("the standby was promoted during online backup")
                 .errhint(
                     "This means that the backup being taken is corrupt and should not be used. \
                      Try taking another online backup.",
                 )
-                .finish(loc("sendDir")).map(|()| 0);
+                .finish(loc("sendDir"))
+                .map(|()| 0);
         }
 
         // Excluded files.
         let mut excluded = false;
         for item in EXCLUDE_FILES {
-            let cmplen = if item.match_prefix { item.name.len() } else { item.name.len() + 1 };
+            let cmplen = if item.match_prefix {
+                item.name.len()
+            } else {
+                item.name.len() + 1
+            };
             if strncmp(&d_name, item.name.as_bytes(), cmplen) == 0 {
                 let _ = elog(DEBUG1, format!("file \"{d_name}\" excluded from backup"));
                 excluded = true;
@@ -1514,7 +1719,9 @@ fn sendDir_spc(
         // Exclude temporary relations (and their pgrcolumnar table directories).
         if dboid != 0
             && (d_name_str.is_some_and(fd::looks_like_temp_rel_name)
-                || d_name_str.and_then(pgrc_format::dirlayout::parse_table_dir_name).is_some_and(|(b, _)| b.is_some()))
+                || d_name_str
+                    .and_then(pgrc_format::dirlayout::parse_table_dir_name)
+                    .is_some_and(|(b, _)| b.is_some()))
         {
             let _ = elog(
                 DEBUG2,
@@ -1546,7 +1753,12 @@ fn sendDir_spc(
                 );
                 convert_link_to_directory(&mut statbuf);
                 size += _tarWriteHeader(
-                    sink, state, &pathbuf[basepathlen as usize + 1..], None, &statbuf, sizeonly,
+                    sink,
+                    state,
+                    &pathbuf[basepathlen as usize + 1..],
+                    None,
+                    &statbuf,
+                    sizeonly,
                 )?;
                 excl_contents = true;
                 break;
@@ -1554,7 +1766,12 @@ fn sendDir_spc(
         }
         if !excl_contents && is_relation_dir && unlogged_columnar_dir(path, &d_name) {
             size += _tarWriteHeader(
-                sink, state, &pathbuf[basepathlen as usize + 1..], None, &statbuf, sizeonly,
+                sink,
+                state,
+                &pathbuf[basepathlen as usize + 1..],
+                None,
+                &statbuf,
+                sizeonly,
             )?;
             excl_contents = true;
         }
@@ -1566,11 +1783,23 @@ fn sendDir_spc(
         if pathbuf == "./pg_wal" {
             convert_link_to_directory(&mut statbuf);
             size += _tarWriteHeader(
-                sink, state, &pathbuf[basepathlen as usize + 1..], None, &statbuf, sizeonly,
+                sink,
+                state,
+                &pathbuf[basepathlen as usize + 1..],
+                None,
+                &statbuf,
+                sizeonly,
             )?;
             // Also send archive_status and summaries directories, named as
             // C names them (basebackup.c:1399).
-            size += _tarWriteHeader(sink, state, b"./pg_wal/archive_status", None, &statbuf, sizeonly)?;
+            size += _tarWriteHeader(
+                sink,
+                state,
+                b"./pg_wal/archive_status",
+                None,
+                &statbuf,
+                sizeonly,
+            )?;
             size += _tarWriteHeader(sink, state, b"./pg_wal/summaries", None, &statbuf, sizeonly)?;
             continue;
         }
@@ -1578,11 +1807,21 @@ fn sendDir_spc(
         if *path == "./pg_tblspc" && S_ISLNK(statbuf.mode) {
             let linkpath = read_link(&pathbuf)?;
             size += _tarWriteHeader(
-                sink, state, &pathbuf[basepathlen as usize + 1..], Some(&linkpath), &statbuf, sizeonly,
+                sink,
+                state,
+                &pathbuf[basepathlen as usize + 1..],
+                Some(&linkpath),
+                &statbuf,
+                sizeonly,
             )?;
         } else if S_ISDIR(statbuf.mode) {
             size += _tarWriteHeader(
-                sink, state, &pathbuf[basepathlen as usize + 1..], None, &statbuf, sizeonly,
+                sink,
+                state,
+                &pathbuf[basepathlen as usize + 1..],
+                None,
+                &statbuf,
+                sizeonly,
             )?;
 
             // Recurse, unless this is a separate tablespace located within PGDATA.
@@ -1592,7 +1831,15 @@ fn sendDir_spc(
             }
             if !skip {
                 size += sendDir_spc(
-                    sink, state, &pathbuf, basepathlen, sizeonly, sendtblspclinks, manifest, spcoid, incr,
+                    sink,
+                    state,
+                    &pathbuf,
+                    basepathlen,
+                    sizeonly,
+                    sendtblspclinks,
+                    manifest,
+                    spcoid,
+                    incr,
                 )?;
             }
         } else if S_ISREG(statbuf.mode) {
@@ -1654,8 +1901,18 @@ fn sendDir_spc(
                 false
             } else {
                 sendFile(
-                    sink, state, &pathbuf, &tarfilename, &statbuf, true, dboid, spcoid, relfile,
-                    manifest, incremental_blocks, truncation_block_length,
+                    sink,
+                    state,
+                    &pathbuf,
+                    &tarfilename,
+                    &statbuf,
+                    true,
+                    dboid,
+                    spcoid,
+                    relfile,
+                    manifest,
+                    incremental_blocks,
+                    truncation_block_length,
                 )?
             };
             if sent || sizeonly {
@@ -1804,7 +2061,9 @@ fn basebackup_read_file(
     if !partial_read_ok && rc > 0 && rc as usize != nbytes {
         ereport(ERROR)
             .errcode(elog::errno::sqlstate_for_file_access(errnum))
-            .errmsg(format!("could not read file \"{filename}\": read {rc} of {nbytes}"))
+            .errmsg(format!(
+                "could not read file \"{filename}\": read {rc} of {nbytes}"
+            ))
             .finish(loc("basebackup_read_file"))?;
     }
 
@@ -1881,7 +2140,8 @@ fn sendFile(
                     "could not open file \"{readfilename_display}\": {}",
                     elog::errno::strerror(errnum)
                 ))
-                .finish(loc("sendFile")).map(|()| false);
+                .finish(loc("sendFile"))
+                .map(|()| false);
         }
     };
 
@@ -1914,12 +2174,27 @@ fn sendFile(
         let num_incremental_blocks = blocks.len() as u32;
         let mut header_bytes_done: usize = 0;
 
-        push_to_sink(sink, state, &mut ctx, &mut header_bytes_done,
-            &basebackup_incremental::INCREMENTAL_MAGIC.to_ne_bytes())?;
-        push_to_sink(sink, state, &mut ctx, &mut header_bytes_done,
-            &num_incremental_blocks.to_ne_bytes())?;
-        push_to_sink(sink, state, &mut ctx, &mut header_bytes_done,
-            &truncation_block_length.to_ne_bytes())?;
+        push_to_sink(
+            sink,
+            state,
+            &mut ctx,
+            &mut header_bytes_done,
+            &basebackup_incremental::INCREMENTAL_MAGIC.to_ne_bytes(),
+        )?;
+        push_to_sink(
+            sink,
+            state,
+            &mut ctx,
+            &mut header_bytes_done,
+            &num_incremental_blocks.to_ne_bytes(),
+        )?;
+        push_to_sink(
+            sink,
+            state,
+            &mut ctx,
+            &mut header_bytes_done,
+            &truncation_block_length.to_ne_bytes(),
+        )?;
         let mut blkbytes: Vec<u8> = Vec::with_capacity(4 * blocks.len());
         for b in blocks {
             blkbytes.extend_from_slice(&b.to_ne_bytes());
@@ -1941,7 +2216,8 @@ fn sendFile(
 
         // Flush out any data still in the buffer so it's again empty.
         if header_bytes_done > 0 {
-            let chunk = ::mcx::std_vec_from_slice("basebackup", sink.buffer_slice(header_bytes_done))?;
+            let chunk =
+                ::mcx::std_vec_from_slice("basebackup", sink.buffer_slice(header_bytes_done))?;
             checksum_update(&mut ctx, &chunk)?;
             bbsink_archive_contents(sink, state, header_bytes_done)?;
         }
@@ -1967,8 +2243,15 @@ fn sendFile(
                 }
                 let remaining = (statbuf.size - bytes_done) as usize;
                 cnt = read_file_data_into_buffer(
-                    sink, state, readfilename_display, fd, bytes_done, remaining,
-                    blkno + segno * RELSEG_SIZE, verify_checksum, &mut checksum_failures,
+                    sink,
+                    state,
+                    readfilename_display,
+                    fd,
+                    bytes_done,
+                    remaining,
+                    blkno + segno * RELSEG_SIZE,
+                    verify_checksum,
+                    &mut checksum_failures,
                 )?;
             }
             Some(blocks) => {
@@ -1982,10 +2265,15 @@ fn sendFile(
                 let relative_blkno = blocks[ibindex];
                 ibindex += 1;
                 cnt = read_file_data_into_buffer(
-                    sink, state, readfilename_display, fd,
-                    relative_blkno as i64 * BLCKSZ as i64, BLCKSZ,
+                    sink,
+                    state,
+                    readfilename_display,
+                    fd,
+                    relative_blkno as i64 * BLCKSZ as i64,
+                    BLCKSZ,
                     relative_blkno + segno * RELSEG_SIZE,
-                    verify_checksum, &mut checksum_failures,
+                    verify_checksum,
+                    &mut checksum_failures,
                 )?;
 
                 // If we get a partial read, that must mean that the relation
@@ -2040,7 +2328,9 @@ fn sendFile(
 
     // Pad with zeros if truncated during send.
     while bytes_done < statbuf.size {
-        let nbytes = sink.buffer_length().min((statbuf.size - bytes_done) as usize);
+        let nbytes = sink
+            .buffer_length()
+            .min((statbuf.size - bytes_done) as usize);
         zero_buffer(sink, nbytes);
         let chunk = ::mcx::std_vec_from_slice("basebackup", sink.buffer_slice(nbytes))?;
         checksum_update(&mut ctx, &chunk)?;
@@ -2070,7 +2360,14 @@ fn sendFile(
     }
     TOTAL_CHECKSUM_FAILURES.with(|c| c.set(c.get() + checksum_failures as i64));
 
-    AddFileToBackupManifest(manifest, spcoid, tarfilename.as_bytes(), statbuf.size, statbuf.mtime, &mut ctx)?;
+    AddFileToBackupManifest(
+        manifest,
+        spcoid,
+        tarfilename.as_bytes(),
+        statbuf.size,
+        statbuf.mtime,
+        &mut ctx,
+    )?;
     Ok(true)
 }
 
@@ -2090,7 +2387,13 @@ fn _tarWriteHeader(
 ) -> PgResult<i64> {
     if !sizeonly {
         let (rc, header) = tar_create_header(
-            filename, linktarget, statbuf.size, statbuf.mode, statbuf.uid, statbuf.gid, statbuf.mtime,
+            filename,
+            linktarget,
+            statbuf.size,
+            statbuf.mode,
+            statbuf.uid,
+            statbuf.gid,
+            statbuf.mtime,
         );
         match rc {
             TarError::Ok => {}
@@ -2098,7 +2401,8 @@ fn _tarWriteHeader(
                 return tar_header_limit_error(rc, filename, linktarget).map(|()| 0);
             }
         }
-        sink.buffer_slice_mut(TAR_BLOCK_SIZE).copy_from_slice(&header);
+        sink.buffer_slice_mut(TAR_BLOCK_SIZE)
+            .copy_from_slice(&header);
         bbsink_archive_contents(sink, state, TAR_BLOCK_SIZE)?;
     }
     Ok(TAR_BLOCK_SIZE as i64)
@@ -2308,15 +2612,23 @@ mod bcs_bridge {
             v
         });
         REGISTRY.with(|r| {
-            r.borrow_mut()
-                .insert(id, Buffered { columns: Vec::new(), rows: Vec::new() });
+            r.borrow_mut().insert(
+                id,
+                Buffered {
+                    columns: Vec::new(),
+                    rows: Vec::new(),
+                },
+            );
         });
         DestReceiverHandle(id)
     }
 
     fn begin(dest: DestReceiverHandle, columns: Vec<ResultColumn>) -> TupOutputState {
         REGISTRY.with(|r| {
-            r.borrow_mut().get_mut(&dest.0).expect("bcs_bridge dest").columns = columns;
+            r.borrow_mut()
+                .get_mut(&dest.0)
+                .expect("bcs_bridge dest")
+                .columns = columns;
         });
         TupOutputState { dest }
     }
@@ -2350,7 +2662,14 @@ mod bcs_bridge {
         let mut dest = tcop_dest::CreateDestReceiver(types_dest::CommandDest::RemoteSimple);
         let mut td = tupdesc::CreateTemplateTupleDesc(mcx, ncols as i32)?;
         for (i, c) in buf.columns.iter().enumerate() {
-            tupdesc::TupleDescInitBuiltinEntry(&mut td, (i + 1) as i16, &c.name, col_oid(c.typ), -1, 0)?;
+            tupdesc::TupleDescInitBuiltinEntry(
+                &mut td,
+                (i + 1) as i16,
+                &c.name,
+                col_oid(c.typ),
+                -1,
+                0,
+            )?;
         }
         let mut tstate = exectuples_output::begin_tup_output_tupdesc(mcx, &mut dest, Rc::new(td))?;
         for row in &buf.rows {
@@ -2362,7 +2681,8 @@ mod bcs_bridge {
                     Some(ResultValue::Text(s)) => {
                         // varlena_result yields the image (header) pointer; as_bytes()
                         // would point past the header and corrupt the DataRow.
-                        values[i] = fmgr::varlena_result(varlena::cstring_to_text(mcx, s.as_bytes())?);
+                        values[i] =
+                            fmgr::varlena_result(varlena::cstring_to_text(mcx, s.as_bytes())?);
                     }
                     Some(ResultValue::Int8(x)) => values[i] = Datum::from_i64(*x),
                     Some(ResultValue::Oid(o)) => values[i] = Datum::from_oid(*o),
@@ -2408,8 +2728,16 @@ mod tablespace_walk_tests {
         ];
         assert!(tablespace_within_pgdata(b"./inside", INVALID_OID, &ts));
         assert!(!tablespace_within_pgdata(b"./base", INVALID_OID, &ts));
-        assert!(!tablespace_within_pgdata("/donn\u{e9}es/ts/PG_18_202502181".as_bytes(), 16385, &ts));
-        assert!(!tablespace_within_pgdata(b"/pgdata/inside/PG_18_202502181", 16386, &ts));
+        assert!(!tablespace_within_pgdata(
+            "/donn\u{e9}es/ts/PG_18_202502181".as_bytes(),
+            16385,
+            &ts
+        ));
+        assert!(!tablespace_within_pgdata(
+            b"/pgdata/inside/PG_18_202502181",
+            16386,
+            &ts
+        ));
     }
 }
 
@@ -2418,7 +2746,10 @@ mod incremental_gate_tests {
     use super::*;
 
     fn incr_opt() -> Vec<ReplOption> {
-        vec![ReplOption { name: "incremental".to_string(), arg: Some(ReplOptionArg::Bool(true)) }]
+        vec![ReplOption {
+            name: "incremental".to_string(),
+            arg: Some(ReplOptionArg::Bool(true)),
+        }]
     }
 
     // C basebackup.c line ~792: INCREMENTAL without summarize_wal fails at
@@ -2432,7 +2763,10 @@ mod incremental_gate_tests {
         static ONCE: std::sync::Once = std::sync::Once::new();
         ONCE.call_once(guc_tables::init_seams);
 
-        assert!(!guc_tables::vars::summarize_wal.read(), "boot default is off");
+        assert!(
+            !guc_tables::vars::summarize_wal.read(),
+            "boot default is off"
+        );
         let err = match parse_basebackup_options(&incr_opt()) {
             Ok(_) => panic!("expected prerequisite error"),
             Err(e) => e,
@@ -2484,7 +2818,10 @@ mod tar_limit_sqlstate_tests {
     fn readlink_target_too_long_is_54000() {
         let err = readlink_target_too_long(&PgPath::from("./pg_tblspc")).unwrap_err();
         assert_eq!(err.sqlstate(), ERRCODE_PROGRAM_LIMIT_EXCEEDED);
-        assert_eq!(err.message(), "symbolic link \"./pg_tblspc\" target is too long");
+        assert_eq!(
+            err.message(),
+            "symbolic link \"./pg_tblspc\" target is too long"
+        );
     }
 }
 
@@ -2611,8 +2948,8 @@ mod remediation_b086_tests {
     use super::*;
     use ::sink::{BbsinkOps, BbsinkState};
     use ::types_core::primitive::Size;
-    use std::os::unix::fs::PermissionsExt;
     use std::cell::RefCell;
+    use std::os::unix::fs::PermissionsExt;
     use std::rc::Rc;
     use std::sync::atomic::{AtomicBool, Ordering::Relaxed};
     use std::sync::{Mutex, MutexGuard};
@@ -2631,19 +2968,26 @@ mod remediation_b086_tests {
         if !INITED.load(Relaxed) {
             // XLOGShmemInit sizes the WAL buffers from the xlog.c-owned
             // wal_buffers cell; absent here, as in slot's tests.
-            static XLOG_BUFFERS: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(64);
+            static XLOG_BUFFERS: std::sync::atomic::AtomicI32 =
+                std::sync::atomic::AtomicI32::new(64);
             guc_tables::vars::XLOGbuffers.install_if_absent(guc_tables::GucVarAccessors {
                 get: || XLOG_BUFFERS.load(Relaxed),
                 set: |v| XLOG_BUFFERS.store(v, Relaxed),
             });
             if !waitevent_seams::pgstat_report_wait_start::is_installed() {
                 waitevent_seams::pgstat_report_wait_start::set(|info| {
-                    WAIT_EVENTS.lock().unwrap_or_else(|e| e.into_inner()).push(info);
+                    WAIT_EVENTS
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .push(info);
                 });
             }
             if !waitevent_seams::pgstat_report_wait_end::is_installed() {
                 waitevent_seams::pgstat_report_wait_end::set(|| {
-                    WAIT_EVENTS.lock().unwrap_or_else(|e| e.into_inner()).push(0);
+                    WAIT_EVENTS
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .push(0);
                 });
             }
             // fd.c AllocateDesc stamps the current subtransaction id.
@@ -2682,11 +3026,23 @@ mod remediation_b086_tests {
         fn begin_backup(&mut self, _: &mut Bbsink<'mcx>, _: &mut BbsinkState) -> PgResult<()> {
             Ok(())
         }
-        fn begin_archive(&mut self, _: &mut Bbsink<'mcx>, _: &mut BbsinkState, _: &str) -> PgResult<()> {
+        fn begin_archive(
+            &mut self,
+            _: &mut Bbsink<'mcx>,
+            _: &mut BbsinkState,
+            _: &str,
+        ) -> PgResult<()> {
             Ok(())
         }
-        fn archive_contents(&mut self, sink: &mut Bbsink<'mcx>, _: &mut BbsinkState, len: Size) -> PgResult<()> {
-            self.0.borrow_mut().extend_from_slice(sink.buffer_slice(len));
+        fn archive_contents(
+            &mut self,
+            sink: &mut Bbsink<'mcx>,
+            _: &mut BbsinkState,
+            len: Size,
+        ) -> PgResult<()> {
+            self.0
+                .borrow_mut()
+                .extend_from_slice(sink.buffer_slice(len));
             Ok(())
         }
         fn end_archive(&mut self, _: &mut Bbsink<'mcx>, _: &mut BbsinkState) -> PgResult<()> {
@@ -2695,13 +3051,24 @@ mod remediation_b086_tests {
         fn begin_manifest(&mut self, _: &mut Bbsink<'mcx>, _: &mut BbsinkState) -> PgResult<()> {
             Ok(())
         }
-        fn manifest_contents(&mut self, _: &mut Bbsink<'mcx>, _: &mut BbsinkState, _: Size) -> PgResult<()> {
+        fn manifest_contents(
+            &mut self,
+            _: &mut Bbsink<'mcx>,
+            _: &mut BbsinkState,
+            _: Size,
+        ) -> PgResult<()> {
             Ok(())
         }
         fn end_manifest(&mut self, _: &mut Bbsink<'mcx>, _: &mut BbsinkState) -> PgResult<()> {
             Ok(())
         }
-        fn end_backup(&mut self, _: &mut Bbsink<'mcx>, _: &mut BbsinkState, _: XLogRecPtr, _: TimeLineID) -> PgResult<()> {
+        fn end_backup(
+            &mut self,
+            _: &mut Bbsink<'mcx>,
+            _: &mut BbsinkState,
+            _: XLogRecPtr,
+            _: TimeLineID,
+        ) -> PgResult<()> {
             Ok(())
         }
         fn cleanup(&mut self, _: &mut Bbsink<'mcx>, _: &mut BbsinkState) -> PgResult<()> {
@@ -2738,7 +3105,8 @@ mod remediation_b086_tests {
             // Restore search permission on anything the test locked down.
             if let Ok(rd) = std::fs::read_dir(&self.0) {
                 for e in rd.flatten() {
-                    let _ = std::fs::set_permissions(e.path(), std::fs::Permissions::from_mode(0o755));
+                    let _ =
+                        std::fs::set_permissions(e.path(), std::fs::Permissions::from_mode(0o755));
                 }
             }
             let _ = std::fs::remove_dir_all(&self.0);
@@ -2750,7 +3118,16 @@ mod remediation_b086_tests {
         let (mut sink, rec) = make_sink(mcx);
         let mut state = BbsinkState::default();
         let mut manifest = BackupManifestInfo::zeroed();
-        let r = sendDir(&mut sink, &mut state, &PgPath::from(dir), dir.len() as i32, false, true, &mut manifest, None);
+        let r = sendDir(
+            &mut sink,
+            &mut state,
+            &PgPath::from(dir),
+            dir.len() as i32,
+            false,
+            true,
+            &mut manifest,
+            None,
+        );
         let bytes = rec.borrow().clone();
         (r, bytes)
     }
@@ -2781,7 +3158,10 @@ mod remediation_b086_tests {
     }
 
     fn opt(name: &str, arg: Option<ReplOptionArg>) -> ReplOption {
-        ReplOption { name: name.to_string(), arg }
+        ReplOption {
+            name: name.to_string(),
+            arg,
+        }
     }
 
     // basebackup.c:1261 reads de->d_name into pathbuf and lstat's / opens /
@@ -2861,12 +3241,23 @@ mod remediation_b086_tests {
         let state = BbsinkState::default();
         let mut failures = 0;
         let err = read_file_data_into_buffer(
-            &mut sink, &state, "./base/1/1259", -1, 0, types_core::BLCKSZ, 0, false, &mut failures,
+            &mut sink,
+            &state,
+            "./base/1/1259",
+            -1,
+            0,
+            types_core::BLCKSZ,
+            0,
+            false,
+            &mut failures,
         )
         .unwrap_err();
         assert_eq!(
             err.message(),
-            format!("could not read file \"./base/1/1259\": {}", elog::errno::strerror(libc::EBADF))
+            format!(
+                "could not read file \"./base/1/1259\": {}",
+                elog::errno::strerror(libc::EBADF)
+            )
         );
         assert_eq!(err.sqlstate(), types_error::ERRCODE_INTERNAL_ERROR);
     }
@@ -2885,17 +3276,31 @@ mod remediation_b086_tests {
         let state = BbsinkState::default();
         let fd = fd::OpenTransientFile(&file, libc::O_RDONLY).unwrap();
         assert!(fd >= 0);
-        WAIT_EVENTS.lock().unwrap_or_else(|e| e.into_inner()).clear();
+        WAIT_EVENTS
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
         let mut failures = 0;
         let n = read_file_data_into_buffer(
-            &mut sink, &state, &file, fd, 0, types_core::BLCKSZ, 0, false, &mut failures,
+            &mut sink,
+            &state,
+            &file,
+            fd,
+            0,
+            types_core::BLCKSZ,
+            0,
+            false,
+            &mut failures,
         )
         .unwrap();
         fd::CloseTransientFile(fd);
         assert_eq!(n as usize, types_core::BLCKSZ);
         // wait_event_names.txt WaitEventIO: BASEBACKUP_READ is index 3.
         const WAIT_EVENT_BASEBACKUP_READ: u32 = 0x0A00_0000 + 3;
-        let events = WAIT_EVENTS.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let events = WAIT_EVENTS
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
         assert_eq!(events, vec![WAIT_EVENT_BASEBACKUP_READ, 0]);
     }
 
@@ -2913,7 +3318,10 @@ mod remediation_b086_tests {
         CANCEL.store(false, Relaxed);
         let err = r.expect_err("pending cancel must abort the directory walk");
         assert_eq!(err.sqlstate(), types_error::ERRCODE_QUERY_CANCELED);
-        assert!(bytes.is_empty(), "the cancel is checked before the entry is emitted");
+        assert!(
+            bytes.is_empty(),
+            "the cancel is checked before the entry is emitted"
+        );
     }
 
     // basebackup.c:1282: promotion mid-backup carries the errhint.
@@ -2927,7 +3335,10 @@ mod remediation_b086_tests {
         BACKUP_STARTED_IN_RECOVERY.with(|c| c.set(false));
         let err = r.unwrap_err();
         assert_eq!(err.sqlstate(), ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE);
-        assert_eq!(err.message(), "the standby was promoted during online backup");
+        assert_eq!(
+            err.message(),
+            "the standby was promoted during online backup"
+        );
         assert_eq!(
             err.hint(),
             Some(
@@ -2957,7 +3368,10 @@ mod remediation_b086_tests {
         assert_eq!(err.sqlstate(), types_error::ERRCODE_INSUFFICIENT_PRIVILEGE);
         assert_eq!(
             err.message(),
-            format!("could not stat file or directory \"{sub}/f\": {}", elog::errno::strerror(libc::EACCES))
+            format!(
+                "could not stat file or directory \"{sub}/f\": {}",
+                elog::errno::strerror(libc::EACCES)
+            )
         );
     }
 
@@ -2993,13 +3407,31 @@ mod remediation_b086_tests {
         let mut state = BbsinkState::default();
         let mut manifest = BackupManifestInfo::zeroed();
         let d = dir.path();
-        let estimate =
-            sendDir(&mut sink, &mut state, &PgPath::from(d), d.len() as i32, true, true, &mut manifest, None).unwrap();
+        let estimate = sendDir(
+            &mut sink,
+            &mut state,
+            &PgPath::from(d),
+            d.len() as i32,
+            true,
+            true,
+            &mut manifest,
+            None,
+        )
+        .unwrap();
         // sub/ header + f header + 700 bytes padded to the next tar block.
         assert_eq!(estimate, 512 + 512 + 1024);
         assert!(rec.borrow().is_empty(), "sizeonly must not emit");
-        let real =
-            sendDir(&mut sink, &mut state, &PgPath::from(d), d.len() as i32, false, true, &mut manifest, None).unwrap();
+        let real = sendDir(
+            &mut sink,
+            &mut state,
+            &PgPath::from(d),
+            d.len() as i32,
+            false,
+            true,
+            &mut manifest,
+            None,
+        )
+        .unwrap();
         assert_eq!(real, estimate);
         assert_eq!(rec.borrow().len() as i64, estimate);
     }
@@ -3013,14 +3445,23 @@ mod remediation_b086_tests {
         std::fs::write(&file, vec![9u8; 100]).unwrap();
         let fd = fd::OpenTransientFile(&file, libc::O_RDONLY).unwrap();
         let mut buf = vec![0u8; types_core::BLCKSZ];
-        assert_eq!(basebackup_read_file(fd, &mut buf, 0, &file, true).unwrap(), 100);
+        assert_eq!(
+            basebackup_read_file(fd, &mut buf, 0, &file, true).unwrap(),
+            100
+        );
         let err = basebackup_read_file(fd, &mut buf, 0, &file, false).unwrap_err();
         assert_eq!(
             err.message(),
-            format!("could not read file \"{file}\": read 100 of {}", types_core::BLCKSZ)
+            format!(
+                "could not read file \"{file}\": read 100 of {}",
+                types_core::BLCKSZ
+            )
         );
         // EOF is never an error, even when a full read was requested.
-        assert_eq!(basebackup_read_file(fd, &mut buf, 100, &file, false).unwrap(), 0);
+        assert_eq!(
+            basebackup_read_file(fd, &mut buf, 100, &file, false).unwrap(),
+            0
+        );
         fd::CloseTransientFile(fd);
     }
 
@@ -3054,7 +3495,10 @@ mod remediation_b086_tests {
         for v in ["o", "truee", "10", "yes!"] {
             let e = manifest(v).expect_err(v);
             assert_eq!(e.sqlstate(), ERRCODE_SYNTAX_ERROR);
-            assert_eq!(e.message(), format!("unrecognized manifest option: \"{v}\""));
+            assert_eq!(
+                e.message(),
+                format!("unrecognized manifest option: \"{v}\"")
+            );
         }
     }
 
@@ -3073,7 +3517,10 @@ mod remediation_b086_tests {
             e.message().to_string()
         };
         assert_eq!(msg(&[opt("label", None)]), "label requires a parameter");
-        assert_eq!(msg(&[opt("checkpoint", None)]), "checkpoint requires a parameter");
+        assert_eq!(
+            msg(&[opt("checkpoint", None)]),
+            "checkpoint requires a parameter"
+        );
         assert_eq!(
             msg(&[opt("checkpoint", Some(ReplOptionArg::Int(7)))]),
             "unrecognized checkpoint type: \"7\""
@@ -3094,7 +3541,10 @@ mod remediation_b086_tests {
             msg(&[opt("progress", Some(ReplOptionArg::Int(5)))]),
             "progress requires a Boolean value"
         );
-        assert_eq!(msg(&[opt("max_rate", None)]), "max_rate requires a numeric value");
+        assert_eq!(
+            msg(&[opt("max_rate", None)]),
+            "max_rate requires a numeric value"
+        );
         assert_eq!(
             msg(&[opt("max_rate", Some(ReplOptionArg::Str("100".into())))]),
             "max_rate requires a numeric value"

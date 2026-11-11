@@ -118,7 +118,7 @@ impl ExprExtMech for Arith {
         let node = env.node;
         let Some(s) = ExtPlan::of(env.placed(ex)).and_then(|x| x.plan.downcast_ref::<Site>()) else { crate::refuse!(node, Reason::Bug { payload: "a num.arith site without its plan" }) };
         let (tf, f) = (typefacts::row_of(NUMERICOID).copied().unwrap_or(typefacts::opaque(NUMERICOID, NUMERICOID, -1, false, false)), b.bconst(false));
-        let mut datum = |b: &mut FunctionBuilder<'_>, env: &mut Env, a: Arg| match a {
+        let datum = |b: &mut FunctionBuilder<'_>, env: &mut Env, a: Arg| match a {
             Arg::Col { attno, .. } => {
                 let Some(cr) = row.col(attno) else { crate::refuse!(node, Reason::Bug { payload: "a num.arith column the row does not carry" }) };
                 let mut cx = env.lx(b, node);
@@ -136,7 +136,7 @@ impl ExprExtMech for Arith {
         let slot = { let sl = b.declare_stack_slot(64, 8); b.stack_addr(sl) };
         let w = konsts(s).map_or(0, |a| if let Arg::Const { sub, .. } = a { sub } else { 0 });
         let [v, ok, e] = arith(b, env, s, (pa, pb), kc, &mut |b, env| { let [v, ok, _] = sub(b, env, w); (kn::or_nan(b, v, ok), ok) }, slot);
-        (b.br(l_out, &[v, ok, e]), b.switch_to(l_out));
+        b.br(l_out, &[v, ok, e]); b.switch_to(l_out);
         [0, 1, 2].map(|i| b.block_params(l_out)[i])
     }
 
@@ -163,7 +163,7 @@ fn konsts(s: &Site) -> Option<Arg> {
 fn arith(b: &mut FunctionBuilder<'_>, env: &mut Env, s: &Site, (pa, pb): (Value, Value), kc: Option<(Value, Value)>, kd: KDatum<'_>, slot: Value) -> [Value; 3] {
     let c = |b: &mut FunctionBuilder<'_>, v: i64| b.iconst(Type::I64, v);
     let short = crate::frame::iface::need_strategy::<NumShortImpl>(&env.node, NUM_SHORT).0;
-    let mut word = |b: &mut FunctionBuilder<'_>, env: &mut Env, a: Arg, p: Value| match (a, kc) {
+    let word = |b: &mut FunctionBuilder<'_>, env: &mut Env, a: Arg, p: Value| match (a, kc) {
         (Arg::Col { scale, .. }, _) => { let (m, ok, _) = short.decode(b, env, p, scale, false); (m, ok) }
         (Arg::Const { .. }, Some((k, _))) => { let none = c(b, kn::KONST_NONE); (k, b.icmp(IntCond::Ne, k, none)) }
         (Arg::Const { .. }, None) => crate::refuse!(env.node, Reason::Bug { payload: "a num.arith constant without its entry word" }),
@@ -190,7 +190,7 @@ fn arith(b: &mut FunctionBuilder<'_>, env: &mut Env, s: &Site, (pa, pb): (Value,
     let r = { let (sl, op) = (b.conv(ConvOp::PtrToInt, Type::I64, slot), c(b, s.op as i64)); b.call_host(h, &[sl, pa, pb, op], Some(Type::I64)).expect("returns") };
     let (bad, raise) = (b.icmp(IntCond::Eq, r, env.zero), c(b, gravity_abi::status::raise::bit(gravity_abi::status::raise::HOST) as i64));
     let e = b.select(bad, raise, env.zero);
-    (b.br(l_out, &[r, valid, e]), b.switch_to(l_out));
+    b.br(l_out, &[r, valid, e]); b.switch_to(l_out);
     [0, 1, 2].map(|i| b.block_params(l_out)[i])
 }
 

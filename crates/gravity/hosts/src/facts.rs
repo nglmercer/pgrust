@@ -86,7 +86,8 @@ impl Facts for RelcacheFacts<'_> {
 
     fn type_row(&self, typid: u32) -> Option<gravity_decompose::TypeRow> {
         let (typlen, byval, typtype, base) = gravity_fn::typesem::keysem::catalog::type_row(typid as Oid)?;
-        Some(gravity_decompose::TypeRow { typlen, byval, typtype, base: base as u32 })
+        #[allow(clippy::redundant_field_names)]
+        Some(gravity_decompose::TypeRow { typlen, byval, typtype, base: base })
     }
 
     /// D3796: C `DomainConstraintRef`'s list (typcache load_domaintype_info: the NOT NULL and the planned CHECKs of every
@@ -116,7 +117,8 @@ impl Facts for RelcacheFacts<'_> {
 
     /// C `get_range_subtype` (InvalidOid for a type that is no range: none).
     fn range_subtype(&self, typid: u32) -> Option<u32> {
-        lsyscache::get_range_subtype(typid as Oid).ok().filter(|&t| t != 0).map(|t| t as u32)
+        #[allow(clippy::map_identity)]
+        lsyscache::get_range_subtype(typid as Oid).ok().filter(|&t| t != 0).map(|t| t)
     }
 
     /// D693: C `lookup_rowtype_tupdesc_domain`'s descriptor (a domain read through to its composite base), copied into
@@ -441,7 +443,7 @@ impl Facts for RelcacheFacts<'_> {
         // and a `None` drops what was taken, in order, as `collect::<Option<Vec<_>>>` does
         let Some(_held) = list.iter().map(|&oid| Held::take(oid)).try_collect_in(self.mcx) else { return false };
         let Some(facts) = list.iter().map(|&oid| self.index(oid)).try_collect_in(self.mcx) else { return false };
-        facts.into_iter().for_each(|i| f(i));
+        facts.into_iter().for_each(f);
         true
     }
 
@@ -513,13 +515,15 @@ impl Facts for RelcacheFacts<'_> {
 
     /// Record-image order: the type's default btree family (the typcache's `btree_opf`; none when it has none).
     fn default_family(&self, typid: u32) -> Option<u32> {
-        gravity_fn::typesem::keysem::catalog::default_family(typid as Oid).map(|f| f as u32)
+        #[allow(clippy::map_identity)]
+        gravity_fn::typesem::keysem::catalog::default_family(typid as Oid).map(|f| f)
     }
 
     /// KeySem (LANGUAGE internal; equivclass#53): `keysem::body`, the built-in a call of the function runs (a catalog read
     /// that fails answers none: the call stays the user function it is).
     fn builtin_body(&self, funcid: u32) -> Option<u32> {
-        gravity_fn::typesem::keysem::body(self.mcx, funcid as Oid).ok().flatten().map(|b| b as u32)
+        #[allow(clippy::map_identity)]
+        gravity_fn::typesem::keysem::body(self.mcx, funcid as Oid).ok().flatten().map(|b| b)
     }
 
     /// D3082: `keysem::sql_inlined`, a user `LANGUAGE sql` function's body as the planner's `inline_function` would
@@ -536,7 +540,7 @@ impl Facts for RelcacheFacts<'_> {
     /// KeySem: `keysem::op_calls`, the support functions a node naming the operator alone runs (none on a failed read).
     fn op_calls(&self, opno: u32) -> Option<gravity_decompose::catalog::OpCalls> {
         let c = gravity_fn::typesem::keysem::op_calls(opno as Oid).ok().flatten()?;
-        let pair = |p: [Oid; 2]| [p[0] as u32, p[1] as u32];
+        let pair = |p: [Oid; 2]| [p[0], p[1]];
         Some(gravity_decompose::catalog::OpCalls { code: c.code as u32, order: c.order.map(pair), hash: c.hash.map(pair) })
     }
 
@@ -605,7 +609,7 @@ impl Facts for RelcacheFacts<'_> {
 
     fn rel_ext(&self, relid: u32) -> RelExt {
         let Ok(r) = table::table_open(self.mcx, relid as Oid, NoLock) else { return RelExt::UNKNOWN };
-        let e = RelExt { has_triggers: r.rd_hastriggers, has_rules: r.rd_hasrules, has_subclass: r.rd_rel.relhassubclass, is_partition: r.rd_rel.relispartition, known: true, temp: r.rd_rel.relpersistence as u8 == b't' };
+        let e = RelExt { has_triggers: r.rd_hastriggers, has_rules: r.rd_hasrules, has_subclass: r.rd_rel.relhassubclass, is_partition: r.rd_rel.relispartition, known: true, temp: r.rd_rel.relpersistence == b't' };
         let _ = r.close(NoLock);
         e
     }
@@ -719,7 +723,7 @@ impl Facts for RelcacheFacts<'_> {
         }
         let (input, _) = lsyscache::typ::getTypeInputInfo(typid as Oid).ok()?;
         let (output, _) = lsyscache::typ::getTypeOutputInfo(typid as Oid).ok()?;
-        Some((input as u32, output as u32))
+        Some((input, output))
     }
 
     /// D1214 (V4R-393): the relation's PRIMARY KEY columns from pg_constraint (contype 'p', conkey), as
@@ -791,11 +795,11 @@ impl Facts for RelcacheFacts<'_> {
         if !(syscache_seams::lookup_pg_proc_shape::is_installed() && syscache_seams::pg_namespace_nspname::is_installed() && syscache_seams::pg_proc_proname::is_installed() && syscache_seams::lookup_pg_proc_prosrc::is_installed()) {
             return false;
         }
-        let Some(p) = syscache_seams::lookup_pg_proc_shape::call(funcid as Oid).ok().flatten().filter(|p| p.prolang as u32 == types_core::quiet::SQL_LANGUAGE) else { return false };
+        let Some(p) = syscache_seams::lookup_pg_proc_shape::call(funcid as Oid).ok().flatten().filter(|p| p.prolang == types_core::quiet::SQL_LANGUAGE) else { return false };
         let nsp = syscache_seams::pg_namespace_nspname::call(p.pronamespace).ok().flatten();
         let name = syscache_seams::pg_proc_proname::call(funcid as Oid).ok().flatten();
         let src = syscache_seams::lookup_pg_proc_prosrc::call(self.mcx, funcid as Oid).ok().flatten();
-        matches!((nsp, name, src), (Some(n), Some(m), Some(b)) if f(n.name_str(), m.name_str(), p.prolang as u32, b.as_bytes()))
+        matches!((nsp, name, src), (Some(n), Some(m), Some(b)) if f(n.name_str(), m.name_str(), p.prolang, b.as_bytes()))
     }
 
     /// D2036: the hash functions PostgreSQL's hash join calls on each input of `opno` (typesem's `hash_procs`: the procs
@@ -803,14 +807,14 @@ impl Facts for RelcacheFacts<'_> {
     /// collation, or without a readable catalog.
     fn op_hash_functions(&self, opno: u32, coll: u32) -> Option<(u32, u32)> {
         let (l, r) = gravity_fn::typesem::hash_procs(self.mcx, opno as Oid, coll as Oid).ok()?.ok()?;
-        Some((l as u32, r as u32))
+        Some((l, r))
     }
 }
 
 
 /// A plain permanent heap table (`Lead::twin`'s relations).
 fn plain_heap(r: &types_rel::Relation<'_>) -> bool {
-    r.rd_rel.relkind as u8 == b'r' && r.rd_rel.relpersistence as u8 == types_core::catalog::RELPERSISTENCE_PERMANENT && TableAm::of(r) == Some(TableAm::Heap)
+    r.rd_rel.relkind == b'r' && r.rd_rel.relpersistence == types_core::catalog::RELPERSISTENCE_PERMANENT && TableAm::of(r) == Some(TableAm::Heap)
 }
 
 /// Attribute `i`'s facts `Lead::twin` compares: whether it has a missing value, and (dropped, type, typmod, length, by
@@ -941,7 +945,7 @@ fn func_props(funcid: u32) -> Option<gravity_decompose::effects::FuncProps> {
 fn based(mut f: AttFact) -> Option<AttFact> {
     let mut m = f.typmod;
     if let Ok(b) = lsyscache::typ::getBaseTypeAndTypmod(f.typid as Oid, &mut m) {
-        (f.base, f.base_typmod) = (b as u32, m);
+        (f.base, f.base_typmod) = (b, m);
     }
     Some(f)
 }
@@ -1198,7 +1202,7 @@ impl<'m> RelcacheFacts<'m> {
             let ok = held_briefly(oid, |held| {
                 // a partition dropped since the listing fails its open: the leaves unknown
                 let Some(c) = open_held(held, oid, || table::table_open(self.mcx, oid, NoLock)) else { return false };
-                let ok = if c.rd_rel.relkind == types_rel::RELKIND_PARTITIONED_TABLE { self.leaves_under(root, &c, f) } else { self.leaf_fact(root, &c).map(|l| f(l)).is_some() };
+                let ok = if c.rd_rel.relkind == types_rel::RELKIND_PARTITIONED_TABLE { self.leaves_under(root, &c, f) } else { self.leaf_fact(root, &c).map(&mut *f).is_some() };
                 let _ = c.close(NoLock);
                 ok
             });

@@ -571,9 +571,9 @@ pub(crate) fn dml_form(gx: &Gx<'_, '_>, k: usize, w: &WriteDesc<'_>) -> Option<u
     // D3508: or the settled union's own COPY mark (`union_outer`)
     let copied = |mk: &RowMark| mk.mark == RowMarkType::ROW_MARK_COPY && crate::rerun::epq::marks::nest_copy(gx, k, mk).is_some_and(|ik| pre().enumerate().any(|(i, o)| (before(i, o) && copy_scan(o) || copy_after(i, o)) && gx.pipelines().inner_of(k, i) == Some(ik)));
     // D3795: or, under `held_inner`, a held nest's join side's (rowop_epq.rs `nest_inner` counts them)
-    let held_mark = || (0..j).any(|i| held(i));
+    let held_mark = || (0..j).any(&held);
     let one = |mk: &RowMark| stored(mk) || own_ref(mk) || inner_ref(mk) || built_ref(mk) || copied(mk) || crate::ops::modifytable::nest_ref::deduped_ref(gx, k, mk) || crate::ops::modifytable::nest_ref::deduped_copy_build(gx, k, mk) || union && union_mark(gx, mk) || held_mark();
-    if !w.mark_descs.iter().filter(|mk| !target(mk.rti)).all(|mk| one(mk)) {
+    if !w.mark_descs.iter().filter(|mk| !target(mk.rti)).all(&one) {
         return None;
     }
     if !matches!(p.source, Source::Const) && !w.mark_descs.iter().any(|mk| !target(mk.rti) && one(mk)) {
@@ -901,7 +901,7 @@ fn forced<'p>(gx: &Gx<'_, '_>, ops: &[&[Op<'p>]], src: &Source<'p>, hit: impl Fn
             return b.boolop == BoolExprType::AND_EXPR && b.args.iter().any(|a| conjunct(gx, a, param));
         }
         let call = n.as_op_expr().map(|o| (o.opfuncid, &o.args)).or_else(|| n.as_func_expr().map(|f| (f.funcid, &f.args)));
-        call.is_some_and(|(f, args)| gx.facts.func(f).is_some_and(|p| p.strict) && args.iter().any(|a| param(a)))
+        call.is_some_and(|(f, args)| gx.facts.func(f).is_some_and(|p| p.strict) && args.iter().any(param))
     }
     let keys = matches!(src, Source::Index { keys, .. } if keys.iter().any(|k| param(k.value)));
     keys || ops.iter().flat_map(|o| o.iter()).any(|o| match o {

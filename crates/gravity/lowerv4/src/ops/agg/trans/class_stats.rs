@@ -34,6 +34,7 @@ crate::strategies! {
     STAT_REG = 147, "agg.stat_reg", Stats;
 }
 
+#[allow(clippy::needless_update)]
 pub(crate) const ROWS: Table = Table { kinds: &[(KindId::ClassStats, &ClassImpl(&STATS))], strategies: &[(STAT_REG, &())], ..crate::ops::NONE };
 
 struct Stats;

@@ -836,7 +836,9 @@ fn begin_srl() -> &'static str {
 }
 
 /// The full hand-authored deck.
+#[allow(clippy::vec_init_then_push)]
 pub fn deck() -> Vec<Scenario> {
+    #[allow(clippy::vec_init_then_push)]
     let mut v = Vec::new();
 
     // 1. Classic write skew: both read the other's class, then update

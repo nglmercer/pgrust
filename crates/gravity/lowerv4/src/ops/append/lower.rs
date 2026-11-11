@@ -8,9 +8,9 @@
 //! - the arm's skip bit when the Append prunes (source/prune.rs declares the words, the runtime's `src.prune` sets them
 //!   once per execution): a pruned arm passes no row (and its claim source hands out nothing);
 //! - the arms protocol (source/append_arms.rs, road `append.arms`), declared at arm 0 over the union's arms.
-//! A union the parent's ops cannot be copied into keeps its Materialize form (`settle_arms`: Feed -> spool -> Union
-//! emit); its spool is nest.spool's (M8): the feed end, the emit's source and its ops are made by that kind.
-//! Registers kind `src.append` (step, source and end faces). Owner M2-SOURCES.
+//!   A union the parent's ops cannot be copied into keeps its Materialize form (`settle_arms`: Feed -> spool -> Union
+//!   emit); its spool is nest.spool's (M8): the feed end, the emit's source and its ops are made by that kind.
+//!   Registers kind `src.append` (step, source and end faces). Owner M2-SOURCES.
 use std::cell::Cell;
 
 use gravity_decompose::ops::shared::append::AppendDesc;

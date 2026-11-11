@@ -120,6 +120,7 @@ fn get_bt_page_statistics(blkno: BlockNumber, b: &[u8]) -> PgResult<BTPageStat> 
         dead_items,
         page_size: page_size(b) as u32,
         free_size: page_free_space(b) as u32,
+        #[allow(clippy::manual_checked_ops)]
         avg_item_size: if live_items + dead_items > 0 {
             item_size as u32 / (live_items + dead_items)
         } else {

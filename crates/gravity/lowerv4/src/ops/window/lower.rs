@@ -6,15 +6,15 @@
 //! - the source (window/rows.rs): the stored rows read back in order;
 //! - the step (this file): `m10_win_row` runs PG's `ExecWindowAgg` for the row (its functions' values into the object's
 //!   result cells), the run condition with its pass-through modes, then the row goes on with the results as columns.
-//! Under a VOLATILE argument (D1232) every argument is the object's to evaluate at each read, and the pipeline runs on the
-//! leader; an equal VOLATILE window function is its own entry (D1354). PG projects a RUN row before its run condition
-//! and qual: a projection that may raise or calls a VOLATILE function is evaluated on the rows they drop too, on the
-//! leader (D1234). D1415: a SubPlan in an argument the object reads only at the current row as int4 (lead / lag's offset,
-//! nth_value's n, ntile's buckets) is evaluated by the step into the stored row (`step_arg`); one in any other argument or
-//! FILTER that raises nothing and calls nothing VOLATILE by the fill, per stored row (`on_fill`). Refused by name: a window
-//! function outside windowfuncs.c, any other argument with a SubPlan, a CTE's executor Param under a VOLATILE argument (an
-//! extern `$n` is served, D1355; an InitPlan's runs at its first read, W3), a run condition or qual that may raise over
-//! such a projection. Owner M10-WINDOW.
+//!   Under a VOLATILE argument (D1232) every argument is the object's to evaluate at each read, and the pipeline runs on the
+//!   leader; an equal VOLATILE window function is its own entry (D1354). PG projects a RUN row before its run condition
+//!   and qual: a projection that may raise or calls a VOLATILE function is evaluated on the rows they drop too, on the
+//!   leader (D1234). D1415: a SubPlan in an argument the object reads only at the current row as int4 (lead / lag's offset,
+//!   nth_value's n, ntile's buckets) is evaluated by the step into the stored row (`step_arg`); one in any other argument or
+//!   FILTER that raises nothing and calls nothing VOLATILE by the fill, per stored row (`on_fill`). Refused by name: a window
+//!   function outside windowfuncs.c, any other argument with a SubPlan, a CTE's executor Param under a VOLATILE argument (an
+//!   extern `$n` is served, D1355; an InitPlan's runs at its first read, W3), a run condition or qual that may raise over
+//!   such a projection. Owner M10-WINDOW.
 use gravity_abi::status::raise;
 use gravity_decompose::expr::has_subplan;
 use gravity_decompose::ops::shared::subplan::{SubLink, SubSite};

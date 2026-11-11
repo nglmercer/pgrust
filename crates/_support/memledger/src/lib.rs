@@ -31,7 +31,9 @@
 //! never by an enclosing scope's holder as well.
 
 use core::cell::Cell;
-use core::sync::atomic::{AtomicBool, AtomicI64, AtomicPtr, AtomicU32, AtomicU64, AtomicU8, Ordering};
+use core::sync::atomic::{
+    AtomicBool, AtomicI64, AtomicPtr, AtomicU32, AtomicU64, AtomicU8, Ordering,
+};
 
 use pgsync::Mutex;
 
@@ -39,15 +41,18 @@ pub mod arena;
 pub mod charge;
 pub mod charged_vec;
 pub mod ladder_pass;
-pub mod pins;
 pub mod owner_end;
+pub mod pins;
 pub mod resident;
 pub mod unattr;
 pub mod value;
 
+pub use charge::{
+    door_pool, pagepool_total, pool_claimed, pool_door1, pool_probed, pool_reading, pool_unowned,
+    set_pool_door1, set_pool_probe, OwnerLife, PoolReading,
+};
 pub use charge::{Charge, Holder, Owner, OwnerClass, OwnerRow, Release, Residue};
 pub use charged_vec::{ChargedVec, ChargedVecMut, VALUE_FLOOR};
-pub use charge::{door_pool, pagepool_total, pool_claimed, pool_door1, pool_probed, pool_reading, pool_unowned, set_pool_door1, set_pool_probe, OwnerLife, PoolReading};
 
 /// `pgrust.memory_broker`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -142,14 +147,28 @@ impl Consumer {
     /// their cap until then).
     #[inline]
     pub const fn is_cache(self) -> bool {
-        matches!(self, Consumer::PartCache | Consumer::FpTables | Consumer::BuildPool | Consumer::ZoneStore | Consumer::CondCache)
+        matches!(
+            self,
+            Consumer::PartCache
+                | Consumer::FpTables
+                | Consumer::BuildPool
+                | Consumer::ZoneStore
+                | Consumer::CondCache
+        )
     }
 
     /// Fixed per-process and per-backend memory (no actuator; reported and counted). The catalog L2 bounds itself (its
     /// entry and byte caps) and has no reclaim hook: counted at its bytes, as the program caches are.
     #[inline]
     pub const fn is_fixed(self) -> bool {
-        matches!(self, Consumer::ProgramCaches | Consumer::PerBackend | Consumer::CatalogL2 | Consumer::NblocksCache | Consumer::SharedStats)
+        matches!(
+            self,
+            Consumer::ProgramCaches
+                | Consumer::PerBackend
+                | Consumer::CatalogL2
+                | Consumer::NblocksCache
+                | Consumer::SharedStats
+        )
     }
 
     /// The reclaim class of the consumer's memory (design section 3): an evictable cache, the kept per-backend memory
@@ -158,12 +177,18 @@ impl Consumer {
     #[inline]
     pub const fn class(self) -> Class {
         match self {
-            Consumer::PartCache | Consumer::FpTables | Consumer::BuildPool | Consumer::ZoneStore | Consumer::CondCache => Class::Cache,
+            Consumer::PartCache
+            | Consumer::FpTables
+            | Consumer::BuildPool
+            | Consumer::ZoneStore
+            | Consumer::CondCache => Class::Cache,
             Consumer::PerBackend => Class::Warm,
             Consumer::WorkPool => Class::Running,
-            Consumer::SharedBuffers | Consumer::ProgramCaches | Consumer::CatalogL2 | Consumer::NblocksCache | Consumer::SharedStats => {
-                Class::Fixed
-            }
+            Consumer::SharedBuffers
+            | Consumer::ProgramCaches
+            | Consumer::CatalogL2
+            | Consumer::NblocksCache
+            | Consumer::SharedStats => Class::Fixed,
         }
     }
 
@@ -173,9 +198,16 @@ impl Consumer {
         match self {
             Consumer::SharedBuffers => actuator::SHARED_BUFFERS,
             Consumer::PartCache => actuator::PART_CACHE,
-            Consumer::FpTables | Consumer::BuildPool | Consumer::ZoneStore | Consumer::CondCache => actuator::CACHES,
+            Consumer::FpTables
+            | Consumer::BuildPool
+            | Consumer::ZoneStore
+            | Consumer::CondCache => actuator::CACHES,
             Consumer::WorkPool => actuator::WORK_POOL,
-            Consumer::ProgramCaches | Consumer::PerBackend | Consumer::CatalogL2 | Consumer::NblocksCache | Consumer::SharedStats => 0,
+            Consumer::ProgramCaches
+            | Consumer::PerBackend
+            | Consumer::CatalogL2
+            | Consumer::NblocksCache
+            | Consumer::SharedStats => 0,
         }
     }
 }
@@ -203,7 +235,14 @@ pub enum Class {
 pub const CLASSES: usize = 6;
 
 impl Class {
-    pub const ALL: [Class; CLASSES] = [Class::Running, Class::Warm, Class::Cache, Class::Fixed, Class::Pending, Class::Unbound];
+    pub const ALL: [Class; CLASSES] = [
+        Class::Running,
+        Class::Warm,
+        Class::Cache,
+        Class::Fixed,
+        Class::Pending,
+        Class::Unbound,
+    ];
 
     pub const fn name(self) -> &'static str {
         match self {
@@ -276,7 +315,13 @@ pub struct Cfg {
 }
 
 impl Cfg {
-    pub const DEFAULT: Cfg = Cfg { mode: Mode::Advise, target: 0, page_cache_floor: 0, reserve: 0, actuators: actuator::ALL };
+    pub const DEFAULT: Cfg = Cfg {
+        mode: Mode::Advise,
+        target: 0,
+        page_cache_floor: 0,
+        reserve: 0,
+        actuators: actuator::ALL,
+    };
 }
 
 static HOOKS: Mutex<[Option<Hooks>; CONSUMERS]> = Mutex::new([None; CONSUMERS]);
@@ -363,7 +408,8 @@ pub fn register(c: Consumer, hooks: Hooks) -> bool {
 
 /// D4353: the bytes `c`'s reclaim can free now, where it knows them better than its current bytes less its floor (the part
 /// cache: `PartRegistry::trimmable_bytes`); read by the memory ladder's R2a count only.
-static TRIMMABLE: [AtomicPtr<()>; CONSUMERS] = [const { AtomicPtr::new(core::ptr::null_mut()) }; CONSUMERS];
+static TRIMMABLE: [AtomicPtr<()>; CONSUMERS] =
+    [const { AtomicPtr::new(core::ptr::null_mut()) }; CONSUMERS];
 
 pub fn register_trimmable(c: Consumer, f: fn() -> u64) {
     TRIMMABLE[c as usize].store(f as *mut (), Ordering::Release);
@@ -383,8 +429,10 @@ pub fn trimmable(c: Consumer) -> Option<u64> {
 /// D4298 (T4): a holder's reclaim that only the memory ladder runs (R2a's tail, `mempolicy::ladder::TAIL`): its bytes in
 /// use (never reclaimed) and a reclaim down to the given bytes returning the bytes freed. Its `Hooks` keep `reclaim: None`,
 /// so the broker, the watchdog's backstop and the snapshot read it as before.
-static LADDER_FLOOR: [AtomicPtr<()>; CONSUMERS] = [const { AtomicPtr::new(core::ptr::null_mut()) }; CONSUMERS];
-static LADDER_RECLAIM: [AtomicPtr<()>; CONSUMERS] = [const { AtomicPtr::new(core::ptr::null_mut()) }; CONSUMERS];
+static LADDER_FLOOR: [AtomicPtr<()>; CONSUMERS] =
+    [const { AtomicPtr::new(core::ptr::null_mut()) }; CONSUMERS];
+static LADDER_RECLAIM: [AtomicPtr<()>; CONSUMERS] =
+    [const { AtomicPtr::new(core::ptr::null_mut()) }; CONSUMERS];
 
 pub fn register_ladder_reclaim(c: Consumer, in_use: fn() -> u64, reclaim: fn(u64) -> u64) {
     LADDER_FLOOR[c as usize].store(in_use as *mut (), Ordering::Release);
@@ -393,12 +441,20 @@ pub fn register_ladder_reclaim(c: Consumer, in_use: fn() -> u64, reclaim: fn(u64
 
 /// `c`'s ladder-only (bytes in use, reclaim), `None` when it registered none.
 pub fn ladder_reclaim_of(c: Consumer) -> Option<(fn() -> u64, fn(u64) -> u64)> {
-    let (f, r) = (LADDER_FLOOR[c as usize].load(Ordering::Acquire), LADDER_RECLAIM[c as usize].load(Ordering::Acquire));
+    let (f, r) = (
+        LADDER_FLOOR[c as usize].load(Ordering::Acquire),
+        LADDER_RECLAIM[c as usize].load(Ordering::Acquire),
+    );
     if f.is_null() || r.is_null() {
         return None;
     }
     // SAFETY: only register_ladder_reclaim stores here, always from fn() -> u64 and fn(u64) -> u64.
-    Some(unsafe { (core::mem::transmute::<*mut (), fn() -> u64>(f), core::mem::transmute::<*mut (), fn(u64) -> u64>(r)) })
+    Some(unsafe {
+        (
+            core::mem::transmute::<*mut (), fn() -> u64>(f),
+            core::mem::transmute::<*mut (), fn(u64) -> u64>(r),
+        )
+    })
 }
 
 pub fn registered(c: Consumer) -> bool {
@@ -428,7 +484,11 @@ pub fn declare_managed(c: Consumer, on: bool) {
 /// The managed consumers' bits now (none unless the broker is on).
 #[inline]
 pub fn managed_mask() -> u64 {
-    if mode() == Mode::On { MANAGED.load(Ordering::Relaxed) } else { 0 }
+    if mode() == Mode::On {
+        MANAGED.load(Ordering::Relaxed)
+    } else {
+        0
+    }
 }
 
 /// Whether an actuator manages `c` now (`declare_managed`, under on): the reclaimer frees only managed consumers.
@@ -512,7 +572,10 @@ pub fn loss(c: Consumer) -> Option<u64> {
 }
 
 pub fn set_loss(c: Consumer, ns_per_mib: Option<u64>) {
-    LOSSES[c as usize].store(ns_per_mib.map_or(u64::MAX, |l| l.min(u64::MAX - 1)), Ordering::Relaxed);
+    LOSSES[c as usize].store(
+        ns_per_mib.map_or(u64::MAX, |l| l.min(u64::MAX - 1)),
+        Ordering::Relaxed,
+    );
 }
 
 /// Whether `bytes` more fit in B's free bytes as of the last snapshot (always under off, and before any snapshot). 5b
@@ -532,7 +595,11 @@ pub fn fits(bytes: u64) -> bool {
 
 /// `(snapshots, fits refused, double registrations)`.
 pub fn counters() -> (u64, u64, u64) {
-    (SNAPSHOTS.load(Ordering::Relaxed), FITS_REFUSED.load(Ordering::Relaxed), DOUBLE_REGISTER.load(Ordering::Relaxed))
+    (
+        SNAPSHOTS.load(Ordering::Relaxed),
+        FITS_REFUSED.load(Ordering::Relaxed),
+        DOUBLE_REGISTER.load(Ordering::Relaxed),
+    )
 }
 
 /// One consumer's row of a snapshot.
@@ -559,7 +626,11 @@ pub struct Account {
 
 impl Account {
     pub const fn new(name: &'static str) -> Account {
-        Account { name, bytes: AtomicU64::new(0), peak: AtomicU64::new(0) }
+        Account {
+            name,
+            bytes: AtomicU64::new(0),
+            peak: AtomicU64::new(0),
+        }
     }
 
     /// `n` bytes more held.
@@ -574,14 +645,21 @@ impl Account {
     /// `n` bytes given back (never under 0: a discharge past the charges is a caller's bug, counted as 0 held).
     #[inline]
     pub fn discharge(&self, n: u64) {
-        let _ = self.bytes.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |b| Some(b.saturating_sub(n)));
+        let _ = self
+            .bytes
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |b| {
+                Some(b.saturating_sub(n))
+            });
     }
 
     /// `n` bytes held until the returned guard drops (one load's batch).
     #[inline]
     pub fn hold(&self, n: u64) -> Held<'_> {
         self.charge(n);
-        Held { account: self, bytes: n }
+        Held {
+            account: self,
+            bytes: n,
+        }
     }
 
     /// The bytes held now.
@@ -640,7 +718,9 @@ pub static ACCOUNTS: [&Account; 2] = [&LOAD_IN_FLIGHT, &NESTED_KEPT];
 
 /// The bytes every account holds now.
 pub fn accounts_total() -> u64 {
-    ACCOUNTS.iter().fold(0u64, |a, c| a.saturating_add(c.bytes()))
+    ACCOUNTS
+        .iter()
+        .fold(0u64, |a, c| a.saturating_add(c.bytes()))
 }
 
 // ---- G1-A: memory counted at the doors where it leaves the operating system ------------------------------------------
@@ -659,7 +739,11 @@ pub const DOOR_FOLD_BYTES: i64 = 256 << 10;
 
 pub const fn arc_bytes<T>() -> u64 {
     let w = core::mem::size_of::<usize>();
-    let a = if core::mem::align_of::<T>() > w { core::mem::align_of::<T>() } else { w };
+    let a = if core::mem::align_of::<T>() > w {
+        core::mem::align_of::<T>()
+    } else {
+        w
+    };
     ((2 * w).next_multiple_of(a) + core::mem::size_of::<T>()).next_multiple_of(a) as u64
 }
 
@@ -725,10 +809,14 @@ impl Acct {
     pub const fn class(self) -> Class {
         match self.0 {
             i if i >= BACKEND_SLOT_BASE => Class::Running,
-            i if i == Acct::PARKED.0 || i == Acct::SLOT_DEPOT.0 || i == Acct::POOL_RESERVE.0 => Class::Warm,
+            i if i == Acct::PARKED.0 || i == Acct::SLOT_DEPOT.0 || i == Acct::POOL_RESERVE.0 => {
+                Class::Warm
+            }
             i if i == Acct::REAPING.0 => Class::Pending,
             i if i == Acct::ROUNDING.0 => Class::Fixed,
-            i if i >= 1 && ((i - 1) as usize) < CONSUMERS => Consumer::ALL[(i - 1) as usize].class(),
+            i if i >= 1 && ((i - 1) as usize) < CONSUMERS => {
+                Consumer::ALL[(i - 1) as usize].class()
+            }
             _ => Class::Unbound,
         }
     }
@@ -917,7 +1005,9 @@ static SLOTS: [Slot; ACCOUNT_SLOTS] = [SLOT0; ACCOUNT_SLOTS];
 /// C8 (D4087): the id of the statement running on account `a` now (0: none); never reused, so the next backend on a slot
 /// never matches its predecessor's statements (`Owner::Statement`).
 pub fn running_statement(a: Acct) -> u64 {
-    SLOTS.get(a.0 as usize).map_or(0, |s| s.stmt.load(Ordering::Relaxed))
+    SLOTS
+        .get(a.0 as usize)
+        .map_or(0, |s| s.stmt.load(Ordering::Relaxed))
 }
 
 /// The ladder's R6 landing test, by attribution: account `a`'s running statement (`running_statement`'s id; 0: none) and
@@ -925,12 +1015,20 @@ pub fn running_statement(a: Acct) -> u64 {
 /// them); its threads' pending door-1 bytes not folded (`AccountRow::fold_slack`). Three relaxed loads, nothing written:
 /// the caller sets the bytes against the statement's start, read once (`AccountRow::statement_net`).
 pub fn statement_hold(a: Acct) -> (u64, i64) {
-    SLOTS.get(a.0 as usize).map_or((0, 0), |s| (s.stmt.load(Ordering::Relaxed), s.net.load(Ordering::Relaxed).wrapping_sub(keepers(a))))
+    SLOTS.get(a.0 as usize).map_or((0, 0), |s| {
+        (
+            s.stmt.load(Ordering::Relaxed),
+            s.net.load(Ordering::Relaxed).wrapping_sub(keepers(a)),
+        )
+    })
 }
 
 /// The process id of backend account `a` (0: none, or not a backend).
 pub fn backend_pid(a: Acct) -> u32 {
-    SLOTS.get(a.0 as usize).filter(|_| a.is_backend()).map_or(0, |s| s.pid.load(Ordering::Relaxed))
+    SLOTS
+        .get(a.0 as usize)
+        .filter(|_| a.is_backend())
+        .map_or(0, |s| s.pid.load(Ordering::Relaxed))
 }
 
 /// Door 2's bytes of Gravity region mappings (`Kind::is_region`) on every account, backends' or not: their writable pages.
@@ -965,7 +1063,10 @@ pub fn note_not_resident(a: Acct, delta: i64, mapped: bool) {
 
 /// D3872: the not-resident bytes on every account now, door 1's and door 2's (`note_not_resident`).
 pub fn not_resident_bytes() -> (i64, i64) {
-    (NR_HEAP.load(Ordering::Relaxed), NR_MAPPED.load(Ordering::Relaxed))
+    (
+        NR_HEAP.load(Ordering::Relaxed),
+        NR_MAPPED.load(Ordering::Relaxed),
+    )
 }
 
 /// A thread's door state (const: no destructor, so the allocator may reach it at any point of a thread's life).
@@ -1043,7 +1144,11 @@ mod exit_fold {
         if k == 0 {
             let mut key: libc::pthread_key_t = 0;
             // SAFETY: `key` is a valid out pointer; `at_exit` stays a valid destructor for the process's life.
-            let made = if unsafe { libc::pthread_key_create(&mut key, Some(at_exit)) } == 0 { key as u64 + 1 } else { u64::MAX };
+            let made = if unsafe { libc::pthread_key_create(&mut key, Some(at_exit)) } == 0 {
+                key as u64 + 1
+            } else {
+                u64::MAX
+            };
             k = match KEY.compare_exchange(0, made, Ordering::AcqRel, Ordering::Acquire) {
                 Ok(_) => made,
                 Err(won) => {
@@ -1056,7 +1161,13 @@ mod exit_fold {
             };
         }
         // SAFETY: `k - 1` is a live key; any non-null value arms its destructor for this thread.
-        k != u64::MAX && unsafe { libc::pthread_setspecific((k - 1) as libc::pthread_key_t, core::ptr::NonNull::<u8>::dangling().as_ptr().cast()) } == 0
+        k != u64::MAX
+            && unsafe {
+                libc::pthread_setspecific(
+                    (k - 1) as libc::pthread_key_t,
+                    core::ptr::NonNull::<u8>::dangling().as_ptr().cast(),
+                )
+            } == 0
     }
 }
 
@@ -1177,7 +1288,11 @@ pub fn set_unbind_wait(on: bool) {
 
 /// Unbinds that waited for a thread inside their account, the longest wait (ns), and the waits that hit the cap.
 pub fn unbind_waits() -> (u64, u64, u64) {
-    (UNBIND_WAITED.load(Ordering::Relaxed), UNBIND_WAIT_MAX_NS.load(Ordering::Relaxed), UNBIND_WAIT_CAPPED.load(Ordering::Relaxed))
+    (
+        UNBIND_WAITED.load(Ordering::Relaxed),
+        UNBIND_WAIT_MAX_NS.load(Ordering::Relaxed),
+        UNBIND_WAIT_CAPPED.load(Ordering::Relaxed),
+    )
 }
 
 /// The unbind's wait: until no thread is inside slot `s` (this one left it first), at most `UNBIND_WAIT_CAP_NS`.
@@ -1218,7 +1333,10 @@ fn wait_entered(s: &Slot) {
 
 /// The floor's folds that credited UNBOUND and their bytes, since the start.
 pub fn floored() -> (u64, i64) {
-    (FLOOR_EVENTS.load(Ordering::Relaxed), FLOOR_BYTES.load(Ordering::Relaxed))
+    (
+        FLOOR_EVENTS.load(Ordering::Relaxed),
+        FLOOR_BYTES.load(Ordering::Relaxed),
+    )
 }
 
 /// Of a fold of `p` bytes (`m` of them door 2's, `q` the page pool's) onto backend account `a`, what `a` takes under the
@@ -1249,9 +1367,18 @@ fn floor_at_zero(a: Acct, p: i64, m: i64, q: i64) -> i64 {
 /// Every pending count of the thread onto its current account.
 fn fold_door(d: &Door) {
     let a = Acct(d.acct.get());
-    let (p, m, q) = (d.pending.replace(0), d.mapped.replace(0), d.pooled.replace(0));
+    let (p, m, q) = (
+        d.pending.replace(0),
+        d.mapped.replace(0),
+        d.pooled.replace(0),
+    );
     // D4552 (a) backstop: a free past what the account holds is no byte of its own
-    let p = if p.wrapping_sub(q) < m && a.is_backend() && FLOOR.load(Ordering::Relaxed) == FLOOR_ON { floor_at_zero(a, p, m, q) } else { p };
+    let p = if p.wrapping_sub(q) < m && a.is_backend() && FLOOR.load(Ordering::Relaxed) == FLOOR_ON
+    {
+        floor_at_zero(a, p, m, q)
+    } else {
+        p
+    };
     add_q(a, p, m, q);
     add(Acct::ROUNDING, d.round.replace(0), 0);
     let mut mask = d.kmask.replace(0);
@@ -1280,11 +1407,17 @@ fn post_q(a: Acct, p: i64, m: i64, q: i64, k: Kind, kb: i64) {
         if d.acct.get() != a.0 {
             return false;
         }
-        let (np, nm, nq) = (d.pending.get().wrapping_add(p), d.mapped.get().wrapping_add(m), d.pooled.get().wrapping_add(q));
+        let (np, nm, nq) = (
+            d.pending.get().wrapping_add(p),
+            d.mapped.get().wrapping_add(m),
+            d.pooled.get().wrapping_add(q),
+        );
         d.pending.set(np);
         d.mapped.set(nm);
         d.pooled.set(nq);
-        let mut over = np.unsigned_abs() >= DOOR_FOLD_BYTES as u64 || nm.unsigned_abs() >= DOOR_FOLD_BYTES as u64 || nq.unsigned_abs() >= DOOR_FOLD_BYTES as u64;
+        let mut over = np.unsigned_abs() >= DOOR_FOLD_BYTES as u64
+            || nm.unsigned_abs() >= DOOR_FOLD_BYTES as u64
+            || nq.unsigned_abs() >= DOOR_FOLD_BYTES as u64;
         if kb != 0 && a.is_backend() {
             over |= pend_lane(d, k as usize, kb);
             if m != 0 {
@@ -1336,18 +1469,34 @@ fn add_q(a: Acct, p: i64, mapped: i64, pooled: i64) {
         }
         return;
     }
-    let m = if mapped != 0 { s.mapped.fetch_add(mapped, Ordering::Relaxed).wrapping_add(mapped) } else { s.mapped.load(Ordering::Relaxed) };
-    let (base, mbase) = (s.base.load(Ordering::Relaxed), s.mbase.load(Ordering::Relaxed));
+    let m = if mapped != 0 {
+        s.mapped
+            .fetch_add(mapped, Ordering::Relaxed)
+            .wrapping_add(mapped)
+    } else {
+        s.mapped.load(Ordering::Relaxed)
+    };
+    let (base, mbase) = (
+        s.base.load(Ordering::Relaxed),
+        s.mbase.load(Ordering::Relaxed),
+    );
     peak(&s.peak, net.wrapping_sub(base));
     // `unattr`: the in-server unattributed check at the statement's rises (off: one relaxed load)
     if unattr::on() {
-        unattr::rise(a, net.wrapping_sub(base), p.wrapping_sub(mapped).wrapping_sub(pooled));
+        unattr::rise(
+            a,
+            net.wrapping_sub(base),
+            p.wrapping_sub(mapped).wrapping_sub(pooled),
+        );
     }
     if mapped != 0 {
         peak(&s.mpeak, m.wrapping_sub(mbase));
     }
     if p != mapped {
-        peak(&s.hpeak, net.wrapping_sub(m).wrapping_sub(base.wrapping_sub(mbase)));
+        peak(
+            &s.hpeak,
+            net.wrapping_sub(m).wrapping_sub(base.wrapping_sub(mbase)),
+        );
     }
 }
 
@@ -1378,7 +1527,10 @@ fn add_lane(a: Acct, i: usize, b: i64) {
     let s = &SLOTS[a.0 as usize];
     let now = s.kind[i].fetch_add(b, Ordering::Relaxed).wrapping_add(b);
     if b > 0 {
-        peak(&s.kpeak[i], now.wrapping_sub(s.kbase[i].load(Ordering::Relaxed)));
+        peak(
+            &s.kpeak[i],
+            now.wrapping_sub(s.kbase[i].load(Ordering::Relaxed)),
+        );
     }
     if !s.kdirty.load(Ordering::Relaxed) {
         s.kdirty.store(true, Ordering::Relaxed);
@@ -1389,7 +1541,12 @@ fn add_lane(a: Acct, i: usize, b: i64) {
 #[inline]
 pub fn fold() {
     DOOR.with(|d| {
-        if d.pending.get() != 0 || d.mapped.get() != 0 || d.pooled.get() != 0 || d.kmask.get() != 0 || d.round.get() != 0 {
+        if d.pending.get() != 0
+            || d.mapped.get() != 0
+            || d.pooled.get() != 0
+            || d.kmask.get() != 0
+            || d.round.get() != 0
+        {
             fold_door(d);
         }
     })
@@ -1446,7 +1603,12 @@ pub(crate) fn discharge_kind(a: Acct, k: Kind, bytes: u64) {
 #[inline]
 pub(crate) fn pool_charge(a: Acct, delta: i64) {
     let s = &SLOTS[a.0 as usize];
-    peak(&s.rpeak, s.reserved.fetch_add(delta, Ordering::Relaxed).wrapping_add(delta));
+    peak(
+        &s.rpeak,
+        s.reserved
+            .fetch_add(delta, Ordering::Relaxed)
+            .wrapping_add(delta),
+    );
 }
 
 /// C8 move 3c: of what the grant pool holds for account `a`'s statements, `delta` more bytes backed by pages its draws
@@ -1454,7 +1616,9 @@ pub(crate) fn pool_charge(a: Acct, delta: i64) {
 /// (`pool_reserved`) is unchanged, the views' unbacked room (`AccountRow::pool_reserved_bytes`) moves by `-delta`.
 #[inline]
 pub fn pool_back(a: Acct, delta: i64) {
-    SLOTS[a.0 as usize].backed.fetch_add(delta, Ordering::Relaxed);
+    SLOTS[a.0 as usize]
+        .backed
+        .fetch_add(delta, Ordering::Relaxed);
 }
 
 /// What the grant pool holds for account `a`'s statements now (`pool_charge`'s sum: the claim, backed or not), one load:
@@ -1472,7 +1636,11 @@ pub fn statement_peak_here() -> u64 {
     if s.seq.load(Ordering::Relaxed) & 1 == 0 {
         return 0;
     }
-    let cur = s.net.load(Ordering::Relaxed).saturating_sub(s.base.load(Ordering::Relaxed)).max(0) as u64;
+    let cur = s
+        .net
+        .load(Ordering::Relaxed)
+        .saturating_sub(s.base.load(Ordering::Relaxed))
+        .max(0) as u64;
     (s.peak.load(Ordering::Relaxed).max(0) as u64).max(cur)
 }
 
@@ -1486,7 +1654,9 @@ pub fn kind() -> Kind {
 /// pipeline).
 #[must_use]
 pub fn with_kind(k: Kind) -> KindScope {
-    KindScope { back: DOOR.with(|d| d.kind.replace(k as u8)) }
+    KindScope {
+        back: DOOR.with(|d| d.kind.replace(k as u8)),
+    }
 }
 
 /// The kind before a `with_kind`, restored when it drops.
@@ -1569,12 +1739,17 @@ pub fn keepers_moved(a: Acct, delta: i64) {
 
 /// Account `a`'s parked keeper bytes now.
 pub fn keepers(a: Acct) -> i64 {
-    KEEPERS[(a.0 as usize).min(ACCOUNT_SLOTS - 1)].load(Ordering::Relaxed).max(0)
+    KEEPERS[(a.0 as usize).min(ACCOUNT_SLOTS - 1)]
+        .load(Ordering::Relaxed)
+        .max(0)
 }
 
 /// Every account's parked keeper bytes now.
 pub fn keepers_total() -> i64 {
-    KEEPERS.iter().map(|k| k.load(Ordering::Relaxed).max(0)).fold(0i64, i64::wrapping_add)
+    KEEPERS
+        .iter()
+        .map(|k| k.load(Ordering::Relaxed).max(0))
+        .fold(0i64, i64::wrapping_add)
 }
 
 /// D4679: of the keepers, the context growth blocks mcx's growth shelf parks (a dropped context's blocks after its first),
@@ -1595,12 +1770,19 @@ pub fn growth_moved(a: Acct, bytes: i64, blocks: i64) {
 /// Account `a`'s parked growth (bytes, blocks) now, of its keepers.
 pub fn growth(a: Acct) -> (i64, i64) {
     let i = (a.0 as usize).min(ACCOUNT_SLOTS - 1);
-    (GROWTH[i].load(Ordering::Relaxed).max(0), GROWTH_BLOCKS[i].load(Ordering::Relaxed).max(0))
+    (
+        GROWTH[i].load(Ordering::Relaxed).max(0),
+        GROWTH_BLOCKS[i].load(Ordering::Relaxed).max(0),
+    )
 }
 
 /// Every account's parked growth (bytes, blocks) now.
 pub fn growth_total() -> (i64, i64) {
-    let sum = |t: &[AtomicI64; ACCOUNT_SLOTS]| t.iter().map(|k| k.load(Ordering::Relaxed).max(0)).fold(0i64, i64::wrapping_add);
+    let sum = |t: &[AtomicI64; ACCOUNT_SLOTS]| {
+        t.iter()
+            .map(|k| k.load(Ordering::Relaxed).max(0))
+            .fold(0i64, i64::wrapping_add)
+    };
     (sum(&GROWTH), sum(&GROWTH_BLOCKS))
 }
 
@@ -1613,7 +1795,9 @@ fn switch(a: Acct) -> Acct {
         if old != a {
             if old != Acct::UNBOUND {
                 // Release: the fold above lands before the count drops (an unbind waiting for it reads `net` after)
-                SLOTS[old.0 as usize].threads.fetch_sub(1, Ordering::Release);
+                SLOTS[old.0 as usize]
+                    .threads
+                    .fetch_sub(1, Ordering::Release);
             }
             if a != Acct::UNBOUND {
                 SLOTS[a.0 as usize].threads.fetch_add(1, Ordering::Relaxed);
@@ -1628,7 +1812,11 @@ fn switch(a: Acct) -> Acct {
 #[cfg(test)]
 #[must_use]
 pub(crate) fn enter(a: Acct) -> Entered {
-    Entered { back: switch(a), paused: 0, visit: false }
+    Entered {
+        back: switch(a),
+        paused: 0,
+        visit: false,
+    }
 }
 
 /// The account before an `enter`, restored when it drops.
@@ -1690,11 +1878,21 @@ pub fn park_fold() {
     }
     DOOR.with(|d| {
         // pagepool P2: its pool bytes too (`pooled` / `s_pooled`), as `fold` reads them
-        if d.pending.get() != 0 || d.mapped.get() != 0 || d.pooled.get() != 0 || d.kmask.get() != 0 || d.round.get() != 0 {
+        if d.pending.get() != 0
+            || d.mapped.get() != 0
+            || d.pooled.get() != 0
+            || d.kmask.get() != 0
+            || d.round.get() != 0
+        {
             fold_door(d);
         }
         // the swap is its own inverse: the kept counts fold onto their account and the thread's stay as they are
-        if d.side.get() != 0 && (d.s_pending.get() != 0 || d.s_mapped.get() != 0 || d.s_pooled.get() != 0 || d.s_kmask.get() != 0) {
+        if d.side.get() != 0
+            && (d.s_pending.get() != 0
+                || d.s_mapped.get() != 0
+                || d.s_pooled.get() != 0
+                || d.s_kmask.get() != 0)
+        {
             swap_side(d);
             fold_door(d);
             swap_side(d);
@@ -1806,13 +2004,19 @@ impl Home {
     /// The calling thread's current account, with its session's pid.
     pub fn here() -> Home {
         let acct = current();
-        Home { acct, pid: backend_pid(acct) }
+        Home {
+            acct,
+            pid: backend_pid(acct),
+        }
     }
 
     /// A holder's home (a cache's account, which no session ends): what the holder keeps is allocated and freed there,
     /// whichever thread changes it (`enter`).
     pub fn of(acct: Acct) -> Home {
-        Home { acct, pid: backend_pid(acct) }
+        Home {
+            acct,
+            pid: backend_pid(acct),
+        }
     }
 
     /// The account the home's bytes come back to now.
@@ -1828,13 +2032,20 @@ impl Home {
     #[must_use]
     pub fn enter(&self) -> Option<Entered> {
         (HOME.load(Ordering::Relaxed) == FLOOR_ON).then(|| {
-            if HOME_KEEP.load(Ordering::Relaxed) && !self.acct.is_backend() && arm_thread_exit_fold() {
+            if HOME_KEEP.load(Ordering::Relaxed)
+                && !self.acct.is_backend()
+                && arm_thread_exit_fold()
+            {
                 if let Some(back) = visit_enter(self.acct) {
                     let paused = door_cache_depth();
                     if paused != 0 {
                         door_cache_step(-(paused as i32));
                     }
-                    return Entered { back, paused, visit: true };
+                    return Entered {
+                        back,
+                        paused,
+                        visit: true,
+                    };
                 }
             }
             let back = switch(self.acct_now());
@@ -1851,7 +2062,11 @@ impl Home {
             if paused != 0 {
                 door_cache_step(-(paused as i32));
             }
-            Entered { back, paused, visit: false }
+            Entered {
+                back,
+                paused,
+                visit: false,
+            }
         })
     }
 }
@@ -1868,12 +2083,18 @@ pub struct HomeExit {
 
 impl HomeExit {
     pub const fn new() -> HomeExit {
-        HomeExit { entered: None, block: 0 }
+        HomeExit {
+            entered: None,
+            block: 0,
+        }
     }
 
     /// `new` for a struct whose own heap block of `bytes` (`arc_bytes`) is freed right after its fields drop.
     pub const fn for_block(bytes: u64) -> HomeExit {
-        HomeExit { entered: None, block: bytes }
+        HomeExit {
+            entered: None,
+            block: bytes,
+        }
     }
 
     /// Enter `home` until this field drops.
@@ -1884,7 +2105,9 @@ impl HomeExit {
 
 impl Drop for HomeExit {
     fn drop(&mut self) {
-        let Some(entered) = self.entered.take() else { return };
+        let Some(entered) = self.entered.take() else {
+            return;
+        };
         let home = current();
         drop(entered);
         let to = current();
@@ -1955,7 +2178,16 @@ pub fn unbind_backend() {
         let left = s.net.swap(0, Ordering::Relaxed);
         let mapped = s.mapped.swap(0, Ordering::Relaxed);
         let pooled = s.pooled.swap(0, Ordering::Relaxed);
-        for x in [&s.base, &s.peak, &s.mbase, &s.mpeak, &s.hpeak, &s.reserved, &s.rpeak, &s.backed] {
+        for x in [
+            &s.base,
+            &s.peak,
+            &s.mbase,
+            &s.mpeak,
+            &s.hpeak,
+            &s.reserved,
+            &s.rpeak,
+            &s.backed,
+        ] {
             x.store(0, Ordering::Relaxed);
         }
         s.seq.store(0, Ordering::Relaxed);
@@ -2007,7 +2239,15 @@ pub fn unbind_dead(procno: u32) -> bool {
     let mapped = s.mapped.swap(0, Ordering::Relaxed);
     let pooled = s.pooled.swap(0, Ordering::Relaxed);
     let reserved = s.reserved.load(Ordering::Relaxed);
-    for x in [&s.base, &s.peak, &s.mbase, &s.mpeak, &s.hpeak, &s.reserved, &s.rpeak] {
+    for x in [
+        &s.base,
+        &s.peak,
+        &s.mbase,
+        &s.mpeak,
+        &s.hpeak,
+        &s.reserved,
+        &s.rpeak,
+    ] {
         x.store(0, Ordering::Relaxed);
     }
     s.seq.store(0, Ordering::Relaxed);
@@ -2046,12 +2286,15 @@ pub fn statement_begin() {
 
 /// The statement numbers start from the account's now: bases set, peaks cleared.
 fn restart(s: &Slot) {
-    s.base.store(s.net.load(Ordering::Relaxed), Ordering::Relaxed);
-    s.mbase.store(s.mapped.load(Ordering::Relaxed), Ordering::Relaxed);
+    s.base
+        .store(s.net.load(Ordering::Relaxed), Ordering::Relaxed);
+    s.mbase
+        .store(s.mapped.load(Ordering::Relaxed), Ordering::Relaxed);
     for x in [&s.peak, &s.mpeak, &s.hpeak] {
         x.store(0, Ordering::Relaxed);
     }
-    s.rpeak.store(s.reserved.load(Ordering::Relaxed), Ordering::Relaxed);
+    s.rpeak
+        .store(s.reserved.load(Ordering::Relaxed), Ordering::Relaxed);
     if s.kdirty.load(Ordering::Relaxed) && s.kdirty.swap(false, Ordering::Relaxed) {
         for i in 0..LANES {
             s.kbase[i].store(s.kind[i].load(Ordering::Relaxed), Ordering::Relaxed);
@@ -2084,7 +2327,10 @@ static STATEMENT_END_HOOK: AtomicPtr<()> = AtomicPtr::new(core::ptr::null_mut())
 
 /// Installs (or, `None`, removes) the statement-end hook.
 pub fn set_statement_end_hook(hook: Option<StatementEndHook>) {
-    STATEMENT_END_HOOK.store(hook.map_or(core::ptr::null_mut(), |h| h as *mut ()), Ordering::Release);
+    STATEMENT_END_HOOK.store(
+        hook.map_or(core::ptr::null_mut(), |h| h as *mut ()),
+        Ordering::Release,
+    );
 }
 
 #[inline]
@@ -2188,7 +2434,8 @@ impl AccountRow {
 
     /// D3872: door 2's resident bytes (`mapped_bytes` less door 2's not-resident ones).
     pub fn resident_mapped_bytes(&self) -> i64 {
-        self.mapped_bytes.wrapping_sub(self.not_resident_mapped_bytes)
+        self.mapped_bytes
+            .wrapping_sub(self.not_resident_mapped_bytes)
     }
 }
 
@@ -2212,7 +2459,11 @@ pub fn account_row(a: Acct) -> AccountRow {
     let net = s.net.load(Ordering::Relaxed);
     let seq = s.seq.load(Ordering::Relaxed);
     let running = seq & 1 == 1;
-    let delta = if running { net.saturating_sub(s.base.load(Ordering::Relaxed)) } else { 0 };
+    let delta = if running {
+        net.saturating_sub(s.base.load(Ordering::Relaxed))
+    } else {
+        0
+    };
     let cur = delta.max(0) as u64;
     let threads = s.threads.load(Ordering::Relaxed);
     AccountRow {
@@ -2222,14 +2473,33 @@ pub fn account_row(a: Acct) -> AccountRow {
         running,
         statement_bytes: cur,
         statement_net: delta,
-        statement_peak_bytes: if running { (s.peak.load(Ordering::Relaxed).max(0) as u64).max(cur) } else { 0 },
+        statement_peak_bytes: if running {
+            (s.peak.load(Ordering::Relaxed).max(0) as u64).max(cur)
+        } else {
+            0
+        },
         account_bytes: net,
         mapped_bytes: s.mapped.load(Ordering::Relaxed),
         pagepool_bytes: s.pooled.load(Ordering::Relaxed),
-        statement_heap_peak_bytes: if running { s.hpeak.load(Ordering::Relaxed).max(0) as u64 } else { 0 },
-        statement_mapped_peak_bytes: if running { s.mpeak.load(Ordering::Relaxed).max(0) as u64 } else { 0 },
-        pool_reserved_bytes: s.reserved.load(Ordering::Relaxed).wrapping_sub(s.backed.load(Ordering::Relaxed)),
-        pool_reserved_peak_bytes: if running { s.rpeak.load(Ordering::Relaxed) } else { s.reserved.load(Ordering::Relaxed) },
+        statement_heap_peak_bytes: if running {
+            s.hpeak.load(Ordering::Relaxed).max(0) as u64
+        } else {
+            0
+        },
+        statement_mapped_peak_bytes: if running {
+            s.mpeak.load(Ordering::Relaxed).max(0) as u64
+        } else {
+            0
+        },
+        pool_reserved_bytes: s
+            .reserved
+            .load(Ordering::Relaxed)
+            .wrapping_sub(s.backed.load(Ordering::Relaxed)),
+        pool_reserved_peak_bytes: if running {
+            s.rpeak.load(Ordering::Relaxed)
+        } else {
+            s.reserved.load(Ordering::Relaxed)
+        },
         pool_backed_bytes: s.backed.load(Ordering::Relaxed),
         threads,
         fold_slack: threads as u64 * DOOR_FOLD_BYTES as u64,
@@ -2248,7 +2518,13 @@ pub fn for_each_row(mut f: impl FnMut(&AccountRow)) {
     for i in 0..ACCOUNT_SLOTS as u32 {
         let r = account_row(Acct(i));
         // 'unbound' and the pending 'reaping' always (a reader tells "nothing pending" from "no row")
-        if r.account_bytes != 0 || r.threads != 0 || r.pid != 0 || r.pool_reserved_bytes.wrapping_add(r.pool_backed_bytes) != 0 || i == 0 || i == Acct::REAPING.0 {
+        if r.account_bytes != 0
+            || r.threads != 0
+            || r.pid != 0
+            || r.pool_reserved_bytes.wrapping_add(r.pool_backed_bytes) != 0
+            || i == 0
+            || i == Acct::REAPING.0
+        {
             f(&r);
         }
     }
@@ -2266,7 +2542,8 @@ pub fn class_bytes() -> [i64; CLASSES] {
 pub fn class_sums(rows: impl Iterator<Item = AccountRow>) -> [i64; CLASSES] {
     let mut out = [0i64; CLASSES];
     for r in rows {
-        out[r.acct.class() as usize] = out[r.acct.class() as usize].wrapping_add(r.resident_bytes());
+        out[r.acct.class() as usize] =
+            out[r.acct.class() as usize].wrapping_add(r.resident_bytes());
     }
     out
 }
@@ -2308,11 +2585,28 @@ pub fn for_each_kind_row(mut f: impl FnMut(&KindRow)) {
         if seq & 1 == 0 {
             continue;
         }
-        let lane = |j: usize| (s.kind[j].load(Ordering::Relaxed).wrapping_sub(s.kbase[j].load(Ordering::Relaxed)), s.kpeak[j].load(Ordering::Relaxed).max(0) as u64);
+        let lane = |j: usize| {
+            (
+                s.kind[j]
+                    .load(Ordering::Relaxed)
+                    .wrapping_sub(s.kbase[j].load(Ordering::Relaxed)),
+                s.kpeak[j].load(Ordering::Relaxed).max(0) as u64,
+            )
+        };
         for k in Kind::ALL {
-            let ((bytes, peak_bytes), (mapped_bytes, mapped_peak_bytes)) = (lane(k as usize), lane(KINDS + k as usize));
+            let ((bytes, peak_bytes), (mapped_bytes, mapped_peak_bytes)) =
+                (lane(k as usize), lane(KINDS + k as usize));
             if bytes != 0 || peak_bytes > 0 || mapped_bytes != 0 || mapped_peak_bytes > 0 {
-                f(&KindRow { acct: Acct(i), pid: s.pid.load(Ordering::Relaxed), statement_seq: seq, kind: k, bytes, peak_bytes, mapped_bytes, mapped_peak_bytes });
+                f(&KindRow {
+                    acct: Acct(i),
+                    pid: s.pid.load(Ordering::Relaxed),
+                    statement_seq: seq,
+                    kind: k,
+                    bytes,
+                    peak_bytes,
+                    mapped_bytes,
+                    mapped_peak_bytes,
+                });
             }
         }
     }
@@ -2342,12 +2636,16 @@ pub fn kind_mapped_bytes(a: Acct, k: Kind) -> i64 {
 
 /// The sum of every running statement's committed bytes (the ledger's RUNNING).
 pub fn running_bytes() -> u64 {
-    (BACKEND_SLOT_BASE..ACCOUNT_SLOTS as u32).fold(0u64, |t, i| t.saturating_add(account_row(Acct(i)).statement_bytes))
+    (BACKEND_SLOT_BASE..ACCOUNT_SLOTS as u32).fold(0u64, |t, i| {
+        t.saturating_add(account_row(Acct(i)).statement_bytes)
+    })
 }
 
 /// The sum over every account (resident less this = what no door counted).
 pub fn doors_total() -> i64 {
-    SLOTS.iter().fold(0i64, |t, s| t.wrapping_add(s.net.load(Ordering::Relaxed)))
+    SLOTS
+        .iter()
+        .fold(0i64, |t, s| t.wrapping_add(s.net.load(Ordering::Relaxed)))
 }
 
 /// D4356: the lib tests share one process's UNBOUND account. A test that binds a backend may move its books (an unbind
@@ -2389,16 +2687,29 @@ mod tests {
         assert_eq!(a.bytes(), 0);
         a.discharge(MIB);
         assert_eq!(a.bytes(), 0, "never under 0");
-        assert_eq!(accounts_total(), LOAD_IN_FLIGHT.bytes() + NESTED_KEPT.bytes());
+        assert_eq!(
+            accounts_total(),
+            LOAD_IN_FLIGHT.bytes() + NESTED_KEPT.bytes()
+        );
     }
 
     #[test]
     fn actuators_parse_all_by_default_and_count_unknown_names() {
         assert_eq!(parse_actuators("all"), (actuator::ALL, 0));
         assert_eq!(parse_actuators(""), (actuator::ALL, 0));
-        assert_eq!(parse_actuators(" work_pool , Part_Cache"), (actuator::WORK_POOL | actuator::PART_CACHE, 0));
-        assert_eq!(parse_actuators("work_pool,ghosts"), (actuator::WORK_POOL, 1));
-        assert_eq!(parse_actuators("ghosts"), (0, 1), "a list of unknown names applies nothing");
+        assert_eq!(
+            parse_actuators(" work_pool , Part_Cache"),
+            (actuator::WORK_POOL | actuator::PART_CACHE, 0)
+        );
+        assert_eq!(
+            parse_actuators("work_pool,ghosts"),
+            (actuator::WORK_POOL, 1)
+        );
+        assert_eq!(
+            parse_actuators("ghosts"),
+            (0, 1),
+            "a list of unknown names applies nothing"
+        );
     }
 
     #[test]
@@ -2434,12 +2745,20 @@ mod door_tests {
         on(4000, |a| {
             door_heap(1000);
             door_heap(-200);
-            assert_eq!(account_row(a).account_bytes, 0, "under the fold step the bytes stay on the thread");
+            assert_eq!(
+                account_row(a).account_bytes,
+                0,
+                "under the fold step the bytes stay on the thread"
+            );
             door_heap(DOOR_FOLD_BYTES as isize);
             assert_eq!(account_row(a).account_bytes, 800 + DOOR_FOLD_BYTES);
             door_heap(-(DOOR_FOLD_BYTES as isize) - 800);
             door_heap(-(DOOR_FOLD_BYTES as isize));
-            assert_eq!(account_row(a).account_bytes, -DOOR_FOLD_BYTES, "a fold either way");
+            assert_eq!(
+                account_row(a).account_bytes,
+                -DOOR_FOLD_BYTES,
+                "a fold either way"
+            );
             door_heap(DOOR_FOLD_BYTES as isize);
             fold();
             assert_eq!(account_row(a).account_bytes, 0);
@@ -2474,8 +2793,16 @@ mod door_tests {
                 assert_eq!(current(), a, "the maker's session still holds its slot");
                 door_heap(-50_000);
             }
-            assert_eq!(account_row(a).account_bytes - before, -50_000, "the free came home");
-            assert_eq!(account_row(b).account_bytes, 0, "not on the freeing thread's row");
+            assert_eq!(
+                account_row(a).account_bytes - before,
+                -50_000,
+                "the free came home"
+            );
+            assert_eq!(
+                account_row(b).account_bytes,
+                0,
+                "not on the freeing thread's row"
+            );
         });
         // another session (pid 9165) takes the slot: the home is UNBOUND
         std::thread::spawn(move || {
@@ -2493,7 +2820,9 @@ mod door_tests {
     #[test]
     fn an_arc_block_is_its_counts_then_its_value() {
         fn laid<T>() -> u64 {
-            let (l, _) = std::alloc::Layout::new::<[usize; 2]>().extend(std::alloc::Layout::new::<T>()).unwrap();
+            let (l, _) = std::alloc::Layout::new::<[usize; 2]>()
+                .extend(std::alloc::Layout::new::<T>())
+                .unwrap();
             l.pad_to_align().size() as u64
         }
         assert_eq!(arc_bytes::<u8>(), laid::<u8>());
@@ -2526,12 +2855,18 @@ mod door_tests {
         }
         const BLOCK: u64 = arc_bytes::<Homed>();
         let a = Acct::backend(4068);
-        for (exit, freer_nets) in [(HomeExit::for_block(BLOCK), 0), (HomeExit::new(), -(BLOCK as i64))] {
+        for (exit, freer_nets) in [
+            (HomeExit::for_block(BLOCK), 0),
+            (HomeExit::new(), -(BLOCK as i64)),
+        ] {
             // the maker allocates the block (door 1, as `Arc::new` would) and stays bound after its thread is gone
             let homed = std::thread::spawn(move || {
                 bind_backend(4068, 9068);
                 door_heap(BLOCK as isize);
-                let h = Homed { home: Home::here(), exit };
+                let h = Homed {
+                    home: Home::here(),
+                    exit,
+                };
                 fold();
                 h
             })
@@ -2542,8 +2877,16 @@ mod door_tests {
                 drop(homed);
                 door_heap(-(BLOCK as isize)); // the block's free, on the thread that dropped the last reference
                 fold();
-                assert_eq!(account_row(b).account_bytes, freer_nets, "the freeing thread's row");
-                assert_eq!(account_row(a).account_bytes - made, -(BLOCK as i64) - freer_nets, "the maker's");
+                assert_eq!(
+                    account_row(b).account_bytes,
+                    freer_nets,
+                    "the freeing thread's row"
+                );
+                assert_eq!(
+                    account_row(a).account_bytes - made,
+                    -(BLOCK as i64) - freer_nets,
+                    "the maker's"
+                );
             });
             std::thread::spawn(|| {
                 bind_backend(4068, 9168);
@@ -2599,7 +2942,10 @@ mod door_tests {
         let floored_bytes = late_worker_free(64 << 10);
         set_floor(false);
         set_home(false);
-        assert_eq!(floored_bytes, 0, "the worker's free folded onto the session's row before the unbind moved it");
+        assert_eq!(
+            floored_bytes, 0,
+            "the worker's free folded onto the session's row before the unbind moved it"
+        );
     }
 
     /// D4552 (a): the wait counted (`unbind_waits`), and with `ledger_unbind_wait` 0 the same late free floored.
@@ -2612,13 +2958,21 @@ mod door_tests {
         let (w0, _, _) = unbind_waits();
         assert_eq!(late_worker_free(64 << 10), 0);
         let (w1, longest, _) = unbind_waits();
-        assert!(w1 > w0 && longest >= 10_000_000, "the unbind waited for the worker: {:?}", unbind_waits());
+        assert!(
+            w1 > w0 && longest >= 10_000_000,
+            "the unbind waited for the worker: {:?}",
+            unbind_waits()
+        );
         set_unbind_wait(false);
         let off = late_worker_free(64 << 10);
         set_unbind_wait(true);
         set_floor(false);
         set_home(false);
-        assert_eq!(off, 64 << 10, "without the wait the free lands on the zeroed slot");
+        assert_eq!(
+            off,
+            64 << 10,
+            "without the wait the free lands on the zeroed slot"
+        );
     }
 
     /// D4552 (a): a home entered inside a cache scope pauses the scope (its blocks are the home's, on the home's account,
@@ -2635,13 +2989,21 @@ mod door_tests {
                 let _home = Home::of(Acct::of(Consumer::PartCache)).enter();
                 assert_eq!(door_cache_depth(), 0, "the scope is paused inside the home");
                 let inner = crate::arena::cache_scope_for(cache, Kind::Region);
-                assert_eq!(door_cache_depth(), 1, "a scope opened inside the home counts there");
+                assert_eq!(
+                    door_cache_depth(),
+                    1,
+                    "a scope opened inside the home counts there"
+                );
                 drop(inner);
             }
             assert_eq!(door_cache_depth(), 1, "open again once the home is left");
             {
                 let _worker = enter(Acct::of(Consumer::PartCache));
-                assert_eq!(door_cache_depth(), 1, "an account switch that is no home leaves it open");
+                assert_eq!(
+                    door_cache_depth(),
+                    1,
+                    "an account switch that is no home leaves it open"
+                );
             }
             drop(scope);
             assert_eq!(door_cache_depth(), 0);
@@ -2666,7 +3028,11 @@ mod door_tests {
         let h = Acct::of(Consumer::NblocksCache);
         on(4075, move |b| {
             fold();
-            let (b0, h0, t0) = (account_row(b).account_bytes, account_row(h).account_bytes, threads_of(h));
+            let (b0, h0, t0) = (
+                account_row(b).account_bytes,
+                account_row(h).account_bytes,
+                threads_of(h),
+            );
             for _ in 0..1000 {
                 {
                     let _in = Home::of(h).enter();
@@ -2676,12 +3042,24 @@ mod door_tests {
                 assert_eq!(current(), b);
                 door_heap(-30);
             }
-            assert_eq!(account_row(b).account_bytes, b0, "the visits folded none of the account's counts");
+            assert_eq!(
+                account_row(b).account_bytes,
+                b0,
+                "the visits folded none of the account's counts"
+            );
             assert_eq!(account_row(h).account_bytes, h0, "nor the home's");
-            assert_eq!(threads_of(h), t0 + 1, "the visitor stays counted on the home while it keeps its counts");
+            assert_eq!(
+                threads_of(h),
+                t0 + 1,
+                "the visitor stays counted on the home while it keeps its counts"
+            );
             assert_eq!(threads_of(b), 1);
             drop(enter(Acct::UNBOUND));
-            assert_eq!(account_row(h).account_bytes - h0, 100_000, "a plain leave folds the home's kept counts");
+            assert_eq!(
+                account_row(h).account_bytes - h0,
+                100_000,
+                "a plain leave folds the home's kept counts"
+            );
             assert_eq!(threads_of(h), t0);
             fold();
             assert_eq!(account_row(b).account_bytes - b0, -30_000);
@@ -2701,7 +3079,11 @@ mod door_tests {
         let h = Acct::of(Consumer::NblocksCache);
         on(4077, move |b| {
             fold();
-            let (b0, h0, t0) = (account_row(b).account_bytes, account_row(h).account_bytes, threads_of(h));
+            let (b0, h0, t0) = (
+                account_row(b).account_bytes,
+                account_row(h).account_bytes,
+                threads_of(h),
+            );
             {
                 let _in = Home::of(h).enter();
                 door_heap(700);
@@ -2709,28 +3091,66 @@ mod door_tests {
             door_heap(300);
             set_fold_on_park(false);
             park_fold();
-            assert_eq!((account_row(b).account_bytes - b0, account_row(h).account_bytes - h0), (0, 0), "off: a park folds nothing");
+            assert_eq!(
+                (
+                    account_row(b).account_bytes - b0,
+                    account_row(h).account_bytes - h0
+                ),
+                (0, 0),
+                "off: a park folds nothing"
+            );
             set_fold_on_park(true);
             park_fold();
-            assert_eq!(account_row(b).account_bytes - b0, 300, "on: the account's pending bytes, exact");
-            assert_eq!(account_row(h).account_bytes - h0, 700, "and the home's kept bytes");
-            assert_eq!(threads_of(h), t0 + 1, "the thread stays counted on the home");
-            DOOR.with(|d| assert_eq!((d.pending.get(), d.s_pending.get(), d.side.get()), (0, 0, h.0 + 1)));
+            assert_eq!(
+                account_row(b).account_bytes - b0,
+                300,
+                "on: the account's pending bytes, exact"
+            );
+            assert_eq!(
+                account_row(h).account_bytes - h0,
+                700,
+                "and the home's kept bytes"
+            );
+            assert_eq!(
+                threads_of(h),
+                t0 + 1,
+                "the thread stays counted on the home"
+            );
+            DOOR.with(|d| {
+                assert_eq!(
+                    (d.pending.get(), d.s_pending.get(), d.side.get()),
+                    (0, 0, h.0 + 1)
+                )
+            });
             park_fold();
-            assert_eq!((account_row(b).account_bytes - b0, account_row(h).account_bytes - h0), (300, 700), "nothing pending: nothing moves");
+            assert_eq!(
+                (
+                    account_row(b).account_bytes - b0,
+                    account_row(h).account_bytes - h0
+                ),
+                (300, 700),
+                "nothing pending: nothing moves"
+            );
             {
                 let _in = Home::of(h).enter();
                 door_heap(-700);
             }
             door_heap(-300);
             park_fold();
-            assert_eq!((account_row(b).account_bytes, account_row(h).account_bytes), (b0, h0));
+            assert_eq!(
+                (account_row(b).account_bytes, account_row(h).account_bytes),
+                (b0, h0)
+            );
         });
         let u0 = account_row(Acct::UNBOUND).account_bytes;
         std::thread::spawn(move || {
             door_heap(500);
             park_fold();
-            assert_eq!(account_row(Acct::UNBOUND).account_bytes - u0, 500, "an unbound thread's pending bytes, exact");
+            assert_eq!(
+                account_row(Acct::UNBOUND).account_bytes - u0,
+                500,
+                "an unbound thread's pending bytes, exact"
+            );
             door_heap(-500);
             park_fold();
         })
@@ -2763,11 +3183,30 @@ mod door_tests {
             }
             o.post_pool(4096);
             door_heap(-4096);
-            DOOR.with(|d| assert_eq!((d.pending.get(), d.pooled.get(), d.s_pending.get(), d.s_pooled.get()), (0, 4096, 0, 8192), "pool-only pending counts: the thread's and the home's kept ones"));
+            DOOR.with(|d| {
+                assert_eq!(
+                    (
+                        d.pending.get(),
+                        d.pooled.get(),
+                        d.s_pending.get(),
+                        d.s_pooled.get()
+                    ),
+                    (0, 4096, 0, 8192),
+                    "pool-only pending counts: the thread's and the home's kept ones"
+                )
+            });
             set_fold_on_park(true);
             park_fold();
-            assert_eq!(account_row(b).pagepool_bytes - q0, 4096, "the account's pool bytes, folded");
-            assert_eq!(account_row(h).pagepool_bytes - hq0, 8192, "the home's kept pool bytes, folded");
+            assert_eq!(
+                account_row(b).pagepool_bytes - q0,
+                4096,
+                "the account's pool bytes, folded"
+            );
+            assert_eq!(
+                account_row(h).pagepool_bytes - hq0,
+                8192,
+                "the home's kept pool bytes, folded"
+            );
             DOOR.with(|d| assert_eq!((d.pooled.get(), d.s_pooled.get()), (0, 0)));
             {
                 let _in = Home::of(h).enter();
@@ -2777,7 +3216,10 @@ mod door_tests {
             o.post_pool(-4096);
             door_heap(4096);
             park_fold();
-            assert_eq!((account_row(b).pagepool_bytes, account_row(h).pagepool_bytes), (q0, hq0));
+            assert_eq!(
+                (account_row(b).pagepool_bytes, account_row(h).pagepool_bytes),
+                (q0, hq0)
+            );
         });
         set_fold_on_park(false);
         set_home_keep(false);
@@ -2796,7 +3238,11 @@ mod door_tests {
             set_home_keep(keep);
             on(4076, move |l| {
                 fold();
-                let (l0, h0, t0) = (account_row(l).account_bytes, account_row(h).account_bytes, threads_of(h));
+                let (l0, h0, t0) = (
+                    account_row(l).account_bytes,
+                    account_row(h).account_bytes,
+                    threads_of(h),
+                );
                 std::thread::scope(|sc| {
                     for _ in 0..8 {
                         sc.spawn(move || {
@@ -2811,9 +3257,21 @@ mod door_tests {
                         });
                     }
                 });
-                assert_eq!(account_row(h).account_bytes - h0, 8 * 2000 * 64, "keep {keep}: the home's bytes, exact");
-                assert_eq!(account_row(l).account_bytes - l0, 8 * 2000 * 16, "keep {keep}: the account's bytes, exact");
-                assert_eq!((threads_of(h), threads_of(l)), (t0, 1), "keep {keep}: no worker left counted");
+                assert_eq!(
+                    account_row(h).account_bytes - h0,
+                    8 * 2000 * 64,
+                    "keep {keep}: the home's bytes, exact"
+                );
+                assert_eq!(
+                    account_row(l).account_bytes - l0,
+                    8 * 2000 * 16,
+                    "keep {keep}: the account's bytes, exact"
+                );
+                assert_eq!(
+                    (threads_of(h), threads_of(l)),
+                    (t0, 1),
+                    "keep {keep}: no worker left counted"
+                );
                 door_heap(-(8 * 2000 * 16));
                 fold();
             });
@@ -2828,7 +3286,10 @@ mod door_tests {
     fn the_floor_stops_a_one_thread_account_at_zero() {
         let _unbound = crate::unbound_alone(); // reads UNBOUND's delta
         on(4067, |a| {
-            assert!(a.is_backend(), "a backend slot (procno < ACCOUNT_SLOTS - BACKEND_SLOT_BASE)");
+            assert!(
+                a.is_backend(),
+                "a backend slot (procno < ACCOUNT_SLOTS - BACKEND_SLOT_BASE)"
+            );
             door_heap(100_000);
             fold();
             let u0 = account_row(Acct::UNBOUND).account_bytes;
@@ -2836,10 +3297,22 @@ mod door_tests {
             assert_eq!(floor_at_zero(a, -300_000, 0, 0), -100_000, "down to zero");
             add(a, -100_000, 0);
             assert_eq!(account_row(a).account_bytes, 0);
-            assert_eq!(account_row(Acct::UNBOUND).account_bytes - u0, -200_000, "the rest credits UNBOUND");
+            assert_eq!(
+                account_row(Acct::UNBOUND).account_bytes - u0,
+                -200_000,
+                "the rest credits UNBOUND"
+            );
             assert_eq!(floored(), (e0 + 1, b0 + 200_000));
-            assert_eq!(floor_at_zero(a, -1_000, -1_000, 0), -1_000, "door 2's bytes are their owners'");
-            assert_eq!(floor_at_zero(a, -1_000, 0, -1_000), -1_000, "and the pool's");
+            assert_eq!(
+                floor_at_zero(a, -1_000, -1_000, 0),
+                -1_000,
+                "door 2's bytes are their owners'"
+            );
+            assert_eq!(
+                floor_at_zero(a, -1_000, 0, -1_000),
+                -1_000,
+                "and the pool's"
+            );
             assert_eq!(floor_at_zero(a, 0, 0, 0), 0);
             assert_eq!(floored(), (e0 + 1, b0 + 200_000));
         });
@@ -2852,17 +3325,26 @@ mod door_tests {
             door_heap(5000);
             statement_begin();
             let r = account_row(a);
-            assert!(r.running && r.statement_bytes == 0 && r.account_bytes == 5000, "{r:?}");
+            assert!(
+                r.running && r.statement_bytes == 0 && r.account_bytes == 5000,
+                "{r:?}"
+            );
             charge(3 << 20);
             door_heap(1 << 20);
             fold();
             discharge(3 << 20);
             let r = account_row(a);
-            assert_eq!((r.statement_bytes, r.statement_peak_bytes, r.mapped_bytes), (1 << 20, 4 << 20, 0));
+            assert_eq!(
+                (r.statement_bytes, r.statement_peak_bytes, r.mapped_bytes),
+                (1 << 20, 4 << 20, 0)
+            );
             let (end, peak) = statement_end();
             assert_eq!((end, peak), (1 << 20, 4 << 20));
             let r = account_row(a);
-            assert!(!r.running && r.statement_bytes == 0 && r.account_bytes == 5000 + (1 << 20), "the session keeps it: {r:?}");
+            assert!(
+                !r.running && r.statement_bytes == 0 && r.account_bytes == 5000 + (1 << 20),
+                "the session keeps it: {r:?}"
+            );
             assert_eq!(r.statement_seq, 2);
         });
     }
@@ -2876,7 +3358,11 @@ mod door_tests {
             door_heap(100);
             {
                 let _g = enter(cache);
-                assert_eq!(account_row(a).account_bytes, 100, "the pending bytes fold onto the account left");
+                assert_eq!(
+                    account_row(a).account_bytes,
+                    100,
+                    "the pending bytes fold onto the account left"
+                );
                 assert_eq!(current(), cache);
                 door_heap(4096);
                 charge(1 << 20);
@@ -2904,7 +3390,11 @@ mod door_tests {
             .join()
             .unwrap();
             let r = account_row(a);
-            assert_eq!((r.account_bytes, r.threads), (1 << 20, 1), "the worker's frees net the leader's allocations");
+            assert_eq!(
+                (r.account_bytes, r.threads),
+                (1 << 20, 1),
+                "the worker's frees net the leader's allocations"
+            );
             statement_end();
         });
     }
@@ -2922,9 +3412,17 @@ mod door_tests {
             door_heap(4096);
             fold();
             transfer(a, Acct::PARKED, 4096, false);
-            assert_eq!(account_row(a).account_bytes, (8 << 20) + 4096, "the own account's side waits for a fold");
+            assert_eq!(
+                account_row(a).account_bytes,
+                (8 << 20) + 4096,
+                "the own account's side waits for a fold"
+            );
             fold();
-            assert_eq!((account_row(a).account_bytes, account_row(a).mapped_bytes), (8 << 20, 8 << 20), "heap bytes move as heap");
+            assert_eq!(
+                (account_row(a).account_bytes, account_row(a).mapped_bytes),
+                (8 << 20, 8 << 20),
+                "heap bytes move as heap"
+            );
             transfer(Acct::PARKED, a, 4096, false);
             charge_to(Acct::PARKED, 1 << 20);
             discharge_from(Acct::PARKED, 1 << 20);
@@ -2936,26 +3434,65 @@ mod door_tests {
         .join()
         .unwrap();
         let r = account_row(a);
-        assert_eq!((r.account_bytes, r.mapped_bytes, r.threads, r.pid), (0, 0, 0, 0));
+        assert_eq!(
+            (r.account_bytes, r.mapped_bytes, r.threads, r.pid),
+            (0, 0, 0, 0)
+        );
     }
 
     /// C2: every account has its reclaim class (design section 3); a consumer's account its consumer's, the caches' the
     /// `is_cache` ones; the slots between REAPING and the first backend, which nothing uses, read unbound.
     #[test]
     fn every_account_has_its_reclaim_class() {
-        assert_eq!([Acct::backend(3).class(), Acct::PARKED.class(), Acct::REAPING.class(), Acct::UNBOUND.class()], [Class::Running, Class::Warm, Class::Pending, Class::Unbound]);
+        assert_eq!(
+            [
+                Acct::backend(3).class(),
+                Acct::PARKED.class(),
+                Acct::REAPING.class(),
+                Acct::UNBOUND.class()
+            ],
+            [Class::Running, Class::Warm, Class::Pending, Class::Unbound]
+        );
         for c in Consumer::ALL {
             assert_eq!(Acct::of(c).class(), c.class(), "{}", c.name());
             assert_eq!(c.is_cache(), c.class() == Class::Cache, "{}", c.name());
         }
-        assert_eq!((Acct::of(Consumer::CatalogL2).name(), Acct::of(Consumer::CatalogL2).class()), ("catalog_l2", Class::Fixed));
-        assert_eq!((Acct::of(Consumer::NblocksCache).name(), Acct::of(Consumer::NblocksCache).class()), ("nblocks_cache", Class::Fixed));
-        assert_eq!((Acct::of(Consumer::SharedStats).name(), Acct::of(Consumer::SharedStats).class()), ("shared_stats", Class::Fixed));
-        assert_eq!((Acct::SLOT_DEPOT.class(), Acct::SLOT_DEPOT.name()), (Class::Warm, "slot_depot"));
-        assert_eq!((Acct::ROUNDING.class(), Acct::ROUNDING.name()), (Class::Fixed, "allocator_rounding"));
-        assert_eq!((Acct::POOL_RESERVE.class(), Acct::POOL_RESERVE.name()), (Class::Warm, "pool_reserve"));
+        assert_eq!(
+            (
+                Acct::of(Consumer::CatalogL2).name(),
+                Acct::of(Consumer::CatalogL2).class()
+            ),
+            ("catalog_l2", Class::Fixed)
+        );
+        assert_eq!(
+            (
+                Acct::of(Consumer::NblocksCache).name(),
+                Acct::of(Consumer::NblocksCache).class()
+            ),
+            ("nblocks_cache", Class::Fixed)
+        );
+        assert_eq!(
+            (
+                Acct::of(Consumer::SharedStats).name(),
+                Acct::of(Consumer::SharedStats).class()
+            ),
+            ("shared_stats", Class::Fixed)
+        );
+        assert_eq!(
+            (Acct::SLOT_DEPOT.class(), Acct::SLOT_DEPOT.name()),
+            (Class::Warm, "slot_depot")
+        );
+        assert_eq!(
+            (Acct::ROUNDING.class(), Acct::ROUNDING.name()),
+            (Class::Fixed, "allocator_rounding")
+        );
+        assert_eq!(
+            (Acct::POOL_RESERVE.class(), Acct::POOL_RESERVE.name()),
+            (Class::Warm, "pool_reserve")
+        );
         // the slots between the process accounts and the first backend read unbound
-        assert!((Acct::POOL_RESERVE.0 + 1..BACKEND_SLOT_BASE).all(|i| Acct(i).class() == Class::Unbound));
+        assert!((Acct::POOL_RESERVE.0 + 1..BACKEND_SLOT_BASE)
+            .all(|i| Acct(i).class() == Class::Unbound));
         let names: std::collections::HashSet<&str> = Class::ALL.iter().map(|c| c.name()).collect();
         assert_eq!(names.len(), CLASSES);
     }
@@ -2976,7 +3513,11 @@ mod door_tests {
             fold();
             let before = account_row(Acct::backend(4072)).account_bytes;
             door_round(1_000);
-            assert_eq!(round_pending(), 1_000, "under the fold step it waits on the thread");
+            assert_eq!(
+                round_pending(),
+                1_000,
+                "under the fold step it waits on the thread"
+            );
             fold();
             let after = account_row(Acct::backend(4072)).account_bytes;
             unbind_backend();
@@ -2992,7 +3533,11 @@ mod door_tests {
         })
         .join()
         .unwrap();
-        assert_eq!(row() - base, 0, "given back on another thread, it nets on the rounding account");
+        assert_eq!(
+            row() - base,
+            0,
+            "given back on another thread, it nets on the rounding account"
+        );
         std::thread::spawn(|| {
             bind_backend(4072, 94072);
             door_round((ROUND_FOLD_BYTES + 5) as isize);
@@ -3000,8 +3545,14 @@ mod door_tests {
         })
         .join()
         .unwrap();
-        assert_eq!(row() - base, ROUND_FOLD_BYTES + 5, "past the fold step it folds at once");
-        std::thread::spawn(|| door_round(-(ROUND_FOLD_BYTES + 5) as isize)).join().unwrap();
+        assert_eq!(
+            row() - base,
+            ROUND_FOLD_BYTES + 5,
+            "past the fold step it folds at once"
+        );
+        std::thread::spawn(|| door_round(-(ROUND_FOLD_BYTES + 5) as isize))
+            .join()
+            .unwrap();
         assert_eq!(row() - base, 0);
     }
 
@@ -3020,7 +3571,11 @@ mod door_tests {
         .join()
         .unwrap();
         assert_eq!(pending, 0, "nothing waits on a thread with no exit fold");
-        assert_eq!(row() - base, 500, "the exited thread's rounding is on the account");
+        assert_eq!(
+            row() - base,
+            500,
+            "the exited thread's rounding is on the account"
+        );
         std::thread::spawn(|| door_round(-500)).join().unwrap();
         assert_eq!(row() - base, 0);
     }
@@ -3029,8 +3584,19 @@ mod door_tests {
     /// account's class.
     #[test]
     fn class_sums_add_resident_bytes_by_class() {
-        let row = |a: Acct, bytes: i64, nr: i64| AccountRow { account_bytes: bytes, not_resident_bytes: nr, ..account_row(a) };
-        let rows = [row(Acct::backend(7), 100, 10), row(Acct::backend(8), 5, 0), row(Acct::of(Consumer::PartCache), 40, 0), row(Acct::REAPING, 3, 0), row(Acct::PARKED, 9, 4), row(Acct::of(Consumer::CatalogL2), 2, 0)];
+        let row = |a: Acct, bytes: i64, nr: i64| AccountRow {
+            account_bytes: bytes,
+            not_resident_bytes: nr,
+            ..account_row(a)
+        };
+        let rows = [
+            row(Acct::backend(7), 100, 10),
+            row(Acct::backend(8), 5, 0),
+            row(Acct::of(Consumer::PartCache), 40, 0),
+            row(Acct::REAPING, 3, 0),
+            row(Acct::PARKED, 9, 4),
+            row(Acct::of(Consumer::CatalogL2), 2, 0),
+        ];
         let s = class_sums(rows.into_iter());
         assert_eq!(s, [95, 5, 40, 2, 3, 0]);
     }
@@ -3047,7 +3613,11 @@ mod door_tests {
         assert_eq!(keepers_total() - total, 17 << 10);
         keepers_moved(a, -(8 << 10));
         keepers_moved(b, -(1 << 10));
-        assert_eq!((keepers(a), keepers(b)), (8 << 10, 0), "a take counts off the account the keeper parked on");
+        assert_eq!(
+            (keepers(a), keepers(b)),
+            (8 << 10, 0),
+            "a take counts off the account the keeper parked on"
+        );
         keepers_moved(a, -(8 << 10));
         assert_eq!(keepers_total(), total);
 
@@ -3057,19 +3627,35 @@ mod door_tests {
         growth_moved(a, 8 << 10, 1);
         growth_moved(b, 32 << 10, 1);
         keepers_moved(a, 8 << 10);
-        assert_eq!((growth(a), growth(b)), ((24 << 10, 2), (32 << 10, 1)), "bytes and blocks, by the account each parked on");
-        assert_eq!(keepers(a), 32 << 10, "growth is of the keepers, beside a keeper list's");
+        assert_eq!(
+            (growth(a), growth(b)),
+            ((24 << 10, 2), (32 << 10, 1)),
+            "bytes and blocks, by the account each parked on"
+        );
+        assert_eq!(
+            keepers(a),
+            32 << 10,
+            "growth is of the keepers, beside a keeper list's"
+        );
         assert_eq!(keepers_total() - total, 64 << 10);
-        assert_eq!((growth_total().0 - g.0, growth_total().1 - g.1), (56 << 10, 3));
+        assert_eq!(
+            (growth_total().0 - g.0, growth_total().1 - g.1),
+            (56 << 10, 3)
+        );
         growth_moved(a, -(16 << 10), -1);
         growth_moved(b, -(32 << 10), -1);
-        assert_eq!((growth(a), growth(b), keepers(a)), ((8 << 10, 1), (0, 0), 16 << 10), "a take counts off the account it parked on");
+        assert_eq!(
+            (growth(a), growth(b), keepers(a)),
+            ((8 << 10, 1), (0, 0), 16 << 10),
+            "a take counts off the account it parked on"
+        );
         growth_moved(a, -(8 << 10), -1);
         keepers_moved(a, -(8 << 10));
         assert_eq!((keepers_total(), growth_total()), (total, g));
     }
 
     #[test]
+    #[allow(clippy::assertions_on_constants)]
     fn slots_past_the_table_are_unbound_and_names_read_right() {
         assert_eq!(Acct::backend(ACCOUNT_SLOTS as u32), Acct::UNBOUND);
         assert_eq!(Acct::backend(0).0, BACKEND_SLOT_BASE);
@@ -3077,14 +3663,37 @@ mod door_tests {
         assert_eq!(Acct::PARKED.name(), "parked");
         assert_eq!(Acct::backend(3).name(), "backend");
         assert_eq!(Acct::UNBOUND.name(), "unbound");
-        assert_eq!((Kind::Region.name(), Kind::Mapped.name(), Kind::of(KINDS as u8)), ("region", "mapped", Kind::Region));
+        assert_eq!(
+            (
+                Kind::Region.name(),
+                Kind::Mapped.name(),
+                Kind::of(KINDS as u8)
+            ),
+            ("region", "mapped", Kind::Region)
+        );
         assert!(Acct::PARKED.0 < BACKEND_SLOT_BASE);
         assert_eq!(Acct::REAPING.name(), "reaping");
-        assert!(Acct::PARKED.0 < Acct::REAPING.0 && Acct::REAPING.0 < Acct::SLOT_DEPOT.0 && Acct::SLOT_DEPOT.0 < Acct::ROUNDING.0 && Acct::ROUNDING.0 < BACKEND_SLOT_BASE);
-        assert!(Acct::ROUNDING.0 < Acct::POOL_RESERVE.0 && Acct::POOL_RESERVE.0 < BACKEND_SLOT_BASE);
+        assert!(
+            Acct::PARKED.0 < Acct::REAPING.0
+                && Acct::REAPING.0 < Acct::SLOT_DEPOT.0
+                && Acct::SLOT_DEPOT.0 < Acct::ROUNDING.0
+                && Acct::ROUNDING.0 < BACKEND_SLOT_BASE
+        );
+        assert!(
+            Acct::ROUNDING.0 < Acct::POOL_RESERVE.0 && Acct::POOL_RESERVE.0 < BACKEND_SLOT_BASE
+        );
         let mut shown = (false, false);
-        for_each_row(|r| shown = (shown.0 || r.acct == Acct::UNBOUND, shown.1 || r.acct == Acct::REAPING));
-        assert_eq!(shown, (true, true), "'unbound' and 'reaping' are rows even at zero");
+        for_each_row(|r| {
+            shown = (
+                shown.0 || r.acct == Acct::UNBOUND,
+                shown.1 || r.acct == Acct::REAPING,
+            )
+        });
+        assert_eq!(
+            shown,
+            (true, true),
+            "'unbound' and 'reaping' are rows even at zero"
+        );
     }
 
     /// Door 2 and the region kinds on the thread's own account wait in its pending counts as door 1's do (one fold step
@@ -3096,24 +3705,65 @@ mod door_tests {
             statement_begin();
             charge_kind(a, Kind::Sort, 64 << 10);
             count_kind(a, Kind::HashAgg, 32 << 10);
-            assert_eq!((account_row(a).mapped_bytes, kind_bytes(a, Kind::Sort), kind_bytes(a, Kind::HashAgg)), (0, 0, 0), "under the step: on the thread");
+            assert_eq!(
+                (
+                    account_row(a).mapped_bytes,
+                    kind_bytes(a, Kind::Sort),
+                    kind_bytes(a, Kind::HashAgg)
+                ),
+                (0, 0, 0),
+                "under the step: on the thread"
+            );
             let other = Acct::of(Consumer::CondCache);
             let before = account_row(other).account_bytes;
             transfer_kind(a, other, Kind::Sort, 16 << 10, true);
-            assert_eq!(account_row(other).account_bytes - before, 16 << 10, "the other side lands at once");
+            assert_eq!(
+                account_row(other).account_bytes - before,
+                16 << 10,
+                "the other side lands at once"
+            );
             assert_eq!(kind_bytes(other, Kind::Sort), 0, "no kinds off a backend");
             fold();
             let r = account_row(a);
-            assert_eq!((r.mapped_bytes, kind_bytes(a, Kind::Sort), kind_bytes(a, Kind::HashAgg)), (48 << 10, 48 << 10, 32 << 10));
-            assert_eq!((kind_mapped_bytes(a, Kind::Sort), kind_mapped_bytes(a, Kind::HashAgg)), (48 << 10, 0), "an allocator region is no door-2 byte");
-            assert_eq!(r.statement_mapped_peak_bytes, 48 << 10, "the peak at the fold");
+            assert_eq!(
+                (
+                    r.mapped_bytes,
+                    kind_bytes(a, Kind::Sort),
+                    kind_bytes(a, Kind::HashAgg)
+                ),
+                (48 << 10, 48 << 10, 32 << 10)
+            );
+            assert_eq!(
+                (
+                    kind_mapped_bytes(a, Kind::Sort),
+                    kind_mapped_bytes(a, Kind::HashAgg)
+                ),
+                (48 << 10, 0),
+                "an allocator region is no door-2 byte"
+            );
+            assert_eq!(
+                r.statement_mapped_peak_bytes,
+                48 << 10,
+                "the peak at the fold"
+            );
             charge_kind(a, Kind::Sort, DOOR_FOLD_BYTES as u64);
-            assert_eq!(kind_bytes(a, Kind::Sort), (48 << 10) + DOOR_FOLD_BYTES, "a step's worth folds at once");
+            assert_eq!(
+                kind_bytes(a, Kind::Sort),
+                (48 << 10) + DOOR_FOLD_BYTES,
+                "a step's worth folds at once"
+            );
             transfer_kind(other, a, Kind::Sort, 16 << 10, true);
             discharge_kind(a, Kind::Sort, (64 << 10) + DOOR_FOLD_BYTES as u64);
             count_kind(a, Kind::HashAgg, -(32 << 10));
             statement_end();
-            assert_eq!((account_row(a).mapped_bytes, kind_bytes(a, Kind::Sort), kind_bytes(a, Kind::HashAgg)), (0, 0, 0));
+            assert_eq!(
+                (
+                    account_row(a).mapped_bytes,
+                    kind_bytes(a, Kind::Sort),
+                    kind_bytes(a, Kind::HashAgg)
+                ),
+                (0, 0, 0)
+            );
         });
     }
 
@@ -3133,15 +3783,32 @@ mod door_tests {
             let mut rows = Vec::new();
             for_each_kind_row(|r| {
                 if r.acct == a {
-                    rows.push((r.kind, r.bytes, r.peak_bytes, r.mapped_bytes, r.mapped_peak_bytes));
+                    rows.push((
+                        r.kind,
+                        r.bytes,
+                        r.peak_bytes,
+                        r.mapped_bytes,
+                        r.mapped_peak_bytes,
+                    ));
                 }
             });
             assert_eq!(
                 rows,
-                vec![(Kind::HashAgg, 0, 4 << 20, 0, 4 << 20), (Kind::Sort, 1 << 20, 1 << 20, 0, 0), (Kind::Mapped, 1 << 20, 1 << 20, 1 << 20, 1 << 20)]
+                vec![
+                    (Kind::HashAgg, 0, 4 << 20, 0, 4 << 20),
+                    (Kind::Sort, 1 << 20, 1 << 20, 0, 0),
+                    (Kind::Mapped, 1 << 20, 1 << 20, 1 << 20, 1 << 20)
+                ]
             );
             let r = account_row(a);
-            assert_eq!((r.pool_reserved_bytes, r.pool_reserved_peak_bytes, r.statement_mapped_peak_bytes), (0, 64 << 20, 5 << 20));
+            assert_eq!(
+                (
+                    r.pool_reserved_bytes,
+                    r.pool_reserved_peak_bytes,
+                    r.statement_mapped_peak_bytes
+                ),
+                (0, 64 << 20, 5 << 20)
+            );
             transfer_kind(Acct::PARKED, a, Kind::HashAgg, 4 << 20, true);
             discharge_kind(a, Kind::HashAgg, 4 << 20);
             count_kind(a, Kind::Sort, -(1 << 20));
@@ -3151,6 +3818,10 @@ mod door_tests {
             statement_end();
             assert_eq!(kind_bytes(a, Kind::HashAgg), 0);
         });
-        assert_eq!(account_row(Acct::backend(4005)).statement_seq, 0, "an unbound slot starts over");
+        assert_eq!(
+            account_row(Acct::backend(4005)).statement_seq,
+            0,
+            "an unbound slot starts over"
+        );
     }
 }

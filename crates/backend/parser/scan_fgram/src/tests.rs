@@ -260,6 +260,7 @@ fn errors_carry_sqlstate_and_message() {
 #[test]
 fn every_keyword_lexes_to_its_gram_token() {
     assert_eq!(crate::dfa::YY_NUM_RULES, 73);
+    #[allow(clippy::needless_range_loop)]
     for n in 0..keywords::SCANKEYWORDS_NUM_KEYWORDS {
         let kw = keywords::keyword_text(n).unwrap();
         let toks = lex_all(kw);

@@ -99,6 +99,7 @@ impl PartitionKeyData {
 
 struct PartCacheState {
     root: &'static MemoryContext,
+    #[allow(dead_code)]
     mcx: Mcx<'static>,
     keys: PgHashMap<'static, Oid, Rc<PartitionKeyData>>,
     callbacks_registered: bool,

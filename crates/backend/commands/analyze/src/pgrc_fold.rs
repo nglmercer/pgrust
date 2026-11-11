@@ -52,7 +52,7 @@
 use datum::Datum;
 use mcx::{self, Mcx, PgVec};
 use tableam::{
-    PgrcCollationClass as Coll, PgrcColFold, PgrcRelFold, PgrcStorageClass as Class,
+    PgrcColFold, PgrcCollationClass as Coll, PgrcRelFold, PgrcStorageClass as Class,
     PgrcTypeSemantics as Sem,
 };
 use types_error::PgResult;
@@ -67,7 +67,10 @@ use crate::{
 /// data declines only on the typed causes the census records).
 fn fold_enabled() -> bool {
     !matches!(
-        std::env::var("PGRUST_PGRC_ANALYZE_FOLD").ok().as_deref().map(str::trim),
+        std::env::var("PGRUST_PGRC_ANALYZE_FOLD")
+            .ok()
+            .as_deref()
+            .map(str::trim),
         Some("0") | Some("off")
     )
 }
@@ -98,7 +101,11 @@ pub(crate) fn analyze_mode() -> PgResult<AnalyzeMode> {
             .into())
         }
     };
-    Ok(if mode == AnalyzeMode::Fold && !fold_enabled() { AnalyzeMode::Sample } else { mode })
+    Ok(if mode == AnalyzeMode::Fold && !fold_enabled() {
+        AnalyzeMode::Sample
+    } else {
+        mode
+    })
 }
 
 const THREADS_GUC: &str = "pgrust.pgrc_analyze_threads";
@@ -113,10 +120,12 @@ pub(crate) fn sample_threads() -> PgResult<Option<usize>> {
     }
     match v.parse::<usize>() {
         Ok(n) if (1..=1024).contains(&n) => Ok(Some(n)),
-        _ => Err(types_error::PgError::error(format!("invalid value for parameter \"{THREADS_GUC}\": \"{v}\""))
-            .with_sqlstate(types_error::ERRCODE_INVALID_PARAMETER_VALUE)
-            .with_hint("A thread count from 1 to 1024, or empty for the default.")
-            .into()),
+        _ => Err(types_error::PgError::error(format!(
+            "invalid value for parameter \"{THREADS_GUC}\": \"{v}\""
+        ))
+        .with_sqlstate(types_error::ERRCODE_INVALID_PARAMETER_VALUE)
+        .with_hint("A thread count from 1 to 1024, or empty for the default.")
+        .into()),
     }
 }
 
@@ -135,12 +144,19 @@ fn parse_mode(v: &str) -> Option<AnalyzeMode> {
 
 /// `sample_hll`'s n_distinct per attribute number, in pg_statistic's convention: the fold's HyperLogLog count for
 /// the columns it has one for. `None` when the fold declines (e.g. a part with deletions): the sample's stands.
-pub(crate) fn hll_ndistinct(mcx: mcx::Mcx<'_>, rel: &types_rel::Relation<'_>) -> PgResult<Option<Vec<(i32, f32)>>> {
+pub(crate) fn hll_ndistinct(
+    mcx: mcx::Mcx<'_>,
+    rel: &types_rel::Relation<'_>,
+) -> PgResult<Option<Vec<(i32, f32)>>> {
     let fold = match tableam::pgrc_analyze_fold(mcx, rel)? {
         tableam::PgrcAnalyzeFold::Folded(f) => f,
         tableam::PgrcAnalyzeFold::Declined(d) => {
             if crate::analyze_trace() {
-                eprintln!("ANALYZE|TRACE|pgrc-hll declined rel={} cause={}", rel.rd_id, d.cause());
+                eprintln!(
+                    "ANALYZE|TRACE|pgrc-hll declined rel={} cause={}",
+                    rel.rd_id,
+                    d.cause()
+                );
             }
             return Ok(None);
         }
@@ -150,7 +166,12 @@ pub(crate) fn hll_ndistinct(mcx: mcx::Mcx<'_>, rel: &types_rel::Relation<'_>) ->
         fold.cols
             .iter()
             .filter(|c| c.nonnull > 0 && c.stat.stadistinct > 0.0)
-            .map(|c| (c.attno as i32, stadistinct_convention(c.stat.stadistinct, totalrows)))
+            .map(|c| {
+                (
+                    c.attno as i32,
+                    stadistinct_convention(c.stat.stadistinct, totalrows),
+                )
+            })
             .collect(),
     ))
 }
@@ -246,11 +267,7 @@ fn word_from_bytes(bytes: &[u8], width: usize, signed: bool) -> Option<u64> {
 
 /// Render one canonical value into a datum of the column's type in `mcx`.
 /// `None` = the bytes do not fit the declared class (refuse-and-sample).
-fn render_datum<'mcx>(
-    mcx: Mcx<'mcx>,
-    class: Class,
-    bytes: &[u8],
-) -> PgResult<Option<Datum>> {
+fn render_datum<'mcx>(mcx: Mcx<'mcx>, class: Class, bytes: &[u8]) -> PgResult<Option<Datum>> {
     Ok(match class {
         Class::ByvalWord { width, signed } => {
             word_from_bytes(bytes, width as usize, signed).map(Datum::from_u64)
@@ -307,7 +324,11 @@ fn varlena_width(payload_avg: f64) -> i32 {
 /// compute_distinct_stats keep typlen for a fixed-width type and write 0
 /// ("unknown") for a varwidth one (D2660).
 fn null_only_width(typlen: i16) -> i32 {
-    if typlen > 0 { i32::from(typlen) } else { 0 }
+    if typlen > 0 {
+        i32::from(typlen)
+    } else {
+        0
+    }
 }
 
 /// The indices of the histogram bounds a statistics target allows:
@@ -367,7 +388,13 @@ enum Fill {
 }
 
 /// An equality-less type keeps the fold: compute_trivial_stats has no more.
-fn needs_sample(nonnull: u64, has_ndv: bool, mcv: bool, hist: bool, compute: &ComputeStats) -> bool {
+fn needs_sample(
+    nonnull: u64,
+    has_ndv: bool,
+    mcv: bool,
+    hist: bool,
+    compute: &ComputeStats,
+) -> bool {
     nonnull > 0 && !matches!(compute, ComputeStats::Trivial) && (!has_ndv || (!mcv && !hist))
 }
 
@@ -397,9 +424,7 @@ pub(crate) fn apply_fold<'mcx>(
         ) {
             return Ok(None);
         }
-        if s.tupattnum < 1
-            || !fold.cols.iter().any(|c| c.attno == s.tupattnum as u32)
-        {
+        if s.tupattnum < 1 || !fold.cols.iter().any(|c| c.attno == s.tupattnum as u32) {
             return Ok(None);
         }
     }
@@ -460,7 +485,11 @@ fn reset_stats<'mcx>(anl_mcx: Mcx<'mcx>, s: &mut VacAttrStats<'mcx>) {
 /// selectivity by the non-MCV fraction, so a bound that is also a served MCV value would be counted twice.
 fn tail_histogram<'a>(hist: &'a [Vec<u8>], mcv: &[&(Vec<u8>, f64)]) -> PgResult<Vec<&'a [u8]>> {
     let mut out = ::mcx::std_vec_with_capacity("commands", hist.len())?;
-    out.extend(hist.iter().map(Vec::as_slice).filter(|b| !mcv.iter().any(|(m, _)| m.as_slice() == *b)));
+    out.extend(
+        hist.iter()
+            .map(Vec::as_slice)
+            .filter(|b| !mcv.iter().any(|(m, _)| m.as_slice() == *b)),
+    );
     Ok(out)
 }
 
@@ -482,17 +511,26 @@ fn fill_column<'mcx>(
     // a value the fold counted once is no MCV (compute_distinct_stats keeps
     // its singletons).
     let scalar = matches!(s.compute, ComputeStats::Scalar);
-    let mut mcv_list: Vec<&(Vec<u8>, f64)> =
-        stat.sta_mcv.iter().filter(|e| !scalar || repeated(e.1, totalrows)).collect();
+    let mut mcv_list: Vec<&(Vec<u8>, f64)> = stat
+        .sta_mcv
+        .iter()
+        .filter(|e| !scalar || repeated(e.1, totalrows))
+        .collect();
     // D2667: at most the column's statistics target of MCVs (the list is in
     // count order).
     mcv_list.truncate(s.attstattarget().max(1) as usize);
     let mcv = has_eq && !mcv_list.is_empty() && mcv_admissible(col.semantics, col.collation_class);
     let hist = has_lt
         && stat.sta_histogram.len() >= 2
-        && !matches!(hist_mode(col.semantics, col.collation_class), HistMode::Refuse);
+        && !matches!(
+            hist_mode(col.semantics, col.collation_class),
+            HistMode::Refuse
+        );
     if needs_sample(col.nonnull, stat.stadistinct > 0.0, mcv, hist, &s.compute) {
-        return Ok(Fill::Sample(stadistinct_convention(stat.stadistinct, totalrows)));
+        return Ok(Fill::Sample(stadistinct_convention(
+            stat.stadistinct,
+            totalrows,
+        )));
     }
 
     // ---- scalar family (always served) ----
@@ -560,7 +598,8 @@ fn fill_column<'mcx>(
                 slot_idx += 1;
             }
             HistMode::Resort => {
-                let mut keyed: Vec<(ResortKey, u64)> = ::mcx::std_vec_with_capacity("commands", tail.len())?;
+                let mut keyed: Vec<(ResortKey, u64)> =
+                    ::mcx::std_vec_with_capacity("commands", tail.len())?;
                 for &bytes in &tail {
                     let (width, signed) = match col.class {
                         Class::ByvalWord { width, signed } => (width as usize, signed),
@@ -612,7 +651,10 @@ mod tests {
     /// value goes; with no MCV slot served the bounds pass through.
     #[test]
     fn histogram_excludes_the_served_mcv_members() {
-        let hist: Vec<Vec<u8>> = [b"a", b"b", b"c", b"d"].iter().map(|b| b.to_vec()).collect();
+        let hist: Vec<Vec<u8>> = [b"a", b"b", b"c", b"d"]
+            .iter()
+            .map(|b| b.to_vec())
+            .collect();
         let (b, d) = ((b"b".to_vec(), 0.5), (b"d".to_vec(), 0.25));
         let tail = tail_histogram(&hist, &[&b, &d]).unwrap();
         assert_eq!(tail, [b"a".as_slice(), b"c".as_slice()]);
@@ -628,7 +670,10 @@ mod tests {
         let bytes = w.to_le_bytes();
         assert_eq!(word_from_bytes(&bytes[..2], 2, true), Some(w));
         // oid word zero-extends.
-        assert_eq!(word_from_bytes(&0xFFFFFFFFu32.to_le_bytes(), 4, false), Some(0xFFFF_FFFF));
+        assert_eq!(
+            word_from_bytes(&0xFFFFFFFFu32.to_le_bytes(), 4, false),
+            Some(0xFFFF_FFFF)
+        );
         // Width mismatch refuses.
         assert_eq!(word_from_bytes(&bytes[..3], 2, true), None);
     }
@@ -641,9 +686,11 @@ mod tests {
         v.sort_by(resort_cmp);
         assert!(matches!(v[0], ResortKey::I(-5)));
         assert!(matches!(v[2], ResortKey::I(10)));
-        let mut f = [ResortKey::F(f64::NAN),
+        let mut f = [
+            ResortKey::F(f64::NAN),
             ResortKey::F(1.5),
-            ResortKey::F(-2.0)];
+            ResortKey::F(-2.0),
+        ];
         f.sort_by(resort_cmp);
         assert!(matches!(f[0], ResortKey::F(x) if x == -2.0));
         assert!(matches!(f[2], ResortKey::F(x) if x.is_nan()));
@@ -686,8 +733,14 @@ mod tests {
 
     #[test]
     fn thinned_bounds_respect_the_target() {
-        assert_eq!(thinned(33, 100).collect::<Vec<_>>(), (0..33).collect::<Vec<_>>());
-        assert_eq!(thinned(33, 10).collect::<Vec<_>>(), vec![0, 3, 6, 9, 12, 16, 19, 22, 25, 28, 32]);
+        assert_eq!(
+            thinned(33, 100).collect::<Vec<_>>(),
+            (0..33).collect::<Vec<_>>()
+        );
+        assert_eq!(
+            thinned(33, 10).collect::<Vec<_>>(),
+            vec![0, 3, 6, 9, 12, 16, 19, 22, 25, 28, 32]
+        );
         assert_eq!(thinned(33, 1).collect::<Vec<_>>(), vec![0, 32]);
         assert_eq!(thinned(2, 10).collect::<Vec<_>>(), vec![0, 1]);
     }
@@ -727,32 +780,80 @@ mod tests {
     #[test]
     fn unestimated_columns_are_sampled() {
         // No NDV (Opaque: bpchar, jsonb).
-        assert!(needs_sample(1000, false, false, false, &ComputeStats::Scalar));
-        assert!(needs_sample(1000, false, false, false, &ComputeStats::Distinct));
+        assert!(needs_sample(
+            1000,
+            false,
+            false,
+            false,
+            &ComputeStats::Scalar
+        ));
+        assert!(needs_sample(
+            1000,
+            false,
+            false,
+            false,
+            &ComputeStats::Distinct
+        ));
         // An NDV but neither value list (numeric, interval).
-        assert!(needs_sample(1000, true, false, false, &ComputeStats::Scalar));
+        assert!(needs_sample(
+            1000,
+            true,
+            false,
+            false,
+            &ComputeStats::Scalar
+        ));
         // The fold characterizes it.
-        assert!(!needs_sample(1000, true, true, false, &ComputeStats::Scalar));
-        assert!(!needs_sample(1000, true, false, true, &ComputeStats::Scalar));
+        assert!(!needs_sample(
+            1000,
+            true,
+            true,
+            false,
+            &ComputeStats::Scalar
+        ));
+        assert!(!needs_sample(
+            1000,
+            true,
+            false,
+            true,
+            &ComputeStats::Scalar
+        ));
         // Null-only, or no equality operator: the fold's own values are C's.
         assert!(!needs_sample(0, false, false, false, &ComputeStats::Scalar));
-        assert!(!needs_sample(1000, false, false, false, &ComputeStats::Trivial));
+        assert!(!needs_sample(
+            1000,
+            false,
+            false,
+            false,
+            &ComputeStats::Trivial
+        ));
     }
 
     #[test]
     fn hist_admission_gates() {
-        assert!(matches!(hist_mode(Sem::MemcmpOrdered, Coll::C), HistMode::ByteOrder));
-        assert!(matches!(hist_mode(Sem::TextCollated, Coll::C), HistMode::ByteOrder));
+        assert!(matches!(
+            hist_mode(Sem::MemcmpOrdered, Coll::C),
+            HistMode::ByteOrder
+        ));
+        assert!(matches!(
+            hist_mode(Sem::TextCollated, Coll::C),
+            HistMode::ByteOrder
+        ));
         assert!(matches!(
             hist_mode(Sem::TextCollated, Coll::OtherDeterministic),
             HistMode::Refuse
         ));
-        assert!(matches!(hist_mode(Sem::SignedInt, Coll::C), HistMode::Resort));
+        assert!(matches!(
+            hist_mode(Sem::SignedInt, Coll::C),
+            HistMode::Resort
+        ));
         assert!(matches!(hist_mode(Sem::Float, Coll::C), HistMode::Resort));
         assert!(matches!(
             hist_mode(Sem::PackedNumeric { scale: 2 }, Coll::C),
             HistMode::Refuse
         ));
-        assert!(matches!(hist_mode(Sem::EnumEqOnly, Coll::C), HistMode::Refuse));
+        assert!(matches!(
+            hist_mode(Sem::EnumEqOnly, Coll::C),
+            HistMode::Refuse
+        ));
     }
 }

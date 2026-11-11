@@ -4,7 +4,7 @@
 // parallel heap scan every participant joins.
 use ::datum::Datum;
 use ::mcx::{Mcx, PgVec};
-use ::types_core::{BlockNumber, INDEX_MAX_KEYS, InvalidBlockNumber};
+use ::types_core::{BlockNumber, InvalidBlockNumber, INDEX_MAX_KEYS};
 use ::types_error::PgResult;
 use ::types_rel::Relation;
 use ::types_slot::SlotData;
@@ -84,7 +84,10 @@ fn heapam_scan_get_blocks_done(
     parallel: Option<&tableam::ParallelTableScanDescShared>,
 ) -> BlockNumber {
     let startblock = match parallel {
-        Some(p) => p.pscan.phs_startblock.load(core::sync::atomic::Ordering::Relaxed),
+        Some(p) => p
+            .pscan
+            .phs_startblock
+            .load(core::sync::atomic::Ordering::Relaxed),
         None => scan.rs_startblock,
     };
     if scan.rs_cblock > startblock {
@@ -257,7 +260,15 @@ where
 {
     // IX1 L1: a pgrcolumnar table's rows live outside its (empty) main fork; its own scan feeds the callback.
     if tableam_vocab::TableAm::of(heap_relation) == Some(tableam_vocab::TableAm::Pgrcolumnar) {
-        return pgrc_build_range_scan(mcx, heap_relation, index_relation, index_info, start_blockno, numblocks, callback);
+        return pgrc_build_range_scan(
+            mcx,
+            heap_relation,
+            index_relation,
+            index_info,
+            start_blockno,
+            numblocks,
+            callback,
+        );
     }
     let concurrent = index_info.ii_Concurrent;
     let is_system_catalog = catalog::IsSystemRelation(heap_relation);
@@ -281,7 +292,10 @@ where
         match &p.snapshot {
             Some(serialized) if !p.pscan.phs_snapshot_any => {
                 let snap = snapmgr::RestoreSnapshot(serialized);
-                (Some(snapmgr::RegisterSnapshot(Some(&snap))?.expect("registered snapshot")), true)
+                (
+                    Some(snapmgr::RegisterSnapshot(Some(&snap))?.expect("registered snapshot")),
+                    true,
+                )
             }
             _ => (None, false),
         }
@@ -289,7 +303,10 @@ where
         (Some(snap.clone()), false)
     } else if concurrent {
         let snap = snapmgr::GetTransactionSnapshot()?;
-        (Some(snapmgr::RegisterSnapshot(Some(&snap))?.expect("registered snapshot")), true)
+        (
+            Some(snapmgr::RegisterSnapshot(Some(&snap))?.expect("registered snapshot")),
+            true,
+        )
     } else {
         (None, false)
     };
@@ -385,7 +402,10 @@ where
         }
 
         if scan.rs_cblock != root_blkno {
-            let pin = scan.rs_cbuf.as_ref().expect("pinned page for returned tuple");
+            let pin = scan
+                .rs_cbuf
+                .as_ref()
+                .expect("pinned page for returned tuple");
             let guard = pin.lock_share()?;
             pruneheap::heap_get_root_tuples(pin.page(), &mut root_offsets)?;
             drop(guard);
@@ -403,7 +423,10 @@ where
             // C's `recheck:` loop: an XactLockTableWait drops the buffer lock,
             // waits out the in-progress xact, and re-runs SatisfiesVacuum.
             (index_it, tuple_is_alive) = loop {
-                let pin = scan.rs_cbuf.as_ref().expect("pinned page for returned tuple");
+                let pin = scan
+                    .rs_cbuf
+                    .as_ref()
+                    .expect("pinned page for returned tuple");
                 let guard = pin.lock_share()?;
                 let htsv =
                     heapam_visibility::HeapTupleSatisfiesVacuum(&mut tuple, oldest_xmin, buffer)?;
@@ -528,7 +551,10 @@ where
             let offnum = self_tid.ip_posid;
             let mut root = root_offsets[offnum as usize - 1];
             if root == InvalidOffsetNumber {
-                let pin = scan.rs_cbuf.as_ref().expect("pinned page for returned tuple");
+                let pin = scan
+                    .rs_cbuf
+                    .as_ref()
+                    .expect("pinned page for returned tuple");
                 let guard = pin.lock_share()?;
                 pruneheap::heap_get_root_tuples(pin.page(), &mut root_offsets)?;
                 drop(guard);
@@ -543,9 +569,21 @@ where
                 .with_sqlstate(types_error::ERRCODE_DATA_CORRUPTED)));
             }
             let tid = ItemPointerData::new(blkno, root);
-            callback(index_relation, &tid, &values[..], &isnull[..], tuple_is_alive)?;
+            callback(
+                index_relation,
+                &tid,
+                &values[..],
+                &isnull[..],
+                tuple_is_alive,
+            )?;
         } else {
-            callback(index_relation, &self_tid, &values[..], &isnull[..], tuple_is_alive)?;
+            callback(
+                index_relation,
+                &self_tid,
+                &values[..],
+                &isnull[..],
+                tuple_is_alive,
+            )?;
         }
     }
 
@@ -576,9 +614,8 @@ fn next_tuple<'mcx>(
     let buffer = scan.rs_cbuf.as_ref().expect("pinned").buffer();
     // SAFETY: same live pinned image rs_ctup views; hint-bit writes through
     // the &mut view are the C SatisfiesVacuum contract (buffer share-locked).
-    let tuple = unsafe {
-        HeapTupleData::from_raw_parts(t.header_ptr(), t.t_len, t.t_self, t.t_tableOid)
-    };
+    let tuple =
+        unsafe { HeapTupleData::from_raw_parts(t.header_ptr(), t.t_len, t.t_self, t.t_tableOid) };
     Ok(Some((tuple, buffer)))
 }
 
@@ -598,13 +635,22 @@ fn slot_is_heap_only(slot: &SlotData<'_>) -> bool {
 }
 
 fn pgrc_refused(message: impl Into<String>) -> Box<types_error::PgError> {
-    Box::new(types_error::PgError::error(message).with_sqlstate(types_error::ERRCODE_FEATURE_NOT_SUPPORTED))
+    Box::new(
+        types_error::PgError::error(message)
+            .with_sqlstate(types_error::ERRCODE_FEATURE_NOT_SUPPORTED),
+    )
 }
 
 /// DefineIndex asks before any catalog work, with `concurrent` its effective CONCURRENTLY; the build scan asks again
 /// for the rebuild paths (REINDEX, SET ACCESS METHOD, ALTER's rewrites, TRUNCATE), where a concurrent build is never
 /// asked about (amcheck's MVCC lane uses it).
-pub fn pgrc_index_check(am: types_relscan::IndexAmKind, amname: &str, unique: bool, exclusion: bool, concurrent: bool) -> PgResult<()> {
+pub fn pgrc_index_check(
+    am: types_relscan::IndexAmKind,
+    amname: &str,
+    unique: bool,
+    exclusion: bool,
+    concurrent: bool,
+) -> PgResult<()> {
     use types_relscan::IndexAmKind as K;
     match am {
         K::Btree | K::Hash | K::Gist | K::Spgist | K::Gin => {}
@@ -616,21 +662,34 @@ pub fn pgrc_index_check(am: types_relscan::IndexAmKind, amname: &str, unique: bo
             ))
         }
         #[allow(unreachable_patterns)]
-        _ => return Err(pgrc_refused(format!("pgrcolumnar does not support index access method \"{amname}\""))),
+        _ => {
+            return Err(pgrc_refused(format!(
+                "pgrcolumnar does not support index access method \"{amname}\""
+            )))
+        }
     }
     if unique {
-        return Err(pgrc_refused("pgrcolumnar does not support unique indexes yet"));
+        return Err(pgrc_refused(
+            "pgrcolumnar does not support unique indexes yet",
+        ));
     }
     if exclusion {
-        return Err(pgrc_refused("pgrcolumnar does not support exclusion constraints yet"));
+        return Err(pgrc_refused(
+            "pgrcolumnar does not support exclusion constraints yet",
+        ));
     }
     if concurrent {
-        return Err(pgrc_refused("pgrcolumnar does not support CREATE INDEX CONCURRENTLY"));
+        return Err(pgrc_refused(
+            "pgrcolumnar does not support CREATE INDEX CONCURRENTLY",
+        ));
     }
     Ok(())
 }
 
-fn pgrc_build_needed_attrs(natts: usize, index_info: &IndexInfo<'_>) -> PgResult<Option<Box<[bool]>>> {
+fn pgrc_build_needed_attrs(
+    natts: usize,
+    index_info: &IndexInfo<'_>,
+) -> PgResult<Option<Box<[bool]>>> {
     struct Cx {
         needed: Vec<bool>,
         all: bool,
@@ -649,7 +708,10 @@ fn pgrc_build_needed_attrs(natts: usize, index_info: &IndexInfo<'_>) -> PgResult
             nodes_core::expression_tree_walker(n, self)
         }
     }
-    let mut cx = Cx { needed: ::mcx::stdvec::try_filled(natts, false, "pgrc_build_needed_attrs")?, all: false };
+    let mut cx = Cx {
+        needed: ::mcx::stdvec::try_filled(natts, false, "pgrc_build_needed_attrs")?,
+        all: false,
+    };
     for &a in &index_info.ii_IndexAttrNumbers[..index_info.ii_NumIndexAttrs as usize] {
         match usize::try_from(a) {
             Ok(0) => {}
@@ -687,7 +749,13 @@ where
     F: FnMut(&Relation<'mcx>, &ItemPointerData, &[Datum], &[bool], bool) -> PgResult<()>,
 {
     let am = types_relscan::IndexAmKind::from_relam(index_relation.rd_rel.relam);
-    pgrc_index_check(am, &format!("{am:?}").to_lowercase(), index_info.ii_Unique, index_info.ii_HasExclusion, false)?;
+    pgrc_index_check(
+        am,
+        &format!("{am:?}").to_lowercase(),
+        index_info.ii_Unique,
+        index_info.ii_HasExclusion,
+        false,
+    )?;
     if start_blockno != 0 || numblocks != InvalidBlockNumber {
         return Err(Box::new(types_error::PgError::error(format!(
             "pgrcolumnar: table \"{}\" has no blocks to build an index over a block range of",
@@ -715,7 +783,12 @@ where
         loop {
             per_tuple.reset();
             postgres_seams::check_for_interrupts::call()?;
-            if !tableam::table_scan_getnextslot(mcx, &mut scan, types_scan::ScanDirection::ForwardScanDirection, &mut slot)? {
+            if !tableam::table_scan_getnextslot(
+                mcx,
+                &mut scan,
+                types_scan::ScanDirection::ForwardScanDirection,
+                &mut slot,
+            )? {
                 return Ok(());
             }
             let tid = slot_tid(&slot);
@@ -730,10 +803,19 @@ where
                 ));
             }
             reltuples += 1.0;
-            if !index_info.ii_Predicate.is_nil() && !index_predicate_passes(mcx, per_tuple.mcx(), index_info, &mut slot)? {
+            if !index_info.ii_Predicate.is_nil()
+                && !index_predicate_passes(mcx, per_tuple.mcx(), index_info, &mut slot)?
+            {
                 continue;
             }
-            FormIndexDatum(mcx, per_tuple.mcx(), index_info, &mut slot, &mut values[..], &mut isnull[..])?;
+            FormIndexDatum(
+                mcx,
+                per_tuple.mcx(),
+                index_info,
+                &mut slot,
+                &mut values[..],
+                &mut isnull[..],
+            )?;
             callback(index_relation, &tid, &values[..], &isnull[..], true)?;
         }
     })();

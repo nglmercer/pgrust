@@ -135,6 +135,7 @@ fn domain_checks<'p, 'm>(gx: &Gx<'_, 'p>, t: u32, doms: &mut PgVec<'m, u32>, rea
 /// one the catalog cannot answer, a SubPlan, any node the walk does not know), a nested domain's CHECK with it: the
 /// inline forms run the check at every open, while effects reads a domain coercion as one that may raise, not one that
 /// acts. `volatile_check`'s walk with that reading of a CHECK (`domain_checks`), failing closed the same way.
+#[allow(dead_code)]
 pub(crate) fn check_acts<'p>(gx: &Gx<'_, 'p>, cx: &gravity_decompose::effects::Cx<'_, 'p>, n: Node<'p>) -> bool {
     gx.fx(n).check_acts(cx)
 }
@@ -952,7 +953,7 @@ fn arms_at(gx: &Gx<'_, '_>, at: usize, slot: u8, f: &dyn Fn(usize) -> bool) -> b
 fn prune_user_code(gx: &Gx<'_, '_>, d: &gravity_decompose::ops::shared::append::PruneDesc<'_>) -> bool {
     let step = |s: Node<'_>| s.as_partition_prune_step_op().is_some_and(|o| o.exprs.iter().any(|n| gx.fx(n).user_calls()) || o.cmpfns.iter().any(|f| f >= FIRST_NORMAL_OID));
     let mut infos = d.info.prune_infos.iter().flat_map(|l| l.as_list().into_iter().flat_map(|l| l.iter()));
-    infos.any(|r| r.as_partitioned_rel_prune_info().is_none_or(|r| r.initial_pruning_steps.iter().chain(r.exec_pruning_steps.iter()).any(|s| step(s))))
+    infos.any(|r| r.as_partitioned_rel_prune_info().is_none_or(|r| r.initial_pruning_steps.iter().chain(r.exec_pruning_steps.iter()).any(&step)))
 }
 
 /// D1108 (`fed_user_code`, beside `user_code_of`, which reads a pipeline's source and ops only): a group
@@ -1089,9 +1090,9 @@ fn hides_in(gx: &Gx<'_, '_>, b: usize, windows: bool, draws: bool, fed: bool) ->
         }
         match op {
             Op::Filter(n) | Op::Gate(n) => hidden(*n),
-            Op::Project(l) => l.iter().any(|n| hidden(n)),
-            Op::Join(JoinDesc::Probe { keys, qual, .. }) => keys.iter().chain(qual.iter()).any(|n| hidden(n)),
-            Op::Join(JoinDesc::Build { keys, .. }) => keys.iter().any(|n| hidden(n)),
+            Op::Project(l) => l.iter().any(&hidden),
+            Op::Join(JoinDesc::Probe { keys, qual, .. }) => keys.iter().chain(qual.iter()).any(&hidden),
+            Op::Join(JoinDesc::Build { keys, .. }) => keys.iter().any(&hidden),
             Op::Srf(d) => d.functions.iter().any(|f| hidden(f.node)),
             Op::Window(_) if windows => window_calls(op, &calls),
             // D3566: what moves rows and evaluates nothing (a union's feed, arm marker or emit with no run-time pruning, a
@@ -1100,9 +1101,9 @@ fn hides_in(gx: &Gx<'_, '_>, b: usize, windows: bool, draws: bool, fed: bool) ->
             // join qual and families' support; an ordered emit its keys' operators
             Op::Append(AppendDesc::Feed { .. } | AppendDesc::Arm { prune: None, .. } | AppendDesc::Union { prune: None, .. }) | Op::Join(JoinDesc::Spool | JoinDesc::Drain { .. }) => false,
             Op::Append(AppendDesc::Merge { keys, prune: None, .. }) => keys.iter().any(user_key),
-            Op::Sort(sd) => !sort_settled(sd) || sd.tlist.iter().any(|n| calls(n)) || sd.keys.iter().any(user_key),
-            Op::Join(JoinDesc::Merge { clauses, qual, families, .. }) => families.iter().any(|&f| f >= FIRST_NORMAL_OID) || clauses.iter().chain(qual.iter()).any(|n| calls(n)),
-            Op::Join(JoinDesc::Nest { inner, qual, params, .. }) => qual.iter().any(|n| calls(n)) || params_call(params, &calls) || nest_inner_calls(gx, x, inner, &parts, &quiet[..], windows, draws),
+            Op::Sort(sd) => !sort_settled(sd) || sd.tlist.iter().any(&calls) || sd.keys.iter().any(user_key),
+            Op::Join(JoinDesc::Merge { clauses, qual, families, .. }) => families.iter().any(|&f| f >= FIRST_NORMAL_OID) || clauses.iter().chain(qual.iter()).any(&calls),
+            Op::Join(JoinDesc::Nest { inner, qual, params, .. }) => qual.iter().any(&calls) || params_call(params, &calls) || nest_inner_calls(gx, x, inner, &parts, &quiet[..], windows, draws),
             Op::Join(JoinDesc::Memo { keys, ops, colls, binary, .. }) => memo_calls(gx, keys, ops, colls, *binary, &calls),
             Op::SubPlan(d) => !quiet.contains(&d.plan_id),
             // D3587: a recursive union moves its generations' rows and calls only a UNION's dedup equality operators
@@ -1113,15 +1114,15 @@ fn hides_in(gx: &Gx<'_, '_>, b: usize, windows: bool, draws: bool, fed: bool) ->
         }
     };
     let src = |s: &Source<'_>| match s {
-        Source::Values { lists, .. } => lists.iter().filter_map(|l| l.as_list()).flat_map(|l| l.iter()).any(|n| hidden(n)),
+        Source::Values { lists, .. } => lists.iter().filter_map(|l| l.as_list()).flat_map(|l| l.iter()).any(&hidden),
         Source::TableFunc { func: f, .. } => {
             let cols = [&f.colexprs, &f.coldefexprs, &f.colvalexprs].into_iter().flat_map(|l| l.iter().flatten());
-            f.docexpr.into_iter().chain(f.rowexpr).chain(f.passingvalexprs.iter()).chain(cols).any(|n| hidden(n))
+            f.docexpr.into_iter().chain(f.rowexpr).chain(f.passingvalexprs.iter()).chain(cols).any(&hidden)
         }
-        Source::Index { keys, recheck, .. } => keys.iter().map(|k| k.value).chain(recheck.iter()).any(|n| hidden(n)),
-        Source::Bitmap { recheck, .. } => recheck.iter().any(|n| hidden(n)),
+        Source::Index { keys, recheck, .. } => keys.iter().map(|k| k.value).chain(recheck.iter()).any(&hidden),
+        Source::Bitmap { recheck, .. } => recheck.iter().any(&hidden),
         Source::Tid { .. } => true,
-        Source::Sample { sample, .. } => draws || sample.handler >= FIRST_NORMAL_OID || sample.args.iter().chain(sample.repeatable).any(|n| hidden(n)),
+        Source::Sample { sample, .. } => draws || sample.handler >= FIRST_NORMAL_OID || sample.args.iter().chain(sample.repeatable).any(&hidden),
         _ => false,
     };
     all.into_iter().any(|x| {
@@ -1146,7 +1147,7 @@ fn params_call(params: &types_nodes::list::NodeList<'_>, calls: &dyn Fn(Node<'_>
 fn memo_calls(gx: &Gx<'_, '_>, keys: &types_nodes::list::NodeList<'_>, ops: &[u32], colls: &[u32], binary: bool, calls: &dyn Fn(Node<'_>) -> bool) -> bool {
     use gravity_decompose::catalog::typefacts::facts_of;
     let no_coll = |(n, &c): (Node<'_>, &u32)| c == 0 && type_of(n).and_then(|t| facts_of(gx.facts, t)).is_none_or(|f| f.collatable);
-    keys.iter().any(|n| calls(n)) || !binary && (ops.iter().any(|&o| op_user_code(gx, o)) || keys.iter().zip(colls).any(no_coll))
+    keys.iter().any(calls) || !binary && (ops.iter().any(|&o| op_user_code(gx, o)) || keys.iter().zip(colls).any(no_coll))
 }
 
 /// D3566 (`hides_calls`): SubPlan op `d` calls nothing `parts` sees in its arguments and test, and a nested one nothing
@@ -1155,8 +1156,8 @@ fn memo_calls(gx: &Gx<'_, '_>, keys: &types_nodes::list::NodeList<'_>, ops: &[u3
 fn sub_quiet(gx: &Gx<'_, '_>, at: usize, d: &gravity_decompose::ops::shared::subplan::SubPlanDesc<'_>, parts: &dyn Fn(Node<'_>) -> bool, quiet: &[i32], windows: bool, draws: bool) -> bool {
     use gravity_decompose::ops::shared::subplan::SubForm;
     let calls = |n: Node<'_>| parts(n) || !sub_refs_in(n, quiet);
-    !d.args.iter().any(|n| calls(n))
-        && !d.test.is_some_and(|n| calls(n))
+    !d.args.iter().any(&calls)
+        && !d.test.is_some_and(calls)
         && match &d.form {
             SubForm::Nested { inner } => !nest_inner_calls(gx, at, inner, parts, quiet, windows, draws),
             SubForm::Build | SubForm::Hashed { .. } => true,
@@ -1204,11 +1205,11 @@ fn nest_inner_calls(gx: &Gx<'_, '_>, at: usize, p: &gravity_decompose::graph::Pi
     let keys = |k: &[IndexKey<'_>]| k.iter().any(|x| calls(x.value));
     let src = match &p.source {
         Source::Range { .. } | Source::Breaker { .. } | Source::Const | Source::Named { .. } => false,
-        Source::Values { lists, .. } => lists.iter().filter_map(|l| l.as_list()).flat_map(|l| l.iter()).any(|n| calls(n)),
-        Source::Index { keys: k, recheck, .. } => keys(k) || recheck.iter().any(|n| calls(n)),
-        Source::Bitmap { plan, recheck, .. } => !bitmap_all(plan, &|_, k, _| !keys(k)) || recheck.iter().any(|n| calls(n)),
+        Source::Values { lists, .. } => lists.iter().filter_map(|l| l.as_list()).flat_map(|l| l.iter()).any(&calls),
+        Source::Index { keys: k, recheck, .. } => keys(k) || recheck.iter().any(&calls),
+        Source::Bitmap { plan, recheck, .. } => !bitmap_all(plan, &|_, k, _| !keys(k)) || recheck.iter().any(&calls),
         // a sample's method and arguments (a user method is user code); `draws`, a rescan per outer row draws again
-        Source::Sample { sample, .. } => draws || sample.handler >= FIRST_NORMAL_OID || sample.args.iter().chain(sample.repeatable).any(|n| calls(n)),
+        Source::Sample { sample, .. } => draws || sample.handler >= FIRST_NORMAL_OID || sample.args.iter().chain(sample.repeatable).any(&calls),
         _ => true,
     };
     src || p.ops.iter().any(|op| {
@@ -1217,13 +1218,13 @@ fn nest_inner_calls(gx: &Gx<'_, '_>, at: usize, p: &gravity_decompose::graph::Pi
         }
         match op {
             Op::Filter(n) | Op::Gate(n) => calls(*n),
-            Op::Project(l) => l.iter().any(|n| calls(n)),
-            Op::Join(JoinDesc::Probe { keys, qual, .. }) => keys.iter().chain(qual.iter()).any(|n| calls(n)),
-            Op::Join(JoinDesc::Build { keys, .. }) => keys.iter().any(|n| calls(n)),
-            Op::Join(JoinDesc::Nest { inner, qual, params, .. }) => qual.iter().any(|n| calls(n)) || params_call(params, &calls) || nest_inner_calls(gx, at, inner, parts, &quiet[..], windows, draws),
+            Op::Project(l) => l.iter().any(&calls),
+            Op::Join(JoinDesc::Probe { keys, qual, .. }) => keys.iter().chain(qual.iter()).any(&calls),
+            Op::Join(JoinDesc::Build { keys, .. }) => keys.iter().any(&calls),
+            Op::Join(JoinDesc::Nest { inner, qual, params, .. }) => qual.iter().any(&calls) || params_call(params, &calls) || nest_inner_calls(gx, at, inner, parts, &quiet[..], windows, draws),
             Op::Join(JoinDesc::Memo { keys, ops, colls, binary, .. }) => memo_calls(gx, keys, ops, colls, *binary, &calls),
-            Op::Join(JoinDesc::Merge { clauses, qual, families, .. }) => families.iter().any(|&f| f >= FIRST_NORMAL_OID) || clauses.iter().chain(qual.iter()).any(|n| calls(n)),
-            Op::Sort(sd) => !sort_settled(sd) || sd.tlist.iter().any(|n| calls(n)) || sd.keys.iter().any(|k| op_user_code(gx, k.opno)),
+            Op::Join(JoinDesc::Merge { clauses, qual, families, .. }) => families.iter().any(|&f| f >= FIRST_NORMAL_OID) || clauses.iter().chain(qual.iter()).any(&calls),
+            Op::Sort(sd) => !sort_settled(sd) || sd.tlist.iter().any(&calls) || sd.keys.iter().any(|k| op_user_code(gx, k.opno)),
             Op::Window(_) if windows => window_calls(op, &calls),
             Op::SubPlan(d) => !quiet.contains(&d.plan_id),
             Op::SetOp(gravity_decompose::ops::shared::setop::SetDesc::Iter(it)) => it.term_volatile || !it.early_quiet || it.dedup.iter().any(|k| op_user_code(gx, k.opno)),
@@ -1232,7 +1233,7 @@ fn nest_inner_calls(gx: &Gx<'_, '_>, at: usize, p: &gravity_decompose::graph::Pi
             Op::Append(AppendDesc::Merge { slot, keys, prune: None, .. }) => keys.iter().any(|k| op_user_code(gx, k.opno)) || arms_at(gx, at, *slot, &|q| arm_calls(gx, q, parts, &quiet[..], windows, draws)),
             // D3743: a set function the inner calls per outer row (UNNEST(ARRAY[..]) beside pg_stat_activity, the
             // exporter's buckets): its calls with their arguments and a ProjectSet's plain entries, read as a filter's
-            Op::Srf(d) => d.functions.iter().any(|f| calls(f.node)) || d.tlist.iter().any(|n| calls(n)),
+            Op::Srf(d) => d.functions.iter().any(|f| calls(f.node)) || d.tlist.iter().any(&calls),
             _ => true,
         }
     })
@@ -1377,6 +1378,7 @@ pub(crate) fn fold_ahead(px: &mut crate::frame::px::Px<'_, '_>, aggs: &[gravity_
         let (k, n) = feeds[i];
         for o in &gx.pipelines()[k].ops[..n] {
             let Op::Join(gravity_decompose::join::JoinDesc::Merge { slot, .. }) = o else { continue };
+            #[allow(clippy::question_mark)]
             let Some(q) = gx.life_of(k, *slot).map(|l| l.0 as usize) else { return None };
             if !feeds.iter().any(|f| f.0 == q) {
                 feeds.push_in((q, gx.pipelines()[q].ops.len()));
@@ -1655,8 +1657,8 @@ pub(crate) fn ordered_fed_acting(gx: &Gx<'_, '_>, g: &gravity_decompose::ops::sh
 ///   (`calm_outside`); the window's functions, keys and run condition quiet (`window_quiet`); `q`'s other ops quiet;
 /// - every other pipeline (outside the fill's feeders when its source is a breaker, the SubPlan's own rerun set and a
 ///   Sort's drain past `q`) runs nothing with effects (`pipeline_effects`).
-/// Rows tied on every key come in an order PostgreSQL leaves free (DECISIONS 5), as for D1371's presorted calls. The
-/// first reason it fails is a refusal name.
+///   Rows tied on every key come in an order PostgreSQL leaves free (DECISIONS 5), as for D1371's presorted calls. The
+///   first reason it fails is a refusal name.
 pub(crate) fn window_fill_exact(gx: &Gx<'_, '_>, arena: gravity_program::ArenaRef, q: usize, fill: usize) -> Result<(), &'static str> {
     use gravity_abi::breaker::BreakerKind;
     use gravity_decompose::effects::{of_source, Cx, Effects, PLAIN};
@@ -2101,6 +2103,7 @@ mod tests {
     /// S4 / D2093: DISPATCH_OK is false, so a range, array or record key refuses whatever its components: int4range,
     /// int4[] and real[] included. The flip is GUARD-DISPATCH-OK's, after the D2093 row lands.
     #[test]
+    #[allow(clippy::assertions_on_constants, unused_attributes)]
     fn dispatch_keys_refuse_while_dispatch_ok_is_false() {
         assert!(!DISPATCH_OK, "D2093 has not landed: GUARD-DISPATCH-OK flips this");
         let c = cat();

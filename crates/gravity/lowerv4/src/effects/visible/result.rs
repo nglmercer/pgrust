@@ -12,11 +12,15 @@ use crate::graph::Gx;
 /// whose keys are raise-free; a plain or hashed aggregate or distinct whose every aggregate is (join/rtfilter.rs
 /// `raise_free`: its class, arguments, ORDER BY / DISTINCT and FILTER). Any other end (a sort, a top-k) is not quiet.
 /// `end`: the kind of `k`'s breaker end, None for a sink (ops/result/gate.rs `breaker`).
+#[allow(clippy::redundant_guards)]
 pub(crate) fn quiet(gx: &Gx<'_, '_>, k: usize, end: Option<BreakerKind>) -> bool {
     let (p, rf) = (&gx.pipelines()[k], |n| gx.fx(n).quiet());
     let end = match end {
+        #[allow(clippy::redundant_guards)]
         Some(b) if b == BreakerKind::Materialize => true,
+        #[allow(clippy::redundant_guards)]
         Some(b) if b == BreakerKind::HashBuild => matches!(p.ops.last(), Some(Op::Join(JoinDesc::Build { keys, .. })) if keys.iter().all(rf)),
+        #[allow(clippy::redundant_guards)]
         Some(b) if matches!(b, BreakerKind::PlainAgg | BreakerKind::HashAgg | BreakerKind::Distinct) => gx.group_at(k).is_some_and(|g| g.aggs.iter().all(|a| rf(a.node) && a.filter.is_none_or(rf))),
         _ => false,
     };

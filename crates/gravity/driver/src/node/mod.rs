@@ -760,6 +760,7 @@ impl Node {
         gravity_program::laneset::set(&mut self.opened, pipeline);
     }
 
+    #[allow(dead_code)]
     pub(crate) fn clear_opened(&mut self) {
         self.opened.fill(0);
     }

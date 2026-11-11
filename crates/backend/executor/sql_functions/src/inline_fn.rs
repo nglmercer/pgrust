@@ -17,10 +17,9 @@ use cache_syscache::{ReleaseSysCache, SearchSysCache1, SysCacheGetAttr, SysCache
 use elog::ereport;
 
 use crate::{
-    lookup_failed, name_str, read_oidvector_attr, varlena_str,
-    ANUM_PG_PROC_PROARGMODES, ANUM_PG_PROC_PROARGNAMES, ANUM_PG_PROC_PROARGTYPES,
-    ANUM_PG_PROC_PROISSTRICT, ANUM_PG_PROC_PRONAME, ANUM_PG_PROC_PROSQLBODY,
-    ANUM_PG_PROC_PROSRC, ANUM_PG_PROC_PROVOLATILE,
+    lookup_failed, name_str, read_oidvector_attr, varlena_str, ANUM_PG_PROC_PROARGMODES,
+    ANUM_PG_PROC_PROARGNAMES, ANUM_PG_PROC_PROARGTYPES, ANUM_PG_PROC_PROISSTRICT,
+    ANUM_PG_PROC_PRONAME, ANUM_PG_PROC_PROSQLBODY, ANUM_PG_PROC_PROSRC, ANUM_PG_PROC_PROVOLATILE,
 };
 
 const PROVOLATILE_IMMUTABLE: i8 = b'i' as i8;
@@ -53,7 +52,11 @@ pub(crate) fn read_inline_proc_row<'mcx>(
     assert!(!prosrc_null, "null prosrc for function {funcid}");
     let prosrc = varlena_str(mcx, prosrc_d)?;
     let (sqlbody_d, sqlbody_null) = SysCacheGetAttr(PROCOID, &tup, ANUM_PG_PROC_PROSQLBODY)?;
-    let prosqlbody = if sqlbody_null { None } else { Some(varlena_str(mcx, sqlbody_d)?) };
+    let prosqlbody = if sqlbody_null {
+        None
+    } else {
+        Some(varlena_str(mcx, sqlbody_d)?)
+    };
     // proargtypes holds input args only (pronargs), so OUT params affect
     // nothing here; proargmodes only filters proargnames down to input names
     // (prepare_sql_fn_parse_info -> get_func_input_arg_names).
@@ -100,7 +103,10 @@ fn inline_sql_function<'mcx>(
 // clauses.c:4680/5221: the callback is installed across the parse/validate
 // region, so warnings raised there are decorated too.
 pub(crate) fn inline_error_frame(row: &InlineProcRow<'_>) -> crate::ContextFrame {
-    let (proname, prosrc) = (row.proname.as_str().to_string(), row.prosrc.as_str().to_string());
+    let (proname, prosrc) = (
+        row.proname.as_str().to_string(),
+        row.prosrc.as_str().to_string(),
+    );
     crate::ContextFrame::push(move |e| sql_inline_error_callback_in(e, &proname, &prosrc))
 }
 
@@ -280,10 +286,10 @@ fn inline_body<'a, 'mcx>(
         return Ok(None);
     }
 
+    #[allow(clippy::if_same_then_else)]
     if row.provolatile == PROVOLATILE_IMMUTABLE && clauses::contain_mutable_functions(newexpr)? {
         return Ok(None);
-    } else if row.provolatile == PROVOLATILE_STABLE
-        && clauses::contain_volatile_functions(newexpr)?
+    } else if row.provolatile == PROVOLATILE_STABLE && clauses::contain_volatile_functions(newexpr)?
     {
         return Ok(None);
     }
@@ -328,7 +334,11 @@ fn inline_body<'a, 'mcx>(
         if OidIsValid(exprcoll) && exprcoll != result_collid {
             newexpr = Node::mk(
                 mcx,
-                CollateExpr { arg: newexpr, collOid: result_collid, location: -1 },
+                CollateExpr {
+                    arg: newexpr,
+                    collOid: result_collid,
+                    location: -1,
+                },
             )?;
         }
     }
@@ -347,7 +357,7 @@ fn substitute_actual_parameters<'mcx>(
         let p = node.as_param().expect("tag-checked");
         if p.paramkind != ParamKind::PARAM_EXTERN {
             return Err(
-                PgError::error(format!("unexpected paramkind: {}", p.paramkind as i32)).into()
+                PgError::error(format!("unexpected paramkind: {}", p.paramkind as i32)).into(),
             );
         }
         if p.paramid <= 0 || p.paramid as usize > args.len() {

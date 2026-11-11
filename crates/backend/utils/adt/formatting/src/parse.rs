@@ -324,6 +324,7 @@ pub fn is_c_space(c: u8) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[allow(unused_imports)]
     use crate::tables::*;
 
     // C admits the picture workspace as (len + 1) * sizeof(FormatNode) with

@@ -209,9 +209,15 @@ impl Wrapper {
     /// role-agnostic layers).
     pub const fn dict_role(self) -> Option<crate::part::StreamRole> {
         match self {
-            Wrapper::FrontZstd | Wrapper::FrontOnPairZstd => Some(crate::part::StreamRole::DictPayload),
+            Wrapper::FrontZstd | Wrapper::FrontOnPairZstd => {
+                Some(crate::part::StreamRole::DictPayload)
+            }
             Wrapper::PackedZstd => Some(crate::part::StreamRole::DictIndex),
-            Wrapper::None | Wrapper::Lz4 | Wrapper::Zstd | Wrapper::OnPairZstd | Wrapper::IntPre => None,
+            Wrapper::None
+            | Wrapper::Lz4
+            | Wrapper::Zstd
+            | Wrapper::OnPairZstd
+            | Wrapper::IntPre => None,
         }
     }
 }

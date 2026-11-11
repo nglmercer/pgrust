@@ -171,7 +171,7 @@ pub(crate) fn feed_at(p: &PipelineNode<'_>) -> usize {
 }
 
 /// An arm's row: its last projection before the Feed.
-pub(crate) fn arm_cols<'g, 'p>(p: &'g PipelineNode<'p>) -> Option<&'p NodeList<'p>> {
+pub(crate) fn arm_cols<'p>(p: &PipelineNode<'p>) -> Option<&'p NodeList<'p>> {
     p.ops[..feed_at(p)].iter().rev().find_map(|op| if let Op::Project(l) = op { Some(*l) } else { None })
 }
 

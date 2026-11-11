@@ -14,9 +14,9 @@ use mcx::{Mcx, PgVec};
 use types_core::{int64, InvalidOid, Oid, SubTransactionId};
 use types_error::{
     PgResult, ERRCODE_FEATURE_NOT_SUPPORTED, ERRCODE_INSUFFICIENT_PRIVILEGE,
-    ERRCODE_INVALID_PARAMETER_VALUE,
-    ERRCODE_NUMERIC_VALUE_OUT_OF_RANGE, ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE,
-    ERRCODE_PROGRAM_LIMIT_EXCEEDED, ERRCODE_UNDEFINED_OBJECT, ERROR,
+    ERRCODE_INVALID_PARAMETER_VALUE, ERRCODE_NUMERIC_VALUE_OUT_OF_RANGE,
+    ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE, ERRCODE_PROGRAM_LIMIT_EXCEEDED,
+    ERRCODE_UNDEFINED_OBJECT, ERROR,
 };
 use types_storage::large_object::{IFS_RDLOCK, IFS_WRLOCK};
 
@@ -83,17 +83,16 @@ fn close_error(fnamebuf: &str, errnum: i32) -> Box<types_error::PgError> {
 }
 
 fn fd_is_valid(fd: i32) -> bool {
-    fd >= 0
-        && with_state(|s| {
-            (fd as usize) < s.len() && s.slot(fd).is_some()
-        })
+    fd >= 0 && with_state(|s| (fd as usize) < s.len() && s.slot(fd).is_some())
 }
 
 fn newLOfd() -> PgResult<i32> {
     with_state(|s| {
         s.lo_cleanup_needed = true;
         let Some(cookies) = s.cookies.as_mut() else {
-            let fscxt = s.fscxt.get_or_insert_with(|| mcx::MemoryContext::new("Filesystem"));
+            let fscxt = s
+                .fscxt
+                .get_or_insert_with(|| mcx::MemoryContext::new("Filesystem"));
             // SAFETY: cookies allocate from fscxt and are dropped before it
             // (AtEOXact_LargeObject clears cookies first).
             let mcx = unsafe { core::mem::transmute::<Mcx<'_>, Mcx<'static>>(fscxt.mcx()) };
@@ -114,9 +113,13 @@ fn newLOfd() -> PgResult<i32> {
     })
 }
 
-fn grow_cookies(v: &mut PgVec<'static, Option<LargeObjectDesc>>, additional: usize) -> PgResult<()> {
+fn grow_cookies(
+    v: &mut PgVec<'static, Option<LargeObjectDesc>>,
+    additional: usize,
+) -> PgResult<()> {
     let bytes = additional.saturating_mul(core::mem::size_of::<Option<LargeObjectDesc>>());
-    v.try_reserve(additional).map_err(|_| v.allocator().oom(bytes))?;
+    v.try_reserve(additional)
+        .map_err(|_| v.allocator().oom(bytes))?;
     v.resize_with(v.len() + additional, || None);
     Ok(())
 }
@@ -176,7 +179,9 @@ pub fn be_lo_close(fd: i32) -> PgResult<i32> {
 fn not_opened(fd: i32, what: &str) -> Box<types_error::PgError> {
     ereport(ERROR)
         .errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE)
-        .errmsg(format!("large object descriptor {fd} was not opened for {what}"))
+        .errmsg(format!(
+            "large object descriptor {fd} was not opened for {what}"
+        ))
         .into_error()
         .into()
 }
@@ -214,7 +219,12 @@ pub fn be_lo_lseek<'mcx>(mcx: Mcx<'mcx>, fd: i32, offset: i32, whence: i32) -> P
         return Err(invalid_descriptor(fd));
     }
     let status = with_state(|s| {
-        inv_seek(mcx, s.slot_mut(fd).as_mut().expect("fd_is_valid"), offset as int64, whence)
+        inv_seek(
+            mcx,
+            s.slot_mut(fd).as_mut().expect("fd_is_valid"),
+            offset as int64,
+            whence,
+        )
     })?;
     if status != status as i32 as int64 {
         return Err(ereport(ERROR)
@@ -233,7 +243,12 @@ pub fn be_lo_lseek64<'mcx>(mcx: Mcx<'mcx>, fd: i32, offset: int64, whence: i32) 
         return Err(invalid_descriptor(fd));
     }
     with_state(|s| {
-        inv_seek(mcx, s.slot_mut(fd).as_mut().expect("fd_is_valid"), offset, whence)
+        inv_seek(
+            mcx,
+            s.slot_mut(fd).as_mut().expect("fd_is_valid"),
+            offset,
+            whence,
+        )
     })
 }
 
@@ -385,7 +400,9 @@ fn lo_import_internal<'mcx>(mcx: Mcx<'mcx>, filename: &[u8], lobjOid: Oid) -> Pg
         return Err(ereport(ERROR)
             .with_saved_errno(elog::errno::current_errno())
             .errcode_for_file_access()
-            .errmsg(format!("could not open server file \"{fnamebuf}\": {PCT_M}"))
+            .errmsg(format!(
+                "could not open server file \"{fnamebuf}\": {PCT_M}"
+            ))
             .into_error()
             .into());
     }
@@ -404,7 +421,9 @@ fn lo_import_internal<'mcx>(mcx: Mcx<'mcx>, filename: &[u8], lobjOid: Oid) -> Pg
                 return Err(ereport(ERROR)
                     .with_saved_errno(elog::errno::current_errno())
                     .errcode_for_file_access()
-                    .errmsg(format!("could not read server file \"{fnamebuf}\": {PCT_M}"))
+                    .errmsg(format!(
+                        "could not read server file \"{fnamebuf}\": {PCT_M}"
+                    ))
                     .into_error()
                     .into());
             }
@@ -467,7 +486,9 @@ pub fn be_lo_export<'mcx>(mcx: Mcx<'mcx>, lobjId: Oid, filename: &[u8]) -> PgRes
         return Err(ereport(ERROR)
             .with_saved_errno(elog::errno::current_errno())
             .errcode_for_file_access()
-            .errmsg(format!("could not create server file \"{fnamebuf}\": {PCT_M}"))
+            .errmsg(format!(
+                "could not create server file \"{fnamebuf}\": {PCT_M}"
+            ))
             .into_error()
             .into());
     }
@@ -494,13 +515,14 @@ pub fn be_lo_export<'mcx>(mcx: Mcx<'mcx>, lobjId: Oid, filename: &[u8]) -> PgRes
                 break;
             }
             // SAFETY: buf's first nbytes bytes were just filled by inv_read.
-            let written =
-                unsafe { libc::write(fd, buf.as_ptr().cast(), nbytes as usize) };
+            let written = unsafe { libc::write(fd, buf.as_ptr().cast(), nbytes as usize) };
             if written != nbytes as isize {
                 return Err(ereport(ERROR)
                     .with_saved_errno(elog::errno::current_errno())
                     .errcode_for_file_access()
-                    .errmsg(format!("could not write server file \"{fnamebuf}\": {PCT_M}"))
+                    .errmsg(format!(
+                        "could not write server file \"{fnamebuf}\": {PCT_M}"
+                    ))
                     .into_error()
                     .into());
             }
@@ -708,10 +730,15 @@ mod tests {
     fn filesystem_context_lives_from_first_descriptor_to_xact_end() {
         assert!(crate::with_state(|s| s.fscxt.is_none() && s.len() == 0));
         assert_eq!(crate::newLOfd().unwrap(), 0);
-        assert!(crate::with_state(|s| s.fscxt.as_ref().is_some_and(|c| c.name() == "Filesystem")));
+        assert!(crate::with_state(|s| s
+            .fscxt
+            .as_ref()
+            .is_some_and(|c| c.name() == "Filesystem")));
         assert_eq!(crate::with_state(|s| s.len()), 64);
         crate::AtEOXact_LargeObject(true).unwrap();
-        assert!(crate::with_state(|s| s.fscxt.is_none() && s.len() == 0 && !s.lo_cleanup_needed));
+        assert!(crate::with_state(|s| s.fscxt.is_none()
+            && s.len() == 0
+            && !s.lo_cleanup_needed));
     }
 
     // be-fsstubs.c:372 be_loread: `palloc(VARHDRSZ + len)` is admitted by
@@ -734,7 +761,11 @@ mod tests {
                 format!("invalid memory alloc request size {request}"),
                 "len {len}"
             );
-            assert_eq!(e.sqlstate(), types_error::ERRCODE_INTERNAL_ERROR, "len {len}");
+            assert_eq!(
+                e.sqlstate(),
+                types_error::ERRCODE_INTERNAL_ERROR,
+                "len {len}"
+            );
         }
         // An admitted len reaches lo_read, whose fd check fails as before.
         let e = crate::be_loread(mcx, 0, 16).expect_err("fd 0 is not open");
@@ -765,7 +796,10 @@ mod tests {
             "non-ASCII server file names are not supported yet in databases with encoding \"SQL_ASCII\""
         );
         assert_eq!(e.hint(), Some("Use a database with encoding \"UTF8\"."));
-        assert_eq!(crate::to_fnamebuf("/tmp/caf\u{e9}".as_bytes()).unwrap(), "/tmp/caf\u{e9}");
+        assert_eq!(
+            crate::to_fnamebuf("/tmp/caf\u{e9}".as_bytes()).unwrap(),
+            "/tmp/caf\u{e9}"
+        );
     }
 
     // The lo_export permission bits C produces: 0666 & ~022.

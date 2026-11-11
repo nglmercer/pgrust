@@ -125,11 +125,19 @@ pub fn lex(src: &str) -> PgResult<Vec<(Tok, usize)>> {
             }
             _ if c == b'-' || c == b'_' || c.is_ascii_alphanumeric() => {
                 let start = i;
-                while i < b.len() && (b[i] == b'-' || b[i] == b'_' || b[i].is_ascii_alphanumeric()) {
+                while i < b.len() && (b[i] == b'-' || b[i] == b'_' || b[i].is_ascii_alphanumeric())
+                {
                     i += 1;
                 }
                 let word = &src[start..i];
-                toks.push((if word == "_null_" { Tok::Null } else { Tok::Id(word.to_string()) }, line));
+                toks.push((
+                    if word == "_null_" {
+                        Tok::Null
+                    } else {
+                        Tok::Id(word.to_string())
+                    },
+                    line,
+                ));
                 at_line_start = false;
                 continue;
             }
@@ -156,7 +164,10 @@ impl Parser {
         self.toks.get(self.pos).map(|t| &t.0)
     }
     fn line(&self) -> usize {
-        self.toks.get(self.pos).or(self.toks.last()).map_or(0, |t| t.1)
+        self.toks
+            .get(self.pos)
+            .or(self.toks.last())
+            .map_or(0, |t| t.1)
     }
     fn next(&mut self) -> Option<Tok> {
         let t = self.toks.get(self.pos).map(|t| t.0.clone());
@@ -166,13 +177,19 @@ impl Parser {
     fn ident(&mut self) -> PgResult<String> {
         match self.next() {
             Some(Tok::Id(s)) => Ok(s),
-            other => Err(syntax(self.line(), format!("syntax error: expected identifier, got {other:?}"))),
+            other => Err(syntax(
+                self.line(),
+                format!("syntax error: expected identifier, got {other:?}"),
+            )),
         }
     }
     fn keyword(&mut self, kw: &str) -> PgResult<()> {
         match self.next() {
             Some(Tok::Id(s)) if s == kw => Ok(()),
-            other => Err(syntax(self.line(), format!("syntax error: expected \"{kw}\", got {other:?}"))),
+            other => Err(syntax(
+                self.line(),
+                format!("syntax error: expected \"{kw}\", got {other:?}"),
+            )),
         }
     }
     fn peek_is(&self, kw: &str) -> bool {
@@ -181,21 +198,31 @@ impl Parser {
     fn expect(&mut self, t: Tok) -> PgResult<()> {
         match self.next() {
             Some(x) if x == t => Ok(()),
-            other => Err(syntax(self.line(), format!("syntax error: expected {t:?}, got {other:?}"))),
+            other => Err(syntax(
+                self.line(),
+                format!("syntax error: expected {t:?}, got {other:?}"),
+            )),
         }
     }
     fn oid(&mut self) -> PgResult<u32> {
         let s = self.ident()?;
-        s.parse::<u32>().map_err(|_| syntax(self.line(), format!("syntax error: bad OID \"{s}\"")))
+        s.parse::<u32>()
+            .map_err(|_| syntax(self.line(), format!("syntax error: bad OID \"{s}\"")))
     }
 }
 
 pub fn parse(src: &str) -> PgResult<Vec<Stmt>> {
-    let mut p = Parser { toks: lex(src)?, pos: 0 };
+    let mut p = Parser {
+        toks: lex(src)?,
+        pos: 0,
+    };
     let mut out = Vec::new();
     while let Some(tok) = p.peek() {
         let Tok::Id(kw) = tok else {
-            return Err(syntax(p.line(), format!("syntax error: unexpected {tok:?}")));
+            return Err(syntax(
+                p.line(),
+                format!("syntax error: unexpected {tok:?}"),
+            ));
         };
         let kw = kw.clone();
         p.pos += 1;
@@ -238,14 +265,30 @@ pub fn parse(src: &str) -> PgResult<Vec<Stmt>> {
                             nullness = Nullness::ForceNull;
                         }
                     }
-                    columns.push(Column { name: cname, typ, nullness });
+                    columns.push(Column {
+                        name: cname,
+                        typ,
+                        nullness,
+                    });
                     match p.next() {
                         Some(Tok::Comma) => continue,
                         Some(Tok::RParen) => break,
-                        other => return Err(syntax(p.line(), format!("syntax error in column list: {other:?}"))),
+                        other => {
+                            return Err(syntax(
+                                p.line(),
+                                format!("syntax error in column list: {other:?}"),
+                            ))
+                        }
                     }
                 }
-                out.push(Stmt::Create { name, oid, bootstrap, shared, rowtype_oid, columns });
+                out.push(Stmt::Create {
+                    name,
+                    oid,
+                    bootstrap,
+                    shared,
+                    rowtype_oid,
+                    columns,
+                });
             }
             "insert" => {
                 p.expect(Tok::LParen)?;
@@ -255,7 +298,12 @@ pub fn parse(src: &str) -> PgResult<Vec<Stmt>> {
                         Some(Tok::Id(s)) => vals.push(Some(s)),
                         Some(Tok::Null) => vals.push(None),
                         Some(Tok::RParen) => break,
-                        other => return Err(syntax(p.line(), format!("syntax error in insert: {other:?}"))),
+                        other => {
+                            return Err(syntax(
+                                p.line(),
+                                format!("syntax error in insert: {other:?}"),
+                            ))
+                        }
                     }
                 }
                 out.push(Stmt::Insert(vals));
@@ -267,7 +315,11 @@ pub fn parse(src: &str) -> PgResult<Vec<Stmt>> {
                     let index_oid = p.oid()?;
                     p.keyword("on")?;
                     let on = p.ident()?;
-                    out.push(Stmt::DeclareToast { toast_oid, index_oid, on });
+                    out.push(Stmt::DeclareToast {
+                        toast_oid,
+                        index_oid,
+                        on,
+                    });
                 } else {
                     let unique = if p.peek_is("unique") {
                         p.pos += 1;
@@ -291,17 +343,34 @@ pub fn parse(src: &str) -> PgResult<Vec<Stmt>> {
                         match p.next() {
                             Some(Tok::Comma) => continue,
                             Some(Tok::RParen) => break,
-                            other => return Err(syntax(p.line(), format!("syntax error in index params: {other:?}"))),
+                            other => {
+                                return Err(syntax(
+                                    p.line(),
+                                    format!("syntax error in index params: {other:?}"),
+                                ))
+                            }
                         }
                     }
-                    out.push(Stmt::DeclareIndex { unique, name, oid, on, using, params });
+                    out.push(Stmt::DeclareIndex {
+                        unique,
+                        name,
+                        oid,
+                        on,
+                        using,
+                        params,
+                    });
                 }
             }
             "build" => {
                 p.keyword("indices")?;
                 out.push(Stmt::BuildIndices);
             }
-            other => return Err(syntax(p.line(), format!("syntax error: unexpected \"{other}\""))),
+            other => {
+                return Err(syntax(
+                    p.line(),
+                    format!("syntax error: unexpected \"{other}\""),
+                ))
+            }
         }
     }
     Ok(out)
@@ -317,15 +386,33 @@ mod tests {
         let stmts = parse(src).unwrap();
         assert_eq!(stmts.len(), 9);
         match &stmts[0] {
-            Stmt::Create { name, oid, bootstrap, shared, rowtype_oid, columns } => {
-                assert_eq!((name.as_str(), *oid, *bootstrap, *shared, *rowtype_oid), ("pg_proc", 1255, true, false, 81));
+            Stmt::Create {
+                name,
+                oid,
+                bootstrap,
+                shared,
+                rowtype_oid,
+                columns,
+            } => {
+                assert_eq!(
+                    (name.as_str(), *oid, *bootstrap, *shared, *rowtype_oid),
+                    ("pg_proc", 1255, true, false, 81)
+                );
                 assert_eq!(columns.len(), 4);
                 assert_eq!(columns[2].nullness, Nullness::ForceNotNull);
             }
             s => panic!("{s:?}"),
         }
         match &stmts[1] {
-            Stmt::Insert(v) => assert_eq!(v, &vec![Some("1242".into()), Some("boolin".into()), Some("a b".into()), None]),
+            Stmt::Insert(v) => assert_eq!(
+                v,
+                &vec![
+                    Some("1242".into()),
+                    Some("boolin".into()),
+                    Some("a b".into()),
+                    None
+                ]
+            ),
             s => panic!("{s:?}"),
         }
         match &stmts[4] {

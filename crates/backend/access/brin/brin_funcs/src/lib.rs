@@ -136,7 +136,11 @@ fn brin_summarize_range_impl(
         let _ = elog::ereport(DEBUG1)
             .errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE)
             .errmsg(format!("index \"{}\" is not valid", indexRel.name()))
-            .finish(ErrorLocation::new(file!(), line!() as i32, "brin_summarize_range"));
+            .finish(ErrorLocation::new(
+                file!(),
+                line!() as i32,
+                "brin_summarize_range",
+            ));
     }
 
     let (guard, save_nestlevel) = saved.expect("heapRel was opened");
@@ -223,7 +227,11 @@ pub fn fc_brin_desummarize_range(
         let _ = elog::ereport(DEBUG1)
             .errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE)
             .errmsg(format!("index \"{}\" is not valid", indexRel.name()))
-            .finish(ErrorLocation::new(file!(), line!() as i32, "brin_desummarize_range"));
+            .finish(ErrorLocation::new(
+                file!(),
+                line!() as i32,
+                "brin_desummarize_range",
+            ));
     }
 
     indexRel.close(ShareUpdateExclusiveLock)?;

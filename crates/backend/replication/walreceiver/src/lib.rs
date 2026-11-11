@@ -1,8 +1,6 @@
 // walreceiver.c: the standby-side WAL receiver daemon. The transport is the
 // in-crate replication-protocol client (client.rs, mapping libpqwalreceiver.c).
-#![allow(non_snake_case)]
-#![allow(non_upper_case_globals)]
-#![allow(clippy::result_large_err)]
+#![allow(clippy::result_large_err, non_snake_case, non_upper_case_globals)]
 
 use std::cell::{Cell, RefCell};
 
@@ -1282,6 +1280,7 @@ mod tests {
         setup();
         let segsz = transam_xlog::wal_segment_size();
         // A read-only descriptor: pwrite fails with EBADF, deterministically.
+        #[allow(clippy::manual_c_str_literals)]
         let fd = unsafe { libc::open(b"/dev/null\0".as_ptr().cast(), libc::O_RDONLY) };
         assert!(fd >= 0);
         arm_segment(fd, transam_xlog::XLByteToSeg(0x1000, segsz));
@@ -1301,6 +1300,7 @@ mod tests {
     fn write_failure_on_a_full_device_is_disk_full() {
         setup();
         let segsz = transam_xlog::wal_segment_size();
+        #[allow(clippy::manual_c_str_literals)]
         let fd = unsafe { libc::open(b"/dev/full\0".as_ptr().cast(), libc::O_WRONLY) };
         assert!(fd >= 0);
         arm_segment(fd, transam_xlog::XLByteToSeg(0x2000, segsz));

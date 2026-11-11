@@ -163,6 +163,7 @@ fn pulls(gx: &crate::graph::Gx<'_, '_>, k: usize) -> bool {
 /// over build `b`, `lazy` its build waiting for the first row: an empty build ends the pipeline at the window when this
 /// holds, else at the first row that reaches the probe (`Env::full`). rerun/inner_probe.rs `needs_end` reads it for a nest
 /// inner's probe, whose `Env::full` must end the re-open's walk (D2820).
+#[allow(clippy::nonminimal_bool)]
 pub(crate) fn prefix_safe_of(gx: &crate::graph::Gx<'_, '_>, k: usize, j: usize, b: usize, lazy: bool) -> bool {
     let p = &gx.pipelines()[k];
     let Some(Op::Join(JoinDesc::Probe { outer_first, .. })) = p.ops.get(j) else { return false };
@@ -550,7 +551,7 @@ fn held_side(gx: &crate::graph::Gx<'_, '_>, b: usize) -> bool {
     };
     let step = |op: &Op<'_>| match op {
         Op::Srf(d) => d.tlist.iter().all(held) && d.functions.iter().all(|f| held(f.node) && f.args.iter().all(held)),
-        Op::Join(JoinDesc::Nest { inner, qual, .. }) => src(&inner.source) && inner.ops.iter().all(|o| plain(o)) && qual.iter().all(held),
+        Op::Join(JoinDesc::Nest { inner, qual, .. }) => src(&inner.source) && inner.ops.iter().all(&plain) && qual.iter().all(held),
         op => plain(op),
     };
     let unfed = p.desc.consumes.is_empty() && !matches!(p.source, Source::Breaker { .. });

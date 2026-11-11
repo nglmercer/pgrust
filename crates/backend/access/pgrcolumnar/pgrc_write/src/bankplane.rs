@@ -85,7 +85,12 @@ fn ident_of(p: &pgrc_format::manifest::PartRecord) -> fb::PartIdent {
 /// A Stats body's part-grain record: its last `STATS_RECORD_LEN` bytes (empty when none).
 pub fn part_record(body: &[u8]) -> &[u8] {
     let n = body.len() / pgrc_format::meta::STATS_RECORD_LEN;
-    if n == 0 { &[] } else { &body[(n - 1) * pgrc_format::meta::STATS_RECORD_LEN..n * pgrc_format::meta::STATS_RECORD_LEN] }
+    if n == 0 {
+        &[]
+    } else {
+        &body
+            [(n - 1) * pgrc_format::meta::STATS_RECORD_LEN..n * pgrc_format::meta::STATS_RECORD_LEN]
+    }
 }
 
 /// Stage `bankstats-<gen>.pgrcbs` for the manifest being published: the image is written to its `.tmp` name
@@ -105,7 +110,9 @@ pub fn stage_plane(
     }
     // OC-2 (a), P-1: the plane is written only over an empty base, which is O(new); any later publish drops it.
     if base.is_some_and(|b| !b.parts.is_empty()) {
-        return skip(PlaneOutcome::Skipped { reason: "base has parts" });
+        return skip(PlaneOutcome::Skipped {
+            reason: "base has parts",
+        });
     }
     // Canonical column set: the first sealed part's captured attno list
     // (attno-sorted at seal); every sealed part must agree.
@@ -169,9 +176,14 @@ pub fn stage_plane(
     })();
     match write {
         Ok(()) => (
-            PlaneOutcome::Written { file_name: final_name.clone(), bytes: image.len() as u64 },
+            PlaneOutcome::Written {
+                file_name: final_name.clone(),
+                bytes: image.len() as u64,
+            },
             Some((tmp_name, final_name)),
         ),
-        Err(_) => skip(PlaneOutcome::Skipped { reason: "plane write io" }),
+        Err(_) => skip(PlaneOutcome::Skipped {
+            reason: "plane write io",
+        }),
     }
 }

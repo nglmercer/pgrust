@@ -86,6 +86,7 @@ pub(crate) unsafe fn scatter(a: &OpArena, d: *mut u8, len: usize, n: usize, mask
             }
         }
     }
+    #[allow(clippy::unnecessary_sort_by)]
     imgs.as_mut_slice(a).sort_unstable_by(|x, y| y.0.cmp(&x.0));
     let end = rd::<u64>(d, END) as usize;
     let mut top = end;
@@ -94,9 +95,9 @@ pub(crate) unsafe fn scatter(a: &OpArena, d: *mut u8, len: usize, n: usize, mask
         core::ptr::copy(d.add(off), d.add(top), l8);
         wr::<u64>(t.rec(i), 8 * (t.words + 1 + c), (end - top) as u64);
     }
-    (wr::<u64>(d, TOP, top as u64), wr::<u64>(d, N, keep as u64));
+    wr::<u64>(d, TOP, top as u64); wr::<u64>(d, N, keep as u64);
     // the newest carve first: the arena's bump rewinds, so the caller's next scatter reuses the same chunk
-    (imgs.release(a), buf.release(a));
+    imgs.release(a); buf.release(a);
     Ok(keep)
 }
 
@@ -148,7 +149,7 @@ gravity_abi::host! {
         let settle = |nb: u64| {
             let d = nb as usize as *mut u8;
             let limit = rd::<u32>(d, LIMIT) as u64;
-            (wr::<u64>(d, END, limit), wr::<u64>(d, TOP, limit - tail));
+            wr::<u64>(d, END, limit); wr::<u64>(d, TOP, limit - tail);
             nb
         };
         match v4::grow_in(ctx, rec, head, tail) {
@@ -204,7 +205,7 @@ gravity_abi::host! {
                 break;
             }
         }
-        (wr::<u8>(r, SPILL, bits), wr::<u64>(r, SPILLED, m));
+        wr::<u8>(r, SPILL, bits); wr::<u64>(r, SPILLED, m);
         *out = kept as u64;
         if keep != 0 {
             let fits = kept_fits(r, kept, rec, keep);
@@ -234,7 +235,7 @@ unsafe fn shrink_to(d: *mut u8, keep: u64) {
     if end != keep {
         core::ptr::copy(d.add(top as usize), d.add((keep - tail) as usize), tail as usize);
     }
-    (wr::<u64>(d, END, keep), wr::<u64>(d, TOP, keep - tail));
+    wr::<u64>(d, END, keep); wr::<u64>(d, TOP, keep - tail);
 }
 
 gravity_abi::host! {
@@ -335,7 +336,7 @@ unsafe fn spill_to(st: &mut State<'_>, out: &mut Out, m2: u64) -> gravity_driver
     // CONVERT1: the scatter's working memory, on the leader slot's operator row
     let a = OpArena::scratch_of(st.op_owner(), Kind::HashBuild);
     scatter(&a, d, len, n, m2 & !mask, bits, &mut |p, b| out.put(st, p, b))?;
-    (wr::<u8>(d, SPILL, bits), wr::<u64>(d, SPILLED, m2));
+    wr::<u8>(d, SPILL, bits); wr::<u64>(d, SPILLED, m2);
     Ok(())
 }
 
@@ -403,7 +404,7 @@ pub(crate) unsafe fn grow_leader(st: &mut State<'_>, bytes: usize, within: bool,
     let (d, len) = (st.bytes.as_mut_ptr(), st.bytes.len());
     if !fresh {
         core::ptr::copy(d.add(end - t), d.add(len - t), t);
-        (wr::<u64>(d, TOP, (len - t) as u64), wr::<u64>(d, END, len as u64));
+        wr::<u64>(d, TOP, (len - t) as u64); wr::<u64>(d, END, len as u64);
     }
     wr::<u32>(d, LIMIT, len.min(u32::MAX as usize) as u32);
     Ok(true)
@@ -449,14 +450,14 @@ pub(crate) unsafe fn merge_into(leader: &mut State<'_>, partial: &[u8]) -> gravi
         if grow_leader(leader, want, true, None)? {
             append(leader.bytes, partial)?;
             let d = leader.bytes.as_mut_ptr();
-            (wr::<u8>(d, SPILL, 0), wr::<u64>(d, SPILLED, 0));
+            wr::<u8>(d, SPILL, 0); wr::<u64>(d, SPILLED, 0);
             return Ok(());
         }
     }
     let d = leader.bytes.as_mut_ptr();
     if rd::<u8>(d, PHASE) == 0 {
         head(d, s, leader.bytes.len());
-        (wr::<u8>(d, SPILL, 0), wr::<u64>(d, SPILLED, 0));
+        wr::<u8>(d, SPILL, 0); wr::<u64>(d, SPILLED, 0);
     }
     let bits = rd::<u8>(s, PBITS);
     let mut out = Out::of(leader, bits);
@@ -467,7 +468,7 @@ pub(crate) unsafe fn merge_into(leader: &mut State<'_>, partial: &[u8]) -> gravi
         let (len, n) = (leader.bytes.len(), rd::<u64>(d, N) as usize);
         scatter(&a, d, len, n, want & !mask, bits, &mut |p, b| out.put(leader, p, b))?;
         let d = leader.bytes.as_mut_ptr();
-        (wr::<u8>(d, SPILL, bits), wr::<u64>(d, SPILLED, mask | want));
+        wr::<u8>(d, SPILL, bits); wr::<u64>(d, SPILLED, mask | want);
     }
     let ts = Rt::of(s as *mut u8, usize::MAX);
     let mut one = AVec::<u8>::with_capacity(&a, ts.rec + 64).map_err(refused)?;

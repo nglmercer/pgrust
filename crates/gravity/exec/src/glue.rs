@@ -5,6 +5,7 @@ use std::rc::Rc;
 
 use gravity_driver::{BindingParts, CommandId, Error, Identity, PerTuple, Pins, Snapshot};
 use gravity_program::{Generation, Handle, PlanKey};
+#[allow(unused_imports)]
 use types_error::{PgError, PgResult, ERRCODE_INTERNAL_ERROR, ERRCODE_OUT_OF_MEMORY, ERRCODE_QUERY_CANCELED};
 use types_portal::CachedPlanHandle;
 use types_snapshot::SnapshotData;

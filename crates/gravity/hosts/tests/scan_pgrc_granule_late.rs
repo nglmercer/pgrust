@@ -141,7 +141,7 @@ fn verbatim_nulls_fixture() -> BuiltFixture {
     use pgrc_qa::corpus::{append_rows_with_sources, finish_with_sources, open_writer};
     use pgrc_write::publish::{effective_manifest, TxnVerdict};
     let rows = 20_000u64;
-    let value = |i: u64| (i % 7 != 0).then(|| if i % 11 == 0 { Vec::new() } else { format!("v{:05}-{}", i * 13 % 9_973, "x".repeat((i % 29) as usize)).into_bytes() });
+    let value = |i: u64| (!i.is_multiple_of(7)).then(|| if i.is_multiple_of(11) { Vec::new() } else { format!("v{:05}-{}", i * 13 % 9_973, "x".repeat((i % 29) as usize)).into_bytes() });
     let fx = Fixture {
         name: "gravity_late_verbatim",
         dir: "/qa/t7333".to_string(),
@@ -246,14 +246,15 @@ fn a_lane_whose_block_fills_turn_dense_mid_granule_switches_to_the_whole_decode_
         }
         let i = switched.expect("the whole blocks cross");
         assert!(i >= 16, "window {}: the sparse fills of frame 0 stay gathered (switched at fill {i})", w - 1);
+        #[allow(clippy::needless_range_loop)]
         for r in 0..n {
             assert_eq!(cell(l, r, false), expect[r], "window {} row {r}: the lane is whole after the crossing", w - 1);
         }
         // done for the window: a later fill of any rows decodes nothing (the words stay)
-        let words: Vec<u64> = (0..n).map(|i| unsafe { l.datum(i) as u64 }).collect();
+        let words: Vec<u64> = (0..n).map(|i| unsafe { l.datum(i) }).collect();
         fill(src, l, &block(40, n, 1));
         fill(src, l, &[]);
-        assert!((0..n).all(|i| unsafe { l.datum(i) as u64 } == words[i]), "window {}: no fill after the switch rewrites a row", w - 1);
+        assert!((0..n).all(|i| unsafe { l.datum(i) } == words[i]), "window {}: no fill after the switch rewrites a row", w - 1);
         vec![]
     });
     late.unbind();
@@ -281,6 +282,7 @@ fn a_dense_late_fill_over_a_span_shorter_than_the_sample_stays_gathered() {
         for b in 0..half {
             fill(src, l, &block(b, n, 1));
         }
+        #[allow(clippy::needless_range_loop)]
         for i in 0..half * 64 {
             assert_eq!(cell(l, i, false), expect[i], "window {} row {i}: an asked row is decoded", w - 1);
         }
@@ -288,6 +290,7 @@ fn a_dense_late_fill_over_a_span_shorter_than_the_sample_stays_gathered() {
         for b in half..2 * half {
             fill(src, l, &block(b, n, 1));
         }
+        #[allow(clippy::needless_range_loop)]
         for i in 0..n {
             assert_eq!(cell(l, i, false), expect[i], "window {} row {i}: the lane is whole once the span reaches the sample", w - 1);
         }
@@ -360,6 +363,7 @@ fn a_by_reference_lane_switched_whole_keeps_the_images_earlier_fills_handed_out_
         // two whole blocks cross 1/8: the lane decodes whole into the arena's next bytes
         fill(src, l, &block(16, n, 1));
         fill(src, l, &block(17, n, 1));
+        #[allow(clippy::needless_range_loop)]
         for i in 0..n {
             assert_eq!(cell(l, i, true), expect[i], "window {} row {i}: the lane is whole after the crossing", w - 1);
         }
@@ -367,10 +371,10 @@ fn a_by_reference_lane_switched_whole_keeps_the_images_earlier_fills_handed_out_
             assert_eq!(unsafe { image(*p) }, *v, "window {} row {r}: an image handed out before the switch is intact", w - 1);
         }
         // a straight body's fill of every row after the switch decodes nothing: every row keeps its image
-        let words: Vec<u64> = (0..n).map(|i| unsafe { l.datum(i) as u64 }).collect();
+        let words: Vec<u64> = (0..n).map(|i| unsafe { l.datum(i) }).collect();
         fill(src, l, &[]);
         fill(src, l, &block(3, n, 1));
-        assert!((0..n).all(|i| unsafe { l.datum(i) as u64 } == words[i]), "window {}: no fill after the switch moves an image", w - 1);
+        assert!((0..n).all(|i| unsafe { l.datum(i) } == words[i]), "window {}: no fill after the switch moves an image", w - 1);
         vec![]
     });
     late.unbind();
@@ -390,12 +394,13 @@ fn a_straight_body_fill_of_every_row_decodes_the_lane_whole_once() {
         // one sparse fill first (frame 0 gathered), then the straight body's fill of every row
         fill(src, l, &[5, 700]);
         fill(src, l, &[]);
+        #[allow(clippy::needless_range_loop)]
         for i in 0..n {
             assert_eq!(cell(l, i, false), expect[i], "window {} row {i}", w - 1);
         }
-        let words: Vec<u64> = (0..n).map(|i| unsafe { l.datum(i) as u64 }).collect();
+        let words: Vec<u64> = (0..n).map(|i| unsafe { l.datum(i) }).collect();
         fill(src, l, &[]);
-        assert!((0..n).all(|i| unsafe { l.datum(i) as u64 } == words[i]));
+        assert!((0..n).all(|i| unsafe { l.datum(i) } == words[i]));
         vec![]
     });
     late.unbind();

@@ -70,6 +70,7 @@ gravity_abi::host! {
     pub unsafe fn fetch<S: Source>(s: *mut Site, nrows: u32) -> i64 {
         let st = &mut *s;
         let src = &mut *(st.src.ptr() as *mut S);
+        #[allow(clippy::unnecessary_cast)]
         let lanes = core::slice::from_raw_parts_mut(st.lanes.ptr() as *mut Lane, st.nlanes.max(1) as usize);
         // the request: `nrows` RowId words at the site's rowid lane (`ID_ROWID`; the kernel points it at its array)
         let req = lanes.iter().find(|l| gravity_abi::ctx::lane::id_kind(l.id) == gravity_abi::ctx::lane::ID_ROWID && !l.ptr.ptr().is_null()).map_or(core::ptr::null(), |l| l.ptr.ptr() as *const u64);

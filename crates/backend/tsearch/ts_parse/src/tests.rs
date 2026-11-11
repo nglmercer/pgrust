@@ -25,6 +25,7 @@ impl<'mcx> MockEnv<'mcx> {
         MockEnv { mcx, tokens, next: 0, buf: Vec::new(), dicts, thes_seen: Vec::new() }
     }
 
+    #[allow(clippy::extra_unused_lifetimes)]
     fn lex<'a>(&self, s: &str) -> PgVec<'mcx, TsLexeme<'mcx>> {
         let mut v = PgVec::new_in(self.mcx);
         let mut w = PgVec::new_in(self.mcx);

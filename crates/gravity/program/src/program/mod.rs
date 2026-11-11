@@ -1,3 +1,4 @@
+#[allow(unused_imports)]
 use core::hash::{Hash, Hasher};
 
 use gravity_abi::ctx::{ctx_size, lane};
@@ -5,6 +6,7 @@ use gravity_abi::hash::Fnv128;
 
 use crate::arena::{Arena, ArenaRef, ArenaVec};
 use crate::laneset::LaneSet;
+#[allow(unused_imports)]
 use gravity_abi::breaker::{fits_inline, Breaker, Budget, KeyKind, OwnerFns, RecordLayout, SlotKind, WideLayout, LAYOUT_IMPLICIT_COUNT, MAX_RECORD_SLOTS, ORDER_KEY, ORDER_NONE};
 use crate::code::Code;
 use crate::lives::LifeId;

@@ -205,7 +205,9 @@ impl PartRegistry {
             all_pinned_at: AtomicU64::new(0),
             held: Mutex::new(None),
             in_use: Mutex::new(vec![None; IN_USE_CAP].into_boxed_slice()), // alloc: Cold charged crate::partcache::OWNER (the charge below)
-            _charge: crate::partcache::holder_charge((IN_USE_CAP * size_of::<Option<Arc<OpenPart>>>()) as u64),
+            _charge: crate::partcache::holder_charge(
+                (IN_USE_CAP * size_of::<Option<Arc<OpenPart>>>()) as u64,
+            ),
             trims_real: core::array::from_fn(|_| AtomicU64::new(0)),
             trims_faces: core::array::from_fn(|_| AtomicU64::new(0)),
         }
@@ -223,10 +225,14 @@ impl PartRegistry {
     /// ([`Self::set_held_parts`]). `Arc` clones taken under the registry's lock, then the holder's, neither held after.
     /// D4398: on the memory ladder's pass, none while another thread holds the registry (the pass leaves the cache out).
     pub fn cache_parts(&self) -> Vec<Arc<OpenPart>> {
-        let Some(st) = memledger::ladder_pass::lock_or_skip(&self.state) else { return Vec::new() };
+        let Some(st) = memledger::ladder_pass::lock_or_skip(&self.state) else {
+            return Vec::new();
+        };
         let mut parts: Vec<Arc<OpenPart>> = st.parts.values().cloned().collect();
         drop(st);
-        let Some(held) = memledger::ladder_pass::lock_or_skip(&self.held).map(|g| *g) else { return Vec::new() };
+        let Some(held) = memledger::ladder_pass::lock_or_skip(&self.held).map(|g| *g) else {
+            return Vec::new();
+        };
         if let Some(f) = held {
             f(&mut |p| parts.push(Arc::clone(p)));
             // bounded("other: the cache's parts by address, the entries (at most max_entries, 4096 by default) and the holder's open generations' parts; one sort of pointers, about a millisecond at 50k parts")
@@ -266,7 +272,8 @@ impl PartRegistry {
         // D4552 (a): the io, the part's own lists and its `Arc` block on the part cache's holder as they are allocated
         // (a hit's io, freed in the scope, gives its bytes back): the part carries the charge, so the thread that drops it
         // last, wherever it runs, frees at net zero
-        let scope = memledger::arena::cache_scope_for(crate::partcache::OWNER, memledger::Kind::Region);
+        let scope =
+            memledger::arena::cache_scope_for(crate::partcache::OWNER, memledger::Kind::Region);
         let io = open_io()?;
         let (dev, ino) = io.dev_ino();
         let key: PartKey = (dev, ino, io.len());
@@ -438,13 +445,21 @@ impl PartRegistry {
                 have = have.saturating_sub(s);
             }
         }
-        let shared = Self::evict_unused(&mut step, &parts, target, parked, &mut have, &mut n, &mut freed, &mut dict);
+        let shared = Self::evict_unused(
+            &mut step, &parts, target, parked, &mut have, &mut n, &mut freed, &mut dict,
+        );
         // D3113: the images still past the target are held by the hook owner's handles (Gravity's part lists): the hook
         // drops them, then the unused parts give those images back in the same order. Those a part already let go of
         // (owed, the line's class: a stale stream's here, a cooling eviction's, a dropped part's) free at that drop.
-        if deep && left(&mut have) > target && (shared > 0 || crate::partcache::owed_since_hook()) && crate::partcache::run_evicted_hook() {
+        if deep
+            && left(&mut have) > target
+            && (shared > 0 || crate::partcache::owed_since_hook())
+            && crate::partcache::run_evicted_hook()
+        {
             have = crate::partcache::bytes();
-            Self::evict_unused(&mut step, &parts, target, parked, &mut have, &mut n, &mut freed, &mut dict);
+            Self::evict_unused(
+                &mut step, &parts, target, parked, &mut have, &mut n, &mut freed, &mut dict,
+            );
         }
         // D4315: the parts in use give back the extents their scans read past (no reader of theirs reads them again), in
         // the same order, before any use is let go. D4351: first those no live reader of their stream is still behind,
@@ -460,7 +475,11 @@ impl PartRegistry {
                     if left(&mut have) <= target || step.tick().is_err() {
                         break;
                     }
-                    let s = if ahead { p.evict_passed_ahead(poison) } else { p.evict_passed(poison) };
+                    let s = if ahead {
+                        p.evict_passed_ahead(poison)
+                    } else {
+                        p.evict_passed(poison)
+                    };
                     if s > 0 {
                         n += 1;
                         freed += s;
@@ -472,12 +491,21 @@ impl PartRegistry {
         // D3268: parts in use kept the cache past the target. The short hook's owner lets go the uses no running statement
         // needs (a parked worker set's kept cursor pins its whole part: every column's cached streams), then the parts no
         // longer in use give their contents back in the same order.
-        if deep && left(&mut have) > target && !cancelpoll::seen() && parts.iter().any(|(_, _, p)| !evictable(p, parked)) && crate::partcache::run_short_hook() {
+        if deep
+            && left(&mut have) > target
+            && !cancelpoll::seen()
+            && parts.iter().any(|(_, _, p)| !evictable(p, parked))
+            && crate::partcache::run_short_hook()
+        {
             have = crate::partcache::bytes();
-            let shared = Self::evict_unused(&mut step, &parts, target, parked, &mut have, &mut n, &mut freed, &mut dict);
+            let shared = Self::evict_unused(
+                &mut step, &parts, target, parked, &mut have, &mut n, &mut freed, &mut dict,
+            );
             if left(&mut have) > target && shared > 0 && crate::partcache::run_evicted_hook() {
                 have = crate::partcache::bytes();
-                Self::evict_unused(&mut step, &parts, target, parked, &mut have, &mut n, &mut freed, &mut dict);
+                Self::evict_unused(
+                    &mut step, &parts, target, parked, &mut have, &mut n, &mut freed, &mut dict,
+                );
             }
         }
         // D4504: metadata goes after its data. Still over the target, the parts no statement uses let their faces go in the
@@ -511,7 +539,11 @@ impl PartRegistry {
                 have = crate::partcache::bytes();
                 // D4802: what left the census at the hook, part by part; a running statement's holds keep the rest, which
                 // the next trim to reach this tier counts again
-                let gone_each = || parts[..walked].iter().map(|(u, _, p)| u.saturating_sub(p.face_bytes()));
+                let gone_each = || {
+                    parts[..walked]
+                        .iter()
+                        .map(|(u, _, p)| u.saturating_sub(p.face_bytes()))
+                };
                 let gone = gone_each().sum::<u64>().min(faces);
                 face_parts_gone = gone_each().filter(|g| *g > 0).count() as u64;
                 held_faces = faces - gone;
@@ -561,7 +593,10 @@ impl PartRegistry {
             crate::partcache::note_load_held();
             return 0;
         }
-        let target = crate::partcache::own_level(have, mempolicy::cache::part_cache_load_target(crate::partcache::budget(), n));
+        let target = crate::partcache::own_level(
+            have,
+            mempolicy::cache::part_cache_load_target(crate::partcache::budget(), n),
+        );
         if have <= target {
             return 0;
         }
@@ -576,7 +611,16 @@ impl PartRegistry {
     /// cache is at most `target` (`have` the bytes left; the counts of `trim_contents`). Returns the bytes of images a holder
     /// still shares (`OpenPart::evict_contents`).
     #[allow(clippy::too_many_arguments)]
-    fn evict_unused(step: &mut cancelpoll::Step, parts: &[(u64, PartKey, Arc<OpenPart>)], target: u64, parked: bool, have: &mut u64, n: &mut u64, freed: &mut u64, dict: &mut u64) -> u64 {
+    fn evict_unused(
+        step: &mut cancelpoll::Step,
+        parts: &[(u64, PartKey, Arc<OpenPart>)],
+        target: u64,
+        parked: bool,
+        have: &mut u64,
+        n: &mut u64,
+        freed: &mut u64,
+        dict: &mut u64,
+    ) -> u64 {
         let mut shared = 0u64;
         let poison = parked && crate::partcache::park_poison();
         for (_, _, p) in parts {
@@ -587,7 +631,11 @@ impl PartRegistry {
                 continue;
             }
             // D3994 (B.1 W) under D3823's check: a parked-only part's images freed are poisoned first
-            let (s, d, k) = if poison && p.users() != 0 { p.evict_contents_poisoned() } else { p.evict_contents() };
+            let (s, d, k) = if poison && p.users() != 0 {
+                p.evict_contents_poisoned()
+            } else {
+                p.evict_contents()
+            };
             shared += k;
             if s + d > 0 {
                 *n += 1;
@@ -655,10 +703,15 @@ impl PartRegistry {
     /// reconcile view's, never per statement).
     pub fn untrimmable_by_holder(&self) -> UntrimmableByHolder {
         let parked = crate::partcache::parked_evictable();
-        let mut u = UntrimmableByHolder { parked_gate: parked, ..UntrimmableByHolder::default() };
+        let mut u = UntrimmableByHolder {
+            parked_gate: parked,
+            ..UntrimmableByHolder::default()
+        };
         // bounded("other: the reconcile view's walk over the cache's parts, at most max_entries (4096 by default) and the holder's; two part locks each")
         for p in self.cache_parts().iter() {
-            let stuck = p.cache_bytes().saturating_sub(p.trimmable_now(evictable(p, parked)));
+            let stuck = p
+                .cache_bytes()
+                .saturating_sub(p.trimmable_now(evictable(p, parked)));
             let held = if p.users() == 0 {
                 &mut u.none
             } else if p.live_users() == 0 {
@@ -681,7 +734,10 @@ impl PartRegistry {
     /// parts' bytes shared; the evicted hook's pass freed 44 MB in 281 runs, so its yield is not counted).
     pub fn trimmable_bytes(&self) -> u64 {
         let parked = crate::partcache::parked_evictable();
-        self.cache_parts().iter().map(|p| p.trimmable_now(evictable(p, parked))).sum()
+        self.cache_parts()
+            .iter()
+            .map(|p| p.trimmable_now(evictable(p, parked)))
+            .sum()
     }
 
     /// D3999: the in-use parts' cached bytes by their users' memory ledger accounts, `f(account, bytes)` once per part and
@@ -702,6 +758,7 @@ impl PartRegistry {
             let bytes = p.pinned_bytes();
             p.with_user_accounts(|u| {
                 let uses: u64 = u.iter().map(|e| e.2 as u64).sum();
+                #[allow(clippy::manual_checked_ops)]
                 if uses != 0 {
                     // bounded("other: one entry per owner using this part, a few per running statement (max_connections bounds the statements)")
                     for &(a, key, n) in u {
@@ -719,7 +776,8 @@ impl PartRegistry {
     pub fn in_use_by_running(&self, mut f: impl FnMut(u32, u64)) {
         self.for_each_in_use(&mut |p| {
             let running = |a| memledger::charge::running_owners(memledger::Acct(a));
-            if let Some(a) = p.with_user_accounts(|u| mempolicy::watchdog::cancel_frees(u, running)) {
+            if let Some(a) = p.with_user_accounts(|u| mempolicy::watchdog::cancel_frees(u, running))
+            {
                 f(a, p.pinned_bytes());
             }
         });
@@ -773,7 +831,9 @@ impl PartRegistry {
     /// last mark stays). A part counts its segment bytes (`resident`, an atomic: its dictionary images are summed under
     /// the part's own lock); the holder's parts (`cache_parts`) are left out (its hook returns a Vec).
     pub fn publish_tail(&self) {
-        let Some(st) = memledger::value::try_lock(&self.state) else { return };
+        let Some(st) = memledger::value::try_lock(&self.state) else {
+            return;
+        };
         let tail = memledger::value::coldest_tenth(st.parts.len(), |f| {
             // bounded("other: on the memory watchdog's thread, outside every statement's kernel call; the registry's entries, at most max_entries (4096 by default)")
             for p in st.parts.values() {
@@ -793,13 +853,19 @@ impl PartRegistry {
     /// Memory step 6a: `(entries, segment bytes)` the janitor removed (a removed part's re-use history goes with it, so the
     /// census is a lower bound while these grow).
     pub fn removed(&self) -> (u64, u64) {
-        (self.evictions.load(Ordering::Relaxed), self.evicted_bytes.load(Ordering::Relaxed))
+        (
+            self.evictions.load(Ordering::Relaxed),
+            self.evicted_bytes.load(Ordering::Relaxed),
+        )
     }
 
     /// D4802: the content trims' real evictions since start: `(trims that took bytes out of the census, bytes)`, a part's
     /// faces counted once, as they leave it.
     pub fn real_evictions(&self) -> (u64, u64) {
-        (self.trims_real[0].load(Ordering::Relaxed), self.trims_real[1].load(Ordering::Relaxed))
+        (
+            self.trims_real[0].load(Ordering::Relaxed),
+            self.trims_real[1].load(Ordering::Relaxed),
+        )
     }
 
     /// D4802: the content trims' faces tier since start: `(trims that let faces go, bytes counted as freed, bytes of those
@@ -890,7 +956,8 @@ impl PartRegistry {
                         st.parts.remove(&k)
                     };
                     if let Some(p) = removed {
-                        self.evicted_bytes.fetch_add(p.resident(), Ordering::Relaxed);
+                        self.evicted_bytes
+                            .fetch_add(p.resident(), Ordering::Relaxed);
                     }
                     self.evictions.fetch_add(1, Ordering::Relaxed);
                 }
@@ -911,7 +978,10 @@ impl PartRegistry {
 /// state lock once, no registry lock held: the broker's, every interval. `parts` names each instance once
 /// ([`PartRegistry::cache_parts`]).
 fn reuse_census_of(parts: &[Arc<OpenPart>], now: u32) -> ReuseCensus {
-    let mut c = ReuseCensus { parts: parts.len() as u64, ..ReuseCensus::default() };
+    let mut c = ReuseCensus {
+        parts: parts.len() as u64,
+        ..ReuseCensus::default()
+    };
     let since = now.saturating_sub(crate::partcache::REUSE_WINDOW_S);
     // bounded("other: the broker's census on the memory watchdog's thread, outside every statement's kernel call; one pass over the cache's parts (cache_parts)")
     for p in parts {

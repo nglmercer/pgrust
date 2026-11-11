@@ -709,7 +709,9 @@ impl StreamSectionHdr {
 
     /// The frame table slice (validated), or None for closed-form strides.
     pub fn frame_table(&self, section: &[u8]) -> FormatResult<Option<Vec<u32>>> {
-        let Some(off) = self.frame_table_at(section)? else { return Ok(None) };
+        let Some(off) = self.frame_table_at(section)? else {
+            return Ok(None);
+        };
         let mut v = Vec::with_capacity(self.frame_count as usize);
         self.frame_table_fill(section, off, &mut v);
         Ok(Some(v))
@@ -718,14 +720,22 @@ impl StreamSectionHdr {
     /// Wave 3 A4: [`StreamSectionHdr::frame_table`] in a `ChargedVec` on `owner` (the caller's: a reader's read owner,
     /// the seal's statement; `None`: uncharged). Derefs to `[u32]`, so `ft.as_deref()` reads as before. A refused
     /// reservation is `FormatError::OutOfMemory`.
-    pub fn frame_table_for(&self, section: &[u8], owner: Option<(Owner, Kind)>) -> FormatResult<Option<ChargedVec<u32>>> {
-        let Some(off) = self.frame_table_at(section)? else { return Ok(None) };
+    pub fn frame_table_for(
+        &self,
+        section: &[u8],
+        owner: Option<(Owner, Kind)>,
+    ) -> FormatResult<Option<ChargedVec<u32>>> {
+        let Some(off) = self.frame_table_at(section)? else {
+            return Ok(None);
+        };
         let n = self.frame_count as usize;
         let mut v = match owner {
             Some((o, k)) => ChargedVec::new(Some(o), k),
             None => ChargedVec::none(),
         };
-        v.try_reserve(n).map_err(|_| FormatError::OutOfMemory { bytes: n.saturating_mul(4) })?;
+        v.try_reserve(n).map_err(|_| FormatError::OutOfMemory {
+            bytes: n.saturating_mul(4),
+        })?;
         v.with_vec(|v| self.frame_table_fill(section, off, v));
         Ok(Some(v))
     }
@@ -848,10 +858,20 @@ impl<'a> StreamSectionWriter<'a> {
         width: u8,
         wrapper: Wrapper,
     ) -> FormatResult<StreamSectionWriter<'a>> {
-        StreamSectionWriter::begin_in(SectionBuf::Charged(core::mem::ManuallyDrop::new(buf.vec_mut())), encoding, width, wrapper)
+        StreamSectionWriter::begin_in(
+            SectionBuf::Charged(core::mem::ManuallyDrop::new(buf.vec_mut())),
+            encoding,
+            width,
+            wrapper,
+        )
     }
 
-    fn begin_in(mut buf: SectionBuf<'a>, encoding: u16, width: u8, wrapper: Wrapper) -> FormatResult<StreamSectionWriter<'a>> {
+    fn begin_in(
+        mut buf: SectionBuf<'a>,
+        encoding: u16,
+        width: u8,
+        wrapper: Wrapper,
+    ) -> FormatResult<StreamSectionWriter<'a>> {
         if wrapper != Wrapper::None {
             return Err(FormatError::WrapperUnsupported {
                 wrapper: wrapper.as_u8(),
@@ -985,7 +1005,9 @@ impl<'a> OverflowSink<'a> {
     /// Wave 3 A2: [`OverflowSink::new`] into the caller's `ChargedVec`: the overflow region's bytes are charged to its
     /// owner as they grow, fitted after each `put_entry` (one value's growth lags at most).
     pub fn new_charged(buf: &'a mut ChargedVec<u8>) -> OverflowSink<'a> {
-        OverflowSink::new_in(SectionBuf::Charged(core::mem::ManuallyDrop::new(buf.vec_mut())))
+        OverflowSink::new_in(SectionBuf::Charged(core::mem::ManuallyDrop::new(
+            buf.vec_mut(),
+        )))
     }
 
     fn new_in(buf: SectionBuf<'a>) -> OverflowSink<'a> {

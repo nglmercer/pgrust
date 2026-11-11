@@ -218,6 +218,7 @@ pub(crate) fn assign(f: &Function, cfg: &Cfg) -> (Vec<u32>, Vec<ValType>) {
     }
 
     // values of unreachable blocks are never emitted
+    #[allow(clippy::needless_range_loop)]
     for v in 0..nv {
         if loc[v] == none {
             let t = val_type(f.values[v]);

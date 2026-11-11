@@ -1,6 +1,7 @@
 use core::fmt::{self, Write};
 
 use gravity_abi::breaker::{BreakerKind, Budget, KeyKind, Spill, HASHBUILD_ENTRY};
+#[allow(unused_imports)]
 use gravity_program::limits;
 use gravity_program::{ArenaBox, ArenaVec, NumTypmod, WordsDesc};
 use types_nodes::jointype::JoinType;
@@ -313,7 +314,7 @@ fn pg_tuple(b: &Builder<'_, '_>, hash: &types_nodes::plannodes::Plan<'_>) -> u32
     let mut natts = 0u64;
     for te in hash.targetlist.iter() {
         let Some(len) = crate::catalog::expr_type::type_of(te).and_then(|t| max_width(b.facts, t)) else { return u32::MAX };
-        data += len as u64 + 7;
+        data += len + 7;
         natts += 1;
     }
     let header = (15 + natts.div_ceil(8) + 7) & !7;
@@ -654,7 +655,7 @@ pub fn catalog_lookup<'p>(b: &Builder<'p, '_>, nl: &'p NestLoop<'p>, outer: &Pip
     let iv = ie.as_var()?;
     let (scanrelid, relid, _) = inner.source.relation()?;
     let (pk, n) = b.facts.primary_key(relid)?;
-    (iv.varnosyn > 0 && iv.varnosyn as u32 == scanrelid as u32 && n == 1 && pk[0] == iv.varattnosyn).then_some((oe, ie))
+    (iv.varnosyn > 0 && iv.varnosyn == scanrelid as u32 && n == 1 && pk[0] == iv.varattnosyn).then_some((oe, ie))
 }
 
 /// `catalog_lookup`'s nest in the hash join's form: the inner closes into a HashBuild keyed by its side of the clause and

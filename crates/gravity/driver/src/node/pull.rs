@@ -149,6 +149,7 @@ pub(crate) mod d2641_trade_stale {
     /// under the reader's pins, the next generation's run pins a new one, and its reattach trades: two chunks hold the set's
     /// pins over any number of generations (the base mapped one per generation, D2641's 776 MiB at 12,000).
     #[test]
+    #[allow(unused_assignments)]
     fn a_set_re_run_once_per_pull_holds_two_chunks_over_many_generations() {
         let mut c: Vec<usize> = Vec::new(); // alloc: Cold
         let (mut next, mut pinned) = (0usize, 0usize);
@@ -207,6 +208,7 @@ pub(crate) mod d2751_pull_keeps_set_pins {
     /// re-arm comes). With `unheld` the set keeps its pin, its next run trades it, and two chunks serve every generation; a
     /// pull that took the set's pin (`steal`, the base before D2751) leaves the set nothing to trade and maps one chunk
     /// per generation.
+    #[allow(unused_assignments)]
     fn generations(steal: bool) -> (usize, usize) {
         let mut c: Vec<usize> = Vec::new(); // alloc: Cold
         let (mut next, mut pinned) = (0usize, 0usize);

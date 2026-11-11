@@ -33,7 +33,11 @@ impl Drop for Forget {
 }
 
 fn peek(id: u64) -> (TransactionId, Option<bool>) {
-    pgsync::lock(&REQS).1.iter().find(|r| r.id == id).map_or((InvalidTransactionId, Some(false)), |r| (r.xid, r.done))
+    pgsync::lock(&REQS)
+        .1
+        .iter()
+        .find(|r| r.id == id)
+        .map_or((InvalidTransactionId, Some(false)), |r| (r.xid, r.done))
 }
 
 fn report(id: u64, f: impl FnOnce(&mut Req)) -> bool {
@@ -47,7 +51,12 @@ fn report(id: u64, f: impl FnOnce(&mut Req)) -> bool {
 }
 
 fn nap() -> PgResult<()> {
-    let rc = latch::WaitLatch(g::MyLatch(), WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH, POLL_MS, WAIT_EVENT_BGWORKER_STARTUP)?;
+    let rc = latch::WaitLatch(
+        g::MyLatch(),
+        WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
+        POLL_MS,
+        WAIT_EVENT_BGWORKER_STARTUP,
+    )?;
     if rc & WL_LATCH_SET != 0 {
         if let Some(l) = g::MyLatch() {
             latch::ResetLatch(l);
@@ -61,17 +70,27 @@ pub(crate) fn activate_detached(parent: Oid) -> PgResult<bool> {
         let mut reqs = pgsync::lock(&REQS);
         reqs.0 += 1;
         let id = reqs.0;
-        reqs.1.push(Req { id, xid: InvalidTransactionId, done: None });
+        reqs.1.push(Req {
+            id,
+            xid: InvalidTransactionId,
+            done: None,
+        });
         id
     };
     let _forget = Forget(id);
-    let mut w = crate::bgw(ACTIVATOR, activator_main, g::MyDatabaseId() as u64 | (parent as u64) << 32, bgworker::BGW_NEVER_RESTART);
+    let mut w = crate::bgw(
+        ACTIVATOR,
+        activator_main,
+        g::MyDatabaseId() as u64 | (parent as u64) << 32,
+        bgworker::BGW_NEVER_RESTART,
+    );
     w.bgw_extra[..8].copy_from_slice(&id.to_le_bytes());
     let Some(handle) = bgworker::RegisterDynamicBackgroundWorker(w)? else {
         elog::elog(DEBUG1, format!("pgrcolumnar: no worker for the activation of relation {parent}: it activates in this transaction"))?;
         return Ok(false);
     };
-    let stopped = || bgworker::GetBackgroundWorkerPid(&handle).0 == bgworker::BgwHandleStatus::BGWH_STOPPED;
+    let stopped =
+        || bgworker::GetBackgroundWorkerPid(&handle).0 == bgworker::BgwHandleStatus::BGWH_STOPPED;
     let xid = loop {
         let (xid, done) = peek(id);
         if let Some(ok) = done {
@@ -86,7 +105,9 @@ pub(crate) fn activate_detached(parent: Oid) -> PgResult<bool> {
         nap()?;
     };
     lmgr::XactLockTableWait(xid, None, None, XLTW_Oper::None).map_err(|mut e| {
-        e.add_context_line(format!("while waiting for the activation of relation {parent}"));
+        e.add_context_line(format!(
+            "while waiting for the activation of relation {parent}"
+        ));
         e
     })?;
     loop {
@@ -128,15 +149,23 @@ fn activate_in_own_transaction(db: Oid, relid: Oid, id: u64) -> PgResult<bool> {
         let xid = xact::GetTopTransactionId()?;
         report(id, |r| r.xid = xid);
         let ctx = mcx::MemoryContext::new("pgrc front activation");
-        let Some(rel) = table::try_table_open(ctx.mcx(), relid, AccessShareLock)? else { return Ok(false) };
-        let ours = tableam_vocab::is_pgrcolumnar_am_oid(rel.rd_rel.relam) && rel.rd_rel.relpersistence != types_core::RELPERSISTENCE_TEMP;
+        let Some(rel) = table::try_table_open(ctx.mcx(), relid, AccessShareLock)? else {
+            return Ok(false);
+        };
+        let ours = tableam_vocab::is_pgrcolumnar_am_oid(rel.rd_rel.relam)
+            && rel.rd_rel.relpersistence != types_core::RELPERSISTENCE_TEMP;
         rel.close(NoLock)?;
         if !ours {
             return Ok(false);
         }
         lmgr::LockRelationOid(relid, ShareUpdateExclusiveLock)?;
         pgrc_front::ensure_companions_stacked(ctx.mcx(), relid)?;
-        elog::elog(DEBUG1, format!("pgrcolumnar: activated the front of relation {relid} in its own transaction {xid}"))?;
+        elog::elog(
+            DEBUG1,
+            format!(
+                "pgrcolumnar: activated the front of relation {relid} in its own transaction {xid}"
+            ),
+        )?;
         Ok(true)
     })();
     match r {

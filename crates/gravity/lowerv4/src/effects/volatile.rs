@@ -18,6 +18,7 @@ pub(crate) enum Kinds {
     /// No node is a call.
     None,
     /// A FuncExpr's function and an OpExpr's, as the node stores it.
+    #[allow(dead_code)]
     FuncOp,
     /// D1871 (effects.rs `calls`): a FuncExpr's, OpExpr's, DistinctExpr's and NullIfExpr's function, and a
     /// ScalarArrayOpExpr's operator, hash and negator functions.
@@ -85,6 +86,7 @@ pub(crate) struct Reading<'r> {
 impl<'r> Reading<'r> {
     /// effects.rs `volatile` (D1005 / D1871): a call node's function pg_proc marks VOLATILE; a function the catalog cannot
     /// answer and a node the walk cannot see do not count.
+    #[allow(dead_code)]
     pub(crate) const fn catalog() -> Reading<'static> {
         Reading { kinds: Kinds::Calls, call: Call::Catalog { unknown: false }, unknown: false, domain: Domain::None, list: false, spool: None }
     }
@@ -99,6 +101,7 @@ impl<'r> Reading<'r> {
 
     /// effects/visible.rs `calls`' own call test: a FuncExpr's or OpExpr's function pg_proc marks VOLATILE, or one the
     /// catalog cannot answer.
+    #[allow(dead_code)]
     pub(crate) const fn visible() -> Reading<'static> {
         Reading { kinds: Kinds::FuncOp, call: Call::Catalog { unknown: true }, unknown: false, domain: Domain::None, list: false, spool: None }
     }

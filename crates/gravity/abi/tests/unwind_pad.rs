@@ -34,6 +34,7 @@ fn a_c_host_slot_answers_its_pads_status_and_the_payload_resumes_after() {
         .unwrap_or(-1)
     }
     let slot: gravity_abi::program::LockFn = Some(host);
+    #[allow(clippy::unnecessary_literal_unwrap)]
     let call = slot.expect("bound");
     assert_eq!(unsafe { call(core::ptr::null_mut(), 5) }, 5);
     let prev = std::panic::take_hook();

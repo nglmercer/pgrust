@@ -37,7 +37,7 @@ const CUT: i64 = 10;
 
 /// Row `i`'s text: one of 16 words in granule 0; in granule 1 a word every 4th row, else ''.
 fn text(i: u64) -> Vec<u8> {
-    if i < GRANULE || i % 4 == 0 { format!("w{:05}", (i * 7919) % 16).into_bytes() } else { Vec::new() }
+    if i < GRANULE || i.is_multiple_of(4) { format!("w{:05}", (i * 7919) % 16).into_bytes() } else { Vec::new() }
 }
 
 fn num(i: u64) -> i64 {

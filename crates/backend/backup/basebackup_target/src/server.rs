@@ -18,7 +18,6 @@ use ::types_error::{
 };
 use ::types_storage::File;
 
-
 // pg_authid.dat: pg_write_server_files.
 const ROLE_PG_WRITE_SERVER_FILES: Oid = 4570;
 
@@ -199,10 +198,7 @@ impl ServerOps {
 
     fn open_exclusive(&mut self, filename: &str, func: &'static str, line: i32) -> PgResult<()> {
         debug_assert!(self.file.is_none());
-        let file = fd::PathNameOpenFile(
-            filename,
-            libc::O_CREAT | libc::O_EXCL | libc::O_WRONLY,
-        )?;
+        let file = fd::PathNameOpenFile(filename, libc::O_CREAT | libc::O_EXCL | libc::O_WRONLY)?;
         if file.0 <= 0 {
             let e = ::elog::errno::strerror(fd::get_errno());
             return ereport(ERROR)

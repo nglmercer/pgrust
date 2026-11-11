@@ -38,8 +38,9 @@ pub fn spgvalidate(opclassoid: Oid) -> PgResult<bool> {
     let Some(opclassname_data) = syscache_seams::pg_opclass_opcname::call(opclassoid)? else {
         return Err(index_amvalidate::opclass_lookup_failed(opclassoid));
     };
-    let opclassname =
-        core::str::from_utf8(opclassname_data.name_str()).unwrap_or("").to_string();
+    let opclassname = core::str::from_utf8(opclassname_data.name_str())
+        .unwrap_or("")
+        .to_string();
 
     let opfamilyname = lsyscache::get_opfamily_name(mcx, opfamilyoid, false)?
         .expect("opfamily name")
@@ -76,7 +77,9 @@ pub fn spgvalidate(opclassoid: Oid) -> PgResult<bool> {
                     2,
                     &[INTERNALOID, INTERNALOID],
                 )?;
-                let config_in = spgConfigIn { attType: procform.amproclefttype };
+                let config_in = spgConfigIn {
+                    attType: procform.amproclefttype,
+                };
                 let mut config_out = spgConfigOut::default();
                 call_config_proc(procform.amproc, &config_in, &mut config_out)?;
 
@@ -280,8 +283,14 @@ fn call_config_proc(
     let mut frame: LocalFcinfo<2> = LocalFcinfo::fresh(InvalidOid);
     // SAFETY: scratch outlives the frame and the config output consumption.
     unsafe { frame.set_result_mcx(scratch.mcx()) };
-    frame.set_arg(0, datum::Datum::from_usize(config_in as *const spgConfigIn as usize));
-    frame.set_arg(1, datum::Datum::from_usize(config_out as *mut spgConfigOut as usize));
+    frame.set_arg(
+        0,
+        datum::Datum::from_usize(config_in as *const spgConfigIn as usize),
+    );
+    frame.set_arg(
+        1,
+        datum::Datum::from_usize(config_out as *mut spgConfigOut as usize),
+    );
     flinfo.invoke(&mut frame)?;
     Ok(())
 }

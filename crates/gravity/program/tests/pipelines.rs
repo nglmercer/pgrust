@@ -163,6 +163,7 @@ fn site_descriptors_list_their_lanes() {
     let wide: Vec<i16> = (1..=300).collect();
     let w = SiteDesc::range_source(a, 7, &wide).filter_only(299).answered(70);
     assert!(w.nlanes() == 301 && w.driving_lanes.count() == 300 && w.filter_lanes.contains(299) && w.answer_lanes.contains(70) && !w.answer_lanes.contains(71));
+    #[allow(clippy::cloned_ref_to_slice_refs)]
     let p = Program::new(Layout { nsites: 1, out_natts: 0, out_rows: 1, scratch_bytes: 0, exec_bytes: 0 }, &[w.clone()], &[], WritePlan::SELECT, Code::hand(noop));
     assert_eq!(p.sites[0], w, "the program's copy is the descriptor");
     assert!(p.arena_used() >= 301 * core::mem::size_of::<LaneDesc>() + 600, "the lists live in the program's arena");
@@ -232,6 +233,7 @@ mod dag {
     fn pipelines_and_slots_are_sized_per_program() {
         let n = 300;
         let mut pipes: Vec<Pipeline> = (0..n).map(|i| Pipeline::eligible(0, produce((i % 200) as u8), 10)).collect();
+        #[allow(clippy::needless_range_loop)]
         for i in 200..n {
             pipes[i] = pipes[i].consuming(Box::leak(Box::new([((i + 1) % 200) as u8])));
         }

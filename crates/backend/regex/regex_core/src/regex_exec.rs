@@ -198,6 +198,7 @@ const C_SIZEOF_ARCP: usize = 16;
 const C_SIZEOF_PTR: usize = core::mem::size_of::<usize>();
 
 // SAFETY: implementors accept the all-zero bit pattern (integer fields only).
+#[allow(clippy::missing_safety_doc)]
 unsafe trait ZeroValid: Copy {}
 unsafe impl ZeroValid for u32 {}
 unsafe impl ZeroValid for Arcp {}
@@ -307,6 +308,7 @@ impl HeapSpace {
     }
 }
 
+#[allow(clippy::large_enum_variant)]
 pub enum DfaSpace {
     Small(SmallDfaSpace),
     Heap(HeapSpace),
@@ -1412,6 +1414,7 @@ fn find(
         begin += 1;
     }
     let used = d.used_bytes();
+    #[allow(clippy::drop_non_drop)]
     drop(d);
     release_if_large(&mut scratch.h1, used);
     r?;
@@ -1441,6 +1444,7 @@ fn cfind(
         Ok(d) => d,
         Err(e) => {
             let used = s.used_bytes();
+            #[allow(clippy::drop_non_drop)]
             drop(s);
             release_if_large(h1, used);
             return Err(e);
@@ -1451,7 +1455,9 @@ fn cfind(
     let ret = cfindloop(v, g, cnfa, cm, &mut d, &mut s, &mut cold);
 
     let (dused, sused) = (d.used_bytes(), s.used_bytes());
+    #[allow(clippy::drop_non_drop)]
     drop(d);
+    #[allow(clippy::drop_non_drop)]
     drop(s);
     release_if_large(h2, dused);
     release_if_large(h1, sused);

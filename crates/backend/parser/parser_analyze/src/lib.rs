@@ -108,7 +108,12 @@ pub fn parse_analyze_sql_fn<'a, 'mcx>(
 
     parser_small1::setup_parse_sql_fn_parameters(
         &mut pstate,
-        parser_small1::SqlFnParamState { fname, argtypes, argnames, input_collation },
+        parser_small1::SqlFnParamState {
+            fname,
+            argtypes,
+            argnames,
+            input_collation,
+        },
     );
 
     if !query_env.is_null() {
@@ -182,7 +187,10 @@ pub fn parse_analyze_varparams<'a, 'mcx>(
     pstate.p_sourcetext = Some(source_text.as_bytes());
 
     let parstate = parser_small1::VarParamState {
-        param_types: std::rc::Rc::new(core::cell::RefCell::new(::mcx::std_vec_from_slice("parser", param_types)?)),
+        param_types: std::rc::Rc::new(core::cell::RefCell::new(::mcx::std_vec_from_slice(
+            "parser",
+            param_types,
+        )?)),
     };
     parser_small1::setup_parse_variable_parameters(&mut pstate, parstate.clone());
 
@@ -218,7 +226,8 @@ pub fn parse_analyze_varparams<'a, 'mcx>(
 
     let resolved = parstate.param_types.borrow();
     let mut out: mcx::PgVec<'mcx, Oid> = mcx::PgVec::new_in(mcx);
-    out.try_reserve_exact(resolved.len()).map_err(|_| mcx.oom(resolved.len()))?;
+    out.try_reserve_exact(resolved.len())
+        .map_err(|_| mcx.oom(resolved.len()))?;
     for &t in resolved.iter() {
         out.push(t);
     }
@@ -307,7 +316,9 @@ fn transformOptionalSelectInto<'mcx>(
     if let Some(stmt) = parse_tree.as_select_stmt() {
         let mut leftmost = stmt;
         while leftmost.op != types_nodes::parsenodes::SetOperation::SETOP_NONE {
-            leftmost = leftmost.larg.expect("set-op tree always has a leftmost SelectStmt");
+            leftmost = leftmost
+                .larg
+                .expect("set-op tree always has a leftmost SelectStmt");
         }
         let has_into = leftmost.intoClause.is_some();
         let is_setop = stmt.op != types_nodes::parsenodes::SetOperation::SETOP_NONE;
@@ -336,6 +347,7 @@ fn transformOptionalSelectInto<'mcx>(
     transformStmt(mcx, pstate, parse_tree)
 }
 
+#[allow(clippy::field_reassign_with_default)]
 pub fn transformStmt<'mcx>(
     mcx: Mcx<'mcx>,
     pstate: &mut ParseState<'_, 'mcx>,
@@ -349,7 +361,7 @@ pub fn transformStmt<'mcx>(
             } else if n.op == types_nodes::parsenodes::SetOperation::SETOP_NONE {
                 transformSelectStmt(mcx, pstate, n)?
             } else {
-set_op::transformSetOperationStmt(mcx, pstate, n)?
+                set_op::transformSetOperationStmt(mcx, pstate, n)?
             }
         }
         NodeTag::T_InsertStmt => {
@@ -361,15 +373,9 @@ set_op::transformSetOperationStmt(mcx, pstate, n)?
         NodeTag::T_UpdateStmt => {
             transformUpdateStmt(mcx, pstate, parse_tree.as_update_stmt().unwrap())?
         }
-        NodeTag::T_ExplainStmt => {
-            transformExplainStmt(mcx, pstate, parse_tree)?
-        }
-        NodeTag::T_DeclareCursorStmt => {
-            transformDeclareCursorStmt(mcx, pstate, parse_tree)?
-        }
-        NodeTag::T_CreateTableAsStmt => {
-            transformCreateTableAsStmt(mcx, pstate, parse_tree)?
-        }
+        NodeTag::T_ExplainStmt => transformExplainStmt(mcx, pstate, parse_tree)?,
+        NodeTag::T_DeclareCursorStmt => transformDeclareCursorStmt(mcx, pstate, parse_tree)?,
+        NodeTag::T_CreateTableAsStmt => transformCreateTableAsStmt(mcx, pstate, parse_tree)?,
         NodeTag::T_PLAssignStmt => {
             transformPLAssignStmt(mcx, pstate, parse_tree.as_pl_assign_stmt().unwrap())?
         }
@@ -380,7 +386,9 @@ set_op::transformSetOperationStmt(mcx, pstate, n)?
         NodeTag::T_ReturnStmt => transformReturnStmt(
             mcx,
             pstate,
-            parse_tree.as_variant::<types_nodes::parsenodes::ReturnStmt>().unwrap(),
+            parse_tree
+                .as_variant::<types_nodes::parsenodes::ReturnStmt>()
+                .unwrap(),
         )?,
         _ => {
             let mut result = Query::default();
@@ -400,6 +408,7 @@ const PROARGMODE_OUT: i8 = b'o' as i8;
 const PROARGMODE_INOUT: i8 = b'b' as i8;
 const PROARGMODE_VARIADIC: i8 = b'v' as i8;
 
+#[allow(clippy::field_reassign_with_default)]
 fn transformCallStmt<'mcx>(
     mcx: Mcx<'mcx>,
     pstate: &mut ParseState<'_, 'mcx>,
@@ -503,6 +512,7 @@ fn transformCallStmt<'mcx>(
     Ok(result)
 }
 
+#[allow(clippy::field_reassign_with_default)]
 fn transformCreateTableAsStmt<'mcx>(
     mcx: Mcx<'mcx>,
     pstate: &mut ParseState<'_, 'mcx>,
@@ -537,7 +547,7 @@ fn transformCreateTableAsStmt<'mcx>(
         }
         if parse_relation::isQueryUsingTempRelation(mcx, &query)? {
             return Err(
-                matview_err("materialized views must not use temporary tables or views").into()
+                matview_err("materialized views must not use temporary tables or views").into(),
             );
         }
         // A materialized view can't be defined with bound parameters
@@ -559,7 +569,11 @@ fn transformCreateTableAsStmt<'mcx>(
         let into = into_node
             .as_variant::<types_nodes::rawnodes::IntoClause>()
             .expect("IntoClause");
-        let rel = into.rel.expect("IntoClause.rel").as_range_var().expect("RangeVar");
+        let rel = into
+            .rel
+            .expect("IntoClause.rel")
+            .as_range_var()
+            .expect("RangeVar");
         if rel.relpersistence == types_core::catalog::RELPERSISTENCE_UNLOGGED {
             return Err(matview_err("materialized views cannot be unlogged").into());
         }
@@ -581,9 +595,7 @@ fn transformCreateTableAsStmt<'mcx>(
     // SAFETY: raw tree owned by this analysis; no derived reference is live.
     unsafe {
         ctas_node
-            .with_mut::<types_nodes::rawnodes::CreateTableAsStmt, _>(|c| {
-                c.query = Some(query_node)
-            })
+            .with_mut::<types_nodes::rawnodes::CreateTableAsStmt, _>(|c| c.query = Some(query_node))
             .expect("node built as CreateTableAsStmt");
     }
 
@@ -593,7 +605,7 @@ fn transformCreateTableAsStmt<'mcx>(
     Ok(result)
 }
 
-
+#[allow(clippy::field_reassign_with_default)]
 fn transformDeclareCursorStmt<'mcx>(
     mcx: Mcx<'mcx>,
     pstate: &mut ParseState<'_, 'mcx>,
@@ -706,6 +718,7 @@ fn transformDeclareCursorStmt<'mcx>(
     Ok(result)
 }
 
+#[allow(clippy::field_reassign_with_default)]
 fn transformExplainStmt<'mcx>(
     mcx: Mcx<'mcx>,
     pstate: &mut ParseState<'_, 'mcx>,
@@ -713,7 +726,10 @@ fn transformExplainStmt<'mcx>(
 ) -> PgResult<Query<'mcx>> {
     let stmt = explain_node.as_explain_stmt().unwrap();
     let mut generic_plan = false;
-    if matches!(pstate.p_ref_hook_state, parser_small1::ParseRefHookState::None) {
+    if matches!(
+        pstate.p_ref_hook_state,
+        parser_small1::ParseRefHookState::None
+    ) {
         for opt in stmt.options.iter() {
             let opt = opt.as_def_elem().expect("EXPLAIN options are DefElems");
             if opt.defname == Some("generic_plan") {
@@ -780,7 +796,10 @@ pub fn query_requires_rewrite_plan(query: &Query<'_>) -> bool {
         return true;
     }
     matches!(
-        query.utilityStmt.expect("CMD_UTILITY Query has utilityStmt").node_tag(),
+        query
+            .utilityStmt
+            .expect("CMD_UTILITY Query has utilityStmt")
+            .node_tag(),
         NodeTag::T_DeclareCursorStmt
             | NodeTag::T_ExplainStmt
             | NodeTag::T_CreateTableAsStmt
@@ -790,6 +809,7 @@ pub fn query_requires_rewrite_plan(query: &Query<'_>) -> bool {
 
 // transformPLAssignStmt (analyze.c). Unported loud: indirection beyond the
 // dotted-name prefix.
+#[allow(clippy::field_reassign_with_default)]
 fn transformPLAssignStmt<'mcx>(
     mcx: Mcx<'mcx>,
     pstate: &mut ParseState<'_, 'mcx>,
@@ -861,7 +881,11 @@ fn transformPLAssignStmt<'mcx>(
                     n as u64,
                 )
                 .into_error()
-                .with_error_location(ErrorLocation::new(file!(), line!() as i32, "transformPLAssignStmt")),
+                .with_error_location(ErrorLocation::new(
+                    file!(),
+                    line!() as i32,
+                    "transformPLAssignStmt",
+                )),
         ));
     }
 
@@ -1044,8 +1068,14 @@ fn transformPLAssignStmt<'mcx>(
     qry.rtable = mem::take(&mut pstate.p_rtable);
     qry.rteperminfos = mem::take(&mut pstate.p_rteperminfos);
     qry.jointree = Some(
-        Node::mk_mut(mcx, FromExpr { fromlist: mem::take(&mut pstate.p_joinlist), quals: qual })?
-            .seal_ref(),
+        Node::mk_mut(
+            mcx,
+            FromExpr {
+                fromlist: mem::take(&mut pstate.p_joinlist),
+                quals: qual,
+            },
+        )?
+        .seal_ref(),
     );
 
     qry.hasSubLinks = pstate.p_hasSubLinks;
@@ -1071,6 +1101,7 @@ fn transformPLAssignStmt<'mcx>(
     Ok(qry)
 }
 
+#[allow(clippy::field_reassign_with_default)]
 fn transformSelectStmt<'mcx>(
     mcx: Mcx<'mcx>,
     pstate: &mut ParseState<'_, 'mcx>,
@@ -1087,7 +1118,11 @@ fn transformSelectStmt<'mcx>(
 
     if let Some(into) = stmt.intoClause {
         if !pstate.p_consumed_into.is_some_and(|c| c.ptr_eq(into)) {
-            return Err(select_into_error(pstate, into, "SELECT ... INTO is not allowed here"));
+            return Err(select_into_error(
+                pstate,
+                into,
+                "SELECT ... INTO is not allowed here",
+            ));
         }
     }
 
@@ -1102,8 +1137,12 @@ fn transformSelectStmt<'mcx>(
 
     transformFromClause(mcx, pstate, &stmt.fromClause)?;
 
-    qry.targetList =
-        transformTargetList(mcx, pstate, &stmt.targetList, ParseExprKind::EXPR_KIND_SELECT_TARGET)?;
+    qry.targetList = transformTargetList(
+        mcx,
+        pstate,
+        &stmt.targetList,
+        ParseExprKind::EXPR_KIND_SELECT_TARGET,
+    )?;
 
     markTargetListOrigins(pstate, &qry.targetList)?;
 
@@ -1196,8 +1235,14 @@ fn transformSelectStmt<'mcx>(
     qry.rtable = mem::take(&mut pstate.p_rtable);
     qry.rteperminfos = mem::take(&mut pstate.p_rteperminfos);
     qry.jointree = Some(
-        Node::mk_mut(mcx, FromExpr { fromlist: mem::take(&mut pstate.p_joinlist), quals: qual })?
-            .seal_ref(),
+        Node::mk_mut(
+            mcx,
+            FromExpr {
+                fromlist: mem::take(&mut pstate.p_joinlist),
+                quals: qual,
+            },
+        )?
+        .seal_ref(),
     );
 
     qry.hasSubLinks = pstate.p_hasSubLinks;
@@ -1224,6 +1269,7 @@ fn transformSelectStmt<'mcx>(
 }
 
 // transformReturnStmt (analyze.c:2433-2456).
+#[allow(clippy::field_reassign_with_default)]
 fn transformReturnStmt<'mcx>(
     mcx: Mcx<'mcx>,
     pstate: &mut ParseState<'_, 'mcx>,
@@ -1239,7 +1285,8 @@ fn transformReturnStmt<'mcx>(
         stmt.returnval.expect("ReturnStmt.returnval"),
         ParseExprKind::EXPR_KIND_SELECT_TARGET,
     )?;
-    qry.targetList.lappend(mcx, Node::mk_target_entry(mcx, expr, 1, None, false)?)?;
+    qry.targetList
+        .lappend(mcx, Node::mk_target_entry(mcx, expr, 1, None, false)?)?;
 
     if pstate.p_resolve_unknowns {
         resolveTargetListUnknowns(mcx, pstate, &qry.targetList)?;
@@ -1247,8 +1294,14 @@ fn transformReturnStmt<'mcx>(
     qry.rtable = mem::take(&mut pstate.p_rtable);
     qry.rteperminfos = mem::take(&mut pstate.p_rteperminfos);
     qry.jointree = Some(
-        Node::mk_mut(mcx, FromExpr { fromlist: mem::take(&mut pstate.p_joinlist), quals: None })?
-            .seal_ref(),
+        Node::mk_mut(
+            mcx,
+            FromExpr {
+                fromlist: mem::take(&mut pstate.p_joinlist),
+                quals: None,
+            },
+        )?
+        .seal_ref(),
     );
     qry.hasSubLinks = pstate.p_hasSubLinks;
     qry.hasWindowFuncs = pstate.p_hasWindowFuncs;
@@ -1260,6 +1313,7 @@ fn transformReturnStmt<'mcx>(
     Ok(qry)
 }
 
+#[allow(clippy::field_reassign_with_default)]
 fn transformValuesClause<'mcx>(
     mcx: Mcx<'mcx>,
     pstate: &mut ParseState<'_, 'mcx>,
@@ -1268,7 +1322,10 @@ fn transformValuesClause<'mcx>(
     let mut qry = Query::default();
     qry.commandType = CmdType::CMD_SELECT;
 
-    debug_assert!(matches!(stmt.distinctClause, types_nodes::rawnodes::DistinctClause::None));
+    debug_assert!(matches!(
+        stmt.distinctClause,
+        types_nodes::rawnodes::DistinctClause::None
+    ));
     debug_assert!(stmt.intoClause.is_none());
     debug_assert!(stmt.targetList.is_nil());
     debug_assert!(stmt.fromClause.is_nil());
@@ -1297,7 +1354,9 @@ fn transformValuesClause<'mcx>(
         )?;
         if sublist_length < 0 {
             sublist_length = sublist.len() as i64;
-            colexprs.try_reserve_exact(sublist.len()).map_err(|_| mcx.oom(sublist.len()))?;
+            colexprs
+                .try_reserve_exact(sublist.len())
+                .map_err(|_| mcx.oom(sublist.len()))?;
             for _ in 0..sublist.len() {
                 colexprs.push(types_nodes::NodeList::nil());
             }
@@ -1425,8 +1484,14 @@ fn transformValuesClause<'mcx>(
     qry.rtable = mem::take(&mut pstate.p_rtable);
     qry.rteperminfos = mem::take(&mut pstate.p_rteperminfos);
     qry.jointree = Some(
-        Node::mk_mut(mcx, FromExpr { fromlist: mem::take(&mut pstate.p_joinlist), quals: None })?
-            .seal_ref(),
+        Node::mk_mut(
+            mcx,
+            FromExpr {
+                fromlist: mem::take(&mut pstate.p_joinlist),
+                quals: None,
+            },
+        )?
+        .seal_ref(),
     );
 
     qry.hasSubLinks = pstate.p_hasSubLinks;
@@ -1445,9 +1510,7 @@ struct ContainVarsOfLevelZero {
 impl<'mcx> nodes_core::NodeWalker<'mcx> for ContainVarsOfLevelZero {
     fn visit(&mut self, node: Node<'mcx>) -> PgResult<bool> {
         match node.node_tag() {
-            NodeTag::T_Var => {
-                Ok(node.as_var().unwrap().varlevelsup as i64 == self.sublevels_up)
-            }
+            NodeTag::T_Var => Ok(node.as_var().unwrap().varlevelsup as i64 == self.sublevels_up),
             NodeTag::T_CurrentOfExpr => Ok(self.sublevels_up == 0),
             NodeTag::T_Query => {
                 let q = node.as_query().unwrap();
@@ -1492,7 +1555,9 @@ fn transformInsertStmt<'mcx>(
     }
     qry.r#override = stmt.r#override;
 
-    let select_stmt = stmt.selectStmt.map(|n| n.as_select_stmt().expect("grammar builds SelectStmt"));
+    let select_stmt = stmt
+        .selectStmt
+        .map(|n| n.as_select_stmt().expect("grammar builds SelectStmt"));
     let is_general_select = select_stmt.is_some_and(|s| {
         s.valuesLists.is_nil()
             || !s.sortClause.is_nil()
@@ -1510,7 +1575,11 @@ fn transformInsertStmt<'mcx>(
             core::mem::replace(&mut pstate.p_namespace, mcx::PgVec::new_in(mcx)),
         )
     } else {
-        (types_nodes::NodeList::nil(), types_nodes::NodeList::nil(), mcx::PgVec::new_in(mcx))
+        (
+            types_nodes::NodeList::nil(),
+            types_nodes::NodeList::nil(),
+            mcx::PgVec::new_in(mcx),
+        )
     };
 
     let relation = stmt
@@ -1520,7 +1589,10 @@ fn transformInsertStmt<'mcx>(
         .expect("insert_target is a RangeVar");
     let target_perms = match stmt.onConflictClause {
         Some(occ)
-            if occ.as_on_conflict_clause().expect("OnConflictClause").action
+            if occ
+                .as_on_conflict_clause()
+                .expect("OnConflictClause")
+                .action
                 == types_nodes::primnodes::OnConflictAction::ONCONFLICT_UPDATE =>
         {
             ACL_INSERT | types_nodes::parsenodes::ACL_UPDATE
@@ -1630,7 +1702,9 @@ fn transformInsertStmt<'mcx>(
                 };
                 sub_exprs.lappend(mcx, expr)?;
             }
-            transformInsertRow(mcx, pstate, sub_exprs, &stmt.cols, &icolumns, &attrnos, false)?
+            transformInsertRow(
+                mcx, pstate, sub_exprs, &stmt.cols, &icolumns, &attrnos, false,
+            )?
         }
         Some(sel) if sel.valuesLists.len() > 1 => {
             let mut exprs_lists = types_nodes::NodeList::nil();
@@ -1652,8 +1726,9 @@ fn transformInsertStmt<'mcx>(
                 } else if sublist_length != sublist.len() as i64 {
                     return Err(values_length_mismatch(pstate, &sublist));
                 }
-                let sublist =
-                    transformInsertRow(mcx, pstate, sublist, &stmt.cols, &icolumns, &attrnos, true)?;
+                let sublist = transformInsertRow(
+                    mcx, pstate, sublist, &stmt.cols, &icolumns, &attrnos, true,
+                )?;
                 parse_collate::assign_list_collations(mcx, pstate, &sublist)?;
                 exprs_lists.lappend(mcx, Node::mk_list(mcx, sublist)?)?;
             }
@@ -1696,7 +1771,11 @@ fn transformInsertStmt<'mcx>(
         Some(sel) => {
             debug_assert_eq!(sel.valuesLists.len(), 1);
             debug_assert!(sel.intoClause.is_none());
-            let values = sel.valuesLists.nth(0).as_list().expect("VALUES row is a List");
+            let values = sel
+                .valuesLists
+                .nth(0)
+                .as_list()
+                .expect("VALUES row is a List");
             let expr_list = parse_target::transformExpressionList(
                 mcx,
                 pstate,
@@ -1704,7 +1783,9 @@ fn transformInsertStmt<'mcx>(
                 ParseExprKind::EXPR_KIND_VALUES_SINGLE,
                 true,
             )?;
-            transformInsertRow(mcx, pstate, expr_list, &stmt.cols, &icolumns, &attrnos, false)?
+            transformInsertRow(
+                mcx, pstate, expr_list, &stmt.cols, &icolumns, &attrnos, false,
+            )?
         }
     };
 
@@ -1759,8 +1840,14 @@ fn transformInsertStmt<'mcx>(
     qry.rtable = mem::take(&mut pstate.p_rtable);
     qry.rteperminfos = mem::take(&mut pstate.p_rteperminfos);
     qry.jointree = Some(
-        Node::mk_mut(mcx, FromExpr { fromlist: mem::take(&mut pstate.p_joinlist), quals: None })?
-            .seal_ref(),
+        Node::mk_mut(
+            mcx,
+            FromExpr {
+                fromlist: mem::take(&mut pstate.p_joinlist),
+                quals: None,
+            },
+        )?
+        .seal_ref(),
     );
     qry.hasTargetSRFs = pstate.p_hasTargetSRFs;
     qry.hasSubLinks = pstate.p_hasSubLinks;
@@ -1777,7 +1864,9 @@ fn transformOnConflictClause<'mcx>(
 ) -> PgResult<Node<'mcx>> {
     use types_nodes::primnodes::OnConflictAction;
 
-    let clause = clause_node.as_on_conflict_clause().expect("grammar builds OnConflictClause");
+    let clause = clause_node
+        .as_on_conflict_clause()
+        .expect("grammar builds OnConflictClause");
 
     let mut excl_rel_index = 0i32;
     let mut excl_rel_tlist = types_nodes::NodeList::nil();
@@ -1793,7 +1882,10 @@ fn transformOnConflictClause<'mcx>(
             .alias();
         let alias = mcx::leak_in(mcx::alloc_in(
             mcx,
-            types_nodes::Alias { aliasname: Some("excluded"), colnames: types_nodes::NodeList::nil() },
+            types_nodes::Alias {
+                aliasname: Some("excluded"),
+                colnames: types_nodes::NodeList::nil(),
+            },
         )?);
         let nsitem = parse_relation::addRangeTableEntryForRelation(
             mcx,
@@ -1850,7 +1942,10 @@ fn transformOnConflictClause<'mcx>(
         )?;
 
         // EXCLUDED is not visible in RETURNING.
-        let popped = pstate.p_namespace.pop().expect("excluded nsitem was pushed");
+        let popped = pstate
+            .p_namespace
+            .pop()
+            .expect("excluded nsitem was pushed");
         debug_assert_eq!(popped.p_rtindex, excl_rel_index);
     }
 
@@ -1884,7 +1979,19 @@ pub fn BuildOnConflictExcludedTargetlist<'mcx>(
         let attr = targetrel.rd_att.attr(i);
         let (var, name) = if attr.attisdropped {
             // Any claimed type works for the placeholder null.
-            (Node::mk_const(mcx, INT4OID, -1, 0, 4, datum::Datum::from_i32(0), true, true)?, None)
+            (
+                Node::mk_const(
+                    mcx,
+                    INT4OID,
+                    -1,
+                    0,
+                    4,
+                    datum::Datum::from_i32(0),
+                    true,
+                    true,
+                )?,
+                None,
+            )
         } else {
             let var = Node::mk_var(
                 mcx,
@@ -1900,15 +2007,18 @@ pub fn BuildOnConflictExcludedTargetlist<'mcx>(
             // SAFETY: catalog attnames are UTF-8; byte-for-byte copy.
             (var, Some(unsafe { core::str::from_utf8_unchecked(name) }))
         };
-        tlist.lappend(mcx, Node::mk_target_entry(mcx, var, (i + 1) as i16, name, false)?)?;
+        tlist.lappend(
+            mcx,
+            Node::mk_target_entry(mcx, var, (i + 1) as i16, name, false)?,
+        )?;
     }
 
-    let whole_row =
-        Node::mk_var(mcx, excl_rel_index, 0, targetrel.rd_rel.reltype, -1, 0, 0)?;
+    let whole_row = Node::mk_var(mcx, excl_rel_index, 0, targetrel.rd_rel.reltype, -1, 0, 0)?;
     tlist.lappend(mcx, Node::mk_target_entry(mcx, whole_row, 0, None, true)?)?;
     Ok(tlist)
 }
 
+#[allow(clippy::field_reassign_with_default)]
 fn transformDeleteStmt<'mcx>(
     mcx: Mcx<'mcx>,
     pstate: &mut ParseState<'_, 'mcx>,
@@ -1932,7 +2042,9 @@ fn transformDeleteStmt<'mcx>(
         .expect("relation_expr_opt_alias is a RangeVar");
     qry.resultRelation =
         parse_clause::setTargetTable(mcx, pstate, relation, relation.inh, true, ACL_DELETE)?;
-    let nsitem = pstate.p_target_nsitem.expect("setTargetTable set p_target_nsitem");
+    let nsitem = pstate
+        .p_target_nsitem
+        .expect("setTargetTable set p_target_nsitem");
 
     // upstream f3d03fbd5d01 (18.5): Fix UPDATE/DELETE ... WHERE CURRENT OF on a table with virtual columns.
     // disallow DELETE ... WHERE CURRENT OF on a view
@@ -1978,8 +2090,14 @@ fn transformDeleteStmt<'mcx>(
     qry.rtable = mem::take(&mut pstate.p_rtable);
     qry.rteperminfos = mem::take(&mut pstate.p_rteperminfos);
     qry.jointree = Some(
-        Node::mk_mut(mcx, FromExpr { fromlist: mem::take(&mut pstate.p_joinlist), quals: qual })?
-            .seal_ref(),
+        Node::mk_mut(
+            mcx,
+            FromExpr {
+                fromlist: mem::take(&mut pstate.p_joinlist),
+                quals: qual,
+            },
+        )?
+        .seal_ref(),
     );
 
     qry.hasSubLinks = pstate.p_hasSubLinks;
@@ -1995,6 +2113,7 @@ fn transformDeleteStmt<'mcx>(
     Ok(qry)
 }
 
+#[allow(clippy::field_reassign_with_default)]
 fn transformUpdateStmt<'mcx>(
     mcx: Mcx<'mcx>,
     pstate: &mut ParseState<'_, 'mcx>,
@@ -2019,7 +2138,9 @@ fn transformUpdateStmt<'mcx>(
         .expect("relation_expr_opt_alias is a RangeVar");
     qry.resultRelation =
         parse_clause::setTargetTable(mcx, pstate, relation, relation.inh, true, ACL_UPDATE)?;
-    let nsitem = pstate.p_target_nsitem.expect("setTargetTable set p_target_nsitem");
+    let nsitem = pstate
+        .p_target_nsitem
+        .expect("setTargetTable set p_target_nsitem");
 
     // upstream f3d03fbd5d01 (18.5): Fix UPDATE/DELETE ... WHERE CURRENT OF on a table with virtual columns.
     // disallow UPDATE ... WHERE CURRENT OF on a view
@@ -2067,8 +2188,14 @@ fn transformUpdateStmt<'mcx>(
     qry.rtable = mem::take(&mut pstate.p_rtable);
     qry.rteperminfos = mem::take(&mut pstate.p_rteperminfos);
     qry.jointree = Some(
-        Node::mk_mut(mcx, FromExpr { fromlist: mem::take(&mut pstate.p_joinlist), quals: qual })?
-            .seal_ref(),
+        Node::mk_mut(
+            mcx,
+            FromExpr {
+                fromlist: mem::take(&mut pstate.p_joinlist),
+                quals: qual,
+            },
+        )?
+        .seal_ref(),
     );
 
     qry.hasTargetSRFs = pstate.p_hasTargetSRFs;
@@ -2136,7 +2263,11 @@ pub(crate) fn transformUpdateTargetList<'mcx>(
         };
         if attrno == 0 {
             let qualified_hint = !orig_target.indirection.is_nil()
-                && pstate.p_target_nsitem.expect("setTargetTable set p_target_nsitem").p_names.aliasname
+                && pstate
+                    .p_target_nsitem
+                    .expect("setTargetTable set p_target_nsitem")
+                    .p_names
+                    .aliasname
                     == Some(colname);
             return Err(undefined_update_column(
                 pstate,
@@ -2168,7 +2299,10 @@ pub(crate) fn transformUpdateTargetList<'mcx>(
         }
         .expect("p_perminfo is RTEPermissionInfo")?;
     }
-    assert!(orig_iter.next().is_none(), "UPDATE target count mismatch --- internal error");
+    assert!(
+        orig_iter.next().is_none(),
+        "UPDATE target count mismatch --- internal error"
+    );
     Ok(tlist)
 }
 
@@ -2199,7 +2333,9 @@ fn undefined_update_column(
         .unwrap_or_default();
     let mut builder = elog::ereport(ERROR)
         .errcode(ERRCODE_UNDEFINED_COLUMN)
-        .errmsg(format!("column \"{colname}\" of relation \"{relname}\" does not exist"));
+        .errmsg(format!(
+            "column \"{colname}\" of relation \"{relname}\" does not exist"
+        ));
     if qualified_hint {
         builder = builder.errhint("SET target columns cannot be qualified with the relation name.");
     }
@@ -2211,7 +2347,11 @@ fn undefined_update_column(
                 mbutils::GetDatabaseEncoding(),
             ))
             .into_error()
-            .with_error_location(ErrorLocation::new(file!(), line!() as i32, "transformUpdateTargetList")),
+            .with_error_location(ErrorLocation::new(
+                file!(),
+                line!() as i32,
+                "transformUpdateTargetList",
+            )),
     )
 }
 
@@ -2237,7 +2377,10 @@ pub(crate) fn transformInsertRow<'mcx>(
         // C: for INSERT ... SELECT (a,b,c) FROM ... the user accidentally
         // created a RowExpr instead of separate columns; add a hint when
         // that seems to be the problem.
-        let col = icolumns.nth(exprlist.len()).as_res_target().expect("ResTarget");
+        let col = icolumns
+            .nth(exprlist.len())
+            .as_res_target()
+            .expect("ResTarget");
         let mut err = insert_row_length_error(
             pstate,
             "INSERT has more target columns than expressions",
@@ -2271,7 +2414,11 @@ pub(crate) fn transformInsertRow<'mcx>(
         // For a multi-row VALUES RTE the assignment machinery runs again over
         // the RTE Vars; top-level FieldStores/SubscriptingRefs (and any
         // CoerceToDomain above one) must be peeled back to the source value.
-        let expr = if strip_indirection { strip_assignment_indirection(expr) } else { expr };
+        let expr = if strip_indirection {
+            strip_assignment_indirection(expr)
+        } else {
+            expr
+        };
         result.lappend(mcx, expr)?;
     }
     Ok(result)
@@ -2376,7 +2523,11 @@ fn insert_row_length_error(
                 mbutils::GetDatabaseEncoding(),
             ))
             .into_error()
-            .with_error_location(ErrorLocation::new(file!(), line!() as i32, "transformInsertRow")),
+            .with_error_location(ErrorLocation::new(
+                file!(),
+                line!() as i32,
+                "transformInsertRow",
+            )),
     )
 }
 
@@ -2392,7 +2543,9 @@ pub(crate) fn transformReturningClause<'mcx>(
         return Ok(());
     };
     let save_nslen = pstate.p_namespace.len();
-    let rc = rc_node.as_returning_clause().expect("grammar builds ReturningClause");
+    let rc = rc_node
+        .as_returning_clause()
+        .expect("grammar builds ReturningClause");
     for opt_node in &rc.options {
         use types_nodes::rawnodes::ReturningOptionKind;
         let opt = opt_node
@@ -2464,7 +2617,9 @@ fn addNSItemForReturning<'mcx>(
 ) -> PgResult<()> {
     use types_nodes::primnodes::Alias;
 
-    let target = pstate.p_target_nsitem.expect("setTargetTable set p_target_nsitem");
+    let target = pstate
+        .p_target_nsitem
+        .expect("setTargetTable set p_target_nsitem");
     let eref = target.rte().eref.expect("rte has eref");
     let numattrs = eref.colnames.len();
 
@@ -2479,7 +2634,10 @@ fn addNSItemForReturning<'mcx>(
     // C's makeAlias shares eref's colnames pointer; header-clone here.
     let names = Node::mk_mut(
         mcx,
-        Alias { aliasname: Some(aliasname), colnames: eref.colnames.clone_in(mcx)? },
+        Alias {
+            aliasname: Some(aliasname),
+            colnames: eref.colnames.clone_in(mcx)?,
+        },
     )?
     .seal_ref();
     let nsitem = parser_small1::ParseNamespaceItem {
@@ -2544,8 +2702,12 @@ fn returning_no_columns(
     exprs: &types_nodes::NodeList<'_>,
 ) -> Box<types_error::PgError> {
     use types_error::{ErrorLocation, ERRCODE_SYNTAX_ERROR, ERROR};
-    let location =
-        exprs.iter().next().and_then(|n| n.as_res_target()).map(|r| r.location).unwrap_or(-1);
+    let location = exprs
+        .iter()
+        .next()
+        .and_then(|n| n.as_res_target())
+        .map(|r| r.location)
+        .unwrap_or(-1);
     Box::new(
         elog::ereport(ERROR)
             .errcode(ERRCODE_SYNTAX_ERROR)
@@ -2556,7 +2718,11 @@ fn returning_no_columns(
                 mbutils::GetDatabaseEncoding(),
             ))
             .into_error()
-            .with_error_location(ErrorLocation::new(file!(), line!() as i32, "transformReturningClause")),
+            .with_error_location(ErrorLocation::new(
+                file!(),
+                line!() as i32,
+                "transformReturningClause",
+            )),
     )
 }
 
@@ -2567,7 +2733,9 @@ pub(crate) fn returning_target_nsitem<'mcx>(
     mcx: Mcx<'mcx>,
     pstate: &ParseState<'_, 'mcx>,
 ) -> PgResult<&'mcx mut parser_small1::ParseNamespaceItem<'mcx>> {
-    let t = pstate.p_target_nsitem.expect("setTargetTable set p_target_nsitem");
+    let t = pstate
+        .p_target_nsitem
+        .expect("setTargetTable set p_target_nsitem");
     let nsitem = parser_small1::ParseNamespaceItem {
         p_names: t.p_names,
         p_rte: t.p_rte,
@@ -2589,7 +2757,11 @@ fn values_length_mismatch(
     sublist: &types_nodes::NodeList<'_>,
 ) -> Box<types_error::PgError> {
     use types_error::{ErrorLocation, ERRCODE_SYNTAX_ERROR, ERROR};
-    let location = sublist.iter().next().map(parse_expr::expr_location).unwrap_or(-1);
+    let location = sublist
+        .iter()
+        .next()
+        .map(parse_expr::expr_location)
+        .unwrap_or(-1);
     Box::new(
         elog::ereport(ERROR)
             .errcode(ERRCODE_SYNTAX_ERROR)
@@ -2600,7 +2772,11 @@ fn values_length_mismatch(
                 mbutils::GetDatabaseEncoding(),
             ))
             .into_error()
-            .with_error_location(ErrorLocation::new(file!(), line!() as i32, "transformInsertStmt")),
+            .with_error_location(ErrorLocation::new(
+                file!(),
+                line!() as i32,
+                "transformInsertStmt",
+            )),
     )
 }
 
@@ -2655,7 +2831,10 @@ pub(crate) fn locking_not_allowed_with(
     Box::new(
         elog::ereport(ERROR)
             .errcode(ERRCODE_FEATURE_NOT_SUPPORTED)
-            .errmsg(format!("{} is not allowed with {what}", LCS_asString(strength)))
+            .errmsg(format!(
+                "{} is not allowed with {what}",
+                LCS_asString(strength)
+            ))
             .into_error()
             .with_error_location(ErrorLocation::new(file!(), line!() as i32, funcname)),
     )
@@ -2671,7 +2850,10 @@ fn locking_not_applicable_to(
     Box::new(
         elog::ereport(ERROR)
             .errcode(ERRCODE_FEATURE_NOT_SUPPORTED)
-            .errmsg(format!("{} cannot be applied to {what}", LCS_asString(strength)))
+            .errmsg(format!(
+                "{} cannot be applied to {what}",
+                LCS_asString(strength)
+            ))
             .into_error()
             .with_error_location(ErrorLocation::new(file!(), line!() as i32, funcname)),
     )
@@ -2685,7 +2867,11 @@ pub fn CheckSelectLocking(
     debug_assert!(strength != types_nodes::LockClauseStrength::LCS_NONE);
     const F: &str = "CheckSelectLocking";
     if qry.setOperations.is_some() {
-        return Err(locking_not_allowed_with(strength, "UNION/INTERSECT/EXCEPT", F));
+        return Err(locking_not_allowed_with(
+            strength,
+            "UNION/INTERSECT/EXCEPT",
+            F,
+        ));
     }
     if !qry.distinctClause.is_nil() {
         return Err(locking_not_allowed_with(strength, "DISTINCT clause", F));
@@ -2728,7 +2914,11 @@ fn transformLockingClause<'mcx>(
 
     if lc.lockedRels.is_nil() {
         for idx in 0..qry.rtable.len() {
-            let rte = qry.rtable.nth(idx).as_range_tbl_entry().expect("rtable cell");
+            let rte = qry
+                .rtable
+                .nth(idx)
+                .as_range_tbl_entry()
+                .expect("rtable cell");
             let i = idx as u32 + 1;
             if !rte.inFromCl {
                 continue;
@@ -2736,8 +2926,7 @@ fn transformLockingClause<'mcx>(
             match rte.rtekind {
                 RTEKind::RTE_RELATION => {
                     applyLockingClause(mcx, qry, i, lc.strength, lc.waitPolicy, pushed_down)?;
-                    let perminfo =
-                        parse_relation::getRTEPermissionInfo(&qry.rteperminfos, rte)?;
+                    let perminfo = parse_relation::getRTEPermissionInfo(&qry.rteperminfos, rte)?;
                     // SAFETY: parser-owned tree; no derived refs live.
                     unsafe {
                         perminfo.with_mut::<types_nodes::RTEPermissionInfo, _>(|p| {
@@ -2759,10 +2948,18 @@ fn transformLockingClause<'mcx>(
     'rels: for rel_node in &lc.lockedRels {
         let thisrel = rel_node.as_range_var().expect("lockedRels cell");
         if thisrel.catalogname.is_some() || thisrel.schemaname.is_some() {
-            return Err(locking_unqualified_names(pstate, lc.strength, thisrel.location));
+            return Err(locking_unqualified_names(
+                pstate,
+                lc.strength,
+                thisrel.location,
+            ));
         }
         for idx in 0..qry.rtable.len() {
-            let rte = qry.rtable.nth(idx).as_range_tbl_entry().expect("rtable cell");
+            let rte = qry
+                .rtable
+                .nth(idx)
+                .as_range_tbl_entry()
+                .expect("rtable cell");
             let i = idx as u32 + 1;
             if !rte.inFromCl {
                 continue;
@@ -2784,8 +2981,7 @@ fn transformLockingClause<'mcx>(
             match rte.rtekind {
                 RTEKind::RTE_RELATION => {
                     applyLockingClause(mcx, qry, i, lc.strength, lc.waitPolicy, pushed_down)?;
-                    let perminfo =
-                        parse_relation::getRTEPermissionInfo(&qry.rteperminfos, rte)?;
+                    let perminfo = parse_relation::getRTEPermissionInfo(&qry.rteperminfos, rte)?;
                     // SAFETY: parser-owned tree; no derived refs live.
                     unsafe {
                         perminfo.with_mut::<types_nodes::RTEPermissionInfo, _>(|p| {
@@ -2799,29 +2995,51 @@ fn transformLockingClause<'mcx>(
                     mark_subquery_for_locking(mcx, pstate, rte, lc.strength, lc.waitPolicy)?;
                 }
                 RTEKind::RTE_JOIN => {
-                    return Err(locking_bad_target(pstate, lc.strength, "a join", thisrel.location))
+                    return Err(locking_bad_target(
+                        pstate,
+                        lc.strength,
+                        "a join",
+                        thisrel.location,
+                    ))
                 }
                 RTEKind::RTE_FUNCTION => {
                     return Err(locking_bad_target(
-                        pstate, lc.strength, "a function", thisrel.location,
+                        pstate,
+                        lc.strength,
+                        "a function",
+                        thisrel.location,
                     ))
                 }
                 RTEKind::RTE_TABLEFUNC => {
                     return Err(locking_bad_target(
-                        pstate, lc.strength, "a table function", thisrel.location,
+                        pstate,
+                        lc.strength,
+                        "a table function",
+                        thisrel.location,
                     ))
                 }
                 RTEKind::RTE_VALUES => {
-                    return Err(locking_bad_target(pstate, lc.strength, "VALUES", thisrel.location))
+                    return Err(locking_bad_target(
+                        pstate,
+                        lc.strength,
+                        "VALUES",
+                        thisrel.location,
+                    ))
                 }
                 RTEKind::RTE_CTE => {
                     return Err(locking_bad_target(
-                        pstate, lc.strength, "a WITH query", thisrel.location,
+                        pstate,
+                        lc.strength,
+                        "a WITH query",
+                        thisrel.location,
                     ))
                 }
                 RTEKind::RTE_NAMEDTUPLESTORE => {
                     return Err(locking_bad_target(
-                        pstate, lc.strength, "a named tuplestore", thisrel.location,
+                        pstate,
+                        lc.strength,
+                        "a named tuplestore",
+                        thisrel.location,
                     ))
                 }
                 other => panic!("unrecognized RTE type: {}", other as i32),
@@ -2908,8 +3126,7 @@ fn mark_query_for_locking<'mcx>(
                 match rte.rtekind {
                     RTEKind::RTE_RELATION => {
                         applyLockingClause(mcx, q, rti, strength, wait_policy, true)?;
-                        let perminfo =
-                            parse_relation::getRTEPermissionInfo(&q.rteperminfos, rte)?;
+                        let perminfo = parse_relation::getRTEPermissionInfo(&q.rteperminfos, rte)?;
                         // Parser-owned tree; no derived refs live.
                         perminfo
                             .with_mut::<types_nodes::RTEPermissionInfo, _>(|p| {
@@ -2966,7 +3183,12 @@ fn applyLockingClause<'mcx>(
     }
     let rc = Node::mk(
         mcx,
-        RowMarkClause { rti: rtindex, strength, waitPolicy: wait_policy, pushedDown: pushed_down },
+        RowMarkClause {
+            rti: rtindex,
+            strength,
+            waitPolicy: wait_policy,
+            pushedDown: pushed_down,
+        },
     )?;
     qry.rowMarks.lappend(mcx, rc)?;
     Ok(())
@@ -2992,7 +3214,11 @@ fn locking_unqualified_names(
                 mbutils::GetDatabaseEncoding(),
             ))
             .into_error()
-            .with_error_location(ErrorLocation::new(file!(), line!() as i32, "transformLockingClause")),
+            .with_error_location(ErrorLocation::new(
+                file!(),
+                line!() as i32,
+                "transformLockingClause",
+            )),
     )
 }
 
@@ -3007,14 +3233,21 @@ fn locking_bad_target(
     Box::new(
         elog::ereport(ERROR)
             .errcode(ERRCODE_FEATURE_NOT_SUPPORTED)
-            .errmsg(format!("{} cannot be applied to {what}", LCS_asString(strength)))
+            .errmsg(format!(
+                "{} cannot be applied to {what}",
+                LCS_asString(strength)
+            ))
             .errposition(parser_small1::parser_errposition(
                 pstate,
                 location,
                 mbutils::GetDatabaseEncoding(),
             ))
             .into_error()
-            .with_error_location(ErrorLocation::new(file!(), line!() as i32, "transformLockingClause")),
+            .with_error_location(ErrorLocation::new(
+                file!(),
+                line!() as i32,
+                "transformLockingClause",
+            )),
     )
 }
 
@@ -3039,6 +3272,10 @@ fn locking_rel_not_found(
                 mbutils::GetDatabaseEncoding(),
             ))
             .into_error()
-            .with_error_location(ErrorLocation::new(file!(), line!() as i32, "transformLockingClause")),
+            .with_error_location(ErrorLocation::new(
+                file!(),
+                line!() as i32,
+                "transformLockingClause",
+            )),
     )
 }

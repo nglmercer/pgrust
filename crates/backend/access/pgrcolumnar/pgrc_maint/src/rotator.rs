@@ -8,7 +8,12 @@ use types_rel::{AccessShareLock, NoLock};
 const ROTATOR: &str = "pgrcolumnar front rotation";
 
 pub(crate) fn rotate_detached(db: Oid, parent: Oid) -> bool {
-    let w = crate::bgw(ROTATOR, rotator_main, db as u64 | (parent as u64) << 32, bgworker::BGW_NEVER_RESTART);
+    let w = crate::bgw(
+        ROTATOR,
+        rotator_main,
+        db as u64 | (parent as u64) << 32,
+        bgworker::BGW_NEVER_RESTART,
+    );
     matches!(bgworker::RegisterDynamicBackgroundWorker(w), Ok(Some(_)))
 }
 
@@ -46,8 +51,12 @@ fn rotate_in_own_transaction(relid: Oid) -> PgResult<bool> {
     let r = (|| {
         injection_point::injection_point("pgrc-rotate-detached")?;
         let ctx = mcx::MemoryContext::new("pgrc front rotation");
-        let Some(rel) = table::try_table_open(ctx.mcx(), relid, AccessShareLock)? else { return Ok(false) };
-        let out = if !tableam_vocab::is_pgrcolumnar_am_oid(rel.rd_rel.relam) || !pgrc_front::maint::try_rotate_lock(relid)? {
+        let Some(rel) = table::try_table_open(ctx.mcx(), relid, AccessShareLock)? else {
+            return Ok(false);
+        };
+        let out = if !tableam_vocab::is_pgrcolumnar_am_oid(rel.rd_rel.relam)
+            || !pgrc_front::maint::try_rotate_lock(relid)?
+        {
             Ok(false)
         } else {
             pgrc_front::rotate::rotate(ctx.mcx(), &rel, pgrc_front::maint::rotate_min(relid))
@@ -55,7 +64,10 @@ fn rotate_in_own_transaction(relid: Oid) -> PgResult<bool> {
         rel.close(NoLock)?;
         let rotated = out?;
         if rotated {
-            elog::elog(DEBUG1, format!("pgrcolumnar: rotated relation {relid} in a detached worker"))?;
+            elog::elog(
+                DEBUG1,
+                format!("pgrcolumnar: rotated relation {relid} in a detached worker"),
+            )?;
         }
         Ok(rotated)
     })();

@@ -57,6 +57,7 @@ impl DestSink {
         };
         let k = if matches!(direct, Direct::Slot | Direct::SqlFnRow) { 0 } else { n };
         let (vals, nulls) = (vec![datum::Datum::null(); k].into_boxed_slice(), vec![false; k].into_boxed_slice()); // alloc: Exec
+        #[allow(clippy::unnecessary_cast)]
         DestSink { dest: dest as *mut DestReceiver<'_> as *mut DestReceiver<'static>, slot: None, desc, mcx, rows: 0, direct, vals, nulls }
     }
 }

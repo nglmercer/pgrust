@@ -31,8 +31,8 @@
 
 use std::collections::BTreeSet;
 
-use pgrc_read::OpenPart;
 use pgrc_format::part::{ExtentRecord, StreamRole};
+use pgrc_read::OpenPart;
 
 /// Advise the extents a stage of `granules` (ascending part-granule
 /// ordinals) over the columns in `attnos` would fault. Returns

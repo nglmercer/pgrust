@@ -7,20 +7,26 @@ pub mod instr;
 mod queue;
 mod state;
 
-pub use catalog::{map_partition_qual, CreateTriggerFiringOn, CreateTriggerInternal, InternalTriggerArgs, TriggerSetParentTrigger};
-pub use ddl::{get_trigger_oid, renametrig, CreateTrigger, EnableDisableTrigger, RemoveTriggerById};
+pub use catalog::{
+    map_partition_qual, CreateTriggerFiringOn, CreateTriggerInternal, InternalTriggerArgs,
+    TriggerSetParentTrigger,
+};
+pub use ddl::{
+    get_trigger_oid, renametrig, CreateTrigger, EnableDisableTrigger, RemoveTriggerById,
+};
 pub use exec::{
-    trigger_depth, ExecBRDeleteTriggers, ExecBRInsertTriggers, ExecBRInsertTriggersIn, ExecBRUpdateTriggers,
-    ExecBSInsertTriggers, ExecBSTruncateTriggers, ExecCallTriggerFunc, ExecIRInsertTriggers, ExecIRInsertTriggersIn,
-    TriggerEnabled, TriggerFmgrCache, TriggerWhenCache, TriggerWhenEval,
+    trigger_depth, ExecBRDeleteTriggers, ExecBRInsertTriggers, ExecBRInsertTriggersIn,
+    ExecBRUpdateTriggers, ExecBSInsertTriggers, ExecBSTruncateTriggers, ExecCallTriggerFunc,
+    ExecIRInsertTriggers, ExecIRInsertTriggersIn, TriggerEnabled, TriggerFmgrCache,
+    TriggerWhenCache, TriggerWhenEval,
 };
 pub use queue::{
-    before_stmt_triggers_fired, check_foreign_transition_capture, query_depth, ri_trigger_kind, AfterTriggerBeginQuery, AfterTriggerBeginSubXact,
-    AfterTriggerBeginXact, AfterTriggerEndQuery, AfterTriggerEndSubXact, AfterTriggerEndXact,
-    AfterTriggerInstrSink, AfterTriggerQueryHasEvents,
-    AfterTriggerFireDeferred, AfterTriggerPendingOnRel, ExecARDeleteTriggers,
-    ExecARInsertTriggers, ExecARRowTriggersFdw, ExecARUpdateTriggers, ExecASDeleteTriggers, ExecASInsertTriggers,
-    ChildToRoot, ExecASTruncateTriggers, ExecASUpdateTriggers, MakeTransitionCaptureState,
+    before_stmt_triggers_fired, check_foreign_transition_capture, query_depth, ri_trigger_kind,
+    AfterTriggerBeginQuery, AfterTriggerBeginSubXact, AfterTriggerBeginXact, AfterTriggerEndQuery,
+    AfterTriggerEndSubXact, AfterTriggerEndXact, AfterTriggerFireDeferred, AfterTriggerInstrSink,
+    AfterTriggerPendingOnRel, AfterTriggerQueryHasEvents, ChildToRoot, ExecARDeleteTriggers,
+    ExecARInsertTriggers, ExecARRowTriggersFdw, ExecARUpdateTriggers, ExecASDeleteTriggers,
+    ExecASInsertTriggers, ExecASTruncateTriggers, ExecASUpdateTriggers, MakeTransitionCaptureState,
     TransitionCaptureState, TrigTargetDesc,
 };
 pub use state::AfterTriggerSetState;
@@ -42,10 +48,7 @@ pub fn init_seams() {
 #[track_caller]
 #[cold]
 #[inline(never)]
-pub(crate) fn cache_lookup_failed(
-    what: &str,
-    oid: types_core::Oid,
-) -> Box<types_error::PgError> {
+pub(crate) fn cache_lookup_failed(what: &str, oid: types_core::Oid) -> Box<types_error::PgError> {
     Box::new(types_error::PgError::error(format!(
         "cache lookup failed for {what} {oid}"
     )))

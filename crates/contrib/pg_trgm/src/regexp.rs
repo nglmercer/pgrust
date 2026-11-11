@@ -529,6 +529,7 @@ impl Nfa<'_> {
             }
             ctrgms = permuted;
         }
+        #[allow(clippy::needless_range_loop)]
         for i in 0..ctrgms.len() {
             if total_penalty <= WISH_TRGM_PENALTY {
                 break;

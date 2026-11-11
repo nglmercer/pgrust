@@ -109,14 +109,14 @@ pub(crate) fn form<'g>(gx: &Gx<'g, '_>, k: usize, j: usize, d: &LockDesc<'_>, (l
                         return None;
                     }
                     held += 1;
-                    subplan |= recheck_quals(&s.source).into_iter().chain(s.ops[..end].iter().flat_map(exprs)).any(|x| has_subplan(x));
+                    subplan |= recheck_quals(&s.source).chain(s.ops[..end].iter().flat_map(exprs)).any(|x| has_subplan(x));
                     fetch.push_in((ik, HELD, m.relid));
                     continue;
                 }
                 // a REFERENCE mark's own scan, embedded (a Memoize over it or none)
                 if let Some((x, r)) = refs.iter().find_map(|r| (!used.contains(&r.rti)).then(|| ref_side(gx, q, i, r).map(|x| (x, *r))).flatten()) {
                     let s = &ps[x];
-                    subplan |= recheck_quals(&s.source).into_iter().chain(s.ops[..inner_end(s)].iter().flat_map(exprs)).any(|x| has_subplan(x));
+                    subplan |= recheck_quals(&s.source).chain(s.ops[..inner_end(s)].iter().flat_map(exprs)).any(|x| has_subplan(x));
                     used.push_in(r.rti);
                     fetch.push_in((x, r.ctid_col, r.relid));
                     continue;
@@ -125,7 +125,7 @@ pub(crate) fn form<'g>(gx: &Gx<'g, '_>, k: usize, j: usize, d: &LockDesc<'_>, (l
                 if let Some((f, _)) = ref_spool(gx, q, i) {
                     let r = free(&used[..], &ps[f].source)?;
                     let s = &ps[f];
-                    subplan |= recheck_quals(&s.source).into_iter().chain(s.ops[..inner_end(s)].iter().flat_map(exprs)).any(|x| has_subplan(x));
+                    subplan |= recheck_quals(&s.source).chain(s.ops[..inner_end(s)].iter().flat_map(exprs)).any(|x| has_subplan(x));
                     used.push_in(r.rti);
                     extra.push_in(f);
                     fetch.push_in((f, r.ctid_col, r.relid));
@@ -194,5 +194,5 @@ fn ref_probe(gx: &Gx<'_, '_>, x: usize, o: &Op<'_>) -> Option<(usize, (u32, u32)
 /// What a probe build's redo evaluates: its source's recheck quals and its ops before the build.
 fn build_read<'g, 'p>(gx: &Gx<'g, 'p>, bq: usize) -> PgVec<'g, types_nodes::Node<'p>> {
     let pb = &gx.pipelines()[bq];
-    recheck_quals(&pb.source).into_iter().chain(pb.ops[..pb.ops.len() - 1].iter().flat_map(exprs)).collect_in(gx.mcx)
+    recheck_quals(&pb.source).chain(pb.ops[..pb.ops.len() - 1].iter().flat_map(exprs)).collect_in(gx.mcx)
 }

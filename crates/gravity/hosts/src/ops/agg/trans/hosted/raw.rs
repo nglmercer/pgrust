@@ -110,6 +110,7 @@ impl AggArena {
     /// when by reference. The old state is not freed: it may be another slot's, whose context the arena frees at the
     /// statement's end.
     /// # Safety — `into` / `from` are `AGG_STATE_BYTES` state slots of aggregate `aggno`; no worker runs a slot.
+    #[allow(clippy::missing_safety_doc)]
     pub unsafe fn combine(&mut self, aggno: u32, into: *mut u8, from: *const u8) -> PgResult<()> {
         self.combine_in(self.slots.len() - 1, aggno, into, from)
     }
@@ -117,7 +118,10 @@ impl AggArena {
     /// `combine` in slot `k` (D798: two partials of one group in a keyed record fold, in the folding worker's slot).
     unsafe fn combine_in(&mut self, k: usize, aggno: u32, into: *mut u8, from: *const u8) -> PgResult<()> {
         if self.kept_of(aggno).is_some() {
-            return Ok(crate::ops::agg::trans::hosted_kept::combine(into, from));
+            return {
+                crate::ops::agg::trans::hosted_kept::combine(into, from);
+                Ok(())
+            };
         }
         let i = self.agg(aggno)?;
         self.collations_armed(k)?;
@@ -211,7 +215,10 @@ impl AggArena {
     /// NULL), or the state itself; `out` = (datum, null, by-reference bytes), the image live until the slot's next final.
     unsafe fn finalize(&mut self, ordinal: u16, aggno: u32, s: *mut u8, out: *mut u64) -> PgResult<()> {
         if let Some(j) = self.kept_of(aggno) {
-            return Ok(self.kept_final(j, s, out));
+            return {
+                self.kept_final(j, s, out);
+                Ok(())
+            };
         }
         let (i, k) = (self.agg(aggno)?, self.slot(ordinal)?);
         self.handed |= self.streamed;

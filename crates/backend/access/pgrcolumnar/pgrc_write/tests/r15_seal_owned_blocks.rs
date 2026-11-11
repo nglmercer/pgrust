@@ -10,9 +10,13 @@ use std::cell::Cell;
 use std::sync::atomic::{AtomicI64, AtomicUsize, Ordering};
 
 use memledger::charge::{context, owner_row};
-use memledger::{bind_backend, door_heap, statement_begin, statement_end, unbind_backend, Holder, Owner};
+use memledger::{
+    bind_backend, door_heap, statement_begin, statement_end, unbind_backend, Holder, Owner,
+};
 use pgrc_write::ingest::RawDatum;
-use pgrc_write::testkit::{img_4b_u, int8_col, mem_with_dir, open_writer_policy, stamp, text_col, Kit};
+use pgrc_write::testkit::{
+    img_4b_u, int8_col, mem_with_dir, open_writer_policy, stamp, text_col, Kit,
+};
 use pgrc_write::writer::{PartCutPolicy, SealEnv};
 
 const BIG: usize = 1 << 20;
@@ -30,7 +34,9 @@ static WORST_SIZE: AtomicUsize = AtomicUsize::new(0);
 static CHECKED: AtomicUsize = AtomicUsize::new(0);
 
 fn unowned(o: Owner) -> i64 {
-    LIVE.with(Cell::get) - owner_row(o).committed - owner_row(Owner::Cache(Holder::Parked)).committed
+    LIVE.with(Cell::get)
+        - owner_row(o).committed
+        - owner_row(Owner::Cache(Holder::Parked)).committed
 }
 
 struct Door1;

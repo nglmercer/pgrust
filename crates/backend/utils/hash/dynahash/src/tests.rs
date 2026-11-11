@@ -131,11 +131,13 @@ fn entries_are_pointer_stable_across_growth() {
 }
 
 #[test]
+#[allow(clippy::manual_c_str_literals)]
 fn string_keys_truncate_at_nul_and_keysize_minus_one() {
     install_test_seams();
     let ctl = ctl(16, 24);
     let table = hash_create("strings", 8, &ctl, HASH_ELEM | HASH_STRINGS).unwrap();
     unsafe {
+        #[allow(clippy::manual_c_str_literals)]
         search(table, b"abc\0tail\0\0\0\0\0\0\0\0".as_ptr(), HASH_ENTER).unwrap();
         let (_, found) =
             search(table, b"abc\0zzzz\0\0\0\0\0\0\0\0".as_ptr(), HASH_FIND).unwrap();

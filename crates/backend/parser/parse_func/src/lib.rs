@@ -1018,7 +1018,10 @@ fn cache_lookup_failed_aggregate(funcid: Oid) -> Box<PgError> {
 #[cold]
 #[inline(never)]
 fn unrecognized_prokind(prokind: i8) -> Box<PgError> {
-    Box::new(PgError::error(format!("unrecognized prokind: {}", prokind as u8 as char)))
+    Box::new(PgError::error(format!(
+        "unrecognized prokind: {}",
+        prokind as u8 as char
+    )))
 }
 
 // parse_func.c:1681 elog(ERROR, "cache lookup failed for function %u").
@@ -1487,6 +1490,7 @@ pub fn func_select_candidate<'c, C: CandidateArgs>(
 
     if nunknowns < nargs {
         let mut known_type = UNKNOWNOID;
+        #[allow(clippy::needless_range_loop)]
         for i in 0..nargs {
             if base[i] == UNKNOWNOID {
                 continue;

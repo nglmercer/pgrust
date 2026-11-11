@@ -49,6 +49,7 @@ fn with_state<R>(f: impl FnOnce(&mut EngineState) -> R) -> R {
             // D4682: the teardown retires this root; clear the slot first, so a reused thread's next
             // session builds a new one.
             ::mcx::register_session_cleanup(Box::new(|| {
+                #[allow(clippy::drop_non_drop)]
                 let _ = STATE.try_with(|c| drop(c.borrow_mut().take()));
             }));
             ManuallyDrop::new(EngineState {

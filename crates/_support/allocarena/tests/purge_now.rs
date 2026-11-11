@@ -4,7 +4,8 @@
 //! Its own test binary: the purge delay here is long (the server's default kind), unlike cache_arena.rs's 0.
 
 #[global_allocator]
-static GLOBAL: init_small::oom::Rescue<mimalloc::MiMalloc> = init_small::oom::Rescue(mimalloc::MiMalloc);
+static GLOBAL: init_small::oom::Rescue<mimalloc::MiMalloc> =
+    init_small::oom::Rescue(mimalloc::MiMalloc);
 
 use std::sync::OnceLock;
 
@@ -23,7 +24,11 @@ fn setup() {
     static DONE: OnceLock<bool> = OnceLock::new();
     DONE.get_or_init(|| {
         init_small::oom::set_cache_alloc(allocarena::cache_alloc, allocarena::cache_realloc);
-        init_small::oom::set_own_pages(allocarena::own::range(), allocarena::own_free, allocarena::own_resize);
+        init_small::oom::set_own_pages(
+            allocarena::own::range(),
+            allocarena::own_free,
+            allocarena::own_resize,
+        );
         allocarena::start_cache_heap()
     });
 }
@@ -45,30 +50,66 @@ fn a_freed_cache_range_is_purged_now_while_a_general_one_waits_its_delay() {
     setup();
     const SIZE: usize = 16 << 20;
     let img = {
-        let _scope = memledger::arena::cache_scope_for(memledger::Owner::Cache(memledger::Holder::Of(memledger::Consumer::PartCache)), memledger::Kind::Region);
+        let _scope = memledger::arena::cache_scope_for(
+            memledger::Owner::Cache(memledger::Holder::Of(memledger::Consumer::PartCache)),
+            memledger::Kind::Region,
+        );
         vec![1u8; SIZE]
     };
     let gen = vec![2u8; SIZE];
     let (ip, gp) = (img.as_ptr() as usize, gen.as_ptr() as usize);
-    assert!(allocarena::in_cache_arena(img.as_ptr()), "the image is on the cache arena");
-    assert!(!allocarena::in_cache_arena(gen.as_ptr()) && allocarena::in_arenas(gen.as_ptr()), "the other block on a general arena");
-    assert!(resident(ip, SIZE) >= SIZE * 9 / 10 && resident(gp, SIZE) >= SIZE * 9 / 10, "both written, both resident");
+    assert!(
+        allocarena::in_cache_arena(img.as_ptr()),
+        "the image is on the cache arena"
+    );
+    assert!(
+        !allocarena::in_cache_arena(gen.as_ptr()) && allocarena::in_arenas(gen.as_ptr()),
+        "the other block on a general arena"
+    );
+    assert!(
+        resident(ip, SIZE) >= SIZE * 9 / 10 && resident(gp, SIZE) >= SIZE * 9 / 10,
+        "both written, both resident"
+    );
     drop(img);
     drop(gen);
     // the freed pages back to their arenas (this thread's collects), with no forced purge: inside the 60 s delay
     allocarena::collect_cache_local();
     // SAFETY: mimalloc's collect on this thread, not forced (purges only expired ranges: none).
     unsafe { libmimalloc_sys::mi_collect(false) };
-    assert!(resident(ip, SIZE) >= SIZE * 9 / 10, "the freed image waits for a purge: {} resident", resident(ip, SIZE));
+    assert!(
+        resident(ip, SIZE) >= SIZE * 9 / 10,
+        "the freed image waits for a purge: {} resident",
+        resident(ip, SIZE)
+    );
     let (_, cache_before) = memledger::arena::taken().expect("arenas installed");
     let (_, remaps0, whole0) = allocarena::decommit_counts();
-    assert!(allocarena::purge_cache_now(true), "the cache arena's freed range was purged");
+    assert!(
+        allocarena::purge_cache_now(true),
+        "the cache arena's freed range was purged"
+    );
     let (_, cache_after) = memledger::arena::taken().unwrap();
-    assert!(resident(ip, SIZE) <= 64 << 10, "the image's pages went back at the call: {} resident", resident(ip, SIZE));
-    assert!(resident(gp, SIZE) >= SIZE * 9 / 10, "the general arena's freed block still waits out its delay: {} resident", resident(gp, SIZE));
-    assert!(cache_before - cache_after >= (SIZE * 9 / 10) as u64, "CACHE_TAKEN fell: {cache_before} -> {cache_after}");
+    assert!(
+        resident(ip, SIZE) <= 64 << 10,
+        "the image's pages went back at the call: {} resident",
+        resident(ip, SIZE)
+    );
+    assert!(
+        resident(gp, SIZE) >= SIZE * 9 / 10,
+        "the general arena's freed block still waits out its delay: {} resident",
+        resident(gp, SIZE)
+    );
+    assert!(
+        cache_before - cache_after >= (SIZE * 9 / 10) as u64,
+        "CACHE_TAKEN fell: {cache_before} -> {cache_after}"
+    );
     let (_, remaps1, whole1) = allocarena::decommit_counts();
-    assert!(remaps1 > remaps0, "a whole 2 MiB-aligned range was mapped over afresh (MAP_FIXED)");
-    assert_eq!(whole1, whole0, "decommit_never_dontneeds_a_whole_2mib_range: no MADV_DONTNEED piece covered one");
+    assert!(
+        remaps1 > remaps0,
+        "a whole 2 MiB-aligned range was mapped over afresh (MAP_FIXED)"
+    );
+    assert_eq!(
+        whole1, whole0,
+        "decommit_never_dontneeds_a_whole_2mib_range: no MADV_DONTNEED piece covered one"
+    );
     assert_eq!(whole1, 0);
 }

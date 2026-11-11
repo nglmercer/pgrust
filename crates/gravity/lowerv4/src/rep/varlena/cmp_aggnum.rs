@@ -110,7 +110,7 @@ impl ExprExtMech for Cmp {
                     c.prog.nodes[id.0 as usize] = ExprNode::Var(Var { src: VarSource::Scan, attno: EXT_AT + sites.len() as i16, typ: 16, desc: 0 });
                     let word = crate::rep::varlena::num_konst::konst_word(px, at, ex, sites.len() as u8);
                     let (asub, ksub) = (sub(g), sub(kn));
-                    (sites.push(Site { asub, ksub, word, ..s }), skip.push(n.as_raw().as_ptr() as usize)); // alloc: Program
+                    sites.push(Site { asub, ksub, word, ..s }); skip.push(n.as_raw().as_ptr() as usize); // alloc: Program
                 },
             }
         }

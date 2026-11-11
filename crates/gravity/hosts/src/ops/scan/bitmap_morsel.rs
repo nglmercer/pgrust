@@ -29,6 +29,7 @@ use crate::recipe::HostRecipe;
 
 /// The bitmap the build wants: one index's, or a BitmapAnd / BitmapOr tree's.
 #[derive(Clone)]
+#[allow(clippy::large_enum_variant)]
 pub enum MorselBitmap {
     Leaf(SiteRecipe),
     Tree(TreeRecipe),

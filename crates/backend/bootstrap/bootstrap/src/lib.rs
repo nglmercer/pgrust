@@ -6,21 +6,23 @@ pub mod bki;
 pub mod exec;
 pub mod typinfo;
 
-use types_error::{PgResult, ERRCODE_SYNTAX_ERROR, PgError};
+use types_error::{PgError, PgResult, ERRCODE_SYNTAX_ERROR};
 use types_guc::{GucContext, GucSource};
 
 const PROGNAME: &str = "postgres";
 
 pub fn BootstrapModeMain(argv: &[String], check_only: bool) -> ! {
     // unwind-ok: log-then-die
-    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> core::convert::Infallible {
-        let err = match bootstrap_main_inner(argv, check_only) {
-            Ok(never) => match never {},
-            Err(err) => err,
-        };
-        elog::emit_unhandled_error_report(&err);
-        ipc::proc_exit(1, init_small::globals::MyProcPid())
-    }));
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(
+        || -> core::convert::Infallible {
+            let err = match bootstrap_main_inner(argv, check_only) {
+                Ok(never) => match never {},
+                Err(err) => err,
+            };
+            elog::emit_unhandled_error_report(&err);
+            ipc::proc_exit(1, init_small::globals::MyProcPid())
+        },
+    ));
     let payload = match outcome {
         Ok(never) => match never {},
         Err(payload) => payload,
@@ -32,7 +34,12 @@ pub fn BootstrapModeMain(argv: &[String], check_only: bool) -> ! {
 }
 
 fn set_argv(name: &str, value: &str) -> PgResult<()> {
-    guc::SetConfigOption(name, Some(value), GucContext::PGC_POSTMASTER, GucSource::PGC_S_ARGV)
+    guc::SetConfigOption(
+        name,
+        Some(value),
+        GucContext::PGC_POSTMASTER,
+        GucSource::PGC_S_ARGV,
+    )
 }
 
 fn usage_exit(progname: &str) -> ! {
@@ -66,7 +73,10 @@ fn bootstrap_main_inner(argv: &[String], check_only: bool) -> PgResult<core::con
             (o, if tail.is_empty() { None } else { Some(tail) })
         };
         let mut val = || -> String {
-            inline_val.clone().or_else(|| args.next().cloned()).unwrap_or_else(|| usage_exit(&progname))
+            inline_val
+                .clone()
+                .or_else(|| args.next().cloned())
+                .unwrap_or_else(|| usage_exit(&progname))
         };
         match opt {
             'B' => set_argv("shared_buffers", &val())?,
@@ -154,19 +164,37 @@ fn bootstrap_main_inner(argv: &[String], check_only: bool) -> PgResult<core::con
 
     transam_xlog::BootStrapXLOG(data_checksum_version)?;
     multixact::MultiXactSetNextMXact(multixact::FirstMultiXactId, 0)?;
-    multixact::SetMultiXactIdLimit(multixact::FirstMultiXactId, postinit::TEMPLATE1_DB_OID, true)?;
-    commit_ts::SetCommitTsLimit(types_core::InvalidTransactionId, types_core::InvalidTransactionId)?;
+    multixact::SetMultiXactIdLimit(
+        multixact::FirstMultiXactId,
+        postinit::TEMPLATE1_DB_OID,
+        true,
+    )?;
+    commit_ts::SetCommitTsLimit(
+        types_core::InvalidTransactionId,
+        types_core::InvalidTransactionId,
+    )?;
     clog::BootStrapCLOG()?;
     commit_ts::BootStrapCommitTs();
     subtrans::BootStrapSUBTRANS()?;
     multixact::BootStrapMultiXact()?;
 
     let top = mcx::MemoryContext::new("BootstrapModeMain");
-    postinit::InitPostgres(top.mcx(), None, types_core::InvalidOid, None, types_core::InvalidOid, 0, None)?;
+    postinit::InitPostgres(
+        top.mcx(),
+        None,
+        types_core::InvalidOid,
+        None,
+        types_core::InvalidOid,
+        0,
+        None,
+    )?;
 
     let mut script = String::new();
-    std::io::Read::read_to_string(&mut std::io::stdin(), &mut script)
-        .map_err(|e| Box::new(PgError::error(format!("could not read bootstrap script: {e}"))))?;
+    std::io::Read::read_to_string(&mut std::io::stdin(), &mut script).map_err(|e| {
+        Box::new(PgError::error(format!(
+            "could not read bootstrap script: {e}"
+        )))
+    })?;
     let stmts = bki::parse(&script)?;
 
     xact::StartTransactionCommand()?;

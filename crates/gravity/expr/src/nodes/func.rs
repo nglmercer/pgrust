@@ -356,6 +356,7 @@ fn permission_denied(what: &str, funcid: Oid) -> PgResult<Box<types_error::PgErr
     let name = lsyscache::get_func_name(cx.mcx(), funcid)?;
     let name = name.as_ref().map(|n| n.as_str()).unwrap_or("(unknown)");
     let e = Box::new(types_error::PgError::error(format!("permission denied for {what} {name}")).with_sqlstate(types_error::ERRCODE_INSUFFICIENT_PRIVILEGE)); // alloc: Cold
+    #[allow(dropping_references)]
     drop(name);
     Ok(e)
 }

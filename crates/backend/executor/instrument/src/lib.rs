@@ -20,7 +20,9 @@ mod tests;
 // pg_clock (never enabled by product builds) this read is pinnable, which
 // is what lets instrument_diff compare the timer paths bit-for-bit.
 pub fn instr_time_current() -> instr_time {
-    instr_time { ticks: pg_clock::mono_ns() as i64 }
+    instr_time {
+        ticks: pg_clock::mono_ns() as i64,
+    }
 }
 
 // pgBufferUsage (instrument.c): shared/local blks tick in bufmgr::counters,
@@ -41,12 +43,24 @@ pub fn pg_buffer_usage() -> BufferUsage {
         local_blks_written: bufmgr::counters::local_blks_written() as i64,
         temp_blks_read: fd::buffile::temp_blks_read(),
         temp_blks_written: fd::buffile::temp_blks_written(),
-        temp_blk_read_time: instr_time { ticks: fd::buffile::temp_blk_read_time() },
-        temp_blk_write_time: instr_time { ticks: fd::buffile::temp_blk_write_time() },
-        shared_blk_read_time: instr_time { ticks: pgstat::io::shared_blk_read_time() },
-        shared_blk_write_time: instr_time { ticks: pgstat::io::shared_blk_write_time() },
-        local_blk_read_time: instr_time { ticks: pgstat::io::local_blk_read_time() },
-        local_blk_write_time: instr_time { ticks: pgstat::io::local_blk_write_time() },
+        temp_blk_read_time: instr_time {
+            ticks: fd::buffile::temp_blk_read_time(),
+        },
+        temp_blk_write_time: instr_time {
+            ticks: fd::buffile::temp_blk_write_time(),
+        },
+        shared_blk_read_time: instr_time {
+            ticks: pgstat::io::shared_blk_read_time(),
+        },
+        shared_blk_write_time: instr_time {
+            ticks: pgstat::io::shared_blk_write_time(),
+        },
+        local_blk_read_time: instr_time {
+            ticks: pgstat::io::local_blk_read_time(),
+        },
+        local_blk_write_time: instr_time {
+            ticks: pgstat::io::local_blk_write_time(),
+        },
     };
     WORKER_CONTRIB.with(|c| buffer_usage_add(&mut u, &c.get()));
     u
@@ -275,12 +289,18 @@ pub fn buffer_usage_accum_diff(dst: &mut BufferUsage, add: &BufferUsage, sub: &B
     dst.local_blks_written += add.local_blks_written - sub.local_blks_written;
     dst.temp_blks_read += add.temp_blks_read - sub.temp_blks_read;
     dst.temp_blks_written += add.temp_blks_written - sub.temp_blks_written;
-    dst.shared_blk_read_time.accum_diff(add.shared_blk_read_time, sub.shared_blk_read_time);
-    dst.shared_blk_write_time.accum_diff(add.shared_blk_write_time, sub.shared_blk_write_time);
-    dst.local_blk_read_time.accum_diff(add.local_blk_read_time, sub.local_blk_read_time);
-    dst.local_blk_write_time.accum_diff(add.local_blk_write_time, sub.local_blk_write_time);
-    dst.temp_blk_read_time.accum_diff(add.temp_blk_read_time, sub.temp_blk_read_time);
-    dst.temp_blk_write_time.accum_diff(add.temp_blk_write_time, sub.temp_blk_write_time);
+    dst.shared_blk_read_time
+        .accum_diff(add.shared_blk_read_time, sub.shared_blk_read_time);
+    dst.shared_blk_write_time
+        .accum_diff(add.shared_blk_write_time, sub.shared_blk_write_time);
+    dst.local_blk_read_time
+        .accum_diff(add.local_blk_read_time, sub.local_blk_read_time);
+    dst.local_blk_write_time
+        .accum_diff(add.local_blk_write_time, sub.local_blk_write_time);
+    dst.temp_blk_read_time
+        .accum_diff(add.temp_blk_read_time, sub.temp_blk_read_time);
+    dst.temp_blk_write_time
+        .accum_diff(add.temp_blk_write_time, sub.temp_blk_write_time);
 }
 
 pub fn wal_usage_add(dst: &mut WalUsage, add: &WalUsage) {
@@ -291,7 +311,9 @@ pub fn wal_usage_add(dst: &mut WalUsage, add: &WalUsage) {
 }
 
 pub fn wal_usage_accum_diff(dst: &mut WalUsage, add: &WalUsage, sub: &WalUsage) {
-    dst.wal_bytes = dst.wal_bytes.wrapping_add(add.wal_bytes.wrapping_sub(sub.wal_bytes));
+    dst.wal_bytes = dst
+        .wal_bytes
+        .wrapping_add(add.wal_bytes.wrapping_sub(sub.wal_bytes));
     dst.wal_records += add.wal_records - sub.wal_records;
     dst.wal_fpi += add.wal_fpi - sub.wal_fpi;
     dst.wal_buffers_full += add.wal_buffers_full - sub.wal_buffers_full;

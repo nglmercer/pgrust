@@ -1,7 +1,6 @@
 //! xlogstats.c: WAL statistics accounting over decoded records.
 
-#![allow(non_snake_case)]
-#![allow(non_upper_case_globals)]
+#![allow(non_snake_case, non_upper_case_globals)]
 
 use xlogreader_seams::XLogReaderState;
 
@@ -31,9 +30,16 @@ impl XLogStats {
         count: 0,
         startptr: 0,
         endptr: 0,
-        rmgr_stats: [XLogRecStats { count: 0, rec_len: 0, fpi_len: 0 }; RM_MAX_ID + 1],
-        record_stats: [[XLogRecStats { count: 0, rec_len: 0, fpi_len: 0 }; MAX_XLINFO_TYPES];
-            RM_MAX_ID + 1],
+        rmgr_stats: [XLogRecStats {
+            count: 0,
+            rec_len: 0,
+            fpi_len: 0,
+        }; RM_MAX_ID + 1],
+        record_stats: [[XLogRecStats {
+            count: 0,
+            rec_len: 0,
+            fpi_len: 0,
+        }; MAX_XLINFO_TYPES]; RM_MAX_ID + 1],
     };
 }
 
@@ -89,6 +95,7 @@ mod tests {
     use super::*;
     use xlogreader_seams::{DecodedBkpBlock, DecodedXLogRecord};
 
+    #[allow(clippy::field_reassign_with_default)]
     fn reader(rmid: u8, info: u8, tot_len: u32, images: &[(usize, u16)]) -> XLogReaderState {
         let mut rec = DecodedXLogRecord::default();
         rec.xl_rmid = rmid;
@@ -102,7 +109,10 @@ mod tests {
             rec.blocks[id] = blk;
             rec.max_block_id = rec.max_block_id.max(id as i8);
         }
-        XLogReaderState { record: Some(rec), ..Default::default() }
+        XLogReaderState {
+            record: Some(rec),
+            ..Default::default()
+        }
     }
 
     #[test]

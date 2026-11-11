@@ -1614,6 +1614,7 @@ unsafe fn shape_of(region: *const u8, declared: Option<&runcodec::RowShape>) -> 
     declared.filter(|d| d.head == r.row_bytes && d.var.is_some()).cloned()
 }
 
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn dense_rows(region: *mut u8) -> Option<(*const u8, usize)> {
     match table_kind(region) {
         TABLE_AGG => {

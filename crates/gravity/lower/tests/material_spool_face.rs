@@ -78,6 +78,7 @@ fn producer_ir(pb: &mut ProgramBuilder, by_ref: bool) -> Func {
     b.switch_to(l_exit);
     let s = b.block_params(l_exit)[0];
     b.ret(&[s]);
+    #[allow(clippy::drop_non_drop)]
     drop(b);
     f
 }
@@ -191,6 +192,7 @@ fn consumer_ir(pb: &mut ProgramBuilder, by_ref: bool) -> Func {
     b.switch_to(l_exit);
     let s = b.block_params(l_exit)[0];
     b.ret(&[s]);
+    #[allow(clippy::drop_non_drop)]
     drop(b);
     f
 }

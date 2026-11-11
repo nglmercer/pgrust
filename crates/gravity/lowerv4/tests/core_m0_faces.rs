@@ -8,6 +8,7 @@
 use gravity_lowerv4_it as common;
 
 use std::collections::{BTreeMap, BTreeSet};
+#[allow(unused_imports)]
 use std::path::Path;
 
 use gravity_lowerv4::applies::{self, Prop, PropSet};
@@ -112,6 +113,7 @@ fn the_census_refuses_by_name() {
     let lowered: usize = by.values().sum();
     assert!(lowered * 2 > fixtures.len(), "{lowered} of {} fixtures reached lower_graph", fixtures.len());
     let mut rows: Vec<_> = by.into_iter().collect();
+    #[allow(clippy::unnecessary_sort_by)]
     rows.sort_by(|a, b| b.1.cmp(&a.1));
     eprintln!("{lowered} of {} census fixtures served or refused by name; top outcomes:", fixtures.len());
     rows.iter().take(15).for_each(|(what, n)| eprintln!("  {n:5}  {what}"));
@@ -163,6 +165,7 @@ fn props_against_the_census() {
         }
     }
     let mut toks: Vec<_> = toks.into_iter().collect();
+    #[allow(clippy::unnecessary_sort_by)]
     toks.sort_by(|a, b| b.1.cmp(&a.1));
     eprintln!("props.rs vs census/fixtures.tsv: {same} agree, {} differ (+ props.rs only, - census only); top differences:", diff.len());
     toks.iter().take(25).for_each(|(t, n)| eprintln!("  {n:5}  {t}"));

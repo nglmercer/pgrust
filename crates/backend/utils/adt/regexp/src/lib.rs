@@ -31,6 +31,7 @@ struct CachedRe {
     // D3532: the encoding and the default locale's classes the entry was compiled under (`regex_env`)
     cre_env: RegexEnv,
     re: RegexCompiled,
+    #[allow(dead_code)]
     cre_context: mcx::PinnedContext,
 }
 

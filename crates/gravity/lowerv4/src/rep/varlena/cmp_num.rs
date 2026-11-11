@@ -15,6 +15,7 @@
 
 use gravity_abi::ctx::lane::KIND_BYREF;
 use gravity_decompose::{catalog::typefacts, Op};
+#[allow(unused_imports)]
 use gravity_expr::nodes::var::Var;
 use gravity_expr::{Compiled, ExprNode, NodeId, Program, Source as VarSource};
 use gravity_ir::builder::FunctionBuilder;
@@ -226,10 +227,10 @@ mod tests {
         let (neg, d4) = (v < 0, d.div_ceil(4) * 4);
         let (mut x, mut g, mut low) = (v.unsigned_abs() * 10u128.pow(d4 - d), Vec::new(), -(d4 as i32 / 4)); // alloc: Program
         while x > 0 {
-            (g.push((x % 10_000) as u16), x /= 10_000); // alloc: Program
+            g.push((x % 10_000) as u16); x /= 10_000; // alloc: Program
         }
         while g.first() == Some(&0) {
-            (g.remove(0), low += 1);
+            g.remove(0); low += 1;
         }
         g.reverse();
         let (neg, w) = if g.is_empty() { (false, 0) } else { (neg, low + g.len() as i32 - 1) };
@@ -306,6 +307,7 @@ mod tests {
     /// dscales 0 and 1 (cold), short and long forms: the exact order decides.
     #[test]
     fn negative_typmod_scale_reads_at_zero() {
+        #[allow(clippy::inconsistent_digit_grouping)]
         let cols: [i128; 6] = [-1_234_500, -100, 0, 100, 12_300, 99_999_00];
         for (kv, kd) in [(12_300, 0), (12_345, 0), (123_005, 1), (-100, 0), (0, 0), (5, 1)] {
             let k = img(kv, kd, false);

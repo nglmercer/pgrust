@@ -398,7 +398,9 @@ impl LdapOptions {
     }
 
     fn init_w_conf(&mut self, file: &str, userconf: bool) {
-        let Ok(text) = std::fs::read(file) else { return };
+        let Ok(text) = std::fs::read(file) else {
+            return;
+        };
         self.init_w_conf_text(&text, userconf);
     }
 
@@ -457,7 +459,9 @@ pub fn ldap_int_hostname() -> String {
     } else {
         "localhost".to_string()
     };
-    let Ok(cname) = std::ffi::CString::new(name.clone()) else { return name };
+    let Ok(cname) = std::ffi::CString::new(name.clone()) else {
+        return name;
+    };
     // SAFETY: zeroed hints, a NUL-terminated node, and the result pointer
     // is freed with freeaddrinfo before returning.
     unsafe {
@@ -503,9 +507,12 @@ mod ldapconf_tests {
         assert_eq!(o.deref, LDAP_DEREF_ALWAYS);
         assert_eq!((o.sizelimit, o.timelimit), (12, 0)); // "3x" is not a whole number
         assert_eq!(o.tls_certfile, None); // useronly row skipped in a system file
-        // the same TLS_CERT line in a user file is honored; a bad keyword
-        // leaves the previous value; an empty file value unsets
-        o.init_w_conf_text(b"TLS_CERT /user.pem\nTLS_REQCERT maybe\nTLS_PEERKEY_HASH not*base64\n", true);
+                                          // the same TLS_CERT line in a user file is honored; a bad keyword
+                                          // leaves the previous value; an empty file value unsets
+        o.init_w_conf_text(
+            b"TLS_CERT /user.pem\nTLS_REQCERT maybe\nTLS_PEERKEY_HASH not*base64\n",
+            true,
+        );
         assert_eq!(o.tls_certfile.as_deref(), Some("/user.pem"));
         assert_eq!(o.tls_require_cert, LDAP_OPT_X_TLS_TRY);
         assert_eq!(o.tls_pin, Some((Some("sha256".to_string()), vec![1, 2, 3])));

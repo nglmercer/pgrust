@@ -232,12 +232,14 @@ impl ProgramBlock {
 
 /// # Safety — `ctx` is bound.
 #[inline(always)]
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn push(ctx: *mut Ctx) -> i64 {
     (unword((*unword((*ctx).program)).push).unwrap_unchecked())(ctx)
 }
 
 /// # Safety — `ctx` is bound.
 #[inline(always)]
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn spill(ctx: *mut Ctx, op: u32, arg: u64) -> i64 {
     (unword((*unword((*ctx).program)).spill).unwrap_unchecked())(ctx, op, arg)
 }
@@ -248,6 +250,7 @@ pub unsafe fn spill(ctx: *mut Ctx, op: u32, arg: u64) -> i64 {
 /// The new base (64-aligned), or 0 on a real allocation failure (the driver's OutOfMemory stashed for the raise).
 /// # Safety — `ctx` is bound, its running pipeline produces a region, head + tail <= its length.
 #[inline(never)]
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn region_grow(ctx: *mut Ctx, need: u64, head: u64, tail: u64) -> u64 {
     let args = [need, head, tail];
     spill(ctx, SPILL_REGION_GROW, args.as_ptr() as u64) as u64
@@ -257,6 +260,7 @@ pub unsafe fn region_grow(ctx: *mut Ctx, need: u64, head: u64, tail: u64) -> u64
 /// gravity_program `spill::NoSpill` code): `SPILL_REGION_GROW_DEBT`.
 /// # Safety — as `region_grow`.
 #[inline(never)]
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn region_grow_debt(ctx: *mut Ctx, need: u64, head: u64, tail: u64, why: u8) -> u64 {
     let args = [need, head, tail, why as u64];
     spill(ctx, SPILL_REGION_GROW_DEBT, args.as_ptr() as u64) as u64
@@ -267,6 +271,7 @@ pub unsafe fn region_grow_debt(ctx: *mut Ctx, need: u64, head: u64, tail: u64, w
 /// host: a kernel test's rig), or an error status (the driver's error stashed).
 /// # Safety — `ctx` is bound, its running pipeline consumes a batched slot first.
 #[inline(never)]
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn owned_next(ctx: *mut Ctx, rec: u64, rewind: bool) -> i64 {
     match unword((*unword((*ctx).program)).spill) {
         Some(f) => f(ctx, SPILL_OWNED_NEXT, (rec & 0xffff_ffff) | if rewind { OWNED_REWIND } else { 0 }),
@@ -278,6 +283,7 @@ pub unsafe fn owned_next(ctx: *mut Ctx, rec: u64, rewind: bool) -> i64 {
 /// refuses it (nothing drawn), 0 on a real allocation failure (its error stashed).
 /// # Safety — as `region_grow`.
 #[inline(never)]
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn region_grow_in(ctx: *mut Ctx, need: u64, head: u64, tail: u64) -> u64 {
     let args = [need, head, tail];
     spill(ctx, SPILL_REGION_GROW_IN, args.as_ptr() as u64) as u64
@@ -288,6 +294,7 @@ pub unsafe fn region_grow_in(ctx: *mut Ctx, need: u64, head: u64, tail: u64) -> 
 /// and a program block with no spill host (a kernel test's rig) answers 0: no reservation.
 /// # Safety — `ctx` is bound, its running pipeline produces a region.
 #[inline(never)]
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn region_commit(ctx: *mut Ctx, need: u64) -> u64 {
     match unword((*unword((*ctx).program)).spill) {
         Some(f) => f(ctx, SPILL_REGION_COMMIT, need).max(0) as u64,
@@ -330,6 +337,7 @@ pub const fn reserve_answer(a: u64) -> (u64, bool, bool, u64) {
 /// error status) answers 0.
 /// # Safety — `ctx` is bound, its running pipeline produces a region of at least `head` bytes.
 #[inline(never)]
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn region_grow_place(ctx: *mut Ctx, need: u64, head: u64) -> u64 {
     let args = [need, head];
     match unword((*unword((*ctx).program)).spill) {
@@ -341,6 +349,7 @@ pub unsafe fn region_grow_place(ctx: *mut Ctx, need: u64, head: u64) -> u64 {
 /// # Safety — `ctx` is null or a ctx whose program block, when set, is live. `None`: the allocator's (no spill host, or
 /// the floor); null: refused.
 #[inline(never)]
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn work_take(ctx: *mut Ctx, bytes: u64) -> Option<*mut u8> {
     let f = ctx.as_ref().and_then(|c| unword(c.program).as_ref()).and_then(|b| unword(b.spill))?;
     match f(ctx, SPILL_WORK_TAKE, bytes) {
@@ -353,6 +362,7 @@ pub unsafe fn work_take(ctx: *mut Ctx, bytes: u64) -> Option<*mut u8> {
 /// floor); null: no room (nothing held, nothing raised); the block is given back with `work_give`.
 /// # Safety — as `work_take`.
 #[inline(never)]
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn work_try(ctx: *mut Ctx, bytes: u64) -> Option<*mut u8> {
     let f = ctx.as_ref().and_then(|c| unword(c.program).as_ref()).and_then(|b| unword(b.spill))?;
     match f(ctx, SPILL_WORK_TRY, bytes) {
@@ -365,6 +375,7 @@ pub unsafe fn work_try(ctx: *mut Ctx, bytes: u64) -> Option<*mut u8> {
 /// null: refused (the refusal held for the emit's raise); the block is given back with `work_give`.
 /// # Safety — as `work_take`.
 #[inline(never)]
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn work_within(ctx: *mut Ctx, bytes: u64, seal: bool) -> Option<*mut u8> {
     let f = ctx.as_ref().and_then(|c| unword(c.program).as_ref()).and_then(|b| unword(b.spill))?;
     match f(ctx, SPILL_WORK_WITHIN, bytes | if seal { WORK_SEAL } else { 0 }) {
@@ -375,6 +386,7 @@ pub unsafe fn work_within(ctx: *mut Ctx, bytes: u64, seal: bool) -> Option<*mut 
 
 /// # Safety — `p` is a live `work_take` block of `ctx`'s owner, read by nothing after.
 #[inline(never)]
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn work_give(ctx: *mut Ctx, p: *mut u8) {
     if let Some(f) = ctx.as_ref().and_then(|c| unword(c.program).as_ref()).and_then(|b| unword(b.spill)) {
         f(ctx, SPILL_WORK_GIVE, p as usize as u64);
@@ -385,6 +397,7 @@ pub unsafe fn work_give(ctx: *mut Ctx, p: *mut u8) {
 /// `Owner::words`). `None`: no spill host (a kernel test's rig: the arena's own allocator road); null: refused.
 /// # Safety — `ctx` is null or a ctx whose program block, when set, is live.
 #[inline(never)]
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn arena_chunk(ctx: *mut Ctx, bytes: u64, owner: [u64; 2]) -> Option<*mut u8> {
     let f = ctx.as_ref().and_then(|c| unword(c.program).as_ref()).and_then(|b| unword(b.spill))?;
     let args = [bytes, owner[0], owner[1]];
@@ -397,6 +410,7 @@ pub unsafe fn arena_chunk(ctx: *mut Ctx, bytes: u64, owner: [u64; 2]) -> Option<
 /// neither owner.
 /// # Safety — as `arena_chunk`.
 #[inline(never)]
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn arena_slot_owner(ctx: *mut Ctx) -> Option<[u64; 2]> {
     arena_slot_owner_kind(ctx).map(|(w, _)| w)
 }
@@ -405,6 +419,7 @@ pub unsafe fn arena_slot_owner(ctx: *mut Ctx) -> Option<[u64; 2]> {
 /// under: the produced slot's breaker kind, `Kind::Region` for the statement's (or the portal's) owner.
 /// # Safety — as `arena_chunk`.
 #[inline(never)]
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn arena_slot_owner_kind(ctx: *mut Ctx) -> Option<([u64; 2], u64)> {
     let f = ctx.as_ref().and_then(|c| unword(c.program).as_ref()).and_then(|b| unword(b.spill))?;
     let mut args = [0u64; 3];
@@ -422,6 +437,7 @@ pub const ARENA_ASK_OWN: u64 = 1;
 /// host, for a pipeline that neither produces nor consumes a slot, or when that slot has no owner; never the statement's.
 /// # Safety — as `arena_chunk`.
 #[inline(never)]
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn arena_own_owner_kind(ctx: *mut Ctx) -> Option<([u64; 2], u64)> {
     let f = ctx.as_ref().and_then(|c| unword(c.program).as_ref()).and_then(|b| unword(b.spill))?;
     let mut args = [0u64, ARENA_ASK_OWN, 0];
@@ -431,6 +447,7 @@ pub unsafe fn arena_own_owner_kind(ctx: *mut Ctx) -> Option<([u64; 2], u64)> {
 /// LEDGER2 step 3 (`SPILL_ARENA_GIVE`): an `arena_chunk` chunk back to the host.
 /// # Safety — `p` is a live `arena_chunk` chunk of `ctx`'s owner, read by nothing after.
 #[inline(never)]
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn arena_give(ctx: *mut Ctx, p: *mut u8) {
     if let Some(f) = ctx.as_ref().and_then(|c| unword(c.program).as_ref()).and_then(|b| unword(b.spill)) {
         f(ctx, SPILL_ARENA_GIVE, p as usize as u64);
@@ -440,6 +457,7 @@ pub unsafe fn arena_give(ctx: *mut Ctx, p: *mut u8) {
 /// The calling owner's region reservation (`region_commit`'s `need` 0 answer): its bytes (0: none) and whether it is its
 /// breaker's PostgreSQL floor (D2894: its pool commits in place before a compact, kernels `folded_in_memory`).
 /// # Safety — as `region_commit`.
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn region_reserve(ctx: *mut Ctx) -> (u64, bool) {
     let (bytes, floor, _, _) = region_reserve_laid(ctx);
     (bytes, floor)
@@ -448,6 +466,7 @@ pub unsafe fn region_reserve(ctx: *mut Ctx) -> (u64, bool) {
 /// `region_reserve`, whether the table is laid out at the reservation (`RESERVE_LAYOUT`: the region started small), and
 /// the share a started-small region's partitions are cut by (D3809; 0: none carried).
 /// # Safety — as `region_commit`.
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn region_reserve_laid(ctx: *mut Ctx) -> (u64, bool, bool, u64) {
     reserve_answer(region_commit(ctx, 0))
 }
@@ -456,6 +475,7 @@ pub unsafe fn region_reserve_laid(ctx: *mut Ctx) -> (u64, bool, bool, u64) {
 /// `bytes`; its new capacity, or 0 with the driver's OutOfMemory held for the raise.
 /// # Safety — `ctx` is bound, its out block is empty.
 #[inline(never)]
+#[allow(clippy::missing_safety_doc)]
 pub unsafe extern "C" fn out_grow(ctx: *mut Ctx, bytes: u64) -> i64 {
     spill(ctx, SPILL_OUT_GROW, bytes)
 }
@@ -463,12 +483,14 @@ pub unsafe extern "C" fn out_grow(ctx: *mut Ctx, bytes: u64) -> i64 {
 /// The held build error raised (`SPILL_RAISE_HELD`): the error status for the IR's raise exit, or 0 when nothing is held.
 /// # Safety — `ctx` is bound.
 #[inline(never)]
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn raise_held(ctx: *mut Ctx) -> i64 {
     spill(ctx, SPILL_RAISE_HELD, 0)
 }
 
 /// A statement-lifetime region of `bytes` (zeroed; the driver's pinned pool chunk), null when the pool is capped or the binding has no pin. # Safety — `ctx` is bound.
 #[inline(never)]
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn pin(ctx: *mut Ctx, bytes: u64) -> *mut u8 {
     match unword((*unword((*ctx).program)).pin) {
         Some(f) => f(ctx, bytes),
@@ -483,36 +505,42 @@ pub const PIN_STATEMENT: u64 = 1 << 63;
 
 /// `pin` with `PIN_STATEMENT`. # Safety — `ctx` is bound.
 #[inline(always)]
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn pin_statement(ctx: *mut Ctx, bytes: u64) -> *mut u8 {
     pin(ctx, bytes | PIN_STATEMENT)
 }
 
 /// # Safety — `ctx` is bound.
 #[inline(never)]
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn arena_grow(ctx: *mut Ctx, bytes: u64) -> i64 {
     (unword((*unword((*ctx).program)).arena_grow).unwrap_unchecked())(ctx, bytes)
 }
 
 /// # Safety — `ctx` is bound; `site` names the write site.
 #[inline(always)]
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn write(ctx: *mut Ctx, op: u32, site: u64) -> i64 {
     (unword((*unword((*ctx).program)).write).unwrap_unchecked())(ctx, op, site)
 }
 
 /// # Safety — `ctx` is bound; `site` names the site whose `pos` is locked.
 #[inline(always)]
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn lock(ctx: *mut Ctx, site: u64) -> i64 {
     (unword((*unword((*ctx).program)).lock).unwrap_unchecked())(ctx, site)
 }
 
 /// # Safety — `ctx` is bound.
 #[inline(always)]
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn partial(ctx: *mut Ctx) -> *mut u8 {
     unword((*unword((*unword((*ctx).program)).partial)).own)
 }
 
 /// # Safety — `ctx` is bound, `k < Pipeline.consumes.len()` (`k < 2` reads the inline pair; past it, the driver's `more` table).
 #[inline(always)]
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn consumed(ctx: *mut Ctx, k: usize) -> *mut u8 {
     let p = &*unword((*unword((*ctx).program)).partial);
     if k < 2 { unword(p.consumed[k]) } else { unword(*unword(p.more).add(k)) }

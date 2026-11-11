@@ -736,8 +736,42 @@ fn filter_only(px: &Px<'_, '_>, site: &mut SiteDesc, q: ExId, l: usize) {
     }
 }
 
+/// V4R-19 (A): `(site lane, width)` of pipeline `k`'s one group key when its run carry may fold a constant-key window as
+/// one run: the pipeline's ops are filters and projections into one group (no grouping-sets arm, no two passes) keyed by
+/// one plain scan column of a signed by-value word type (int2 / int4 / int8 / date / timestamp / timestamptz), whose exact
+/// zone key and image are the datum word itself (pgrc_meta `signed_word_key`, decompose `KeyImage::Raw`).
+pub(crate) fn const_key(px: &Px<'_, '_>, k: usize, site: &SiteDesc) -> Option<(usize, u8)> {
+    let (gx, p) = (px.gx, &px.gx.pipelines()[k]);
+    let Source::Range { scanrelid, .. } = &p.source else { return None };
+    let g = gx.group_at(k).filter(|g| g.set.is_none() && g.two_pass.is_none() && OrderUse::Collapse.on())?;
+    let ([key], true) = (&g.keys[..], p.ops.iter().all(|op| matches!(op, Op::Filter(_) | Op::Project(_)))) else { return None };
+    let word = key.image.is_raw() && matches!(key.kind, KeyKind::I32 | KeyKind::I64 | KeyKind::Date | KeyKind::Timestamp);
+    let v = key.expr.node().as_var().filter(|v| word && v.varno == *scanrelid as i32 && v.varlevelsup == 0)?;
+    let signed = gravity_fn::typesem::pgrc::signed_word(v.vartype);
+    let l = site.lanes().iter().position(|l| signed && l.id == LaneId::Attr(v.varattno) && l.kind == lane::KIND_BYVAL)?;
+    Some((l, site.lanes()[l].width))
+}
+
+/// `WinConds::const_key` of the window whose lanes are at `lanes`: (the key lane's `aux` is set, the key's datum word, its
+/// element 0 sign-extended from `width`, loaded only in a constant window; 0 in any other).
+pub(crate) fn const_key_window(b: &mut FunctionBuilder<'_>, env: &Env, lanes: Value, l: usize, width: u8) -> (Value, Value) {
+    let a = b.load_zext(Type::I32, lanes, (l * lane::SIZE + lane::AUX) as i32);
+    let on = b.icmp(IntCond::Ne, a, env.zero);
+    let (l_load, l_done) = (b.create_block(&[]), b.create_block(&[Type::I64]));
+    b.cond_br(on, (l_load, &[]), (l_done, &[env.zero]));
+    b.switch_to(l_load);
+    let ptr = b.load(Type::Ptr, lanes, (l * lane::SIZE + lane::PTR) as i32);
+    let ty = match width { 1 => Type::I8, 2 => Type::I16, 4 => Type::I32, _ => Type::I64 };
+    let v = b.load(ty, ptr, 0);
+    let d = if ty == Type::I64 { v } else { b.conv(ConvOp::Sext, Type::I64, v) };
+    b.br(l_done, &[d]);
+    b.switch_to(l_done);
+    (on, b.block_params(l_done)[0])
+}
+
 #[cfg(test)]
 mod tests {
+    #[allow(unused_imports)]
     use gravity_decompose::ops::shared::sort::KeyImage;
 
     use super::*;
@@ -883,37 +917,4 @@ mod tests {
         assert_eq!(mantissa_bound(&[0x00, 0xD0], 2, ZoneOp::Gt), None, "Infinity");
         assert_eq!((numeric_op(1754), numeric_op(1751), numeric_op(1758)), (Some(ZoneOp::Lt), None, None));
     }
-}
-
-/// V4R-19 (A): `(site lane, width)` of pipeline `k`'s one group key when its run carry may fold a constant-key window as
-/// one run: the pipeline's ops are filters and projections into one group (no grouping-sets arm, no two passes) keyed by
-/// one plain scan column of a signed by-value word type (int2 / int4 / int8 / date / timestamp / timestamptz), whose exact
-/// zone key and image are the datum word itself (pgrc_meta `signed_word_key`, decompose `KeyImage::Raw`).
-pub(crate) fn const_key(px: &Px<'_, '_>, k: usize, site: &SiteDesc) -> Option<(usize, u8)> {
-    let (gx, p) = (px.gx, &px.gx.pipelines()[k]);
-    let Source::Range { scanrelid, .. } = &p.source else { return None };
-    let g = gx.group_at(k).filter(|g| g.set.is_none() && g.two_pass.is_none() && OrderUse::Collapse.on())?;
-    let ([key], true) = (&g.keys[..], p.ops.iter().all(|op| matches!(op, Op::Filter(_) | Op::Project(_)))) else { return None };
-    let word = key.image.is_raw() && matches!(key.kind, KeyKind::I32 | KeyKind::I64 | KeyKind::Date | KeyKind::Timestamp);
-    let v = key.expr.node().as_var().filter(|v| word && v.varno == *scanrelid as i32 && v.varlevelsup == 0)?;
-    let signed = gravity_fn::typesem::pgrc::signed_word(v.vartype);
-    let l = site.lanes().iter().position(|l| signed && l.id == LaneId::Attr(v.varattno) && l.kind == lane::KIND_BYVAL)?;
-    Some((l, site.lanes()[l].width))
-}
-
-/// `WinConds::const_key` of the window whose lanes are at `lanes`: (the key lane's `aux` is set, the key's datum word, its
-/// element 0 sign-extended from `width`, loaded only in a constant window; 0 in any other).
-pub(crate) fn const_key_window(b: &mut FunctionBuilder<'_>, env: &Env, lanes: Value, l: usize, width: u8) -> (Value, Value) {
-    let a = b.load_zext(Type::I32, lanes, (l * lane::SIZE + lane::AUX) as i32);
-    let on = b.icmp(IntCond::Ne, a, env.zero);
-    let (l_load, l_done) = (b.create_block(&[]), b.create_block(&[Type::I64]));
-    b.cond_br(on, (l_load, &[]), (l_done, &[env.zero]));
-    b.switch_to(l_load);
-    let ptr = b.load(Type::Ptr, lanes, (l * lane::SIZE + lane::PTR) as i32);
-    let ty = match width { 1 => Type::I8, 2 => Type::I16, 4 => Type::I32, _ => Type::I64 };
-    let v = b.load(ty, ptr, 0);
-    let d = if ty == Type::I64 { v } else { b.conv(ConvOp::Sext, Type::I64, v) };
-    b.br(l_done, &[d]);
-    b.switch_to(l_done);
-    (on, b.block_params(l_done)[0])
 }

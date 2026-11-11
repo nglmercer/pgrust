@@ -1,9 +1,9 @@
 use super::*;
-use std::rc::Rc;
-use types_tuple::TupleDescData;
 use std::cell::Cell;
+use std::rc::Rc;
 use types_core::INVALID_PROC_NUMBER;
 use types_rel::{FormData_pg_class, LockInfoData, LockRelId, RelationData};
+use types_tuple::TupleDescData;
 use types_tuple::{CompactAttribute, FormData_pg_attribute, NameData, TupleConstr};
 
 fn descriptor<'m>(mcx: mcx::Mcx<'m>, checks: bool) -> Rc<TupleDescData<'m>> {

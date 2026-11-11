@@ -2331,6 +2331,7 @@ fn findTargetlistEntrySQL92<'mcx>(
                                     return Err(ambiguous_column(
                                         pstate,
                                         expr_kind,
+                                        #[allow(clippy::unnecessary_unwrap)]
                                         name.unwrap(),
                                         cref.location,
                                     ));
@@ -3181,10 +3182,7 @@ fn get_matching_location(
     unreachable!("get_matching_location: no matching sortgroupref");
 }
 
-fn findWindowClause<'mcx>(
-    wclist: &NodeList<'mcx>,
-    name: &str,
-) -> Option<&'mcx WindowClause<'mcx>> {
+fn findWindowClause<'mcx>(wclist: &NodeList<'mcx>, name: &str) -> Option<&'mcx WindowClause<'mcx>> {
     let _ = wclist;
     for wc_node in wclist {
         let wc = wc_node.as_window_clause().expect("window clause list cell");

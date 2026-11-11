@@ -1,4 +1,3 @@
-
 use core::ptr::NonNull;
 
 use ::datum::Datum;
@@ -33,7 +32,11 @@ pub struct StrCell {
 impl StrCell {
     #[inline]
     pub const fn zeroed() -> StrCell {
-        StrCell { len: 0, prefix: [0; 4], tail: [0; 8] }
+        StrCell {
+            len: 0,
+            prefix: [0; 4],
+            tail: [0; 8],
+        }
     }
 
     #[inline]
@@ -47,7 +50,11 @@ impl StrCell {
         if n > 4 {
             tail[..n - 4].copy_from_slice(&s[4..]);
         }
-        StrCell { len: n as u32, prefix, tail }
+        StrCell {
+            len: n as u32,
+            prefix,
+            tail,
+        }
     }
 
     /// # Safety
@@ -59,13 +66,20 @@ impl StrCell {
         // SAFETY: caller contract — live 4B-U image.
         let total = unsafe { varatt::varsize_4b(image) };
         let len = total - varatt::VARHDRSZ;
-        debug_assert!(len > STRVIEW_INLINE_MAX, "long_from_image wants len > 12 (canonical form)");
+        debug_assert!(
+            len > STRVIEW_INLINE_MAX,
+            "long_from_image wants len > 12 (canonical form)"
+        );
         let mut prefix = [0u8; 4];
         // SAFETY: payload has > 12 bytes; first 4 are readable.
         unsafe {
             core::ptr::copy_nonoverlapping(image.add(varatt::VARHDRSZ), prefix.as_mut_ptr(), 4);
         }
-        StrCell { len: len as u32, prefix, tail: (image as usize as u64).to_ne_bytes() }
+        StrCell {
+            len: len as u32,
+            prefix,
+            tail: (image as usize as u64).to_ne_bytes(),
+        }
     }
 
     pub fn from_bytes(s: &[u8], arena: &mut ClaimArena) -> StrCell {
@@ -76,7 +90,8 @@ impl StrCell {
         let dst = arena.alloc(total).as_ptr();
         // SAFETY: fresh arena range of `total` bytes.
         unsafe {
-            dst.cast::<u32>().write(varatt::set_varsize_4b_word(total as u32));
+            dst.cast::<u32>()
+                .write(varatt::set_varsize_4b_word(total as u32));
             core::ptr::copy_nonoverlapping(s.as_ptr(), dst.add(varatt::VARHDRSZ), s.len());
             StrCell::long_from_image(dst)
         }
@@ -94,7 +109,10 @@ impl StrCell {
                 let payload = core::slice::from_raw_parts(p.add(varatt::VARHDRSZ_SHORT), len);
                 StrCell::from_bytes(payload, arena)
             } else {
-                debug_assert!(varatt::varatt_is_4b_u(p), "from_plain_image wants plain inline");
+                debug_assert!(
+                    varatt::varatt_is_4b_u(p),
+                    "from_plain_image wants plain inline"
+                );
                 let len = varatt::varsize_4b(p) - varatt::VARHDRSZ;
                 if len <= STRVIEW_INLINE_MAX {
                     let payload = core::slice::from_raw_parts(p.add(varatt::VARHDRSZ), len);
@@ -216,12 +234,24 @@ impl StrCell {
         use core::cmp::Ordering;
         if a.is_inline() && b.is_inline() {
             let a0 = u64::from_be_bytes([
-                a.prefix[0], a.prefix[1], a.prefix[2], a.prefix[3], a.tail[0], a.tail[1],
-                a.tail[2], a.tail[3],
+                a.prefix[0],
+                a.prefix[1],
+                a.prefix[2],
+                a.prefix[3],
+                a.tail[0],
+                a.tail[1],
+                a.tail[2],
+                a.tail[3],
             ]);
             let b0 = u64::from_be_bytes([
-                b.prefix[0], b.prefix[1], b.prefix[2], b.prefix[3], b.tail[0], b.tail[1],
-                b.tail[2], b.tail[3],
+                b.prefix[0],
+                b.prefix[1],
+                b.prefix[2],
+                b.prefix[3],
+                b.tail[0],
+                b.tail[1],
+                b.tail[2],
+                b.tail[3],
             ]);
             let c = a0.cmp(&b0);
             if c != Ordering::Equal {
@@ -256,7 +286,11 @@ impl StrCell {
         let len = self.len as usize;
         if len <= STRVIEW_INLINE_MAX {
             for i in len..STRVIEW_INLINE_MAX {
-                let byte = if i < 4 { self.prefix[i] } else { self.tail[i - 4] };
+                let byte = if i < 4 {
+                    self.prefix[i]
+                } else {
+                    self.tail[i - 4]
+                };
                 if byte != 0 {
                     return Err("strview: inline padding not zeroed (invariant 1)");
                 }
@@ -396,7 +430,10 @@ impl Column {
             // SAFETY: plain inline per the classify above; claim scope per
             // caller contract. Row < nrows per caller contract.
             unsafe {
-                cells.as_ptr().add(row).write(StrCell::from_plain_image(p, arena));
+                cells
+                    .as_ptr()
+                    .add(row)
+                    .write(StrCell::from_plain_image(p, arena));
             }
         }
         // SAFETY: publish contract established by this pass (cells under
@@ -409,7 +446,11 @@ impl Column {
     ///
     /// The dict publish contract holds (claim-scoped codes + live provider
     /// per R1–R6); `nrows` does not exceed the published row count.
-    pub unsafe fn build_strviews_from_dict(&mut self, nrows: usize, arena: &mut ClaimArena) -> bool {
+    pub unsafe fn build_strviews_from_dict(
+        &mut self,
+        nrows: usize,
+        arena: &mut ClaimArena,
+    ) -> bool {
         let ColRep::DictCodes(dc) = self.rep else {
             return false;
         };
@@ -432,6 +473,7 @@ impl Column {
         unsafe {
             core::ptr::write_bytes(cells.as_ptr(), 0, nrows);
         }
+        #[allow(clippy::needless_range_loop)]
         for row in 0..nrows {
             if !self.validity.is_valid(row) {
                 self.datums[row] = Datum::null();
@@ -561,7 +603,9 @@ impl Default for StrScratch {
 
 impl StrScratch {
     pub fn new() -> StrScratch {
-        StrScratch { arena: ClaimArena::new() }
+        StrScratch {
+            arena: ClaimArena::new(),
+        }
     }
 
     /// # Safety

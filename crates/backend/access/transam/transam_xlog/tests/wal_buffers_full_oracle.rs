@@ -26,7 +26,9 @@ fn oracle_bin() -> Option<PathBuf> {
     }
     cands.push("/usr/lib/postgresql/18/bin".into());
     cands.push("/opt/homebrew/opt/postgresql@18/bin".into());
-    cands.into_iter().find(|d| d.join("initdb").is_file() && d.join("psql").is_file())
+    cands
+        .into_iter()
+        .find(|d| d.join("initdb").is_file() && d.join("psql").is_file())
 }
 
 fn pgrust_bin() -> Option<PathBuf> {
@@ -42,7 +44,9 @@ fn pgrust_bin() -> Option<PathBuf> {
             cands.push(d.to_path_buf());
         }
     }
-    cands.into_iter().find(|d| d.join("postgres").is_file() && d.join("initdb").is_file())
+    cands
+        .into_iter()
+        .find(|d| d.join("postgres").is_file() && d.join("initdb").is_file())
 }
 
 fn skip(reason: &str) -> bool {
@@ -54,7 +58,11 @@ fn skip(reason: &str) -> bool {
 }
 
 fn free_port() -> u16 {
-    std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port()
+    std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port()
 }
 
 struct Server {
@@ -70,7 +78,13 @@ impl Server {
         std::fs::create_dir_all(datadir).unwrap();
         let log = std::fs::File::create(datadir.with_extension("initdb.log")).unwrap();
         let st = Command::new(bin.join("initdb"))
-            .args(["-D", datadir.to_str().unwrap(), "-U", "postgres", "--no-sync"])
+            .args([
+                "-D",
+                datadir.to_str().unwrap(),
+                "-U",
+                "postgres",
+                "--no-sync",
+            ])
             .stdout(Stdio::from(log.try_clone().unwrap()))
             .stderr(Stdio::from(log))
             .status()
@@ -80,17 +94,36 @@ impl Server {
         let log = std::fs::File::create(datadir.with_extension("server.log")).unwrap();
         let child = Command::new(bin.join("postgres"))
             .args(["-D", datadir.to_str().unwrap(), "-p", &port.to_string()])
-            .args(["-c", "listen_addresses=127.0.0.1", "-c", "unix_socket_directories="])
+            .args([
+                "-c",
+                "listen_addresses=127.0.0.1",
+                "-c",
+                "unix_socket_directories=",
+            ])
             .args(["-c", "fsync=off", "-c", "shared_buffers=128MB"])
-            .args(["-c", &format!("wal_buffers={WAL_BUFFERS}"), "-c", "wal_writer_delay=10000"])
+            .args([
+                "-c",
+                &format!("wal_buffers={WAL_BUFFERS}"),
+                "-c",
+                "wal_writer_delay=10000",
+            ])
             .stdout(Stdio::from(log.try_clone().unwrap()))
             .stderr(Stdio::from(log))
             .spawn()
             .unwrap();
-        let s = Server { child, port, psql: psql.to_path_buf(), datadir: datadir.to_path_buf() };
+        let s = Server {
+            child,
+            port,
+            psql: psql.to_path_buf(),
+            datadir: datadir.to_path_buf(),
+        };
         let deadline = Instant::now() + Duration::from_secs(60);
         while s.try_sql("select 1").is_none() {
-            assert!(Instant::now() < deadline, "server did not come up: {}", datadir.display());
+            assert!(
+                Instant::now() < deadline,
+                "server did not come up: {}",
+                datadir.display()
+            );
             std::thread::sleep(Duration::from_millis(200));
         }
         s
@@ -98,24 +131,40 @@ impl Server {
 
     fn try_sql(&self, sql: &str) -> Option<String> {
         let out = Command::new(&self.psql)
-            .args(["-h", "127.0.0.1", "-p", &self.port.to_string(), "-U", "postgres", "-d", "postgres"])
+            .args([
+                "-h",
+                "127.0.0.1",
+                "-p",
+                &self.port.to_string(),
+                "-U",
+                "postgres",
+                "-d",
+                "postgres",
+            ])
             .args(["-X", "-At", "-v", "ON_ERROR_STOP=1", "-c", sql])
             .env_remove("PGHOST")
             .env_remove("PGPORT")
             .output()
             .ok()?;
-        out.status.success().then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
+        out.status
+            .success()
+            .then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
     }
 
     fn sql(&self, sql: &str) -> String {
-        self.try_sql(sql).unwrap_or_else(|| panic!("psql failed on port {}: {sql}", self.port))
+        self.try_sql(sql)
+            .unwrap_or_else(|| panic!("psql failed on port {}: {sql}", self.port))
     }
 
     fn stat(&self) -> (i64, u64, i64) {
         let row = self.sql(STAT);
         let mut it = row.split('|').map(str::trim);
         let mut next = || it.next().unwrap();
-        (next().parse().unwrap(), next().parse().unwrap(), next().parse().unwrap())
+        (
+            next().parse().unwrap(),
+            next().parse().unwrap(),
+            next().parse().unwrap(),
+        )
     }
 }
 
@@ -134,7 +183,9 @@ impl Drop for Server {
 fn workload(s: &Server) -> (i64, u64, i64) {
     s.sql("create table t(a int, b text)");
     let before = s.stat();
-    s.sql(&format!("insert into t select g, repeat('x',100) from generate_series(1,{ROWS}) g"));
+    s.sql(&format!(
+        "insert into t select g, repeat('x',100) from generate_series(1,{ROWS}) g"
+    ));
     // pg_stat_wal is flushed at the writer session's exit.
     std::thread::sleep(Duration::from_millis(300));
     let after = s.stat();
@@ -170,13 +221,25 @@ fn wal_buffers_full_matches_oracle() {
 
     eprintln!("C: records={c_recs} bytes={c_bytes} buffers_full={c_full}");
     eprintln!("pgrust: records={r_recs} bytes={r_bytes} buffers_full={r_full}");
-    assert!(c_full > 0, "oracle saw no buffer pressure at wal_buffers={WAL_BUFFERS}");
-    assert!(r_full > 0, "pgrust counted no forced write-outs at wal_buffers={WAL_BUFFERS}");
+    assert!(
+        c_full > 0,
+        "oracle saw no buffer pressure at wal_buffers={WAL_BUFFERS}"
+    );
+    assert!(
+        r_full > 0,
+        "pgrust counted no forced write-outs at wal_buffers={WAL_BUFFERS}"
+    );
     // Same WAL volume (the catalogs' start LSNs differ, so a few page-header
     // crossings of slack) and the same write-out count to within a page or
     // two of that slack; a wrong increment site is off by 10x either way.
-    assert!((c_recs - r_recs).abs() <= 1, "wal_records C={c_recs} pgrust={r_recs}");
-    assert!(c_bytes.abs_diff(r_bytes) <= 512, "wal_bytes C={c_bytes} pgrust={r_bytes}");
+    assert!(
+        (c_recs - r_recs).abs() <= 1,
+        "wal_records C={c_recs} pgrust={r_recs}"
+    );
+    assert!(
+        c_bytes.abs_diff(r_bytes) <= 512,
+        "wal_bytes C={c_bytes} pgrust={r_bytes}"
+    );
     let tol = (c_full / 50).max(4);
     assert!(
         (c_full - r_full).abs() <= tol,

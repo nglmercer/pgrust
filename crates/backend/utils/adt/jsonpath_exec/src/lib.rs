@@ -782,6 +782,7 @@ impl<'a, 'x, 'mcx: 'a> ExecCtx<'a, 'x, 'mcx> {
                     return self.execute_item_unwrap_target_array(Some(jsp), jb, found, false);
                 }
                 let op = operation_name(jsp.typ);
+                #[allow(clippy::needless_late_init)]
                 let v: JbV<'a>;
                 match jb {
                     JbV::Numeric(image) => {

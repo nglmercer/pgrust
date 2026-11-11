@@ -143,6 +143,7 @@ pub(crate) fn WALInsertLockAcquire() {
 
 pub(crate) fn WALInsertLockAcquireExclusive() {
     let locks = &XLogCtl().Insert.WALInsertLocks;
+    #[allow(clippy::needless_range_loop)]
     for i in 0..NUM_XLOGINSERT_LOCKS - 1 {
         LWLockAcquire(&locks[i].lock, LW_EXCLUSIVE, my_proc_number())
             .expect("WALInsertLockAcquireExclusive");
@@ -172,7 +173,11 @@ pub(crate) fn WALInsertLockRelease() {
 
 fn WALInsertLockUpdateInsertingAt(inserting_at: XLogRecPtr) {
     let locks = &XLogCtl().Insert.WALInsertLocks;
-    let idx = if HOLDING_ALL_LOCKS.get() { NUM_XLOGINSERT_LOCKS - 1 } else { MY_LOCK_NO.get() };
+    let idx = if HOLDING_ALL_LOCKS.get() {
+        NUM_XLOGINSERT_LOCKS - 1
+    } else {
+        MY_LOCK_NO.get()
+    };
     LWLockUpdateVar(&locks[idx].lock, &locks[idx].insertingAt, inserting_at);
 }
 
@@ -254,12 +259,16 @@ pub(crate) fn WaitXLogInsertionsToFinish(upto: XLogRecPtr) -> XLogRecPtr {
     let ctl = XLogCtl();
     let insert = &ctl.Insert;
 
-    let inserted = ctl.logInsertResult.load(std::sync::atomic::Ordering::SeqCst);
+    let inserted = ctl
+        .logInsertResult
+        .load(std::sync::atomic::Ordering::SeqCst);
     if upto <= inserted {
         return inserted;
     }
 
-    let bytepos = insert.insertpos_lck.with(|| insert.CurrBytePos.load(Relaxed));
+    let bytepos = insert
+        .insertpos_lck
+        .with(|| insert.CurrBytePos.load(Relaxed));
     let reserved_upto = XLogBytePosToEndRecPtr(bytepos);
 
     let mut upto = upto;
@@ -320,12 +329,7 @@ pub(crate) fn advance_log_insert_result(
             std::sync::atomic::fence(std::sync::atomic::Ordering::SeqCst);
             return cur;
         }
-        match result.compare_exchange(
-            cur,
-            target,
-            std::sync::atomic::Ordering::SeqCst,
-            Relaxed,
-        ) {
+        match result.compare_exchange(cur, target, std::sync::atomic::Ordering::SeqCst, Relaxed) {
             Ok(_) => return target,
             Err(v) => cur = v,
         }
@@ -611,7 +615,9 @@ fn CopyXLogRecordToWAL(
         let mut data = rdata.as_ptr();
         let mut len = rdata.len();
         while len > freespace {
-            debug_assert!(curr_pos % XLOG_BLCKSZ as u64 >= SizeOfXLogShortPHD as u64 || freespace == 0);
+            debug_assert!(
+                curr_pos % XLOG_BLCKSZ as u64 >= SizeOfXLogShortPHD as u64 || freespace == 0
+            );
             // SAFETY: freespace bytes remain on this buffer page at currpos.
             unsafe { std::ptr::copy_nonoverlapping(data, currpos, freespace) };
             data = unsafe { data.add(freespace) };
@@ -681,7 +687,8 @@ pub fn XLogInsertRecord(
     let ctl = XLogCtl();
     let insert = &ctl.Insert;
 
-    let xl_tot_len = u32::from_ne_bytes(rechdr[XL_TOT_LEN..XL_TOT_LEN + 4].try_into().unwrap()) as usize;
+    let xl_tot_len =
+        u32::from_ne_bytes(rechdr[XL_TOT_LEN..XL_TOT_LEN + 4].try_into().unwrap()) as usize;
     let info = rechdr[XL_INFO] & !XLR_INFO_MASK;
     let rmid = rechdr[XL_RMID];
 
@@ -704,7 +711,9 @@ pub fn XLogInsertRecord(
     };
 
     if !XLogInsertAllowed() {
-        return Err(elog_helpers::error_result("cannot make new WAL entries during recovery"));
+        return Err(elog_helpers::error_result(
+            "cannot make new WAL entries during recovery",
+        ));
     }
 
     let insert_tli = ctl.InsertTimeLineID.load(Relaxed);
@@ -775,8 +784,14 @@ pub fn XLogInsertRecord(
         )?;
 
         if flags & XLOG_MARK_UNIMPORTANT == 0 {
-            let lockno = if HOLDING_ALL_LOCKS.get() { 0 } else { MY_LOCK_NO.get() };
-            insert.WALInsertLocks[lockno].lastImportantAt.store(start_pos, Relaxed);
+            let lockno = if HOLDING_ALL_LOCKS.get() {
+                0
+            } else {
+                MY_LOCK_NO.get()
+            };
+            insert.WALInsertLocks[lockno]
+                .lastImportantAt
+                .store(start_pos, Relaxed);
         }
     }
 
@@ -856,7 +871,9 @@ pub fn GetInsertRecPtr() -> XLogRecPtr {
 
 pub fn GetXLogInsertRecPtr() -> XLogRecPtr {
     let insert = &XLogCtl().Insert;
-    let current_bytepos = insert.insertpos_lck.with(|| insert.CurrBytePos.load(Relaxed));
+    let current_bytepos = insert
+        .insertpos_lck
+        .with(|| insert.CurrBytePos.load(Relaxed));
     XLogBytePosToRecPtr(current_bytepos)
 }
 
@@ -865,7 +882,9 @@ pub fn GetXLogInsertRecPtr() -> XLogRecPtr {
 // itself, where GetXLogInsertRecPtr points past the next page header.
 pub fn GetXLogInsertEndRecPtr() -> XLogRecPtr {
     let insert = &XLogCtl().Insert;
-    let current_bytepos = insert.insertpos_lck.with(|| insert.CurrBytePos.load(Relaxed));
+    let current_bytepos = insert
+        .insertpos_lck
+        .with(|| insert.CurrBytePos.load(Relaxed));
     XLogBytePosToEndRecPtr(current_bytepos)
 }
 
@@ -897,15 +916,31 @@ pub(crate) mod recovery_generation_tests {
         refresh_recovery_local_generation();
         LOCAL_RECOVERY_IN_PROGRESS.set(false);
         LOCAL_XLOG_INSERT_ALLOWED.set(1);
-        assert!(!refresh_recovery_local_generation(), "same generation must keep the cells");
+        assert!(
+            !refresh_recovery_local_generation(),
+            "same generation must keep the cells"
+        );
         assert!(!LOCAL_RECOVERY_IN_PROGRESS.get());
         assert_eq!(LOCAL_XLOG_INSERT_ALLOWED.get(), 1);
 
         bump_recovery_local_generation();
-        assert!(refresh_recovery_local_generation(), "a reset generation must be noticed");
-        assert!(LOCAL_RECOVERY_IN_PROGRESS.get(), "recovery flag must start true again");
-        assert_eq!(LOCAL_XLOG_INSERT_ALLOWED.get(), -1, "insert-allowed cache must be cleared");
-        assert!(!refresh_recovery_local_generation(), "one reset per generation");
+        assert!(
+            refresh_recovery_local_generation(),
+            "a reset generation must be noticed"
+        );
+        assert!(
+            LOCAL_RECOVERY_IN_PROGRESS.get(),
+            "recovery flag must start true again"
+        );
+        assert_eq!(
+            LOCAL_XLOG_INSERT_ALLOWED.get(),
+            -1,
+            "insert-allowed cache must be cleared"
+        );
+        assert!(
+            !refresh_recovery_local_generation(),
+            "one reset per generation"
+        );
     }
 
     // D4156: StartupXLOG forces inserts on a thread whose copy predates the crash reinit's bump; the next
@@ -917,11 +952,19 @@ pub(crate) mod recovery_generation_tests {
         bump_recovery_local_generation();
         LocalSetXLogInsertAllowed();
         refresh_recovery_local_generation();
-        assert_eq!(LOCAL_XLOG_INSERT_ALLOWED.get(), 1, "the force was cleared as a stale copy");
+        assert_eq!(
+            LOCAL_XLOG_INSERT_ALLOWED.get(),
+            1,
+            "the force was cleared as a stale copy"
+        );
         bump_recovery_local_generation();
         set_local_xlog_insert_allowed(0);
         refresh_recovery_local_generation();
-        assert_eq!(LOCAL_XLOG_INSERT_ALLOWED.get(), 0, "the restored value was cleared as a stale copy");
+        assert_eq!(
+            LOCAL_XLOG_INSERT_ALLOWED.get(),
+            0,
+            "the restored value was cleared as a stale copy"
+        );
     }
 }
 
@@ -936,11 +979,27 @@ mod advance_log_insert_result_tests {
     #[test]
     fn advances_never_regresses_and_returns_the_max() {
         let v = AtomicU64::new(0x100);
-        assert_eq!(advance_log_insert_result(&v, 0x200), 0x200, "advance returns target");
+        assert_eq!(
+            advance_log_insert_result(&v, 0x200),
+            0x200,
+            "advance returns target"
+        );
         assert_eq!(v.load(std::sync::atomic::Ordering::Relaxed), 0x200);
-        assert_eq!(advance_log_insert_result(&v, 0x180), 0x200, "smaller target returns current");
-        assert_eq!(v.load(std::sync::atomic::Ordering::Relaxed), 0x200, "no regress");
-        assert_eq!(advance_log_insert_result(&v, 0x200), 0x200, "equal target is a no-op");
+        assert_eq!(
+            advance_log_insert_result(&v, 0x180),
+            0x200,
+            "smaller target returns current"
+        );
+        assert_eq!(
+            v.load(std::sync::atomic::Ordering::Relaxed),
+            0x200,
+            "no regress"
+        );
+        assert_eq!(
+            advance_log_insert_result(&v, 0x200),
+            0x200,
+            "equal target is a no-op"
+        );
     }
 
     #[test]

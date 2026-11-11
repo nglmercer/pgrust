@@ -5,6 +5,7 @@
 //! natively and through the interpreter; on AArch64 the loops are also
 //! checked for frame spills in the generated code.
 
+#[allow(clippy::duplicate_mod)]
 mod common;
 use gravity_ir::text::parse_program;
 use gravity_ir::*;

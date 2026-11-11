@@ -181,7 +181,7 @@ pub(crate) mod text_view {
                 };
             }
             let cut = |v: &[u8]| -> Result<i64, Box<types_error::PgError>> {
-                let mut test = |x: &[u8]| -> Result<i64, Box<types_error::PgError>> {
+                let test = |x: &[u8]| -> Result<i64, Box<types_error::PgError>> {
                     match any {
                         true => any_of(ctx, needle, align, &mut |n| n == x),
                         false => gravity_fn::with_payload(needle as usize as *const u8, |n| (n == x) as i64),

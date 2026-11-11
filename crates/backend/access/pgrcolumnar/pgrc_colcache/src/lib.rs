@@ -18,11 +18,19 @@ pub fn locator(rel: &types_rel::Relation<'_>) -> pgrc_marks::Locator {
 }
 
 /// `None`: no image (the cap 0 or over it, a temporary relation), which [`pgrc_front::front_bearing_reads`] reads as bearing.
-pub fn tomb_lock_only<'mcx>(tomb: &types_rel::Relation<'mcx>) -> types_error::PgResult<Option<bool>> {
+pub fn tomb_lock_only<'mcx>(
+    tomb: &types_rel::Relation<'mcx>,
+) -> types_error::PgResult<Option<bool>> {
     if tomb.uses_local_buffers() || pgrc_read::mem::cap() == 0 {
         return Ok(None);
     }
-    match image::current(locator(tomb), tomb.rd_id, Kind::Tomb, &BufPages { rel: tomb }, &Procs { rel: tomb })? {
+    match image::current(
+        locator(tomb),
+        tomb.rd_id,
+        Kind::Tomb,
+        &BufPages { rel: tomb },
+        &Procs { rel: tomb },
+    )? {
         Ok(img) => Ok(Some(img.live == 0)),
         Err(_) => Ok(None),
     }

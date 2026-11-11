@@ -1,6 +1,5 @@
 //! spgxlog.c — spgist rmgr redo, all record types.
-#![allow(non_snake_case)]
-#![allow(non_upper_case_globals)]
+#![allow(non_snake_case, non_upper_case_globals)]
 
 use types_core::{BlockNumber, Buffer, InvalidBlockNumber, OffsetNumber};
 use types_error::{PgError, PgResult, ERRCODE_DATA_CORRUPTED};
@@ -18,7 +17,10 @@ const InvalidOffsetNumber: OffsetNumber = 0;
 const InvalidBuffer: Buffer = 0;
 
 fn main_data(record: &XLogReaderState) -> &[u8] {
-    let rec = record.record.as_ref().expect("spg redo with no decoded record");
+    let rec = record
+        .record
+        .as_ref()
+        .expect("spg redo with no decoded record");
     // SAFETY: points into the reader's decode buffer, valid for the redo
     // callback's duration.
     unsafe { rec.main_data_bytes() }
@@ -95,7 +97,9 @@ fn add_or_replace_tuple(pm: &mut PageMut<'_>, tuple: &[u8], offset: OffsetNumber
 #[inline(never)]
 #[track_caller]
 fn add_item_failed(size: usize) -> Box<PgError> {
-    Box::new(PgError::error(format!("failed to add item of size {size} to SPGiST index page")))
+    Box::new(PgError::error(format!(
+        "failed to add item of size {size} to SPGiST index page"
+    )))
 }
 
 #[cold]
@@ -145,12 +149,15 @@ fn checked_leaf_size(lt: &[u8]) -> PgResult<usize> {
         )
     })?;
     let sz = leaf_size(lt);
-    require(sz >= SIZEOF_SPGIST_LEAF_TUPLE_DATA && sz <= lt.len(), || {
-        format!(
-            "SP-GiST redo: invalid leaf tuple size {sz} in {} bytes of main data",
-            lt.len()
-        )
-    })?;
+    require(
+        sz >= SIZEOF_SPGIST_LEAF_TUPLE_DATA && sz <= lt.len(),
+        || {
+            format!(
+                "SP-GiST redo: invalid leaf tuple size {sz} in {} bytes of main data",
+                lt.len()
+            )
+        },
+    )?;
     Ok(sz)
 }
 
@@ -245,7 +252,11 @@ fn spgRedoMoveLeafs(record: &XLogReaderState) -> PgResult<()> {
     let xldata = spgxlogMoveLeafs::decode(md)?;
     let blkno_dst = block_blkno(record, 1);
 
-    let n_insert = if xldata.replaceDead { 1 } else { xldata.nMoves as usize + 1 };
+    let n_insert = if xldata.replaceDead {
+        1
+    } else {
+        xldata.nMoves as usize + 1
+    };
     let mut ptr = SizeOfSpgxlogMoveLeafs;
     let to_delete = checked_u16s_at(md, ptr, xldata.nMoves as usize)?;
     ptr += 2 * xldata.nMoves as usize;
@@ -290,7 +301,11 @@ fn spgRedoMoveLeafs(record: &XLogReaderState) -> PgResult<()> {
             xldata.stateSrc.redirectXid,
             &mut pm,
             &to_delete,
-            if xldata.stateSrc.isBuild { SPGIST_PLACEHOLDER } else { SPGIST_REDIRECT },
+            if xldata.stateSrc.isBuild {
+                SPGIST_PLACEHOLDER
+            } else {
+                SPGIST_REDIRECT
+            },
             SPGIST_PLACEHOLDER,
             blkno_dst,
             to_insert[n_insert - 1],
@@ -308,7 +323,12 @@ fn spgRedoMoveLeafs(record: &XLogReaderState) -> PgResult<()> {
         // SAFETY: redo pin+lock contract.
         let mut pm = unsafe { page_mut(buffer) };
         let tuple = item_slice_mut(&mut pm, xldata.offnumParent);
-        spgUpdateNodeLink(tuple, xldata.nodeI as i32, blkno_dst, to_insert[n_insert - 1])?;
+        spgUpdateNodeLink(
+            tuple,
+            xldata.nodeI as i32,
+            blkno_dst,
+            to_insert[n_insert - 1],
+        )?;
         pm.set_lsn(lsn);
         bufmgr_seams::mark_buffer_dirty::call(buffer)?;
     }
@@ -332,8 +352,7 @@ fn spgRedoAddNode(record: &XLogReaderState) -> PgResult<()> {
             // SAFETY: redo pin+lock contract.
             let mut pm = unsafe { page_mut(buffer) };
             pm.index_tuple_delete(xldata.offnum);
-            if pm.add_item(&inner_tuple[..inner_size], xldata.offnum, 0) != Some(xldata.offnum)
-            {
+            if pm.add_item(&inner_tuple[..inner_size], xldata.offnum, 0) != Some(xldata.offnum) {
                 return Err(add_item_failed(inner_size));
             }
             pm.set_lsn(lsn);
@@ -449,7 +468,11 @@ fn spgRedoSplitTuple(record: &XLogReaderState) -> PgResult<()> {
         if action == BLK_NEEDS_REDO {
             // SAFETY: redo pin+lock contract.
             let mut pm = unsafe { page_mut(buffer) };
-            add_or_replace_tuple(&mut pm, &postfix_tuple[..postfix_size], xldata.offnumPostfix)?;
+            add_or_replace_tuple(
+                &mut pm,
+                &postfix_tuple[..postfix_size],
+                xldata.offnumPostfix,
+            )?;
             pm.set_lsn(lsn);
             bufmgr_seams::mark_buffer_dirty::call(buffer)?;
         }
@@ -470,7 +493,11 @@ fn spgRedoSplitTuple(record: &XLogReaderState) -> PgResult<()> {
             return Err(add_item_failed(prefix_size));
         }
         if xldata.postfixBlkSame {
-            add_or_replace_tuple(&mut pm, &postfix_tuple[..postfix_size], xldata.offnumPostfix)?;
+            add_or_replace_tuple(
+                &mut pm,
+                &postfix_tuple[..postfix_size],
+                xldata.offnumPostfix,
+            )?;
         }
         pm.set_lsn(lsn);
         bufmgr_seams::mark_buffer_dirty::call(buffer)?;
@@ -749,7 +776,11 @@ fn spgRedoVacuumRedirect(record: &XLogReaderState) -> PgResult<()> {
     let lsn = record.EndRecPtr;
     let md = main_data(record);
     let xldata = spgxlogVacuumRedirect::decode(md)?;
-    let item_to_placeholder = checked_u16s_at(md, SizeOfSpgxlogVacuumRedirect, xldata.nToPlaceholder as usize)?;
+    let item_to_placeholder = checked_u16s_at(
+        md,
+        SizeOfSpgxlogVacuumRedirect,
+        xldata.nToPlaceholder as usize,
+    )?;
 
     if xlogutils::InHotStandby() {
         let (rlocator, _, _) = record.block_tag(0)?;
@@ -783,8 +814,7 @@ fn spgRedoVacuumRedirect(record: &XLogReaderState) -> PgResult<()> {
         if xldata.firstPlaceholder != InvalidOffsetNumber {
             let max = pm.as_ref().max_offset_number();
             let n = (max - xldata.firstPlaceholder + 1) as usize;
-            let to_delete: Vec<OffsetNumber> =
-                (xldata.firstPlaceholder..=max).collect();
+            let to_delete: Vec<OffsetNumber> = (xldata.firstPlaceholder..=max).collect();
             page_opaque_update(&mut pm, |op| {
                 debug_assert!(op.nPlaceholder as usize >= n);
                 op.nPlaceholder -= n as u16;
@@ -898,27 +928,38 @@ mod tests {
     // in WAL record") — a catchable ERROR reaching the redo caller as Err, never
     // a process panic on the None (audit-18.6 w2-053, row xlogreader-3a26fc89).
     #[test]
+    #[allow(clippy::field_reassign_with_default)]
     fn vacuum_redirect_missing_block_is_c_error() {
         let xlrec = [0u8; SizeOfSpgxlogVacuumRedirect];
         let mut rec = xlogreader_seams::DecodedXLogRecord::default();
         rec.main_data = xlrec.as_ptr();
         rec.main_data_len = xlrec.len() as u32;
-        let record = XLogReaderState { record: Some(rec), ..Default::default() };
+        let record = XLogReaderState {
+            record: Some(rec),
+            ..Default::default()
+        };
         // The block-0 lookup sits under InHotStandby() (spgxlog.c:878).
         let saved = xlogutils::standby_state();
         xlogutils::set_standby_state(xlogutils::STANDBY_SNAPSHOT_PENDING);
         let res = spgRedoVacuumRedirect(&record);
         xlogutils::set_standby_state(saved);
         let err = res.expect_err("absent block 0 must be a catchable error");
-        assert_eq!(err.message(), "could not locate backup block with ID 0 in WAL record");
+        assert_eq!(
+            err.message(),
+            "could not locate backup block with ID 0 in WAL record"
+        );
         assert_eq!(err.level(), types_error::ERROR);
     }
 
     #[test]
+    #[allow(clippy::field_reassign_with_default)]
     fn spg_redo_unknown_opcode_is_a_panic_level_error() {
         let mut rec = xlogreader_seams::DecodedXLogRecord::default();
         rec.xl_info = 0x90;
-        let mut record = XLogReaderState { record: Some(rec), ..Default::default() };
+        let mut record = XLogReaderState {
+            record: Some(rec),
+            ..Default::default()
+        };
         let err = spg_redo(&mut record).expect_err("unknown spgist opcode must not redo silently");
         assert_eq!(err.message(), "spg_redo: unknown op code 144");
         assert_eq!(err.level(), types_error::PANIC);
@@ -936,9 +977,8 @@ mod tests {
     fn add_or_replace_tuple_non_placeholder_errors_not_panics() {
         let mut buf = Box::new(PageBuf([0u8; ::types_core::BLCKSZ]));
         // SAFETY: exclusively owned, page-aligned BLCKSZ buffer living for the test.
-        let mut pm = unsafe {
-            PageMut::from_raw(core::ptr::NonNull::new(buf.0.as_mut_ptr()).unwrap())
-        };
+        let mut pm =
+            unsafe { PageMut::from_raw(core::ptr::NonNull::new(buf.0.as_mut_ptr()).unwrap()) };
         types_spgist::SpGistInitPage(&mut pm, SPGIST_LEAF);
         let mut live = [0u8; 16];
         live[0..4].copy_from_slice(&(16u32 << 2).to_ne_bytes()); // tupstate LIVE, size 16
@@ -950,7 +990,10 @@ mod tests {
         }));
         let r = outcome.expect("addOrReplaceTuple must not panic on a non-placeholder");
         let e = r.expect_err("replacing a LIVE tuple must be the C elog(ERROR)");
-        assert_eq!(e.message(), "SPGiST tuple to be replaced is not a placeholder");
+        assert_eq!(
+            e.message(),
+            "SPGiST tuple to be replaced is not a placeholder"
+        );
         assert_eq!(e.sqlstate(), types_error::ERRCODE_INTERNAL_ERROR);
     }
 }

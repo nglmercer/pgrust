@@ -422,6 +422,7 @@ impl RecipeSet {
     fn shared(list: TplVec<RecipeTpl>, root: mcx::SendRoot, o: memledger::Owner) -> Arc<RecipeSet> {
         use memledger::charge::{release_of, Charge, Door};
         let block = core::cell::RefCell::new(Charge::open(o, release_of(o), memledger::Kind::Region, Door::Heap, 0));
+        #[allow(clippy::arc_with_non_send_sync)]
         let set = Arc::new(RecipeSet { list, root: core::cell::RefCell::new(root), block }); // alloc: Program charged o
         // the block the allocator just counted on this thread moves to the owner
         set.block.borrow_mut().commit(SHARED_BLOCK);
@@ -1909,6 +1910,7 @@ fn install(b: &mut Backend, pcx: &plan::PlanScope<'_>, arena: ArenaRef, graph: &
     if let Some(plan) = plan_deps {
         tpl.deps.absorb(plan);
     }
+    #[allow(clippy::arc_with_non_send_sync)]
     let tpl = Arc::new(tpl); // alloc: Program
     let no_cache = lowered.descs.no_cache || composed.inits.iter().map(|i| &i.lowered).chain(composed.arms.iter()).any(|l| l.descs.no_cache);
     let no_cache_why = if lowered.descs.no_cache { lowered.descs.no_cache_why } else { composed.inits.iter().map(|i| &i.lowered).chain(composed.arms.iter()).find(|l| l.descs.no_cache).map_or("", |l| l.descs.no_cache_why) };
@@ -2660,7 +2662,7 @@ fn deferred_held(params: ParamListHandle, held: &[i32]) -> bool {
 /// D3005: this execution's non-NULL int2 / int4 / int8 extern parameters, `(paramid, value)` (1-based ids, as `Param`
 /// reads them); D3019: and each text / varchar / bpchar one's LIKE-pattern fact (`gravity_decompose::admit::QUIET_FACT`,
 /// + 1 when quiet; a NULL one is not). None without a list or under a list whose slots wait for evaluation (the
-/// admission refuses those).
+///   admission refuses those).
 pub fn extern_ints(params: ParamListHandle) -> Vec<(i32, i64)> {
     if params.is_null() || types_portal::params::defers_to_evaluation(params) {
         return Vec::new(); // alloc: Program
@@ -3015,6 +3017,7 @@ mod tests {
             let session = memledger::Owner::Session(a);
             let (s0, c0) = (memledger::charge::owner_ctx(session).0, memledger::charge::owner_ctx(tier).0);
             // shared as the tier shares it (`SharedTpl`: a template's lists are its root's, so its `Send` is the holder's)
+            #[allow(clippy::arc_with_non_send_sync)]
             let tpl = SharedTpl(Arc::new(graph_tpl(16 << 10)));
             // the check option names' charge (`names`), as `install` opens it on the root's owner
             let committed = |o| memledger::charge::owner_row(o).committed;
@@ -3065,6 +3068,7 @@ mod tests {
             memledger::statement_begin();
             let session = memledger::Owner::Session(a);
             let s0 = memledger::charge::owner_ctx(session).0;
+            #[allow(clippy::arc_with_non_send_sync)]
             let tpl = Arc::new(graph_tpl(16 << 10));
             let bytes = tpl.root_bytes() as i64;
             tpl.adopt(session);

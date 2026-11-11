@@ -27,6 +27,7 @@ crate::strategies! {
     NEST_CATALOG_LEFT = 78, "nest.catalog_left", CatalogNest;
 }
 
+#[allow(clippy::needless_update)]
 pub(crate) const ROWS: Table = Table { kinds: &[(KindId::NestCatalog, &StepMaker(make))], strategies: &[(NEST_CATALOG_LEFT, &())], ..crate::ops::NONE };
 
 /// The catalog probe `j` of pipeline `k`: join.inner's step maker, which reads the op's `catalog` flag.

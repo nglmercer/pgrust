@@ -24,6 +24,7 @@ pub fn unreachable(f: &mut Function) -> bool {
         return false;
     }
     let mut gone = m.vec_filled(false, f.values.len());
+    #[allow(clippy::nonminimal_bool)]
     for (bb, _) in f.blocks.iter_mut().zip(seen.iter()).filter(|(bb, s)| !**s && !(bb.params.is_empty() && bb.insts.is_empty() && matches!(bb.term, Terminator::Unreachable))) {
         bb.params.iter().chain(bb.insts.iter().filter_map(|x| x.result.as_ref())).for_each(|v| gone[v.index()] = true);
         (bb.params, bb.insts, bb.term) = (m.slice_from(&[]), m.vec(), Terminator::Unreachable);

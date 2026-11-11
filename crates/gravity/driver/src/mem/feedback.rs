@@ -549,6 +549,7 @@ fn export_from(store: &[Mutex<Shard>], out: &mut Vec<u8>, now: u32) -> u32 {
 
 /// Memory step 3b: `export`'s entries back into the store, each sample re-checked against the window at `now`; the count
 /// kept. `Err` when `body` is not whole entries or an entry is out of range: nothing is kept then.
+#[allow(clippy::result_unit_err)]
 pub fn import(body: &[u8], now: u32) -> Result<u32, ()> {
     let kept = import_into(&STORE, body, now);
     for (i, s) in STORE.iter().enumerate() {

@@ -231,10 +231,20 @@ impl<'mcx> BbsinkOps<'mcx> for NoopOps {
     fn begin_backup(&mut self, _: &mut Bbsink<'mcx>, _: &mut BbsinkState) -> PgResult<()> {
         unreachable!("placeholder ops invoked")
     }
-    fn begin_archive(&mut self, _: &mut Bbsink<'mcx>, _: &mut BbsinkState, _: &str) -> PgResult<()> {
+    fn begin_archive(
+        &mut self,
+        _: &mut Bbsink<'mcx>,
+        _: &mut BbsinkState,
+        _: &str,
+    ) -> PgResult<()> {
         unreachable!("placeholder ops invoked")
     }
-    fn archive_contents(&mut self, _: &mut Bbsink<'mcx>, _: &mut BbsinkState, _: Size) -> PgResult<()> {
+    fn archive_contents(
+        &mut self,
+        _: &mut Bbsink<'mcx>,
+        _: &mut BbsinkState,
+        _: Size,
+    ) -> PgResult<()> {
         unreachable!("placeholder ops invoked")
     }
     fn end_archive(&mut self, _: &mut Bbsink<'mcx>, _: &mut BbsinkState) -> PgResult<()> {
@@ -243,7 +253,12 @@ impl<'mcx> BbsinkOps<'mcx> for NoopOps {
     fn begin_manifest(&mut self, _: &mut Bbsink<'mcx>, _: &mut BbsinkState) -> PgResult<()> {
         unreachable!("placeholder ops invoked")
     }
-    fn manifest_contents(&mut self, _: &mut Bbsink<'mcx>, _: &mut BbsinkState, _: Size) -> PgResult<()> {
+    fn manifest_contents(
+        &mut self,
+        _: &mut Bbsink<'mcx>,
+        _: &mut BbsinkState,
+        _: Size,
+    ) -> PgResult<()> {
         unreachable!("placeholder ops invoked")
     }
     fn end_manifest(&mut self, _: &mut Bbsink<'mcx>, _: &mut BbsinkState) -> PgResult<()> {
@@ -271,7 +286,9 @@ pub fn bbsink_begin_backup<'mcx>(
 ) -> PgResult<()> {
     assert!(buffer_length > 0, "buffer_length must be positive");
     sink.buffer_length = buffer_length;
-    dispatch(sink, state, |ops, sink, state| ops.begin_backup(sink, state))?;
+    dispatch(sink, state, |ops, sink, state| {
+        ops.begin_backup(sink, state)
+    })?;
     assert!(sink.has_buffer(), "begin_backup must set the buffer");
     assert!(
         sink.buffer_length().is_multiple_of(BLCKSZ),
@@ -308,8 +325,13 @@ pub fn bbsink_end_archive<'mcx>(sink: &mut Bbsink<'mcx>, state: &mut BbsinkState
     dispatch(sink, state, |ops, sink, state| ops.end_archive(sink, state))
 }
 
-pub fn bbsink_begin_manifest<'mcx>(sink: &mut Bbsink<'mcx>, state: &mut BbsinkState) -> PgResult<()> {
-    dispatch(sink, state, |ops, sink, state| ops.begin_manifest(sink, state))
+pub fn bbsink_begin_manifest<'mcx>(
+    sink: &mut Bbsink<'mcx>,
+    state: &mut BbsinkState,
+) -> PgResult<()> {
+    dispatch(sink, state, |ops, sink, state| {
+        ops.begin_manifest(sink, state)
+    })
 }
 
 pub fn bbsink_manifest_contents<'mcx>(
@@ -327,7 +349,9 @@ pub fn bbsink_manifest_contents<'mcx>(
 }
 
 pub fn bbsink_end_manifest<'mcx>(sink: &mut Bbsink<'mcx>, state: &mut BbsinkState) -> PgResult<()> {
-    dispatch(sink, state, |ops, sink, state| ops.end_manifest(sink, state))
+    dispatch(sink, state, |ops, sink, state| {
+        ops.end_manifest(sink, state)
+    })
 }
 
 /// Asserts every tablespace has been processed (C `bbsink_end_backup`).

@@ -63,6 +63,7 @@ leader_tls::leader_tls! {
 
 /// D3881: a deep level held by a statement homed there (its `Serve`: started, running, shelved or parked), so the level
 /// outlives its caller's run while that statement lives; holds nothing for a static level.
+#[allow(dead_code)]
 pub struct Pin(Option<Rc<Deep>>);
 
 impl Pin {

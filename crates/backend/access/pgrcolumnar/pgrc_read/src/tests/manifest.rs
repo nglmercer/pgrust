@@ -81,8 +81,12 @@ fn clog_fence_walks_past_uncommitted_generations() {
     assert_eq!(r.walked_past, 2);
     // A recycled plain xid CANNOT resurrect gen 3: fxids are epoch-qualified
     // and the check is exact-match on the 64-bit value (#254 shape).
-    let r = resolve_effective(&dir, &Committed(BTreeSet::from([902 + (1 << 32)])), &expect())
-        .expect("resolve");
+    let r = resolve_effective(
+        &dir,
+        &Committed(BTreeSet::from([902 + (1 << 32)])),
+        &expect(),
+    )
+    .expect("resolve");
     assert!(r.is_none() || r.expect("some").manifest.header.gen != 3);
 }
 

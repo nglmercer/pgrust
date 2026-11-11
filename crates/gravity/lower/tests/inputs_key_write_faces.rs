@@ -1,5 +1,6 @@
 // The content key over a write's D1 faces (key.rs `write_faces`): two graphs that differ only in one of
 // route / targets / maps / generated / checks-bearing members / old_new / tableoid get different keys.
+#[allow(unused_imports)]
 use std::path::Path;
 
 use gravity_decompose::{corpus, decompose_in, Op, PipelineGraph};

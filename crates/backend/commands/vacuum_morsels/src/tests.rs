@@ -10,7 +10,7 @@
 //!      guard (incl. fault injection);
 //!   4. run-merge parity — merged per-worker runs equal the serial
 //!      block-order reference under adversarial claim schedules.
-//! Deterministic seeded RNG (xorshift64*), no new dependencies.
+//!      Deterministic seeded RNG (xorshift64*), no new dependencies.
 
 use super::*;
 
@@ -111,8 +111,16 @@ fn reference_scan(p: &SkipMapParams, vmap: &[u8]) -> (Vec<ScanBlock>, bool) {
 fn check_equivalence(p: &SkipMapParams, vmap: &[u8]) {
     let built = VacuumBlockSource::build(p, |b| vmap.get(b as usize).copied().unwrap_or(0));
     let (ref_entries, ref_sav) = reference_scan(p, vmap);
-    assert_eq!(built.entries(), ref_entries.as_slice(), "scan set diverged: {p:?} vm={vmap:?}");
-    assert_eq!(built.skipsallvis(), ref_sav, "skipsallvis diverged: {p:?} vm={vmap:?}");
+    assert_eq!(
+        built.entries(),
+        ref_entries.as_slice(),
+        "scan set diverged: {p:?} vm={vmap:?}"
+    );
+    assert_eq!(
+        built.skipsallvis(),
+        ref_sav,
+        "skipsallvis diverged: {p:?} vm={vmap:?}"
+    );
 }
 
 fn params(rel_pages: u32, resume: u32, aggressive: bool, skipwithvm: bool) -> SkipMapParams {
@@ -181,13 +189,17 @@ fn skipmap_seeded_random_sweep() {
         let rel_pages = rng.below(180) as u32;
         let vmap: Vec<u8> = (0..rel_pages)
             .map(|_| match rng.below(10) {
-                0..=3 => AF,             // frozen-heavy: exercises long skips
-                4..=6 => AV,             // av-not-af: skipsallvis + aggressive arm
-                7 => VM_ALL_FROZEN,      // corruption shape
+                0..=3 => AF,        // frozen-heavy: exercises long skips
+                4..=6 => AV,        // av-not-af: skipsallvis + aggressive arm
+                7 => VM_ALL_FROZEN, // corruption shape
                 _ => 0,
             })
             .collect();
-        let resume = if rel_pages == 0 { 0 } else { rng.below(rel_pages as u64 + 1) as u32 };
+        let resume = if rel_pages == 0 {
+            0
+        } else {
+            rng.below(rel_pages as u64 + 1) as u32
+        };
         let p = params(rel_pages, resume, rng.chance(30), rng.chance(85));
         check_equivalence(&p, &vmap);
     }
@@ -205,7 +217,11 @@ fn skipmap_source_contract() {
     assert_eq!(src.next_boundary_after(0), 5);
     assert_eq!(
         src.block_of(1),
-        ScanBlock { block: 1, all_visible_according_to_vm: true, was_eager_scanned: false }
+        ScanBlock {
+            block: 1,
+            all_visible_according_to_vm: true,
+            was_eager_scanned: false
+        }
     );
     assert!(!src.skipsallvis());
 }
@@ -232,7 +248,10 @@ fn skipmap_eager_does_not_consume_fail_budget() {
         eager.len() > 2,
         "open fail budget must not be spent while building the skip map"
     );
-    assert!(!src.skipsallvis(), "open fail budget admits the av-not-af run");
+    assert!(
+        !src.skipsallvis(),
+        "open fail budget admits the av-not-af run"
+    );
     check_equivalence(&p, &vm);
 }
 
@@ -261,7 +280,11 @@ fn eager_region_failure_budget_denies_then_next_region_reopens() {
     assert_eq!(caps.try_admit(5), EagerAdmit::Admit);
     caps.account(5, false);
     assert_eq!(caps.fails_at(5), 0);
-    assert_eq!(caps.try_admit(6), EagerAdmit::Deny, "the partial region's budget is spent");
+    assert_eq!(
+        caps.try_admit(6),
+        EagerAdmit::Deny,
+        "the partial region's budget is spent"
+    );
     assert!(!caps.would_admit(6));
     // C :1715-1719 — the next region starts with the full budget again.
     assert!(caps.would_admit(10));
@@ -269,7 +292,11 @@ fn eager_region_failure_budget_denies_then_next_region_reopens() {
     assert_eq!(caps.fails_at(10), 2);
     caps.account(10, false);
     assert_eq!(caps.fails_at(10), 1);
-    assert_eq!(caps.fails_at(10 + EAGER_SCAN_REGION_SIZE), 2, "budgets are per region");
+    assert_eq!(
+        caps.fails_at(10 + EAGER_SCAN_REGION_SIZE),
+        2,
+        "budgets are per region"
+    );
 }
 
 /// S successes + the read-stream look-ahead block: C's cached scan admits
@@ -417,7 +444,11 @@ fn skipsallvis_partial_commit_seeded_sweep() {
                 _ => 0,
             })
             .collect();
-        let resume = if rel_pages == 0 { 0 } else { rng.below(rel_pages as u64 + 1) as u32 };
+        let resume = if rel_pages == 0 {
+            0
+        } else {
+            rng.below(rel_pages as u64 + 1) as u32
+        };
         let p = params(rel_pages, resume, rng.chance(30), rng.chance(85));
         let src = VacuumBlockSource::build(&p, |b| vmap.get(b as usize).copied().unwrap_or(0));
         let positions = reference_skip_positions(&p, &vmap);
@@ -478,7 +509,8 @@ fn fold_is_order_insensitive_exact() {
     for &base in &[100u32, 0xFFFF_FF00u32, 0x7FFF_FFF0u32] {
         for _ in 0..200 {
             let n = 1 + rng.below(8) as usize;
-            let parts: Vec<ScanCounters> = (0..n).map(|_| random_counters(&mut rng, base)).collect();
+            let parts: Vec<ScanCounters> =
+                (0..n).map(|_| random_counters(&mut rng, base)).collect();
             let seed = ScanCounters::seed(base.wrapping_add(1 << 21), base.wrapping_add(1 << 21));
 
             let fold_in = |order: &[usize]| {
@@ -497,7 +529,11 @@ fn fold_is_order_insensitive_exact() {
                 for i in (1..n).rev() {
                     order.swap(i, rng.below(i as u64 + 1) as usize);
                 }
-                assert_eq!(fold_in(&order), reference, "fold diverged under permutation");
+                assert_eq!(
+                    fold_in(&order),
+                    reference,
+                    "fold diverged under permutation"
+                );
             }
         }
     }
@@ -527,8 +563,9 @@ fn simulate_round(seed: u64) -> SimResult {
     let max_bytes = 1 + rng.below(4000);
     let q = QuiesceState::new(max_bytes);
 
-    let mut locals: Vec<VacScanLocal> =
-        (0..workers).map(|w| VacScanLocal::new(w, 1000, 1000)).collect();
+    let mut locals: Vec<VacScanLocal> = (0..workers)
+        .map(|w| VacScanLocal::new(w, 1000, 1000))
+        .collect();
     // (claim, next_block_index) per worker; None = between claims.
     let mut in_flight: Vec<Option<(u64, u64, u64)>> = vec![None; workers];
     let mut cursor = 0u64;
@@ -551,7 +588,11 @@ fn simulate_round(seed: u64) -> SimResult {
                 cursor = end;
                 if q.tripped() {
                     // Claim-boundary trip: post-trip claims are no-ops.
-                    locals[w].claims.push(ClaimRecord { start, end, scanned: false });
+                    locals[w].claims.push(ClaimRecord {
+                        start,
+                        end,
+                        scanned: false,
+                    });
                 } else {
                     in_flight[w] = Some((start, end, start));
                 }
@@ -566,7 +607,11 @@ fn simulate_round(seed: u64) -> SimResult {
                 locals[w].counters.scanned_pages += 1;
                 let pos = pos + 1;
                 if pos == end {
-                    locals[w].claims.push(ClaimRecord { start, end, scanned: true });
+                    locals[w].claims.push(ClaimRecord {
+                        start,
+                        end,
+                        scanned: true,
+                    });
                     in_flight[w] = None;
                 } else {
                     in_flight[w] = Some((start, end, pos));
@@ -574,7 +619,13 @@ fn simulate_round(seed: u64) -> SimResult {
             }
         }
     }
-    SimResult { locals, total, workers, tripped: q.tripped(), post_trip_scanned }
+    SimResult {
+        locals,
+        total,
+        workers,
+        tripped: q.tripped(),
+        post_trip_scanned,
+    }
 }
 
 #[test]
@@ -588,7 +639,10 @@ fn quiesce_prefix_invariant_and_overshoot() {
             .unwrap_or_else(|e| panic!("seed {seed}: coverage violated: {e:?}"));
         // Counter/coverage consistency: fold of scanned_pages == resume.
         let scanned: u64 = r.locals.iter().map(|l| l.counters.scanned_pages).sum();
-        assert_eq!(scanned, resume, "seed {seed}: scanned-block fold != prefix size");
+        assert_eq!(
+            scanned, resume,
+            "seed {seed}: scanned-block fold != prefix size"
+        );
         if r.tripped {
             tripped_cases += 1;
             assert!(resume <= r.total);
@@ -601,17 +655,30 @@ fn quiesce_prefix_invariant_and_overshoot() {
                 r.workers as u64 * MAX_CLAIM
             );
         } else {
-            assert_eq!(resume, r.total, "seed {seed}: untripped round must scan everything");
+            assert_eq!(
+                resume, r.total,
+                "seed {seed}: untripped round must scan everything"
+            );
         }
     }
-    assert!(tripped_cases > 100, "sweep must exercise the trip arm (got {tripped_cases})");
+    assert!(
+        tripped_cases > 100,
+        "sweep must exercise the trip arm (got {tripped_cases})"
+    );
 }
 
 #[test]
 fn coverage_guard_fault_injection() {
     let mk = |claims: &[(u64, u64, bool)]| {
         let mut l = VacScanLocal::new(0, 1000, 1000);
-        l.claims = claims.iter().map(|&(start, end, scanned)| ClaimRecord { start, end, scanned }).collect();
+        l.claims = claims
+            .iter()
+            .map(|&(start, end, scanned)| ClaimRecord {
+                start,
+                end,
+                scanned,
+            })
+            .collect();
         l
     };
     // Clean tiling.
@@ -623,16 +690,24 @@ fn coverage_guard_fault_injection() {
     assert_eq!(verify_prefix_coverage(&locals, resume), Ok(()));
     // Lost Local => hole => advancement suppressed, never wrong (§5.2).
     let lost = vec![mk(&[(0, 5, true), (10, 12, false)])];
-    assert_eq!(verify_prefix_coverage(&lost, 10), Err(CoverageError::HoleAt(5)));
+    assert_eq!(
+        verify_prefix_coverage(&lost, 10),
+        Err(CoverageError::HoleAt(5))
+    );
     // Overlap (double-claim) is caught.
     let overlap = vec![mk(&[(0, 5, true), (3, 8, true)])];
-    assert_eq!(verify_prefix_coverage(&overlap, 8), Err(CoverageError::OverlapAt(3)));
+    assert_eq!(
+        verify_prefix_coverage(&overlap, 8),
+        Err(CoverageError::OverlapAt(3))
+    );
     // Scanned work above the resume point is a protocol breach.
     let beyond = vec![mk(&[(0, 5, true), (7, 9, true)])];
     assert!(matches!(
         verify_prefix_coverage(&beyond, 5),
-        Err(CoverageError::ScannedBeyondResume { start: 7, resume: 5 })
-            | Err(CoverageError::HoleAt(5))
+        Err(CoverageError::ScannedBeyondResume {
+            start: 7,
+            resume: 5
+        }) | Err(CoverageError::HoleAt(5))
     ));
 }
 
@@ -646,8 +721,9 @@ fn run_merge_matches_serial_reference() {
     for _ in 0..400 {
         let workers = 1 + rng.below(8) as usize;
         let total_blocks = rng.below(300) as u32;
-        let mut locals: Vec<VacScanLocal> =
-            (0..workers).map(|w| VacScanLocal::new(w, 1000, 1000)).collect();
+        let mut locals: Vec<VacScanLocal> = (0..workers)
+            .map(|w| VacScanLocal::new(w, 1000, 1000))
+            .collect();
         let mut reference: Vec<DeadRun> = Vec::new();
         // Carve claims sequentially (the cursor discipline), assign each to
         // a random worker, give each block a random (possibly empty) dead set.
@@ -658,12 +734,16 @@ fn run_merge_matches_serial_reference() {
             for blk in b..end {
                 if rng.chance(60) {
                     let n = 1 + rng.below(12) as usize;
-                    let mut offs: Vec<u16> =
-                        (0..n).map(|i| (i as u16 + 1) * (1 + rng.below(20) as u16)).collect();
+                    let mut offs: Vec<u16> = (0..n)
+                        .map(|i| (i as u16 + 1) * (1 + rng.below(20) as u16))
+                        .collect();
                     offs.sort_unstable();
                     offs.dedup();
                     locals[w].record_dead(blk, offs.clone());
-                    reference.push(DeadRun { block: blk, offsets: offs });
+                    reference.push(DeadRun {
+                        block: blk,
+                        offsets: offs,
+                    });
                 }
             }
             b = end;

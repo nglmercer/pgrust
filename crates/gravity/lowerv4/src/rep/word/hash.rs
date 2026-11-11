@@ -12,7 +12,7 @@
 //!   (typesem `user_key`, the host `m6_user_class`, leader only): the image is its class representative's word (equal
 //!   words are not equal values there, nor the reverse). D2640: a hashed group's by-value key under a user `=` likewise,
 //!   by its class under the operator's own hash class procs (`TypeFacts::user`, rep/hosted/user_op.rs).
-//! The image hashes only through `KeyHash` (face/keyimg.rs, `emit_key_hash`); a NULL key's word is zeroed there.
+//!   The image hashes only through `KeyHash` (face/keyimg.rs, `emit_key_hash`); a NULL key's word is zeroed there.
 use gravity_decompose::catalog::typefacts::TypeFacts;
 use gravity_ir::builder::FunctionBuilder;
 use gravity_ir::{ConvOp, FloatCond, IntCond, Type, Value};

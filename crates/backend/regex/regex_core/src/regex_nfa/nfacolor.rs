@@ -62,6 +62,7 @@ pub fn okcolors<'mcx>(
 ) -> RegResult<()> {
     for co in 0..=(cm.max as color) {
         let sco = cm.cd[co as usize].sub;
+        #[allow(clippy::if_same_then_else)]
         if unusedcolor(&cm.cd[co as usize]) || sco == NOSUB {
         } else if sco == co {
         } else if cm.cd[co as usize].nschrs == 0 && cm.cd[co as usize].nuchrs == 0 {

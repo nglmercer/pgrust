@@ -121,6 +121,7 @@ impl<'g> Census<'_, 'g, '_> {
     /// the recheck reads it (a VOLATILE one is called again; witness lockrows-aga35-sublock-initplan). One of the outer query is
     /// attached at its top, outside every SubPlan, and the inner's recheck never reads it. lower.rs `sub_lock` then asks
     /// `admit_sub`.
+    #[allow(dead_code)]
     pub(crate) fn sub_inits(&self, k: usize) -> Option<usize> {
         let gx = self.0;
         if gx.graph.init_plans.is_empty() {
@@ -755,7 +756,7 @@ impl<'g> Plan<'_, 'g, '_> {
     /// the lock is a `Program.locks` entry of its own (its own lock host), rechecked in the IR (lower.rs), and the write keeps
     /// the program's `write` plan. The lock's site once served (the caller's lock mark 1), else false.
     #[allow(clippy::too_many_arguments)]
-    pub(crate) fn write_pair(&mut self, k: usize, j: usize, node: i32, d: &LockDesc<'_>, limit: bool, one_site: fn(&PipelineNode<'_>, usize, &LockDesc<'_>) -> bool, limit_op: fn(&Op<'_>) -> bool) -> bool {
+    pub(crate) fn write_pair(&mut self, k: usize, j: usize, _node: i32, d: &LockDesc<'_>, limit: bool, one_site: fn(&PipelineNode<'_>, usize, &LockDesc<'_>) -> bool, limit_op: fn(&Op<'_>) -> bool) -> bool {
         let px = &mut *self.0;
         let gx = px.gx;
         let ps = gx.pipelines();
@@ -848,6 +849,7 @@ impl<'g> Plan<'_, 'g, '_> {
         // D3558: or that data-modifying CTE's write reads the claim's store whole (CTELOCK's form beside a CTE's write, PgQueuer's
         // `updated AS (UPDATE .. WHERE id = ANY (SELECT id FROM combined_jobs) ..)`): its recheck reads each CTE Scan's row from
         // its COPY mark and never runs the claim again
+        #[allow(clippy::nonminimal_bool)]
         if !(limit && init.contains(&k) || below_copy) && !in_cte || claim.is_some() && !(below_copy || limit && claim_init || in_cte) {
             return false;
         }

@@ -29,8 +29,8 @@ use crate::format::wire::varlena_header_4b_u;
 
 mod aux_tests;
 mod builder_tests;
-mod key_tests;
 mod kept_tests;
+mod key_tests;
 mod lower_tests;
 mod pcache_tests;
 mod pin_tests;

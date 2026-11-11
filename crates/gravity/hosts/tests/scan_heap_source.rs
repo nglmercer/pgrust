@@ -435,6 +435,7 @@ fn a_raw_window_carries_the_page_and_its_flags_from_the_one_walk() {
         let off = &w.lanes()[1];
         assert_eq!((off.width, off.id), (2, LaneId::Offset.encode()));
         assert!(w.lanes()[0].ptr.is_null(), "the attribute lane is published empty on the page protocol");
+        #[allow(clippy::drop_non_drop)]
         drop(w);
         assert!(!site.page.is_null(), "the pinned page");
         use gravity_abi::site::site::{PAGE_FULL, PAGE_IOTA, PAGE_NONULLS, PAGE_UNREAD};

@@ -191,7 +191,10 @@ pub fn pq_getmsgbyte(msg: &mut StringInfo<'_>) -> PgResult<i32> {
             msg.cursor = cursor + 1;
             Ok(b as i32)
         }
-        None => Err(protocol_violation("pq_getmsgbyte", "no data left in message")),
+        None => Err(protocol_violation(
+            "pq_getmsgbyte",
+            "no data left in message",
+        )),
     }
 }
 
@@ -315,7 +318,10 @@ impl PqString<'_, '_> {
 fn scan_cstring_len(funcname: &'static str, msg: &StringInfo<'_>) -> PgResult<usize> {
     let bytes = msg.as_bytes();
     let cursor = msg.cursor;
-    match bytes.get(cursor..).and_then(|r| r.iter().position(|&b| b == 0)) {
+    match bytes
+        .get(cursor..)
+        .and_then(|r| r.iter().position(|&b| b == 0))
+    {
         Some(slen) => Ok(slen),
         None => Err(protocol_violation(funcname, "invalid string in message")),
     }

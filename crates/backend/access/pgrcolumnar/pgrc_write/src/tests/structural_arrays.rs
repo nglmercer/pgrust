@@ -78,7 +78,7 @@ fn dense_payload(i: u64) -> Option<Vec<u8>> {
     if i % 19 == 7 {
         return None; // null row (ai4_nullrows: still array_dual)
     }
-    if i % 5 == 0 {
+    if i.is_multiple_of(5) {
         return Some(arr_i4(&[])); // empty (ai4_empty_mix: still array_dual)
     }
     let n = (i % 8) as i32 + 1;
@@ -213,7 +213,10 @@ fn dense_int_arrays_seal_as_dual_substreams_and_compose_byte_exactly() {
             datums: &mut sizes,
             arena: ByteArena::new(no_arena.bytes_mut()),
         };
-        assert_eq!(sizes_cur.decode_full(g, &mut out).expect("sizes"), rows_g as u32);
+        assert_eq!(
+            sizes_cur.decode_full(g, &mut out).expect("sizes"),
+            rows_g as u32
+        );
         // Elements (dense).
         let n_elems = elems_cur.values_in_granule(g).expect("elem count") as usize;
         let mut elems = vec![0u64; n_elems.max(1)];
@@ -240,8 +243,16 @@ fn dense_int_arrays_seal_as_dual_substreams_and_compose_byte_exactly() {
             ArenaBuf::new(pgrc_codec::arraydual::assembled_arena_bytes(facts, &sizes) + 64);
         let mut arena = ByteArena::new(arena_buf.bytes_mut());
         let mut datums = vec![0u64; rows_g];
-        assemble_array_datums(facts, &sizes, &elems[..n_elems], valid, &mut datums, &mut arena)
-            .expect("assemble");
+        assemble_array_datums(
+            facts,
+            &sizes,
+            &elems[..n_elems],
+            valid,
+            &mut datums,
+            &mut arena,
+        )
+        .expect("assemble");
+        #[allow(clippy::needless_range_loop)]
         for r in 0..rows_g {
             let want = dense_payload(row);
             if let Some(want) = want {
@@ -249,8 +260,7 @@ fn dense_int_arrays_seal_as_dual_substreams_and_compose_byte_exactly() {
                 let d = datums[r];
                 let hdr = u32::from_le_bytes(unsafe { *(d as *const [u8; 4]) });
                 let total = (hdr >> 2) as usize;
-                let got =
-                    unsafe { std::slice::from_raw_parts((d + 4) as *const u8, total - 4) };
+                let got = unsafe { std::slice::from_raw_parts((d + 4) as *const u8, total - 4) };
                 assert_eq!(got, want.as_slice(), "row {row} payload");
             } else {
                 assert!(!valid(r as u32), "row {row} should be null");

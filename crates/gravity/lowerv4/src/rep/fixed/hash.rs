@@ -9,8 +9,8 @@
 //!   pair compares signed, word by word, in the span's order (rep.fixed.order reads it).
 //! - timetz: `timetz_cmp_internal` (`date.c`) orders by `time + zone * USECS_PER_SEC`, then by `zone`; equality is both:
 //!   `[time + zone * USECS_PER_SEC, zone]` (V2 `timetz_words`).
-//! A NULL's words are 0 (nothing is read); the key image's flags word marks it. `name` never reaches this arm (its image
-//! is `Bytes`: rep/mod.rs `arm_kind` routes it to rep.hosted.*, and O3's name order is rep.word.order's).
+//!   A NULL's words are 0 (nothing is read); the key image's flags word marks it. `name` never reaches this arm (its image
+//!   is `Bytes`: rep/mod.rs `arm_kind` routes it to rep.hosted.*, and O3's name order is rep.word.order's).
 use gravity_decompose::catalog::typefacts::{FixedNorm, TypeFacts};
 use gravity_ir::{ConvOp, IntBinOp, IntCond, IntUnOp, Type, Value};
 use gravity_program::Rep;

@@ -4,8 +4,14 @@
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 
-use memledger::charge::{context, enter_portal, owner_row, portal_begin, portal_end, worker_set_begin, worker_set_end, Door};
-use memledger::{bind_backend, statement_begin, statement_end, unbind_backend, Acct, Charge, Consumer, Holder, Kind, Owner, Release};
+use memledger::charge::{
+    context, enter_portal, owner_row, portal_begin, portal_end, worker_set_begin, worker_set_end,
+    Door,
+};
+use memledger::{
+    bind_backend, statement_begin, statement_end, unbind_backend, Acct, Charge, Consumer, Holder,
+    Kind, Owner, Release,
+};
 
 thread_local! {
     static ALLOCS: Cell<u64> = const { Cell::new(0) };
@@ -50,14 +56,30 @@ fn the_charge_api_allocates_nothing() {
         };
         c.transfer(Owner::Cache(Holder::Of(Consumer::FpTables)), Release::Evict);
         worker_set_begin(17, a);
-        let w = Charge::open(Owner::WorkerSet(17), Release::Session, Kind::Arena, Door::Mapped, 1 << 20);
-        let mut f = Charge::open(Owner::Cache(Holder::Of(Consumer::PartCache)), Release::Evict, Kind::Region, Door::Heap, 1 << 20);
+        let w = Charge::open(
+            Owner::WorkerSet(17),
+            Release::Session,
+            Kind::Arena,
+            Door::Mapped,
+            1 << 20,
+        );
+        let mut f = Charge::open(
+            Owner::Cache(Holder::Of(Consumer::PartCache)),
+            Release::Evict,
+            Kind::Region,
+            Door::Heap,
+            1 << 20,
+        );
         f.free(1 << 19);
         let _ = owner_row(o);
         drop((c, u, w, f));
         let _ = portal_end(a, 5);
         let _ = worker_set_end(17);
-        assert_eq!(ALLOCS.with(|n| n.get()), before, "a charge's life allocated");
+        assert_eq!(
+            ALLOCS.with(|n| n.get()),
+            before,
+            "a charge's life allocated"
+        );
         statement_end();
         unbind_backend();
     })

@@ -53,12 +53,18 @@ fn zero_pad8(v: &mut Vec<u8>) {
 /// The part's draw seed: a pure function of (schema fingerprint, row count, `digest` — the writer's digest of the
 /// part's own values, [`sample_digest`]).
 pub const fn sample_seed(schema_fingerprint: u64, rows: u64, digest: u64) -> u64 {
-    crate::ident::mix64(schema_fingerprint ^ crate::ident::mix64(rows ^ 0x5341_4d50_4c45_0001) ^ crate::ident::mix64(digest))
+    crate::ident::mix64(
+        schema_fingerprint
+            ^ crate::ident::mix64(rows ^ 0x5341_4d50_4c45_0001)
+            ^ crate::ident::mix64(digest),
+    )
 }
 
 /// Fold one value's bytes (`None` = NULL) into a [`sample_seed`] digest.
 pub fn sample_digest(acc: u64, value: Option<&[u8]>) -> u64 {
-    let Some(b) = value else { return crate::ident::mix64(acc ^ 0x4e55_4c4c) };
+    let Some(b) = value else {
+        return crate::ident::mix64(acc ^ 0x4e55_4c4c);
+    };
     let mut h = crate::ident::mix64(acc ^ b.len() as u64);
     for ch in b.chunks(8) {
         let mut t = [0u8; 8];
@@ -74,7 +80,9 @@ pub fn sample_ordinals(rows: u64, seed: u64) -> FormatResult<Vec<u32>> {
     let n = rows.min(SAMPLE_ROWS as u64);
     let mut out: Vec<u32> = crate::try_vec(n as usize, "sample ordinals")?;
     if rows > u32::MAX as u64 {
-        return Err(FormatError::EncodeContract { detail: "sample of a part past u32 rows" });
+        return Err(FormatError::EncodeContract {
+            detail: "sample of a part past u32 rows",
+        });
     }
     if n == rows {
         out.extend(0..rows as u32);
@@ -112,13 +120,19 @@ pub struct SampleWriter {
 
 impl SampleWriter {
     pub fn new(ordinals: Vec<u32>) -> SampleWriter {
-        SampleWriter { n: ordinals.len(), ordinals, cols: Vec::new() }
+        SampleWriter {
+            n: ordinals.len(),
+            ordinals,
+            cols: Vec::new(),
+        }
     }
 
     /// Add column `attno` (ascending across calls) with one value per stored row.
     pub fn add(&mut self, attno: u32, values: SampleValues<'_>) -> FormatResult<()> {
         if self.cols.last().is_some_and(|c| c.0 >= attno) {
-            return Err(FormatError::EncodeContract { detail: "sample columns out of attno order" });
+            return Err(FormatError::EncodeContract {
+                detail: "sample columns out of attno order",
+            });
         }
         let n = self.n;
         let vwords = n.div_ceil(64);
@@ -128,7 +142,9 @@ impl SampleWriter {
             SampleValues::Images(v) => (SAMPLE_KIND_IMAGES, v.len()),
         };
         if len != n {
-            return Err(FormatError::EncodeContract { detail: "sample column length differs from its rows" });
+            return Err(FormatError::EncodeContract {
+                detail: "sample column length differs from its rows",
+            });
         }
         let mut validity: Vec<u64> = crate::try_filled(vwords, 0u64, "sample validity")?;
         let valid = |i: usize| match &values {
@@ -146,7 +162,9 @@ impl SampleWriter {
         };
         block
             .try_reserve_exact(vwords * 8 + n * 8 + image_bytes)
-            .map_err(|_| FormatError::OutOfMemory { bytes: vwords * 8 + n * 8 + image_bytes })?;
+            .map_err(|_| FormatError::OutOfMemory {
+                bytes: vwords * 8 + n * 8 + image_bytes,
+            })?;
         for w in &validity {
             block.extend_from_slice(&w.to_le_bytes());
         }
@@ -168,7 +186,9 @@ impl SampleWriter {
                         None => (0, 0),
                     };
                     if off > u32::MAX as usize || l > u32::MAX as usize {
-                        return Err(FormatError::EncodeContract { detail: "sample image past u32" });
+                        return Err(FormatError::EncodeContract {
+                            detail: "sample image past u32",
+                        });
                     }
                     block.extend_from_slice(&(off as u32).to_le_bytes());
                     block.extend_from_slice(&(l as u32).to_le_bytes());
@@ -190,7 +210,9 @@ impl SampleWriter {
         let mut at = dir_at + SAMPLE_COLDIR_LEN * self.cols.len();
         let total = at + self.cols.iter().map(|c| pad8(c.2.len())).sum::<usize>();
         if total > u32::MAX as usize {
-            return Err(FormatError::EncodeContract { detail: "sample section past u32" });
+            return Err(FormatError::EncodeContract {
+                detail: "sample section past u32",
+            });
         }
         let mut out: Vec<u8> = crate::try_vec(total, "sample body")?;
         out.extend_from_slice(&SAMPLE_VERSION.to_le_bytes());
@@ -249,31 +271,49 @@ pub struct SampleColRef<'a> {
 impl<'a> SampleRef<'a> {
     pub fn parse(body: &'a [u8]) -> FormatResult<SampleRef<'a>> {
         if body.len() < SAMPLE_HDR_LEN {
-            return Err(FormatError::Truncated { at: "sample header" });
+            return Err(FormatError::Truncated {
+                at: "sample header",
+            });
         }
         let version = u16::from_le_bytes([body[0], body[1]]);
         if version != SAMPLE_VERSION {
-            return Err(FormatError::BadVersion { at: "sample header", got: version as u32 });
+            return Err(FormatError::BadVersion {
+                at: "sample header",
+                got: version as u32,
+            });
         }
         let n = u32_at(body, 4, "sample header")? as usize;
         let ncols = u32_at(body, 8, "sample header")? as usize;
         if n > SAMPLE_ROWS as usize {
-            return Err(FormatError::Corrupt { at: "sample row count" });
+            return Err(FormatError::Corrupt {
+                at: "sample row count",
+            });
         }
         let dir_at = pad8(SAMPLE_HDR_LEN + 4 * n);
         let dir_end = ncols
             .checked_mul(SAMPLE_COLDIR_LEN)
             .and_then(|d| d.checked_add(dir_at))
-            .ok_or(FormatError::Corrupt { at: "sample column count" })?;
+            .ok_or(FormatError::Corrupt {
+                at: "sample column count",
+            })?;
         if dir_end > body.len() {
-            return Err(FormatError::Truncated { at: "sample column directory" });
+            return Err(FormatError::Truncated {
+                at: "sample column directory",
+            });
         }
-        let s = SampleRef { body, n, ncols, dir_at };
+        let s = SampleRef {
+            body,
+            n,
+            ncols,
+            dir_at,
+        };
         let mut prev: Option<u32> = None;
         for i in 0..n {
             let o = u32_at(body, SAMPLE_HDR_LEN + 4 * i, "sample ordinals")?;
             if prev.is_some_and(|p| p >= o) {
-                return Err(FormatError::Corrupt { at: "sample ordinals not ascending" });
+                return Err(FormatError::Corrupt {
+                    at: "sample ordinals not ascending",
+                });
             }
             prev = Some(o);
         }
@@ -282,7 +322,9 @@ impl<'a> SampleRef<'a> {
             let at = dir_at + c * SAMPLE_COLDIR_LEN;
             let attno = u32_at(body, at, "sample column directory")?;
             if pa.is_some_and(|p| p >= attno) {
-                return Err(FormatError::Corrupt { at: "sample columns not ascending" });
+                return Err(FormatError::Corrupt {
+                    at: "sample columns not ascending",
+                });
             }
             pa = Some(attno);
             s.col_at(c)?;
@@ -297,13 +339,22 @@ impl<'a> SampleRef<'a> {
 
     /// Stored row `i`'s part row ordinal.
     pub fn ordinal(&self, i: usize) -> u32 {
-        u32::from_le_bytes(self.body[SAMPLE_HDR_LEN + 4 * i..SAMPLE_HDR_LEN + 4 * i + 4].try_into().expect("len 4"))
+        u32::from_le_bytes(
+            self.body[SAMPLE_HDR_LEN + 4 * i..SAMPLE_HDR_LEN + 4 * i + 4]
+                .try_into()
+                .expect("len 4"),
+        )
     }
 
     /// Column `attno`'s values (`None`: the part stores no such column).
     pub fn col(&self, attno: u32) -> FormatResult<Option<SampleColRef<'a>>> {
         for c in 0..self.ncols {
-            if u32_at(self.body, self.dir_at + c * SAMPLE_COLDIR_LEN, "sample column directory")? == attno {
+            if u32_at(
+                self.body,
+                self.dir_at + c * SAMPLE_COLDIR_LEN,
+                "sample column directory",
+            )? == attno
+            {
                 return self.col_at(c).map(Some);
             }
         }
@@ -312,23 +363,31 @@ impl<'a> SampleRef<'a> {
 
     fn col_at(&self, c: usize) -> FormatResult<SampleColRef<'a>> {
         let at = self.dir_at + c * SAMPLE_COLDIR_LEN;
-        let kind = *self.body.get(at + 4).ok_or(FormatError::Bounds { at: "sample column directory" })?;
+        let kind = *self.body.get(at + 4).ok_or(FormatError::Bounds {
+            at: "sample column directory",
+        })?;
         let off = u32_at(self.body, at + 8, "sample column directory")? as usize;
         let len = u32_at(self.body, at + 12, "sample column directory")? as usize;
         let block = off
             .checked_add(len)
             .and_then(|e| self.body.get(off..e))
-            .ok_or(FormatError::Bounds { at: "sample column block" })?;
+            .ok_or(FormatError::Bounds {
+                at: "sample column block",
+            })?;
         let n = self.n;
         let fixed = n.div_ceil(64) * 8 + n * 8;
         if block.len() < fixed {
-            return Err(FormatError::Truncated { at: "sample column block" });
+            return Err(FormatError::Truncated {
+                at: "sample column block",
+            });
         }
         let col = SampleColRef { n, kind, block };
         match kind {
             SAMPLE_KIND_WORDS => {
                 if block.len() != fixed {
-                    return Err(FormatError::Corrupt { at: "sample word block length" });
+                    return Err(FormatError::Corrupt {
+                        at: "sample word block length",
+                    });
                 }
             }
             SAMPLE_KIND_IMAGES => {
@@ -336,14 +395,20 @@ impl<'a> SampleRef<'a> {
                 for i in 0..n {
                     if col.valid(i) {
                         let (o, l) = col.span(i)?;
-                        let s = area.checked_add(o as usize).ok_or(FormatError::Bounds { at: "sample image" })?;
+                        let s = area
+                            .checked_add(o as usize)
+                            .ok_or(FormatError::Bounds { at: "sample image" })?;
                         if s.checked_add(l as usize).is_none_or(|e| e > block.len()) {
                             return Err(FormatError::Bounds { at: "sample image" });
                         }
                     }
                 }
             }
-            _ => return Err(FormatError::Corrupt { at: "sample column kind" }),
+            _ => {
+                return Err(FormatError::Corrupt {
+                    at: "sample column kind",
+                })
+            }
         }
         Ok(col)
     }
@@ -357,13 +422,20 @@ impl<'a> SampleColRef<'a> {
 
     /// Row `i` is not NULL.
     pub fn valid(&self, i: usize) -> bool {
-        let w = u64::from_le_bytes(self.block[(i / 64) * 8..(i / 64) * 8 + 8].try_into().expect("len 8"));
+        let w = u64::from_le_bytes(
+            self.block[(i / 64) * 8..(i / 64) * 8 + 8]
+                .try_into()
+                .expect("len 8"),
+        );
         (w >> (i % 64)) & 1 == 1
     }
 
     fn span(&self, i: usize) -> FormatResult<(u32, u32)> {
         let at = self.n.div_ceil(64) * 8 + 8 * i;
-        Ok((u32_at(self.block, at, "sample image span")?, u32_at(self.block, at + 4, "sample image span")?))
+        Ok((
+            u32_at(self.block, at, "sample image span")?,
+            u32_at(self.block, at + 4, "sample image span")?,
+        ))
     }
 
     /// Row `i`'s datum word (a words column).
@@ -375,7 +447,9 @@ impl<'a> SampleColRef<'a> {
     pub fn image(&self, i: usize) -> FormatResult<&'a [u8]> {
         let (o, l) = self.span(i)?;
         let s = pad8(self.n.div_ceil(64) * 8 + self.n * 8) + o as usize;
-        self.block.get(s..s + l as usize).ok_or(FormatError::Bounds { at: "sample image" })
+        self.block
+            .get(s..s + l as usize)
+            .ok_or(FormatError::Bounds { at: "sample image" })
     }
 }
 
@@ -393,7 +467,10 @@ mod tests {
             assert!(a.windows(2).all(|w| w[0] < w[1]));
             assert!(a.last().is_some_and(|&o| (o as u64) < rows));
         }
-        assert_ne!(sample_ordinals(100_000, sample_seed(7, 100_000, 3)).unwrap(), sample_ordinals(100_000, sample_seed(7, 100_000, 4)).unwrap());
+        assert_ne!(
+            sample_ordinals(100_000, sample_seed(7, 100_000, 3)).unwrap(),
+            sample_ordinals(100_000, sample_seed(7, 100_000, 4)).unwrap()
+        );
         // every row of a large part is reachable: the mean ordinal sits near the middle
         let a = sample_ordinals(1_000_000, sample_seed(1, 1_000_000, 1)).unwrap();
         let mean = a.iter().map(|&o| o as f64).sum::<f64>() / a.len() as f64;
@@ -404,9 +481,13 @@ mod tests {
     fn a_body_round_trips_and_pins_its_bytes() {
         let ord = sample_ordinals(1000, sample_seed(11, 1000, 2)).unwrap();
         let n = ord.len();
-        let words: Vec<Option<u64>> = (0..n).map(|i| (i % 5 != 0).then_some(i as u64 * 3)).collect();
+        let words: Vec<Option<u64>> = (0..n)
+            .map(|i| (i % 5 != 0).then_some(i as u64 * 3))
+            .collect();
         let imgs_own: Vec<Vec<u8>> = (0..n).map(|i| vec![i as u8; i % 13]).collect();
-        let imgs: Vec<Option<&[u8]>> = (0..n).map(|i| (i % 7 != 0).then_some(imgs_own[i].as_slice())).collect();
+        let imgs: Vec<Option<&[u8]>> = (0..n)
+            .map(|i| (i % 7 != 0).then_some(imgs_own[i].as_slice()))
+            .collect();
         let mut w = SampleWriter::new(ord.clone());
         w.add(1, SampleValues::Words(&words)).unwrap();
         w.add(3, SampleValues::Images(&imgs)).unwrap();
@@ -429,7 +510,9 @@ mod tests {
             }
         }
         // the layout is pinned: a changed byte order or padding moves this digest
-        let digest = body.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, &b| (h ^ b as u64).wrapping_mul(0x100_0000_01b3));
+        let digest = body.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, &b| {
+            (h ^ b as u64).wrapping_mul(0x100_0000_01b3)
+        });
         assert_eq!((body.len(), digest), SAMPLE_BODY_GOLDEN);
     }
 
@@ -443,18 +526,30 @@ mod tests {
         let mut w = SampleWriter::new(ord);
         w.add(1, SampleValues::Words(&words)).unwrap();
         let body = w.finish().unwrap();
-        assert!(SampleRef::parse(&body[..body.len() - 8]).is_err(), "truncated block");
+        assert!(
+            SampleRef::parse(&body[..body.len() - 8]).is_err(),
+            "truncated block"
+        );
         let mut b = body.clone();
         b[0] = 9;
-        assert!(matches!(SampleRef::parse(&b), Err(FormatError::BadVersion { .. })));
+        assert!(matches!(
+            SampleRef::parse(&b),
+            Err(FormatError::BadVersion { .. })
+        ));
         let mut b = body.clone();
         b[4..8].copy_from_slice(&1000u32.to_le_bytes());
         assert!(SampleRef::parse(&b).is_err(), "row count past the cap");
         let mut b = body.clone();
         b[SAMPLE_HDR_LEN..SAMPLE_HDR_LEN + 4].copy_from_slice(&u32::MAX.to_le_bytes());
-        assert!(matches!(SampleRef::parse(&b), Err(FormatError::Corrupt { .. })), "ordinals out of order");
+        assert!(
+            matches!(SampleRef::parse(&b), Err(FormatError::Corrupt { .. })),
+            "ordinals out of order"
+        );
         let mut w = SampleWriter::new(vec![0, 1]);
         w.add(2, SampleValues::Words(&[Some(1), None])).unwrap();
-        assert!(w.add(2, SampleValues::Words(&[Some(1), None])).is_err(), "attno order");
+        assert!(
+            w.add(2, SampleValues::Words(&[Some(1), None])).is_err(),
+            "attno order"
+        );
     }
 }

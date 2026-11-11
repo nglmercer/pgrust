@@ -73,6 +73,7 @@ enum ByValue {
     /// only under `Place::Fold`, which admit refuses (the word budget overflowed): no program files it
     NeverFiled,
     /// a column's reported typmod only, never a value; the front key holds it (exec front.rs `Class::Key`)
+    #[allow(dead_code)]
     Metadata,
     /// read at EXECUTE from the live plan's node into a host's per-execution state; no program holds it, so a cached
     /// program over another literal binds that literal

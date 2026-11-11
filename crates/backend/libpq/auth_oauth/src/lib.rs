@@ -4,9 +4,7 @@
 //! an unregistered name is C's dlopen stat miss (58P01). The in-tree
 //! validators live in crates/backend/libpq/oauth_validators.
 
-#![allow(non_snake_case)]
-#![allow(non_upper_case_globals)]
-#![allow(clippy::result_large_err)]
+#![allow(clippy::result_large_err, non_snake_case, non_upper_case_globals)]
 
 use pgsync::Mutex;
 
@@ -69,7 +67,10 @@ struct BuiltinValidatorEntry {
 
 static BUILTIN_VALIDATORS: Mutex<Vec<BuiltinValidatorEntry>> = Mutex::new(Vec::new());
 
-pub fn register_builtin_validator(name: &'static str, validator: &'static (dyn OAuthValidator + Sync)) {
+pub fn register_builtin_validator(
+    name: &'static str,
+    validator: &'static (dyn OAuthValidator + Sync),
+) {
     let mut vals = BUILTIN_VALIDATORS.lock().unwrap();
     match vals.iter_mut().find(|e| e.name == name) {
         Some(existing) => existing.validator = validator,
@@ -207,7 +208,10 @@ fn oauth_exchange(
     }
     // C compares inputlen to strlen(input): an interior NUL is a mismatch.
     if input.contains(&0) {
-        malformed(172, "Message length does not match input length.".to_string())?;
+        malformed(
+            172,
+            "Message length does not match input length.".to_string(),
+        )?;
     }
 
     match ctx.state {
@@ -462,7 +466,9 @@ fn validate_token_format(header: &[u8]) -> PgResult<Option<&[u8]>> {
 
     let mut span = token
         .iter()
-        .position(|&c| !(c.is_ascii_alphanumeric() || matches!(c, b'-' | b'.' | b'_' | b'~' | b'+' | b'/')))
+        .position(|&c| {
+            !(c.is_ascii_alphanumeric() || matches!(c, b'-' | b'.' | b'_' | b'~' | b'+' | b'/'))
+        })
         .unwrap_or(token.len());
     while token.get(span) == Some(&b'=') {
         span += 1;

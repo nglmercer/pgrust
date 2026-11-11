@@ -1,4 +1,3 @@
-
 use core::ptr::NonNull;
 
 use ::datum::Datum;
@@ -71,7 +70,12 @@ impl DictCodes {
         epoch: DictEpoch,
         epoch_key: DictEpochKey,
     ) -> DictCodes {
-        DictCodes { codes, dict, epoch, epoch_key }
+        DictCodes {
+            codes,
+            dict,
+            epoch,
+            epoch_key,
+        }
     }
 
     #[inline]
@@ -137,7 +141,9 @@ impl DictHandle {
         // not a borrow; liveness is the R1 claim-scope contract, asserted
         // at deref ([`DictHandle::space`]).
         let r: &'static (dyn DictSpace + 'static) = unsafe { core::mem::transmute(r) };
-        DictHandle { space: NonNull::from(r) }
+        DictHandle {
+            space: NonNull::from(r),
+        }
     }
 
     /// # Safety
@@ -163,7 +169,9 @@ impl Eq for DictHandle {}
 
 impl core::fmt::Debug for DictHandle {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("DictHandle").field("space", &self.space.as_ptr()).finish()
+        f.debug_struct("DictHandle")
+            .field("space", &self.space.as_ptr())
+            .finish()
     }
 }
 
@@ -183,7 +191,6 @@ pub trait DictSpace {
 
     fn code_order_is_value_order(&self) -> bool;
 }
-
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

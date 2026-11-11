@@ -3,6 +3,7 @@
 // functions of one rti and width shared a cached program: the second statement would run the first one's row path
 // (WRONG once srf.tablefunc serves). A path is a by-reference literal, and the Const rule keys its image; the document
 // and the PASSING values are keyed by class (D715).
+#[allow(unused_imports)]
 use std::path::Path;
 
 use gravity_decompose::{corpus, decompose_in, Source};

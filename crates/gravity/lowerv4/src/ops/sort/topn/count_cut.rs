@@ -237,6 +237,7 @@ fn checks<'g, 'p>(gx: &Gx<'g, '_>, p: &PipelineNode<'p>, g: &GroupDecl<'_>, d: &
     }
     let keys = out.iter().enumerate().filter(|(n, c)| out[..*n].iter().all(|b| b.0 != c.0)).count();
     // the owner checks a chain in every group, where PG projects only the groups a HAVING passes
+    #[allow(clippy::nonminimal_bool)]
     (keys <= KEY_CHECK_KEYS && !(filtered && !out.is_empty())).then_some((width, out))
 }
 
@@ -323,6 +324,7 @@ pub(crate) fn key_check<'p>(px: &mut Px<'_, 'p>, j: usize, g: &GroupDecl<'_>, d:
             let word = match k {
                 Some(k) => {
                     let Place::Word(w) = px.claim_const(k)? else { return None };
+                    #[allow(clippy::useless_conversion)]
                     u16::try_from(w).ok()?
                 }
                 None => 0,

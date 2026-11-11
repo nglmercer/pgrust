@@ -330,6 +330,7 @@ fn pg_class_row(relid: Oid) -> PgResult<Option<PgClassRow>> {
         relam: getattr(&t, RELOID, ANUM_PG_CLASS_RELAM).as_oid(),
         relkind: getattr(&t, RELOID, ANUM_PG_CLASS_RELKIND).as_i8(),
     };
+    #[allow(clippy::drop_non_drop)]
     drop(t);
     ReleaseSysCache(ht);
     Ok(Some(row))
@@ -419,6 +420,7 @@ pub fn generate_qualified_type_name(mcx: Mcx<'_>, typid: Oid) -> PgResult<String
     let t = ht.tuple();
     let typname = name_at(getattr(&t, TYPEOID, ANUM_PG_TYPE_TYPNAME));
     let typnamespace = getattr(&t, TYPEOID, ANUM_PG_TYPE_TYPNAMESPACE).as_oid();
+    #[allow(clippy::drop_non_drop)]
     drop(t);
     ReleaseSysCache(ht);
     let nspname = namespace_name_or_temp(mcx, typnamespace)?
@@ -443,6 +445,7 @@ pub(crate) fn generate_operator_name(
     let oprname = name_at(getattr(&t, OPEROID, ANUM_PG_OPERATOR_OPRNAME));
     let oprnamespace = getattr(&t, OPEROID, ANUM_PG_OPERATOR_OPRNAMESPACE).as_oid();
     let oprkind = getattr(&t, OPEROID, ANUM_PG_OPERATOR_OPRKIND).as_i8();
+    #[allow(clippy::drop_non_drop)]
     drop(t);
     ReleaseSysCache(ht);
 
@@ -499,6 +502,7 @@ pub fn generate_collation_name(mcx: Mcx<'_>, collid: Oid) -> PgResult<String> {
     let collname = name_at(getattr(&t, cache_syscache::COLLOID, ANUM_PG_COLLATION_COLLNAME));
     let collnamespace =
         getattr(&t, cache_syscache::COLLOID, ANUM_PG_COLLATION_COLLNAMESPACE).as_oid();
+    #[allow(clippy::drop_non_drop)]
     drop(t);
     ReleaseSysCache(ht);
 
@@ -639,6 +643,7 @@ fn pg_index_row(indexrelid: Oid) -> PgResult<Option<PgIndexRow>> {
         indexprs_src: getattr_null(&t, INDEXRELID, ANUM_PG_INDEX_INDEXPRS).map(text_at),
         indpred: getattr_null(&t, INDEXRELID, ANUM_PG_INDEX_INDPRED).map(text_at),
     };
+    #[allow(clippy::drop_non_drop)]
     drop(t);
     ReleaseSysCache(ht);
     Ok(Some(row))
@@ -671,6 +676,7 @@ fn flatten_reloptions(relid: Oid) -> PgResult<Option<String>> {
     };
     let t = ht.tuple();
     let opts = getattr_null(&t, RELOID, ANUM_PG_CLASS_RELOPTIONS).map(text_array_at);
+    #[allow(clippy::drop_non_drop)]
     drop(t);
     ReleaseSysCache(ht);
     Ok(opts.map(|o| {
@@ -733,6 +739,7 @@ fn pg_opclass_row(opclass: Oid) -> PgResult<Option<(String, Oid, Oid)>> {
         getattr(&t, cache_syscache::CLAOID, ANUM_PG_OPCLASS_OPCNAMESPACE).as_oid(),
         getattr(&t, cache_syscache::CLAOID, ANUM_PG_OPCLASS_OPCMETHOD).as_oid(),
     );
+    #[allow(clippy::drop_non_drop)]
     drop(t);
     ReleaseSysCache(ht);
     Ok(Some(out))
@@ -1576,6 +1583,7 @@ pub fn pg_get_partkeydef_worker(
     let partcollation = oid_array_at(notnull(ANUM_PG_PARTITIONED_TABLE_PARTCOLLATION));
     let partexprs_text =
         getattr_null(&t, PARTRELID, ANUM_PG_PARTITIONED_TABLE_PARTEXPRS).map(text_at);
+    #[allow(clippy::drop_non_drop)]
     drop(t);
     ReleaseSysCache(ht);
 
@@ -1679,6 +1687,7 @@ pub fn pg_get_statisticsobj_worker(
     let stxkeys = i16_array_at(notnull(ANUM_PG_STATISTIC_EXT_STXKEYS));
     let stxkind = array_body(notnull(ANUM_PG_STATISTIC_EXT_STXKIND), 1);
     let exprs_text = getattr_null(&t, STATEXTOID, ANUM_PG_STATISTIC_EXT_STXEXPRS).map(text_at);
+    #[allow(clippy::drop_non_drop)]
     drop(t);
     ReleaseSysCache(ht);
 
@@ -1760,6 +1769,7 @@ pub fn pg_get_statisticsobjdef_expressions_worker(
     let t = ht.tuple();
     let stxrelid = getattr(&t, STATEXTOID, ANUM_PG_STATISTIC_EXT_STXRELID).as_oid();
     let exprs_text = getattr_null(&t, STATEXTOID, ANUM_PG_STATISTIC_EXT_STXEXPRS).map(text_at);
+    #[allow(clippy::drop_non_drop)]
     drop(t);
     ReleaseSysCache(ht);
     let Some(src) = exprs_text else {

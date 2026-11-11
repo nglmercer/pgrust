@@ -52,7 +52,10 @@ impl WriteVfs for TraceVfs {
         self.inner.read_full(path)
     }
     fn rename_path(&mut self, from: &str, to: &str) -> WriteResult<()> {
-        push(&self.trace, format!("rename {} -> {}", short(from), short(to)));
+        push(
+            &self.trace,
+            format!("rename {} -> {}", short(from), short(to)),
+        );
         self.inner.rename_path(from, to)
     }
     fn unlink_path(&mut self, path: &str) -> WriteResult<()> {
@@ -73,7 +76,10 @@ impl WriteVfs for TraceVfs {
         self.inner.exists_path(path)
     }
     fn link_path(&mut self, from: &str, to: &str) -> WriteResult<()> {
-        push(&self.trace, format!("link {} -> {}", short(from), short(to)));
+        push(
+            &self.trace,
+            format!("link {} -> {}", short(from), short(to)),
+        );
         self.inner.link_path(from, to)
     }
     fn link_count(&mut self, path: &str) -> WriteResult<u64> {
@@ -91,10 +97,20 @@ impl WalSink for TraceSink {
         true
     }
     fn file_write(&mut self, name: &str, off: u64, bytes: &[u8], create: bool) -> WriteResult<()> {
-        push(&self.trace, format!("{} {name} {off}", if create { "FILE_CREATE" } else { "FILE_WRITE" }));
+        push(
+            &self.trace,
+            format!(
+                "{} {name} {off}",
+                if create { "FILE_CREATE" } else { "FILE_WRITE" }
+            ),
+        );
         self.inner.file_write(name, off, bytes, create)
     }
-    fn file_done(&mut self, name: &str, fsync: &mut dyn FnMut() -> WriteResult<()>) -> WriteResult<()> {
+    fn file_done(
+        &mut self,
+        name: &str,
+        fsync: &mut dyn FnMut() -> WriteResult<()>,
+    ) -> WriteResult<()> {
         push(&self.trace, format!("FILE_DONE {name}"));
         self.inner.file_done(name, fsync)
     }
@@ -122,56 +138,93 @@ impl WalSink for TraceSink {
 }
 
 fn idx(t: &[String], line: &str) -> usize {
-    t.iter().position(|o| o == line).unwrap_or_else(|| panic!("{line:?} not in {t:#?}"))
+    t.iter()
+        .position(|o| o == line)
+        .unwrap_or_else(|| panic!("{line:?} not in {t:#?}"))
 }
 
 #[test]
 fn wal_first_ordering_holds_and_clog_fence_present() {
     let trace: Trace = Arc::new(Mutex::new(Vec::new()));
     let log = WalLog::shared();
-    let mut vfs = TraceVfs { inner: mem_with_dir(), trace: trace.clone() };
+    let mut vfs = TraceVfs {
+        inner: mem_with_dir(),
+        trace: trace.clone(),
+    };
     let mut kit = Kit::new();
-    let mut w = open_writer(vec![int8_col(1)], stamp(7, 1))
-        .with_sink(Box::new(TraceSink { inner: RecordingSink::new(DIR, log.clone()), trace: trace.clone() }));
+    let mut w = open_writer(vec![int8_col(1)], stamp(7, 1)).with_sink(Box::new(TraceSink {
+        inner: RecordingSink::new(DIR, log.clone()),
+        trace: trace.clone(),
+    }));
     for i in 0..1000u64 {
         let sources: [&dyn crate::elect::CandidateSource; 1] = [&kit.cands];
-        let mut env = SealEnv { vfs: &mut vfs, sources: &sources, resolver: &kit.resolver, shred: &mut kit.shred, shred_opts: &kit.opts };
-        w.append_row(&[RawDatum::Word(i)], &mut kit.ext, &mut env).expect("append");
+        let mut env = SealEnv {
+            vfs: &mut vfs,
+            sources: &sources,
+            resolver: &kit.resolver,
+            shred: &mut kit.shred,
+            shred_opts: &kit.opts,
+        };
+        w.append_row(&[RawDatum::Word(i)], &mut kit.ext, &mut env)
+            .expect("append");
     }
     {
         let sources: [&dyn crate::elect::CandidateSource; 1] = [&kit.cands];
-        let mut env = SealEnv { vfs: &mut vfs, sources: &sources, resolver: &kit.resolver, shred: &mut kit.shred, shred_opts: &kit.opts };
+        let mut env = SealEnv {
+            vfs: &mut vfs,
+            sources: &sources,
+            resolver: &kit.resolver,
+            shred: &mut kit.shred,
+            shred_opts: &kit.opts,
+        };
         w.finish(&mut env).expect("finish");
     }
     let probe = Probe::new(TxnVerdict::InProgress).set(7, TxnVerdict::Committed);
     let out = w.publish(&mut vfs, &probe).expect("publish");
     assert_eq!((out.gen, out.part_nos.clone()), (1, vec![0]));
-    assert!(matches!(out.bankstats_plane, crate::bankplane::PlaneOutcome::Written { .. }));
+    assert!(matches!(
+        out.bankstats_plane,
+        crate::bankplane::PlaneOutcome::Written { .. }
+    ));
 
     let t = lock(&trace).clone();
-    assert!(!t.iter().any(|l| l.starts_with("fsync")), "no fsync anywhere in seal + publish: {t:#?}");
+    assert!(
+        !t.iter().any(|l| l.starts_with("fsync")),
+        "no fsync anywhere in seal + publish: {t:#?}"
+    );
     let publish = idx(&t, "PUBLISH 1");
-    let (apply, applied, registered) = (idx(&t, "APPLY"), idx(&t, "APPLIED"), idx(&t, "REGISTERED"));
+    let (apply, applied, registered) =
+        (idx(&t, "APPLY"), idx(&t, "APPLIED"), idx(&t, "REGISTERED"));
     assert!(publish < apply && apply < applied && applied < registered);
 
     // Before the record: every staged file created, logged and finished; no namespace change.
     // P-1 L2: no sections file; one part is loose, so no stats run either
     let staged = ["tmp-7-0.pgrct", "bankstats-1.pgrcbs.tmp"];
-    assert!(!t.iter().any(|l| l.contains("sections-") || l.contains("srun-")), "no sections file, no run: {t:#?}");
+    assert!(
+        !t.iter()
+            .any(|l| l.contains("sections-") || l.contains("srun-")),
+        "no sections file, no run: {t:#?}"
+    );
     for name in staged {
         let created = idx(&t, &format!("FILE_CREATE {name} 0"));
         let done = idx(&t, &format!("FILE_DONE {name}"));
         assert!(created < done && done < publish, "{name}");
     }
-    assert!(!t[..publish].iter().any(|l| l.starts_with("rename") || l.starts_with("unlink")));
+    assert!(!t[..publish]
+        .iter()
+        .any(|l| l.starts_with("rename") || l.starts_with("unlink")));
 
     // Inside the apply: the part patch + rename, the staged renames, then the manifest, then CURRENT.
     let part = idx(&t, "rename tmp-7-0.pgrct -> part-0.pgrc");
     let plane = idx(&t, "rename bankstats-1.pgrcbs.tmp -> bankstats-1.pgrcbs");
     let manifest = idx(&t, "create manifest-1.pgrcm");
     let current = idx(&t, "rename CURRENT.tmp -> CURRENT");
-    assert!(apply < part && part < plane && plane < manifest && manifest < current && current < applied);
-    assert!(t[applied..].iter().all(|l| l == "APPLIED" || l == "REGISTERED"));
+    assert!(
+        apply < part && part < plane && plane < manifest && manifest < current && current < applied
+    );
+    assert!(t[applied..]
+        .iter()
+        .all(|l| l == "APPLIED" || l == "REGISTERED"));
 
     // The log: the part's bytes, the record last, and the registration covers what the apply wrote.
     let g = lock(&log);
@@ -184,26 +237,64 @@ fn wal_first_ordering_holds_and_clog_fence_present() {
         })
         .sum();
     assert_eq!(part_bytes as u64, out.manifest.parts[0].file_len);
-    let Some(WalRecord::Publish { rec, .. }) = g.records.last() else { panic!("PUBLISH is the last record") };
+    let Some(WalRecord::Publish { rec, .. }) = g.records.last() else {
+        panic!("PUBLISH is the last record")
+    };
     assert_eq!(rec.installs.len(), 1);
-    for name in ["part-0.pgrc", "manifest-1.pgrcm", "CURRENT", "bankstats-1.pgrcbs"] {
+    for name in [
+        "part-0.pgrc",
+        "manifest-1.pgrcm",
+        "CURRENT",
+        "bankstats-1.pgrcbs",
+    ] {
         assert!(g.dirty[DIR].contains(name), "{name} registered");
     }
     drop(g);
 
     let mut vfs = vfs.inner;
     let m = read_manifest(&mut vfs, 1);
-    assert_eq!((m.header.publisher_fxid, m.header.prev_gen, m.header.part_count, m.header.next_part_no), (7, 0, 1, 1));
+    assert_eq!(
+        (
+            m.header.publisher_fxid,
+            m.header.prev_gen,
+            m.header.part_count,
+            m.header.next_part_no
+        ),
+        (7, 0, 1, 1)
+    );
     assert_eq!(m.parts[0].rows, 1000);
-    let cp = pgrc_format::manifest::CommitPointer::decode(&vfs.read_full(&format!("{DIR}/CURRENT")).expect("CURRENT")).expect("pointer");
-    let m_bytes = vfs.read_full(&format!("{DIR}/manifest-1.pgrcm")).expect("manifest bytes");
+    let cp = pgrc_format::manifest::CommitPointer::decode(
+        &vfs.read_full(&format!("{DIR}/CURRENT")).expect("CURRENT"),
+    )
+    .expect("pointer");
+    let m_bytes = vfs
+        .read_full(&format!("{DIR}/manifest-1.pgrcm"))
+        .expect("manifest bytes");
     assert_eq!((cp.gen, cp.manifest_len), (1, m_bytes.len() as u64));
-    assert_eq!(cp.manifest_crc, pgrc_format::wire::crc32c(&m_bytes[..m_bytes.len() - 4]));
+    assert_eq!(
+        cp.manifest_crc,
+        pgrc_format::wire::crc32c(&m_bytes[..m_bytes.len() - 4])
+    );
     assert_eq!(cp.manifest_crc, rec_crc(&log));
 
-    assert_eq!(effective_manifest(&mut vfs, DIR, &probe, None).expect("eff").expect("some").header.gen, 1);
-    assert!(effective_manifest(&mut vfs, DIR, &Probe::new(TxnVerdict::InProgress), None).expect("eff").is_none());
-    assert!(effective_manifest(&mut vfs, DIR, &Probe::new(TxnVerdict::Aborted), None).expect("eff").is_none());
+    assert_eq!(
+        effective_manifest(&mut vfs, DIR, &probe, None)
+            .expect("eff")
+            .expect("some")
+            .header
+            .gen,
+        1
+    );
+    assert!(
+        effective_manifest(&mut vfs, DIR, &Probe::new(TxnVerdict::InProgress), None)
+            .expect("eff")
+            .is_none()
+    );
+    assert!(
+        effective_manifest(&mut vfs, DIR, &Probe::new(TxnVerdict::Aborted), None)
+            .expect("eff")
+            .is_none()
+    );
 }
 
 fn rec_crc(log: &Arc<Mutex<WalLog>>) -> u32 {
@@ -219,7 +310,9 @@ fn rec_crc(log: &Arc<Mutex<WalLog>>) -> u32 {
 fn generations_chain_and_part_numbers_are_monotone() {
     let mut vfs = mem_with_dir();
     let mut kit = Kit::new();
-    let probe = Probe::new(TxnVerdict::InProgress).set(7, TxnVerdict::Committed).set(8, TxnVerdict::Committed);
+    let probe = Probe::new(TxnVerdict::InProgress)
+        .set(7, TxnVerdict::Committed)
+        .set(8, TxnVerdict::Committed);
     let mut w1 = open_writer(vec![int8_col(1)], stamp(7, 1));
     append_int8_rows(&mut w1, &mut vfs, &mut kit, 100, |i| Some(i as i64));
     let o1 = finish_and_publish(&mut w1, &mut vfs, &mut kit, &probe);
@@ -230,7 +323,10 @@ fn generations_chain_and_part_numbers_are_monotone() {
     assert_eq!((o2.gen, o2.part_nos.clone()), (2, vec![1]));
     let m = read_manifest(&mut vfs, 2);
     assert_eq!((m.header.prev_gen, m.header.part_count), (1, 2));
-    assert_eq!(m.parts.iter().map(|p| p.part_no).collect::<Vec<_>>(), vec![0, 1]);
+    assert_eq!(
+        m.parts.iter().map(|p| p.part_no).collect::<Vec<_>>(),
+        vec![0, 1]
+    );
     assert_eq!(m.parts.iter().map(|p| p.rows).sum::<u64>(), 300);
 }
 
@@ -258,25 +354,65 @@ fn a_subtransaction_publish_chains_on_its_trees_generations() {
         let mut w = open_writer(vec![int8_col(1)], stamp(fxid, 1));
         append_int8_rows(&mut w, &mut vfs, &mut kit, 50, |r| Some(r as i64));
         let o = finish_and_publish(&mut w, &mut vfs, &mut kit, &tree);
-        assert_eq!((o.gen, o.part_nos.clone()), (i as u64 + 1, vec![i as u32]), "fxid {fxid}");
+        assert_eq!(
+            (o.gen, o.part_nos.clone()),
+            (i as u64 + 1, vec![i as u32]),
+            "fxid {fxid}"
+        );
     }
     let m = read_manifest(&mut vfs, 3);
-    assert_eq!((m.header.publisher_fxid, m.header.prev_gen, m.header.part_count), (11, 2, 3));
+    assert_eq!(
+        (
+            m.header.publisher_fxid,
+            m.header.prev_gen,
+            m.header.part_count
+        ),
+        (11, 2, 3)
+    );
 
     let mut foreign = open_writer(vec![int8_col(1)], stamp(8, 1));
     append_int8_rows(&mut foreign, &mut vfs, &mut kit, 10, |r| Some(r as i64));
     let sources: [&dyn crate::elect::CandidateSource; 1] = [&kit.cands];
-    let mut env = SealEnv { vfs: &mut vfs, sources: &sources, resolver: &kit.resolver, shred: &mut kit.shred, shred_opts: &kit.opts };
+    let mut env = SealEnv {
+        vfs: &mut vfs,
+        sources: &sources,
+        resolver: &kit.resolver,
+        shred: &mut kit.shred,
+        shred_opts: &kit.opts,
+    };
     foreign.finish(&mut env).expect("finish");
-    let err = foreign.publish(&mut vfs, &tree).expect_err("a foreign in-progress head refuses");
-    assert_eq!(err, crate::WriteError::PublishBusy { holder_fxid: 11 }, "the hint arm names the head's publisher");
-    assert_eq!(foreign.sealed_parts().len(), 1, "the refused writer keeps its sealed part for the retry");
-    assert!(!vfs.exists_path(&format!("{DIR}/manifest-4.pgrcm")).expect("exists"), "nothing staged");
+    let err = foreign
+        .publish(&mut vfs, &tree)
+        .expect_err("a foreign in-progress head refuses");
+    assert_eq!(
+        err,
+        crate::WriteError::PublishBusy { holder_fxid: 11 },
+        "the hint arm names the head's publisher"
+    );
+    assert_eq!(
+        foreign.sealed_parts().len(),
+        1,
+        "the refused writer keeps its sealed part for the retry"
+    );
+    assert!(
+        !vfs.exists_path(&format!("{DIR}/manifest-4.pgrcm"))
+            .expect("exists"),
+        "nothing staged"
+    );
     // The scan arm (no CURRENT hint) names the same holder.
-    vfs.unlink_path(&format!("{DIR}/CURRENT")).expect("unlink CURRENT");
-    let err = foreign.publish(&mut vfs, &tree).expect_err("the scan arm refuses too");
-    assert_eq!(err, crate::WriteError::PublishBusy { holder_fxid: 11 }, "the scan arm names the head's publisher");
+    vfs.unlink_path(&format!("{DIR}/CURRENT"))
+        .expect("unlink CURRENT");
+    let err = foreign
+        .publish(&mut vfs, &tree)
+        .expect_err("the scan arm refuses too");
+    assert_eq!(
+        err,
+        crate::WriteError::PublishBusy { holder_fxid: 11 },
+        "the scan arm names the head's publisher"
+    );
     // Once the holder's tree is gone (committed), the retry chains on its head.
-    let o = foreign.publish(&mut vfs, &Probe::new(TxnVerdict::Committed)).expect("the retry publishes");
+    let o = foreign
+        .publish(&mut vfs, &Probe::new(TxnVerdict::Committed))
+        .expect("the retry publishes");
     assert_eq!((o.gen, o.part_nos.clone()), (4, vec![3]));
 }

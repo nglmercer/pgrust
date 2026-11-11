@@ -170,6 +170,7 @@ mod tests {
         assert_eq!(callback.with_mut(|f| f(3)), 3);
         assert_eq!(copy.try_with_mut(|f| f(5)).unwrap(), 8);
         assert_eq!((callback.borrow_mut())(7), 15);
+        #[allow(clippy::drop_non_drop)]
         drop(callable);
         assert_eq!(total, 15);
     }

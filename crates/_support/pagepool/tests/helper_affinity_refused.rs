@@ -17,7 +17,10 @@ fn a_refused_set_leaves_the_helpers_unpinned() {
         eprintln!("every CPU number is allowed here: nothing to refuse");
         return;
     };
-    assert!(set_helper_cpus(&[out]), "the set is taken (the kernel judges it at each helper's wake)");
+    assert!(
+        set_helper_cpus(&[out]),
+        "the set is taken (the kernel judges it at each helper's wake)"
+    );
     wait_pins((0, 2)); // both helpers' sets refused, none applied
     wait_helpers_on(&["pg:poolclaim", "pg:poolpurge"], &all);
     stop();

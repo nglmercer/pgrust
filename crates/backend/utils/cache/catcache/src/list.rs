@@ -242,6 +242,7 @@ pub(crate) fn adopt_members(
         st.ch_nlisted += members.len() as i32;
         let cache = st.cache_mut(cache_id);
         let slot = cache.cl_alloc(cl);
+        #[allow(clippy::needless_range_loop)]
         for i in 0..members.len() {
             let m = members[i];
             let ct = &mut cache.tuples[m as usize];

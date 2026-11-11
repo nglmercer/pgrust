@@ -52,10 +52,15 @@ fn cte_pushable<'mcx>(cte: &CommonTableExpr<'mcx>, query: &'mcx Query<'mcx>) -> 
         && !cte.cterecursive
         && query.commandType == CmdType::CMD_SELECT
         && !query_has_sublinks(query)
-        && !cte.ctequery.map_or(Ok(true), clauses::contain_volatile_functions)?)
+        && !cte
+            .ctequery
+            .map_or(Ok(true), clauses::contain_volatile_functions)?)
 }
 
-pub(crate) fn fill_admits<'mcx>(cte: &CommonTableExpr<'mcx>, query: &'mcx Query<'mcx>) -> PgResult<bool> {
+pub(crate) fn fill_admits<'mcx>(
+    cte: &CommonTableExpr<'mcx>,
+    query: &'mcx Query<'mcx>,
+) -> PgResult<bool> {
     Ok(mode() == Some(Mode::Fill) && cte_pushable(cte, query)?)
 }
 
@@ -75,12 +80,18 @@ pub(crate) fn push_readers_or<'mcx>(
     query: &'mcx Query<'mcx>,
     body: &mut Query<'mcx>,
 ) -> PgResult<()> {
-    let Some(mode) = mode().filter(|&m| m != Mode::Fill) else { return Ok(()) };
+    let Some(mode) = mode().filter(|&m| m != Mode::Fill) else {
+        return Ok(());
+    };
     if !cte_pushable(cte, query)? {
         return Ok(());
     }
-    let Some(name) = cte.ctename else { return Ok(()) };
-    let Some(jt) = parse.jointree else { return Ok(()) };
+    let Some(name) = cte.ctename else {
+        return Ok(());
+    };
+    let Some(jt) = parse.jointree else {
+        return Ok(());
+    };
     // the readers and the conjuncts that may filter them: the WHERE and the quals of the inner joins over them
     let mut readers: Vec<Reader<'mcx>> = Vec::new(); // alloc: planner
     let mut conjuncts: Vec<Node<'mcx>> = Vec::new(); // alloc: planner
@@ -93,7 +104,9 @@ pub(crate) fn push_readers_or<'mcx>(
     if readers.len() != cte.cterefcount as usize {
         return Ok(());
     }
-    let Some(safety) = crate::pushdown::cte_safety(mcx, query)? else { return Ok(()) };
+    let Some(safety) = crate::pushdown::cte_safety(mcx, query)? else {
+        return Ok(());
+    };
     if mode == Mode::Strict && !body_eager_safe(query)? {
         return Ok(());
     }
@@ -119,7 +132,11 @@ pub(crate) fn push_readers_or<'mcx>(
             }
             conj.lappend(mcx, q)?;
         }
-        let arm = if conj.len() == 1 { conj.nth(0) } else { clauses::make_andclause(mcx, conj)? };
+        let arm = if conj.len() == 1 {
+            conj.nth(0)
+        } else {
+            clauses::make_andclause(mcx, conj)?
+        };
         arms.lappend(mcx, arm)?;
     }
     let or = clauses::make_orclause(mcx, arms)?;
@@ -135,21 +152,38 @@ pub(crate) fn push_readers_or<'mcx>(
 
 /// Walks a FROM-list item: a reader of `name` is recorded; an inner join's quals join the conjuncts and its sides are
 /// walked; false when a reader sits under any other join (the CTE stays as written).
-fn walk_item<'mcx>(parse: &Query<'mcx>, name: &str, item: Node<'mcx>, readers: &mut Vec<Reader<'mcx>>, conjuncts: &mut Vec<Node<'mcx>>) -> PgResult<bool> {
+fn walk_item<'mcx>(
+    parse: &Query<'mcx>,
+    name: &str,
+    item: Node<'mcx>,
+    readers: &mut Vec<Reader<'mcx>>,
+    conjuncts: &mut Vec<Node<'mcx>>,
+) -> PgResult<bool> {
     if let Some(r) = item.as_range_tbl_ref() {
         let rti = r.rtindex as usize;
-        let rte = parse.rtable.nth(rti - 1).as_range_tbl_entry().expect("rtable cell");
+        let rte = parse
+            .rtable
+            .nth(rti - 1)
+            .as_range_tbl_entry()
+            .expect("rtable cell");
         if is_reader(rte, name) {
-            readers.push(Reader { rti, rte, quals: Vec::new() }); // alloc: planner
+            readers.push(Reader {
+                rti,
+                rte,
+                quals: Vec::new(),
+            }); // alloc: planner
         }
         return Ok(true);
     }
     if let Some(j) = item.as_join_expr() {
         if j.jointype != JoinType::JOIN_INNER {
-            return Ok(!mentions_reader(parse, name, j.larg) && !mentions_reader(parse, name, j.rarg));
+            return Ok(
+                !mentions_reader(parse, name, j.larg) && !mentions_reader(parse, name, j.rarg)
+            );
         }
         flatten_and(j.quals, conjuncts);
-        return Ok(walk_item(parse, name, j.larg, readers, conjuncts)? && walk_item(parse, name, j.rarg, readers, conjuncts)?);
+        return Ok(walk_item(parse, name, j.larg, readers, conjuncts)?
+            && walk_item(parse, name, j.rarg, readers, conjuncts)?);
     }
     match item.as_from_expr() {
         Some(f) => {
@@ -166,30 +200,43 @@ fn walk_item<'mcx>(parse: &Query<'mcx>, name: &str, item: Node<'mcx>, readers: &
 }
 
 fn is_reader(rte: &RangeTblEntry<'_>, name: &str) -> bool {
-    rte.rtekind == RTEKind::RTE_CTE && rte.ctelevelsup == 0 && !rte.self_reference && rte.ctename == Some(name)
+    rte.rtekind == RTEKind::RTE_CTE
+        && rte.ctelevelsup == 0
+        && !rte.self_reference
+        && rte.ctename == Some(name)
 }
 
 /// A reader of `name` anywhere under jointree item `item`.
 fn mentions_reader(parse: &Query<'_>, name: &str, item: Node<'_>) -> bool {
     if let Some(r) = item.as_range_tbl_ref() {
-        return parse.rtable.nth(r.rtindex as usize - 1).as_range_tbl_entry().is_some_and(|rte| is_reader(rte, name));
+        return parse
+            .rtable
+            .nth(r.rtindex as usize - 1)
+            .as_range_tbl_entry()
+            .is_some_and(|rte| is_reader(rte, name));
     }
     if let Some(j) = item.as_join_expr() {
         return mentions_reader(parse, name, j.larg) || mentions_reader(parse, name, j.rarg);
     }
-    item.as_from_expr().is_some_and(|f| f.fromlist.iter().any(|i| mentions_reader(parse, name, i)))
+    item.as_from_expr()
+        .is_some_and(|f| f.fromlist.iter().any(|i| mentions_reader(parse, name, i)))
 }
 
 /// The conjuncts of `qual` (an AND tree flattened; a constant TRUE is none).
 fn flatten_and<'mcx>(qual: Option<Node<'mcx>>, out: &mut Vec<Node<'mcx>>) {
     let Some(q) = qual else { return };
-    if let Some(b) = q.as_bool_expr().filter(|b| b.boolop == types_nodes::primnodes::BoolExprType::AND_EXPR) {
+    if let Some(b) = q
+        .as_bool_expr()
+        .filter(|b| b.boolop == types_nodes::primnodes::BoolExprType::AND_EXPR)
+    {
         for a in b.args.iter() {
             flatten_and(Some(a), out);
         }
         return;
     }
-    if q.as_const().is_some_and(|c| !c.constisnull && c.constvalue.as_bool()) {
+    if q.as_const()
+        .is_some_and(|c| !c.constisnull && c.constvalue.as_bool())
+    {
         return;
     }
     out.push(q);
@@ -197,18 +244,30 @@ fn flatten_and<'mcx>(qual: Option<Node<'mcx>>, out: &mut Vec<Node<'mcx>>) {
 
 /// Conjunct `c` folded (`eval_const_expressions`, as the parent's own preprocessing folds it: e.g. `d_moy = 1 + 1`)
 /// when it filters reader `rti` alone, raise-free, pushdown-safe, and over no aggregated or windowed column; else None.
-fn reader_filter<'mcx>(mcx: Mcx<'mcx>, query: &'mcx Query<'mcx>, rti: usize, c: Node<'mcx>, safety: &crate::pushdown::CteSafety<'mcx>) -> PgResult<Option<Node<'mcx>>> {
+fn reader_filter<'mcx>(
+    mcx: Mcx<'mcx>,
+    query: &'mcx Query<'mcx>,
+    rti: usize,
+    c: Node<'mcx>,
+    safety: &crate::pushdown::CteSafety<'mcx>,
+) -> PgResult<Option<Node<'mcx>>> {
     let reads_alone = |c: Node<'mcx>| -> PgResult<Option<Vec<(i32, i16)>>> {
         let mut vars = Vec::new(); // alloc: planner
-        let ok = plain_vars(c, &mut vars)? && !vars.is_empty() && vars.iter().all(|&(no, _)| no == rti as i32);
+        let ok = plain_vars(c, &mut vars)?
+            && !vars.is_empty()
+            && vars.iter().all(|&(no, _)| no == rti as i32);
         Ok(ok.then_some(vars))
     };
     if reads_alone(c)?.is_none() {
         return Ok(None);
     }
     let c = clauses::eval_const_expressions(mcx, c)?;
-    let Some(vars) = reads_alone(c)? else { return Ok(None) };
-    if !crate::decorrelate::eager_safe(c)? || !crate::pushdown::cte_clause_safe(mcx, query, rti, c, safety)? {
+    let Some(vars) = reads_alone(c)? else {
+        return Ok(None);
+    };
+    if !crate::decorrelate::eager_safe(c)?
+        || !crate::pushdown::cte_clause_safe(mcx, query, rti, c, safety)?
+    {
         return Ok(None);
     }
     for &(_, att) in vars.iter() {
@@ -234,7 +293,12 @@ fn plain_vars(node: Node<'_>, out: &mut Vec<(i32, i16)>) -> PgResult<bool> {
                     self.0.push((v.varno, v.varattno));
                     return Ok(false);
                 }
-                NodeTag::T_PlaceHolderVar | NodeTag::T_Aggref | NodeTag::T_GroupingFunc | NodeTag::T_WindowFunc | NodeTag::T_SubLink | NodeTag::T_SubPlan => return Ok(true),
+                NodeTag::T_PlaceHolderVar
+                | NodeTag::T_Aggref
+                | NodeTag::T_GroupingFunc
+                | NodeTag::T_WindowFunc
+                | NodeTag::T_SubLink
+                | NodeTag::T_SubPlan => return Ok(true),
                 _ => {}
             }
             nodes_core::expression_tree_walker(n, self)
@@ -256,22 +320,44 @@ fn column_computed(q: &Query<'_>, att: i16) -> PgResult<bool> {
         }
         return Ok(false);
     }
-    let Some(tle) = q.targetList.iter().filter_map(|n| n.as_target_entry()).find(|t| t.resno == att) else { return Ok(true) };
+    let Some(tle) = q
+        .targetList
+        .iter()
+        .filter_map(|n| n.as_target_entry())
+        .find(|t| t.resno == att)
+    else {
+        return Ok(true);
+    };
     Ok(clauses::contain_agg_clause(tle.expr)? || clauses::contain_window_function(tle.expr)?)
 }
 
 /// `q` or a query below it (its range table's subqueries, its CTEs) holds a SubLink.
 fn query_has_sublinks(q: &Query<'_>) -> bool {
     q.hasSubLinks
-        || q.rtable.iter().any(|n| n.as_range_tbl_entry().and_then(|r| r.subquery).is_some_and(query_has_sublinks))
-        || q.cteList.iter().any(|n| n.as_common_table_expr().and_then(|c| c.ctequery).and_then(|c| c.as_query()).is_some_and(query_has_sublinks))
+        || q.rtable.iter().any(|n| {
+            n.as_range_tbl_entry()
+                .and_then(|r| r.subquery)
+                .is_some_and(query_has_sublinks)
+        })
+        || q.cteList.iter().any(|n| {
+            n.as_common_table_expr()
+                .and_then(|c| c.ctequery)
+                .and_then(|c| c.as_query())
+                .is_some_and(query_has_sublinks)
+        })
 }
 
 /// strict: every expression of the body (its range table's subqueries and UNION arms too) is raise-free but the
 /// aggregates' own transitions, whose arguments and FILTERs are held to it (decorrelate.rs `eager_safe_aggs`); no window
 /// function, SRF, CTE or locking clause.
 fn body_eager_safe(q: &Query<'_>) -> PgResult<bool> {
-    if q.commandType != CmdType::CMD_SELECT || q.hasWindowFuncs || q.hasTargetSRFs || q.hasSubLinks || !q.cteList.is_nil() || !q.rowMarks.is_nil() {
+    if q.commandType != CmdType::CMD_SELECT
+        || q.hasWindowFuncs
+        || q.hasTargetSRFs
+        || q.hasSubLinks
+        || !q.cteList.is_nil()
+        || !q.rowMarks.is_nil()
+    {
         return Ok(false);
     }
     for n in q.targetList.iter() {
@@ -279,7 +365,10 @@ fn body_eager_safe(q: &Query<'_>) -> PgResult<bool> {
             return Ok(false);
         }
     }
-    for e in [q.havingQual, q.limitOffset, q.limitCount].into_iter().flatten() {
+    for e in [q.havingQual, q.limitOffset, q.limitCount]
+        .into_iter()
+        .flatten()
+    {
         if !crate::decorrelate::eager_safe_aggs(e)? {
             return Ok(false);
         }
@@ -287,7 +376,10 @@ fn body_eager_safe(q: &Query<'_>) -> PgResult<bool> {
     for n in q.rtable.iter() {
         let rte = n.as_range_tbl_entry().expect("rtable cell");
         let ok = match rte.rtekind {
-            RTEKind::RTE_RELATION | RTEKind::RTE_RESULT | RTEKind::RTE_JOIN | RTEKind::RTE_GROUP => true,
+            RTEKind::RTE_RELATION
+            | RTEKind::RTE_RESULT
+            | RTEKind::RTE_JOIN
+            | RTEKind::RTE_GROUP => true,
             RTEKind::RTE_SUBQUERY => rte.subquery.map_or(Ok(false), body_eager_safe)?,
             RTEKind::RTE_VALUES => {
                 let mut ok = true;
@@ -303,7 +395,10 @@ fn body_eager_safe(q: &Query<'_>) -> PgResult<bool> {
         }
     }
     match q.jointree {
-        Some(jt) => Ok(jt.quals.map_or(Ok(true), crate::decorrelate::eager_safe)? && all_items(&jt.fromlist)?),
+        Some(jt) => {
+            Ok(jt.quals.map_or(Ok(true), crate::decorrelate::eager_safe)?
+                && all_items(&jt.fromlist)?)
+        }
         None => Ok(true),
     }
 }
@@ -322,10 +417,14 @@ fn item_eager_safe(item: Node<'_>) -> PgResult<bool> {
         return Ok(true);
     }
     if let Some(j) = item.as_join_expr() {
-        return Ok(j.quals.map_or(Ok(true), crate::decorrelate::eager_safe)? && item_eager_safe(j.larg)? && item_eager_safe(j.rarg)?);
+        return Ok(j.quals.map_or(Ok(true), crate::decorrelate::eager_safe)?
+            && item_eager_safe(j.larg)?
+            && item_eager_safe(j.rarg)?);
     }
     match item.as_from_expr() {
-        Some(f) => Ok(f.quals.map_or(Ok(true), crate::decorrelate::eager_safe)? && all_items(&f.fromlist)?),
+        Some(f) => Ok(
+            f.quals.map_or(Ok(true), crate::decorrelate::eager_safe)? && all_items(&f.fromlist)?
+        ),
         None => Ok(false),
     }
 }

@@ -226,6 +226,7 @@ fn group_reads<'g, 'p>(mcx: Mcx<'g>, gx: &Gx<'_, 'p>, k: usize, scanrelid: i32, 
             true
         });
     };
+    #[allow(for_loops_over_fallibles)]
     for g in gx.group_at(k) {
         g.keys.iter().for_each(|x| see(x.expr.node()));
         g.aggs.iter().for_each(|a| a.filter.iter().copied().chain([a.node]).for_each(&mut see));

@@ -42,7 +42,10 @@ impl DictCharLenForm {
     /// Decode from stream dir-entry flags (both bits set is corruption).
     pub fn from_flags(flags: u16) -> FormatResult<DictCharLenForm> {
         use crate::part::{STREAMF_CHARLEN_ABSENT, STREAMF_CHARLEN_DELTA};
-        match (flags & STREAMF_CHARLEN_DELTA != 0, flags & STREAMF_CHARLEN_ABSENT != 0) {
+        match (
+            flags & STREAMF_CHARLEN_DELTA != 0,
+            flags & STREAMF_CHARLEN_ABSENT != 0,
+        ) {
             (false, false) => Ok(DictCharLenForm::Absolute),
             (true, false) => Ok(DictCharLenForm::Delta),
             (false, true) => Ok(DictCharLenForm::Absent),
@@ -161,7 +164,9 @@ pub struct DictEntryRef<'a> {
 /// handle builds on this).
 pub fn dict_entry<'a>(d: &DictSections<'a>, code: u32) -> FormatResult<DictEntryRef<'a>> {
     if d.form != DictPayloadForm::Expanded {
-        return Err(FormatError::Corrupt { at: "dict entry view over a front-coded payload" });
+        return Err(FormatError::Corrupt {
+            at: "dict entry view over a front-coded payload",
+        });
     }
     if code >= d.entry_count {
         return Err(FormatError::Bounds { at: "dict code" });
@@ -218,7 +223,9 @@ pub fn dict_entry<'a>(d: &DictSections<'a>, code: u32) -> FormatResult<DictEntry
 #[inline]
 pub fn dict_entry_datum(d: &DictSections<'_>, code: u32) -> FormatResult<u64> {
     if d.form != DictPayloadForm::Expanded {
-        return Err(FormatError::Corrupt { at: "dict entry datum over a front-coded payload" });
+        return Err(FormatError::Corrupt {
+            at: "dict entry datum over a front-coded payload",
+        });
     }
     if code >= d.entry_count {
         return Err(FormatError::Bounds { at: "dict code" });
@@ -374,18 +381,24 @@ pub(crate) fn get_varint(b: &[u8], pos: &mut usize, at: &'static str) -> FormatR
 pub fn front_code_frame(raw: &[u8], records: &[u8], out: &mut Vec<u8>) -> FormatResult<()> {
     let n = record_count(records, "dict frame records")?;
     if n == 0 {
-        return Err(FormatError::EncodeContract { detail: "empty dict frame" });
+        return Err(FormatError::EncodeContract {
+            detail: "empty dict frame",
+        });
     }
     let base = rec_off(records, 0) as usize;
     let mut prev: &[u8] = &[];
     for i in 0..n {
         let off = (rec_off(records, i) as usize)
             .checked_sub(base)
-            .ok_or(FormatError::Corrupt { at: "dict frame offset" })?;
+            .ok_or(FormatError::Corrupt {
+                at: "dict frame offset",
+            })?;
         let len = rec_len(records, i) as usize;
         let (image, bytes) = varlena_entry_at(raw, off, "dict frame entry")?;
         if bytes.len() != len {
-            return Err(FormatError::Corrupt { at: "dict frame byte_len" });
+            return Err(FormatError::Corrupt {
+                at: "dict frame byte_len",
+            });
         }
         if (i as u32).is_multiple_of(DICT_FC_RESTART) {
             out.extend_from_slice(image); // alloc: Exec charged caller
@@ -405,7 +418,9 @@ pub fn front_code_frame(raw: &[u8], records: &[u8], out: &mut Vec<u8>) -> Format
 pub fn expand_front_coded_frame(fc: &[u8], records: &[u8], dst: &mut [u8]) -> FormatResult<()> {
     let n = record_count(records, "dict frame records")?;
     if n == 0 {
-        return Err(FormatError::Corrupt { at: "empty dict frame" });
+        return Err(FormatError::Corrupt {
+            at: "empty dict frame",
+        });
     }
     let base = rec_off(records, 0) as usize;
     let at = "front-coded dict frame";
@@ -420,7 +435,9 @@ pub fn expand_front_coded_frame(fc: &[u8], records: &[u8], dst: &mut [u8]) -> Fo
         if off < end || off % 8 != 0 || off - end >= 8 {
             return Err(FormatError::Corrupt { at });
         }
-        let stop = off.checked_add(4 + len).ok_or(FormatError::Corrupt { at })?;
+        let stop = off
+            .checked_add(4 + len)
+            .ok_or(FormatError::Corrupt { at })?;
         if stop > dst.len() {
             return Err(FormatError::Bounds { at });
         }
@@ -428,8 +445,12 @@ pub fn expand_front_coded_frame(fc: &[u8], records: &[u8], dst: &mut [u8]) -> Fo
         dst[off..off + 4].copy_from_slice(&varlena_header_4b_u(len as u32).to_le_bytes());
         let body = off + 4;
         if (i as u32).is_multiple_of(DICT_FC_RESTART) {
-            let src = fc.get(pos..pos + 4 + len).ok_or(FormatError::Truncated { at })?;
-            if u32::from_le_bytes(src[..4].try_into().expect("len 4")) != varlena_header_4b_u(len as u32) {
+            let src = fc
+                .get(pos..pos + 4 + len)
+                .ok_or(FormatError::Truncated { at })?;
+            if u32::from_le_bytes(src[..4].try_into().expect("len 4"))
+                != varlena_header_4b_u(len as u32)
+            {
                 return Err(FormatError::Corrupt { at });
             }
             dst[body..stop].copy_from_slice(&src[4..]);
@@ -440,7 +461,9 @@ pub fn expand_front_coded_frame(fc: &[u8], records: &[u8], dst: &mut [u8]) -> Fo
                 return Err(FormatError::Corrupt { at });
             }
             dst.copy_within(prev.0..prev.0 + p, body);
-            let src = fc.get(pos..pos + len - p).ok_or(FormatError::Truncated { at })?;
+            let src = fc
+                .get(pos..pos + len - p)
+                .ok_or(FormatError::Truncated { at })?;
             dst[body + p..stop].copy_from_slice(src);
             pos += len - p;
         }
@@ -518,11 +541,17 @@ impl<'a> BitReader<'a> {
 /// `char_field` is the absolute char count — and refuses typed otherwise.
 pub fn pack_dict_index(records: &[u8], out: &mut Vec<u8>) -> FormatResult<()> {
     let n = record_count(records, "dict index")?;
-    let bad = FormatError::EncodeContract { detail: "dict index not packable" };
+    let bad = FormatError::EncodeContract {
+        detail: "dict index not packable",
+    };
     put_u32(out, n as u32);
     let mut expect = 0u32;
     for i in 0..n {
-        let (off, len, ch) = (rec_off(records, i), rec_len(records, i), rec_char(records, i));
+        let (off, len, ch) = (
+            rec_off(records, i),
+            rec_len(records, i),
+            rec_char(records, i),
+        );
         if off != expect || ch > len {
             return Err(bad);
         }
@@ -546,7 +575,11 @@ pub fn pack_dict_index(records: &[u8], out: &mut Vec<u8>) -> FormatResult<()> {
         out.push(wl); // alloc: Exec charged caller
         out.push(wd); // alloc: Exec charged caller
         out.extend_from_slice(&[0, 0]); // alloc: Exec charged caller
-        let mut w = BitWriter { out, acc: 0, nbits: 0 };
+        let mut w = BitWriter {
+            out,
+            acc: 0,
+            nbits: 0,
+        };
         for i in f..f + m {
             w.put(rec_len(records, i) - lo, wl); // alloc: Exec charged caller
         }
@@ -570,12 +603,19 @@ pub fn expand_packed_dict_index(packed: &[u8], out: &mut [u8]) -> FormatResult<(
         return Err(FormatError::Corrupt { at });
     }
     let anchors = c.take(n.div_ceil(DICT_INDEX_ANCHOR as usize) * 4, at)?;
-    let mut r = BitReader { b: packed, pos: c.off(), acc: 0, nbits: 0 };
+    let mut r = BitReader {
+        b: packed,
+        pos: c.off(),
+        acc: 0,
+        nbits: 0,
+    };
     let mut off = 0u32;
     let mut f = 0usize;
     while f < n {
         let m = (n - f).min(DICT_FRAME_ENTRIES as usize);
-        let hdr = r.b.get(r.pos..r.pos + 8).ok_or(FormatError::Truncated { at })?;
+        let hdr =
+            r.b.get(r.pos..r.pos + 8)
+                .ok_or(FormatError::Truncated { at })?;
         let lo = u32::from_le_bytes(hdr[..4].try_into().expect("len 4"));
         let (wl, wd) = (hdr[4], hdr[5]);
         if wl > 32 || wd > 32 {
@@ -583,20 +623,27 @@ pub fn expand_packed_dict_index(packed: &[u8], out: &mut [u8]) -> FormatResult<(
         }
         r.pos += 8;
         for i in f..f + m {
-            let len = lo.checked_add(r.get(wl, at)?).ok_or(FormatError::Corrupt { at })?;
+            let len = lo
+                .checked_add(r.get(wl, at)?)
+                .ok_or(FormatError::Corrupt { at })?;
             out[i * 12 + 4..i * 12 + 8].copy_from_slice(&len.to_le_bytes());
         }
         r.align();
         for i in f..f + m {
             let len = u32::from_le_bytes(out[i * 12 + 4..i * 12 + 8].try_into().expect("len 4"));
-            let ch = len.checked_sub(r.get(wd, at)?).ok_or(FormatError::Corrupt { at })?;
+            let ch = len
+                .checked_sub(r.get(wd, at)?)
+                .ok_or(FormatError::Corrupt { at })?;
             if (i as u32).is_multiple_of(DICT_INDEX_ANCHOR) {
                 let a = (i / DICT_INDEX_ANCHOR as usize) * 4;
                 off = u32::from_le_bytes(anchors[a..a + 4].try_into().expect("len 4"));
             }
             out[i * 12..i * 12 + 4].copy_from_slice(&off.to_le_bytes());
             out[i * 12 + 8..i * 12 + 12].copy_from_slice(&ch.to_le_bytes());
-            off = off.checked_add(4 + len).ok_or(FormatError::Corrupt { at })?.next_multiple_of(8);
+            off = off
+                .checked_add(4 + len)
+                .ok_or(FormatError::Corrupt { at })?
+                .next_multiple_of(8);
         }
         r.align();
         f += m;
@@ -646,16 +693,27 @@ impl<'a> FcResident<'a> {
         let frame_off = c.take((nframes as usize + 1) * 4, at)?;
         let restart_off = c.take(nframes as usize * FC_RESTARTS * 4, at)?;
         let fc = &payload[c.off()..];
-        if u32_at(frame_off, nframes as usize) != fc.len() || nentries.div_ceil(DICT_FRAME_ENTRIES) != nframes {
+        if u32_at(frame_off, nframes as usize) != fc.len()
+            || nentries.div_ceil(DICT_FRAME_ENTRIES) != nframes
+        {
             return Err(FormatError::Corrupt { at });
         }
-        Ok(FcResident { nframes, nentries, frame_off, restart_off, fc })
+        Ok(FcResident {
+            nframes,
+            nentries,
+            frame_off,
+            restart_off,
+            fc,
+        })
     }
 
     /// The fc byte span of frame `f`.
     #[inline]
     pub fn frame_span(&self, f: u32) -> (usize, usize) {
-        (u32_at(self.frame_off, f as usize), u32_at(self.frame_off, f as usize + 1))
+        (
+            u32_at(self.frame_off, f as usize),
+            u32_at(self.frame_off, f as usize + 1),
+        )
     }
 
     #[inline]
@@ -672,7 +730,11 @@ impl<'a> FcResident<'a> {
 /// Build the resident form over `index` (the v1 records of the whole dictionary): `inflate(f,
 /// out)` appends frame `f`'s front-coded bytes (the FrontZstd block inflated, `front_code_frame`'s
 /// output) to `out`. Each frame is walked once against its records to place the restart table.
-pub fn fc_resident_build(index: &[u8], inflate: &mut dyn FnMut(u32, &mut Vec<u8>) -> FormatResult<()>, out: &mut Vec<u8>) -> FormatResult<()> {
+pub fn fc_resident_build(
+    index: &[u8],
+    inflate: &mut dyn FnMut(u32, &mut Vec<u8>) -> FormatResult<()>,
+    out: &mut Vec<u8>,
+) -> FormatResult<()> {
     let at = "front-coded resident build";
     let n = record_count(index, "dict index")?;
     let nframes = (n as u32).div_ceil(DICT_FRAME_ENTRIES) as usize;
@@ -690,7 +752,8 @@ pub fn fc_resident_build(index: &[u8], inflate: &mut dyn FnMut(u32, &mut Vec<u8>
         frame.clear();
         inflate(f as u32, &mut frame)?;
         let fstart = out.len() - base;
-        out[frame_tab + f * 4..frame_tab + f * 4 + 4].copy_from_slice(&(fstart as u32).to_le_bytes());
+        out[frame_tab + f * 4..frame_tab + f * 4 + 4]
+            .copy_from_slice(&(fstart as u32).to_le_bytes());
         let lo = f * DICT_FRAME_ENTRIES as usize;
         let hi = (lo + DICT_FRAME_ENTRIES as usize).min(n);
         let mut pos = 0usize;
@@ -702,8 +765,12 @@ pub fn fc_resident_build(index: &[u8], inflate: &mut dyn FnMut(u32, &mut Vec<u8>
                 let r = (k / DICT_FC_RESTART) as usize;
                 let slot = restart_tab + (f * FC_RESTARTS + r) * 4;
                 out[slot..slot + 4].copy_from_slice(&((fstart + pos) as u32).to_le_bytes());
-                let hdr = frame.get(pos..pos + 4).ok_or(FormatError::Truncated { at })?;
-                if u32::from_le_bytes(hdr.try_into().expect("len 4")) != varlena_header_4b_u(len as u32) {
+                let hdr = frame
+                    .get(pos..pos + 4)
+                    .ok_or(FormatError::Truncated { at })?;
+                if u32::from_le_bytes(hdr.try_into().expect("len 4"))
+                    != varlena_header_4b_u(len as u32)
+                {
                     return Err(FormatError::Corrupt { at });
                 }
                 pos += 4 + len;
@@ -738,7 +805,12 @@ pub fn fc_resident_build(index: &[u8], inflate: &mut dyn FnMut(u32, &mut Vec<u8>
 /// parse pass over the ≤ DICT_FC_RESTART entries before it (varints and lengths, no copy), then
 /// each entry i contributes its suffix bytes below the smallest prefix any later entry keeps —
 /// every output byte is written exactly once and nothing longer than the entry is ever staged.
-pub fn fc_entry_into(r: &FcResident<'_>, index: &[u8], code: u32, out: &mut [u8]) -> FormatResult<usize> {
+pub fn fc_entry_into(
+    r: &FcResident<'_>,
+    index: &[u8],
+    code: u32,
+    out: &mut [u8],
+) -> FormatResult<usize> {
     let at = "front-coded resident entry";
     if code >= r.nentries || (code as usize + 1) * DICT_INDEX_ENTRY_LEN > index.len() {
         return Err(FormatError::Bounds { at: "dict code" });
@@ -807,12 +879,26 @@ pub struct FcWalk<'a> {
 }
 
 impl<'a> FcWalk<'a> {
-    pub fn new(r: FcResident<'a>, index: &'a [u8], start: u32, end: u32) -> FormatResult<FcWalk<'a>> {
+    pub fn new(
+        r: FcResident<'a>,
+        index: &'a [u8],
+        start: u32,
+        end: u32,
+    ) -> FormatResult<FcWalk<'a>> {
         if start > end || end > r.nentries || end as usize * DICT_INDEX_ENTRY_LEN > index.len() {
             return Err(FormatError::Bounds { at: "dict code" });
         }
-        let warm = (start < end && !start.is_multiple_of(DICT_FC_RESTART)).then(|| start - start % DICT_FC_RESTART);
-        Ok(FcWalk { r, index, code: start, end, pos: 0, prev_len: 0, warm })
+        let warm = (start < end && !start.is_multiple_of(DICT_FC_RESTART))
+            .then(|| start - start % DICT_FC_RESTART);
+        Ok(FcWalk {
+            r,
+            index,
+            code: start,
+            end,
+            pos: 0,
+            prev_len: 0,
+            warm,
+        })
     }
 
     /// The next `(code, byte_len)`, its image in `out[..4 + byte_len]`; `None` at the end.
@@ -841,9 +927,17 @@ impl<'a> FcWalk<'a> {
         }
         let k = code % DICT_FRAME_ENTRIES;
         if k.is_multiple_of(DICT_FC_RESTART) {
-            self.pos = self.r.restart_pos(code / DICT_FRAME_ENTRIES, k / DICT_FC_RESTART);
-            let src = self.r.fc.get(self.pos..self.pos + 4 + len).ok_or(FormatError::Truncated { at })?;
-            if u32::from_le_bytes(src[..4].try_into().expect("len 4")) != varlena_header_4b_u(len as u32) {
+            self.pos = self
+                .r
+                .restart_pos(code / DICT_FRAME_ENTRIES, k / DICT_FC_RESTART);
+            let src = self
+                .r
+                .fc
+                .get(self.pos..self.pos + 4 + len)
+                .ok_or(FormatError::Truncated { at })?;
+            if u32::from_le_bytes(src[..4].try_into().expect("len 4"))
+                != varlena_header_4b_u(len as u32)
+            {
                 return Err(FormatError::Corrupt { at });
             }
             out[..4 + len].copy_from_slice(src);
@@ -853,7 +947,11 @@ impl<'a> FcWalk<'a> {
             if p > len || p > self.prev_len {
                 return Err(FormatError::Corrupt { at });
             }
-            let src = self.r.fc.get(self.pos..self.pos + len - p).ok_or(FormatError::Truncated { at })?;
+            let src = self
+                .r
+                .fc
+                .get(self.pos..self.pos + len - p)
+                .ok_or(FormatError::Truncated { at })?;
             out[..4].copy_from_slice(&varlena_header_4b_u(len as u32).to_le_bytes());
             out[4 + p..4 + len].copy_from_slice(src);
             self.pos += len - p;
@@ -866,13 +964,20 @@ impl<'a> FcWalk<'a> {
 
 /// Entry `code` of a front-coded `DictSections` materialised into `arena` as a varlena image: the
 /// datum word (the executor's and the fetch's copy under the knob).
-pub fn dict_fc_alloc_varlena(d: &DictSections<'_>, code: u32, arena: &mut crate::abi::ByteArena<'_>) -> FormatResult<u64> {
+pub fn dict_fc_alloc_varlena(
+    d: &DictSections<'_>,
+    code: u32,
+    arena: &mut crate::abi::ByteArena<'_>,
+) -> FormatResult<u64> {
     if code >= d.entry_count {
         return Err(FormatError::Bounds { at: "dict code" });
     }
     let r = FcResident::parse(d.payload)?;
     let off = code as usize * DICT_INDEX_ENTRY_LEN;
-    let rec = d.index.get(off..off + DICT_INDEX_ENTRY_LEN).ok_or(FormatError::Bounds { at: "dict index" })?;
+    let rec = d
+        .index
+        .get(off..off + DICT_INDEX_ENTRY_LEN)
+        .ok_or(FormatError::Bounds { at: "dict index" })?;
     let len = u32::from_le_bytes(rec[4..8].try_into().expect("len 4")) as usize;
     let slot = arena.alloc(4 + len)?;
     fc_entry_into(&r, d.index, code, slot)?;

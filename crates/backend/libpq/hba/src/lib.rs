@@ -10,10 +10,7 @@
 //! via the house regex engine. sspi / bsd are rejected as "not supported by
 //! this build", faithful to a no-SSPI/BSD C build.
 
-#![allow(non_snake_case)]
-#![allow(non_upper_case_globals)]
-#![allow(clippy::result_large_err)]
-#![allow(clippy::too_many_arguments)]
+#![allow(clippy::result_large_err, clippy::too_many_arguments, non_snake_case, non_upper_case_globals)]
 
 mod check;
 pub mod ldapurl;
@@ -23,7 +20,6 @@ mod parse_ident;
 mod tests;
 mod token;
 mod tokenize;
-
 
 use std::sync::Arc;
 
@@ -161,7 +157,9 @@ pub(crate) fn report_config(
     line_num: i32,
     file_name: &str,
 ) -> PgResult<()> {
-    let mut b = ereport(elevel).errcode(ERRCODE_CONFIG_FILE_ERROR).errmsg(msg);
+    let mut b = ereport(elevel)
+        .errcode(ERRCODE_CONFIG_FILE_ERROR)
+        .errmsg(msg);
     if let Some(h) = hint {
         b = b.errhint(h);
     }
@@ -176,7 +174,10 @@ pub(crate) fn report_plain(
     sqlstate: SqlState,
     msg: String,
 ) -> PgResult<()> {
-    ereport(elevel).errcode(sqlstate).errmsg(msg).finish(loc(cline, func))
+    ereport(elevel)
+        .errcode(sqlstate)
+        .errmsg(msg)
+        .finish(loc(cline, func))
 }
 
 // ereport(elevel, (errmsg(...))) with no errcode(): the level's default

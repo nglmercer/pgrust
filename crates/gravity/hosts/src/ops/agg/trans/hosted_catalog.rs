@@ -100,11 +100,11 @@ impl CatalogArm {
     pub(crate) fn arm(&self) {
         let c = self;
         // the arena owns the slices and outlives every claim of its statement (each claim's guard disarms first)
-        let images: &'static [typcache::armed::TypcacheImage] = raw::statement_slice(&*c.images);
+        let images: &'static [typcache::armed::TypcacheImage] = raw::statement_slice(&c.images);
         if typcache::armed::armed_with(images) || !gravity_fn::typesem::collation::on_claim() {
             return;
         }
-        let rows: &'static [syscache_seams::ArmedTypeRow] = raw::statement_slice(&*c.rows);
+        let rows: &'static [syscache_seams::ArmedTypeRow] = raw::statement_slice(&c.rows);
         syscache_seams::arm_type_rows(rows);
         typcache::armed::arm(images);
     }

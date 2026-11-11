@@ -28,21 +28,25 @@ const INDEX_TUPLE_DATA_WITH_NULLS_SIZE: usize = 16;
 pub type ITup = *const u8;
 
 #[inline]
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn t_info(itup: ITup) -> u16 {
     itup.add(6).cast::<u16>().read()
 }
 
 #[inline]
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn t_tid(itup: ITup) -> ItemPointerData {
     itup.cast::<ItemPointerData>().read()
 }
 
 #[inline]
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn index_tuple_size(itup: ITup) -> usize {
     (t_info(itup) & INDEX_SIZE_MASK) as usize
 }
 
 #[inline]
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn index_tuple_has_nulls(itup: ITup) -> bool {
     (t_info(itup) & INDEX_NULL_MASK) != 0
 }
@@ -57,28 +61,33 @@ pub const fn index_info_find_data_offset(info: u16) -> usize {
 }
 
 #[inline]
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn bt_tuple_is_pivot(itup: ITup) -> bool {
     (t_info(itup) & INDEX_ALT_TID_MASK) != 0 && (t_tid(itup).ip_posid & BT_IS_POSTING) == 0
 }
 
 #[inline]
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn bt_tuple_is_posting(itup: ITup) -> bool {
     (t_info(itup) & INDEX_ALT_TID_MASK) != 0 && (t_tid(itup).ip_posid & BT_IS_POSTING) != 0
 }
 
 #[inline]
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn bt_tuple_get_nposting(itup: ITup) -> usize {
     debug_assert!(bt_tuple_is_posting(itup));
     (t_tid(itup).ip_posid & BT_OFFSET_MASK) as usize
 }
 
 #[inline]
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn bt_tuple_get_posting_offset(itup: ITup) -> usize {
     debug_assert!(bt_tuple_is_posting(itup));
     ItemPointerGetBlockNumberNoCheck(&t_tid(itup)) as usize
 }
 
 #[inline]
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn bt_tuple_get_posting_n(itup: ITup, n: usize) -> ItemPointerData {
     itup.add(bt_tuple_get_posting_offset(itup) + n * core::mem::size_of::<ItemPointerData>())
         .cast::<ItemPointerData>()
@@ -86,6 +95,7 @@ pub unsafe fn bt_tuple_get_posting_n(itup: ITup, n: usize) -> ItemPointerData {
 }
 
 #[inline]
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn bt_tuple_get_natts(itup: ITup, indnatts: i32) -> i32 {
     if bt_tuple_is_pivot(itup) {
         (t_tid(itup).ip_posid & BT_OFFSET_MASK) as i32
@@ -95,10 +105,12 @@ pub unsafe fn bt_tuple_get_natts(itup: ITup, indnatts: i32) -> i32 {
 }
 
 #[inline]
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn bt_tuple_get_downlink(pivot: ITup) -> ::types_core::BlockNumber {
     ItemPointerGetBlockNumberNoCheck(&t_tid(pivot))
 }
 
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn bt_tuple_get_heap_tid(itup: ITup) -> Option<ItemPointerData> {
     if bt_tuple_is_pivot(itup) {
         if (t_tid(itup).ip_posid & BT_PIVOT_HEAP_TID_ATTR) != 0 {
@@ -113,6 +125,7 @@ pub unsafe fn bt_tuple_get_heap_tid(itup: ITup) -> Option<ItemPointerData> {
     }
 }
 
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn bt_tuple_get_max_heap_tid(itup: ITup) -> ItemPointerData {
     debug_assert!(!bt_tuple_is_pivot(itup));
     if bt_tuple_is_posting(itup) {
@@ -306,7 +319,6 @@ fn form_tuple<'mcx>(
         [Datum::from_usize(0); INDEX_MAX_KEYS as usize];
     untoasted[..natts].copy_from_slice(&values[..natts]);
 
-
     // C pfrees the detoasted/compressed temporaries after heap_fill_tuple
     // (indextuple.c:184); only the returned tuple lives in `mcx`.
     let mut scratch: Option<::mcx::MemoryContext> = None;
@@ -366,19 +378,34 @@ struct ImageShape {
 }
 
 #[inline]
-fn image_shape(tupdesc: &TupleDescData<'_>, values: &[Datum], isnull: &[bool]) -> PgResult<ImageShape> {
+fn image_shape(
+    tupdesc: &TupleDescData<'_>,
+    values: &[Datum],
+    isnull: &[bool],
+) -> PgResult<ImageShape> {
     let hasnull = isnull[..values.len()].contains(&true);
     let hoff = index_info_find_data_offset(if hasnull { INDEX_NULL_MASK } else { 0 });
     let data_size = ::heaptuple::heap_compute_data_size(tupdesc, values, isnull);
     let size = maxalign(hoff + data_size);
     validate_index_tuple_size(size)?;
-    Ok(ImageShape { size, data_size, hoff, hasnull })
+    Ok(ImageShape {
+        size,
+        data_size,
+        hoff,
+        hasnull,
+    })
 }
 
 /// # Safety
 /// `tp` points at `shape.size` writable zeroed bytes, 8-aligned.
 #[inline]
-unsafe fn fill_image(tupdesc: &TupleDescData<'_>, values: &[Datum], isnull: &[bool], shape: &ImageShape, tp: *mut u8) {
+unsafe fn fill_image(
+    tupdesc: &TupleDescData<'_>,
+    values: &[Datum],
+    isnull: &[bool],
+    shape: &ImageShape,
+    tp: *mut u8,
+) {
     let mut infomask: u16 = if shape.hasnull { INDEX_NULL_MASK } else { 0 };
     let mut tupmask: u16 = 0;
     // SAFETY: tp holds hoff + data_size zeroed bytes; bitmap area pre-zeroed (caller).
@@ -429,7 +456,9 @@ pub(crate) fn index_form_tuple_stack(
         // SAFETY: non-null varlena datums carry live pointers (caller contract), as form_tuple's loop.
         unsafe {
             if varatt_is_1b_e(p)
-                || (!varatt_is_1b(p) && !varatt_is_compressed(p) && varsize_any(p) > TOAST_INDEX_TARGET)
+                || (!varatt_is_1b(p)
+                    && !varatt_is_compressed(p)
+                    && varsize_any(p) > TOAST_INDEX_TARGET)
             {
                 return Ok(None);
             }
@@ -586,6 +615,7 @@ unsafe fn nocache_index_getattr(
         }
 
         if (info & INDEX_VAR_MASK) != 0 {
+            #[allow(clippy::needless_range_loop)]
             for j in 0..=attnum {
                 if atts[j].attlen <= 0 {
                     slow = true;

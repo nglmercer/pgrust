@@ -41,7 +41,6 @@ pub type RegName<'mcx> = PgVec<'mcx, u8>;
 
 #[cold]
 #[inline(never)]
-
 // myTempNamespace read through the seam; an uninstalled seam (unit tests,
 // contexts with no session) reads as InvalidOid exactly like C's global
 // before any temp namespace is assigned.

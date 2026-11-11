@@ -5,6 +5,7 @@
 // the program's code, its own Consts hashed by image; the list's Const cells stay table cells), the column count and
 // the row count each give another key. The net under it is V4R-110's: a lowering that bakes a cell's image is caught by `lowering_reads_lists`, which
 // lowerv4 lib.rs ORs into `Descs::no_cache`, so a program that did depend on the bytes is never filed.
+#[allow(unused_imports)]
 use std::path::Path;
 
 use gravity_decompose::{corpus, decompose_in, PipelineGraph, Source};

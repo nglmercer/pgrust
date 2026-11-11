@@ -43,7 +43,10 @@
 
 use adt_jsonb::build::item_to_jsonb_image;
 use adt_jsonb::container::JsonbItem;
-use adt_jsonb_shred::{elect_manifest_auto, shred_chunk, ElectedPath, JsonPath, Lane, LaneValues, PathHint, ShredChunk, ShredManifest, TypedLane};
+use adt_jsonb_shred::{
+    elect_manifest_auto, shred_chunk, ElectedPath, JsonPath, Lane, LaneValues, PathHint,
+    ShredChunk, ShredManifest, TypedLane,
+};
 use mcx::MemoryContext;
 use memledger::{ChargedVec, Kind};
 use pgrc_format::class::{ColSchema, StorageClass};
@@ -89,8 +92,15 @@ impl JsonbShredSource {
     /// the lane for that part (the exception-freedom seal law).
     pub fn with_forced(mut self, attno: u32, keys: Vec<Vec<u8>>, lane: u8) -> JsonbShredSource {
         if let Some(lane) = Lane::from_u8(lane) {
-            let hint = PathHint { path: JsonPath::new(keys), lane };
-            if !self.forced.iter().any(|(a, h)| *a == attno && h.path == hint.path) {
+            let hint = PathHint {
+                path: JsonPath::new(keys),
+                lane,
+            };
+            if !self
+                .forced
+                .iter()
+                .any(|(a, h)| *a == attno && h.path == hint.path)
+            {
                 self.forced.push((attno, hint));
             }
         }
@@ -103,7 +113,10 @@ impl JsonbShredSource {
     /// one number forfeits). A path already forced (typed) keeps that kind.
     pub fn with_forced_auto(mut self, attno: u32, keys: Vec<Vec<u8>>) -> JsonbShredSource {
         let path = JsonPath::new(keys);
-        let typed = self.forced.iter().any(|(a, h)| *a == attno && h.path == path);
+        let typed = self
+            .forced
+            .iter()
+            .any(|(a, h)| *a == attno && h.path == path);
         if !typed && !self.auto.iter().any(|(a, p)| *a == attno && *p == path) {
             self.auto.push((attno, path));
         }
@@ -152,19 +165,29 @@ impl ShredLaneSource for JsonbShredSource {
             return Ok(Vec::new());
         }
         let budgets = pgrc_codec::jsonbshred::budgets_from_reloptions(opts.max_paths);
-        let forced = self.forced.iter().filter(|(a, _)| *a == parent.schema.attno).map(|(_, h)| h.clone());
+        let forced = self
+            .forced
+            .iter()
+            .filter(|(a, _)| *a == parent.schema.attno)
+            .map(|(_, h)| h.clone());
         let hints: Vec<PathHint> = forced
-            .chain(opts
-            .paths
-            .split(',')
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .map(|s| PathHint {
-                path: JsonPath::from_dotted(s),
-                lane: Lane::Text,
-            }))
+            .chain(
+                opts.paths
+                    .split(',')
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .map(|s| PathHint {
+                        path: JsonPath::from_dotted(s),
+                        lane: Lane::Text,
+                    }),
+            )
             .collect();
-        let auto: Vec<JsonPath> = self.auto.iter().filter(|(a, p)| *a == parent.schema.attno && !hints.iter().any(|h| h.path == *p)).map(|(_, p)| p.clone()).collect();
+        let auto: Vec<JsonPath> = self
+            .auto
+            .iter()
+            .filter(|(a, p)| *a == parent.schema.attno && !hints.iter().any(|h| h.path == *p))
+            .map(|(_, p)| p.clone())
+            .collect();
         let mut manifest = elect_manifest_auto(&payloads, &hints, &auto, &budgets);
         if manifest.elected.is_empty() {
             // Not shreddable (OD-4 arm 2): the text plane carries it.
@@ -211,7 +234,9 @@ impl ShredLaneSource for JsonbShredSource {
             // serves (each reads the image where the lane is NULL). Only an
             // occurrence of another kind (a wrong scalar, a container, a
             // number that does not fit) forfeits.
-            if lane.exceptions.count() > 0 && typed_exception(&chunk, &manifest, e, lane, &null_image) {
+            if lane.exceptions.count() > 0
+                && typed_exception(&chunk, &manifest, e, lane, &null_image)
+            {
                 continue;
             }
             let col = lane_to_colbuffer(parent, lane, &row_of_rank)?;
@@ -237,9 +262,21 @@ impl ShredLaneSource for JsonbShredSource {
 /// an occurrence the lane does not hold (its validity bit 0) whose residual
 /// image (the shredder stages every exception's image at its path) is not
 /// the jsonb null scalar's.
-fn typed_exception(chunk: &ShredChunk, manifest: &ShredManifest, e: &ElectedPath, lane: &TypedLane, null_image: &[u8]) -> bool {
+fn typed_exception(
+    chunk: &ShredChunk,
+    manifest: &ShredManifest,
+    e: &ElectedPath,
+    lane: &TypedLane,
+    null_image: &[u8],
+) -> bool {
     let path = manifest.path(e.path_id);
-    (0..chunk.nrows).filter(|&r| lane.exceptions.get(r / chunk.granule_rows) && !lane.validity.get(r)).any(|r| chunk.residual_get(manifest, r, path).is_some_and(|img| img != null_image))
+    (0..chunk.nrows)
+        .filter(|&r| lane.exceptions.get(r / chunk.granule_rows) && !lane.validity.get(r))
+        .any(|r| {
+            chunk
+                .residual_get(manifest, r, path)
+                .is_some_and(|img| img != null_image)
+        })
 }
 
 /// Render a shred path for the part-level PathTable (spec §6.5 pins only
@@ -289,7 +326,10 @@ fn lane_to_colbuffer(
         });
     }
     // CONVERT W3-2a: the lane is its parent column's owner's (the part's); synced once it is built
-    let mut col = ColBuffer::with_owner(lane_schema(parent.schema.attno, &lane.values), parent.owner());
+    let mut col = ColBuffer::with_owner(
+        lane_schema(parent.schema.attno, &lane.values),
+        parent.owner(),
+    );
     let mut next = 0usize; // next index into row_of_rank
     let mut rank = 0u32; // dense value rank within the lane
     for row in 0..parent.rows() {

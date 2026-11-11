@@ -84,6 +84,7 @@ mod tests {
     // PANIC-level error, never an unwinding Rust panic (row
     // a186-candidate-fp-logical-b1-173132cfe5ffd02992b8-1).
     #[test]
+    #[allow(clippy::field_reassign_with_default)]
     fn redo_unknown_opcode_is_a_panic_level_error_not_a_rust_panic() {
         let mut rec = xlogreader_seams::DecodedXLogRecord::default();
         rec.xl_info = 0x10;

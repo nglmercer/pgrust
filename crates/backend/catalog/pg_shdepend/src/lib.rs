@@ -1,9 +1,7 @@
 // pg_shdepend.c recording/mutation/report slice plus shdepDropOwned and
 // shdepReassignOwned; the getObjectDescription arms cover only
 // relation/schema/database/role.
-#![allow(non_snake_case)]
-#![allow(non_upper_case_globals)]
-#![allow(clippy::too_many_arguments)]
+#![allow(clippy::too_many_arguments, non_snake_case, non_upper_case_globals)]
 
 use datum::Datum;
 use mcx::{Mcx, PgString, PgVec};
@@ -14,10 +12,8 @@ use types_core::{
 use types_error::{
     PgError, PgResult, ERRCODE_DEPENDENT_OBJECTS_STILL_EXIST, ERRCODE_UNDEFINED_OBJECT,
 };
-use types_rel::{
-    AccessExclusiveLock, AccessShareLock, Relation, RowExclusiveLock, LOCKMODE,
-};
 use types_nodes::parsenodes::DropBehavior;
+use types_rel::{AccessExclusiveLock, AccessShareLock, Relation, RowExclusiveLock, LOCKMODE};
 use types_scan::scankey::{BTEqualStrategyNumber, ScanKeyData};
 use types_tuple::{HeapTupleData, ItemPointerData, TupleDescData};
 
@@ -661,7 +657,10 @@ pub fn checkSharedDependencies<'mcx>(
         } else if let Some(dep) = remDeps.iter_mut().find(|dep| dep.dbOid == form.dbid) {
             dep.count += 1;
         } else {
-            remDeps.push(RemoteDep { dbOid: form.dbid, count: 1 });
+            remDeps.push(RemoteDep {
+                dbOid: form.dbid,
+                count: 1,
+            });
         }
     }
     genam::systable_endscan(mcx, scan)?;
@@ -703,13 +702,21 @@ pub fn checkSharedDependencies<'mcx>(
     }
 
     if numNotReportedDeps > 0 {
-        let plural = if numNotReportedDeps == 1 { "object" } else { "objects" };
+        let plural = if numNotReportedDeps == 1 {
+            "object"
+        } else {
+            "objects"
+        };
         descs.try_push_str(&format!(
             "\nand {numNotReportedDeps} other {plural} (see server log for list)"
         ))?;
     }
     if numNotReportedDbs > 0 {
-        let plural = if numNotReportedDbs == 1 { "database" } else { "databases" };
+        let plural = if numNotReportedDbs == 1 {
+            "database"
+        } else {
+            "databases"
+        };
         descs.try_push_str(&format!(
             "\nand objects in {numNotReportedDbs} other {plural} (see server log for list)"
         ))?;
@@ -750,7 +757,12 @@ pub fn copyTemplateDependencies<'mcx>(
             getattr(tup, Anum_pg_shdepend_deptype, td),
         ];
         let nulls = [false; Natts_pg_shdepend];
-        tuples.push(heaptuple::heap_form_tuple(mcx, rel.descr(), &values, &nulls)?);
+        tuples.push(heaptuple::heap_form_tuple(
+            mcx,
+            rel.descr(),
+            &values,
+            &nulls,
+        )?);
         if tuples.len() == max_slots {
             if indstate.is_none() {
                 indstate = Some(catalog_indexing::CatalogOpenIndexes(mcx, &rel)?);
@@ -960,7 +972,11 @@ fn storeObjectDescription<'mcx>(
 ) -> PgResult<()> {
     // An object being dropped concurrently doesn't need to be reported.
     let Some(objdesc) = objectaddress_seams::get_object_description::call(
-        mcx, obj.classId, obj.objectId, obj.objectSubId, false,
+        mcx,
+        obj.classId,
+        obj.objectId,
+        obj.objectSubId,
+        false,
     )?
     else {
         return Ok(());
@@ -1010,12 +1026,14 @@ fn getObjectDescription<'mcx>(
     objectId: Oid,
     objectSubId: i32,
 ) -> PgResult<String> {
-    Ok(
-        objectaddress_seams::get_object_description::call(
-            mcx, classId, objectId, objectSubId, false,
-        )?
-        .expect("missing_ok=false"),
-    )
+    Ok(objectaddress_seams::get_object_description::call(
+        mcx,
+        classId,
+        objectId,
+        objectSubId,
+        false,
+    )?
+    .expect("missing_ok=false"))
 }
 
 pub fn shdepDropOwned<'mcx>(
@@ -1052,8 +1070,11 @@ pub fn shdepDropOwned<'mcx>(
             None,
             &keys,
         )?;
+        #[allow(clippy::while_let_loop)]
         loop {
-            let Some(tup) = genam::systable_getnext(mcx, &mut scan)? else { break };
+            let Some(tup) = genam::systable_getnext(mcx, &mut scan)? else {
+                break;
+            };
             // SAFETY: aliases the slot-held image for the recheck call below.
             let view = unsafe {
                 HeapTupleData::from_raw_parts(
@@ -1164,8 +1185,11 @@ pub fn shdepReassignOwned<'mcx>(mcx: Mcx<'mcx>, roleids: &[Oid], newrole: Oid) -
             None,
             &keys,
         )?;
+        #[allow(clippy::while_let_loop)]
         loop {
-            let Some(tup) = genam::systable_getnext(mcx, &mut scan)? else { break };
+            let Some(tup) = genam::systable_getnext(mcx, &mut scan)? else {
+                break;
+            };
             let form = form_pg_shdepend(tup, desc);
 
             if form.dbid != myDatabaseId && form.dbid != InvalidOid {

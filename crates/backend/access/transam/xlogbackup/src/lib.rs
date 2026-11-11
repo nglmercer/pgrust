@@ -1,6 +1,4 @@
-#![allow(non_snake_case)]
-#![allow(non_upper_case_globals)]
-#![allow(clippy::result_large_err)]
+#![allow(clippy::result_large_err, non_snake_case, non_upper_case_globals)]
 
 use mcx::{Mcx, PgVec};
 use stringinfo::StringInfo;
@@ -58,7 +56,11 @@ impl Default for BackupState {
 
 impl BackupState {
     pub fn name_bytes(&self) -> &[u8] {
-        let end = self.name.iter().position(|&b| b == 0).unwrap_or(self.name.len());
+        let end = self
+            .name
+            .iter()
+            .position(|&b| b == 0)
+            .unwrap_or(self.name.len());
         &self.name[..end]
     }
 
@@ -79,7 +81,11 @@ fn XLByteToSeg(xlrp: XLogRecPtr, wal_segsz_bytes: i32) -> XLogSegNo {
 
 fn XLogFileName(tli: TimeLineID, logSegNo: XLogSegNo, wal_segsz_bytes: i32) -> String {
     let per_id = XLogSegmentsPerXLogId(wal_segsz_bytes);
-    format!("{tli:08X}{:08X}{:08X}", logSegNo / per_id, logSegNo % per_id)
+    format!(
+        "{tli:08X}{:08X}{:08X}",
+        logSegNo / per_id,
+        logSegNo % per_id
+    )
 }
 
 // Log timezone, not session timezone; C NULL-derefs on failure — loud here.

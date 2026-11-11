@@ -92,6 +92,7 @@ pub(crate) use crate::frame::iface::SummaryFilterTally as FilterPred;
 /// predicate)`. An answered window's count is then its record's tally (`filtered`), the same rows the FILTER passes.
 pub(crate) fn filter_at(px: &Px<'_, '_>, k: usize, a: &AggDecl<'_>, site: &SiteDesc) -> Option<(usize, FilterPred)> {
     let f = a.filter?;
+    #[allow(clippy::nonminimal_bool)]
     if !matches!(a.reg, R::CountStar | R::CountAny) || !(px.strategies.has(ANSWER_COUNTED) && crate::face::source::on(crate::admit::refusal::Variant::Strategy(ANSWER_COUNTED))) {
         return None;
     }

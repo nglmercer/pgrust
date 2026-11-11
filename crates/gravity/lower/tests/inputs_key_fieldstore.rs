@@ -2,6 +2,7 @@
 // binds the row type and which fields it writes, and its new values are its children (decompose expr.rs `kids`). Two
 // statements that differ only in the fields they assign must not share a program. Before this, `kids` knew no
 // FieldStore and the key hashed its tag alone: `(c.a, c.b)` and `(c.b, c.a)` keyed alike.
+#[allow(unused_imports)]
 use std::path::Path;
 
 use gravity_decompose::{corpus, decompose_in};

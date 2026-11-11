@@ -1,5 +1,6 @@
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
+#[allow(unused_imports)]
 use std::sync::Arc;
 
 use pgrc_am::scan::DeletionFilter;
@@ -42,7 +43,11 @@ impl Rng {
         self.0
     }
     fn below(&mut self, n: u64) -> u64 {
-        if n == 0 { 0 } else { self.next() % n }
+        if n == 0 {
+            0
+        } else {
+            self.next() % n
+        }
     }
     fn chance(&mut self, pct: u64) -> bool {
         self.below(100) < pct
@@ -105,7 +110,9 @@ impl Heap {
         });
         let p = &mut self.pages[b];
         // SAFETY: an 8-aligned BLCKSZ buffer owned by the model.
-        let mut pm = unsafe { PageMut::from_raw(std::ptr::NonNull::new(p.as_mut_ptr() as *mut u8).unwrap()) };
+        let mut pm = unsafe {
+            PageMut::from_raw(std::ptr::NonNull::new(p.as_mut_ptr() as *mut u8).unwrap())
+        };
         if rd16(bytes(p), 14) == 0 {
             pm.init(0);
         }
@@ -123,7 +130,11 @@ impl Heap {
     }
 
     fn at(&self, blk: u32, off: u16) -> usize {
-        items(&self.pages[blk as usize]).into_iter().find(|(o, _)| *o == off).unwrap().1
+        items(&self.pages[blk as usize])
+            .into_iter()
+            .find(|(o, _)| *o == off)
+            .unwrap()
+            .1
     }
 }
 
@@ -171,20 +182,26 @@ impl Keyer for MGen {
         self.segnos.contains(&p).then_some((p, pos))
     }
     fn live_segment(&self, part_no: u32) -> bool {
-        self.segs.iter().any(|r| r.state != SegState::Sealed && r.part_no == part_no)
+        self.segs
+            .iter()
+            .any(|r| r.state != SegState::Sealed && r.part_no == part_no)
     }
     fn homes(&self, id: u64) -> bool {
         self.home_of_id(id).is_some()
     }
     fn locate(&mut self, rowident: u64) -> PgResult<Option<(usize, u32, u32)>> {
-        let Some(i) = self.home_of_id(rowident) else { return Ok(None) };
+        let Some(i) = self.home_of_id(rowident) else {
+            return Ok(None);
+        };
         let pos = split(rowident).1;
         let p = &self.parts[i];
         let ord = match &p.map {
             None => Some(pos),
             Some(m) => m.binary_search(&pos).ok().map(|o| o as u32),
         };
-        Ok(ord.filter(|&o| (o as u64) < p.rows).map(|o| (i, o / GRAIN, o % GRAIN)))
+        Ok(ord
+            .filter(|&o| (o as u64) < p.rows)
+            .map(|o| (i, o / GRAIN, o % GRAIN)))
     }
 }
 
@@ -214,7 +231,11 @@ struct World {
 impl World {
     /// Every segment `part_no` any generation records (the model never prunes the extent table).
     fn segnos(&self) -> Vec<u32> {
-        let mut v: Vec<u32> = self.gens.iter().flat_map(|g| g.segs.iter().map(|r| r.part_no)).collect();
+        let mut v: Vec<u32> = self
+            .gens
+            .iter()
+            .flat_map(|g| g.segs.iter().map(|r| r.part_no))
+            .collect();
         v.sort_unstable();
         v.dedup();
         v
@@ -224,7 +245,12 @@ impl World {
         *self.xids.get(&x).unwrap_or(&XSt::Aborted)
     }
     fn running(&self) -> Vec<u32> {
-        let mut v: Vec<u32> = self.xids.iter().filter(|(_, s)| **s == XSt::Running).map(|(x, _)| *x).collect();
+        let mut v: Vec<u32> = self
+            .xids
+            .iter()
+            .filter(|(_, s)| **s == XSt::Running)
+            .map(|(x, _)| *x)
+            .collect();
         v.sort_unstable();
         v
     }
@@ -235,10 +261,25 @@ impl World {
         x
     }
     fn snapshot(&self) -> Snap {
-        let xip: Vec<u32> = self.running().into_iter().filter(|x| Some(*x) != self.own).collect();
+        let xip: Vec<u32> = self
+            .running()
+            .into_iter()
+            .filter(|x| Some(*x) != self.own)
+            .collect();
         let xmax = self.next_xid;
-        let xmin = xip.first().copied().unwrap_or(xmax).min(self.own.unwrap_or(u32::MAX));
-        Snap { xmin, xmax, xip, own: self.own, curcid: self.own_cid, gen: self.gens.len() - 1 }
+        let xmin = xip
+            .first()
+            .copied()
+            .unwrap_or(xmax)
+            .min(self.own.unwrap_or(u32::MAX));
+        Snap {
+            xmin,
+            xmax,
+            xip,
+            own: self.own,
+            curcid: self.own_cid,
+            gen: self.gens.len() - 1,
+        }
     }
     fn horizon(&self) -> u32 {
         let mut h = self.next_xid;
@@ -265,19 +306,37 @@ impl World {
         if !ins || !tomb || xmax == 0 {
             return ins;
         }
-        let del = if Some(xmax) == s.own { cid < s.curcid } else { !Self::in_snap(s, xmax) && self.state(xmax) == XSt::Committed };
+        let del = if Some(xmax) == s.own {
+            cid < s.curcid
+        } else {
+            !Self::in_snap(s, xmax) && self.state(xmax) == XSt::Committed
+        };
         !del
     }
     fn active(&self) -> SegmentRecord {
-        *self.gens.last().unwrap().segs.iter().find(|r| r.state == SegState::Active).unwrap()
+        *self
+            .gens
+            .last()
+            .unwrap()
+            .segs
+            .iter()
+            .find(|r| r.state == SegState::Active)
+            .unwrap()
     }
     fn scan_segs(&self, s: &Snap) -> Vec<SegmentRecord> {
         let view = &self.gens[s.gen];
         let newest = self.gens.last().unwrap();
-        let mut v: Vec<SegmentRecord> = view.segs.iter().filter(|r| r.state != SegState::Sealed).copied().collect();
+        let mut v: Vec<SegmentRecord> = view
+            .segs
+            .iter()
+            .filter(|r| r.state != SegState::Sealed)
+            .copied()
+            .collect();
         if s.gen != self.gens.len() - 1 {
             for r in newest.segs.iter().filter(|r| r.state != SegState::Sealed) {
-                if !view.segs.iter().any(|v| v.state != SegState::Sealed && v.relid == r.relid && v.part_no == r.part_no) {
+                if !view.segs.iter().any(|v| {
+                    v.state != SegState::Sealed && v.relid == r.relid && v.part_no == r.part_no
+                }) {
                     v.push(*r);
                 }
             }
@@ -365,7 +424,13 @@ fn loc(relid: u32) -> Locator {
 
 impl Harness {
     fn new(seed: u64) -> Harness {
-        let seg0 = SegmentRecord { slot: 0, part_no: 1, relid: 90001, state: SegState::Active, fxid: 0 };
+        let seg0 = SegmentRecord {
+            slot: 0,
+            part_no: 1,
+            relid: 90001,
+            state: SegState::Active,
+            fxid: 0,
+        };
         let mut segs = HashMap::new();
         segs.insert(90001, Heap::default());
         Harness {
@@ -379,7 +444,12 @@ impl Harness {
                 tombs: [Heap::default(), Heap::default()],
                 tomb_locs: [loc(80000), loc(80001)],
                 cur: 0,
-                gens: vec![MGen { gen: 1, segs: vec![seg0], parts: Vec::new(), segnos: Vec::new() }],
+                gens: vec![MGen {
+                    gen: 1,
+                    segs: vec![seg0],
+                    parts: Vec::new(),
+                    segnos: Vec::new(),
+                }],
                 next_part_no: 2,
                 next_relid: 90002,
                 next_val: 1,
@@ -394,7 +464,12 @@ impl Harness {
 
     fn writer(&mut self) -> Option<(u32, u32)> {
         let w = self.w.borrow();
-        let mut c: Vec<(u32, u32)> = w.running().into_iter().filter(|x| Some(*x) != w.own).map(|x| (x, 0)).collect();
+        let mut c: Vec<(u32, u32)> = w
+            .running()
+            .into_iter()
+            .filter(|x| Some(*x) != w.own)
+            .map(|x| (x, 0))
+            .collect();
         if let Some(o) = w.own {
             c.push((o, w.own_cid));
             c.push((o, w.own_cid));
@@ -404,33 +479,54 @@ impl Harness {
     }
 
     fn insert(&mut self) {
-        let Some((x, cid)) = self.writer() else { return };
+        let Some((x, cid)) = self.writer() else {
+            return;
+        };
         let a = self.w.borrow().active();
         let mut w = self.w.borrow_mut();
         let val = w.next_val;
         w.next_val += 1;
-        let (blk, _) = w.segs.get_mut(&a.relid).unwrap().add(&mut self.rng, x, cid, &[val]);
+        let (blk, _) = w
+            .segs
+            .get_mut(&a.relid)
+            .unwrap()
+            .add(&mut self.rng, x, cid, &[val]);
         drop(w);
         self.reg.written(&mut self.cache, loc(a.relid), blk);
     }
 
     fn delete(&mut self) {
-        let Some((x, cid)) = self.writer() else { return };
+        let Some((x, cid)) = self.writer() else {
+            return;
+        };
         let target = {
             let w = self.w.borrow();
             let g = w.gens.last().unwrap();
-            let live: Vec<SegmentRecord> = g.segs.iter().filter(|r| r.state != SegState::Sealed).copied().collect();
+            let live: Vec<SegmentRecord> = g
+                .segs
+                .iter()
+                .filter(|r| r.state != SegState::Sealed)
+                .copied()
+                .collect();
             if !g.parts.is_empty() && self.rng.chance(40) {
                 let p = &g.parts[self.rng.below(g.parts.len() as u64) as usize];
                 let pos = match &p.map {
-                    Some(m) if !m.is_empty() && self.rng.chance(90) => m[self.rng.below(m.len() as u64) as usize],
+                    Some(m) if !m.is_empty() && self.rng.chance(90) => {
+                        m[self.rng.below(m.len() as u64) as usize]
+                    }
                     _ => self.rng.below(p.rows + 3) as u32,
                 };
                 Some(rowident(p.part_no, pos))
             } else if !live.is_empty() {
                 let r = live[self.rng.below(live.len() as u64) as usize];
                 let h = &w.segs[&r.relid];
-                let all: Vec<(u32, u16)> = (0..h.pages.len()).flat_map(|b| items(&h.pages[b]).into_iter().map(move |(o, _)| (b as u32, o))).collect();
+                let all: Vec<(u32, u16)> = (0..h.pages.len())
+                    .flat_map(|b| {
+                        items(&h.pages[b])
+                            .into_iter()
+                            .map(move |(o, _)| (b as u32, o))
+                    })
+                    .collect();
                 if all.is_empty() {
                     None
                 } else {
@@ -442,13 +538,17 @@ impl Harness {
             }
         };
         let Some(ri) = target else { return };
-        let (t, l) = { let w = self.w.borrow(); (w.cur, w.tomb_locs[w.cur]) };
+        let (t, l) = {
+            let w = self.w.borrow();
+            (w.cur, w.tomb_locs[w.cur])
+        };
         let (blk, off) = self.w.borrow_mut().tombs[t].add(&mut self.rng, x, cid, &[ri as i64, 0]);
         self.reg.written(&mut self.cache, l, blk);
         if self.rng.chance(15) {
             let mut w = self.w.borrow_mut();
             let at = w.tombs[t].at(blk, off);
-            bytes_mut(&mut w.tombs[t].pages[blk as usize])[at..at + 4].copy_from_slice(&0u32.to_ne_bytes());
+            bytes_mut(&mut w.tombs[t].pages[blk as usize])[at..at + 4]
+                .copy_from_slice(&0u32.to_ne_bytes());
             drop(w);
             self.reg.written(&mut self.cache, l, blk);
         }
@@ -473,17 +573,38 @@ impl Harness {
             }
             pos.sort_unstable();
             g.segs[i].state = SegState::Sealed;
-            g.parts.push(MPart { part_no: r.part_no, rows: pos.len() as u64, map: Some(pos) });
+            g.parts.push(MPart {
+                part_no: r.part_no,
+                rows: pos.len() as u64,
+                map: Some(pos),
+            });
         } else {
-            let slot = (0..8u16).find(|s| !g.segs.iter().any(|r| r.slot == *s && r.state != SegState::Sealed)).unwrap();
-            let a = g.segs.iter().position(|r| r.state == SegState::Active).unwrap();
+            let slot = (0..8u16)
+                .find(|s| {
+                    !g.segs
+                        .iter()
+                        .any(|r| r.slot == *s && r.state != SegState::Sealed)
+                })
+                .unwrap();
+            let a = g
+                .segs
+                .iter()
+                .position(|r| r.state == SegState::Active)
+                .unwrap();
             g.segs[a].state = SegState::Sealing;
-            g.segs.retain(|r| !(r.slot == slot && r.state == SegState::Sealed));
+            g.segs
+                .retain(|r| !(r.slot == slot && r.state == SegState::Sealed));
             let (part_no, relid) = (w.next_part_no, w.next_relid);
             w.next_part_no += 1;
             w.next_relid += 1;
             w.segs.insert(relid, Heap::default());
-            g.segs.push(SegmentRecord { slot, part_no, relid, state: SegState::Active, fxid: 0 });
+            g.segs.push(SegmentRecord {
+                slot,
+                part_no,
+                relid,
+                state: SegState::Active,
+                fxid: 0,
+            });
         }
         w.gens.push(g);
     }
@@ -494,13 +615,20 @@ impl Harness {
         g.gen += 1;
         let part_no = w.next_part_no;
         w.next_part_no += 1;
-        g.parts.push(MPart { part_no, rows: 1 + self.rng.below(40), map: None });
+        g.parts.push(MPart {
+            part_no,
+            rows: 1 + self.rng.below(40),
+            map: None,
+        });
         w.gens.push(g);
     }
 
     fn compile(&mut self) {
         let horizon = self.w.borrow().horizon();
-        let deleter = { let w = self.w.borrow(); w.running().into_iter().find(|x| Some(*x) != w.own) };
+        let deleter = {
+            let w = self.w.borrow();
+            w.running().into_iter().find(|x| Some(*x) != w.own)
+        };
         let Some(d) = deleter else { return };
         let mut blocks = Vec::new();
         {
@@ -508,8 +636,16 @@ impl Harness {
             for t in 0..2 {
                 for b in 0..w.tombs[t].pages.len() {
                     for (_, at) in items(&w.tombs[t].pages[b]) {
-                        let (xmin, xmax) = { let p = bytes(&w.tombs[t].pages[b]); (rd32(p, at), rd32(p, at + 4)) };
-                        if xmax == 0 && xmin != 0 && w.state(xmin) == XSt::Committed && xmin < horizon && self.rng.chance(30) {
+                        let (xmin, xmax) = {
+                            let p = bytes(&w.tombs[t].pages[b]);
+                            (rd32(p, at), rd32(p, at + 4))
+                        };
+                        if xmax == 0
+                            && xmin != 0
+                            && w.state(xmin) == XSt::Committed
+                            && xmin < horizon
+                            && self.rng.chance(30)
+                        {
                             let p = bytes_mut(&mut w.tombs[t].pages[b]);
                             p[at + 4..at + 8].copy_from_slice(&d.to_ne_bytes());
                             let im = rd16(p, at + 20) & !XMAX_INVALID;
@@ -546,10 +682,20 @@ impl Harness {
             12..=36 => self.insert(),
             37..=56 => self.delete(),
             57..=66 => {
-                let r: Vec<u32> = { let w = self.w.borrow(); w.running().into_iter().filter(|x| Some(*x) != w.own).collect() };
+                let r: Vec<u32> = {
+                    let w = self.w.borrow();
+                    w.running()
+                        .into_iter()
+                        .filter(|x| Some(*x) != w.own)
+                        .collect()
+                };
                 if !r.is_empty() {
                     let x = r[self.rng.below(r.len() as u64) as usize];
-                    let st = if self.rng.chance(75) { XSt::Committed } else { XSt::Aborted };
+                    let st = if self.rng.chance(75) {
+                        XSt::Committed
+                    } else {
+                        XSt::Aborted
+                    };
                     self.w.borrow_mut().xids.insert(x, st);
                 }
             }
@@ -558,7 +704,11 @@ impl Harness {
                 if let Some(o) = w.own {
                     match self.rng.below(4) {
                         0 | 1 => {
-                            let st = if self.rng.chance(70) { XSt::Committed } else { XSt::Aborted };
+                            let st = if self.rng.chance(70) {
+                                XSt::Committed
+                            } else {
+                                XSt::Aborted
+                            };
                             w.xids.insert(o, st);
                             w.own = None;
                             w.held.retain(|s| s.own != Some(o));
@@ -601,9 +751,17 @@ impl Harness {
             if self.w.borrow().tombs[t].pages.is_empty() {
                 continue;
             }
-            let src = Src { w: &self.w, tomb: Some(t), relid: 0 };
+            let src = Src {
+                w: &self.w,
+                tomb: Some(t),
+                relid: 0,
+            };
             let l = self.w.borrow().tomb_locs[t];
-            match self.imgs.current(&self.reg, l, l.2, Kind::Tomb, &src, &txn).map_err(|e| e.message().to_string())? {
+            match self
+                .imgs
+                .current(&self.reg, l, l.2, Kind::Tomb, &src, &txn)
+                .map_err(|e| e.message().to_string())?
+            {
                 Ok(i) => tomb_imgs.push(i),
                 Err(e) => return Err(format!("tomb image {t}: {e:?}")),
             }
@@ -625,13 +783,30 @@ impl Harness {
             let scan = self.w.borrow().scan_segs(&s);
             let mut ins = Vec::new();
             for r in &scan {
-                let src = Src { w: &self.w, tomb: None, relid: r.relid };
+                let src = Src {
+                    w: &self.w,
+                    tomb: None,
+                    relid: r.relid,
+                };
                 let img = self
                     .imgs
-                    .current(&self.reg, loc(r.relid), r.relid, Kind::Segment { slot: r.slot, part_no: r.part_no }, &src, &txn)
+                    .current(
+                        &self.reg,
+                        loc(r.relid),
+                        r.relid,
+                        Kind::Segment {
+                            slot: r.slot,
+                            part_no: r.part_no,
+                        },
+                        &src,
+                        &txn,
+                    )
                     .map_err(|e| e.message().to_string())?
                     .map_err(|e| format!("seg image {e:?}"))?;
-                ins.push(SegIn { rec: *r, img: Some(img) });
+                ins.push(SegIn {
+                    rec: *r,
+                    img: Some(img),
+                });
             }
             // The shared keying (cached per generation and settled version) must equal a fresh one.
             let mut tombs = Vec::new();
@@ -639,15 +814,28 @@ impl Harness {
                 let st = settled(img, &mut gen).map_err(|e| e.message().to_string())?;
                 let fresh = settle(img, &mut gen).map_err(|e| e.message().to_string())?;
                 if st.count != fresh.count || st.segs != fresh.segs {
-                    return Err(format!("settled cache stale: {} vs {} tombstones", st.count, fresh.count));
+                    return Err(format!(
+                        "settled cache stale: {} vs {} tombstones",
+                        st.count, fresh.count
+                    ));
                 }
                 tombs.push(TombIn { img, settled: st });
             }
-            if scan.len() > gen.segs.iter().filter(|r| r.state != SegState::Sealed).count() {
+            if scan.len()
+                > gen
+                    .segs
+                    .iter()
+                    .filter(|r| r.state != SegState::Sealed)
+                    .count()
+            {
                 self.stats[3] += 1 << 32;
             }
-            let sv = SV { w: &self.w, s: s.clone() };
-            let (_, views, filter) = build(&mut gen, &tombs, ins, &sv).map_err(|e| e.message().to_string())?;
+            let sv = SV {
+                w: &self.w,
+                s: s.clone(),
+            };
+            let (_, views, filter) =
+                build(&mut gen, &tombs, ins, &sv).map_err(|e| e.message().to_string())?;
 
             let w = self.w.borrow();
             let live: HashMap<u32, u16> = scan.iter().map(|r| (r.part_no, r.slot)).collect();
@@ -679,12 +867,19 @@ impl Harness {
                     let p = bytes(&h.pages[b]);
                     for (o, at) in items(&h.pages[b]) {
                         let pos = segment_pos(b as u32, o).unwrap();
-                        if w.visible(&s, p, at, false) && !dseg.get(&v.slot).is_some_and(|d| d.contains(&pos)) {
-                            want.insert((pos, i64::from_ne_bytes(p[at + 24..at + 32].try_into().unwrap())));
+                        if w.visible(&s, p, at, false)
+                            && !dseg.get(&v.slot).is_some_and(|d| d.contains(&pos))
+                        {
+                            want.insert((
+                                pos,
+                                i64::from_ne_bytes(p[at + 24..at + 32].try_into().unwrap()),
+                            ));
                         }
                     }
                 }
-                let pgrc_colcache::SegSource::Image { img, .. } = &v.src else { return Err("heap source".into()) };
+                let pgrc_colcache::SegSource::Image { img, .. } = &v.src else {
+                    return Err("heap source".into());
+                };
                 let got: BTreeSet<(u32, i64)> = v
                     .rows()
                     .unwrap()
@@ -692,7 +887,10 @@ impl Harness {
                     .map(|(b, i)| {
                         let c = img.chunk(b).unwrap();
                         let t = c.tuple_bytes(i as usize);
-                        (segment_pos(b, c.hdr[i as usize].off).unwrap(), i64::from_ne_bytes(t[24..32].try_into().unwrap()))
+                        (
+                            segment_pos(b, c.hdr[i as usize].off).unwrap(),
+                            i64::from_ne_bytes(t[24..32].try_into().unwrap()),
+                        )
                     })
                     .collect();
                 if got != want {
@@ -706,10 +904,14 @@ impl Harness {
                         want.difference(&got).take(4).collect::<Vec<_>>()
                     ));
                 }
-                let fpos: BTreeSet<u32> = filter.segment_positions(v.slot).iter().copied().collect();
+                let fpos: BTreeSet<u32> =
+                    filter.segment_positions(v.slot).iter().copied().collect();
                 let npos = dseg.get(&v.slot).cloned().unwrap_or_default();
                 if fpos != npos {
-                    return Err(format!("snapshot {s:?} slot {}: filter positions {fpos:?} != naive {npos:?}", v.slot));
+                    return Err(format!(
+                        "snapshot {s:?} slot {}: filter positions {fpos:?} != naive {npos:?}",
+                        v.slot
+                    ));
                 }
                 self.stats[0] += want.len() as u64;
                 self.stats[1] += npos.len() as u64;
@@ -718,10 +920,16 @@ impl Harness {
                 for g in 0..=(p.rows as u32 / GRAIN) {
                     let mut mask = None;
                     filter.granule_into(i, g, &mut mask);
-                    let got: BTreeSet<u32> = mask.map_or_else(BTreeSet::new, |m| (0..GRAIN).filter(|&r| m[r as usize / 64] >> (r % 64) & 1 == 1).collect());
+                    let got: BTreeSet<u32> = mask.map_or_else(BTreeSet::new, |m| {
+                        (0..GRAIN)
+                            .filter(|&r| m[r as usize / 64] >> (r % 64) & 1 == 1)
+                            .collect()
+                    });
                     let want = dpart.get(&(i, g)).cloned().unwrap_or_default();
                     if got != want {
-                        return Err(format!("snapshot {s:?} part {i} granule {g}: filter {got:?} != naive {want:?}"));
+                        return Err(format!(
+                            "snapshot {s:?} part {i} granule {g}: filter {got:?} != naive {want:?}"
+                        ));
                     }
                     self.stats[2] += want.len() as u64;
                 }
@@ -733,7 +941,9 @@ impl Harness {
 }
 
 fn steps() -> usize {
-    option_env!("PGRC_COLCACHE_MODEL_STEPS").and_then(|s| s.parse().ok()).unwrap_or(5_000)
+    option_env!("PGRC_COLCACHE_MODEL_STEPS")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(5_000)
 }
 
 #[test]
@@ -760,6 +970,9 @@ fn view_model_10_seeds() {
             h.stats[1],
             h.stats[2]
         );
-        assert!(h.stats[4] > 0, "seed {seed}: no check saw two tombstone heaps with rows");
+        assert!(
+            h.stats[4] > 0,
+            "seed {seed}: no check saw two tombstone heaps with rows"
+        );
     }
 }

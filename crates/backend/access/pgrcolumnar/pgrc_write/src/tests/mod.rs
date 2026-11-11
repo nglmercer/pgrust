@@ -6,38 +6,37 @@
 mod band_forms;
 mod bankplane_tests;
 mod bulksort;
-mod facts_publish;
-mod fastadd;
-mod crash_matrix;
 mod compactp;
 mod concload;
+mod crash_matrix;
 mod cut_estimate;
-mod detoast_tests;
 mod determinism;
-mod grain_tests;
-mod par_determinism;
-mod par_seam;
-mod par_wal;
-mod pooled_seal;
-mod streamed_seal;
+mod detoast_tests;
 mod dict_inherit;
 mod dict_tests;
+mod election;
+mod ext_stats_tombs;
+mod facts_publish;
+mod fastadd;
 mod fold_fusion;
 mod freeze_tests;
-mod genid;
-mod idburn;
-mod election;
 mod full_election;
+mod genid;
+mod grain_tests;
+mod idburn;
 mod lifecycle_tests;
 mod meta_wire_tests;
 mod newer_format;
 mod no_storage;
 mod overflow_tests;
+mod par_determinism;
+mod par_seam;
+mod par_wal;
+mod pooled_seal;
 mod publish_order;
-mod stacked;
 mod reseal;
-mod rowmap2;
 mod roundtrip_gate;
+mod rowmap2;
 mod runs_heap;
 mod shred_jsonb_tests;
 mod shred_tests;
@@ -45,9 +44,10 @@ mod size_pins;
 mod sort_cmp;
 mod sorted_ingest;
 mod sortruns;
+mod stacked;
 mod stats_runs;
-mod ext_stats_tombs;
 mod stats_sidecar;
+mod streamed_seal;
 mod structural_arrays;
 mod two_witness;
 mod wal_plan;
@@ -102,9 +102,9 @@ pub use crate::testkit::*;
 #[allow(unused_imports)]
 pub use crate::elect::ReferenceCandidates;
 #[allow(unused_imports)]
-pub use crate::par::{SharedMemVfs, SharedMemVfsProvider};
-#[allow(unused_imports)]
 pub use crate::ingest::{NoExternalDetoast, RawDatum};
+#[allow(unused_imports)]
+pub use crate::par::{SharedMemVfs, SharedMemVfsProvider};
 #[allow(unused_imports)]
 pub use crate::publish::{TxnProbe, TxnVerdict};
 #[allow(unused_imports)]
@@ -129,4 +129,3 @@ pub use pgrc_format::relopt::ShredOptions;
 pub use pgrc_format::wire::Cur;
 #[allow(unused_imports)]
 pub use std::collections::BTreeMap;
-

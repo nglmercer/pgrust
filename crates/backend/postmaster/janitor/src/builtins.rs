@@ -279,6 +279,7 @@ mod tests {
     /// must describe the same surface, and every oid must be implicitly
     /// pinned (below FirstUnpinnedObjectId) like any initdb builtin.
     #[test]
+    #[allow(clippy::assertions_on_constants, unused_attributes)]
     fn initdb_rows_match_dispatch_table() {
         let rows: Vec<(&str, &str)> = include_str!("../../../../bin/initdb/src/pgrust.bki")
             .lines()
@@ -314,6 +315,7 @@ mod tests {
         let nsp = format!("{PGRUST_NAMESPACE_OID} {PGRUST_NAMESPACE} ");
         assert!(has("pg_namespace", nsp), "pg_pgrust schema row");
         assert!(has("pg_description", format!("{PGRUST_NAMESPACE_OID} 2615 0 '")));
+        #[allow(clippy::assertions_on_constants)]
         assert!(PGRUST_NAMESPACE_OID < 12000);
         assert!(PGRUST_NAMESPACE.starts_with("pg_") && PGRUST_NAMESPACE != "pg_catalog");
     }

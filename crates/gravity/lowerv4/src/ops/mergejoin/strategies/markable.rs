@@ -17,6 +17,7 @@ use crate::frame::env::Env;
 use crate::frame::frame::Next;
 use crate::frame::px::Px;
 use crate::frame::row::{Carry, RowVals};
+#[allow(unused_imports)]
 use crate::graph::Gx;
 use crate::admit::refusal::{Reason, ShapeWhy};
 use crate::ops::Table;

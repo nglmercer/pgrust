@@ -16,8 +16,8 @@
 //!    as it is found (or loaded or hinted by a stage 3 of their own, `Mode`);
 //! 3. the rows walk in order (the frame), each reading its first record from stage 2 (walk.rs `hash_first`). A row with
 //!    none walks no step: the staged joins drop a probe row without a match (or only mark the build's, `Mode::marks`).
-//! The row order, the matches and every row handed on are the per-row body's. Keys are by-value lane cells of the window
-//! only (row `j`'s element in the row, row `j + t`'s `t` elements on), as D3194's block test reads them.
+//!    The row order, the matches and every row handed on are the per-row body's. Keys are by-value lane cells of the window
+//!    only (row `j`'s element in the row, row `j + t`'s `t` elements on), as D3194's block test reads them.
 use gravity_expr::emit::hash::emit_key_hash;
 use gravity_ir::builder::FunctionBuilder;
 use gravity_ir::{Block, ConvOp, IntBinOp, IntCond, IntUnOp, Type, Value};

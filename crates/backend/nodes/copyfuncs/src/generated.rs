@@ -3,8 +3,7 @@
 //! types_nodes struct in C 18.3's copyObject switch. Const/A_Const stay
 //! hand-written in lib.rs (C hand-writes them in copyfuncs.c too).
 
-#![allow(non_snake_case)]
-#![allow(unused_imports)]
+#![allow(non_snake_case, unused_imports)]
 
 use mcx::{alloc_in, leak_in, Mcx};
 use types_error::PgResult;
@@ -15,77 +14,76 @@ use types_nodes::{Node, NodeList, NodeTag, NodeVariant};
 
 use crate::{copy_node, opt_str_in, str_in};
 
-use types_nodes::primnodes::{
-    Aggref, Alias, AlternativeSubPlan, ArrayCoerceExpr, ArrayExpr, BoolExpr, BooleanTest,
-    CaseExpr, CaseTestExpr, CaseWhen, CoalesceExpr, CoerceToDomain, CoerceToDomainValue,
-    CoerceViaIO, CollateClause, CollateExpr, ConvertRowtypeExpr, CurrentOfExpr, DistinctExpr,
-    FieldSelect, FieldStore, FromExpr, FuncExpr, GroupingFunc, InferenceElem, JoinExpr,
-    JsonBehavior, JsonConstructorExpr, JsonExpr, JsonFormat, JsonIsPredicate, JsonReturning,
-    JsonTablePath, JsonTablePathScan, JsonTableSiblingJoin, JsonValueExpr, MergeAction,
-    MergeSupportFunc, MinMaxExpr, NamedArgExpr, NextValueExpr, NullIfExpr, NullTest,
-    OnConflictExpr, OpExpr, Param, PlaceHolderVar, RangeTblRef, RangeVar, RelabelType,
-    ReturningExpr, RowCompareExpr, RowExpr, SQLValueFunction, ScalarArrayOpExpr, SetToDefault,
-    SubLink, SubPlan, SubscriptingRef, TableFunc, TargetEntry, Var, WindowFunc,
-    WindowFuncRunCondition, XmlExpr,
-};
 use types_nodes::parsenodes::{
     ATAlterConstraint, AccessPriv, AlterCollationStmt, AlterDatabaseRefreshCollStmt,
     AlterDatabaseSetStmt, AlterDatabaseStmt, AlterDefaultPrivilegesStmt, AlterDomainStmt,
     AlterEventTrigStmt, AlterFunctionStmt, AlterObjectDependsStmt, AlterObjectSchemaStmt,
-    AlterOpFamilyStmt, AlterOperatorStmt, AlterOwnerStmt, AlterPolicyStmt,
-    AlterPublicationStmt, AlterRoleSetStmt, AlterRoleStmt, AlterSubscriptionStmt,
-    AlterSystemStmt, AlterTableCmd, AlterTableMoveAllStmt, AlterTableSpaceOptionsStmt,
-    AlterTableStmt, CTECycleClause, CTESearchClause, CheckPointStmt, ClosePortalStmt,
-    ClusterStmt, CommentStmt, CommonTableExpr, CopyStmt, CreateAmStmt, CreateCastStmt,
-    CreateConversionStmt, CreateEventTrigStmt, CreateFunctionStmt, CreateOpClassItem,
-    CreateOpClassStmt, CreateOpFamilyStmt, CreatePLangStmt, CreatePolicyStmt,
-    CreatePublicationStmt, CreateRoleStmt, CreateSchemaStmt, CreateSubscriptionStmt,
-    CreateTableSpaceStmt, CreateTransformStmt, CreatedbStmt, DeallocateStmt, DeclareCursorStmt,
-    DefElem, DefineStmt, DiscardStmt, DoStmt, DropOwnedStmt, DropRoleStmt, DropStmt,
-    DropSubscriptionStmt, DropTableSpaceStmt, DropdbStmt, ExecuteStmt, ExplainStmt, FetchStmt,
-    FunctionParameter, GrantRoleStmt, GrantStmt, GroupingSet, ListenStmt, LoadStmt, LockStmt,
-    NotifyStmt, ObjectWithArgs, PrepareStmt, PublicationObjSpec, PublicationTable, Query,
-    RTEPermissionInfo, RangeTblEntry, RangeTblFunction, ReassignOwnedStmt, ReindexStmt,
-    RenameStmt, ReplicaIdentityStmt, ReturnStmt, RoleSpec, RowMarkClause, SecLabelStmt,
-    SetOperationStmt, SortGroupClause, TableSampleClause, TransactionStmt, TruncateStmt,
-    UnlistenStmt, VacuumRelation, VacuumStmt, VariableSetStmt, VariableShowStmt, WindowClause,
-    WithCheckOption, WithClause,
-};
-use types_nodes::rawnodes::{
-    A_ArrayExpr, A_Expr, A_Indices, A_Indirection, AlterEnumStmt, AlterExtensionContentsStmt,
-    AlterExtensionStmt, AlterFdwStmt, AlterForeignServerStmt, AlterSeqStmt, AlterStatsStmt,
-    AlterTSConfigurationStmt, AlterTSDictionaryStmt, AlterTypeStmt, AlterUserMappingStmt,
-    CallStmt, ColumnDef, ColumnRef, CompositeTypeStmt, Constraint, ConstraintsSetStmt,
-    CreateDomainStmt, CreateEnumStmt, CreateExtensionStmt, CreateFdwStmt,
-    CreateForeignServerStmt, CreateForeignTableStmt, CreateRangeStmt, CreateSeqStmt,
-    CreateStatsStmt, CreateStmt, CreateTableAsStmt, CreateTrigStmt, CreateUserMappingStmt,
-    DeleteStmt, DropUserMappingStmt, FuncCall, ImportForeignSchemaStmt, IndexElem, IndexStmt,
-    InferClause, InsertStmt, IntoClause, JsonAggConstructor, JsonArgument, JsonArrayAgg,
-    JsonArrayConstructor, JsonArrayQueryConstructor, JsonFuncExpr, JsonKeyValue, JsonObjectAgg,
-    JsonObjectConstructor, JsonOutput, JsonParseExpr, JsonScalarExpr, JsonSerializeExpr,
-    JsonTable, JsonTableColumn, JsonTablePathSpec, LockingClause, MergeStmt, MergeWhenClause,
-    MultiAssignRef, OnConflictClause, PLAssignStmt, ParamRef, PartitionBoundSpec, PartitionCmd,
-    PartitionElem, PartitionRangeDatum, PartitionSpec, RangeFunction, RangeSubselect,
-    RangeTableFunc, RangeTableFuncCol, RangeTableSample, RawStmt, RefreshMatViewStmt,
-    ResTarget, ReturningClause, ReturningOption, RuleStmt, SelectStmt, SortBy, StatsElem,
-    TableLikeClause, TriggerTransition, TypeCast, TypeName, UpdateStmt, ViewStmt, WindowDef,
-    XmlSerialize,
+    AlterOpFamilyStmt, AlterOperatorStmt, AlterOwnerStmt, AlterPolicyStmt, AlterPublicationStmt,
+    AlterRoleSetStmt, AlterRoleStmt, AlterSubscriptionStmt, AlterSystemStmt, AlterTableCmd,
+    AlterTableMoveAllStmt, AlterTableSpaceOptionsStmt, AlterTableStmt, CTECycleClause,
+    CTESearchClause, CheckPointStmt, ClosePortalStmt, ClusterStmt, CommentStmt, CommonTableExpr,
+    CopyStmt, CreateAmStmt, CreateCastStmt, CreateConversionStmt, CreateEventTrigStmt,
+    CreateFunctionStmt, CreateOpClassItem, CreateOpClassStmt, CreateOpFamilyStmt, CreatePLangStmt,
+    CreatePolicyStmt, CreatePublicationStmt, CreateRoleStmt, CreateSchemaStmt,
+    CreateSubscriptionStmt, CreateTableSpaceStmt, CreateTransformStmt, CreatedbStmt,
+    DeallocateStmt, DeclareCursorStmt, DefElem, DefineStmt, DiscardStmt, DoStmt, DropOwnedStmt,
+    DropRoleStmt, DropStmt, DropSubscriptionStmt, DropTableSpaceStmt, DropdbStmt, ExecuteStmt,
+    ExplainStmt, FetchStmt, FunctionParameter, GrantRoleStmt, GrantStmt, GroupingSet, ListenStmt,
+    LoadStmt, LockStmt, NotifyStmt, ObjectWithArgs, PrepareStmt, PublicationObjSpec,
+    PublicationTable, Query, RTEPermissionInfo, RangeTblEntry, RangeTblFunction, ReassignOwnedStmt,
+    ReindexStmt, RenameStmt, ReplicaIdentityStmt, ReturnStmt, RoleSpec, RowMarkClause,
+    SecLabelStmt, SetOperationStmt, SortGroupClause, TableSampleClause, TransactionStmt,
+    TruncateStmt, UnlistenStmt, VacuumRelation, VacuumStmt, VariableSetStmt, VariableShowStmt,
+    WindowClause, WithCheckOption, WithClause,
 };
 use types_nodes::plannodes::{
     Agg, Append, AppendRelInfo, BitmapAnd, BitmapHeapScan, BitmapIndexScan, BitmapOr, CteScan,
     ForeignScan, FunctionScan, Gather, GatherMerge, Group, Hash, HashJoin, IncrementalSort,
     IndexOnlyScan, IndexScan, Join, Limit, LockRows, Material, Memoize, MergeAppend, MergeJoin,
     ModifyTable, NamedTuplestoreScan, NestLoop, NestLoopParam, PartitionPruneInfo,
-    PartitionPruneStepCombine, PartitionPruneStepOp, PartitionedRelPruneInfo, Plan,
-    PlanInvalItem, PlanRowMark, PlannedStmt, ProjectSet, RecursiveUnion, Result, SampleScan,
-    Scan, SeqScan, SetOp, Sort, SubqueryScan, TableFuncScan, TidRangeScan, TidScan, Unique,
-    ValuesScan, WindowAgg, WorkTableScan,
+    PartitionPruneStepCombine, PartitionPruneStepOp, PartitionedRelPruneInfo, Plan, PlanInvalItem,
+    PlanRowMark, PlannedStmt, ProjectSet, RecursiveUnion, Result, SampleScan, Scan, SeqScan, SetOp,
+    Sort, SubqueryScan, TableFuncScan, TidRangeScan, TidScan, Unique, ValuesScan, WindowAgg,
+    WorkTableScan,
+};
+use types_nodes::primnodes::{
+    Aggref, Alias, AlternativeSubPlan, ArrayCoerceExpr, ArrayExpr, BoolExpr, BooleanTest, CaseExpr,
+    CaseTestExpr, CaseWhen, CoalesceExpr, CoerceToDomain, CoerceToDomainValue, CoerceViaIO,
+    CollateClause, CollateExpr, ConvertRowtypeExpr, CurrentOfExpr, DistinctExpr, FieldSelect,
+    FieldStore, FromExpr, FuncExpr, GroupingFunc, InferenceElem, JoinExpr, JsonBehavior,
+    JsonConstructorExpr, JsonExpr, JsonFormat, JsonIsPredicate, JsonReturning, JsonTablePath,
+    JsonTablePathScan, JsonTableSiblingJoin, JsonValueExpr, MergeAction, MergeSupportFunc,
+    MinMaxExpr, NamedArgExpr, NextValueExpr, NullIfExpr, NullTest, OnConflictExpr, OpExpr, Param,
+    PlaceHolderVar, RangeTblRef, RangeVar, RelabelType, ReturningExpr, RowCompareExpr, RowExpr,
+    SQLValueFunction, ScalarArrayOpExpr, SetToDefault, SubLink, SubPlan, SubscriptingRef,
+    TableFunc, TargetEntry, Var, WindowFunc, WindowFuncRunCondition, XmlExpr,
+};
+use types_nodes::rawnodes::{
+    A_ArrayExpr, A_Expr, A_Indices, A_Indirection, AlterEnumStmt, AlterExtensionContentsStmt,
+    AlterExtensionStmt, AlterFdwStmt, AlterForeignServerStmt, AlterSeqStmt, AlterStatsStmt,
+    AlterTSConfigurationStmt, AlterTSDictionaryStmt, AlterTypeStmt, AlterUserMappingStmt, CallStmt,
+    ColumnDef, ColumnRef, CompositeTypeStmt, Constraint, ConstraintsSetStmt, CreateDomainStmt,
+    CreateEnumStmt, CreateExtensionStmt, CreateFdwStmt, CreateForeignServerStmt,
+    CreateForeignTableStmt, CreateRangeStmt, CreateSeqStmt, CreateStatsStmt, CreateStmt,
+    CreateTableAsStmt, CreateTrigStmt, CreateUserMappingStmt, DeleteStmt, DropUserMappingStmt,
+    FuncCall, ImportForeignSchemaStmt, IndexElem, IndexStmt, InferClause, InsertStmt, IntoClause,
+    JsonAggConstructor, JsonArgument, JsonArrayAgg, JsonArrayConstructor,
+    JsonArrayQueryConstructor, JsonFuncExpr, JsonKeyValue, JsonObjectAgg, JsonObjectConstructor,
+    JsonOutput, JsonParseExpr, JsonScalarExpr, JsonSerializeExpr, JsonTable, JsonTableColumn,
+    JsonTablePathSpec, LockingClause, MergeStmt, MergeWhenClause, MultiAssignRef, OnConflictClause,
+    PLAssignStmt, ParamRef, PartitionBoundSpec, PartitionCmd, PartitionElem, PartitionRangeDatum,
+    PartitionSpec, RangeFunction, RangeSubselect, RangeTableFunc, RangeTableFuncCol,
+    RangeTableSample, RawStmt, RefreshMatViewStmt, ResTarget, ReturningClause, ReturningOption,
+    RuleStmt, SelectStmt, SortBy, StatsElem, TableLikeClause, TriggerTransition, TypeCast,
+    TypeName, UpdateStmt, ViewStmt, WindowDef, XmlSerialize,
 };
 
 pub(crate) fn copy_generated<'d>(mcx: Mcx<'d>, node: Node<'_>) -> PgResult<Option<Node<'d>>> {
     let copy = match node.node_tag() {
         NodeTag::T_ATAlterConstraint => {
-            let s = node.as_variant::<ATAlterConstraint>().expect("ATAlterConstraint");
+            let s = node
+                .as_variant::<ATAlterConstraint>()
+                .expect("ATAlterConstraint");
             mkcopy_ATAlterConstraint(mcx, s)?
         }
         NodeTag::T_A_ArrayExpr => {
@@ -121,27 +119,39 @@ pub(crate) fn copy_generated<'d>(mcx: Mcx<'d>, node: Node<'_>) -> PgResult<Optio
             mkcopy_Alias(mcx, s)?
         }
         NodeTag::T_AlterCollationStmt => {
-            let s = node.as_variant::<AlterCollationStmt>().expect("AlterCollationStmt");
+            let s = node
+                .as_variant::<AlterCollationStmt>()
+                .expect("AlterCollationStmt");
             mkcopy_AlterCollationStmt(mcx, s)?
         }
         NodeTag::T_AlterDatabaseRefreshCollStmt => {
-            let s = node.as_variant::<AlterDatabaseRefreshCollStmt>().expect("AlterDatabaseRefreshCollStmt");
+            let s = node
+                .as_variant::<AlterDatabaseRefreshCollStmt>()
+                .expect("AlterDatabaseRefreshCollStmt");
             mkcopy_AlterDatabaseRefreshCollStmt(mcx, s)?
         }
         NodeTag::T_AlterDatabaseSetStmt => {
-            let s = node.as_variant::<AlterDatabaseSetStmt>().expect("AlterDatabaseSetStmt");
+            let s = node
+                .as_variant::<AlterDatabaseSetStmt>()
+                .expect("AlterDatabaseSetStmt");
             mkcopy_AlterDatabaseSetStmt(mcx, s)?
         }
         NodeTag::T_AlterDatabaseStmt => {
-            let s = node.as_variant::<AlterDatabaseStmt>().expect("AlterDatabaseStmt");
+            let s = node
+                .as_variant::<AlterDatabaseStmt>()
+                .expect("AlterDatabaseStmt");
             mkcopy_AlterDatabaseStmt(mcx, s)?
         }
         NodeTag::T_AlterDefaultPrivilegesStmt => {
-            let s = node.as_variant::<AlterDefaultPrivilegesStmt>().expect("AlterDefaultPrivilegesStmt");
+            let s = node
+                .as_variant::<AlterDefaultPrivilegesStmt>()
+                .expect("AlterDefaultPrivilegesStmt");
             mkcopy_AlterDefaultPrivilegesStmt(mcx, s)?
         }
         NodeTag::T_AlterDomainStmt => {
-            let s = node.as_variant::<AlterDomainStmt>().expect("AlterDomainStmt");
+            let s = node
+                .as_variant::<AlterDomainStmt>()
+                .expect("AlterDomainStmt");
             mkcopy_AlterDomainStmt(mcx, s)?
         }
         NodeTag::T_AlterEnumStmt => {
@@ -149,15 +159,21 @@ pub(crate) fn copy_generated<'d>(mcx: Mcx<'d>, node: Node<'_>) -> PgResult<Optio
             mkcopy_AlterEnumStmt(mcx, s)?
         }
         NodeTag::T_AlterEventTrigStmt => {
-            let s = node.as_variant::<AlterEventTrigStmt>().expect("AlterEventTrigStmt");
+            let s = node
+                .as_variant::<AlterEventTrigStmt>()
+                .expect("AlterEventTrigStmt");
             mkcopy_AlterEventTrigStmt(mcx, s)?
         }
         NodeTag::T_AlterExtensionContentsStmt => {
-            let s = node.as_variant::<AlterExtensionContentsStmt>().expect("AlterExtensionContentsStmt");
+            let s = node
+                .as_variant::<AlterExtensionContentsStmt>()
+                .expect("AlterExtensionContentsStmt");
             mkcopy_AlterExtensionContentsStmt(mcx, s)?
         }
         NodeTag::T_AlterExtensionStmt => {
-            let s = node.as_variant::<AlterExtensionStmt>().expect("AlterExtensionStmt");
+            let s = node
+                .as_variant::<AlterExtensionStmt>()
+                .expect("AlterExtensionStmt");
             mkcopy_AlterExtensionStmt(mcx, s)?
         }
         NodeTag::T_AlterFdwStmt => {
@@ -165,27 +181,39 @@ pub(crate) fn copy_generated<'d>(mcx: Mcx<'d>, node: Node<'_>) -> PgResult<Optio
             mkcopy_AlterFdwStmt(mcx, s)?
         }
         NodeTag::T_AlterForeignServerStmt => {
-            let s = node.as_variant::<AlterForeignServerStmt>().expect("AlterForeignServerStmt");
+            let s = node
+                .as_variant::<AlterForeignServerStmt>()
+                .expect("AlterForeignServerStmt");
             mkcopy_AlterForeignServerStmt(mcx, s)?
         }
         NodeTag::T_AlterFunctionStmt => {
-            let s = node.as_variant::<AlterFunctionStmt>().expect("AlterFunctionStmt");
+            let s = node
+                .as_variant::<AlterFunctionStmt>()
+                .expect("AlterFunctionStmt");
             mkcopy_AlterFunctionStmt(mcx, s)?
         }
         NodeTag::T_AlterObjectDependsStmt => {
-            let s = node.as_variant::<AlterObjectDependsStmt>().expect("AlterObjectDependsStmt");
+            let s = node
+                .as_variant::<AlterObjectDependsStmt>()
+                .expect("AlterObjectDependsStmt");
             mkcopy_AlterObjectDependsStmt(mcx, s)?
         }
         NodeTag::T_AlterObjectSchemaStmt => {
-            let s = node.as_variant::<AlterObjectSchemaStmt>().expect("AlterObjectSchemaStmt");
+            let s = node
+                .as_variant::<AlterObjectSchemaStmt>()
+                .expect("AlterObjectSchemaStmt");
             mkcopy_AlterObjectSchemaStmt(mcx, s)?
         }
         NodeTag::T_AlterOpFamilyStmt => {
-            let s = node.as_variant::<AlterOpFamilyStmt>().expect("AlterOpFamilyStmt");
+            let s = node
+                .as_variant::<AlterOpFamilyStmt>()
+                .expect("AlterOpFamilyStmt");
             mkcopy_AlterOpFamilyStmt(mcx, s)?
         }
         NodeTag::T_AlterOperatorStmt => {
-            let s = node.as_variant::<AlterOperatorStmt>().expect("AlterOperatorStmt");
+            let s = node
+                .as_variant::<AlterOperatorStmt>()
+                .expect("AlterOperatorStmt");
             mkcopy_AlterOperatorStmt(mcx, s)?
         }
         NodeTag::T_AlterOwnerStmt => {
@@ -193,15 +221,21 @@ pub(crate) fn copy_generated<'d>(mcx: Mcx<'d>, node: Node<'_>) -> PgResult<Optio
             mkcopy_AlterOwnerStmt(mcx, s)?
         }
         NodeTag::T_AlterPolicyStmt => {
-            let s = node.as_variant::<AlterPolicyStmt>().expect("AlterPolicyStmt");
+            let s = node
+                .as_variant::<AlterPolicyStmt>()
+                .expect("AlterPolicyStmt");
             mkcopy_AlterPolicyStmt(mcx, s)?
         }
         NodeTag::T_AlterPublicationStmt => {
-            let s = node.as_variant::<AlterPublicationStmt>().expect("AlterPublicationStmt");
+            let s = node
+                .as_variant::<AlterPublicationStmt>()
+                .expect("AlterPublicationStmt");
             mkcopy_AlterPublicationStmt(mcx, s)?
         }
         NodeTag::T_AlterRoleSetStmt => {
-            let s = node.as_variant::<AlterRoleSetStmt>().expect("AlterRoleSetStmt");
+            let s = node
+                .as_variant::<AlterRoleSetStmt>()
+                .expect("AlterRoleSetStmt");
             mkcopy_AlterRoleSetStmt(mcx, s)?
         }
         NodeTag::T_AlterRoleStmt => {
@@ -217,19 +251,27 @@ pub(crate) fn copy_generated<'d>(mcx: Mcx<'d>, node: Node<'_>) -> PgResult<Optio
             mkcopy_AlterStatsStmt(mcx, s)?
         }
         NodeTag::T_AlterSubscriptionStmt => {
-            let s = node.as_variant::<AlterSubscriptionStmt>().expect("AlterSubscriptionStmt");
+            let s = node
+                .as_variant::<AlterSubscriptionStmt>()
+                .expect("AlterSubscriptionStmt");
             mkcopy_AlterSubscriptionStmt(mcx, s)?
         }
         NodeTag::T_AlterSystemStmt => {
-            let s = node.as_variant::<AlterSystemStmt>().expect("AlterSystemStmt");
+            let s = node
+                .as_variant::<AlterSystemStmt>()
+                .expect("AlterSystemStmt");
             mkcopy_AlterSystemStmt(mcx, s)?
         }
         NodeTag::T_AlterTSConfigurationStmt => {
-            let s = node.as_variant::<AlterTSConfigurationStmt>().expect("AlterTSConfigurationStmt");
+            let s = node
+                .as_variant::<AlterTSConfigurationStmt>()
+                .expect("AlterTSConfigurationStmt");
             mkcopy_AlterTSConfigurationStmt(mcx, s)?
         }
         NodeTag::T_AlterTSDictionaryStmt => {
-            let s = node.as_variant::<AlterTSDictionaryStmt>().expect("AlterTSDictionaryStmt");
+            let s = node
+                .as_variant::<AlterTSDictionaryStmt>()
+                .expect("AlterTSDictionaryStmt");
             mkcopy_AlterTSDictionaryStmt(mcx, s)?
         }
         NodeTag::T_AlterTableCmd => {
@@ -237,11 +279,15 @@ pub(crate) fn copy_generated<'d>(mcx: Mcx<'d>, node: Node<'_>) -> PgResult<Optio
             mkcopy_AlterTableCmd(mcx, s)?
         }
         NodeTag::T_AlterTableMoveAllStmt => {
-            let s = node.as_variant::<AlterTableMoveAllStmt>().expect("AlterTableMoveAllStmt");
+            let s = node
+                .as_variant::<AlterTableMoveAllStmt>()
+                .expect("AlterTableMoveAllStmt");
             mkcopy_AlterTableMoveAllStmt(mcx, s)?
         }
         NodeTag::T_AlterTableSpaceOptionsStmt => {
-            let s = node.as_variant::<AlterTableSpaceOptionsStmt>().expect("AlterTableSpaceOptionsStmt");
+            let s = node
+                .as_variant::<AlterTableSpaceOptionsStmt>()
+                .expect("AlterTableSpaceOptionsStmt");
             mkcopy_AlterTableSpaceOptionsStmt(mcx, s)?
         }
         NodeTag::T_AlterTableStmt => {
@@ -253,11 +299,15 @@ pub(crate) fn copy_generated<'d>(mcx: Mcx<'d>, node: Node<'_>) -> PgResult<Optio
             mkcopy_AlterTypeStmt(mcx, s)?
         }
         NodeTag::T_AlterUserMappingStmt => {
-            let s = node.as_variant::<AlterUserMappingStmt>().expect("AlterUserMappingStmt");
+            let s = node
+                .as_variant::<AlterUserMappingStmt>()
+                .expect("AlterUserMappingStmt");
             mkcopy_AlterUserMappingStmt(mcx, s)?
         }
         NodeTag::T_AlternativeSubPlan => {
-            let s = node.as_variant::<AlternativeSubPlan>().expect("AlternativeSubPlan");
+            let s = node
+                .as_variant::<AlternativeSubPlan>()
+                .expect("AlternativeSubPlan");
             mkcopy_AlternativeSubPlan(mcx, s)?
         }
         NodeTag::T_Append => {
@@ -269,7 +319,9 @@ pub(crate) fn copy_generated<'d>(mcx: Mcx<'d>, node: Node<'_>) -> PgResult<Optio
             mkcopy_AppendRelInfo(mcx, s)?
         }
         NodeTag::T_ArrayCoerceExpr => {
-            let s = node.as_variant::<ArrayCoerceExpr>().expect("ArrayCoerceExpr");
+            let s = node
+                .as_variant::<ArrayCoerceExpr>()
+                .expect("ArrayCoerceExpr");
             mkcopy_ArrayCoerceExpr(mcx, s)?
         }
         NodeTag::T_ArrayExpr => {
@@ -285,7 +337,9 @@ pub(crate) fn copy_generated<'d>(mcx: Mcx<'d>, node: Node<'_>) -> PgResult<Optio
             mkcopy_BitmapHeapScan(mcx, s)?
         }
         NodeTag::T_BitmapIndexScan => {
-            let s = node.as_variant::<BitmapIndexScan>().expect("BitmapIndexScan");
+            let s = node
+                .as_variant::<BitmapIndexScan>()
+                .expect("BitmapIndexScan");
             mkcopy_BitmapIndexScan(mcx, s)?
         }
         NodeTag::T_BitmapOr => {
@@ -305,7 +359,9 @@ pub(crate) fn copy_generated<'d>(mcx: Mcx<'d>, node: Node<'_>) -> PgResult<Optio
             mkcopy_CTECycleClause(mcx, s)?
         }
         NodeTag::T_CTESearchClause => {
-            let s = node.as_variant::<CTESearchClause>().expect("CTESearchClause");
+            let s = node
+                .as_variant::<CTESearchClause>()
+                .expect("CTESearchClause");
             mkcopy_CTESearchClause(mcx, s)?
         }
         NodeTag::T_CallStmt => {
@@ -329,7 +385,9 @@ pub(crate) fn copy_generated<'d>(mcx: Mcx<'d>, node: Node<'_>) -> PgResult<Optio
             mkcopy_CheckPointStmt(mcx, s)?
         }
         NodeTag::T_ClosePortalStmt => {
-            let s = node.as_variant::<ClosePortalStmt>().expect("ClosePortalStmt");
+            let s = node
+                .as_variant::<ClosePortalStmt>()
+                .expect("ClosePortalStmt");
             mkcopy_ClosePortalStmt(mcx, s)?
         }
         NodeTag::T_ClusterStmt => {
@@ -345,7 +403,9 @@ pub(crate) fn copy_generated<'d>(mcx: Mcx<'d>, node: Node<'_>) -> PgResult<Optio
             mkcopy_CoerceToDomain(mcx, s)?
         }
         NodeTag::T_CoerceToDomainValue => {
-            let s = node.as_variant::<CoerceToDomainValue>().expect("CoerceToDomainValue");
+            let s = node
+                .as_variant::<CoerceToDomainValue>()
+                .expect("CoerceToDomainValue");
             mkcopy_CoerceToDomainValue(mcx, s)?
         }
         NodeTag::T_CoerceViaIO => {
@@ -373,11 +433,15 @@ pub(crate) fn copy_generated<'d>(mcx: Mcx<'d>, node: Node<'_>) -> PgResult<Optio
             mkcopy_CommentStmt(mcx, s)?
         }
         NodeTag::T_CommonTableExpr => {
-            let s = node.as_variant::<CommonTableExpr>().expect("CommonTableExpr");
+            let s = node
+                .as_variant::<CommonTableExpr>()
+                .expect("CommonTableExpr");
             mkcopy_CommonTableExpr(mcx, s)?
         }
         NodeTag::T_CompositeTypeStmt => {
-            let s = node.as_variant::<CompositeTypeStmt>().expect("CompositeTypeStmt");
+            let s = node
+                .as_variant::<CompositeTypeStmt>()
+                .expect("CompositeTypeStmt");
             mkcopy_CompositeTypeStmt(mcx, s)?
         }
         NodeTag::T_Constraint => {
@@ -385,11 +449,15 @@ pub(crate) fn copy_generated<'d>(mcx: Mcx<'d>, node: Node<'_>) -> PgResult<Optio
             mkcopy_Constraint(mcx, s)?
         }
         NodeTag::T_ConstraintsSetStmt => {
-            let s = node.as_variant::<ConstraintsSetStmt>().expect("ConstraintsSetStmt");
+            let s = node
+                .as_variant::<ConstraintsSetStmt>()
+                .expect("ConstraintsSetStmt");
             mkcopy_ConstraintsSetStmt(mcx, s)?
         }
         NodeTag::T_ConvertRowtypeExpr => {
-            let s = node.as_variant::<ConvertRowtypeExpr>().expect("ConvertRowtypeExpr");
+            let s = node
+                .as_variant::<ConvertRowtypeExpr>()
+                .expect("ConvertRowtypeExpr");
             mkcopy_ConvertRowtypeExpr(mcx, s)?
         }
         NodeTag::T_CopyStmt => {
@@ -405,11 +473,15 @@ pub(crate) fn copy_generated<'d>(mcx: Mcx<'d>, node: Node<'_>) -> PgResult<Optio
             mkcopy_CreateCastStmt(mcx, s)?
         }
         NodeTag::T_CreateConversionStmt => {
-            let s = node.as_variant::<CreateConversionStmt>().expect("CreateConversionStmt");
+            let s = node
+                .as_variant::<CreateConversionStmt>()
+                .expect("CreateConversionStmt");
             mkcopy_CreateConversionStmt(mcx, s)?
         }
         NodeTag::T_CreateDomainStmt => {
-            let s = node.as_variant::<CreateDomainStmt>().expect("CreateDomainStmt");
+            let s = node
+                .as_variant::<CreateDomainStmt>()
+                .expect("CreateDomainStmt");
             mkcopy_CreateDomainStmt(mcx, s)?
         }
         NodeTag::T_CreateEnumStmt => {
@@ -417,11 +489,15 @@ pub(crate) fn copy_generated<'d>(mcx: Mcx<'d>, node: Node<'_>) -> PgResult<Optio
             mkcopy_CreateEnumStmt(mcx, s)?
         }
         NodeTag::T_CreateEventTrigStmt => {
-            let s = node.as_variant::<CreateEventTrigStmt>().expect("CreateEventTrigStmt");
+            let s = node
+                .as_variant::<CreateEventTrigStmt>()
+                .expect("CreateEventTrigStmt");
             mkcopy_CreateEventTrigStmt(mcx, s)?
         }
         NodeTag::T_CreateExtensionStmt => {
-            let s = node.as_variant::<CreateExtensionStmt>().expect("CreateExtensionStmt");
+            let s = node
+                .as_variant::<CreateExtensionStmt>()
+                .expect("CreateExtensionStmt");
             mkcopy_CreateExtensionStmt(mcx, s)?
         }
         NodeTag::T_CreateFdwStmt => {
@@ -429,43 +505,63 @@ pub(crate) fn copy_generated<'d>(mcx: Mcx<'d>, node: Node<'_>) -> PgResult<Optio
             mkcopy_CreateFdwStmt(mcx, s)?
         }
         NodeTag::T_CreateForeignServerStmt => {
-            let s = node.as_variant::<CreateForeignServerStmt>().expect("CreateForeignServerStmt");
+            let s = node
+                .as_variant::<CreateForeignServerStmt>()
+                .expect("CreateForeignServerStmt");
             mkcopy_CreateForeignServerStmt(mcx, s)?
         }
         NodeTag::T_CreateForeignTableStmt => {
-            let s = node.as_variant::<CreateForeignTableStmt>().expect("CreateForeignTableStmt");
+            let s = node
+                .as_variant::<CreateForeignTableStmt>()
+                .expect("CreateForeignTableStmt");
             mkcopy_CreateForeignTableStmt(mcx, s)?
         }
         NodeTag::T_CreateFunctionStmt => {
-            let s = node.as_variant::<CreateFunctionStmt>().expect("CreateFunctionStmt");
+            let s = node
+                .as_variant::<CreateFunctionStmt>()
+                .expect("CreateFunctionStmt");
             mkcopy_CreateFunctionStmt(mcx, s)?
         }
         NodeTag::T_CreateOpClassItem => {
-            let s = node.as_variant::<CreateOpClassItem>().expect("CreateOpClassItem");
+            let s = node
+                .as_variant::<CreateOpClassItem>()
+                .expect("CreateOpClassItem");
             mkcopy_CreateOpClassItem(mcx, s)?
         }
         NodeTag::T_CreateOpClassStmt => {
-            let s = node.as_variant::<CreateOpClassStmt>().expect("CreateOpClassStmt");
+            let s = node
+                .as_variant::<CreateOpClassStmt>()
+                .expect("CreateOpClassStmt");
             mkcopy_CreateOpClassStmt(mcx, s)?
         }
         NodeTag::T_CreateOpFamilyStmt => {
-            let s = node.as_variant::<CreateOpFamilyStmt>().expect("CreateOpFamilyStmt");
+            let s = node
+                .as_variant::<CreateOpFamilyStmt>()
+                .expect("CreateOpFamilyStmt");
             mkcopy_CreateOpFamilyStmt(mcx, s)?
         }
         NodeTag::T_CreatePLangStmt => {
-            let s = node.as_variant::<CreatePLangStmt>().expect("CreatePLangStmt");
+            let s = node
+                .as_variant::<CreatePLangStmt>()
+                .expect("CreatePLangStmt");
             mkcopy_CreatePLangStmt(mcx, s)?
         }
         NodeTag::T_CreatePolicyStmt => {
-            let s = node.as_variant::<CreatePolicyStmt>().expect("CreatePolicyStmt");
+            let s = node
+                .as_variant::<CreatePolicyStmt>()
+                .expect("CreatePolicyStmt");
             mkcopy_CreatePolicyStmt(mcx, s)?
         }
         NodeTag::T_CreatePublicationStmt => {
-            let s = node.as_variant::<CreatePublicationStmt>().expect("CreatePublicationStmt");
+            let s = node
+                .as_variant::<CreatePublicationStmt>()
+                .expect("CreatePublicationStmt");
             mkcopy_CreatePublicationStmt(mcx, s)?
         }
         NodeTag::T_CreateRangeStmt => {
-            let s = node.as_variant::<CreateRangeStmt>().expect("CreateRangeStmt");
+            let s = node
+                .as_variant::<CreateRangeStmt>()
+                .expect("CreateRangeStmt");
             mkcopy_CreateRangeStmt(mcx, s)?
         }
         NodeTag::T_CreateRoleStmt => {
@@ -473,7 +569,9 @@ pub(crate) fn copy_generated<'d>(mcx: Mcx<'d>, node: Node<'_>) -> PgResult<Optio
             mkcopy_CreateRoleStmt(mcx, s)?
         }
         NodeTag::T_CreateSchemaStmt => {
-            let s = node.as_variant::<CreateSchemaStmt>().expect("CreateSchemaStmt");
+            let s = node
+                .as_variant::<CreateSchemaStmt>()
+                .expect("CreateSchemaStmt");
             mkcopy_CreateSchemaStmt(mcx, s)?
         }
         NodeTag::T_CreateSeqStmt => {
@@ -481,7 +579,9 @@ pub(crate) fn copy_generated<'d>(mcx: Mcx<'d>, node: Node<'_>) -> PgResult<Optio
             mkcopy_CreateSeqStmt(mcx, s)?
         }
         NodeTag::T_CreateStatsStmt => {
-            let s = node.as_variant::<CreateStatsStmt>().expect("CreateStatsStmt");
+            let s = node
+                .as_variant::<CreateStatsStmt>()
+                .expect("CreateStatsStmt");
             mkcopy_CreateStatsStmt(mcx, s)?
         }
         NodeTag::T_CreateStmt => {
@@ -489,19 +589,27 @@ pub(crate) fn copy_generated<'d>(mcx: Mcx<'d>, node: Node<'_>) -> PgResult<Optio
             mkcopy_CreateStmt(mcx, s)?
         }
         NodeTag::T_CreateSubscriptionStmt => {
-            let s = node.as_variant::<CreateSubscriptionStmt>().expect("CreateSubscriptionStmt");
+            let s = node
+                .as_variant::<CreateSubscriptionStmt>()
+                .expect("CreateSubscriptionStmt");
             mkcopy_CreateSubscriptionStmt(mcx, s)?
         }
         NodeTag::T_CreateTableAsStmt => {
-            let s = node.as_variant::<CreateTableAsStmt>().expect("CreateTableAsStmt");
+            let s = node
+                .as_variant::<CreateTableAsStmt>()
+                .expect("CreateTableAsStmt");
             mkcopy_CreateTableAsStmt(mcx, s)?
         }
         NodeTag::T_CreateTableSpaceStmt => {
-            let s = node.as_variant::<CreateTableSpaceStmt>().expect("CreateTableSpaceStmt");
+            let s = node
+                .as_variant::<CreateTableSpaceStmt>()
+                .expect("CreateTableSpaceStmt");
             mkcopy_CreateTableSpaceStmt(mcx, s)?
         }
         NodeTag::T_CreateTransformStmt => {
-            let s = node.as_variant::<CreateTransformStmt>().expect("CreateTransformStmt");
+            let s = node
+                .as_variant::<CreateTransformStmt>()
+                .expect("CreateTransformStmt");
             mkcopy_CreateTransformStmt(mcx, s)?
         }
         NodeTag::T_CreateTrigStmt => {
@@ -509,7 +617,9 @@ pub(crate) fn copy_generated<'d>(mcx: Mcx<'d>, node: Node<'_>) -> PgResult<Optio
             mkcopy_CreateTrigStmt(mcx, s)?
         }
         NodeTag::T_CreateUserMappingStmt => {
-            let s = node.as_variant::<CreateUserMappingStmt>().expect("CreateUserMappingStmt");
+            let s = node
+                .as_variant::<CreateUserMappingStmt>()
+                .expect("CreateUserMappingStmt");
             mkcopy_CreateUserMappingStmt(mcx, s)?
         }
         NodeTag::T_CreatedbStmt => {
@@ -529,7 +639,9 @@ pub(crate) fn copy_generated<'d>(mcx: Mcx<'d>, node: Node<'_>) -> PgResult<Optio
             mkcopy_DeallocateStmt(mcx, s)?
         }
         NodeTag::T_DeclareCursorStmt => {
-            let s = node.as_variant::<DeclareCursorStmt>().expect("DeclareCursorStmt");
+            let s = node
+                .as_variant::<DeclareCursorStmt>()
+                .expect("DeclareCursorStmt");
             mkcopy_DeclareCursorStmt(mcx, s)?
         }
         NodeTag::T_DefElem => {
@@ -569,15 +681,21 @@ pub(crate) fn copy_generated<'d>(mcx: Mcx<'d>, node: Node<'_>) -> PgResult<Optio
             mkcopy_DropStmt(mcx, s)?
         }
         NodeTag::T_DropSubscriptionStmt => {
-            let s = node.as_variant::<DropSubscriptionStmt>().expect("DropSubscriptionStmt");
+            let s = node
+                .as_variant::<DropSubscriptionStmt>()
+                .expect("DropSubscriptionStmt");
             mkcopy_DropSubscriptionStmt(mcx, s)?
         }
         NodeTag::T_DropTableSpaceStmt => {
-            let s = node.as_variant::<DropTableSpaceStmt>().expect("DropTableSpaceStmt");
+            let s = node
+                .as_variant::<DropTableSpaceStmt>()
+                .expect("DropTableSpaceStmt");
             mkcopy_DropTableSpaceStmt(mcx, s)?
         }
         NodeTag::T_DropUserMappingStmt => {
-            let s = node.as_variant::<DropUserMappingStmt>().expect("DropUserMappingStmt");
+            let s = node
+                .as_variant::<DropUserMappingStmt>()
+                .expect("DropUserMappingStmt");
             mkcopy_DropUserMappingStmt(mcx, s)?
         }
         NodeTag::T_DropdbStmt => {
@@ -621,7 +739,9 @@ pub(crate) fn copy_generated<'d>(mcx: Mcx<'d>, node: Node<'_>) -> PgResult<Optio
             mkcopy_FuncExpr(mcx, s)?
         }
         NodeTag::T_FunctionParameter => {
-            let s = node.as_variant::<FunctionParameter>().expect("FunctionParameter");
+            let s = node
+                .as_variant::<FunctionParameter>()
+                .expect("FunctionParameter");
             mkcopy_FunctionParameter(mcx, s)?
         }
         NodeTag::T_FunctionScan => {
@@ -665,11 +785,15 @@ pub(crate) fn copy_generated<'d>(mcx: Mcx<'d>, node: Node<'_>) -> PgResult<Optio
             mkcopy_HashJoin(mcx, s)?
         }
         NodeTag::T_ImportForeignSchemaStmt => {
-            let s = node.as_variant::<ImportForeignSchemaStmt>().expect("ImportForeignSchemaStmt");
+            let s = node
+                .as_variant::<ImportForeignSchemaStmt>()
+                .expect("ImportForeignSchemaStmt");
             mkcopy_ImportForeignSchemaStmt(mcx, s)?
         }
         NodeTag::T_IncrementalSort => {
-            let s = node.as_variant::<IncrementalSort>().expect("IncrementalSort");
+            let s = node
+                .as_variant::<IncrementalSort>()
+                .expect("IncrementalSort");
             mkcopy_IncrementalSort(mcx, s)?
         }
         NodeTag::T_IndexElem => {
@@ -709,7 +833,9 @@ pub(crate) fn copy_generated<'d>(mcx: Mcx<'d>, node: Node<'_>) -> PgResult<Optio
             mkcopy_JoinExpr(mcx, s)?
         }
         NodeTag::T_JsonAggConstructor => {
-            let s = node.as_variant::<JsonAggConstructor>().expect("JsonAggConstructor");
+            let s = node
+                .as_variant::<JsonAggConstructor>()
+                .expect("JsonAggConstructor");
             mkcopy_JsonAggConstructor(mcx, s)?
         }
         NodeTag::T_JsonArgument => {
@@ -721,11 +847,15 @@ pub(crate) fn copy_generated<'d>(mcx: Mcx<'d>, node: Node<'_>) -> PgResult<Optio
             mkcopy_JsonArrayAgg(mcx, s)?
         }
         NodeTag::T_JsonArrayConstructor => {
-            let s = node.as_variant::<JsonArrayConstructor>().expect("JsonArrayConstructor");
+            let s = node
+                .as_variant::<JsonArrayConstructor>()
+                .expect("JsonArrayConstructor");
             mkcopy_JsonArrayConstructor(mcx, s)?
         }
         NodeTag::T_JsonArrayQueryConstructor => {
-            let s = node.as_variant::<JsonArrayQueryConstructor>().expect("JsonArrayQueryConstructor");
+            let s = node
+                .as_variant::<JsonArrayQueryConstructor>()
+                .expect("JsonArrayQueryConstructor");
             mkcopy_JsonArrayQueryConstructor(mcx, s)?
         }
         NodeTag::T_JsonBehavior => {
@@ -733,7 +863,9 @@ pub(crate) fn copy_generated<'d>(mcx: Mcx<'d>, node: Node<'_>) -> PgResult<Optio
             mkcopy_JsonBehavior(mcx, s)?
         }
         NodeTag::T_JsonConstructorExpr => {
-            let s = node.as_variant::<JsonConstructorExpr>().expect("JsonConstructorExpr");
+            let s = node
+                .as_variant::<JsonConstructorExpr>()
+                .expect("JsonConstructorExpr");
             mkcopy_JsonConstructorExpr(mcx, s)?
         }
         NodeTag::T_JsonExpr => {
@@ -749,7 +881,9 @@ pub(crate) fn copy_generated<'d>(mcx: Mcx<'d>, node: Node<'_>) -> PgResult<Optio
             mkcopy_JsonFuncExpr(mcx, s)?
         }
         NodeTag::T_JsonIsPredicate => {
-            let s = node.as_variant::<JsonIsPredicate>().expect("JsonIsPredicate");
+            let s = node
+                .as_variant::<JsonIsPredicate>()
+                .expect("JsonIsPredicate");
             mkcopy_JsonIsPredicate(mcx, s)?
         }
         NodeTag::T_JsonKeyValue => {
@@ -761,7 +895,9 @@ pub(crate) fn copy_generated<'d>(mcx: Mcx<'d>, node: Node<'_>) -> PgResult<Optio
             mkcopy_JsonObjectAgg(mcx, s)?
         }
         NodeTag::T_JsonObjectConstructor => {
-            let s = node.as_variant::<JsonObjectConstructor>().expect("JsonObjectConstructor");
+            let s = node
+                .as_variant::<JsonObjectConstructor>()
+                .expect("JsonObjectConstructor");
             mkcopy_JsonObjectConstructor(mcx, s)?
         }
         NodeTag::T_JsonOutput => {
@@ -781,7 +917,9 @@ pub(crate) fn copy_generated<'d>(mcx: Mcx<'d>, node: Node<'_>) -> PgResult<Optio
             mkcopy_JsonScalarExpr(mcx, s)?
         }
         NodeTag::T_JsonSerializeExpr => {
-            let s = node.as_variant::<JsonSerializeExpr>().expect("JsonSerializeExpr");
+            let s = node
+                .as_variant::<JsonSerializeExpr>()
+                .expect("JsonSerializeExpr");
             mkcopy_JsonSerializeExpr(mcx, s)?
         }
         NodeTag::T_JsonTable => {
@@ -789,7 +927,9 @@ pub(crate) fn copy_generated<'d>(mcx: Mcx<'d>, node: Node<'_>) -> PgResult<Optio
             mkcopy_JsonTable(mcx, s)?
         }
         NodeTag::T_JsonTableColumn => {
-            let s = node.as_variant::<JsonTableColumn>().expect("JsonTableColumn");
+            let s = node
+                .as_variant::<JsonTableColumn>()
+                .expect("JsonTableColumn");
             mkcopy_JsonTableColumn(mcx, s)?
         }
         NodeTag::T_JsonTablePath => {
@@ -797,15 +937,21 @@ pub(crate) fn copy_generated<'d>(mcx: Mcx<'d>, node: Node<'_>) -> PgResult<Optio
             mkcopy_JsonTablePath(mcx, s)?
         }
         NodeTag::T_JsonTablePathScan => {
-            let s = node.as_variant::<JsonTablePathScan>().expect("JsonTablePathScan");
+            let s = node
+                .as_variant::<JsonTablePathScan>()
+                .expect("JsonTablePathScan");
             mkcopy_JsonTablePathScan(mcx, s)?
         }
         NodeTag::T_JsonTablePathSpec => {
-            let s = node.as_variant::<JsonTablePathSpec>().expect("JsonTablePathSpec");
+            let s = node
+                .as_variant::<JsonTablePathSpec>()
+                .expect("JsonTablePathSpec");
             mkcopy_JsonTablePathSpec(mcx, s)?
         }
         NodeTag::T_JsonTableSiblingJoin => {
-            let s = node.as_variant::<JsonTableSiblingJoin>().expect("JsonTableSiblingJoin");
+            let s = node
+                .as_variant::<JsonTableSiblingJoin>()
+                .expect("JsonTableSiblingJoin");
             mkcopy_JsonTableSiblingJoin(mcx, s)?
         }
         NodeTag::T_JsonValueExpr => {
@@ -861,11 +1007,15 @@ pub(crate) fn copy_generated<'d>(mcx: Mcx<'d>, node: Node<'_>) -> PgResult<Optio
             mkcopy_MergeStmt(mcx, s)?
         }
         NodeTag::T_MergeSupportFunc => {
-            let s = node.as_variant::<MergeSupportFunc>().expect("MergeSupportFunc");
+            let s = node
+                .as_variant::<MergeSupportFunc>()
+                .expect("MergeSupportFunc");
             mkcopy_MergeSupportFunc(mcx, s)?
         }
         NodeTag::T_MergeWhenClause => {
-            let s = node.as_variant::<MergeWhenClause>().expect("MergeWhenClause");
+            let s = node
+                .as_variant::<MergeWhenClause>()
+                .expect("MergeWhenClause");
             mkcopy_MergeWhenClause(mcx, s)?
         }
         NodeTag::T_MinMaxExpr => {
@@ -885,7 +1035,9 @@ pub(crate) fn copy_generated<'d>(mcx: Mcx<'d>, node: Node<'_>) -> PgResult<Optio
             mkcopy_NamedArgExpr(mcx, s)?
         }
         NodeTag::T_NamedTuplestoreScan => {
-            let s = node.as_variant::<NamedTuplestoreScan>().expect("NamedTuplestoreScan");
+            let s = node
+                .as_variant::<NamedTuplestoreScan>()
+                .expect("NamedTuplestoreScan");
             mkcopy_NamedTuplestoreScan(mcx, s)?
         }
         NodeTag::T_NestLoop => {
@@ -917,7 +1069,9 @@ pub(crate) fn copy_generated<'d>(mcx: Mcx<'d>, node: Node<'_>) -> PgResult<Optio
             mkcopy_ObjectWithArgs(mcx, s)?
         }
         NodeTag::T_OnConflictClause => {
-            let s = node.as_variant::<OnConflictClause>().expect("OnConflictClause");
+            let s = node
+                .as_variant::<OnConflictClause>()
+                .expect("OnConflictClause");
             mkcopy_OnConflictClause(mcx, s)?
         }
         NodeTag::T_OnConflictExpr => {
@@ -941,7 +1095,9 @@ pub(crate) fn copy_generated<'d>(mcx: Mcx<'d>, node: Node<'_>) -> PgResult<Optio
             mkcopy_ParamRef(mcx, s)?
         }
         NodeTag::T_PartitionBoundSpec => {
-            let s = node.as_variant::<PartitionBoundSpec>().expect("PartitionBoundSpec");
+            let s = node
+                .as_variant::<PartitionBoundSpec>()
+                .expect("PartitionBoundSpec");
             mkcopy_PartitionBoundSpec(mcx, s)?
         }
         NodeTag::T_PartitionCmd => {
@@ -953,19 +1109,27 @@ pub(crate) fn copy_generated<'d>(mcx: Mcx<'d>, node: Node<'_>) -> PgResult<Optio
             mkcopy_PartitionElem(mcx, s)?
         }
         NodeTag::T_PartitionPruneInfo => {
-            let s = node.as_variant::<PartitionPruneInfo>().expect("PartitionPruneInfo");
+            let s = node
+                .as_variant::<PartitionPruneInfo>()
+                .expect("PartitionPruneInfo");
             mkcopy_PartitionPruneInfo(mcx, s)?
         }
         NodeTag::T_PartitionPruneStepCombine => {
-            let s = node.as_variant::<PartitionPruneStepCombine>().expect("PartitionPruneStepCombine");
+            let s = node
+                .as_variant::<PartitionPruneStepCombine>()
+                .expect("PartitionPruneStepCombine");
             mkcopy_PartitionPruneStepCombine(mcx, s)?
         }
         NodeTag::T_PartitionPruneStepOp => {
-            let s = node.as_variant::<PartitionPruneStepOp>().expect("PartitionPruneStepOp");
+            let s = node
+                .as_variant::<PartitionPruneStepOp>()
+                .expect("PartitionPruneStepOp");
             mkcopy_PartitionPruneStepOp(mcx, s)?
         }
         NodeTag::T_PartitionRangeDatum => {
-            let s = node.as_variant::<PartitionRangeDatum>().expect("PartitionRangeDatum");
+            let s = node
+                .as_variant::<PartitionRangeDatum>()
+                .expect("PartitionRangeDatum");
             mkcopy_PartitionRangeDatum(mcx, s)?
         }
         NodeTag::T_PartitionSpec => {
@@ -973,7 +1137,9 @@ pub(crate) fn copy_generated<'d>(mcx: Mcx<'d>, node: Node<'_>) -> PgResult<Optio
             mkcopy_PartitionSpec(mcx, s)?
         }
         NodeTag::T_PartitionedRelPruneInfo => {
-            let s = node.as_variant::<PartitionedRelPruneInfo>().expect("PartitionedRelPruneInfo");
+            let s = node
+                .as_variant::<PartitionedRelPruneInfo>()
+                .expect("PartitionedRelPruneInfo");
             mkcopy_PartitionedRelPruneInfo(mcx, s)?
         }
         NodeTag::T_PlaceHolderVar => {
@@ -1001,11 +1167,15 @@ pub(crate) fn copy_generated<'d>(mcx: Mcx<'d>, node: Node<'_>) -> PgResult<Optio
             mkcopy_ProjectSet(mcx, s)?
         }
         NodeTag::T_PublicationObjSpec => {
-            let s = node.as_variant::<PublicationObjSpec>().expect("PublicationObjSpec");
+            let s = node
+                .as_variant::<PublicationObjSpec>()
+                .expect("PublicationObjSpec");
             mkcopy_PublicationObjSpec(mcx, s)?
         }
         NodeTag::T_PublicationTable => {
-            let s = node.as_variant::<PublicationTable>().expect("PublicationTable");
+            let s = node
+                .as_variant::<PublicationTable>()
+                .expect("PublicationTable");
             mkcopy_PublicationTable(mcx, s)?
         }
         NodeTag::T_Query => {
@@ -1013,7 +1183,9 @@ pub(crate) fn copy_generated<'d>(mcx: Mcx<'d>, node: Node<'_>) -> PgResult<Optio
             mkcopy_Query(mcx, s)?
         }
         NodeTag::T_RTEPermissionInfo => {
-            let s = node.as_variant::<RTEPermissionInfo>().expect("RTEPermissionInfo");
+            let s = node
+                .as_variant::<RTEPermissionInfo>()
+                .expect("RTEPermissionInfo");
             mkcopy_RTEPermissionInfo(mcx, s)?
         }
         NodeTag::T_RangeFunction => {
@@ -1029,11 +1201,15 @@ pub(crate) fn copy_generated<'d>(mcx: Mcx<'d>, node: Node<'_>) -> PgResult<Optio
             mkcopy_RangeTableFunc(mcx, s)?
         }
         NodeTag::T_RangeTableFuncCol => {
-            let s = node.as_variant::<RangeTableFuncCol>().expect("RangeTableFuncCol");
+            let s = node
+                .as_variant::<RangeTableFuncCol>()
+                .expect("RangeTableFuncCol");
             mkcopy_RangeTableFuncCol(mcx, s)?
         }
         NodeTag::T_RangeTableSample => {
-            let s = node.as_variant::<RangeTableSample>().expect("RangeTableSample");
+            let s = node
+                .as_variant::<RangeTableSample>()
+                .expect("RangeTableSample");
             mkcopy_RangeTableSample(mcx, s)?
         }
         NodeTag::T_RangeTblEntry => {
@@ -1041,7 +1217,9 @@ pub(crate) fn copy_generated<'d>(mcx: Mcx<'d>, node: Node<'_>) -> PgResult<Optio
             mkcopy_RangeTblEntry(mcx, s)?
         }
         NodeTag::T_RangeTblFunction => {
-            let s = node.as_variant::<RangeTblFunction>().expect("RangeTblFunction");
+            let s = node
+                .as_variant::<RangeTblFunction>()
+                .expect("RangeTblFunction");
             mkcopy_RangeTblFunction(mcx, s)?
         }
         NodeTag::T_RangeTblRef => {
@@ -1057,7 +1235,9 @@ pub(crate) fn copy_generated<'d>(mcx: Mcx<'d>, node: Node<'_>) -> PgResult<Optio
             mkcopy_RawStmt(mcx, s)?
         }
         NodeTag::T_ReassignOwnedStmt => {
-            let s = node.as_variant::<ReassignOwnedStmt>().expect("ReassignOwnedStmt");
+            let s = node
+                .as_variant::<ReassignOwnedStmt>()
+                .expect("ReassignOwnedStmt");
             mkcopy_ReassignOwnedStmt(mcx, s)?
         }
         NodeTag::T_RecursiveUnion => {
@@ -1065,7 +1245,9 @@ pub(crate) fn copy_generated<'d>(mcx: Mcx<'d>, node: Node<'_>) -> PgResult<Optio
             mkcopy_RecursiveUnion(mcx, s)?
         }
         NodeTag::T_RefreshMatViewStmt => {
-            let s = node.as_variant::<RefreshMatViewStmt>().expect("RefreshMatViewStmt");
+            let s = node
+                .as_variant::<RefreshMatViewStmt>()
+                .expect("RefreshMatViewStmt");
             mkcopy_RefreshMatViewStmt(mcx, s)?
         }
         NodeTag::T_ReindexStmt => {
@@ -1081,7 +1263,9 @@ pub(crate) fn copy_generated<'d>(mcx: Mcx<'d>, node: Node<'_>) -> PgResult<Optio
             mkcopy_RenameStmt(mcx, s)?
         }
         NodeTag::T_ReplicaIdentityStmt => {
-            let s = node.as_variant::<ReplicaIdentityStmt>().expect("ReplicaIdentityStmt");
+            let s = node
+                .as_variant::<ReplicaIdentityStmt>()
+                .expect("ReplicaIdentityStmt");
             mkcopy_ReplicaIdentityStmt(mcx, s)?
         }
         NodeTag::T_ResTarget => {
@@ -1097,7 +1281,9 @@ pub(crate) fn copy_generated<'d>(mcx: Mcx<'d>, node: Node<'_>) -> PgResult<Optio
             mkcopy_ReturnStmt(mcx, s)?
         }
         NodeTag::T_ReturningClause => {
-            let s = node.as_variant::<ReturningClause>().expect("ReturningClause");
+            let s = node
+                .as_variant::<ReturningClause>()
+                .expect("ReturningClause");
             mkcopy_ReturningClause(mcx, s)?
         }
         NodeTag::T_ReturningExpr => {
@@ -1105,7 +1291,9 @@ pub(crate) fn copy_generated<'d>(mcx: Mcx<'d>, node: Node<'_>) -> PgResult<Optio
             mkcopy_ReturningExpr(mcx, s)?
         }
         NodeTag::T_ReturningOption => {
-            let s = node.as_variant::<ReturningOption>().expect("ReturningOption");
+            let s = node
+                .as_variant::<ReturningOption>()
+                .expect("ReturningOption");
             mkcopy_ReturningOption(mcx, s)?
         }
         NodeTag::T_RoleSpec => {
@@ -1129,7 +1317,9 @@ pub(crate) fn copy_generated<'d>(mcx: Mcx<'d>, node: Node<'_>) -> PgResult<Optio
             mkcopy_RuleStmt(mcx, s)?
         }
         NodeTag::T_SQLValueFunction => {
-            let s = node.as_variant::<SQLValueFunction>().expect("SQLValueFunction");
+            let s = node
+                .as_variant::<SQLValueFunction>()
+                .expect("SQLValueFunction");
             mkcopy_SQLValueFunction(mcx, s)?
         }
         NodeTag::T_SampleScan => {
@@ -1137,7 +1327,9 @@ pub(crate) fn copy_generated<'d>(mcx: Mcx<'d>, node: Node<'_>) -> PgResult<Optio
             mkcopy_SampleScan(mcx, s)?
         }
         NodeTag::T_ScalarArrayOpExpr => {
-            let s = node.as_variant::<ScalarArrayOpExpr>().expect("ScalarArrayOpExpr");
+            let s = node
+                .as_variant::<ScalarArrayOpExpr>()
+                .expect("ScalarArrayOpExpr");
             mkcopy_ScalarArrayOpExpr(mcx, s)?
         }
         NodeTag::T_SecLabelStmt => {
@@ -1157,7 +1349,9 @@ pub(crate) fn copy_generated<'d>(mcx: Mcx<'d>, node: Node<'_>) -> PgResult<Optio
             mkcopy_SetOp(mcx, s)?
         }
         NodeTag::T_SetOperationStmt => {
-            let s = node.as_variant::<SetOperationStmt>().expect("SetOperationStmt");
+            let s = node
+                .as_variant::<SetOperationStmt>()
+                .expect("SetOperationStmt");
             mkcopy_SetOperationStmt(mcx, s)?
         }
         NodeTag::T_SetToDefault => {
@@ -1173,7 +1367,9 @@ pub(crate) fn copy_generated<'d>(mcx: Mcx<'d>, node: Node<'_>) -> PgResult<Optio
             mkcopy_SortBy(mcx, s)?
         }
         NodeTag::T_SortGroupClause => {
-            let s = node.as_variant::<SortGroupClause>().expect("SortGroupClause");
+            let s = node
+                .as_variant::<SortGroupClause>()
+                .expect("SortGroupClause");
             mkcopy_SortGroupClause(mcx, s)?
         }
         NodeTag::T_StatsElem => {
@@ -1193,7 +1389,9 @@ pub(crate) fn copy_generated<'d>(mcx: Mcx<'d>, node: Node<'_>) -> PgResult<Optio
             mkcopy_SubqueryScan(mcx, s)?
         }
         NodeTag::T_SubscriptingRef => {
-            let s = node.as_variant::<SubscriptingRef>().expect("SubscriptingRef");
+            let s = node
+                .as_variant::<SubscriptingRef>()
+                .expect("SubscriptingRef");
             mkcopy_SubscriptingRef(mcx, s)?
         }
         NodeTag::T_TableFunc => {
@@ -1205,11 +1403,15 @@ pub(crate) fn copy_generated<'d>(mcx: Mcx<'d>, node: Node<'_>) -> PgResult<Optio
             mkcopy_TableFuncScan(mcx, s)?
         }
         NodeTag::T_TableLikeClause => {
-            let s = node.as_variant::<TableLikeClause>().expect("TableLikeClause");
+            let s = node
+                .as_variant::<TableLikeClause>()
+                .expect("TableLikeClause");
             mkcopy_TableLikeClause(mcx, s)?
         }
         NodeTag::T_TableSampleClause => {
-            let s = node.as_variant::<TableSampleClause>().expect("TableSampleClause");
+            let s = node
+                .as_variant::<TableSampleClause>()
+                .expect("TableSampleClause");
             mkcopy_TableSampleClause(mcx, s)?
         }
         NodeTag::T_TargetEntry => {
@@ -1225,11 +1427,15 @@ pub(crate) fn copy_generated<'d>(mcx: Mcx<'d>, node: Node<'_>) -> PgResult<Optio
             mkcopy_TidScan(mcx, s)?
         }
         NodeTag::T_TransactionStmt => {
-            let s = node.as_variant::<TransactionStmt>().expect("TransactionStmt");
+            let s = node
+                .as_variant::<TransactionStmt>()
+                .expect("TransactionStmt");
             mkcopy_TransactionStmt(mcx, s)?
         }
         NodeTag::T_TriggerTransition => {
-            let s = node.as_variant::<TriggerTransition>().expect("TriggerTransition");
+            let s = node
+                .as_variant::<TriggerTransition>()
+                .expect("TriggerTransition");
             mkcopy_TriggerTransition(mcx, s)?
         }
         NodeTag::T_TruncateStmt => {
@@ -1273,11 +1479,15 @@ pub(crate) fn copy_generated<'d>(mcx: Mcx<'d>, node: Node<'_>) -> PgResult<Optio
             mkcopy_Var(mcx, s)?
         }
         NodeTag::T_VariableSetStmt => {
-            let s = node.as_variant::<VariableSetStmt>().expect("VariableSetStmt");
+            let s = node
+                .as_variant::<VariableSetStmt>()
+                .expect("VariableSetStmt");
             mkcopy_VariableSetStmt(mcx, s)?
         }
         NodeTag::T_VariableShowStmt => {
-            let s = node.as_variant::<VariableShowStmt>().expect("VariableShowStmt");
+            let s = node
+                .as_variant::<VariableShowStmt>()
+                .expect("VariableShowStmt");
             mkcopy_VariableShowStmt(mcx, s)?
         }
         NodeTag::T_ViewStmt => {
@@ -1301,11 +1511,15 @@ pub(crate) fn copy_generated<'d>(mcx: Mcx<'d>, node: Node<'_>) -> PgResult<Optio
             mkcopy_WindowFunc(mcx, s)?
         }
         NodeTag::T_WindowFuncRunCondition => {
-            let s = node.as_variant::<WindowFuncRunCondition>().expect("WindowFuncRunCondition");
+            let s = node
+                .as_variant::<WindowFuncRunCondition>()
+                .expect("WindowFuncRunCondition");
             mkcopy_WindowFuncRunCondition(mcx, s)?
         }
         NodeTag::T_WithCheckOption => {
-            let s = node.as_variant::<WithCheckOption>().expect("WithCheckOption");
+            let s = node
+                .as_variant::<WithCheckOption>()
+                .expect("WithCheckOption");
             mkcopy_WithCheckOption(mcx, s)?
         }
         NodeTag::T_WithClause => {
@@ -1328,7 +1542,6 @@ pub(crate) fn copy_generated<'d>(mcx: Mcx<'d>, node: Node<'_>) -> PgResult<Optio
     };
     Ok(Some(copy))
 }
-
 
 #[inline(never)]
 fn mkcopy_ATAlterConstraint<'d>(mcx: Mcx<'d>, s: &ATAlterConstraint<'_>) -> PgResult<Node<'d>> {
@@ -1381,12 +1594,18 @@ fn mkcopy_AlterCollationStmt<'d>(mcx: Mcx<'d>, s: &AlterCollationStmt<'_>) -> Pg
 }
 
 #[inline(never)]
-fn mkcopy_AlterDatabaseRefreshCollStmt<'d>(mcx: Mcx<'d>, s: &AlterDatabaseRefreshCollStmt<'_>) -> PgResult<Node<'d>> {
+fn mkcopy_AlterDatabaseRefreshCollStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &AlterDatabaseRefreshCollStmt<'_>,
+) -> PgResult<Node<'d>> {
     Node::mk(mcx, copy_AlterDatabaseRefreshCollStmt(mcx, s)?)
 }
 
 #[inline(never)]
-fn mkcopy_AlterDatabaseSetStmt<'d>(mcx: Mcx<'d>, s: &AlterDatabaseSetStmt<'_>) -> PgResult<Node<'d>> {
+fn mkcopy_AlterDatabaseSetStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &AlterDatabaseSetStmt<'_>,
+) -> PgResult<Node<'d>> {
     Node::mk(mcx, copy_AlterDatabaseSetStmt(mcx, s)?)
 }
 
@@ -1396,7 +1615,10 @@ fn mkcopy_AlterDatabaseStmt<'d>(mcx: Mcx<'d>, s: &AlterDatabaseStmt<'_>) -> PgRe
 }
 
 #[inline(never)]
-fn mkcopy_AlterDefaultPrivilegesStmt<'d>(mcx: Mcx<'d>, s: &AlterDefaultPrivilegesStmt<'_>) -> PgResult<Node<'d>> {
+fn mkcopy_AlterDefaultPrivilegesStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &AlterDefaultPrivilegesStmt<'_>,
+) -> PgResult<Node<'d>> {
     Node::mk(mcx, copy_AlterDefaultPrivilegesStmt(mcx, s)?)
 }
 
@@ -1416,7 +1638,10 @@ fn mkcopy_AlterEventTrigStmt<'d>(mcx: Mcx<'d>, s: &AlterEventTrigStmt<'_>) -> Pg
 }
 
 #[inline(never)]
-fn mkcopy_AlterExtensionContentsStmt<'d>(mcx: Mcx<'d>, s: &AlterExtensionContentsStmt<'_>) -> PgResult<Node<'d>> {
+fn mkcopy_AlterExtensionContentsStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &AlterExtensionContentsStmt<'_>,
+) -> PgResult<Node<'d>> {
     Node::mk(mcx, copy_AlterExtensionContentsStmt(mcx, s)?)
 }
 
@@ -1431,7 +1656,10 @@ fn mkcopy_AlterFdwStmt<'d>(mcx: Mcx<'d>, s: &AlterFdwStmt<'_>) -> PgResult<Node<
 }
 
 #[inline(never)]
-fn mkcopy_AlterForeignServerStmt<'d>(mcx: Mcx<'d>, s: &AlterForeignServerStmt<'_>) -> PgResult<Node<'d>> {
+fn mkcopy_AlterForeignServerStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &AlterForeignServerStmt<'_>,
+) -> PgResult<Node<'d>> {
     Node::mk(mcx, copy_AlterForeignServerStmt(mcx, s)?)
 }
 
@@ -1441,12 +1669,18 @@ fn mkcopy_AlterFunctionStmt<'d>(mcx: Mcx<'d>, s: &AlterFunctionStmt<'_>) -> PgRe
 }
 
 #[inline(never)]
-fn mkcopy_AlterObjectDependsStmt<'d>(mcx: Mcx<'d>, s: &AlterObjectDependsStmt<'_>) -> PgResult<Node<'d>> {
+fn mkcopy_AlterObjectDependsStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &AlterObjectDependsStmt<'_>,
+) -> PgResult<Node<'d>> {
     Node::mk(mcx, copy_AlterObjectDependsStmt(mcx, s)?)
 }
 
 #[inline(never)]
-fn mkcopy_AlterObjectSchemaStmt<'d>(mcx: Mcx<'d>, s: &AlterObjectSchemaStmt<'_>) -> PgResult<Node<'d>> {
+fn mkcopy_AlterObjectSchemaStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &AlterObjectSchemaStmt<'_>,
+) -> PgResult<Node<'d>> {
     Node::mk(mcx, copy_AlterObjectSchemaStmt(mcx, s)?)
 }
 
@@ -1471,7 +1705,10 @@ fn mkcopy_AlterPolicyStmt<'d>(mcx: Mcx<'d>, s: &AlterPolicyStmt<'_>) -> PgResult
 }
 
 #[inline(never)]
-fn mkcopy_AlterPublicationStmt<'d>(mcx: Mcx<'d>, s: &AlterPublicationStmt<'_>) -> PgResult<Node<'d>> {
+fn mkcopy_AlterPublicationStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &AlterPublicationStmt<'_>,
+) -> PgResult<Node<'d>> {
     Node::mk(mcx, copy_AlterPublicationStmt(mcx, s)?)
 }
 
@@ -1496,7 +1733,10 @@ fn mkcopy_AlterStatsStmt<'d>(mcx: Mcx<'d>, s: &AlterStatsStmt<'_>) -> PgResult<N
 }
 
 #[inline(never)]
-fn mkcopy_AlterSubscriptionStmt<'d>(mcx: Mcx<'d>, s: &AlterSubscriptionStmt<'_>) -> PgResult<Node<'d>> {
+fn mkcopy_AlterSubscriptionStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &AlterSubscriptionStmt<'_>,
+) -> PgResult<Node<'d>> {
     Node::mk(mcx, copy_AlterSubscriptionStmt(mcx, s)?)
 }
 
@@ -1506,12 +1746,18 @@ fn mkcopy_AlterSystemStmt<'d>(mcx: Mcx<'d>, s: &AlterSystemStmt<'_>) -> PgResult
 }
 
 #[inline(never)]
-fn mkcopy_AlterTSConfigurationStmt<'d>(mcx: Mcx<'d>, s: &AlterTSConfigurationStmt<'_>) -> PgResult<Node<'d>> {
+fn mkcopy_AlterTSConfigurationStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &AlterTSConfigurationStmt<'_>,
+) -> PgResult<Node<'d>> {
     Node::mk(mcx, copy_AlterTSConfigurationStmt(mcx, s)?)
 }
 
 #[inline(never)]
-fn mkcopy_AlterTSDictionaryStmt<'d>(mcx: Mcx<'d>, s: &AlterTSDictionaryStmt<'_>) -> PgResult<Node<'d>> {
+fn mkcopy_AlterTSDictionaryStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &AlterTSDictionaryStmt<'_>,
+) -> PgResult<Node<'d>> {
     Node::mk(mcx, copy_AlterTSDictionaryStmt(mcx, s)?)
 }
 
@@ -1521,12 +1767,18 @@ fn mkcopy_AlterTableCmd<'d>(mcx: Mcx<'d>, s: &AlterTableCmd<'_>) -> PgResult<Nod
 }
 
 #[inline(never)]
-fn mkcopy_AlterTableMoveAllStmt<'d>(mcx: Mcx<'d>, s: &AlterTableMoveAllStmt<'_>) -> PgResult<Node<'d>> {
+fn mkcopy_AlterTableMoveAllStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &AlterTableMoveAllStmt<'_>,
+) -> PgResult<Node<'d>> {
     Node::mk(mcx, copy_AlterTableMoveAllStmt(mcx, s)?)
 }
 
 #[inline(never)]
-fn mkcopy_AlterTableSpaceOptionsStmt<'d>(mcx: Mcx<'d>, s: &AlterTableSpaceOptionsStmt<'_>) -> PgResult<Node<'d>> {
+fn mkcopy_AlterTableSpaceOptionsStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &AlterTableSpaceOptionsStmt<'_>,
+) -> PgResult<Node<'d>> {
     Node::mk(mcx, copy_AlterTableSpaceOptionsStmt(mcx, s)?)
 }
 
@@ -1541,7 +1793,10 @@ fn mkcopy_AlterTypeStmt<'d>(mcx: Mcx<'d>, s: &AlterTypeStmt<'_>) -> PgResult<Nod
 }
 
 #[inline(never)]
-fn mkcopy_AlterUserMappingStmt<'d>(mcx: Mcx<'d>, s: &AlterUserMappingStmt<'_>) -> PgResult<Node<'d>> {
+fn mkcopy_AlterUserMappingStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &AlterUserMappingStmt<'_>,
+) -> PgResult<Node<'d>> {
     Node::mk(mcx, copy_AlterUserMappingStmt(mcx, s)?)
 }
 
@@ -1731,7 +1986,10 @@ fn mkcopy_CreateCastStmt<'d>(mcx: Mcx<'d>, s: &CreateCastStmt<'_>) -> PgResult<N
 }
 
 #[inline(never)]
-fn mkcopy_CreateConversionStmt<'d>(mcx: Mcx<'d>, s: &CreateConversionStmt<'_>) -> PgResult<Node<'d>> {
+fn mkcopy_CreateConversionStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &CreateConversionStmt<'_>,
+) -> PgResult<Node<'d>> {
     Node::mk(mcx, copy_CreateConversionStmt(mcx, s)?)
 }
 
@@ -1761,12 +2019,18 @@ fn mkcopy_CreateFdwStmt<'d>(mcx: Mcx<'d>, s: &CreateFdwStmt<'_>) -> PgResult<Nod
 }
 
 #[inline(never)]
-fn mkcopy_CreateForeignServerStmt<'d>(mcx: Mcx<'d>, s: &CreateForeignServerStmt<'_>) -> PgResult<Node<'d>> {
+fn mkcopy_CreateForeignServerStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &CreateForeignServerStmt<'_>,
+) -> PgResult<Node<'d>> {
     Node::mk(mcx, copy_CreateForeignServerStmt(mcx, s)?)
 }
 
 #[inline(never)]
-fn mkcopy_CreateForeignTableStmt<'d>(mcx: Mcx<'d>, s: &CreateForeignTableStmt<'_>) -> PgResult<Node<'d>> {
+fn mkcopy_CreateForeignTableStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &CreateForeignTableStmt<'_>,
+) -> PgResult<Node<'d>> {
     Node::mk(mcx, copy_CreateForeignTableStmt(mcx, s)?)
 }
 
@@ -1801,7 +2065,10 @@ fn mkcopy_CreatePolicyStmt<'d>(mcx: Mcx<'d>, s: &CreatePolicyStmt<'_>) -> PgResu
 }
 
 #[inline(never)]
-fn mkcopy_CreatePublicationStmt<'d>(mcx: Mcx<'d>, s: &CreatePublicationStmt<'_>) -> PgResult<Node<'d>> {
+fn mkcopy_CreatePublicationStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &CreatePublicationStmt<'_>,
+) -> PgResult<Node<'d>> {
     Node::mk(mcx, copy_CreatePublicationStmt(mcx, s)?)
 }
 
@@ -1836,7 +2103,10 @@ fn mkcopy_CreateStmt<'d>(mcx: Mcx<'d>, s: &CreateStmt<'_>) -> PgResult<Node<'d>>
 }
 
 #[inline(never)]
-fn mkcopy_CreateSubscriptionStmt<'d>(mcx: Mcx<'d>, s: &CreateSubscriptionStmt<'_>) -> PgResult<Node<'d>> {
+fn mkcopy_CreateSubscriptionStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &CreateSubscriptionStmt<'_>,
+) -> PgResult<Node<'d>> {
     Node::mk(mcx, copy_CreateSubscriptionStmt(mcx, s)?)
 }
 
@@ -1846,7 +2116,10 @@ fn mkcopy_CreateTableAsStmt<'d>(mcx: Mcx<'d>, s: &CreateTableAsStmt<'_>) -> PgRe
 }
 
 #[inline(never)]
-fn mkcopy_CreateTableSpaceStmt<'d>(mcx: Mcx<'d>, s: &CreateTableSpaceStmt<'_>) -> PgResult<Node<'d>> {
+fn mkcopy_CreateTableSpaceStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &CreateTableSpaceStmt<'_>,
+) -> PgResult<Node<'d>> {
     Node::mk(mcx, copy_CreateTableSpaceStmt(mcx, s)?)
 }
 
@@ -1861,7 +2134,10 @@ fn mkcopy_CreateTrigStmt<'d>(mcx: Mcx<'d>, s: &CreateTrigStmt<'_>) -> PgResult<N
 }
 
 #[inline(never)]
-fn mkcopy_CreateUserMappingStmt<'d>(mcx: Mcx<'d>, s: &CreateUserMappingStmt<'_>) -> PgResult<Node<'d>> {
+fn mkcopy_CreateUserMappingStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &CreateUserMappingStmt<'_>,
+) -> PgResult<Node<'d>> {
     Node::mk(mcx, copy_CreateUserMappingStmt(mcx, s)?)
 }
 
@@ -1936,7 +2212,10 @@ fn mkcopy_DropStmt<'d>(mcx: Mcx<'d>, s: &DropStmt<'_>) -> PgResult<Node<'d>> {
 }
 
 #[inline(never)]
-fn mkcopy_DropSubscriptionStmt<'d>(mcx: Mcx<'d>, s: &DropSubscriptionStmt<'_>) -> PgResult<Node<'d>> {
+fn mkcopy_DropSubscriptionStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &DropSubscriptionStmt<'_>,
+) -> PgResult<Node<'d>> {
     Node::mk(mcx, copy_DropSubscriptionStmt(mcx, s)?)
 }
 
@@ -2056,7 +2335,10 @@ fn mkcopy_HashJoin<'d>(mcx: Mcx<'d>, s: &HashJoin<'_>) -> PgResult<Node<'d>> {
 }
 
 #[inline(never)]
-fn mkcopy_ImportForeignSchemaStmt<'d>(mcx: Mcx<'d>, s: &ImportForeignSchemaStmt<'_>) -> PgResult<Node<'d>> {
+fn mkcopy_ImportForeignSchemaStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &ImportForeignSchemaStmt<'_>,
+) -> PgResult<Node<'d>> {
     Node::mk(mcx, copy_ImportForeignSchemaStmt(mcx, s)?)
 }
 
@@ -2126,12 +2408,18 @@ fn mkcopy_JsonArrayAgg<'d>(mcx: Mcx<'d>, s: &JsonArrayAgg<'_>) -> PgResult<Node<
 }
 
 #[inline(never)]
-fn mkcopy_JsonArrayConstructor<'d>(mcx: Mcx<'d>, s: &JsonArrayConstructor<'_>) -> PgResult<Node<'d>> {
+fn mkcopy_JsonArrayConstructor<'d>(
+    mcx: Mcx<'d>,
+    s: &JsonArrayConstructor<'_>,
+) -> PgResult<Node<'d>> {
     Node::mk(mcx, copy_JsonArrayConstructor(mcx, s)?)
 }
 
 #[inline(never)]
-fn mkcopy_JsonArrayQueryConstructor<'d>(mcx: Mcx<'d>, s: &JsonArrayQueryConstructor<'_>) -> PgResult<Node<'d>> {
+fn mkcopy_JsonArrayQueryConstructor<'d>(
+    mcx: Mcx<'d>,
+    s: &JsonArrayQueryConstructor<'_>,
+) -> PgResult<Node<'d>> {
     Node::mk(mcx, copy_JsonArrayQueryConstructor(mcx, s)?)
 }
 
@@ -2176,7 +2464,10 @@ fn mkcopy_JsonObjectAgg<'d>(mcx: Mcx<'d>, s: &JsonObjectAgg<'_>) -> PgResult<Nod
 }
 
 #[inline(never)]
-fn mkcopy_JsonObjectConstructor<'d>(mcx: Mcx<'d>, s: &JsonObjectConstructor<'_>) -> PgResult<Node<'d>> {
+fn mkcopy_JsonObjectConstructor<'d>(
+    mcx: Mcx<'d>,
+    s: &JsonObjectConstructor<'_>,
+) -> PgResult<Node<'d>> {
     Node::mk(mcx, copy_JsonObjectConstructor(mcx, s)?)
 }
 
@@ -2231,7 +2522,10 @@ fn mkcopy_JsonTablePathSpec<'d>(mcx: Mcx<'d>, s: &JsonTablePathSpec<'_>) -> PgRe
 }
 
 #[inline(never)]
-fn mkcopy_JsonTableSiblingJoin<'d>(mcx: Mcx<'d>, s: &JsonTableSiblingJoin<'_>) -> PgResult<Node<'d>> {
+fn mkcopy_JsonTableSiblingJoin<'d>(
+    mcx: Mcx<'d>,
+    s: &JsonTableSiblingJoin<'_>,
+) -> PgResult<Node<'d>> {
     Node::mk(mcx, copy_JsonTableSiblingJoin(mcx, s)?)
 }
 
@@ -2421,12 +2715,18 @@ fn mkcopy_PartitionPruneInfo<'d>(mcx: Mcx<'d>, s: &PartitionPruneInfo<'_>) -> Pg
 }
 
 #[inline(never)]
-fn mkcopy_PartitionPruneStepCombine<'d>(mcx: Mcx<'d>, s: &PartitionPruneStepCombine<'_>) -> PgResult<Node<'d>> {
+fn mkcopy_PartitionPruneStepCombine<'d>(
+    mcx: Mcx<'d>,
+    s: &PartitionPruneStepCombine<'_>,
+) -> PgResult<Node<'d>> {
     Node::mk(mcx, copy_PartitionPruneStepCombine(mcx, s)?)
 }
 
 #[inline(never)]
-fn mkcopy_PartitionPruneStepOp<'d>(mcx: Mcx<'d>, s: &PartitionPruneStepOp<'_>) -> PgResult<Node<'d>> {
+fn mkcopy_PartitionPruneStepOp<'d>(
+    mcx: Mcx<'d>,
+    s: &PartitionPruneStepOp<'_>,
+) -> PgResult<Node<'d>> {
     Node::mk(mcx, copy_PartitionPruneStepOp(mcx, s)?)
 }
 
@@ -2441,7 +2741,10 @@ fn mkcopy_PartitionSpec<'d>(mcx: Mcx<'d>, s: &PartitionSpec<'_>) -> PgResult<Nod
 }
 
 #[inline(never)]
-fn mkcopy_PartitionedRelPruneInfo<'d>(mcx: Mcx<'d>, s: &PartitionedRelPruneInfo<'_>) -> PgResult<Node<'d>> {
+fn mkcopy_PartitionedRelPruneInfo<'d>(
+    mcx: Mcx<'d>,
+    s: &PartitionedRelPruneInfo<'_>,
+) -> PgResult<Node<'d>> {
     Node::mk(mcx, copy_PartitionedRelPruneInfo(mcx, s)?)
 }
 
@@ -2851,7 +3154,10 @@ fn mkcopy_WindowFunc<'d>(mcx: Mcx<'d>, s: &WindowFunc<'_>) -> PgResult<Node<'d>>
 }
 
 #[inline(never)]
-fn mkcopy_WindowFuncRunCondition<'d>(mcx: Mcx<'d>, s: &WindowFuncRunCondition<'_>) -> PgResult<Node<'d>> {
+fn mkcopy_WindowFuncRunCondition<'d>(
+    mcx: Mcx<'d>,
+    s: &WindowFuncRunCondition<'_>,
+) -> PgResult<Node<'d>> {
     Node::mk(mcx, copy_WindowFuncRunCondition(mcx, s)?)
 }
 
@@ -2879,7 +3185,6 @@ fn mkcopy_XmlExpr<'d>(mcx: Mcx<'d>, s: &XmlExpr<'_>) -> PgResult<Node<'d>> {
 fn mkcopy_XmlSerialize<'d>(mcx: Mcx<'d>, s: &XmlSerialize<'_>) -> PgResult<Node<'d>> {
     Node::mk(mcx, copy_XmlSerialize(mcx, s)?)
 }
-
 
 fn copy_node_opt<'d>(mcx: Mcx<'d>, node: Option<Node<'_>>) -> PgResult<Option<Node<'d>>> {
     match node {
@@ -2933,7 +3238,10 @@ fn alloc_ref<'d, T>(mcx: Mcx<'d>, v: T) -> PgResult<&'d T> {
     Ok(leak_in(alloc_in(mcx, v)?))
 }
 
-pub(crate) fn copy_ATAlterConstraint<'d>(mcx: Mcx<'d>, s: &ATAlterConstraint<'_>) -> PgResult<ATAlterConstraint<'d>> {
+pub(crate) fn copy_ATAlterConstraint<'d>(
+    mcx: Mcx<'d>,
+    s: &ATAlterConstraint<'_>,
+) -> PgResult<ATAlterConstraint<'d>> {
     Ok(ATAlterConstraint {
         conname: opt_str_in(mcx, s.conname)?,
         alterEnforceability: s.alterEnforceability,
@@ -2975,7 +3283,10 @@ pub(crate) fn copy_A_Indices<'d>(mcx: Mcx<'d>, s: &A_Indices<'_>) -> PgResult<A_
     })
 }
 
-pub(crate) fn copy_A_Indirection<'d>(mcx: Mcx<'d>, s: &A_Indirection<'_>) -> PgResult<A_Indirection<'d>> {
+pub(crate) fn copy_A_Indirection<'d>(
+    mcx: Mcx<'d>,
+    s: &A_Indirection<'_>,
+) -> PgResult<A_Indirection<'d>> {
     Ok(A_Indirection {
         arg: copy_node_opt(mcx, s.arg)?,
         indirection: copy_node_list(mcx, &s.indirection)?,
@@ -3042,40 +3353,61 @@ pub(crate) fn copy_Alias<'d>(mcx: Mcx<'d>, s: &Alias<'_>) -> PgResult<Alias<'d>>
     })
 }
 
-pub(crate) fn copy_AlterCollationStmt<'d>(mcx: Mcx<'d>, s: &AlterCollationStmt<'_>) -> PgResult<AlterCollationStmt<'d>> {
+pub(crate) fn copy_AlterCollationStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &AlterCollationStmt<'_>,
+) -> PgResult<AlterCollationStmt<'d>> {
     Ok(AlterCollationStmt {
         collname: copy_node_list(mcx, &s.collname)?,
     })
 }
 
-pub(crate) fn copy_AlterDatabaseRefreshCollStmt<'d>(mcx: Mcx<'d>, s: &AlterDatabaseRefreshCollStmt<'_>) -> PgResult<AlterDatabaseRefreshCollStmt<'d>> {
+pub(crate) fn copy_AlterDatabaseRefreshCollStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &AlterDatabaseRefreshCollStmt<'_>,
+) -> PgResult<AlterDatabaseRefreshCollStmt<'d>> {
     Ok(AlterDatabaseRefreshCollStmt {
         dbname: opt_str_in(mcx, s.dbname)?,
     })
 }
 
-pub(crate) fn copy_AlterDatabaseSetStmt<'d>(mcx: Mcx<'d>, s: &AlterDatabaseSetStmt<'_>) -> PgResult<AlterDatabaseSetStmt<'d>> {
+pub(crate) fn copy_AlterDatabaseSetStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &AlterDatabaseSetStmt<'_>,
+) -> PgResult<AlterDatabaseSetStmt<'d>> {
     Ok(AlterDatabaseSetStmt {
         dbname: opt_str_in(mcx, s.dbname)?,
         setstmt: copy_node_opt(mcx, s.setstmt)?,
     })
 }
 
-pub(crate) fn copy_AlterDatabaseStmt<'d>(mcx: Mcx<'d>, s: &AlterDatabaseStmt<'_>) -> PgResult<AlterDatabaseStmt<'d>> {
+pub(crate) fn copy_AlterDatabaseStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &AlterDatabaseStmt<'_>,
+) -> PgResult<AlterDatabaseStmt<'d>> {
     Ok(AlterDatabaseStmt {
         dbname: opt_str_in(mcx, s.dbname)?,
         options: copy_node_list(mcx, &s.options)?,
     })
 }
 
-pub(crate) fn copy_AlterDefaultPrivilegesStmt<'d>(mcx: Mcx<'d>, s: &AlterDefaultPrivilegesStmt<'_>) -> PgResult<AlterDefaultPrivilegesStmt<'d>> {
+pub(crate) fn copy_AlterDefaultPrivilegesStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &AlterDefaultPrivilegesStmt<'_>,
+) -> PgResult<AlterDefaultPrivilegesStmt<'d>> {
     Ok(AlterDefaultPrivilegesStmt {
         options: copy_node_list(mcx, &s.options)?,
-        action: match s.action { Some(v) => Some(mk_ref(mcx, copy_GrantStmt(mcx, v)?)?), None => None },
+        action: match s.action {
+            Some(v) => Some(mk_ref(mcx, copy_GrantStmt(mcx, v)?)?),
+            None => None,
+        },
     })
 }
 
-pub(crate) fn copy_AlterDomainStmt<'d>(mcx: Mcx<'d>, s: &AlterDomainStmt<'_>) -> PgResult<AlterDomainStmt<'d>> {
+pub(crate) fn copy_AlterDomainStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &AlterDomainStmt<'_>,
+) -> PgResult<AlterDomainStmt<'d>> {
     Ok(AlterDomainStmt {
         subtype: s.subtype,
         typeName: copy_node_list(mcx, &s.typeName)?,
@@ -3086,7 +3418,10 @@ pub(crate) fn copy_AlterDomainStmt<'d>(mcx: Mcx<'d>, s: &AlterDomainStmt<'_>) ->
     })
 }
 
-pub(crate) fn copy_AlterEnumStmt<'d>(mcx: Mcx<'d>, s: &AlterEnumStmt<'_>) -> PgResult<AlterEnumStmt<'d>> {
+pub(crate) fn copy_AlterEnumStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &AlterEnumStmt<'_>,
+) -> PgResult<AlterEnumStmt<'d>> {
     Ok(AlterEnumStmt {
         typeName: copy_node_list(mcx, &s.typeName)?,
         oldVal: opt_str_in(mcx, s.oldVal)?,
@@ -3097,14 +3432,20 @@ pub(crate) fn copy_AlterEnumStmt<'d>(mcx: Mcx<'d>, s: &AlterEnumStmt<'_>) -> PgR
     })
 }
 
-pub(crate) fn copy_AlterEventTrigStmt<'d>(mcx: Mcx<'d>, s: &AlterEventTrigStmt<'_>) -> PgResult<AlterEventTrigStmt<'d>> {
+pub(crate) fn copy_AlterEventTrigStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &AlterEventTrigStmt<'_>,
+) -> PgResult<AlterEventTrigStmt<'d>> {
     Ok(AlterEventTrigStmt {
         trigname: opt_str_in(mcx, s.trigname)?,
         tgenabled: s.tgenabled,
     })
 }
 
-pub(crate) fn copy_AlterExtensionContentsStmt<'d>(mcx: Mcx<'d>, s: &AlterExtensionContentsStmt<'_>) -> PgResult<AlterExtensionContentsStmt<'d>> {
+pub(crate) fn copy_AlterExtensionContentsStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &AlterExtensionContentsStmt<'_>,
+) -> PgResult<AlterExtensionContentsStmt<'d>> {
     Ok(AlterExtensionContentsStmt {
         extname: opt_str_in(mcx, s.extname)?,
         action: s.action,
@@ -3113,14 +3454,20 @@ pub(crate) fn copy_AlterExtensionContentsStmt<'d>(mcx: Mcx<'d>, s: &AlterExtensi
     })
 }
 
-pub(crate) fn copy_AlterExtensionStmt<'d>(mcx: Mcx<'d>, s: &AlterExtensionStmt<'_>) -> PgResult<AlterExtensionStmt<'d>> {
+pub(crate) fn copy_AlterExtensionStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &AlterExtensionStmt<'_>,
+) -> PgResult<AlterExtensionStmt<'d>> {
     Ok(AlterExtensionStmt {
         extname: opt_str_in(mcx, s.extname)?,
         options: copy_node_list(mcx, &s.options)?,
     })
 }
 
-pub(crate) fn copy_AlterFdwStmt<'d>(mcx: Mcx<'d>, s: &AlterFdwStmt<'_>) -> PgResult<AlterFdwStmt<'d>> {
+pub(crate) fn copy_AlterFdwStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &AlterFdwStmt<'_>,
+) -> PgResult<AlterFdwStmt<'d>> {
     Ok(AlterFdwStmt {
         fdwname: opt_str_in(mcx, s.fdwname)?,
         func_options: copy_node_list(mcx, &s.func_options)?,
@@ -3128,7 +3475,10 @@ pub(crate) fn copy_AlterFdwStmt<'d>(mcx: Mcx<'d>, s: &AlterFdwStmt<'_>) -> PgRes
     })
 }
 
-pub(crate) fn copy_AlterForeignServerStmt<'d>(mcx: Mcx<'d>, s: &AlterForeignServerStmt<'_>) -> PgResult<AlterForeignServerStmt<'d>> {
+pub(crate) fn copy_AlterForeignServerStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &AlterForeignServerStmt<'_>,
+) -> PgResult<AlterForeignServerStmt<'d>> {
     Ok(AlterForeignServerStmt {
         servername: opt_str_in(mcx, s.servername)?,
         version: opt_str_in(mcx, s.version)?,
@@ -3137,35 +3487,56 @@ pub(crate) fn copy_AlterForeignServerStmt<'d>(mcx: Mcx<'d>, s: &AlterForeignServ
     })
 }
 
-pub(crate) fn copy_AlterFunctionStmt<'d>(mcx: Mcx<'d>, s: &AlterFunctionStmt<'_>) -> PgResult<AlterFunctionStmt<'d>> {
+pub(crate) fn copy_AlterFunctionStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &AlterFunctionStmt<'_>,
+) -> PgResult<AlterFunctionStmt<'d>> {
     Ok(AlterFunctionStmt {
         objtype: s.objtype,
-        func: match s.func { Some(v) => Some(mk_ref(mcx, copy_ObjectWithArgs(mcx, v)?)?), None => None },
+        func: match s.func {
+            Some(v) => Some(mk_ref(mcx, copy_ObjectWithArgs(mcx, v)?)?),
+            None => None,
+        },
         actions: copy_node_list(mcx, &s.actions)?,
     })
 }
 
-pub(crate) fn copy_AlterObjectDependsStmt<'d>(mcx: Mcx<'d>, s: &AlterObjectDependsStmt<'_>) -> PgResult<AlterObjectDependsStmt<'d>> {
+pub(crate) fn copy_AlterObjectDependsStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &AlterObjectDependsStmt<'_>,
+) -> PgResult<AlterObjectDependsStmt<'d>> {
     Ok(AlterObjectDependsStmt {
         objectType: s.objectType,
-        relation: match s.relation { Some(v) => Some(mk_ref(mcx, copy_RangeVar(mcx, v)?)?), None => None },
+        relation: match s.relation {
+            Some(v) => Some(mk_ref(mcx, copy_RangeVar(mcx, v)?)?),
+            None => None,
+        },
         object: copy_node_opt(mcx, s.object)?,
         extname: copy_node_opt(mcx, s.extname)?,
         remove: s.remove,
     })
 }
 
-pub(crate) fn copy_AlterObjectSchemaStmt<'d>(mcx: Mcx<'d>, s: &AlterObjectSchemaStmt<'_>) -> PgResult<AlterObjectSchemaStmt<'d>> {
+pub(crate) fn copy_AlterObjectSchemaStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &AlterObjectSchemaStmt<'_>,
+) -> PgResult<AlterObjectSchemaStmt<'d>> {
     Ok(AlterObjectSchemaStmt {
         objectType: s.objectType,
-        relation: match s.relation { Some(v) => Some(mk_ref(mcx, copy_RangeVar(mcx, v)?)?), None => None },
+        relation: match s.relation {
+            Some(v) => Some(mk_ref(mcx, copy_RangeVar(mcx, v)?)?),
+            None => None,
+        },
         object: copy_node_opt(mcx, s.object)?,
         newschema: opt_str_in(mcx, s.newschema)?,
         missing_ok: s.missing_ok,
     })
 }
 
-pub(crate) fn copy_AlterOpFamilyStmt<'d>(mcx: Mcx<'d>, s: &AlterOpFamilyStmt<'_>) -> PgResult<AlterOpFamilyStmt<'d>> {
+pub(crate) fn copy_AlterOpFamilyStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &AlterOpFamilyStmt<'_>,
+) -> PgResult<AlterOpFamilyStmt<'d>> {
     Ok(AlterOpFamilyStmt {
         opfamilyname: copy_node_list(mcx, &s.opfamilyname)?,
         amname: opt_str_in(mcx, s.amname)?,
@@ -3174,33 +3545,54 @@ pub(crate) fn copy_AlterOpFamilyStmt<'d>(mcx: Mcx<'d>, s: &AlterOpFamilyStmt<'_>
     })
 }
 
-pub(crate) fn copy_AlterOperatorStmt<'d>(mcx: Mcx<'d>, s: &AlterOperatorStmt<'_>) -> PgResult<AlterOperatorStmt<'d>> {
+pub(crate) fn copy_AlterOperatorStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &AlterOperatorStmt<'_>,
+) -> PgResult<AlterOperatorStmt<'d>> {
     Ok(AlterOperatorStmt {
         opername: copy_node_opt(mcx, s.opername)?,
         options: copy_node_list(mcx, &s.options)?,
     })
 }
 
-pub(crate) fn copy_AlterOwnerStmt<'d>(mcx: Mcx<'d>, s: &AlterOwnerStmt<'_>) -> PgResult<AlterOwnerStmt<'d>> {
+pub(crate) fn copy_AlterOwnerStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &AlterOwnerStmt<'_>,
+) -> PgResult<AlterOwnerStmt<'d>> {
     Ok(AlterOwnerStmt {
         objectType: s.objectType,
-        relation: match s.relation { Some(v) => Some(mk_ref(mcx, copy_RangeVar(mcx, v)?)?), None => None },
+        relation: match s.relation {
+            Some(v) => Some(mk_ref(mcx, copy_RangeVar(mcx, v)?)?),
+            None => None,
+        },
         object: copy_node_opt(mcx, s.object)?,
-        newowner: match s.newowner { Some(v) => Some(mk_ref(mcx, copy_RoleSpec(mcx, v)?)?), None => None },
+        newowner: match s.newowner {
+            Some(v) => Some(mk_ref(mcx, copy_RoleSpec(mcx, v)?)?),
+            None => None,
+        },
     })
 }
 
-pub(crate) fn copy_AlterPolicyStmt<'d>(mcx: Mcx<'d>, s: &AlterPolicyStmt<'_>) -> PgResult<AlterPolicyStmt<'d>> {
+pub(crate) fn copy_AlterPolicyStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &AlterPolicyStmt<'_>,
+) -> PgResult<AlterPolicyStmt<'d>> {
     Ok(AlterPolicyStmt {
         policy_name: opt_str_in(mcx, s.policy_name)?,
-        table: match s.table { Some(v) => Some(mk_ref(mcx, copy_RangeVar(mcx, v)?)?), None => None },
+        table: match s.table {
+            Some(v) => Some(mk_ref(mcx, copy_RangeVar(mcx, v)?)?),
+            None => None,
+        },
         roles: copy_node_list(mcx, &s.roles)?,
         qual: copy_node_opt(mcx, s.qual)?,
         with_check: copy_node_opt(mcx, s.with_check)?,
     })
 }
 
-pub(crate) fn copy_AlterPublicationStmt<'d>(mcx: Mcx<'d>, s: &AlterPublicationStmt<'_>) -> PgResult<AlterPublicationStmt<'d>> {
+pub(crate) fn copy_AlterPublicationStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &AlterPublicationStmt<'_>,
+) -> PgResult<AlterPublicationStmt<'d>> {
     Ok(AlterPublicationStmt {
         pubname: opt_str_in(mcx, s.pubname)?,
         options: copy_node_list(mcx, &s.options)?,
@@ -3210,15 +3602,24 @@ pub(crate) fn copy_AlterPublicationStmt<'d>(mcx: Mcx<'d>, s: &AlterPublicationSt
     })
 }
 
-pub(crate) fn copy_AlterRoleSetStmt<'d>(mcx: Mcx<'d>, s: &AlterRoleSetStmt<'_>) -> PgResult<AlterRoleSetStmt<'d>> {
+pub(crate) fn copy_AlterRoleSetStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &AlterRoleSetStmt<'_>,
+) -> PgResult<AlterRoleSetStmt<'d>> {
     Ok(AlterRoleSetStmt {
-        role: match s.role { Some(v) => Some(mk_ref(mcx, copy_RoleSpec(mcx, v)?)?), None => None },
+        role: match s.role {
+            Some(v) => Some(mk_ref(mcx, copy_RoleSpec(mcx, v)?)?),
+            None => None,
+        },
         database: opt_str_in(mcx, s.database)?,
         setstmt: mk_ref(mcx, copy_VariableSetStmt(mcx, s.setstmt)?)?,
     })
 }
 
-pub(crate) fn copy_AlterRoleStmt<'d>(mcx: Mcx<'d>, s: &AlterRoleStmt<'_>) -> PgResult<AlterRoleStmt<'d>> {
+pub(crate) fn copy_AlterRoleStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &AlterRoleStmt<'_>,
+) -> PgResult<AlterRoleStmt<'d>> {
     Ok(AlterRoleStmt {
         role: mk_ref(mcx, copy_RoleSpec(mcx, s.role)?)?,
         options: copy_node_list(mcx, &s.options)?,
@@ -3226,16 +3627,25 @@ pub(crate) fn copy_AlterRoleStmt<'d>(mcx: Mcx<'d>, s: &AlterRoleStmt<'_>) -> PgR
     })
 }
 
-pub(crate) fn copy_AlterSeqStmt<'d>(mcx: Mcx<'d>, s: &AlterSeqStmt<'_>) -> PgResult<AlterSeqStmt<'d>> {
+pub(crate) fn copy_AlterSeqStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &AlterSeqStmt<'_>,
+) -> PgResult<AlterSeqStmt<'d>> {
     Ok(AlterSeqStmt {
-        sequence: match s.sequence { Some(v) => Some(mk_ref(mcx, copy_RangeVar(mcx, v)?)?), None => None },
+        sequence: match s.sequence {
+            Some(v) => Some(mk_ref(mcx, copy_RangeVar(mcx, v)?)?),
+            None => None,
+        },
         options: copy_node_list(mcx, &s.options)?,
         for_identity: s.for_identity,
         missing_ok: s.missing_ok,
     })
 }
 
-pub(crate) fn copy_AlterStatsStmt<'d>(mcx: Mcx<'d>, s: &AlterStatsStmt<'_>) -> PgResult<AlterStatsStmt<'d>> {
+pub(crate) fn copy_AlterStatsStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &AlterStatsStmt<'_>,
+) -> PgResult<AlterStatsStmt<'d>> {
     Ok(AlterStatsStmt {
         defnames: copy_node_list(mcx, &s.defnames)?,
         stxstattarget: copy_node_opt(mcx, s.stxstattarget)?,
@@ -3243,7 +3653,10 @@ pub(crate) fn copy_AlterStatsStmt<'d>(mcx: Mcx<'d>, s: &AlterStatsStmt<'_>) -> P
     })
 }
 
-pub(crate) fn copy_AlterSubscriptionStmt<'d>(mcx: Mcx<'d>, s: &AlterSubscriptionStmt<'_>) -> PgResult<AlterSubscriptionStmt<'d>> {
+pub(crate) fn copy_AlterSubscriptionStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &AlterSubscriptionStmt<'_>,
+) -> PgResult<AlterSubscriptionStmt<'d>> {
     Ok(AlterSubscriptionStmt {
         kind: s.kind,
         subname: opt_str_in(mcx, s.subname)?,
@@ -3253,13 +3666,19 @@ pub(crate) fn copy_AlterSubscriptionStmt<'d>(mcx: Mcx<'d>, s: &AlterSubscription
     })
 }
 
-pub(crate) fn copy_AlterSystemStmt<'d>(mcx: Mcx<'d>, s: &AlterSystemStmt<'_>) -> PgResult<AlterSystemStmt<'d>> {
+pub(crate) fn copy_AlterSystemStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &AlterSystemStmt<'_>,
+) -> PgResult<AlterSystemStmt<'d>> {
     Ok(AlterSystemStmt {
         setstmt: mk_ref(mcx, copy_VariableSetStmt(mcx, s.setstmt)?)?,
     })
 }
 
-pub(crate) fn copy_AlterTSConfigurationStmt<'d>(mcx: Mcx<'d>, s: &AlterTSConfigurationStmt<'_>) -> PgResult<AlterTSConfigurationStmt<'d>> {
+pub(crate) fn copy_AlterTSConfigurationStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &AlterTSConfigurationStmt<'_>,
+) -> PgResult<AlterTSConfigurationStmt<'d>> {
     Ok(AlterTSConfigurationStmt {
         kind: s.kind,
         cfgname: copy_node_list(mcx, &s.cfgname)?,
@@ -3271,14 +3690,20 @@ pub(crate) fn copy_AlterTSConfigurationStmt<'d>(mcx: Mcx<'d>, s: &AlterTSConfigu
     })
 }
 
-pub(crate) fn copy_AlterTSDictionaryStmt<'d>(mcx: Mcx<'d>, s: &AlterTSDictionaryStmt<'_>) -> PgResult<AlterTSDictionaryStmt<'d>> {
+pub(crate) fn copy_AlterTSDictionaryStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &AlterTSDictionaryStmt<'_>,
+) -> PgResult<AlterTSDictionaryStmt<'d>> {
     Ok(AlterTSDictionaryStmt {
         dictname: copy_node_list(mcx, &s.dictname)?,
         options: copy_node_list(mcx, &s.options)?,
     })
 }
 
-pub(crate) fn copy_AlterTableCmd<'d>(mcx: Mcx<'d>, s: &AlterTableCmd<'_>) -> PgResult<AlterTableCmd<'d>> {
+pub(crate) fn copy_AlterTableCmd<'d>(
+    mcx: Mcx<'d>,
+    s: &AlterTableCmd<'_>,
+) -> PgResult<AlterTableCmd<'d>> {
     Ok(AlterTableCmd {
         subtype: s.subtype,
         name: opt_str_in(mcx, s.name)?,
@@ -3291,7 +3716,10 @@ pub(crate) fn copy_AlterTableCmd<'d>(mcx: Mcx<'d>, s: &AlterTableCmd<'_>) -> PgR
     })
 }
 
-pub(crate) fn copy_AlterTableMoveAllStmt<'d>(mcx: Mcx<'d>, s: &AlterTableMoveAllStmt<'_>) -> PgResult<AlterTableMoveAllStmt<'d>> {
+pub(crate) fn copy_AlterTableMoveAllStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &AlterTableMoveAllStmt<'_>,
+) -> PgResult<AlterTableMoveAllStmt<'d>> {
     Ok(AlterTableMoveAllStmt {
         orig_tablespacename: opt_str_in(mcx, s.orig_tablespacename)?,
         objtype: s.objtype,
@@ -3301,7 +3729,10 @@ pub(crate) fn copy_AlterTableMoveAllStmt<'d>(mcx: Mcx<'d>, s: &AlterTableMoveAll
     })
 }
 
-pub(crate) fn copy_AlterTableSpaceOptionsStmt<'d>(mcx: Mcx<'d>, s: &AlterTableSpaceOptionsStmt<'_>) -> PgResult<AlterTableSpaceOptionsStmt<'d>> {
+pub(crate) fn copy_AlterTableSpaceOptionsStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &AlterTableSpaceOptionsStmt<'_>,
+) -> PgResult<AlterTableSpaceOptionsStmt<'d>> {
     Ok(AlterTableSpaceOptionsStmt {
         tablespacename: opt_str_in(mcx, s.tablespacename)?,
         options: copy_node_list(mcx, &s.options)?,
@@ -3309,31 +3740,49 @@ pub(crate) fn copy_AlterTableSpaceOptionsStmt<'d>(mcx: Mcx<'d>, s: &AlterTableSp
     })
 }
 
-pub(crate) fn copy_AlterTableStmt<'d>(mcx: Mcx<'d>, s: &AlterTableStmt<'_>) -> PgResult<AlterTableStmt<'d>> {
+pub(crate) fn copy_AlterTableStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &AlterTableStmt<'_>,
+) -> PgResult<AlterTableStmt<'d>> {
     Ok(AlterTableStmt {
-        relation: match s.relation { Some(v) => Some(mk_ref(mcx, copy_RangeVar(mcx, v)?)?), None => None },
+        relation: match s.relation {
+            Some(v) => Some(mk_ref(mcx, copy_RangeVar(mcx, v)?)?),
+            None => None,
+        },
         cmds: copy_node_list(mcx, &s.cmds)?,
         objtype: s.objtype,
         missing_ok: s.missing_ok,
     })
 }
 
-pub(crate) fn copy_AlterTypeStmt<'d>(mcx: Mcx<'d>, s: &AlterTypeStmt<'_>) -> PgResult<AlterTypeStmt<'d>> {
+pub(crate) fn copy_AlterTypeStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &AlterTypeStmt<'_>,
+) -> PgResult<AlterTypeStmt<'d>> {
     Ok(AlterTypeStmt {
         typeName: copy_node_list(mcx, &s.typeName)?,
         options: copy_node_list(mcx, &s.options)?,
     })
 }
 
-pub(crate) fn copy_AlterUserMappingStmt<'d>(mcx: Mcx<'d>, s: &AlterUserMappingStmt<'_>) -> PgResult<AlterUserMappingStmt<'d>> {
+pub(crate) fn copy_AlterUserMappingStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &AlterUserMappingStmt<'_>,
+) -> PgResult<AlterUserMappingStmt<'d>> {
     Ok(AlterUserMappingStmt {
-        user: match s.user { Some(v) => Some(mk_ref(mcx, copy_RoleSpec(mcx, v)?)?), None => None },
+        user: match s.user {
+            Some(v) => Some(mk_ref(mcx, copy_RoleSpec(mcx, v)?)?),
+            None => None,
+        },
         servername: opt_str_in(mcx, s.servername)?,
         options: copy_node_list(mcx, &s.options)?,
     })
 }
 
-pub(crate) fn copy_AlternativeSubPlan<'d>(mcx: Mcx<'d>, s: &AlternativeSubPlan<'_>) -> PgResult<AlternativeSubPlan<'d>> {
+pub(crate) fn copy_AlternativeSubPlan<'d>(
+    mcx: Mcx<'d>,
+    s: &AlternativeSubPlan<'_>,
+) -> PgResult<AlternativeSubPlan<'d>> {
     Ok(AlternativeSubPlan {
         subplans: copy_node_list(mcx, &s.subplans)?,
     })
@@ -3353,7 +3802,10 @@ pub(crate) fn copy_Append<'d>(mcx: Mcx<'d>, s: &Append<'_>) -> PgResult<Append<'
     })
 }
 
-pub(crate) fn copy_AppendRelInfo<'d>(mcx: Mcx<'d>, s: &AppendRelInfo<'_>) -> PgResult<AppendRelInfo<'d>> {
+pub(crate) fn copy_AppendRelInfo<'d>(
+    mcx: Mcx<'d>,
+    s: &AppendRelInfo<'_>,
+) -> PgResult<AppendRelInfo<'d>> {
     Ok(AppendRelInfo {
         parent_relid: s.parent_relid,
         child_relid: s.child_relid,
@@ -3365,7 +3817,10 @@ pub(crate) fn copy_AppendRelInfo<'d>(mcx: Mcx<'d>, s: &AppendRelInfo<'_>) -> PgR
     })
 }
 
-pub(crate) fn copy_ArrayCoerceExpr<'d>(mcx: Mcx<'d>, s: &ArrayCoerceExpr<'_>) -> PgResult<ArrayCoerceExpr<'d>> {
+pub(crate) fn copy_ArrayCoerceExpr<'d>(
+    mcx: Mcx<'d>,
+    s: &ArrayCoerceExpr<'_>,
+) -> PgResult<ArrayCoerceExpr<'d>> {
     Ok(ArrayCoerceExpr {
         arg: copy_node(mcx, s.arg)?,
         elemexpr: copy_node_opt(mcx, s.elemexpr)?,
@@ -3397,14 +3852,20 @@ pub(crate) fn copy_BitmapAnd<'d>(mcx: Mcx<'d>, s: &BitmapAnd<'_>) -> PgResult<Bi
     })
 }
 
-pub(crate) fn copy_BitmapHeapScan<'d>(mcx: Mcx<'d>, s: &BitmapHeapScan<'_>) -> PgResult<BitmapHeapScan<'d>> {
+pub(crate) fn copy_BitmapHeapScan<'d>(
+    mcx: Mcx<'d>,
+    s: &BitmapHeapScan<'_>,
+) -> PgResult<BitmapHeapScan<'d>> {
     Ok(BitmapHeapScan {
         scan: copy_Scan(mcx, &s.scan)?,
         bitmapqualorig: copy_node_list(mcx, &s.bitmapqualorig)?,
     })
 }
 
-pub(crate) fn copy_BitmapIndexScan<'d>(mcx: Mcx<'d>, s: &BitmapIndexScan<'_>) -> PgResult<BitmapIndexScan<'d>> {
+pub(crate) fn copy_BitmapIndexScan<'d>(
+    mcx: Mcx<'d>,
+    s: &BitmapIndexScan<'_>,
+) -> PgResult<BitmapIndexScan<'d>> {
     Ok(BitmapIndexScan {
         scan: copy_Scan(mcx, &s.scan)?,
         indexid: s.indexid,
@@ -3438,7 +3899,10 @@ pub(crate) fn copy_BooleanTest<'d>(mcx: Mcx<'d>, s: &BooleanTest<'_>) -> PgResul
     })
 }
 
-pub(crate) fn copy_CTECycleClause<'d>(mcx: Mcx<'d>, s: &CTECycleClause<'_>) -> PgResult<CTECycleClause<'d>> {
+pub(crate) fn copy_CTECycleClause<'d>(
+    mcx: Mcx<'d>,
+    s: &CTECycleClause<'_>,
+) -> PgResult<CTECycleClause<'d>> {
     Ok(CTECycleClause {
         cycle_col_list: copy_node_list(mcx, &s.cycle_col_list)?,
         cycle_mark_column: opt_str_in(mcx, s.cycle_mark_column)?,
@@ -3453,7 +3917,10 @@ pub(crate) fn copy_CTECycleClause<'d>(mcx: Mcx<'d>, s: &CTECycleClause<'_>) -> P
     })
 }
 
-pub(crate) fn copy_CTESearchClause<'d>(mcx: Mcx<'d>, s: &CTESearchClause<'_>) -> PgResult<CTESearchClause<'d>> {
+pub(crate) fn copy_CTESearchClause<'d>(
+    mcx: Mcx<'d>,
+    s: &CTESearchClause<'_>,
+) -> PgResult<CTESearchClause<'d>> {
     Ok(CTESearchClause {
         search_col_list: copy_node_list(mcx, &s.search_col_list)?,
         search_breadth_first: s.search_breadth_first,
@@ -3464,8 +3931,14 @@ pub(crate) fn copy_CTESearchClause<'d>(mcx: Mcx<'d>, s: &CTESearchClause<'_>) ->
 
 pub(crate) fn copy_CallStmt<'d>(mcx: Mcx<'d>, s: &CallStmt<'_>) -> PgResult<CallStmt<'d>> {
     Ok(CallStmt {
-        funccall: match s.funccall { Some(v) => Some(mk_ref(mcx, copy_FuncCall(mcx, v)?)?), None => None },
-        funcexpr: match s.funcexpr { Some(v) => Some(mk_ref(mcx, copy_FuncExpr(mcx, v)?)?), None => None },
+        funccall: match s.funccall {
+            Some(v) => Some(mk_ref(mcx, copy_FuncCall(mcx, v)?)?),
+            None => None,
+        },
+        funcexpr: match s.funcexpr {
+            Some(v) => Some(mk_ref(mcx, copy_FuncExpr(mcx, v)?)?),
+            None => None,
+        },
         outargs: copy_node_list(mcx, &s.outargs)?,
     })
 }
@@ -3498,12 +3971,13 @@ pub(crate) fn copy_CaseWhen<'d>(mcx: Mcx<'d>, s: &CaseWhen<'_>) -> PgResult<Case
 }
 
 pub(crate) fn copy_CheckPointStmt(_mcx: Mcx<'_>, _s: &CheckPointStmt) -> PgResult<CheckPointStmt> {
-    Ok(CheckPointStmt {
-
-    })
+    Ok(CheckPointStmt {})
 }
 
-pub(crate) fn copy_ClosePortalStmt<'d>(mcx: Mcx<'d>, s: &ClosePortalStmt<'_>) -> PgResult<ClosePortalStmt<'d>> {
+pub(crate) fn copy_ClosePortalStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &ClosePortalStmt<'_>,
+) -> PgResult<ClosePortalStmt<'d>> {
     Ok(ClosePortalStmt {
         portalname: opt_str_in(mcx, s.portalname)?,
     })
@@ -3517,7 +3991,10 @@ pub(crate) fn copy_ClusterStmt<'d>(mcx: Mcx<'d>, s: &ClusterStmt<'_>) -> PgResul
     })
 }
 
-pub(crate) fn copy_CoalesceExpr<'d>(mcx: Mcx<'d>, s: &CoalesceExpr<'_>) -> PgResult<CoalesceExpr<'d>> {
+pub(crate) fn copy_CoalesceExpr<'d>(
+    mcx: Mcx<'d>,
+    s: &CoalesceExpr<'_>,
+) -> PgResult<CoalesceExpr<'d>> {
     Ok(CoalesceExpr {
         coalescetype: s.coalescetype,
         coalescecollid: s.coalescecollid,
@@ -3526,7 +4003,10 @@ pub(crate) fn copy_CoalesceExpr<'d>(mcx: Mcx<'d>, s: &CoalesceExpr<'_>) -> PgRes
     })
 }
 
-pub(crate) fn copy_CoerceToDomain<'d>(mcx: Mcx<'d>, s: &CoerceToDomain<'_>) -> PgResult<CoerceToDomain<'d>> {
+pub(crate) fn copy_CoerceToDomain<'d>(
+    mcx: Mcx<'d>,
+    s: &CoerceToDomain<'_>,
+) -> PgResult<CoerceToDomain<'d>> {
     Ok(CoerceToDomain {
         arg: copy_node(mcx, s.arg)?,
         resulttype: s.resulttype,
@@ -3537,7 +4017,10 @@ pub(crate) fn copy_CoerceToDomain<'d>(mcx: Mcx<'d>, s: &CoerceToDomain<'_>) -> P
     })
 }
 
-pub(crate) fn copy_CoerceToDomainValue(_mcx: Mcx<'_>, s: &CoerceToDomainValue) -> PgResult<CoerceToDomainValue> {
+pub(crate) fn copy_CoerceToDomainValue(
+    _mcx: Mcx<'_>,
+    s: &CoerceToDomainValue,
+) -> PgResult<CoerceToDomainValue> {
     Ok(CoerceToDomainValue {
         typeId: s.typeId,
         typeMod: s.typeMod,
@@ -3556,7 +4039,10 @@ pub(crate) fn copy_CoerceViaIO<'d>(mcx: Mcx<'d>, s: &CoerceViaIO<'_>) -> PgResul
     })
 }
 
-pub(crate) fn copy_CollateClause<'d>(mcx: Mcx<'d>, s: &CollateClause<'_>) -> PgResult<CollateClause<'d>> {
+pub(crate) fn copy_CollateClause<'d>(
+    mcx: Mcx<'d>,
+    s: &CollateClause<'_>,
+) -> PgResult<CollateClause<'d>> {
     Ok(CollateClause {
         arg: copy_node_opt(mcx, s.arg)?,
         collname: copy_node_list(mcx, &s.collname)?,
@@ -3586,7 +4072,10 @@ pub(crate) fn copy_ColumnDef<'d>(mcx: Mcx<'d>, s: &ColumnDef<'_>) -> PgResult<Co
         raw_default: copy_node_opt(mcx, s.raw_default)?,
         cooked_default: copy_node_opt(mcx, s.cooked_default)?,
         identity: s.identity,
-        identitySequence: match s.identitySequence { Some(v) => Some(mk_ref(mcx, copy_RangeVar(mcx, v)?)?), None => None },
+        identitySequence: match s.identitySequence {
+            Some(v) => Some(mk_ref(mcx, copy_RangeVar(mcx, v)?)?),
+            None => None,
+        },
         generated: s.generated,
         collClause: copy_node_opt(mcx, s.collClause)?,
         collOid: s.collOid,
@@ -3611,7 +4100,10 @@ pub(crate) fn copy_CommentStmt<'d>(mcx: Mcx<'d>, s: &CommentStmt<'_>) -> PgResul
     })
 }
 
-pub(crate) fn copy_CommonTableExpr<'d>(mcx: Mcx<'d>, s: &CommonTableExpr<'_>) -> PgResult<CommonTableExpr<'d>> {
+pub(crate) fn copy_CommonTableExpr<'d>(
+    mcx: Mcx<'d>,
+    s: &CommonTableExpr<'_>,
+) -> PgResult<CommonTableExpr<'d>> {
     Ok(CommonTableExpr {
         ctename: opt_str_in(mcx, s.ctename)?,
         aliascolnames: copy_node_list(mcx, &s.aliascolnames)?,
@@ -3629,9 +4121,15 @@ pub(crate) fn copy_CommonTableExpr<'d>(mcx: Mcx<'d>, s: &CommonTableExpr<'_>) ->
     })
 }
 
-pub(crate) fn copy_CompositeTypeStmt<'d>(mcx: Mcx<'d>, s: &CompositeTypeStmt<'_>) -> PgResult<CompositeTypeStmt<'d>> {
+pub(crate) fn copy_CompositeTypeStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &CompositeTypeStmt<'_>,
+) -> PgResult<CompositeTypeStmt<'d>> {
     Ok(CompositeTypeStmt {
-        typevar: match s.typevar { Some(v) => Some(mk_ref(mcx, copy_RangeVar(mcx, v)?)?), None => None },
+        typevar: match s.typevar {
+            Some(v) => Some(mk_ref(mcx, copy_RangeVar(mcx, v)?)?),
+            None => None,
+        },
         coldeflist: copy_node_list(mcx, &s.coldeflist)?,
     })
 }
@@ -3661,7 +4159,10 @@ pub(crate) fn copy_Constraint<'d>(mcx: Mcx<'d>, s: &Constraint<'_>) -> PgResult<
         indexname: opt_str_in(mcx, s.indexname)?,
         indexspace: opt_str_in(mcx, s.indexspace)?,
         reset_default_tblspc: s.reset_default_tblspc,
-        pktable: match s.pktable { Some(v) => Some(mk_ref(mcx, copy_RangeVar(mcx, v)?)?), None => None },
+        pktable: match s.pktable {
+            Some(v) => Some(mk_ref(mcx, copy_RangeVar(mcx, v)?)?),
+            None => None,
+        },
         fk_attrs: copy_node_list(mcx, &s.fk_attrs)?,
         pk_attrs: copy_node_list(mcx, &s.pk_attrs)?,
         fk_with_period: s.fk_with_period,
@@ -3676,14 +4177,20 @@ pub(crate) fn copy_Constraint<'d>(mcx: Mcx<'d>, s: &Constraint<'_>) -> PgResult<
     })
 }
 
-pub(crate) fn copy_ConstraintsSetStmt<'d>(mcx: Mcx<'d>, s: &ConstraintsSetStmt<'_>) -> PgResult<ConstraintsSetStmt<'d>> {
+pub(crate) fn copy_ConstraintsSetStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &ConstraintsSetStmt<'_>,
+) -> PgResult<ConstraintsSetStmt<'d>> {
     Ok(ConstraintsSetStmt {
         constraints: copy_node_list(mcx, &s.constraints)?,
         deferred: s.deferred,
     })
 }
 
-pub(crate) fn copy_ConvertRowtypeExpr<'d>(mcx: Mcx<'d>, s: &ConvertRowtypeExpr<'_>) -> PgResult<ConvertRowtypeExpr<'d>> {
+pub(crate) fn copy_ConvertRowtypeExpr<'d>(
+    mcx: Mcx<'d>,
+    s: &ConvertRowtypeExpr<'_>,
+) -> PgResult<ConvertRowtypeExpr<'d>> {
     Ok(ConvertRowtypeExpr {
         arg: copy_node(mcx, s.arg)?,
         resulttype: s.resulttype,
@@ -3705,7 +4212,10 @@ pub(crate) fn copy_CopyStmt<'d>(mcx: Mcx<'d>, s: &CopyStmt<'_>) -> PgResult<Copy
     })
 }
 
-pub(crate) fn copy_CreateAmStmt<'d>(mcx: Mcx<'d>, s: &CreateAmStmt<'_>) -> PgResult<CreateAmStmt<'d>> {
+pub(crate) fn copy_CreateAmStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &CreateAmStmt<'_>,
+) -> PgResult<CreateAmStmt<'d>> {
     Ok(CreateAmStmt {
         amname: opt_str_in(mcx, s.amname)?,
         handler_name: copy_node_list(mcx, &s.handler_name)?,
@@ -3713,7 +4223,10 @@ pub(crate) fn copy_CreateAmStmt<'d>(mcx: Mcx<'d>, s: &CreateAmStmt<'_>) -> PgRes
     })
 }
 
-pub(crate) fn copy_CreateCastStmt<'d>(mcx: Mcx<'d>, s: &CreateCastStmt<'_>) -> PgResult<CreateCastStmt<'d>> {
+pub(crate) fn copy_CreateCastStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &CreateCastStmt<'_>,
+) -> PgResult<CreateCastStmt<'d>> {
     Ok(CreateCastStmt {
         sourcetype: copy_node_opt(mcx, s.sourcetype)?,
         targettype: copy_node_opt(mcx, s.targettype)?,
@@ -3723,7 +4236,10 @@ pub(crate) fn copy_CreateCastStmt<'d>(mcx: Mcx<'d>, s: &CreateCastStmt<'_>) -> P
     })
 }
 
-pub(crate) fn copy_CreateConversionStmt<'d>(mcx: Mcx<'d>, s: &CreateConversionStmt<'_>) -> PgResult<CreateConversionStmt<'d>> {
+pub(crate) fn copy_CreateConversionStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &CreateConversionStmt<'_>,
+) -> PgResult<CreateConversionStmt<'d>> {
     Ok(CreateConversionStmt {
         conversion_name: copy_node_list(mcx, &s.conversion_name)?,
         for_encoding_name: opt_str_in(mcx, s.for_encoding_name)?,
@@ -3733,7 +4249,10 @@ pub(crate) fn copy_CreateConversionStmt<'d>(mcx: Mcx<'d>, s: &CreateConversionSt
     })
 }
 
-pub(crate) fn copy_CreateDomainStmt<'d>(mcx: Mcx<'d>, s: &CreateDomainStmt<'_>) -> PgResult<CreateDomainStmt<'d>> {
+pub(crate) fn copy_CreateDomainStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &CreateDomainStmt<'_>,
+) -> PgResult<CreateDomainStmt<'d>> {
     Ok(CreateDomainStmt {
         domainname: copy_node_list(mcx, &s.domainname)?,
         typeName: copy_node_opt(mcx, s.typeName)?,
@@ -3742,14 +4261,20 @@ pub(crate) fn copy_CreateDomainStmt<'d>(mcx: Mcx<'d>, s: &CreateDomainStmt<'_>) 
     })
 }
 
-pub(crate) fn copy_CreateEnumStmt<'d>(mcx: Mcx<'d>, s: &CreateEnumStmt<'_>) -> PgResult<CreateEnumStmt<'d>> {
+pub(crate) fn copy_CreateEnumStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &CreateEnumStmt<'_>,
+) -> PgResult<CreateEnumStmt<'d>> {
     Ok(CreateEnumStmt {
         typeName: copy_node_list(mcx, &s.typeName)?,
         vals: copy_node_list(mcx, &s.vals)?,
     })
 }
 
-pub(crate) fn copy_CreateEventTrigStmt<'d>(mcx: Mcx<'d>, s: &CreateEventTrigStmt<'_>) -> PgResult<CreateEventTrigStmt<'d>> {
+pub(crate) fn copy_CreateEventTrigStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &CreateEventTrigStmt<'_>,
+) -> PgResult<CreateEventTrigStmt<'d>> {
     Ok(CreateEventTrigStmt {
         trigname: opt_str_in(mcx, s.trigname)?,
         eventname: opt_str_in(mcx, s.eventname)?,
@@ -3758,7 +4283,10 @@ pub(crate) fn copy_CreateEventTrigStmt<'d>(mcx: Mcx<'d>, s: &CreateEventTrigStmt
     })
 }
 
-pub(crate) fn copy_CreateExtensionStmt<'d>(mcx: Mcx<'d>, s: &CreateExtensionStmt<'_>) -> PgResult<CreateExtensionStmt<'d>> {
+pub(crate) fn copy_CreateExtensionStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &CreateExtensionStmt<'_>,
+) -> PgResult<CreateExtensionStmt<'d>> {
     Ok(CreateExtensionStmt {
         extname: opt_str_in(mcx, s.extname)?,
         if_not_exists: s.if_not_exists,
@@ -3766,7 +4294,10 @@ pub(crate) fn copy_CreateExtensionStmt<'d>(mcx: Mcx<'d>, s: &CreateExtensionStmt
     })
 }
 
-pub(crate) fn copy_CreateFdwStmt<'d>(mcx: Mcx<'d>, s: &CreateFdwStmt<'_>) -> PgResult<CreateFdwStmt<'d>> {
+pub(crate) fn copy_CreateFdwStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &CreateFdwStmt<'_>,
+) -> PgResult<CreateFdwStmt<'d>> {
     Ok(CreateFdwStmt {
         fdwname: opt_str_in(mcx, s.fdwname)?,
         func_options: copy_node_list(mcx, &s.func_options)?,
@@ -3774,7 +4305,10 @@ pub(crate) fn copy_CreateFdwStmt<'d>(mcx: Mcx<'d>, s: &CreateFdwStmt<'_>) -> PgR
     })
 }
 
-pub(crate) fn copy_CreateForeignServerStmt<'d>(mcx: Mcx<'d>, s: &CreateForeignServerStmt<'_>) -> PgResult<CreateForeignServerStmt<'d>> {
+pub(crate) fn copy_CreateForeignServerStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &CreateForeignServerStmt<'_>,
+) -> PgResult<CreateForeignServerStmt<'d>> {
     Ok(CreateForeignServerStmt {
         servername: opt_str_in(mcx, s.servername)?,
         servertype: opt_str_in(mcx, s.servertype)?,
@@ -3785,7 +4319,10 @@ pub(crate) fn copy_CreateForeignServerStmt<'d>(mcx: Mcx<'d>, s: &CreateForeignSe
     })
 }
 
-pub(crate) fn copy_CreateForeignTableStmt<'d>(mcx: Mcx<'d>, s: &CreateForeignTableStmt<'_>) -> PgResult<CreateForeignTableStmt<'d>> {
+pub(crate) fn copy_CreateForeignTableStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &CreateForeignTableStmt<'_>,
+) -> PgResult<CreateForeignTableStmt<'d>> {
     Ok(CreateForeignTableStmt {
         base: copy_CreateStmt(mcx, &s.base)?,
         servername: opt_str_in(mcx, s.servername)?,
@@ -3793,7 +4330,10 @@ pub(crate) fn copy_CreateForeignTableStmt<'d>(mcx: Mcx<'d>, s: &CreateForeignTab
     })
 }
 
-pub(crate) fn copy_CreateFunctionStmt<'d>(mcx: Mcx<'d>, s: &CreateFunctionStmt<'_>) -> PgResult<CreateFunctionStmt<'d>> {
+pub(crate) fn copy_CreateFunctionStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &CreateFunctionStmt<'_>,
+) -> PgResult<CreateFunctionStmt<'d>> {
     Ok(CreateFunctionStmt {
         is_procedure: s.is_procedure,
         replace: s.replace,
@@ -3805,7 +4345,10 @@ pub(crate) fn copy_CreateFunctionStmt<'d>(mcx: Mcx<'d>, s: &CreateFunctionStmt<'
     })
 }
 
-pub(crate) fn copy_CreateOpClassItem<'d>(mcx: Mcx<'d>, s: &CreateOpClassItem<'_>) -> PgResult<CreateOpClassItem<'d>> {
+pub(crate) fn copy_CreateOpClassItem<'d>(
+    mcx: Mcx<'d>,
+    s: &CreateOpClassItem<'_>,
+) -> PgResult<CreateOpClassItem<'d>> {
     Ok(CreateOpClassItem {
         itemtype: s.itemtype,
         name: copy_node_opt(mcx, s.name)?,
@@ -3816,7 +4359,10 @@ pub(crate) fn copy_CreateOpClassItem<'d>(mcx: Mcx<'d>, s: &CreateOpClassItem<'_>
     })
 }
 
-pub(crate) fn copy_CreateOpClassStmt<'d>(mcx: Mcx<'d>, s: &CreateOpClassStmt<'_>) -> PgResult<CreateOpClassStmt<'d>> {
+pub(crate) fn copy_CreateOpClassStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &CreateOpClassStmt<'_>,
+) -> PgResult<CreateOpClassStmt<'d>> {
     Ok(CreateOpClassStmt {
         opclassname: copy_node_list(mcx, &s.opclassname)?,
         opfamilyname: copy_node_list(mcx, &s.opfamilyname)?,
@@ -3827,14 +4373,20 @@ pub(crate) fn copy_CreateOpClassStmt<'d>(mcx: Mcx<'d>, s: &CreateOpClassStmt<'_>
     })
 }
 
-pub(crate) fn copy_CreateOpFamilyStmt<'d>(mcx: Mcx<'d>, s: &CreateOpFamilyStmt<'_>) -> PgResult<CreateOpFamilyStmt<'d>> {
+pub(crate) fn copy_CreateOpFamilyStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &CreateOpFamilyStmt<'_>,
+) -> PgResult<CreateOpFamilyStmt<'d>> {
     Ok(CreateOpFamilyStmt {
         opfamilyname: copy_node_list(mcx, &s.opfamilyname)?,
         amname: opt_str_in(mcx, s.amname)?,
     })
 }
 
-pub(crate) fn copy_CreatePLangStmt<'d>(mcx: Mcx<'d>, s: &CreatePLangStmt<'_>) -> PgResult<CreatePLangStmt<'d>> {
+pub(crate) fn copy_CreatePLangStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &CreatePLangStmt<'_>,
+) -> PgResult<CreatePLangStmt<'d>> {
     Ok(CreatePLangStmt {
         replace: s.replace,
         plname: opt_str_in(mcx, s.plname)?,
@@ -3845,10 +4397,16 @@ pub(crate) fn copy_CreatePLangStmt<'d>(mcx: Mcx<'d>, s: &CreatePLangStmt<'_>) ->
     })
 }
 
-pub(crate) fn copy_CreatePolicyStmt<'d>(mcx: Mcx<'d>, s: &CreatePolicyStmt<'_>) -> PgResult<CreatePolicyStmt<'d>> {
+pub(crate) fn copy_CreatePolicyStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &CreatePolicyStmt<'_>,
+) -> PgResult<CreatePolicyStmt<'d>> {
     Ok(CreatePolicyStmt {
         policy_name: opt_str_in(mcx, s.policy_name)?,
-        table: match s.table { Some(v) => Some(mk_ref(mcx, copy_RangeVar(mcx, v)?)?), None => None },
+        table: match s.table {
+            Some(v) => Some(mk_ref(mcx, copy_RangeVar(mcx, v)?)?),
+            None => None,
+        },
         cmd_name: opt_str_in(mcx, s.cmd_name)?,
         permissive: s.permissive,
         roles: copy_node_list(mcx, &s.roles)?,
@@ -3857,7 +4415,10 @@ pub(crate) fn copy_CreatePolicyStmt<'d>(mcx: Mcx<'d>, s: &CreatePolicyStmt<'_>) 
     })
 }
 
-pub(crate) fn copy_CreatePublicationStmt<'d>(mcx: Mcx<'d>, s: &CreatePublicationStmt<'_>) -> PgResult<CreatePublicationStmt<'d>> {
+pub(crate) fn copy_CreatePublicationStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &CreatePublicationStmt<'_>,
+) -> PgResult<CreatePublicationStmt<'d>> {
     Ok(CreatePublicationStmt {
         pubname: opt_str_in(mcx, s.pubname)?,
         options: copy_node_list(mcx, &s.options)?,
@@ -3866,14 +4427,20 @@ pub(crate) fn copy_CreatePublicationStmt<'d>(mcx: Mcx<'d>, s: &CreatePublication
     })
 }
 
-pub(crate) fn copy_CreateRangeStmt<'d>(mcx: Mcx<'d>, s: &CreateRangeStmt<'_>) -> PgResult<CreateRangeStmt<'d>> {
+pub(crate) fn copy_CreateRangeStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &CreateRangeStmt<'_>,
+) -> PgResult<CreateRangeStmt<'d>> {
     Ok(CreateRangeStmt {
         typeName: copy_node_list(mcx, &s.typeName)?,
         params: copy_node_list(mcx, &s.params)?,
     })
 }
 
-pub(crate) fn copy_CreateRoleStmt<'d>(mcx: Mcx<'d>, s: &CreateRoleStmt<'_>) -> PgResult<CreateRoleStmt<'d>> {
+pub(crate) fn copy_CreateRoleStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &CreateRoleStmt<'_>,
+) -> PgResult<CreateRoleStmt<'d>> {
     Ok(CreateRoleStmt {
         stmt_type: s.stmt_type,
         role: opt_str_in(mcx, s.role)?,
@@ -3881,7 +4448,10 @@ pub(crate) fn copy_CreateRoleStmt<'d>(mcx: Mcx<'d>, s: &CreateRoleStmt<'_>) -> P
     })
 }
 
-pub(crate) fn copy_CreateSchemaStmt<'d>(mcx: Mcx<'d>, s: &CreateSchemaStmt<'_>) -> PgResult<CreateSchemaStmt<'d>> {
+pub(crate) fn copy_CreateSchemaStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &CreateSchemaStmt<'_>,
+) -> PgResult<CreateSchemaStmt<'d>> {
     Ok(CreateSchemaStmt {
         schemaname: opt_str_in(mcx, s.schemaname)?,
         authrole: copy_node_opt(mcx, s.authrole)?,
@@ -3890,9 +4460,15 @@ pub(crate) fn copy_CreateSchemaStmt<'d>(mcx: Mcx<'d>, s: &CreateSchemaStmt<'_>) 
     })
 }
 
-pub(crate) fn copy_CreateSeqStmt<'d>(mcx: Mcx<'d>, s: &CreateSeqStmt<'_>) -> PgResult<CreateSeqStmt<'d>> {
+pub(crate) fn copy_CreateSeqStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &CreateSeqStmt<'_>,
+) -> PgResult<CreateSeqStmt<'d>> {
     Ok(CreateSeqStmt {
-        sequence: match s.sequence { Some(v) => Some(mk_ref(mcx, copy_RangeVar(mcx, v)?)?), None => None },
+        sequence: match s.sequence {
+            Some(v) => Some(mk_ref(mcx, copy_RangeVar(mcx, v)?)?),
+            None => None,
+        },
         options: copy_node_list(mcx, &s.options)?,
         ownerId: s.ownerId,
         for_identity: s.for_identity,
@@ -3900,7 +4476,10 @@ pub(crate) fn copy_CreateSeqStmt<'d>(mcx: Mcx<'d>, s: &CreateSeqStmt<'_>) -> PgR
     })
 }
 
-pub(crate) fn copy_CreateStatsStmt<'d>(mcx: Mcx<'d>, s: &CreateStatsStmt<'_>) -> PgResult<CreateStatsStmt<'d>> {
+pub(crate) fn copy_CreateStatsStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &CreateStatsStmt<'_>,
+) -> PgResult<CreateStatsStmt<'d>> {
     Ok(CreateStatsStmt {
         defnames: copy_node_list(mcx, &s.defnames)?,
         stat_types: copy_node_list(mcx, &s.stat_types)?,
@@ -3915,7 +4494,10 @@ pub(crate) fn copy_CreateStatsStmt<'d>(mcx: Mcx<'d>, s: &CreateStatsStmt<'_>) ->
 
 pub(crate) fn copy_CreateStmt<'d>(mcx: Mcx<'d>, s: &CreateStmt<'_>) -> PgResult<CreateStmt<'d>> {
     Ok(CreateStmt {
-        relation: match s.relation { Some(v) => Some(mk_ref(mcx, copy_RangeVar(mcx, v)?)?), None => None },
+        relation: match s.relation {
+            Some(v) => Some(mk_ref(mcx, copy_RangeVar(mcx, v)?)?),
+            None => None,
+        },
         tableElts: copy_node_list(mcx, &s.tableElts)?,
         inhRelations: copy_node_list(mcx, &s.inhRelations)?,
         partbound: copy_node_opt(mcx, s.partbound)?,
@@ -3931,7 +4513,10 @@ pub(crate) fn copy_CreateStmt<'d>(mcx: Mcx<'d>, s: &CreateStmt<'_>) -> PgResult<
     })
 }
 
-pub(crate) fn copy_CreateSubscriptionStmt<'d>(mcx: Mcx<'d>, s: &CreateSubscriptionStmt<'_>) -> PgResult<CreateSubscriptionStmt<'d>> {
+pub(crate) fn copy_CreateSubscriptionStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &CreateSubscriptionStmt<'_>,
+) -> PgResult<CreateSubscriptionStmt<'d>> {
     Ok(CreateSubscriptionStmt {
         subname: opt_str_in(mcx, s.subname)?,
         conninfo: opt_str_in(mcx, s.conninfo)?,
@@ -3940,7 +4525,10 @@ pub(crate) fn copy_CreateSubscriptionStmt<'d>(mcx: Mcx<'d>, s: &CreateSubscripti
     })
 }
 
-pub(crate) fn copy_CreateTableAsStmt<'d>(mcx: Mcx<'d>, s: &CreateTableAsStmt<'_>) -> PgResult<CreateTableAsStmt<'d>> {
+pub(crate) fn copy_CreateTableAsStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &CreateTableAsStmt<'_>,
+) -> PgResult<CreateTableAsStmt<'d>> {
     Ok(CreateTableAsStmt {
         query: copy_node_opt(mcx, s.query)?,
         into: copy_node_opt(mcx, s.into)?,
@@ -3950,16 +4538,25 @@ pub(crate) fn copy_CreateTableAsStmt<'d>(mcx: Mcx<'d>, s: &CreateTableAsStmt<'_>
     })
 }
 
-pub(crate) fn copy_CreateTableSpaceStmt<'d>(mcx: Mcx<'d>, s: &CreateTableSpaceStmt<'_>) -> PgResult<CreateTableSpaceStmt<'d>> {
+pub(crate) fn copy_CreateTableSpaceStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &CreateTableSpaceStmt<'_>,
+) -> PgResult<CreateTableSpaceStmt<'d>> {
     Ok(CreateTableSpaceStmt {
         tablespacename: opt_str_in(mcx, s.tablespacename)?,
-        owner: match s.owner { Some(v) => Some(mk_ref(mcx, copy_RoleSpec(mcx, v)?)?), None => None },
+        owner: match s.owner {
+            Some(v) => Some(mk_ref(mcx, copy_RoleSpec(mcx, v)?)?),
+            None => None,
+        },
         location: opt_str_in(mcx, s.location)?,
         options: copy_node_list(mcx, &s.options)?,
     })
 }
 
-pub(crate) fn copy_CreateTransformStmt<'d>(mcx: Mcx<'d>, s: &CreateTransformStmt<'_>) -> PgResult<CreateTransformStmt<'d>> {
+pub(crate) fn copy_CreateTransformStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &CreateTransformStmt<'_>,
+) -> PgResult<CreateTransformStmt<'d>> {
     Ok(CreateTransformStmt {
         replace: s.replace,
         type_name: copy_node_opt(mcx, s.type_name)?,
@@ -3969,12 +4566,18 @@ pub(crate) fn copy_CreateTransformStmt<'d>(mcx: Mcx<'d>, s: &CreateTransformStmt
     })
 }
 
-pub(crate) fn copy_CreateTrigStmt<'d>(mcx: Mcx<'d>, s: &CreateTrigStmt<'_>) -> PgResult<CreateTrigStmt<'d>> {
+pub(crate) fn copy_CreateTrigStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &CreateTrigStmt<'_>,
+) -> PgResult<CreateTrigStmt<'d>> {
     Ok(CreateTrigStmt {
         replace: s.replace,
         isconstraint: s.isconstraint,
         trigname: opt_str_in(mcx, s.trigname)?,
-        relation: match s.relation { Some(v) => Some(mk_ref(mcx, copy_RangeVar(mcx, v)?)?), None => None },
+        relation: match s.relation {
+            Some(v) => Some(mk_ref(mcx, copy_RangeVar(mcx, v)?)?),
+            None => None,
+        },
         funcname: copy_node_list(mcx, &s.funcname)?,
         args: copy_node_list(mcx, &s.args)?,
         row: s.row,
@@ -3985,20 +4588,32 @@ pub(crate) fn copy_CreateTrigStmt<'d>(mcx: Mcx<'d>, s: &CreateTrigStmt<'_>) -> P
         transitionRels: copy_node_list(mcx, &s.transitionRels)?,
         deferrable: s.deferrable,
         initdeferred: s.initdeferred,
-        constrrel: match s.constrrel { Some(v) => Some(mk_ref(mcx, copy_RangeVar(mcx, v)?)?), None => None },
+        constrrel: match s.constrrel {
+            Some(v) => Some(mk_ref(mcx, copy_RangeVar(mcx, v)?)?),
+            None => None,
+        },
     })
 }
 
-pub(crate) fn copy_CreateUserMappingStmt<'d>(mcx: Mcx<'d>, s: &CreateUserMappingStmt<'_>) -> PgResult<CreateUserMappingStmt<'d>> {
+pub(crate) fn copy_CreateUserMappingStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &CreateUserMappingStmt<'_>,
+) -> PgResult<CreateUserMappingStmt<'d>> {
     Ok(CreateUserMappingStmt {
-        user: match s.user { Some(v) => Some(mk_ref(mcx, copy_RoleSpec(mcx, v)?)?), None => None },
+        user: match s.user {
+            Some(v) => Some(mk_ref(mcx, copy_RoleSpec(mcx, v)?)?),
+            None => None,
+        },
         servername: opt_str_in(mcx, s.servername)?,
         if_not_exists: s.if_not_exists,
         options: copy_node_list(mcx, &s.options)?,
     })
 }
 
-pub(crate) fn copy_CreatedbStmt<'d>(mcx: Mcx<'d>, s: &CreatedbStmt<'_>) -> PgResult<CreatedbStmt<'d>> {
+pub(crate) fn copy_CreatedbStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &CreatedbStmt<'_>,
+) -> PgResult<CreatedbStmt<'d>> {
     Ok(CreatedbStmt {
         dbname: opt_str_in(mcx, s.dbname)?,
         options: copy_node_list(mcx, &s.options)?,
@@ -4014,7 +4629,10 @@ pub(crate) fn copy_CteScan<'d>(mcx: Mcx<'d>, s: &CteScan<'_>) -> PgResult<CteSca
     })
 }
 
-pub(crate) fn copy_CurrentOfExpr<'d>(mcx: Mcx<'d>, s: &CurrentOfExpr<'_>) -> PgResult<CurrentOfExpr<'d>> {
+pub(crate) fn copy_CurrentOfExpr<'d>(
+    mcx: Mcx<'d>,
+    s: &CurrentOfExpr<'_>,
+) -> PgResult<CurrentOfExpr<'d>> {
     Ok(CurrentOfExpr {
         cvarno: s.cvarno,
         cursor_name: opt_str_in(mcx, s.cursor_name)?,
@@ -4022,7 +4640,10 @@ pub(crate) fn copy_CurrentOfExpr<'d>(mcx: Mcx<'d>, s: &CurrentOfExpr<'_>) -> PgR
     })
 }
 
-pub(crate) fn copy_DeallocateStmt<'d>(mcx: Mcx<'d>, s: &DeallocateStmt<'_>) -> PgResult<DeallocateStmt<'d>> {
+pub(crate) fn copy_DeallocateStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &DeallocateStmt<'_>,
+) -> PgResult<DeallocateStmt<'d>> {
     Ok(DeallocateStmt {
         name: opt_str_in(mcx, s.name)?,
         isall: s.isall,
@@ -4030,7 +4651,10 @@ pub(crate) fn copy_DeallocateStmt<'d>(mcx: Mcx<'d>, s: &DeallocateStmt<'_>) -> P
     })
 }
 
-pub(crate) fn copy_DeclareCursorStmt<'d>(mcx: Mcx<'d>, s: &DeclareCursorStmt<'_>) -> PgResult<DeclareCursorStmt<'d>> {
+pub(crate) fn copy_DeclareCursorStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &DeclareCursorStmt<'_>,
+) -> PgResult<DeclareCursorStmt<'d>> {
     Ok(DeclareCursorStmt {
         portalname: opt_str_in(mcx, s.portalname)?,
         options: s.options,
@@ -4071,12 +4695,13 @@ pub(crate) fn copy_DeleteStmt<'d>(mcx: Mcx<'d>, s: &DeleteStmt<'_>) -> PgResult<
 }
 
 pub(crate) fn copy_DiscardStmt(_mcx: Mcx<'_>, s: &DiscardStmt) -> PgResult<DiscardStmt> {
-    Ok(DiscardStmt {
-        target: s.target,
-    })
+    Ok(DiscardStmt { target: s.target })
 }
 
-pub(crate) fn copy_DistinctExpr<'d>(mcx: Mcx<'d>, s: &DistinctExpr<'_>) -> PgResult<DistinctExpr<'d>> {
+pub(crate) fn copy_DistinctExpr<'d>(
+    mcx: Mcx<'d>,
+    s: &DistinctExpr<'_>,
+) -> PgResult<DistinctExpr<'d>> {
     Ok(DistinctExpr {
         opno: s.opno,
         opfuncid: s.opfuncid,
@@ -4095,14 +4720,20 @@ pub(crate) fn copy_DoStmt<'d>(mcx: Mcx<'d>, s: &DoStmt<'_>) -> PgResult<DoStmt<'
     })
 }
 
-pub(crate) fn copy_DropOwnedStmt<'d>(mcx: Mcx<'d>, s: &DropOwnedStmt<'_>) -> PgResult<DropOwnedStmt<'d>> {
+pub(crate) fn copy_DropOwnedStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &DropOwnedStmt<'_>,
+) -> PgResult<DropOwnedStmt<'d>> {
     Ok(DropOwnedStmt {
         roles: copy_node_list(mcx, &s.roles)?,
         behavior: s.behavior,
     })
 }
 
-pub(crate) fn copy_DropRoleStmt<'d>(mcx: Mcx<'d>, s: &DropRoleStmt<'_>) -> PgResult<DropRoleStmt<'d>> {
+pub(crate) fn copy_DropRoleStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &DropRoleStmt<'_>,
+) -> PgResult<DropRoleStmt<'d>> {
     Ok(DropRoleStmt {
         roles: copy_node_list(mcx, &s.roles)?,
         missing_ok: s.missing_ok,
@@ -4119,7 +4750,10 @@ pub(crate) fn copy_DropStmt<'d>(mcx: Mcx<'d>, s: &DropStmt<'_>) -> PgResult<Drop
     })
 }
 
-pub(crate) fn copy_DropSubscriptionStmt<'d>(mcx: Mcx<'d>, s: &DropSubscriptionStmt<'_>) -> PgResult<DropSubscriptionStmt<'d>> {
+pub(crate) fn copy_DropSubscriptionStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &DropSubscriptionStmt<'_>,
+) -> PgResult<DropSubscriptionStmt<'d>> {
     Ok(DropSubscriptionStmt {
         subname: opt_str_in(mcx, s.subname)?,
         missing_ok: s.missing_ok,
@@ -4127,16 +4761,25 @@ pub(crate) fn copy_DropSubscriptionStmt<'d>(mcx: Mcx<'d>, s: &DropSubscriptionSt
     })
 }
 
-pub(crate) fn copy_DropTableSpaceStmt<'d>(mcx: Mcx<'d>, s: &DropTableSpaceStmt<'_>) -> PgResult<DropTableSpaceStmt<'d>> {
+pub(crate) fn copy_DropTableSpaceStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &DropTableSpaceStmt<'_>,
+) -> PgResult<DropTableSpaceStmt<'d>> {
     Ok(DropTableSpaceStmt {
         tablespacename: opt_str_in(mcx, s.tablespacename)?,
         missing_ok: s.missing_ok,
     })
 }
 
-pub(crate) fn copy_DropUserMappingStmt<'d>(mcx: Mcx<'d>, s: &DropUserMappingStmt<'_>) -> PgResult<DropUserMappingStmt<'d>> {
+pub(crate) fn copy_DropUserMappingStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &DropUserMappingStmt<'_>,
+) -> PgResult<DropUserMappingStmt<'d>> {
     Ok(DropUserMappingStmt {
-        user: match s.user { Some(v) => Some(mk_ref(mcx, copy_RoleSpec(mcx, v)?)?), None => None },
+        user: match s.user {
+            Some(v) => Some(mk_ref(mcx, copy_RoleSpec(mcx, v)?)?),
+            None => None,
+        },
         servername: opt_str_in(mcx, s.servername)?,
         missing_ok: s.missing_ok,
     })
@@ -4246,7 +4889,10 @@ pub(crate) fn copy_FuncExpr<'d>(mcx: Mcx<'d>, s: &FuncExpr<'_>) -> PgResult<Func
     })
 }
 
-pub(crate) fn copy_FunctionParameter<'d>(mcx: Mcx<'d>, s: &FunctionParameter<'_>) -> PgResult<FunctionParameter<'d>> {
+pub(crate) fn copy_FunctionParameter<'d>(
+    mcx: Mcx<'d>,
+    s: &FunctionParameter<'_>,
+) -> PgResult<FunctionParameter<'d>> {
     Ok(FunctionParameter {
         name: opt_str_in(mcx, s.name)?,
         argType: copy_node_opt(mcx, s.argType)?,
@@ -4256,7 +4902,10 @@ pub(crate) fn copy_FunctionParameter<'d>(mcx: Mcx<'d>, s: &FunctionParameter<'_>
     })
 }
 
-pub(crate) fn copy_FunctionScan<'d>(mcx: Mcx<'d>, s: &FunctionScan<'_>) -> PgResult<FunctionScan<'d>> {
+pub(crate) fn copy_FunctionScan<'d>(
+    mcx: Mcx<'d>,
+    s: &FunctionScan<'_>,
+) -> PgResult<FunctionScan<'d>> {
     Ok(FunctionScan {
         scan: copy_Scan(mcx, &s.scan)?,
         functions: copy_node_list(mcx, &s.functions)?,
@@ -4289,13 +4938,19 @@ pub(crate) fn copy_GatherMerge<'d>(mcx: Mcx<'d>, s: &GatherMerge<'_>) -> PgResul
     })
 }
 
-pub(crate) fn copy_GrantRoleStmt<'d>(mcx: Mcx<'d>, s: &GrantRoleStmt<'_>) -> PgResult<GrantRoleStmt<'d>> {
+pub(crate) fn copy_GrantRoleStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &GrantRoleStmt<'_>,
+) -> PgResult<GrantRoleStmt<'d>> {
     Ok(GrantRoleStmt {
         granted_roles: copy_node_list(mcx, &s.granted_roles)?,
         grantee_roles: copy_node_list(mcx, &s.grantee_roles)?,
         is_grant: s.is_grant,
         opt: copy_node_list(mcx, &s.opt)?,
-        grantor: match s.grantor { Some(v) => Some(mk_ref(mcx, copy_RoleSpec(mcx, v)?)?), None => None },
+        grantor: match s.grantor {
+            Some(v) => Some(mk_ref(mcx, copy_RoleSpec(mcx, v)?)?),
+            None => None,
+        },
         behavior: s.behavior,
     })
 }
@@ -4309,7 +4964,10 @@ pub(crate) fn copy_GrantStmt<'d>(mcx: Mcx<'d>, s: &GrantStmt<'_>) -> PgResult<Gr
         privileges: copy_node_list(mcx, &s.privileges)?,
         grantees: copy_node_list(mcx, &s.grantees)?,
         grant_option: s.grant_option,
-        grantor: match s.grantor { Some(v) => Some(mk_ref(mcx, copy_RoleSpec(mcx, v)?)?), None => None },
+        grantor: match s.grantor {
+            Some(v) => Some(mk_ref(mcx, copy_RoleSpec(mcx, v)?)?),
+            None => None,
+        },
         behavior: s.behavior,
     })
 }
@@ -4324,7 +4982,10 @@ pub(crate) fn copy_Group<'d>(mcx: Mcx<'d>, s: &Group<'_>) -> PgResult<Group<'d>>
     })
 }
 
-pub(crate) fn copy_GroupingFunc<'d>(mcx: Mcx<'d>, s: &GroupingFunc<'_>) -> PgResult<GroupingFunc<'d>> {
+pub(crate) fn copy_GroupingFunc<'d>(
+    mcx: Mcx<'d>,
+    s: &GroupingFunc<'_>,
+) -> PgResult<GroupingFunc<'d>> {
     Ok(GroupingFunc {
         args: copy_node_list(mcx, &s.args)?,
         refs: IntList::from_slice(mcx, s.refs.as_slice())?,
@@ -4363,7 +5024,10 @@ pub(crate) fn copy_HashJoin<'d>(mcx: Mcx<'d>, s: &HashJoin<'_>) -> PgResult<Hash
     })
 }
 
-pub(crate) fn copy_ImportForeignSchemaStmt<'d>(mcx: Mcx<'d>, s: &ImportForeignSchemaStmt<'_>) -> PgResult<ImportForeignSchemaStmt<'d>> {
+pub(crate) fn copy_ImportForeignSchemaStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &ImportForeignSchemaStmt<'_>,
+) -> PgResult<ImportForeignSchemaStmt<'d>> {
     Ok(ImportForeignSchemaStmt {
         server_name: opt_str_in(mcx, s.server_name)?,
         remote_schema: opt_str_in(mcx, s.remote_schema)?,
@@ -4374,7 +5038,10 @@ pub(crate) fn copy_ImportForeignSchemaStmt<'d>(mcx: Mcx<'d>, s: &ImportForeignSc
     })
 }
 
-pub(crate) fn copy_IncrementalSort<'d>(mcx: Mcx<'d>, s: &IncrementalSort<'_>) -> PgResult<IncrementalSort<'d>> {
+pub(crate) fn copy_IncrementalSort<'d>(
+    mcx: Mcx<'d>,
+    s: &IncrementalSort<'_>,
+) -> PgResult<IncrementalSort<'d>> {
     Ok(IncrementalSort {
         sort: copy_Sort(mcx, &s.sort)?,
         nPresortedCols: s.nPresortedCols,
@@ -4394,7 +5061,10 @@ pub(crate) fn copy_IndexElem<'d>(mcx: Mcx<'d>, s: &IndexElem<'_>) -> PgResult<In
     })
 }
 
-pub(crate) fn copy_IndexOnlyScan<'d>(mcx: Mcx<'d>, s: &IndexOnlyScan<'_>) -> PgResult<IndexOnlyScan<'d>> {
+pub(crate) fn copy_IndexOnlyScan<'d>(
+    mcx: Mcx<'d>,
+    s: &IndexOnlyScan<'_>,
+) -> PgResult<IndexOnlyScan<'d>> {
     Ok(IndexOnlyScan {
         scan: copy_Scan(mcx, &s.scan)?,
         indexid: s.indexid,
@@ -4422,7 +5092,10 @@ pub(crate) fn copy_IndexScan<'d>(mcx: Mcx<'d>, s: &IndexScan<'_>) -> PgResult<In
 pub(crate) fn copy_IndexStmt<'d>(mcx: Mcx<'d>, s: &IndexStmt<'_>) -> PgResult<IndexStmt<'d>> {
     Ok(IndexStmt {
         idxname: opt_str_in(mcx, s.idxname)?,
-        relation: match s.relation { Some(v) => Some(mk_ref(mcx, copy_RangeVar(mcx, v)?)?), None => None },
+        relation: match s.relation {
+            Some(v) => Some(mk_ref(mcx, copy_RangeVar(mcx, v)?)?),
+            None => None,
+        },
         accessMethod: opt_str_in(mcx, s.accessMethod)?,
         tableSpace: opt_str_in(mcx, s.tableSpace)?,
         indexParams: copy_node_list(mcx, &s.indexParams)?,
@@ -4458,7 +5131,10 @@ pub(crate) fn copy_InferClause<'d>(mcx: Mcx<'d>, s: &InferClause<'_>) -> PgResul
     })
 }
 
-pub(crate) fn copy_InferenceElem<'d>(mcx: Mcx<'d>, s: &InferenceElem<'_>) -> PgResult<InferenceElem<'d>> {
+pub(crate) fn copy_InferenceElem<'d>(
+    mcx: Mcx<'d>,
+    s: &InferenceElem<'_>,
+) -> PgResult<InferenceElem<'d>> {
     Ok(InferenceElem {
         expr: copy_node_opt(mcx, s.expr)?,
         infercollid: s.infercollid,
@@ -4507,14 +5183,23 @@ pub(crate) fn copy_JoinExpr<'d>(mcx: Mcx<'d>, s: &JoinExpr<'_>) -> PgResult<Join
         larg: copy_node(mcx, s.larg)?,
         rarg: copy_node(mcx, s.rarg)?,
         usingClause: copy_node_list(mcx, &s.usingClause)?,
-        join_using_alias: match s.join_using_alias { Some(v) => Some(mk_ref(mcx, copy_Alias(mcx, v)?)?), None => None },
+        join_using_alias: match s.join_using_alias {
+            Some(v) => Some(mk_ref(mcx, copy_Alias(mcx, v)?)?),
+            None => None,
+        },
         quals: copy_node_opt(mcx, s.quals)?,
-        alias: match s.alias { Some(v) => Some(mk_ref(mcx, copy_Alias(mcx, v)?)?), None => None },
+        alias: match s.alias {
+            Some(v) => Some(mk_ref(mcx, copy_Alias(mcx, v)?)?),
+            None => None,
+        },
         rtindex: s.rtindex,
     })
 }
 
-pub(crate) fn copy_JsonAggConstructor<'d>(mcx: Mcx<'d>, s: &JsonAggConstructor<'_>) -> PgResult<JsonAggConstructor<'d>> {
+pub(crate) fn copy_JsonAggConstructor<'d>(
+    mcx: Mcx<'d>,
+    s: &JsonAggConstructor<'_>,
+) -> PgResult<JsonAggConstructor<'d>> {
     Ok(JsonAggConstructor {
         output: copy_node_opt(mcx, s.output)?,
         agg_filter: copy_node_opt(mcx, s.agg_filter)?,
@@ -4524,14 +5209,20 @@ pub(crate) fn copy_JsonAggConstructor<'d>(mcx: Mcx<'d>, s: &JsonAggConstructor<'
     })
 }
 
-pub(crate) fn copy_JsonArgument<'d>(mcx: Mcx<'d>, s: &JsonArgument<'_>) -> PgResult<JsonArgument<'d>> {
+pub(crate) fn copy_JsonArgument<'d>(
+    mcx: Mcx<'d>,
+    s: &JsonArgument<'_>,
+) -> PgResult<JsonArgument<'d>> {
     Ok(JsonArgument {
         val: copy_node_opt(mcx, s.val)?,
         name: opt_str_in(mcx, s.name)?,
     })
 }
 
-pub(crate) fn copy_JsonArrayAgg<'d>(mcx: Mcx<'d>, s: &JsonArrayAgg<'_>) -> PgResult<JsonArrayAgg<'d>> {
+pub(crate) fn copy_JsonArrayAgg<'d>(
+    mcx: Mcx<'d>,
+    s: &JsonArrayAgg<'_>,
+) -> PgResult<JsonArrayAgg<'d>> {
     Ok(JsonArrayAgg {
         constructor: copy_node_opt(mcx, s.constructor)?,
         arg: copy_node_opt(mcx, s.arg)?,
@@ -4539,7 +5230,10 @@ pub(crate) fn copy_JsonArrayAgg<'d>(mcx: Mcx<'d>, s: &JsonArrayAgg<'_>) -> PgRes
     })
 }
 
-pub(crate) fn copy_JsonArrayConstructor<'d>(mcx: Mcx<'d>, s: &JsonArrayConstructor<'_>) -> PgResult<JsonArrayConstructor<'d>> {
+pub(crate) fn copy_JsonArrayConstructor<'d>(
+    mcx: Mcx<'d>,
+    s: &JsonArrayConstructor<'_>,
+) -> PgResult<JsonArrayConstructor<'d>> {
     Ok(JsonArrayConstructor {
         exprs: copy_node_list(mcx, &s.exprs)?,
         output: copy_node_opt(mcx, s.output)?,
@@ -4548,17 +5242,26 @@ pub(crate) fn copy_JsonArrayConstructor<'d>(mcx: Mcx<'d>, s: &JsonArrayConstruct
     })
 }
 
-pub(crate) fn copy_JsonArrayQueryConstructor<'d>(mcx: Mcx<'d>, s: &JsonArrayQueryConstructor<'_>) -> PgResult<JsonArrayQueryConstructor<'d>> {
+pub(crate) fn copy_JsonArrayQueryConstructor<'d>(
+    mcx: Mcx<'d>,
+    s: &JsonArrayQueryConstructor<'_>,
+) -> PgResult<JsonArrayQueryConstructor<'d>> {
     Ok(JsonArrayQueryConstructor {
         query: copy_node_opt(mcx, s.query)?,
         output: copy_node_opt(mcx, s.output)?,
-        format: match s.format { Some(v) => Some(mk_ref(mcx, copy_JsonFormat(mcx, v)?)?), None => None },
+        format: match s.format {
+            Some(v) => Some(mk_ref(mcx, copy_JsonFormat(mcx, v)?)?),
+            None => None,
+        },
         absent_on_null: s.absent_on_null,
         location: s.location,
     })
 }
 
-pub(crate) fn copy_JsonBehavior<'d>(mcx: Mcx<'d>, s: &JsonBehavior<'_>) -> PgResult<JsonBehavior<'d>> {
+pub(crate) fn copy_JsonBehavior<'d>(
+    mcx: Mcx<'d>,
+    s: &JsonBehavior<'_>,
+) -> PgResult<JsonBehavior<'d>> {
     Ok(JsonBehavior {
         btype: s.btype,
         expr: copy_node_opt(mcx, s.expr)?,
@@ -4567,13 +5270,19 @@ pub(crate) fn copy_JsonBehavior<'d>(mcx: Mcx<'d>, s: &JsonBehavior<'_>) -> PgRes
     })
 }
 
-pub(crate) fn copy_JsonConstructorExpr<'d>(mcx: Mcx<'d>, s: &JsonConstructorExpr<'_>) -> PgResult<JsonConstructorExpr<'d>> {
+pub(crate) fn copy_JsonConstructorExpr<'d>(
+    mcx: Mcx<'d>,
+    s: &JsonConstructorExpr<'_>,
+) -> PgResult<JsonConstructorExpr<'d>> {
     Ok(JsonConstructorExpr {
         r#type: s.r#type,
         args: copy_node_list(mcx, &s.args)?,
         func: copy_node_opt(mcx, s.func)?,
         coercion: copy_node_opt(mcx, s.coercion)?,
-        returning: match s.returning { Some(v) => Some(mk_ref(mcx, copy_JsonReturning(mcx, v)?)?), None => None },
+        returning: match s.returning {
+            Some(v) => Some(mk_ref(mcx, copy_JsonReturning(mcx, v)?)?),
+            None => None,
+        },
         absent_on_null: s.absent_on_null,
         unique: s.unique,
         location: s.location,
@@ -4585,9 +5294,15 @@ pub(crate) fn copy_JsonExpr<'d>(mcx: Mcx<'d>, s: &JsonExpr<'_>) -> PgResult<Json
         op: s.op,
         column_name: opt_str_in(mcx, s.column_name)?,
         formatted_expr: copy_node_opt(mcx, s.formatted_expr)?,
-        format: match s.format { Some(v) => Some(mk_ref(mcx, copy_JsonFormat(mcx, v)?)?), None => None },
+        format: match s.format {
+            Some(v) => Some(mk_ref(mcx, copy_JsonFormat(mcx, v)?)?),
+            None => None,
+        },
         path_spec: copy_node_opt(mcx, s.path_spec)?,
-        returning: match s.returning { Some(v) => Some(mk_ref(mcx, copy_JsonReturning(mcx, v)?)?), None => None },
+        returning: match s.returning {
+            Some(v) => Some(mk_ref(mcx, copy_JsonReturning(mcx, v)?)?),
+            None => None,
+        },
         passing_names: copy_node_list(mcx, &s.passing_names)?,
         passing_values: copy_node_list(mcx, &s.passing_values)?,
         on_empty: copy_node_opt(mcx, s.on_empty)?,
@@ -4609,7 +5324,10 @@ pub(crate) fn copy_JsonFormat(_mcx: Mcx<'_>, s: &JsonFormat) -> PgResult<JsonFor
     })
 }
 
-pub(crate) fn copy_JsonFuncExpr<'d>(mcx: Mcx<'d>, s: &JsonFuncExpr<'_>) -> PgResult<JsonFuncExpr<'d>> {
+pub(crate) fn copy_JsonFuncExpr<'d>(
+    mcx: Mcx<'d>,
+    s: &JsonFuncExpr<'_>,
+) -> PgResult<JsonFuncExpr<'d>> {
     Ok(JsonFuncExpr {
         op: s.op,
         column_name: opt_str_in(mcx, s.column_name)?,
@@ -4625,24 +5343,36 @@ pub(crate) fn copy_JsonFuncExpr<'d>(mcx: Mcx<'d>, s: &JsonFuncExpr<'_>) -> PgRes
     })
 }
 
-pub(crate) fn copy_JsonIsPredicate<'d>(mcx: Mcx<'d>, s: &JsonIsPredicate<'_>) -> PgResult<JsonIsPredicate<'d>> {
+pub(crate) fn copy_JsonIsPredicate<'d>(
+    mcx: Mcx<'d>,
+    s: &JsonIsPredicate<'_>,
+) -> PgResult<JsonIsPredicate<'d>> {
     Ok(JsonIsPredicate {
         expr: copy_node_opt(mcx, s.expr)?,
-        format: match s.format { Some(v) => Some(mk_ref(mcx, copy_JsonFormat(mcx, v)?)?), None => None },
+        format: match s.format {
+            Some(v) => Some(mk_ref(mcx, copy_JsonFormat(mcx, v)?)?),
+            None => None,
+        },
         item_type: s.item_type,
         unique_keys: s.unique_keys,
         location: s.location,
     })
 }
 
-pub(crate) fn copy_JsonKeyValue<'d>(mcx: Mcx<'d>, s: &JsonKeyValue<'_>) -> PgResult<JsonKeyValue<'d>> {
+pub(crate) fn copy_JsonKeyValue<'d>(
+    mcx: Mcx<'d>,
+    s: &JsonKeyValue<'_>,
+) -> PgResult<JsonKeyValue<'d>> {
     Ok(JsonKeyValue {
         key: copy_node_opt(mcx, s.key)?,
         value: copy_node_opt(mcx, s.value)?,
     })
 }
 
-pub(crate) fn copy_JsonObjectAgg<'d>(mcx: Mcx<'d>, s: &JsonObjectAgg<'_>) -> PgResult<JsonObjectAgg<'d>> {
+pub(crate) fn copy_JsonObjectAgg<'d>(
+    mcx: Mcx<'d>,
+    s: &JsonObjectAgg<'_>,
+) -> PgResult<JsonObjectAgg<'d>> {
     Ok(JsonObjectAgg {
         constructor: copy_node_opt(mcx, s.constructor)?,
         arg: copy_node_opt(mcx, s.arg)?,
@@ -4651,7 +5381,10 @@ pub(crate) fn copy_JsonObjectAgg<'d>(mcx: Mcx<'d>, s: &JsonObjectAgg<'_>) -> PgR
     })
 }
 
-pub(crate) fn copy_JsonObjectConstructor<'d>(mcx: Mcx<'d>, s: &JsonObjectConstructor<'_>) -> PgResult<JsonObjectConstructor<'d>> {
+pub(crate) fn copy_JsonObjectConstructor<'d>(
+    mcx: Mcx<'d>,
+    s: &JsonObjectConstructor<'_>,
+) -> PgResult<JsonObjectConstructor<'d>> {
     Ok(JsonObjectConstructor {
         exprs: copy_node_list(mcx, &s.exprs)?,
         output: copy_node_opt(mcx, s.output)?,
@@ -4664,11 +5397,17 @@ pub(crate) fn copy_JsonObjectConstructor<'d>(mcx: Mcx<'d>, s: &JsonObjectConstru
 pub(crate) fn copy_JsonOutput<'d>(mcx: Mcx<'d>, s: &JsonOutput<'_>) -> PgResult<JsonOutput<'d>> {
     Ok(JsonOutput {
         typeName: copy_node_opt(mcx, s.typeName)?,
-        returning: match s.returning { Some(v) => Some(mk_ref(mcx, copy_JsonReturning(mcx, v)?)?), None => None },
+        returning: match s.returning {
+            Some(v) => Some(mk_ref(mcx, copy_JsonReturning(mcx, v)?)?),
+            None => None,
+        },
     })
 }
 
-pub(crate) fn copy_JsonParseExpr<'d>(mcx: Mcx<'d>, s: &JsonParseExpr<'_>) -> PgResult<JsonParseExpr<'d>> {
+pub(crate) fn copy_JsonParseExpr<'d>(
+    mcx: Mcx<'d>,
+    s: &JsonParseExpr<'_>,
+) -> PgResult<JsonParseExpr<'d>> {
     Ok(JsonParseExpr {
         expr: copy_node_opt(mcx, s.expr)?,
         output: copy_node_opt(mcx, s.output)?,
@@ -4677,15 +5416,24 @@ pub(crate) fn copy_JsonParseExpr<'d>(mcx: Mcx<'d>, s: &JsonParseExpr<'_>) -> PgR
     })
 }
 
-pub(crate) fn copy_JsonReturning<'d>(mcx: Mcx<'d>, s: &JsonReturning<'_>) -> PgResult<JsonReturning<'d>> {
+pub(crate) fn copy_JsonReturning<'d>(
+    mcx: Mcx<'d>,
+    s: &JsonReturning<'_>,
+) -> PgResult<JsonReturning<'d>> {
     Ok(JsonReturning {
-        format: match s.format { Some(v) => Some(mk_ref(mcx, copy_JsonFormat(mcx, v)?)?), None => None },
+        format: match s.format {
+            Some(v) => Some(mk_ref(mcx, copy_JsonFormat(mcx, v)?)?),
+            None => None,
+        },
         typid: s.typid,
         typmod: s.typmod,
     })
 }
 
-pub(crate) fn copy_JsonScalarExpr<'d>(mcx: Mcx<'d>, s: &JsonScalarExpr<'_>) -> PgResult<JsonScalarExpr<'d>> {
+pub(crate) fn copy_JsonScalarExpr<'d>(
+    mcx: Mcx<'d>,
+    s: &JsonScalarExpr<'_>,
+) -> PgResult<JsonScalarExpr<'d>> {
     Ok(JsonScalarExpr {
         expr: copy_node_opt(mcx, s.expr)?,
         output: copy_node_opt(mcx, s.output)?,
@@ -4693,7 +5441,10 @@ pub(crate) fn copy_JsonScalarExpr<'d>(mcx: Mcx<'d>, s: &JsonScalarExpr<'_>) -> P
     })
 }
 
-pub(crate) fn copy_JsonSerializeExpr<'d>(mcx: Mcx<'d>, s: &JsonSerializeExpr<'_>) -> PgResult<JsonSerializeExpr<'d>> {
+pub(crate) fn copy_JsonSerializeExpr<'d>(
+    mcx: Mcx<'d>,
+    s: &JsonSerializeExpr<'_>,
+) -> PgResult<JsonSerializeExpr<'d>> {
     Ok(JsonSerializeExpr {
         expr: copy_node_opt(mcx, s.expr)?,
         output: copy_node_opt(mcx, s.output)?,
@@ -4708,19 +5459,28 @@ pub(crate) fn copy_JsonTable<'d>(mcx: Mcx<'d>, s: &JsonTable<'_>) -> PgResult<Js
         passing: copy_node_list(mcx, &s.passing)?,
         columns: copy_node_list(mcx, &s.columns)?,
         on_error: copy_node_opt(mcx, s.on_error)?,
-        alias: match s.alias { Some(v) => Some(mk_ref(mcx, copy_Alias(mcx, v)?)?), None => None },
+        alias: match s.alias {
+            Some(v) => Some(mk_ref(mcx, copy_Alias(mcx, v)?)?),
+            None => None,
+        },
         lateral: s.lateral,
         location: s.location,
     })
 }
 
-pub(crate) fn copy_JsonTableColumn<'d>(mcx: Mcx<'d>, s: &JsonTableColumn<'_>) -> PgResult<JsonTableColumn<'d>> {
+pub(crate) fn copy_JsonTableColumn<'d>(
+    mcx: Mcx<'d>,
+    s: &JsonTableColumn<'_>,
+) -> PgResult<JsonTableColumn<'d>> {
     Ok(JsonTableColumn {
         coltype: s.coltype,
         name: opt_str_in(mcx, s.name)?,
         typeName: copy_node_opt(mcx, s.typeName)?,
         pathspec: copy_node_opt(mcx, s.pathspec)?,
-        format: match s.format { Some(v) => Some(mk_ref(mcx, copy_JsonFormat(mcx, v)?)?), None => None },
+        format: match s.format {
+            Some(v) => Some(mk_ref(mcx, copy_JsonFormat(mcx, v)?)?),
+            None => None,
+        },
         wrapper: s.wrapper,
         quotes: s.quotes,
         columns: copy_node_list(mcx, &s.columns)?,
@@ -4730,14 +5490,20 @@ pub(crate) fn copy_JsonTableColumn<'d>(mcx: Mcx<'d>, s: &JsonTableColumn<'_>) ->
     })
 }
 
-pub(crate) fn copy_JsonTablePath<'d>(mcx: Mcx<'d>, s: &JsonTablePath<'_>) -> PgResult<JsonTablePath<'d>> {
+pub(crate) fn copy_JsonTablePath<'d>(
+    mcx: Mcx<'d>,
+    s: &JsonTablePath<'_>,
+) -> PgResult<JsonTablePath<'d>> {
     Ok(JsonTablePath {
         value: copy_node_opt(mcx, s.value)?,
         name: opt_str_in(mcx, s.name)?,
     })
 }
 
-pub(crate) fn copy_JsonTablePathScan<'d>(mcx: Mcx<'d>, s: &JsonTablePathScan<'_>) -> PgResult<JsonTablePathScan<'d>> {
+pub(crate) fn copy_JsonTablePathScan<'d>(
+    mcx: Mcx<'d>,
+    s: &JsonTablePathScan<'_>,
+) -> PgResult<JsonTablePathScan<'d>> {
     Ok(JsonTablePathScan {
         path: copy_node_opt(mcx, s.path)?,
         errorOnError: s.errorOnError,
@@ -4747,7 +5513,10 @@ pub(crate) fn copy_JsonTablePathScan<'d>(mcx: Mcx<'d>, s: &JsonTablePathScan<'_>
     })
 }
 
-pub(crate) fn copy_JsonTablePathSpec<'d>(mcx: Mcx<'d>, s: &JsonTablePathSpec<'_>) -> PgResult<JsonTablePathSpec<'d>> {
+pub(crate) fn copy_JsonTablePathSpec<'d>(
+    mcx: Mcx<'d>,
+    s: &JsonTablePathSpec<'_>,
+) -> PgResult<JsonTablePathSpec<'d>> {
     Ok(JsonTablePathSpec {
         string: copy_node_opt(mcx, s.string)?,
         name: opt_str_in(mcx, s.name)?,
@@ -4756,18 +5525,27 @@ pub(crate) fn copy_JsonTablePathSpec<'d>(mcx: Mcx<'d>, s: &JsonTablePathSpec<'_>
     })
 }
 
-pub(crate) fn copy_JsonTableSiblingJoin<'d>(mcx: Mcx<'d>, s: &JsonTableSiblingJoin<'_>) -> PgResult<JsonTableSiblingJoin<'d>> {
+pub(crate) fn copy_JsonTableSiblingJoin<'d>(
+    mcx: Mcx<'d>,
+    s: &JsonTableSiblingJoin<'_>,
+) -> PgResult<JsonTableSiblingJoin<'d>> {
     Ok(JsonTableSiblingJoin {
         lplan: copy_node_opt(mcx, s.lplan)?,
         rplan: copy_node_opt(mcx, s.rplan)?,
     })
 }
 
-pub(crate) fn copy_JsonValueExpr<'d>(mcx: Mcx<'d>, s: &JsonValueExpr<'_>) -> PgResult<JsonValueExpr<'d>> {
+pub(crate) fn copy_JsonValueExpr<'d>(
+    mcx: Mcx<'d>,
+    s: &JsonValueExpr<'_>,
+) -> PgResult<JsonValueExpr<'d>> {
     Ok(JsonValueExpr {
         raw_expr: copy_node_opt(mcx, s.raw_expr)?,
         formatted_expr: copy_node_opt(mcx, s.formatted_expr)?,
-        format: match s.format { Some(v) => Some(mk_ref(mcx, copy_JsonFormat(mcx, v)?)?), None => None },
+        format: match s.format {
+            Some(v) => Some(mk_ref(mcx, copy_JsonFormat(mcx, v)?)?),
+            None => None,
+        },
     })
 }
 
@@ -4812,7 +5590,10 @@ pub(crate) fn copy_LockStmt<'d>(mcx: Mcx<'d>, s: &LockStmt<'_>) -> PgResult<Lock
     })
 }
 
-pub(crate) fn copy_LockingClause<'d>(mcx: Mcx<'d>, s: &LockingClause<'_>) -> PgResult<LockingClause<'d>> {
+pub(crate) fn copy_LockingClause<'d>(
+    mcx: Mcx<'d>,
+    s: &LockingClause<'_>,
+) -> PgResult<LockingClause<'d>> {
     Ok(LockingClause {
         lockedRels: copy_node_list(mcx, &s.lockedRels)?,
         strength: s.strength,
@@ -4888,7 +5669,10 @@ pub(crate) fn copy_MergeStmt<'d>(mcx: Mcx<'d>, s: &MergeStmt<'_>) -> PgResult<Me
     })
 }
 
-pub(crate) fn copy_MergeSupportFunc(_mcx: Mcx<'_>, s: &MergeSupportFunc) -> PgResult<MergeSupportFunc> {
+pub(crate) fn copy_MergeSupportFunc(
+    _mcx: Mcx<'_>,
+    s: &MergeSupportFunc,
+) -> PgResult<MergeSupportFunc> {
     Ok(MergeSupportFunc {
         msftype: s.msftype,
         msfcollid: s.msfcollid,
@@ -4896,7 +5680,10 @@ pub(crate) fn copy_MergeSupportFunc(_mcx: Mcx<'_>, s: &MergeSupportFunc) -> PgRe
     })
 }
 
-pub(crate) fn copy_MergeWhenClause<'d>(mcx: Mcx<'d>, s: &MergeWhenClause<'_>) -> PgResult<MergeWhenClause<'d>> {
+pub(crate) fn copy_MergeWhenClause<'d>(
+    mcx: Mcx<'d>,
+    s: &MergeWhenClause<'_>,
+) -> PgResult<MergeWhenClause<'d>> {
     Ok(MergeWhenClause {
         matchKind: s.matchKind,
         commandType: s.commandType,
@@ -4948,7 +5735,10 @@ pub(crate) fn copy_ModifyTable<'d>(mcx: Mcx<'d>, s: &ModifyTable<'_>) -> PgResul
     })
 }
 
-pub(crate) fn copy_MultiAssignRef<'d>(mcx: Mcx<'d>, s: &MultiAssignRef<'_>) -> PgResult<MultiAssignRef<'d>> {
+pub(crate) fn copy_MultiAssignRef<'d>(
+    mcx: Mcx<'d>,
+    s: &MultiAssignRef<'_>,
+) -> PgResult<MultiAssignRef<'d>> {
     Ok(MultiAssignRef {
         source: copy_node_opt(mcx, s.source)?,
         colno: s.colno,
@@ -4956,7 +5746,10 @@ pub(crate) fn copy_MultiAssignRef<'d>(mcx: Mcx<'d>, s: &MultiAssignRef<'_>) -> P
     })
 }
 
-pub(crate) fn copy_NamedArgExpr<'d>(mcx: Mcx<'d>, s: &NamedArgExpr<'_>) -> PgResult<NamedArgExpr<'d>> {
+pub(crate) fn copy_NamedArgExpr<'d>(
+    mcx: Mcx<'d>,
+    s: &NamedArgExpr<'_>,
+) -> PgResult<NamedArgExpr<'d>> {
     Ok(NamedArgExpr {
         arg: copy_node_opt(mcx, s.arg)?,
         name: opt_str_in(mcx, s.name)?,
@@ -4965,7 +5758,10 @@ pub(crate) fn copy_NamedArgExpr<'d>(mcx: Mcx<'d>, s: &NamedArgExpr<'_>) -> PgRes
     })
 }
 
-pub(crate) fn copy_NamedTuplestoreScan<'d>(mcx: Mcx<'d>, s: &NamedTuplestoreScan<'_>) -> PgResult<NamedTuplestoreScan<'d>> {
+pub(crate) fn copy_NamedTuplestoreScan<'d>(
+    mcx: Mcx<'d>,
+    s: &NamedTuplestoreScan<'_>,
+) -> PgResult<NamedTuplestoreScan<'d>> {
     Ok(NamedTuplestoreScan {
         scan: copy_Scan(mcx, &s.scan)?,
         enrname: opt_str_in(mcx, s.enrname)?,
@@ -4979,7 +5775,10 @@ pub(crate) fn copy_NestLoop<'d>(mcx: Mcx<'d>, s: &NestLoop<'_>) -> PgResult<Nest
     })
 }
 
-pub(crate) fn copy_NestLoopParam<'d>(mcx: Mcx<'d>, s: &NestLoopParam<'_>) -> PgResult<NestLoopParam<'d>> {
+pub(crate) fn copy_NestLoopParam<'d>(
+    mcx: Mcx<'d>,
+    s: &NestLoopParam<'_>,
+) -> PgResult<NestLoopParam<'d>> {
     Ok(NestLoopParam {
         paramno: s.paramno,
         paramval: copy_node(mcx, s.paramval)?,
@@ -5022,7 +5821,10 @@ pub(crate) fn copy_NullTest<'d>(mcx: Mcx<'d>, s: &NullTest<'_>) -> PgResult<Null
     })
 }
 
-pub(crate) fn copy_ObjectWithArgs<'d>(mcx: Mcx<'d>, s: &ObjectWithArgs<'_>) -> PgResult<ObjectWithArgs<'d>> {
+pub(crate) fn copy_ObjectWithArgs<'d>(
+    mcx: Mcx<'d>,
+    s: &ObjectWithArgs<'_>,
+) -> PgResult<ObjectWithArgs<'d>> {
     Ok(ObjectWithArgs {
         objname: copy_node_list(mcx, &s.objname)?,
         objargs: copy_opt_node_list(mcx, &s.objargs)?,
@@ -5031,7 +5833,10 @@ pub(crate) fn copy_ObjectWithArgs<'d>(mcx: Mcx<'d>, s: &ObjectWithArgs<'_>) -> P
     })
 }
 
-pub(crate) fn copy_OnConflictClause<'d>(mcx: Mcx<'d>, s: &OnConflictClause<'_>) -> PgResult<OnConflictClause<'d>> {
+pub(crate) fn copy_OnConflictClause<'d>(
+    mcx: Mcx<'d>,
+    s: &OnConflictClause<'_>,
+) -> PgResult<OnConflictClause<'d>> {
     Ok(OnConflictClause {
         action: s.action,
         infer: copy_node_opt(mcx, s.infer)?,
@@ -5041,7 +5846,10 @@ pub(crate) fn copy_OnConflictClause<'d>(mcx: Mcx<'d>, s: &OnConflictClause<'_>) 
     })
 }
 
-pub(crate) fn copy_OnConflictExpr<'d>(mcx: Mcx<'d>, s: &OnConflictExpr<'_>) -> PgResult<OnConflictExpr<'d>> {
+pub(crate) fn copy_OnConflictExpr<'d>(
+    mcx: Mcx<'d>,
+    s: &OnConflictExpr<'_>,
+) -> PgResult<OnConflictExpr<'d>> {
     Ok(OnConflictExpr {
         action: s.action,
         arbiterElems: copy_node_list(mcx, &s.arbiterElems)?,
@@ -5067,7 +5875,10 @@ pub(crate) fn copy_OpExpr<'d>(mcx: Mcx<'d>, s: &OpExpr<'_>) -> PgResult<OpExpr<'
     })
 }
 
-pub(crate) fn copy_PLAssignStmt<'d>(mcx: Mcx<'d>, s: &PLAssignStmt<'_>) -> PgResult<PLAssignStmt<'d>> {
+pub(crate) fn copy_PLAssignStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &PLAssignStmt<'_>,
+) -> PgResult<PLAssignStmt<'d>> {
     Ok(PLAssignStmt {
         name: str_in(mcx, s.name)?,
         indirection: copy_node_list(mcx, &s.indirection)?,
@@ -5095,7 +5906,10 @@ pub(crate) fn copy_ParamRef(_mcx: Mcx<'_>, s: &ParamRef) -> PgResult<ParamRef> {
     })
 }
 
-pub(crate) fn copy_PartitionBoundSpec<'d>(mcx: Mcx<'d>, s: &PartitionBoundSpec<'_>) -> PgResult<PartitionBoundSpec<'d>> {
+pub(crate) fn copy_PartitionBoundSpec<'d>(
+    mcx: Mcx<'d>,
+    s: &PartitionBoundSpec<'_>,
+) -> PgResult<PartitionBoundSpec<'d>> {
     Ok(PartitionBoundSpec {
         strategy: s.strategy,
         is_default: s.is_default,
@@ -5108,15 +5922,24 @@ pub(crate) fn copy_PartitionBoundSpec<'d>(mcx: Mcx<'d>, s: &PartitionBoundSpec<'
     })
 }
 
-pub(crate) fn copy_PartitionCmd<'d>(mcx: Mcx<'d>, s: &PartitionCmd<'_>) -> PgResult<PartitionCmd<'d>> {
+pub(crate) fn copy_PartitionCmd<'d>(
+    mcx: Mcx<'d>,
+    s: &PartitionCmd<'_>,
+) -> PgResult<PartitionCmd<'d>> {
     Ok(PartitionCmd {
-        name: match s.name { Some(v) => Some(mk_ref(mcx, copy_RangeVar(mcx, v)?)?), None => None },
+        name: match s.name {
+            Some(v) => Some(mk_ref(mcx, copy_RangeVar(mcx, v)?)?),
+            None => None,
+        },
         bound: copy_node_opt(mcx, s.bound)?,
         concurrent: s.concurrent,
     })
 }
 
-pub(crate) fn copy_PartitionElem<'d>(mcx: Mcx<'d>, s: &PartitionElem<'_>) -> PgResult<PartitionElem<'d>> {
+pub(crate) fn copy_PartitionElem<'d>(
+    mcx: Mcx<'d>,
+    s: &PartitionElem<'_>,
+) -> PgResult<PartitionElem<'d>> {
     Ok(PartitionElem {
         name: opt_str_in(mcx, s.name)?,
         expr: copy_node_opt(mcx, s.expr)?,
@@ -5126,7 +5949,10 @@ pub(crate) fn copy_PartitionElem<'d>(mcx: Mcx<'d>, s: &PartitionElem<'_>) -> PgR
     })
 }
 
-pub(crate) fn copy_PartitionPruneInfo<'d>(mcx: Mcx<'d>, s: &PartitionPruneInfo<'_>) -> PgResult<PartitionPruneInfo<'d>> {
+pub(crate) fn copy_PartitionPruneInfo<'d>(
+    mcx: Mcx<'d>,
+    s: &PartitionPruneInfo<'_>,
+) -> PgResult<PartitionPruneInfo<'d>> {
     Ok(PartitionPruneInfo {
         relids: copy_bms(mcx, &s.relids)?,
         prune_infos: copy_node_list(mcx, &s.prune_infos)?,
@@ -5134,7 +5960,10 @@ pub(crate) fn copy_PartitionPruneInfo<'d>(mcx: Mcx<'d>, s: &PartitionPruneInfo<'
     })
 }
 
-pub(crate) fn copy_PartitionPruneStepCombine<'d>(mcx: Mcx<'d>, s: &PartitionPruneStepCombine<'_>) -> PgResult<PartitionPruneStepCombine<'d>> {
+pub(crate) fn copy_PartitionPruneStepCombine<'d>(
+    mcx: Mcx<'d>,
+    s: &PartitionPruneStepCombine<'_>,
+) -> PgResult<PartitionPruneStepCombine<'d>> {
     Ok(PartitionPruneStepCombine {
         step_id: s.step_id,
         combineOp: s.combineOp,
@@ -5142,7 +5971,10 @@ pub(crate) fn copy_PartitionPruneStepCombine<'d>(mcx: Mcx<'d>, s: &PartitionPrun
     })
 }
 
-pub(crate) fn copy_PartitionPruneStepOp<'d>(mcx: Mcx<'d>, s: &PartitionPruneStepOp<'_>) -> PgResult<PartitionPruneStepOp<'d>> {
+pub(crate) fn copy_PartitionPruneStepOp<'d>(
+    mcx: Mcx<'d>,
+    s: &PartitionPruneStepOp<'_>,
+) -> PgResult<PartitionPruneStepOp<'d>> {
     Ok(PartitionPruneStepOp {
         step_id: s.step_id,
         opstrategy: s.opstrategy,
@@ -5152,7 +5984,10 @@ pub(crate) fn copy_PartitionPruneStepOp<'d>(mcx: Mcx<'d>, s: &PartitionPruneStep
     })
 }
 
-pub(crate) fn copy_PartitionRangeDatum<'d>(mcx: Mcx<'d>, s: &PartitionRangeDatum<'_>) -> PgResult<PartitionRangeDatum<'d>> {
+pub(crate) fn copy_PartitionRangeDatum<'d>(
+    mcx: Mcx<'d>,
+    s: &PartitionRangeDatum<'_>,
+) -> PgResult<PartitionRangeDatum<'d>> {
     Ok(PartitionRangeDatum {
         kind: s.kind,
         value: copy_node_opt(mcx, s.value)?,
@@ -5160,7 +5995,10 @@ pub(crate) fn copy_PartitionRangeDatum<'d>(mcx: Mcx<'d>, s: &PartitionRangeDatum
     })
 }
 
-pub(crate) fn copy_PartitionSpec<'d>(mcx: Mcx<'d>, s: &PartitionSpec<'_>) -> PgResult<PartitionSpec<'d>> {
+pub(crate) fn copy_PartitionSpec<'d>(
+    mcx: Mcx<'d>,
+    s: &PartitionSpec<'_>,
+) -> PgResult<PartitionSpec<'d>> {
     Ok(PartitionSpec {
         strategy: s.strategy,
         partParams: copy_node_list(mcx, &s.partParams)?,
@@ -5168,7 +6006,10 @@ pub(crate) fn copy_PartitionSpec<'d>(mcx: Mcx<'d>, s: &PartitionSpec<'_>) -> PgR
     })
 }
 
-pub(crate) fn copy_PartitionedRelPruneInfo<'d>(mcx: Mcx<'d>, s: &PartitionedRelPruneInfo<'_>) -> PgResult<PartitionedRelPruneInfo<'d>> {
+pub(crate) fn copy_PartitionedRelPruneInfo<'d>(
+    mcx: Mcx<'d>,
+    s: &PartitionedRelPruneInfo<'_>,
+) -> PgResult<PartitionedRelPruneInfo<'d>> {
     Ok(PartitionedRelPruneInfo {
         rtindex: s.rtindex,
         present_parts: copy_bms(mcx, &s.present_parts)?,
@@ -5183,7 +6024,10 @@ pub(crate) fn copy_PartitionedRelPruneInfo<'d>(mcx: Mcx<'d>, s: &PartitionedRelP
     })
 }
 
-pub(crate) fn copy_PlaceHolderVar<'d>(mcx: Mcx<'d>, s: &PlaceHolderVar<'_>) -> PgResult<PlaceHolderVar<'d>> {
+pub(crate) fn copy_PlaceHolderVar<'d>(
+    mcx: Mcx<'d>,
+    s: &PlaceHolderVar<'_>,
+) -> PgResult<PlaceHolderVar<'d>> {
     Ok(PlaceHolderVar {
         phexpr: copy_node(mcx, s.phexpr)?,
         phrels: copy_bms(mcx, &s.phrels)?,
@@ -5281,18 +6125,30 @@ pub(crate) fn copy_ProjectSet<'d>(mcx: Mcx<'d>, s: &ProjectSet<'_>) -> PgResult<
     })
 }
 
-pub(crate) fn copy_PublicationObjSpec<'d>(mcx: Mcx<'d>, s: &PublicationObjSpec<'_>) -> PgResult<PublicationObjSpec<'d>> {
+pub(crate) fn copy_PublicationObjSpec<'d>(
+    mcx: Mcx<'d>,
+    s: &PublicationObjSpec<'_>,
+) -> PgResult<PublicationObjSpec<'d>> {
     Ok(PublicationObjSpec {
         pubobjtype: s.pubobjtype,
         name: opt_str_in(mcx, s.name)?,
-        pubtable: match s.pubtable { Some(v) => Some(mk_ref(mcx, copy_PublicationTable(mcx, v)?)?), None => None },
+        pubtable: match s.pubtable {
+            Some(v) => Some(mk_ref(mcx, copy_PublicationTable(mcx, v)?)?),
+            None => None,
+        },
         location: s.location,
     })
 }
 
-pub(crate) fn copy_PublicationTable<'d>(mcx: Mcx<'d>, s: &PublicationTable<'_>) -> PgResult<PublicationTable<'d>> {
+pub(crate) fn copy_PublicationTable<'d>(
+    mcx: Mcx<'d>,
+    s: &PublicationTable<'_>,
+) -> PgResult<PublicationTable<'d>> {
     Ok(PublicationTable {
-        relation: match s.relation { Some(v) => Some(mk_ref(mcx, copy_RangeVar(mcx, v)?)?), None => None },
+        relation: match s.relation {
+            Some(v) => Some(mk_ref(mcx, copy_RangeVar(mcx, v)?)?),
+            None => None,
+        },
         whereClause: copy_node_opt(mcx, s.whereClause)?,
         columns: copy_node_list(mcx, &s.columns)?,
     })
@@ -5320,7 +6176,10 @@ pub(crate) fn copy_Query<'d>(mcx: Mcx<'d>, s: &Query<'_>) -> PgResult<Query<'d>>
         cteList: copy_node_list(mcx, &s.cteList)?,
         rtable: copy_node_list(mcx, &s.rtable)?,
         rteperminfos: copy_node_list(mcx, &s.rteperminfos)?,
-        jointree: match s.jointree { Some(v) => Some(mk_ref(mcx, copy_FromExpr(mcx, v)?)?), None => None },
+        jointree: match s.jointree {
+            Some(v) => Some(mk_ref(mcx, copy_FromExpr(mcx, v)?)?),
+            None => None,
+        },
         mergeActionList: copy_node_list(mcx, &s.mergeActionList)?,
         mergeTargetRelation: s.mergeTargetRelation,
         mergeJoinCondition: copy_node_opt(mcx, s.mergeJoinCondition)?,
@@ -5349,7 +6208,10 @@ pub(crate) fn copy_Query<'d>(mcx: Mcx<'d>, s: &Query<'_>) -> PgResult<Query<'d>>
     })
 }
 
-pub(crate) fn copy_RTEPermissionInfo<'d>(mcx: Mcx<'d>, s: &RTEPermissionInfo<'_>) -> PgResult<RTEPermissionInfo<'d>> {
+pub(crate) fn copy_RTEPermissionInfo<'d>(
+    mcx: Mcx<'d>,
+    s: &RTEPermissionInfo<'_>,
+) -> PgResult<RTEPermissionInfo<'d>> {
     Ok(RTEPermissionInfo {
         relid: s.relid,
         inh: s.inh,
@@ -5361,38 +6223,59 @@ pub(crate) fn copy_RTEPermissionInfo<'d>(mcx: Mcx<'d>, s: &RTEPermissionInfo<'_>
     })
 }
 
-pub(crate) fn copy_RangeFunction<'d>(mcx: Mcx<'d>, s: &RangeFunction<'_>) -> PgResult<RangeFunction<'d>> {
+pub(crate) fn copy_RangeFunction<'d>(
+    mcx: Mcx<'d>,
+    s: &RangeFunction<'_>,
+) -> PgResult<RangeFunction<'d>> {
     Ok(RangeFunction {
         lateral: s.lateral,
         ordinality: s.ordinality,
         is_rowsfrom: s.is_rowsfrom,
         functions: copy_node_list(mcx, &s.functions)?,
-        alias: match s.alias { Some(v) => Some(mk_ref(mcx, copy_Alias(mcx, v)?)?), None => None },
+        alias: match s.alias {
+            Some(v) => Some(mk_ref(mcx, copy_Alias(mcx, v)?)?),
+            None => None,
+        },
         coldeflist: copy_node_list(mcx, &s.coldeflist)?,
     })
 }
 
-pub(crate) fn copy_RangeSubselect<'d>(mcx: Mcx<'d>, s: &RangeSubselect<'_>) -> PgResult<RangeSubselect<'d>> {
+pub(crate) fn copy_RangeSubselect<'d>(
+    mcx: Mcx<'d>,
+    s: &RangeSubselect<'_>,
+) -> PgResult<RangeSubselect<'d>> {
     Ok(RangeSubselect {
         lateral: s.lateral,
         subquery: copy_node_opt(mcx, s.subquery)?,
-        alias: match s.alias { Some(v) => Some(mk_ref(mcx, copy_Alias(mcx, v)?)?), None => None },
+        alias: match s.alias {
+            Some(v) => Some(mk_ref(mcx, copy_Alias(mcx, v)?)?),
+            None => None,
+        },
     })
 }
 
-pub(crate) fn copy_RangeTableFunc<'d>(mcx: Mcx<'d>, s: &RangeTableFunc<'_>) -> PgResult<RangeTableFunc<'d>> {
+pub(crate) fn copy_RangeTableFunc<'d>(
+    mcx: Mcx<'d>,
+    s: &RangeTableFunc<'_>,
+) -> PgResult<RangeTableFunc<'d>> {
     Ok(RangeTableFunc {
         lateral: s.lateral,
         docexpr: copy_node_opt(mcx, s.docexpr)?,
         rowexpr: copy_node_opt(mcx, s.rowexpr)?,
         namespaces: copy_node_list(mcx, &s.namespaces)?,
         columns: copy_node_list(mcx, &s.columns)?,
-        alias: match s.alias { Some(v) => Some(mk_ref(mcx, copy_Alias(mcx, v)?)?), None => None },
+        alias: match s.alias {
+            Some(v) => Some(mk_ref(mcx, copy_Alias(mcx, v)?)?),
+            None => None,
+        },
         location: s.location,
     })
 }
 
-pub(crate) fn copy_RangeTableFuncCol<'d>(mcx: Mcx<'d>, s: &RangeTableFuncCol<'_>) -> PgResult<RangeTableFuncCol<'d>> {
+pub(crate) fn copy_RangeTableFuncCol<'d>(
+    mcx: Mcx<'d>,
+    s: &RangeTableFuncCol<'_>,
+) -> PgResult<RangeTableFuncCol<'d>> {
     Ok(RangeTableFuncCol {
         colname: opt_str_in(mcx, s.colname)?,
         typeName: copy_node_opt(mcx, s.typeName)?,
@@ -5404,7 +6287,10 @@ pub(crate) fn copy_RangeTableFuncCol<'d>(mcx: Mcx<'d>, s: &RangeTableFuncCol<'_>
     })
 }
 
-pub(crate) fn copy_RangeTableSample<'d>(mcx: Mcx<'d>, s: &RangeTableSample<'_>) -> PgResult<RangeTableSample<'d>> {
+pub(crate) fn copy_RangeTableSample<'d>(
+    mcx: Mcx<'d>,
+    s: &RangeTableSample<'_>,
+) -> PgResult<RangeTableSample<'d>> {
     Ok(RangeTableSample {
         relation: copy_node_opt(mcx, s.relation)?,
         method: copy_node_list(mcx, &s.method)?,
@@ -5414,10 +6300,19 @@ pub(crate) fn copy_RangeTableSample<'d>(mcx: Mcx<'d>, s: &RangeTableSample<'_>) 
     })
 }
 
-pub(crate) fn copy_RangeTblEntry<'d>(mcx: Mcx<'d>, s: &RangeTblEntry<'_>) -> PgResult<RangeTblEntry<'d>> {
+pub(crate) fn copy_RangeTblEntry<'d>(
+    mcx: Mcx<'d>,
+    s: &RangeTblEntry<'_>,
+) -> PgResult<RangeTblEntry<'d>> {
     Ok(RangeTblEntry {
-        alias: match s.alias { Some(v) => Some(mk_ref(mcx, copy_Alias(mcx, v)?)?), None => None },
-        eref: match s.eref { Some(v) => Some(mk_ref(mcx, copy_Alias(mcx, v)?)?), None => None },
+        alias: match s.alias {
+            Some(v) => Some(mk_ref(mcx, copy_Alias(mcx, v)?)?),
+            None => None,
+        },
+        eref: match s.eref {
+            Some(v) => Some(mk_ref(mcx, copy_Alias(mcx, v)?)?),
+            None => None,
+        },
         rtekind: s.rtekind,
         relid: s.relid,
         inh: s.inh,
@@ -5425,14 +6320,20 @@ pub(crate) fn copy_RangeTblEntry<'d>(mcx: Mcx<'d>, s: &RangeTblEntry<'_>) -> PgR
         rellockmode: s.rellockmode,
         perminfoindex: s.perminfoindex,
         tablesample: copy_node_opt(mcx, s.tablesample)?,
-        subquery: match s.subquery { Some(v) => Some(mk_ref(mcx, copy_Query(mcx, v)?)?), None => None },
+        subquery: match s.subquery {
+            Some(v) => Some(mk_ref(mcx, copy_Query(mcx, v)?)?),
+            None => None,
+        },
         security_barrier: s.security_barrier,
         jointype: s.jointype,
         joinmergedcols: s.joinmergedcols,
         joinaliasvars: copy_node_list(mcx, &s.joinaliasvars)?,
         joinleftcols: IntList::from_slice(mcx, s.joinleftcols.as_slice())?,
         joinrightcols: IntList::from_slice(mcx, s.joinrightcols.as_slice())?,
-        join_using_alias: match s.join_using_alias { Some(v) => Some(mk_ref(mcx, copy_Alias(mcx, v)?)?), None => None },
+        join_using_alias: match s.join_using_alias {
+            Some(v) => Some(mk_ref(mcx, copy_Alias(mcx, v)?)?),
+            None => None,
+        },
         functions: copy_node_list(mcx, &s.functions)?,
         funcordinality: s.funcordinality,
         tablefunc: copy_node_opt(mcx, s.tablefunc)?,
@@ -5452,7 +6353,10 @@ pub(crate) fn copy_RangeTblEntry<'d>(mcx: Mcx<'d>, s: &RangeTblEntry<'_>) -> PgR
     })
 }
 
-pub(crate) fn copy_RangeTblFunction<'d>(mcx: Mcx<'d>, s: &RangeTblFunction<'_>) -> PgResult<RangeTblFunction<'d>> {
+pub(crate) fn copy_RangeTblFunction<'d>(
+    mcx: Mcx<'d>,
+    s: &RangeTblFunction<'_>,
+) -> PgResult<RangeTblFunction<'d>> {
     Ok(RangeTblFunction {
         funcexpr: copy_node_opt(mcx, s.funcexpr)?,
         funccolcount: s.funccolcount,
@@ -5465,9 +6369,7 @@ pub(crate) fn copy_RangeTblFunction<'d>(mcx: Mcx<'d>, s: &RangeTblFunction<'_>) 
 }
 
 pub(crate) fn copy_RangeTblRef(_mcx: Mcx<'_>, s: &RangeTblRef) -> PgResult<RangeTblRef> {
-    Ok(RangeTblRef {
-        rtindex: s.rtindex,
-    })
+    Ok(RangeTblRef { rtindex: s.rtindex })
 }
 
 pub(crate) fn copy_RangeVar<'d>(mcx: Mcx<'d>, s: &RangeVar<'_>) -> PgResult<RangeVar<'d>> {
@@ -5477,7 +6379,10 @@ pub(crate) fn copy_RangeVar<'d>(mcx: Mcx<'d>, s: &RangeVar<'_>) -> PgResult<Rang
         relname: opt_str_in(mcx, s.relname)?,
         inh: s.inh,
         relpersistence: s.relpersistence,
-        alias: match s.alias { Some(v) => Some(mk_ref(mcx, copy_Alias(mcx, v)?)?), None => None },
+        alias: match s.alias {
+            Some(v) => Some(mk_ref(mcx, copy_Alias(mcx, v)?)?),
+            None => None,
+        },
         location: s.location,
     })
 }
@@ -5490,14 +6395,20 @@ pub(crate) fn copy_RawStmt<'d>(mcx: Mcx<'d>, s: &RawStmt<'_>) -> PgResult<RawStm
     })
 }
 
-pub(crate) fn copy_ReassignOwnedStmt<'d>(mcx: Mcx<'d>, s: &ReassignOwnedStmt<'_>) -> PgResult<ReassignOwnedStmt<'d>> {
+pub(crate) fn copy_ReassignOwnedStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &ReassignOwnedStmt<'_>,
+) -> PgResult<ReassignOwnedStmt<'d>> {
     Ok(ReassignOwnedStmt {
         roles: copy_node_list(mcx, &s.roles)?,
         newrole: mk_ref(mcx, copy_RoleSpec(mcx, s.newrole)?)?,
     })
 }
 
-pub(crate) fn copy_RecursiveUnion<'d>(mcx: Mcx<'d>, s: &RecursiveUnion<'_>) -> PgResult<RecursiveUnion<'d>> {
+pub(crate) fn copy_RecursiveUnion<'d>(
+    mcx: Mcx<'d>,
+    s: &RecursiveUnion<'_>,
+) -> PgResult<RecursiveUnion<'d>> {
     Ok(RecursiveUnion {
         plan: copy_Plan(mcx, &s.plan)?,
         wtParam: s.wtParam,
@@ -5509,11 +6420,17 @@ pub(crate) fn copy_RecursiveUnion<'d>(mcx: Mcx<'d>, s: &RecursiveUnion<'_>) -> P
     })
 }
 
-pub(crate) fn copy_RefreshMatViewStmt<'d>(mcx: Mcx<'d>, s: &RefreshMatViewStmt<'_>) -> PgResult<RefreshMatViewStmt<'d>> {
+pub(crate) fn copy_RefreshMatViewStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &RefreshMatViewStmt<'_>,
+) -> PgResult<RefreshMatViewStmt<'d>> {
     Ok(RefreshMatViewStmt {
         concurrent: s.concurrent,
         skipData: s.skipData,
-        relation: match s.relation { Some(v) => Some(mk_ref(mcx, copy_RangeVar(mcx, v)?)?), None => None },
+        relation: match s.relation {
+            Some(v) => Some(mk_ref(mcx, copy_RangeVar(mcx, v)?)?),
+            None => None,
+        },
     })
 }
 
@@ -5541,7 +6458,10 @@ pub(crate) fn copy_RenameStmt<'d>(mcx: Mcx<'d>, s: &RenameStmt<'_>) -> PgResult<
     Ok(RenameStmt {
         renameType: s.renameType,
         relationType: s.relationType,
-        relation: match s.relation { Some(v) => Some(mk_ref(mcx, copy_RangeVar(mcx, v)?)?), None => None },
+        relation: match s.relation {
+            Some(v) => Some(mk_ref(mcx, copy_RangeVar(mcx, v)?)?),
+            None => None,
+        },
         object: copy_node_opt(mcx, s.object)?,
         subname: opt_str_in(mcx, s.subname)?,
         newname: opt_str_in(mcx, s.newname)?,
@@ -5550,7 +6470,10 @@ pub(crate) fn copy_RenameStmt<'d>(mcx: Mcx<'d>, s: &RenameStmt<'_>) -> PgResult<
     })
 }
 
-pub(crate) fn copy_ReplicaIdentityStmt<'d>(mcx: Mcx<'d>, s: &ReplicaIdentityStmt<'_>) -> PgResult<ReplicaIdentityStmt<'d>> {
+pub(crate) fn copy_ReplicaIdentityStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &ReplicaIdentityStmt<'_>,
+) -> PgResult<ReplicaIdentityStmt<'d>> {
     Ok(ReplicaIdentityStmt {
         identity_type: s.identity_type,
         name: opt_str_in(mcx, s.name)?,
@@ -5579,14 +6502,20 @@ pub(crate) fn copy_ReturnStmt<'d>(mcx: Mcx<'d>, s: &ReturnStmt<'_>) -> PgResult<
     })
 }
 
-pub(crate) fn copy_ReturningClause<'d>(mcx: Mcx<'d>, s: &ReturningClause<'_>) -> PgResult<ReturningClause<'d>> {
+pub(crate) fn copy_ReturningClause<'d>(
+    mcx: Mcx<'d>,
+    s: &ReturningClause<'_>,
+) -> PgResult<ReturningClause<'d>> {
     Ok(ReturningClause {
         options: copy_node_list(mcx, &s.options)?,
         exprs: copy_node_list(mcx, &s.exprs)?,
     })
 }
 
-pub(crate) fn copy_ReturningExpr<'d>(mcx: Mcx<'d>, s: &ReturningExpr<'_>) -> PgResult<ReturningExpr<'d>> {
+pub(crate) fn copy_ReturningExpr<'d>(
+    mcx: Mcx<'d>,
+    s: &ReturningExpr<'_>,
+) -> PgResult<ReturningExpr<'d>> {
     Ok(ReturningExpr {
         retlevelsup: s.retlevelsup,
         retold: s.retold,
@@ -5594,7 +6523,10 @@ pub(crate) fn copy_ReturningExpr<'d>(mcx: Mcx<'d>, s: &ReturningExpr<'_>) -> PgR
     })
 }
 
-pub(crate) fn copy_ReturningOption<'d>(mcx: Mcx<'d>, s: &ReturningOption<'_>) -> PgResult<ReturningOption<'d>> {
+pub(crate) fn copy_ReturningOption<'d>(
+    mcx: Mcx<'d>,
+    s: &ReturningOption<'_>,
+) -> PgResult<ReturningOption<'d>> {
     Ok(ReturningOption {
         option: s.option,
         value: opt_str_in(mcx, s.value)?,
@@ -5610,7 +6542,10 @@ pub(crate) fn copy_RoleSpec<'d>(mcx: Mcx<'d>, s: &RoleSpec<'_>) -> PgResult<Role
     })
 }
 
-pub(crate) fn copy_RowCompareExpr<'d>(mcx: Mcx<'d>, s: &RowCompareExpr<'_>) -> PgResult<RowCompareExpr<'d>> {
+pub(crate) fn copy_RowCompareExpr<'d>(
+    mcx: Mcx<'d>,
+    s: &RowCompareExpr<'_>,
+) -> PgResult<RowCompareExpr<'d>> {
     Ok(RowCompareExpr {
         cmptype: s.cmptype,
         opnos: OidList::from_slice(mcx, s.opnos.as_slice())?,
@@ -5642,7 +6577,10 @@ pub(crate) fn copy_RowMarkClause(_mcx: Mcx<'_>, s: &RowMarkClause) -> PgResult<R
 
 pub(crate) fn copy_RuleStmt<'d>(mcx: Mcx<'d>, s: &RuleStmt<'_>) -> PgResult<RuleStmt<'d>> {
     Ok(RuleStmt {
-        relation: match s.relation { Some(v) => Some(mk_ref(mcx, copy_RangeVar(mcx, v)?)?), None => None },
+        relation: match s.relation {
+            Some(v) => Some(mk_ref(mcx, copy_RangeVar(mcx, v)?)?),
+            None => None,
+        },
         rulename: str_in(mcx, s.rulename)?,
         whereClause: copy_node_opt(mcx, s.whereClause)?,
         event: s.event,
@@ -5652,7 +6590,10 @@ pub(crate) fn copy_RuleStmt<'d>(mcx: Mcx<'d>, s: &RuleStmt<'_>) -> PgResult<Rule
     })
 }
 
-pub(crate) fn copy_SQLValueFunction(_mcx: Mcx<'_>, s: &SQLValueFunction) -> PgResult<SQLValueFunction> {
+pub(crate) fn copy_SQLValueFunction(
+    _mcx: Mcx<'_>,
+    s: &SQLValueFunction,
+) -> PgResult<SQLValueFunction> {
     Ok(SQLValueFunction {
         op: s.op,
         r#type: s.r#type,
@@ -5668,7 +6609,10 @@ pub(crate) fn copy_SampleScan<'d>(mcx: Mcx<'d>, s: &SampleScan<'_>) -> PgResult<
     })
 }
 
-pub(crate) fn copy_ScalarArrayOpExpr<'d>(mcx: Mcx<'d>, s: &ScalarArrayOpExpr<'_>) -> PgResult<ScalarArrayOpExpr<'d>> {
+pub(crate) fn copy_ScalarArrayOpExpr<'d>(
+    mcx: Mcx<'d>,
+    s: &ScalarArrayOpExpr<'_>,
+) -> PgResult<ScalarArrayOpExpr<'d>> {
     Ok(ScalarArrayOpExpr {
         opno: s.opno,
         opfuncid: s.opfuncid,
@@ -5688,7 +6632,10 @@ pub(crate) fn copy_Scan<'d>(mcx: Mcx<'d>, s: &Scan<'_>) -> PgResult<Scan<'d>> {
     })
 }
 
-pub(crate) fn copy_SecLabelStmt<'d>(mcx: Mcx<'d>, s: &SecLabelStmt<'_>) -> PgResult<SecLabelStmt<'d>> {
+pub(crate) fn copy_SecLabelStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &SecLabelStmt<'_>,
+) -> PgResult<SecLabelStmt<'d>> {
     Ok(SecLabelStmt {
         objtype: s.objtype,
         object: copy_node_opt(mcx, s.object)?,
@@ -5699,7 +6646,11 @@ pub(crate) fn copy_SecLabelStmt<'d>(mcx: Mcx<'d>, s: &SecLabelStmt<'_>) -> PgRes
 
 pub(crate) fn copy_SelectStmt<'d>(mcx: Mcx<'d>, s: &SelectStmt<'_>) -> PgResult<SelectStmt<'d>> {
     Ok(SelectStmt {
-        distinctClause: match &s.distinctClause { DistinctClause::None => DistinctClause::None, DistinctClause::All => DistinctClause::All, DistinctClause::On(l) => DistinctClause::On(copy_node_list(mcx, l)?) },
+        distinctClause: match &s.distinctClause {
+            DistinctClause::None => DistinctClause::None,
+            DistinctClause::All => DistinctClause::All,
+            DistinctClause::On(l) => DistinctClause::On(copy_node_list(mcx, l)?),
+        },
         intoClause: copy_node_opt(mcx, s.intoClause)?,
         targetList: copy_node_list(mcx, &s.targetList)?,
         fromClause: copy_node_list(mcx, &s.fromClause)?,
@@ -5717,16 +6668,30 @@ pub(crate) fn copy_SelectStmt<'d>(mcx: Mcx<'d>, s: &SelectStmt<'_>) -> PgResult<
         withClause: copy_node_opt(mcx, s.withClause)?,
         op: s.op,
         all: s.all,
-        larg: match s.larg { Some(v) => Some(mk_ref(mcx, copy_SelectStmt(mcx, v)?)?), None => None },
-        rarg: match s.rarg { Some(v) => Some(mk_ref(mcx, copy_SelectStmt(mcx, v)?)?), None => None },
+        larg: match s.larg {
+            Some(v) => Some(mk_ref(mcx, copy_SelectStmt(mcx, v)?)?),
+            None => None,
+        },
+        rarg: match s.rarg {
+            Some(v) => Some(mk_ref(mcx, copy_SelectStmt(mcx, v)?)?),
+            None => None,
+        },
     })
 }
 
 pub(crate) fn copy_SeqScan<'d>(mcx: Mcx<'d>, s: &SeqScan<'_>) -> PgResult<SeqScan<'d>> {
     Ok(SeqScan {
         scan: copy_Scan(mcx, &s.scan)?,
-        cb_scan_cols: s.cb_scan_cols.as_ref().map(|b| copy_bms(mcx, b)).transpose()?,
-        cb_target_cols: s.cb_target_cols.as_ref().map(|b| copy_bms(mcx, b)).transpose()?,
+        cb_scan_cols: s
+            .cb_scan_cols
+            .as_ref()
+            .map(|b| copy_bms(mcx, b))
+            .transpose()?,
+        cb_target_cols: s
+            .cb_target_cols
+            .as_ref()
+            .map(|b| copy_bms(mcx, b))
+            .transpose()?,
         pgrc_merge: copy_slice(mcx, s.pgrc_merge)?,
     })
 }
@@ -5745,7 +6710,10 @@ pub(crate) fn copy_SetOp<'d>(mcx: Mcx<'d>, s: &SetOp<'_>) -> PgResult<SetOp<'d>>
     })
 }
 
-pub(crate) fn copy_SetOperationStmt<'d>(mcx: Mcx<'d>, s: &SetOperationStmt<'_>) -> PgResult<SetOperationStmt<'d>> {
+pub(crate) fn copy_SetOperationStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &SetOperationStmt<'_>,
+) -> PgResult<SetOperationStmt<'d>> {
     Ok(SetOperationStmt {
         op: s.op,
         all: s.all,
@@ -5789,7 +6757,10 @@ pub(crate) fn copy_SortBy<'d>(mcx: Mcx<'d>, s: &SortBy<'_>) -> PgResult<SortBy<'
     })
 }
 
-pub(crate) fn copy_SortGroupClause(_mcx: Mcx<'_>, s: &SortGroupClause) -> PgResult<SortGroupClause> {
+pub(crate) fn copy_SortGroupClause(
+    _mcx: Mcx<'_>,
+    s: &SortGroupClause,
+) -> PgResult<SortGroupClause> {
     Ok(SortGroupClause {
         tleSortGroupRef: s.tleSortGroupRef,
         eqop: s.eqop,
@@ -5839,7 +6810,10 @@ pub(crate) fn copy_SubPlan<'d>(mcx: Mcx<'d>, s: &SubPlan<'_>) -> PgResult<SubPla
     })
 }
 
-pub(crate) fn copy_SubqueryScan<'d>(mcx: Mcx<'d>, s: &SubqueryScan<'_>) -> PgResult<SubqueryScan<'d>> {
+pub(crate) fn copy_SubqueryScan<'d>(
+    mcx: Mcx<'d>,
+    s: &SubqueryScan<'_>,
+) -> PgResult<SubqueryScan<'d>> {
     Ok(SubqueryScan {
         scan: copy_Scan(mcx, &s.scan)?,
         subplan: copy_node_opt(mcx, s.subplan)?,
@@ -5847,7 +6821,10 @@ pub(crate) fn copy_SubqueryScan<'d>(mcx: Mcx<'d>, s: &SubqueryScan<'_>) -> PgRes
     })
 }
 
-pub(crate) fn copy_SubscriptingRef<'d>(mcx: Mcx<'d>, s: &SubscriptingRef<'_>) -> PgResult<SubscriptingRef<'d>> {
+pub(crate) fn copy_SubscriptingRef<'d>(
+    mcx: Mcx<'d>,
+    s: &SubscriptingRef<'_>,
+) -> PgResult<SubscriptingRef<'d>> {
     Ok(SubscriptingRef {
         refcontainertype: s.refcontainertype,
         refelemtype: s.refelemtype,
@@ -5883,22 +6860,34 @@ pub(crate) fn copy_TableFunc<'d>(mcx: Mcx<'d>, s: &TableFunc<'_>) -> PgResult<Ta
     })
 }
 
-pub(crate) fn copy_TableFuncScan<'d>(mcx: Mcx<'d>, s: &TableFuncScan<'_>) -> PgResult<TableFuncScan<'d>> {
+pub(crate) fn copy_TableFuncScan<'d>(
+    mcx: Mcx<'d>,
+    s: &TableFuncScan<'_>,
+) -> PgResult<TableFuncScan<'d>> {
     Ok(TableFuncScan {
         scan: copy_Scan(mcx, &s.scan)?,
         tablefunc: copy_node_opt(mcx, s.tablefunc)?,
     })
 }
 
-pub(crate) fn copy_TableLikeClause<'d>(mcx: Mcx<'d>, s: &TableLikeClause<'_>) -> PgResult<TableLikeClause<'d>> {
+pub(crate) fn copy_TableLikeClause<'d>(
+    mcx: Mcx<'d>,
+    s: &TableLikeClause<'_>,
+) -> PgResult<TableLikeClause<'d>> {
     Ok(TableLikeClause {
-        relation: match s.relation { Some(v) => Some(mk_ref(mcx, copy_RangeVar(mcx, v)?)?), None => None },
+        relation: match s.relation {
+            Some(v) => Some(mk_ref(mcx, copy_RangeVar(mcx, v)?)?),
+            None => None,
+        },
         options: s.options,
         relationOid: s.relationOid,
     })
 }
 
-pub(crate) fn copy_TableSampleClause<'d>(mcx: Mcx<'d>, s: &TableSampleClause<'_>) -> PgResult<TableSampleClause<'d>> {
+pub(crate) fn copy_TableSampleClause<'d>(
+    mcx: Mcx<'d>,
+    s: &TableSampleClause<'_>,
+) -> PgResult<TableSampleClause<'d>> {
     Ok(TableSampleClause {
         tsmhandler: s.tsmhandler,
         args: copy_node_list(mcx, &s.args)?,
@@ -5918,7 +6907,10 @@ pub(crate) fn copy_TargetEntry<'d>(mcx: Mcx<'d>, s: &TargetEntry<'_>) -> PgResul
     })
 }
 
-pub(crate) fn copy_TidRangeScan<'d>(mcx: Mcx<'d>, s: &TidRangeScan<'_>) -> PgResult<TidRangeScan<'d>> {
+pub(crate) fn copy_TidRangeScan<'d>(
+    mcx: Mcx<'d>,
+    s: &TidRangeScan<'_>,
+) -> PgResult<TidRangeScan<'d>> {
     Ok(TidRangeScan {
         scan: copy_Scan(mcx, &s.scan)?,
         tidrangequals: copy_node_list(mcx, &s.tidrangequals)?,
@@ -5932,7 +6924,10 @@ pub(crate) fn copy_TidScan<'d>(mcx: Mcx<'d>, s: &TidScan<'_>) -> PgResult<TidSca
     })
 }
 
-pub(crate) fn copy_TransactionStmt<'d>(mcx: Mcx<'d>, s: &TransactionStmt<'_>) -> PgResult<TransactionStmt<'d>> {
+pub(crate) fn copy_TransactionStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &TransactionStmt<'_>,
+) -> PgResult<TransactionStmt<'d>> {
     Ok(TransactionStmt {
         kind: s.kind,
         options: copy_node_list(mcx, &s.options)?,
@@ -5943,7 +6938,10 @@ pub(crate) fn copy_TransactionStmt<'d>(mcx: Mcx<'d>, s: &TransactionStmt<'_>) ->
     })
 }
 
-pub(crate) fn copy_TriggerTransition<'d>(mcx: Mcx<'d>, s: &TriggerTransition<'_>) -> PgResult<TriggerTransition<'d>> {
+pub(crate) fn copy_TriggerTransition<'d>(
+    mcx: Mcx<'d>,
+    s: &TriggerTransition<'_>,
+) -> PgResult<TriggerTransition<'d>> {
     Ok(TriggerTransition {
         name: opt_str_in(mcx, s.name)?,
         isNew: s.isNew,
@@ -5951,7 +6949,10 @@ pub(crate) fn copy_TriggerTransition<'d>(mcx: Mcx<'d>, s: &TriggerTransition<'_>
     })
 }
 
-pub(crate) fn copy_TruncateStmt<'d>(mcx: Mcx<'d>, s: &TruncateStmt<'_>) -> PgResult<TruncateStmt<'d>> {
+pub(crate) fn copy_TruncateStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &TruncateStmt<'_>,
+) -> PgResult<TruncateStmt<'d>> {
     Ok(TruncateStmt {
         relations: copy_node_list(mcx, &s.relations)?,
         restart_seqs: s.restart_seqs,
@@ -5990,7 +6991,10 @@ pub(crate) fn copy_Unique<'d>(mcx: Mcx<'d>, s: &Unique<'_>) -> PgResult<Unique<'
     })
 }
 
-pub(crate) fn copy_UnlistenStmt<'d>(mcx: Mcx<'d>, s: &UnlistenStmt<'_>) -> PgResult<UnlistenStmt<'d>> {
+pub(crate) fn copy_UnlistenStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &UnlistenStmt<'_>,
+) -> PgResult<UnlistenStmt<'d>> {
     Ok(UnlistenStmt {
         conditionname: opt_str_in(mcx, s.conditionname)?,
     })
@@ -6007,7 +7011,10 @@ pub(crate) fn copy_UpdateStmt<'d>(mcx: Mcx<'d>, s: &UpdateStmt<'_>) -> PgResult<
     })
 }
 
-pub(crate) fn copy_VacuumRelation<'d>(mcx: Mcx<'d>, s: &VacuumRelation<'_>) -> PgResult<VacuumRelation<'d>> {
+pub(crate) fn copy_VacuumRelation<'d>(
+    mcx: Mcx<'d>,
+    s: &VacuumRelation<'_>,
+) -> PgResult<VacuumRelation<'d>> {
     Ok(VacuumRelation {
         relation: copy_node_opt(mcx, s.relation)?,
         oid: s.oid,
@@ -6046,7 +7053,10 @@ pub(crate) fn copy_Var<'d>(mcx: Mcx<'d>, s: &Var<'_>) -> PgResult<Var<'d>> {
     })
 }
 
-pub(crate) fn copy_VariableSetStmt<'d>(mcx: Mcx<'d>, s: &VariableSetStmt<'_>) -> PgResult<VariableSetStmt<'d>> {
+pub(crate) fn copy_VariableSetStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &VariableSetStmt<'_>,
+) -> PgResult<VariableSetStmt<'d>> {
     Ok(VariableSetStmt {
         kind: s.kind,
         name: opt_str_in(mcx, s.name)?,
@@ -6057,7 +7067,10 @@ pub(crate) fn copy_VariableSetStmt<'d>(mcx: Mcx<'d>, s: &VariableSetStmt<'_>) ->
     })
 }
 
-pub(crate) fn copy_VariableShowStmt<'d>(mcx: Mcx<'d>, s: &VariableShowStmt<'_>) -> PgResult<VariableShowStmt<'d>> {
+pub(crate) fn copy_VariableShowStmt<'d>(
+    mcx: Mcx<'d>,
+    s: &VariableShowStmt<'_>,
+) -> PgResult<VariableShowStmt<'d>> {
     Ok(VariableShowStmt {
         name: opt_str_in(mcx, s.name)?,
     })
@@ -6065,7 +7078,10 @@ pub(crate) fn copy_VariableShowStmt<'d>(mcx: Mcx<'d>, s: &VariableShowStmt<'_>) 
 
 pub(crate) fn copy_ViewStmt<'d>(mcx: Mcx<'d>, s: &ViewStmt<'_>) -> PgResult<ViewStmt<'d>> {
     Ok(ViewStmt {
-        view: match s.view { Some(v) => Some(mk_ref(mcx, copy_RangeVar(mcx, v)?)?), None => None },
+        view: match s.view {
+            Some(v) => Some(mk_ref(mcx, copy_RangeVar(mcx, v)?)?),
+            None => None,
+        },
         aliases: copy_node_list(mcx, &s.aliases)?,
         query: copy_node_opt(mcx, s.query)?,
         replace: s.replace,
@@ -6101,7 +7117,10 @@ pub(crate) fn copy_WindowAgg<'d>(mcx: Mcx<'d>, s: &WindowAgg<'_>) -> PgResult<Wi
     })
 }
 
-pub(crate) fn copy_WindowClause<'d>(mcx: Mcx<'d>, s: &WindowClause<'_>) -> PgResult<WindowClause<'d>> {
+pub(crate) fn copy_WindowClause<'d>(
+    mcx: Mcx<'d>,
+    s: &WindowClause<'_>,
+) -> PgResult<WindowClause<'d>> {
     Ok(WindowClause {
         name: opt_str_in(mcx, s.name)?,
         refname: opt_str_in(mcx, s.refname)?,
@@ -6149,7 +7168,10 @@ pub(crate) fn copy_WindowFunc<'d>(mcx: Mcx<'d>, s: &WindowFunc<'_>) -> PgResult<
     })
 }
 
-pub(crate) fn copy_WindowFuncRunCondition<'d>(mcx: Mcx<'d>, s: &WindowFuncRunCondition<'_>) -> PgResult<WindowFuncRunCondition<'d>> {
+pub(crate) fn copy_WindowFuncRunCondition<'d>(
+    mcx: Mcx<'d>,
+    s: &WindowFuncRunCondition<'_>,
+) -> PgResult<WindowFuncRunCondition<'d>> {
     Ok(WindowFuncRunCondition {
         opno: s.opno,
         inputcollid: s.inputcollid,
@@ -6158,7 +7180,10 @@ pub(crate) fn copy_WindowFuncRunCondition<'d>(mcx: Mcx<'d>, s: &WindowFuncRunCon
     })
 }
 
-pub(crate) fn copy_WithCheckOption<'d>(mcx: Mcx<'d>, s: &WithCheckOption<'_>) -> PgResult<WithCheckOption<'d>> {
+pub(crate) fn copy_WithCheckOption<'d>(
+    mcx: Mcx<'d>,
+    s: &WithCheckOption<'_>,
+) -> PgResult<WithCheckOption<'d>> {
     Ok(WithCheckOption {
         kind: s.kind,
         relname: opt_str_in(mcx, s.relname)?,
@@ -6176,7 +7201,10 @@ pub(crate) fn copy_WithClause<'d>(mcx: Mcx<'d>, s: &WithClause<'_>) -> PgResult<
     })
 }
 
-pub(crate) fn copy_WorkTableScan<'d>(mcx: Mcx<'d>, s: &WorkTableScan<'_>) -> PgResult<WorkTableScan<'d>> {
+pub(crate) fn copy_WorkTableScan<'d>(
+    mcx: Mcx<'d>,
+    s: &WorkTableScan<'_>,
+) -> PgResult<WorkTableScan<'d>> {
     Ok(WorkTableScan {
         scan: copy_Scan(mcx, &s.scan)?,
         wtParam: s.wtParam,
@@ -6198,7 +7226,10 @@ pub(crate) fn copy_XmlExpr<'d>(mcx: Mcx<'d>, s: &XmlExpr<'_>) -> PgResult<XmlExp
     })
 }
 
-pub(crate) fn copy_XmlSerialize<'d>(mcx: Mcx<'d>, s: &XmlSerialize<'_>) -> PgResult<XmlSerialize<'d>> {
+pub(crate) fn copy_XmlSerialize<'d>(
+    mcx: Mcx<'d>,
+    s: &XmlSerialize<'_>,
+) -> PgResult<XmlSerialize<'d>> {
     Ok(XmlSerialize {
         xmloption: s.xmloption,
         expr: copy_node_opt(mcx, s.expr)?,

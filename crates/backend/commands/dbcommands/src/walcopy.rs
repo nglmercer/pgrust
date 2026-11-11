@@ -36,6 +36,7 @@ const WAIT_EVENT_VERSION_FILE_WRITE: u32 = 0x0A00_0000 | 66;
 pub(crate) struct CreateDBRelInfo {
     pub(crate) rlocator: RelFileLocator,
     pub(crate) reloid: Oid,
+    #[allow(dead_code)]
     pub(crate) relam: Oid,
     pub(crate) permanent: bool,
 }
@@ -60,13 +61,23 @@ pub(crate) fn CreateDatabaseUsingWalLog(
     for relinfo in &rlocatorlist {
         let srcrlocator = relinfo.rlocator;
         let dstrlocator = RelFileLocator {
-            spcOid: if srcrlocator.spcOid == src_tsid { dst_tsid } else { srcrlocator.spcOid },
+            spcOid: if srcrlocator.spcOid == src_tsid {
+                dst_tsid
+            } else {
+                srcrlocator.spcOid
+            },
             dbOid: dst_dboid,
             relNumber: srcrlocator.relNumber,
         };
 
-        let srcrelid = LockRelId { relId: relinfo.reloid, dbId: src_dboid };
-        let dstrelid = LockRelId { relId: relinfo.reloid, dbId: dst_dboid };
+        let srcrelid = LockRelId {
+            relId: relinfo.reloid,
+            dbId: src_dboid,
+        };
+        let dstrelid = LockRelId {
+            relId: relinfo.reloid,
+            dbId: dst_dboid,
+        };
         lmgr::LockRelationId(&srcrelid, AccessShareLock)?;
         lmgr::LockRelationId(&dstrelid, AccessShareLock)?;
 
@@ -99,12 +110,18 @@ pub(crate) fn ScanSourceDatabasePgClass(
     let relfilenumber =
         relmapper::RelationMapOidToFilenumberForDatabase(srcpath, RelationRelationId)?;
     let mut rlocatorlist = Vec::new();
-    scan_source_catalog(tbid, dbid, RelationRelationId, relfilenumber, &mut |tuple| {
-        if let Some(relinfo) = scan_tuple(tuple, tbid, dbid, srcpath)? {
-            rlocatorlist.push(relinfo);
-        }
-        Ok(())
-    })?;
+    scan_source_catalog(
+        tbid,
+        dbid,
+        RelationRelationId,
+        relfilenumber,
+        &mut |tuple| {
+            if let Some(relinfo) = scan_tuple(tuple, tbid, dbid, srcpath)? {
+                rlocatorlist.push(relinfo);
+            }
+            Ok(())
+        },
+    )?;
     Ok(rlocatorlist)
 }
 
@@ -118,11 +135,21 @@ pub(crate) fn scan_source_catalog(
     relfilenumber: Oid,
     visit: &mut dyn FnMut(&HeapTupleData<'_>) -> PgResult<()>,
 ) -> PgResult<()> {
-    let relid = LockRelId { relId: catalog_relid, dbId: dbid };
+    let relid = LockRelId {
+        relId: catalog_relid,
+        dbId: dbid,
+    };
     lmgr::LockRelationId(&relid, AccessShareLock)?;
 
-    let rlocator = RelFileLocator { spcOid: tbid, dbOid: dbid, relNumber: relfilenumber };
-    let key = RelFileLocatorBackend { locator: rlocator, backend: INVALID_PROC_NUMBER };
+    let rlocator = RelFileLocator {
+        spcOid: tbid,
+        dbOid: dbid,
+        relNumber: relfilenumber,
+    };
+    let key = RelFileLocatorBackend {
+        locator: rlocator,
+        backend: INVALID_PROC_NUMBER,
+    };
     smgr::smgropen(rlocator, INVALID_PROC_NUMBER)?;
     let nblocks = smgr::smgrnblocks(key, ForkNumber::MAIN_FORKNUM)?;
     smgr::smgrclose(key)?;
@@ -182,9 +209,8 @@ fn scan_page(
         // SAFETY: normal item id on a share-locked page; the item image is a
         // live heap tuple readable for its recorded length.
         let (item_ptr, item_len) = unsafe { page.item_raw_unchecked(itemid) };
-        let mut tuple = unsafe {
-            HeapTupleData::from_raw_parts(item_ptr, item_len, tid, catalog_relid)
-        };
+        let mut tuple =
+            unsafe { HeapTupleData::from_raw_parts(item_ptr, item_len, tid, catalog_relid) };
 
         if heapam_visibility_seams::heap_tuple_satisfies_visibility::call(
             &mut tuple,
@@ -211,9 +237,20 @@ fn scan_tuple(
     // offsets mirror FormData_pg_class field order in pg_class.h.
     let (oid, relam, relfilenode, reltablespace, relpersistence, relkind) = unsafe {
         let u32_at = |off: usize| -> u32 {
-            u32::from_ne_bytes(core::slice::from_raw_parts(base.add(off), 4).try_into().unwrap())
+            u32::from_ne_bytes(
+                core::slice::from_raw_parts(base.add(off), 4)
+                    .try_into()
+                    .unwrap(),
+            )
         };
-        (u32_at(0), u32_at(84), u32_at(88), u32_at(92), *base.add(118), *base.add(119))
+        (
+            u32_at(0),
+            u32_at(84),
+            u32_at(88),
+            u32_at(92),
+            *base.add(118),
+            *base.add(119),
+        )
     };
 
     if reltablespace == crate::GLOBALTABLESPACE_OID
@@ -231,14 +268,20 @@ fn scan_tuple(
 
     if relfilenumber == InvalidOid {
         return Err(ereport(ERROR)
-            .errmsg(format!("relation with OID {oid} does not have a valid relfilenumber"))
+            .errmsg(format!(
+                "relation with OID {oid} does not have a valid relfilenumber"
+            ))
             .into_error()
             .into());
     }
 
     Ok(Some(CreateDBRelInfo {
         rlocator: RelFileLocator {
-            spcOid: if reltablespace != InvalidOid { reltablespace } else { tbid },
+            spcOid: if reltablespace != InvalidOid {
+                reltablespace
+            } else {
+                tbid
+            },
             dbOid: dbid,
             relNumber: relfilenumber,
         },
@@ -329,7 +372,9 @@ fn version_file_write_error(versionfile: &str, errno: i32) -> Box<types_error::P
     ereport(ERROR)
         .with_saved_errno(errno)
         .errcode_for_file_access()
-        .errmsg(format!("could not write to file \"{versionfile}\": {PCT_M}"))
+        .errmsg(format!(
+            "could not write to file \"{versionfile}\": {PCT_M}"
+        ))
         .into_error()
         .into()
 }
@@ -358,10 +403,15 @@ mod tests {
     fn version_file_fsync_failure_is_data_sync_elevel() {
         let err = version_file_fsync_error("/base/16384/PG_VERSION", libc::EIO);
         assert_eq!(err.level(), fd::data_sync_elevel(ERROR));
-        assert_eq!(err.level(), types_error::PANIC, "data_sync_retry defaults to off");
+        assert_eq!(
+            err.level(),
+            types_error::PANIC,
+            "data_sync_retry defaults to off"
+        );
         assert_eq!(err.sqlstate(), types_error::ERRCODE_IO_ERROR);
         assert!(
-            err.message().starts_with("could not fsync file \"/base/16384/PG_VERSION\": "),
+            err.message()
+                .starts_with("could not fsync file \"/base/16384/PG_VERSION\": "),
             "{}",
             err.message()
         );

@@ -13,8 +13,8 @@ use pgrc_format::relopt::ShredOptions;
 use pgrc_write::elect::ReferenceCandidates;
 use pgrc_write::ingest::RawDatum;
 use pgrc_write::par::{
-    NoDetoastProvider, NoShredProvider, ParEngine, ParIngestOpts, ParProviders, RowChunk, SharedMemVfs,
-    SharedMemVfsProvider, VfsProvider,
+    NoDetoastProvider, NoShredProvider, ParEngine, ParIngestOpts, ParProviders, RowChunk,
+    SharedMemVfs, SharedMemVfsProvider, VfsProvider,
 };
 use pgrc_write::seal::{PartSpec, ReferenceResolver};
 use pgrc_write::writer::PartCutPolicy;
@@ -60,7 +60,10 @@ static ACTS: mcx::ladder::Acts = mcx::ladder::Acts {
 fn int8_col(attno: u32) -> ColSchema {
     ColSchema {
         attno,
-        class: StorageClass::ByvalWord { width: 8, signed: true },
+        class: StorageClass::ByvalWord {
+            width: 8,
+            signed: true,
+        },
         typlen: 8,
         typbyval: true,
         typalign: b'd',
@@ -93,8 +96,16 @@ fn engine(vfs: Arc<dyn VfsProvider>) -> Arc<ParEngine> {
             spec,
             DIR.to_string(),
             FXID,
-            PartCutPolicy { max_rows: 256, max_bytes: u64::MAX, cut_granule_rows: 64 },
-            ParIngestOpts { chunk_rows: 64, max_chunks_in_flight: 64, max_parts_in_flight: 64 },
+            PartCutPolicy {
+                max_rows: 256,
+                max_bytes: u64::MAX,
+                cut_granule_rows: 64,
+            },
+            ParIngestOpts {
+                chunk_rows: 64,
+                max_chunks_in_flight: 64,
+                max_parts_in_flight: 64,
+            },
             0,
         )
         .expect("engine"),
@@ -104,7 +115,8 @@ fn engine(vfs: Arc<dyn VfsProvider>) -> Arc<ParEngine> {
 fn chunk(base: i64) -> RowChunk {
     let mut c = RowChunk::new(1, 64);
     for i in 0..64i64 {
-        c.push_row(&[RawDatum::Word((base + i) as u64)]).expect("push");
+        c.push_row(&[RawDatum::Word((base + i) as u64)])
+            .expect("push");
     }
     c
 }
@@ -140,7 +152,11 @@ fn load() -> Result<BTreeMap<String, Vec<u8>>, WriteError> {
     out?;
     assert_eq!(e.collect().expect("collect").len(), (CHUNKS / 4) as usize);
     Ok(shared.with(|v| {
-        v.list_dir(DIR).expect("list").into_iter().map(|n| (n.clone(), v.read_full(&format!("{DIR}/{n}")).expect("read"))).collect()
+        v.list_dir(DIR)
+            .expect("list")
+            .into_iter()
+            .map(|n| (n.clone(), v.read_full(&format!("{DIR}/{n}")).expect("read")))
+            .collect()
     }))
 }
 
@@ -158,10 +174,18 @@ fn d4365_a_first_part_past_the_ladders_line_is_refused_not_admitted() {
     let r = load();
     ladder(mcx::ladder::OFF, 0);
     match r {
-        Err(WriteError::Refused { what }) => assert!(what.contains("memory"), "a memory refusal: {what}"),
-        other => panic!("the floor chunk past the ladder's line must be refused, got {:?}", other.map(|f| f.len())),
+        Err(WriteError::Refused { what }) => {
+            assert!(what.contains("memory"), "a memory refusal: {what}")
+        }
+        other => panic!(
+            "the floor chunk past the ladder's line must be refused, got {:?}",
+            other.map(|f| f.len())
+        ),
     }
-    assert!(t0.elapsed() < std::time::Duration::from_secs(60), "the refusal comes after the ladder's waits, not never");
+    assert!(
+        t0.elapsed() < std::time::Duration::from_secs(60),
+        "the refusal comes after the ladder's waits, not never"
+    );
 }
 
 #[test]
@@ -178,16 +202,31 @@ fn d4365_a_load_waits_while_the_read_is_past_the_line_and_goes_on_when_it_falls(
     fall.join().expect("fall");
     let under = load();
     ladder(mcx::ladder::OFF, 0);
-    assert_eq!(waited.expect("served once the read fell under the line"), off, "the wait moves no byte of any part");
-    assert_eq!(under.expect("under the line"), off, "the ladder gate moves no byte of any part");
+    assert_eq!(
+        waited.expect("served once the read fell under the line"),
+        off,
+        "the wait moves no byte of any part"
+    );
+    assert_eq!(
+        under.expect("under the line"),
+        off,
+        "the ladder gate moves no byte of any part"
+    );
 }
 
 #[test]
 fn d4365_the_refusals_sentence_is_its_spill_debt_rows_field_8() {
-    let row = std::path::PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR unset: run under cargo test"))
-        .join("../../../../gravity/lint/SPILL-DEBT/LoadSealPastLine");
+    let row = std::path::PathBuf::from(
+        std::env::var_os("CARGO_MANIFEST_DIR")
+            .expect("CARGO_MANIFEST_DIR unset: run under cargo test"),
+    )
+    .join("../../../../gravity/lint/SPILL-DEBT/LoadSealPastLine");
     let row = std::fs::read_to_string(&row).unwrap_or_else(|e| panic!("{}: {e}", row.display()));
     let fields: Vec<&str> = row.trim_end().split('\t').collect();
     assert_eq!(fields[0], "LoadSealPastLine");
-    assert_eq!(fields.get(7).copied(), Some(pgrc_write::par::LOAD_SEAL_PAST_LINE), "the server-only line's sentence is the row's field 8");
+    assert_eq!(
+        fields.get(7).copied(),
+        Some(pgrc_write::par::LOAD_SEAL_PAST_LINE),
+        "the server-only line's sentence is the row's field 8"
+    );
 }

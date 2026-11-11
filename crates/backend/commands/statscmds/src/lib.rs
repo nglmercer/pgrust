@@ -1,5 +1,4 @@
-#![allow(non_snake_case)]
-#![allow(non_upper_case_globals)]
+#![allow(non_snake_case, non_upper_case_globals)]
 
 use datum::Datum;
 use mcx::{Mcx, PgVec};
@@ -43,7 +42,9 @@ const STATS_EXT_DEPENDENCIES: u8 = b'f';
 const STATS_EXT_MCV: u8 = b'm';
 const STATS_EXT_EXPRESSIONS: u8 = b'e';
 
-use types_rel::{RELKIND_FOREIGN_TABLE, RELKIND_MATVIEW, RELKIND_PARTITIONED_TABLE, RELKIND_RELATION};
+use types_rel::{
+    RELKIND_FOREIGN_TABLE, RELKIND_MATVIEW, RELKIND_PARTITIONED_TABLE, RELKIND_RELATION,
+};
 
 const ShareUpdateExclusiveLock: types_rel::LOCKMODE = 4;
 const RowExclusiveLock: types_rel::LOCKMODE = 3;
@@ -89,7 +90,10 @@ fn eq_key(attno: usize, func: RegProcedure, arg: Datum) -> ScanKeyData {
 }
 
 fn name_arg<'mcx>(mcx: Mcx<'mcx>, name: &str) -> PgResult<PgVec<'mcx, u8>> {
-    assert!(name.len() < NAMEDATALEN, "statistics name too long: {name:?}");
+    assert!(
+        name.len() < NAMEDATALEN,
+        "statistics name too long: {name:?}"
+    );
     let mut buf: PgVec<'mcx, u8> = mcx::vec_with_capacity_in(mcx, NAMEDATALEN)?;
     mcx::vec_append_bytes(&mut buf, name.as_bytes())?;
     mcx::vec_append_bytes(&mut buf, &[0u8; 64][..NAMEDATALEN - name.len()])?;
@@ -180,9 +184,12 @@ pub fn CreateStatistics<'mcx>(
     ) {
         let detail = pg_class_seams::errdetail_relkind_not_supported::call(relkind)?;
         return Err(Box::new(
-            PgError::new(ERROR, format!("cannot define statistics for relation \"{}\"", rel.name()))
-                .with_sqlstate(types_error::ERRCODE_WRONG_OBJECT_TYPE)
-                .with_detail(detail),
+            PgError::new(
+                ERROR,
+                format!("cannot define statistics for relation \"{}\"", rel.name()),
+            )
+            .with_sqlstate(types_error::ERRCODE_WRONG_OBJECT_TYPE)
+            .with_detail(detail),
         ));
     }
 
@@ -258,7 +265,9 @@ pub fn CreateStatistics<'mcx>(
         if stmt.if_not_exists {
             ereport(NOTICE)
                 .errcode(types_error::ERRCODE_DUPLICATE_OBJECT)
-                .errmsg(format!("statistics object \"{namestr}\" already exists, skipping"))
+                .errmsg(format!(
+                    "statistics object \"{namestr}\" already exists, skipping"
+                ))
                 .finish(loc("CreateStatistics"))?;
             rel.close(NoLock)?;
             return Ok(pg_depend::ObjectAddress::set(InvalidOid, InvalidOid));
@@ -280,8 +289,9 @@ pub fn CreateStatistics<'mcx>(
     let tupdesc = rel.descr();
     let mut stxexprs: PgVec<'_, types_nodes::Node<'_>> = PgVec::new_in(mcx);
     for selem_node in stmt.exprs.iter() {
-        let selem: &StatsElem<'_> =
-            selem_node.as_variant::<StatsElem>().expect("stats_param is a StatsElem");
+        let selem: &StatsElem<'_> = selem_node
+            .as_variant::<StatsElem>()
+            .expect("stats_param is a StatsElem");
         if let Some(attname) = selem.name {
             let i = (1..=tupdesc.natts).find(|&i| {
                 let a = tupdesc.attr(i as usize - 1);
@@ -480,7 +490,12 @@ pub fn CreateStatistics<'mcx>(
 
     let statrel = table::table_open(mcx, StatisticExtRelationId, RowExclusiveLock)?;
 
-    let statoid = catalog::GetNewOidWithIndex(mcx, &statrel, StatisticExtOidIndexId, Anum_oid as AttrNumber)?;
+    let statoid = catalog::GetNewOidWithIndex(
+        mcx,
+        &statrel,
+        StatisticExtOidIndexId,
+        Anum_oid as AttrNumber,
+    )?;
 
     let stxname = name_arg(mcx, &namestr)?;
     let stxkeys = int2vector_image(mcx, &attnums[..nattnums])?;
@@ -613,8 +628,7 @@ pub fn AlterStatistics<'mcx>(
     let rel = table::table_open(mcx, StatisticExtRelationId, RowExclusiveLock)?;
 
     let keys = [eq_key(Anum_oid, F_OIDEQ, Datum::from_oid(stxoid))];
-    let mut scan =
-        genam::systable_beginscan(mcx, &rel, StatisticExtOidIndexId, true, None, &keys)?;
+    let mut scan = genam::systable_beginscan(mcx, &rel, StatisticExtOidIndexId, true, None, &keys)?;
     let Some(oldtup) = genam::systable_getnext(mcx, &mut scan)? else {
         return Err(err(
             types_error::ERRCODE_INTERNAL_ERROR,
@@ -645,7 +659,8 @@ pub fn AlterStatistics<'mcx>(
     }
 
     let desc = rel.descr();
-    let mut newtup = heaptuple::heap_modify_tuple(mcx, oldtup, desc, &repl_val, &repl_null, &repl_repl)?;
+    let mut newtup =
+        heaptuple::heap_modify_tuple(mcx, oldtup, desc, &repl_val, &repl_null, &repl_repl)?;
     let otid = oldtup.t_self;
     genam::systable_endscan(mcx, scan)?;
     catalog_indexing::CatalogTupleUpdate(mcx, &rel, &otid, &mut newtup)?;
@@ -653,7 +668,10 @@ pub fn AlterStatistics<'mcx>(
     objectaccess::InvokeObjectPostAlterHook(StatisticExtRelationId, stxoid, 0)?;
 
     rel.close(RowExclusiveLock)?;
-    Ok(pg_depend::ObjectAddress::set(StatisticExtRelationId, stxoid))
+    Ok(pg_depend::ObjectAddress::set(
+        StatisticExtRelationId,
+        stxoid,
+    ))
 }
 
 fn ChooseExtendedStatisticName(
@@ -740,8 +758,14 @@ fn find_data_tuple<'mcx>(
         eq_key(1, F_OIDEQ, Datum::from_oid(statsOid)),
         eq_key(2, F_BOOLEQ, Datum::from_bool(inh)),
     ];
-    let mut scan =
-        genam::systable_beginscan(mcx, rel, StatisticExtDataStxoidInhIndexId, true, None, &keys)?;
+    let mut scan = genam::systable_beginscan(
+        mcx,
+        rel,
+        StatisticExtDataStxoidInhIndexId,
+        true,
+        None,
+        &keys,
+    )?;
     let found = genam::systable_getnext(mcx, &mut scan)?.map(|t| t.t_self);
     genam::systable_endscan(mcx, scan)?;
     Ok(found)
@@ -750,10 +774,8 @@ fn find_data_tuple<'mcx>(
 // StatisticsGetRelation (statscmds.c:937).
 pub fn StatisticsGetRelation(statId: Oid, missing_ok: bool) -> PgResult<Oid> {
     use cache_syscache::{cacheinfo::STATEXTOID, ReleaseSysCache, SysCacheGetAttr, SysCacheKey};
-    let Some(tup) = cache_syscache::SearchSysCache1(
-        STATEXTOID,
-        SysCacheKey::Value(Datum::from_oid(statId)),
-    )?
+    let Some(tup) =
+        cache_syscache::SearchSysCache1(STATEXTOID, SysCacheKey::Value(Datum::from_oid(statId)))?
     else {
         if missing_ok {
             return Ok(InvalidOid);

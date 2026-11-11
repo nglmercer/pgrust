@@ -4,21 +4,29 @@ use super::*;
 fn cutoff_limits() {
     let mut s = Tsm::Bernoulli.init_state();
     s.begin_sample_scan(&[Datum::from_f32(0.0)], 7).unwrap();
-    let TsmState::Bernoulli(b) = &s else { unreachable!() };
+    let TsmState::Bernoulli(b) = &s else {
+        unreachable!()
+    };
     assert_eq!(b.cutoff, 0);
     let mut s = Tsm::Bernoulli.init_state();
     s.begin_sample_scan(&[Datum::from_f32(100.0)], 7).unwrap();
-    let TsmState::Bernoulli(b) = &s else { unreachable!() };
+    let TsmState::Bernoulli(b) = &s else {
+        unreachable!()
+    };
     assert_eq!(b.cutoff, 1u64 << 32);
 }
 
 #[test]
 fn bad_percent_is_2202h() {
     let mut s = Tsm::System.init_state();
-    let err = s.begin_sample_scan(&[Datum::from_f32(-1.0)], 0).unwrap_err();
+    let err = s
+        .begin_sample_scan(&[Datum::from_f32(-1.0)], 0)
+        .unwrap_err();
     assert_eq!(err.sqlstate(), ERRCODE_INVALID_TABLESAMPLE_ARGUMENT);
     let mut s = Tsm::System.init_state();
-    let err = s.begin_sample_scan(&[Datum::from_f32(f32::NAN)], 0).unwrap_err();
+    let err = s
+        .begin_sample_scan(&[Datum::from_f32(f32::NAN)], 0)
+        .unwrap_err();
     assert_eq!(err.sqlstate(), ERRCODE_INVALID_TABLESAMPLE_ARGUMENT);
 }
 
@@ -78,11 +86,20 @@ fn system_blocks_deterministic() {
 
 #[test]
 fn registry_dispatch() {
-    assert_eq!(Tsm::from_handler(F_TSM_BERNOULLI_HANDLER), Some(Tsm::Bernoulli));
+    assert_eq!(
+        Tsm::from_handler(F_TSM_BERNOULLI_HANDLER),
+        Some(Tsm::Bernoulli)
+    );
     assert_eq!(Tsm::from_handler(F_TSM_SYSTEM_HANDLER), Some(Tsm::System));
     assert_eq!(Tsm::from_handler(9999), None);
-    assert_eq!(Tsm::from_symbol(b"tsm_system_rows_handler"), Some(Tsm::SystemRows));
-    assert_eq!(Tsm::from_symbol(b"tsm_system_time_handler"), Some(Tsm::SystemTime));
+    assert_eq!(
+        Tsm::from_symbol(b"tsm_system_rows_handler"),
+        Some(Tsm::SystemRows)
+    );
+    assert_eq!(
+        Tsm::from_symbol(b"tsm_system_time_handler"),
+        Some(Tsm::SystemTime)
+    );
     assert_eq!(Tsm::from_symbol(b"blhandler"), None);
     assert_eq!(Tsm::from_symbol(b""), None);
 }
@@ -127,14 +144,23 @@ fn extension_states_route_params() {
     assert!(b < 4);
     assert_eq!(s.next_sample_tuple(b, 2, 0), FirstOffsetNumber);
     assert_eq!(s.next_sample_tuple(b, 2, 3), InvalidOffsetNumber);
-    let err = Tsm::SystemRows.init_state().begin_sample_scan(&[Datum::from_i64(-1)], 0).unwrap_err();
+    let err = Tsm::SystemRows
+        .init_state()
+        .begin_sample_scan(&[Datum::from_i64(-1)], 0)
+        .unwrap_err();
     assert_eq!(err.sqlstate(), ERRCODE_INVALID_TABLESAMPLE_ARGUMENT);
 
     let mut s = Tsm::SystemTime.init_state();
     let (bulkread, pagemode) = s.begin_sample_scan(&[Datum::from_f64(0.0)], 11).unwrap();
     assert!(bulkread && pagemode);
-    assert_eq!(s.next_sample_block(4, 0).unwrap(), types_core::InvalidBlockNumber);
-    let err = Tsm::SystemTime.init_state().begin_sample_scan(&[Datum::from_f64(-1.0)], 0).unwrap_err();
+    assert_eq!(
+        s.next_sample_block(4, 0).unwrap(),
+        types_core::InvalidBlockNumber
+    );
+    let err = Tsm::SystemTime
+        .init_state()
+        .begin_sample_scan(&[Datum::from_f64(-1.0)], 0)
+        .unwrap_err();
     assert_eq!(err.sqlstate(), ERRCODE_INVALID_TABLESAMPLE_ARGUMENT);
 }
 
@@ -171,7 +197,10 @@ fn tsm_get_carve_witness() {
     });
     let cx = mcx::MemoryContext::new("tsm_get_test");
     let m = cx.mcx();
-    assert_eq!(Tsm::get(m, F_TSM_BERNOULLI_HANDLER).unwrap(), Tsm::Bernoulli);
+    assert_eq!(
+        Tsm::get(m, F_TSM_BERNOULLI_HANDLER).unwrap(),
+        Tsm::Bernoulli
+    );
     assert_eq!(Tsm::get(m, F_TSM_SYSTEM_HANDLER).unwrap(), Tsm::System);
     assert_eq!(Tsm::get(m, 111).unwrap(), Tsm::SystemRows);
     assert_eq!(Tsm::get(m, 222).unwrap(), Tsm::SystemTime);
@@ -204,16 +233,19 @@ fn sample_scan_get_sample_size_carve_witness() {
         .unwrap()
     };
     // Bernoulli: pages passthrough, tuples = clamp(t * fract).
-    let (pages, tuples) =
-        Tsm::Bernoulli.sample_scan_get_sample_size(m, &f4(50.0), 100, 1000.0, 4.0).unwrap();
+    let (pages, tuples) = Tsm::Bernoulli
+        .sample_scan_get_sample_size(m, &f4(50.0), 100, 1000.0, 4.0)
+        .unwrap();
     assert_eq!((pages, tuples), (100, 500.0));
     // System: pages also scaled.
-    let (pages, tuples) =
-        Tsm::System.sample_scan_get_sample_size(m, &f4(50.0), 100, 1000.0, 4.0).unwrap();
+    let (pages, tuples) = Tsm::System
+        .sample_scan_get_sample_size(m, &f4(50.0), 100, 1000.0, 4.0)
+        .unwrap();
     assert_eq!((pages, tuples), (50, 500.0));
     // Bogus percent -> 0.1 default fraction (extract_fraction else arm).
-    let (pages, tuples) =
-        Tsm::Bernoulli.sample_scan_get_sample_size(m, &f4(150.0), 100, 1000.0, 4.0).unwrap();
+    let (pages, tuples) = Tsm::Bernoulli
+        .sample_scan_get_sample_size(m, &f4(150.0), 100, 1000.0, 4.0)
+        .unwrap();
     assert_eq!((pages, tuples), (100, 100.0));
     // NaN percent -> same default.
     let (_, tuples) = Tsm::Bernoulli
@@ -226,15 +258,18 @@ fn sample_scan_get_sample_size_carve_witness() {
         Node::mk_const(m, FLOAT4OID, -1, 0, 4, Datum::from_f32(0.0), true, true).unwrap(),
     )
     .unwrap();
-    let (_, tuples) =
-        Tsm::System.sample_scan_get_sample_size(m, &nullc, 100, 1000.0, 4.0).unwrap();
+    let (_, tuples) = Tsm::System
+        .sample_scan_get_sample_size(m, &nullc, 100, 1000.0, 4.0)
+        .unwrap();
     assert_eq!(tuples, 100.0);
     // clamp_row_est arms: <= 1.0 floor; > 1e100 / NaN cap.
-    let (_, tuples) =
-        Tsm::Bernoulli.sample_scan_get_sample_size(m, &f4(0.0), 100, 1000.0, 4.0).unwrap();
+    let (_, tuples) = Tsm::Bernoulli
+        .sample_scan_get_sample_size(m, &f4(0.0), 100, 1000.0, 4.0)
+        .unwrap();
     assert_eq!(tuples, 1.0);
-    let (_, tuples) =
-        Tsm::Bernoulli.sample_scan_get_sample_size(m, &f4(100.0), 100, 2e100, 4.0).unwrap();
+    let (_, tuples) = Tsm::Bernoulli
+        .sample_scan_get_sample_size(m, &f4(100.0), 100, 2e100, 4.0)
+        .unwrap();
     assert_eq!(tuples, 1e100);
     let (_, tuples) = Tsm::Bernoulli
         .sample_scan_get_sample_size(m, &f4(50.0), 100, f64::NAN, 4.0)
@@ -246,8 +281,9 @@ fn sample_scan_get_sample_size_carve_witness() {
         Node::mk_const(m, INT8OID, -1, 0, 8, Datum::from_i64(500), false, true).unwrap(),
     )
     .unwrap();
-    let (pages, tuples) =
-        Tsm::SystemRows.sample_scan_get_sample_size(m, &i8list, 64, 1000.0, 4.0).unwrap();
+    let (pages, tuples) = Tsm::SystemRows
+        .sample_scan_get_sample_size(m, &i8list, 64, 1000.0, 4.0)
+        .unwrap();
     assert!(pages > 0 && tuples > 0.0);
     // SystemRows null Const -> None limit arm.
     let i8null = NodeList::make1(
@@ -255,27 +291,40 @@ fn sample_scan_get_sample_size_carve_witness() {
         Node::mk_const(m, INT8OID, -1, 0, 8, Datum::from_i64(0), true, true).unwrap(),
     )
     .unwrap();
-    Tsm::SystemRows.sample_scan_get_sample_size(m, &i8null, 64, 1000.0, 4.0).unwrap();
+    Tsm::SystemRows
+        .sample_scan_get_sample_size(m, &i8null, 64, 1000.0, 4.0)
+        .unwrap();
     // SystemTime: FLOAT8 Const limit + null Const arm.
     let f8list = NodeList::make1(
         m,
         Node::mk_const(m, FLOAT8OID, -1, 0, 8, Datum::from_f64(1000.0), false, true).unwrap(),
     )
     .unwrap();
-    Tsm::SystemTime.sample_scan_get_sample_size(m, &f8list, 64, 1000.0, 4.0).unwrap();
+    Tsm::SystemTime
+        .sample_scan_get_sample_size(m, &f8list, 64, 1000.0, 4.0)
+        .unwrap();
     let f8null = NodeList::make1(
         m,
         Node::mk_const(m, FLOAT8OID, -1, 0, 8, Datum::from_f64(0.0), true, true).unwrap(),
     )
     .unwrap();
-    Tsm::SystemTime.sample_scan_get_sample_size(m, &f8null, 64, 1000.0, 4.0).unwrap();
+    Tsm::SystemTime
+        .sample_scan_get_sample_size(m, &f8null, 64, 1000.0, 4.0)
+        .unwrap();
 }
 
 #[test]
 fn picks_match_the_sequential_walk() {
-    for (pct, seed) in [(0.0f32, 1u32), (3.0, 7), (30.0, 1234), (77.5, 99), (100.0, 5)] {
+    for (pct, seed) in [
+        (0.0f32, 1u32),
+        (3.0, 7),
+        (30.0, 1234),
+        (77.5, 99),
+        (100.0, 5),
+    ] {
         let mut sys = Tsm::System.init_state();
-        sys.begin_sample_scan(&[Datum::from_f32(pct)], seed).unwrap();
+        sys.begin_sample_scan(&[Datum::from_f32(pct)], seed)
+            .unwrap();
         let mut walked = vec![];
         loop {
             let b = sys.next_sample_block(400, 0).unwrap();
@@ -284,11 +333,14 @@ fn picks_match_the_sequential_walk() {
             }
             walked.push(b);
         }
-        let picked: Vec<u32> = (0..400u32).filter(|&b| sys.picks(b, 1) == Some(true)).collect();
+        let picked: Vec<u32> = (0..400u32)
+            .filter(|&b| sys.picks(b, 1) == Some(true))
+            .collect();
         assert_eq!(walked, picked, "system at {pct} seed {seed}");
         assert!((0..400u32).all(|b| sys.picks(b, 1) == sys.picks(b, 291)));
         let mut ber = Tsm::Bernoulli.init_state();
-        ber.begin_sample_scan(&[Datum::from_f32(pct)], seed).unwrap();
+        ber.begin_sample_scan(&[Datum::from_f32(pct)], seed)
+            .unwrap();
         for blk in [0u32, 1, 17, 3999] {
             let mut walked = vec![];
             loop {
@@ -298,7 +350,9 @@ fn picks_match_the_sequential_walk() {
                 }
                 walked.push(off);
             }
-            let picked: Vec<u16> = (1..=291u16).filter(|&o| ber.picks(blk, o) == Some(true)).collect();
+            let picked: Vec<u16> = (1..=291u16)
+                .filter(|&o| ber.picks(blk, o) == Some(true))
+                .collect();
             assert_eq!(walked, picked, "bernoulli at {pct} seed {seed} block {blk}");
         }
     }
@@ -312,6 +366,9 @@ fn picks_match_the_sequential_walk() {
 #[test]
 fn builtin_handler_symbols_resolve() {
     assert_eq!(Tsm::from_symbol(b"tsm_system_handler"), Some(Tsm::System));
-    assert_eq!(Tsm::from_symbol(b"tsm_bernoulli_handler"), Some(Tsm::Bernoulli));
+    assert_eq!(
+        Tsm::from_symbol(b"tsm_bernoulli_handler"),
+        Some(Tsm::Bernoulli)
+    );
     assert_eq!(Tsm::from_symbol(b"tsm_nonesuch_handler"), None);
 }

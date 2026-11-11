@@ -4,8 +4,8 @@
 
 use crate::reserve::{zones, GRAIN_SHIFT};
 use crate::run::{self, LIST_RUNS, NB, RUN};
-use crate::{Class, CLASSES};
 use crate::sync::{AtomicU32, AtomicU64, AtomicUsize, Ordering::*};
+use crate::{Class, CLASSES};
 
 pub const NONE: u32 = u32::MAX;
 pub(crate) const SIZES: usize = NB + LIST_RUNS as usize;
@@ -14,7 +14,13 @@ pub(crate) const KEYS: usize = CLASSES * SIZES;
 /// A 64-bit atomic the stack runs on (core's; loom's in the model).
 pub trait Atom64 {
     fn load(&self, o: core::sync::atomic::Ordering) -> u64;
-    fn cas(&self, cur: u64, new: u64, ok: core::sync::atomic::Ordering, err: core::sync::atomic::Ordering) -> Result<u64, u64>;
+    fn cas(
+        &self,
+        cur: u64,
+        new: u64,
+        ok: core::sync::atomic::Ordering,
+        err: core::sync::atomic::Ordering,
+    ) -> Result<u64, u64>;
     /// Store `new`, the old value back (a CAS loop unless the atomic has its own).
     #[cfg_attr(not(feature = "global"), allow(dead_code))]
     fn swap(&self, new: u64, o: core::sync::atomic::Ordering) -> u64 {
@@ -34,7 +40,13 @@ impl Atom64 for AtomicU64 {
         AtomicU64::load(self, o)
     }
     #[inline]
-    fn cas(&self, cur: u64, new: u64, ok: core::sync::atomic::Ordering, err: core::sync::atomic::Ordering) -> Result<u64, u64> {
+    fn cas(
+        &self,
+        cur: u64,
+        new: u64,
+        ok: core::sync::atomic::Ordering,
+        err: core::sync::atomic::Ordering,
+    ) -> Result<u64, u64> {
         self.compare_exchange_weak(cur, new, ok, err)
     }
     #[inline]
@@ -55,7 +67,9 @@ pub struct Stack<A: Atom64 = AtomicU64> {
 
 impl Stack<AtomicU64> {
     pub const fn new() -> Self {
-        Stack { head: AtomicU64::new(NONE as u64) }
+        Stack {
+            head: AtomicU64::new(NONE as u64),
+        }
     }
 }
 
@@ -178,7 +192,11 @@ pub(crate) struct Key {
 impl Key {
     #[inline]
     pub(crate) fn new(class: Class, size: u8) -> Key {
-        Key { class, size, node: 0 }
+        Key {
+            class,
+            size,
+            node: 0,
+        }
     }
 
     #[inline]
@@ -226,16 +244,31 @@ struct Head {
     pops: AtomicU32,
 }
 
-static HEADS: [Head; KEYS] =
-    [const { Head { stack: Stack::new(), bytes: AtomicUsize::new(0), parked: AtomicU32::new(0), pops: AtomicU32::new(0) } }; KEYS];
+static HEADS: [Head; KEYS] = [const {
+    Head {
+        stack: Stack::new(),
+        bytes: AtomicUsize::new(0),
+        parked: AtomicU32::new(0),
+        pops: AtomicU32::new(0),
+    }
+}; KEYS];
 
 pub(crate) fn chain(addr: usize, s: usize, n: u32, zero: bool) -> Batch {
     for j in 0..n as usize {
         let p = addr + j * s;
-        let next = if j + 1 < n as usize { idx_of(p + s) } else { NONE };
+        let next = if j + 1 < n as usize {
+            idx_of(p + s)
+        } else {
+            NONE
+        };
         set_link_next(p, next);
     }
-    Batch { head: idx_of(addr), n, bytes: s as u32, zero }
+    Batch {
+        head: idx_of(addr),
+        n,
+        bytes: s as u32,
+        zero,
+    }
 }
 
 pub(crate) fn push(k: Key, b: Batch) {
@@ -252,7 +285,12 @@ pub(crate) fn pop(k: Key) -> Option<Batch> {
     let i = h.stack.pop(&Pool)?;
     h.pops.store(h.pops.load(Relaxed).wrapping_add(1), Relaxed);
     let l = link(addr_of_idx(i));
-    let b = Batch { head: i, n: l.n.load(Relaxed), bytes: slot_bytes(k.size) as u32, zero: l.zero.load(Relaxed) != 0 };
+    let b = Batch {
+        head: i,
+        n: l.n.load(Relaxed),
+        bytes: slot_bytes(k.size) as u32,
+        zero: l.zero.load(Relaxed) != 0,
+    };
     h.bytes.fetch_sub(b.n as usize * b.bytes as usize, Relaxed);
     Some(b)
 }
@@ -266,7 +304,12 @@ pub(crate) fn take_all(k: Key, mut f: impl FnMut(Batch)) {
         let l = link(addr_of_idx(cur));
         let (next, n) = (l.next_batch.load(Relaxed), l.n.load(Relaxed));
         h.bytes.fetch_sub(n as usize * s as usize, Relaxed);
-        f(Batch { head: cur, n, bytes: s, zero: false });
+        f(Batch {
+            head: cur,
+            n,
+            bytes: s,
+            zero: false,
+        });
         cur = next;
     }
 }

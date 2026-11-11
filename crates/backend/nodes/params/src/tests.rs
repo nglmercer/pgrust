@@ -122,8 +122,18 @@ fn copy_deep_copies_byref() {
             pflags: 0,
             ptype: TEXTOID,
         },
-        ParamExternData { value: Datum::null(), isnull: true, pflags: 0, ptype: TEXTOID },
-        ParamExternData { value: Datum::from_i32(9), isnull: false, pflags: 0, ptype: 0 },
+        ParamExternData {
+            value: Datum::null(),
+            isnull: true,
+            pflags: 0,
+            ptype: TEXTOID,
+        },
+        ParamExternData {
+            value: Datum::from_i32(9),
+            isnull: false,
+            pflags: 0,
+            ptype: 0,
+        },
     ];
     let copy = copy_param_list(mcx, &params).unwrap();
     assert_eq!(copy.len(), 4);
@@ -151,8 +161,18 @@ fn serialize_layout_estimate_and_restore() {
             pflags: 0,
             ptype: TEXTOID,
         },
-        ParamExternData { value: Datum::null(), isnull: true, pflags: 3, ptype: TEXTOID },
-        ParamExternData { value: Datum::from_i32(-1), isnull: false, pflags: 0, ptype: 0 },
+        ParamExternData {
+            value: Datum::null(),
+            isnull: true,
+            pflags: 3,
+            ptype: TEXTOID,
+        },
+        ParamExternData {
+            value: Datum::from_i32(-1),
+            isnull: false,
+            pflags: 0,
+            ptype: 0,
+        },
     ];
     let mut out = mcx::PgVec::new_in(mcx);
     serialize_param_list(&params, &mut out).unwrap();
@@ -201,7 +221,12 @@ fn log_string_formats() {
     let img = text_image(b"it's");
     let params = [
         int_param(5),
-        ParamExternData { value: Datum::null(), isnull: true, pflags: 0, ptype: TEXTOID },
+        ParamExternData {
+            value: Datum::null(),
+            isnull: true,
+            pflags: 0,
+            ptype: TEXTOID,
+        },
         ParamExternData {
             value: Datum::from_usize(img.as_ptr() as usize),
             isnull: false,
@@ -209,7 +234,9 @@ fn log_string_formats() {
             ptype: TEXTOID,
         },
     ];
-    let s = build_param_log_string(mcx, &params, None, -1).unwrap().unwrap();
+    let s = build_param_log_string(mcx, &params, None, -1)
+        .unwrap()
+        .unwrap();
     assert_eq!(s.as_str(), "$1 = '5', $2 = NULL, $3 = 'it''s'");
 
     let long = text_image(b"abcdefgh");
@@ -219,11 +246,15 @@ fn log_string_formats() {
         pflags: 0,
         ptype: TEXTOID,
     }];
-    let s = build_param_log_string(mcx, &params, None, 3).unwrap().unwrap();
+    let s = build_param_log_string(mcx, &params, None, 3)
+        .unwrap()
+        .unwrap();
     assert_eq!(s.as_str(), "$1 = 'abc...'");
 
     let known: [Option<&str>; 1] = [Some("known'v")];
-    let s = build_param_log_string(mcx, &params, Some(&known), -1).unwrap().unwrap();
+    let s = build_param_log_string(mcx, &params, Some(&known), -1)
+        .unwrap()
+        .unwrap();
     assert_eq!(s.as_str(), "$1 = 'known''v'");
 }
 
@@ -243,9 +274,15 @@ fn params_error_context_matches_c() {
 
     types_portal::params::set_param_values_str(h, std::rc::Rc::from("$1 = '42'"));
     let e = params_error_context(e, "p1", h);
-    assert_eq!(e.context(), Some("portal \"p1\" with parameters: $1 = '42'"));
+    assert_eq!(
+        e.context(),
+        Some("portal \"p1\" with parameters: $1 = '42'")
+    );
     let e = params_error_context(Box::new(types_error::PgError::error("boom")), "", h);
-    assert_eq!(e.context(), Some("unnamed portal with parameters: $1 = '42'"));
+    assert_eq!(
+        e.context(),
+        Some("unnamed portal with parameters: $1 = '42'")
+    );
 
     types_portal::params::free(h);
 }

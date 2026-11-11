@@ -15,8 +15,8 @@ use types_error::{
     PgError, PgResult, ERRCODE_INVALID_OBJECT_DEFINITION, ERRCODE_INVALID_PARAMETER_VALUE,
     ERRCODE_SYNTAX_ERROR, ERRCODE_UNDEFINED_OBJECT, NOTICE,
 };
-use types_nodes::parsenodes::{DefElem, ObjectType, ACL_CREATE};
 use types_nodes::parsenodes::DefineStmt;
+use types_nodes::parsenodes::{DefElem, ObjectType, ACL_CREATE};
 use types_nodes::rawnodes::{AlterTSConfigurationStmt, AlterTSDictionaryStmt};
 use types_nodes::NodeList;
 use types_rel::{Relation, RowExclusiveLock};
@@ -189,15 +189,30 @@ fn lookup_ts_object_in_search_path(cache_id: i32, objname: &str) -> PgResult<Oid
 }
 
 pub fn get_ts_dict_oid(names: &[&str], missing_ok: bool) -> PgResult<Oid> {
-    get_ts_object_oid(cache_syscache::TSDICTNAMENSP, "dictionary", names, missing_ok)
+    get_ts_object_oid(
+        cache_syscache::TSDICTNAMENSP,
+        "dictionary",
+        names,
+        missing_ok,
+    )
 }
 
 pub fn get_ts_template_oid(names: &[&str], missing_ok: bool) -> PgResult<Oid> {
-    get_ts_object_oid(cache_syscache::TSTEMPLATENAMENSP, "template", names, missing_ok)
+    get_ts_object_oid(
+        cache_syscache::TSTEMPLATENAMENSP,
+        "template",
+        names,
+        missing_ok,
+    )
 }
 
 pub fn get_ts_config_oid(names: &[&str], missing_ok: bool) -> PgResult<Oid> {
-    get_ts_object_oid(cache_syscache::TSCONFIGNAMENSP, "configuration", names, missing_ok)
+    get_ts_object_oid(
+        cache_syscache::TSCONFIGNAMENSP,
+        "configuration",
+        names,
+        missing_ok,
+    )
 }
 
 pub fn get_ts_parser_oid(names: &[&str], missing_ok: bool) -> PgResult<Oid> {
@@ -251,7 +266,10 @@ pub(crate) fn defGetQualifiedName<'mcx>(
     mcx: Mcx<'mcx>,
     defel: &DefElem<'mcx>,
 ) -> PgResult<PgVec<'mcx, &'mcx str>> {
-    Ok(name_list_parts(mcx, commands_define::defGetQualifiedName(mcx, defel)?))
+    Ok(name_list_parts(
+        mcx,
+        commands_define::defGetQualifiedName(mcx, defel)?,
+    ))
 }
 
 // verify_dictoptions (tsearchcmds.c)
@@ -281,7 +299,11 @@ fn verify_dictoptions<'mcx>(
     };
     let (initmethod_d, initnull) =
         SysCacheGetAttr(TSTEMPLATEOID, &tup, Anum_pg_ts_template_tmplinit)?;
-    let initmethod = if initnull { InvalidOid } else { initmethod_d.as_oid() };
+    let initmethod = if initnull {
+        InvalidOid
+    } else {
+        initmethod_d.as_oid()
+    };
     ReleaseSysCache(tup);
 
     if initmethod == InvalidOid {
@@ -305,8 +327,7 @@ pub fn call_template_init<'mcx>(
     initmethod: Oid,
     dictoptions: &[DefItem<'mcx>],
 ) -> PgResult<Datum> {
-    let mut options: PgVec<'mcx, (PgVec<'mcx, u8>, Option<PgVec<'mcx, u8>>)> =
-        PgVec::new_in(mcx);
+    let mut options: PgVec<'mcx, (PgVec<'mcx, u8>, Option<PgVec<'mcx, u8>>)> = PgVec::new_in(mcx);
     let mut int_options: PgVec<'mcx, Option<i64>> = PgVec::new_in(mcx);
     for item in dictoptions {
         let mut n: PgVec<'mcx, u8> = PgVec::new_in(mcx);
@@ -449,7 +470,7 @@ fn func_wrong_rettype(funcname: &[&str], argtypes: &[Oid], rettype: Oid) -> PgRe
 
 // get_ts_parser_func (tsearchcmds.c): signature-checked regproc lookup.
 fn get_ts_parser_func<'mcx>(mcx: Mcx<'mcx>, defel: &DefElem<'mcx>, attnum: i32) -> PgResult<Oid> {
-    use types_core::catalog::{INTERNALOID, INT4OID, VOIDOID};
+    use types_core::catalog::{INT4OID, INTERNALOID, VOIDOID};
     let funcname = defGetQualifiedName(mcx, defel)?;
     let mut ret_type = INTERNALOID;
     let mut type_id = [INTERNALOID; 3];
@@ -578,11 +599,7 @@ pub fn DefineTSParser<'mcx>(mcx: Mcx<'mcx>, stmt: &DefineStmt<'mcx>) -> PgResult
 }
 
 // get_ts_template_func (tsearchcmds.c).
-fn get_ts_template_func<'mcx>(
-    mcx: Mcx<'mcx>,
-    defel: &DefElem<'mcx>,
-    attnum: i32,
-) -> PgResult<Oid> {
+fn get_ts_template_func<'mcx>(mcx: Mcx<'mcx>, defel: &DefElem<'mcx>, attnum: i32) -> PgResult<Oid> {
     use types_core::catalog::INTERNALOID;
     let funcname = defGetQualifiedName(mcx, defel)?;
     let type_id = [INTERNALOID; 4];
@@ -610,9 +627,15 @@ fn make_ts_template_dependencies<'mcx>(
     pg_depend::recordDependencyOnCurrentExtension(mcx, &myself, false)?;
     let mut refs: PgVec<'mcx, ObjectAddress> = PgVec::new_in(mcx);
     refs.push(ObjectAddress::set(NAMESPACE_RELATION_ID, namespaceoid));
-    refs.push(ObjectAddress::set(types_core::PROCEDURE_RELATION_ID, tmpllexize));
+    refs.push(ObjectAddress::set(
+        types_core::PROCEDURE_RELATION_ID,
+        tmpllexize,
+    ));
     if tmplinit != InvalidOid {
-        refs.push(ObjectAddress::set(types_core::PROCEDURE_RELATION_ID, tmplinit));
+        refs.push(ObjectAddress::set(
+            types_core::PROCEDURE_RELATION_ID,
+            tmplinit,
+        ));
     }
     pg_depend::record_object_address_dependencies(mcx, &myself, &mut refs, DependencyType::Normal)?;
     Ok(myself)
@@ -717,8 +740,7 @@ pub fn AlterTSDictionary<'mcx>(
 ) -> PgResult<ObjectAddress> {
     let dictId = get_ts_dict_oid(&name_list_parts(mcx, &stmt.dictname), false)?;
     let rel = table::table_open(mcx, TSDictionaryRelationId, RowExclusiveLock)?;
-    let Some(tup) = SearchSysCache1(TSDICTOID, SysCacheKey::Value(Datum::from_oid(dictId)))?
-    else {
+    let Some(tup) = SearchSysCache1(TSDICTOID, SysCacheKey::Value(Datum::from_oid(dictId)))? else {
         return Err(Box::new(PgError::error(format!(
             "cache lookup failed for text search dictionary {dictId}"
         ))));
@@ -747,8 +769,9 @@ pub fn AlterTSDictionary<'mcx>(
         }
     }
 
-    let dicttemplate =
-        SysCacheGetAttr(TSDICTOID, &tup, Anum_pg_ts_dict_dicttemplate as i32)?.0.as_oid();
+    let dicttemplate = SysCacheGetAttr(TSDICTOID, &tup, Anum_pg_ts_dict_dicttemplate as i32)?
+        .0
+        .as_oid();
     verify_dictoptions(mcx, dicttemplate, &dictoptions)?;
 
     let mut repl_val = [Datum::null(); Natts_pg_ts_dict];
@@ -842,7 +865,9 @@ pub fn DefineTSConfiguration<'mcx>(
         let defel = n.as_def_elem().expect("definition holds DefElems");
         match defel.defname {
             Some("parser") => prsOid = get_ts_parser_oid(&defGetQualifiedName(mcx, defel)?, false)?,
-            Some("copy") => sourceOid = get_ts_config_oid(&defGetQualifiedName(mcx, defel)?, false)?,
+            Some("copy") => {
+                sourceOid = get_ts_config_oid(&defGetQualifiedName(mcx, defel)?, false)?
+            }
             other => {
                 return Err(Box::new(
                     PgError::error(format!(
@@ -1012,7 +1037,9 @@ fn getTokenTypes<'mcx>(
             "cache lookup failed for text search parser {prsId}"
         ))));
     };
-    let lextype = SysCacheGetAttr(TSPARSEROID, &tup, Anum_pg_ts_parser_prslextype)?.0.as_oid();
+    let lextype = SysCacheGetAttr(TSPARSEROID, &tup, Anum_pg_ts_parser_prslextype)?
+        .0
+        .as_oid();
     ReleaseSysCache(tup);
     if lextype == InvalidOid {
         return Err(Box::new(PgError::error(format!(
@@ -1020,7 +1047,8 @@ fn getTokenTypes<'mcx>(
         ))));
     }
     let mut flinfo = fmgr_seams::fmgr_info::call(lextype)?;
-    let list = types_fmgr::function_call1_coll_in(&mut flinfo, InvalidOid, mcx, Datum::from_i64(0))?;
+    let list =
+        types_fmgr::function_call1_coll_in(&mut flinfo, InvalidOid, mcx, Datum::from_i64(0))?;
     // wparser_def contract: pointer Datum to a caller-owned Vec<LexDescr>.
     // SAFETY: produced by fc_prsd_lextype's Box::into_raw immediately above.
     let descrs: Box<Vec<ts_locale::LexDescr>> =
@@ -1033,7 +1061,10 @@ fn getTokenTypes<'mcx>(
         }
         for entry in descrs.iter() {
             if entry.lexid != 0 && entry.alias == val {
-                result.push(TokenType { num: entry.lexid, name: val });
+                result.push(TokenType {
+                    num: entry.lexid,
+                    name: val,
+                });
                 continue 'names;
             }
         }
@@ -1144,7 +1175,15 @@ fn MakeConfigurationMapping<'mcx>(
     } else {
         for ts in &tokens {
             for (j, dict) in dictIds.iter().enumerate() {
-                insert_map_row(mcx, relMap, &mut indstate, cfgId, ts.num, (j + 1) as i32, *dict)?;
+                insert_map_row(
+                    mcx,
+                    relMap,
+                    &mut indstate,
+                    cfgId,
+                    ts.num,
+                    (j + 1) as i32,
+                    *dict,
+                )?;
             }
         }
     }
@@ -1187,7 +1226,10 @@ fn DropConfigurationMapping<'mcx>(
             }
             elog_seams::ereport_msg::call(
                 NOTICE,
-                format!("mapping for token type \"{}\" does not exist, skipping", ts.name),
+                format!(
+                    "mapping for token type \"{}\" does not exist, skipping",
+                    ts.name
+                ),
                 None,
             )?;
         }
@@ -1224,11 +1266,15 @@ pub fn AlterTSConfiguration<'mcx>(
             "cache lookup failed for text search configuration {cfgId}"
         ))));
     };
-    let prsId = SysCacheGetAttr(TSCONFIGOID, &tup, Anum_pg_ts_config_cfgparser as i32)?.0.as_oid();
-    let cfgnamespace =
-        SysCacheGetAttr(TSCONFIGOID, &tup, Anum_pg_ts_config_cfgnamespace as i32)?.0.as_oid();
-    let cfgowner =
-        SysCacheGetAttr(TSCONFIGOID, &tup, Anum_pg_ts_config_cfgowner as i32)?.0.as_oid();
+    let prsId = SysCacheGetAttr(TSCONFIGOID, &tup, Anum_pg_ts_config_cfgparser as i32)?
+        .0
+        .as_oid();
+    let cfgnamespace = SysCacheGetAttr(TSCONFIGOID, &tup, Anum_pg_ts_config_cfgnamespace as i32)?
+        .0
+        .as_oid();
+    let cfgowner = SysCacheGetAttr(TSCONFIGOID, &tup, Anum_pg_ts_config_cfgowner as i32)?
+        .0
+        .as_oid();
     ReleaseSysCache(tup);
 
     let relMap = table::table_open(mcx, TSConfigMapRelationId, RowExclusiveLock)?;
@@ -1248,7 +1294,15 @@ pub fn AlterTSConfiguration<'mcx>(
         cmdtag::GetCommandTagEnum(b"ALTER TEXT SEARCH CONFIGURATION"),
     );
 
-    make_configuration_dependencies(mcx, cfgId, cfgnamespace, cfgowner, prsId, true, Some(&relMap))?;
+    make_configuration_dependencies(
+        mcx,
+        cfgId,
+        cfgnamespace,
+        cfgowner,
+        prsId,
+        true,
+        Some(&relMap),
+    )?;
 
     // tsearchcmds.c:1189
     objectaccess::InvokeObjectPostAlterHook(TSConfigRelationId, cfgId, 0)?;
@@ -1256,4 +1310,3 @@ pub fn AlterTSConfiguration<'mcx>(
     relMap.close(RowExclusiveLock)?;
     Ok(ObjectAddress::set(TSConfigRelationId, cfgId))
 }
-

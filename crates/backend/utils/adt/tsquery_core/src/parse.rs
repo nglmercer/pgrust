@@ -18,6 +18,7 @@ pub const MAXSTRLEN: usize = ::adt_tsvector_core::layout::MAXSTRLEN;
 pub const MAXSTRPOS: usize = ::adt_tsvector_core::layout::MAXSTRPOS;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
+#[allow(clippy::enum_variant_names)]
 enum PState {
     WaitOperand,
     WaitOperator,

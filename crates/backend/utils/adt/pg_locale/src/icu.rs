@@ -449,6 +449,7 @@ fn convert_case(
                     let mut lang = [0 as c_char; 3];
                     let mut st = ffi::U_ZERO_ERROR;
                     (api.uloc_getLanguage)(locale.loc_ptr(), lang.as_mut_ptr(), 3, &mut st);
+                    #[allow(clippy::nonminimal_bool)]
                     if ffi::U_SUCCESS(st)
                         && (lang[..2] == [b't' as c_char, b'r' as c_char] && lang[2] == 0
                             || lang[..2] == [b'a' as c_char, b'z' as c_char] && lang[2] == 0)
@@ -763,6 +764,7 @@ pub fn icu_available_locale_ids() -> Option<Vec<String>> {
 /// get_icu_locale_comment (collationcmds.c:679-710): the locale's English
 /// display name, or None when ICU cannot produce one or it is not all-ASCII
 /// (template0 contents must be encoding-agnostic).
+#[allow(clippy::manual_c_str_literals)]
 pub fn icu_locale_display_name_ascii(localename: &str) -> Option<String> {
     let api = ffi::try_icu()?;
     let cloc = format!("{localename}\0");

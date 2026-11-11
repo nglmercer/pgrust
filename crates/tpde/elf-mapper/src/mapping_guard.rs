@@ -391,6 +391,7 @@ mod platform {
             1 => None,
             2 => Some(Unwind::Gcc),
             // SAFETY: the words were stored by `unwind_to_raw` from these types.
+            #[allow(clippy::missing_transmute_annotations)]
             _ => Some(unsafe { Unwind::Llvm { add: core::mem::transmute(state), remove: core::mem::transmute(dereg) } }),
         }
     }
@@ -464,7 +465,9 @@ mod platform {
             // SAFETY: these names have the fixed libunwind ABI used by pinned upstream.
             Some(unsafe {
                 Self::Llvm {
+                    #[allow(clippy::missing_transmute_annotations)]
                     add: core::mem::transmute(add),
+                    #[allow(clippy::missing_transmute_annotations)]
                     remove: core::mem::transmute(remove),
                 }
             })

@@ -25,7 +25,7 @@
 use crate::class::{StorageClass, CLASS_BOOL, CLASS_BYVAL, CLASS_F32, CLASS_F64};
 use crate::dict::{DictLayout, DictSections};
 use crate::enc::EncodingId;
-use crate::meta::{ProbeAnswer, MetaProbe, StatsRecord};
+use crate::meta::{MetaProbe, ProbeAnswer, StatsRecord};
 use crate::part::{OverflowSink, SectionKind, StreamSectionWriter};
 use crate::wire::varlena_4b_u_payload_len;
 use crate::{FormatError, FormatResult};
@@ -357,6 +357,7 @@ pub fn validity_from_ctx(ctx: &KernelCtx<'_>, out: &mut [u64]) -> FormatResult<V
         return Err(FormatError::Bounds { at: "validity out" });
     }
     let mut nonnull: u32 = 0;
+    #[allow(clippy::needless_range_loop)]
     for w in 0..words {
         let mut word: u64 = 0;
         let base = w * 8;
@@ -688,9 +689,11 @@ pub fn verify_roundtrip(
     // as masked words (the image IS the low `width` LE bytes; Bool the 0/1
     // truth) — the same predicate without a per-value slice compare.
     let word_mask = match input.class {
-        StorageClass::ByvalWord { width, .. } => {
-            Some(if width >= 8 { u64::MAX } else { (1u64 << (8 * width)) - 1 })
-        }
+        StorageClass::ByvalWord { width, .. } => Some(if width >= 8 {
+            u64::MAX
+        } else {
+            (1u64 << (8 * width)) - 1
+        }),
         StorageClass::F32 => Some(0xFFFF_FFFF),
         StorageClass::F64 => Some(u64::MAX),
         _ => None,
@@ -704,7 +707,11 @@ pub fn verify_roundtrip(
                 continue;
             }
             let (a, b) = (input.datums[r as usize], out.datums[r as usize]);
-            bad |= if is_bool { (a != 0) != (b != 0) } else { (a ^ b) & mask != 0 };
+            bad |= if is_bool {
+                (a != 0) != (b != 0)
+            } else {
+                (a ^ b) & mask != 0
+            };
         }
         if bad {
             return Err(FormatError::EncodeContract {

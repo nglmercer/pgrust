@@ -3,6 +3,7 @@
 // deforms its store, so `jsonb_each('{"k": 1, ...}')` and `jsonb_each('{"k": 3, ...}')` share one program. They were keyed
 // by image: one program per literal (the user's literal-free ruling). The class-keyed literal is logged with the lists
 // (`class_keyed_lists`), so a lowering that read it files no program.
+#[allow(unused_imports)]
 use std::path::Path;
 
 use gravity_decompose::{corpus, decompose_in, PipelineGraph};

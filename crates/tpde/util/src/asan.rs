@@ -44,6 +44,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[allow(clippy::assertions_on_constants)]
     fn disabled_calls_do_not_touch_memory() {
         assert!(!ADDRESS_SANITIZER_ACTIVE);
         let mut bytes = [0xa5; 32];

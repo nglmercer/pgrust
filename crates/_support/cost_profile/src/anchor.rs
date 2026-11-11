@@ -35,7 +35,14 @@ pub enum Anchor {
 }
 
 impl Anchor {
-    pub const ALL: [Anchor; 6] = [Anchor::Read, Anchor::Gather, Anchor::Check, Anchor::Miss, Anchor::Update, Anchor::Sort];
+    pub const ALL: [Anchor; 6] = [
+        Anchor::Read,
+        Anchor::Gather,
+        Anchor::Check,
+        Anchor::Miss,
+        Anchor::Update,
+        Anchor::Sort,
+    ];
 
     pub const fn name(self) -> &'static str {
         match self {
@@ -64,12 +71,42 @@ const CORPUS: &str = "the anchor units (anchor.rs Data at the dev seed), the lea
 
 /// Each anchor's value on the reference machine, in `Anchor` order.
 pub const REFERENCE: [Fitted; 6] = [
-    Fitted { ns: 0.090, machine: MACHINE, corpus: CORPUS, anchor: Anchor::Read },
-    Fitted { ns: 0.548, machine: MACHINE, corpus: CORPUS, anchor: Anchor::Gather },
-    Fitted { ns: 0.179, machine: MACHINE, corpus: CORPUS, anchor: Anchor::Check },
-    Fitted { ns: 102.5, machine: MACHINE, corpus: CORPUS, anchor: Anchor::Miss },
-    Fitted { ns: 0.944, machine: MACHINE, corpus: CORPUS, anchor: Anchor::Update },
-    Fitted { ns: 13.25, machine: MACHINE, corpus: CORPUS, anchor: Anchor::Sort },
+    Fitted {
+        ns: 0.090,
+        machine: MACHINE,
+        corpus: CORPUS,
+        anchor: Anchor::Read,
+    },
+    Fitted {
+        ns: 0.548,
+        machine: MACHINE,
+        corpus: CORPUS,
+        anchor: Anchor::Gather,
+    },
+    Fitted {
+        ns: 0.179,
+        machine: MACHINE,
+        corpus: CORPUS,
+        anchor: Anchor::Check,
+    },
+    Fitted {
+        ns: 102.5,
+        machine: MACHINE,
+        corpus: CORPUS,
+        anchor: Anchor::Miss,
+    },
+    Fitted {
+        ns: 0.944,
+        machine: MACHINE,
+        corpus: CORPUS,
+        anchor: Anchor::Update,
+    },
+    Fitted {
+        ns: 13.25,
+        machine: MACHINE,
+        corpus: CORPUS,
+        anchor: Anchor::Sort,
+    },
 ];
 
 /// A ratio within this of 1 is 1.
@@ -137,7 +174,12 @@ pub struct Profile {
 
 impl Profile {
     pub const fn reference(why: &'static str) -> Profile {
-        Profile { key: String::new(), measured: None, ratios: Ratios::ONE, source: Source::Reference(why) }
+        Profile {
+            key: String::new(),
+            measured: None,
+            ratios: Ratios::ONE,
+            source: Source::Reference(why),
+        }
     }
 
     /// One line for the server log.
@@ -145,16 +187,39 @@ impl Profile {
         let src = match &self.source {
             Source::Reference(why) => format!("reference ({why})"),
             Source::Cached(path) => format!("cached ({path})"),
-            Source::Measured { micros, kept: Some(path) } => format!("measured in {} ms, kept in {path}", micros / 1000),
-            Source::Measured { micros, kept: None } => format!("measured in {} ms, not kept (no writable cache directory)", micros / 1000),
+            Source::Measured {
+                micros,
+                kept: Some(path),
+            } => format!("measured in {} ms, kept in {path}", micros / 1000),
+            Source::Measured { micros, kept: None } => format!(
+                "measured in {} ms, not kept (no writable cache directory)",
+                micros / 1000
+            ),
         };
-        let ratios: Vec<String> = Anchor::ALL.iter().map(|&a| format!("{} {}", a.name(), self.ratios.of(a))).collect(); // alloc: Cold
-        let key = if self.key.is_empty() { String::new() } else { format!("; host {}", self.key) }; // alloc: Cold
+        let ratios: Vec<String> = Anchor::ALL
+            .iter()
+            .map(|&a| format!("{} {}", a.name(), self.ratios.of(a)))
+            .collect(); // alloc: Cold
+        let key = if self.key.is_empty() {
+            String::new()
+        } else {
+            format!("; host {}", self.key)
+        }; // alloc: Cold
         let ns = match &self.measured {
-            Some(m) => format!("; anchors ns: {}", Anchor::ALL.iter().map(|&a| format!("{} {:.3}", a.name(), m.0[a as usize])).collect::<Vec<_>>().join(", ")), // alloc: Cold
+            Some(m) => format!(
+                "; anchors ns: {}",
+                Anchor::ALL
+                    .iter()
+                    .map(|&a| format!("{} {:.3}", a.name(), m.0[a as usize]))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ), // alloc: Cold
             None => String::new(),
         };
-        format!("cost profile: {src}{key}; ratios to the reference: {}{ns}", ratios.join(", ")) // alloc: Cold
+        format!(
+            "cost profile: {src}{key}; ratios to the reference: {}{ns}",
+            ratios.join(", ")
+        ) // alloc: Cold
     }
 }
 
@@ -246,8 +311,26 @@ const fn fnv1a(b: &[u8]) -> u64 {
 /// The cache key of a host: its architecture and CPU id (`cpu`: aarch64's MIDR, x86's vendor / family / model / stepping,
 /// "unknown" where neither reads), its cache facts and this file's `VERSION`. Only `[A-Za-z0-9._-]`.
 pub fn host_key(arch: &str, cpu: &str, l1d: u64, l2: u64, smt: u32) -> String {
-    let clean = |s: &str| s.chars().map(|c| if c.is_ascii_alphanumeric() || c == '.' || c == '-' { c } else { '_' }).collect::<String>();
-    format!("{}-{}-l1d{}k-l2{}k-smt{}-v{:016x}", clean(arch), clean(cpu), l1d >> 10, l2 >> 10, smt, VERSION)
+    let clean = |s: &str| {
+        s.chars()
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || c == '.' || c == '-' {
+                    c
+                } else {
+                    '_'
+                }
+            })
+            .collect::<String>()
+    };
+    format!(
+        "{}-{}-l1d{}k-l2{}k-smt{}-v{:016x}",
+        clean(arch),
+        clean(cpu),
+        l1d >> 10,
+        l2 >> 10,
+        smt,
+        VERSION
+    )
 }
 
 /// The cache file's text for `key` and `m`: a key line, then one `name<TAB>ns` line per anchor.
@@ -270,7 +353,9 @@ pub fn parse_cache(text: &str, key: &str) -> Option<Measured> {
         let (name, ns) = l.split_once('\t')?;
         v[Anchor::of(name)? as usize] = ns.parse().ok()?;
     }
-    v.iter().all(|x| x.is_finite() && *x > 0.0).then_some(Measured(v))
+    v.iter()
+        .all(|x| x.is_finite() && *x > 0.0)
+        .then_some(Measured(v))
 }
 
 /// The data the units read, built once at the dev seed.
@@ -318,7 +403,9 @@ impl Data {
     pub fn new() -> Data {
         let mut rng = Rng(DEV_SEED);
         let lane: Vec<u32> = (0..LANE_ROWS).map(|_| rng.next() as u32).collect(); // alloc: Cold (once a process: the anchors' data)
-        let mut pos: Vec<u32> = (0..LANE_ROWS / 8).map(|_| (rng.next() % LANE_ROWS as u64) as u32).collect(); // alloc: Cold
+        let mut pos: Vec<u32> = (0..LANE_ROWS / 8)
+            .map(|_| (rng.next() % LANE_ROWS as u64) as u32)
+            .collect(); // alloc: Cold
         pos.sort_unstable();
         // one random cycle over the lines (Sattolo's shuffle), each line's first slot naming the next line's
         let mut order: Vec<u32> = (0..MISS_LINES as u32).collect(); // alloc: Cold
@@ -331,17 +418,40 @@ impl Data {
         }
         let keys: Vec<u32> = (0..UPDATE_KEYS).map(|_| rng.next() as u32).collect(); // alloc: Cold
         let sort_src: Vec<u64> = (0..SORT_KEYS).map(|_| rng.next()).collect(); // alloc: Cold
-        let (mask, slots, sort_buf) = (vec![0u64; LANE_ROWS / 64], vec![0u32; UPDATE_SLOTS], sort_src.clone()); // alloc: Cold
-        Data { lane, pos, mask, next, at: 0, slots, keys, sort_src, sort_buf }
+        let (mask, slots, sort_buf) = (
+            vec![0u64; LANE_ROWS / 64],
+            vec![0u32; UPDATE_SLOTS],
+            sort_src.clone(),
+        ); // alloc: Cold
+        Data {
+            lane,
+            pos,
+            mask,
+            next,
+            at: 0,
+            slots,
+            keys,
+            sort_src,
+            sort_buf,
+        }
     }
 
     /// One take of `a`'s unit: the count of items it timed (rows, positions, loads, keys) beside a value the caller keeps
     /// alive (so the loop is not elided).
     pub fn run(&mut self, a: Anchor) -> (u64, u64) {
         match a {
-            Anchor::Read => (0..PASSES).fold((0, 0), |(n, s), _| (n + LANE_ROWS as u64, s ^ read_all(&self.lane))),
-            Anchor::Gather => (0..PASSES).fold((0, 0), |(n, s), _| (n + self.pos.len() as u64, s ^ gather(&self.lane, &self.pos))),
-            Anchor::Check => (0..PASSES).fold((0, 0), |(n, s), p| (n + LANE_ROWS as u64, s ^ check(&self.lane, u32::MAX / 3 + p as u32, &mut self.mask))),
+            Anchor::Read => (0..PASSES).fold((0, 0), |(n, s), _| {
+                (n + LANE_ROWS as u64, s ^ read_all(&self.lane))
+            }),
+            Anchor::Gather => (0..PASSES).fold((0, 0), |(n, s), _| {
+                (n + self.pos.len() as u64, s ^ gather(&self.lane, &self.pos))
+            }),
+            Anchor::Check => (0..PASSES).fold((0, 0), |(n, s), p| {
+                (
+                    n + LANE_ROWS as u64,
+                    s ^ check(&self.lane, u32::MAX / 3 + p as u32, &mut self.mask),
+                )
+            }),
             Anchor::Miss => {
                 self.at = chase(&self.next, self.at, MISS_STEPS);
                 (MISS_STEPS as u64, self.at as u64)
@@ -367,7 +477,8 @@ fn read_all(lane: &[u32]) -> u64 {
 }
 
 fn gather(lane: &[u32], pos: &[u32]) -> u64 {
-    pos.iter().fold(0u64, |s, &p| s.wrapping_add(lane[p as usize] as u64))
+    pos.iter()
+        .fold(0u64, |s, &p| s.wrapping_add(lane[p as usize] as u64))
 }
 
 fn check(lane: &[u32], c: u32, mask: &mut [u64]) -> u64 {
@@ -415,15 +526,29 @@ mod tests {
         assert_eq!(snap(f64::NAN), 1.0);
         assert_eq!(snap(0.0), 1.0);
         let m = Measured(REFERENCE.map(|f| f.ns * 1.05));
-        assert!(m.ratios().is_one(), "the reference machine, 5 % off, prices as the reference");
+        assert!(
+            m.ratios().is_one(),
+            "the reference machine, 5 % off, prices as the reference"
+        );
     }
 
     #[test]
     fn the_word_picks_the_profile() {
-        assert_eq!(word_of(Some(" reference ")), (Word::Reference("PGRUST_COST_PROFILE=reference"), false));
+        assert_eq!(
+            word_of(Some(" reference ")),
+            (Word::Reference("PGRUST_COST_PROFILE=reference"), false)
+        );
         assert_eq!(word_of(Some("host")), (Word::Host, false));
-        let default = if cfg!(debug_assertions) { Word::Reference("a debug build") } else { Word::Host };
-        assert_eq!((word_of(None), word_of(Some("fast"))), ((default, false), (default, true)), "unset or neither word: the default");
+        let default = if cfg!(debug_assertions) {
+            Word::Reference("a debug build")
+        } else {
+            Word::Host
+        };
+        assert_eq!(
+            (word_of(None), word_of(Some("fast"))),
+            ((default, false), (default, true)),
+            "unset or neither word: the default"
+        );
     }
 
     #[test]
@@ -435,14 +560,30 @@ mod tests {
     #[test]
     fn the_cache_file_round_trips_under_its_key_alone() {
         let key = host_key("aarch64", "0x410fd4f1", 64 << 10, 2 << 20, 1);
-        assert!(key.ends_with(&format!("-v{VERSION:016x}")) && key.starts_with("aarch64-0x410fd4f1-l1d64k-l22048k-smt1"));
+        assert!(
+            key.ends_with(&format!("-v{VERSION:016x}"))
+                && key.starts_with("aarch64-0x410fd4f1-l1d64k-l22048k-smt1")
+        );
         let m = Measured([0.3, 1.2, 0.5, 120.0, 2.0, 11.0]);
         let text = cache_text(&key, &m);
         assert_eq!(parse_cache(&text, &key), Some(m));
         assert_eq!(parse_cache(&text, "another host"), None, "another key");
-        assert_eq!(parse_cache(&text.replace("sort\t", "nope\t"), &key), None, "an unknown anchor");
-        assert_eq!(parse_cache(&text.replace("\nmiss\t120.000000", ""), &key), None, "a missing anchor");
-        assert_eq!(host_key("x86_64", "AuthenticAMD 25/1/1", 32 << 10, 512 << 10, 2).split('-').nth(1), Some("AuthenticAMD_25_1_1"));
+        assert_eq!(
+            parse_cache(&text.replace("sort\t", "nope\t"), &key),
+            None,
+            "an unknown anchor"
+        );
+        assert_eq!(
+            parse_cache(&text.replace("\nmiss\t120.000000", ""), &key),
+            None,
+            "a missing anchor"
+        );
+        assert_eq!(
+            host_key("x86_64", "AuthenticAMD 25/1/1", 32 << 10, 512 << 10, 2)
+                .split('-')
+                .nth(1),
+            Some("AuthenticAMD_25_1_1")
+        );
     }
 
     /// This host's anchors beside the reference's (wall time, the least of 5 takes a unit): the server measures them in
@@ -465,7 +606,14 @@ mod tests {
         }
         let r = Measured(ns).ratios();
         for a in Anchor::ALL {
-            println!("anchor\t{}\t{:.4}\treference {:.4}\tratio {:.3}\tsnapped {}", a.name(), ns[a as usize], a.reference().ns, ns[a as usize] / a.reference().ns, r.of(a));
+            println!(
+                "anchor\t{}\t{:.4}\treference {:.4}\tratio {:.3}\tsnapped {}",
+                a.name(),
+                ns[a as usize],
+                a.reference().ns,
+                ns[a as usize] / a.reference().ns,
+                r.of(a)
+            );
         }
     }
 

@@ -156,7 +156,7 @@ pub(crate) fn sites<'e>(b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, node
 pub(crate) fn splice(sv: &mut PgVec<'_, Value>, sn: &mut PgVec<'_, Value>, sites: &[(i16, [Value; 3])], zero: Value) {
     for &(a, [v, ok, _]) in sites {
         let n = sv.len().max(a as usize);
-        (sv.resize_in(n, zero), sn.resize_in(n, ok));
+        sv.resize_in(n, zero); sn.resize_in(n, ok);
         (sv[a as usize - 1], sn[a as usize - 1]) = (v, ok);
     }
 }
@@ -165,5 +165,5 @@ pub(crate) fn splice(sv: &mut PgVec<'_, Value>, sn: &mut PgVec<'_, Value>, sites
 /// read carries it, so it takes the site's place in PG's order and a branch PG never takes masks it (an or'ed word raised
 /// ahead of an earlier error and under a CASE arm never reached).
 pub(crate) fn raises<'g>(b: &FunctionBuilder<'_>, sites: &[(i16, [Value; 3])], mcx: Mcx<'g>) -> PgVec<'g, (i16, Value)> {
-    sites.iter().filter(|s| !b.const_of(s.1[2]).is_some_and(|(_, c)| c == 0)).map(|s| (s.0, s.1[2])).collect_in(mcx)
+    sites.iter().filter(|s| b.const_of(s.1[2]).is_none_or(|(_, c)| c != 0)).map(|s| (s.0, s.1[2])).collect_in(mcx)
 }

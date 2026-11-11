@@ -11,8 +11,8 @@ use std::sync::Once;
 use ::datum::Datum;
 use ::mcx::{Mcx, MemoryContext, PgVec};
 use ::types_core::{
-    BlockNumber, Buffer, ForkNumber, InvalidTransactionId, Oid, OffsetNumber, BLCKSZ,
-    HASH_AM_OID, INVALID_PROC_NUMBER, RELPERSISTENCE_PERMANENT,
+    BlockNumber, Buffer, ForkNumber, InvalidTransactionId, OffsetNumber, Oid, BLCKSZ, HASH_AM_OID,
+    INVALID_PROC_NUMBER, RELPERSISTENCE_PERMANENT,
 };
 use ::types_error::{PgError, PgResult, ERRCODE_INTERNAL_ERROR, ERROR};
 use ::types_fmgr::{FmgrInfo, FunctionCallInfoBaseData};
@@ -30,8 +30,8 @@ use ::types_tuple::TupleDescData;
 use crate::insert::{_hash_pgaddmultitup, _hash_pgaddtup, _hash_vacuum_one_page};
 use crate::ovfl::{_hash_addovflpage, _hash_freeovflpage};
 use crate::page::{
-    page_mut, page_ref, with_meta_mut, _hash_getbuf, _hash_getbuf_with_condlock_cleanup,
-    _hash_getbuf_with_strategy, _hash_getinitbuf, _hash_getnewbuf, P_NEW,
+    _hash_getbuf, _hash_getbuf_with_condlock_cleanup, _hash_getbuf_with_strategy, _hash_getinitbuf,
+    _hash_getnewbuf, page_mut, page_ref, with_meta_mut, P_NEW,
 };
 
 // Fake buffer manager: pages are 8KB boxes; Buffer = block + 1.
@@ -97,7 +97,10 @@ fn install() {
     static INIT: Once = Once::new();
     INIT.call_once(|| {
         bufmgr_seams::read_buffer::set(|rel, blkno| {
-            assert_eq!(rel.rd_id, INDEX_OID, "only the index is read through the fake pool");
+            assert_eq!(
+                rel.rd_id, INDEX_OID,
+                "only the index is read through the fake pool"
+            );
             let _ = page_bytes(blkno as Buffer + 1);
             Ok(blkno as Buffer + 1)
         });
@@ -105,7 +108,10 @@ fn install() {
             assert_eq!(rel.rd_id, INDEX_OID);
             let buf = blkno as Buffer + 1;
             let _ = page_bytes(buf);
-            if matches!(mode, ReadBufferMode::ZeroAndLock | ReadBufferMode::ZeroAndCleanupLock) {
+            if matches!(
+                mode,
+                ReadBufferMode::ZeroAndLock | ReadBufferMode::ZeroAndCleanupLock
+            ) {
                 zero_page(buf);
             }
             Ok(buf)
@@ -189,7 +195,13 @@ fn stub_hashint4(
     Ok(Datum::from_i32(fcinfo.arg(0).as_i32()))
 }
 
-fn pg_class(relname: &str, relam: Oid, relkind: u8, oid: Oid, relhasindex: bool) -> FormData_pg_class {
+fn pg_class(
+    relname: &str,
+    relam: Oid,
+    relkind: u8,
+    oid: Oid,
+    relhasindex: bool,
+) -> FormData_pg_class {
     let mut name = ::types_tuple::NameData::default();
     name.namestrcpy(relname);
     FormData_pg_class {
@@ -239,7 +251,12 @@ fn index_rel(mcx: Mcx<'_>) -> Relation<'_> {
         rd_newRelfilelocatorSubid: Cell::new(0),
         rd_firstRelfilelocatorSubid: Cell::new(0),
         rd_droppedSubid: Cell::new(0),
-        rd_lockInfo: LockInfoData { lockRelId: LockRelId { relId: INDEX_OID, dbId: 5 } },
+        rd_lockInfo: LockInfoData {
+            lockRelId: LockRelId {
+                relId: INDEX_OID,
+                dbId: 5,
+            },
+        },
         rd_rel: pg_class("t_hidx", HASH_AM_OID, RELKIND_INDEX, INDEX_OID, false),
         rd_att: Rc::new(int4_tupdesc(mcx)),
         rd_index: Some(FormData_pg_index {
@@ -301,7 +318,12 @@ fn heap_rel(mcx: Mcx<'_>) -> Relation<'_> {
         rd_newRelfilelocatorSubid: Cell::new(0),
         rd_firstRelfilelocatorSubid: Cell::new(0),
         rd_droppedSubid: Cell::new(0),
-        rd_lockInfo: LockInfoData { lockRelId: LockRelId { relId: HEAP_OID, dbId: 5 } },
+        rd_lockInfo: LockInfoData {
+            lockRelId: LockRelId {
+                relId: HEAP_OID,
+                dbId: 5,
+            },
+        },
         // 2 = HEAP_TABLE_AM_OID.
         rd_rel: pg_class("t", 2, RELKIND_RELATION, HEAP_OID, true),
         rd_att: Rc::new(int4_tupdesc(mcx)),
@@ -357,7 +379,11 @@ fn build_index(rel: &Relation<'_>) {
 fn hash_itup(hashkey: u32, tid: ItemPointerData) -> Img {
     let mut b = [0u8; 16];
     // SAFETY: ItemPointerData is a 6-byte POD written at the image start.
-    unsafe { b.as_mut_ptr().cast::<ItemPointerData>().write_unaligned(tid) };
+    unsafe {
+        b.as_mut_ptr()
+            .cast::<ItemPointerData>()
+            .write_unaligned(tid)
+    };
     b[6..8].copy_from_slice(&16u16.to_ne_bytes()); // t_info: size 16, no flags
     b[8..12].copy_from_slice(&hashkey.to_ne_bytes());
     Img(b)
@@ -370,7 +396,8 @@ fn add_tuples(buf: Buffer, key: u32, n: u16) -> Vec<OffsetNumber> {
             let img = hash_itup(key, ItemPointerData::new(10, i));
             // SAFETY: fake-pool page, exclusively used by this test.
             let mut page = unsafe { page_mut(buf) };
-            page.add_item(&img.0, i, 0).unwrap_or_else(|| panic!("add_item {i}"))
+            page.add_item(&img.0, i, 0)
+                .unwrap_or_else(|| panic!("add_item {i}"))
         })
         .collect()
 }
@@ -410,9 +437,13 @@ fn craft_dense_page(buf: Buffer, n: u16) -> Vec<ItemPointerData> {
         let tid = ItemPointerData::new(10, i);
         let mut img = [0u8; 8];
         // SAFETY: ItemPointerData is a 6-byte POD written at the image start.
-        unsafe { img.as_mut_ptr().cast::<ItemPointerData>().write_unaligned(tid) };
+        unsafe {
+            img.as_mut_ptr()
+                .cast::<ItemPointerData>()
+                .write_unaligned(tid)
+        };
         img[6..8].copy_from_slice(&8u16.to_ne_bytes()); // t_info: size 8, no flags
-        // SAFETY: off + 8 <= pd_special, inside the BLCKSZ page.
+                                                        // SAFETY: off + 8 <= pd_special, inside the BLCKSZ page.
         unsafe { core::ptr::copy_nonoverlapping(img.as_ptr(), page.as_mut_ptr().add(off), 8) };
         page.set_item_id(i, ItemIdData::new(off as u16, LP_NORMAL, 8));
         tids.push(tid);
@@ -436,7 +467,11 @@ fn take_crit_section_count() -> u32 {
 
 fn assert_internal_error(err: &PgError, message: &str) {
     assert_eq!(err.level(), ERROR, "elog(ERROR) level: {err:?}");
-    assert_eq!(err.sqlstate(), ERRCODE_INTERNAL_ERROR, "elog(ERROR) sqlstate: {err:?}");
+    assert_eq!(
+        err.sqlstate(),
+        ERRCODE_INTERNAL_ERROR,
+        "elog(ERROR) sqlstate: {err:?}"
+    );
     assert_eq!(err.message(), message);
     assert_eq!(err.hint(), None, "elog(ERROR) carries no HINT: {err:?}");
 }
@@ -555,7 +590,11 @@ fn vacuum_one_page_reaps_more_dead_items_than_max_index_tuples_per_page() {
         .find(|(info, _)| *info == XLOG_HASH_VACUUM_ONE_PAGE)
         .expect("XLOG_HASH_VACUUM_ONE_PAGE emitted");
     // xl_hash_vacuum_one_page: ntuples u16 @4.
-    assert_eq!(u16::from_ne_bytes([data[4], data[5]]), N, "ntuples in the WAL record");
+    assert_eq!(
+        u16::from_ne_bytes([data[4], data[5]]),
+        N,
+        "ntuples in the WAL record"
+    );
 }
 
 // hash.c:717 OffsetNumber deletable[MaxOffsetNumber]: hashbucketcleanup over
@@ -593,13 +632,24 @@ fn bucketcleanup_reaps_more_dead_items_than_max_index_tuples_per_page() {
     )
     .expect_err("the simulated XLogInsert failure must surface");
     let count = take_crit_section_count();
-    assert_eq!(err.message(), WAL_FAIL_MSG, "hash.c:717: the {N}-item walk must reach XLogInsert");
-    assert!(count > 0, "hash.c:800 START_CRIT_SECTION still open at the escape");
+    assert_eq!(
+        err.message(),
+        WAL_FAIL_MSG,
+        "hash.c:717: the {N}-item walk must reach XLogInsert"
+    );
+    assert!(
+        count > 0,
+        "hash.c:800 START_CRIT_SECTION still open at the escape"
+    );
     assert_eq!(removed, N as f64, "tuples_removed counts every reaped item");
     assert_eq!(kept, 0.0, "num_index_tuples counts none");
     // SAFETY: fake-pool page.
     let page = unsafe { page_ref(BUCKET0_BUF) };
-    assert_eq!(page.max_offset_number(), 0, "PageIndexMultiDelete removed every item");
+    assert_eq!(
+        page.max_offset_number(),
+        0,
+        "PageIndexMultiDelete removed every item"
+    );
     assert_eq!(page.pd_upper(), page.pd_special());
 }
 
@@ -618,7 +668,18 @@ fn bucketcleanup_wal_failure_escapes_inside_the_critical_section() {
 
     WAL_FAIL.with(|c| c.set(true));
     let err = crate::hashbucketcleanup(
-        &idx, 0, BUCKET0_BUF, BUCKET0_BLKNO, None, 1, 3, 1, None, None, true, None,
+        &idx,
+        0,
+        BUCKET0_BUF,
+        BUCKET0_BLKNO,
+        None,
+        1,
+        3,
+        1,
+        None,
+        None,
+        true,
+        None,
     )
     .expect_err("the simulated XLogInsert failure must surface");
     let count = take_crit_section_count();
@@ -653,10 +714,23 @@ fn ovflpage_wal_failures_escape_inside_the_critical_section() {
     // A clean index with one real overflow page on bucket 0, then free it.
     build_index(&idx);
     let ovflbuf = _hash_addovflpage(&idx, METABUF, BUCKET0_BUF, true).unwrap();
-    assert_eq!(init_small::globals::CritSectionCount(), 0, "balanced on the Ok path");
+    assert_eq!(
+        init_small::globals::CritSectionCount(),
+        0,
+        "balanced on the Ok path"
+    );
     WAL_FAIL.with(|c| c.set(true));
-    let err = _hash_freeovflpage(&idx, BUCKET0_BUF, ovflbuf, BUCKET0_BUF, &[], &[], &mut [], None)
-        .expect_err("the simulated XLogInsert failure must surface");
+    let err = _hash_freeovflpage(
+        &idx,
+        BUCKET0_BUF,
+        ovflbuf,
+        BUCKET0_BUF,
+        &[],
+        &[],
+        &mut [],
+        None,
+    )
+    .expect_err("the simulated XLogInsert failure must surface");
     let count = take_crit_section_count();
     assert_eq!(err.message(), WAL_FAIL_MSG);
     assert!(
@@ -679,8 +753,17 @@ fn freeovflpage_invalid_bit_number_is_c_shaped() {
     // claiming zero bitmap pages makes that bit unaddressable.
     with_meta_mut(METABUF, |m| m.hashm_nmaps = 0);
 
-    let err = _hash_freeovflpage(&idx, BUCKET0_BUF, ovflbuf, BUCKET0_BUF, &[], &[], &mut [], None)
-        .expect_err("hashovfl.c:562 must reject the unaddressable bit");
+    let err = _hash_freeovflpage(
+        &idx,
+        BUCKET0_BUF,
+        ovflbuf,
+        BUCKET0_BUF,
+        &[],
+        &[],
+        &mut [],
+        None,
+    )
+    .expect_err("hashovfl.c:562 must reject the unaddressable bit");
     init_small::globals::SetCritSectionCount(0);
     assert_internal_error(&err, "invalid overflow bit number 1");
 }
@@ -741,7 +824,10 @@ fn getnewbuf_beyond_eof_is_a_catchable_error() {
 
     NBLOCKS_OVERRIDE.with(|c| c.set(Some(2)));
     let err = _hash_getnewbuf(&idx, 5, ForkNumber::MAIN_FORKNUM).expect_err("hashpage.c:206");
-    assert_internal_error(&err, "access to noncontiguous page in hash index \"t_hidx\"");
+    assert_internal_error(
+        &err,
+        "access to noncontiguous page in hash index \"t_hidx\"",
+    );
 
     // blkno == nblocks, but the extension lands on block 4 of the 4-block pool.
     let err = _hash_getnewbuf(&idx, 2, ForkNumber::MAIN_FORKNUM).expect_err("hashpage.c:213");
@@ -777,7 +863,17 @@ fn successful_update_phases_leave_no_critical_section_open() {
     mark_dead(BUCKET0_BUF, &offs);
     _hash_vacuum_one_page(&idx, &heap, METABUF, BUCKET0_BUF).unwrap();
     let ovflbuf = _hash_addovflpage(&idx, METABUF, BUCKET0_BUF, true).unwrap();
-    _hash_freeovflpage(&idx, BUCKET0_BUF, ovflbuf, BUCKET0_BUF, &[], &[], &mut [], None).unwrap();
+    _hash_freeovflpage(
+        &idx,
+        BUCKET0_BUF,
+        ovflbuf,
+        BUCKET0_BUF,
+        &[],
+        &[],
+        &mut [],
+        None,
+    )
+    .unwrap();
     assert_eq!(init_small::globals::CritSectionCount(), 0);
     // SAFETY: fake-pool page.
     let opaque = crate::page::page_opaque(&unsafe { page_ref(ovflbuf) });

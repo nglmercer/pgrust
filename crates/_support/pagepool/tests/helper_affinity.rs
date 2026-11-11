@@ -16,13 +16,20 @@ fn running_helpers_follow_the_named_cpus() {
     let helpers = ["pg:poolclaim", "pg:poolpurge"];
     wait_helpers_on(&helpers, &all);
     assert!(!set_helper_cpus(&[]), "an empty set is refused");
-    assert!(!set_helper_cpus(&[HELPER_MAX_CPUS]), "a CPU past CPU_SETSIZE is refused");
+    assert!(
+        !set_helper_cpus(&[HELPER_MAX_CPUS]),
+        "a CPU past CPU_SETSIZE is refused"
+    );
     assert_eq!(helper_pins(), (0, 0), "a refused set pins nothing");
     let want = vec![all[0]];
     assert!(set_helper_cpus(&want), "the set");
     assert!(!set_helper_cpus(&all), "a second set is refused");
     wait_helpers_on(&helpers, &want);
     wait_pins((2, 0)); // the claimer and the purger pinned themselves, once each
-    assert_eq!(current_cpus(), all, "the caller is not a helper: its mask is untouched");
+    assert_eq!(
+        current_cpus(),
+        all,
+        "the caller is not a helper: its mask is untouched"
+    );
     stop();
 }

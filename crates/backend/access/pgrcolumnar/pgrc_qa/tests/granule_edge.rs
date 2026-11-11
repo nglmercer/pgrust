@@ -5,19 +5,21 @@
 //! sums). An oversize (overflow-region) value pinned AT a granule edge
 //! rides along in the text arm.
 
+use pgrc_format::dirlayout::part_file_name;
+use pgrc_format::geom::GRANULE_ROWS;
 use pgrc_qa::adapters::{full_binding, ForcedPlan};
 use pgrc_qa::corpus::{
     build_fixture, decode_column, decode_sel_granule, int8_fixture, open_part_bytes,
     verify_manifest, Fixture, OracleVal,
 };
 use pgrc_qa::text_col;
-use pgrc_format::dirlayout::part_file_name;
-use pgrc_format::geom::GRANULE_ROWS;
 use pgrc_read::cursor::StreamCursor;
 use pgrc_write::writer::PartCutPolicy;
 use std::sync::Arc;
 
-const EDGE_ROWS: [u64; 10] = [1, 1023, 1024, 1025, 8191, 8192, 8193, 65_535, 65_536, 65_537];
+const EDGE_ROWS: [u64; 10] = [
+    1, 1023, 1024, 1025, 8191, 8192, 8193, 65_535, 65_536, 65_537,
+];
 
 fn edge_sel(rows_in_granule: u32) -> Vec<Vec<u16>> {
     let last = (rows_in_granule - 1) as u16;
@@ -83,8 +85,7 @@ fn int8_edges_full_and_sel() {
                 cur.rows_in_granule(g)
             };
             for sel in edge_sel(rows_g) {
-                let got =
-                    decode_sel_granule(&part, binding, schema, g, &sel).expect("sel decode");
+                let got = decode_sel_granule(&part, binding, schema, g, &sel).expect("sel decode");
                 for (i, &r) in sel.iter().enumerate() {
                     assert_eq!(
                         got[i],

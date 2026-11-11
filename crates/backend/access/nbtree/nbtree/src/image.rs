@@ -1,4 +1,3 @@
-
 use std::collections::HashMap;
 
 use ::types_core::{Oid, BTREE_AM_OID, INVALID_PROC_NUMBER};
@@ -101,8 +100,7 @@ impl IndexImage {
         if rel.rd_rel.relam != BTREE_AM_OID {
             return Ok(None);
         }
-        if rel.uses_local_buffers() || rel.rd_islocaltemp || rel.rd_backend != INVALID_PROC_NUMBER
-        {
+        if rel.uses_local_buffers() || rel.rd_islocaltemp || rel.rd_backend != INVALID_PROC_NUMBER {
             return Ok(None);
         }
         let natts = index.indnatts as i32;
@@ -149,7 +147,12 @@ impl IndexImage {
                 let (procs, _ordered) =
                     ::syscache_seams::lookup_pg_amproc_rows::call(cx.mcx(), of)?;
                 for r in procs.iter() {
-                    let k = (r.amprocfamily, r.amproclefttype, r.amprocrighttype, r.amprocnum);
+                    let k = (
+                        r.amprocfamily,
+                        r.amproclefttype,
+                        r.amprocrighttype,
+                        r.amprocnum,
+                    );
                     if r.amprocfamily != of || *amproc.entry(k).or_insert(r.amproc) != r.amproc {
                         return Ok(None);
                     }
@@ -157,7 +160,12 @@ impl IndexImage {
                 }
                 let (ops, _ordered) = ::syscache_seams::lookup_pg_amop_rows::call(cx.mcx(), of)?;
                 for r in ops.iter() {
-                    let k = (r.amopfamily, r.amoplefttype, r.amoprighttype, r.amopstrategy);
+                    let k = (
+                        r.amopfamily,
+                        r.amoplefttype,
+                        r.amoprighttype,
+                        r.amopstrategy,
+                    );
                     if r.amopfamily != of || *amop.entry(k).or_insert(r.amopopr) != r.amopopr {
                         return Ok(None);
                     }
@@ -175,7 +183,10 @@ impl IndexImage {
         typeids.dedup();
         let mut types = HashMap::new();
         types.try_reserve(typeids.len()).map_err(|_| {
-            ::mcx::oom_named("nbtree", typeids.len() * core::mem::size_of::<(Oid, (i16, bool, i8))>())
+            ::mcx::oom_named(
+                "nbtree",
+                typeids.len() * core::mem::size_of::<(Oid, (i16, bool, i8))>(),
+            )
         })?;
         for t in typeids {
             types.insert(t, ::lsyscache::get_typlenbyvalalign(t)?);

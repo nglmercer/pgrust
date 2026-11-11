@@ -50,6 +50,7 @@ pub mod ar {
 
 thread_local! {
     // alloc: Node
+    #[allow(clippy::vec_box)]
     static SLOTS: RefCell<Vec<Vec<Box<MemoryContext>>>> = const { RefCell::new(Vec::new()) }; // alloc: Node
     static LEVEL: Cell<usize> = const { Cell::new(0) };
     /// Per re-entry level, the slots a live execution holds (`reserve_slots`).

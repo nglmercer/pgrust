@@ -67,6 +67,7 @@ fn execute(entry: &mut Entry, program: &Arc<Program>, derive: &mut FakeDerive) -
     let r = entry.run_to_end(&mut exec, &mut b);
     entry.end(exec, r.is_ok());
     r.expect("the program runs");
+    #[allow(clippy::drop_non_drop)]
     drop(b);
     sink.sorted()
 }

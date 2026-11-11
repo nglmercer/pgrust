@@ -150,6 +150,7 @@ fn verdict_held(gx: &Gx<'_, '_>, k: usize, marks: &[RowMark], road: Road<'_>, la
         let src_reads = target(k) || matches!(ps[k].source, Source::Breaker { slot } if producer(k, slot).is_some_and(reads));
         let ahead = {
             let first = ps[k].ops.iter().position(|o| matches!(o, Op::Join(_) | Op::SubPlan(_) | Op::Srf(_))).unwrap_or(ps[k].ops.len());
+            #[allow(clippy::match_like_matches_macro)]
             ps[k].ops[from[k].min(first)..first].iter().all(|o| match o {
                 Op::Filter(_) | Op::Gate(_) | Op::Project(_) => true,
                 Op::Append(gravity_decompose::ops::shared::append::AppendDesc::Arm { .. } | gravity_decompose::ops::shared::append::AppendDesc::Feed { .. } | gravity_decompose::ops::shared::append::AppendDesc::Union { .. }) => true,
@@ -170,6 +171,7 @@ fn verdict_held(gx: &Gx<'_, '_>, k: usize, marks: &[RowMark], road: Road<'_>, la
     // carrying the outer's NULL ctid, so the rerun probe has no outer row and the rerun drain null-extends it again)
     let refs = marks.iter().all(|m| m.lock != LockKind::None || m.mark == RowMarkType::ROW_MARK_REFERENCE);
     let rdrain = |q: usize| refs && gx.free_lock(k, k).is_some() && gx.spooled_drain(q).is_some_and(|(d, _)| d == k);
+    #[allow(clippy::nonminimal_bool)]
     let outer = |q: usize, o: &Op<'_>| matches!(o, Op::Join(JoinDesc::Probe { jointype, .. } | JoinDesc::Merge { jointype, .. } | JoinDesc::Nest { jointype, .. } | JoinDesc::Drain { jointype, .. }) if !matches!(*jointype, JoinType::JOIN_INNER | JoinType::JOIN_SEMI | JoinType::JOIN_RIGHT_SEMI) && !(refs && *jointype == JoinType::JOIN_LEFT) && !(*jointype == JoinType::JOIN_RIGHT && rdrain(q)));
     // D3592: nor a LEFT nest whose inner enters a COPY mark's stored row (rerun/epq/marks.rs `producer_copy`): a
     // null-extended row's NULL whole row is the empty copy (D1685), the re-open's no row, so the rerun nest
@@ -219,7 +221,7 @@ fn verdict_held(gx: &Gx<'_, '_>, k: usize, marks: &[RowMark], road: Road<'_>, la
         false
     };
     // an outer-first probe PG's later rechecks may run build-first (not FILL_OUTER: S2 left INNER / SEMI / RIGHT SEMI)
-    let flips = |q: usize, o: &Op<'_>| matches!(o, Op::Join(JoinDesc::Probe { slot, outer_first: true, .. }) if producer(q, *slot).is_some_and(|b| empty(b)));
+    let flips = |q: usize, o: &Op<'_>| matches!(o, Op::Join(JoinDesc::Probe { slot, outer_first: true, .. }) if producer(q, *slot).is_some_and(&empty));
     // the producers PG runs whenever a pipeline that always runs does, from `k`. Its hash joins from the last probe down:
     // a probe runs while every later one is outer-first and no later one flips (over an empty build a build-first join
     // runs nothing of its outer side); a build-first probe builds first; an outer-first one builds at its outer's first
@@ -282,7 +284,7 @@ fn verdict_held(gx: &Gx<'_, '_>, k: usize, marks: &[RowMark], road: Road<'_>, la
                 runs.extend_in(producer(q, *slot));
             }
             // lockrows REFFAM: a build-first probe over a build that cannot be empty (`empty`) runs its outer side
-            if !outer_first && producer(q, *slot).is_none_or(|b| empty(b)) || flips(q, o) {
+            if !outer_first && producer(q, *slot).is_none_or(&empty) || flips(q, o) {
                 cut = true;
                 break;
             }
@@ -333,7 +335,7 @@ fn verdict_held(gx: &Gx<'_, '_>, k: usize, marks: &[RowMark], road: Road<'_>, la
             Op::Join(JoinDesc::Probe { slot, .. }) => producer(q, *slot),
             _ => None,
         };
-        q == k && crate::rerun::epq::marks::epq_probe(gx, k) == Some(i) && b.is_some_and(|b| rerun(b))
+        q == k && crate::rerun::epq::marks::epq_probe(gx, k) == Some(i) && b.is_some_and(&rerun)
     };
     let skipped = |q: usize| (from[q]..ps[q].ops.len()).any(|i| flips(q, &ps[q].ops[i]) && !exact(q, i) && !crate::effects::span_quiet(gx, &ps[q], from[q], i, copied[q]));
     if (0..=k).any(|q| (q == k || q < k && rerun(q)) && skipped(q)) {

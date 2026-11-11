@@ -370,6 +370,7 @@ unsafe fn sort_fold(t: *mut HashAgg, split: SubSplit, cand: *mut Candidates, sta
         let end = *counts.add(h) as usize;
         let mut first = usize::MAX;
         for r in start..end {
+            #[allow(clippy::unnecessary_cast)]
             let src = Rec::at(recs.add(r * rec) as *mut u8, &layout);
             let mut j = first;
             let mut found = false;

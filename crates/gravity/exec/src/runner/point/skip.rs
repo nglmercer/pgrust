@@ -507,6 +507,7 @@ fn lock_indexes(mcx: Mcx<'_>, relid: Oid, lockmode: LOCKMODE) -> PgResult<Option
     Ok(partial.then_some("partial index"))
 }
 
+#[allow(clippy::large_enum_variant)]
 enum Look<'m> {
     /// The plan, its class against the planner's when C3's check mode checked the slot's reads (`Held::check`), and the
     /// slot's tick.

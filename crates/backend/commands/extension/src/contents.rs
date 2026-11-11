@@ -61,15 +61,20 @@ pub fn ExecAlterExtensionContentsStmt<'mcx>(
     )?;
     debug_assert!(ext_rel.is_none());
 
-    if !aclchk::object_ownercheck(EXTENSION_RELATION_ID, extension.objectId, miscinit::GetUserId())?
-    {
+    if !aclchk::object_ownercheck(
+        EXTENSION_RELATION_ID,
+        extension.objectId,
+        miscinit::GetUserId(),
+    )? {
         return Err(Box::new(
             PgError::error(format!("must be owner of extension {extname}"))
                 .with_sqlstate(ERRCODE_INSUFFICIENT_PRIVILEGE),
         ));
     }
 
-    let object_node = stmt.object.expect("grammar always supplies the member object");
+    let object_node = stmt
+        .object
+        .expect("grammar always supplies the member object");
     let (object, relation) = objectaddress_seams::get_object_address::call(
         mcx,
         stmt.objtype,
@@ -88,10 +93,16 @@ pub fn ExecAlterExtensionContentsStmt<'mcx>(
         relation.as_ref(),
     )?;
 
-    let extension =
-        ObjectAddress { classId: extension.classId, objectId: extension.objectId, objectSubId: 0 };
-    let object =
-        ObjectAddress { classId: object.classId, objectId: object.objectId, objectSubId: 0 };
+    let extension = ObjectAddress {
+        classId: extension.classId,
+        objectId: extension.objectId,
+        objectSubId: 0,
+    };
+    let object = ObjectAddress {
+        classId: object.classId,
+        objectId: object.objectId,
+        objectSubId: 0,
+    };
     alter_contents_recurse(mcx, stmt, extname, &extension, &object)?;
 
     objectaccess::InvokeObjectPostAlterHook(EXTENSION_RELATION_ID, extension.objectId, 0)?;
@@ -126,8 +137,10 @@ fn alter_contents_recurse<'mcx>(
                 .map(|s| s.to_string())
                 .unwrap_or_default();
             return Err(Box::new(
-                PgError::error(format!("{desc} is already a member of extension \"{owner}\""))
-                    .with_sqlstate(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+                PgError::error(format!(
+                    "{desc} is already a member of extension \"{owner}\""
+                ))
+                .with_sqlstate(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
             ));
         }
         if object.classId == NAMESPACE_RELATION_ID
@@ -192,8 +205,11 @@ fn alter_contents_recurse<'mcx>(
     if object.classId == TYPE_RELATION_ID {
         let arrtype = lsyscache::get_array_type(object.objectId)?;
         if OidIsValid(arrtype) {
-            let depobject =
-                ObjectAddress { classId: TYPE_RELATION_ID, objectId: arrtype, objectSubId: 0 };
+            let depobject = ObjectAddress {
+                classId: TYPE_RELATION_ID,
+                objectId: arrtype,
+                objectSubId: 0,
+            };
             alter_contents_recurse(mcx, stmt, extname, extension, &depobject)?;
         }
         if lsyscache::type_is_range(object.objectId)? {
@@ -207,8 +223,11 @@ fn alter_contents_recurse<'mcx>(
                     .with_sqlstate(ERRCODE_UNDEFINED_OBJECT),
                 ));
             }
-            let depobject =
-                ObjectAddress { classId: TYPE_RELATION_ID, objectId: multirange, objectSubId: 0 };
+            let depobject = ObjectAddress {
+                classId: TYPE_RELATION_ID,
+                objectId: multirange,
+                objectSubId: 0,
+            };
             alter_contents_recurse(mcx, stmt, extname, extension, &depobject)?;
         }
     }
@@ -216,8 +235,11 @@ fn alter_contents_recurse<'mcx>(
         // It might not have a rowtype, but if it does, update that too.
         let rowtype = lsyscache::get_rel_type_id(object.objectId)?;
         if OidIsValid(rowtype) {
-            let depobject =
-                ObjectAddress { classId: TYPE_RELATION_ID, objectId: rowtype, objectSubId: 0 };
+            let depobject = ObjectAddress {
+                classId: TYPE_RELATION_ID,
+                objectId: rowtype,
+                objectSubId: 0,
+            };
             alter_contents_recurse(mcx, stmt, extname, extension, &depobject)?;
         }
     }
@@ -259,11 +281,7 @@ fn squeeze_array<'mcx>(
 
 /// `pg_extension_config_dump` (extension.c): add (or update) the table OID and
 /// WHERE condition in the creating extension's extconfig/extcondition arrays.
-pub(crate) fn extension_config_dump(
-    mcx: Mcx<'_>,
-    tableoid: Oid,
-    wherecond: &[u8],
-) -> PgResult<()> {
+pub(crate) fn extension_config_dump(mcx: Mcx<'_>, tableoid: Oid, wherecond: &[u8]) -> PgResult<()> {
     use types_error::{ERRCODE_FEATURE_NOT_SUPPORTED, ERRCODE_UNDEFINED_TABLE};
 
     if !pg_depend::creating_extension() {
@@ -322,7 +340,8 @@ pub(crate) fn extension_config_dump(
         array_length = 0;
         array_index = None;
         let (elmlen, elmbyval, elmalign) = builtin_array_meta(OIDOID);
-        new_config = arrayfuncs::construct_array(mcx, &[element], OIDOID, elmlen, elmbyval, elmalign)?;
+        new_config =
+            arrayfuncs::construct_array(mcx, &[element], OIDOID, elmlen, elmbyval, elmalign)?;
     } else {
         let a = detoast_array_datum(mcx, config_datum)?;
         array_length = arrayfuncs::arr_dim(&a, 0);
@@ -341,7 +360,8 @@ pub(crate) fn extension_config_dump(
             None => dvalues.push(element),
         }
         let (elmlen, elmbyval, elmalign) = builtin_array_meta(OIDOID);
-        new_config = arrayfuncs::construct_array(mcx, &dvalues, OIDOID, elmlen, elmbyval, elmalign)?;
+        new_config =
+            arrayfuncs::construct_array(mcx, &dvalues, OIDOID, elmlen, elmbyval, elmalign)?;
     }
     repl_val[Anum_pg_extension_extconfig as usize - 1] =
         Datum::from_usize(new_config.as_ptr() as usize);
@@ -353,7 +373,12 @@ pub(crate) fn extension_config_dump(
     let mut cond_isnull = false;
     // SAFETY: extcondition attno is within the pg_extension descriptor.
     let cond_datum = unsafe {
-        types_tuple::heap_getattr(ext_tup, Anum_pg_extension_extcondition, desc, &mut cond_isnull)
+        types_tuple::heap_getattr(
+            ext_tup,
+            Anum_pg_extension_extcondition,
+            desc,
+            &mut cond_isnull,
+        )
     };
     let new_condition;
     if cond_isnull {
@@ -453,7 +478,9 @@ fn extension_config_remove(mcx: Mcx<'_>, extension_oid: Oid, table_oid: Oid) -> 
         // Removing the only element: set the array to null.
         repl_null[Anum_pg_extension_extconfig as usize - 1] = true;
     } else {
-        let dvalues = config_values.as_ref().expect("populated extconfig deconstructed");
+        let dvalues = config_values
+            .as_ref()
+            .expect("populated extconfig deconstructed");
         new_config = squeeze_array(mcx, dvalues, array_index, OIDOID)?;
         repl_val[Anum_pg_extension_extconfig as usize - 1] =
             Datum::from_usize(new_config.as_ptr() as usize);
@@ -464,7 +491,12 @@ fn extension_config_remove(mcx: Mcx<'_>, extension_oid: Oid, table_oid: Oid) -> 
     let mut cond_isnull = false;
     // SAFETY: extcondition attno is within the pg_extension descriptor.
     let cond_datum = unsafe {
-        types_tuple::heap_getattr(ext_tup, Anum_pg_extension_extcondition, desc, &mut cond_isnull)
+        types_tuple::heap_getattr(
+            ext_tup,
+            Anum_pg_extension_extcondition,
+            desc,
+            &mut cond_isnull,
+        )
     };
     if cond_isnull {
         return Err(PgError::error("extconfig and extcondition arrays do not match").into());
@@ -516,10 +548,14 @@ mod tests {
         let mcx = ctx.mcx();
 
         // Oid arm (extconfig).
-        let oids = [Datum::from_oid(50001), Datum::from_oid(50002), Datum::from_oid(50003)];
+        let oids = [
+            Datum::from_oid(50001),
+            Datum::from_oid(50002),
+            Datum::from_oid(50003),
+        ];
         let (elmlen, elmbyval, elmalign) = builtin_array_meta(OIDOID);
-        let a = arrayfuncs::construct_array(mcx, &oids, OIDOID, elmlen, elmbyval, elmalign)
-            .unwrap();
+        let a =
+            arrayfuncs::construct_array(mcx, &oids, OIDOID, elmlen, elmbyval, elmalign).unwrap();
         let squeezed = squeeze_array(mcx, &oids, 1, OIDOID).unwrap();
         assert_eq!(arrayfuncs::arr_ndim(&squeezed), 1);
         assert_eq!(arrayfuncs::arr_dim(&squeezed, 0), 2);
@@ -527,7 +563,10 @@ mod tests {
         assert_eq!(arrayfuncs::arr_elemtype(&squeezed), OIDOID);
         let (vals, _) =
             arrayfuncs::deconstruct_array_builtin(mcx, &squeezed, OIDOID, false).unwrap();
-        assert_eq!(vals.iter().map(|d| d.as_oid()).collect::<Vec<_>>(), [50001, 50003]);
+        assert_eq!(
+            vals.iter().map(|d| d.as_oid()).collect::<Vec<_>>(),
+            [50001, 50003]
+        );
         // The original 3-element image still deconstructs to the input.
         let (vals, _) = arrayfuncs::deconstruct_array_builtin(mcx, &a, OIDOID, false).unwrap();
         assert_eq!(vals.len(), 3);

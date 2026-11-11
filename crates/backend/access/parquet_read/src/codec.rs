@@ -72,7 +72,11 @@ pub(crate) fn decompress_page(
                 .map_err(|e| decompress_failed("SNAPPY", e.to_string()))? // alloc: Cold
         }
         #[cfg(not(feature = "snappy"))]
-        CodecId::Snappy => return Err(unsupported("compression codec SNAPPY (built without the `snappy` feature)".to_string())), // alloc: Cold
+        CodecId::Snappy => {
+            return Err(unsupported(
+                "compression codec SNAPPY (built without the `snappy` feature)".to_string(),
+            ))
+        } // alloc: Cold
         CodecId::Zstd => zstd_decompress(src, dst)?,
         CodecId::Lz4Raw => lz4_flex::block::decompress_into(src, dst)
             .map_err(|e| decompress_failed("LZ4_RAW", e.to_string()))?, // alloc: Cold
@@ -81,7 +85,11 @@ pub(crate) fn decompress_page(
         #[cfg(feature = "brotli")]
         CodecId::Brotli => brotli(src, dst)?,
         #[cfg(not(feature = "brotli"))]
-        CodecId::Brotli => return Err(unsupported("compression codec BROTLI (built without the `brotli` feature)".to_string())), // alloc: Cold
+        CodecId::Brotli => {
+            return Err(unsupported(
+                "compression codec BROTLI (built without the `brotli` feature)".to_string(),
+            ))
+        } // alloc: Cold
         CodecId::Lzo => return Err(unsupported("compression codec LZO".to_string())), // alloc: Cold
     };
     if written != uncompressed {
@@ -93,20 +101,22 @@ pub(crate) fn decompress_page(
     // Zeroed pad beyond the logical length (initialized capacity): kernels
     // that read ahead through raw pointers never touch uninitialized bytes.
     dst.resize(uncompressed + PAD, 0); // alloc: Exec charged the cursor's charge (ColumnCursor / FastCol held_bytes)
-    // SAFETY: shrinking a Vec<u8> length over initialized bytes.
+                                       // SAFETY: shrinking a Vec<u8> length over initialized bytes.
     unsafe { dst.set_len(uncompressed) };
     Ok(())
 }
 
 #[cfg(not(target_family = "wasm"))]
 fn zstd_decompress(src: &[u8], dst: &mut [u8]) -> PgResult<usize> {
-    zstd::bulk::decompress_to_buffer(src, dst)
-        .map_err(|e| decompress_failed("ZSTD", e.to_string())) // alloc: Cold
+    zstd::bulk::decompress_to_buffer(src, dst).map_err(|e| decompress_failed("ZSTD", e.to_string()))
+    // alloc: Cold
 }
 
 #[cfg(target_family = "wasm")]
 fn zstd_decompress(_src: &[u8], _dst: &mut [u8]) -> PgResult<usize> {
-    Err(unsupported("compression codec ZSTD (unavailable on this platform)".to_string())) // alloc: Cold
+    Err(unsupported(
+        "compression codec ZSTD (unavailable on this platform)".to_string(),
+    )) // alloc: Cold
 }
 
 /// Codec 5. The spec's form is the Hadoop frame: repeated
@@ -128,8 +138,11 @@ fn lz4_hadoop(src: &[u8], dst: &mut [u8]) -> PgResult<usize> {
             let frame_end = ip + csz;
             let mut produced = 0usize;
             while ip < frame_end {
-                let n = lz4_flex::block::decompress_into(&src[ip..frame_end], &mut dst[op..op + dsz - produced])
-                    .map_err(|e| decompress_failed("LZ4", e.to_string()))?; // alloc: Cold
+                let n = lz4_flex::block::decompress_into(
+                    &src[ip..frame_end],
+                    &mut dst[op..op + dsz - produced],
+                )
+                .map_err(|e| decompress_failed("LZ4", e.to_string()))?; // alloc: Cold
                 produced += n;
                 op += n;
                 // decompress_into consumes the whole input slice; a frame
@@ -140,7 +153,10 @@ fn lz4_hadoop(src: &[u8], dst: &mut [u8]) -> PgResult<usize> {
                 ip = frame_end;
             }
             if produced != dsz {
-                return Err(decompress_failed("LZ4", format!("frame declares {dsz} bytes, decoded {produced}"))); // alloc: Cold
+                return Err(decompress_failed(
+                    "LZ4",
+                    format!("frame declares {dsz} bytes, decoded {produced}"),
+                )); // alloc: Cold
             }
         }
         Ok(op)
@@ -182,21 +198,28 @@ fn gzip_members(src: &[u8], dst: &mut [u8]) -> PgResult<usize> {
     let mut op = 0usize;
     let fail = |what: &str| decompress_failed("GZIP", what.to_string()); // alloc: Cold
     while ip < src.len() {
-        let h = src.get(ip..ip + 10).ok_or_else(|| fail("member header truncated"))?;
+        let h = src
+            .get(ip..ip + 10)
+            .ok_or_else(|| fail("member header truncated"))?;
         if h[0] != 0x1f || h[1] != 0x8b || h[2] != 8 {
             return Err(fail("bad member header"));
         }
         let flg = h[3];
         ip += 10;
         if flg & 0x04 != 0 {
-            let xl = src.get(ip..ip + 2).ok_or_else(|| fail("FEXTRA truncated"))?;
+            let xl = src
+                .get(ip..ip + 2)
+                .ok_or_else(|| fail("FEXTRA truncated"))?;
             let xlen = u16::from_le_bytes([xl[0], xl[1]]) as usize;
             ip += 2 + xlen;
         }
         for bit in [0x08u8, 0x10] {
             if flg & bit != 0 {
                 let rest = src.get(ip..).ok_or_else(|| fail("header truncated"))?;
-                let z = rest.iter().position(|&b| b == 0).ok_or_else(|| fail("unterminated header string"))?;
+                let z = rest
+                    .iter()
+                    .position(|&b| b == 0)
+                    .ok_or_else(|| fail("unterminated header string"))?;
                 ip += z + 1;
             }
         }
@@ -215,7 +238,9 @@ fn gzip_members(src: &[u8], dst: &mut [u8]) -> PgResult<usize> {
         }
         ip += res.bytes_consumed;
         op += res.bytes_written;
-        let trailer = src.get(ip..ip + 8).ok_or_else(|| fail("member trailer truncated"))?;
+        let trailer = src
+            .get(ip..ip + 8)
+            .ok_or_else(|| fail("member trailer truncated"))?;
         let crc = u32::from_le_bytes(trailer[0..4].try_into().expect("4 bytes"));
         let isize_ = u32::from_le_bytes(trailer[4..8].try_into().expect("4 bytes"));
         if isize_ as usize != res.bytes_written & 0xffff_ffff {
@@ -241,7 +266,10 @@ struct Sink<'a> {
 impl std::io::Write for Sink<'_> {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         if self.pos + buf.len() > self.dst.len() {
-            return Err(std::io::Error::new(std::io::ErrorKind::WriteZero, "brotli output exceeds the declared page size"));
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::WriteZero,
+                "brotli output exceeds the declared page size",
+            ));
         }
         self.dst[self.pos..self.pos + buf.len()].copy_from_slice(buf);
         self.pos += buf.len();
@@ -268,7 +296,11 @@ pub(crate) fn crc32(bytes: &[u8]) -> u32 {
         for (i, e) in t.iter_mut().enumerate() {
             let mut c = i as u32;
             for _ in 0..8 {
-                c = if c & 1 != 0 { 0xEDB8_8320 ^ (c >> 1) } else { c >> 1 };
+                c = if c & 1 != 0 {
+                    0xEDB8_8320 ^ (c >> 1)
+                } else {
+                    c >> 1
+                };
             }
             *e = c;
         }
@@ -284,7 +316,11 @@ pub(crate) fn crc32(bytes: &[u8]) -> u32 {
 /// Page crc verification is on unless `PGRUST_PARQUET_CRC=0`.
 pub(crate) fn crc_enabled() -> bool {
     static ON: pgsync::OnceLock<bool> = pgsync::OnceLock::new();
-    *ON.get_or_init(|| std::env::var("PGRUST_PARQUET_CRC").map(|v| v != "0").unwrap_or(true))
+    *ON.get_or_init(|| {
+        std::env::var("PGRUST_PARQUET_CRC")
+            .map(|v| v != "0")
+            .unwrap_or(true)
+    })
 }
 
 #[cfg(test)]
@@ -295,7 +331,10 @@ mod tests {
     fn crc32_known_vectors() {
         assert_eq!(crc32(b""), 0);
         assert_eq!(crc32(b"123456789"), 0xCBF4_3926);
-        assert_eq!(crc32(b"The quick brown fox jumps over the lazy dog"), 0x414F_A339);
+        assert_eq!(
+            crc32(b"The quick brown fox jumps over the lazy dog"),
+            0x414F_A339
+        );
     }
 
     #[test]

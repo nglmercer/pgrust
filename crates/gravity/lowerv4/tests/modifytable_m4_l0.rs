@@ -76,6 +76,7 @@ impl SourceMech for Rows {
 /// `(j + 7, j + 1)` NULL on row `null_tid`, the row op, then the arms reporting what they read.
 struct WriteStep<'g> {
     op: mcx::PgBox<'g, dyn RowOpMech + 'g>,
+    #[allow(dead_code)]
     natts: u16,
     junk: bool,
     driving: bool,
@@ -289,6 +290,7 @@ fn run_arm(c: Case, arm: Option<u32>, ncells: usize) -> (Result<(), gravity_driv
         }
     };
     let tag = b.rows_processed;
+    #[allow(clippy::drop_non_drop)]
     drop(b);
     (r, tag, held(&SEEN).clone(), held(&CALLS).clone())
 }

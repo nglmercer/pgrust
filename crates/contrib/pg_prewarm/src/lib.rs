@@ -16,6 +16,7 @@ use types_rel::pg_class::{
     RELKIND_PARTITIONED_INDEX, RELKIND_PARTITIONED_TABLE, RELKIND_RELATION, RELKIND_SEQUENCE,
     RELKIND_VIEW,
 };
+#[allow(unused_imports)]
 use types_storage::storage::ReadBufferMode;
 use types_storage::RelFileLocatorBackend;
 

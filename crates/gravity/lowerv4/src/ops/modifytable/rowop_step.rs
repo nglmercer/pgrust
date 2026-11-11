@@ -12,7 +12,7 @@
 //! - `WRITE_CONFLICT` (a declared conflict site only): the `conflict` arm; the host has put the existing row in the
 //!   conflict site, the write site + 1 (driver dml.rs), which `cells(.., true)` reads.
 //! - below zero: the host's error, a stop at the row.
-//! The ModifyTable node's loops count at the open, as the end's. Width: leader-only, `claim`'s refusal (write/rowop.rs).
+//!   The ModifyTable node's loops count at the open, as the end's. Width: leader-only, `claim`'s refusal (write/rowop.rs).
 use mcx::{CollectIn, GrowIn, PgBox, PgVec};
 use gravity_abi::ctx::site_off;
 use gravity_abi::site::site;

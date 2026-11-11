@@ -3,20 +3,20 @@
 //! - a module of the one test binary gravity_parallel_suite (its root tests/gravity_parallel_suite.rs says `#[path = "<file>"]`,
 //!   then `mod t_<stem>;`);
 //! - a [[test]] entry of this package's Cargo.toml, named <stem>, with `path = "tests/<file>"`.
-//! Every listed file exists. The package has autotests = false, so an unlisted file would never compile or run. ct keys a
-//! module's tests as the former target <stem>, so the module name must be t_<stem>.
-//! A plain `cargo test -p gravity_parallel` runs every module of the suite in ONE process, so a file is a module only if its tests
-//! can share that process with every other module's. It must be standalone, and only such a file may be (or a [[test]]
-//! with `required-features`, built only with its feature), if it is named like a binary of ct's serial tail (SERIAL: it
-//! runs alone, its bounds are wall-clock time), if it has a #[global_allocator] or re-runs its own binary
-//! (current_exe), if its text names state as process-wide or process-global, if it uses a `pub static` that holds state
-//! (STATIC_SRCS, outside a thread_local! block, not a table of plain data or a unit struct's value), or if a code line
-//! sets or reads process-wide state through a call (PROCESS_STATE, the package's RIG_STATE, or a
-//! `<crate>_seams::<seam>::set(`). A module that never makes such a call may rely on the process's state being as its
-//! own binary left it (a seam not installed, a GUC store not built), so one that does goes apart even when the call is
-//! guarded to run once.
-//! The suite's root and this file (its module t_registered) are not test files of the rule. The same guard, with its
-//! package's SUITE, STATIC_SRCS and RIG_STATE, checks every package built this way.
+//!   Every listed file exists. The package has autotests = false, so an unlisted file would never compile or run. ct keys a
+//!   module's tests as the former target <stem>, so the module name must be t_<stem>.
+//!   A plain `cargo test -p gravity_parallel` runs every module of the suite in ONE process, so a file is a module only if its tests
+//!   can share that process with every other module's. It must be standalone, and only such a file may be (or a [[test]]
+//!   with `required-features`, built only with its feature), if it is named like a binary of ct's serial tail (SERIAL: it
+//!   runs alone, its bounds are wall-clock time), if it has a #[global_allocator] or re-runs its own binary
+//!   (current_exe), if its text names state as process-wide or process-global, if it uses a `pub static` that holds state
+//!   (STATIC_SRCS, outside a thread_local! block, not a table of plain data or a unit struct's value), or if a code line
+//!   sets or reads process-wide state through a call (PROCESS_STATE, the package's RIG_STATE, or a
+//!   `<crate>_seams::<seam>::set(`). A module that never makes such a call may rely on the process's state being as its
+//!   own binary left it (a seam not installed, a GUC store not built), so one that does goes apart even when the call is
+//!   guarded to run once.
+//!   The suite's root and this file (its module t_registered) are not test files of the rule. The same guard, with its
+//!   package's SUITE, STATIC_SRCS and RIG_STATE, checks every package built this way.
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 

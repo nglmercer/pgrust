@@ -413,7 +413,7 @@ impl<'e, 'p> Env<'e, 'p> {
     }
 
     /// `e`'s hoisted words, when road `hoist` computed them outside the row.
-    pub fn hoisted(&self, e: ExId) -> Option<&Hoisted> {
+    pub fn hoisted(&self, e: ExId) -> Option<&Hoisted<'_>> {
         self.hoisted.iter().find(|h| h.ex == e)
     }
 

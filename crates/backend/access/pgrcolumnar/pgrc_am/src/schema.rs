@@ -47,8 +47,8 @@
 //!   `TimetzUtc` (NOT `MemcmpOrdered`) — both are `Fixed` images whose
 //!   semantic order is a computed comparison key, not their bytes.
 
-use pgrc_format::class::{ClassHint, ColSchema, StorageClass, TypeSemantics};
 pub use pgrc_format::class::CollationClass;
+use pgrc_format::class::{ClassHint, ColSchema, StorageClass, TypeSemantics};
 use types_core::catalog::{
     BOOLOID, BYTEAOID, CHAROID, CIDOID, DATEOID, FLOAT4OID, FLOAT8OID, INT2OID, INT4OID, INT8OID,
     INTERVALOID, NUMERICOID, OIDOID, REGTYPEOID, TEXTOID, TIMEOID, TIMESTAMPOID, TIMESTAMPTZOID,
@@ -98,9 +98,13 @@ fn builtin_hint(atttypid: Oid) -> Option<ClassHint> {
         DATEOID | TIMEOID | TIMESTAMPOID | TIMESTAMPTZOID => Some(ClassHint::Signed),
         FLOAT4OID | FLOAT8OID => Some(ClassHint::Float),
         // Unsigned word classes.
-        OIDOID | XIDOID | CIDOID | CHAROID | REGTYPEOID | PG_LSNOID | XID8OID => Some(ClassHint::None),
+        OIDOID | XIDOID | CIDOID | CHAROID | REGTYPEOID | PG_LSNOID | XID8OID => {
+            Some(ClassHint::None)
+        }
         REGPROCOID | REGPROCEDUREOID | REGOPEROID | REGOPERATOROID | REGCLASSOID | REGCONFIGOID
-        | REGDICTIONARYOID | REGNAMESPACEOID | REGROLEOID | REGCOLLATIONOID => Some(ClassHint::None),
+        | REGDICTIONARYOID | REGNAMESPACEOID | REGROLEOID | REGCOLLATIONOID => {
+            Some(ClassHint::None)
+        }
         _ => None,
     }
 }
@@ -113,7 +117,9 @@ fn catalog_type(typid: Oid) -> Option<(u8, Oid, i32)> {
     if typid < FIRST_UNPINNED_OID || !syscache_seams::pg_type_base_shape::is_installed() {
         return None;
     }
-    let shape = syscache_seams::pg_type_base_shape::call(typid).ok().flatten()?;
+    let shape = syscache_seams::pg_type_base_shape::call(typid)
+        .ok()
+        .flatten()?;
     Some((shape.typtype as u8, shape.typbasetype, shape.typtypmod))
 }
 
@@ -184,9 +190,13 @@ fn type_semantics(atttypid: Oid, atttypmod: i32) -> TypeSemantics {
         INT2OID | INT4OID | INT8OID | MONEYOID => TypeSemantics::SignedInt,
         DATEOID | TIMEOID | TIMESTAMPOID | TIMESTAMPTZOID => TypeSemantics::SignedInt,
         FLOAT4OID | FLOAT8OID => TypeSemantics::Float,
-        OIDOID | XIDOID | CIDOID | CHAROID | REGTYPEOID | PG_LSNOID | XID8OID => TypeSemantics::UnsignedInt,
+        OIDOID | XIDOID | CIDOID | CHAROID | REGTYPEOID | PG_LSNOID | XID8OID => {
+            TypeSemantics::UnsignedInt
+        }
         REGPROCOID | REGPROCEDUREOID | REGOPEROID | REGOPERATOROID | REGCLASSOID | REGCONFIGOID
-        | REGDICTIONARYOID | REGNAMESPACEOID | REGROLEOID | REGCOLLATIONOID => TypeSemantics::UnsignedInt,
+        | REGDICTIONARYOID | REGNAMESPACEOID | REGROLEOID | REGCOLLATIONOID => {
+            TypeSemantics::UnsignedInt
+        }
         // By-reference: memcmp IS the semantic order.
         UUIDOID | MACADDROID | MACADDR8OID => TypeSemantics::MemcmpOrdered,
         BYTEAOID => TypeSemantics::MemcmpOrdered,
@@ -245,10 +255,7 @@ fn type_semantics(atttypid: Oid, atttypmod: i32) -> TypeSemantics {
 /// "blooms not consulted" (bloom evidence is optional at every probe site),
 /// never to a wrong verdict.
 pub fn collation_class(attcollation: Oid) -> CollationClass {
-    if attcollation == 0
-        || attcollation == C_COLLATION_OID
-        || attcollation == POSIX_COLLATION_OID
-    {
+    if attcollation == 0 || attcollation == C_COLLATION_OID || attcollation == POSIX_COLLATION_OID {
         return CollationClass::C;
     }
     // M4-S8 (the S5 engine-grain substrate finding, coordinator-listed
@@ -348,13 +355,19 @@ pub enum ColumnsVerdict {
 /// anything else takes the rewrite, which needs no description of the parts). That generation is the newest one whose
 /// publisher committed or is this transaction, as the writer's effective walk finds it: an aborted ADD COLUMN's
 /// generation at the head (its schema is the aborted one's) is walked past, as the publish walks past it.
-pub fn columns_verdict(rel: &Relation<'_>, old: &[FormData_pg_attribute]) -> PgResult<ColumnsVerdict> {
+pub fn columns_verdict(
+    rel: &Relation<'_>,
+    old: &[FormData_pg_attribute],
+) -> PgResult<ColumnsVerdict> {
     let now = col_schemas(rel)?;
     let was = col_schemas_of(rel.name(), old)?;
     if was == now {
         return Ok(ColumnsVerdict::Same);
     }
-    if now.iter().any(|c| was.iter().any(|o| o.attno == c.attno && o != c)) {
+    if now
+        .iter()
+        .any(|c| was.iter().any(|o| o.attno == c.attno && o != c))
+    {
         return Ok(ColumnsVerdict::Rewrite);
     }
     let locator = rel.rd_locator.get();
@@ -420,7 +433,11 @@ pub fn book_dropped_stamp(rel: &Relation<'_>, stored_fp: u64) -> PgResult<()> {
 
 /// [`book_dropped_stamp`] over a descriptor's attributes (the row cache's fetch has the descriptor, not the relation;
 /// `relname` names the relation in the refusal when the caller has it).
-pub fn book_dropped_stamp_of(relname: Option<&str>, atts: &[FormData_pg_attribute], stored_fp: u64) -> PgResult<()> {
+pub fn book_dropped_stamp_of(
+    relname: Option<&str>,
+    atts: &[FormData_pg_attribute],
+    stored_fp: u64,
+) -> PgResult<()> {
     if !atts.iter().any(|a| a.attisdropped) || crate::fastadd::schema_of(stored_fp).is_some() {
         return Ok(());
     }
@@ -443,18 +460,29 @@ const STAMP_CANDIDATES_MAX: usize = 4096;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum StampMiss {
     /// The candidate product (saturating) is past [`STAMP_CANDIDATES_MAX`]: none was tried.
-    OverCap { candidates: usize },
+    OverCap {
+        candidates: usize,
+    },
     /// None of the `candidates` has the stored fingerprint (0: a live column has no storage class).
-    NoMatch { candidates: usize },
+    NoMatch {
+        candidates: usize,
+    },
     Alloc(pgrc_format::FormatError),
 }
 
 /// The fail-closed refusal of a stamp [`stamped_of`] did not rebuild (XX001, as the presence refusal it names).
 fn stamp_refusal(relname: Option<&str>, stored_fp: u64, miss: StampMiss) -> Box<PgError> {
-    let rel = relname.map_or_else(|| "a pgrcolumnar relation".to_owned(), |n| format!("relation \"{n}\""));
+    let rel = relname.map_or_else(
+        || "a pgrcolumnar relation".to_owned(),
+        |n| format!("relation \"{n}\""),
+    );
     let why = match miss {
-        StampMiss::OverCap { candidates } => format!("{candidates} candidate schemas, past the cap of {STAMP_CANDIDATES_MAX}"),
-        StampMiss::NoMatch { candidates } => format!("none of {candidates} candidate schemas has its fingerprint"),
+        StampMiss::OverCap { candidates } => {
+            format!("{candidates} candidate schemas, past the cap of {STAMP_CANDIDATES_MAX}")
+        }
+        StampMiss::NoMatch { candidates } => {
+            format!("none of {candidates} candidate schemas has its fingerprint")
+        }
         StampMiss::Alloc(e) => format!("{e}"),
     };
     Box::new(
@@ -467,19 +495,31 @@ fn stamp_refusal(relname: Option<&str>, stored_fp: u64, miss: StampMiss) -> Box<
 /// The column list among `atts`' stamp candidates whose fingerprint is `stored_fp` ([`book_dropped_stamp`]).
 fn stamped_of(atts: &[FormData_pg_attribute], stored_fp: u64) -> Result<Vec<ColSchema>, StampMiss> {
     use pgrc_format::ident::schema_fingerprint;
-    const COLLATIONS: [CollationClass; 3] = [CollationClass::C, CollationClass::OtherDeterministic, CollationClass::Nondeterministic];
-    let mut slots: Vec<Vec<Option<ColSchema>>> = pgrc_format::try_vec(atts.len(), "schema").map_err(StampMiss::Alloc)?;
+    const COLLATIONS: [CollationClass; 3] = [
+        CollationClass::C,
+        CollationClass::OtherDeterministic,
+        CollationClass::Nondeterministic,
+    ];
+    let mut slots: Vec<Vec<Option<ColSchema>>> =
+        pgrc_format::try_vec(atts.len(), "schema").map_err(StampMiss::Alloc)?;
     for att in atts {
         if !att.attisdropped {
-            let Ok(s) = derive_one(att) else { return Err(StampMiss::NoMatch { candidates: 0 }) };
+            let Ok(s) = derive_one(att) else {
+                return Err(StampMiss::NoMatch { candidates: 0 });
+            };
             slots.push(vec![Some(s)]);
             continue;
         }
         let classes: Vec<StorageClass> = if att.attbyval {
-            [ClassHint::None, ClassHint::Signed, ClassHint::Float, ClassHint::Bool]
-                .into_iter()
-                .filter_map(|h| StorageClass::derive(att.attlen, true, att.attalign as u8, h).ok())
-                .collect()
+            [
+                ClassHint::None,
+                ClassHint::Signed,
+                ClassHint::Float,
+                ClassHint::Bool,
+            ]
+            .into_iter()
+            .filter_map(|h| StorageClass::derive(att.attlen, true, att.attalign as u8, h).ok())
+            .collect()
         } else {
             match att.attlen {
                 -1 => vec![StorageClass::VarlenaVerbatim],
@@ -489,7 +529,11 @@ fn stamped_of(atts: &[FormData_pg_attribute], stored_fp: u64) -> Result<Vec<ColS
         };
         // D2189: attcollation 0 is written C ([`collation_class`]); a collatable column's class came from
         // its collation, which the cascade may have dropped, so each of the three
-        let collations = if att.attcollation == 0 { &COLLATIONS[..1] } else { &COLLATIONS[..] };
+        let collations = if att.attcollation == 0 {
+            &COLLATIONS[..1]
+        } else {
+            &COLLATIONS[..]
+        };
         let mut c: Vec<Option<ColSchema>> = vec![None];
         for class in classes {
             for &collation_class in collations {
@@ -513,7 +557,8 @@ fn stamped_of(atts: &[FormData_pg_attribute], stored_fp: u64) -> Result<Vec<ColS
     if total > STAMP_CANDIDATES_MAX {
         return Err(StampMiss::OverCap { candidates: total });
     }
-    let mut cur: Vec<ColSchema> = pgrc_format::try_vec(slots.len(), "schema").map_err(StampMiss::Alloc)?;
+    let mut cur: Vec<ColSchema> =
+        pgrc_format::try_vec(slots.len(), "schema").map_err(StampMiss::Alloc)?;
     for n in 0..total {
         let mut k = n;
         cur.clear();
@@ -560,12 +605,15 @@ pub fn check_create_supported(relname: &str, atts: &[FormData_pg_attribute]) -> 
 }
 
 fn unsupported_column_error(relname: &str, u: &UnsupportedColumn) -> Box<PgError> {
-    Box::new(PgError::error(format!( // alloc: Cold
+    Box::new(
+        PgError::error(format!(
+            // alloc: Cold
             "pgrcolumnar does not support the type of column \"{}\" of relation \"{}\" \
              (type oid {})",
             u.attname_hint, relname, u.atttypid
         ))
-        .with_sqlstate(types_error::ERRCODE_FEATURE_NOT_SUPPORTED))
+        .with_sqlstate(types_error::ERRCODE_FEATURE_NOT_SUPPORTED),
+    )
 }
 
 #[cfg(test)]
@@ -686,10 +734,20 @@ mod semantics_tests {
         const DOM_TEXT: Oid = 16405;
         const COMPOSITE: Oid = 16406;
         assert!(!pg_type_base_shape::is_installed());
-        assert_eq!(byval_hint(ENUM), None, "no probe: an enum byval column refuses");
+        assert_eq!(
+            byval_hint(ENUM),
+            None,
+            "no probe: an enum byval column refuses"
+        );
         assert_eq!(type_semantics(DOM_TEXT, -1), TypeSemantics::Opaque);
         fn row(typtype: u8, typbasetype: Oid, typtypmod: i32) -> PgResult<Option<PgTypeBaseShape>> {
-            Ok(Some(PgTypeBaseShape { typtype: typtype as i8, typbasetype, typtypmod, typelem: 0, typsubscript: 0 }))
+            Ok(Some(PgTypeBaseShape {
+                typtype: typtype as i8,
+                typbasetype,
+                typtypmod,
+                typelem: 0,
+                typsubscript: 0,
+            }))
         }
         pg_type_base_shape::set(|oid| match oid {
             ENUM => row(b'e', 0, -1),
@@ -705,25 +763,45 @@ mod semantics_tests {
         assert_eq!(type_semantics(ENUM, -1), TypeSemantics::EnumEqOnly);
         assert_eq!(byval_hint(DOM_INT), Some(ClassHint::Signed));
         assert_eq!(type_semantics(DOM_INT, -1), TypeSemantics::SignedInt);
-        assert_eq!(type_semantics(DOM_NUM, -1), TypeSemantics::PackedNumeric { scale: 2 });
+        assert_eq!(
+            type_semantics(DOM_NUM, -1),
+            TypeSemantics::PackedNumeric { scale: 2 }
+        );
         assert_eq!(byval_hint(DOM_DOM), Some(ClassHint::Signed));
         assert_eq!(byval_hint(DOM_ENUM), Some(ClassHint::None));
         assert_eq!(type_semantics(DOM_ENUM, -1), TypeSemantics::EnumEqOnly);
         assert_eq!(type_semantics(DOM_TEXT, -1), TypeSemantics::TextCollated);
         assert_eq!(byval_hint(COMPOSITE), None, "a composite is never byval");
         assert_eq!(byval_hint(16499), None, "a missing row refuses");
-        for (oid, sem) in [(MONEYOID, TypeSemantics::SignedInt), (PG_LSNOID, TypeSemantics::UnsignedInt), (XID8OID, TypeSemantics::UnsignedInt), (REGCLASSOID, TypeSemantics::UnsignedInt)] {
+        for (oid, sem) in [
+            (MONEYOID, TypeSemantics::SignedInt),
+            (PG_LSNOID, TypeSemantics::UnsignedInt),
+            (XID8OID, TypeSemantics::UnsignedInt),
+            (REGCLASSOID, TypeSemantics::UnsignedInt),
+        ] {
             assert_eq!(type_semantics(oid, -1), sem);
-            MetaProfile::derive(class_of(oid, if oid == REGCLASSOID { 4 } else { 8 }, true, b'd'), CollationClass::C, sem).expect("consistent");
+            MetaProfile::derive(
+                class_of(oid, if oid == REGCLASSOID { 4 } else { 8 }, true, b'd'),
+                CollationClass::C,
+                sem,
+            )
+            .expect("consistent");
         }
-        MetaProfile::derive(class_of(ENUM, 4, true, b'i'), CollationClass::C, type_semantics(ENUM, -1)).expect("enum profile");
+        MetaProfile::derive(
+            class_of(ENUM, 4, true, b'i'),
+            CollationClass::C,
+            type_semantics(ENUM, -1),
+        )
+        .expect("enum profile");
     }
 
     /// The closed default: an unmapped type is `Opaque`, never a guess.
     #[test]
     fn unmapped_types_are_opaque() {
         use types_core::catalog::{BPCHAROID, JSONBOID, JSONOID, NAMEOID, XMLOID};
-        for oid in [BPCHAROID, JSONOID, JSONBOID, XMLOID, NAMEOID, 1560 /* bit */] {
+        for oid in [
+            BPCHAROID, JSONOID, JSONBOID, XMLOID, NAMEOID, 1560, /* bit */
+        ] {
             assert_eq!(type_semantics(oid, -1), TypeSemantics::Opaque, "oid {oid}");
         }
     }
@@ -734,7 +812,15 @@ mod dropped_tests {
     use super::*;
     use pgrc_format::ident::schema_fingerprint;
 
-    fn att(attnum: i16, typid: Oid, attlen: i16, byval: bool, align: u8, dropped: bool) -> FormData_pg_attribute {
+    #[allow(clippy::field_reassign_with_default)]
+    fn att(
+        attnum: i16,
+        typid: Oid,
+        attlen: i16,
+        byval: bool,
+        align: u8,
+        dropped: bool,
+    ) -> FormData_pg_attribute {
         let mut a = FormData_pg_attribute::default();
         a.attnum = attnum;
         a.atttypid = typid;
@@ -747,7 +833,9 @@ mod dropped_tests {
     }
 
     fn derive_all(atts: &[FormData_pg_attribute]) -> Vec<ColSchema> {
-        atts.iter().map(|a| derive_one(a).ok().expect("derives")).collect()
+        atts.iter()
+            .map(|a| derive_one(a).ok().expect("derives"))
+            .collect()
     }
 
     /// RemoveAttributeById's change: the type goes, the shape and attcollation stay.
@@ -760,11 +848,22 @@ mod dropped_tests {
     /// it, and only a live oid-0 attribute is refused.
     #[test]
     fn a_dropped_attribute_is_skipped_not_stored() {
-        let atts = [att(1, INT4OID, 4, true, b'i', false), att(2, 0, 4, true, b'i', true), att(3, TEXTOID, -1, false, b'i', false)];
+        let atts = [
+            att(1, INT4OID, 4, true, b'i', false),
+            att(2, 0, 4, true, b'i', true),
+            att(3, TEXTOID, -1, false, b'i', false),
+        ];
         assert!(check_create_supported("t", &atts).is_ok());
         let cols = col_schemas_of("t", &atts).expect("derives");
-        assert_eq!(cols.iter().map(|c| c.attno).collect::<Vec<_>>(), vec![1, 3], "the dropped attno is a gap");
-        assert!(derive_one(&att(3, 0, 4, true, b'i', false)).is_err(), "a live oid-0 attribute has no type to store");
+        assert_eq!(
+            cols.iter().map(|c| c.attno).collect::<Vec<_>>(),
+            vec![1, 3],
+            "the dropped attno is a gap"
+        );
+        assert!(
+            derive_one(&att(3, 0, 4, true, b'i', false)).is_err(),
+            "a live oid-0 attribute has no type to store"
+        );
     }
 
     /// D2189 (ported): a column dropped after its data was written (int4, float8, bool by value; text by reference)
@@ -773,8 +872,17 @@ mod dropped_tests {
     /// gives.
     #[test]
     fn a_column_dropped_after_its_writes_rebuilds_its_stamp() {
-        for (typ, len, byval, align) in [(INT4OID, 4, true, b'i'), (FLOAT8OID, 8, true, b'd'), (BOOLOID, 1, true, b'c'), (TEXTOID, -1, false, b'i')] {
-            let mut live = [att(1, INT4OID, 4, true, b'i', false), att(2, typ, len, byval, align, false), att(3, TEXTOID, -1, false, b'i', false)];
+        for (typ, len, byval, align) in [
+            (INT4OID, 4, true, b'i'),
+            (FLOAT8OID, 8, true, b'd'),
+            (BOOLOID, 1, true, b'c'),
+            (TEXTOID, -1, false, b'i'),
+        ] {
+            let mut live = [
+                att(1, INT4OID, 4, true, b'i', false),
+                att(2, typ, len, byval, align, false),
+                att(3, TEXTOID, -1, false, b'i', false),
+            ];
             // the collatable one keeps a collation whose class is not C (9002: Nondeterministic whether or not
             // collation_tests' probe is installed)
             live[1].attcollation = if byval { 0 } else { 9002 };
@@ -782,15 +890,38 @@ mod dropped_tests {
             let mut gone = live;
             drop_att(&mut gone[1]);
             let reader = col_schemas_of("t", &gone).expect("derives");
-            assert_ne!(schema_fingerprint(&reader), stamp, "oid {typ}: the drop changes the reader's schema");
-            let got = stamped_of(&gone, stamp).unwrap_or_else(|m| panic!("oid {typ}: the stamp is rebuilt ({m:?})"));
+            assert_ne!(
+                schema_fingerprint(&reader),
+                stamp,
+                "oid {typ}: the drop changes the reader's schema"
+            );
+            let got = stamped_of(&gone, stamp)
+                .unwrap_or_else(|m| panic!("oid {typ}: the stamp is rebuilt ({m:?})"));
             assert_eq!(schema_fingerprint(&got), stamp, "oid {typ}");
-            assert_eq!(got.iter().map(|c| c.attno).collect::<Vec<_>>(), vec![1, 2, 3]);
-            assert!(reader.iter().all(|r| got.iter().any(|g| g.attno == r.attno && g.same_storage(r))), "oid {typ}: every live column at its storage");
-            assert!(matches!(stamped_of(&gone, stamp ^ 1), Err(StampMiss::NoMatch { candidates: 4 })), "oid {typ}: no candidate gives another stamp");
+            assert_eq!(
+                got.iter().map(|c| c.attno).collect::<Vec<_>>(),
+                vec![1, 2, 3]
+            );
+            assert!(
+                reader
+                    .iter()
+                    .all(|r| got.iter().any(|g| g.attno == r.attno && g.same_storage(r))),
+                "oid {typ}: every live column at its storage"
+            );
+            assert!(
+                matches!(
+                    stamped_of(&gone, stamp ^ 1),
+                    Err(StampMiss::NoMatch { candidates: 4 })
+                ),
+                "oid {typ}: no candidate gives another stamp"
+            );
             // dropped before the stamp's parts: the stamp has no such column
             let before = schema_fingerprint(&reader);
-            assert_eq!(stamped_of(&gone, before).map(|c| c.len()), Ok(2), "oid {typ}: absent from an older-drop stamp");
+            assert_eq!(
+                stamped_of(&gone, before).map(|c| c.len()),
+                Ok(2),
+                "oid {typ}: absent from an older-drop stamp"
+            );
         }
     }
 
@@ -799,18 +930,36 @@ mod dropped_tests {
     /// collation it was written with. Each of the three classes it can have been written with is rebuilt.
     #[test]
     fn a_column_of_a_dropped_collation_rebuilds_under_each_collation_class() {
-        let mut live = [att(1, INT8OID, 8, true, b'd', false), att(2, INT4OID, 4, true, b'i', false), att(3, TEXTOID, -1, false, b'i', false)];
+        let mut live = [
+            att(1, INT8OID, 8, true, b'd', false),
+            att(2, INT4OID, 4, true, b'i', false),
+            att(3, TEXTOID, -1, false, b'i', false),
+        ];
         live[2].attcollation = 9003;
-        for written in [CollationClass::C, CollationClass::OtherDeterministic, CollationClass::Nondeterministic] {
+        for written in [
+            CollationClass::C,
+            CollationClass::OtherDeterministic,
+            CollationClass::Nondeterministic,
+        ] {
             let mut cols = derive_all(&live);
             cols[2].collation_class = written;
             let stamp = schema_fingerprint(&cols);
             let mut gone = live;
             drop_att(&mut gone[2]);
-            let got = stamped_of(&gone, stamp).unwrap_or_else(|m| panic!("{written:?}: the stamp is rebuilt ({m:?})"));
+            let got = stamped_of(&gone, stamp)
+                .unwrap_or_else(|m| panic!("{written:?}: the stamp is rebuilt ({m:?})"));
             assert_eq!(got.len(), 3, "{written:?}");
-            assert_eq!(got[2].collation_class, written, "the class it was written with");
-            assert!(got[..2].iter().zip(&cols[..2]).all(|(g, c)| g.same_storage(c)), "{written:?}: the live columns as derived");
+            assert_eq!(
+                got[2].collation_class, written,
+                "the class it was written with"
+            );
+            assert!(
+                got[..2]
+                    .iter()
+                    .zip(&cols[..2])
+                    .all(|(g, c)| g.same_storage(c)),
+                "{written:?}: the live columns as derived"
+            );
         }
     }
 
@@ -844,11 +993,25 @@ mod dropped_tests {
         let seven = table(7);
         let stamp7 = written(&seven);
         let gone7 = drop_all(seven.clone());
-        assert_eq!(stamped_of(&gone7, stamp7), Err(StampMiss::OverCap { candidates: 16384 }));
-        let e = book_dropped_stamp_of(Some("t7"), &gone7, stamp7).expect_err("past the cap: refused");
+        assert_eq!(
+            stamped_of(&gone7, stamp7),
+            Err(StampMiss::OverCap { candidates: 16384 })
+        );
+        let e =
+            book_dropped_stamp_of(Some("t7"), &gone7, stamp7).expect_err("past the cap: refused");
         assert_eq!(e.sqlstate(), types_error::ERRCODE_DATA_CORRUPTED);
-        assert!(e.message().starts_with("pgrc read: dropped-column stamp ") && e.message().contains("of relation \"t7\" not rebuilt: 16384 candidate schemas, past the cap of 4096"), "{}", e.message());
-        assert!(crate::fastadd::schema_of(stamp7).is_none(), "nothing booked past the cap");
+        assert!(
+            e.message().starts_with("pgrc read: dropped-column stamp ")
+                && e.message().contains(
+                    "of relation \"t7\" not rebuilt: 16384 candidate schemas, past the cap of 4096"
+                ),
+            "{}",
+            e.message()
+        );
+        assert!(
+            crate::fastadd::schema_of(stamp7).is_none(),
+            "nothing booked past the cap"
+        );
 
         let six = table(6);
         let stamp6 = written(&six);
@@ -858,17 +1021,23 @@ mod dropped_tests {
         let e = book_dropped_stamp_of(None, &gone6, stamp6 ^ 1).expect_err("no candidate: refused");
         assert_eq!(e.sqlstate(), types_error::ERRCODE_DATA_CORRUPTED);
         assert!(e.message().contains("of a pgrcolumnar relation not rebuilt: none of 4096 candidate schemas has its fingerprint"), "{}", e.message());
-        assert!(crate::fastadd::schema_of(stamp6 ^ 1).is_none(), "nothing booked without a match");
+        assert!(
+            crate::fastadd::schema_of(stamp6 ^ 1).is_none(),
+            "nothing booked without a match"
+        );
         book_dropped_stamp_of(None, &gone6, stamp6).expect("found: booked");
         assert!(crate::fastadd::schema_of(stamp6).is_some(), "booked");
 
         // a described stamp is the book's, never searched
         let mut cols7 = derive_all(&seven);
-        cols7[1..].iter_mut().for_each(|c| c.collation_class = CollationClass::OtherDeterministic);
+        cols7[1..]
+            .iter_mut()
+            .for_each(|c| c.collation_class = CollationClass::OtherDeterministic);
         crate::fastadd::note(&cols7);
         book_dropped_stamp_of(Some("t7"), &gone7, stamp7).expect("a described stamp passes");
         // a table with no dropped column books nothing and passes (the presence check answers as before)
-        book_dropped_stamp_of(Some("t"), &table(1), 0x1234).expect("no dropped column: nothing to rebuild");
+        book_dropped_stamp_of(Some("t"), &table(1), 0x1234)
+            .expect("no dropped column: nothing to rebuild");
         assert!(crate::fastadd::schema_of(0x1234).is_none());
     }
 }
@@ -967,9 +1136,7 @@ mod collation_tests {
             CollationClass::Nondeterministic,
             "DEFAULT before the locale seam installs stays conservative"
         );
-        pg_locale_seams::collation_collate_is_c::set(|oid| {
-            Ok(oid == DEFAULT_COLLATION_OID)
-        });
+        pg_locale_seams::collation_collate_is_c::set(|oid| Ok(oid == DEFAULT_COLLATION_OID));
         assert_eq!(
             collation_class(DEFAULT_COLLATION_OID),
             CollationClass::C,

@@ -57,7 +57,11 @@ pub fn downcase_identifier<'mcx>(
     Ok(result)
 }
 
-pub fn truncate_identifier(ident: &mut PgVec<'_, u8>, warn: bool, encoding: pg_enc) -> PgResult<()> {
+pub fn truncate_identifier(
+    ident: &mut PgVec<'_, u8>,
+    warn: bool,
+    encoding: pg_enc,
+) -> PgResult<()> {
     if ident.len() >= NAMEDATALEN {
         let clipped = mbutils::pg_encoding_mbcliplen(
             encoding,
@@ -153,17 +157,17 @@ pub mod udeescape;
 pub use parse_enr::{get_visible_ENR, name_matches_visible_ENR};
 pub use parse_node::{
     arm_parser_errposition, attach_parser_errposition_source, cancel_parser_errposition_callback,
-    free_parsestate, make_const, make_parsestate,
-    parser_errposition, setup_parser_errposition_callback, transformContainerSubscripts,
-    transformContainerType, ParseExprKind, ParseNamespaceColumn, ParseNamespaceItem, ParseState, PreColumnRefHook,
+    free_parsestate, make_const, make_parsestate, parser_errposition,
+    setup_parser_errposition_callback, transformContainerSubscripts, transformContainerType,
+    ParseExprKind, ParseNamespaceColumn, ParseNamespaceItem, ParseState, PreColumnRefHook,
 };
 pub use parse_param::{
     check_variable_parameters, fixed_paramref_hook, plpgsql_paramref_hook,
     plpgsql_resolve_column_ref, query_contains_extern_params, setup_parse_fixed_parameters,
     setup_parse_sql_fn_parameters, setup_parse_variable_parameters, sql_fn_make_param,
     sql_fn_paramref_hook, sql_fn_resolve_param_name, variable_coerce_param_hook,
-    variable_paramref_hook, FixedParamState, ParseRefHookState, PlpgsqlHookState,
-    PlpgsqlNameEntry, PlpgsqlResolveOption, SqlFnParamState, VarParamState, WHOLE_ROW_FIELD,
+    variable_paramref_hook, FixedParamState, ParseRefHookState, PlpgsqlHookState, PlpgsqlNameEntry,
+    PlpgsqlResolveOption, SqlFnParamState, VarParamState, WHOLE_ROW_FIELD,
 };
 
 #[cfg(test)]

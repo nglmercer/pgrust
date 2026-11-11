@@ -86,12 +86,14 @@ fn shim_call_over_the_typed_body() {
     let xs: Vec<i64> = (0..1024).map(|i| (i * 7919) % 100_000).collect();
     let mut acc = 0i64;
     for _ in 0..ITERS / 1024 {
+        #[allow(clippy::needless_range_loop)]
         for i in 0..1024 {
             acc = acc.wrapping_add(adt_int::int4pl(black_box(xs[i] as i32), black_box(acc as i32 & 0xff)).unwrap() as i64);
         }
     }
     let t = Instant::now();
     for _ in 0..ITERS / 1024 {
+        #[allow(clippy::needless_range_loop)]
         for i in 0..1024 {
             acc = acc.wrapping_add(adt_int::int4pl(black_box(xs[i] as i32), black_box(acc as i32 & 0xff)).unwrap() as i64);
         }
@@ -99,6 +101,7 @@ fn shim_call_over_the_typed_body() {
     let body = ns(t, ITERS);
     let t = Instant::now();
     for _ in 0..ITERS / 1024 {
+        #[allow(clippy::needless_range_loop)]
         for i in 0..1024 {
             let r = f(&mut slot, black_box(xs[i]), black_box(acc & 0xff));
             acc = acc.wrapping_add(r.val + r.status);

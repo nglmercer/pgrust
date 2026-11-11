@@ -10,7 +10,7 @@
 //!   `quiet_ops`, `probe_quiet` and `bitmap_quiet`.
 //! - A computed key's re-open (from rerun/params_key.rs): whether evaluating a key may raise or call a VOLATILE function
 //!   (`loud`, the home's `Fx::loud`; a node by itself: `Fx::loud_here`) and whether an eager SubPlan step may (`loud_sub`).
-//! The strategies keep their call lines; rerun/union_arms.rs re-exports its five tests under its own path.
+//!   The strategies keep their call lines; rerun/union_arms.rs re-exports its five tests under its own path.
 use gravity_decompose::effects;
 use gravity_decompose::join::JoinDesc;
 use gravity_decompose::ops::shared::append::{AppendDesc, PruneDesc};

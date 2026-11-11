@@ -91,6 +91,7 @@ pub fn InitPostmasterChildSlots() {
 
     let mut pools = Vec::with_capacity(BACKEND_NUM_TYPES);
     let mut slotno = 0;
+    #[allow(clippy::needless_range_loop)]
     for btype in 0..BACKEND_NUM_TYPES {
         let size = pool_sizes[btype];
         let first_slotno = slotno + 1;
@@ -117,6 +118,7 @@ pub fn AssignPostmasterChildSlot(btype: BackendType) -> Option<i32> {
         if pool.size == 0 {
             panic!("cannot allocate a PMChild slot for backend type {}", btype as u32);
         }
+        #[allow(clippy::question_mark)]
         let Some(child_slot) = pool.freelist.pop() else {
             return None;
         };

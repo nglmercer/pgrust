@@ -2,8 +2,10 @@
 
 use crate::reserve::zones;
 use crate::superpage::{self, State, SUPER};
+use crate::sync::{
+    AtomicBool, AtomicPtr, AtomicU32, AtomicU64, AtomicU8, AtomicUsize, Ordering::*,
+};
 use crate::{os, stats};
-use crate::sync::{AtomicBool, AtomicPtr, AtomicU32, AtomicU64, AtomicU8, AtomicUsize, Ordering::*};
 
 static THREAD: AtomicPtr<std::thread::Thread> = AtomicPtr::new(core::ptr::null_mut());
 static STOP: AtomicBool = AtomicBool::new(false);
@@ -24,7 +26,9 @@ const NO_GATE: u64 = (1 << ROOM_BITS) - 1;
 /// may prefault until the next (`claim_room`: 0 while pressed or while a release is landing). usize::MAX = no gate.
 pub fn set_claim_room(bytes: usize) {
     let r = (bytes as u64).min(NO_GATE);
-    let _ = ROOM.fetch_update(Relaxed, Relaxed, |w| Some(((w >> ROOM_BITS).wrapping_add(1) << ROOM_BITS) | r));
+    let _ = ROOM.fetch_update(Relaxed, Relaxed, |w| {
+        Some(((w >> ROOM_BITS).wrapping_add(1) << ROOM_BITS) | r)
+    });
     if bytes >= SUPER && crate::state::warm_gap() > 0 {
         unpark();
     }
@@ -37,7 +41,8 @@ pub fn claim_room(line: u64, read: u64, window_low: Option<u64>, top: u64, landi
     if landing != 0 {
         return 0;
     }
-    usize::try_from(room.min(window_low.unwrap_or(room)).saturating_sub(top)).unwrap_or(usize::MAX - 1)
+    usize::try_from(room.min(window_low.unwrap_or(room)).saturating_sub(top))
+        .unwrap_or(usize::MAX - 1)
 }
 
 /// The room the ladder's last sample left under its line (`set_claim_room`; usize::MAX = no gate), less the claimer's
@@ -53,7 +58,10 @@ pub(crate) fn room() -> usize {
 /// A superpage of room taken: the word it came from (its sample's generation), None when there is none to take.
 fn take_room() -> Option<u64> {
     // D4872: nothing while the host is pressed (the page cache pays for a prefault)
-    if crate::purger::landing_any() || crate::warmres::shed_pending() || crate::purger::host_pressed() {
+    if crate::purger::landing_any()
+        || crate::warmres::shed_pending()
+        || crate::purger::host_pressed()
+    {
         return None;
     }
     ROOM.fetch_update(Relaxed, Relaxed, |w| match w & NO_GATE {
@@ -67,14 +75,18 @@ fn take_room() -> Option<u64> {
 fn give_room(taken: u64) {
     let _ = ROOM.fetch_update(Relaxed, Relaxed, |w| {
         let r = w & NO_GATE;
-        (w >> ROOM_BITS == taken >> ROOM_BITS && r != NO_GATE).then(|| (w & !NO_GATE) | (r + SUPER as u64).min(NO_GATE - 1))
+        (w >> ROOM_BITS == taken >> ROOM_BITS && r != NO_GATE)
+            .then(|| (w & !NO_GATE) | (r + SUPER as u64).min(NO_GATE - 1))
     });
 }
 
 /// A fill may run: no release landing, the host not pressed (D4872) and a superpage of room (none taken: a recycle adds no
 /// memory).
 fn room_open() -> bool {
-    !crate::purger::landing_any() && !crate::warmres::shed_pending() && !crate::purger::host_pressed() && room() >= SUPER
+    !crate::purger::landing_any()
+        && !crate::warmres::shed_pending()
+        && !crate::purger::host_pressed()
+        && room() >= SUPER
 }
 
 pub(crate) fn init() {
@@ -122,7 +134,10 @@ pub(crate) fn decay(now: u32, window_ms: u32, last: &AtomicU32) -> bool {
     }
     let floor = zones().cfg.warm_zero;
     let t = TARGET.load(Relaxed);
-    if t <= floor || now.wrapping_sub(LAST_MISS.load(Relaxed)) < window_ms || now.wrapping_sub(last.load(Relaxed)) < window_ms {
+    if t <= floor
+        || now.wrapping_sub(LAST_MISS.load(Relaxed)) < window_ms
+        || now.wrapping_sub(last.load(Relaxed)) < window_ms
+    {
         return false;
     }
     TARGET.store((t / 2).next_multiple_of(SUPER).max(floor).min(t), Relaxed);
@@ -142,7 +157,11 @@ static TOUCH: AtomicU8 = AtomicU8::new(0);
 pub(crate) fn touch_on() -> bool {
     match TOUCH.load(Relaxed) {
         0 => {
-            let v = if os::env_on_by_default(c"PGRUST_POOL_TOUCH") { 2 } else { 1 };
+            let v = if os::env_on_by_default(c"PGRUST_POOL_TOUCH") {
+                2
+            } else {
+                1
+            };
             TOUCH.store(v, Relaxed);
             v == 2
         }
@@ -219,7 +238,13 @@ fn run() {
         crate::affinity::follow(&mut pinned);
         PENDING.store(false, Relaxed);
         crate::warmres::tick(crate::purger::tick());
-        while !STOP.load(Relaxed) && !HOLD.load(Relaxed) && crate::state::warm_gap() > 0 && fill_one() { std::hint::spin_loop() }
+        while !STOP.load(Relaxed)
+            && !HOLD.load(Relaxed)
+            && crate::state::warm_gap() > 0
+            && fill_one()
+        {
+            std::hint::spin_loop()
+        }
         if !HOLD.load(Relaxed) && crate::state::warm_gap() <= 0 {
             MET.store(true, Relaxed);
             crate::warmres::refilled();
@@ -239,9 +264,17 @@ pub(crate) fn start() -> bool {
 #[cfg(target_os = "linux")]
 fn spawn() -> bool {
     STOP.store(false, Relaxed);
-    let Ok(h) = std::thread::Builder::new().name("pg:poolclaim".into()).spawn(pagegive::pinned(run)) else { return false };
+    let Ok(h) = std::thread::Builder::new()
+        .name("pg:poolclaim".into())
+        .spawn(pagegive::pinned(run))
+    else {
+        return false;
+    };
     let t = Box::into_raw(Box::new(h.thread().clone()));
-    if THREAD.compare_exchange(core::ptr::null_mut(), t, AcqRel, Acquire).is_err() {
+    if THREAD
+        .compare_exchange(core::ptr::null_mut(), t, AcqRel, Acquire)
+        .is_err()
+    {
         // SAFETY: ours, never published.
         drop(unsafe { Box::from_raw(t) });
     }
@@ -275,7 +308,10 @@ pub(crate) fn unpark() {
 #[inline]
 pub(crate) fn maybe_wake() {
     let z = zones();
-    if z.cfg.warm_zero > 0 && superpage::count(State::WarmZero) * SUPER < target() / 2 && !PENDING.swap(true, Relaxed) {
+    if z.cfg.warm_zero > 0
+        && superpage::count(State::WarmZero) * SUPER < target() / 2
+        && !PENDING.swap(true, Relaxed)
+    {
         unpark();
     }
 }
@@ -308,12 +344,14 @@ pub fn prefill(bytes: usize, threads: u32) -> usize {
         let mut spawned = 0;
         for _ in 1..threads.max(1) {
             let (done, me) = (done.clone(), me.clone());
-            let ok = std::thread::Builder::new().name("pg:poolfill".into()).spawn(pagegive::pinned(move || {
-                crate::affinity::follow(&mut false);
-                work();
-                done.fetch_add(1, Release);
-                me.unpark();
-            }));
+            let ok = std::thread::Builder::new()
+                .name("pg:poolfill".into())
+                .spawn(pagegive::pinned(move || {
+                    crate::affinity::follow(&mut false);
+                    work();
+                    done.fetch_add(1, Release);
+                    me.unpark();
+                }));
             spawned += ok.is_ok() as usize;
         }
         work();

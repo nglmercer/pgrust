@@ -306,6 +306,7 @@ impl Host for SortHeapStep {
         }
         let (run, tbl) = (run as usize as *mut SortRun, tbl as usize as *const u32);
         let cmp = RowCmp::of(tbl);
+        #[allow(clippy::unnecessary_cast)]
         let (len, rb, base) = ((*run).len as usize, (*run).row_bytes as usize, (*run).row(0) as *const u8);
         let n = n.min(u32::MAX as u64 / 4) as usize;
         CMP_ERR.with(|c| c.set(false));
@@ -402,6 +403,7 @@ pub(crate) unsafe fn heap_cut(ctx: *mut Ctx, run: *mut SortRun, cmp: &dyn Fn(*co
 /// # Safety
 /// `run` is a live sort run; `cmp` its row compare; `ctx` is null or bound.
 pub(crate) unsafe fn heap_order(ctx: *mut Ctx, run: *mut SortRun, cmp: &dyn Fn(*const u8, *const u8) -> Ordering) -> Option<Work<u32>> {
+    #[allow(clippy::unnecessary_cast)]
     let (len, rb, base) = ((*run).len as usize, (*run).row_bytes as usize, (*run).row(0) as *const u8);
     let h = take_heap(run, len, false)?;
     (*run).pad[2] &= !RUN_HEAP;

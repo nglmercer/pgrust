@@ -96,6 +96,7 @@ crate::strategies! {
 /// Two faces. Without RETURNING, as `write.delete`'s: the row-op end does the write and the write op in the chain is an
 /// identity step (M1's end form, so no IR pin moves). With RETURNING the write op is the row op as a step: on Done its
 /// continuation is write.returning's (`RetMech`) over the written row, and the end is write.returning's sink.
+#[allow(clippy::needless_update)]
 pub(crate) const ROWS: crate::ops::Table = crate::ops::Table { kinds: &[(KindId::WriteUpdate, &EndMaker(make_end)), (KindId::WriteUpdate, &StepMaker(make_step))], strategies: &[(crate::face::strategy::WRITE_IDXUNCHANGED, &IdxUnchanged)], ..crate::ops::NONE };
 
 /// Road `write.idxunchanged`'s face (D235): PG's `index_unchanged_by_update` hint is the write host's (hosts

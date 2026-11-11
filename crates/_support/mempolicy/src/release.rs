@@ -26,17 +26,35 @@ mod tests {
 
     #[test]
     fn a_breaker_that_keeps_code_words_gives_its_dictionaries_back_with_the_part() {
-        assert!(dicts_go_with_part(false), "an aggregate, a Sort, a DISTINCT: code words, rendered again after the release");
-        assert!(!dicts_go_with_part(true), "a TopK's rendered rows or a hash build's code cells point into the images");
+        assert!(
+            dicts_go_with_part(false),
+            "an aggregate, a Sort, a DISTINCT: code words, rendered again after the release"
+        );
+        assert!(
+            !dicts_go_with_part(true),
+            "a TopK's rendered rows or a hash build's code cells point into the images"
+        );
     }
 
     #[test]
     fn a_part_goes_back_only_past_the_level() {
-        assert!(!part_release_due(462 << 20, 2706 << 20, false), "a cache under its budget keeps the part");
-        assert!(!part_release_due(2706 << 20, 2706 << 20, false), "at the target nothing is due");
-        assert!(part_release_due(8 << 30, 1 << 30, false), "past the budget the part goes back");
+        assert!(
+            !part_release_due(462 << 20, 2706 << 20, false),
+            "a cache under its budget keeps the part"
+        );
+        assert!(
+            !part_release_due(2706 << 20, 2706 << 20, false),
+            "at the target nothing is due"
+        );
+        assert!(
+            part_release_due(8 << 30, 1 << 30, false),
+            "past the budget the part goes back"
+        );
         assert!(part_release_due(1, 0, false), "level 0: always (tests)");
-        assert!(!part_release_due(u64::MAX, u64::MAX, false), "an unbounded cache: never");
+        assert!(
+            !part_release_due(u64::MAX, u64::MAX, false),
+            "an unbounded cache: never"
+        );
     }
 
     /// D3994 (level gate): memory short, a part every claim left goes back inside the cache's budget (D3994's broker-on
@@ -44,9 +62,26 @@ mod tests {
     #[test]
     fn d3994_a_part_goes_back_inside_the_budget_when_memory_is_short() {
         const G: u64 = 1 << 30;
-        let s = |free_b: u64| ParkedSignals { bar: 0, projected: 0, free_b, b: 15 * G, broker: true, bytes: 7 * G, budget: 8 * G };
-        assert!(part_release_due(7 * G, 8 * G, memory_short(&s(0))), "B full: due inside the budget");
-        assert!(!part_release_due(7 * G, 8 * G, memory_short(&s(12 * G))), "a box with room: held");
-        assert!(!part_release_due(7 * G, 8 * G, memory_short(&s(u64::MAX))), "no snapshot yet: held");
+        let s = |free_b: u64| ParkedSignals {
+            bar: 0,
+            projected: 0,
+            free_b,
+            b: 15 * G,
+            broker: true,
+            bytes: 7 * G,
+            budget: 8 * G,
+        };
+        assert!(
+            part_release_due(7 * G, 8 * G, memory_short(&s(0))),
+            "B full: due inside the budget"
+        );
+        assert!(
+            !part_release_due(7 * G, 8 * G, memory_short(&s(12 * G))),
+            "a box with room: held"
+        );
+        assert!(
+            !part_release_due(7 * G, 8 * G, memory_short(&s(u64::MAX))),
+            "no snapshot yet: held"
+        );
     }
 }

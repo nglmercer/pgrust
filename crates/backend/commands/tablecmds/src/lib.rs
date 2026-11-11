@@ -533,7 +533,9 @@ pub fn DefineRelation<'mcx>(
         types_rel::RELKIND_PARTITIONED_TABLE => {
             reloptions::partitioned_table_reloptions(reloptions.as_deref(), true)?;
         }
-        types_rel::RELKIND_RELATION | types_rel::RELKIND_MATVIEW if reloptions::relam_is_pgrcolumnar(access_method_id) => {
+        types_rel::RELKIND_RELATION | types_rel::RELKIND_MATVIEW
+            if reloptions::relam_is_pgrcolumnar(access_method_id) =>
+        {
             pgrc_opts = reloptions::pgrcolumnar_reloptions(mcx, reloptions.as_deref(), true)?;
         }
         _ => {
@@ -1300,7 +1302,12 @@ mod table_am_column_type_tests {
         att.attname.data[0] = b'l';
         let err = check_table_am_column_types(Some("pgrcolumnar"), "col_en", &[att]).unwrap_err();
         assert_eq!(err.sqlstate(), types_error::ERRCODE_FEATURE_NOT_SUPPORTED);
-        assert!(err.message().contains("column \"l\" of relation \"col_en\""), "{}", err.message());
+        assert!(
+            err.message()
+                .contains("column \"l\" of relation \"col_en\""),
+            "{}",
+            err.message()
+        );
         assert!(check_table_am_column_types(Some("heap"), "col_en", &[att]).is_ok());
     }
 }
@@ -1416,9 +1423,14 @@ pub(crate) fn sorted_by_column_verdict(
 ) -> reloptions::SortedByColumn {
     let col = key.col.as_str();
     if !key.path.is_empty() {
-        return match atts.iter().find(|a| !a.attisdropped && a.attname.name_str() == col.as_bytes()) {
+        return match atts
+            .iter()
+            .find(|a| !a.attisdropped && a.attname.name_str() == col.as_bytes())
+        {
             None => reloptions::SortedByColumn::Missing,
-            Some(a) if a.atttypid != types_core::catalog::JSONBOID => reloptions::SortedByColumn::PathNotJsonb,
+            Some(a) if a.atttypid != types_core::catalog::JSONBOID => {
+                reloptions::SortedByColumn::PathNotJsonb
+            }
             Some(_) => reloptions::SortedByColumn::Ok,
         };
     }

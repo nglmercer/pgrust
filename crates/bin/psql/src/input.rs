@@ -149,6 +149,7 @@ enum EditResult {
 }
 
 #[cfg(unix)]
+#[allow(clippy::ptr_arg)]
 fn read_line_edited(prompt: &str, history: &mut Vec<String>) -> Option<EditResult> {
     use std::os::fd::AsRawFd;
     let stdin_fd = std::io::stdin().as_raw_fd();

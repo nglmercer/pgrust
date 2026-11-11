@@ -19,15 +19,27 @@ fn sample_ords_deterministic_distinct_sorted() {
         let a = sample_ords(count);
         let b = sample_ords(count);
         assert_eq!(a, b, "pure function of count ({count})");
-        assert!(a.windows(2).all(|w| w[0] < w[1]), "strictly increasing ({count})");
-        assert!(a.iter().all(|&o| o < count.max(1) || count == 0), "in range ({count})");
+        assert!(
+            a.windows(2).all(|w| w[0] < w[1]),
+            "strictly increasing ({count})"
+        );
+        assert!(
+            a.iter().all(|&o| o < count.max(1) || count == 0),
+            "in range ({count})"
+        );
         if count <= 8 {
             assert_eq!(a.len(), count, "small counts sample everything");
         } else {
             assert!(a.len() >= 8, "minimum run floor ({count})");
-            assert!(!a.is_empty() && a[0] == 0, "first unit always sampled ({count})");
+            assert!(
+                !a.is_empty() && a[0] == 0,
+                "first unit always sampled ({count})"
+            );
             // ~1% target above the floor.
-            assert!(a.len() <= count.div_ceil(100).max(8), "run budget ({count})");
+            assert!(
+                a.len() <= count.div_ceil(100).max(8),
+                "run budget ({count})"
+            );
         }
     }
 }
@@ -105,8 +117,15 @@ fn sampled_int_parity_and_exact_params() {
 
 #[test]
 fn sampled_int_const_and_allnull_parity() {
-    let class = StorageClass::ByvalWord { width: 8, signed: true };
-    let konst = GranuleData { rows: 8192, datums: vec![7; 8192], validity: None };
+    let class = StorageClass::ByvalWord {
+        width: 8,
+        signed: true,
+    };
+    let konst = GranuleData {
+        rows: 8192,
+        datums: vec![7; 8192],
+        validity: None,
+    };
     let inputs = [konst.input(class)];
     let (census, _) = elect_int_carry(&inputs, 8, true, true, true);
     let (sampled, _) = elect_int_sampled_carry(&inputs, 8, true, true, true);
@@ -137,13 +156,25 @@ fn sampled_int_unsampled_outliers_stay_exact() {
         .find(|o| !ords.contains(o))
         .expect("an unsampled frame exists");
     datums[poisoned * 1024 + 7] = 100 + 65_535;
-    let gd = GranuleData { rows, datums, validity: None };
-    let class = StorageClass::ByvalWord { width: 8, signed: false };
+    let gd = GranuleData {
+        rows,
+        datums,
+        validity: None,
+    };
+    let class = StorageClass::ByvalWord {
+        width: 8,
+        signed: false,
+    };
     let inputs = [gd.input(class)];
     // Flat posture (BYTE_FOR the only arm) so the family is forced and the
     // width path is the test subject.
     let (sampled, carry) = elect_int_sampled_carry(&inputs, 8, false, false, false);
-    let Election::Elected { encoding: EncodingId::ByteFor, width, candidate_bytes, .. } = sampled
+    let Election::Elected {
+        encoding: EncodingId::ByteFor,
+        width,
+        candidate_bytes,
+        ..
+    } = sampled
     else {
         panic!("fixture must elect BYTE_FOR: {sampled:?}");
     };
@@ -155,7 +186,10 @@ fn sampled_int_unsampled_outliers_stay_exact() {
         .map(|f| crate::bytefor::width_for_range(f.range))
         .max()
         .unwrap();
-    assert_eq!(width, widest, "width is the full-pass max, not the sample's");
+    assert_eq!(
+        width, widest,
+        "width is the full-pass max, not the sample's"
+    );
     assert_eq!(width, 2, "the poisoned frame's width");
     // And the exact size prices that width.
     let expect: usize = inputs
@@ -185,8 +219,16 @@ fn sampled_float_never_falsely_elects() {
                 panic!("sampled float elected what the census demoted (final gate is exact)");
             }
             (
-                Election::Elected { encoding: e1, candidate_bytes: c1, .. },
-                Election::Elected { encoding: e2, candidate_bytes: c2, .. },
+                Election::Elected {
+                    encoding: e1,
+                    candidate_bytes: c1,
+                    ..
+                },
+                Election::Elected {
+                    encoding: e2,
+                    candidate_bytes: c2,
+                    ..
+                },
             ) => {
                 // Survivors run the census arm in full: identical outcome.
                 assert_eq!(e1, e2, "same stamp, shape={shape}");
@@ -223,13 +265,26 @@ fn sampled_int_df_competitive_matches_census() {
         let g0 = roundtrip_int_corpus(shape, 8192, &mut seed);
         let g1 = roundtrip_int_corpus(shape, 8192, &mut seed);
         let inputs = [
-            g0.input(StorageClass::ByvalWord { width: 8, signed: true }),
-            g1.input(StorageClass::ByvalWord { width: 8, signed: true }),
+            g0.input(StorageClass::ByvalWord {
+                width: 8,
+                signed: true,
+            }),
+            g1.input(StorageClass::ByvalWord {
+                width: 8,
+                signed: true,
+            }),
         ];
         let (census, census_carry) = elect_int_carry(&inputs, 8, true, true, true);
         let (sampled, carry) = elect_int_sampled_carry(&inputs, 8, true, true, true);
-        if let Election::Elected { encoding: EncodingId::DeltaFor, .. } = census {
-            assert_eq!(sampled, census, "DF-winning shape {shape} must match census");
+        if let Election::Elected {
+            encoding: EncodingId::DeltaFor,
+            ..
+        } = census
+        {
+            assert_eq!(
+                sampled, census,
+                "DF-winning shape {shape} must match census"
+            );
             // And the DF facts must be the exact chain's.
             for (a, b) in carry.frames.iter().zip(census_carry.frames.iter()) {
                 assert_eq!(a.df_width, b.df_width, "df_width parity, shape {shape}");

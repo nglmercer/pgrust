@@ -123,8 +123,11 @@ pub fn btinsert<'mcx>(
     // D4560: the insertion's tuple in a stack image when it needs no detoast / compression and fits (no per-row
     // allocation and free); bt_doinsert copies it into the page and keeps no pointer past its return.
     if crate::fcframe::insert_fast() {
-        let mut stack = [const { core::mem::MaybeUninit::<u64>::uninit() }; crate::itup::ITUP_STACK_WORDS];
-        if let Some(itup) = crate::itup::index_form_tuple_stack(&rel.rd_att, values, isnull, &mut stack)? {
+        let mut stack =
+            [const { core::mem::MaybeUninit::<u64>::uninit() }; crate::itup::ITUP_STACK_WORDS];
+        if let Some(itup) =
+            crate::itup::index_form_tuple_stack(&rel.rd_att, values, isnull, &mut stack)?
+        {
             // SAFETY: `itup` is the formed image in `stack`, live and writable for this call.
             unsafe { set_t_tid(itup.cast_mut(), *ht_ctid) };
             return bt_doinsert(mcx, rel, itup, check_unique, index_unchanged, heap_rel);
@@ -1984,8 +1987,11 @@ unsafe fn bt_insert_parent<'mcx>(
     let mut empty: [StackEntry; 0] = [];
     let (top, parent_stack) = if stack.is_empty() {
         ::elog_seams::ereport::call(
-            PgError::new(::types_error::DEBUG2, "concurrent ROOT page split")
-                .with_location("nbtinsert.c", 2149, "_bt_insert_parent"),
+            PgError::new(::types_error::DEBUG2, "concurrent ROOT page split").with_location(
+                "nbtinsert.c",
+                2149,
+                "_bt_insert_parent",
+            ),
         )?;
         let opaque = page_opaque(&buf.page());
         // fastpath never splits the rightmost leaf without a stack

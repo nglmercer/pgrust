@@ -81,6 +81,7 @@ impl<'g> Gx<'g, '_> {
         for op in &self.pipelines()[d].ops[jd + 1..] {
             match op {
                 Op::Filter(n) | Op::Gate(n) => ok &= uses(*n, &mut out),
+                #[allow(clippy::unnecessary_fold)]
                 Op::SubPlan(s) => ok &= s.args.iter().fold(true, |ok, n| uses(n, &mut out) && ok) && s.test.is_none_or(|t| uses(t, &mut out)),
                 _ if limit_bounds(op).is_some() => {}
                 Op::Project(l) => return l.iter().fold(ok, |ok, n| uses(n, &mut out) && ok).then_some(out),

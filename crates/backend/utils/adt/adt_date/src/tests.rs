@@ -547,6 +547,7 @@ fn extract_arms() {
 }
 
 #[test]
+#[allow(clippy::field_reassign_with_default)]
 fn time_support_simplifies_widening_casts_only() {
     use ::types_nodes::primnodes::{Const, FuncExpr};
     use ::types_nodes::supportnodes::SupportRequestSimplify;

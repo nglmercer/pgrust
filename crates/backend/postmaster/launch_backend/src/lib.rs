@@ -1056,6 +1056,7 @@ fn child_thread_stack_size() -> usize {
         .ok()
         .and_then(|v| v.parse::<usize>().ok())
         .unwrap_or(0);
+    #[allow(clippy::manual_clamp)]
     let computed = rlim.max(scaled_need).max(2 << 20).min(512 << 20);
     computed.max(min_stack)
 }

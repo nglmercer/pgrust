@@ -1332,6 +1332,7 @@ impl Entry {
         }
         let (src, src_len) = {
             let r = exec.node.slot_region(slot);
+            #[allow(clippy::unnecessary_cast)]
             (r.as_ptr() as *const u8, r.len())
         };
         let partial = Partial { ordinal: 0, bytes: raw::slot_bytes(src, src_len), rows_processed: 0 };
@@ -1726,6 +1727,7 @@ impl Entry {
             }
         });
         let written = b.rows_processed;
+        #[allow(clippy::drop_non_drop)]
         drop(b);
         // D3500: the counts the statement keeps from its recheck (EXPLAIN ANALYZE's MERGE lines)
         if called.is_ok() {

@@ -63,6 +63,7 @@ pub fn json_get_first_token(
 
 /// arg_jsonb over a bare Datum (executor step paths carry no fcinfo).
 /// # Safety: `d` is a non-null jsonb varlena live for `'mcx`.
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn jsonb_payload_from_datum<'mcx>(
     mcx: Mcx<'mcx>,
     d: Datum,

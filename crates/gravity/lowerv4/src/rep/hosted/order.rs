@@ -57,7 +57,7 @@ pub(crate) fn fixed(lx: &mut Lx<'_, '_, '_>, c: CellRef<'_>, tf: &TypeFacts, col
     } else {
         // the bytes big-endian: 48 bits stay non-negative; a macaddr8's 64 flip the top bit (the signed convention)
         let mut w = zero;
-        for i in 0..len as i32 {
+        for i in 0..len {
             let (x, s8) = (b.load_zext(Type::I8, ptr, i), b.iconst(Type::I64, 8));
             let sh = b.int_bin(IntBinOp::Shl, w, s8);
             w = b.int_bin(IntBinOp::Or, sh, x);

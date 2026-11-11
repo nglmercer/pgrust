@@ -49,6 +49,7 @@ struct Bound<'mcx> {
     cols: PgVec<'mcx, OutCol>,
 }
 
+#[allow(clippy::large_enum_variant)]
 enum Body<'mcx> {
     /// S0b: each entry's ExprState over the portal's parameters (copied into the portal's context, where the states read
     /// them).

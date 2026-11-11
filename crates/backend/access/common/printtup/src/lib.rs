@@ -18,9 +18,7 @@ use ::stringinfo::StringInfo;
 use ::types_core::{primitive::InvalidOid, FirstNormalObjectId, Oid, NAMEDATALEN};
 use ::types_dest::CommandDest;
 use ::types_error::{PgError, PgResult, ERRCODE_INVALID_PARAMETER_VALUE};
-use ::types_fmgr::{
-    function_call1_coll_in, send_function_call, FmgrInfo, OutInto, PackedVarlena,
-};
+use ::types_fmgr::{function_call1_coll_in, send_function_call, FmgrInfo, OutInto, PackedVarlena};
 use ::types_portal::Portal;
 use ::types_slot::SlotData;
 use ::types_tuple::TupleDescData;
@@ -78,8 +76,7 @@ fn scratch_mcx() -> Mcx<'static> {
     CTX.with(|c| match c.get() {
         Some(m) => m.mcx(),
         None => {
-            let m: &'static MemoryContext =
-                ::mcx::session_root("PrinttupScratch");
+            let m: &'static MemoryContext = ::mcx::session_root("PrinttupScratch");
             // LIFO: drop the pooled wire buffer before its context is freed
             // (Cell<Option<StringInfo>> is a droppy TLS payload).
             ::mcx::register_session_cleanup(Box::new(|| {
@@ -194,7 +191,14 @@ impl<'mcx> DrPrinttup<'mcx> {
                     } else {
                         None
                     };
-                    PrinttupAttrInfo { typoutput, typsend: InvalidOid, typisvarlena, format, finfo, into }
+                    PrinttupAttrInfo {
+                        typoutput,
+                        typsend: InvalidOid,
+                        typisvarlena,
+                        format,
+                        finfo,
+                        into,
+                    }
                 }
                 1 => {
                     let (typsend, typisvarlena) =
@@ -205,7 +209,14 @@ impl<'mcx> DrPrinttup<'mcx> {
                     } else {
                         None
                     };
-                    PrinttupAttrInfo { typoutput: InvalidOid, typsend, typisvarlena, format, finfo, into }
+                    PrinttupAttrInfo {
+                        typoutput: InvalidOid,
+                        typsend,
+                        typisvarlena,
+                        format,
+                        finfo,
+                        into,
+                    }
                 }
                 _ => return Err(unsupported_format_code(format)),
             };
@@ -256,6 +267,7 @@ impl<'mcx> DrPrinttup<'mcx> {
         pq_beginmessage_reuse(buf, PQMSG_DATA_ROW);
         pq_sendint16(buf, natts as u16)?;
 
+        #[allow(clippy::needless_range_loop)]
         for i in 0..natts {
             if base.tts_isnull[i] {
                 pq_sendint32(buf, (-1i32) as u32)?;
@@ -272,7 +284,10 @@ impl<'mcx> DrPrinttup<'mcx> {
                         // SAFETY: append_written reserved 4 + bound bytes at d; render writes at most bound after the length.
                         match unsafe { (into.render)(attr, d.add(4)) } {
                             Ok(n) => {
-                                unsafe { d.cast::<[u8; 4]>().write_unaligned((n as u32).to_be_bytes()) };
+                                unsafe {
+                                    d.cast::<[u8; 4]>()
+                                        .write_unaligned((n as u32).to_be_bytes())
+                                };
                                 4 + n
                             }
                             Err(e) => {
@@ -288,16 +303,17 @@ impl<'mcx> DrPrinttup<'mcx> {
                 }
             }
             if thisState.format == 0 {
-                let ctx = send_ctx.as_deref().expect("printtup: text column without send_ctx");
-                let out = function_call1_coll_in(&mut thisState.finfo, InvalidOid, ctx.mcx(), attr)?;
+                let ctx = send_ctx
+                    .as_deref()
+                    .expect("printtup: text column without send_ctx");
+                let out =
+                    function_call1_coll_in(&mut thisState.finfo, InvalidOid, ctx.mcx(), attr)?;
                 // SAFETY: text output fns return a NUL-terminated cstring
                 // datum (the contract C's DatumGetCString trusts).
-                let s =
-                    unsafe { CStr::from_ptr(out.as_usize() as *const core::ffi::c_char) }
-                        .to_bytes();
+                let s = unsafe { CStr::from_ptr(out.as_usize() as *const core::ffi::c_char) }
+                    .to_bytes();
                 if self.conv_recheck {
-                    self.conv_needed =
-                        mbutils_seams::server_to_client_conversion_needed::call();
+                    self.conv_needed = mbutils_seams::server_to_client_conversion_needed::call();
                 }
                 if self.conv_needed {
                     pq_sendcountedtext(buf, s)?;
@@ -336,7 +352,6 @@ impl<'mcx> DrPrinttup<'mcx> {
         }
     }
 }
-
 
 pub fn SendRowDescriptionMessage(
     buf: &mut StringInfo<'_>,

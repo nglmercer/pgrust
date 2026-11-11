@@ -11,9 +11,7 @@
 //! `mod heap` binds heapam_handler's read/analyze lanes; DML/sample arms
 //! stay loud until their heapam phases land.
 
-#![allow(non_snake_case)]
-#![allow(non_camel_case_types)]
-#![allow(non_upper_case_globals)]
+#![allow(non_camel_case_types, non_snake_case, non_upper_case_globals)]
 
 use core::ptr::NonNull;
 use std::cell::RefCell;
@@ -22,7 +20,6 @@ use std::string::String;
 use ::heapam::HeapScanDescData;
 use ::heapam_handler::IndexFetchHeapData;
 use ::mcx::{Mcx, PgVec};
-use ::types_snapshot::IsMVCCSnapshot;
 use ::types_core::fmgr::NAMEDATALEN;
 use ::types_core::primitive::{BlockNumber, Buffer, ForkNumber, TransactionId};
 use ::types_core::xact::{CommandId, TransactionIdIsValid};
@@ -34,12 +31,16 @@ use ::types_rel::{
 use ::types_scan::scankey::ScanKeyData;
 use ::types_scan::sdir::ScanDirection;
 use ::types_slot::{SlotData, TupleSlotKind};
+use ::types_snapshot::IsMVCCSnapshot;
 use ::types_storage::RelFileLocator;
-use ::types_tuple::{ItemPointerData, ItemPointerGetBlockNumber, ItemPointerGetBlockNumberNoCheck, ItemPointerGetOffsetNumberNoCheck};
+use ::types_tuple::{
+    ItemPointerData, ItemPointerGetBlockNumber, ItemPointerGetBlockNumberNoCheck,
+    ItemPointerGetOffsetNumberNoCheck,
+};
 
-pub use ::tableam_vocab::*;
 pub use ::pgrc_am::scan::TidNeed as PgrcTidNeed;
 pub use ::pgrc_am::scan::TidNeed as ScanTidNeed;
+pub use ::tableam_vocab::*;
 
 #[cfg(test)]
 mod tests;
@@ -60,8 +61,7 @@ pub fn init_seams() {
             set_default_table_access_method(v.as_deref().unwrap_or(DEFAULT_TABLE_ACCESS_METHOD))
         },
     });
-    guc_tables::hooks::check_default_table_access_method
-        .install(check_default_table_access_method);
+    guc_tables::hooks::check_default_table_access_method.install(check_default_table_access_method);
     tableam_seams::table_tid_get_latest::set(table_tid_get_latest);
     tableam_seams::table_relation_dir_size::set(table_relation_dir_size);
     tableam_seams::database_dir_am_size::set(database_dir_am_size);
@@ -82,9 +82,9 @@ fn database_dir_am_size(db_path: &str) -> PgResult<u64> {
 /// none.
 fn table_relation_dir_size(rel: &Relation<'_>) -> PgResult<u64> {
     match TableAm::of(rel) {
-        Some(TableAm::Pgrcolumnar) => {
-            ::pgrc_am::dirpath::dir_bytes(&::pgrc_am::dirpath::table_dir_path(rel.rd_locator.get(), rel.rd_backend))
-        }
+        Some(TableAm::Pgrcolumnar) => ::pgrc_am::dirpath::dir_bytes(
+            &::pgrc_am::dirpath::table_dir_path(rel.rd_locator.get(), rel.rd_backend),
+        ),
         _ => Ok(0),
     }
 }
@@ -94,6 +94,7 @@ fn table_relation_dir_size(rel: &Relation<'_>) -> PgResult<u64> {
 // C's TableScanDesc points at the rs_base embedded in the AM's scan state; by
 // value the scan IS the AM extension, tagged by the closed set. Single
 // variant: the tag is free and every match is a direct call.
+#[allow(clippy::large_enum_variant)]
 pub enum TableScanDesc<'mcx> {
     Heap(HeapScanDescData<'mcx>),
     // The pgrcolumnar AM. Boxed: cold at scan-begin, keeps the enum
@@ -164,7 +165,9 @@ fn unported(unit: &'static str) -> ! {
 // The shared parallel descriptor of a columnar scan: phs_nallocated is the
 // claim cursor; block fields stay unused.
 fn columnar_parallelscan_reinitialize(pscan: &ParallelBlockTableScanDescData) {
-    pscan.phs_nallocated.store(0, std::sync::atomic::Ordering::SeqCst);
+    pscan
+        .phs_nallocated
+        .store(0, std::sync::atomic::Ordering::SeqCst);
 }
 
 #[cold]
@@ -192,7 +195,9 @@ mod cb2 {
         flags: u32,
         parallel: Option<NonNull<ParallelBlockTableScanDescData>>,
     ) -> PgResult<TableScanDesc<'mcx>> {
-        let mut scan = ::pgrc_am::scan::PgrcScanDescData::begin(scan_base(mcx, rel, snapshot, flags, parallel))?;
+        let mut scan = ::pgrc_am::scan::PgrcScanDescData::begin(scan_base(
+            mcx, rel, snapshot, flags, parallel,
+        ))?;
         // IX0 L2: positions are row IDs, resolved through the statement's view; nothing is registered per scan.
         if scan.generation().is_some() {
             super::ensure_pgrc_buffer_hooks();
@@ -204,7 +209,11 @@ mod cb2 {
     /// F2 L3: the snapshot's tombstones, unioned into each granule's mask and skipped in segments (each parallel
     /// worker builds its own). First the live segments newer than its view, which hold the transaction's own writes past
     /// a switch its snapshot does not see (design §4.8).
-    pub(super) fn attach_filter<'mcx>(mcx: Mcx<'mcx>, rel: &Relation<'mcx>, scan: &mut ::pgrc_am::scan::PgrcScanDescData<'mcx>) -> PgResult<()> {
+    pub(super) fn attach_filter<'mcx>(
+        mcx: Mcx<'mcx>,
+        rel: &Relation<'mcx>,
+        scan: &mut ::pgrc_am::scan::PgrcScanDescData<'mcx>,
+    ) -> PgResult<()> {
         let snap = scan.rs_base.rs_snapshot.clone();
         let gen = scan.generation().cloned();
         let newer = ::pgrc_front::ring::newer_segments(rel, gen.as_deref())?;
@@ -247,8 +256,12 @@ mod cb2 {
         pscan.phs_locator = rel.rd_locator.get();
         pscan.phs_syncscan = false;
         pscan.phs_nblocks = 0;
-        pscan.phs_startblock.store(0, std::sync::atomic::Ordering::Relaxed);
-        pscan.phs_nallocated.store(0, std::sync::atomic::Ordering::Relaxed);
+        pscan
+            .phs_startblock
+            .store(0, std::sync::atomic::Ordering::Relaxed);
+        pscan
+            .phs_nallocated
+            .store(0, std::sync::atomic::Ordering::Relaxed);
         0
     }
 
@@ -267,9 +280,16 @@ mod cb2 {
         // IXBULKSORT: an ID its part's seal moves (a `sorted_by` table with indexes) is not the row's yet: the row waits,
         // with it, for its placed ID and its index entries (`table_take_placed`), and has no position until then.
         if let Some(::pgrc_am::ingest::RowId { id, handed: true }) = id {
-            let mut cx = SCRATCH.take().unwrap_or_else(|| ::mcx::MemoryContext::new_bump("pgrc statement row"));
+            let mut cx = SCRATCH
+                .take()
+                .unwrap_or_else(|| ::mcx::MemoryContext::new_bump("pgrc statement row"));
             let pended = exectuples::exec_copy_slot_heap_tuple(slot, mcx, cx.mcx()).and_then(|t| {
-                let pended = ::pgrc_front::xact::pend_handed(rel.rd_id, ::xact::GetCurrentSubTransactionId(), t.image(), handed_tid(id));
+                let pended = ::pgrc_front::xact::pend_handed(
+                    rel.rd_id,
+                    ::xact::GetCurrentSubTransactionId(),
+                    t.image(),
+                    handed_tid(id),
+                );
                 // the image dies with the scratch context's reset
                 core::mem::forget(t);
                 pended
@@ -286,7 +306,10 @@ mod cb2 {
             }
             Some(_) => ::types_tuple::ItemPointerSetInvalid(&mut base.tts_tid),
             None if rel.rd_rel.relhasindex => {
-                return Err(Box::new(PgError::error(format!("pgrcolumnar: a bulk row of \"{}\" got no row ID, which its indexes need", rel.name()))));
+                return Err(Box::new(PgError::error(format!(
+                    "pgrcolumnar: a bulk row of \"{}\" got no row ID, which its indexes need",
+                    rel.name()
+                ))));
             }
             None => ::types_tuple::ItemPointerSetInvalid(&mut base.tts_tid),
         }
@@ -301,7 +324,12 @@ mod cb2 {
         tid
     }
 
-    fn bulk_row<'mcx>(mcx: Mcx<'mcx>, rel: &Relation<'mcx>, slot: &mut SlotData<'mcx>, cid: CommandId) -> PgResult<Option<::pgrc_am::ingest::RowId>> {
+    fn bulk_row<'mcx>(
+        mcx: Mcx<'mcx>,
+        rel: &Relation<'mcx>,
+        slot: &mut SlotData<'mcx>,
+        cid: CommandId,
+    ) -> PgResult<Option<::pgrc_am::ingest::RowId>> {
         // Deform before reading (the old-AM CTAS lesson: buffer/heap-backed
         // slots arrive with tts_nvalid == 0).
         exectuples::exec_materialize_slot(slot, mcx)?;
@@ -322,7 +350,11 @@ mod cb2 {
         ::pgrc_am::ingest::ingest_row(rel, cid, &base.tts_values, &base.tts_isnull, image)
     }
 
-    pub(super) fn getnextslot<'mcx>(mcx: Mcx<'mcx>, c: &mut ::pgrc_am::scan::PgrcScanDescData<'mcx>, slot: &mut SlotData<'mcx>) -> PgResult<bool> {
+    pub(super) fn getnextslot<'mcx>(
+        mcx: Mcx<'mcx>,
+        c: &mut ::pgrc_am::scan::PgrcScanDescData<'mcx>,
+        slot: &mut SlotData<'mcx>,
+    ) -> PgResult<bool> {
         if c.segment.is_none() && c.getnextslot(slot)? {
             return Ok(true);
         }
@@ -343,19 +375,35 @@ mod cb2 {
             };
             let parent = c.rs_base.rs_rd.rd_id;
             let deleted = match c.filter.as_ref() {
-                Some(f) => ::mcx::stdvec::try_to_vec(f.segment_positions(segslot), "pgrc segment scan")?,
+                Some(f) => {
+                    ::mcx::stdvec::try_to_vec(f.segment_positions(segslot), "pgrc segment scan")?
+                }
                 None => Vec::new(),
             };
             let busy = match c.filter.as_ref() {
                 Some(f) => ::mcx::stdvec::try_to_vec(f.busy_segment(segslot), "pgrc segment scan")?,
                 None => Vec::new(),
             };
-            c.segment = Some(Box::new(::pgrc_front::segscan::SegScan::begin(mcx, &c.rs_base.rs_rd, relid, segslot, part_no, snapshot, parent, deleted)?.with_busy(busy)));
+            c.segment = Some(Box::new(
+                ::pgrc_front::segscan::SegScan::begin(
+                    mcx,
+                    &c.rs_base.rs_rd,
+                    relid,
+                    segslot,
+                    part_no,
+                    snapshot,
+                    parent,
+                    deleted,
+                )?
+                .with_busy(busy),
+            ));
         }
     }
 
     pub(super) fn end_segment(c: &mut ::pgrc_am::scan::PgrcScanDescData<'_>) -> PgResult<()> {
-        let Some(s) = c.segment.take() else { return Ok(()) };
+        let Some(s) = c.segment.take() else {
+            return Ok(());
+        };
         c.stats.segment_rows(s.returned());
         s.end()
     }
@@ -363,7 +411,14 @@ mod cb2 {
     /// F1 L7 routing: a flagged statement (ModifyTable, COPY FROM) buffers; any other `BulkInsertState` or options
     /// (CTAS, refresh, rewrites) is the bulk lane; a bare insert (single-row INSERT, apply worker, Gravity) is one heap
     /// insert into the active segment.
-    pub(super) fn insert<'mcx>(mcx: Mcx<'mcx>, rel: &Relation<'mcx>, slot: &mut SlotData<'mcx>, cid: CommandId, options: i32, bistate: bool) -> PgResult<()> {
+    pub(super) fn insert<'mcx>(
+        mcx: Mcx<'mcx>,
+        rel: &Relation<'mcx>,
+        slot: &mut SlotData<'mcx>,
+        cid: CommandId,
+        options: i32,
+        bistate: bool,
+    ) -> PgResult<()> {
         ::pgrc_front::filter::conflict_in(rel)?;
         if options & ::tableam_vocab::TABLE_INSERT_DEFER != 0 {
             return buffered_insert(mcx, rel, slot, cid);
@@ -377,13 +432,20 @@ mod cb2 {
 
     /// The row's heap tuple image joins the statement buffer; a full buffer replays into the bulk lane, which takes
     /// the rest of the statement. The slot has no position yet (`tts_tid` invalid).
-    fn buffered_insert<'mcx>(mcx: Mcx<'mcx>, rel: &Relation<'mcx>, slot: &mut SlotData<'mcx>, cid: CommandId) -> PgResult<()> {
+    fn buffered_insert<'mcx>(
+        mcx: Mcx<'mcx>,
+        rel: &Relation<'mcx>,
+        slot: &mut SlotData<'mcx>,
+        cid: CommandId,
+    ) -> PgResult<()> {
         let subid = ::xact::GetCurrentSubTransactionId();
         if ::pgrc_front::xact::switched(rel.rd_id, cid, subid) {
             return tuple_insert(mcx, rel, slot, cid, true);
         }
         super::ensure_pgrc_buffer_hooks();
-        let mut cx = SCRATCH.take().unwrap_or_else(|| ::mcx::MemoryContext::new_bump("pgrc statement row"));
+        let mut cx = SCRATCH
+            .take()
+            .unwrap_or_else(|| ::mcx::MemoryContext::new_bump("pgrc statement row"));
         let full = exectuples::exec_copy_slot_heap_tuple(slot, mcx, cx.mcx()).and_then(|t| {
             let full = ::pgrc_front::xact::push(rel.rd_id, cid, subid, t.image());
             // the image dies with the scratch context's reset
@@ -396,21 +458,51 @@ mod cb2 {
         base.tts_tid = ItemPointerData::invalid();
         base.tts_tableOid = rel.rd_id;
         if full? {
-            replay(mcx, rel, cid, subid, ::pgrc_front::xact::spill(rel.rd_id, cid, subid))?;
+            replay(
+                mcx,
+                rel,
+                cid,
+                subid,
+                ::pgrc_front::xact::spill(rel.rd_id, cid, subid),
+            )?;
         }
         Ok(())
     }
 
     /// A table with indexes keeps them, with their IDs, for ModifyTable's index inserts (`table_take_placed`); IDs
     /// their parts' seals move are kept as handed, to be placed.
-    fn replay<'mcx>(mcx: Mcx<'mcx>, rel: &Relation<'mcx>, cid: CommandId, subid: u32, mut rows: ::pgrc_front::xact::Rows) -> PgResult<()> {
-        let mut slot = exectuples::make_tuple_table_slot(mcx, TupleSlotKind::HeapTuple, Some(rel.rd_att.clone()));
-        let mut tids = ::mcx::stdvec::try_vec(if rel.rd_rel.relhasindex { rows.len() } else { 0 }, "pgrc buffered replay")?;
+    fn replay<'mcx>(
+        mcx: Mcx<'mcx>,
+        rel: &Relation<'mcx>,
+        cid: CommandId,
+        subid: u32,
+        mut rows: ::pgrc_front::xact::Rows,
+    ) -> PgResult<()> {
+        let mut slot = exectuples::make_tuple_table_slot(
+            mcx,
+            TupleSlotKind::HeapTuple,
+            Some(rel.rd_att.clone()),
+        );
+        let mut tids = ::mcx::stdvec::try_vec(
+            if rel.rd_rel.relhasindex {
+                rows.len()
+            } else {
+                0
+            },
+            "pgrc buffered replay",
+        )?;
         let mut handed = false;
         let mut out = Ok(());
         for image in rows.images_mut() {
             // SAFETY: a heap tuple image, 8-byte aligned, alive until the slot is cleared below.
-            let t = unsafe { ::types_tuple::htup::HeapTupleData::from_raw_parts(image.as_ptr(), image.len() as u32, ItemPointerData::invalid(), rel.rd_id) };
+            let t = unsafe {
+                ::types_tuple::htup::HeapTupleData::from_raw_parts(
+                    image.as_ptr(),
+                    image.len() as u32,
+                    ItemPointerData::invalid(),
+                    rel.rd_id,
+                )
+            };
             exectuples::exec_store_heap_tuple(&mut slot, mcx, t);
             let id = match bulk_row(mcx, rel, &mut slot, cid) {
                 Ok(id) => id,
@@ -421,7 +513,10 @@ mod cb2 {
             };
             if rel.rd_rel.relhasindex {
                 let Some(id) = id else {
-                    out = Err(Box::new(PgError::error(format!("pgrcolumnar: a bulk row of \"{}\" got no row ID, which its indexes need", rel.name()))));
+                    out = Err(Box::new(PgError::error(format!(
+                        "pgrcolumnar: a bulk row of \"{}\" got no row ID, which its indexes need",
+                        rel.name()
+                    ))));
                     break;
                 };
                 // one writer's rows: all handed or none
@@ -462,7 +557,13 @@ mod cb2 {
         out
     }
 
-    fn flush_rows<'mcx>(mcx: Mcx<'mcx>, rel: &Relation<'mcx>, cid: CommandId, rows: &mut ::pgrc_front::xact::Rows, tids: &mut Vec<ItemPointerData>) -> PgResult<()> {
+    fn flush_rows<'mcx>(
+        mcx: Mcx<'mcx>,
+        rel: &Relation<'mcx>,
+        cid: CommandId,
+        rows: &mut ::pgrc_front::xact::Rows,
+        tids: &mut Vec<ItemPointerData>,
+    ) -> PgResult<()> {
         let db = ::init_small::globals::MyDatabaseId();
         ::pgrc_front::route::backpressure(db, rel, cid)?;
         let seg = ::pgrc_front::route::segment(mcx, rel)?;
@@ -475,37 +576,62 @@ mod cb2 {
             let mut n = 0;
             for image in images.by_ref().take(FLUSH_ROWS) {
                 if slots.len() == n {
-                    slots.push(exectuples::make_tuple_table_slot(mcx, TupleSlotKind::HeapTuple, Some(segrel.rd_att.clone())));
+                    slots.push(exectuples::make_tuple_table_slot(
+                        mcx,
+                        TupleSlotKind::HeapTuple,
+                        Some(segrel.rd_att.clone()),
+                    ));
                 }
                 // SAFETY: a heap tuple image, 8-byte aligned, alive until the slots are cleared below.
-                let t = unsafe { ::types_tuple::htup::HeapTupleData::from_raw_parts(image.as_ptr(), image.len() as u32, ItemPointerData::invalid(), segrel.rd_id) };
+                let t = unsafe {
+                    ::types_tuple::htup::HeapTupleData::from_raw_parts(
+                        image.as_ptr(),
+                        image.len() as u32,
+                        ItemPointerData::invalid(),
+                        segrel.rd_id,
+                    )
+                };
                 exectuples::exec_store_heap_tuple(&mut slots[n], mcx, t);
                 n += 1;
             }
             let mut refs: Vec<&mut SlotData<'mcx>> = slots[..n].iter_mut().collect();
-            out = super::heap::multi_insert(mcx, &segrel, &mut refs, cid, 0, Some(&mut bistate)).and_then(|()| {
-                // AUTOSTATS: the parent's count (the segment's own multi-insert counted the segment)
-                ::pgrc_front::stats::inserted(rel, n as u64);
-                let segloc = segrel.rd_locator.get();
-                let mut marked = u32::MAX;
-                for s in &slots[..n] {
-                    let tid = s.base().tts_tid;
-                    if ItemPointerGetBlockNumber(&tid) != marked {
-                        marked = ItemPointerGetBlockNumber(&tid);
-                        ::pgrc_marks::written((segloc.spcOid, segloc.dbOid, segloc.relNumber), marked);
+            out = super::heap::multi_insert(mcx, &segrel, &mut refs, cid, 0, Some(&mut bistate))
+                .and_then(|()| {
+                    // AUTOSTATS: the parent's count (the segment's own multi-insert counted the segment)
+                    ::pgrc_front::stats::inserted(rel, n as u64);
+                    let segloc = segrel.rd_locator.get();
+                    let mut marked = u32::MAX;
+                    for s in &slots[..n] {
+                        let tid = s.base().tts_tid;
+                        if ItemPointerGetBlockNumber(&tid) != marked {
+                            marked = ItemPointerGetBlockNumber(&tid);
+                            ::pgrc_marks::written(
+                                (segloc.spcOid, segloc.dbOid, segloc.relNumber),
+                                marked,
+                            );
+                        }
+                        // IX0: each row's extent is reserved (its ID homed) before the statement ends
+                        let id = ::pgrc_front::route::row_id(
+                            rel,
+                            &seg,
+                            ItemPointerGetBlockNumber(&tid),
+                            ItemPointerGetOffsetNumberNoCheck(&tid),
+                        )?;
+                        if rel.rd_rel.relhasindex {
+                            let (block, off) = ::pgrc_am::rowid_alloc::tid_of(id);
+                            let mut t = ItemPointerData::invalid();
+                            ::types_tuple::ItemPointerSet(&mut t, block, off);
+                            tids.push(t);
+                        }
+                        ::pgrc_front::maint::inserted(
+                            db,
+                            rel.rd_id,
+                            seg.relid,
+                            ItemPointerGetBlockNumber(&tid),
+                        );
                     }
-                    // IX0: each row's extent is reserved (its ID homed) before the statement ends
-                    let id = ::pgrc_front::route::row_id(rel, &seg, ItemPointerGetBlockNumber(&tid), ItemPointerGetOffsetNumberNoCheck(&tid))?;
-                    if rel.rd_rel.relhasindex {
-                        let (block, off) = ::pgrc_am::rowid_alloc::tid_of(id);
-                        let mut t = ItemPointerData::invalid();
-                        ::types_tuple::ItemPointerSet(&mut t, block, off);
-                        tids.push(t);
-                    }
-                    ::pgrc_front::maint::inserted(db, rel.rd_id, seg.relid, ItemPointerGetBlockNumber(&tid));
-                }
-                Ok(())
-            });
+                    Ok(())
+                });
             for s in slots.iter_mut() {
                 exectuples::exec_clear_tuple(s, mcx);
             }
@@ -518,7 +644,12 @@ mod cb2 {
         out
     }
 
-    fn segment_insert<'mcx>(mcx: Mcx<'mcx>, rel: &Relation<'mcx>, slot: &mut SlotData<'mcx>, cid: CommandId) -> PgResult<()> {
+    fn segment_insert<'mcx>(
+        mcx: Mcx<'mcx>,
+        rel: &Relation<'mcx>,
+        slot: &mut SlotData<'mcx>,
+        cid: CommandId,
+    ) -> PgResult<()> {
         ::pgrc_front::route::insert_row(mcx, rel, slot, cid, 0)?;
         // AUTOSTATS: the parent's count (the segment's own heap insert counted the segment)
         ::pgrc_front::stats::inserted(rel, 1);
@@ -562,7 +693,14 @@ mod heap {
         allow_sync: bool,
         allow_pagemode: bool,
     ) -> PgResult<()> {
-        ::heapam::heap_rescan(scan, key, set_params, allow_strat, allow_sync, allow_pagemode)
+        ::heapam::heap_rescan(
+            scan,
+            key,
+            set_params,
+            allow_strat,
+            allow_sync,
+            allow_pagemode,
+        )
     }
 
     #[inline]
@@ -633,13 +771,20 @@ mod heap {
         slot.base_mut().tts_tableOid = rel.rd_id;
         let t_self = match slot {
             SlotData::Heap(h) => {
-                let tuple = h.tuple.as_mut().expect("materialized heap slot holds a tuple");
+                let tuple = h
+                    .tuple
+                    .as_mut()
+                    .expect("materialized heap slot holds a tuple");
                 tuple.t_tableOid = rel.rd_id;
                 ::heapam::heap_insert(rel, tuple, cid, options, bistate)?;
                 tuple.t_self
             }
             SlotData::BufferHeap(b) => {
-                let tuple = b.base.tuple.as_mut().expect("materialized heap slot holds a tuple");
+                let tuple = b
+                    .base
+                    .tuple
+                    .as_mut()
+                    .expect("materialized heap slot holds a tuple");
                 tuple.t_tableOid = rel.rd_id;
                 ::heapam::heap_insert(rel, tuple, cid, options, bistate)?;
                 tuple.t_self
@@ -669,22 +814,44 @@ mod heap {
         bistate: Option<&mut BulkInsertStateData>,
         spec_token: u32,
     ) -> PgResult<()> {
-        debug_assert!(bistate.is_none(), "GetBulkInsertState lane (COPY) not ported");
+        debug_assert!(
+            bistate.is_none(),
+            "GetBulkInsertState lane (COPY) not ported"
+        );
         exectuples::exec_materialize_slot(slot, mcx)?;
         slot.base_mut().tts_tableOid = rel.rd_id;
         let t_self = match slot {
             SlotData::Heap(h) => {
-                let tuple = h.tuple.as_mut().expect("materialized heap slot holds a tuple");
+                let tuple = h
+                    .tuple
+                    .as_mut()
+                    .expect("materialized heap slot holds a tuple");
                 tuple.t_tableOid = rel.rd_id;
                 tuple.t_data_mut().set_speculative_token(spec_token);
-                ::heapam::heap_insert(rel, tuple, cid, options | ::heapam::hio::HEAP_INSERT_SPECULATIVE, bistate)?;
+                ::heapam::heap_insert(
+                    rel,
+                    tuple,
+                    cid,
+                    options | ::heapam::hio::HEAP_INSERT_SPECULATIVE,
+                    bistate,
+                )?;
                 tuple.t_self
             }
             SlotData::BufferHeap(b) => {
-                let tuple = b.base.tuple.as_mut().expect("materialized heap slot holds a tuple");
+                let tuple = b
+                    .base
+                    .tuple
+                    .as_mut()
+                    .expect("materialized heap slot holds a tuple");
                 tuple.t_tableOid = rel.rd_id;
                 tuple.t_data_mut().set_speculative_token(spec_token);
-                ::heapam::heap_insert(rel, tuple, cid, options | ::heapam::hio::HEAP_INSERT_SPECULATIVE, bistate)?;
+                ::heapam::heap_insert(
+                    rel,
+                    tuple,
+                    cid,
+                    options | ::heapam::hio::HEAP_INSERT_SPECULATIVE,
+                    bistate,
+                )?;
                 tuple.t_self
             }
             // ExecFetchSlotHeapTuple copy arm (virtual/minimal source slots,
@@ -693,7 +860,13 @@ mod heap {
                 let mut tuple = exectuples::exec_copy_slot_heap_tuple(slot, mcx, mcx)?;
                 tuple.t_tableOid = rel.rd_id;
                 tuple.t_data_mut().set_speculative_token(spec_token);
-                ::heapam::heap_insert(rel, &mut tuple, cid, options | ::heapam::hio::HEAP_INSERT_SPECULATIVE, bistate)?;
+                ::heapam::heap_insert(
+                    rel,
+                    &mut tuple,
+                    cid,
+                    options | ::heapam::hio::HEAP_INSERT_SPECULATIVE,
+                    bistate,
+                )?;
                 tuple.t_self
             }
         };
@@ -740,7 +913,15 @@ mod heap {
         tmfd: &mut TM_FailureData,
         changing_part: bool,
     ) -> PgResult<TM_Result> {
-        ::heapam::heap_delete(rel, tid, cid, crosscheck.as_deref(), wait, tmfd, changing_part)
+        ::heapam::heap_delete(
+            rel,
+            tid,
+            cid,
+            crosscheck.as_deref(),
+            wait,
+            tmfd,
+            changing_part,
+        )
     }
 
     // heapam_tuple_update: the TU_* verdict passes through unfiltered.
@@ -819,7 +1000,16 @@ mod heap {
         tmfd: &mut TM_FailureData,
     ) -> PgResult<TM_Result> {
         ::heapam_handler::heapam_tuple_lock(
-            mcx, rel, tid, snapshot, slot, cid, mode, wait_policy, flags, tmfd,
+            mcx,
+            rel,
+            tid,
+            snapshot,
+            slot,
+            cid,
+            mode,
+            wait_policy,
+            flags,
+            tmfd,
         )
     }
 
@@ -830,12 +1020,10 @@ mod heap {
     ) -> PgResult<(TransactionId, TransactionId)> {
         let freeze_xid = procarray::RecentXmin();
         let min_multi = multixact::GetOldestMultiXactId()?;
-        let srel =
-            catalog_storage::RelationCreateStorage(*newrlocator, persistence as u8, true)?;
+        let srel = catalog_storage::RelationCreateStorage(*newrlocator, persistence as u8, true)?;
         if persistence as u8 == ::types_core::catalog::RELPERSISTENCE_UNLOGGED {
             debug_assert!(
-                rel.rd_rel.relkind == RELKIND_RELATION
-                    || rel.rd_rel.relkind == RELKIND_TOASTVALUE
+                rel.rd_rel.relkind == RELKIND_RELATION || rel.rd_rel.relkind == RELKIND_TOASTVALUE
             );
             smgr::smgrcreate(srel, ForkNumber::INIT_FORKNUM, false)?;
             catalog_storage::log_smgrcreate(newrlocator, ForkNumber::INIT_FORKNUM)?;
@@ -856,12 +1044,7 @@ mod heap {
         ::bufmgr_seams::flush_relation_buffers::call(src)?;
         let persistence = rel.rd_rel.relpersistence;
         let dstrel = catalog_storage::RelationCreateStorage(*newrlocator, persistence, true)?;
-        catalog_storage::RelationCopyStorage(
-            src,
-            dstrel,
-            ForkNumber::MAIN_FORKNUM,
-            persistence,
-        )?;
+        catalog_storage::RelationCopyStorage(src, dstrel, ForkNumber::MAIN_FORKNUM, persistence)?;
         for fork_i in ForkNumber::MAIN_FORKNUM as i32 + 1..=::types_core::MAX_FORKNUM as i32 {
             let fork = ForkNumber::from_i32(fork_i).expect("valid fork number");
             if smgr::smgrexists(src, fork)? {
@@ -885,7 +1068,7 @@ mod heap {
 
     pub(super) fn relation_needs_toast_table(rel: &Relation<'_>) -> bool {
         use ::types_tuple::tupmacs::att_nominal_alignby;
-        use ::types_tuple::{BITMAPLEN, MAXALIGN, SizeofHeapTupleHeader, TYPSTORAGE_PLAIN};
+        use ::types_tuple::{SizeofHeapTupleHeader, BITMAPLEN, MAXALIGN, TYPSTORAGE_PLAIN};
         const ATTRIBUTE_GENERATED_VIRTUAL: i8 = b'v' as i8;
 
         let tupdesc = &rel.rd_att;
@@ -966,7 +1149,10 @@ mod heap {
         deadrows: &mut f64,
         slot: &mut SlotData<'mcx>,
     ) -> PgResult<bool> {
-        let pin = scan.rs_cbuf.take().expect("analyze scan positioned without a buffer");
+        let pin = scan
+            .rs_cbuf
+            .take()
+            .expect("analyze scan positioned without a buffer");
         let rd_id = scan.rs_base.rs_rd.rd_id;
         let block = scan.rs_cblock;
         if scan.rs_ntuples == 0 && scan.rs_cindex == 0 {
@@ -1065,7 +1251,11 @@ mod heap {
                     )
                 }
             };
-            scan.rs_vistuples[n as usize] = if sample_it { offnum } else { offnum | ANALYZE_DEAD_ITEM };
+            scan.rs_vistuples[n as usize] = if sample_it {
+                offnum
+            } else {
+                offnum | ANALYZE_DEAD_ITEM
+            };
             n += 1;
             offnum += 1;
         }
@@ -1084,7 +1274,14 @@ mod heap {
         exact_pages: &mut u64,
     ) -> PgResult<bool> {
         heapam::bitmap::heap_scan_bitmap_next_tuple(
-            mcx, scan, tbm, iterator, slot, recheck, lossy_pages, exact_pages,
+            mcx,
+            scan,
+            tbm,
+            iterator,
+            slot,
+            recheck,
+            lossy_pages,
+            exact_pages,
         )
     }
 
@@ -1257,7 +1454,9 @@ pub fn table_beginscan_index_build<'mcx>(
 ) -> PgResult<TableScanDesc<'mcx>> {
     let mut flags = SO_TYPE_SEQSCAN | SO_ALLOW_STRAT | SO_ALLOW_PAGEMODE;
     match am(relation) {
-        TableAm::Heap => heap::scan_begin(mcx, relation, snapshot, 0, PgVec::new_in(mcx), None, flags),
+        TableAm::Heap => {
+            heap::scan_begin(mcx, relation, snapshot, 0, PgVec::new_in(mcx), None, flags)
+        }
         TableAm::Pgrcolumnar => {
             if snapshot.is_none() {
                 flags |= SO_PGRC_INDEX_BUILD;
@@ -1331,7 +1530,12 @@ pub fn table_beginscan_bm<'mcx>(
         TableAm::Pgrcolumnar => {
             ensure_pgrc_buffer_hooks();
             let source = ::pgrc_front::ixbitmap::begin(mcx, rel, snapshot.clone())?;
-            Ok(TableScanDesc::Pgrcolumnar(::pgrc_am::scan::PgrcScanDescData::begin_bitmap(cb2::scan_base(mcx, rel, snapshot, flags, None), Box::new(source))))
+            Ok(TableScanDesc::Pgrcolumnar(
+                ::pgrc_am::scan::PgrcScanDescData::begin_bitmap(
+                    cb2::scan_base(mcx, rel, snapshot, flags, None),
+                    Box::new(source),
+                ),
+            ))
         }
     }
 }
@@ -1348,12 +1552,25 @@ fn pgrc_bitmap_next_block(
 ) -> PgResult<Option<u32>> {
     let mut offsets = [0 as ::types_core::OffsetNumber; tidbitmap::TBM_MAX_TUPLES_PER_PAGE];
     let (blockno, lossy, page_recheck, noffsets) = {
-        let Some(tbmres) = iterator.next(tbm) else { return Ok(None) };
-        let n = if tbmres.lossy { 0 } else { tbmres.extract_page_tuples(&mut offsets).min(offsets.len()) };
+        let Some(tbmres) = iterator.next(tbm) else {
+            return Ok(None);
+        };
+        let n = if tbmres.lossy {
+            0
+        } else {
+            tbmres.extract_page_tuples(&mut offsets).min(offsets.len())
+        };
         (tbmres.blockno, tbmres.lossy, tbmres.recheck, n)
     };
     *recheck = page_recheck;
-    let n = source.stage(blockno, if lossy { None } else { Some(&offsets[..noffsets]) })?;
+    let n = source.stage(
+        blockno,
+        if lossy {
+            None
+        } else {
+            Some(&offsets[..noffsets])
+        },
+    )?;
     if lossy {
         *lossy_pages += 1;
     } else {
@@ -1393,7 +1610,9 @@ pub fn table_beginscan_sampling<'mcx>(
             let bound = ::pgrc_front::ixfetch::tid_bound(relation)?;
             let source = ::pgrc_front::ixbitmap::begin(mcx, relation, snapshot.clone())?;
             let base = cb2::scan_base(mcx, relation, snapshot, flags, None);
-            Ok(TableScanDesc::Pgrcolumnar(::pgrc_am::scan::PgrcScanDescData::begin_sample(base, Box::new(source), bound)))
+            Ok(TableScanDesc::Pgrcolumnar(
+                ::pgrc_am::scan::PgrcScanDescData::begin_sample(base, Box::new(source), bound),
+            ))
         }
     }
 }
@@ -1409,7 +1628,12 @@ pub fn table_beginscan_tid<'mcx>(
         // IX1 L0: each TID is fetched by the row ID it names; the IDs the counter has reserved bound the valid ones
         TableAm::Pgrcolumnar => {
             let high = ::pgrc_front::ixfetch::tid_bound(rel)?;
-            Ok(TableScanDesc::Pgrcolumnar(::pgrc_am::scan::PgrcScanDescData::begin_tid(cb2::scan_base(mcx, rel, snapshot, flags, None), high)))
+            Ok(TableScanDesc::Pgrcolumnar(
+                ::pgrc_am::scan::PgrcScanDescData::begin_tid(
+                    cb2::scan_base(mcx, rel, snapshot, flags, None),
+                    high,
+                ),
+            ))
         }
     }
 }
@@ -1471,7 +1695,10 @@ pub fn pgrc_footer_codecs(rel: &Relation<'_>) -> PgResult<Option<PgrcCodecFacts>
 
 // IXPLAN-1 (2): per unsealed front segment, (heap blocks now, relpages, reltuples): the planner estimates the
 // front's rows from them as it estimates a heap's. Empty while the table has no committed publish.
-pub fn pgrc_front_shapes<'mcx>(mcx: ::mcx::Mcx<'mcx>, rel: &Relation<'mcx>) -> PgResult<Vec<(u64, i32, f64)>> {
+pub fn pgrc_front_shapes<'mcx>(
+    mcx: ::mcx::Mcx<'mcx>,
+    rel: &Relation<'mcx>,
+) -> PgResult<Vec<(u64, i32, f64)>> {
     ::pgrc_front::ring::unsealed_shapes(mcx, rel)
 }
 
@@ -1481,7 +1708,10 @@ pub fn pgrc_front_shapes<'mcx>(mcx: ::mcx::Mcx<'mcx>, rel: &Relation<'mcx>) -> P
 // paths); None without a committed publish or when the column carries no
 // word zone key.
 pub use ::pgrc_am::footer::ZoneColumn as PgrcZoneColumn;
-pub fn pgrc_footer_zone_column(rel: &Relation<'_>, attno: u32) -> PgResult<Option<std::sync::Arc<PgrcZoneColumn>>> {
+pub fn pgrc_footer_zone_column(
+    rel: &Relation<'_>,
+    attno: u32,
+) -> PgResult<Option<std::sync::Arc<PgrcZoneColumn>>> {
     ::pgrc_am::footer::footer_zone_column(rel, attno)
 }
 
@@ -1530,7 +1760,9 @@ pub fn pgrc_analyze_fold(mcx: Mcx<'_>, rel: &Relation<'_>) -> PgResult<PgrcAnaly
         declined => return Ok(declined),
     };
     // heap rows per block at the folded width (a tuple header, its line pointer); a tombstone is a header and an ident
-    let per_block = |width: f64| (::types_core::BLCKSZ as f64 - 24.0) / (((24.0 + width) / 8.0).ceil() * 8.0 + 4.0);
+    let per_block = |width: f64| {
+        (::types_core::BLCKSZ as f64 - 24.0) / (((24.0 + width) / 8.0).ceil() * 8.0 + 4.0)
+    };
     let width: f64 = fold.cols.iter().map(|c| c.stat.stawidth).sum();
     let front_rows = seg_blocks as f64 * per_block(width);
     let deleted_rows = tomb_blocks as f64 * per_block(16.0);
@@ -1579,7 +1811,11 @@ pub fn pgrc_analyze_total_rows<'mcx>(
 
 /// The sampler's two passes: the ctid positions of the live rows at stream ordinals `ords` (ascending; no column
 /// decodes), then each kept row by its position.
-pub fn pgrc_analyze_live_positions(scan: &mut TableScanDesc<'_>, ords: &[u64], out: &mut Vec<u64>) -> PgResult<()> {
+pub fn pgrc_analyze_live_positions(
+    scan: &mut TableScanDesc<'_>,
+    ords: &[u64],
+    out: &mut Vec<u64>,
+) -> PgResult<()> {
     match scan {
         TableScanDesc::Pgrcolumnar(c) => c.live_positions(ords, out),
         TableScanDesc::Heap(_) => panic!("pgrc_analyze_live_positions: heap scan"),
@@ -1659,7 +1895,10 @@ pub fn pgrc_footer_size(rel: &Relation<'_>) -> PgResult<Option<(u64, u64)>> {
 
 // `sorted_by` (pgrc_am::reloptions): DDL's per-column verdict, the
 // ALTER SET emptiness gate, and the planner's claimable key.
-pub fn pgrc_sorted_by_column_sortable(atts: &[types_tuple::FormData_pg_attribute], col: &str) -> Option<bool> {
+pub fn pgrc_sorted_by_column_sortable(
+    atts: &[types_tuple::FormData_pg_attribute],
+    col: &str,
+) -> Option<bool> {
     ::pgrc_am::reloptions::column_sortable(atts, col)
 }
 
@@ -1675,7 +1914,10 @@ pub use ::pgrc_am::schema::ColumnsVerdict as PgrcColumnsVerdict;
 /// What ALTER does to `rel`'s stored columns, which were `old`'s (F1 L5; FASTADD, pgrc-plans/FASTADD.done): nothing
 /// for a table that is not pgrcolumnar or whose stored columns did not change; metadata-only for added and dropped
 /// columns; the rewrite for a changed one. An unsupported new column type refuses here.
-pub fn pgrc_columns_verdict(rel: &Relation<'_>, old: &types_tuple::tupdesc::TupleDescData<'_>) -> PgResult<PgrcColumnsVerdict> {
+pub fn pgrc_columns_verdict(
+    rel: &Relation<'_>,
+    old: &types_tuple::tupdesc::TupleDescData<'_>,
+) -> PgResult<PgrcColumnsVerdict> {
     if am(rel) != TableAm::Pgrcolumnar {
         return Ok(PgrcColumnsVerdict::Same);
     }
@@ -1893,11 +2135,7 @@ pub fn table_scan_cb_set_granule_range(
 /// one row group — the runtime clamps claims to the boundaries
 /// `table_scan_cb_granule_geometry` reports) or heap blocks (any contiguous
 /// in-relation range; heap reports no interior boundaries).
-pub fn table_scan_set_morsel_range(
-    scan: &mut TableScanDesc<'_>,
-    g0: u64,
-    g1: u64,
-) -> PgResult<()> {
+pub fn table_scan_set_morsel_range(scan: &mut TableScanDesc<'_>, g0: u64, g1: u64) -> PgResult<()> {
     match scan {
         TableScanDesc::Heap(h) => ::heapam::heap_set_block_range(h, g0, g1),
         // The runtime morsel drive never engages here (geometry above
@@ -2023,7 +2261,6 @@ pub fn table_scan_cb_ea_counters(scan: &TableScanDesc<'_>) -> Option<[u64; 7]> {
     match scan {
         TableScanDesc::Heap(_) => None,
         TableScanDesc::Pgrcolumnar(_) => None,
-
     }
 }
 
@@ -2127,10 +2364,7 @@ pub fn table_scan_update_scan_bound(scan: &mut TableScanDesc<'_>, _key: ::datum:
 
 /// Footer value min/max covering every row of the staged window (pgrcolumnar
 /// granule zone entry; int-family columns only). None = no zone metadata.
-pub fn table_scan_window_value_minmax(
-    scan: &TableScanDesc<'_>,
-    _col: usize,
-) -> Option<(i64, i64)> {
+pub fn table_scan_window_value_minmax(scan: &TableScanDesc<'_>, _col: usize) -> Option<(i64, i64)> {
     match scan {
         TableScanDesc::Heap(_) => None,
         TableScanDesc::Pgrcolumnar(_) => None,
@@ -2250,7 +2484,7 @@ pub struct MetaZeroQual {
 
 /// Metadata MIN/MAX/COUNT/SUM answer (pgrcolumnar zone maps + footer row counts
 /// + footer sums; `zq` = the v7 zero-count qual arm); None = the AM has no
-/// exact metadata answer for these columns.
+///   exact metadata answer for these columns.
 pub fn table_scan_meta_agg(
     scan: &TableScanDesc<'_>,
     _cols: &[u16],
@@ -2266,10 +2500,7 @@ pub fn table_scan_meta_agg(
 /// Compressed-domain constant-fold of `q` against the currently staged
 /// pgrcolumnar granule (int/date/timestamp). Heap has no granule metadata, so
 /// its verdict is always Mixed (the staged drive is pgrcolumnar-only anyway).
-pub fn table_scan_staged_granule_verdict(
-    scan: &TableScanDesc<'_>,
-    _q: &ZoneQual,
-) -> ZoneVerdict {
+pub fn table_scan_staged_granule_verdict(scan: &TableScanDesc<'_>, _q: &ZoneQual) -> ZoneVerdict {
     match scan {
         TableScanDesc::Heap(_) => ZoneVerdict::Mixed,
         TableScanDesc::Pgrcolumnar(_) => ZoneVerdict::Mixed,
@@ -2314,11 +2545,8 @@ pub fn table_scan_condcache_fold_stats(scan: &mut TableScanDesc<'_>) {
     }
 }
 
-
-
 /// Condition-cache cumulative counters (hits, misses, insertions,
 /// evictions) — the lane stats dump's source.
-
 /// Page-batch scan feed (upstream batch scan API, CF 6176): 0 = exhausted.
 pub fn table_scan_getnextpagebatch<'mcx>(scan: &mut TableScanDesc<'mcx>) -> PgResult<u32> {
     match scan {
@@ -2389,9 +2617,7 @@ pub fn table_scan_batch_complete_deform<'mcx>(
     sel: &[u64],
 ) {
     match scan {
-        TableScanDesc::Heap(h) => {
-            ::heapam::heap_batch_complete_deform_soa(h, plan, soa, cols, sel)
-        }
+        TableScanDesc::Heap(h) => ::heapam::heap_batch_complete_deform_soa(h, plan, soa, cols, sel),
         TableScanDesc::Pgrcolumnar(_) => {}
     }
 }
@@ -2529,12 +2755,28 @@ pub fn table_scan_bitmap_next_pagebatch<'mcx>(
 ) -> PgResult<u32> {
     match scan {
         TableScanDesc::Heap(h) => ::heapam::bitmap::heap_scan_bitmap_next_pagebatch(
-            mcx, h, tbm, iterator, recheck, lossy_pages, exact_pages,
+            mcx,
+            h,
+            tbm,
+            iterator,
+            recheck,
+            lossy_pages,
+            exact_pages,
         ),
         TableScanDesc::Pgrcolumnar(c) => {
-            let source = c.bitmap.as_deref_mut().ok_or_else(|| cb2_refused("bitmap scans"))?;
+            let source = c
+                .bitmap
+                .as_deref_mut()
+                .ok_or_else(|| cb2_refused("bitmap scans"))?;
             loop {
-                match pgrc_bitmap_next_block(source, tbm, iterator, recheck, lossy_pages, exact_pages)? {
+                match pgrc_bitmap_next_block(
+                    source,
+                    tbm,
+                    iterator,
+                    recheck,
+                    lossy_pages,
+                    exact_pages,
+                )? {
                     None => return Ok(0),
                     Some(0) => continue,
                     Some(n) => return Ok(n),
@@ -2557,7 +2799,11 @@ pub fn table_scan_bitmap_batch_store_slot<'mcx>(
             ::heapam::bitmap::heap_scan_bitmap_batch_store(mcx, h, i, slot);
             Ok(())
         }
-        TableScanDesc::Pgrcolumnar(c) => c.bitmap.as_deref_mut().ok_or_else(|| cb2_refused("bitmap scans"))?.store(mcx, i, slot),
+        TableScanDesc::Pgrcolumnar(c) => c
+            .bitmap
+            .as_deref_mut()
+            .ok_or_else(|| cb2_refused("bitmap scans"))?
+            .store(mcx, i, slot),
     }
 }
 
@@ -2623,12 +2869,10 @@ pub struct ParallelTableScanDescShared {
     pub snapshot: Option<::snapmgr::SerializedSnapshot>,
 }
 
-pub fn table_parallelscan_estimate(
-    rel: &Relation<'_>,
-    snapshot: &Snapshot<'_>,
-) -> PgResult<usize> {
+pub fn table_parallelscan_estimate(rel: &Relation<'_>, snapshot: &Snapshot<'_>) -> PgResult<usize> {
     let mut sz: usize = 0;
 
+    #[allow(clippy::single_match)]
     match snapshot {
         // EstimateSnapshotSpace adds nothing: the snapshot crosses typed.
         Some(s) => debug_assert!(IsMVCCSnapshot(s)),
@@ -2637,9 +2881,7 @@ pub fn table_parallelscan_estimate(
 
     let am_sz = match am(rel) {
         TableAm::Heap => heap::parallelscan_estimate(rel),
-        TableAm::Pgrcolumnar => {
-            std::mem::size_of::<ParallelBlockTableScanDescData>()
-        }
+        TableAm::Pgrcolumnar => std::mem::size_of::<ParallelBlockTableScanDescData>(),
     };
     sz = mcx::add_size(sz, am_sz)?;
 
@@ -2672,10 +2914,7 @@ pub fn table_parallelscan_initialize(
     Ok(())
 }
 
-pub fn table_parallelscan_reinitialize(
-    rel: &Relation<'_>,
-    pscan: &ParallelBlockTableScanDescData,
-) {
+pub fn table_parallelscan_reinitialize(rel: &Relation<'_>, pscan: &ParallelBlockTableScanDescData) {
     match am(rel) {
         TableAm::Heap => heap::parallelscan_reinitialize(rel, pscan),
         TableAm::Pgrcolumnar => columnar_parallelscan_reinitialize(pscan),
@@ -2739,12 +2978,14 @@ pub fn table_beginscan_parallel<'mcx>(
 
 pub fn table_index_fetch_begin<'mcx>(rel: &Relation<'mcx>) -> PgResult<IndexFetchTableData<'mcx>> {
     match am(rel) {
-        TableAm::Heap => {
-            Ok(IndexFetchTableData::Heap(::heapam_handler::heapam_index_fetch_begin(rel)))
-        }
+        TableAm::Heap => Ok(IndexFetchTableData::Heap(
+            ::heapam_handler::heapam_index_fetch_begin(rel),
+        )),
         TableAm::Pgrcolumnar => {
             ensure_pgrc_buffer_hooks();
-            Ok(IndexFetchTableData::Pgrc(Box::new(::pgrc_front::ixfetch::begin(rel))))
+            Ok(IndexFetchTableData::Pgrc(Box::new(
+                ::pgrc_front::ixfetch::begin(rel),
+            )))
         }
     }
 }
@@ -2757,7 +2998,11 @@ pub fn table_index_fetch_reads_pages(scan: &IndexFetchTableData<'_>) -> bool {
 
 /// IX1 L0 (choice 5): whether an index-only scan may skip the fetch of `tid` of `rel` (heap: its page is all-visible
 /// in the visibility map, `vm_all_visible`). No pgrcolumnar row is known all-visible: every one is fetched.
-pub fn table_index_fetch_all_visible(rel: &Relation<'_>, tid: &ItemPointerData, vm_all_visible: impl FnOnce(BlockNumber) -> PgResult<bool>) -> PgResult<bool> {
+pub fn table_index_fetch_all_visible(
+    rel: &Relation<'_>,
+    tid: &ItemPointerData,
+    vm_all_visible: impl FnOnce(BlockNumber) -> PgResult<bool>,
+) -> PgResult<bool> {
     match am(rel) {
         TableAm::Heap => vm_all_visible(ItemPointerGetBlockNumber(tid)),
         TableAm::Pgrcolumnar => Ok(false),
@@ -2796,7 +3041,9 @@ pub fn table_index_fetch_tuple<'mcx>(
         IndexFetchTableData::Heap(h) => ::heapam_handler::heapam_index_fetch_tuple(
             mcx, h, tid, snapshot, slot, call_again, all_dead,
         ),
-        IndexFetchTableData::Pgrc(p) => ::pgrc_front::ixfetch::fetch(mcx, p, tid, snapshot, slot, call_again, all_dead),
+        IndexFetchTableData::Pgrc(p) => {
+            ::pgrc_front::ixfetch::fetch(mcx, p, tid, snapshot, slot, call_again, all_dead)
+        }
     }
 }
 
@@ -2887,16 +3134,18 @@ pub fn table_tuple_fetch_row_version<'mcx>(
         ));
     }
     match am(rel) {
-        TableAm::Heap => {
-            ::heapam_handler::heapam_fetch_row_version(mcx, rel, tid, snapshot, slot)
-        }
+        TableAm::Heap => ::heapam_handler::heapam_fetch_row_version(mcx, rel, tid, snapshot, slot),
         TableAm::Pgrcolumnar => ::pgrc_front::dml::fetch(mcx, rel, tid, snapshot, slot),
     }
 }
 
 /// TRIGGERS: the stable identity of a pgrcolumnar row at a position its statement minted (`None`: another AM, whose
 /// row positions outlive the statement). A deferrable AFTER row trigger event keeps it to fetch the row at COMMIT.
-pub fn table_tuple_stable_ident<'mcx>(mcx: Mcx<'mcx>, rel: &Relation<'mcx>, tid: &ItemPointerData) -> PgResult<Option<u64>> {
+pub fn table_tuple_stable_ident<'mcx>(
+    mcx: Mcx<'mcx>,
+    rel: &Relation<'mcx>,
+    tid: &ItemPointerData,
+) -> PgResult<Option<u64>> {
     match am(rel) {
         TableAm::Pgrcolumnar => ::pgrc_front::dml::rowident_of(mcx, rel, tid).map(Some),
         TableAm::Heap => Ok(None),
@@ -2905,10 +3154,17 @@ pub fn table_tuple_stable_ident<'mcx>(mcx: Mcx<'mcx>, rel: &Relation<'mcx>, tid:
 
 /// TRIGGERS: [`table_tuple_fetch_row_version`] under `SnapshotAny` by the identity [`table_tuple_stable_ident`]
 /// returned; `false`: no such row.
-pub fn table_tuple_fetch_stable_ident<'mcx>(mcx: Mcx<'mcx>, rel: &Relation<'mcx>, ident: u64, slot: &mut SlotData<'mcx>) -> PgResult<bool> {
+pub fn table_tuple_fetch_stable_ident<'mcx>(
+    mcx: Mcx<'mcx>,
+    rel: &Relation<'mcx>,
+    ident: u64,
+    slot: &mut SlotData<'mcx>,
+) -> PgResult<bool> {
     match am(rel) {
         TableAm::Pgrcolumnar => ::pgrc_front::fetch::fetch_rowident(mcx, rel, ident, slot),
-        TableAm::Heap => Err(elog_error("table_tuple_fetch_stable_ident: the table access method has no stable row identities")),
+        TableAm::Heap => Err(elog_error(
+            "table_tuple_fetch_stable_ident: the table access method has no stable row identities",
+        )),
     }
 }
 
@@ -2929,7 +3185,10 @@ pub fn table_tuple_tid_valid(scan: &mut TableScanDesc<'_>, tid: &ItemPointerData
     match scan {
         TableScanDesc::Heap(h) => ::heapam_handler::heapam_tuple_tid_valid(h, tid),
         // IX1 L0: a TID that names a row ID the counter reserved before the scan began
-        TableScanDesc::Pgrcolumnar(c) => c.tid_valid(ItemPointerGetBlockNumberNoCheck(tid), ItemPointerGetOffsetNumberNoCheck(tid)),
+        TableScanDesc::Pgrcolumnar(c) => c.tid_valid(
+            ItemPointerGetBlockNumberNoCheck(tid),
+            ItemPointerGetOffsetNumberNoCheck(tid),
+        ),
     }
 }
 
@@ -2998,7 +3257,10 @@ fn ensure_pgrc_buffer_hooks() {
     });
 }
 
-fn pgrc_buffer_xact_callback(event: ::types_core::xact::XactEvent, _arg: ::datum::Datum) -> PgResult<()> {
+fn pgrc_buffer_xact_callback(
+    event: ::types_core::xact::XactEvent,
+    _arg: ::datum::Datum,
+) -> PgResult<()> {
     use ::types_core::xact::XactEvent::*;
     match event {
         XACT_EVENT_PRE_COMMIT | XACT_EVENT_PARALLEL_PRE_COMMIT | XACT_EVENT_PRE_PREPARE => match ::pgrc_front::xact::pending() {
@@ -3167,7 +3429,9 @@ pub fn table_tuple_delete<'mcx>(
             tmfd,
             changingPart,
         ),
-        TableAm::Pgrcolumnar => ::pgrc_front::dml::delete(mcx, rel, tid, cid, snapshot, wait, tmfd, changingPart),
+        TableAm::Pgrcolumnar => {
+            ::pgrc_front::dml::delete(mcx, rel, tid, cid, snapshot, wait, tmfd, changingPart)
+        }
     }
 }
 
@@ -3233,7 +3497,18 @@ pub fn table_tuple_lock<'mcx>(
             flags,
             tmfd,
         ),
-        TableAm::Pgrcolumnar => ::pgrc_front::dml::lock(mcx, rel, tid, snapshot, slot, cid, mode, wait_policy, flags, tmfd),
+        TableAm::Pgrcolumnar => ::pgrc_front::dml::lock(
+            mcx,
+            rel,
+            tid,
+            snapshot,
+            slot,
+            cid,
+            mode,
+            wait_policy,
+            flags,
+            tmfd,
+        ),
     }
 }
 
@@ -3247,9 +3522,7 @@ pub fn table_relation_set_new_filelocator(
     match am(rel) {
         // Storage create/reset is AM-independent (main fork file); pgrcolumnar
         // reuses the heap arm — an empty file is a valid empty part.
-        TableAm::Heap => {
-            heap::relation_set_new_filelocator(rel, newrlocator, relpersistence)
-        }
+        TableAm::Heap => heap::relation_set_new_filelocator(rel, newrlocator, relpersistence),
         // pgrcolumnar: the (empty) main fork rides the heap arm and the table directory is
         // created beside it, logged like the fork (a temp relation logs neither). The old
         // locator's directory goes with its fork (catalog_storage).
@@ -3314,9 +3587,7 @@ pub fn table_relation_size(rel: &Relation<'_>, forkNumber: ForkNumber) -> PgResu
     match am(rel) {
         // pgrcolumnar's main fork is an empty file: relation_size 0 keeps
         // the planner honest about pages (row counts come from ANALYZE).
-        TableAm::Heap | TableAm::Pgrcolumnar => {
-            heap::relation_size(rel, forkNumber)
-        }
+        TableAm::Heap | TableAm::Pgrcolumnar => heap::relation_size(rel, forkNumber),
     }
 }
 
@@ -3363,17 +3634,29 @@ pub fn table_scan_bitmap_next_tuple<'mcx>(
     exact_pages: &mut u64,
 ) -> PgResult<bool> {
     match scan {
-        TableScanDesc::Heap(h) => {
-            heap::scan_bitmap_next_tuple(mcx, h, tbm, iterator, slot, recheck, lossy_pages, exact_pages)
-        }
+        TableScanDesc::Heap(h) => heap::scan_bitmap_next_tuple(
+            mcx,
+            h,
+            tbm,
+            iterator,
+            slot,
+            recheck,
+            lossy_pages,
+            exact_pages,
+        ),
         // IX1 L4: the staged page's next row, else the next page's
         TableScanDesc::Pgrcolumnar(c) => {
-            let source = c.bitmap.as_deref_mut().ok_or_else(|| cb2_refused("bitmap scans"))?;
+            let source = c
+                .bitmap
+                .as_deref_mut()
+                .ok_or_else(|| cb2_refused("bitmap scans"))?;
             loop {
                 if source.next(mcx, slot)? {
                     return Ok(true);
                 }
-                if pgrc_bitmap_next_block(source, tbm, iterator, recheck, lossy_pages, exact_pages)?.is_none() {
+                if pgrc_bitmap_next_block(source, tbm, iterator, recheck, lossy_pages, exact_pages)?
+                    .is_none()
+                {
                     return Ok(false);
                 }
             }
@@ -3411,9 +3694,7 @@ pub fn table_scan_sample_next_tuple<'mcx>(
         ));
     }
     match scan {
-        TableScanDesc::Heap(h) => {
-            heap::scan_sample_next_tuple(mcx, h, scanstate, donetuples, slot)
-        }
+        TableScanDesc::Heap(h) => heap::scan_sample_next_tuple(mcx, h, scanstate, donetuples, slot),
         TableScanDesc::Pgrcolumnar(c) => c.sample_next_tuple(mcx, scanstate, donetuples, slot),
     }
 }
@@ -3504,9 +3785,9 @@ pub fn table_block_parallelscan_initialize(
     rel: &Relation<'_>,
     pscan: &mut ParallelBlockTableScanDescData,
 ) -> PgResult<usize> {
-    use core::sync::atomic::{AtomicU32, AtomicU64};
     use ::types_core::primitive::InvalidBlockNumber;
     use ::types_storage::Spinlock;
+    use core::sync::atomic::{AtomicU32, AtomicU64};
 
     pscan.phs_locator = relation_locator(rel);
     let phs_nblocks = relation_nblocks(rel)?;
@@ -3703,5 +3984,7 @@ fn relation_nblocks(rel: &Relation<'_>) -> PgResult<BlockNumber> {
 }
 
 fn nbuffers() -> PgResult<i32> {
-    Ok(bufmgr_seams::active_buffers_or(init_small::globals::NBuffers()))
+    Ok(bufmgr_seams::active_buffers_or(
+        init_small::globals::NBuffers(),
+    ))
 }

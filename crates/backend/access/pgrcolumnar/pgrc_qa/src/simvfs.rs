@@ -399,7 +399,10 @@ impl WriteVfs for SimVfs {
             errno: libc::ENOENT,
         })?;
         // rename(2): two names of one inode stay as they are.
-        if d.cur.get(fname).is_some_and(|a| d.cur.get(tname) == Some(a)) {
+        if d.cur
+            .get(fname)
+            .is_some_and(|a| d.cur.get(tname) == Some(a))
+        {
             return Ok(());
         }
         let ino = d.cur.remove(fname).ok_or(WriteError::Io {
@@ -470,22 +473,46 @@ impl WriteVfs for SimVfs {
     }
 
     fn link_count(&mut self, path: &str) -> WriteResult<u64> {
-        let ino = self.ino_of(path)?.ok_or(WriteError::Io { op: "stat", path: path.to_string(), errno: libc::ENOENT })?;
-        Ok(self.dirs.values().flat_map(|d| d.cur.values()).filter(|&&i| i == ino).count() as u64)
+        let ino = self.ino_of(path)?.ok_or(WriteError::Io {
+            op: "stat",
+            path: path.to_string(),
+            errno: libc::ENOENT,
+        })?;
+        Ok(self
+            .dirs
+            .values()
+            .flat_map(|d| d.cur.values())
+            .filter(|&&i| i == ino)
+            .count() as u64)
     }
 
     /// vfs contract v2 `link`: a second dirent on the inode, pending in the TARGET directory until its
     /// `fsync_dir` (the dirent law); the file lives while any durable name does.
     fn link_path(&mut self, from: &str, to: &str) -> WriteResult<()> {
         self.tick(format!("link {from} -> {to}"))?;
-        let ino = self.ino_of(from)?.ok_or(WriteError::Io { op: "link", path: from.to_string(), errno: libc::ENOENT })?;
+        let ino = self.ino_of(from)?.ok_or(WriteError::Io {
+            op: "link",
+            path: from.to_string(),
+            errno: libc::ENOENT,
+        })?;
         let (tdir, tname) = split_path(to)?;
-        let d = self.dirs.get_mut(tdir).ok_or(WriteError::Io { op: "link", path: to.to_string(), errno: libc::ENOENT })?;
+        let d = self.dirs.get_mut(tdir).ok_or(WriteError::Io {
+            op: "link",
+            path: to.to_string(),
+            errno: libc::ENOENT,
+        })?;
         if d.cur.contains_key(tname) {
-            return Err(WriteError::Io { op: "link", path: to.to_string(), errno: libc::EEXIST });
+            return Err(WriteError::Io {
+                op: "link",
+                path: to.to_string(),
+                errno: libc::EEXIST,
+            });
         }
         d.cur.insert(tname.to_string(), ino);
-        d.pending.push(NsOp::Link { name: tname.to_string(), ino });
+        d.pending.push(NsOp::Link {
+            name: tname.to_string(),
+            ino,
+        });
         Ok(())
     }
 }

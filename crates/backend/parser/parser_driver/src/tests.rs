@@ -5,14 +5,14 @@ use crate::{check_uescapechar, str_udeescape, UdeescapeError, UdeescapeFailure};
 
 fn de(s: &[u8], escape: u8) -> Result<alloc::vec::Vec<u8>, UdeescapeError> {
     let ctx = MemoryContext::new("t");
-    str_udeescape(ctx.mcx(), s, escape, 0, PG_UTF8).map(|v| v[..].to_vec()).map_err(
-        |e| match e {
+    str_udeescape(ctx.mcx(), s, escape, 0, PG_UTF8)
+        .map(|v| v[..].to_vec())
+        .map_err(|e| match e {
             UdeescapeFailure::Escape(e) => e,
             UdeescapeFailure::Hard { error, .. } => {
                 panic!("unexpected hard failure: {}", error.message())
             }
-        },
-    )
+        })
 }
 
 #[test]
@@ -34,14 +34,20 @@ fn four_and_six_digit_escapes() {
 fn surrogate_pairs_combine() {
     // U+1D5B4 as UTF-16 pair D835/DDB4, in both escape widths.
     assert_eq!(de(br"\d835\ddb4", b'\\').unwrap(), "\u{1D5B4}".as_bytes());
-    assert_eq!(de(br"\d835\+00ddb4", b'\\').unwrap(), "\u{1D5B4}".as_bytes());
+    assert_eq!(
+        de(br"\d835\+00ddb4", b'\\').unwrap(),
+        "\u{1D5B4}".as_bytes()
+    );
 }
 
 #[test]
 fn invalid_escape_reports_hint_and_location() {
     let err = de(br"ab\00zz", b'\\').unwrap_err();
     assert_eq!(err.message, "invalid Unicode escape");
-    assert_eq!(err.hint, Some("Unicode escapes must be \\XXXX or \\+XXXXXX."));
+    assert_eq!(
+        err.hint,
+        Some("Unicode escapes must be \\XXXX or \\+XXXXXX.")
+    );
     // in - str + position + 3, position = 0.
     assert_eq!(err.location, 2 + 3);
 }
@@ -59,7 +65,10 @@ fn invalid_value_and_pairs() {
         br"\d835\\",               // pair first + doubled escape
     ] {
         let err = de(bad, b'\\').unwrap_err();
-        assert_eq!(err.message, "invalid Unicode surrogate pair", "input {bad:?}");
+        assert_eq!(
+            err.message, "invalid Unicode surrogate pair",
+            "input {bad:?}"
+        );
     }
 }
 
@@ -94,9 +103,13 @@ fn raw_parser_parses_select_1() {
 #[test]
 fn raw_parser_type_name_mode_is_a_catchable_error_not_a_panic() {
     let ctx = MemoryContext::new("t");
-    let err = crate::raw_parser(ctx.mcx(), "int", parser_seams::RawParseMode::RAW_PARSE_TYPE_NAME)
-        .err()
-        .expect("TYPE_NAME through the RawStmt seam is an error");
+    let err = crate::raw_parser(
+        ctx.mcx(),
+        "int",
+        parser_seams::RawParseMode::RAW_PARSE_TYPE_NAME,
+    )
+    .err()
+    .expect("TYPE_NAME through the RawStmt seam is an error");
     assert_eq!(err.sqlstate(), types_error::ERRCODE_INTERNAL_ERROR);
     assert_eq!(err.message(), "unexpected node type: T_TypeName");
 }
@@ -148,7 +161,10 @@ fn base_yylex_lookahead_merges_are_reached_through_raw_parser() {
     )
     .err()
     .unwrap();
-    assert_eq!(err.message(), "invalid Unicode escape character at or near \"'+'\"");
+    assert_eq!(
+        err.message(),
+        "invalid Unicode escape character at or near \"'+'\""
+    );
     assert_eq!(err.cursor_position(), Some(26));
     let err = crate::raw_parser(
         mcx,
@@ -157,5 +173,8 @@ fn base_yylex_lookahead_merges_are_reached_through_raw_parser() {
     )
     .err()
     .unwrap();
-    assert_eq!(err.message(), "UESCAPE must be followed by a simple string literal at or near \"1\"");
+    assert_eq!(
+        err.message(),
+        "UESCAPE must be followed by a simple string literal at or near \"1\""
+    );
 }

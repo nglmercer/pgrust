@@ -29,7 +29,7 @@ pub(super) fn setup() {
 fn flat_doc(i: u64) -> String {
     format!(
         r#"{{"active":{},"id":{},"name":"tok{}","score":{}.25}}"#,
-        i % 2 == 0,
+        i.is_multiple_of(2),
         i & 0x7FFF_FFFF,
         i % 97,
         i % 1000
@@ -145,14 +145,26 @@ fn flat_homogeneous_jsonb_records_the_shred_election_with_real_lanes() {
     // lanes ("name" text, "active" bool) never set the flag.
     use pgrc_format::part::STREAMF_LANE_SCALE;
     let (id_lane, _) = pv.stream(1, 1, StreamRole::Values).expect("id lane");
-    assert_ne!(id_lane.flags & STREAMF_LANE_SCALE, 0, "id lane carries the slot");
+    assert_ne!(
+        id_lane.flags & STREAMF_LANE_SCALE,
+        0,
+        "id lane carries the slot"
+    );
     assert_eq!(id_lane.aux32, 0, "id lane scale 0 (the int class)");
     let (score_lane, _) = pv.stream(1, 3, StreamRole::Values).expect("score lane");
-    assert_ne!(score_lane.flags & STREAMF_LANE_SCALE, 0, "score lane carries the slot");
+    assert_ne!(
+        score_lane.flags & STREAMF_LANE_SCALE,
+        0,
+        "score lane carries the slot"
+    );
     assert_eq!(score_lane.aux32, 2, "score lane scale 2");
     for ord in [2u32, 4] {
         let (l, _) = pv.stream(1, ord, StreamRole::Values).expect("lane");
-        assert_eq!(l.flags & STREAMF_LANE_SCALE, 0, "non-numeric lane {ord} flagless");
+        assert_eq!(
+            l.flags & STREAMF_LANE_SCALE,
+            0,
+            "non-numeric lane {ord} flagless"
+        );
     }
     // The IMAGE lane keeps its ordinary text-plane encoding ON DISK — the
     // structural id never lands in a stream entry (spec §4).
@@ -195,8 +207,7 @@ fn flat_homogeneous_jsonb_records_the_shred_election_with_real_lanes() {
                     let d = datums[r];
                     let hdr = u32::from_le_bytes(unsafe { *(d as *const [u8; 4]) });
                     let total = (hdr >> 2) as usize;
-                    let got =
-                        unsafe { std::slice::from_raw_parts(d as *const u8, total) };
+                    let got = unsafe { std::slice::from_raw_parts(d as *const u8, total) };
                     assert_eq!(got, img.as_slice(), "row {row} image byte-exact");
                 }
             }
@@ -247,10 +258,10 @@ fn parallel_jsonb_shred_parts_byte_identical_to_serial() {
     setup();
     const CHUNK: u32 = 128;
     const N: u64 = 600; // 4 full chunks + tail; max_rows 256 ⇒ 3 parts
-    // The #560 partition law: chunk grain == cut granule (the engine
-    // refuses anything else), and the SERIAL side must run the same policy
-    // for the partitions to coincide. 3 parts ⇒ the provider mints a fresh
-    // source per part-assembly task, non-vacuously.
+                        // The #560 partition law: chunk grain == cut granule (the engine
+                        // refuses anything else), and the SERIAL side must run the same policy
+                        // for the partitions to coincide. 3 parts ⇒ the provider mints a fresh
+                        // source per part-assembly task, non-vacuously.
     let policy = crate::writer::PartCutPolicy {
         max_rows: 256,
         max_bytes: u64::MAX,
@@ -308,7 +319,10 @@ fn parallel_jsonb_shred_parts_byte_identical_to_serial() {
     let serial: Vec<Vec<u8>> = w
         .sealed_parts()
         .iter()
-        .map(|p| vfs.read_full(&format!("{DIR}/{}", p.tmp_name)).expect("serial tmp"))
+        .map(|p| {
+            vfs.read_full(&format!("{DIR}/{}", p.tmp_name))
+                .expect("serial tmp")
+        })
         .collect();
 
     // Parallel: the SAME source minted per part-assembly task through the
@@ -347,7 +361,10 @@ fn parallel_jsonb_shred_parts_byte_identical_to_serial() {
         };
         cur.push_row(&[d]).expect("capture");
         if cur.rows() >= CHUNK {
-            chunks.push(std::mem::replace(&mut cur, crate::par::RowChunk::new(1, CHUNK)));
+            chunks.push(std::mem::replace(
+                &mut cur,
+                crate::par::RowChunk::new(1, CHUNK),
+            ));
         }
     }
     if cur.rows() > 0 {
@@ -373,7 +390,10 @@ fn parallel_jsonb_shred_parts_byte_identical_to_serial() {
     let par: Vec<Vec<u8>> = sealed
         .iter()
         .map(|(p, _)| {
-            shared.with(|v| v.read_full(&format!("{DIR}/{}", p.tmp_name)).expect("par tmp"))
+            shared.with(|v| {
+                v.read_full(&format!("{DIR}/{}", p.tmp_name))
+                    .expect("par tmp")
+            })
         })
         .collect();
     assert_eq!(serial.len(), 3, "serial partition: 256+256+88");
@@ -395,11 +415,17 @@ fn jsonb_path_text_matches_the_arrow_operators() {
     let mcx = ctx.mcx();
     let img = |d: &str| -> Vec<u8> {
         // the stored container: the varlena image past its 4-byte header (the seal's `varlena_payload`)
-        adt_jsonb::io::jsonb_in(mcx, d.as_bytes(), None).unwrap().expect("hard path")[4..].to_vec()
+        adt_jsonb::io::jsonb_in(mcx, d.as_bytes(), None)
+            .unwrap()
+            .expect("hard path")[4..]
+            .to_vec()
     };
-    let p = |steps: &[&str]| -> Vec<Vec<u8>> { steps.iter().map(|s| s.as_bytes().to_vec()).collect() };
+    let p =
+        |steps: &[&str]| -> Vec<Vec<u8>> { steps.iter().map(|s| s.as_bytes().to_vec()).collect() };
     let at = |d: &str, steps: &[&str]| -> Option<String> {
-        crate::seal::jsonb_path_text(&img(d), &p(steps)).unwrap().map(|v| String::from_utf8(v).unwrap())
+        crate::seal::jsonb_path_text(&img(d), &p(steps))
+            .unwrap()
+            .map(|v| String::from_utf8(v).unwrap())
     };
     let doc = r#"{"kind":"commit","n":12.50,"b":true,"z":null,"commit":{"collection":"app.bsky.feed.post","op":{"x":[1,2]}},"arr":[{"k":1}]}"#;
     assert_eq!(at(doc, &["kind"]).as_deref(), Some("commit"));
@@ -407,8 +433,14 @@ fn jsonb_path_text_matches_the_arrow_operators() {
     assert_eq!(at(doc, &["b"]).as_deref(), Some("true"));
     assert_eq!(at(doc, &["z"]), None);
     assert_eq!(at(doc, &["absent"]), None);
-    assert_eq!(at(doc, &["commit", "collection"]).as_deref(), Some("app.bsky.feed.post"));
-    assert_eq!(at(doc, &["commit", "op"]).as_deref(), Some(r#"{"x": [1, 2]}"#));
+    assert_eq!(
+        at(doc, &["commit", "collection"]).as_deref(),
+        Some("app.bsky.feed.post")
+    );
+    assert_eq!(
+        at(doc, &["commit", "op"]).as_deref(),
+        Some(r#"{"x": [1, 2]}"#)
+    );
     assert_eq!(at(doc, &["kind", "x"]), None, "a step on a string");
     assert_eq!(at(doc, &["arr", "k"]), None, "an object key on an array");
     assert_eq!(at(doc, &["z", "k"]), None, "a step on JSON null");

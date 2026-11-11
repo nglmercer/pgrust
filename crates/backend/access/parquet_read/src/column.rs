@@ -18,17 +18,17 @@
 use types_error::{PgError, PgResult};
 
 use crate::codec::{crc32, crc_enabled, decompress_page, PAD};
-use crate::held::{cap_bytes, HeldCharge};
 use crate::delta::{
     byte_stream_split_to_plain, delta_byte_array_to_plain, delta_ints_to_plain,
     delta_length_to_plain,
 };
+use crate::held::{cap_bytes, HeldCharge};
 use crate::levels::decode_levels;
 use crate::meta::{unsupported, CodecId, Phys};
 use crate::page::{parse_page_header, Enc, PageKind};
 use crate::plain::{
-    invalid_utf8, plain_byte_array, plain_f32, plain_f64, plain_fixed_bytes, plain_i32,
-    plain_i64, plain_i96, utf8_ok,
+    invalid_utf8, plain_byte_array, plain_f32, plain_f64, plain_fixed_bytes, plain_i32, plain_i64,
+    plain_i96, utf8_ok,
 };
 use crate::rle::{corrupt_page, BoolBits, HybridState};
 use crate::thrift::corrupt;
@@ -46,7 +46,10 @@ pub enum BatchData {
     F64(Vec<f64>),
     /// `ends[i]` is the arena end of slot i; slot start = previous end.
     /// BYTE_ARRAY and FIXED_LEN_BYTE_ARRAY (every slot `type_length` wide).
-    Bytes { ends: Vec<u32>, arena: Vec<u8> },
+    Bytes {
+        ends: Vec<u32>,
+        arena: Vec<u8>,
+    },
     /// INT96 as stored: three little-endian words (nanoseconds of day in the
     /// first two, Julian day in the third); the binder converts.
     I96(Vec<[u32; 3]>),
@@ -60,12 +63,16 @@ impl ColumnBatch {
             Phys::Int64 => BatchData::I64(Vec::new()),
             Phys::Float => BatchData::F32(Vec::new()),
             Phys::Double => BatchData::F64(Vec::new()),
-            Phys::ByteArray | Phys::Flba(_) => {
-                BatchData::Bytes { ends: Vec::new(), arena: Vec::new() }
-            }
+            Phys::ByteArray | Phys::Flba(_) => BatchData::Bytes {
+                ends: Vec::new(),
+                arena: Vec::new(),
+            },
             Phys::Int96 => BatchData::I96(Vec::new()),
         };
-        ColumnBatch { nulls: Vec::new(), data }
+        ColumnBatch {
+            nulls: Vec::new(),
+            data,
+        }
     }
 
     /// CONVERT wave 3 (cvwrite job 3): the heap bytes the batch holds (capacities): its null flags and its values (a
@@ -78,7 +85,9 @@ impl ColumnBatch {
             BatchData::F32(v) => cap_bytes(v.capacity(), v),
             BatchData::F64(v) => cap_bytes(v.capacity(), v),
             BatchData::I96(v) => cap_bytes(v.capacity(), v),
-            BatchData::Bytes { ends, arena } => cap_bytes(ends.capacity(), ends) + arena.capacity() as u64,
+            BatchData::Bytes { ends, arena } => {
+                cap_bytes(ends.capacity(), ends) + arena.capacity() as u64
+            }
         };
         data + self.nulls.capacity() as u64
     }
@@ -162,11 +171,24 @@ impl Dict {
 enum ValState {
     /// Dictionary-index stream (bit-width byte already consumed).
     Dict(HybridState),
-    PlainFixed { pos: usize, end: usize },
+    PlainFixed {
+        pos: usize,
+        end: usize,
+    },
     /// FIXED_LEN_BYTE_ARRAY / INT96 values of `width` bytes each.
-    PlainFixedBytes { pos: usize, end: usize, width: usize },
-    PlainBytes { pos: usize, end: usize },
-    PlainBool { bits: BoolBits, end: usize },
+    PlainFixedBytes {
+        pos: usize,
+        end: usize,
+        width: usize,
+    },
+    PlainBytes {
+        pos: usize,
+        end: usize,
+    },
+    PlainBool {
+        bits: BoolBits,
+        end: usize,
+    },
     /// RLE-encoded boolean data page (4-byte length prefix consumed).
     RleBool(HybridState),
 }
@@ -198,7 +220,11 @@ struct PageState {
 /// in-memory demux).
 pub(crate) enum ChunkBytes {
     Owned(Vec<u8>),
-    Shared { buf: std::sync::Arc<Vec<u8>>, start: usize, len: usize },
+    Shared {
+        buf: std::sync::Arc<Vec<u8>>,
+        start: usize,
+        len: usize,
+    },
 }
 
 impl ChunkBytes {
@@ -329,7 +355,9 @@ impl ColumnCursor {
             Some(Dict::F32(v)) => cap_bytes(v.capacity(), v),
             Some(Dict::F64(v)) => cap_bytes(v.capacity(), v),
             Some(Dict::I96(v)) => cap_bytes(v.capacity(), v),
-            Some(Dict::Bytes { ends, arena }) => cap_bytes(ends.capacity(), ends) + arena.capacity() as u64,
+            Some(Dict::Bytes { ends, arena }) => {
+                cap_bytes(ends.capacity(), ends) + arena.capacity() as u64
+            }
         };
         dict + self.scratch.capacity() as u64
             + self.plain.capacity() as u64
@@ -367,7 +395,9 @@ impl ColumnCursor {
         if self.max_rep == 0 {
             while out.nulls.len() < n {
                 if !self.ensure_page()? {
-                    return Err(corrupt_page("column chunk ends before the declared row count"));
+                    return Err(corrupt_page(
+                        "column chunk ends before the declared row count",
+                    ));
                 }
                 let page = self.page.as_ref().expect("page");
                 let k = (n - out.nulls.len()).min(page.values_left);
@@ -382,7 +412,9 @@ impl ColumnCursor {
                 if records == n {
                     return Ok(());
                 }
-                return Err(corrupt_page("column chunk ends before the declared row count"));
+                return Err(corrupt_page(
+                    "column chunk ends before the declared row count",
+                ));
             }
             let page = self.page.as_ref().expect("page");
             let reps = &self.rep_lv[page.lvl_pos..page.lvl_pos + page.values_left];
@@ -468,7 +500,10 @@ impl ColumnCursor {
             if *want_lanes {
                 lanes.def.extend_from_slice(lv); // alloc: Exec charged the cursor's charge (ColumnCursor / FastCol held_bytes)
                 if !rep_lv.is_empty() {
-                    lanes.rep.extend_from_slice(&rep_lv[page_st.lvl_pos..page_st.lvl_pos + k]); // alloc: Exec charged the cursor's charge (ColumnCursor / FastCol held_bytes)
+                    lanes
+                        .rep
+                        .extend_from_slice(&rep_lv[page_st.lvl_pos..page_st.lvl_pos + k]);
+                // alloc: Exec charged the cursor's charge (ColumnCursor / FastCol held_bytes)
                 } else {
                     lanes.rep.extend(core::iter::repeat_n(0u16, k)); // alloc: Exec charged the cursor's charge (ColumnCursor / FastCol held_bytes)
                 }
@@ -517,9 +552,16 @@ impl ColumnCursor {
                     (BatchData::I96(v), Dict::I96(dv)) => {
                         scatter_fixed(v, ids, |i| dv[i as usize], mask, k, [0; 3])?
                     }
-                    (BatchData::Bytes { ends, arena }, Dict::Bytes { ends: de, arena: da }) => {
+                    (
+                        BatchData::Bytes { ends, arena },
+                        Dict::Bytes {
+                            ends: de,
+                            arena: da,
+                        },
+                    ) => {
                         ends.try_reserve(k).map_err(|_| oom())?; // alloc: Exec charged the batch keeper's charge (ColumnBatch::held_bytes; copy's parquet loads)
                         let mut id_it = ids.iter();
+                        #[allow(clippy::needless_range_loop)]
                         for row in 0..k {
                             if pres[row] {
                                 let i = *id_it.next().expect("present count") as usize;
@@ -558,14 +600,19 @@ impl ColumnCursor {
                 }
                 BatchData::Bytes { ends, arena } => {
                     ends.try_reserve(k).map_err(|_| oom())?; // alloc: Exec charged the batch keeper's charge (ColumnBatch::held_bytes; copy's parquet loads)
-                    let need = present.checked_mul(*width).ok_or_else(|| corrupt_page("value count overflow"))?;
+                    let need = present
+                        .checked_mul(*width)
+                        .ok_or_else(|| corrupt_page("value count overflow"))?;
                     if *pos + need > *end {
-                        return Err(corrupt_page("fixed-width values end before the declared count"));
+                        return Err(corrupt_page(
+                            "fixed-width values end before the declared count",
+                        ));
                     }
                     if arena.len() + need > u32::MAX as usize {
                         return Err(corrupt_page("value batch exceeds 4GB"));
                     }
                     arena.try_reserve(need).map_err(|_| oom())?; // alloc: Exec charged the batch keeper's charge (ColumnBatch::held_bytes; copy's parquet loads)
+                    #[allow(clippy::needless_range_loop)]
                     for row in 0..k {
                         if pres[row] {
                             plain_fixed_bytes(buf, pos, *width, arena);
@@ -599,7 +646,16 @@ impl ColumnCursor {
                         ends.try_reserve(k).map_err(|_| oom())?; // alloc: Exec charged the batch keeper's charge (ColumnBatch::held_bytes; copy's parquet loads)
                         for &p in m.iter() {
                             if p {
-                                plain_byte_array(buf, *end, pos, 1, ends, arena, *validate_utf8, name)?;
+                                plain_byte_array(
+                                    buf,
+                                    *end,
+                                    pos,
+                                    1,
+                                    ends,
+                                    arena,
+                                    *validate_utf8,
+                                    name,
+                                )?;
                             } else {
                                 ends.push(arena.len() as u32); // alloc: Exec charged the batch keeper's charge (ColumnBatch::held_bytes; copy's parquet loads)
                             }
@@ -612,7 +668,8 @@ impl ColumnCursor {
                     return Err(corrupt_page("boolean page on a non-boolean column"));
                 };
                 let mut tmp = memledger::ChargedVec::<bool>::new(owner, memledger::Kind::Region);
-                tmp.with_vec(|t| t.try_reserve_exact(present)).map_err(|_| oom())?; // alloc: Exec charged owner
+                tmp.with_vec(|t| t.try_reserve_exact(present))
+                    .map_err(|_| oom())?; // alloc: Exec charged owner
                 tmp.with_vec(|t| t.resize(present, false)); // alloc: Exec charged owner
                 bits.fill(buf, *end, &mut tmp)?;
                 scatter_bools(v, &tmp, mask, k)?;
@@ -634,7 +691,9 @@ impl ColumnCursor {
         page_st.values_left -= k;
         page_st.lvl_pos += k;
         if (*values_left as usize) < k {
-            return Err(corrupt_page("pages hold more values than the chunk declares"));
+            return Err(corrupt_page(
+                "pages hold more values than the chunk declares",
+            ));
         }
         *values_left -= k as u64;
         Ok(())
@@ -648,7 +707,9 @@ impl ColumnCursor {
                 return Ok(false);
             }
             if self.walk >= self.chunk_len {
-                return Err(corrupt_page("column chunk ends before the declared value count"));
+                return Err(corrupt_page(
+                    "column chunk ends before the declared value count",
+                ));
             }
             let head =
                 parse_page_header(&self.chunk.bytes()[..self.chunk_len], self.walk, &self.name)?;
@@ -665,12 +726,16 @@ impl ColumnCursor {
             }
             match head.kind {
                 PageKind::Skip => continue,
-                PageKind::Dict { num_values, encoding } => {
+                PageKind::Dict {
+                    num_values,
+                    encoding,
+                } => {
                     if self.dict.is_some() {
                         return Err(corrupt("second dictionary page in one column chunk"));
                     }
                     if !matches!(encoding, Enc::Plain | Enc::PlainDictionary) {
-                        return Err(unsupported(format!( // alloc: Cold
+                        return Err(unsupported(format!(
+                            // alloc: Cold
                             "dictionary page encoding {} (column \"{}\")",
                             encoding.name(),
                             self.name
@@ -696,7 +761,12 @@ impl ColumnCursor {
                     )?);
                     continue;
                 }
-                PageKind::Data { num_values, encoding, def_encoding, rep_encoding } => {
+                PageKind::Data {
+                    num_values,
+                    encoding,
+                    def_encoding,
+                    rep_encoding,
+                } => {
                     if num_values == 0 {
                         continue;
                     }
@@ -712,10 +782,26 @@ impl ColumnCursor {
                     self.rep_lv.clear();
                     self.def_lv.clear();
                     if self.max_rep > 0 {
-                        vpos = self.v1_levels(src, vpos, end, rep_encoding, self.max_rep, num_values, true)?;
+                        vpos = self.v1_levels(
+                            src,
+                            vpos,
+                            end,
+                            rep_encoding,
+                            self.max_rep,
+                            num_values,
+                            true,
+                        )?;
                     }
                     if self.max_def > 0 {
-                        vpos = self.v1_levels(src, vpos, end, def_encoding, self.max_def, num_values, false)?;
+                        vpos = self.v1_levels(
+                            src,
+                            vpos,
+                            end,
+                            def_encoding,
+                            self.max_def,
+                            num_values,
+                            false,
+                        )?;
                     }
                     self.open_values(src, vpos, end, encoding, num_values)?;
                     return Ok(true);
@@ -737,25 +823,48 @@ impl ColumnCursor {
                     self.def_lv.clear();
                     let mut p = payload_start;
                     if self.max_rep > 0 {
-                        decode_levels(Enc::Rle, chunk, p, p + rep_len, self.max_rep, num_values, &mut self.rep_lv)?;
+                        decode_levels(
+                            Enc::Rle,
+                            chunk,
+                            p,
+                            p + rep_len,
+                            self.max_rep,
+                            num_values,
+                            &mut self.rep_lv,
+                        )?;
                         let starts = self.rep_lv.iter().filter(|&&r| r == 0).count();
                         if starts != num_rows {
-                            return Err(corrupt_page("data page v2 row count disagrees with its levels"));
+                            return Err(corrupt_page(
+                                "data page v2 row count disagrees with its levels",
+                            ));
                         }
                     } else if num_rows != num_values {
-                        return Err(corrupt_page("data page v2 row count disagrees with its value count"));
+                        return Err(corrupt_page(
+                            "data page v2 row count disagrees with its value count",
+                        ));
                     }
                     // A flat column may still carry a (zero-valued) level
                     // run from some writers; its declared length skips it.
                     p += rep_len;
                     if self.max_def > 0 {
-                        decode_levels(Enc::Rle, chunk, p, p + def_len, self.max_def, num_values, &mut self.def_lv)?;
+                        decode_levels(
+                            Enc::Rle,
+                            chunk,
+                            p,
+                            p + def_len,
+                            self.max_def,
+                            num_values,
+                            &mut self.def_lv,
+                        )?;
                         // num_nulls is only reliable for flat optional
                         // leaves: for nested ones arrow records the leaf
                         // statistics' null count (empty lists excluded), so
                         // the levels are the truth there.
                         let present = self.def_lv.iter().filter(|&&d| d == self.max_def).count();
-                        if self.max_def == 1 && self.max_rep == 0 && present + num_nulls != num_values {
+                        if self.max_def == 1
+                            && self.max_rep == 0
+                            && present + num_nulls != num_values
+                        {
                             return Err(Box::new(PgError::error(format!( // alloc: Cold
                                 "corrupt parquet page: data page v2 declares {num_nulls} nulls over {num_values} values, its levels hold {present} values"
                             ))
@@ -807,7 +916,11 @@ impl ColumnCursor {
             Src::Chunk => self.chunk.bytes(),
             _ => &self.scratch,
         };
-        let out = if rep { &mut self.rep_lv } else { &mut self.def_lv };
+        let out = if rep {
+            &mut self.rep_lv
+        } else {
+            &mut self.def_lv
+        };
         match enc {
             Enc::Rle => {
                 let Some(lb) = buf.get(pos..pos + 4).filter(|_| pos + 4 <= end) else {
@@ -822,7 +935,8 @@ impl ColumnCursor {
                 Ok(start + len)
             }
             Enc::BitPacked => decode_levels(Enc::BitPacked, buf, pos, end, max, n, out),
-            other => Err(unsupported(format!( // alloc: Cold
+            other => Err(unsupported(format!(
+                // alloc: Cold
                 "level encoding {} (column \"{}\")",
                 other.name(),
                 self.name
@@ -840,12 +954,13 @@ impl ColumnCursor {
         encoding: Enc,
         num_values: usize,
     ) -> PgResult<()> {
-        self.open_values_inner(src, vpos, end, encoding, num_values).map_err(|mut e| {
-            if e.detail.is_none() {
-                e.detail = Some(format!("Column \"{}\".", self.name)); // alloc: Cold
-            }
-            e
-        })
+        self.open_values_inner(src, vpos, end, encoding, num_values)
+            .map_err(|mut e| {
+                if e.detail.is_none() {
+                    e.detail = Some(format!("Column \"{}\".", self.name)); // alloc: Cold
+                }
+                e
+            })
     }
 
     fn open_values_inner(
@@ -859,25 +974,43 @@ impl ColumnCursor {
         let has_levels = self.max_def > 0;
         let present = if has_levels {
             if self.def_lv.len() != num_values {
-                return Err(corrupt_page("level count differs from the page's value count"));
+                return Err(corrupt_page(
+                    "level count differs from the page's value count",
+                ));
             }
             self.def_lv.iter().filter(|&&d| d == self.max_def).count()
         } else {
             num_values
         };
         let unsupported_enc = |name: &str, enc: Enc, phys: Phys| {
-            unsupported(format!("encoding {} for {} (column \"{}\")", enc.name(), phys.name(), name)) // alloc: Cold
+            unsupported(format!(
+                "encoding {} for {} (column \"{}\")",
+                enc.name(),
+                phys.name(),
+                name
+            )) // alloc: Cold
         };
         let (src, val) = match encoding {
             Enc::Plain => {
                 let val = match self.phys {
-                    Phys::Boolean => ValState::PlainBool { bits: BoolBits::new(vpos), end },
+                    Phys::Boolean => ValState::PlainBool {
+                        bits: BoolBits::new(vpos),
+                        end,
+                    },
                     Phys::ByteArray => ValState::PlainBytes { pos: vpos, end },
                     Phys::Int32 | Phys::Int64 | Phys::Float | Phys::Double => {
                         ValState::PlainFixed { pos: vpos, end }
                     }
-                    Phys::Int96 => ValState::PlainFixedBytes { pos: vpos, end, width: 12 },
-                    Phys::Flba(w) => ValState::PlainFixedBytes { pos: vpos, end, width: w as usize },
+                    Phys::Int96 => ValState::PlainFixedBytes {
+                        pos: vpos,
+                        end,
+                        width: 12,
+                    },
+                    Phys::Flba(w) => ValState::PlainFixedBytes {
+                        pos: vpos,
+                        end,
+                        width: w as usize,
+                    },
                 };
                 (src, val)
             }
@@ -889,7 +1022,10 @@ impl ColumnCursor {
                 if w > 32 {
                     return Err(corrupt_page("dictionary bit width above 32"));
                 }
-                (src, ValState::Dict(HybridState::new(vpos + 1, end, w as usize)?))
+                (
+                    src,
+                    ValState::Dict(HybridState::new(vpos + 1, end, w as usize)?),
+                )
             }
             Enc::Rle => {
                 if self.phys != Phys::Boolean {
@@ -903,7 +1039,10 @@ impl ColumnCursor {
                 if vpos + 4 + rlen > end {
                     return Err(corrupt_page("RLE boolean run overruns page"));
                 }
-                (src, ValState::RleBool(HybridState::new(vpos + 4, vpos + 4 + rlen, 1)?))
+                (
+                    src,
+                    ValState::RleBool(HybridState::new(vpos + 4, vpos + 4 + rlen, 1)?),
+                )
             }
             Enc::DeltaBinaryPacked => {
                 let width = match self.phys {
@@ -911,25 +1050,49 @@ impl ColumnCursor {
                     Phys::Int64 => 8,
                     _ => return Err(unsupported_enc(&self.name, encoding, self.phys)),
                 };
-                let ColumnCursor { chunk, scratch, plain, tmp64, .. } = self;
+                let ColumnCursor {
+                    chunk,
+                    scratch,
+                    plain,
+                    tmp64,
+                    ..
+                } = self;
                 let buf: &[u8] = match src {
                     Src::Chunk => chunk.bytes(),
                     _ => scratch,
                 };
                 delta_ints_to_plain(buf, vpos, end, width, present, plain, tmp64)?;
-                (Src::Plain, ValState::PlainFixed { pos: 0, end: self.plain.len() })
+                (
+                    Src::Plain,
+                    ValState::PlainFixed {
+                        pos: 0,
+                        end: self.plain.len(),
+                    },
+                )
             }
             Enc::DeltaLengthByteArray => {
                 if self.phys != Phys::ByteArray {
                     return Err(unsupported_enc(&self.name, encoding, self.phys));
                 }
-                let ColumnCursor { chunk, scratch, plain, tmp64, .. } = self;
+                let ColumnCursor {
+                    chunk,
+                    scratch,
+                    plain,
+                    tmp64,
+                    ..
+                } = self;
                 let buf: &[u8] = match src {
                     Src::Chunk => chunk.bytes(),
                     _ => scratch,
                 };
                 delta_length_to_plain(buf, vpos, end, present, plain, tmp64)?;
-                (Src::Plain, ValState::PlainBytes { pos: 0, end: self.plain.len() })
+                (
+                    Src::Plain,
+                    ValState::PlainBytes {
+                        pos: 0,
+                        end: self.plain.len(),
+                    },
+                )
             }
             Enc::DeltaByteArray => {
                 let flba = match self.phys {
@@ -937,15 +1100,29 @@ impl ColumnCursor {
                     Phys::Flba(w) => Some(w as usize),
                     _ => return Err(unsupported_enc(&self.name, encoding, self.phys)),
                 };
-                let ColumnCursor { chunk, scratch, plain, tmp64, tmp64b, .. } = self;
+                let ColumnCursor {
+                    chunk,
+                    scratch,
+                    plain,
+                    tmp64,
+                    tmp64b,
+                    ..
+                } = self;
                 let buf: &[u8] = match src {
                     Src::Chunk => chunk.bytes(),
                     _ => scratch,
                 };
                 delta_byte_array_to_plain(buf, vpos, end, present, flba, plain, tmp64, tmp64b)?;
                 let val = match flba {
-                    None => ValState::PlainBytes { pos: 0, end: self.plain.len() },
-                    Some(w) => ValState::PlainFixedBytes { pos: 0, end: self.plain.len(), width: w },
+                    None => ValState::PlainBytes {
+                        pos: 0,
+                        end: self.plain.len(),
+                    },
+                    Some(w) => ValState::PlainFixedBytes {
+                        pos: 0,
+                        end: self.plain.len(),
+                        width: w,
+                    },
                 };
                 (Src::Plain, val)
             }
@@ -956,21 +1133,39 @@ impl ColumnCursor {
                     Phys::Flba(w) => w as usize,
                     _ => return Err(unsupported_enc(&self.name, encoding, self.phys)),
                 };
-                let ColumnCursor { chunk, scratch, plain, .. } = self;
+                let ColumnCursor {
+                    chunk,
+                    scratch,
+                    plain,
+                    ..
+                } = self;
                 let buf: &[u8] = match src {
                     Src::Chunk => chunk.bytes(),
                     _ => scratch,
                 };
                 byte_stream_split_to_plain(buf, vpos, end, width, present, plain)?;
                 let val = match self.phys {
-                    Phys::Flba(w) => ValState::PlainFixedBytes { pos: 0, end: self.plain.len(), width: w as usize },
-                    _ => ValState::PlainFixed { pos: 0, end: self.plain.len() },
+                    Phys::Flba(w) => ValState::PlainFixedBytes {
+                        pos: 0,
+                        end: self.plain.len(),
+                        width: w as usize,
+                    },
+                    _ => ValState::PlainFixed {
+                        pos: 0,
+                        end: self.plain.len(),
+                    },
                 };
                 (Src::Plain, val)
             }
             other => return Err(unsupported_enc(&self.name, other, self.phys)),
         };
-        self.page = Some(PageState { src, values_left: num_values, has_levels, lvl_pos: 0, val });
+        self.page = Some(PageState {
+            src,
+            values_left: num_values,
+            has_levels,
+            lvl_pos: 0,
+            val,
+        });
         Ok(())
     }
 
@@ -1141,9 +1336,13 @@ fn decode_dict(
         }
         Phys::Flba(w) => {
             let w = w as usize;
-            let need = num_values.checked_mul(w).ok_or_else(|| corrupt_page("value count overflow"))?;
+            let need = num_values
+                .checked_mul(w)
+                .ok_or_else(|| corrupt_page("value count overflow"))?;
             if pos + need > end {
-                return Err(corrupt_page("dictionary values end before the declared count"));
+                return Err(corrupt_page(
+                    "dictionary values end before the declared count",
+                ));
             }
             let mut ends = Vec::new();
             ends.try_reserve(num_values).map_err(|_| oom())?; // alloc: Exec charged the cursor's charge (ColumnCursor / FastCol held_bytes)
@@ -1158,7 +1357,9 @@ fn decode_dict(
         Phys::ByteArray => {
             let mut ends = Vec::new();
             let mut arena = Vec::new();
-            plain_byte_array(buf, end, &mut pos, num_values, &mut ends, &mut arena, false, name)?;
+            plain_byte_array(
+                buf, end, &mut pos, num_values, &mut ends, &mut arena, false, name,
+            )?;
             if validate_utf8 {
                 // Batched validation, once per chunk: UTF-8 is closed under
                 // concatenation, so an invalid arena means some value is
@@ -1183,7 +1384,8 @@ fn decode_dict(
             }
             Ok(Dict::Bytes { ends, arena })
         }
-        Phys::Boolean => Err(unsupported(format!( // alloc: Cold
+        Phys::Boolean => Err(unsupported(format!(
+            // alloc: Cold
             "dictionary-encoded {} column \"{}\"",
             phys.name(),
             name
@@ -1205,23 +1407,67 @@ mod job3_tests {
         let mask = [false, true, false, true, true, false];
         let mut out: Vec<i32> = vec![7, 8];
         let mut pos = 0usize;
-        scatter_plain(&mut out, &buf, buf.len(), &mut pos, 3, Some(&mask), mask.len(), -1, plain_i32).unwrap();
+        scatter_plain(
+            &mut out,
+            &buf,
+            buf.len(),
+            &mut pos,
+            3,
+            Some(&mask),
+            mask.len(),
+            -1,
+            plain_i32,
+        )
+        .unwrap();
         assert_eq!(out, vec![7, 8, -1, 10, -1, 20, 30, -1]);
         assert_eq!(pos, buf.len());
         // every slot present, and none present
         let mut all: Vec<i32> = Vec::new();
         let mut pos = 0usize;
-        scatter_plain(&mut all, &buf, buf.len(), &mut pos, 3, Some(&[true, true, true]), 3, -1, plain_i32).unwrap();
+        scatter_plain(
+            &mut all,
+            &buf,
+            buf.len(),
+            &mut pos,
+            3,
+            Some(&[true, true, true]),
+            3,
+            -1,
+            plain_i32,
+        )
+        .unwrap();
         assert_eq!(all, vec![10, 20, 30]);
         let mut none: Vec<i32> = vec![5];
         let mut pos = 0usize;
-        scatter_plain(&mut none, &buf, buf.len(), &mut pos, 0, Some(&[false, false]), 2, -1, plain_i32).unwrap();
+        scatter_plain(
+            &mut none,
+            &buf,
+            buf.len(),
+            &mut pos,
+            0,
+            Some(&[false, false]),
+            2,
+            -1,
+            plain_i32,
+        )
+        .unwrap();
         assert_eq!(none, vec![5, -1, -1]);
         assert_eq!(pos, 0);
         // a short page is the same corruption error as before
         let mut short: Vec<i32> = Vec::new();
         let mut pos = 0usize;
-        assert!(scatter_plain(&mut short, &buf[..8], 8, &mut pos, 3, Some(&[true, true, true, false]), 4, -1, plain_i32).is_err());
+        assert!(scatter_plain(
+            &mut short,
+            &buf[..8],
+            8,
+            &mut pos,
+            3,
+            Some(&[true, true, true, false]),
+            4,
+            -1,
+            plain_i32
+        )
+        .is_err());
     }
 
     #[test]
@@ -1235,7 +1481,9 @@ mod job3_tests {
         }
         let want = b.nulls.capacity() as u64
             + match &b.data {
-                BatchData::Bytes { ends, arena } => ends.capacity() as u64 * 4 + arena.capacity() as u64,
+                BatchData::Bytes { ends, arena } => {
+                    ends.capacity() as u64 * 4 + arena.capacity() as u64
+                }
                 _ => unreachable!(),
             };
         assert_eq!(b.held_bytes(), want);

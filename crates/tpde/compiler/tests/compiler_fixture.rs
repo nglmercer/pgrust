@@ -11,6 +11,7 @@ use mcx::{Mcx, MemoryContext};
 use std::{cell::RefCell, fmt::Write, marker::PhantomData};
 use tpde_assembler::{Architecture, AssemblerElf, SectionKind, SymRef};
 use tpde_base::ValLocalIdx;
+#[allow(unused_imports)]
 use tpde_compiler::{
     branches::{self, BranchMachine},
     calls::{

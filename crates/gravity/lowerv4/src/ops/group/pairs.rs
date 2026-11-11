@@ -122,6 +122,7 @@ pub(crate) fn dense_of(px: &mut Px<'_, '_>, g: &GroupDecl<'_>) -> Option<(i16, u
     if base == 0 {
         base = px.proto_words(2);
     }
+    #[allow(clippy::useless_conversion)]
     let base = u16::try_from(base).ok().filter(|&b| b < WordsDesc::NONE - 2)?;
     let arg = 1u64 << Fact::DenseLo as u8 | 1 << Fact::DenseHi as u8;
     px.declare_proto(Proto::new(ProtoKind::Facts, k as u16).words(base, 2).site(DRAFT_SITE).slot(lane).arg(arg));
@@ -205,6 +206,7 @@ fn make<'g, 'p>(px: &mut Px<'g, 'p>, k: usize) -> PgBox<'g, dyn EndMech + 'g> {
 
 /// keyed.hashagg's end over the pair record, its owner phase the distinct owner's; or the tagged form's end
 /// (pairs_multi.rs), which declares its own owner.
+#[allow(clippy::large_enum_variant)]
 enum Inner<'g, 'p> {
     Hash(PgBox<'g, dyn EndMech + 'g>, Pair<'g>),
     Multi(crate::ops::group::pairs_multi::MultiEnd<'g, 'p>),

@@ -111,6 +111,7 @@ unsafe fn wq_delete(lock: *mut LOCK, procno: ProcNumber) {
 }
 
 // SAFETY contract: the lock's partition LWLock held.
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn wq_foreach(lock: *mut LOCK, mut body: impl FnMut(ProcNumber) -> bool) {
     let mut cur = (*lock).waitProcs.list.head;
     while cur != INVALID_PROC_NUMBER {
@@ -124,6 +125,7 @@ pub unsafe fn wq_foreach(lock: *mut LOCK, mut body: impl FnMut(ProcNumber) -> bo
 }
 
 /// SAFETY contract: all partition LWLocks held exclusive.
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn SetWaitQueueOrder(lock: *mut LOCK, procs: &[ProcNumber]) {
     debug_assert_eq!((*lock).waitProcs.count as usize, procs.len());
     (*lock).waitProcs.list.head = INVALID_PROC_NUMBER;
@@ -565,6 +567,7 @@ fn log_lock_wait_progress(
 }
 
 /// SAFETY contract: the lock's partition LWLock held exclusive.
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn ProcWakeup(procno: ProcNumber, waitStatus: ProcWaitStatus) {
     let proc = lmgr_proc::GetPGProcByNumber(procno);
     // SAFETY: [PART] serialized by the lock partition lock
@@ -589,6 +592,7 @@ pub unsafe fn ProcWakeup(procno: ProcNumber, waitStatus: ProcWaitStatus) {
 }
 
 /// SAFETY contract: the lock's partition LWLock held exclusive.
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn ProcLockWakeup(lockMethodTable: LockMethod, lock: *mut LOCK) {
     if (*lock).waitProcs.count == 0 {
         return;

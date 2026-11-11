@@ -34,8 +34,8 @@
 //!   - 64 MiB thread / 60 MB budget (guard out of the picture): repro A ->
 //!     "parentheses () not balanced" (the pattern's true syntax error),
 //!     repro B -> Compiled + NoMatch on 'abc' (matches real PG exactly).
-//! Reverting the VERR-funnel commit makes both repros panic again
-//! (mutation-checked at authoring time).
+//!     Reverting the VERR-funnel commit makes both repros panic again
+//!     (mutation-checked at authoring time).
 
 use regex::{RegcompResult, RegexecResult};
 use regex_core::regex_consts::REG_ADVANCED;

@@ -699,8 +699,8 @@ impl<'g, 'p> Px<'g, 'p> {
     ///   (pulled again at a re-open), runs on demand (an InitPlan's, a hashed SubPlan's table, a lazy build) or is another
     ///   CTE's plan: when that pull comes is not known here;
     /// - else the same of `q` itself.
-    /// Its one caller is ops/ctescan/lower.rs (the CTE pull road). An `Unanswered` road, and a late node on another road,
-    /// is C2 debt (driver ahead_trace.rs's Recheck-after-send is the backstop).
+    ///   Its one caller is ops/ctescan/lower.rs (the CTE pull road). An `Unanswered` road, and a late node on another road,
+    ///   is C2 debt (driver ahead_trace.rs's Recheck-after-send is the backstop).
     pub fn licensed_late(&self, q: usize) -> Late {
         crate::stack_check();
         use gravity_decompose::ops::shared::subplan::{SubForm, SubLink};

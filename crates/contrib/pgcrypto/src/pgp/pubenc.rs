@@ -20,6 +20,7 @@ fn pad_eme_pkcs1_v15(data: &[u8], res_len: isize) -> Result<Vec<u8>, String> {
     if !fill_random(&mut buf[1..1 + pad_len]) {
         return Err(NO_RANDOM.to_string());
     }
+    #[allow(clippy::needless_range_loop)]
     for i in 1..1 + pad_len {
         while buf[i] == 0 {
             let mut one = [0u8; 1];

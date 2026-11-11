@@ -307,6 +307,7 @@ pub fn picksplit<T: VarOps>(
     // C leaf2node's temporaries (sv) live for the whole sort.
     let mut owned: Vec<Option<Vec<u8>>> = ::mcx::std_vec_with_capacity("btree_gist", maxoff + 1)?;
     owned.push(None);
+    #[allow(clippy::needless_range_loop)]
     for i in 1..=maxoff {
         let r = key_readable(keys[i]);
         owned.push(if r.is_leaf_shape { leaf2node::<T>(keys[i])? } else { None });

@@ -252,8 +252,8 @@ impl WriteChecks {
         // bounded("other: one per check option of the statement of this kind (the plan's WithCheckOption list), one ExecQual over the row each, as ExecWithCheckOptions loops them")
         for (i, (s, st)) in specs.iter().zip(states.iter_mut()).enumerate().skip(from).filter(|(_, (s, _))| s.kind == kind) {
             // only the qual's Boolean escapes; the persistent frames are restored below (write_constraints' discipline)
-            super::raw::arm_row(&mut **st, row_mcx);
-            let pass = match qual(&mut **st, slot, params, resume.take()) {
+            super::raw::arm_row(st, row_mcx);
+            let pass = match qual(st, slot, params, resume.take()) {
                 Ok(Err(susp)) => match lay(call, params, susp).and_then(|sp| if row_laid(sp) { lay_row(call, sp, slot, (rel, root), row_map).map(|()| None) } else { lay_lefts(call, params, lefts, slot, row_mcx, mcx, sp) }) {
                     Ok(kept) => {
                         *parked = Some((i, susp));
@@ -276,7 +276,7 @@ impl WriteChecks {
 
     /// W6-D1112: the parked call's words (`SUB_*` layout) for the IR; `None` when no qual is parked.
     pub fn sub_call(&mut self) -> Option<*mut u64> {
-        self.parked.is_some().then(|| self.call.as_mut_ptr())
+        self.parked.is_some().then_some(self.call.as_mut_ptr())
     }
 
     /// W6-D1112: a parked qual dropped (a row op that will not resume it): its state re-armed, the slot cleared.
@@ -338,7 +338,7 @@ fn lay_lefts<'m>(call: &mut [u64], params: &mut InitParams, lefts: &mut LeftsIn<
             continue;
         }
         // the value lives in `row_mcx` until the row ends (after the parked qual resumes)
-        match crate::ops::modifytable::raw::eval_in_row(&mut **st, row_mcx, mcx, |st| left(st, slot, params)) {
+        match crate::ops::modifytable::raw::eval_in_row(st, row_mcx, mcx, |st| left(st, slot, params)) {
             Ok(v) => (call[at + 2 * c], call[at + 2 * c + 1]) = (v.value.as_u64(), v.isnull as u64),
             Err(e) if types_error::errcode_to_category(e.sqlstate()) == types_error::ERRCODE_OPERATOR_INTERVENTION => return Err(e),
             Err(e) => {

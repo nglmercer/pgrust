@@ -196,7 +196,7 @@ pub(crate) fn admit(gx: &Gx<'_, '_>, k: usize, w: &WriteDesc<'_>, m: &MergeDesc<
     // Sort (the planner's commuted form, RIGHT-MERGE's side): a NULL ctid is a source row the inner fill hands on, a NULL
     // source a target row the outer fill hands on (BY SOURCE)
     let outer_full = outer != u8::MAX && built.is_some_and(|q| gx.pipelines()[q].desc.produces() == Some(outer));
-    if !fulls.is_empty() && (fulls.len() > 1 || !lefts.is_empty() || view || !outer_full && !built.is_some_and(|q| gx.pipelines()[q].desc.produces() == Some(fulls[0]))) {
+    if !fulls.is_empty() && (fulls.len() > 1 || !lefts.is_empty() || view || !outer_full && built.is_none_or(|q| gx.pipelines()[q].desc.produces() != Some(fulls[0]))) {
         shape(node, NOT_MATCHED);
     }
     // D1684 / D1685 guard the recheck's empty source position; a view target never rechecks (V4R-353: its INSTEAD OF
@@ -379,7 +379,7 @@ pub(crate) fn reads<A>(x: Node<'_>, rti: i32, atts: &[Option<A>], full: bool) ->
         Some("MERGE: a column of another relation in an action (a joined source: write.lock's EvalPlanQual over its marks)")
     } else if v.varattno < 0 || v.varattno == 0 && !full {
         Some("MERGE: a system column of the target, or its whole row where the child does not carry every column, in an action")
-    } else if v.varattno > 0 && atts.get(v.varattno as usize - 1).map_or(true, |a| a.is_none()) {
+    } else if v.varattno > 0 && atts.get(v.varattno as usize - 1).is_none_or(|a| a.is_none()) {
         Some("MERGE: a target column the child does not carry")
     } else {
         None

@@ -2,7 +2,7 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 use ::mcx::{MemoryContext, PgVec};
-use ::types_core::{INVALID_PROC_NUMBER, RELPERSISTENCE_PERMANENT, BLCKSZ};
+use ::types_core::{BLCKSZ, INVALID_PROC_NUMBER, RELPERSISTENCE_PERMANENT};
 use ::types_error::ERRCODE_PROGRAM_LIMIT_EXCEEDED;
 use ::types_nbtree::{BTMaxItemSize, BTPageOpaqueData, BTP_LEAF};
 use ::types_rel::{
@@ -43,7 +43,10 @@ fn named_rel<'mcx>(mcx: ::mcx::Mcx<'mcx>, name: &str, oid: ::types_core::Oid) ->
         rd_firstRelfilelocatorSubid: Cell::new(0),
         rd_droppedSubid: Cell::new(0),
         rd_lockInfo: LockInfoData {
-            lockRelId: LockRelId { relId: oid, dbId: 5 },
+            lockRelId: LockRelId {
+                relId: oid,
+                dbId: 5,
+            },
         },
         rd_rel: FormData_pg_class {
             relname,
@@ -101,6 +104,7 @@ struct AlignedPage([u8; BLCKSZ]);
 struct Oversized([u8; 2712]);
 
 #[test]
+#[allow(clippy::assertions_on_constants)]
 fn buildadd_oversized_detail_names_heap_not_index() {
     let cx = MemoryContext::new("d233");
     let mcx = cx.mcx();
@@ -108,9 +112,8 @@ fn buildadd_oversized_detail_names_heap_not_index() {
     let index = named_rel(mcx, "idx", 5000);
 
     let mut raw = AlignedPage([0u8; BLCKSZ]);
-    let mut page = unsafe {
-        PageMut::from_raw(core::ptr::NonNull::new_unchecked(raw.0.as_mut_ptr()))
-    };
+    let mut page =
+        unsafe { PageMut::from_raw(core::ptr::NonNull::new_unchecked(raw.0.as_mut_ptr())) };
     nbtree::bt_pageinit(&mut page);
     write_opaque(
         &mut page,
@@ -123,6 +126,7 @@ fn buildadd_oversized_detail_names_heap_not_index() {
         },
     );
 
+    #[allow(unused_attributes)]
     let mut img = Oversized([0u8; 2712]);
     assert!(2712 > BTMaxItemSize);
     unsafe {

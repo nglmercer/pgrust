@@ -394,6 +394,7 @@ fn get_crosstab_tuplestore(
                         }
                     }
                     values[0] = rowid.clone();
+                    #[allow(clippy::needless_range_loop)]
                     for j in 1..ncols - 2 {
                         values[j] = opt_bytes_to_vec(
                             spi::SPI_getvalue(mcx, spi_tuple, &t.tupdesc, (j + 1) as i32)?,

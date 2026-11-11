@@ -150,7 +150,7 @@ impl ExprExtMech for Eq {
                     if word.is_some() {
                         fires::fire("text.lean"); // textkeys witness signal: a site took text.lean's form
                     }
-                    (sites.push(Site { sub: k, view: View { substr, ..s.view }, word, ..s }), skip.push(n.as_raw().as_ptr() as usize)); // alloc: Program
+                    sites.push(Site { sub: k, view: View { substr, ..s.view }, word, ..s }); skip.push(n.as_raw().as_ptr() as usize); // alloc: Program
                 },
             }
         }
@@ -274,7 +274,7 @@ fn compare(b: &mut FunctionBuilder<'_>, env: &mut Env, p: Value, null: Value, k:
     b.br(l_out, &[v, ok, e]);
     b.switch_to(l_res);
     let (v, ok) = result(b, s, b.block_params(l_res)[0], t);
-    (b.br(l_out, &[v, ok, z]), b.switch_to(l_out));
+    b.br(l_out, &[v, ok, z]); b.switch_to(l_out);
     [0, 1, 2].map(|i| b.block_params(l_out)[i])
 }
 
@@ -330,7 +330,7 @@ pub(crate) fn bytes_eq(b: &mut FunctionBuilder<'_>, env: &mut Env, x: Value, y: 
     b.cond_br(empty, (l_done, &[t]), (blocks[5], &[]));
     b.switch_to(blocks[5]);
     let e = eq(b, 1, z);
-    (b.br(l_done, &[e]), b.switch_to(l_done));
+    b.br(l_done, &[e]); b.switch_to(l_done);
     b.block_params(l_done)[0]
 }
 

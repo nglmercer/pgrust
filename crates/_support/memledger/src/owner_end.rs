@@ -10,7 +10,10 @@
 //! run's end. `set_assert` makes a debug build panic at an owner cell's residue (never at a legacy one: those are what the
 //! area moves remove); nothing turns it on before the key has been green (it gets its knob then).
 
-use core::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, AtomicU64, Ordering::Acquire, Ordering::Relaxed, Ordering::Release};
+use core::sync::atomic::{
+    AtomicBool, AtomicI64, AtomicU32, AtomicU64, Ordering::Acquire, Ordering::Relaxed,
+    Ordering::Release,
+};
 
 use crate::charge::{OwnerClass, Residue, OWNER_CLASSES};
 use crate::Acct;
@@ -96,7 +99,14 @@ pub(crate) fn note_as(src: Source, r: Residue, pid: Option<u32>) {
     row.seq.store(0, Relaxed);
     row.tag.store(c as u32 | (s as u32) << 8, Relaxed);
     row.acct.store(r.acct.0, Relaxed);
-    row.pid.store(pid.unwrap_or_else(|| crate::SLOTS.get(r.acct.0 as usize).map_or(0, |x| x.pid.load(Relaxed))), Relaxed);
+    row.pid.store(
+        pid.unwrap_or_else(|| {
+            crate::SLOTS
+                .get(r.acct.0 as usize)
+                .map_or(0, |x| x.pid.load(Relaxed))
+        }),
+        Relaxed,
+    );
     row.committed.store(r.committed, Relaxed);
     row.reserved.store(r.reserved, Relaxed);
     row.uses.store(r.uses, Relaxed);
@@ -126,13 +136,26 @@ pub(crate) fn crashed(a: Acct, left: i64, reserved: i64, noted: u32) {
     CRASHED_MOVED.fetch_add(left, Relaxed);
     CRASHED_RESERVED.fetch_add(reserved, Relaxed);
     if noted == 0 {
-        note(Source::Crashed, Residue { class: OwnerClass::Session, acct: a, committed: left, reserved, uses: 0 });
+        note(
+            Source::Crashed,
+            Residue {
+                class: OwnerClass::Session,
+                acct: a,
+                committed: left,
+                reserved,
+                uses: 0,
+            },
+        );
     }
 }
 
 /// (the dead sessions unbound at crash cycles, the bytes moved to UNBOUND, the pool reservations dropped).
 pub fn crashed_unbinds() -> (u64, i64, i64) {
-    (CRASHED.load(Relaxed), CRASHED_MOVED.load(Relaxed), CRASHED_RESERVED.load(Relaxed))
+    (
+        CRASHED.load(Relaxed),
+        CRASHED_MOVED.load(Relaxed),
+        CRASHED_RESERVED.load(Relaxed),
+    )
 }
 
 static ASSERT: AtomicBool = AtomicBool::new(false);
@@ -158,12 +181,20 @@ pub struct Totals {
 /// The totals of residues of class `class` read from `src`.
 pub fn totals(src: Source, class: OwnerClass) -> Totals {
     let (s, c) = (src as usize, class as usize);
-    Totals { events: EVENTS[s][c].load(Relaxed), committed: BYTES[s][c].load(Relaxed), uses: USES[s][c].load(Relaxed) }
+    Totals {
+        events: EVENTS[s][c].load(Relaxed),
+        committed: BYTES[s][c].load(Relaxed),
+        uses: USES[s][c].load(Relaxed),
+    }
 }
 
 /// (the unbinds, the bytes they moved to UNBOUND, UNBOUND's net now).
 pub fn unbinds() -> (u64, i64, i64) {
-    (UNBINDS.load(Relaxed), UNBOUND_MOVED.load(Relaxed), crate::SLOTS[Acct::UNBOUND.0 as usize].net.load(Relaxed))
+    (
+        UNBINDS.load(Relaxed),
+        UNBOUND_MOVED.load(Relaxed),
+        crate::SLOTS[Acct::UNBOUND.0 as usize].net.load(Relaxed),
+    )
 }
 
 /// One residue of the ring.
@@ -208,8 +239,12 @@ pub fn for_each_recent(mut f: impl FnMut(&Recent)) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::charge::{context, live_portals, new_owner_id, owner_row, portal_begin, portal_end, OwnerRow};
-    use crate::{bind_backend, statement_begin, statement_end, unbind_backend, Charge, Owner, Release};
+    use crate::charge::{
+        context, live_portals, new_owner_id, owner_row, portal_begin, portal_end, OwnerRow,
+    };
+    use crate::{
+        bind_backend, statement_begin, statement_end, unbind_backend, Charge, Owner, Release,
+    };
 
     /// Each test on its own thread and backend slot (3907..3910: no other test's).
     fn on(procno: u32, f: impl FnOnce(Acct) + Send + 'static) {
@@ -243,12 +278,24 @@ mod tests {
             let left = Charge::use_of(o, rel);
             kept.transfer(Owner::Session(a), Release::Session);
             statement_end();
-            assert_eq!(recent(a), [(Source::Owner, OwnerClass::Statement, 1)], "the use no one passed on (D4087)");
-            assert_eq!(owner_row(Owner::Session(a)).uses, 2, "both on the session now");
+            assert_eq!(
+                recent(a),
+                [(Source::Owner, OwnerClass::Statement, 1)],
+                "the use no one passed on (D4087)"
+            );
+            assert_eq!(
+                owner_row(Owner::Session(a)).uses,
+                2,
+                "both on the session now"
+            );
             drop(left);
             statement_begin();
             statement_end();
-            assert_eq!(recent(a).len(), 1, "the kept use is the session's: no residue");
+            assert_eq!(
+                recent(a).len(),
+                1,
+                "the kept use is the session's: no residue"
+            );
             drop(kept);
             assert_eq!(owner_row(Owner::Session(a)), OwnerRow::default());
         });
@@ -268,7 +315,11 @@ mod tests {
         .join()
         .unwrap();
         assert!(unbinds().0 > n0);
-        assert_eq!(recent(a), [(Source::Owner, OwnerClass::Session, 1)], "a set's cursor past the backend's exit");
+        assert_eq!(
+            recent(a),
+            [(Source::Owner, OwnerClass::Session, 1)],
+            "a set's cursor past the backend's exit"
+        );
         drop(held);
     }
 
@@ -291,8 +342,16 @@ mod tests {
         })
         .join()
         .unwrap();
-        assert_eq!(at_unbind, [], "the unbind is not the session's end: its teardown has not run");
-        assert_eq!(recent(a), [(Source::Owner, OwnerClass::Session, 1)], "what the teardown left, at the thread's end");
+        assert_eq!(
+            at_unbind,
+            [],
+            "the unbind is not the session's end: its teardown has not run"
+        );
+        assert_eq!(
+            recent(a),
+            [(Source::Owner, OwnerClass::Session, 1)],
+            "what the teardown left, at the thread's end"
+        );
         drop(held);
     }
 
@@ -312,9 +371,19 @@ mod tests {
             let (o, rel) = context();
             let left = Charge::use_of(o, rel);
             let kept = Charge::use_of(Owner::Session(a), Release::Session);
-            let pages = Charge::open(Owner::Session(a), Release::Session, Kind::Mapped, Door::Mapped, 1 << 20);
+            let pages = Charge::open(
+                Owner::Session(a),
+                Release::Session,
+                Kind::Mapped,
+                Door::Mapped,
+                1 << 20,
+            );
             unbind_backend();
-            assert_eq!(recent(a), [(Source::Owner, OwnerClass::Statement, 1)], "the statement's residue, at the unbind");
+            assert_eq!(
+                recent(a),
+                [(Source::Owner, OwnerClass::Statement, 1)],
+                "the statement's residue, at the unbind"
+            );
             // the slot's next session binds on another thread before this one's teardown ends
             let next = std::thread::spawn(|| {
                 bind_backend(3922, 8922);
@@ -322,7 +391,11 @@ mod tests {
                 unbind_backend();
                 r
             });
-            assert_eq!(next.join().unwrap(), OwnerRow::default(), "the next session inherits nothing");
+            assert_eq!(
+                next.join().unwrap(),
+                OwnerRow::default(),
+                "the next session inherits nothing"
+            );
             // the teardown releases the statement's use and the kept cursor
             drop(left);
             drop(kept);
@@ -339,7 +412,11 @@ mod tests {
             }
         });
         assert_eq!(before, 1, "nothing noted between the unbind and the drain");
-        assert_eq!(rows, [(7922, 1 << 20, 0)], "the drain: the pages the teardown left, under the session's own pid");
+        assert_eq!(
+            rows,
+            [(7922, 1 << 20, 0)],
+            "the drain: the pages the teardown left, under the session's own pid"
+        );
         drop(pages);
     }
 
@@ -355,8 +432,16 @@ mod tests {
         .join()
         .unwrap();
         on(3910, move |a| {
-            assert_eq!(owner_row(Owner::Session(a)), OwnerRow::default(), "the next session inherits nothing");
-            assert_eq!(recent(a), [(Source::Owner, OwnerClass::Session, 1)], "the dead session's use is its residue");
+            assert_eq!(
+                owner_row(Owner::Session(a)),
+                OwnerRow::default(),
+                "the next session inherits nothing"
+            );
+            assert_eq!(
+                recent(a),
+                [(Source::Owner, OwnerClass::Session, 1)],
+                "the dead session's use is its residue"
+            );
         });
         drop(held);
     }
@@ -373,22 +458,40 @@ mod tests {
         let a = Acct::backend(P);
         let held = std::thread::spawn(move || {
             bind_backend(P, 4242);
-            let c = Charge::open(Owner::Session(a), Release::Session, Kind::Mapped, Door::Mapped, MIB);
+            let c = Charge::open(
+                Owner::Session(a),
+                Release::Session,
+                Kind::Mapped,
+                Door::Mapped,
+                MIB,
+            );
             pool_charge(a, 3 * MIB as i64);
             c
         })
         .join()
         .unwrap();
         let r = account_row(a);
-        assert_eq!((r.account_bytes, r.pool_reserved_bytes, r.pid), (MIB as i64, 3 * MIB as i64, 4242), "the dead session's books");
+        assert_eq!(
+            (r.account_bytes, r.pool_reserved_bytes, r.pid),
+            (MIB as i64, 3 * MIB as i64, 4242),
+            "the dead session's books"
+        );
         // D4356: no other test moves UNBOUND between the two reads (every test that binds a backend holds the turn shared)
         let alone = crate::unbound_alone();
         let unbound = account_row(Acct::UNBOUND).account_bytes;
         assert!(crate::unbind_dead(P), "a bound slot at the crash cycle");
         assert!(!crate::unbind_dead(P), "once");
         let r = account_row(a);
-        assert_eq!((r.account_bytes, r.pool_reserved_bytes, r.pid), (0, 0, 0), "nothing left on the slot");
-        assert_eq!(account_row(Acct::UNBOUND).account_bytes - unbound, MIB as i64, "its net on UNBOUND, as an unbind's");
+        assert_eq!(
+            (r.account_bytes, r.pool_reserved_bytes, r.pid),
+            (0, 0, 0),
+            "nothing left on the slot"
+        );
+        assert_eq!(
+            account_row(Acct::UNBOUND).account_bytes - unbound,
+            MIB as i64,
+            "its net on UNBOUND, as an unbind's"
+        );
         drop(alone);
         let mut rows = Vec::new();
         for_each_recent(|r| {
@@ -396,10 +499,22 @@ mod tests {
                 rows.push((r.source.name(), r.class, r.committed, r.pid));
             }
         });
-        assert_eq!(rows, [("crashed", OwnerClass::Session, MIB as i64, 4242)], "one crashed row: its session's charge");
+        assert_eq!(
+            rows,
+            [("crashed", OwnerClass::Session, MIB as i64, 4242)],
+            "one crashed row: its session's charge"
+        );
         on(P, move |a| {
-            assert_eq!(account_row(a).account_bytes, 0, "the next session starts at zero");
-            assert_eq!(owner_row(Owner::Session(a)), OwnerRow::default(), "and owns nothing");
+            assert_eq!(
+                account_row(a).account_bytes,
+                0,
+                "the next session starts at zero"
+            );
+            assert_eq!(
+                owner_row(Owner::Session(a)),
+                OwnerRow::default(),
+                "and owns nothing"
+            );
         });
         drop(held);
     }
@@ -414,9 +529,15 @@ mod tests {
         });
         on(3909, move |a| {
             assert_eq!(live_portals(a), 0, "the next session starts with none live");
-            assert_eq!(owner_row(Owner::Portal { acct: a, portal: p }), OwnerRow::default());
+            assert_eq!(
+                owner_row(Owner::Portal { acct: a, portal: p }),
+                OwnerRow::default()
+            );
             assert_eq!(portal_end(a, p), None, "its cell went with its session");
         });
-        assert!(recent(Acct::backend(3909)).is_empty(), "an empty portal's end is no residue");
+        assert!(
+            recent(Acct::backend(3909)).is_empty(),
+            "an empty portal's end is no residue"
+        );
     }
 }

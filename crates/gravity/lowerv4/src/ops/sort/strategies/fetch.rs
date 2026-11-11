@@ -96,7 +96,7 @@ pub(crate) fn run_row<'e>(row: &RowVals, keycols: &[u16], loc: Value, node: i32,
     let mut out = RowVals { row: Row { cells: mcx::reserved_in(n + 1, mcx) }, vals: mcx::reserved_in(n + 1, mcx), cols: (0..=n as u16).map(Some).collect_in(mcx), carry: row.carry.copy_in(mcx), next: row.next, at: row.at };
     for &c in keycols.iter() {
         let Some(k) = row.cols.get(c as usize).copied().flatten().map(usize::from) else { bug(node, "a fetch key past the row") };
-        out.row.cells.push_in(row.row.cells[k].clone());
+        out.row.cells.push_in(row.row.cells[k]);
         out.vals.push_in(row.vals[k]);
     }
     let life = CellLife { until: Until::Row, home: CellHome::RowCx };

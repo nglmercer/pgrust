@@ -622,6 +622,7 @@ pub fn emit<'g>(px: &mut Px<'g, '_>, mut mechs: Vec<Mechs<'g>>) -> Lowered {
     // exact request's window fill (PLAN-v5 §2.5; W4) only through its object's spool (m10_win_ask, exec ops/window/proto.rs)
     for (p, cte) in px.protos.iter().filter(|p| gravity_program::protos::pulled(p)).map(|p| (p.pipeline as usize, p.kind == ProtoKind::Cte)).collect_in(plan_mcx) {
         let m = gravity_program::protos::members_in(&pipelines, &px.protos, p);
+        #[allow(clippy::nonminimal_bool)]
         if !(cte && Px::streamed(&pipelines, &px.protos, p, &m, node)) && !m.shared.is_empty() { // C7STREAM F1: nest/spool_stream.rs
             crate::refuse!(node, Reason::Shape { why: crate::admit::refusal::ShapeWhy(if cte { "a CTE whose producer a pipeline outside it also reads" } else { crate::ops::window::lower::PULLED_SHARED }) });
         }
@@ -671,7 +672,9 @@ pub fn emit<'g>(px: &mut Px<'g, '_>, mut mechs: Vec<Mechs<'g>>) -> Lowered {
                 if side.funcs.len() != 1 || side.funcs[0].blocks.iter().any(|b| b.insts.iter().any(|i| matches!(i.op, gravity_ir::Op::Call { .. }))) {
                     crate::refuse!(node, Reason::Bug { payload: "a staged function that calls another function" });
                 }
+                #[allow(dropping_copy_types)]
                 drop(gravity_ir::prune::unreachable(&mut side.funcs[0]));
+                #[allow(dropping_copy_types)]
                 drop(verify(&side, None, &[Func(0)], core::slice::from_ref(&bs), node, plan_mcx));
                 (plain, Some(side), t)
             }
@@ -681,6 +684,7 @@ pub fn emit<'g>(px: &mut Px<'g, '_>, mut mechs: Vec<Mechs<'g>>) -> Lowered {
             std::alloc::handle_alloc_error(core::alloc::Layout::new::<(Func, Option<gravity_ir::Program>, u64)>());
         }
     }
+    #[allow(dropping_copy_types)]
     fs.iter().for_each(|&f| drop(gravity_ir::prune::unreachable(&mut ir.funcs[f.index()]))); // D528: dead blocks emptied
     let carried = instr::carry(&mut ir, plan_mcx); // EXPLAIN ANALYZE's counters in registers (an instrumented program's only)
     // D3585: a union's twin arms share one function (frame/twin.rs), verified with the stubs that call it; an instrumented
@@ -835,6 +839,76 @@ fn statement_owner() -> memledger::Owner {
     match memledger::running_statement(acct) {
         0 => memledger::Owner::Session(acct),
         stmt => memledger::Owner::Statement { acct, stmt },
+    }
+}
+
+/// The extra passes (twopass.having's pass 2) a pipeline's makers add after themselves: their virtual ids, their makes
+/// under those ids, and their breaker slots; `emit` above remaps them to program order (moved from px.rs, its budget).
+impl<'g, 'p> Px<'g, 'p> {
+    /// The virtual id the next `add_pass` returns (past the graph's inners, + passes so far): its makes declare under it.
+    pub fn pass_id(&self) -> usize {
+        self.gx.pipelines().end() + self.pass_after.len()
+    }
+
+    /// An extra pipeline run right after graph pipeline `after` (twopass.having's pass 2), added only by `after`'s own
+    /// makers. Returns its virtual id, which every make-time pipeline reference uses (Proto pipeline / peer, LifeId, its
+    /// site and words); emit remaps them to program order. At lower time `env.k` is the virtual id: a pass's mechanisms
+    /// capture what they read at make time and never index `gx.pipelines()` by it.
+    pub fn add_pass(&mut self, after: usize, p: ExtraPass<'g>) -> usize {
+        if self.making.0 != after {
+            self.bug("a pass added by a pipeline other than the one it follows");
+        }
+        let v = self.pass_id();
+        self.pass_after.push(after);
+        self.passes.push((after, v, p)); // alloc: Program
+        v
+    }
+
+    /// The passes that follow graph pipeline `k`, in the order added, with their virtual ids.
+    pub(crate) fn take_passes(&mut self, k: usize) -> Vec<(usize, ExtraPass<'g>)> {
+        let (mine, rest) = core::mem::take(&mut self.passes).into_iter().partition(|p| p.0 == k);
+        self.passes = rest;
+        mine.into_iter().map(|(_, v, p)| (v, p)).collect() // alloc: Program
+    }
+
+    /// The graph pipeline pass `v` follows; `v` itself for a graph pipeline or an embedded inner. With no pass added
+    /// (the common case) that is every `v`, with no walk of the graph's inners (`Pipes::end` walks every pipeline's ops:
+    /// called per pipeline, it made lowering O(pipelines^2) over thousands of union arms, m4_l20).
+    pub fn after_of(&self, v: usize) -> usize {
+        if self.pass_after.is_empty() {
+            return v;
+        }
+        v.checked_sub(self.gx.pipelines().end()).and_then(|i| self.pass_after.get(i).copied()).unwrap_or(v)
+    }
+
+    /// Graph pipeline `after`'s source and steps made again for pass `v`: the makers read `after`'s shape and declare
+    /// under `v`, so the pass shares no site, per-open or resume word with `after`.
+    pub fn remake(&mut self, after: usize, v: usize) -> (PgBox<'g, dyn SourceMech + 'g>, PgVec<'g, PgBox<'g, dyn StepMech + 'g>>) {
+        if self.unions.iter().any(|u| u.0 == after) {
+            self.bug("a pass remade from a union arm");
+        }
+        let gx = self.gx;
+        let node = gx.pipelines()[after].node_id;
+        let mcx = self.mcx();
+        self.making(after, v, |px| {
+            let source = (crate::frame::iface::kind_impl::<SourceMaker>(&node, gx.source_kind(after)).0)(px, after);
+            let mut steps = mcx::reserved_in(gx.pipelines()[after].ops.len(), mcx);
+            for j in 0..gx.pipelines()[after].ops.len() {
+                steps.push_in((crate::frame::iface::kind_impl::<StepMaker>(&node, gx.step_need(after, j)).0)(px, after, j));
+            }
+            (source, steps)
+        })
+    }
+
+    /// A breaker slot no graph pipeline produces or consumes (a pass's own breaker).
+    pub fn new_slot(&mut self) -> u8 {
+        let graph = self.gx.pipelines().iter().flat_map(|p| p.desc.consumes.iter().copied().chain(p.desc.produces()));
+        let s = graph.max().map_or(0, |s| s as usize + 1) + self.new_slots;
+        if s >= NO_SLOT as usize {
+            self.bug("no breaker slot left for a pass");
+        }
+        self.new_slots += 1;
+        s as u8
     }
 }
 
@@ -1046,75 +1120,5 @@ mod tests {
         assert!(crate::catch(1, || super::assembles(&good, &[7, 9], 1)).is_ok());
         let r = crate::catch(1, || super::assembles(&bad, &[7, 9], 1)).expect_err("a malformed DAG refuses");
         assert!(matches!(r.reason, crate::Reason::Bug { .. }) && r.node == 7, "{} at node {}", r.reason, r.node);
-    }
-}
-
-/// The extra passes (twopass.having's pass 2) a pipeline's makers add after themselves: their virtual ids, their makes
-/// under those ids, and their breaker slots; `emit` above remaps them to program order (moved from px.rs, its budget).
-impl<'g, 'p> Px<'g, 'p> {
-    /// The virtual id the next `add_pass` returns (past the graph's inners, + passes so far): its makes declare under it.
-    pub fn pass_id(&self) -> usize {
-        self.gx.pipelines().end() + self.pass_after.len()
-    }
-
-    /// An extra pipeline run right after graph pipeline `after` (twopass.having's pass 2), added only by `after`'s own
-    /// makers. Returns its virtual id, which every make-time pipeline reference uses (Proto pipeline / peer, LifeId, its
-    /// site and words); emit remaps them to program order. At lower time `env.k` is the virtual id: a pass's mechanisms
-    /// capture what they read at make time and never index `gx.pipelines()` by it.
-    pub fn add_pass(&mut self, after: usize, p: ExtraPass<'g>) -> usize {
-        if self.making.0 != after {
-            self.bug("a pass added by a pipeline other than the one it follows");
-        }
-        let v = self.pass_id();
-        self.pass_after.push(after);
-        self.passes.push((after, v, p)); // alloc: Program
-        v
-    }
-
-    /// The passes that follow graph pipeline `k`, in the order added, with their virtual ids.
-    pub(crate) fn take_passes(&mut self, k: usize) -> Vec<(usize, ExtraPass<'g>)> {
-        let (mine, rest) = core::mem::take(&mut self.passes).into_iter().partition(|p| p.0 == k);
-        self.passes = rest;
-        mine.into_iter().map(|(_, v, p)| (v, p)).collect() // alloc: Program
-    }
-
-    /// The graph pipeline pass `v` follows; `v` itself for a graph pipeline or an embedded inner. With no pass added
-    /// (the common case) that is every `v`, with no walk of the graph's inners (`Pipes::end` walks every pipeline's ops:
-    /// called per pipeline, it made lowering O(pipelines^2) over thousands of union arms, m4_l20).
-    pub fn after_of(&self, v: usize) -> usize {
-        if self.pass_after.is_empty() {
-            return v;
-        }
-        v.checked_sub(self.gx.pipelines().end()).and_then(|i| self.pass_after.get(i).copied()).unwrap_or(v)
-    }
-
-    /// Graph pipeline `after`'s source and steps made again for pass `v`: the makers read `after`'s shape and declare
-    /// under `v`, so the pass shares no site, per-open or resume word with `after`.
-    pub fn remake(&mut self, after: usize, v: usize) -> (PgBox<'g, dyn SourceMech + 'g>, PgVec<'g, PgBox<'g, dyn StepMech + 'g>>) {
-        if self.unions.iter().any(|u| u.0 == after) {
-            self.bug("a pass remade from a union arm");
-        }
-        let gx = self.gx;
-        let node = gx.pipelines()[after].node_id;
-        let mcx = self.mcx();
-        self.making(after, v, |px| {
-            let source = (crate::frame::iface::kind_impl::<SourceMaker>(&node, gx.source_kind(after)).0)(px, after);
-            let mut steps = mcx::reserved_in(gx.pipelines()[after].ops.len(), mcx);
-            for j in 0..gx.pipelines()[after].ops.len() {
-                steps.push_in((crate::frame::iface::kind_impl::<StepMaker>(&node, gx.step_need(after, j)).0)(px, after, j));
-            }
-            (source, steps)
-        })
-    }
-
-    /// A breaker slot no graph pipeline produces or consumes (a pass's own breaker).
-    pub fn new_slot(&mut self) -> u8 {
-        let graph = self.gx.pipelines().iter().flat_map(|p| p.desc.consumes.iter().copied().chain(p.desc.produces()));
-        let s = graph.max().map_or(0, |s| s as usize + 1) + self.new_slots;
-        if s >= NO_SLOT as usize {
-            self.bug("no breaker slot left for a pass");
-        }
-        self.new_slots += 1;
-        s as u8
     }
 }

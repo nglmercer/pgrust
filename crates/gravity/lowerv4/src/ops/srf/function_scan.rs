@@ -257,14 +257,14 @@ impl<'g> StepMech for FromStep<'g> {
         b.br(l_elem, &entry[..]);
         // the poll, then the next block
         b.switch_to(l_body);
-        let p = mcx::to_vec_in(&b.block_params(l_body)[..], mcx);
+        let p = mcx::to_vec_in(b.block_params(l_body), mcx);
         let lim = block_end(b, env, p[0], n);
         let resume = mcx::concat_in(&[&[p[0], lim][..], &p[1..]], mcx);
         b.br(l_elem, &resume[..]);
         b.switch_to(l_elem);
         b.mark_loop_header(l_elem);
         env.bounded.push_in(l_elem);
-        let p = mcx::to_vec_in(&b.block_params(l_elem)[..], mcx);
+        let p = mcx::to_vec_in(b.block_params(l_elem), mcx);
         let (k, lim, cur, carry) = (p[0], p[1], &p[2..2 + ncur], Carry::from_params(&p[2 + ncur..], env.mcx));
         let (l_row, l_past) = (b.create_block(&[]), b.create_block(&[]));
         let in_block = b.icmp(IntCond::Ult, k, lim);

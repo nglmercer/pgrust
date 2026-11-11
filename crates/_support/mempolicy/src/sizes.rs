@@ -5,7 +5,10 @@ pub const TABLES_RAM_64THS: u64 = 8;
 pub const BUILD_POOL_RAM_64THS: u64 = 8;
 pub const CONDITION_CACHE_RAM_64THS: u64 = 1;
 pub const ZONE_STORE_RAM_64THS: u64 = 1;
-const _: () = assert!(TABLES_RAM_64THS + BUILD_POOL_RAM_64THS + CONDITION_CACHE_RAM_64THS + ZONE_STORE_RAM_64THS <= 64 / 4 + 64 / 32);
+const _: () = assert!(
+    TABLES_RAM_64THS + BUILD_POOL_RAM_64THS + CONDITION_CACHE_RAM_64THS + ZONE_STORE_RAM_64THS
+        <= 64 / 4 + 64 / 32
+);
 
 const fn ram_64ths(ram: u64, n: u64) -> u64 {
     ram / 64 * n + ram % 64 * n / 64
@@ -35,8 +38,14 @@ pub const fn part_cache_cap(ram: u64, pool: u64) -> u64 {
 /// Never more than three quarters of what shared_buffers leaves; 0 when RAM is unknown.
 pub const fn derived_pool_cap(ram: u64, shared: u64) -> u64 {
     let was = ram.saturating_sub(shared) / 4 * 3;
-    let fits = ram_64ths(ram, 54).saturating_sub(shared).saturating_sub(ram_64ths(ram, 8));
-    if fits < was { fits } else { was }
+    let fits = ram_64ths(ram, 54)
+        .saturating_sub(shared)
+        .saturating_sub(ram_64ths(ram, 8));
+    if fits < was {
+        fits
+    } else {
+        was
+    }
 }
 pub const fn build_pool_cap(ram: u64, pool: u64) -> u64 {
     pool_bound(ram, pool, BUILD_POOL_RAM_64THS)
@@ -49,10 +58,17 @@ pub const fn zone_store_cap(ram: u64, pool: u64) -> u64 {
 }
 /// Not bounded by the grant pool: an LRU under the parts' tables rebuilds them all at every read after a write.
 pub const fn resident_tables_cap(ram: u64, pool: u64) -> u64 {
-    if ram == 0 { pool } else { ram_64ths(ram, TABLES_RAM_64THS) }
+    if ram == 0 {
+        pool
+    } else {
+        ram_64ths(ram, TABLES_RAM_64THS)
+    }
 }
 pub const fn process_caches_cap(ram: u64, pool: u64) -> u64 {
-    resident_tables_cap(ram, pool).saturating_add(build_pool_cap(ram, pool)).saturating_add(condition_cache_cap(ram, pool)).saturating_add(zone_store_cap(ram, pool))
+    resident_tables_cap(ram, pool)
+        .saturating_add(build_pool_cap(ram, pool))
+        .saturating_add(condition_cache_cap(ram, pool))
+        .saturating_add(zone_store_cap(ram, pool))
 }
 
 pub fn os_reserve(limit: u64) -> u64 {
@@ -65,7 +81,9 @@ pub fn page_cache_floor_default(limit: u64) -> u64 {
 }
 
 pub const fn budget_auto(limit: u64, os_reserve: u64, page_cache_floor: u64) -> u64 {
-    limit.saturating_sub(os_reserve).saturating_sub(page_cache_floor)
+    limit
+        .saturating_sub(os_reserve)
+        .saturating_sub(page_cache_floor)
 }
 
 pub fn reserve_low(b: u64) -> u64 {
@@ -92,8 +110,16 @@ pub struct Budget {
 
 pub fn budget_of(limit: u64, target: u64, page_cache_floor: u64, reserve: u64, bar: u64) -> Budget {
     let os = os_reserve(limit);
-    let pcf = if page_cache_floor != 0 { page_cache_floor } else { page_cache_floor_default(limit) };
-    let b_auto = if limit == 0 { 0 } else { budget_auto(limit, os, pcf) };
+    let pcf = if page_cache_floor != 0 {
+        page_cache_floor
+    } else {
+        page_cache_floor_default(limit)
+    };
+    let b_auto = if limit == 0 {
+        0
+    } else {
+        budget_auto(limit, os, pcf)
+    };
     let mut b = b_auto;
     if target != 0 && target < b {
         b = target;
@@ -101,8 +127,20 @@ pub fn budget_of(limit: u64, target: u64, page_cache_floor: u64, reserve: u64, b
     if bar != 0 && bar < b {
         b = bar;
     }
-    let (r_low, r_high) = if reserve != 0 { (reserve, reserve.saturating_add(reserve)) } else { (reserve_low(b), reserve_high(b)) };
-    Budget { limit, os_reserve: os, page_cache_floor: pcf, b_auto, b, r_low, r_high }
+    let (r_low, r_high) = if reserve != 0 {
+        (reserve, reserve.saturating_add(reserve))
+    } else {
+        (reserve_low(b), reserve_high(b))
+    };
+    Budget {
+        limit,
+        os_reserve: os,
+        page_cache_floor: pcf,
+        b_auto,
+        b,
+        r_low,
+        r_high,
+    }
 }
 
 pub const WORK_POOL_MIN: u64 = KNOBS[K::WorkPoolMin as usize].default;
@@ -124,7 +162,13 @@ pub fn reclaim_tick_ms() -> u64 {
     get(K::ReclaimTickMs)
 }
 
-pub fn work_pool_capacity(budget: &Budget, fixed: u64, unattributed: u64, shared_buffers: u64, caches: u64) -> u64 {
+pub fn work_pool_capacity(
+    budget: &Budget,
+    fixed: u64,
+    unattributed: u64,
+    shared_buffers: u64,
+    caches: u64,
+) -> u64 {
     budget
         .b
         .saturating_sub(budget.r_high)
@@ -137,7 +181,11 @@ pub fn work_pool_capacity(budget: &Budget, fixed: u64, unattributed: u64, shared
 
 /// B0: what a cache keeps from the pool: managed, its floor or less but never its pinned bytes; unmanaged, its cap.
 pub fn cache_kept(managed: bool, current: u64, floor: u64, cap: u64, pinned: u64) -> u64 {
-    if managed { floor.min(current).max(pinned) } else { cap }
+    if managed {
+        floor.min(current).max(pinned)
+    } else {
+        cap
+    }
 }
 
 /// B0's margin under memory.max (%): with the pool small the C7 stress spent 6.5 min (not 22.6) within 5 % of the limit and
@@ -154,11 +202,17 @@ pub fn pool_headroom_room(limit: u64, current: u64, clean_inactive: u64) -> Opti
 
 /// `grant_room_counts_cache`: the pool tick's room, plus with `on` the caches' bytes past what they keep (`evictable`).
 pub fn grant_room(room: u64, evictable: u64, on: bool) -> u64 {
-    if on { room.saturating_add(evictable) } else { room }
+    if on {
+        room.saturating_add(evictable)
+    } else {
+        room
+    }
 }
 
 pub fn pool_tick_capacity(capacity: u64, held: u64, room: Option<u64>) -> u64 {
-    room.map_or(capacity, |r| capacity.min(held.saturating_add(r)).max(work_pool_min()))
+    room.map_or(capacity, |r| {
+        capacity.min(held.saturating_add(r)).max(work_pool_min())
+    })
 }
 
 pub const fn caches_at_caps(ram: u64) -> u64 {
@@ -169,12 +223,28 @@ pub const fn caches_at_caps(ram: u64) -> u64 {
 /// the caches at their protected floors (`ladder::pool_caches`) and the HIGH mark of `limit` as the reserve in place of
 /// R_high (`ladder::marks`): the ladder evicts what the caches hold above their floors.
 #[allow(clippy::too_many_arguments)]
-pub fn derived_pool_in_b(today: u64, budget: &Budget, fixed: u64, shared_buffers: u64, ram: u64, part_cache_explicit: bool, least: u64, floors: bool) -> u64 {
+pub fn derived_pool_in_b(
+    today: u64,
+    budget: &Budget,
+    fixed: u64,
+    shared_buffers: u64,
+    ram: u64,
+    part_cache_explicit: bool,
+    least: u64,
+    floors: bool,
+) -> u64 {
     if budget.b == 0 || part_cache_explicit {
         return today;
     }
     let caches = crate::ladder::pool_caches(caches_at_caps(ram), budget.b, floors);
-    let budget = if floors { Budget { r_high: crate::ladder::marks(budget.limit).1, ..*budget } } else { *budget };
+    let budget = if floors {
+        Budget {
+            r_high: crate::ladder::marks(budget.limit).1,
+            ..*budget
+        }
+    } else {
+        *budget
+    };
     today.min(work_pool_capacity(&budget, fixed, 0, shared_buffers, caches).max(least))
 }
 
@@ -191,14 +261,29 @@ pub fn railed(limit: u64, mem: u64) -> bool {
     limit != 0 && (mem == 0 || limit < mem * 2)
 }
 
-pub fn rail_reserve(slots: u64, admitting: u64, stack: u64, cpus: u64, admission_arena: u64) -> u64 {
-    slots.saturating_mul(stack).saturating_add(slots.min(cpus * ARENAS_PER_CPU) * THREAD_ARENA).saturating_add(admitting.saturating_mul(admission_arena))
+pub fn rail_reserve(
+    slots: u64,
+    admitting: u64,
+    stack: u64,
+    cpus: u64,
+    admission_arena: u64,
+) -> u64 {
+    slots
+        .saturating_mul(stack)
+        .saturating_add(slots.min(cpus * ARENAS_PER_CPU) * THREAD_ARENA)
+        .saturating_add(admitting.saturating_mul(admission_arena))
 }
 
 pub fn railed_pool(limit: u64, mapped: u64, reserve: u64, per_pooled: u64) -> (u64, u64) {
     let headroom = limit.saturating_sub(mapped).saturating_sub(reserve);
     let n = (headroom / (per_pooled + OUTSIDE_ALLOWANCE)).clamp(1, 64);
-    (n, headroom.saturating_sub(n * OUTSIDE_ALLOWANCE).min(n * per_pooled).max(per_pooled))
+    (
+        n,
+        headroom
+            .saturating_sub(n * OUTSIDE_ALLOWANCE)
+            .min(n * per_pooled)
+            .max(per_pooled),
+    )
 }
 
 /// A flat `arena::KEEP_BYTES` a level, the most a reset arena keeps, so a pool fitted inside B bounds the statements.
@@ -228,28 +313,73 @@ mod tests {
         reset();
         let limit = 15_741 * MIB;
         let today = derived_pool_cap(limit, 128 * MIB);
-        assert_eq!(today >> 20, 11_185, "today's derived pool under the unit, as the server logged it");
+        assert_eq!(
+            today >> 20,
+            11_185,
+            "today's derived pool under the unit, as the server logged it"
+        );
         let caches = caches_at_caps(limit);
-        assert_eq!(caches, part_cache_cap(limit, 0) + process_caches_cap(limit, 0));
-        assert_eq!(caches >> 20, 6_394, "part cache, fp tables, build pool at RAM / 8, the two stores at RAM / 64");
+        assert_eq!(
+            caches,
+            part_cache_cap(limit, 0) + process_caches_cap(limit, 0)
+        );
+        assert_eq!(
+            caches >> 20,
+            6_394,
+            "part cache, fp tables, build pool at RAM / 8, the two stores at RAM / 64"
+        );
         let b = budget_of(limit, 0, 0, 0, 0);
         assert_eq!(b.b >> 20, 13_733);
         let pool = derived_pool_in_b(today, &b, 0, 128 * MIB, limit, false, 64 * MIB, false);
         assert_eq!(pool, b.b - b.r_high - 128 * MIB - caches);
         assert_eq!(pool >> 20, 5_162);
         assert!(pool + caches + 128 * MIB + b.r_high <= b.b, "B fits");
-        assert_eq!(derived_pool_in_b(today, &b, 0, 128 * MIB, limit, false, 8 * GIB, false), 8 * GIB, "a statement's grant still fits whole");
-        assert_eq!(derived_pool_in_b(today, &b, 0, 128 * MIB, limit, false, 16 * GIB, false), today, "never above today's");
-        assert_eq!(derived_pool_in_b(today, &Budget::default(), 0, 0, limit, false, 0, false), today, "no limit known");
-        assert_eq!(derived_pool_in_b(today, &b, 0, 128 * MIB, limit, true, 64 * MIB, false), today, "an explicit part cache: the operator's call");
+        assert_eq!(
+            derived_pool_in_b(today, &b, 0, 128 * MIB, limit, false, 8 * GIB, false),
+            8 * GIB,
+            "a statement's grant still fits whole"
+        );
+        assert_eq!(
+            derived_pool_in_b(today, &b, 0, 128 * MIB, limit, false, 16 * GIB, false),
+            today,
+            "never above today's"
+        );
+        assert_eq!(
+            derived_pool_in_b(today, &Budget::default(), 0, 0, limit, false, 0, false),
+            today,
+            "no limit known"
+        );
+        assert_eq!(
+            derived_pool_in_b(today, &b, 0, 128 * MIB, limit, true, 64 * MIB, false),
+            today,
+            "an explicit part cache: the operator's call"
+        );
         let cb = 30 * GIB + 768 * MIB;
         let cb_today = derived_pool_cap(cb, 128 * MIB);
         assert_eq!(cb_today >> 20, 22_504);
-        assert_eq!(derived_pool_in_b(cb_today, &budget_of(cb, 0, 0, 0, 0), 0, 128 * MIB, cb, true, 8 * GIB, false), cb_today);
+        assert_eq!(
+            derived_pool_in_b(
+                cb_today,
+                &budget_of(cb, 0, 0, 0, 0),
+                0,
+                128 * MIB,
+                cb,
+                true,
+                8 * GIB,
+                false
+            ),
+            cb_today
+        );
         assert!(fitted(false, false, pool, today) && !keeps_arenas(false, false, true, pool));
         assert!(!fitted(false, false, today, today) && keeps_arenas(false, false, false, today));
-        assert!(!fitted(true, false, pool, today), "a rail's pool is not R5's");
-        assert!(!fitted(false, true, pool, today), "mode on re-arms from B: the holds stay");
+        assert!(
+            !fitted(true, false, pool, today),
+            "a rail's pool is not R5's"
+        );
+        assert!(
+            !fitted(false, true, pool, today),
+            "mode on re-arms from B: the holds stay"
+        );
         reset();
     }
 
@@ -270,7 +400,11 @@ mod tests {
         assert_eq!(on, b.b - high - 128 * MIB - floors);
         assert_eq!(on >> 20, 4_044);
         assert!(on + floors + 128 * MIB + high <= b.b, "B fits");
-        assert_eq!(derived_pool_in_b(today, &b, 0, 128 * MIB, limit, true, 64 * MIB, true), today, "an explicit part cache: the operator's call");
+        assert_eq!(
+            derived_pool_in_b(today, &b, 0, 128 * MIB, limit, true, 64 * MIB, true),
+            today,
+            "an explicit part cache: the operator's call"
+        );
         reset();
     }
 
@@ -280,11 +414,22 @@ mod tests {
         reset();
         assert_eq!(cache_kept(true, 5 * GIB, GIB, 8 * GIB, 3 * GIB), 3 * GIB);
         assert_eq!(cache_kept(true, 5 * GIB, GIB, 8 * GIB, 0), GIB);
-        assert_eq!(cache_kept(true, 512 * MIB, GIB, 8 * GIB, 0), 512 * MIB, "under its floor: what it holds");
-        assert_eq!(cache_kept(false, 5 * GIB, GIB, 8 * GIB, 3 * GIB), 8 * GIB, "unmanaged: its cap");
+        assert_eq!(
+            cache_kept(true, 512 * MIB, GIB, 8 * GIB, 0),
+            512 * MIB,
+            "under its floor: what it holds"
+        );
+        assert_eq!(
+            cache_kept(false, 5 * GIB, GIB, 8 * GIB, 3 * GIB),
+            8 * GIB,
+            "unmanaged: its cap"
+        );
         let b = budget_of(32 * GIB, 0, 0, 0, 0);
         let kept = cache_kept(true, 5 * GIB, GIB, 8 * GIB, 3 * GIB);
-        assert_eq!(work_pool_capacity(&b, 0, 0, 0, kept), b.b - b.r_high - 3 * GIB);
+        assert_eq!(
+            work_pool_capacity(&b, 0, 0, 0, kept),
+            b.b - b.r_high - 3 * GIB
+        );
     }
 
     #[test]
@@ -293,16 +438,48 @@ mod tests {
         reset();
         let limit = 20 * GIB;
         assert_eq!(pool_headroom_room(limit, 0, 0), None, "no cgroup reading");
-        assert_eq!(pool_headroom_room(limit, 15 * GIB, GIB), Some(4 * GIB), "line at 18 GiB, 14 GiB used");
-        assert_eq!(pool_headroom_room(limit, 19 * GIB, 0), Some(0), "inside the margin: no room");
-        assert_eq!(pool_tick_capacity(10 * GIB, 3 * GIB, Some(4 * GIB)), 7 * GIB, "what it holds plus the room");
-        assert_eq!(pool_tick_capacity(5 * GIB, 3 * GIB, Some(4 * GIB)), 5 * GIB, "never past free room in B");
-        assert_eq!(pool_tick_capacity(10 * GIB, 0, Some(0)), work_pool_min(), "never under the minimum");
+        assert_eq!(
+            pool_headroom_room(limit, 15 * GIB, GIB),
+            Some(4 * GIB),
+            "line at 18 GiB, 14 GiB used"
+        );
+        assert_eq!(
+            pool_headroom_room(limit, 19 * GIB, 0),
+            Some(0),
+            "inside the margin: no room"
+        );
+        assert_eq!(
+            pool_tick_capacity(10 * GIB, 3 * GIB, Some(4 * GIB)),
+            7 * GIB,
+            "what it holds plus the room"
+        );
+        assert_eq!(
+            pool_tick_capacity(5 * GIB, 3 * GIB, Some(4 * GIB)),
+            5 * GIB,
+            "never past free room in B"
+        );
+        assert_eq!(
+            pool_tick_capacity(10 * GIB, 0, Some(0)),
+            work_pool_min(),
+            "never under the minimum"
+        );
         assert_eq!(pool_tick_capacity(10 * GIB, 3 * GIB, None), 10 * GIB);
         // grant_room_counts_cache: 1 GiB free and 5 GiB of cache past its floor admit a 6 GiB grant whole, never past B
-        assert_eq!(pool_tick_capacity(10 * GIB, 0, Some(grant_room(GIB, 5 * GIB, false))), GIB.max(work_pool_min()), "off: the free bytes only");
-        assert_eq!(pool_tick_capacity(10 * GIB, 0, Some(grant_room(GIB, 5 * GIB, true))), 6 * GIB, "on: the evictable cache too");
-        assert_eq!(pool_tick_capacity(4 * GIB, 0, Some(grant_room(GIB, 5 * GIB, true))), 4 * GIB, "on: never past B's capacity");
+        assert_eq!(
+            pool_tick_capacity(10 * GIB, 0, Some(grant_room(GIB, 5 * GIB, false))),
+            GIB.max(work_pool_min()),
+            "off: the free bytes only"
+        );
+        assert_eq!(
+            pool_tick_capacity(10 * GIB, 0, Some(grant_room(GIB, 5 * GIB, true))),
+            6 * GIB,
+            "on: the evictable cache too"
+        );
+        assert_eq!(
+            pool_tick_capacity(4 * GIB, 0, Some(grant_room(GIB, 5 * GIB, true))),
+            4 * GIB,
+            "on: never past B's capacity"
+        );
     }
 
     #[test]
@@ -311,7 +488,10 @@ mod tests {
         reset();
         let b = budget_of(32 * GIB, 0, 0, 0, 0);
         assert_eq!(b.r_high, reserve_high(b.b));
-        assert_eq!(work_pool_capacity(&b, GIB, 0, 128 * MIB, 4 * GIB), b.b - b.r_high - GIB - 128 * MIB - 4 * GIB);
+        assert_eq!(
+            work_pool_capacity(&b, GIB, 0, 128 * MIB, 4 * GIB),
+            b.b - b.r_high - GIB - 128 * MIB - 4 * GIB
+        );
         assert_eq!(work_pool_capacity(&b, b.b, 0, 0, 0), WORK_POOL_MIN);
         set(K::WorkPoolMin, 2 * GIB);
         assert_eq!(work_pool_capacity(&b, b.b, 0, 0, 0), 2 * GIB);
@@ -327,13 +507,30 @@ mod tests {
         let (n, cap) = railed_pool(64 * GIB, 4 * GIB, 0, GIB);
         assert_eq!(n, 15);
         assert_eq!(cap, 15 * GIB);
-        assert_eq!(railed_pool(GIB, 0, 0, GIB), (1, GIB), "at least one statement and its pooled bytes");
-        assert!(railed(8 * GIB, 32 * GIB) && !railed(0, 32 * GIB) && !railed(64 * GIB, 32 * GIB) && railed(64 * GIB, 0));
+        assert_eq!(
+            railed_pool(GIB, 0, 0, GIB),
+            (1, GIB),
+            "at least one statement and its pooled bytes"
+        );
+        assert!(
+            railed(8 * GIB, 32 * GIB)
+                && !railed(0, 32 * GIB)
+                && !railed(64 * GIB, 32 * GIB)
+                && railed(64 * GIB, 0)
+        );
         assert_eq!(pool_capacity(Some(256), Some(GIB), 2 * GIB), 256 * MIB);
         assert_eq!(pool_capacity(None, Some(GIB), 2 * GIB), GIB);
         assert_eq!(pool_capacity(None, None, 2 * GIB), 2 * GIB);
-        assert_eq!(pool_follow(GIB, Some(2 * GIB), 0), 2 * GIB, "the broker's target past B's capacity");
-        assert_eq!(pool_follow(GIB, None, 3 * GIB), 3 * GIB, "never under what it holds");
+        assert_eq!(
+            pool_follow(GIB, Some(2 * GIB), 0),
+            2 * GIB,
+            "the broker's target past B's capacity"
+        );
+        assert_eq!(
+            pool_follow(GIB, None, 3 * GIB),
+            3 * GIB,
+            "never under what it holds"
+        );
         assert_eq!(pool_follow(4 * GIB, Some(2 * GIB), GIB), 4 * GIB);
     }
 }

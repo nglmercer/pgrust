@@ -108,6 +108,7 @@ fn fc_pg_buffercache_pages(
         types_core::INT2OID, types_core::INT8OID, types_core::BOOLOID, types_core::INT2OID,
         types_core::INT4OID,
     ];
+    #[allow(clippy::needless_range_loop)]
     for i in 0..natts as usize {
         if srf.tupdesc.attr(i).atttypid != COLTYPES[i] {
             return Err(Box::new(

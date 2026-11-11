@@ -5,7 +5,9 @@
 
 use std::sync::Arc;
 
-use pgrc_format::manifest::{with_next_row_id, with_ranges, IdRanges, Manifest, ManifestHeader, PartRecord};
+use pgrc_format::manifest::{
+    with_next_row_id, with_ranges, IdRanges, Manifest, ManifestHeader, PartRecord,
+};
 use pgrc_format::rowmap::{encode, GranMap, Opts};
 use pgrc_format::sortrun::{with_runs, RankForm, RunRevForm, SortRun};
 use pgrc_write::testruns::{build, HomeRun};
@@ -19,15 +21,43 @@ const B: u64 = 291;
 fn rec(part_no: u32, rows: u64) -> PartRecord {
     use pgrc_format::geom::{band_count_at, granule_count_at, GranuleGrain};
     let g = GranuleGrain::DEFAULT;
-    PartRecord { rows, file_len: 4096, footer_off: 2048, dv_gen: 0, dv_len: 0, part_no, flags: 0, granule_count: granule_count_at(rows, g) as u32, band_count: band_count_at(rows, g) as u32, dv_crc: 0, granule_rows: 0 }
+    PartRecord {
+        rows,
+        file_len: 4096,
+        footer_off: 2048,
+        dv_gen: 0,
+        dv_len: 0,
+        part_no,
+        flags: 0,
+        granule_count: granule_count_at(rows, g) as u32,
+        band_count: band_count_at(rows, g) as u32,
+        dv_crc: 0,
+        granule_rows: 0,
+    }
 }
 
 fn header(gen: u64, nparts: u32) -> ManifestHeader {
-    ManifestHeader { gen, prev_gen: 0, publisher_fxid: 1, relfilenumber: 9, schema_fingerprint: 1, magic: pgrc_format::manifest::MANIFEST_MAGIC, format_version: pgrc_format::FORMAT_VERSION, spc: 1663, db: 5, part_count: nparts, next_part_no: 40, flags: 0, reserved: 0 }
+    ManifestHeader {
+        gen,
+        prev_gen: 0,
+        publisher_fxid: 1,
+        relfilenumber: 9,
+        schema_fingerprint: 1,
+        magic: pgrc_format::manifest::MANIFEST_MAGIC,
+        format_version: pgrc_format::FORMAT_VERSION,
+        spc: 1663,
+        db: 5,
+        part_count: nparts,
+        next_part_no: 40,
+        flags: 0,
+        reserved: 0,
+    }
 }
 
 fn granules(map: &[u8], rows: u64) -> Arc<RowMap> {
-    Arc::new(RowMap::Granules(Arc::new(GranuleMap::new(GranMap::decode(map, rows).unwrap()))))
+    Arc::new(RowMap::Granules(Arc::new(GranuleMap::new(
+        GranMap::decode(map, rows).unwrap(),
+    ))))
 }
 
 struct Rng(u64);
@@ -51,27 +81,42 @@ struct Table {
 
 fn table(form: RunRevForm, rank: Option<RankForm>, ids: &[u64], ranges: IdRanges) -> Table {
     let home = build(form, rank, 9, 7, ids, &ranges).unwrap();
-    let ext = with_next_row_id(&with_ranges(&[], &[(3, vec![(B, 3 * B)])]).unwrap(), 4000 * B).unwrap();
+    let ext = with_next_row_id(
+        &with_ranges(&[], &[(3, vec![(B, 3 * B)])]).unwrap(),
+        4000 * B,
+    )
+    .unwrap();
     let ext = with_runs(&ext, std::slice::from_ref(&home.run)).unwrap();
-    let m = Manifest::new(header(9, 2), vec![rec(3, 2 * B), rec(7, ids.len() as u64)]).with_ext(ext);
+    let m =
+        Manifest::new(header(9, 2), vec![rec(3, 2 * B), rec(7, ids.len() as u64)]).with_ext(ext);
     // the one-home law over the part and the run, as every reader decodes it
     let m = Manifest::decode(&m.encode()).unwrap();
     let mut gen = Generation::detached(m).unwrap();
     gen.bind_run_cell(9, RunCell::image(&home.run, home.file.clone()));
-    let maps = vec![Arc::new(RowMap::Implicit(B)), granules(&home.member_map, ids.len() as u64)];
+    let maps = vec![
+        Arc::new(RowMap::Implicit(B)),
+        granules(&home.member_map, ids.len() as u64),
+    ];
     Table { gen, home, maps }
 }
 
 impl Table {
     fn locate(&self, id: u64) -> types_error::PgResult<Option<(usize, u32)>> {
-        Ok(self.gen.locate(id, &mut |i| Ok(Arc::clone(&self.maps[i])))?.map(|(i, o, _)| (i, o)))
+        Ok(self
+            .gen
+            .locate(id, &mut |i| Ok(Arc::clone(&self.maps[i])))?
+            .map(|(i, o, _)| (i, o)))
     }
 }
 
 /// IDs of the run's ranges in a shuffled order (a sorted run's member holds its rows in key order), some dropped.
 fn shuffled(ranges: &IdRanges, keep_one_in: u64, seed: u64) -> Vec<u64> {
     let mut rng = Rng(seed);
-    let mut ids: Vec<u64> = ranges.iter().flat_map(|&(lo, hi)| lo..hi).filter(|_| keep_one_in <= 1 || rng.below(keep_one_in) != 0).collect();
+    let mut ids: Vec<u64> = ranges
+        .iter()
+        .flat_map(|&(lo, hi)| lo..hi)
+        .filter(|_| keep_one_in <= 1 || rng.below(keep_one_in) != 0)
+        .collect();
     for i in (1..ids.len()).rev() {
         let j = rng.below(i as u64 + 1) as usize;
         ids.swap(i, j);
@@ -82,11 +127,23 @@ fn shuffled(ranges: &IdRanges, keep_one_in: u64, seed: u64) -> Vec<u64> {
 fn check_every(t: &Table, ids: &[u64], ranges: &IdRanges) {
     for (o, &id) in ids.iter().enumerate() {
         assert_eq!(t.gen.home(id), Some(IdHome::Run(0)), "{id} is the run's");
-        assert_eq!(t.locate(id).unwrap(), Some((1, o as u32)), "{id} at its member's ordinal");
+        assert_eq!(
+            t.locate(id).unwrap(),
+            Some((1, o as u32)),
+            "{id} at its member's ordinal"
+        );
     }
     let held: std::collections::BTreeSet<u64> = ids.iter().copied().collect();
-    for id in ranges.iter().flat_map(|&(lo, hi)| lo..hi).filter(|id| !held.contains(id)) {
-        assert_eq!(t.locate(id).unwrap(), None, "{id}: in the run's ranges, no row");
+    for id in ranges
+        .iter()
+        .flat_map(|&(lo, hi)| lo..hi)
+        .filter(|id| !held.contains(id))
+    {
+        assert_eq!(
+            t.locate(id).unwrap(),
+            None,
+            "{id}: in the run's ranges, no row"
+        );
     }
     // the bulk part answers as before; outside every home, none
     assert_eq!(t.gen.home(B + 5), Some(IdHome::Part(0)));
@@ -108,7 +165,12 @@ fn sortruns_t18c_a_cell_charges_its_reverse_and_pages_to_the_part_cache() {
     let (r, p) = cell.charged();
     assert_eq!(r, rev.mem_bytes() as u64, "the open reverse");
     assert!(cell.held() > 0);
-    assert_eq!(p, cell.held() as u64 * (pgrc_format::runrev::PAGE + size_of::<pgrc_format::runrev::Page>()) as u64, "each held page");
+    assert_eq!(
+        p,
+        cell.held() as u64
+            * (pgrc_format::runrev::PAGE + size_of::<pgrc_format::runrev::Page>()) as u64,
+        "each held page"
+    );
 }
 
 #[test]
@@ -121,8 +183,14 @@ fn sortruns_l1_frameix_run_homes_its_ids() {
         check_every(&t, &ids, &ranges);
         assert_eq!(t.gen.run_member(1), Some((0, 0)));
         assert_eq!(t.gen.run_member(0), None);
-        assert!(!t.gen.pinned_member(1), "a run's sole member is a part like any other");
-        assert!(t.gen.ids_of(1).is_empty(), "a member has no EXT_RANGES entry");
+        assert!(
+            !t.gen.pinned_member(1),
+            "a run's sole member is a part like any other"
+        );
+        assert!(
+            t.gen.ids_of(1).is_empty(),
+            "a member has no EXT_RANGES entry"
+        );
     }
 }
 
@@ -155,7 +223,11 @@ fn sortruns_l1_set_rank_run_homes_sparse_ids() {
         let t = table(form, Some(RankForm::Set), &ids, ranges.clone());
         check_every(&t, &ids, &ranges);
         let t = table(form, None, &sparse, ranges.clone());
-        assert_eq!(t.home.run.rank, RankForm::Set, "{form:?}: a sparse run ranks its ID set");
+        assert_eq!(
+            t.home.run.rank,
+            RankForm::Set,
+            "{form:?}: a sparse run ranks its ID set"
+        );
         check_every(&t, &sparse, &ranges);
     }
 }
@@ -173,24 +245,79 @@ fn sortruns_l1_an_emptied_slot_and_an_unbound_run() {
     let (nv0, nv1) = (a.len().div_ceil(f) as u32, b.len().div_ceil(f) as u32);
     let vstarts: Vec<u32> = (0..b.len()).step_by(f).map(|o| o as u32).collect();
     let member_map = encode_run_member(b, &vstarts, None).unwrap();
-    let labels: Vec<u32> = (0..all.len()).map(|r| if r < a.len() { (r / f) as u32 } else { nv0 + ((r - a.len()) / f) as u32 }).collect();
-    let spec = Spec { run_id: 9, form: RunRevForm::FrameIx, rank: RankForm::Dense, ranks: all.len() as u64, rows: all.len() as u64, nsym: nv0 + nv1, members: 2 };
-    let (file, fin) = pgrc_format::runrev::encode(spec, &[], &labels, &[], &[], &[0, nv0, nv0 + nv1]).unwrap();
-    let run = SortRun { run_id: 9, level: 1, rev: RunRevForm::FrameIx, rank: RankForm::Dense, rows: all.len() as u64, rev_len: fin.rev_len, rev_crc: fin.rev_crc, members: vec![0, 7], ranges };
-    let ext = with_runs(&with_next_row_id(&[], 4000 * B).unwrap(), std::slice::from_ref(&run)).unwrap();
-    let m = Manifest::decode(&Manifest::new(header(9, 1), vec![rec(7, b.len() as u64)]).with_ext(ext).encode()).unwrap();
+    let labels: Vec<u32> = (0..all.len())
+        .map(|r| {
+            if r < a.len() {
+                (r / f) as u32
+            } else {
+                nv0 + ((r - a.len()) / f) as u32
+            }
+        })
+        .collect();
+    let spec = Spec {
+        run_id: 9,
+        form: RunRevForm::FrameIx,
+        rank: RankForm::Dense,
+        ranks: all.len() as u64,
+        rows: all.len() as u64,
+        nsym: nv0 + nv1,
+        members: 2,
+    };
+    let (file, fin) =
+        pgrc_format::runrev::encode(spec, &[], &labels, &[], &[], &[0, nv0, nv0 + nv1]).unwrap();
+    let run = SortRun {
+        run_id: 9,
+        level: 1,
+        rev: RunRevForm::FrameIx,
+        rank: RankForm::Dense,
+        rows: all.len() as u64,
+        rev_len: fin.rev_len,
+        rev_crc: fin.rev_crc,
+        members: vec![0, 7],
+        ranges,
+    };
+    let ext = with_runs(
+        &with_next_row_id(&[], 4000 * B).unwrap(),
+        std::slice::from_ref(&run),
+    )
+    .unwrap();
+    let m = Manifest::decode(
+        &Manifest::new(header(9, 1), vec![rec(7, b.len() as u64)])
+            .with_ext(ext)
+            .encode(),
+    )
+    .unwrap();
     let mut gen = Generation::detached(m).unwrap();
     let map = granules(&member_map, b.len() as u64);
-    let e = gen.locate(b[0], &mut |_| Ok(Arc::clone(&map))).err().expect("no cell bound");
-    assert_eq!(e.sqlstate(), types_error::ERRCODE_DATA_CORRUPTED, "{}", e.message());
+    let e = gen
+        .locate(b[0], &mut |_| Ok(Arc::clone(&map)))
+        .err()
+        .expect("no cell bound");
+    assert_eq!(
+        e.sqlstate(),
+        types_error::ERRCODE_DATA_CORRUPTED,
+        "{}",
+        e.message()
+    );
     gen.bind_run_cell(9, RunCell::image(&run, file));
     assert!(!gen.pinned_member(0), "the run has one live member");
     for &id in a {
         assert_eq!(gen.home(id), Some(IdHome::Run(0)));
-        assert!(gen.locate(id, &mut |_| Ok(Arc::clone(&map))).unwrap().is_none(), "{id}: its slot was emptied");
+        assert!(
+            gen.locate(id, &mut |_| Ok(Arc::clone(&map)))
+                .unwrap()
+                .is_none(),
+            "{id}: its slot was emptied"
+        );
     }
     for (o, &id) in b.iter().enumerate() {
-        assert_eq!(gen.locate(id, &mut |_| Ok(Arc::clone(&map))).unwrap().map(|x| (x.0, x.1)), Some((0, o as u32)), "{id}");
+        assert_eq!(
+            gen.locate(id, &mut |_| Ok(Arc::clone(&map)))
+                .unwrap()
+                .map(|x| (x.0, x.1)),
+            Some((0, o as u32)),
+            "{id}"
+        );
     }
 }
 
@@ -199,12 +326,30 @@ fn sortruns_l1_a_member_must_be_a_part_and_never_under_a_creator() {
     let ranges = vec![(10 * B, 12 * B)];
     let ids: Vec<u64> = (10 * B..12 * B).collect();
     let home = build(RunRevForm::FrameIx, None, 9, 7, &ids, &ranges).unwrap();
-    let ext = with_runs(&with_next_row_id(&[], 4000 * B).unwrap(), std::slice::from_ref(&home.run)).unwrap();
+    let ext = with_runs(
+        &with_next_row_id(&[], 4000 * B).unwrap(),
+        std::slice::from_ref(&home.run),
+    )
+    .unwrap();
     // a composed view's manifest is built, not decoded: the generation checks its members itself
-    let e = Generation::detached(Manifest::new(header(9, 1), vec![rec(8, 3)]).with_ext(ext.clone())).err().expect("member 7 is no part");
+    let e =
+        Generation::detached(Manifest::new(header(9, 1), vec![rec(8, 3)]).with_ext(ext.clone()))
+            .err()
+            .expect("member 7 is no part");
     assert_eq!(e.sqlstate(), types_error::ERRCODE_DATA_CORRUPTED);
-    let under = pgrc_format::manifest::with_under(&ext, &[pgrc_format::manifest::UnderEntry { part_no: 7, fxid: 77 }]).unwrap();
-    let e = Generation::detached(Manifest::new(header(9, 1), vec![rec(7, ids.len() as u64)]).with_ext(under)).err().expect("a member under a creator");
+    let under = pgrc_format::manifest::with_under(
+        &ext,
+        &[pgrc_format::manifest::UnderEntry {
+            part_no: 7,
+            fxid: 77,
+        }],
+    )
+    .unwrap();
+    let e = Generation::detached(
+        Manifest::new(header(9, 1), vec![rec(7, ids.len() as u64)]).with_ext(under),
+    )
+    .err()
+    .expect("a member under a creator");
     assert_eq!(e.sqlstate(), types_error::ERRCODE_DATA_CORRUPTED);
 }
 
@@ -225,10 +370,17 @@ fn sortruns_l1_a_bad_reverse_page_fails_closed() {
         let mut errors = 0;
         for &id in ids.iter().step_by(7) {
             match gen.locate(id, &mut |i| Ok(Arc::clone(&t.maps[i]))) {
-                Ok(Some((1, o, _))) => assert_eq!(ids[o as usize], id, "page {p}: an answer is the right one"),
+                Ok(Some((1, o, _))) => {
+                    assert_eq!(ids[o as usize], id, "page {p}: an answer is the right one")
+                }
                 Ok(other) => panic!("page {p}: {id} answered {:?}", other.map(|x| (x.0, x.1))),
                 Err(e) => {
-                    assert_eq!(e.sqlstate(), types_error::ERRCODE_DATA_CORRUPTED, "page {p}: {}", e.message());
+                    assert_eq!(
+                        e.sqlstate(),
+                        types_error::ERRCODE_DATA_CORRUPTED,
+                        "page {p}: {}",
+                        e.message()
+                    );
                     errors += 1;
                 }
             }
@@ -236,8 +388,17 @@ fn sortruns_l1_a_bad_reverse_page_fails_closed() {
         assert!(errors > 0, "page {p}: some lookup reads the bad page");
     }
     let mut gen = Generation::detached((*t.gen.manifest).clone()).unwrap();
-    gen.bind_run_cell(9, RunCell::image(&t.home.run, t.home.file[..t.home.file.len() - pgrc_format::runrev::PAGE].to_vec()));
-    let e = gen.locate(ids[0], &mut |i| Ok(Arc::clone(&t.maps[i]))).err().expect("a short file");
+    gen.bind_run_cell(
+        9,
+        RunCell::image(
+            &t.home.run,
+            t.home.file[..t.home.file.len() - pgrc_format::runrev::PAGE].to_vec(),
+        ),
+    );
+    let e = gen
+        .locate(ids[0], &mut |i| Ok(Arc::clone(&t.maps[i])))
+        .err()
+        .expect("a short file");
     assert_eq!(e.sqlstate(), types_error::ERRCODE_DATA_CORRUPTED);
 }
 
@@ -252,7 +413,11 @@ fn sortruns_l1_reverse_pages_are_read_once_and_shared() {
         t.locate(id).unwrap();
     }
     let reads = cell.reads();
-    assert!(reads >= 2 && cell.held() as u64 == reads, "{reads} reads, {} held", cell.held());
+    assert!(
+        reads >= 2 && cell.held() as u64 == reads,
+        "{reads} reads, {} held",
+        cell.held()
+    );
     for &id in &ids {
         t.locate(id).unwrap();
     }
@@ -287,17 +452,40 @@ fn sortruns_teeth_a_run_member_input_never_gets_fresh_ids() {
     let ranges = vec![(10 * B, 12 * B)];
     let ids = shuffled(&ranges, 3, 29);
     let t = table(RunRevForm::FrameIx, None, &ids, ranges.clone());
-    assert_eq!(input_ids(&t.gen, 1, false).unwrap(), InputIds::Run(ranges.clone()), "the sole member brings its run's ranges");
-    assert_eq!(input_ids(&t.gen, 1, true).unwrap(), InputIds::Run(ranges.clone()), "a renumbering job too");
-    assert_eq!(input_ids(&t.gen, 0, false).unwrap(), InputIds::Own(vec![(B, 3 * B)]));
+    assert_eq!(
+        input_ids(&t.gen, 1, false).unwrap(),
+        InputIds::Run(ranges.clone()),
+        "the sole member brings its run's ranges"
+    );
+    assert_eq!(
+        input_ids(&t.gen, 1, true).unwrap(),
+        InputIds::Run(ranges.clone()),
+        "a renumbering job too"
+    );
+    assert_eq!(
+        input_ids(&t.gen, 0, false).unwrap(),
+        InputIds::Own(vec![(B, 3 * B)])
+    );
     // a run of two members: neither is an L0 job's input
-    let run = SortRun { members: vec![7, 8], ..t.home.run.clone() };
+    let run = SortRun {
+        members: vec![7, 8],
+        ..t.home.run.clone()
+    };
     let ext = with_runs(&with_next_row_id(&[], 4000 * B).unwrap(), &[run]).unwrap();
-    let two = Generation::detached(Manifest::new(header(9, 2), vec![rec(7, 5), rec(8, 5)]).with_ext(ext)).unwrap();
+    let two =
+        Generation::detached(Manifest::new(header(9, 2), vec![rec(7, 5), rec(8, 5)]).with_ext(ext))
+            .unwrap();
     assert!(two.pinned_member(0) && two.pinned_member(1));
-    assert!(input_ids(&two, 0, false).is_err(), "a member of a run with others");
+    assert!(
+        input_ids(&two, 0, false).is_err(),
+        "a member of a run with others"
+    );
     // a part written before row IDs (no entry, no run)
-    let old = Generation::detached(Manifest::new(header(9, 1), vec![rec(5, 10)]).with_ext(with_next_row_id(&[], 4000 * B).unwrap())).unwrap();
+    let old = Generation::detached(
+        Manifest::new(header(9, 1), vec![rec(5, 10)])
+            .with_ext(with_next_row_id(&[], 4000 * B).unwrap()),
+    )
+    .unwrap();
     assert_eq!(input_ids(&old, 0, false).unwrap(), InputIds::Fresh);
     assert_eq!(input_ids(&old, 0, true).unwrap(), InputIds::StandIn);
 }
@@ -312,19 +500,37 @@ fn sortruns_l2_k1_jobs_take_their_input_ids_as_before() {
     let ranges = vec![(10 * B, 12 * B)];
     let ids = shuffled(&ranges, 3, 29);
     let t = table(RunRevForm::FrameIx, None, &ids, ranges.clone());
-    let run = SortRun { members: vec![7, 8], ..t.home.run.clone() };
+    let run = SortRun {
+        members: vec![7, 8],
+        ..t.home.run.clone()
+    };
     let ext = with_runs(&with_next_row_id(&[], 4000 * B).unwrap(), &[run]).unwrap();
-    let two = Generation::detached(Manifest::new(header(9, 2), vec![rec(7, 5), rec(8, 5)]).with_ext(ext)).unwrap();
-    let old = Generation::detached(Manifest::new(header(9, 1), vec![rec(5, 10)]).with_ext(with_next_row_id(&[], 4000 * B).unwrap())).unwrap();
+    let two =
+        Generation::detached(Manifest::new(header(9, 2), vec![rec(7, 5), rec(8, 5)]).with_ext(ext))
+            .unwrap();
+    let old = Generation::detached(
+        Manifest::new(header(9, 1), vec![rec(5, 10)])
+            .with_ext(with_next_row_id(&[], 4000 * B).unwrap()),
+    )
+    .unwrap();
     let mut seen = 0;
     for g in [&t.gen, &two, &old] {
         for idx in 0..g.manifest.parts.len() {
             for renumber in [false, true] {
                 let k1 = job_input_ids(g, idx, renumber, false).map_err(|e| format!("{e:?}"));
-                assert_eq!(k1, input_ids(g, idx, renumber).map_err(|e| format!("{e:?}")), "gen {} input {idx} renumber {renumber}", g.gen);
+                assert_eq!(
+                    k1,
+                    input_ids(g, idx, renumber).map_err(|e| format!("{e:?}")),
+                    "gen {} input {idx} renumber {renumber}",
+                    g.gen
+                );
                 let run_job = job_input_ids(g, idx, renumber, true).map_err(|e| format!("{e:?}"));
                 match g.ids_of(idx).is_empty() && g.run_member(idx).is_some() {
-                    true => assert_eq!(run_job, Ok(InputIds::Run(Vec::new())), "a run job's member brings no ranges"),
+                    true => assert_eq!(
+                        run_job,
+                        Ok(InputIds::Run(Vec::new())),
+                        "a run job's member brings no ranges"
+                    ),
                     false => assert_eq!(run_job, k1, "any other input is as K1's"),
                 }
                 seen += 1;
@@ -345,7 +551,17 @@ fn sortruns_l2_dv_carry_routes_ids_to_member_ordinals() {
     let ids = shuffled(&ranges, 3, 41);
     let members: Vec<Vec<u64>> = ids.chunks(2000).map(|c| c.to_vec()).collect();
     for form in [RunRevForm::Labels, RunRevForm::FrameIx] {
-        let mut b = RevBuilder::new(77, ranges.clone(), 1000, MemSpill::default(), Force { form: Some(form), rank: None }).unwrap();
+        let mut b = RevBuilder::new(
+            77,
+            ranges.clone(),
+            1000,
+            MemSpill::default(),
+            Force {
+                form: Some(form),
+                rank: None,
+            },
+        )
+        .unwrap();
         let maps: Vec<Vec<u8>> = members
             .iter()
             .map(|m| {
@@ -365,7 +581,17 @@ fn sortruns_l2_dv_carry_routes_ids_to_member_ordinals() {
                 Ok(())
             })
             .unwrap();
-        let run = SortRun { run_id: 77, level: 1, rev: spec.form, rank: spec.rank, rows: spec.rows, rev_len: fin.rev_len, rev_crc: fin.rev_crc, members: (1..=members.len() as u32).collect(), ranges: ranges.clone() };
+        let run = SortRun {
+            run_id: 77,
+            level: 1,
+            rev: spec.form,
+            rank: spec.rank,
+            rows: spec.rows,
+            rev_len: fin.rev_len,
+            rev_crc: fin.rev_crc,
+            members: (1..=members.len() as u32).collect(),
+            ranges: ranges.clone(),
+        };
         assert_eq!(run.rev, form);
         let cell = RunCell::image(&run, file);
         // every 37th row of each member, in ID order (as the carry collects them, input by input)
@@ -384,6 +610,9 @@ fn sortruns_l2_dv_carry_routes_ids_to_member_ordinals() {
         assert_eq!(got, want, "{form:?}");
         let held: std::collections::BTreeSet<u64> = ids.iter().copied().collect();
         let absent = (10 * B..40 * B).find(|id| !held.contains(id)).unwrap();
-        assert!(crate::runmerge::route(vec![absent], &cell, &run, &maps, &rows).is_err(), "{form:?}: an ID the run does not hold");
+        assert!(
+            crate::runmerge::route(vec![absent], &cell, &run, &maps, &rows).is_err(),
+            "{form:?}: an ID the run does not hold"
+        );
     }
 }

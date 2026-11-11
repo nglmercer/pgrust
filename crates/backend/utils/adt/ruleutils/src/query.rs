@@ -552,6 +552,7 @@ fn set_relation_column_names<'mcx>(
 
     let noldcolumns = rte.eref.map(|e| e.colnames.len()).unwrap_or(0);
     let mut changed_any = false;
+    #[allow(clippy::needless_range_loop)]
     for i in 0..ncolumns {
         let Some(real_colname) = &real_colnames[i] else {
             debug_assert!(colinfo.colnames[i].is_none());
@@ -2425,6 +2426,7 @@ fn get_rte_alias(
     ctx: &mut DeparseContext<'_>,
 ) -> PgResult<()> {
     let refname = get_rtable_name(varno, ctx);
+    #[allow(clippy::if_same_then_else)]
     let printalias = if rte.alias.is_some() {
         true
     } else if ctx.namespaces[0].rtable_columns[varno - 1].printaliases {

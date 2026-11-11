@@ -270,6 +270,7 @@ impl CompState {
         // pl_comp.c:1990-2016 typtype switch: composite (and RECORD) are
         // TTYPE_REC; a domain is TTYPE_REC iff its base type is a rowtype
         // (type_is_rowtype on typbasetype), else scalar.
+        #[allow(clippy::if_same_then_else)]
         let ttype = if typoid == RECORDOID || typtype == TYPTYPE_COMPOSITE {
             TypeKind::Rec
         } else if typtype == TYPTYPE_DOMAIN

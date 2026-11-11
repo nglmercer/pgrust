@@ -179,7 +179,7 @@ impl FoldClass for Wide {
         let v: PgVec<'_, Value> = core::iter::once(code).chain((0..4).map(|i| b.load(Type::I64, out, 8 * i))).collect_in(env.mcx);
         b.br(l_out, &v[..]);
         b.switch_to(l_out);
-        let v = mcx::to_vec_in(&b.block_params(l_out)[..], env.mcx);
+        let v = mcx::to_vec_in(b.block_params(l_out), env.mcx);
         let bad = b.iconst(Type::I64, UNREADABLE);
         let bad = b.icmp(IntCond::Eq, v[0], bad);
         raise(b, env, bad);

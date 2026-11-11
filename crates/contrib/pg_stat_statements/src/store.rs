@@ -177,6 +177,7 @@ pub(crate) fn entry_alloc(
 }
 
 /// `entry_dealloc`: decay usages, drop the lowest USAGE_DEALLOC_PERCENT.
+#[allow(clippy::manual_checked_ops)]
 pub(crate) fn entry_dealloc(shared: &mut PgssShared) -> types_error::PgResult<()> {
     let mut tottextlen: usize = 0;
     let mut nvalidtexts: usize = 0;
@@ -324,6 +325,7 @@ pub(crate) fn counters_to_words(c: &Counters) -> Vec<u64> {
         w.push(c.calls[k] as u64);
     }
     for arr in [&c.total_time, &c.min_time, &c.max_time, &c.mean_time, &c.sum_var_time] {
+        #[allow(clippy::needless_range_loop)]
         for k in 0..PGSS_NUMKIND {
             w.push(arr[k].to_bits());
         }

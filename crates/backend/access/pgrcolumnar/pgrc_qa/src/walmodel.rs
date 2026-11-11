@@ -18,30 +18,48 @@ use pgsync::{lock, Mutex};
 use crate::adapters::Probe;
 
 pub fn seed_skip_delay_chkpt() -> Teeth {
-    Teeth { skip_delay_chkpt: true, ..Teeth::default() }
+    Teeth {
+        skip_delay_chkpt: true,
+        ..Teeth::default()
+    }
 }
 
 pub fn seed_skip_sync_registration() -> Teeth {
-    Teeth { skip_sync_registration: true, ..Teeth::default() }
+    Teeth {
+        skip_sync_registration: true,
+        ..Teeth::default()
+    }
 }
 
 pub fn seed_skip_redo_check() -> Teeth {
-    Teeth { skip_redo_check: true, ..Teeth::default() }
+    Teeth {
+        skip_redo_check: true,
+        ..Teeth::default()
+    }
 }
 
 /// WR T-ref-fsync: a reference logged before its file is durable.
 pub fn seed_skip_ref_fsync() -> Teeth {
-    Teeth { skip_ref_fsync: true, ..Teeth::default() }
+    Teeth {
+        skip_ref_fsync: true,
+        ..Teeth::default()
+    }
 }
 
 /// WR T-pending-durable: the pending spool link is not fsynced before the insert.
 pub fn seed_skip_pending_fsync() -> Teeth {
-    Teeth { skip_pending_fsync: true, ..Teeth::default() }
+    Teeth {
+        skip_pending_fsync: true,
+        ..Teeth::default()
+    }
 }
 
 /// WR T-spool-early: a checkpoint drops spool entries a consumer still needs.
 pub fn seed_skip_spool_hold() -> Teeth {
-    Teeth { skip_spool_hold: true, ..Teeth::default() }
+    Teeth {
+        skip_spool_hold: true,
+        ..Teeth::default()
+    }
 }
 
 /// One checkpoint: it begins at tick `begin` and completes at the first tick from `begin + delay` that is outside
@@ -57,7 +75,14 @@ pub struct ScheduledCheckpoint<V> {
 
 impl<V: WriteVfs + Send> ScheduledCheckpoint<V> {
     pub fn new(vfs: V, begin: u64, delay: u64) -> ScheduledCheckpoint<V> {
-        ScheduledCheckpoint { vfs, begin, delay, tick: 0, begun: None, done: false }
+        ScheduledCheckpoint {
+            vfs,
+            begin,
+            delay,
+            tick: 0,
+            begun: None,
+            done: false,
+        }
     }
 }
 
@@ -74,7 +99,8 @@ impl<V: WriteVfs + Send> Clock for ScheduledCheckpoint<V> {
         }
         if let Some(b) = self.begun {
             if t >= b + self.delay && (log.delaying == 0 || log.teeth.skip_delay_chkpt) {
-                log.complete_checkpoint(&mut self.vfs).expect("the model checkpoint's sync pass");
+                log.complete_checkpoint(&mut self.vfs)
+                    .expect("the model checkpoint's sync pass");
                 self.done = true;
             }
         }
@@ -104,7 +130,11 @@ pub fn probe_of(committed: &BTreeSet<u64>, prepared: &[u64]) -> Probe {
 
 /// The universe already lost what was not durable and `records[..upto]` survived: replay from the last completed
 /// checkpoint. Returns the clog those records imply.
-pub fn replay(vfs: &mut dyn WriteVfs, log: &Arc<Mutex<WalLog>>, upto: usize) -> WriteResult<BTreeSet<u64>> {
+pub fn replay(
+    vfs: &mut dyn WriteVfs,
+    log: &Arc<Mutex<WalLog>>,
+    upto: usize,
+) -> WriteResult<BTreeSet<u64>> {
     let mut g = lock(log);
     g.crash(upto);
     g.replay(vfs, upto)?;
@@ -121,7 +151,12 @@ pub fn recover(
 ) -> WriteResult<CleanupReport> {
     let committed = replay(vfs, log, upto)?;
     lock(log).remove_spool_debris(vfs, upto)?;
-    let rep = cleanup_dir(vfs, &mut RecordingSink::new(dir, log.clone()), dir, &probe_of(&committed, prepared))?;
+    let rep = cleanup_dir(
+        vfs,
+        &mut RecordingSink::new(dir, log.clone()),
+        dir,
+        &probe_of(&committed, prepared),
+    )?;
     lock(log).checkpoint(vfs)?;
     Ok(rep)
 }
@@ -135,7 +170,13 @@ fn put_str(out: &mut Vec<u8>, s: &str) {
 pub fn encode_frame(r: &WalRecord, out: &mut Vec<u8>) -> WriteResult<()> {
     let mut p = Vec::new();
     match r {
-        WalRecord::File { dir, name, off, bytes, create } => {
+        WalRecord::File {
+            dir,
+            name,
+            off,
+            bytes,
+            create,
+        } => {
             p.push(1);
             put_str(&mut p, dir);
             put_str(&mut p, name);
@@ -162,10 +203,23 @@ pub fn encode_frame(r: &WalRecord, out: &mut Vec<u8>) -> WriteResult<()> {
             p.push(5);
             p.extend_from_slice(&fxid.to_le_bytes());
         }
-        WalRecord::FileRef { dir, name, len, crc, masks } => {
+        WalRecord::FileRef {
+            dir,
+            name,
+            len,
+            crc,
+            masks,
+        } => {
             p.push(6);
             put_str(&mut p, dir);
-            FileRefRec { dir: model_loc(dir), name, len: *len, crc: *crc, masks: *masks }.encode(&mut p)?;
+            FileRefRec {
+                dir: model_loc(dir),
+                name,
+                len: *len,
+                crc: *crc,
+                masks: *masks,
+            }
+            .encode(&mut p)?;
         }
     }
     out.extend_from_slice(&(p.len() as u32).to_le_bytes());
@@ -184,8 +238,15 @@ fn take<'a>(b: &mut &'a [u8], n: usize) -> Option<&'a [u8]> {
 }
 
 fn take_str(b: &mut &[u8]) -> WriteResult<Option<String>> {
-    let Some(n) = take(b, 2).and_then(|h| <[u8; 2]>::try_from(h).ok()).map(u16::from_le_bytes) else { return Ok(None) };
-    let Some(s) = take(b, n as usize) else { return Ok(None) };
+    let Some(n) = take(b, 2)
+        .and_then(|h| <[u8; 2]>::try_from(h).ok())
+        .map(u16::from_le_bytes)
+    else {
+        return Ok(None);
+    };
+    let Some(s) = take(b, n as usize) else {
+        return Ok(None);
+    };
     Ok(String::from_utf8(pgrc_format::try_to_vec(s, "pgrc WAL model")?).ok())
 }
 
@@ -194,10 +255,14 @@ fn take_u64(b: &mut &[u8]) -> Option<u64> {
 }
 
 fn decode_payload(mut p: &[u8]) -> WriteResult<WalRecord> {
-    let bad = || WriteError::Contract { detail: "malformed WAL model frame" };
+    let bad = || WriteError::Contract {
+        detail: "malformed WAL model frame",
+    };
     let kind = take(&mut p, 1).ok_or_else(bad)?[0];
     if kind == 5 {
-        return Ok(WalRecord::Commit { fxid: take_u64(&mut p).ok_or_else(bad)? });
+        return Ok(WalRecord::Commit {
+            fxid: take_u64(&mut p).ok_or_else(bad)?,
+        });
     }
     let dir = take_str(&mut p)?.ok_or_else(bad)?;
     Ok(match kind {
@@ -205,14 +270,35 @@ fn decode_payload(mut p: &[u8]) -> WriteResult<WalRecord> {
             let name = take_str(&mut p)?.ok_or_else(bad)?;
             let off = take_u64(&mut p).ok_or_else(bad)?;
             let create = take(&mut p, 1).ok_or_else(bad)?[0] != 0;
-            WalRecord::File { dir, name, off, bytes: pgrc_format::try_to_vec(p, "pgrc WAL model")?, create }
+            WalRecord::File {
+                dir,
+                name,
+                off,
+                bytes: pgrc_format::try_to_vec(p, "pgrc WAL model")?,
+                create,
+            }
         }
-        2 => WalRecord::Publish { dir, rec: PublishRec::decode(p)? },
-        3 => WalRecord::Install { dir, rec: InstallRec::decode(p)? },
-        4 => WalRecord::Reclaim { dir, rec: ReclaimRec::decode(p)? },
+        2 => WalRecord::Publish {
+            dir,
+            rec: PublishRec::decode(p)?,
+        },
+        3 => WalRecord::Install {
+            dir,
+            rec: InstallRec::decode(p)?,
+        },
+        4 => WalRecord::Reclaim {
+            dir,
+            rec: ReclaimRec::decode(p)?,
+        },
         6 => {
             let r = FileRefRec::decode(p)?;
-            WalRecord::FileRef { name: r.name.to_string(), len: r.len, crc: r.crc, masks: r.masks, dir }
+            WalRecord::FileRef {
+                name: r.name.to_string(),
+                len: r.len,
+                crc: r.crc,
+                masks: r.masks,
+                dir,
+            }
         }
         _ => return Err(bad()),
     })
@@ -221,10 +307,14 @@ fn decode_payload(mut p: &[u8]) -> WriteResult<WalRecord> {
 /// Decode frames up to the first torn one: the end of what a killed writer finished.
 pub fn decode_frames(mut b: &[u8], out: &mut Vec<WalRecord>) -> WriteResult<()> {
     loop {
-        let Some(h) = take(&mut b, 8) else { return Ok(()) };
+        let Some(h) = take(&mut b, 8) else {
+            return Ok(());
+        };
         let len = u32::from_le_bytes(h[..4].try_into().expect("4 bytes")) as usize;
         let crc = u32::from_le_bytes(h[4..].try_into().expect("4 bytes"));
-        let Some(p) = take(&mut b, len) else { return Ok(()) };
+        let Some(p) = take(&mut b, len) else {
+            return Ok(());
+        };
         if crc32c(p) != crc {
             return Ok(());
         }
@@ -261,7 +351,8 @@ impl Clock for Persist {
             s.fd = Some(vfs.create_rw(&s.path).expect("create a WAL segment"));
         }
         let off = s.off;
-        vfs.pwrite_at(s.fd.as_ref().expect("open segment"), off, &buf).expect("append to the WAL segment");
+        vfs.pwrite_at(s.fd.as_ref().expect("open segment"), off, &buf)
+            .expect("append to the WAL segment");
         s.off += buf.len() as u64;
         s.persisted = log.records.len();
     }
@@ -278,18 +369,26 @@ pub struct FileWal {
 impl FileWal {
     pub fn open(base: &str) -> WriteResult<FileWal> {
         let mut vfs = RealVfs;
-        let mut segs: Vec<u64> =
-            vfs.list_dir(base)?.iter().filter_map(|n| n.strip_prefix(SEG_PREFIX)?.parse().ok()).collect();
+        let mut segs: Vec<u64> = vfs
+            .list_dir(base)?
+            .iter()
+            .filter_map(|n| n.strip_prefix(SEG_PREFIX)?.parse().ok())
+            .collect();
         segs.sort_unstable();
         let mut log = WalLog::default();
         for s in &segs {
-            decode_frames(&vfs.read_full(&format!("{base}/{SEG_PREFIX}{s}"))?, &mut log.records)?;
+            decode_frames(
+                &vfs.read_full(&format!("{base}/{SEG_PREFIX}{s}"))?,
+                &mut log.records,
+            )?;
         }
         let ckpt = format!("{base}/{CKPT}");
         if vfs.exists_path(&ckpt)? {
             let b = vfs.read_full(&ckpt)?;
             if b.len() != 12 || crc32c(&b[..8]).to_le_bytes() != b[8..] {
-                return Err(WriteError::Contract { detail: "torn WAL model checkpoint pointer" });
+                return Err(WriteError::Contract {
+                    detail: "torn WAL model checkpoint pointer",
+                });
             }
             let redo = u64::from_le_bytes(b[..8].try_into().expect("8 bytes")) as usize;
             log.redo = redo.min(log.records.len());
@@ -297,9 +396,18 @@ impl FileWal {
         }
         log.flushed = log.records.len();
         let path = format!("{base}/{SEG_PREFIX}{}", segs.last().map_or(0, |s| s + 1));
-        let seg = Arc::new(Mutex::new(Segment { path, fd: None, off: 0, persisted: log.records.len() }));
+        let seg = Arc::new(Mutex::new(Segment {
+            path,
+            fd: None,
+            off: 0,
+            persisted: log.records.len(),
+        }));
         log.set_clock(Box::new(Persist(seg.clone())));
-        Ok(FileWal { base: base.to_string(), log: Arc::new(Mutex::new(log)), seg })
+        Ok(FileWal {
+            base: base.to_string(),
+            log: Arc::new(Mutex::new(log)),
+            seg,
+        })
     }
 
     pub fn sink(&self, dir: &str) -> Box<dyn WalSink + Send> {
@@ -320,7 +428,12 @@ impl FileWal {
             g.remove_spool_debris(vfs, n)?;
         }
         let probe = probe_of(&self.committed(), &[]);
-        let rep = cleanup_dir(vfs, &mut RecordingSink::new(dir, self.log.clone()), dir, &probe)?;
+        let rep = cleanup_dir(
+            vfs,
+            &mut RecordingSink::new(dir, self.log.clone()),
+            dir,
+            &probe,
+        )?;
         self.checkpoint(vfs)?;
         Ok(rep)
     }

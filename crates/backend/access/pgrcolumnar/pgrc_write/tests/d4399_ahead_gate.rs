@@ -12,8 +12,8 @@ use pgrc_format::class::{ColSchema, CollationClass, StorageClass, TypeSemantics}
 use pgrc_format::relopt::ShredOptions;
 use pgrc_write::elect::ReferenceCandidates;
 use pgrc_write::par::{
-    AheadGate, AheadStep, NoDetoastProvider, NoShredProvider, ParEngine, ParIngestOpts, ParProviders, SharedMemVfs,
-    SharedMemVfsProvider, LOAD_PAST_LINE, MEMORY_REFUSED,
+    AheadGate, AheadStep, NoDetoastProvider, NoShredProvider, ParEngine, ParIngestOpts,
+    ParProviders, SharedMemVfs, SharedMemVfsProvider, LOAD_PAST_LINE, MEMORY_REFUSED,
 };
 use pgrc_write::seal::{PartSpec, ReferenceResolver};
 use pgrc_write::writer::PartCutPolicy;
@@ -58,7 +58,10 @@ fn engine() -> Arc<ParEngine> {
     v.mkdir_path(DIR).expect("mkdir");
     let schema = vec![ColSchema {
         attno: 1,
-        class: StorageClass::ByvalWord { width: 8, signed: true },
+        class: StorageClass::ByvalWord {
+            width: 8,
+            signed: true,
+        },
         typlen: 8,
         typbyval: true,
         typalign: b'd',
@@ -87,8 +90,16 @@ fn engine() -> Arc<ParEngine> {
             spec,
             DIR.to_string(),
             4399,
-            PartCutPolicy { max_rows: 256, max_bytes: u64::MAX, cut_granule_rows: 64 },
-            ParIngestOpts { chunk_rows: 64, max_chunks_in_flight: 64, max_parts_in_flight: 64 },
+            PartCutPolicy {
+                max_rows: 256,
+                max_bytes: u64::MAX,
+                cut_granule_rows: 64,
+            },
+            ParIngestOpts {
+                chunk_rows: 64,
+                max_chunks_in_flight: 64,
+                max_parts_in_flight: 64,
+            },
             0,
         )
         .expect("engine"),
@@ -115,11 +126,17 @@ fn d4399_under_the_line_or_with_the_ladder_off_the_window_fits_at_once() {
     ladder(mcx::ladder::OFF, LINE + 64 * MIB);
     let e = engine();
     let mut g = AheadGate::default();
-    assert!(matches!(e.ahead_step(&mut g, 64 * MIB), AheadStep::Fits), "ladder off, no bar: fits");
+    assert!(
+        matches!(e.ahead_step(&mut g, 64 * MIB), AheadStep::Fits),
+        "ladder off, no bar: fits"
+    );
     ladder(mcx::ladder::ON, 100 * MIB);
     let e = engine();
     let mut g = AheadGate::default();
-    assert!(matches!(e.ahead_step(&mut g, 64 * MIB), AheadStep::Fits), "under the line: fits");
+    assert!(
+        matches!(e.ahead_step(&mut g, 64 * MIB), AheadStep::Fits),
+        "under the line: fits"
+    );
     e.set_ahead(900 * MIB);
     assert!(
         matches!(e.ahead_step(&mut g, 64 * MIB), AheadStep::Wait),
@@ -135,14 +152,29 @@ fn d4399_past_the_line_the_leader_waits_and_goes_on_when_the_read_falls() {
     ladder(mcx::ladder::ON, LINE + 64 * MIB);
     let e = engine();
     let mut g = AheadGate::default();
-    assert!(matches!(e.ahead_step(&mut g, 64 * MIB), AheadStep::Wait), "past the line: the climb, then the wait");
-    assert!(matches!(e.ahead_step(&mut g, 64 * MIB), AheadStep::Wait), "an ask inside the poll period waits");
+    assert!(
+        matches!(e.ahead_step(&mut g, 64 * MIB), AheadStep::Wait),
+        "past the line: the climb, then the wait"
+    );
+    assert!(
+        matches!(e.ahead_step(&mut g, 64 * MIB), AheadStep::Wait),
+        "an ask inside the poll period waits"
+    );
     std::thread::sleep(AheadGate::POLL);
-    assert!(matches!(e.ahead_step(&mut g, 64 * MIB), AheadStep::Wait), "still past the line: waits");
+    assert!(
+        matches!(e.ahead_step(&mut g, 64 * MIB), AheadStep::Wait),
+        "still past the line: waits"
+    );
     READ.store(100 * MIB, Ordering::SeqCst);
     std::thread::sleep(AheadGate::POLL);
-    assert!(matches!(e.ahead_step(&mut g, 64 * MIB), AheadStep::Fits), "the read fell under the line: fits");
-    assert!(matches!(e.ahead_step(&mut g, 64 * MIB), AheadStep::Fits), "a pass ends the wait: the next ask is fresh");
+    assert!(
+        matches!(e.ahead_step(&mut g, 64 * MIB), AheadStep::Fits),
+        "the read fell under the line: fits"
+    );
+    assert!(
+        matches!(e.ahead_step(&mut g, 64 * MIB), AheadStep::Fits),
+        "a pass ends the wait: the next ask is fresh"
+    );
     ladder(mcx::ladder::OFF, 0);
 }
 
@@ -158,12 +190,22 @@ fn d4399_a_leader_that_stays_past_the_line_is_refused_with_load_seal_past_line()
         if !matches!(s, AheadStep::Wait) {
             break s;
         }
-        assert!(t0.elapsed() < Duration::from_secs(60), "the refusal comes after the ladder's waits, not never");
+        assert!(
+            t0.elapsed() < Duration::from_secs(60),
+            "the refusal comes after the ladder's waits, not never"
+        );
         std::thread::sleep(AheadGate::POLL);
     };
     ladder(mcx::ladder::OFF, 0);
-    assert_eq!(refused(&out), Some(LOAD_PAST_LINE), "past the line after its waits: LoadSealPastLine");
-    assert!(t0.elapsed() >= mempolicy::admit::bytes_wait(), "not before one spent wait: the polls are timed");
+    assert_eq!(
+        refused(&out),
+        Some(LOAD_PAST_LINE),
+        "past the line after its waits: LoadSealPastLine"
+    );
+    assert!(
+        t0.elapsed() >= mempolicy::admit::bytes_wait(),
+        "not before one spent wait: the polls are timed"
+    );
 }
 
 #[test]
@@ -172,7 +214,10 @@ fn d4399_a_cancel_during_the_wait_refuses_at_once() {
     ladder(mcx::ladder::ON, LINE + 64 * MIB);
     let e = engine();
     let mut g = AheadGate::default();
-    assert!(matches!(e.ahead_step(&mut g, 64 * MIB), AheadStep::Wait), "past the line: waiting");
+    assert!(
+        matches!(e.ahead_step(&mut g, 64 * MIB), AheadStep::Wait),
+        "past the line: waiting"
+    );
     // the governor's refusal of the running statement (the watchdog's or R6's cancel lands as it)
     mcx::governor::arm(true);
     mcx::governor::publish(1, 1 << 40, mcx::global_footprint::bytes());
@@ -180,6 +225,10 @@ fn d4399_a_cancel_during_the_wait_refuses_at_once() {
     mcx::governor::publish(0, 0, 0);
     mcx::governor::arm(false);
     ladder(mcx::ladder::OFF, 0);
-    assert_eq!(refused(&s), Some(MEMORY_REFUSED), "a cancel during the wait, inside the poll period too");
+    assert_eq!(
+        refused(&s),
+        Some(MEMORY_REFUSED),
+        "a cancel during the wait, inside the poll period too"
+    );
     drop(g);
 }

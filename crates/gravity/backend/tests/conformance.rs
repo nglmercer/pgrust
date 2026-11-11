@@ -176,6 +176,7 @@ fn count_ir() -> (gravity_ir::Program, Func) {
     b.switch_to(l_exit);
     let st = b.block_params(l_exit)[0];
     b.ret(&[st]);
+    #[allow(clippy::drop_non_drop)]
     drop(b);
     (pb.finish(), f)
 }
@@ -300,6 +301,7 @@ fn mix_ir() -> (gravity_ir::Program, Func) {
     let back = b.conv(ConvOp::Sext, Type::I64, n32);
     let s7 = b.int_bin(IntBinOp::Add, s6, back);
     b.ret(&[s7]);
+    #[allow(clippy::drop_non_drop)]
     drop(b);
     (pb.finish(), f)
 }

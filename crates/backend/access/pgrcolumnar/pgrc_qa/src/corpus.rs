@@ -172,9 +172,7 @@ pub fn append_rows_with_shred(
             .iter()
             .zip(schema.iter())
             .map(|(v, s)| match (v, s.class) {
-                (Some(OracleVal::Bytes(b)), StorageClass::VarlenaVerbatim) => {
-                    Some(img_4b_u(b))
-                }
+                (Some(OracleVal::Bytes(b)), StorageClass::VarlenaVerbatim) => Some(img_4b_u(b)),
                 _ => None,
             })
             .collect();
@@ -363,9 +361,8 @@ fn pointer_val(
             if total < 4 || !regions.contains(d, d + total) {
                 return Err(out_of());
             }
-            let payload = unsafe {
-                std::slice::from_raw_parts((d + 4) as *const u8, (total - 4) as usize)
-            };
+            let payload =
+                unsafe { std::slice::from_raw_parts((d + 4) as *const u8, (total - 4) as usize) };
             Ok(OracleVal::Bytes(payload.to_vec()))
         }
     }
@@ -498,9 +495,7 @@ pub fn decode_sel_granule(
     for (k, &r) in sel_rows.iter().enumerate() {
         let valid = match verdict {
             ValidityVerdict::AllValid => true,
-            ValidityVerdict::Mixed { .. } => {
-                (vwords[(r as usize) / 64] >> (r % 64)) & 1 == 1
-            }
+            ValidityVerdict::Mixed { .. } => (vwords[(r as usize) / 64] >> (r % 64)) & 1 == 1,
         };
         if !valid {
             out_vals.push(None);
@@ -583,7 +578,9 @@ fn mix(i: u64) -> u64 {
 }
 
 fn int8_oracle(rows: u64, f: impl Fn(u64) -> Option<i64>) -> OracleCol {
-    (0..rows).map(|i| f(i).map(|v| OracleVal::Word(v as u64))).collect()
+    (0..rows)
+        .map(|i| f(i).map(|v| OracleVal::Word(v as u64)))
+        .collect()
 }
 
 /// A custom int8 fixture (the granule-edge and metamorphic legs size their
@@ -622,7 +619,9 @@ fn text_payload(i: u64) -> Vec<u8> {
         Vec::new()
     } else {
         let len = 5 + (mix(i) % 120) as usize;
-        (0..len).map(|k| (mix(i ^ (k as u64)) & 0xFF) as u8).collect()
+        (0..len)
+            .map(|k| (mix(i ^ (k as u64)) & 0xFF) as u8)
+            .collect()
     }
 }
 
@@ -795,9 +794,21 @@ pub fn standard_corpus() -> Vec<Fixture> {
             f64_col(5),
         ],
         oracle: vec![
-            int8_oracle(10_000, |i| if i % 4 == 0 { None } else { Some(mix(i) as i64) }),
+            int8_oracle(10_000, |i| {
+                if i % 4 == 0 {
+                    None
+                } else {
+                    Some(mix(i) as i64)
+                }
+            }),
             (0..10_000u64)
-                .map(|i| if i % 6 == 5 { None } else { Some(OracleVal::Word(mix(i) & 1)) })
+                .map(|i| {
+                    if i % 6 == 5 {
+                        None
+                    } else {
+                        Some(OracleVal::Word(mix(i) & 1))
+                    }
+                })
                 .collect(),
             (0..10_000u64)
                 .map(|i| {
@@ -806,7 +817,9 @@ pub fn standard_corpus() -> Vec<Fixture> {
                     } else {
                         let len = (mix(i) % 40) as usize;
                         Some(OracleVal::Bytes(
-                            (0..len).map(|k| (mix(i ^ (k as u64 + 7)) & 0xFF) as u8).collect(),
+                            (0..len)
+                                .map(|k| (mix(i ^ (k as u64 + 7)) & 0xFF) as u8)
+                                .collect(),
                         ))
                     }
                 })
@@ -849,7 +862,13 @@ pub fn standard_corpus() -> Vec<Fixture> {
             max_bytes: u64::MAX / 2,
             cut_granule_rows: 12_288,
         },
-        |i| if i % 5 == 4 { None } else { Some(mix(i) as i64) },
+        |i| {
+            if i % 5 == 4 {
+                None
+            } else {
+                Some(mix(i) as i64)
+            }
+        },
     ));
     out
 }

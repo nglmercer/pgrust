@@ -97,7 +97,7 @@ fn eq_strcasecmp(a: &str, b: &[u8]) -> bool {
     a.len() == b.len()
         && a.bytes()
             .zip(b)
-            .all(|(x, &y)| x.to_ascii_lowercase() == y.to_ascii_lowercase())
+            .all(|(x, &y)| x.eq_ignore_ascii_case(&y))
 }
 
 pub(crate) struct Located {
@@ -191,6 +191,7 @@ pub fn dsnowball_init(init: &DictInitData<'static>) -> PgResult<DictSnowball> {
 }
 
 // SAFETY: `p` is a DictSnowball built by dsnowball_init, released once.
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn dsnowball_release(p: usize) {
     unsafe {
         let d = &mut *(p as *mut DictSnowball);

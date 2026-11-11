@@ -41,6 +41,7 @@ impl Protocol for Verdicts {
         }
         let heap = usize::try_from(p.site).ok().and_then(|s| cx.program.sites.get(s)).map(|d| d.relation);
         let reg = &cx.admitted.registry;
+        #[allow(clippy::map_identity)]
         if (0..reg.len()).filter_map(|i| reg.range_recipe(i)).any(|r| Some(r.heap) == heap.map(|h| h)) {
             return Ok(None);
         }

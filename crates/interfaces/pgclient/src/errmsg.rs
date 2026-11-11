@@ -127,6 +127,7 @@ fn report_error_position(msg: &mut String, query: &str, loc: i32) {
 
     let mut beg_trunc = false;
     let mut end_trunc = false;
+    #[allow(clippy::redundant_locals)]
     let mut ibeg = ibeg;
     let mut iend = iend;
     if scridx[iend] - scridx[ibeg] > DISPLAY_SIZE {

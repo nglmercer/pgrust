@@ -116,6 +116,7 @@ fn unmaintainable(i: &gravity_decompose::ops::shared::modifytable::IndexDesc) ->
 /// (WCO_RLS_CONFLICT_CHECK, D661-c: the arm calls the host's check after its WHERE, onconflict.rs). D636: over a view target the host checks
 /// the row the INSTEAD OF trigger returned (hosts write.rs, ExecInsert / ExecUpdate's view check after
 /// ExecIRInsertTriggers / ExecIRUpdateTriggers).
+#[allow(clippy::nonminimal_bool)]
 fn unservable(gx: &Gx<'_, '_>, w: &WriteDesc<'_>, c: &CheckOpt<'_>) -> Option<&'static str> {
     let (mut param, mut subplan) = (false, false);
     // W2: an InitPlan's setParam is the host's lazy read (hosts write_check.rs); any other Param refuses by name

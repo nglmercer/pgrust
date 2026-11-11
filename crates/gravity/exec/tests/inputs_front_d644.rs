@@ -3,6 +3,7 @@
 //! filing, silently: every simple-protocol execution decomposed again and keyed its by-reference literals by their images
 //! (C35 3.75x v4rx). Now such a node files as a sentinel wherever the template reads no word or check, the next execution
 //! is a front hit binding its own plan's nodes, and every shape not filed says why.
+#[allow(unused_imports)]
 use std::path::Path;
 
 use gravity_decompose::{corpus, decompose_in};

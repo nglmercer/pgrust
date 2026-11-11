@@ -56,10 +56,24 @@ fn no_whole_pmd_dontneed() {
         _ => {}
     });
     assert!(complete, "the syscall log overflowed");
-    assert!(bad.is_empty(), "MADV_DONTNEED over a whole 2 MiB range: {bad:x?}");
-    assert!(gives >= 3 && whole >= 2, "{gives} releases, {whole} holding a whole PMD");
-    assert_eq!(resident(sp, 16 * MIB), 0, "the released span's pages went back");
-    assert_eq!(resident(lp, 64 * MIB), 0, "the warm lazy span's pages went back");
+    assert!(
+        bad.is_empty(),
+        "MADV_DONTNEED over a whole 2 MiB range: {bad:x?}"
+    );
+    assert!(
+        gives >= 3 && whole >= 2,
+        "{gives} releases, {whole} holding a whole PMD"
+    );
+    assert_eq!(
+        resident(sp, 16 * MIB),
+        0,
+        "the released span's pages went back"
+    );
+    assert_eq!(
+        resident(lp, 64 * MIB),
+        0,
+        "the warm lazy span's pages went back"
+    );
     let maps = std::fs::read_to_string("/proc/self/maps").unwrap();
     let mapped = maps.lines().any(|line| {
         let mut it = line.split(['-', ' ']);
@@ -67,9 +81,15 @@ fn no_whole_pmd_dontneed() {
         let hi = usize::from_str_radix(it.next().unwrap(), 16).unwrap();
         lo <= sp && sp + 16 * MIB <= hi && line.contains(" rw")
     });
-    assert!(mapped, "the pool zone stays mapped read-write over a released range");
+    assert!(
+        mapped,
+        "the pool zone stays mapped read-write over a released range"
+    );
     // SAFETY: as above.
-    assert_eq!(unsafe { take_pages(d, 64 << 10, (5 * 64) << 10) }, Zeroed::Yes);
+    assert_eq!(
+        unsafe { take_pages(d, 64 << 10, (5 * 64) << 10) },
+        Zeroed::Yes
+    );
     // SAFETY: ours, not used again.
     unsafe { give(NonNull::new(d.as_ptr()).unwrap(), (24 * 64) << 10) };
     flush_shelf();

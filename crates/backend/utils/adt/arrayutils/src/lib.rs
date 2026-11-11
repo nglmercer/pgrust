@@ -87,6 +87,7 @@ pub fn array_get_n_items_safe(
         );
     }
     let mut ret: i32 = 1;
+    #[allow(clippy::needless_range_loop)]
     for i in 0..ndim as usize {
         // A negative dimension implies that UB-LB overflowed.
         if dims[i] < 0 {

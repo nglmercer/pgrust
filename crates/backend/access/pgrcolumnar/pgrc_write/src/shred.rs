@@ -142,13 +142,15 @@ pub fn decode_path_table(bytes: &[u8]) -> WriteResult<Vec<String>> {
     let mut out = Vec::with_capacity(count);
     for _ in 0..count {
         off = off.div_ceil(4) * 4;
-        let len_bytes = bytes.get(off..off + 2).ok_or_else(|| corrupt("entry len"))?;
+        let len_bytes = bytes
+            .get(off..off + 2)
+            .ok_or_else(|| corrupt("entry len"))?;
         let len = u16::from_le_bytes(len_bytes.try_into().expect("len 2")) as usize;
         off += 2;
-        let s = bytes.get(off..off + len).ok_or_else(|| corrupt("entry bytes"))?;
-        out.push(
-            String::from_utf8(s.to_vec()).map_err(|_| corrupt("utf8"))?,
-        );
+        let s = bytes
+            .get(off..off + len)
+            .ok_or_else(|| corrupt("entry bytes"))?;
+        out.push(String::from_utf8(s.to_vec()).map_err(|_| corrupt("utf8"))?);
         off += len;
     }
     Ok(out)

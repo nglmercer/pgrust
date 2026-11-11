@@ -84,6 +84,7 @@ impl Site {
 
     /// # Safety — `j < end()`.
     #[inline(always)]
+    #[allow(clippy::missing_safety_doc)]
     pub unsafe fn index(&self, j: u32) -> usize {
         if unword(self.sel).is_null() {
             j as usize
@@ -94,6 +95,7 @@ impl Site {
 
     /// # Safety — `lanes` points at the site's lane array.
     #[inline(always)]
+    #[allow(clippy::missing_safety_doc)]
     pub unsafe fn lanes(&self) -> &[Lane] {
         core::slice::from_raw_parts(unword(self.lanes) as *const Lane, self.nlanes as usize)
     }
@@ -101,6 +103,7 @@ impl Site {
 
 /// # Safety — `s` points at a bound site.
 #[inline(always)]
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn lane<'a>(s: *const Site, k: usize) -> &'a Lane {
     debug_assert!((k as u16) < (*s).nlanes, "lane {k} of {}", (*s).nlanes);
     &*unword((*s).lanes).add(k)
@@ -112,6 +115,7 @@ pub unsafe fn lane<'a>(s: *const Site, k: usize) -> &'a Lane {
 ///
 /// # Safety — `s` points at a bound site; lane `k` was filled by `lane_fill` for the current part.
 #[inline(always)]
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn table_lane<'a>(s: *const Site, k: usize) -> &'a Lane {
     debug_assert!((k as u16) < (*s).lanes_cap, "table lane {k} of {}", (*s).lanes_cap);
     &*unword((*s).lanes).add(k)
@@ -119,12 +123,14 @@ pub unsafe fn table_lane<'a>(s: *const Site, k: usize) -> &'a Lane {
 
 /// # Safety — `s` points at a bound site.
 #[inline(always)]
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn next(s: *mut Site) -> i64 {
     (unword((*s).next).unwrap_unchecked())(s)
 }
 
 /// # Safety — `s` points at a bound site with a current window.
 #[inline(always)]
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn lane_fill(s: *mut Site, k: u32) -> i64 {
     (unword((*s).lane).unwrap_unchecked())(s, k)
 }
@@ -181,6 +187,7 @@ pub const SPARSE_GATHER_MAX: u32 = 16;
 
 /// # Safety — `s` points at a bound site with a current window.
 #[inline(always)]
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn fetch(s: *mut Site, nrows: u32) -> i64 {
     (unword((*s).fetch).unwrap_unchecked())(s, nrows)
 }
@@ -189,12 +196,14 @@ pub unsafe fn fetch(s: *mut Site, nrows: u32) -> i64 {
 /// its winners, never a per-row call).
 /// # Safety — `s` points at a bound site of a source with dictionaries.
 #[inline(always)]
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn dict_value(s: *mut Site, part: u32, lane: u32, code: u32, out: *mut u64) -> i64 {
     (unword((*s).dict).unwrap_unchecked())(s, part, lane, code, out)
 }
 
 /// # Safety — `s` points at a bound site.
 #[inline(always)]
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn seek(s: *mut Site) {
     (*s).state = site::STATE_CLOSED;
     (*s).rows = 0;
@@ -206,6 +215,7 @@ pub unsafe fn seek(s: *mut Site) {
 /// The row protocol over the window: the next row into `values` / `isnull` (`natts` lanes), `pos`
 /// moved to the row's; 1 for a row, 0 at the end (state `EOF`), a status below zero.
 /// # Safety — `s` points at a bound site whose `values` / `isnull` hold `natts` cells.
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn next_row(s: *mut Site, natts: usize) -> i64 {
     loop {
         let st = &mut *s;

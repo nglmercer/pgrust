@@ -28,8 +28,12 @@ use types_core::Oid;
 use types_error::PgResult;
 use types_nodes::list::{IntList, NodeList, OidList};
 use types_nodes::nodes_enums::CmdType;
-use types_nodes::parsenodes::{Query, RTEKind, RangeTblEntry, SetOperation, SetOperationStmt, SortGroupClause};
-use types_nodes::primnodes::{Alias, FromExpr, JoinExpr, OpExpr, ParamKind, SubLink, SubLinkType, TargetEntry, Var};
+use types_nodes::parsenodes::{
+    Query, RTEKind, RangeTblEntry, SetOperation, SetOperationStmt, SortGroupClause,
+};
+use types_nodes::primnodes::{
+    Alias, FromExpr, JoinExpr, OpExpr, ParamKind, SubLink, SubLinkType, TargetEntry, Var,
+};
 use types_nodes::{Bitmapset, JoinType, Node, NodeTag};
 
 use crate::decorrelate::{self, AggLift, KEY_NAMES, MAX_KEYS};
@@ -72,7 +76,10 @@ fn reach() -> u8 {
 
 /// The unnested form, and when a level could restrict a substituted binding's group to the outer level's keys, the
 /// restricted form too: both are planned and costed beside the statement as written.
-pub(crate) fn alternatives<'mcx>(mcx: Mcx<'mcx>, parse: &Query<'mcx>) -> PgResult<(Option<&'mcx mut Query<'mcx>>, Option<&'mcx mut Query<'mcx>>)> {
+pub(crate) fn alternatives<'mcx>(
+    mcx: Mcx<'mcx>,
+    parse: &Query<'mcx>,
+) -> PgResult<(Option<&'mcx mut Query<'mcx>>, Option<&'mcx mut Query<'mcx>>)> {
     let m = match guc_tables::backing::pgrust_gravity_unnest() {
         guc_tables::consts::GRAVITY_UNNEST_STRICT => Mode::Strict,
         guc_tables::consts::GRAVITY_UNNEST_CONTAINED => Mode::Contained,
@@ -82,23 +89,57 @@ pub(crate) fn alternatives<'mcx>(mcx: Mcx<'mcx>, parse: &Query<'mcx>) -> PgResul
         return Ok((None, None));
     }
     let used = Cell::new(false);
-    let Some(q) = level(mcx, parse, Pass { m, restrict: false, used: &used }, &[])? else { return Ok((None, None)) };
+    let Some(q) = level(
+        mcx,
+        parse,
+        Pass {
+            m,
+            restrict: false,
+            used: &used,
+        },
+        &[],
+    )?
+    else {
+        return Ok((None, None));
+    };
     let full = mcx::leak_in(mcx::alloc_in(mcx, copyfuncs::copy_query(mcx, &q)?)?);
     if reach() < 1 {
         return Ok((Some(full), None));
     }
-    let restricted = match level(mcx, parse, Pass { m, restrict: true, used: &used }, &[])? {
-        Some(r) if used.get() => Some(mcx::leak_in(mcx::alloc_in(mcx, copyfuncs::copy_query(mcx, &r)?)?)),
+    let restricted = match level(
+        mcx,
+        parse,
+        Pass {
+            m,
+            restrict: true,
+            used: &used,
+        },
+        &[],
+    )? {
+        Some(r) if used.get() => Some(mcx::leak_in(mcx::alloc_in(
+            mcx,
+            copyfuncs::copy_query(mcx, &r)?,
+        )?)),
         _ => None,
     };
     Ok((Some(full), restricted))
 }
 
 fn any_sublinks(q: &Query<'_>) -> bool {
-    q.hasSubLinks || q.rtable.iter().any(|n| n.as_range_tbl_entry().and_then(|r| r.subquery).is_some_and(any_sublinks))
+    q.hasSubLinks
+        || q.rtable.iter().any(|n| {
+            n.as_range_tbl_entry()
+                .and_then(|r| r.subquery)
+                .is_some_and(any_sublinks)
+        })
 }
 
-fn level<'mcx>(mcx: Mcx<'mcx>, q: &Query<'mcx>, p: Pass<'_>, up: &[&Query<'mcx>]) -> PgResult<Option<Query<'mcx>>> {
+fn level<'mcx>(
+    mcx: Mcx<'mcx>,
+    q: &Query<'mcx>,
+    p: Pass<'_>,
+    up: &[&Query<'mcx>],
+) -> PgResult<Option<Query<'mcx>>> {
     let mut chain = ::mcx::stdvec::try_to_vec(up, "unnest")?;
     chain.push(q);
     let mut changed = false;
@@ -107,23 +148,44 @@ fn level<'mcx>(mcx: Mcx<'mcx>, q: &Query<'mcx>, p: Pass<'_>, up: &[&Query<'mcx>]
     for n in q.rtable.iter() {
         let rte = n.as_range_tbl_entry().expect("rtable cell");
         match rte.subquery {
-            Some(sub) if descend && rte.rtekind == RTEKind::RTE_SUBQUERY => match level(mcx, sub, p, &chain)? {
-                Some(new) => {
-                    let copy = crate::prepjointree::rte_copy_with_perminfoindex(mcx, rte, rte.perminfoindex)?;
-                    let new = mcx::alloc_leak_in(mcx, new)?;
-                    // SAFETY: the copy is exclusively ours until it enters the list.
-                    unsafe { copy.with_mut::<RangeTblEntry, _>(|r| r.subquery = Some(new)) };
-                    rtable.lappend(mcx, copy)?;
-                    changed = true;
+            Some(sub) if descend && rte.rtekind == RTEKind::RTE_SUBQUERY => {
+                match level(mcx, sub, p, &chain)? {
+                    Some(new) => {
+                        let copy = crate::prepjointree::rte_copy_with_perminfoindex(
+                            mcx,
+                            rte,
+                            rte.perminfoindex,
+                        )?;
+                        let new = mcx::alloc_leak_in(mcx, new)?;
+                        // SAFETY: the copy is exclusively ours until it enters the list.
+                        unsafe { copy.with_mut::<RangeTblEntry, _>(|r| r.subquery = Some(new)) };
+                        rtable.lappend(mcx, copy)?;
+                        changed = true;
+                    }
+                    None => rtable.lappend(mcx, n)?,
                 }
-                None => rtable.lappend(mcx, n)?,
-            },
+            }
             _ => rtable.lappend(mcx, n)?,
         }
     }
-    let Some(jt) = q.jointree else { return Ok(None) };
-    let group_rti = q.rtable.iter().position(|n| n.as_range_tbl_entry().expect("rtable cell").rtekind == RTEKind::RTE_GROUP).map_or(0, |i| i as i32 + 1);
-    let mut ctx = Lv { mcx, q, chain: &chain, p, rtable, joins: Vec::new(), outer_ok: decorrelate::outer_admits(q), group_rti };
+    let Some(jt) = q.jointree else {
+        return Ok(None);
+    };
+    let group_rti = q
+        .rtable
+        .iter()
+        .position(|n| n.as_range_tbl_entry().expect("rtable cell").rtekind == RTEKind::RTE_GROUP)
+        .map_or(0, |i| i as i32 + 1);
+    let mut ctx = Lv {
+        mcx,
+        q,
+        chain: &chain,
+        p,
+        rtable,
+        joins: Vec::new(),
+        outer_ok: decorrelate::outer_admits(q),
+        group_rti,
+    };
     let quals = ctx.mutate_quals(jt.quals)?;
     let mut tlist = NodeList::with_capacity(mcx, q.targetList.len())?;
     let mut tlist_changed = false;
@@ -191,7 +253,10 @@ fn args_always_run(node: Node<'_>) -> bool {
 /// anything else, or unset, does.
 fn args_reach() -> bool {
     !(guc_seams::knob_read::is_installed()
-        && matches!(guc_seams::knob_read::call(guc_seams::Knob::GravityUnnestArgs), guc_seams::KnobRead::Word(0..=3)))
+        && matches!(
+            guc_seams::knob_read::call(guc_seams::Knob::GravityUnnestArgs),
+            guc_seams::KnobRead::Word(0..=3)
+        ))
 }
 
 struct PendingJoin<'mcx> {
@@ -276,8 +341,13 @@ impl<'a, 'mcx> Lv<'a, 'mcx> {
 
     fn sublink_below(&mut self, sl: &SubLink<'mcx>) -> PgResult<Option<Node<'mcx>>> {
         let mcx = self.mcx;
-        let sub = sl.subselect.as_query().expect("a transformed SubLink holds a Query");
-        let Some(new) = level(mcx, sub, self.p, self.chain)? else { return Ok(None) };
+        let sub = sl
+            .subselect
+            .as_query()
+            .expect("a transformed SubLink holds a Query");
+        let Some(new) = level(mcx, sub, self.p, self.chain)? else {
+            return Ok(None);
+        };
         Ok(Some(Node::mk(
             mcx,
             SubLink {
@@ -296,15 +366,25 @@ impl<'a, 'mcx> Lv<'a, 'mcx> {
         if sl.subLinkType != SubLinkType::EXPR_SUBLINK || sl.testexpr.is_some() {
             return Ok(None);
         }
-        let sub = sl.subselect.as_query().expect("a transformed SubLink holds a Query");
+        let sub = sl
+            .subselect
+            .as_query()
+            .expect("a transformed SubLink holds a Query");
         if !static_aggregate(sub) {
             return Ok(None);
         }
         let sub_node = Node::mk(mcx, crate::subselect::query_cells_copy(mcx, sub)?)?;
-        if !vars::contain_vars_of_level(sub_node, 1)? || clauses::contain_volatile_functions(sub_node)? || rewrite_manip::contain_aggs_of_level(sub_node, 1)? {
+        if !vars::contain_vars_of_level(sub_node, 1)?
+            || clauses::contain_volatile_functions(sub_node)?
+            || rewrite_manip::contain_aggs_of_level(sub_node, 1)?
+        {
             return Ok(None);
         }
-        let te = sub.targetList.first().and_then(|n| n.as_target_entry()).expect("one target entry");
+        let te = sub
+            .targetList
+            .first()
+            .and_then(|n| n.as_target_entry())
+            .expect("one target entry");
         // An outer reference inside an aggregate would need the outer value per group in g: refused. One in the wrapper
         // (outside every aggregate) is lifted with it below.
         if outer_in_aggs(te.expr)? || !lift_admits(mcx, te.expr)? {
@@ -314,14 +394,22 @@ impl<'a, 'mcx> Lv<'a, 'mcx> {
         // also holds the aggregates' arguments to eager safety, contained only their FILTERs.
         let filters_safe = match self.p.m {
             Mode::Strict => level_below_safe(sub)? && agg_inputs_safe(te.expr, true)?,
-            Mode::Contained => level_below_safe(sub)? && !has_sublink(te.expr)? && agg_inputs_safe(te.expr, false)?,
+            Mode::Contained => {
+                level_below_safe(sub)? && !has_sublink(te.expr)? && agg_inputs_safe(te.expr, false)?
+            }
         };
         if !filters_safe || !outer_ctes_safe(sub, self.chain)? {
             return Ok(None);
         }
         let mut bare = crate::subselect::query_cells_copy(mcx, sub)?;
         let jt = sub.jointree.expect("admitted: a jointree");
-        bare.jointree = Some(mcx::alloc_leak_in(mcx, FromExpr { fromlist: jt.fromlist.clone_in(mcx)?, quals: None })?);
+        bare.jointree = Some(mcx::alloc_leak_in(
+            mcx,
+            FromExpr {
+                fromlist: jt.fromlist.clone_in(mcx)?,
+                quals: None,
+            },
+        )?);
         bare.targetList = NodeList::nil();
         if vars::contain_vars_of_level(Node::mk(mcx, bare)?, 1)? {
             return Ok(None);
@@ -335,7 +423,13 @@ impl<'a, 'mcx> Lv<'a, 'mcx> {
         }
     }
 
-    fn unnest_where(&mut self, sub: &'mcx Query<'mcx>, te: &'mcx TargetEntry<'mcx>, jt: &'mcx FromExpr<'mcx>, quals: Option<Node<'mcx>>) -> PgResult<Option<Node<'mcx>>> {
+    fn unnest_where(
+        &mut self,
+        sub: &'mcx Query<'mcx>,
+        te: &'mcx TargetEntry<'mcx>,
+        jt: &'mcx FromExpr<'mcx>,
+        quals: Option<Node<'mcx>>,
+    ) -> PgResult<Option<Node<'mcx>>> {
         let mcx = self.mcx;
         let mut bindings: Vec<Binding<'mcx>> = Vec::new();
         let mut kept = NodeList::nil();
@@ -347,17 +441,28 @@ impl<'a, 'mcx> Lv<'a, 'mcx> {
                 continue;
             }
             if let Some((inner, outer, op, inner_left)) = decorrelate::correlation_key(c)? {
-                if (self.group_rti == 0 || !decorrelate::names_rte(outer, self.group_rti, 1)?) && bindings.len() < MAX_KEYS {
+                if (self.group_rti == 0 || !decorrelate::names_rte(outer, self.group_rti, 1)?)
+                    && bindings.len() < MAX_KEYS
+                {
                     let outer = rewrite_manip::copy_node(mcx, outer)?;
                     rewrite_manip::IncrementVarSublevelsUp(outer, -1, 1)?;
-                    bindings.push(Binding { key: inner, outer, op: Some(op), key_left: inner_left });
+                    bindings.push(Binding {
+                        key: inner,
+                        outer,
+                        op: Some(op),
+                        key_left: inner_left,
+                    });
                     continue;
                 }
             }
             if let Some(asl) = c.as_sub_link() {
                 // an ANY whose subselect reads this level's own rows (`e.y = t.y`) stays a SubPlan, as PostgreSQL's
                 // convert_ANY_sublink_to_join keeps it: the scope join would read t outside its qualscope
-                if scope.is_none() && asl.subLinkType == SubLinkType::ANY_SUBLINK && !vars::contain_vars_of_level(asl.testexpr.expect("ANY testexpr"), 1)? && !vars::contain_vars_of_level(asl.subselect, 1)? {
+                if scope.is_none()
+                    && asl.subLinkType == SubLinkType::ANY_SUBLINK
+                    && !vars::contain_vars_of_level(asl.testexpr.expect("ANY testexpr"), 1)?
+                    && !vars::contain_vars_of_level(asl.subselect, 1)?
+                {
                     scope = Some(asl);
                     continue;
                 }
@@ -386,7 +491,10 @@ impl<'a, 'mcx> Lv<'a, 'mcx> {
             None
         } else {
             let r = refs[0].0;
-            if refs.iter().any(|x| x.0 != r) || refs.len() + bindings.len() > MAX_KEYS || !self.domain_admits(r, &refs)? {
+            if refs.iter().any(|x| x.0 != r)
+                || refs.len() + bindings.len() > MAX_KEYS
+                || !self.domain_admits(r, &refs)?
+            {
                 return Ok(None);
             }
             Some((r, refs))
@@ -402,45 +510,114 @@ impl<'a, 'mcx> Lv<'a, 'mcx> {
             let dq = self.domain_query(*r, refs)?;
             match scope {
                 None => {
-                    let nd = append_subquery_rte(mcx, &mut g.rtable, dq, DOMAIN_ALIAS, &D_NAMES[..refs.len()])?;
+                    let nd = append_subquery_rte(
+                        mcx,
+                        &mut g.rtable,
+                        dq,
+                        DOMAIN_ALIAS,
+                        &D_NAMES[..refs.len()],
+                    )?;
                     fromlist.lappend(mcx, Node::mk_range_tbl_ref(mcx, nd)?)?;
                     for c in domain_conj.iter() {
                         quals.lappend(mcx, replace_outer(mcx, c, 1, *r, refs, nd)?)?;
                     }
                     for (j, x) in refs.iter().enumerate() {
-                        bindings.push(Binding { key: dvar(mcx, nd, j, x, 0)?, outer: ovar(mcx, x)?, op: None, key_left: false });
+                        bindings.push(Binding {
+                            key: dvar(mcx, nd, j, x, 0)?,
+                            outer: ovar(mcx, x)?,
+                            op: None,
+                            key_left: false,
+                        });
                     }
                 }
                 Some(asl) => {
                     if !domain_conj.is_nil() || refs_beyond(asl.subselect, 1)? {
                         return Ok(None);
                     }
-                    let Some(u) = push_scope(mcx, asl.subselect.as_query().expect("a Query"), 2, *r, refs, &dq)? else { return Ok(None) };
+                    let Some(u) = push_scope(
+                        mcx,
+                        asl.subselect.as_query().expect("a Query"),
+                        2,
+                        *r,
+                        refs,
+                        &dq,
+                    )?
+                    else {
+                        return Ok(None);
+                    };
                     let u = sink_one_level(mcx, u)?;
-                    let Some((s, member_type)) = scope_query(mcx, u, refs.len())? else { return Ok(None) };
+                    let Some((s, member_type)) = scope_query(mcx, u, refs.len())? else {
+                        return Ok(None);
+                    };
                     let mut names: Vec<&'static str> = vec!["member"];
                     names.extend_from_slice(&D_NAMES[..refs.len()]);
                     let ns = append_subquery_rte(mcx, &mut g.rtable, s, SCOPE_ALIAS, &names)?;
                     fromlist.lappend(mcx, Node::mk_range_tbl_ref(mcx, ns)?)?;
-                    let member = Node::mk(mcx, Var { varno: ns, varattno: 1, vartype: member_type.0, vartypmod: member_type.1, varcollid: member_type.2, varnosyn: ns as u32, varattnosyn: 1, ..Default::default() })?;
-                    quals.lappend(mcx, replace_sublink_param(mcx, asl.testexpr.expect("ANY testexpr"), member)?)?;
+                    let member = Node::mk(
+                        mcx,
+                        Var {
+                            varno: ns,
+                            varattno: 1,
+                            vartype: member_type.0,
+                            vartypmod: member_type.1,
+                            varcollid: member_type.2,
+                            varnosyn: ns as u32,
+                            varattnosyn: 1,
+                            ..Default::default()
+                        },
+                    )?;
+                    quals.lappend(
+                        mcx,
+                        replace_sublink_param(mcx, asl.testexpr.expect("ANY testexpr"), member)?,
+                    )?;
                     for (j, x) in refs.iter().enumerate() {
-                        bindings.push(Binding { key: dvar(mcx, ns, j + 1, x, 0)?, outer: ovar(mcx, x)?, op: None, key_left: false });
+                        bindings.push(Binding {
+                            key: dvar(mcx, ns, j + 1, x, 0)?,
+                            outer: ovar(mcx, x)?,
+                            op: None,
+                            key_left: false,
+                        });
                     }
                 }
             }
         }
-        if domain.is_none() && scope.is_none() && self.p.restrict && (reach() >= 2 || relies_on_p2(sub)?) {
+        if domain.is_none()
+            && scope.is_none()
+            && self.p.restrict
+            && (reach() >= 2 || relies_on_p2(sub)?)
+        {
             if let Some((r, refs, idx)) = self.restriction(&bindings)? {
                 let dq = self.domain_query(r, &refs)?;
                 if dq.jointree.is_some_and(|j| j.quals.is_some()) {
-                    let nd = append_subquery_rte(mcx, &mut g.rtable, dq, DOMAIN_ALIAS, &D_NAMES[..refs.len()])?;
+                    let nd = append_subquery_rte(
+                        mcx,
+                        &mut g.rtable,
+                        dq,
+                        DOMAIN_ALIAS,
+                        &D_NAMES[..refs.len()],
+                    )?;
                     fromlist.lappend(mcx, Node::mk_range_tbl_ref(mcx, nd)?)?;
                     for (j, &i) in idx.iter().enumerate() {
                         let b = &bindings[i];
-                        let (key, d) = (rewrite_manip::copy_node(mcx, b.key)?, dvar(mcx, nd, j, &refs[j], 0)?);
-                        let args = if b.key_left { NodeList::make2(mcx, key, d)? } else { NodeList::make2(mcx, d, key)? };
-                        quals.lappend(mcx, Node::mk(mcx, OpExpr { args, ..*b.op.expect("a restricted binding has its operator") })?)?;
+                        let (key, d) = (
+                            rewrite_manip::copy_node(mcx, b.key)?,
+                            dvar(mcx, nd, j, &refs[j], 0)?,
+                        );
+                        let args = if b.key_left {
+                            NodeList::make2(mcx, key, d)?
+                        } else {
+                            NodeList::make2(mcx, d, key)?
+                        };
+                        quals.lappend(
+                            mcx,
+                            Node::mk(
+                                mcx,
+                                OpExpr {
+                                    args,
+                                    ..*b.op.expect("a restricted binding has its operator")
+                                },
+                            )?,
+                        )?;
                     }
                     self.p.used.set(true);
                 }
@@ -448,7 +625,14 @@ impl<'a, 'mcx> Lv<'a, 'mcx> {
         }
         g.jointree = Some(mcx::alloc_leak_in(
             mcx,
-            FromExpr { fromlist, quals: if quals.is_nil() { None } else { Some(clauses::make_ands_explicit(mcx, &quals)?) } },
+            FromExpr {
+                fromlist,
+                quals: if quals.is_nil() {
+                    None
+                } else {
+                    Some(clauses::make_ands_explicit(mcx, &quals)?)
+                },
+            },
         )?);
 
         let sub_rti = self.rtable.len() as i32 + 1;
@@ -462,15 +646,47 @@ impl<'a, 'mcx> Lv<'a, 'mcx> {
         for (i, b) in bindings.iter().enumerate() {
             let (ity, itm) = ::costsize::expr_type_typmod(b.key);
             let icoll = crate::pathkeys::expr_collation(b.key);
-            let Some(sgc) = sort_group(mcx, ity, (i + 1) as u32)? else { return Ok(None) };
+            let Some(sgc) = sort_group(mcx, ity, (i + 1) as u32)? else {
+                return Ok(None);
+            };
             let resno = (i + 1) as i16;
-            gtlist.lappend(mcx, Node::mk(mcx, TargetEntry { expr: b.key, resno, resname: Some(KEY_NAMES[i]), ressortgroupref: resno as u32, resorigtbl: 0, resorigcol: 0, resjunk: false })?)?;
+            gtlist.lappend(
+                mcx,
+                Node::mk(
+                    mcx,
+                    TargetEntry {
+                        expr: b.key,
+                        resno,
+                        resname: Some(KEY_NAMES[i]),
+                        ressortgroupref: resno as u32,
+                        resorigtbl: 0,
+                        resorigcol: 0,
+                        resjunk: false,
+                    },
+                )?,
+            )?;
             group.lappend(mcx, sgc)?;
             colnames.lappend(mcx, Node::mk_string(mcx, KEY_NAMES[i])?)?;
-            let gvar = Node::mk(mcx, Var { varno: sub_rti, varattno: resno, vartype: ity, vartypmod: itm, varcollid: icoll, varnosyn: sub_rti as u32, varattnosyn: resno, ..Default::default() })?;
+            let gvar = Node::mk(
+                mcx,
+                Var {
+                    varno: sub_rti,
+                    varattno: resno,
+                    vartype: ity,
+                    vartypmod: itm,
+                    varcollid: icoll,
+                    varnosyn: sub_rti as u32,
+                    varattnosyn: resno,
+                    ..Default::default()
+                },
+            )?;
             let cond = match b.op {
                 Some(op) => {
-                    let args = if b.key_left { NodeList::make2(mcx, gvar, b.outer)? } else { NodeList::make2(mcx, b.outer, gvar)? };
+                    let args = if b.key_left {
+                        NodeList::make2(mcx, gvar, b.outer)?
+                    } else {
+                        NodeList::make2(mcx, b.outer, gvar)?
+                    };
                     Node::mk(mcx, OpExpr { args, ..*op })?
                 }
                 None => {
@@ -496,7 +712,15 @@ impl<'a, 'mcx> Lv<'a, 'mcx> {
             };
             on.lappend(mcx, cond)?;
         }
-        let mut lift = AggLift { mcx, sub_rti, nkeys: bindings.len(), next: 0, tlist: NodeList::nil(), colnames: NodeList::nil(), nulling };
+        let mut lift = AggLift {
+            mcx,
+            sub_rti,
+            nkeys: bindings.len(),
+            next: 0,
+            tlist: NodeList::nil(),
+            colnames: NodeList::nil(),
+            nulling,
+        };
         // The lifted wrapper moves up one level: its references to this level and above shift by one (a copy: the
         // shift is in place and the original SubLink is still planned).
         let replacement = rewrite_manip::copy_node(mcx, lift.mutate(te.expr)?.unwrap_or(te.expr))?;
@@ -513,19 +737,48 @@ impl<'a, 'mcx> Lv<'a, 'mcx> {
         g.sortClause = NodeList::nil();
         g.hasSubLinks = has_sublink(Node::mk(mcx, crate::subselect::query_cells_copy(mcx, &g)?)?)?;
         let gnode = Node::mk(mcx, g)?;
-        if vars::contain_vars_of_level(gnode, 1)? || rewrite_manip::contain_aggs_of_level(gnode, 1)? {
+        if vars::contain_vars_of_level(gnode, 1)? || rewrite_manip::contain_aggs_of_level(gnode, 1)?
+        {
             return Ok(None);
         }
         let g = gnode.as_query().expect("a Query node");
-        let alias = mcx::alloc_leak_in(mcx, Alias { aliasname: Some(SUBQUERY_ALIAS), colnames: NodeList::nil() })?;
-        let eref = mcx::alloc_leak_in(mcx, Alias { aliasname: Some(SUBQUERY_ALIAS), colnames })?;
+        let alias = mcx::alloc_leak_in(
+            mcx,
+            Alias {
+                aliasname: Some(SUBQUERY_ALIAS),
+                colnames: NodeList::nil(),
+            },
+        )?;
+        let eref = mcx::alloc_leak_in(
+            mcx,
+            Alias {
+                aliasname: Some(SUBQUERY_ALIAS),
+                colnames,
+            },
+        )?;
         self.rtable.lappend(
             mcx,
-            Node::mk(mcx, RangeTblEntry { rtekind: RTEKind::RTE_SUBQUERY, subquery: Some(g), alias: Some(alias), eref: Some(eref), lateral: false, inFromCl: true, ..Default::default() })?,
+            Node::mk(
+                mcx,
+                RangeTblEntry {
+                    rtekind: RTEKind::RTE_SUBQUERY,
+                    subquery: Some(g),
+                    alias: Some(alias),
+                    eref: Some(eref),
+                    lateral: false,
+                    inFromCl: true,
+                    ..Default::default()
+                },
+            )?,
         )?;
-        self.rtable.lappend(mcx, decorrelate::join_rte(mcx, JoinType::JOIN_LEFT)?)?;
+        self.rtable
+            .lappend(mcx, decorrelate::join_rte(mcx, JoinType::JOIN_LEFT)?)?;
         debug_assert_eq!(self.rtable.len() as i32, join_rti);
-        self.joins.push(PendingJoin { sub_rti, join_rti, on: clauses::make_ands_explicit(mcx, &on)? });
+        self.joins.push(PendingJoin {
+            sub_rti,
+            join_rti,
+            on: clauses::make_ands_explicit(mcx, &on)?,
+        });
         Ok(Some(replacement))
     }
 
@@ -534,14 +787,27 @@ impl<'a, 'mcx> Lv<'a, 'mcx> {
     /// <this level's eager-safe conjuncts on r alone> on the binding's own operator. Every outer row the join back keeps
     /// passes those conjuncts, so its key is in D (a NULL key matches no group either way), and D's DISTINCT under the
     /// same equality joins each inner row at most once. r as the domain's, but a nullable column is fine (D only filters).
-    fn restriction(&self, bindings: &[Binding<'mcx>]) -> PgResult<Option<(i32, Vec<(i32, i16, Oid, i32, Oid)>, Vec<usize>)>> {
+    fn restriction(
+        &self,
+        bindings: &[Binding<'mcx>],
+    ) -> PgResult<Option<(i32, Vec<(i32, i16, Oid, i32, Oid)>, Vec<usize>)>> {
         let (mut r, mut refs, mut idx) = (0, Vec::new(), Vec::new());
         for (i, b) in bindings.iter().enumerate() {
-            let (Some(op), Some(v)) = (b.op, b.outer.as_var()) else { continue };
-            if v.varlevelsup != 0 || v.varattno <= 0 || (r != 0 && v.varno != r) || refs.iter().any(|x: &(i32, i16, Oid, i32, Oid)| x.1 == v.varattno) {
+            let (Some(op), Some(v)) = (b.op, b.outer.as_var()) else {
+                continue;
+            };
+            if v.varlevelsup != 0
+                || v.varattno <= 0
+                || (r != 0 && v.varno != r)
+                || refs
+                    .iter()
+                    .any(|x: &(i32, i16, Oid, i32, Oid)| x.1 == v.varattno)
+            {
                 continue;
             }
-            if ::costsize::expr_type_typmod(b.key).0 != v.vartype || (lsyscache::type_is_collatable(v.vartype)? && op.inputcollid != v.varcollid) {
+            if ::costsize::expr_type_typmod(b.key).0 != v.vartype
+                || (lsyscache::type_is_collatable(v.vartype)? && op.inputcollid != v.varcollid)
+            {
                 continue;
             }
             r = v.varno;
@@ -551,8 +817,16 @@ impl<'a, 'mcx> Lv<'a, 'mcx> {
         if refs.is_empty() || r as usize > self.q.rtable.len() || r == self.group_rti {
             return Ok(None);
         }
-        let rte = self.q.rtable.nth((r - 1) as usize).as_range_tbl_entry().expect("rtable cell");
-        if rte.rtekind != RTEKind::RTE_RELATION || !rte.securityQuals.is_nil() || rte.tablesample.is_some() {
+        let rte = self
+            .q
+            .rtable
+            .nth((r - 1) as usize)
+            .as_range_tbl_entry()
+            .expect("rtable cell");
+        if rte.rtekind != RTEKind::RTE_RELATION
+            || !rte.securityQuals.is_nil()
+            || rte.tablesample.is_some()
+        {
             return Ok(None);
         }
         for x in &refs {
@@ -560,7 +834,11 @@ impl<'a, 'mcx> Lv<'a, 'mcx> {
                 return Ok(None);
             }
         }
-        if self.q.jointree.is_some_and(|jt| jt.fromlist.iter().any(|item| nullable_in(item, r, false))) {
+        if self
+            .q
+            .jointree
+            .is_some_and(|jt| jt.fromlist.iter().any(|item| nullable_in(item, r, false)))
+        {
             return Ok(None);
         }
         Ok(Some((r, refs, idx)))
@@ -572,8 +850,16 @@ impl<'a, 'mcx> Lv<'a, 'mcx> {
         if r <= 0 || r as usize > self.q.rtable.len() || r == self.group_rti {
             return Ok(false);
         }
-        let rte = self.q.rtable.nth((r - 1) as usize).as_range_tbl_entry().expect("rtable cell");
-        if rte.rtekind != RTEKind::RTE_RELATION || !rte.securityQuals.is_nil() || rte.tablesample.is_some() {
+        let rte = self
+            .q
+            .rtable
+            .nth((r - 1) as usize)
+            .as_range_tbl_entry()
+            .expect("rtable cell");
+        if rte.rtekind != RTEKind::RTE_RELATION
+            || !rte.securityQuals.is_nil()
+            || rte.tablesample.is_some()
+        {
             return Ok(false);
         }
         for x in refs {
@@ -592,7 +878,11 @@ impl<'a, 'mcx> Lv<'a, 'mcx> {
         let mut ok = true;
         for x in refs {
             let i = x.1 as usize;
-            ok = ok && x.1 > 0 && i <= rel.rd_att.natts as usize && rel.rd_att.compact_attr(i - 1).attnullability == types_tuple::tupdesc::ATTNULLABLE_VALID;
+            ok = ok
+                && x.1 > 0
+                && i <= rel.rd_att.natts as usize
+                && rel.rd_att.compact_attr(i - 1).attnullability
+                    == types_tuple::tupdesc::ATTNULLABLE_VALID;
         }
         table::table_close(rel, types_rel::NoLock)?;
         for x in refs {
@@ -603,10 +893,18 @@ impl<'a, 'mcx> Lv<'a, 'mcx> {
 
     fn domain_query(&self, r: i32, refs: &[(i32, i16, Oid, i32, Oid)]) -> PgResult<Query<'mcx>> {
         let mcx = self.mcx;
-        let rte = self.q.rtable.nth((r - 1) as usize).as_range_tbl_entry().expect("rtable cell");
+        let rte = self
+            .q
+            .rtable
+            .nth((r - 1) as usize)
+            .as_range_tbl_entry()
+            .expect("rtable cell");
         let mut perms = NodeList::nil();
         let pidx = if rte.perminfoindex > 0 {
-            perms.lappend(mcx, self.q.rteperminfos.nth((rte.perminfoindex - 1) as usize))?;
+            perms.lappend(
+                mcx,
+                self.q.rteperminfos.nth((rte.perminfoindex - 1) as usize),
+            )?;
             1
         } else {
             0
@@ -630,9 +928,40 @@ impl<'a, 'mcx> Lv<'a, 'mcx> {
         let mut distinct = NodeList::nil();
         for (j, x) in refs.iter().enumerate() {
             let resno = (j + 1) as i16;
-            let v = Node::mk(mcx, Var { varno: 1, varattno: x.1, vartype: x.2, vartypmod: x.3, varcollid: x.4, varnosyn: 1, varattnosyn: x.1, ..Default::default() })?;
-            tlist.lappend(mcx, Node::mk(mcx, TargetEntry { expr: v, resno, resname: Some(D_NAMES[j]), ressortgroupref: resno as u32, resorigtbl: 0, resorigcol: 0, resjunk: false })?)?;
-            let Some(sgc) = sort_group(mcx, x.2, resno as u32)? else { return Err(types_error::PgError::error("unnest: domain column without btree equality".to_string()).into()) };
+            let v = Node::mk(
+                mcx,
+                Var {
+                    varno: 1,
+                    varattno: x.1,
+                    vartype: x.2,
+                    vartypmod: x.3,
+                    varcollid: x.4,
+                    varnosyn: 1,
+                    varattnosyn: x.1,
+                    ..Default::default()
+                },
+            )?;
+            tlist.lappend(
+                mcx,
+                Node::mk(
+                    mcx,
+                    TargetEntry {
+                        expr: v,
+                        resno,
+                        resname: Some(D_NAMES[j]),
+                        ressortgroupref: resno as u32,
+                        resorigtbl: 0,
+                        resorigcol: 0,
+                        resjunk: false,
+                    },
+                )?,
+            )?;
+            let Some(sgc) = sort_group(mcx, x.2, resno as u32)? else {
+                return Err(types_error::PgError::error(
+                    "unnest: domain column without btree equality".to_string(),
+                )
+                .into());
+            };
             distinct.lappend(mcx, sgc)?;
         }
         Ok(Query {
@@ -644,7 +973,11 @@ impl<'a, 'mcx> Lv<'a, 'mcx> {
                 mcx,
                 FromExpr {
                     fromlist: NodeList::make1(mcx, Node::mk_range_tbl_ref(mcx, 1)?)?,
-                    quals: if dquals.is_nil() { None } else { Some(clauses::make_ands_explicit(mcx, &dquals)?) },
+                    quals: if dquals.is_nil() {
+                        None
+                    } else {
+                        Some(clauses::make_ands_explicit(mcx, &dquals)?)
+                    },
                 },
             )?),
             targetList: tlist,
@@ -695,14 +1028,19 @@ fn lift_admits<'mcx>(mcx: Mcx<'mcx>, expr: Node<'mcx>) -> PgResult<bool> {
                 }
                 return Ok(false);
             }
-            if n.as_var().is_some_and(|v| v.varlevelsup == 0) || n.node_tag() == NodeTag::T_SubLink {
+            if n.as_var().is_some_and(|v| v.varlevelsup == 0) || n.node_tag() == NodeTag::T_SubLink
+            {
                 self.ok = false;
                 return Ok(true);
             }
             nodes_core::expression_tree_walker(n, self)
         }
     }
-    let mut w = W { mcx, n: 0, ok: true };
+    let mut w = W {
+        mcx,
+        n: 0,
+        ok: true,
+    };
     nodes_core::NodeWalker::visit(&mut w, expr)?;
     Ok(w.ok && w.n > 0 && w.n <= 8)
 }
@@ -726,7 +1064,11 @@ fn has_sublink(node: Node<'_>) -> PgResult<bool> {
     nodes_core::NodeWalker::visit(&mut W, node)
 }
 
-fn collect_outer(node: Node<'_>, base: u32, out: &mut Vec<(i32, i16, Oid, i32, Oid)>) -> PgResult<()> {
+fn collect_outer(
+    node: Node<'_>,
+    base: u32,
+    out: &mut Vec<(i32, i16, Oid, i32, Oid)>,
+) -> PgResult<()> {
     struct W<'v> {
         depth: u32,
         base: u32,
@@ -758,7 +1100,11 @@ fn collect_outer(node: Node<'_>, base: u32, out: &mut Vec<(i32, i16, Oid, i32, O
             Ok(r)
         }
     }
-    let mut w = W { depth: 0, base, out };
+    let mut w = W {
+        depth: 0,
+        base,
+        out,
+    };
     match node.as_query() {
         Some(q) => {
             nodes_core::query_tree_walker(q, &mut w, 0)?;
@@ -797,7 +1143,12 @@ fn reads_only(node: Node<'_>, r: i32) -> PgResult<bool> {
             }
             if matches!(
                 n.node_tag(),
-                NodeTag::T_SubLink | NodeTag::T_Aggref | NodeTag::T_WindowFunc | NodeTag::T_GroupingFunc | NodeTag::T_PlaceHolderVar | NodeTag::T_Query
+                NodeTag::T_SubLink
+                    | NodeTag::T_Aggref
+                    | NodeTag::T_WindowFunc
+                    | NodeTag::T_GroupingFunc
+                    | NodeTag::T_PlaceHolderVar
+                    | NodeTag::T_Query
             ) {
                 self.ok = false;
                 return Ok(true);
@@ -864,46 +1215,137 @@ fn nullable_in(node: Node<'_>, r: i32, under: bool) -> bool {
 }
 
 fn sortable(ty: Oid) -> PgResult<bool> {
-    let tc = typcache::lookup_type_cache(ty, typcache::TYPECACHE_EQ_OPR | typcache::TYPECACHE_LT_OPR)?;
+    let tc =
+        typcache::lookup_type_cache(ty, typcache::TYPECACHE_EQ_OPR | typcache::TYPECACHE_LT_OPR)?;
     Ok(tc.eq_opr() != 0 && tc.lt_opr() != 0)
 }
 
 fn sort_group<'mcx>(mcx: Mcx<'mcx>, ty: Oid, sgref: u32) -> PgResult<Option<Node<'mcx>>> {
-    let tc = typcache::lookup_type_cache(ty, typcache::TYPECACHE_EQ_OPR | typcache::TYPECACHE_LT_OPR | typcache::TYPECACHE_HASH_PROC)?;
+    let tc = typcache::lookup_type_cache(
+        ty,
+        typcache::TYPECACHE_EQ_OPR | typcache::TYPECACHE_LT_OPR | typcache::TYPECACHE_HASH_PROC,
+    )?;
     if tc.eq_opr() == 0 || tc.lt_opr() == 0 {
         return Ok(None);
     }
     Ok(Some(Node::mk(
         mcx,
-        SortGroupClause { tleSortGroupRef: sgref, eqop: tc.eq_opr(), sortop: tc.lt_opr(), reverse_sort: false, nulls_first: false, hashable: tc.hash_proc() != 0 },
+        SortGroupClause {
+            tleSortGroupRef: sgref,
+            eqop: tc.eq_opr(),
+            sortop: tc.lt_opr(),
+            reverse_sort: false,
+            nulls_first: false,
+            hashable: tc.hash_proc() != 0,
+        },
     )?))
 }
 
-fn append_subquery_rte<'mcx>(mcx: Mcx<'mcx>, rtable: &mut NodeList<'mcx>, q: Query<'mcx>, name: &'static str, cols: &[&'static str]) -> PgResult<i32> {
+fn append_subquery_rte<'mcx>(
+    mcx: Mcx<'mcx>,
+    rtable: &mut NodeList<'mcx>,
+    q: Query<'mcx>,
+    name: &'static str,
+    cols: &[&'static str],
+) -> PgResult<i32> {
     let mut colnames = NodeList::nil();
     for c in cols {
         colnames.lappend(mcx, Node::mk_string(mcx, c)?)?;
     }
-    let alias = mcx::alloc_leak_in(mcx, Alias { aliasname: Some(name), colnames: NodeList::nil() })?;
-    let eref = mcx::alloc_leak_in(mcx, Alias { aliasname: Some(name), colnames })?;
+    let alias = mcx::alloc_leak_in(
+        mcx,
+        Alias {
+            aliasname: Some(name),
+            colnames: NodeList::nil(),
+        },
+    )?;
+    let eref = mcx::alloc_leak_in(
+        mcx,
+        Alias {
+            aliasname: Some(name),
+            colnames,
+        },
+    )?;
     let q = mcx::alloc_leak_in(mcx, q)?;
-    rtable.lappend(mcx, Node::mk(mcx, RangeTblEntry { rtekind: RTEKind::RTE_SUBQUERY, subquery: Some(q), alias: Some(alias), eref: Some(eref), lateral: false, inFromCl: true, ..Default::default() })?)?;
+    rtable.lappend(
+        mcx,
+        Node::mk(
+            mcx,
+            RangeTblEntry {
+                rtekind: RTEKind::RTE_SUBQUERY,
+                subquery: Some(q),
+                alias: Some(alias),
+                eref: Some(eref),
+                lateral: false,
+                inFromCl: true,
+                ..Default::default()
+            },
+        )?,
+    )?;
     Ok(rtable.len() as i32)
 }
 
-fn dvar<'mcx>(mcx: Mcx<'mcx>, varno: i32, j: usize, x: &(i32, i16, Oid, i32, Oid), levelsup: u32) -> PgResult<Node<'mcx>> {
-    Node::mk(mcx, Var { varno, varattno: (j + 1) as i16, vartype: x.2, vartypmod: x.3, varcollid: x.4, varlevelsup: levelsup, varnosyn: varno as u32, varattnosyn: (j + 1) as i16, ..Default::default() })
+fn dvar<'mcx>(
+    mcx: Mcx<'mcx>,
+    varno: i32,
+    j: usize,
+    x: &(i32, i16, Oid, i32, Oid),
+    levelsup: u32,
+) -> PgResult<Node<'mcx>> {
+    Node::mk(
+        mcx,
+        Var {
+            varno,
+            varattno: (j + 1) as i16,
+            vartype: x.2,
+            vartypmod: x.3,
+            varcollid: x.4,
+            varlevelsup: levelsup,
+            varnosyn: varno as u32,
+            varattnosyn: (j + 1) as i16,
+            ..Default::default()
+        },
+    )
 }
 
 fn ovar<'mcx>(mcx: Mcx<'mcx>, x: &(i32, i16, Oid, i32, Oid)) -> PgResult<Node<'mcx>> {
-    Node::mk(mcx, Var { varno: x.0, varattno: x.1, vartype: x.2, vartypmod: x.3, varcollid: x.4, varnosyn: x.0 as u32, varattnosyn: x.1, ..Default::default() })
+    Node::mk(
+        mcx,
+        Var {
+            varno: x.0,
+            varattno: x.1,
+            vartype: x.2,
+            vartypmod: x.3,
+            varcollid: x.4,
+            varnosyn: x.0 as u32,
+            varattnosyn: x.1,
+            ..Default::default()
+        },
+    )
 }
 
-fn replace_outer<'mcx>(mcx: Mcx<'mcx>, node: Node<'mcx>, base: u32, r: i32, refs: &[(i32, i16, Oid, i32, Oid)], nd: i32) -> PgResult<Node<'mcx>> {
-    fn m<'mcx>(mcx: Mcx<'mcx>, n: Node<'mcx>, base: u32, r: i32, refs: &[(i32, i16, Oid, i32, Oid)], nd: i32) -> PgResult<Option<Node<'mcx>>> {
+fn replace_outer<'mcx>(
+    mcx: Mcx<'mcx>,
+    node: Node<'mcx>,
+    base: u32,
+    r: i32,
+    refs: &[(i32, i16, Oid, i32, Oid)],
+    nd: i32,
+) -> PgResult<Node<'mcx>> {
+    fn m<'mcx>(
+        mcx: Mcx<'mcx>,
+        n: Node<'mcx>,
+        base: u32,
+        r: i32,
+        refs: &[(i32, i16, Oid, i32, Oid)],
+        nd: i32,
+    ) -> PgResult<Option<Node<'mcx>>> {
         if let Some(v) = n.as_var() {
             if v.varlevelsup == base && v.varno == r {
-                let j = refs.iter().position(|x| x.1 == v.varattno).expect("a collected reference");
+                let j = refs
+                    .iter()
+                    .position(|x| x.1 == v.varattno)
+                    .expect("a collected reference");
                 return Ok(Some(dvar(mcx, nd, j, &refs[j], 0)?));
             }
             return Ok(None);
@@ -925,29 +1367,48 @@ fn equal_image(mcx: Mcx<'_>, ty: Oid, coll: Oid) -> PgResult<bool> {
     if proc == 0 {
         return Ok(false);
     }
-    Ok(fmgr_core::oid_function_call1_coll_in(proc, coll, mcx, datum::Datum::from_oid(opcintype))?.as_bool())
+    Ok(
+        fmgr_core::oid_function_call1_coll_in(proc, coll, mcx, datum::Datum::from_oid(opcintype))?
+            .as_bool(),
+    )
 }
 
 fn any_is_equality(asl: &SubLink<'_>) -> PgResult<bool> {
-    let Some(op) = asl.testexpr.and_then(|t| t.as_op_expr()) else { return Ok(false) };
+    let Some(op) = asl.testexpr.and_then(|t| t.as_op_expr()) else {
+        return Ok(false);
+    };
     if op.args.len() != 2 || op.opretset {
         return Ok(false);
     }
-    let is_member = |n: Node<'_>| n.as_param().is_some_and(|p| p.paramkind == ParamKind::PARAM_SUBLINK && p.paramid == 1);
+    let is_member = |n: Node<'_>| {
+        n.as_param()
+            .is_some_and(|p| p.paramkind == ParamKind::PARAM_SUBLINK && p.paramid == 1)
+    };
     let member = match (is_member(op.args.nth(0)), is_member(op.args.nth(1))) {
         (true, false) => op.args.nth(0),
         (false, true) => op.args.nth(1),
         _ => return Ok(false),
     };
     let (mty, _) = ::costsize::expr_type_typmod(member);
-    let tc = typcache::lookup_type_cache(mty, typcache::TYPECACHE_EQ_OPR | typcache::TYPECACHE_BTREE_OPFAMILY)?;
-    if tc.btree_opf() == 0 || lsyscache::get_op_opfamily_strategy(op.opno, tc.btree_opf())? != lsyscache::BTEqualStrategyNumber as i32 {
+    let tc = typcache::lookup_type_cache(
+        mty,
+        typcache::TYPECACHE_EQ_OPR | typcache::TYPECACHE_BTREE_OPFAMILY,
+    )?;
+    if tc.btree_opf() == 0
+        || lsyscache::get_op_opfamily_strategy(op.opno, tc.btree_opf())?
+            != lsyscache::BTEqualStrategyNumber as i32
+    {
         return Ok(false);
     }
-    Ok(!lsyscache::type_is_collatable(mty)? || op.inputcollid == crate::pathkeys::expr_collation(member))
+    Ok(!lsyscache::type_is_collatable(mty)?
+        || op.inputcollid == crate::pathkeys::expr_collation(member))
 }
 
-fn replace_sublink_param<'mcx>(mcx: Mcx<'mcx>, testexpr: Node<'mcx>, member: Node<'mcx>) -> PgResult<Node<'mcx>> {
+fn replace_sublink_param<'mcx>(
+    mcx: Mcx<'mcx>,
+    testexpr: Node<'mcx>,
+    member: Node<'mcx>,
+) -> PgResult<Node<'mcx>> {
     fn m<'mcx>(mcx: Mcx<'mcx>, n: Node<'mcx>, member: Node<'mcx>) -> PgResult<Option<Node<'mcx>>> {
         if let Some(p) = n.as_param() {
             if p.paramkind == ParamKind::PARAM_SUBLINK && p.paramid == 1 {
@@ -960,14 +1421,31 @@ fn replace_sublink_param<'mcx>(mcx: Mcx<'mcx>, testexpr: Node<'mcx>, member: Nod
     Ok(m(mcx, testexpr, member)?.unwrap_or(testexpr))
 }
 
-fn push_scope<'mcx>(mcx: Mcx<'mcx>, u: &Query<'mcx>, base: u32, r: i32, refs: &[(i32, i16, Oid, i32, Oid)], dq: &Query<'mcx>) -> PgResult<Option<Query<'mcx>>> {
-    if u.commandType != CmdType::CMD_SELECT || u.targetList.iter().filter(|n| !n.as_target_entry().expect("tlist cell").resjunk).count() != 1 {
+fn push_scope<'mcx>(
+    mcx: Mcx<'mcx>,
+    u: &Query<'mcx>,
+    base: u32,
+    r: i32,
+    refs: &[(i32, i16, Oid, i32, Oid)],
+    dq: &Query<'mcx>,
+) -> PgResult<Option<Query<'mcx>>> {
+    if u.commandType != CmdType::CMD_SELECT
+        || u.targetList
+            .iter()
+            .filter(|n| !n.as_target_entry().expect("tlist cell").resjunk)
+            .count()
+            != 1
+    {
         return Ok(None);
     }
     match u.setOperations {
         None => push_arm(mcx, u, base, r, refs, dq),
         Some(set) => {
-            if !u.cteList.is_nil() || u.limitCount.is_some() || u.limitOffset.is_some() || !u.sortClause.is_nil() {
+            if !u.cteList.is_nil()
+                || u.limitCount.is_some()
+                || u.limitOffset.is_some()
+                || !u.sortClause.is_nil()
+            {
                 return Ok(None);
             }
             let mut out = crate::subselect::query_cells_copy(mcx, u)?;
@@ -978,9 +1456,14 @@ fn push_scope<'mcx>(mcx: Mcx<'mcx>, u: &Query<'mcx>, base: u32, r: i32, refs: &[
                     rtable.lappend(mcx, n)?;
                     continue;
                 }
-                let Some(arm) = rte.subquery else { return Ok(None) };
-                let Some(arm2) = push_arm(mcx, arm, base + 1, r, refs, dq)? else { return Ok(None) };
-                let copy = crate::prepjointree::rte_copy_with_perminfoindex(mcx, rte, rte.perminfoindex)?;
+                let Some(arm) = rte.subquery else {
+                    return Ok(None);
+                };
+                let Some(arm2) = push_arm(mcx, arm, base + 1, r, refs, dq)? else {
+                    return Ok(None);
+                };
+                let copy =
+                    crate::prepjointree::rte_copy_with_perminfoindex(mcx, rte, rte.perminfoindex)?;
                 let mut cols = NodeList::nil();
                 if let Some(e) = rte.eref {
                     for c in e.colnames.iter() {
@@ -990,7 +1473,13 @@ fn push_scope<'mcx>(mcx: Mcx<'mcx>, u: &Query<'mcx>, base: u32, r: i32, refs: &[
                 for d in D_NAMES[..refs.len()].iter() {
                     cols.lappend(mcx, Node::mk_string(mcx, d)?)?;
                 }
-                let eref = mcx::alloc_leak_in(mcx, Alias { aliasname: rte.eref.and_then(|e| e.aliasname), colnames: cols })?;
+                let eref = mcx::alloc_leak_in(
+                    mcx,
+                    Alias {
+                        aliasname: rte.eref.and_then(|e| e.aliasname),
+                        colnames: cols,
+                    },
+                )?;
                 let arm2 = mcx::alloc_leak_in(mcx, arm2)?;
                 // SAFETY: the copy is exclusively ours until it enters the list.
                 unsafe {
@@ -1001,7 +1490,9 @@ fn push_scope<'mcx>(mcx: Mcx<'mcx>, u: &Query<'mcx>, base: u32, r: i32, refs: &[
                 };
                 rtable.lappend(mcx, copy)?;
             }
-            let Some(set2) = widen_setop(mcx, set, refs)? else { return Ok(None) };
+            let Some(set2) = widen_setop(mcx, set, refs)? else {
+                return Ok(None);
+            };
             out.rtable = rtable;
             out.setOperations = Some(set2);
             let left = leftmost(set);
@@ -1009,8 +1500,34 @@ fn push_scope<'mcx>(mcx: Mcx<'mcx>, u: &Query<'mcx>, base: u32, r: i32, refs: &[
             let mut tlist = NodeList::make1(mcx, u.targetList.nth(0))?;
             for (j, x) in refs.iter().enumerate() {
                 let resno = te0.resno + 1 + j as i16;
-                let v = Node::mk(mcx, Var { varno: left, varattno: resno, vartype: x.2, vartypmod: x.3, varcollid: x.4, varnosyn: left as u32, varattnosyn: resno, ..Default::default() })?;
-                tlist.lappend(mcx, Node::mk(mcx, TargetEntry { expr: v, resno, resname: Some(D_NAMES[j]), ressortgroupref: 0, resorigtbl: 0, resorigcol: 0, resjunk: false })?)?;
+                let v = Node::mk(
+                    mcx,
+                    Var {
+                        varno: left,
+                        varattno: resno,
+                        vartype: x.2,
+                        vartypmod: x.3,
+                        varcollid: x.4,
+                        varnosyn: left as u32,
+                        varattnosyn: resno,
+                        ..Default::default()
+                    },
+                )?;
+                tlist.lappend(
+                    mcx,
+                    Node::mk(
+                        mcx,
+                        TargetEntry {
+                            expr: v,
+                            resno,
+                            resname: Some(D_NAMES[j]),
+                            ressortgroupref: 0,
+                            resorigtbl: 0,
+                            resorigcol: 0,
+                            resjunk: false,
+                        },
+                    )?,
+                )?;
             }
             out.targetList = tlist;
             Ok(Some(out))
@@ -1022,26 +1539,42 @@ fn in_setop(n: Node<'_>, rti: i32) -> bool {
     if let Some(r) = n.as_range_tbl_ref() {
         return r.rtindex == rti;
     }
-    n.as_set_operation_stmt().is_some_and(|s| s.larg.is_some_and(|l| in_setop(l, rti)) || s.rarg.is_some_and(|r| in_setop(r, rti)))
+    n.as_set_operation_stmt().is_some_and(|s| {
+        s.larg.is_some_and(|l| in_setop(l, rti)) || s.rarg.is_some_and(|r| in_setop(r, rti))
+    })
 }
 
 fn leftmost(n: Node<'_>) -> i32 {
     if let Some(r) = n.as_range_tbl_ref() {
         return r.rtindex;
     }
-    leftmost(n.as_set_operation_stmt().and_then(|s| s.larg).expect("a set operation's left input"))
+    leftmost(
+        n.as_set_operation_stmt()
+            .and_then(|s| s.larg)
+            .expect("a set operation's left input"),
+    )
 }
 
-fn widen_setop<'mcx>(mcx: Mcx<'mcx>, n: Node<'mcx>, refs: &[(i32, i16, Oid, i32, Oid)]) -> PgResult<Option<Node<'mcx>>> {
+fn widen_setop<'mcx>(
+    mcx: Mcx<'mcx>,
+    n: Node<'mcx>,
+    refs: &[(i32, i16, Oid, i32, Oid)],
+) -> PgResult<Option<Node<'mcx>>> {
     if n.as_range_tbl_ref().is_some() {
         return Ok(Some(n));
     }
-    let Some(s) = n.as_set_operation_stmt() else { return Ok(None) };
+    let Some(s) = n.as_set_operation_stmt() else {
+        return Ok(None);
+    };
     if s.op != SetOperation::SETOP_UNION || !s.all {
         return Ok(None);
     }
-    let (Some(l), Some(r)) = (s.larg, s.rarg) else { return Ok(None) };
-    let (Some(l), Some(r)) = (widen_setop(mcx, l, refs)?, widen_setop(mcx, r, refs)?) else { return Ok(None) };
+    let (Some(l), Some(r)) = (s.larg, s.rarg) else {
+        return Ok(None);
+    };
+    let (Some(l), Some(r)) = (widen_setop(mcx, l, refs)?, widen_setop(mcx, r, refs)?) else {
+        return Ok(None);
+    };
     let mut types = OidList::nil();
     let mut typmods = IntList::nil();
     let mut colls = OidList::nil();
@@ -1061,11 +1594,27 @@ fn widen_setop<'mcx>(mcx: Mcx<'mcx>, n: Node<'mcx>, refs: &[(i32, i16, Oid, i32,
     }
     Ok(Some(Node::mk(
         mcx,
-        SetOperationStmt { op: s.op, all: s.all, larg: Some(l), rarg: Some(r), colTypes: types, colTypmods: typmods, colCollations: colls, groupClauses: NodeList::nil() },
+        SetOperationStmt {
+            op: s.op,
+            all: s.all,
+            larg: Some(l),
+            rarg: Some(r),
+            colTypes: types,
+            colTypmods: typmods,
+            colCollations: colls,
+            groupClauses: NodeList::nil(),
+        },
     )?))
 }
 
-fn push_arm<'mcx>(mcx: Mcx<'mcx>, arm: &Query<'mcx>, base: u32, r: i32, refs: &[(i32, i16, Oid, i32, Oid)], dq: &Query<'mcx>) -> PgResult<Option<Query<'mcx>>> {
+fn push_arm<'mcx>(
+    mcx: Mcx<'mcx>,
+    arm: &Query<'mcx>,
+    base: u32,
+    r: i32,
+    refs: &[(i32, i16, Oid, i32, Oid)],
+    dq: &Query<'mcx>,
+) -> PgResult<Option<Query<'mcx>>> {
     if arm.commandType != CmdType::CMD_SELECT
         || arm.hasAggs
         || arm.hasWindowFuncs
@@ -1083,10 +1632,18 @@ fn push_arm<'mcx>(mcx: Mcx<'mcx>, arm: &Query<'mcx>, base: u32, r: i32, refs: &[
     {
         return Ok(None);
     }
-    let Some(jt) = arm.jointree else { return Ok(None) };
+    let Some(jt) = arm.jointree else {
+        return Ok(None);
+    };
     // The outer level only in the WHERE conjuncts and target entries (never a join qual or a range-table entry).
     let mut bare = crate::subselect::query_cells_copy(mcx, arm)?;
-    bare.jointree = Some(mcx::alloc_leak_in(mcx, FromExpr { fromlist: jt.fromlist.clone_in(mcx)?, quals: None })?);
+    bare.jointree = Some(mcx::alloc_leak_in(
+        mcx,
+        FromExpr {
+            fromlist: jt.fromlist.clone_in(mcx)?,
+            quals: None,
+        },
+    )?);
     bare.targetList = NodeList::nil();
     let mut other = Vec::new();
     collect_outer(Node::mk(mcx, bare)?, base - 1, &mut other)?;
@@ -1098,16 +1655,29 @@ fn push_arm<'mcx>(mcx: Mcx<'mcx>, arm: &Query<'mcx>, base: u32, r: i32, refs: &[
         collect_outer(w, base - 1, &mut found)?;
     }
     for n in arm.targetList.iter() {
-        collect_outer(n.as_target_entry().expect("tlist cell").expr, base - 1, &mut found)?;
+        collect_outer(
+            n.as_target_entry().expect("tlist cell").expr,
+            base - 1,
+            &mut found,
+        )?;
     }
-    if found.iter().any(|x| x.0 != r || !refs.iter().any(|y| y.1 == x.1)) {
+    if found
+        .iter()
+        .any(|x| x.0 != r || !refs.iter().any(|y| y.1 == x.1))
+    {
         return Ok(None);
     }
     if let Some(out) = substitute_arm(mcx, arm, jt, base, r, refs)? {
         return Ok(Some(out));
     }
     let mut out = crate::subselect::query_cells_copy(mcx, arm)?;
-    let nd = append_subquery_rte(mcx, &mut out.rtable, copy_domain(mcx, dq)?, DOMAIN_ALIAS, &D_NAMES[..refs.len()])?;
+    let nd = append_subquery_rte(
+        mcx,
+        &mut out.rtable,
+        copy_domain(mcx, dq)?,
+        DOMAIN_ALIAS,
+        &D_NAMES[..refs.len()],
+    )?;
     let mut fromlist = jt.fromlist.clone_in(mcx)?;
     fromlist.lappend(mcx, Node::mk_range_tbl_ref(mcx, nd)?)?;
     let quals = match jt.quals {
@@ -1123,11 +1693,34 @@ fn push_arm<'mcx>(mcx: Mcx<'mcx>, arm: &Query<'mcx>, base: u32, r: i32, refs: &[
             return Ok(None);
         }
         last = te.resno;
-        tlist.lappend(mcx, Node::mk(mcx, TargetEntry { expr: replace_outer(mcx, te.expr, base, r, refs, nd)?, ..*te })?)?;
+        tlist.lappend(
+            mcx,
+            Node::mk(
+                mcx,
+                TargetEntry {
+                    expr: replace_outer(mcx, te.expr, base, r, refs, nd)?,
+                    ..*te
+                },
+            )?,
+        )?;
     }
     for (j, x) in refs.iter().enumerate() {
         let resno = last + 1 + j as i16;
-        tlist.lappend(mcx, Node::mk(mcx, TargetEntry { expr: dvar(mcx, nd, j, x, 0)?, resno, resname: Some(D_NAMES[j]), ressortgroupref: 0, resorigtbl: 0, resorigcol: 0, resjunk: false })?)?;
+        tlist.lappend(
+            mcx,
+            Node::mk(
+                mcx,
+                TargetEntry {
+                    expr: dvar(mcx, nd, j, x, 0)?,
+                    resno,
+                    resname: Some(D_NAMES[j]),
+                    ressortgroupref: 0,
+                    resorigtbl: 0,
+                    resorigcol: 0,
+                    resjunk: false,
+                },
+            )?,
+        )?;
     }
     out.targetList = tlist;
     Ok(Some(out))
@@ -1152,12 +1745,19 @@ fn substitute_arm<'mcx>(
         if op.args.len() != 2 {
             continue;
         }
-        for (o, l) in [(op.args.nth(0), op.args.nth(1)), (op.args.nth(1), op.args.nth(0))] {
-            let (Some(ov), Some(lv)) = (o.as_var(), l.as_var()) else { continue };
+        for (o, l) in [
+            (op.args.nth(0), op.args.nth(1)),
+            (op.args.nth(1), op.args.nth(0)),
+        ] {
+            let (Some(ov), Some(lv)) = (o.as_var(), l.as_var()) else {
+                continue;
+            };
             if ov.varlevelsup != base || ov.varno != r || lv.varlevelsup != 0 {
                 continue;
             }
-            let Some(j) = refs.iter().position(|x| x.1 == ov.varattno) else { continue };
+            let Some(j) = refs.iter().position(|x| x.1 == ov.varattno) else {
+                continue;
+            };
             let x = &refs[j];
             if by[j].is_some() || lv.vartype != x.2 || lv.vartypmod != x.3 || lv.varcollid != x.4 {
                 continue;
@@ -1184,7 +1784,11 @@ fn substitute_arm<'mcx>(
         }
     }
     for n in arm.targetList.iter() {
-        collect_outer(n.as_target_entry().expect("tlist cell").expr, base - 1, &mut rest)?;
+        collect_outer(
+            n.as_target_entry().expect("tlist cell").expr,
+            base - 1,
+            &mut rest,
+        )?;
     }
     if !rest.is_empty() {
         return Ok(None);
@@ -1192,7 +1796,14 @@ fn substitute_arm<'mcx>(
     let mut out = crate::subselect::query_cells_copy(mcx, arm)?;
     out.jointree = Some(mcx::alloc_leak_in(
         mcx,
-        FromExpr { fromlist: jt.fromlist.clone_in(mcx)?, quals: if kept.is_nil() { None } else { Some(clauses::make_ands_explicit(mcx, &kept)?) } },
+        FromExpr {
+            fromlist: jt.fromlist.clone_in(mcx)?,
+            quals: if kept.is_nil() {
+                None
+            } else {
+                Some(clauses::make_ands_explicit(mcx, &kept)?)
+            },
+        },
     )?);
     let mut tlist = NodeList::nil();
     let mut last = 0i16;
@@ -1206,7 +1817,21 @@ fn substitute_arm<'mcx>(
     }
     for (j, b) in by.iter().enumerate() {
         let resno = last + 1 + j as i16;
-        tlist.lappend(mcx, Node::mk(mcx, TargetEntry { expr: rewrite_manip::copy_node(mcx, *b)?, resno, resname: Some(D_NAMES[j]), ressortgroupref: 0, resorigtbl: 0, resorigcol: 0, resjunk: false })?)?;
+        tlist.lappend(
+            mcx,
+            Node::mk(
+                mcx,
+                TargetEntry {
+                    expr: rewrite_manip::copy_node(mcx, *b)?,
+                    resno,
+                    resname: Some(D_NAMES[j]),
+                    ressortgroupref: 0,
+                    resorigtbl: 0,
+                    resorigcol: 0,
+                    resjunk: false,
+                },
+            )?,
+        )?;
     }
     out.targetList = tlist;
     Ok(Some(out))
@@ -1222,7 +1847,11 @@ fn sink_one_level<'mcx>(mcx: Mcx<'mcx>, u: Query<'mcx>) -> PgResult<Query<'mcx>>
     crate::subselect::query_cells_copy(mcx, n.as_query().expect("a Query"))
 }
 
-fn scope_query<'mcx>(mcx: Mcx<'mcx>, u: Query<'mcx>, nrefs: usize) -> PgResult<Option<(Query<'mcx>, (Oid, i32, Oid))>> {
+fn scope_query<'mcx>(
+    mcx: Mcx<'mcx>,
+    u: Query<'mcx>,
+    nrefs: usize,
+) -> PgResult<Option<(Query<'mcx>, (Oid, i32, Oid))>> {
     let mut cols: Vec<(i16, Oid, i32, Oid)> = Vec::new();
     for n in u.targetList.iter() {
         let te = n.as_target_entry().expect("tlist cell");
@@ -1243,16 +1872,50 @@ fn scope_query<'mcx>(mcx: Mcx<'mcx>, u: Query<'mcx>, nrefs: usize) -> PgResult<O
     let mut distinct = NodeList::nil();
     for (i, c) in cols.iter().enumerate() {
         let resno = (i + 1) as i16;
-        let v = Node::mk(mcx, Var { varno: 1, varattno: c.0, vartype: c.1, vartypmod: c.2, varcollid: c.3, varnosyn: 1, varattnosyn: c.0, ..Default::default() })?;
-        tlist.lappend(mcx, Node::mk(mcx, TargetEntry { expr: v, resno, resname: Some(names[i]), ressortgroupref: resno as u32, resorigtbl: 0, resorigcol: 0, resjunk: false })?)?;
-        let Some(sgc) = sort_group(mcx, c.1, resno as u32)? else { return Ok(None) };
+        let v = Node::mk(
+            mcx,
+            Var {
+                varno: 1,
+                varattno: c.0,
+                vartype: c.1,
+                vartypmod: c.2,
+                varcollid: c.3,
+                varnosyn: 1,
+                varattnosyn: c.0,
+                ..Default::default()
+            },
+        )?;
+        tlist.lappend(
+            mcx,
+            Node::mk(
+                mcx,
+                TargetEntry {
+                    expr: v,
+                    resno,
+                    resname: Some(names[i]),
+                    ressortgroupref: resno as u32,
+                    resorigtbl: 0,
+                    resorigcol: 0,
+                    resjunk: false,
+                },
+            )?,
+        )?;
+        let Some(sgc) = sort_group(mcx, c.1, resno as u32)? else {
+            return Ok(None);
+        };
         distinct.lappend(mcx, sgc)?;
     }
     let q = Query {
         commandType: CmdType::CMD_SELECT,
         canSetTag: true,
         rtable,
-        jointree: Some(mcx::alloc_leak_in(mcx, FromExpr { fromlist: NodeList::make1(mcx, Node::mk_range_tbl_ref(mcx, 1)?)?, quals: None })?),
+        jointree: Some(mcx::alloc_leak_in(
+            mcx,
+            FromExpr {
+                fromlist: NodeList::make1(mcx, Node::mk_range_tbl_ref(mcx, 1)?)?,
+                quals: None,
+            },
+        )?),
         targetList: tlist,
         distinctClause: distinct,
         ..Query::default()
@@ -1315,7 +1978,11 @@ fn level_below_safe(q: &Query<'_>) -> PgResult<bool> {
         }
     }
     for n in q.cteList.iter() {
-        if let Some(body) = n.as_common_table_expr().and_then(|c| c.ctequery).and_then(|b| b.as_query()) {
+        if let Some(body) = n
+            .as_common_table_expr()
+            .and_then(|c| c.ctequery)
+            .and_then(|b| b.as_query())
+        {
             if !query_all_safe(body)? {
                 return Ok(false);
             }
@@ -1338,9 +2005,17 @@ fn outer_ctes_safe<'mcx>(sub: &Query<'mcx>, chain: &[&Query<'mcx>]) -> PgResult<
                 }
                 let above = (rte.ctelevelsup - self.depth) as usize;
                 let owner = self.chain.len().checked_sub(above).map(|i| self.chain[i]);
-                let cte = owner.and_then(|o| o.cteList.iter().filter_map(|c| c.as_common_table_expr()).find(|c| c.ctename == rte.ctename));
+                let cte = owner.and_then(|o| {
+                    o.cteList
+                        .iter()
+                        .filter_map(|c| c.as_common_table_expr())
+                        .find(|c| c.ctename == rte.ctename)
+                });
                 let ok = match cte.and_then(|c| c.ctequery) {
-                    Some(body) => body.as_query().map_or(Ok(false), query_all_safe)? && !clauses::contain_volatile_functions(body)?,
+                    Some(body) => {
+                        body.as_query().map_or(Ok(false), query_all_safe)?
+                            && !clauses::contain_volatile_functions(body)?
+                    }
                     None => false,
                 };
                 self.ok = ok;
@@ -1358,7 +2033,11 @@ fn outer_ctes_safe<'mcx>(sub: &Query<'mcx>, chain: &[&Query<'mcx>]) -> PgResult<
             Ok(r)
         }
     }
-    let mut w = W { depth: 0, chain, ok: true };
+    let mut w = W {
+        depth: 0,
+        chain,
+        ok: true,
+    };
     nodes_core::query_tree_walker(sub, &mut w, nodes_core::QTW_EXAMINE_RTES_BEFORE)?;
     Ok(w.ok)
 }
@@ -1380,7 +2059,9 @@ fn jointree_safe(n: Node<'_>) -> PgResult<bool> {
         return Ok(true);
     }
     if let Some(j) = n.as_join_expr() {
-        return Ok(j.quals.map_or(Ok(true), expr_safe)? && jointree_safe(j.larg)? && jointree_safe(j.rarg)?);
+        return Ok(j.quals.map_or(Ok(true), expr_safe)?
+            && jointree_safe(j.larg)?
+            && jointree_safe(j.rarg)?);
     }
     if let Some(f) = n.as_from_expr() {
         for i in f.fromlist.iter() {
@@ -1437,7 +2118,10 @@ fn outer_in_aggs(expr: Node<'_>) -> PgResult<bool> {
 /// decorrelate.rs's eager-safety, with aggregates and window functions taken apart and a SubLink's subselect required
 /// wholly safe.
 fn expr_safe(node: Node<'_>) -> PgResult<bool> {
-    let mut s = Safe { ok: true, consts: reach() >= 1 };
+    let mut s = Safe {
+        ok: true,
+        consts: reach() >= 1,
+    };
     nodes_core::NodeWalker::visit(&mut s, node)?;
     Ok(s.ok)
 }
@@ -1459,10 +2143,17 @@ fn plan_time_const(n: Node<'_>) -> PgResult<bool> {
         return plan_time_const(r.arg);
     }
     let (func, args) = match (n.as_func_expr(), n.as_op_expr()) {
-        (Some(f), _) if !f.funcretset && f.funcresulttype != types_core::catalog::RECORDOID => (f.funcid, &f.args),
-        (None, Some(o)) if !o.opretset && o.opresulttype != types_core::catalog::RECORDOID => {
-            (if o.opfuncid != 0 { o.opfuncid } else { lsyscache::get_opcode(o.opno)? }, &o.args)
+        (Some(f), _) if !f.funcretset && f.funcresulttype != types_core::catalog::RECORDOID => {
+            (f.funcid, &f.args)
         }
+        (None, Some(o)) if !o.opretset && o.opresulttype != types_core::catalog::RECORDOID => (
+            if o.opfuncid != 0 {
+                o.opfuncid
+            } else {
+                lsyscache::get_opcode(o.opno)?
+            },
+            &o.args,
+        ),
         _ => return Ok(false),
     };
     if lsyscache::func_volatile(func)? != clauses::classify::PROVOLATILE_IMMUTABLE {
@@ -1483,8 +2174,13 @@ fn relies_on_p2(sub: &Query<'_>) -> PgResult<bool> {
     struct W;
     impl<'m> nodes_core::NodeWalker<'m> for W {
         fn visit(&mut self, n: Node<'m>) -> PgResult<bool> {
-            if matches!(n.node_tag(), NodeTag::T_FuncExpr | NodeTag::T_OpExpr) && plan_time_const(n)? {
-                let mut plain = Safe { ok: true, consts: false };
+            if matches!(n.node_tag(), NodeTag::T_FuncExpr | NodeTag::T_OpExpr)
+                && plan_time_const(n)?
+            {
+                let mut plain = Safe {
+                    ok: true,
+                    consts: false,
+                };
                 nodes_core::NodeWalker::visit(&mut plain, n)?;
                 return Ok(!plain.ok);
             }
@@ -1524,7 +2220,10 @@ fn relies_on_p2(sub: &Query<'_>) -> PgResult<bool> {
 
 impl<'mcx> nodes_core::NodeWalker<'mcx> for Safe {
     fn visit(&mut self, n: Node<'mcx>) -> PgResult<bool> {
-        if self.consts && matches!(n.node_tag(), NodeTag::T_FuncExpr | NodeTag::T_OpExpr) && plan_time_const(n)? {
+        if self.consts
+            && matches!(n.node_tag(), NodeTag::T_FuncExpr | NodeTag::T_OpExpr)
+            && plan_time_const(n)?
+        {
             return Ok(false);
         }
         match n.node_tag() {
@@ -1553,9 +2252,18 @@ impl<'mcx> nodes_core::NodeWalker<'mcx> for Safe {
                     return Ok(true);
                 }
             }
-            NodeTag::T_FuncExpr | NodeTag::T_OpExpr | NodeTag::T_DistinctExpr | NodeTag::T_NullIfExpr | NodeTag::T_ScalarArrayOpExpr => {
-                let leaky = |f| Ok(!(lsyscache::func_strict(f)? && (lsyscache::get_func_leakproof(f)? || cannot_raise(f, n))));
-                if nodes_core::check_functions_in_node(n, &mut { leaky })? || !crate::createplan::collation_determinate(n)? {
+            NodeTag::T_FuncExpr
+            | NodeTag::T_OpExpr
+            | NodeTag::T_DistinctExpr
+            | NodeTag::T_NullIfExpr
+            | NodeTag::T_ScalarArrayOpExpr => {
+                let leaky = |f| {
+                    Ok(!(lsyscache::func_strict(f)?
+                        && (lsyscache::get_func_leakproof(f)? || cannot_raise(f, n))))
+                };
+                if nodes_core::check_functions_in_node(n, &mut { leaky })?
+                    || !crate::createplan::collation_determinate(n)?
+                {
                     self.ok = false;
                     return Ok(true);
                 }
@@ -1567,7 +2275,11 @@ impl<'mcx> nodes_core::NodeWalker<'mcx> for Safe {
                         return Ok(true);
                     }
                 }
-                if !query_all_safe(sl.subselect.as_query().expect("a transformed SubLink holds a Query"))? {
+                if !query_all_safe(
+                    sl.subselect
+                        .as_query()
+                        .expect("a transformed SubLink holds a Query"),
+                )? {
                     self.ok = false;
                     return Ok(true);
                 }
@@ -1585,7 +2297,9 @@ impl<'mcx> nodes_core::NodeWalker<'mcx> for Safe {
 /// date_{lt,le,eq,gt,ge,ne}_timestamp and timestamp_{lt,le,eq,gt,ge,ne}_date: date_cmp_timestamp_internal (PostgreSQL 18.6
 /// date.c:808) converts with an overflow flag and orders an overflowed date just below the end of time; its error
 /// branch (date.c:656) runs only without the flag. Date against timestamptz is not listed (the session time zone).
-const DATE_TIMESTAMP_CMP: [Oid; 12] = [2338, 2339, 2340, 2341, 2342, 2343, 2364, 2365, 2366, 2367, 2368, 2369];
+const DATE_TIMESTAMP_CMP: [Oid; 12] = [
+    2338, 2339, 2340, 2341, 2342, 2343, 2364, 2365, 2366, 2367, 2368, 2369,
+];
 
 const LIKE: [Oid; 4] = [850, 851, 1631, 1632];
 
@@ -1605,7 +2319,9 @@ fn cannot_raise(f: Oid, call: Node<'_>) -> bool {
         (None, Some(fe)) => (&fe.args, fe.inputcollid),
         _ => return false,
     };
-    let Some(c) = args.iter().nth(1).and_then(|a| a.as_const()) else { return false };
+    let Some(c) = args.iter().nth(1).and_then(|a| a.as_const()) else {
+        return false;
+    };
     if c.constisnull {
         return true;
     }
@@ -1619,5 +2335,6 @@ fn cannot_raise(f: Oid, call: Node<'_>) -> bool {
         return false;
     }
     let pattern = crate::selfuncs::varlena_datum_payload(c.constvalue);
-    types_core::quiet::pattern_quiet(f, pattern, collid) == Some(true) && pattern.iter().filter(|&&b| b == b'%').count() <= 16
+    types_core::quiet::pattern_quiet(f, pattern, collid) == Some(true)
+        && pattern.iter().filter(|&&b| b == b'%').count() <= 16
 }

@@ -3,6 +3,7 @@
 // counts are pinned in tests/golden/partwrite.txt (REGEN=1 rewrites).
 use std::fmt::Write;
 use std::fs;
+#[allow(unused_imports)]
 use std::path::{Path, PathBuf};
 
 use gravity_decompose::ops::shared::append::AppendDesc;

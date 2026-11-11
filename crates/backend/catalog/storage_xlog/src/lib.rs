@@ -1,6 +1,6 @@
 // storage_xlog.h + storage.c smgr_redo.
-use types_core::{BlockNumber, ForkNumber, InvalidBlockNumber, INVALID_PROC_NUMBER, MAX_FORKNUM};
 use elog::{ereport, PCT_M};
+use types_core::{BlockNumber, ForkNumber, InvalidBlockNumber, INVALID_PROC_NUMBER, MAX_FORKNUM};
 use types_error::{ErrorLocation, PgError, PgResult, ERRCODE_DATA_CORRUPTED, ERROR, PANIC};
 use types_storage::{RelFileLocator, RelFileLocatorBackend};
 use xlogreader_seams::XLogReaderState;
@@ -67,7 +67,10 @@ fn smgr_fork_num(raw: i32, op: &str) -> PgResult<ForkNumber> {
 pub fn smgr_redo(record: &mut XLogReaderState) -> PgResult<()> {
     const XLR_INFO_MASK: u8 = 0x0F;
     let lsn = record.EndRecPtr;
-    let rec = record.record.as_ref().expect("smgr redo with no decoded record");
+    let rec = record
+        .record
+        .as_ref()
+        .expect("smgr redo with no decoded record");
     let info = rec.xl_info & !XLR_INFO_MASK;
     // SAFETY: points into the reader's decode buffer, valid for this callback.
     let xlrec = unsafe { rec.main_data_bytes() };
@@ -78,9 +81,14 @@ pub fn smgr_redo(record: &mut XLogReaderState) -> PgResult<()> {
             u32::from_ne_bytes(xlrec[4..8].try_into().unwrap()),
             u32::from_ne_bytes(xlrec[8..12].try_into().unwrap()),
         );
-        let fork_num =
-            smgr_fork_num(i32::from_ne_bytes(xlrec[12..16].try_into().unwrap()), "XLOG_SMGR_CREATE")?;
-        let key = RelFileLocatorBackend { locator, backend: INVALID_PROC_NUMBER };
+        let fork_num = smgr_fork_num(
+            i32::from_ne_bytes(xlrec[12..16].try_into().unwrap()),
+            "XLOG_SMGR_CREATE",
+        )?;
+        let key = RelFileLocatorBackend {
+            locator,
+            backend: INVALID_PROC_NUMBER,
+        };
         smgr::smgropen(locator, INVALID_PROC_NUMBER)?;
         smgr::smgrcreate(key, fork_num, true)?;
         Ok(())
@@ -93,7 +101,10 @@ pub fn smgr_redo(record: &mut XLogReaderState) -> PgResult<()> {
             u32::from_ne_bytes(xlrec[12..16].try_into().unwrap()),
         );
         let flags = u32::from_ne_bytes(xlrec[16..20].try_into().unwrap());
-        let key = RelFileLocatorBackend { locator, backend: INVALID_PROC_NUMBER };
+        let key = RelFileLocatorBackend {
+            locator,
+            backend: INVALID_PROC_NUMBER,
+        };
         smgr::smgropen(locator, INVALID_PROC_NUMBER)?;
 
         // Recreate if dropped later in the WAL sequence; flush so the minimum
@@ -141,7 +152,12 @@ pub fn smgr_redo(record: &mut XLogReaderState) -> PgResult<()> {
 
         if nforks > 0 {
             init_small::globals::StartCriticalSection();
-            smgr::smgrtruncate(key, &forks[..nforks], &old_blocks[..nforks], &blocks[..nforks])?;
+            smgr::smgrtruncate(
+                key,
+                &forks[..nforks],
+                &old_blocks[..nforks],
+                &blocks[..nforks],
+            )?;
             init_small::globals::EndCriticalSection();
         }
 
@@ -153,7 +169,11 @@ pub fn smgr_redo(record: &mut XLogReaderState) -> PgResult<()> {
         xlogutils::FreeFakeRelcacheEntry(fakerel);
         Ok(())
     } else if info == XLOG_SMGR_CREATE_TABLE_DIR {
-        smgr_check_len(xlrec, SIZEOF_XL_SMGR_CREATE_TABLE_DIR, "XLOG_SMGR_CREATE_TABLE_DIR")?;
+        smgr_check_len(
+            xlrec,
+            SIZEOF_XL_SMGR_CREATE_TABLE_DIR,
+            "XLOG_SMGR_CREATE_TABLE_DIR",
+        )?;
         let locator = RelFileLocator::new(
             u32::from_ne_bytes(xlrec[0..4].try_into().unwrap()),
             u32::from_ne_bytes(xlrec[4..8].try_into().unwrap()),
@@ -161,13 +181,18 @@ pub fn smgr_redo(record: &mut XLogReaderState) -> PgResult<()> {
         );
         redo_create_table_dir(locator)
     } else if info == XLOG_SMGR_TABLE_DIR_GEN {
-        smgr_check_len(xlrec, SIZEOF_XL_SMGR_TABLE_DIR_GEN, "XLOG_SMGR_TABLE_DIR_GEN")?;
+        smgr_check_len(
+            xlrec,
+            SIZEOF_XL_SMGR_TABLE_DIR_GEN,
+            "XLOG_SMGR_TABLE_DIR_GEN",
+        )?;
         let locator = RelFileLocator::new(
             u32::from_ne_bytes(xlrec[0..4].try_into().unwrap()),
             u32::from_ne_bytes(xlrec[4..8].try_into().unwrap()),
             u32::from_ne_bytes(xlrec[8..12].try_into().unwrap()),
         );
-        let stamp = pgrc_am::walgen::WalGen::from_payload(&xlrec[12..]).expect("length checked above");
+        let stamp =
+            pgrc_am::walgen::WalGen::from_payload(&xlrec[12..]).expect("length checked above");
         redo_table_dir_gen(locator, stamp)
     } else {
         // storage.c:1094: elog(PANIC, "smgr_redo: unknown op code %u", info) —
@@ -218,7 +243,10 @@ fn redo_table_dir_gen(locator: RelFileLocator, stamp: pgrc_am::walgen::WalGen) -
     let path = format!("{dir}/{WALGEN_FILE_NAME}");
     let text = stamp.encode();
     if let Err(errno) = fd::write_whole_file(&tmp, text.as_bytes(), true) {
-        return Err(file_err(errno, format!("could not write file \"{tmp}\": {PCT_M}")));
+        return Err(file_err(
+            errno,
+            format!("could not write file \"{tmp}\": {PCT_M}"),
+        ));
     }
     fd::durable_rename(&tmp, &path, ERROR)?;
     Ok(())
@@ -240,7 +268,12 @@ pub fn redo_remove_table_dir(locator: RelFileLocator) -> PgResult<()> {
 #[cold]
 #[inline(never)]
 fn file_err(errno: i32, msg: String) -> Box<PgError> {
-    ereport(ERROR).with_saved_errno(errno).errcode_for_file_access().errmsg(msg).into_error().into()
+    ereport(ERROR)
+        .with_saved_errno(errno)
+        .errcode_for_file_access()
+        .errmsg(msg)
+        .into_error()
+        .into()
 }
 
 // elog(PANIC) — an unrecoverable redo error (smgr_redo's unknown op code).
@@ -263,16 +296,25 @@ mod tests {
     #[test]
     fn smgr_check_len_rejects_short_records() {
         // Full-length payloads pass.
-        assert!(smgr_check_len(&[0u8; SIZEOF_XL_SMGR_CREATE], SIZEOF_XL_SMGR_CREATE, "CREATE").is_ok());
-        assert!(
-            smgr_check_len(&[0u8; SIZEOF_XL_SMGR_TRUNCATE], SIZEOF_XL_SMGR_TRUNCATE, "TRUNCATE")
-                .is_ok()
-        );
+        assert!(smgr_check_len(
+            &[0u8; SIZEOF_XL_SMGR_CREATE],
+            SIZEOF_XL_SMGR_CREATE,
+            "CREATE"
+        )
+        .is_ok());
+        assert!(smgr_check_len(
+            &[0u8; SIZEOF_XL_SMGR_TRUNCATE],
+            SIZEOF_XL_SMGR_TRUNCATE,
+            "TRUNCATE"
+        )
+        .is_ok());
 
         // Every short length for either op yields a typed error, not a panic.
         for &need in &[SIZEOF_XL_SMGR_CREATE, SIZEOF_XL_SMGR_TRUNCATE] {
             for bad_len in 0..need {
-                let err = smgr_check_len(&vec![0u8; bad_len], need, "op").err().unwrap();
+                let err = smgr_check_len(&vec![0u8; bad_len], need, "op")
+                    .err()
+                    .unwrap();
                 assert_eq!(err.sqlstate(), ERRCODE_DATA_CORRUPTED);
             }
         }
@@ -285,10 +327,14 @@ mod tests {
     // panic!() unwinding the startup redo thread (audit-18.6 b130
     // c960f8b9ff634465c446).
     #[test]
+    #[allow(clippy::field_reassign_with_default)]
     fn unknown_op_code_is_a_panic_error_not_a_rust_panic() {
         let mut rec = xlogreader_seams::DecodedXLogRecord::default();
         rec.xl_info = 0x30; // & !XLR_INFO_MASK == 0x30, neither CREATE nor TRUNCATE
-        let mut record = XLogReaderState { record: Some(rec), ..Default::default() };
+        let mut record = XLogReaderState {
+            record: Some(rec),
+            ..Default::default()
+        };
         let err = smgr_redo(&mut record).expect_err("unknown smgr opcode must not redo silently");
         assert_eq!(err.message(), "smgr_redo: unknown op code 48");
         assert_eq!(err.level(), PANIC);

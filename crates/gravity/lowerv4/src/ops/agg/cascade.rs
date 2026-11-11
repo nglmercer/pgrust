@@ -17,6 +17,7 @@ use gravity_abi::hash::Depth;
 use gravity_decompose::graph::Source;
 use gravity_decompose::ops::shared::agg::{Cascade, GroupDecl, NONE};
 use gravity_ir::builder::FunctionBuilder;
+#[allow(unused_imports)]
 use gravity_ir::{Block, HostFlags, IntBinOp, IntCond, Type};
 use gravity_program::{ClaimKind, LifeId, Parallel, Pipeline, Reason as Why};
 use mcx::{GrowIn, PgBox, PgVec};

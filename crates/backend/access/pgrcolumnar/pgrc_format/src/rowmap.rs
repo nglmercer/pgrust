@@ -21,9 +21,9 @@
 //!   - [`RevForm::FrameIx`]: `S` and a frame number per ID rank (128-row frames); NOT persisted: the forward frames
 //!     are the whole sidecar and [`GranMap::build_frameix`] rebuilds the reverse on the first ID → ordinal use
 //!     (pgrc_am charges it to the map cache).
-//!   The election takes FENCES when its overlap rule holds, else the smaller of LABELS and FRAMEIX by exact size
-//!   (in memory, both directions). Correctness never depends on the group heuristic: the builder replays every
-//!   row's fast path and lists every row it would miss as an exception.
+//!     The election takes FENCES when its overlap rule holds, else the smaller of LABELS and FRAMEIX by exact size
+//!     (in memory, both directions). Correctness never depends on the group heuristic: the builder replays every
+//!     row's fast path and lists every row it would miss as an exception.
 //!
 //! - **RUN** (SORTRUNS-E0, [`RevForm::Run`]): a sorted run's member ([`crate::sortrun`]). Its ID → ordinal direction
 //!   is the run's reverse file ([`crate::runrev`]), which names a *virtual frame* of the member: the run builder's
@@ -124,7 +124,14 @@ impl RevForm {
     }
 
     pub fn from_name(s: &str) -> Option<RevForm> {
-        [RevForm::Mono, RevForm::Fences, RevForm::Labels, RevForm::FrameIx].into_iter().find(|f| f.name() == s)
+        [
+            RevForm::Mono,
+            RevForm::Fences,
+            RevForm::Labels,
+            RevForm::FrameIx,
+        ]
+        .into_iter()
+        .find(|f| f.name() == s)
     }
 }
 
@@ -191,7 +198,11 @@ impl BitW {
             return;
         }
         let mut o = (self.len & 63) as u32;
-        let mut acc = if o == 0 { 0 } else { self.w.pop().expect("the partial last word") };
+        let mut acc = if o == 0 {
+            0
+        } else {
+            self.w.pop().expect("the partial last word")
+        };
         let mut k = 0u64;
         for v in vals {
             debug_assert!(width == 64 || v >> width == 0, "value {v} width {width}");
@@ -251,7 +262,8 @@ fn get_area(c: &mut Cur<'_>, at: &'static str) -> FormatResult<Box<[u64]>> {
 
 /// Whether `[pos, pos + bits)` lies inside an area of `words` words (padding excluded).
 fn inside(words: usize, pos: u64, bits: u64) -> bool {
-    pos.checked_add(bits).is_some_and(|end| end <= (words.saturating_sub(1) as u64) * 64)
+    pos.checked_add(bits)
+        .is_some_and(|end| end <= (words.saturating_sub(1) as u64) * 64)
 }
 
 // ------------------------------------------------------------------------------------------------------------- headers
@@ -283,7 +295,15 @@ impl Gran {
     fn get(c: &mut Cur<'_>) -> FormatResult<Gran> {
         const AT: &str = "RowIdentMap granule";
         let (form, w1, w2, _) = (c.u8(AT)?, c.u8(AT)?, c.u8(AT)?, c.u8(AT)?);
-        Ok(Gran { form, w1, w2, count: c.u32(AT)?, base: c.u64(AT)?, off: c.u32(AT)?, aux: c.u32(AT)? })
+        Ok(Gran {
+            form,
+            w1,
+            w2,
+            count: c.u32(AT)?,
+            base: c.u64(AT)?,
+            off: c.u32(AT)?,
+            aux: c.u32(AT)?,
+        })
     }
 }
 
@@ -298,8 +318,22 @@ pub struct Frame {
 impl Frame {
     #[allow(clippy::too_many_arguments)]
     fn new(first: u64, start: u32, off: u64, w: u32, ew: u32, mode: u8, nexc: u32) -> Frame {
-        debug_assert!(first < ROWID_LIMIT && u64::from(start) < MAX_FRAMED_ROWS && off < 1 << 40 && w <= 64 && ew <= 64 && nexc < 512);
-        Frame { a: first | u64::from(start) << 40, b: off | u64::from(w) << 40 | u64::from(ew) << 47 | u64::from(mode) << 54 | u64::from(nexc) << 55 }
+        debug_assert!(
+            first < ROWID_LIMIT
+                && u64::from(start) < MAX_FRAMED_ROWS
+                && off < 1 << 40
+                && w <= 64
+                && ew <= 64
+                && nexc < 512
+        );
+        Frame {
+            a: first | u64::from(start) << 40,
+            b: off
+                | u64::from(w) << 40
+                | u64::from(ew) << 47
+                | u64::from(mode) << 54
+                | u64::from(nexc) << 55,
+        }
     }
     #[inline]
     pub fn first(&self) -> u64 {
@@ -349,7 +383,9 @@ pub fn encode(ids: &[u64], opts: Opts) -> FormatResult<Vec<u8>> {
         return encode_mono(ids, &frags);
     }
     if ids.len() as u64 >= MAX_FRAMED_ROWS {
-        return Err(FormatError::Corrupt { at: "RowIdentMap: a permuted part past 2^24 rows" });
+        return Err(FormatError::Corrupt {
+            at: "RowIdentMap: a permuted part past 2^24 rows",
+        });
     }
     encode_perm(ids, opts.force)
 }
@@ -365,11 +401,17 @@ pub fn encode_runs(runs: &[(u64, u32)], opts: Opts) -> FormatResult<Vec<u8>> {
         while at < len {
             let ord = n + u64::from(at);
             let id = lo + u64::from(at);
-            let room = (u64::from(GRANULE) - ord % u64::from(GRANULE)).min(u64::from(len - at)) as u32;
-            let cut = ord.is_multiple_of(u64::from(GRANULE)) || last.is_none_or(|l| id <= l || id - l > JUMP);
+            let room =
+                (u64::from(GRANULE) - ord % u64::from(GRANULE)).min(u64::from(len - at)) as u32;
+            let cut = ord.is_multiple_of(u64::from(GRANULE))
+                || last.is_none_or(|l| id <= l || id - l > JUMP);
             match frags.last_mut() {
                 Some(f) if !cut => f.max = id + u64::from(room) - 1,
-                _ => frags.push(Frag { min: id, max: id + u64::from(room) - 1, ord: ord as u32 }),
+                _ => frags.push(Frag {
+                    min: id,
+                    max: id + u64::from(room) - 1,
+                    ord: ord as u32,
+                }),
             }
             last = Some(id + u64::from(room) - 1);
             at += room;
@@ -377,10 +419,15 @@ pub fn encode_runs(runs: &[(u64, u32)], opts: Opts) -> FormatResult<Vec<u8>> {
         n += u64::from(len);
     }
     if u32::try_from(n).is_err() {
-        return Err(FormatError::Corrupt { at: "RowIdentMap: a part past u32 rows" });
+        return Err(FormatError::Corrupt {
+            at: "RowIdentMap: a part past u32 rows",
+        });
     }
     if !mono(&frags, n) {
-        let ids: Vec<u64> = runs.iter().flat_map(|&(lo, len)| lo..lo + u64::from(len)).collect();
+        let ids: Vec<u64> = runs
+            .iter()
+            .flat_map(|&(lo, len)| lo..lo + u64::from(len))
+            .collect();
         return encode(&ids, opts);
     }
     // granule by granule: a cursor over the runs (run index, rows of it already taken)
@@ -412,7 +459,11 @@ fn fragments(ids: &[u64]) -> Vec<Frag> {
         let cut = p % GRANULE as usize == 0 || id <= ids[p - 1] || id - ids[p - 1] > JUMP;
         match out.last_mut() {
             Some(f) if !cut => f.max = id,
-            _ => out.push(Frag { min: id, max: id, ord: p as u32 }),
+            _ => out.push(Frag {
+                min: id,
+                max: id,
+                ord: p as u32,
+            }),
         }
     }
     out
@@ -463,7 +514,9 @@ fn strided(runs: &[(u64, u32)]) -> Option<(u32, u32, u32, u32)> {
     let ok = d1 >= runs[0].1
         && stride >= len
         && last <= len
-        && rest.iter().enumerate().all(|(k, r)| r.0 == rest[0].0 + k as u64 * u64::from(stride) && (r.1 == len || k + 1 == rest.len()));
+        && rest.iter().enumerate().all(|(k, r)| {
+            r.0 == rest[0].0 + k as u64 * u64::from(stride) && (r.1 == len || k + 1 == rest.len())
+        });
     ok.then_some((d1, stride, len, last))
 }
 
@@ -526,9 +579,19 @@ fn plan(zs: &[u64], ixw: u32) -> Plan {
         amz = amz.max(mzz[w as usize]);
     }
     if c1 < c0 {
-        Plan { w: w1, ew: ew1, mode: 1, bits: c1 }
+        Plan {
+            w: w1,
+            ew: ew1,
+            mode: 1,
+            bits: c1,
+        }
     } else {
-        Plan { w: w0, ew: maxb - w0, mode: 0, bits: c0 }
+        Plan {
+            w: w0,
+            ew: maxb - w0,
+            mode: 0,
+            bits: c0,
+        }
     }
 }
 
@@ -545,7 +608,11 @@ fn put_frame(bits: &mut BitW, ids: &[u64], ixw: u32, zs: &mut Vec<u64>) -> (u32,
             let d = unzz(z);
             d >= 1 && bits_for((d - 1) as u64) <= p.w
         };
-        bits.extend(zs.iter().map(|&z| if fits(z) { (unzz(z) - 1) as u64 } else { 0 }), p.w);
+        bits.extend(
+            zs.iter()
+                .map(|&z| if fits(z) { (unzz(z) - 1) as u64 } else { 0 }),
+            p.w,
+        );
         for (j, &z) in zs.iter().enumerate() {
             if !fits(z) {
                 bits.push(j as u64 + 1, ixw);
@@ -563,7 +630,10 @@ fn put_frame(bits: &mut BitW, ids: &[u64], ixw: u32, zs: &mut Vec<u64>) -> (u32,
             }
         }
     }
-    debug_assert_eq!(u64::from(ne) * u64::from(ixw + p.ew) + zs.len() as u64 * u64::from(p.w), p.bits);
+    debug_assert_eq!(
+        u64::from(ne) * u64::from(ixw + p.ew) + zs.len() as u64 * u64::from(p.w),
+        p.bits
+    );
     (p.w, p.ew, p.mode, ne)
 }
 
@@ -582,7 +652,16 @@ fn frames_bits(ids: &[u64], f: usize, log: u8) -> FormatResult<u64> {
 
 /// Frames of `ids[a..b]` (global ordinals) cut every `f` rows and at `cuts` (ascending global ordinals, extra cut
 /// points), appended to `frames` and `bits`.
-fn put_frames(frames: &mut Vec<Frame>, bits: &mut BitW, ids: &[u64], a: usize, b: usize, f: usize, cuts: &[usize], ixw: u32) -> FormatResult<()> {
+fn put_frames(
+    frames: &mut Vec<Frame>,
+    bits: &mut BitW,
+    ids: &[u64],
+    a: usize,
+    b: usize,
+    f: usize,
+    cuts: &[usize],
+    ixw: u32,
+) -> FormatResult<()> {
     let mut zs = crate::try_vec(f, AT)?;
     let mut p = a;
     let mut c = cuts.partition_point(|&x| x <= a);
@@ -613,7 +692,13 @@ struct MonoW<'a> {
 
 impl<'a> MonoW<'a> {
     fn new(rows: u32, frags: &'a [Frag]) -> MonoW<'a> {
-        MonoW { rows, frags, grans: Vec::new(), frames: Vec::new(), bits: BitW::default() }
+        MonoW {
+            rows,
+            frags,
+            grans: Vec::new(),
+            frames: Vec::new(),
+            bits: BitW::default(),
+        }
     }
 
     /// Granule `g`'s IDs `ids`: the smallest form (ties to the faster: dense, strided, runs, delta).
@@ -623,8 +708,14 @@ impl<'a> MonoW<'a> {
         if n == 0 {
             return Ok(());
         }
-        if ids[n - 1].wrapping_sub(ids[0]) == n as u64 - 1 && ids.windows(2).all(|w| w[1] == w[0] + 1) {
-            self.grans.push(Gran { form: G_DENSE, base: ids[0], ..Gran::default() });
+        if ids[n - 1].wrapping_sub(ids[0]) == n as u64 - 1
+            && ids.windows(2).all(|w| w[1] == w[0] + 1)
+        {
+            self.grans.push(Gran {
+                form: G_DENSE,
+                base: ids[0],
+                ..Gran::default()
+            });
             return Ok(());
         }
         let runs = runs_in(ids);
@@ -633,7 +724,14 @@ impl<'a> MonoW<'a> {
             for v in [d1, stride, len, last] {
                 self.bits.push(u64::from(v), 32);
             }
-            self.grans.push(Gran { form: G_STRIDED, count: (runs.len() - 1) as u32, base: runs[0].0, off, aux: runs[0].1, ..Gran::default() });
+            self.grans.push(Gran {
+                form: G_STRIDED,
+                count: (runs.len() - 1) as u32,
+                base: runs[0].0,
+                off,
+                aux: runs[0].1,
+                ..Gran::default()
+            });
             return Ok(());
         }
         let base = runs.iter().map(|r| r.0).min().expect("a run");
@@ -643,10 +741,22 @@ impl<'a> MonoW<'a> {
         // delta frames cut at this granule's fragment starts
         let lo = self.frags.partition_point(|f| (f.ord as usize) < gb);
         let hi = self.frags.partition_point(|f| (f.ord as usize) < gb + n);
-        let cuts: Vec<usize> = self.frags[lo..hi].iter().map(|f| f.ord as usize - gb).collect();
+        let cuts: Vec<usize> = self.frags[lo..hi]
+            .iter()
+            .map(|f| f.ord as usize - gb)
+            .collect();
         let mut dbits = BitW::default();
         let mut dframes: Vec<Frame> = Vec::new();
-        put_frames(&mut dframes, &mut dbits, ids, 0, n, 1 << LOG_SMALL, &cuts, u32::from(LOG_SMALL))?;
+        put_frames(
+            &mut dframes,
+            &mut dbits,
+            ids,
+            0,
+            n,
+            1 << LOG_SMALL,
+            &cuts,
+            u32::from(LOG_SMALL),
+        )?;
         let delta_bits = dbits.len + dframes.len() as u64 * (FRAME_LEN as u64 * 8);
         if runs_bits <= delta_bits || u64::from(self.rows) >= MAX_FRAMED_ROWS {
             let off = self.bits.len as u32;
@@ -660,21 +770,50 @@ impl<'a> MonoW<'a> {
                 }
                 ord += u64::from(r.1);
             }
-            self.grans.push(Gran { form: G_RUNS, w1: w1 as u8, w2: w2 as u8, count: runs.len() as u32, base, off, aux: 0 });
+            self.grans.push(Gran {
+                form: G_RUNS,
+                w1: w1 as u8,
+                w2: w2 as u8,
+                count: runs.len() as u32,
+                base,
+                off,
+                aux: 0,
+            });
             return Ok(());
         }
         let first = self.frames.len() as u32;
         let shift = self.bits.len;
         for f in &dframes {
-            self.frames.push(Frame::new(f.first(), f.start() + gb as u32, f.off() + shift, f.w(), f.ew(), f.mode(), f.nexc()));
+            self.frames.push(Frame::new(
+                f.first(),
+                f.start() + gb as u32,
+                f.off() + shift,
+                f.w(),
+                f.ew(),
+                f.mode(),
+                f.nexc(),
+            ));
         }
         append_bits(&mut self.bits, &dbits);
-        self.grans.push(Gran { form: G_DELTA, count: dframes.len() as u32, off: first, ..Gran::default() });
+        self.grans.push(Gran {
+            form: G_DELTA,
+            count: dframes.len() as u32,
+            off: first,
+            ..Gran::default()
+        });
         Ok(())
     }
 
     fn finish(self) -> FormatResult<Vec<u8>> {
-        let mut out = header(KIND_MONO, RevForm::Mono, LOG_SMALL, self.rows, self.grans.len(), self.frags.len(), self.frames.len())?;
+        let mut out = header(
+            KIND_MONO,
+            RevForm::Mono,
+            LOG_SMALL,
+            self.rows,
+            self.grans.len(),
+            self.frags.len(),
+            self.frames.len(),
+        )?;
         body_tables(&mut out, &self.grans, &self.frames);
         for f in self.frags {
             put_u64(&mut out, f.min);
@@ -699,7 +838,15 @@ fn append_bits(dst: &mut BitW, src: &BitW) {
     }
 }
 
-fn header(kind: u8, rev: RevForm, log: u8, rows: u32, ngran: usize, n3: usize, nframes: usize) -> FormatResult<Vec<u8>> {
+fn header(
+    kind: u8,
+    rev: RevForm,
+    log: u8,
+    rows: u32,
+    ngran: usize,
+    n3: usize,
+    nframes: usize,
+) -> FormatResult<Vec<u8>> {
     let mut out = crate::try_vec(HEADER_LEN + ngran * GRAN_LEN + nframes * FRAME_LEN + 64, AT)?;
     out.extend_from_slice(&[VERSION, kind, rev.code(), log]);
     put_u32(&mut out, rows);
@@ -722,7 +869,9 @@ fn body_tables(out: &mut Vec<u8>, grans: &[Gran], frames: &[Frame]) {
 }
 
 fn encode_mono(ids: &[u64], frags: &[Frag]) -> FormatResult<Vec<u8>> {
-    let rows = u32::try_from(ids.len()).map_err(|_| FormatError::Corrupt { at: "RowIdentMap: a part past u32 rows" })?;
+    let rows = u32::try_from(ids.len()).map_err(|_| FormatError::Corrupt {
+        at: "RowIdentMap: a part past u32 rows",
+    })?;
     let mut m = MonoW::new(rows, frags);
     for (g, chunk) in ids.chunks(GRANULE as usize).enumerate() {
         m.granule(g, chunk)?;
@@ -785,7 +934,10 @@ fn groups_of(ids: &[u64]) -> Vec<usize> {
         let x = ids[p];
         if p + 1 < n {
             let m = match ids.get(p + 1..p + 1 + GROUP_W) {
-                Some(w) => <&[u64; GROUP_W]>::try_from(w).expect("GROUP_W rows").iter().fold(u64::MAX, |a, &b| a.min(b)),
+                Some(w) => <&[u64; GROUP_W]>::try_from(w)
+                    .expect("GROUP_W rows")
+                    .iter()
+                    .fold(u64::MAX, |a, &b| a.min(b)),
                 None => *ids[p + 1..].iter().min().expect("a row"),
             };
             if x > m.saturating_add(GROUP_T) && m.saturating_add(GROUP_T) >= prev {
@@ -851,7 +1003,13 @@ fn set_of_runs(runs: &[(u64, u64)]) -> SetW {
     let mut bits = BitW::default();
     bits.extend(gaps, gw);
     bits.extend(runs.iter().map(|r| r.1 - 1), lw);
-    SetW { nruns: runs.len() as u32, gw, lw, first: runs.first().map_or(0, |r| r.0), bits }
+    SetW {
+        nruns: runs.len() as u32,
+        gw,
+        lw,
+        first: runs.first().map_or(0, |r| r.0),
+        bits,
+    }
 }
 
 impl SetW {
@@ -885,16 +1043,35 @@ impl FramesW {
 fn frames_of(ids: &[u64], f: usize, cuts: &[usize], log: u8) -> FormatResult<FramesW> {
     let mut frames = Vec::new();
     let mut bits = BitW::default();
-    put_frames(&mut frames, &mut bits, ids, 0, ids.len(), f, cuts, u32::from(log))?;
+    put_frames(
+        &mut frames,
+        &mut bits,
+        ids,
+        0,
+        ids.len(),
+        f,
+        cuts,
+        u32::from(log),
+    )?;
     let mut fmin = crate::try_vec(frames.len(), AT)?;
     let mut fmax = crate::try_vec(frames.len(), AT)?;
     for k in 0..frames.len() {
-        let (s, e) = (frames[k].start() as usize, frames.get(k + 1).map_or(ids.len(), |f| f.start() as usize));
-        let (lo, hi) = ids[s..e].iter().fold((u64::MAX, 0u64), |(l, h), &x| (l.min(x), h.max(x)));
+        let (s, e) = (
+            frames[k].start() as usize,
+            frames.get(k + 1).map_or(ids.len(), |f| f.start() as usize),
+        );
+        let (lo, hi) = ids[s..e]
+            .iter()
+            .fold((u64::MAX, 0u64), |(l, h), &x| (l.min(x), h.max(x)));
         fmin.push(lo);
         fmax.push(hi);
     }
-    Ok(FramesW { frames, bits, fmin, fmax })
+    Ok(FramesW {
+        frames,
+        bits,
+        fmin,
+        fmax,
+    })
 }
 
 /// The granule table of a PERM part: every granule delta, its frames from the frame table.
@@ -907,7 +1084,12 @@ fn perm_grans(rows: usize, frames: &[Frame]) -> FormatResult<Vec<Gran>> {
         while k < frames.len() && (frames[k].start() as usize) < (g + 1) * GRANULE as usize {
             k += 1;
         }
-        out.push(Gran { form: G_DELTA, count: (k - first) as u32, off: first as u32, ..Gran::default() });
+        out.push(Gran {
+            form: G_DELTA,
+            count: (k - first) as u32,
+            off: first as u32,
+            ..Gran::default()
+        });
     }
     Ok(out)
 }
@@ -924,7 +1106,9 @@ fn put_fences(out: &mut Vec<u8>, fr: &FramesW) {
 /// LSD radix sort of (ID, row).
 fn ranks_and_set(ids: &[u64]) -> FormatResult<(Vec<u32>, SetW)> {
     let n = ids.len();
-    let (lo, hi) = ids.iter().fold((u64::MAX, 0u64), |(l, h), &x| (l.min(x), h.max(x)));
+    let (lo, hi) = ids
+        .iter()
+        .fold((u64::MAX, 0u64), |(l, h), &x| (l.min(x), h.max(x)));
     if n > 0 && hi - lo < 64 * n as u64 {
         let words = ((hi - lo) / 64 + 1) as usize;
         let mut bm = crate::try_filled(words, 0u64, AT)?;
@@ -951,7 +1135,11 @@ fn ranks_and_set(ids: &[u64]) -> FormatResult<(Vec<u32>, SetW)> {
         }
     }
     let pb = bits_for(n as u64);
-    let mut keys: Vec<u64> = ids.iter().enumerate().map(|(p, &id)| id << pb | p as u64).collect();
+    let mut keys: Vec<u64> = ids
+        .iter()
+        .enumerate()
+        .map(|(p, &id)| id << pb | p as u64)
+        .collect();
     try_radix_sort(&mut keys, 40 + pb)?;
     let mut rank = crate::try_filled(n, 0u32, AT)?;
     for (r, &k) in keys.iter().enumerate() {
@@ -963,7 +1151,9 @@ fn ranks_and_set(ids: &[u64]) -> FormatResult<(Vec<u32>, SetW)> {
 fn encode_perm(ids: &[u64], force: Option<RevForm>) -> FormatResult<Vec<u8>> {
     let n = ids.len();
     let (rank, s) = ranks_and_set(ids)?;
-    let granule_cuts: Vec<usize> = (1..n.div_ceil(GRANULE as usize)).map(|g| g * GRANULE as usize).collect();
+    let granule_cuts: Vec<usize> = (1..n.div_ceil(GRANULE as usize))
+        .map(|g| g * GRANULE as usize)
+        .collect();
     // the small frames are every 2^LOG_SMALL rows (a granule end is one of their ends): written only for the form
     // that takes them, FENCES or FRAMEIX
     const { assert!(GRANULE.is_multiple_of(1 << LOG_SMALL)) };
@@ -972,14 +1162,24 @@ fn encode_perm(ids: &[u64], force: Option<RevForm>) -> FormatResult<Vec<u8>> {
     let over: u64 = rank
         .chunks(fs)
         .map(|c| {
-            let (lo, hi) = c.iter().fold((u32::MAX, 0u32), |(l, h), &r| (l.min(r), h.max(r)));
+            let (lo, hi) = c
+                .iter()
+                .fold((u32::MAX, 0u32), |(l, h), &r| (l.min(r), h.max(r)));
             u64::from(hi - lo + 1)
         })
         .sum();
     let fences = force == Some(RevForm::Fences) || (force.is_none() && over <= 2 * n as u64);
     if fences {
         let small = frames_of(ids, fs, &granule_cuts, LOG_SMALL)?;
-        let mut out = header(KIND_PERM, RevForm::Fences, LOG_SMALL, n as u32, n.div_ceil(GRANULE as usize), 0, small.frames.len())?;
+        let mut out = header(
+            KIND_PERM,
+            RevForm::Fences,
+            LOG_SMALL,
+            n as u32,
+            n.div_ceil(GRANULE as usize),
+            0,
+            small.frames.len(),
+        )?;
         body_tables(&mut out, &perm_grans(n, &small.frames)?, &small.frames);
         small.bits.put(&mut out);
         put_fences(&mut out, &small);
@@ -987,7 +1187,11 @@ fn encode_perm(ids: &[u64], force: Option<RevForm>) -> FormatResult<Vec<u8>> {
     }
     // LABELS: frames cut at granule ends and group starts
     let gs = groups_of(ids);
-    let mut cuts: Vec<usize> = gs[1..].iter().copied().chain(granule_cuts.iter().copied()).collect();
+    let mut cuts: Vec<usize> = gs[1..]
+        .iter()
+        .copied()
+        .chain(granule_cuts.iter().copied())
+        .collect();
     cuts.sort_unstable();
     cuts.dedup();
     let large = frames_of(ids, 1 << LOG_LARGE, &cuts, LOG_LARGE)?;
@@ -1011,7 +1215,10 @@ fn encode_perm(ids: &[u64], force: Option<RevForm>) -> FormatResult<Vec<u8>> {
     for g in 0..ng {
         let (fa, fb) = (gfirst[g] as usize, gfirst[g + 1] as usize);
         for kk in fa..fb {
-            let (a, b) = (large.frames[kk].start() as usize, large.frames.get(kk + 1).map_or(n, |f| f.start() as usize));
+            let (a, b) = (
+                large.frames[kk].start() as usize,
+                large.frames.get(kk + 1).map_or(n, |f| f.start() as usize),
+            );
             for p in a..b {
                 let k = cand(&large.fmin[fa..fb], ids[p]) + fa;
                 if kk.abs_diff(k) <= 1 {
@@ -1026,29 +1233,57 @@ fn encode_perm(ids: &[u64], force: Option<RevForm>) -> FormatResult<Vec<u8>> {
     exc.sort_unstable();
     let mut anchors: Vec<u64> = Vec::new();
     for kk in 0..large.frames.len() {
-        let (a, b) = (large.frames[kk].start() as usize, large.frames.get(kk + 1).map_or(n, |f| f.start() as usize));
+        let (a, b) = (
+            large.frames[kk].start() as usize,
+            large.frames.get(kk + 1).map_or(n, |f| f.start() as usize),
+        );
         anchors.extend((a..b).step_by(ANCHOR).map(|p| ids[p] - large.fmin[kk]));
     }
     let aw = bits_for(anchors.iter().copied().max().unwrap_or(0));
-    let labels_bits = large.bits() + s.mem_bits() + n as u64 * u64::from(lw) + (ng as u64 + 1) * 32 + large.frames.len() as u64 * 128 + anchors.len() as u64 * u64::from(aw) + exc.len() as u64 * 96;
+    let labels_bits = large.bits()
+        + s.mem_bits()
+        + n as u64 * u64::from(lw)
+        + (ng as u64 + 1) * 32
+        + large.frames.len() as u64 * 128
+        + anchors.len() as u64 * u64::from(aw)
+        + exc.len() as u64 * 96;
     let labels = match force {
         Some(RevForm::Labels) => true,
         Some(RevForm::FrameIx) => false,
         _ => {
             let fiw = bits_for(n.div_ceil(fs) as u64 - 1);
             let small_bits = frames_bits(ids, fs, LOG_SMALL)?;
-            debug_assert_eq!(small_bits, frames_of(ids, fs, &granule_cuts, LOG_SMALL)?.bits());
+            debug_assert_eq!(
+                small_bits,
+                frames_of(ids, fs, &granule_cuts, LOG_SMALL)?.bits()
+            );
             labels_bits < small_bits + s.mem_bits() + n as u64 * u64::from(fiw)
         }
     };
     if !labels {
         let small = frames_of(ids, fs, &granule_cuts, LOG_SMALL)?;
-        let mut out = header(KIND_PERM, RevForm::FrameIx, LOG_SMALL, n as u32, n.div_ceil(GRANULE as usize), 0, small.frames.len())?;
+        let mut out = header(
+            KIND_PERM,
+            RevForm::FrameIx,
+            LOG_SMALL,
+            n as u32,
+            n.div_ceil(GRANULE as usize),
+            0,
+            small.frames.len(),
+        )?;
         body_tables(&mut out, &perm_grans(n, &small.frames)?, &small.frames);
         small.bits.put(&mut out);
         return Ok(out);
     }
-    let mut out = header(KIND_PERM, RevForm::Labels, LOG_LARGE, n as u32, n.div_ceil(GRANULE as usize), ng, large.frames.len())?;
+    let mut out = header(
+        KIND_PERM,
+        RevForm::Labels,
+        LOG_LARGE,
+        n as u32,
+        n.div_ceil(GRANULE as usize),
+        ng,
+        large.frames.len(),
+    )?;
     body_tables(&mut out, &perm_grans(n, &large.frames)?, &large.frames);
     large.bits.put(&mut out);
     s.put(&mut out);
@@ -1094,7 +1329,11 @@ pub const RUN_FRAME_SMALL: u32 = 1 << LOG_SMALL;
 /// repeated, or equal to the rows, is a frame a rewrite emptied), each at most [`RUN_FRAME_LARGE`] rows for a LABELS
 /// run's member (`vmin` = each virtual frame's fence minimum as the run builder set it: at or below its IDs) or
 /// [`RUN_FRAME_SMALL`] for a FRAMEIX run's (`vmin` = `None`). `EncodeContract` for anything else.
-pub fn encode_run_member(ids: &[u64], vstarts: &[u32], vmin: Option<&[u64]>) -> FormatResult<Vec<u8>> {
+pub fn encode_run_member(
+    ids: &[u64],
+    vstarts: &[u32],
+    vmin: Option<&[u64]>,
+) -> FormatResult<Vec<u8>> {
     let n = ids.len();
     let log = if vmin.is_some() { LOG_LARGE } else { LOG_SMALL };
     let f = 1usize << log;
@@ -1104,22 +1343,44 @@ pub fn encode_run_member(ids: &[u64], vstarts: &[u32], vmin: Option<&[u64]>) -> 
     }
     let nv = vstarts.len();
     let vend = |v: usize| vstarts.get(v + 1).map_or(n, |&e| e as usize);
-    if nv == 0 || vstarts[0] != 0 || vstarts.windows(2).any(|w| w[0] > w[1]) || vstarts[nv - 1] as usize > n || (0..nv).any(|v| vend(v) - vstarts[v] as usize > f) {
+    if nv == 0
+        || vstarts[0] != 0
+        || vstarts.windows(2).any(|w| w[0] > w[1])
+        || vstarts[nv - 1] as usize > n
+        || (0..nv).any(|v| vend(v) - vstarts[v] as usize > f)
+    {
         return bad("run member map: virtual frames");
     }
     if let Some(vm) = vmin {
-        if vm.len() != nv || (0..nv).any(|v| vm[v] >= ROWID_LIMIT || ids[vstarts[v] as usize..vend(v)].iter().any(|&x| x < vm[v])) {
+        if vm.len() != nv
+            || (0..nv).any(|v| {
+                vm[v] >= ROWID_LIMIT || ids[vstarts[v] as usize..vend(v)].iter().any(|&x| x < vm[v])
+            })
+        {
             return bad("run member map: fence minimums");
         }
     }
-    let mut cuts: Vec<usize> = (1..n.div_ceil(GRANULE as usize)).map(|g| g * GRANULE as usize).collect();
+    let mut cuts: Vec<usize> = (1..n.div_ceil(GRANULE as usize))
+        .map(|g| g * GRANULE as usize)
+        .collect();
     cuts.extend(vstarts[1..].iter().map(|&s| s as usize).filter(|&s| s < n));
     cuts.sort_unstable();
     cuts.dedup();
     let fr = frames_of(ids, f, &cuts, log)?;
-    let mut vfirst: Vec<u32> = vstarts.iter().map(|&s| fr.frames.partition_point(|x| x.start() < s) as u32).collect();
+    let mut vfirst: Vec<u32> = vstarts
+        .iter()
+        .map(|&s| fr.frames.partition_point(|x| x.start() < s) as u32)
+        .collect();
     vfirst.push(fr.frames.len() as u32);
-    let mut out = header(KIND_PERM, RevForm::Run, log, n as u32, n.div_ceil(GRANULE as usize), nv, fr.frames.len())?;
+    let mut out = header(
+        KIND_PERM,
+        RevForm::Run,
+        log,
+        n as u32,
+        n.div_ceil(GRANULE as usize),
+        nv,
+        fr.frames.len(),
+    )?;
     body_tables(&mut out, &perm_grans(n, &fr.frames)?, &fr.frames);
     fr.bits.put(&mut out);
     for &v in &vfirst {
@@ -1132,7 +1393,10 @@ pub fn encode_run_member(ids: &[u64], vstarts: &[u32], vmin: Option<&[u64]>) -> 
     put_fences(&mut out, &fr);
     let mut anchors: Vec<u64> = Vec::new();
     for kk in 0..fr.frames.len() {
-        let (a, b) = (fr.frames[kk].start() as usize, fr.frames.get(kk + 1).map_or(n, |x| x.start() as usize));
+        let (a, b) = (
+            fr.frames[kk].start() as usize,
+            fr.frames.get(kk + 1).map_or(n, |x| x.start() as usize),
+        );
         anchors.extend((a..b).step_by(ANCHOR).map(|p| ids[p] - fr.fmin[kk]));
     }
     let aw = bits_for(anchors.iter().copied().max().unwrap_or(0));
@@ -1246,16 +1510,28 @@ fn check(ok: bool) -> FormatResult<()> {
 }
 
 impl IdSet {
-    fn from_parts(nruns: usize, gw: u32, lw: u32, first: u64, bits: Box<[u64]>, rows: u64) -> FormatResult<IdSet> {
+    fn from_parts(
+        nruns: usize,
+        gw: u32,
+        lw: u32,
+        first: u64,
+        bits: Box<[u64]>,
+        rows: u64,
+    ) -> FormatResult<IdSet> {
         check(gw <= 40 && lw <= 40 && (nruns > 0 || rows == 0))?;
         let loff = (nruns.saturating_sub(1) as u64) * u64::from(gw);
         check(inside(bits.len(), 0, loff + nruns as u64 * u64::from(lw)))?;
-        let (mut slo, mut srank) = (crate::try_vec(nruns / S_SAMPLE + 1, AT)?, crate::try_vec(nruns / S_SAMPLE + 1, AT)?);
+        let (mut slo, mut srank) = (
+            crate::try_vec(nruns / S_SAMPLE + 1, AT)?,
+            crate::try_vec(nruns / S_SAMPLE + 1, AT)?,
+        );
         let (mut lo, mut r) = (first, 0u64);
         for k in 0..nruns {
             if k > 0 {
                 let len_prev = get(&bits, loff + (k as u64 - 1) * u64::from(lw), lw) + 1;
-                lo = lo.checked_add(len_prev + get(&bits, (k as u64 - 1) * u64::from(gw), gw)).ok_or_else(corrupt)?;
+                lo = lo
+                    .checked_add(len_prev + get(&bits, (k as u64 - 1) * u64::from(gw), gw))
+                    .ok_or_else(corrupt)?;
             }
             let len = get(&bits, loff + k as u64 * u64::from(lw), lw) + 1;
             check(lo.checked_add(len).is_some_and(|e| e <= ROWID_LIMIT))?;
@@ -1266,7 +1542,15 @@ impl IdSet {
             r += len;
         }
         check(r == rows)?;
-        Ok(IdSet { nruns, gw, lw, loff, bits, slo: slo.into(), srank: srank.into() })
+        Ok(IdSet {
+            nruns,
+            gw,
+            lw,
+            loff,
+            bits,
+            slo: slo.into(),
+            srank: srank.into(),
+        })
     }
 
     fn of(w: SetW, rows: u64) -> FormatResult<IdSet> {
@@ -1285,7 +1569,11 @@ impl IdSet {
 
     #[inline]
     fn len(&self, k: usize) -> u64 {
-        get(&self.bits, self.loff + k as u64 * u64::from(self.lw), self.lw) + 1
+        get(
+            &self.bits,
+            self.loff + k as u64 * u64::from(self.lw),
+            self.lw,
+        ) + 1
     }
 
     #[inline]
@@ -1323,28 +1611,44 @@ impl GranMap {
     pub fn decode(body: &[u8], rows: u64) -> FormatResult<GranMap> {
         let mut c = Cur::new(body);
         let (version, kind, rev, log) = (c.u8(AT)?, c.u8(AT)?, c.u8(AT)?, c.u8(AT)?);
-        let (n, ngran, n3, nframes) = (c.u32(AT)?, c.u32(AT)? as usize, c.u32(AT)? as usize, c.u32(AT)? as usize);
+        let (n, ngran, n3, nframes) = (
+            c.u32(AT)?,
+            c.u32(AT)? as usize,
+            c.u32(AT)? as usize,
+            c.u32(AT)? as usize,
+        );
         c.take(20, AT)?;
         if version != VERSION {
-            return Err(FormatError::BadVersion { at: AT, got: u32::from(version) });
+            return Err(FormatError::BadVersion {
+                at: AT,
+                got: u32::from(version),
+            });
         }
         let rev_form = RevForm::of(rev).ok_or_else(corrupt)?;
         check(u64::from(n) == rows && ngran as u64 == rows.div_ceil(u64::from(GRANULE)))?;
         check(match rev_form {
             RevForm::Mono => kind == KIND_MONO && log == LOG_SMALL,
             RevForm::Labels => kind == KIND_PERM && log == LOG_LARGE,
-            RevForm::Run => kind == KIND_PERM && (log == LOG_LARGE || log == LOG_SMALL) && rows >= 1,
+            RevForm::Run => {
+                kind == KIND_PERM && (log == LOG_LARGE || log == LOG_SMALL) && rows >= 1
+            }
             _ => kind == KIND_PERM && log == LOG_SMALL,
         })?;
         check(nframes == 0 || rows < MAX_FRAMED_ROWS)?;
-        check(ngran.saturating_mul(GRAN_LEN) <= c.remaining() && nframes.saturating_mul(FRAME_LEN) <= c.remaining())?;
+        check(
+            ngran.saturating_mul(GRAN_LEN) <= c.remaining()
+                && nframes.saturating_mul(FRAME_LEN) <= c.remaining(),
+        )?;
         let mut grans = crate::try_vec(ngran, AT)?;
         for _ in 0..ngran {
             grans.push(Gran::get(&mut c)?);
         }
         let mut frames = crate::try_vec(nframes, AT)?;
         for _ in 0..nframes {
-            frames.push(Frame { a: c.u64(AT)?, b: c.u64(AT)? });
+            frames.push(Frame {
+                a: c.u64(AT)?,
+                b: c.u64(AT)?,
+            });
         }
         let mut frags = Vec::new();
         if rev_form == RevForm::Mono {
@@ -1356,7 +1660,19 @@ impl GranMap {
             }
         }
         let bits = get_area(&mut c, AT)?;
-        let mut m = GranMap { rows: n, rev_form, log, grans: grans.into(), frames: frames.into(), frags: frags.into(), by_min: Box::new([]), smin: Box::new([]), bits, rev: None, disk: body.len() };
+        let mut m = GranMap {
+            rows: n,
+            rev_form,
+            log,
+            grans: grans.into(),
+            frames: frames.into(),
+            frags: frags.into(),
+            by_min: Box::new([]),
+            smin: Box::new([]),
+            bits,
+            rev: None,
+            disk: body.len(),
+        };
         m.check_layout()?;
         m.rev = match rev_form {
             RevForm::Mono | RevForm::FrameIx => None,
@@ -1368,7 +1684,10 @@ impl GranMap {
         if rev_form == RevForm::Mono {
             let mut by: Vec<u32> = (0..m.frags.len() as u32).collect();
             by.sort_unstable_by_key(|&i| m.frags[i as usize].min);
-            check(by.windows(2).all(|w| m.frags[w[0] as usize].max < m.frags[w[1] as usize].min))?;
+            check(
+                by.windows(2)
+                    .all(|w| m.frags[w[0] as usize].max < m.frags[w[1] as usize].min),
+            )?;
             m.smin = by.iter().map(|&i| m.frags[i as usize].min).collect();
             m.by_min = by.into();
         }
@@ -1394,12 +1713,21 @@ impl GranMap {
 
     fn strided_params(&self, gr: &Gran) -> (u64, u64, u64, u64) {
         let p = u64::from(gr.off);
-        (get(&self.bits, p, 32), get(&self.bits, p + 32, 32), get(&self.bits, p + 64, 32), get(&self.bits, p + 96, 32))
+        (
+            get(&self.bits, p, 32),
+            get(&self.bits, p + 32, 32),
+            get(&self.bits, p + 64, 32),
+            get(&self.bits, p + 96, 32),
+        )
     }
 
     #[inline]
     fn run_start(&self, gr: &Gran, k: u32) -> u64 {
-        get(&self.bits, u64::from(gr.off) + u64::from(k) * u64::from(gr.w1), u32::from(gr.w1))
+        get(
+            &self.bits,
+            u64::from(gr.off) + u64::from(k) * u64::from(gr.w1),
+            u32::from(gr.w1),
+        )
     }
 
     #[inline]
@@ -1407,7 +1735,9 @@ impl GranMap {
         if k == 0 {
             return 0;
         }
-        let at = u64::from(gr.off) + u64::from(gr.count) * u64::from(gr.w1) + u64::from(k - 1) * u64::from(gr.w2);
+        let at = u64::from(gr.off)
+            + u64::from(gr.count) * u64::from(gr.w1)
+            + u64::from(k - 1) * u64::from(gr.w2);
         get(&self.bits, at, u32::from(gr.w2)) as u32
     }
 
@@ -1445,7 +1775,16 @@ impl GranMap {
                     check(inside(words, u64::from(gr.off), 128))?;
                     let (d1, stride, len, last) = self.strided_params(gr);
                     let (len0, r) = (u64::from(gr.aux), u64::from(gr.count));
-                    check(len0 >= 1 && r >= 1 && r <= rg && len >= 1 && len <= rg && (1..=len).contains(&last) && stride >= len && d1 >= len0)?;
+                    check(
+                        len0 >= 1
+                            && r >= 1
+                            && r <= rg
+                            && len >= 1
+                            && len <= rg
+                            && (1..=len).contains(&last)
+                            && stride >= len
+                            && d1 >= len0,
+                    )?;
                     check(len0 + (r - 1) * len + last == rg)?;
                     let max = gr.base.checked_add(d1 + (r - 1) * stride + last - 1);
                     check(max.is_some_and(|m| m < ROWID_LIMIT))?;
@@ -1453,14 +1792,26 @@ impl GranMap {
                 G_RUNS => {
                     let (r, w1, w2) = (u64::from(gr.count), u32::from(gr.w1), u32::from(gr.w2));
                     check(r >= 1 && r <= rg && w1 <= 40 && w2 <= 16)?;
-                    check(inside(words, u64::from(gr.off), r * u64::from(w1) + (r - 1) * u64::from(w2)))?;
+                    check(inside(
+                        words,
+                        u64::from(gr.off),
+                        r * u64::from(w1) + (r - 1) * u64::from(w2),
+                    ))?;
                     let mut prev = 0u32;
                     for k in 0..gr.count {
                         let o = self.run_ord(gr, k);
                         check(k == 0 || (o > prev && u64::from(o) < rg))?;
                         prev = o;
-                        let len = if k + 1 < gr.count { u64::from(self.run_ord(gr, k + 1)) } else { rg }.saturating_sub(u64::from(o));
-                        let end = gr.base.checked_add(self.run_start(gr, k)).and_then(|s| s.checked_add(len));
+                        let len = if k + 1 < gr.count {
+                            u64::from(self.run_ord(gr, k + 1))
+                        } else {
+                            rg
+                        }
+                        .saturating_sub(u64::from(o));
+                        let end = gr
+                            .base
+                            .checked_add(self.run_start(gr, k))
+                            .and_then(|s| s.checked_add(len));
                         check(end.is_some_and(|e| e <= ROWID_LIMIT))?;
                     }
                 }
@@ -1471,12 +1822,25 @@ impl GranMap {
                     for k in next_frame..end {
                         let f = &self.frames[k];
                         let s = u64::from(f.start());
-                        let e = if k + 1 < end { u64::from(self.frames[k + 1].start()) } else { gb + rg };
-                        check((k > next_frame || s == gb) && s < e && e <= gb + rg && e - s <= 1 << self.log)?;
+                        let e = if k + 1 < end {
+                            u64::from(self.frames[k + 1].start())
+                        } else {
+                            gb + rg
+                        };
+                        check(
+                            (k > next_frame || s == gb)
+                                && s < e
+                                && e <= gb + rg
+                                && e - s <= 1 << self.log,
+                        )?;
                         let (w, ew, ne) = (f.w(), f.ew(), u64::from(f.nexc()));
                         check(w <= 64 && ew <= 64 && ne < e - s)?;
                         check(f.mode() == 1 || ne == 0 || (ew >= 1 && w + ew <= 64))?;
-                        check(inside(words, f.off(), (e - s - 1) * u64::from(w) + ne * u64::from(u32::from(self.log) + ew)))?;
+                        check(inside(
+                            words,
+                            f.off(),
+                            (e - s - 1) * u64::from(w) + ne * u64::from(u32::from(self.log) + ew),
+                        ))?;
                     }
                     next_frame = end;
                 }
@@ -1485,7 +1849,10 @@ impl GranMap {
         }
         check(next_frame == self.frames.len())?;
         if self.rev_form == RevForm::Mono {
-            check(self.frags.is_empty() == (self.rows == 0) && self.frags.first().is_none_or(|f| f.ord == 0))?;
+            check(
+                self.frags.is_empty() == (self.rows == 0)
+                    && self.frags.first().is_none_or(|f| f.ord == 0),
+            )?;
             for (i, f) in self.frags.iter().enumerate() {
                 let end = self.frags.get(i + 1).map_or(self.rows, |x| x.ord);
                 check(f.ord < end && f.ord / GRANULE == (end - 1) / GRANULE && f.min <= f.max)?;
@@ -1544,7 +1911,11 @@ impl GranMap {
                 let end = self.frags.get(i + 1).map_or(self.rows, |x| x.ord);
                 let len = (end - f.ord) as usize;
                 self.decode_ids(f.ord, &mut buf[..len]);
-                check(buf[0] == f.min && buf[len - 1] == f.max && buf[..len].windows(2).all(|w| w[0] < w[1]))?;
+                check(
+                    buf[0] == f.min
+                        && buf[len - 1] == f.max
+                        && buf[..len].windows(2).all(|w| w[0] < w[1]),
+                )?;
             }
         }
         Ok(())
@@ -1564,7 +1935,11 @@ impl GranMap {
         for _ in 0..=ng {
             gfirst.push(c.u32(AT)?);
         }
-        check(gfirst[0] == 0 && gfirst[ng] as usize == self.frames.len() && gfirst.windows(2).all(|w| w[0] < w[1]))?;
+        check(
+            gfirst[0] == 0
+                && gfirst[ng] as usize == self.frames.len()
+                && gfirst.windows(2).all(|w| w[0] < w[1]),
+        )?;
         let (fmin, fmax) = get_fences(c, self.frames.len())?;
         let aw = u32::from(c.u8(AT)?);
         c.take(3, AT)?;
@@ -1585,7 +1960,20 @@ impl GranMap {
             exc_ord.push(c.u32(AT)?);
         }
         check(exc_id.windows(2).all(|w| w[0] < w[1]) && exc_ord.iter().all(|&o| o < self.rows))?;
-        Ok(Labels { s, lw, labels, xsym, gfirst: gfirst.into(), fmin, fmax, aw, anchors, aoff: aoff.into(), exc_id: exc_id.into(), exc_ord: exc_ord.into() })
+        Ok(Labels {
+            s,
+            lw,
+            labels,
+            xsym,
+            gfirst: gfirst.into(),
+            fmin,
+            fmax,
+            aw,
+            anchors,
+            aoff: aoff.into(),
+            exc_id: exc_id.into(),
+            exc_ord: exc_ord.into(),
+        })
     }
 
     /// RUN: the virtual frames, their forward frames, and (large frames) their fence minimums, the forward frames'
@@ -1598,11 +1986,33 @@ impl GranMap {
         for _ in 0..=nv {
             vfirst.push(c.u32(AT)?);
         }
-        check(vfirst[0] == 0 && vfirst[nv] as usize == nframes && vfirst.windows(2).all(|w| w[0] <= w[1]))?;
-        let start = |k: usize| if k < nframes { self.frames[k].start() } else { self.rows };
-        check(vfirst.windows(2).all(|w| start(w[1] as usize) - start(w[0] as usize) <= 1 << self.log))?;
+        check(
+            vfirst[0] == 0
+                && vfirst[nv] as usize == nframes
+                && vfirst.windows(2).all(|w| w[0] <= w[1]),
+        )?;
+        let start = |k: usize| {
+            if k < nframes {
+                self.frames[k].start()
+            } else {
+                self.rows
+            }
+        };
+        check(
+            vfirst
+                .windows(2)
+                .all(|w| start(w[1] as usize) - start(w[0] as usize) <= 1 << self.log),
+        )?;
         if self.log == LOG_SMALL {
-            return Ok(RunFrames { vfirst: vfirst.into(), vfmin: Box::new([]), fmin: Box::new([]), fmax: Box::new([]), aw: 0, anchors: Box::new([]), aoff: Box::new([]) });
+            return Ok(RunFrames {
+                vfirst: vfirst.into(),
+                vfmin: Box::new([]),
+                fmin: Box::new([]),
+                fmax: Box::new([]),
+                aw: 0,
+                anchors: Box::new([]),
+                aoff: Box::new([]),
+            });
         }
         check(nv.saturating_mul(8) <= c.remaining())?;
         let mut vfmin = crate::try_vec(nv, AT)?;
@@ -1623,7 +2033,15 @@ impl GranMap {
         }
         aoff.push(na);
         check(aw <= 40 && inside(anchors.len(), 0, u64::from(na) * u64::from(aw)))?;
-        Ok(RunFrames { vfirst: vfirst.into(), vfmin: vfmin.into(), fmin, fmax, aw, anchors, aoff: aoff.into() })
+        Ok(RunFrames {
+            vfirst: vfirst.into(),
+            vfmin: vfmin.into(),
+            fmin,
+            fmax,
+            aw,
+            anchors,
+            aoff: aoff.into(),
+        })
     }
 
     pub fn rows(&self) -> u32 {
@@ -1697,7 +2115,9 @@ impl GranMap {
         match gr.form {
             G_DENSE => {
                 let b = gr.base + u64::from(l);
-                out.iter_mut().enumerate().for_each(|(i, x)| *x = b + i as u64);
+                out.iter_mut()
+                    .enumerate()
+                    .for_each(|(i, x)| *x = b + i as u64);
             }
             G_STRIDED => {
                 // the first run, then whole runs one stride apart: one division for the starting run, fill loops after
@@ -1705,7 +2125,10 @@ impl GranMap {
                 let len0 = u64::from(gr.aux);
                 let li = u64::from(l);
                 let lead = len0.saturating_sub(li).min(out.len() as u64) as usize;
-                out[..lead].iter_mut().enumerate().for_each(|(j, x)| *x = gr.base + li + j as u64);
+                out[..lead]
+                    .iter_mut()
+                    .enumerate()
+                    .for_each(|(j, x)| *x = gr.base + li + j as u64);
                 let mut i = lead;
                 if i < out.len() {
                     let e = li + lead as u64 - len0;
@@ -1713,7 +2136,10 @@ impl GranMap {
                     while i < out.len() {
                         let take = ((len - r) as usize).min(out.len() - i);
                         let s = run + r;
-                        out[i..i + take].iter_mut().enumerate().for_each(|(j, x)| *x = s + j as u64);
+                        out[i..i + take]
+                            .iter_mut()
+                            .enumerate()
+                            .for_each(|(j, x)| *x = s + j as u64);
                         i += take;
                         r = 0;
                         run += stride;
@@ -1725,10 +2151,20 @@ impl GranMap {
                 let mut li = l;
                 let mut i = 0usize;
                 while i < out.len() {
-                    let (ord, next) = (self.run_ord(gr, k), if k + 1 < gr.count { self.run_ord(gr, k + 1) } else { u32::MAX });
+                    let (ord, next) = (
+                        self.run_ord(gr, k),
+                        if k + 1 < gr.count {
+                            self.run_ord(gr, k + 1)
+                        } else {
+                            u32::MAX
+                        },
+                    );
                     let s = gr.base + self.run_start(gr, k) + u64::from(li - ord);
                     let take = ((next - li) as usize).min(out.len() - i);
-                    out[i..i + take].iter_mut().enumerate().for_each(|(j, x)| *x = s + j as u64);
+                    out[i..i + take]
+                        .iter_mut()
+                        .enumerate()
+                        .for_each(|(j, x)| *x = s + j as u64);
                     i += take;
                     li += take as u32;
                     k += 1;
@@ -1807,7 +2243,13 @@ impl GranMap {
         let ne = u64::from(f.nexc());
         let eb = f.off() + (m - 1) * u64::from(w);
         let es = u64::from(ixw + ew);
-        let idx = |e: u64| if e < ne { get(bits, eb + e * es, ixw) as usize } else { usize::MAX };
+        let idx = |e: u64| {
+            if e < ne {
+                get(bits, eb + e * es, ixw) as usize
+            } else {
+                usize::MAX
+            }
+        };
         let mut e = 0u64;
         let mut next = idx(0);
         while next <= j0 {
@@ -1847,7 +2289,13 @@ impl GranMap {
     /// `id` in frame `k` (a full frame pass).
     #[inline]
     fn find_in(&self, k: usize, id: u64) -> Option<u32> {
-        self.find_from(k, id, 0, self.frames[k].first(), self.frame_rows(k) as usize)
+        self.find_from(
+            k,
+            id,
+            0,
+            self.frames[k].first(),
+            self.frame_rows(k) as usize,
+        )
     }
 
     /// The ordinal holding `id`, `None` when the part has none. A FRAMEIX part answers through `built` (its reverse,
@@ -1888,8 +2336,16 @@ impl GranMap {
     pub fn run_vframes(&self) -> FormatResult<(Vec<u32>, Option<Vec<u64>>)> {
         let x = self.run_frames()?;
         let start = |k: usize| self.frames.get(k).map_or(self.rows, |f| f.start());
-        let vstarts = x.vfirst[..x.vfirst.len() - 1].iter().map(|&k| start(k as usize)).collect();
-        Ok((vstarts, (!x.vfmin.is_empty()).then(|| crate::try_to_vec(&x.vfmin[..], AT)).transpose()?))
+        let vstarts = x.vfirst[..x.vfirst.len() - 1]
+            .iter()
+            .map(|&k| start(k as usize))
+            .collect();
+        Ok((
+            vstarts,
+            (!x.vfmin.is_empty())
+                .then(|| crate::try_to_vec(&x.vfmin[..], AT))
+                .transpose()?,
+        ))
     }
 
     /// RUN, a LABELS run's group: `id` among virtual frames `va..vb` of this member, the fast path's candidate (the
@@ -1901,7 +2357,14 @@ impl GranMap {
         check(va < vb && vb as usize <= nv && !x.vfmin.is_empty())?;
         let (a, b) = (va as usize, vb as usize);
         let k = a + run_cand(&x.vfmin[a..b], id);
-        for v in [Some(k), k.checked_sub(1).filter(|&v| v >= a), Some(k + 1).filter(|&v| v < b)].into_iter().flatten() {
+        for v in [
+            Some(k),
+            k.checked_sub(1).filter(|&v| v >= a),
+            Some(k + 1).filter(|&v| v < b),
+        ]
+        .into_iter()
+        .flatten()
+        {
             if let Some(o) = self.find_in_vframe(x, v, id) {
                 return Ok(Some(o));
             }
@@ -1924,7 +2387,16 @@ impl GranMap {
             if id < x.fmin[k] || id > x.fmax[k] {
                 return None;
             }
-            find_anchored(self, k, id, x.fmin[k], x.aw, &x.anchors, x.aoff[k], x.aoff[k + 1])
+            find_anchored(
+                self,
+                k,
+                id,
+                x.fmin[k],
+                x.aw,
+                &x.anchors,
+                x.aoff[k],
+                x.aoff[k + 1],
+            )
         })
     }
 
@@ -1950,7 +2422,11 @@ impl GranMap {
                 } else {
                     let e = d.checked_sub(d1)?;
                     let (k, r) = (e / stride, e % stride);
-                    let lk = if k + 1 == u64::from(gr.count) { last } else { len };
+                    let lk = if k + 1 == u64::from(gr.count) {
+                        last
+                    } else {
+                        len
+                    };
                     if k >= u64::from(gr.count) || r >= lk {
                         return None;
                     }
@@ -1962,8 +2438,16 @@ impl GranMap {
                 let off = id.checked_sub(gr.base)?;
                 // the fragment's runs; a fragment from the granule's start or to its end (one fragment per granule
                 // is the sealed case) skips that end's search
-                let ka = if oa == gb { 0 } else { self.run_of(gr, oa - gb) };
-                let kb = if ob == gb + self.rows_in(g) { gr.count - 1 } else { self.run_of(gr, ob - 1 - gb) };
+                let ka = if oa == gb {
+                    0
+                } else {
+                    self.run_of(gr, oa - gb)
+                };
+                let kb = if ob == gb + self.rows_in(g) {
+                    gr.count - 1
+                } else {
+                    self.run_of(gr, ob - 1 - gb)
+                };
                 // the last run in ka..=kb starting at or below `off` (the fragment's runs ascend)
                 let (mut lo, mut hi) = (ka, kb + 1);
                 while hi - lo > 1 {
@@ -1976,7 +2460,11 @@ impl GranMap {
                 }
                 let st = self.run_start(gr, lo);
                 let ord = self.run_ord(gr, lo);
-                let len = if lo + 1 < gr.count { self.run_ord(gr, lo + 1) } else { self.rows_in(g) } - ord;
+                let len = if lo + 1 < gr.count {
+                    self.run_ord(gr, lo + 1)
+                } else {
+                    self.rows_in(g)
+                } - ord;
                 let d = off.checked_sub(st)?;
                 if d >= u64::from(len) {
                     return None;
@@ -1985,8 +2473,15 @@ impl GranMap {
             }
             _ => {
                 let fs = &self.frames[gr.off as usize..(gr.off + gr.count) as usize];
-                let (a, b) = (fs.partition_point(|f| f.start() < oa), fs.partition_point(|f| f.start() < ob));
-                let k = gr.off as usize + a + fs[a..b].partition_point(|f| f.first() <= id).checked_sub(1)?;
+                let (a, b) = (
+                    fs.partition_point(|f| f.start() < oa),
+                    fs.partition_point(|f| f.start() < ob),
+                );
+                let k = gr.off as usize
+                    + a
+                    + fs[a..b]
+                        .partition_point(|f| f.first() <= id)
+                        .checked_sub(1)?;
                 return self.find_in(k, id);
             }
         };
@@ -2005,7 +2500,9 @@ impl GranMap {
         let s = if 40 + fb <= 64 {
             for k in 0..self.frames.len() {
                 let (s, m) = (self.frames[k].start() as usize, self.frame_rows(k) as usize);
-                ids[s..s + m].iter_mut().for_each(|x| *x = *x << fb | k as u64);
+                ids[s..s + m]
+                    .iter_mut()
+                    .for_each(|x| *x = *x << fb | k as u64);
             }
             try_radix_sort(&mut ids, 40 + fb)?;
             for &k in &ids {
@@ -2026,7 +2523,11 @@ impl GranMap {
         };
         fi.w.push(0);
         let s = IdSet::of(s, n as u64)?;
-        Ok(Reverse::FrameIx(FrameIx { s, w, fi: fi.w.into() }))
+        Ok(Reverse::FrameIx(FrameIx {
+            s,
+            w,
+            fi: fi.w.into(),
+        }))
     }
 
     /// The ordinals of `ids` into `out` (`out.len() == ids.len()`), through `built` as [`Self::ordinal_of`]: a PERM
@@ -2081,7 +2582,11 @@ impl GranMap {
                     while p < m && srt[p].0 < id {
                         p += 1;
                     }
-                    out[i] = if p < m && srt[p].0 == id { Some(s + srt[p].1) } else { self.ordinal_of(id, built) };
+                    out[i] = if p < m && srt[p].0 == id {
+                        Some(s + srt[p].1)
+                    } else {
+                        self.ordinal_of(id, built)
+                    };
                 }
             } else {
                 for w in &want[j..e] {
@@ -2112,7 +2617,9 @@ fn get_fences(c: &mut Cur<'_>, nframes: usize) -> FormatResult<(Box<[u64]>, Box<
 impl Reverse {
     pub fn mem_bytes(&self) -> usize {
         match self {
-            Reverse::Fences(x) => (x.fmin.len() + x.fmax.len() + x.smin.len()) * 8 + x.by_min.len() * 4,
+            Reverse::Fences(x) => {
+                (x.fmin.len() + x.fmax.len() + x.smin.len()) * 8 + x.by_min.len() * 4
+            }
             Reverse::Labels(x) => {
                 x.s.mem_bytes()
                     + x.labels.len() * 8
@@ -2123,7 +2630,11 @@ impl Reverse {
                     + x.exc_id.len() * 12
             }
             Reverse::FrameIx(x) => x.s.mem_bytes() + x.fi.len() * 8,
-            Reverse::Run(x) => x.vfirst.len() * 4 + (x.vfmin.len() + x.fmin.len() + x.fmax.len() + x.anchors.len()) * 8 + x.aoff.len() * 4,
+            Reverse::Run(x) => {
+                x.vfirst.len() * 4
+                    + (x.vfmin.len() + x.fmin.len() + x.fmax.len() + x.anchors.len()) * 8
+                    + x.aoff.len() * 4
+            }
         }
     }
 }
@@ -2133,8 +2644,17 @@ impl Fences {
         let mut by: Vec<u32> = (0..fmin.len() as u32).collect();
         by.sort_unstable_by_key(|&k| fmin[k as usize]);
         let smin = by.iter().map(|&k| fmin[k as usize]).collect();
-        let maxspan = (0..fmin.len()).map(|k| fmax[k] - fmin[k]).max().unwrap_or(0);
-        Fences { fmin, fmax, by_min: by.into(), smin, maxspan }
+        let maxspan = (0..fmin.len())
+            .map(|k| fmax[k] - fmin[k])
+            .max()
+            .unwrap_or(0);
+        Fences {
+            fmin,
+            fmax,
+            by_min: by.into(),
+            smin,
+            maxspan,
+        }
     }
 
     fn lookup(&self, m: &GranMap, id: u64) -> Option<u32> {
@@ -2159,12 +2679,17 @@ impl Labels {
     /// The fast path's candidate frame for `id`, or the answer itself (`Err`): an exception's ordinal, or `None` for an
     /// ID the set lacks.
     fn cand_frame(&self, id: u64) -> Result<Option<usize>, Option<u32>> {
-        let Some(r) = self.s.rank(id) else { return Err(None) };
+        let Some(r) = self.s.rank(id) else {
+            return Err(None);
+        };
         let lab = get(&self.labels, u64::from(r) * u64::from(self.lw), self.lw);
         if lab == self.xsym {
             return Err(self.exc_id.binary_search(&id).ok().map(|i| self.exc_ord[i]));
         }
-        let (fa, fb) = (self.gfirst[lab as usize] as usize, self.gfirst[lab as usize + 1] as usize);
+        let (fa, fb) = (
+            self.gfirst[lab as usize] as usize,
+            self.gfirst[lab as usize + 1] as usize,
+        );
         Ok(Some(fa + cand(&self.fmin[fa..fb], id)))
     }
 
@@ -2174,9 +2699,26 @@ impl Labels {
         if lab == self.xsym {
             return self.exc_id.binary_search(&id).ok().map(|i| self.exc_ord[i]);
         }
-        let (fa, fb) = (self.gfirst[lab as usize] as usize, self.gfirst[lab as usize + 1] as usize);
+        let (fa, fb) = (
+            self.gfirst[lab as usize] as usize,
+            self.gfirst[lab as usize + 1] as usize,
+        );
         let k = fa + cand(&self.fmin[fa..fb], id);
-        self.find(m, k, id).or_else(|| if k > fa { self.find(m, k - 1, id) } else { None }).or_else(|| if k + 1 < fb { self.find(m, k + 1, id) } else { None })
+        self.find(m, k, id)
+            .or_else(|| {
+                if k > fa {
+                    self.find(m, k - 1, id)
+                } else {
+                    None
+                }
+            })
+            .or_else(|| {
+                if k + 1 < fb {
+                    self.find(m, k + 1, id)
+                } else {
+                    None
+                }
+            })
     }
 
     /// `id` in frame `kk` from the anchor at or below it (or its neighbours), else the whole frame.
@@ -2184,14 +2726,32 @@ impl Labels {
         if id < self.fmin[kk] || id > self.fmax[kk] {
             return None;
         }
-        find_anchored(m, kk, id, self.fmin[kk], self.aw, &self.anchors, self.aoff[kk], self.aoff[kk + 1])
+        find_anchored(
+            m,
+            kk,
+            id,
+            self.fmin[kk],
+            self.aw,
+            &self.anchors,
+            self.aoff[kk],
+            self.aoff[kk + 1],
+        )
     }
 }
 
 /// `id` in frame `kk` (fence minimum `fmin`, anchors `a0..a1` of `anchors` at `aw` bits) from the anchor at or below
 /// it (or its neighbours), else the whole frame.
 #[allow(clippy::too_many_arguments)]
-fn find_anchored(m: &GranMap, kk: usize, id: u64, fmin: u64, aw: u32, anchors: &[u64], a0: u32, a1: u32) -> Option<u32> {
+fn find_anchored(
+    m: &GranMap,
+    kk: usize,
+    id: u64,
+    fmin: u64,
+    aw: u32,
+    anchors: &[u64],
+    a0: u32,
+    a1: u32,
+) -> Option<u32> {
     let anchor = |a: u32| get(anchors, u64::from(a) * u64::from(aw), aw);
     let rel = id - fmin;
     let (mut lo, mut hi) = (a0, a1);
@@ -2232,7 +2792,10 @@ pub fn summary(body: &[u8]) -> FormatResult<(RevForm, [u32; 4])> {
     let mut c = Cur::new(body);
     let (version, _, rev, _) = (c.u8(AT)?, c.u8(AT)?, c.u8(AT)?, c.u8(AT)?);
     if version != VERSION {
-        return Err(FormatError::BadVersion { at: AT, got: u32::from(version) });
+        return Err(FormatError::BadVersion {
+            at: AT,
+            got: u32::from(version),
+        });
     }
     let rev = RevForm::of(rev).ok_or_else(corrupt)?;
     let (_, ngran) = (c.u32(AT)?, c.u32(AT)? as usize);

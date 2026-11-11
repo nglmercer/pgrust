@@ -85,6 +85,7 @@ use types_error::PgResult;
 /// C seg.c `restore(result, val, n)`: print `val` with exactly `n`
 /// significant digits (8.00 where %.ng would print 8). Returns the bytes C
 /// would leave in `result`.
+#[allow(clippy::same_item_push)]
 pub fn restore(val: f32, n_in: i32) -> PgResult<Vec<u8>> {
     // cap the digit count (n <= 0 protects against corrupted data)
     let n = if n_in <= 0 { FLT_DIG } else { n_in.min(FLT_DIG) };
@@ -158,6 +159,7 @@ pub fn restore(val: f32, n_in: i32) -> PgResult<Vec<u8>> {
         out.push(b'0');
         out.push(b'.');
         for _ in 0..(-exp - 1) {
+            #[allow(clippy::same_item_push)]
             out.push(b'0');
         }
         out.extend_from_slice(&digits);

@@ -254,6 +254,20 @@ pub const fn read_run_bytes(combine: u64, ahead: u64) -> u64 {
     combine.saturating_mul(ahead)
 }
 
+/// hosts merged.rs (sortmerge, D4469 road 2): the bytes a merged range site's live windows hold at most (B_live), each live
+/// part stream one decoded granule of the site's lanes. A merge over more parts than fit keeps the rest as a head key and
+/// opens their granule again when each reaches the top. CHOSEN, not measured: a starting value, to be re-cut by a 200-part
+/// timing.
+pub const MERGE_LIVE_BYTES: usize = 64 << 20;
+/// hosts merged.rs: the most live windows one merged site keeps, whatever its lanes' width (each holds one granule source
+/// in the Node's arena, reserved at its build). CHOSEN, not measured: K_PLAN (256), the most parts a planner's merged path
+/// is built for, so a narrow site holds every part of such a plan live.
+pub const MERGE_LIVE_MAX: usize = 256;
+/// hosts merged.rs: the bytes one live window counts per lane of its site (a granule of 8-byte cells, its validity and a
+/// by-reference lane's first arena) when B_live is cut into windows. INFERRED from granule_source.rs's bind sizes (natts x
+/// (ROWS + PF_WORDS) words, VALIDITY_WORDS words, ARENA_FIRST bytes), not measured.
+pub const MERGE_LANE_BYTES: usize = 136 << 10;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -293,17 +307,3 @@ mod tests {
         assert!(LaneDecode::Ffor.gather_ns(16, 16, 1024) > LaneDecode::Ffor.whole_ns(4, 1024));
     }
 }
-
-/// hosts merged.rs (sortmerge, D4469 road 2): the bytes a merged range site's live windows hold at most (B_live), each live
-/// part stream one decoded granule of the site's lanes. A merge over more parts than fit keeps the rest as a head key and
-/// opens their granule again when each reaches the top. CHOSEN, not measured: a starting value, to be re-cut by a 200-part
-/// timing.
-pub const MERGE_LIVE_BYTES: usize = 64 << 20;
-/// hosts merged.rs: the most live windows one merged site keeps, whatever its lanes' width (each holds one granule source
-/// in the Node's arena, reserved at its build). CHOSEN, not measured: K_PLAN (256), the most parts a planner's merged path
-/// is built for, so a narrow site holds every part of such a plan live.
-pub const MERGE_LIVE_MAX: usize = 256;
-/// hosts merged.rs: the bytes one live window counts per lane of its site (a granule of 8-byte cells, its validity and a
-/// by-reference lane's first arena) when B_live is cut into windows. INFERRED from granule_source.rs's bind sizes (natts x
-/// (ROWS + PF_WORDS) words, VALIDITY_WORDS words, ARENA_FIRST bytes), not measured.
-pub const MERGE_LANE_BYTES: usize = 136 << 10;

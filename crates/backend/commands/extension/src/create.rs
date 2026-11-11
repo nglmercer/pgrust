@@ -1,6 +1,7 @@
 // CREATE EXTENSION worker + pg_extension row DML (extension.c:1784-2322).
 use elog::ereport;
 use mcx::Mcx;
+use parser_small1::ParseState;
 use types_core::{InvalidOid, Oid, EXTENSION_RELATION_ID, NAMESPACE_RELATION_ID};
 use types_error::{
     ErrorLocation, PgResult, ERRCODE_DUPLICATE_OBJECT, ERRCODE_FEATURE_NOT_SUPPORTED,
@@ -8,7 +9,6 @@ use types_error::{
     ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE, ERRCODE_UNDEFINED_OBJECT, ERRCODE_UNDEFINED_SCHEMA,
     ERROR, NOTICE,
 };
-use parser_small1::ParseState;
 use types_nodes::parsenodes::{CreateSchemaStmt, DefElem};
 use types_nodes::rawnodes::CreateExtensionStmt;
 use types_rel::RowExclusiveLock;
@@ -247,7 +247,9 @@ pub(crate) fn get_required_extension(
     if !cascade {
         let mut b = ereport(ERROR)
             .errcode(ERRCODE_UNDEFINED_OBJECT)
-            .errmsg(format!("required extension \"{req_extension_name}\" is not installed"));
+            .errmsg(format!(
+                "required extension \"{req_extension_name}\" is not installed"
+            ));
         if is_create {
             b = b.errhint("Use CREATE EXTENSION ... CASCADE to install required extensions too.");
         }
@@ -269,7 +271,9 @@ pub(crate) fn get_required_extension(
     }
 
     ereport(NOTICE)
-        .errmsg(format!("installing required extension \"{req_extension_name}\""))
+        .errmsg(format!(
+            "installing required extension \"{req_extension_name}\""
+        ))
         .finish(here("get_required_extension"))?;
 
     let mut cascade_parents: Vec<&str> = ::mcx::std_vec_from_slice("commands", parents)?;
@@ -407,7 +411,8 @@ pub fn InsertExtensionTuple(
     pg_depend::recordDependencyOnOwner(mcx, EXTENSION_RELATION_ID, extension_oid, ext_owner)?;
 
     let myself = ObjectAddress::set(EXTENSION_RELATION_ID, extension_oid);
-    let mut refobjs: Vec<ObjectAddress> = ::mcx::std_vec_with_capacity("commands", 1 + required_extensions.len())?;
+    let mut refobjs: Vec<ObjectAddress> =
+        ::mcx::std_vec_with_capacity("commands", 1 + required_extensions.len())?;
     refobjs.push(ObjectAddress::set(NAMESPACE_RELATION_ID, schema_oid));
     for &reqext in required_extensions {
         refobjs.push(ObjectAddress::set(EXTENSION_RELATION_ID, reqext));
@@ -435,7 +440,9 @@ pub fn RemoveExtensionById(mcx: Mcx<'_>, ext_id: Oid) -> PgResult<()> {
             .unwrap_or_default();
         return Err(ereport(ERROR)
             .errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE)
-            .errmsg(format!("cannot drop extension \"{name}\" because it is being modified"))
+            .errmsg(format!(
+                "cannot drop extension \"{name}\" because it is being modified"
+            ))
             .into_error()
             .into());
     }

@@ -42,7 +42,9 @@ impl Led {
     pub(crate) fn sync(&self, footprint: usize) {
         #[cfg(feature = "std")]
         {
-            let d = (footprint.saturating_sub(self.mapped.get().saturating_add(self.pooled.get())) as i64).wrapping_sub(self.posted.get());
+            let d = (footprint.saturating_sub(self.mapped.get().saturating_add(self.pooled.get()))
+                as i64)
+                .wrapping_sub(self.posted.get());
             if d != 0 {
                 self.post(d);
             }
@@ -72,7 +74,8 @@ impl Led {
     #[inline]
     pub(crate) fn unmapped(&self, layout: Layout) {
         if crate::heap::mapped(layout) {
-            self.mapped.set(self.mapped.get().saturating_sub(layout.size()));
+            self.mapped
+                .set(self.mapped.get().saturating_sub(layout.size()));
         }
     }
 
@@ -87,7 +90,11 @@ impl Led {
     #[inline]
     pub(crate) fn reset_blocks(&self, footprint: usize, pooled: usize) {
         let own = footprint.saturating_sub(pooled);
-        self.mapped.set(if own >= crate::heap::MMAP_THRESHOLD { own } else { 0 });
+        self.mapped.set(if own >= crate::heap::MMAP_THRESHOLD {
+            own
+        } else {
+            0
+        });
         let was = self.pooled.replace(pooled);
         if was != pooled {
             self.post_pool(pooled as i64 - was as i64);
@@ -117,7 +124,10 @@ impl Led {
 
     #[inline]
     pub(crate) fn pooled_out(&self, bytes: usize) {
-        debug_assert!(self.pooled.get() >= bytes, "mcx: a pooled block given back past its context's pooled bytes");
+        debug_assert!(
+            self.pooled.get() >= bytes,
+            "mcx: a pooled block given back past its context's pooled bytes"
+        );
         self.pooled.set(self.pooled.get().saturating_sub(bytes));
         self.post_pool(-(bytes as i64));
     }
@@ -226,13 +236,25 @@ mod tests {
         assert_eq!(led.pooled_life(), None, "mixed until none is left");
         led.pooled_out(K64);
         led.pooled_in(K64, Lifetime::Cache);
-        assert_eq!(led.pooled_life(), Some(Lifetime::Cache), "none left: the next take's class");
+        assert_eq!(
+            led.pooled_life(),
+            Some(Lifetime::Cache),
+            "none left: the next take's class"
+        );
         led.pooled_in(K64, Lifetime::Cache);
         led.reset_blocks(0, 0);
         led.pooled_in(K64, Lifetime::Session);
-        assert_eq!(led.pooled_life(), Some(Lifetime::Session), "a reset that kept no pooled block: the next take's");
+        assert_eq!(
+            led.pooled_life(),
+            Some(Lifetime::Session),
+            "a reset that kept no pooled block: the next take's"
+        );
         led.reset_blocks(K64, K64);
         led.pooled_in(K64, Lifetime::Process);
-        assert_eq!(led.pooled_life(), None, "a kept pooled block of another class: mixed");
+        assert_eq!(
+            led.pooled_life(),
+            None,
+            "a kept pooled block of another class: mixed"
+        );
     }
 }

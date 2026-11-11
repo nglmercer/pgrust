@@ -251,6 +251,7 @@ fn apply_map_update_bounds() {
     }
     let err = apply_map_update(&mut map, 9999, 1, true).unwrap_err();
     assert!(err.to_string().contains("ran out of space"));
+    #[allow(const_item_mutation)]
     let err = apply_map_update(&mut RelMapFile::EMPTY, 5, 6, false).unwrap_err();
     assert!(err.to_string().contains("unmapped relation 5"));
 }
@@ -366,6 +367,7 @@ fn commit_writes_wal_sinval_and_preserve() {
 }
 
 #[test]
+#[allow(clippy::field_reassign_with_default)]
 fn redo_writes_map_and_sends_sinval() {
     setup();
     let _l = lock_guard();
@@ -492,6 +494,7 @@ fn capture_redo_log(e: &types_error::PgError, _output_to_server: &mut bool) {
     }
 }
 
+#[allow(clippy::field_reassign_with_default)]
 fn redo_panic_message(payload: &[u8]) -> String {
     let mut record = XLogReaderState::default();
     let mut decoded = xlogreader_seams::DecodedXLogRecord::default();

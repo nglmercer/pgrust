@@ -71,6 +71,7 @@ impl XorShift {
         XorShift(seed ^ 0x9E37_79B9_7F4A_7C15)
     }
 
+    #[allow(clippy::should_implement_trait)]
     pub fn next(&mut self) -> u64 {
         let mut x = self.0;
         x ^= x >> 12;

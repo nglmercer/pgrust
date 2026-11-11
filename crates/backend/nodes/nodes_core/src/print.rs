@@ -261,7 +261,11 @@ fn write_rt(buf: &mut Buf<'_>, rtable: &NodeList<'_>) {
         let aliasname = rte.eref.and_then(|e| e.aliasname).unwrap_or("");
         let _ = match rte.rtekind {
             RTEKind::RTE_RELATION => {
-                write!(buf, "{i}\t{aliasname}\t{}\t{}", rte.relid, rte.relkind as char)
+                write!(
+                    buf,
+                    "{i}\t{aliasname}\t{}\t{}",
+                    rte.relid, rte.relkind as char
+                )
             }
             RTEKind::RTE_SUBQUERY => write!(buf, "{i}\t{aliasname}\t[subquery]"),
             RTEKind::RTE_JOIN => write!(buf, "{i}\t{aliasname}\t[join]"),
@@ -302,7 +306,11 @@ fn rte_attribute_name<'mcx>(
     }
     let colname = |alias: &types_nodes::primnodes::Alias<'mcx>| -> Option<&'mcx str> {
         if attnum > 0 && (attnum as usize) <= alias.colnames.len() {
-            alias.colnames.nth(attnum as usize - 1).as_string().map(|s| s.sval)
+            alias
+                .colnames
+                .nth(attnum as usize - 1)
+                .as_string()
+                .map(|s| s.sval)
         } else {
             None
         }
@@ -392,7 +400,10 @@ fn write_expr(
         NodeTag::T_OpExpr => {
             let e = expr.as_op_expr().unwrap();
             let opname = lsyscache::operator::get_opname(mcx, e.opno)?;
-            let opname = opname.as_ref().map(|s| s.as_str()).unwrap_or("(invalid operator)");
+            let opname = opname
+                .as_ref()
+                .map(|s| s.as_str())
+                .unwrap_or("(invalid operator)");
             if e.args.len() > 1 {
                 write_expr(buf, mcx, Some(e.args.nth(0)), rtable)?;
                 let _ = write!(buf, " {opname} ");
@@ -405,7 +416,10 @@ fn write_expr(
         NodeTag::T_FuncExpr => {
             let e = expr.as_func_expr().unwrap();
             let funcname = lsyscache::get_func_name(mcx, e.funcid)?;
-            let funcname = funcname.as_ref().map(|s| s.as_str()).unwrap_or("(invalid function)");
+            let funcname = funcname
+                .as_ref()
+                .map(|s| s.as_str())
+                .unwrap_or("(invalid function)");
             let _ = write!(buf, "{funcname}(");
             for (i, arg) in e.args.iter().enumerate() {
                 write_expr(buf, mcx, Some(arg), rtable)?;
@@ -477,7 +491,9 @@ fn write_pathkeys(
     for (i, pathkey) in pathkeys.iter().enumerate() {
         // C dereferences pk_eclass unconditionally (a NULL is a backend
         // crash there); every PathKey the planner builds carries one.
-        let eclass = pathkey.pk_eclass.expect("PathKey without an EquivalenceClass");
+        let eclass = pathkey
+            .pk_eclass
+            .expect("PathKey without an EquivalenceClass");
         // chase up, in case pathkey is non-canonical
         let eclass = root.ec_canonical(eclass);
         buf.push_bytes(b"(");

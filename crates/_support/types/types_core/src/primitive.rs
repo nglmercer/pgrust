@@ -82,8 +82,7 @@ pub const InvalidBlockNumber: BlockNumber = 0xFFFF_FFFF;
 pub const MaxBlockNumber: BlockNumber = 0xFFFF_FFFE;
 
 #[repr(i32)]
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Ord, PartialOrd)]
-#[derive(Default)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Ord, PartialOrd, Default)]
 pub enum ForkNumber {
     InvalidForkNumber = -1,
     #[default]
@@ -107,7 +106,6 @@ impl ForkNumber {
         }
     }
 }
-
 
 /// Buffer-pool slot index: positive = shared, negative = local, 0 = invalid.
 pub type Buffer = i32;

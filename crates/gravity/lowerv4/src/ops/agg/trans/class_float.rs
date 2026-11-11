@@ -16,7 +16,7 @@
 //!   NaN, never rows where PG raises).
 //! - `min / max(float4 / float8)`: the value's order-preserving i64 image in a `MinI64` / `MaxI64` slot (decompose
 //!   `F64Ordered`), every NaN mapped to `i64::MAX` (PG's NaN above all); `-0` orders below `+0` (PG ties them).
-//! No join.mult form (a float sum's product is not `w` rounded adds: plain.rs `weighted`); no block or answer form.
+//!   No join.mult form (a float sum's product is not `w` rounded adds: plain.rs `weighted`); no block or answer form.
 use gravity_decompose::ops::shared::agg::{AggDecl, Register as R};
 use gravity_ir::builder::FunctionBuilder;
 use gravity_ir::{ConvOp, FloatBinOp as Fo, IntBinOp, IntCond, Type, Value};
@@ -443,8 +443,8 @@ mod tests {
         };
         assert_eq!(sum(true, 16777216.0, 1, 1.0), (16777216.0, false));
         assert_eq!(sum(false, 16777216.0, 1, 1.0), (16777217.0, false));
-        assert_eq!(sum(true, 3e38f32 as f64, 1, 3e38f32 as f64).1, true);
-        assert_eq!(sum(false, 1e308, 1, 1e308).1, true);
+        assert!(sum(true, 3e38f32 as f64, 1, 3e38f32 as f64).1);
+        assert!(sum(false, 1e308, 1, 1e308).1);
         assert_eq!(sum(false, f64::INFINITY, 1, 1.0), (f64::INFINITY, false));
         assert_eq!(sum(false, 0.0, 0, -0.0).0.to_bits(), (-0.0f64).to_bits());
     }

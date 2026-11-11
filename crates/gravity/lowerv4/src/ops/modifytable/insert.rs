@@ -22,13 +22,14 @@
 //!   continuation, the end its sink);
 //! - a routed INSERT (a partitioned target: write.route's `Route::plan`, M4-ROUTE) or several result relations: `write.route`;
 //! - a foreign or non-heap target: the AM refusal.
-//! Leader-only (R12-L17): `claim` refuses a parallel-eligible pipeline (write/rowop.rs).
+//!   Leader-only (R12-L17): `claim` refuses a parallel-eligible pipeline (write/rowop.rs).
 use gravity_abi::program::WRITE_INSERT;
 use gravity_decompose::ops::modifytable::trig_facts::{TrigExt, TRIG_INSERT};
 use gravity_decompose::catalog::typefacts::{self, TypeFacts};
 use gravity_decompose::ops::shared::modifytable::{Member, WriteDesc};
 use gravity_decompose::{Am, Op};
 use gravity_ir::builder::FunctionBuilder;
+#[allow(unused_imports)]
 use gravity_ir::{IntBinOp, Value};
 use gravity_program::{ArenaRef, Cmd, WritePlan};
 use mcx::{GrowIn, PgBox, PgVec};
@@ -184,6 +185,7 @@ fn cols<'g>(gx: &Gx<'g, '_>, k: usize, j: usize, natts: usize, node: i32) -> PgV
     cols
 }
 
+#[allow(dead_code)]
 fn refuse_kind(node: i32, k: KindId) -> ! {
     crate::not_built!(node, Variant::Kind(k))
 }

@@ -679,7 +679,7 @@ fn insert_defer<'p>(b: &Builder<'p, '_>, mt: &'p ModifyTable<'p>) -> bool {
         return false;
     }
     let mut exprs = returning;
-    exprs.extend(entries(&mt.withCheckOptionLists).map(|w| w.as_with_check_option().map_or(Some(w), |c| c.qual)).flatten()); // alloc: Cold
+    exprs.extend(entries(&mt.withCheckOptionLists).filter_map(|w| w.as_with_check_option().map_or(Some(w), |c| c.qual))); // alloc: Cold
     let acts = |f: crate::effects::found::Found| f.acts_past_call;
     if acts(crate::rerun::of_plan(b.stmt, b.facts, b.arena, src)) || exprs.iter().any(|&e| acts(crate::rerun::of_expr(b.stmt, b.facts, b.arena, e))) {
         return false;
@@ -891,7 +891,7 @@ impl WriteDesc<'_> {
         }
         if !self.marks.is_nil() {
             write!(out, " marks={}", self.marks.len())?;
-            dump_marks(&self.mark_descs, out)?;
+            dump_marks(self.mark_descs, out)?;
         }
         if self.targets.len() > 1 {
             write!(out, " tableoid=outer.{}", self.tableoid_col)?;

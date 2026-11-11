@@ -335,7 +335,7 @@ pub fn licence_unchecked(e: Effects, user_code: bool) -> Result<Licence, Denied>
 ///   may call a VOLATILE function that writes (D4316), and a held error dropped where PostgreSQL never calls it would
 ///   keep that write; `licence_unchecked` keeps every user function exact;
 /// - inside `deny_all` / `deny_all_bounded`: granted as outside (the held forms are the plan-order run's own).
-/// No departure but `Ahead`, no recheck, no tag: the error is PostgreSQL's, at PostgreSQL's point.
+///   No departure but `Ahead`, no recheck, no tag: the error is PostgreSQL's, at PostgreSQL's point.
 pub fn held_error(e: Effects, user_code: bool, local: Option<super::CallLocal>) -> Result<Licence, Denied> {
     if e.acts && local.is_none() || user_code {
         return Err(Denied);

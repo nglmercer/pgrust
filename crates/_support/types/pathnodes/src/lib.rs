@@ -21,17 +21,15 @@
 
 #![no_std]
 #![forbid(unsafe_code)]
-#![allow(non_upper_case_globals)]
-#![allow(non_camel_case_types)]
-#![allow(non_snake_case)]
+#![allow(non_camel_case_types, non_snake_case, non_upper_case_globals)]
 
 extern crate alloc;
 
 pub mod optimizer_plan;
 pub mod relids;
-pub mod run;
 #[cfg(test)]
 mod relids_differential_tests;
+pub mod run;
 
 use core::cell::{Cell, RefCell};
 
@@ -39,10 +37,10 @@ pub use ::mcx::{Mcx, PgBox, PgString, PgVec};
 
 use ::datum::datum::Datum;
 use ::types_core::fmgr::FmgrInfo;
+pub use ::types_core::primitive::Oid;
 use ::types_core::primitive::{
     AttrNumber, BlockNumber, Cardinality, Cost, Index, Selectivity, Size,
 };
-pub use ::types_core::primitive::Oid;
 pub use ::types_hash::hsearch::HTAB;
 
 pub type NodeTagValue = u16;
@@ -282,7 +280,10 @@ pub struct QueryId(pub u32);
 pub enum RangeTblEntryId {
     #[default]
     Invalid,
-    Parse { query: QueryId, index: u32 },
+    Parse {
+        query: QueryId,
+        index: u32,
+    },
     Flat(u32),
 }
 
@@ -1900,7 +1901,13 @@ pub struct GravityWidthCost<'mcx> {
 
 impl<'mcx> GravityWidthCost<'mcx> {
     pub fn new(mcx: Mcx<'mcx>) -> Self {
-        GravityWidthCost { width: 0, free_aggs: false, morsel: false, end_hint: 0, memo: core::cell::RefCell::new(PgVec::new_in(mcx)) }
+        GravityWidthCost {
+            width: 0,
+            free_aggs: false,
+            morsel: false,
+            end_hint: 0,
+            memo: core::cell::RefCell::new(PgVec::new_in(mcx)),
+        }
     }
 }
 
@@ -1920,7 +1927,16 @@ pub struct GwMemo {
 
 impl Default for GwMemo {
     fn default() -> Self {
-        GwMemo { stamp: (f64::NAN, f64::NAN), closed: 0.0, open: 0.0, nest: 0.0, flags: 0, why: 0, w: 0, driver: 0 }
+        GwMemo {
+            stamp: (f64::NAN, f64::NAN),
+            closed: 0.0,
+            open: 0.0,
+            nest: 0.0,
+            flags: 0,
+            why: 0,
+            w: 0,
+            driver: 0,
+        }
     }
 }
 
@@ -1950,7 +1966,13 @@ const PATH_SEGMENT_FIRST: usize = 16;
 
 impl<'mcx> PathStore<'mcx> {
     pub fn new(mcx: Mcx<'mcx>) -> Self {
-        PathStore { mcx, segments: PgVec::new_in(mcx), len: 0, freed: 0, whole_frees: false }
+        PathStore {
+            mcx,
+            segments: PgVec::new_in(mcx),
+            len: 0,
+            freed: 0,
+            whole_frees: false,
+        }
     }
 
     #[inline]
@@ -1973,7 +1995,11 @@ impl<'mcx> PathStore<'mcx> {
         let id = self.len;
         let seg = (id >> PATH_SEGMENT_SHIFT) as usize;
         if seg == self.segments.len() {
-            let cap = if seg == 0 { PATH_SEGMENT_FIRST } else { PATH_SEGMENT_LEN };
+            let cap = if seg == 0 {
+                PATH_SEGMENT_FIRST
+            } else {
+                PATH_SEGMENT_LEN
+            };
             self.segments.push(PgVec::with_capacity_in(cap, self.mcx));
         }
         self.segments[seg].push(Some(PgBox::new_in(path, self.mcx)));
@@ -2015,7 +2041,10 @@ impl<'mcx> PathStore<'mcx> {
     /// only drops the paths still in the store.
     pub fn free(&mut self, id: PathId) {
         let i = id.index();
-        let Some(b) = self.segments[i >> PATH_SEGMENT_SHIFT][i & (PATH_SEGMENT_LEN - 1)].take() else { freed_path(id) };
+        let Some(b) = self.segments[i >> PATH_SEGMENT_SHIFT][i & (PATH_SEGMENT_LEN - 1)].take()
+        else {
+            freed_path(id)
+        };
         if self.whole_frees {
             drop(b);
         } else {
@@ -2066,9 +2095,11 @@ pub struct JoinSearchMark {
 #[cold]
 #[inline(never)]
 fn freed_path(id: PathId) -> ! {
-    panic!("path {} was freed by add_path and is no longer valid", id.index())
+    panic!(
+        "path {} was freed by add_path and is no longer valid",
+        id.index()
+    )
 }
-
 
 #[derive(Debug)]
 pub struct PlannerInfo<'mcx> {
@@ -2502,8 +2533,12 @@ impl<'mcx> PlannerInfo<'mcx> {
             keep(ri.clause);
             ri.orclause.into_iter().for_each(&mut keep);
         }
-        self.em_arena[mark.ems..].iter().for_each(|em| keep(em.em_expr));
-        self.ph_info_arena[mark.phinfos..].iter().for_each(|ph| keep(ph.ph_var_phexpr));
+        self.em_arena[mark.ems..]
+            .iter()
+            .for_each(|em| keep(em.em_expr));
+        self.ph_info_arena[mark.phinfos..]
+            .iter()
+            .for_each(|ph| keep(ph.ph_var_phexpr));
         #[cfg(debug_assertions)]
         self.assert_no_handles_past(mark, keep_nodes);
         self.rel_arena.truncate(mark.rels);
@@ -2528,13 +2563,24 @@ impl<'mcx> PlannerInfo<'mcx> {
             .chain(self.initial_rels.iter())
             .chain(self.upper_rels.iter().flatten());
         for &r in rels {
-            assert!(rel_ok(r), "rel {} built during a join search tour outlives it", r.index());
+            assert!(
+                rel_ok(r),
+                "rel {} built during a join search tour outlives it",
+                r.index()
+            );
         }
         for t in self.upper_targets.iter().flatten() {
-            assert!(pt_ok(*t), "upper target {} outlives its join search tour", t.index());
+            assert!(
+                pt_ok(*t),
+                "upper target {} outlives its join search tour",
+                t.index()
+            );
         }
         if let Some(p) = self.non_recursive_path {
-            assert!(p.index() < mark.paths, "non_recursive_path outlives its join search tour");
+            assert!(
+                p.index() < mark.paths,
+                "non_recursive_path outlives its join search tour"
+            );
         }
         for (i, rel) in self.rel_arena[..mark.rels].iter().enumerate() {
             let linked = rel
@@ -2543,10 +2589,18 @@ impl<'mcx> PlannerInfo<'mcx> {
                 .chain(rel.top_parent.iter())
                 .chain(rel.part_rels.iter().flatten());
             for &r in linked {
-                assert!(rel_ok(r), "rel {i} links rel {} from a join search tour", r.index());
+                assert!(
+                    rel_ok(r),
+                    "rel {i} links rel {} from a join search tour",
+                    r.index()
+                );
             }
             if let Some(t) = rel.pathtarget_id {
-                assert!(pt_ok(t), "rel {i} keeps target {} from a join search tour", t.index());
+                assert!(
+                    pt_ok(t),
+                    "rel {i} keeps target {} from a join search tour",
+                    t.index()
+                );
             }
         }
         let mut nodes: alloc::vec::Vec<NodeId> = alloc::vec::Vec::new();
@@ -2562,7 +2616,12 @@ impl<'mcx> PlannerInfo<'mcx> {
         for rel in &self.rel_arena[..mark.rels] {
             nodes.extend(rel.lateral_vars.iter().chain(rel.statlist.iter()));
             nodes.extend(rel.subplan_params.iter().chain(rel.partition_qual.iter()));
-            nodes.extend(rel.partexprs.iter().chain(rel.nullable_partexprs.iter()).flatten());
+            nodes.extend(
+                rel.partexprs
+                    .iter()
+                    .chain(rel.nullable_partexprs.iter())
+                    .flatten(),
+            );
             nodes.push(rel.fdw_private);
         }
         let lists: [&[NodeId]; 9] = [
@@ -2578,8 +2637,16 @@ impl<'mcx> PlannerInfo<'mcx> {
         ];
         nodes.extend(lists.into_iter().flatten());
         nodes.extend(self.multiexpr_params.iter().flatten());
-        nodes.extend(self.join_info_list.iter().flat_map(|sj| sj.semi_rhs_exprs.iter()));
-        nodes.extend(self.append_rel_list.iter().flat_map(|a| a.translated_vars.iter()));
+        nodes.extend(
+            self.join_info_list
+                .iter()
+                .flat_map(|sj| sj.semi_rhs_exprs.iter()),
+        );
+        nodes.extend(
+            self.append_rel_list
+                .iter()
+                .flat_map(|a| a.translated_vars.iter()),
+        );
         nodes.extend(self.row_identity_vars.iter().map(|r| r.rowidvar));
         for id in nodes {
             assert!(
@@ -2592,10 +2659,16 @@ impl<'mcx> PlannerInfo<'mcx> {
             let id = PathId(i as u32);
             if self.path_arena.is_live(id) {
                 let base = self.path_arena.get(id).base();
-                assert!(rel_ok(base.parent), "path {i} has a parent from a join search tour");
+                assert!(
+                    rel_ok(base.parent),
+                    "path {i} has a parent from a join search tour"
+                );
                 if let Some(t) = base.pathtarget_id {
                     let t = t.index();
-                    assert!(t < mark.pathtargets, "path {i} keeps target {t} from a join search tour");
+                    assert!(
+                        t < mark.pathtargets,
+                        "path {i} keeps target {t} from a join search tour"
+                    );
                 }
             }
         }
@@ -2659,7 +2732,10 @@ mod tests {
         }
         assert_eq!(store.len(), n);
         assert_eq!(store.segments.len(), 4);
-        assert!(store.segments.iter().all(|s| s.capacity() == PATH_SEGMENT_LEN));
+        assert!(store
+            .segments
+            .iter()
+            .all(|s| s.capacity() == PATH_SEGMENT_LEN));
         let id = PathId(PATH_SEGMENT_LEN as u32 + 7);
         store.free(id);
         assert!(!store.is_live(id));
@@ -2710,7 +2786,10 @@ mod tests {
         assert_eq!(store.live(), PATH_SEGMENT_LEN - 1);
         store.truncate(0);
         assert_eq!((store.len(), store.live(), store.segments.len()), (0, 0, 0));
-        assert_eq!(store.alloc(PathNode::Path(empty_path(cx.mcx(), RelId(1), None))), PathId(0));
+        assert_eq!(
+            store.alloc(PathNode::Path(empty_path(cx.mcx(), RelId(1), None))),
+            PathId(0)
+        );
     }
 
     // Expression payloads are arena-leaked; a tour interns existing ones.
@@ -2734,7 +2813,10 @@ mod tests {
         expr(root);
         if persistent_em {
             let em_expr = expr(root);
-            root.alloc_em(EquivalenceMember { em_expr, ..Default::default() });
+            root.alloc_em(EquivalenceMember {
+                em_expr,
+                ..Default::default()
+            });
         }
         expr(root);
     }
@@ -2941,10 +3023,28 @@ mod tests {
 // arenas die with the query context (C: one wholesale context reset). The
 // census below makes a droppy-beyond-the-arena field a compile error.
 mcx::forget_safe_nodrop!(
-    RelId, PathId, PtId, RinfoId, EcId, EmId, PhInfoId, NodeId, PlanId,
-    QueryId, RangeTblEntryId, PlanRowMarkId, RtePermInfoId, JoinSearchPrivate,
-    ECDerivesKey, ECDerivesEntry, MergeScanSelCache, QualCost, PathKey,
-    MinMaxAggInfo, PlannerParamItem, AggClauseCosts,
+    RelId,
+    PathId,
+    PtId,
+    RinfoId,
+    EcId,
+    EmId,
+    PhInfoId,
+    NodeId,
+    PlanId,
+    QueryId,
+    RangeTblEntryId,
+    PlanRowMarkId,
+    RtePermInfoId,
+    JoinSearchPrivate,
+    ECDerivesKey,
+    ECDerivesEntry,
+    MergeScanSelCache,
+    QualCost,
+    PathKey,
+    MinMaxAggInfo,
+    PlannerParamItem,
+    AggClauseCosts,
 );
 
 mcx::forget_safe_struct!(
@@ -3088,11 +3188,7 @@ pub fn tag16(tag: ::types_nodes::NodeTag) -> u16 {
 pub fn is_outer_join(jointype: u32) -> bool {
     matches!(
         jointype,
-        JOIN_LEFT
-            | JOIN_FULL
-            | JOIN_RIGHT
-            | JOIN_ANTI
-            | JOIN_RIGHT_ANTI
+        JOIN_LEFT | JOIN_FULL | JOIN_RIGHT | JOIN_ANTI | JOIN_RIGHT_ANTI
     )
 }
 
@@ -3143,5 +3239,12 @@ pub fn pathkeys_contained_in(keys1: &[PathKey], keys2: &[PathKey]) -> bool {
     )
 }
 
-mcx::forget_safe_struct!(SemiAntiJoinFactors { outer_match_frac, match_count });
-mcx::forget_safe_struct!(CteScanParam { rti, plan_id, cte_param });
+mcx::forget_safe_struct!(SemiAntiJoinFactors {
+    outer_match_frac,
+    match_count
+});
+mcx::forget_safe_struct!(CteScanParam {
+    rti,
+    plan_id,
+    cte_param
+});

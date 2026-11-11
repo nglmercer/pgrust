@@ -913,6 +913,7 @@ mod tests {
     fn trim_b(to: u64) -> u64 {
         B.swap(to, Ordering::Relaxed) - to
     }
+    #[allow(dead_code)]
     fn trim_c(to: u64) -> u64 {
         C.swap(to, Ordering::Relaxed) - to
     }

@@ -30,7 +30,9 @@ pub const SEAL_WAL_RATE_MB: u64 = 48;
 const SEAL_WAL_RATE_GUC: &str = "pgrust.pgrc_seal_wal_rate";
 
 pub fn seal_wal_rate() -> u64 {
-    setting(SEAL_WAL_RATE_GUC).unwrap_or(SEAL_WAL_RATE_MB).saturating_mul(1 << 20)
+    setting(SEAL_WAL_RATE_GUC)
+        .unwrap_or(SEAL_WAL_RATE_MB)
+        .saturating_mul(1 << 20)
 }
 
 pub const BACKLOG_BLOCKS: u64 = 2 * ROTATE_BLOCKS as u64;
@@ -116,15 +118,26 @@ fn slot_value(slots: &[AtomicU64; BACKLOG_SLOTS], parent: Oid) -> Option<u64> {
 }
 
 fn set_slot(slots: &[AtomicU64; BACKLOG_SLOTS], parent: Oid, v: u64) {
-    slots[parent as usize % BACKLOG_SLOTS].store(u64::from(parent) << 32 | v.min(u64::from(u32::MAX)), Relaxed);
+    slots[parent as usize % BACKLOG_SLOTS].store(
+        u64::from(parent) << 32 | v.min(u64::from(u32::MAX)),
+        Relaxed,
+    );
 }
 
 fn move_slot(slots: &[AtomicU64; BACKLOG_SLOTS], parent: Oid, by: u64, neg: bool) {
     let s = &slots[parent as usize % BACKLOG_SLOTS];
     let mut cur = s.load(Relaxed);
     loop {
-        let v = if cur >> 32 == u64::from(parent) { cur & u64::from(u32::MAX) } else { 0 };
-        let v = if neg { v.saturating_sub(by) } else { v.saturating_add(by).min(u64::from(u32::MAX)) };
+        let v = if cur >> 32 == u64::from(parent) {
+            cur & u64::from(u32::MAX)
+        } else {
+            0
+        };
+        let v = if neg {
+            v.saturating_sub(by)
+        } else {
+            v.saturating_add(by).min(u64::from(u32::MAX))
+        };
         match s.compare_exchange_weak(cur, u64::from(parent) << 32 | v, Relaxed, Relaxed) {
             Ok(_) => return,
             Err(c) => cur = c,
@@ -138,11 +151,19 @@ fn add_slot(slots: &[AtomicU64; BACKLOG_SLOTS], parent: Oid, by: u64) {
 
 fn take_slot(slots: &[AtomicU64; BACKLOG_SLOTS], parent: Oid) -> u64 {
     let v = slots[parent as usize % BACKLOG_SLOTS].swap(u64::from(parent) << 32, Relaxed);
-    if v >> 32 == u64::from(parent) { v & u64::from(u32::MAX) } else { 0 }
+    if v >> 32 == u64::from(parent) {
+        v & u64::from(u32::MAX)
+    } else {
+        0
+    }
 }
 
 pub fn target_rows() -> u64 {
-    TARGET.with(|c| per_guc_change(c, || setting(ROTATE_TARGET_GUC).unwrap_or(ROTATE_TARGET_ROWS)))
+    TARGET.with(|c| {
+        per_guc_change(c, || {
+            setting(ROTATE_TARGET_GUC).unwrap_or(ROTATE_TARGET_ROWS)
+        })
+    })
 }
 
 pub fn rows_target(parent: Oid) -> u64 {
@@ -150,7 +171,9 @@ pub fn rows_target(parent: Oid) -> u64 {
 }
 
 fn rows_target_at(parent: Oid, t: u64) -> u64 {
-    slot_value(&FULL_ROWS, parent).filter(|r| *r > 0).map_or(t, |r| t.min(r))
+    slot_value(&FULL_ROWS, parent)
+        .filter(|r| *r > 0)
+        .map_or(t, |r| t.min(r))
 }
 
 pub fn rotation_due(parent: Oid) -> bool {
@@ -162,7 +185,8 @@ fn full_due(parent: Oid) -> bool {
     if target_rows() == 0 {
         return blocks >= u64::from(rotate_blocks(parent));
     }
-    blocks >= u64::from(MAX_ROTATE_BLOCKS) || (blocks >= u64::from(ROTATE_BLOCKS) && active_rows(parent) >= rows_target(parent))
+    blocks >= u64::from(MAX_ROTATE_BLOCKS)
+        || (blocks >= u64::from(ROTATE_BLOCKS) && active_rows(parent) >= rows_target(parent))
 }
 
 /// Invariant: while backpressure waits, a seal or a rotation is due or in
@@ -172,7 +196,10 @@ pub fn stall_due(parent: Oid) -> bool {
         return false;
     }
     let ar = active_rows(parent);
-    ar > 0 && !sealing_in_progress(parent) && (sealing_rows(parent) + ar > rows_cap(parent) || sealing_blocks(parent) + active_blocks(parent) > BACKSTOP_BLOCKS)
+    ar > 0
+        && !sealing_in_progress(parent)
+        && (sealing_rows(parent) + ar > rows_cap(parent)
+            || sealing_blocks(parent) + active_blocks(parent) > BACKSTOP_BLOCKS)
 }
 
 pub fn sealing_in_progress(parent: Oid) -> bool {
@@ -186,7 +213,10 @@ pub fn in_flight(parent: Oid) -> bool {
 pub fn start_stall_rotation(db: Oid, parent: Oid) -> bool {
     if stall_due(parent) {
         queue(db, parent);
-        if begin_rotation(parent) && !(pgrc_front_seams::rotate_detached::is_installed() && pgrc_front_seams::rotate_detached::call(db, parent)) {
+        if begin_rotation(parent)
+            && !(pgrc_front_seams::rotate_detached::is_installed()
+                && pgrc_front_seams::rotate_detached::call(db, parent))
+        {
             end_rotation(parent);
         }
     }
@@ -226,9 +256,19 @@ pub fn publish_rows(parent: Oid, seg: Oid, n: u64) {
         match mine(cur) {
             Some(s) if s == u64::from(seg) => return add_slot(&ACTIVE_ROWS, parent, n),
             Some(s) if s != 0 => return add_slot(&SEALING_ROWS, parent, n),
-            _ if slot_value(&RETIRED_SEG, parent) == Some(u64::from(seg)) => return add_slot(&SEALING_ROWS, parent, n),
+            _ if slot_value(&RETIRED_SEG, parent) == Some(u64::from(seg)) => {
+                return add_slot(&SEALING_ROWS, parent, n)
+            }
             _ => {
-                if ACTIVE_SEG[i].compare_exchange(cur, u64::from(parent) << 32 | u64::from(seg), Relaxed, Relaxed).is_ok() {
+                if ACTIVE_SEG[i]
+                    .compare_exchange(
+                        cur,
+                        u64::from(parent) << 32 | u64::from(seg),
+                        Relaxed,
+                        Relaxed,
+                    )
+                    .is_ok()
+                {
                     if mine(cur).is_none() {
                         set_slot(&ACTIVE_ROWS, parent, 0);
                     }
@@ -247,7 +287,10 @@ pub fn publish_pending() {
     publish_rows(parent, seg, u64::from(n));
     if target_rows() != 0 && rotation_due(parent) {
         queue(db, parent);
-        if begin_rotation(parent) && !(pgrc_front_seams::rotate_detached::is_installed() && pgrc_front_seams::rotate_detached::call(db, parent)) {
+        if begin_rotation(parent)
+            && !(pgrc_front_seams::rotate_detached::is_installed()
+                && pgrc_front_seams::rotate_detached::call(db, parent))
+        {
             end_rotation(parent);
         }
     }
@@ -262,8 +305,18 @@ fn now_s() -> u64 {
 pub fn begin_rotation(parent: Oid) -> bool {
     let i = parent as usize % BACKLOG_SLOTS;
     let cur = ROTATING[i].load(Relaxed);
-    let live = cur >> 32 == u64::from(parent) && cur & u64::from(u32::MAX) != 0 && now_s() + 1 < (cur & u64::from(u32::MAX)) + ROTATING_STALE_S;
-    !live && ROTATING[i].compare_exchange(cur, u64::from(parent) << 32 | (now_s() + 1).min(u64::from(u32::MAX)), Relaxed, Relaxed).is_ok()
+    let live = cur >> 32 == u64::from(parent)
+        && cur & u64::from(u32::MAX) != 0
+        && now_s() + 1 < (cur & u64::from(u32::MAX)) + ROTATING_STALE_S;
+    !live
+        && ROTATING[i]
+            .compare_exchange(
+                cur,
+                u64::from(parent) << 32 | (now_s() + 1).min(u64::from(u32::MAX)),
+                Relaxed,
+                Relaxed,
+            )
+            .is_ok()
 }
 
 pub fn end_rotation(parent: Oid) {
@@ -277,7 +330,11 @@ pub fn rotating(parent: Oid) -> bool {
 fn pending_rows(parent: Oid) -> u64 {
     PENDING.with(|p| {
         let (_, q, _, n) = p.get();
-        if q == parent { u64::from(n) } else { 0 }
+        if q == parent {
+            u64::from(n)
+        } else {
+            0
+        }
     })
 }
 
@@ -287,13 +344,27 @@ pub fn sealed_rows(parent: Oid, rows: u64) {
 
 pub const BACKSTOP_BLOCKS: u64 = 2 * MAX_ROTATE_BLOCKS as u64;
 
+#[allow(dead_code)]
 fn base_rows(parent: Oid) -> u64 {
     base_rows_of(parent, &Unsealed::of(parent))
 }
 
 fn base_rows_of(parent: Oid, u: &Unsealed) -> u64 {
-    let d = slot_value(&DENSITY, parent).filter(|d| *d > 0).unwrap_or_else(|| if u.blocks == 0 { 0 } else { (u.rows << 8) / u.blocks });
-    let live = if u.blocks >= LIVE_MIN_BLOCKS { (u.rows << 8) / u.blocks } else { 0 };
+    #[allow(clippy::manual_checked_ops)]
+    let d = slot_value(&DENSITY, parent)
+        .filter(|d| *d > 0)
+        .unwrap_or_else(|| {
+            if u.blocks == 0 {
+                0
+            } else {
+                (u.rows << 8) / u.blocks
+            }
+        });
+    let live = if u.blocks >= LIVE_MIN_BLOCKS {
+        (u.rows << 8) / u.blocks
+    } else {
+        0
+    };
     (d.max(live) * u64::from(ROTATE_BLOCKS)) >> 8
 }
 
@@ -306,7 +377,11 @@ struct Unsealed {
 impl Unsealed {
     fn of(parent: Oid) -> Unsealed {
         let sealing_blocks = sealing_blocks(parent);
-        Unsealed { blocks: sealing_blocks + active_blocks(parent), rows: sealing_rows(parent) + active_rows(parent), sealing_blocks }
+        Unsealed {
+            blocks: sealing_blocks + active_blocks(parent),
+            rows: sealing_rows(parent) + active_rows(parent),
+            sealing_blocks,
+        }
     }
 }
 
@@ -326,7 +401,8 @@ pub fn over_cap(parent: Oid) -> bool {
         return backlog(parent) > backlog_cap_for(parent);
     }
     let u = Unsealed::of(parent);
-    u.rows + pending_rows(parent) > rows_cap_of(parent, t, &u) || u.sealing_blocks + own_blocks(parent) > BACKSTOP_BLOCKS
+    u.rows + pending_rows(parent) > rows_cap_of(parent, t, &u)
+        || u.sealing_blocks + own_blocks(parent) > BACKSTOP_BLOCKS
 }
 
 pub fn active_blocks(parent: Oid) -> u64 {
@@ -375,36 +451,65 @@ pub fn bp_checks(parent: Oid) -> u64 {
 
 /// SEALSIZE fix 3: (ms the table's seals waited for the WAL pace, statements that waited on backpressure).
 pub fn pace_stats(parent: Oid) -> (u64, u64) {
-    (slot_value(&PACED_MS, parent).unwrap_or(0), slot_value(&BP_WAITS, parent).unwrap_or(0))
+    (
+        slot_value(&PACED_MS, parent).unwrap_or(0),
+        slot_value(&BP_WAITS, parent).unwrap_or(0),
+    )
 }
 
 pub fn rotate_blocks(parent: Oid) -> u32 {
-    slot_value(&ROTATE, parent).map_or(ROTATE_BLOCKS, |b| (b as u32).clamp(ROTATE_BLOCKS, MAX_ROTATE_BLOCKS))
+    slot_value(&ROTATE, parent).map_or(ROTATE_BLOCKS, |b| {
+        (b as u32).clamp(ROTATE_BLOCKS, MAX_ROTATE_BLOCKS)
+    })
 }
 
-pub fn rotate_blocks_for(rows: u64, blocks: u64, bytes: u64, target_rows: u64, full_bytes: u64) -> u32 {
+pub fn rotate_blocks_for(
+    rows: u64,
+    blocks: u64,
+    bytes: u64,
+    target_rows: u64,
+    full_bytes: u64,
+) -> u32 {
     if target_rows == 0 || rows == 0 || blocks == 0 {
         return ROTATE_BLOCKS;
     }
-    let by_bytes = if bytes == 0 { u64::MAX } else { u64::try_from(u128::from(full_bytes) * u128::from(rows) / u128::from(bytes)).unwrap_or(u64::MAX) };
+    let by_bytes = if bytes == 0 {
+        u64::MAX
+    } else {
+        u64::try_from(u128::from(full_bytes) * u128::from(rows) / u128::from(bytes))
+            .unwrap_or(u64::MAX)
+    };
     let rows_t = target_rows.min(by_bytes);
-    let b = u64::try_from((u128::from(rows_t) * u128::from(blocks)).div_ceil(u128::from(rows))).unwrap_or(u64::MAX);
+    let b = u64::try_from((u128::from(rows_t) * u128::from(blocks)).div_ceil(u128::from(rows)))
+        .unwrap_or(u64::MAX);
     b.clamp(u64::from(ROTATE_BLOCKS), u64::from(MAX_ROTATE_BLOCKS)) as u32
 }
 
 pub const DENSITY_WEIGHT: u64 = 4;
 pub const ROTATE_GROWTH: (u32, u32) = (5, 4);
 
-pub fn next_rotation(prev: Option<(u32, u64)>, rows: u64, blocks: u64, bytes: u64, target_rows: u64, full_bytes: u64) -> (u32, u64) {
-    let seen = ((u128::from(rows) << 8) / u128::from(blocks.max(1))).clamp(1, u128::from(u32::MAX)) as u64;
+pub fn next_rotation(
+    prev: Option<(u32, u64)>,
+    rows: u64,
+    blocks: u64,
+    bytes: u64,
+    target_rows: u64,
+    full_bytes: u64,
+) -> (u32, u64) {
+    let seen =
+        ((u128::from(rows) << 8) / u128::from(blocks.max(1))).clamp(1, u128::from(u32::MAX)) as u64;
     let density = match prev {
         Some((_, d)) if d > 0 => (d * (DENSITY_WEIGHT - 1) + seen).div_ceil(DENSITY_WEIGHT),
         _ => seen,
     };
-    let eff_blocks = u64::try_from((u128::from(rows) << 8).div_ceil(u128::from(density))).unwrap_or(u64::MAX).max(1);
+    let eff_blocks = u64::try_from((u128::from(rows) << 8).div_ceil(u128::from(density)))
+        .unwrap_or(u64::MAX)
+        .max(1);
     let r = rotate_blocks_for(rows, eff_blocks, bytes, target_rows, full_bytes);
     let r = match prev {
-        Some((p, _)) if target_rows != 0 => r.min((p.max(ROTATE_BLOCKS) * ROTATE_GROWTH.0 / ROTATE_GROWTH.1).max(ROTATE_BLOCKS)),
+        Some((p, _)) if target_rows != 0 => {
+            r.min((p.max(ROTATE_BLOCKS) * ROTATE_GROWTH.0 / ROTATE_GROWTH.1).max(ROTATE_BLOCKS))
+        }
         _ => r,
     };
     (r, density)
@@ -416,18 +521,29 @@ pub fn sealed_shape(parent: Oid, rows: u64, blocks: u64, bytes: u64) {
     }
     let target = setting(ROTATE_TARGET_GUC).unwrap_or(ROTATE_TARGET_ROWS);
     let full = pgrc_write::writer::PartCutPolicy::default().max_bytes;
-    let prev = slot_value(&ROTATE, parent).map(|r| (r as u32, slot_value(&DENSITY, parent).unwrap_or(0)));
+    let prev =
+        slot_value(&ROTATE, parent).map(|r| (r as u32, slot_value(&DENSITY, parent).unwrap_or(0)));
     let (r, density) = next_rotation(prev, rows, blocks, bytes, target, full);
     set_slot(&ROTATE, parent, u64::from(r));
     set_slot(&DENSITY, parent, density);
     set_slot(&SEAL_BPB, parent, bytes.div_ceil(blocks));
     if bytes > 0 {
-        set_slot(&FULL_ROWS, parent, u64::try_from(u128::from(full) * u128::from(rows) / u128::from(bytes)).unwrap_or(u64::MAX).max(1));
+        set_slot(
+            &FULL_ROWS,
+            parent,
+            u64::try_from(u128::from(full) * u128::from(rows) / u128::from(bytes))
+                .unwrap_or(u64::MAX)
+                .max(1),
+        );
     }
 }
 
 pub fn seal_mem_estimate(parent: Oid, blocks: u64) -> u64 {
-    blocks.saturating_mul(slot_value(&SEAL_BPB, parent).map_or(2 * types_core::BLCKSZ as u64, |b| b.saturating_mul(SEAL_MEM_FACTOR)))
+    blocks.saturating_mul(
+        slot_value(&SEAL_BPB, parent).map_or(2 * types_core::BLCKSZ as u64, |b| {
+            b.saturating_mul(SEAL_MEM_FACTOR)
+        }),
+    )
 }
 
 pub const SEAL_MEM_FACTOR: u64 = 2;
@@ -456,7 +572,10 @@ pub fn force_seal_mem(bytes: u64) -> SealMem {
 }
 
 fn try_reserve(used: &AtomicU64, bytes: u64, budget: u64) -> bool {
-    used.fetch_update(Relaxed, Relaxed, |u| (u == 0 || u.saturating_add(bytes) <= budget).then(|| u.saturating_add(bytes))).is_ok()
+    used.fetch_update(Relaxed, Relaxed, |u| {
+        (u == 0 || u.saturating_add(bytes) <= budget).then(|| u.saturating_add(bytes))
+    })
+    .is_ok()
 }
 
 pub fn seal_mem_in_use() -> u64 {
@@ -474,14 +593,21 @@ pub fn setting(name: &str) -> Option<u64> {
 }
 
 pub fn setting_f64(name: &str) -> Option<f64> {
-    setting_text(name).and_then(|v| v.trim().parse::<f64>().ok()).filter(|x| x.is_finite())
+    setting_text(name)
+        .and_then(|v| v.trim().parse::<f64>().ok())
+        .filter(|x| x.is_finite())
 }
 
 fn setting_text(name: &str) -> Option<String> {
     // the count is the point's; its action's own error is not this lookup's
     let _ = injection_point::injection_point(SETTING_POINT);
     let seam = guc_seams::get_config_option_missing_ok::is_installed();
-    seam.then(|| guc_seams::get_config_option_missing_ok::call(name).ok().flatten()).flatten()
+    seam.then(|| {
+        guc_seams::get_config_option_missing_ok::call(name)
+            .ok()
+            .flatten()
+    })
+    .flatten()
 }
 
 pub fn try_lock(parent: Oid) -> PgResult<bool> {
@@ -494,17 +620,24 @@ pub fn try_rotate_lock(parent: Oid) -> PgResult<bool> {
 }
 
 pub fn try_maint_lock(parent: Oid) -> PgResult<bool> {
-    debug_assert!(order_ok(parent), "pgrc lock order: maintenance lock of {parent} asked for under its front lock");
+    debug_assert!(
+        order_ok(parent),
+        "pgrc lock order: maintenance lock of {parent} asked for under its front lock"
+    );
     lmgr::ConditionalLockDatabaseObject(RELATION_RELATION_ID, parent, MAINT_SUBID, ExclusiveLock)
 }
 
 pub fn try_front_lock(parent: Oid) -> PgResult<bool> {
-    debug_assert!(front_order_ok(parent), "pgrc lock order: front lock of {parent} asked for under its rotate lock");
+    debug_assert!(
+        front_order_ok(parent),
+        "pgrc lock order: front lock of {parent} asked for under its rotate lock"
+    );
     lmgr::ConditionalLockDatabaseObject(RELATION_RELATION_ID, parent, FRONT_SUBID, ExclusiveLock)
 }
 
 pub fn maint_held(parent: Oid) -> bool {
-    lock_seams::lock_held_by_me::is_installed() && lock_seams::lock_held_by_me::call(tag(parent, MAINT_SUBID), ExclusiveLock, false)
+    lock_seams::lock_held_by_me::is_installed()
+        && lock_seams::lock_held_by_me::call(tag(parent, MAINT_SUBID), ExclusiveLock, false)
 }
 
 fn front_order_ok(parent: Oid) -> bool {
@@ -522,7 +655,10 @@ pub fn lock(parent: Oid) -> PgResult<()> {
 }
 
 pub fn lock_maint(parent: Oid) -> PgResult<()> {
-    debug_assert!(order_ok(parent), "pgrc lock order: maintenance lock of {parent} asked for under its front lock");
+    debug_assert!(
+        order_ok(parent),
+        "pgrc lock order: maintenance lock of {parent} asked for under its front lock"
+    );
     lmgr::LockDatabaseObject(RELATION_RELATION_ID, parent, MAINT_SUBID, ExclusiveLock)
 }
 
@@ -535,7 +671,12 @@ pub fn order_ok(parent: Oid) -> bool {
 }
 
 fn tag(parent: Oid, subid: u16) -> LOCKTAG {
-    LOCKTAG::object(init_small::globals::MyDatabaseId(), RELATION_RELATION_ID, parent, subid)
+    LOCKTAG::object(
+        init_small::globals::MyDatabaseId(),
+        RELATION_RELATION_ID,
+        parent,
+        subid,
+    )
 }
 
 pub fn flush_waiting(parent: Oid) -> PgResult<bool> {
@@ -546,7 +687,9 @@ pub fn lock_waiting(parent: Oid) -> bool {
     if !lock_seams::lock_has_waiters::is_installed() {
         return false;
     }
-    [MAINT_SUBID, FRONT_SUBID].iter().any(|s| lock_seams::lock_has_waiters::call(tag(parent, *s), ExclusiveLock).unwrap_or(false))
+    [MAINT_SUBID, FRONT_SUBID].iter().any(|s| {
+        lock_seams::lock_has_waiters::call(tag(parent, *s), ExclusiveLock).unwrap_or(false)
+    })
 }
 
 /// the insert path knows the block it wrote, so the check costs a compare; a backend queues a table once per block.
@@ -577,7 +720,9 @@ pub fn inserted(db: Oid, parent: Oid, seg: Oid, block: u32) {
 }
 
 pub fn tombstoned(db: Oid, parent: Oid, block: u32) {
-    if LAST_TOMB.with(|l| l.replace((parent, block))) == (parent, block) || block + 1 < crate::compile::COMPILE_BLOCKS {
+    if LAST_TOMB.with(|l| l.replace((parent, block))) == (parent, block)
+        || block + 1 < crate::compile::COMPILE_BLOCKS
+    {
         return;
     }
     queue(db, parent);
@@ -591,12 +736,17 @@ pub fn queue(db: Oid, parent: Oid) {
 }
 
 pub fn set_sealing(parent: Oid, blocks: u64) {
-    SEALING[parent as usize % BACKLOG_SLOTS].store((parent as u64) << 32 | blocks.min(u32::MAX as u64), Relaxed);
+    SEALING[parent as usize % BACKLOG_SLOTS]
+        .store((parent as u64) << 32 | blocks.min(u32::MAX as u64), Relaxed);
 }
 
 pub fn sealing_blocks(parent: Oid) -> u64 {
     let v = SEALING[parent as usize % BACKLOG_SLOTS].load(Relaxed);
-    if v >> 32 == parent as u64 { v & u32::MAX as u64 } else { 0 }
+    if v >> 32 == parent as u64 {
+        v & u32::MAX as u64
+    } else {
+        0
+    }
 }
 
 pub fn backlog(parent: Oid) -> u64 {
@@ -605,7 +755,11 @@ pub fn backlog(parent: Oid) -> u64 {
 
 fn own_blocks(parent: Oid) -> u64 {
     let (p, b) = LAST.with(|l| l.get());
-    if p == parent { b as u64 + 1 } else { 0 }
+    if p == parent {
+        b as u64 + 1
+    } else {
+        0
+    }
 }
 
 pub fn due_databases() -> Vec<Oid> {
@@ -696,7 +850,10 @@ mod tests {
     }
 
     fn held_by_me(tag: LOCKTAG, _: types_storage::lock::LOCKMODE, _: bool) -> bool {
-        HELD.with(|h| h.borrow().contains(&(tag.locktag_field3, tag.locktag_field4)))
+        HELD.with(|h| {
+            h.borrow()
+                .contains(&(tag.locktag_field3, tag.locktag_field4))
+        })
     }
 
     fn hold(parent: Oid, subids: &[u16]) {
@@ -711,7 +868,10 @@ mod tests {
         assert!(!order_ok(1003), "rotate, then maintenance: out of order");
         assert!(!front_order_ok(1003), "rotate, then front: out of order");
         hold(1003, &[MAINT_SUBID, FRONT_SUBID, ROTATE_SUBID]);
-        assert!(order_ok(1003) && front_order_ok(1003), "a flush holding all three asks again in order");
+        assert!(
+            order_ok(1003) && front_order_ok(1003),
+            "a flush holding all three asks again in order"
+        );
         hold(1003, &[FRONT_SUBID]);
         assert!(front_order_ok(1003), "a seal's front lock alone");
     }
@@ -725,9 +885,16 @@ mod tests {
         assert!(begin_rotation(parent + 1), "another table's is its own");
         end_rotation(parent);
         assert!(!rotating(parent) && begin_rotation(parent));
-        set_slot(&ROTATING, parent, (now_s() + 1).saturating_sub(ROTATING_STALE_S).max(1));
+        set_slot(
+            &ROTATING,
+            parent,
+            (now_s() + 1).saturating_sub(ROTATING_STALE_S).max(1),
+        );
         if now_s() + 1 > ROTATING_STALE_S {
-            assert!(!rotating(parent) && begin_rotation(parent), "a stale mark is taken over");
+            assert!(
+                !rotating(parent) && begin_rotation(parent),
+                "a stale mark is taken over"
+            );
         }
     }
 
@@ -738,10 +905,16 @@ mod tests {
         hold(1000, &[MAINT_SUBID]);
         assert!(order_ok(1000));
         hold(1000, &[MAINT_SUBID, FRONT_SUBID]);
-        assert!(order_ok(1000), "asking again for a held maintenance lock never waits");
+        assert!(
+            order_ok(1000),
+            "asking again for a held maintenance lock never waits"
+        );
         hold(1000, &[FRONT_SUBID]);
         assert!(!order_ok(1000), "front, then maintenance: out of order");
-        assert!(order_ok(1001), "another table's front lock is not this one's");
+        assert!(
+            order_ok(1001),
+            "another table's front lock is not this one's"
+        );
         hold(1000, &[]);
     }
 
@@ -759,10 +932,25 @@ mod tests {
         assert_eq!(backlog(700), 9000);
         inserted(1, 700, 70_001, 41);
         assert_eq!(backlog(700), 9042);
-        assert_eq!(backlog(701), 0, "another table counts none of this backend's blocks");
+        assert_eq!(
+            backlog(701),
+            0,
+            "another table counts none of this backend's blocks"
+        );
         set_sealing(700 + BACKLOG_SLOTS as Oid, 5);
-        assert_eq!(backlog(700), 42, "a table that lost its slot reads as no sealing backlog");
-        assert_eq!((sealing_blocks(700), sealing_blocks(700 + BACKLOG_SLOTS as Oid)), (0, 5), "a seal in progress: the slot's owner only");
+        assert_eq!(
+            backlog(700),
+            42,
+            "a table that lost its slot reads as no sealing backlog"
+        );
+        assert_eq!(
+            (
+                sealing_blocks(700),
+                sealing_blocks(700 + BACKLOG_SLOTS as Oid)
+            ),
+            (0, 5),
+            "a seal in progress: the slot's owner only"
+        );
         assert_eq!(backlog_cap(), BACKLOG_BLOCKS);
     }
 
@@ -781,18 +969,53 @@ mod tests {
     #[test]
     fn the_rotation_size_reaches_a_full_part_within_the_bounds() {
         let full = 256 << 20;
-        let r = |rows, blocks, bytes| rotate_blocks_for(rows, blocks, bytes, ROTATE_TARGET_ROWS, full);
-        assert_eq!(r(420_000, 4200, 420_000 * 48), ROTATE_BLOCKS, "narrow: past the row target at the base size");
+        let r =
+            |rows, blocks, bytes| rotate_blocks_for(rows, blocks, bytes, ROTATE_TARGET_ROWS, full);
+        assert_eq!(
+            r(420_000, 4200, 420_000 * 48),
+            ROTATE_BLOCKS,
+            "narrow: past the row target at the base size"
+        );
         let wide = r(41_700, 4110, 41_700 * 1371);
-        assert_eq!(wide, (ROTATE_TARGET_ROWS * 4110).div_ceil(41_700) as u32, "wide (hits): the row target before a part full by bytes (~196k rows)");
+        assert_eq!(
+            wide,
+            (ROTATE_TARGET_ROWS * 4110).div_ceil(41_700) as u32,
+            "wide (hits): the row target before a part full by bytes (~196k rows)"
+        );
         let at256 = rotate_blocks_for(41_700, 4110, 41_700 * 1371, 256 << 10, full);
-        assert!((19_000..20_000).contains(&at256), "a 256 Ki target: a part full by bytes (~196k rows) first: {at256}");
-        assert_eq!(r(60_000, 4096, 60_000 * 300), (ROTATE_TARGET_ROWS * 4096).div_ceil(60_000) as u32, "the row target first");
-        assert_eq!(r(4096, 4096, 4096 * 1371), MAX_ROTATE_BLOCKS, "one row a block: capped");
-        assert_eq!(r(41_700, 4110, 0), MAX_ROTATE_BLOCKS.min(((ROTATE_TARGET_ROWS * 4110).div_ceil(41_700)) as u32));
-        assert_eq!(rotate_blocks_for(41_700, 4110, 41_700 * 1371, 0, full), ROTATE_BLOCKS, "target 0: off");
-        assert_eq!(r(0, 4096, 0), ROTATE_BLOCKS, "no rows sealed: the base size");
-        assert_eq!(r(5, 4096, 5 * 50_000_000), ROTATE_BLOCKS, "huge rows: never below the base size");
+        assert!(
+            (19_000..20_000).contains(&at256),
+            "a 256 Ki target: a part full by bytes (~196k rows) first: {at256}"
+        );
+        assert_eq!(
+            r(60_000, 4096, 60_000 * 300),
+            (ROTATE_TARGET_ROWS * 4096).div_ceil(60_000) as u32,
+            "the row target first"
+        );
+        assert_eq!(
+            r(4096, 4096, 4096 * 1371),
+            MAX_ROTATE_BLOCKS,
+            "one row a block: capped"
+        );
+        assert_eq!(
+            r(41_700, 4110, 0),
+            MAX_ROTATE_BLOCKS.min(((ROTATE_TARGET_ROWS * 4110).div_ceil(41_700)) as u32)
+        );
+        assert_eq!(
+            rotate_blocks_for(41_700, 4110, 41_700 * 1371, 0, full),
+            ROTATE_BLOCKS,
+            "target 0: off"
+        );
+        assert_eq!(
+            r(0, 4096, 0),
+            ROTATE_BLOCKS,
+            "no rows sealed: the base size"
+        );
+        assert_eq!(
+            r(5, 4096, 5 * 50_000_000),
+            ROTATE_BLOCKS,
+            "huge rows: never below the base size"
+        );
     }
 
     #[test]
@@ -804,15 +1027,36 @@ mod tests {
         sealed_shape(parent, 41_700, 4110, 41_700 * 1371);
         let r = rotate_blocks(parent);
         assert!(r > 3 * ROTATE_BLOCKS && r <= MAX_ROTATE_BLOCKS, "{r}"); // 128 Ki rows at ~10 rows a block: ~12.9 k
-        assert_eq!(backlog_cap_for(parent), 2 * u64::from(r), "fix 2: two of its rotations (the front's bound)");
-        assert_eq!(BACKLOG_BLOCKS, 2 * u64::from(ROTATE_BLOCKS), "and two of the base size before any seal");
-        assert_eq!(rotate_blocks(parent + BACKLOG_SLOTS as Oid), ROTATE_BLOCKS, "another table on the slot keeps the base");
+        assert_eq!(
+            backlog_cap_for(parent),
+            2 * u64::from(r),
+            "fix 2: two of its rotations (the front's bound)"
+        );
+        assert_eq!(
+            BACKLOG_BLOCKS,
+            2 * u64::from(ROTATE_BLOCKS),
+            "and two of the base size before any seal"
+        );
+        assert_eq!(
+            rotate_blocks(parent + BACKLOG_SLOTS as Oid),
+            ROTATE_BLOCKS,
+            "another table on the slot keeps the base"
+        );
         inserted(5, parent, 120_001, ROTATE_BLOCKS + 10);
-        assert!(!take_due(5).contains(&parent), "under its own size: not due");
+        assert!(
+            !take_due(5).contains(&parent),
+            "under its own size: not due"
+        );
         inserted(5, parent, 120_001, r - 1);
         assert_eq!(take_due(5), vec![parent]);
-        assert_eq!(seal_mem_estimate(parent, 4110), 4110 * SEAL_MEM_FACTOR * (41_700u64 * 1371).div_ceil(4110));
-        assert_eq!(seal_mem_estimate(parent + 1, 10), 10 * 2 * types_core::BLCKSZ as u64);
+        assert_eq!(
+            seal_mem_estimate(parent, 4110),
+            4110 * SEAL_MEM_FACTOR * (41_700u64 * 1371).div_ceil(4110)
+        );
+        assert_eq!(
+            seal_mem_estimate(parent + 1, 10),
+            10 * 2 * types_core::BLCKSZ as u64
+        );
     }
 
     #[test]
@@ -823,7 +1067,11 @@ mod tests {
             inserted(db, wide, seg, b);
         }
         publish_pending();
-        assert!(!rotation_due(wide), "past the base size with {} rows: not due", active_rows(wide));
+        assert!(
+            !rotation_due(wide),
+            "past the base size with {} rows: not due",
+            active_rows(wide)
+        );
         assert_eq!(rotate_min(wide), MAX_ROTATE_BLOCKS, "the block cap alone");
         let mut i = 0;
         while active_rows(wide) + pending_rows(wide) < ROTATE_TARGET_ROWS {
@@ -832,13 +1080,19 @@ mod tests {
         }
         publish_pending();
         assert!(rotation_due(wide) && rotate_min(wide) == 1);
-        assert!(take_due(db).contains(&wide), "a full segment is queued at its publish");
+        assert!(
+            take_due(db).contains(&wide),
+            "a full segment is queued at its publish"
+        );
         let narrow = 1301;
         for i in 0..(ROTATE_TARGET_ROWS as u32 + 5) {
             inserted(db, narrow, 130_101, i / 100);
         }
         publish_pending();
-        assert!(active_rows(narrow) > ROTATE_TARGET_ROWS && !rotation_due(narrow), "under {ROTATE_BLOCKS} blocks");
+        assert!(
+            active_rows(narrow) > ROTATE_TARGET_ROWS && !rotation_due(narrow),
+            "under {ROTATE_BLOCKS} blocks"
+        );
         for i in 0..200 {
             inserted(db, narrow, 130_101, ROTATE_BLOCKS - 1 + i / 100);
         }
@@ -853,19 +1107,38 @@ mod tests {
         for i in 0..PUBLISH_ROWS - 1 {
             inserted(7, parent, a, i / 50);
         }
-        assert_eq!(active_rows(parent), 0, "under {PUBLISH_ROWS} rows nothing is published");
+        assert_eq!(
+            active_rows(parent),
+            0,
+            "under {PUBLISH_ROWS} rows nothing is published"
+        );
         inserted(7, parent, a, 30);
-        assert_eq!(active_rows(parent), u64::from(PUBLISH_ROWS), "one publish of the batch");
+        assert_eq!(
+            active_rows(parent),
+            u64::from(PUBLISH_ROWS),
+            "one publish of the batch"
+        );
         inserted(7, parent, a, 30);
         rotated(parent, a);
-        assert_eq!((active_rows(parent), sealing_rows(parent)), (0, u64::from(PUBLISH_ROWS)));
+        assert_eq!(
+            (active_rows(parent), sealing_rows(parent)),
+            (0, u64::from(PUBLISH_ROWS))
+        );
         publish_pending(); // a late row of the retired segment
         assert_eq!(sealing_rows(parent), u64::from(PUBLISH_ROWS) + 1);
         inserted(7, parent, b, 0);
         publish_pending();
-        assert_eq!(active_rows(parent), 1, "the first publisher names the new segment");
+        assert_eq!(
+            active_rows(parent),
+            1,
+            "the first publisher names the new segment"
+        );
         sealed_rows(parent, u64::from(PUBLISH_ROWS) + 5);
-        assert_eq!(sealing_rows(parent), 0, "a seal's rows leave the count, never below 0");
+        assert_eq!(
+            sealing_rows(parent),
+            0,
+            "a seal's rows leave the count, never below 0"
+        );
     }
 
     #[test]
@@ -875,13 +1148,24 @@ mod tests {
         set_sealing(parent, 3 * u64::from(ROTATE_BLOCKS));
         inserted(8, parent, 150_001, ROTATE_BLOCKS);
         publish_pending();
-        assert!(backlog(parent) > backlog_cap_for(parent) && !over_cap(parent), "sparse: blocks past two rotations, rows under: no wait");
+        assert!(
+            backlog(parent) > backlog_cap_for(parent) && !over_cap(parent),
+            "sparse: blocks past two rotations, rows under: no wait"
+        );
         rotated(parent, 150_001);
-        sealed_shape(parent, 8 * u64::from(ROTATE_BLOCKS), u64::from(ROTATE_BLOCKS), 8 * u64::from(ROTATE_BLOCKS) * 2_000);
+        sealed_shape(
+            parent,
+            8 * u64::from(ROTATE_BLOCKS),
+            u64::from(ROTATE_BLOCKS),
+            8 * u64::from(ROTATE_BLOCKS) * 2_000,
+        );
         assert_eq!(rows_cap(parent), 2 * ROTATE_TARGET_ROWS);
         move_slot(&SEALING_ROWS, parent, 2 * ROTATE_TARGET_ROWS, false);
         set_sealing(parent, 10);
-        assert!(over_cap(parent), "dense: rows past two targets, blocks under: a wait");
+        assert!(
+            over_cap(parent),
+            "dense: rows past two targets, blocks under: a wait"
+        );
         let narrow = 1501;
         sealed_shape(narrow, 600_000, u64::from(ROTATE_BLOCKS), 600_000 * 48);
         assert!(rows_cap(narrow) >= 1_190_000, "{}", rows_cap(narrow));
@@ -892,11 +1176,18 @@ mod tests {
         let first = 1503;
         set_sealing(first, u64::from(ROTATE_BLOCKS));
         move_slot(&SEALING_ROWS, first, 600_000, false);
-        assert!(rows_cap(first) >= 1_190_000 && !over_cap(first), "{}", rows_cap(first));
+        assert!(
+            rows_cap(first) >= 1_190_000 && !over_cap(first),
+            "{}",
+            rows_cap(first)
+        );
         let sparse = 1502;
         set_sealing(sparse, BACKSTOP_BLOCKS);
         inserted(8, sparse, 150_201, 0);
-        assert!(over_cap(sparse), "past the block backstop whatever the rows");
+        assert!(
+            over_cap(sparse),
+            "past the block backstop whatever the rows"
+        );
     }
 
     #[test]
@@ -909,22 +1200,43 @@ mod tests {
         assert!((14_000..17_000).contains(&steady), "{steady}");
         sealed_shape(parent, 64_045, 15_088, 64_045 * 1371);
         let after = rotate_blocks(parent);
-        assert!(after <= steady + steady / 4, "one sparse seal: {steady} -> {after}");
-        assert!(after > steady, "the estimate still moves toward the sparser seal");
+        assert!(
+            after <= steady + steady / 4,
+            "one sparse seal: {steady} -> {after}"
+        );
+        assert!(
+            after > steady,
+            "the estimate still moves toward the sparser seal"
+        );
         for _ in 0..20 {
             sealed_shape(parent, 64_045, 15_088, 64_045 * 1371);
         }
         let sparse = rotate_blocks(parent);
-        let want = rotate_blocks_for(64_045, 15_088, 64_045 * 1371, ROTATE_TARGET_ROWS, pgrc_write::writer::PartCutPolicy::default().max_bytes);
-        assert!(sparse.abs_diff(want) <= want / 100, "a table that stays sparse gets there: {sparse} vs {want}");
+        let want = rotate_blocks_for(
+            64_045,
+            15_088,
+            64_045 * 1371,
+            ROTATE_TARGET_ROWS,
+            pgrc_write::writer::PartCutPolicy::default().max_bytes,
+        );
+        assert!(
+            sparse.abs_diff(want) <= want / 100,
+            "a table that stays sparse gets there: {sparse} vs {want}"
+        );
         sealed_shape(parent, 110_000, 13_000, 110_000 * 1371);
-        assert!(rotate_blocks(parent) < sparse, "a denser seal shrinks it at once (no clamp on the way down)");
+        assert!(
+            rotate_blocks(parent) < sparse,
+            "a denser seal shrinks it at once (no clamp on the way down)"
+        );
     }
 
     #[test]
     fn the_seal_budget_admits_a_seal_alone_and_holds_the_rest() {
         let used = AtomicU64::new(0);
-        assert!(try_reserve(&used, 3 << 30, 1 << 30), "a seal alone runs past the budget");
+        assert!(
+            try_reserve(&used, 3 << 30, 1 << 30),
+            "a seal alone runs past the budget"
+        );
         assert!(!try_reserve(&used, 1, 1 << 30));
         used.store(0, Relaxed);
         assert!(try_reserve(&used, 600 << 20, 1 << 30));
@@ -941,7 +1253,11 @@ mod tests {
         for _ in 0..3 {
             assert!(try_seal_mem(budget).is_none());
         }
-        assert_eq!(seal_mem_in_use(), before + budget, "refused tries took nothing back");
+        assert_eq!(
+            seal_mem_in_use(),
+            before + budget,
+            "refused tries took nothing back"
+        );
         drop(held);
         assert_eq!(seal_mem_in_use(), before);
     }
@@ -954,8 +1270,16 @@ mod tests {
         tombstoned(4, 900, COMPILE_BLOCKS - 1);
         tombstoned(4, 900, COMPILE_BLOCKS - 1);
         inserted(4, 900, 90_001, COMPILE_BLOCKS - 1);
-        assert_eq!(take_due(4), vec![900], "one entry; the tombstone block does not count as a segment block");
-        assert_eq!(backlog(900), u64::from(COMPILE_BLOCKS), "only the insert's block is backlog");
+        assert_eq!(
+            take_due(4),
+            vec![900],
+            "one entry; the tombstone block does not count as a segment block"
+        );
+        assert_eq!(
+            backlog(900),
+            u64::from(COMPILE_BLOCKS),
+            "only the insert's block is backlog"
+        );
         tombstoned(4, 900, COMPILE_BLOCKS);
         tombstoned(4, 901, COMPILE_BLOCKS);
         assert_eq!(take_due(4), vec![900, 901]);
@@ -975,20 +1299,48 @@ mod tests {
         };
         assert_eq!(snapshot(&c, 7, || read(500)), 500);
         for _ in 0..1000 {
-            assert_eq!(snapshot(&c, 7, || read(9)), 500, "a clean statement: the cell");
+            assert_eq!(
+                snapshot(&c, 7, || read(9)),
+                500,
+                "a clean statement: the cell"
+            );
         }
         assert_eq!(reads.get(), 1);
-        assert_eq!(snapshot(&c, 8, || read(100_000)), 100_000, "a SET: read again");
-        assert_eq!(snapshot(&c, 9, || read(500)), 500, "its rollback: read again");
+        assert_eq!(
+            snapshot(&c, 8, || read(100_000)),
+            100_000,
+            "a SET: read again"
+        );
+        assert_eq!(
+            snapshot(&c, 9, || read(500)),
+            500,
+            "its rollback: read again"
+        );
         assert_eq!(snapshot(&c, 9, || read(1)), 500);
         assert_eq!(reads.get(), 3);
         let none: Cell<Option<(u64, Option<u64>)>> = Cell::new(None);
         assert_eq!(snapshot(&none, 3, || None), None);
-        assert_eq!(snapshot(&none, 3, || Some(64)), None, "an unset option is cached as unset");
+        assert_eq!(
+            snapshot(&none, 3, || Some(64)),
+            None,
+            "an unset option is cached as unset"
+        );
     }
 
     fn clear(p: Oid) {
-        for s in [&ACTIVE, &ACTIVE_ROWS, &ACTIVE_SEG, &RETIRED_SEG, &SEALING_ROWS, &DENSITY, &ROTATE, &FULL_ROWS, &ROTATING, &SEAL_BPB, &STALL_ROT] {
+        for s in [
+            &ACTIVE,
+            &ACTIVE_ROWS,
+            &ACTIVE_SEG,
+            &RETIRED_SEG,
+            &SEALING_ROWS,
+            &DENSITY,
+            &ROTATE,
+            &FULL_ROWS,
+            &ROTATING,
+            &SEAL_BPB,
+            &STALL_ROT,
+        ] {
             s[p as usize % BACKLOG_SLOTS].store(0, Relaxed);
         }
         set_sealing(p, 0);
@@ -1033,7 +1385,10 @@ mod tests {
                 })
             })
             .collect();
-        let won = claims.into_iter().map(|h| usize::from(h.join().unwrap())).sum::<usize>();
+        let won = claims
+            .into_iter()
+            .map(|h| usize::from(h.join().unwrap()))
+            .sum::<usize>();
         assert_eq!(won, 1, "one claim of 16");
         assert!(rotating(p) && !begin_rotation(p));
         end_rotation(p);
@@ -1052,8 +1407,15 @@ mod tests {
         assert_eq!(rotate_min(p), 1);
         let before = stall_rotations(p);
         rotated(p, 0);
-        assert_eq!(stall_rotations(p), before + 1, "a stall's rotation is counted");
-        assert!(!stall_due(p) && in_flight(p), "its rows sealing: the wait is on that seal");
+        assert_eq!(
+            stall_rotations(p),
+            before + 1,
+            "a stall's rotation is counted"
+        );
+        assert!(
+            !stall_due(p) && in_flight(p),
+            "its rows sealing: the wait is on that seal"
+        );
         clear(p);
         sealed_shape(p, rows, u64::from(ROTATE_BLOCKS), rows * 40);
         set_slot(&ACTIVE, p, u64::from(MAX_ROTATE_BLOCKS));
@@ -1075,8 +1437,15 @@ mod tests {
         for blocks in (512..=u64::from(ROTATE_BLOCKS)).step_by(64) {
             set_slot(&ACTIVE, p, blocks);
             set_slot(&ACTIVE_ROWS, p, 104 * blocks);
-            assert!(rows_cap(p) >= 2 * 104 * u64::from(ROTATE_BLOCKS), "{blocks} blocks: cap {}", rows_cap(p));
-            assert!(!over_cap(p) && !stall_due(p), "{blocks} blocks at 104 a block");
+            assert!(
+                rows_cap(p) >= 2 * 104 * u64::from(ROTATE_BLOCKS),
+                "{blocks} blocks: cap {}",
+                rows_cap(p)
+            );
+            assert!(
+                !over_cap(p) && !stall_due(p),
+                "{blocks} blocks at 104 a block"
+            );
         }
         set_slot(&ACTIVE, p, 0);
         set_slot(&ACTIVE_ROWS, p, 0);
@@ -1084,7 +1453,11 @@ mod tests {
         move_slot(&SEALING_ROWS, p, 104 * u64::from(ROTATE_BLOCKS), false);
         set_slot(&ACTIVE, p, 40);
         set_slot(&ACTIVE_ROWS, p, 104 * 40);
-        assert!(rows_cap(p) >= 2 * 104 * u64::from(ROTATE_BLOCKS) && !over_cap(p), "cap {}", rows_cap(p));
+        assert!(
+            rows_cap(p) >= 2 * 104 * u64::from(ROTATE_BLOCKS) && !over_cap(p),
+            "cap {}",
+            rows_cap(p)
+        );
         clear(p);
         sealed_shape(p, rows, u64::from(ROTATE_BLOCKS), rows * 40);
         set_slot(&ACTIVE, p, 100);
@@ -1096,15 +1469,27 @@ mod tests {
     #[test]
     fn the_one_load_cap_check_is_the_formula_it_replaced() {
         fn replaced(parent: Oid) -> bool {
-            let d = slot_value(&DENSITY, parent).filter(|d| *d > 0).unwrap_or_else(|| {
-                let blocks = sealing_blocks(parent) + active_blocks(parent);
-                if blocks == 0 { 0 } else { ((sealing_rows(parent) + active_rows(parent)) << 8) / blocks }
-            });
+            let d = slot_value(&DENSITY, parent)
+                .filter(|d| *d > 0)
+                .unwrap_or_else(|| {
+                    let blocks = sealing_blocks(parent) + active_blocks(parent);
+                    #[allow(clippy::manual_checked_ops)]
+                    if blocks == 0 {
+                        0
+                    } else {
+                        ((sealing_rows(parent) + active_rows(parent)) << 8) / blocks
+                    }
+                });
             let ub = sealing_blocks(parent) + active_blocks(parent);
-            let live = if ub >= LIVE_MIN_BLOCKS { ((sealing_rows(parent) + active_rows(parent)) << 8) / ub } else { 0 };
+            let live = if ub >= LIVE_MIN_BLOCKS {
+                ((sealing_rows(parent) + active_rows(parent)) << 8) / ub
+            } else {
+                0
+            };
             let base = (d.max(live) * u64::from(ROTATE_BLOCKS)) >> 8;
             let cap = 2 * rows_target(parent).max(base);
-            sealing_rows(parent) + active_rows(parent) + pending_rows(parent) > cap || backlog(parent) > BACKSTOP_BLOCKS
+            sealing_rows(parent) + active_rows(parent) + pending_rows(parent) > cap
+                || backlog(parent) > BACKSTOP_BLOCKS
         }
         set_target(ROTATE_TARGET_ROWS);
         let p = 1796;
@@ -1133,10 +1518,14 @@ mod tests {
         }
         clear(p);
         assert_eq!(checked, 600);
-        assert!(over > 0 && over < checked, "{over} of {checked} over the cap");
+        assert!(
+            over > 0 && over < checked,
+            "{over} of {checked} over the cap"
+        );
     }
 
-    static LOOKUPS: std::sync::Mutex<Vec<(std::thread::ThreadId, u64)>> = std::sync::Mutex::new(Vec::new());
+    static LOOKUPS: std::sync::Mutex<Vec<(std::thread::ThreadId, u64)>> =
+        std::sync::Mutex::new(Vec::new());
 
     fn counted_lookup(_: &str) -> PgResult<Option<String>> {
         let me = std::thread::current().id();
@@ -1152,7 +1541,12 @@ mod tests {
         static INSTALL: std::sync::Once = std::sync::Once::new();
         INSTALL.call_once(|| guc_seams::get_config_option_missing_ok::set(counted_lookup));
         let me = std::thread::current().id();
-        LOOKUPS.lock().unwrap_or_else(|e| e.into_inner()).iter().find(|(t, _)| *t == me).map_or(0, |(_, n)| *n)
+        LOOKUPS
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .find(|(t, _)| *t == me)
+            .map_or(0, |(_, n)| *n)
     }
 
     #[test]
@@ -1166,10 +1560,19 @@ mod tests {
             inserted(db, p, seg, i / 100);
         }
         let n = lookups() - before;
-        assert_eq!(crate::xact::take(p, 1).iter().map(|(_, r)| r.len()).sum::<usize>(), 10_000);
+        assert_eq!(
+            crate::xact::take(p, 1)
+                .iter()
+                .map(|(_, r)| r.len())
+                .sum::<usize>(),
+            10_000
+        );
         publish_pending();
         let _ = take_due(db);
         clear(p);
-        assert!(n <= 4, "{n} option lookups by name for 10,000 rows (one or more a row)");
+        assert!(
+            n <= 4,
+            "{n} option lookups by name for 10,000 rows (one or more a row)"
+        );
     }
 }

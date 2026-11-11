@@ -18,6 +18,7 @@ use crate::ops::sort::topn::t3::{distinct_geometry, distinct_list_off, export_li
 
 impl Plan {
     /// # Safety — `ctx` carries `NPARAMS` parameter words.
+    #[allow(clippy::missing_safety_doc)]
     pub unsafe fn read(ctx: *mut Ctx) -> Option<Plan> {
         let p = core::slice::from_raw_parts((*ctx).params.ptr(), NPARAMS);
         if p[P_SHAPE] >> 24 & MODE_TWO_PASS as u64 == 0 {
@@ -41,6 +42,7 @@ impl Plan {
     /// Key `k`'s word for ordering and output: an int key's word, or a text key's representative
     /// slot (`base` slots before it) — the rendered datum once the leader rendered it.
     #[inline(always)]
+    #[allow(clippy::missing_safety_doc)]
     pub unsafe fn key_out(&self, r: &Rec<'_>, k: usize, base: usize) -> u64 {
         if is_text(self.key_kind[k]) { slot_word(r, base + self.rep_slot[k]) } else { r.key(self.key_word[k]) }
     }
@@ -198,6 +200,7 @@ pub(in crate::ops::sort::topn) unsafe fn export_reduce(params: *const u64, owner
 }
 
 /// A record's text representatives rendered in place (`(part, code)` → the datum resident with the part).
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn render_reps(pl: &Plan, layout: &RecordLayout, site: *mut Site, r: *mut u8) -> i64 {
     let one = |slot: usize, lane: usize| -> i64 {
         let off = r.add(layout.slot_off[slot] as usize) as *mut u64;
@@ -223,6 +226,7 @@ pub unsafe fn render_reps(pl: &Plan, layout: &RecordLayout, site: *mut Site, r: 
 }
 
 /// Every record of a finished export region (`owner_fns_pass1` / `owner_fns_pass2`'s layout): the
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn export_records(owned: *const u8, p: &[u64], f: &mut dyn FnMut(*const u8)) -> Option<usize> {
     let pl = Plan::from_words(p)?;
     let o = Owned::view(owned);
@@ -252,6 +256,7 @@ pub unsafe fn export_records(owned: *const u8, p: &[u64], f: &mut dyn FnMut(*con
 }
 
 /// The granule marks of a finished distinct pass-1 region (`MISC_GMARK`): every owner's listed
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn gmark_lists(owned: *const u8, p1: &[u64], f: &mut dyn FnMut(u64, u64, u64)) -> Option<usize> {
     let pl = Plan::from_words(p1)?;
     if !pl.gmark || pl.export & 0xff != EXPORT_TOP {
@@ -276,6 +281,7 @@ pub unsafe fn gmark_lists(owned: *const u8, p1: &[u64], f: &mut dyn FnMut(u64, u
 }
 
 /// The exported keys of a finished pass-1 region: every record's first key word, to `f`.
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn export_keys(owned: *const u8, p1: &[u64], f: &mut dyn FnMut(u64)) -> Option<usize> {
     let key_off = Plan::from_words(p1)?.layout().key_off(0);
     export_records(owned, p1, &mut |r| f(*(r.add(key_off) as *const u64)))
@@ -673,6 +679,7 @@ impl Top<'_> {
                 return Ok(ca > cb);
             }
         }
+        #[allow(clippy::needless_range_loop)]
         for k in 0..self.nkeys {
             let text = self.pl.key_kind[k] == K_TEXT && k < ng;
             let wa = if text {
@@ -712,6 +719,7 @@ impl Top<'_> {
         };
         core::ptr::copy_nonoverlapping(r, self.base.add(slot * self.rec), self.rec);
         let kept = Rec::at(self.base.add(slot * self.rec), self.layout);
+        #[allow(clippy::needless_range_loop)]
         for k in 0..ng {
             if self.pl.key_kind[k] != K_TEXT {
                 continue;
@@ -754,6 +762,7 @@ impl Top<'_> {
 }
 
 /// A pair record folded into its group's accumulator record: the pair counted, the plain slots
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn fold_pair(pl: &Plan, acc: &Rec<'_>, pair: &Rec<'_>, ng: usize) {
     acc.add_count(0, 1);
     for j in 0..pl.nslots {
@@ -783,6 +792,7 @@ pub unsafe fn fold_pair(pl: &Plan, acc: &Rec<'_>, pair: &Rec<'_>, ng: usize) {
 
 /// Slot `j`'s raw word (a `MinCode` representative, or the datum an owner rendered into it).
 #[inline(always)]
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn slot_word(r: &Rec<'_>, j: usize) -> u64 {
     *(r.as_ptr().add(r.layout.slot_off[j] as usize) as *const u64)
 }

@@ -31,8 +31,16 @@ fn statement_end(r: &memledger::StatementEnd) {
     }
     let list = |peaks: &[i64; memledger::KINDS]| {
         let mut out = String::new();
-        for (k, p) in memledger::Kind::ALL.iter().zip(peaks).filter(|(_, p)| **p > 0) {
-            out.push_str(&format!("{}{}:{p}", if out.is_empty() { "" } else { "," }, k.name())); // alloc: Cold
+        for (k, p) in memledger::Kind::ALL
+            .iter()
+            .zip(peaks)
+            .filter(|(_, p)| **p > 0)
+        {
+            out.push_str(&format!(
+                "{}{}:{p}",
+                if out.is_empty() { "" } else { "," },
+                k.name()
+            )); // alloc: Cold
         }
         if out.is_empty() {
             out.push('-');
@@ -86,6 +94,9 @@ mod tests {
         note("admit.floor", "need 48 MiB past the lane: alone");
         disable();
         assert!(!on());
-        assert_eq!(pgsync::lock(&SEEN).as_slice(), ["admit.floor: need 48 MiB past the lane: alone"]);
+        assert_eq!(
+            pgsync::lock(&SEEN).as_slice(),
+            ["admit.floor: need 48 MiB past the lane: alone"]
+        );
     }
 }

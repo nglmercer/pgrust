@@ -63,6 +63,7 @@ pub struct Assignment {
 pub type RegBitSet = u64;
 
 #[repr(C)]
+#[allow(clippy::manual_non_exhaustive)]
 pub struct RegisterFile<const NUM_BANKS: usize, const REGS_PER_BANK: usize> {
     pub allocatable: Cell<RegBitSet>,
     pub used: Cell<RegBitSet>,

@@ -12,9 +12,9 @@ use ::types_error::{
     PgError, PgResult, ERRCODE_DATA_CORRUPTED, ERRCODE_PROGRAM_LIMIT_EXCEEDED, PANIC,
 };
 use ::types_rel::Relation;
+use ::types_spgist::state::SpGistState;
 use ::types_spgist::*;
 pub use ::types_spgist::{spgFormDeadTuple, SpGistInitPage};
-use ::types_spgist::state::SpGistState;
 use ::types_storage::bufpage::{PageMut, PageRef, SizeOfPageHeaderData};
 use ::types_tuple::itemptr::ItemPointerData;
 use ::types_tuple::TupleDescData;
@@ -34,8 +34,7 @@ pub fn relation_needs_wal(rel: &Relation<'_>) -> bool {
     rel.is_permanent()
         && (transam_xlog_seams::xlog_standby_info_active::call()
             || (rel.rd_createSubid.get() == ::types_core::InvalidSubTransactionId
-                && rel.rd_firstRelfilelocatorSubid.get()
-                    == ::types_core::InvalidSubTransactionId))
+                && rel.rd_firstRelfilelocatorSubid.get() == ::types_core::InvalidSubTransactionId))
 }
 
 pub fn unlock_release(buffer: Buffer) -> PgResult<()> {
@@ -71,7 +70,9 @@ pub fn item_slice_mut<'a>(pm: &'a mut PageMut<'_>, offnum: OffsetNumber) -> &'a 
 #[inline(never)]
 #[track_caller]
 pub fn tuple_state_error(tupstate: u8) -> Box<PgError> {
-    Box::new(PgError::error(format!("unexpected SPGiST tuple state: {tupstate}")))
+    Box::new(PgError::error(format!(
+        "unexpected SPGiST tuple state: {tupstate}"
+    )))
 }
 
 /// C: elog(ERROR, "failed to add item of size %u to SPGiST index page", size)
@@ -80,7 +81,9 @@ pub fn tuple_state_error(tupstate: u8) -> Box<PgError> {
 #[inline(never)]
 #[track_caller]
 pub fn add_item_failed(size: usize) -> Box<PgError> {
-    Box::new(PgError::error(format!("failed to add item of size {size} to SPGiST index page")))
+    Box::new(PgError::error(format!(
+        "failed to add item of size {size} to SPGiST index page"
+    )))
 }
 
 /// C: elog(PANIC, "failed to add item of size %zu to SPGiST index page", size)
@@ -210,9 +213,7 @@ const SIZEOF_META: usize = 4 + SPGIST_CACHED_PAGES * 8;
 
 pub(crate) fn read_meta(page: &PageRef<'_>) -> SpGistMetaPageData {
     // SAFETY: metapage content area holds SpGistMetaPageData (init contract).
-    let b = unsafe {
-        core::slice::from_raw_parts(page.as_ptr().add(META_OFFSET), SIZEOF_META)
-    };
+    let b = unsafe { core::slice::from_raw_parts(page.as_ptr().add(META_OFFSET), SIZEOF_META) };
     let mut m = SpGistMetaPageData {
         magicNumber: u32::from_ne_bytes([b[0], b[1], b[2], b[3]]),
         ..Default::default()
@@ -306,7 +307,10 @@ fn get_index_input_type(index: &Relation<'_>) -> PgResult<Oid> {
     if !polymorphic {
         return Ok(opcintype);
     }
-    let ind = index.rd_index.as_ref().expect("spgist index without rd_index");
+    let ind = index
+        .rd_index
+        .as_ref()
+        .expect("spgist index without rd_index");
     let heapcol = ind.indkey.first().copied().unwrap_or(0);
     if heapcol != 0 {
         return lsyscache::typ::getBaseType(lsyscache::attribute::get_atttype(
@@ -479,7 +483,11 @@ pub fn initSpGistState<'mcx>(
         chooseFn: choose,
         picksplitFn: picksplit,
         compressFn: compress,
-        missingProcIndex: if missing { Some(index.name().to_string()) } else { None },
+        missingProcIndex: if missing {
+            Some(index.name().to_string())
+        } else {
+            None
+        },
         opclassOptions: None,
         frame1: ::types_fmgr::LocalFcinfo::<1>::new(0),
         frame2: ::types_fmgr::LocalFcinfo::<2>::new(0),
@@ -557,11 +565,7 @@ fn get_lup_index(flags: i32) -> usize {
     (flags as u32 as usize) % SPGIST_CACHED_PAGES
 }
 
-fn allocNewBuffer(
-    index: &Relation<'_>,
-    flags: i32,
-    cache: &mut SpGistCache,
-) -> PgResult<Buffer> {
+fn allocNewBuffer(index: &Relation<'_>, flags: i32, cache: &mut SpGistCache) -> PgResult<Buffer> {
     let mut pageflags: u16 = 0;
     if GBUF_REQ_LEAF(flags) {
         pageflags |= SPGIST_LEAF;
@@ -612,7 +616,9 @@ pub fn SpGistGetBuffer(
 
     // C (spgutils.c:576): int comparison, elog(ERROR) — catchable XX000.
     if need_space > SPGIST_PAGE_CAPACITY as i32 {
-        return Err(Box::new(PgError::error("desired SPGiST tuple size is too big")));
+        return Err(Box::new(PgError::error(
+            "desired SPGiST tuple size is too big",
+        )));
     }
 
     need_space += SpGistGetTargetPageFreeSpace(index) as i32;
@@ -627,7 +633,9 @@ pub fn SpGistGetBuffer(
         return Ok(buffer);
     }
 
-    debug_assert!(!SpGistBlockIsFixed(cache.lastUsedPages.cachedPage[lup_idx].blkno));
+    debug_assert!(!SpGistBlockIsFixed(
+        cache.lastUsedPages.cachedPage[lup_idx].blkno
+    ));
 
     if cache.lastUsedPages.cachedPage[lup_idx].freeSpace >= need_space {
         let blkno = cache.lastUsedPages.cachedPage[lup_idx].blkno;
@@ -850,9 +858,7 @@ pub fn SpGistGetInnerTypeSize(att: &SpGistTypeDesc, datum: Datum) -> usize {
         att.attlen as usize
     } else {
         // SAFETY: by-ref varlena datum carries a live pointer (caller contract).
-        unsafe {
-            ::types_tuple::varatt::varsize_any(datum.as_usize() as *const u8)
-        }
+        unsafe { ::types_tuple::varatt::varsize_any(datum.as_usize() as *const u8) }
     };
     MAXALIGN(size)
 }
@@ -1213,7 +1219,9 @@ pub fn spgExtractNodeLabels(
 #[cold]
 #[inline(never)]
 fn mixed_null_labels() -> Box<PgError> {
-    Box::new(PgError::error("some but not all node labels are null in SPGiST inner tuple"))
+    Box::new(PgError::error(
+        "some but not all node labels are null in SPGiST inner tuple",
+    ))
 }
 
 /// SGNTDATUM.
@@ -1256,9 +1264,7 @@ pub fn SpGistPageAddNewItem(
     let size = item.len();
     let opaque = page_opaque(&pm.as_ref());
 
-    if opaque.nPlaceholder > 0
-        && pm.as_ref().exact_free_space() + SGDTSIZE >= MAXALIGN(size)
-    {
+    if opaque.nPlaceholder > 0 && pm.as_ref().exact_free_space() + SGDTSIZE >= MAXALIGN(size) {
         let maxoff = pm.as_ref().max_offset_number();
         let mut offnum = InvalidOffsetNumber;
         let mut hint = start_offset.as_ref().map_or(InvalidOffsetNumber, |s| **s);
@@ -1411,7 +1417,13 @@ pub(crate) mod node_label_tests {
     }
 
     fn desc(type_: ::types_core::Oid, attlen: i16, attbyval: bool) -> SpGistTypeDesc {
-        SpGistTypeDesc { type_, attlen, attbyval, attalign: b's' as i8, attstorage: b'p' as i8 }
+        SpGistTypeDesc {
+            type_,
+            attlen,
+            attbyval,
+            attalign: b's' as i8,
+            attstorage: b'p' as i8,
+        }
     }
 
     pub(crate) fn state<'m>(mcx: Mcx<'m>) -> SpGistState<'m> {
@@ -1483,7 +1495,10 @@ pub(crate) mod node_label_tests {
         let mut out = Vec::new();
         let err = spgExtractNodeLabels(&st, &inner, &mut out)
             .expect_err("mixed null/non-null labels must be rejected");
-        assert_eq!(err.message(), "some but not all node labels are null in SPGiST inner tuple");
+        assert_eq!(
+            err.message(),
+            "some but not all node labels are null in SPGiST inner tuple"
+        );
         assert_eq!(err.sqlstate(), ::types_error::ERRCODE_INTERNAL_ERROR);
     }
 }
@@ -1503,13 +1518,24 @@ mod lazy_support_proc_tests {
         st.missingProcIndex = Some("st_a_idx".to_string());
         // SAFETY: the missing-proc check fails before any field is read.
         let (cin, mut cout, pin, mut pout) = unsafe {
-            (core::mem::zeroed(), core::mem::zeroed(), core::mem::zeroed(), core::mem::zeroed())
+            (
+                core::mem::zeroed(),
+                core::mem::zeroed(),
+                core::mem::zeroed(),
+                core::mem::zeroed(),
+            )
         };
         assert!(st.require_choose().is_err());
         let e = st.call_choose(ctx.mcx(), &cin, &mut cout).unwrap_err();
-        assert_eq!(e.message(), "missing support function 2 for attribute 1 of index \"st_a_idx\"");
+        assert_eq!(
+            e.message(),
+            "missing support function 2 for attribute 1 of index \"st_a_idx\""
+        );
         let e = st.call_picksplit(ctx.mcx(), &pin, &mut pout).unwrap_err();
-        assert_eq!(e.message(), "missing support function 3 for attribute 1 of index \"st_a_idx\"");
+        assert_eq!(
+            e.message(),
+            "missing support function 3 for attribute 1 of index \"st_a_idx\""
+        );
     }
 }
 
@@ -1534,7 +1560,11 @@ mod opclass_options_tests {
         st.set_opclass_options(Some(Box::new(OpclassOptions(img.clone()))));
         assert_eq!(st.chooseFn.opclass_options(), Some(&img[..]));
         assert_eq!(st.picksplitFn.opclass_options(), Some(&img[..]));
-        assert_eq!(st.compressFn.opclass_options(), None, "unresolved compress proc");
+        assert_eq!(
+            st.compressFn.opclass_options(),
+            None,
+            "unresolved compress proc"
+        );
 
         st.compressFn.fn_oid = 4242;
         st.set_opclass_options(Some(Box::new(OpclassOptions(img.clone()))));

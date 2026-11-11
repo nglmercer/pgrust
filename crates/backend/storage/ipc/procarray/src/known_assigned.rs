@@ -745,6 +745,7 @@ pub(crate) mod test_support {
         KnownAssignedXidsRemovePreceding(xid)
     }
 
+    #[allow(dead_code)]
     pub fn compress_no_space(have_lock: bool) -> PgResult<()> {
         KnownAssignedXidsCompress(NoSpace, have_lock)
     }

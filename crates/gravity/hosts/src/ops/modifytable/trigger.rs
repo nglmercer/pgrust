@@ -68,6 +68,7 @@ fn merge_refusal(ext: &TrigExt, merge: MergeOps, view: bool) -> Option<&'static 
     ops.iter().filter(|o| o.0).find_map(|o| ext.refusal_on(o.1, view))
 }
 
+#[allow(clippy::large_enum_variant)]
 pub enum Bound {
     None,
     Host(TriggerHost),

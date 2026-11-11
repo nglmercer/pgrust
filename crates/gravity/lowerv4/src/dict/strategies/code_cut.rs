@@ -28,6 +28,7 @@
 use gravity_abi::ctx::{lane, site_off};
 use gravity_abi::site::site;
 use gravity_abi::LANE_SIZE;
+#[allow(unused_imports)]
 use gravity_decompose::graph::Bound;
 use gravity_decompose::{Am, Op, Source};
 use gravity_decompose::ops::shared::sort::SortForm;
@@ -251,6 +252,7 @@ pub(crate) fn group_end<'g>(px: &mut Px<'g, '_>, k: usize, inner: PgBox<'g, dyn 
 }
 
 /// The straight form (D2) code.heads registers: it declines every top.
+#[allow(dead_code)]
 pub(crate) struct Straight;
 
 impl CodeTopkMech for Straight {
@@ -259,6 +261,7 @@ impl CodeTopkMech for Straight {
     }
 }
 
+#[allow(dead_code)]
 pub(crate) const STRAIGHT: CodeTopkImpl = CodeTopkImpl(&Straight);
 
 /// The prefilter over the top's `inner` end: a row passes to it unless its first key lies past its entry's cut.

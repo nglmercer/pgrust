@@ -1326,6 +1326,7 @@ pub fn interval_agg_combine(
 // gate: the pq_getmsg* layer rejects short input ("insufficient data left in
 // message") and pq_getmsgend rejects trailing bytes ("invalid message
 // format"), both ERRCODE_PROTOCOL_VIOLATION.
+#[allow(clippy::field_reassign_with_default)]
 pub fn interval_agg_state_deserialize(
     buf: &mut ::stringinfo::StringInfo<'_>,
 ) -> PgResult<IntervalAggState> {

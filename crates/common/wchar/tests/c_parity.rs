@@ -55,6 +55,7 @@ fn mblen_tables_match_c() {
 #[test]
 fn dsplen_tables_match_c() {
     for e in 0..42i32 {
+        #[allow(clippy::needless_range_loop)]
         for b in 0..256usize {
             let buf = [b as u8, 0xa4, 0xb9, 0x8e, 0];
             assert_eq!(
@@ -177,6 +178,7 @@ fn mb2wchar_matches_c() {
         for corpus in CORPORA {
             let cnt = conv(corpus, &mut to);
             f.h32(cnt as u32);
+            #[allow(clippy::needless_range_loop)]
             for k in 0..=cnt as usize {
                 f.h32(to[k]);
             }
@@ -196,6 +198,7 @@ fn wchar2mb_matches_c() {
     };
     let mut wsrc = [[0u32; 129]; 64];
     for row in wsrc.iter_mut() {
+        #[allow(clippy::needless_range_loop)]
         for k in 0..128 {
             let r = next64();
             let mut w = r as u32;
@@ -216,6 +219,7 @@ fn wchar2mb_matches_c() {
         for row in &wsrc {
             let cnt = conv(&row[..128], &mut to);
             f.h32(cnt as u32);
+            #[allow(clippy::needless_range_loop)]
             for k in 0..=cnt as usize {
                 f.h32(to[k] as u32);
             }

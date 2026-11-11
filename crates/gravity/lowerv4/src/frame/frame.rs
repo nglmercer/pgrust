@@ -759,8 +759,8 @@ fn row_loop(b: &mut FunctionBuilder<'_>, env: &mut Env, m: &Mechs<'_>, win: &Win
 /// - the fast body while the window's guard holds, with `env.body` set to the facts it runs under: the 64-row block path
 ///   when the first step has a block form (`block_open`'s guard ANDed in), else the straight rows;
 /// - the general body, the straight rows with every fact tested per row (the tail, a failed guard).
-/// The end may take the window whole first (`EndMech::whole`). Row loops are bounded by the window, so their back edges
-/// carry no check (§3.6). The rows counted leave at every write-back (stop.rs).
+///   The end may take the window whole first (`EndMech::whole`). Row loops are bounded by the window, so their back edges
+///   carry no check (§3.6). The rows counted leave at every write-back (stop.rs).
 fn row_loop_in(b: &mut FunctionBuilder<'_>, env: &mut Env, m: &Mechs<'_>, win: &Win, x: &Exits) {
     let mut carry0 = Carry::new(env.zero, env.mcx);
     carry0.accs = m.end.carried(b, env);

@@ -412,6 +412,7 @@ fn held_bound(mcx: Mcx<'static>, pstmt: &'static PlannedStmt<'static>) -> PgResu
     let facts = gravity_hosts::facts::RelcacheFacts::new(mcx);
     let one = matches!(mt.operation, CmdType::CMD_INSERT | CmdType::CMD_UPDATE | CmdType::CMD_DELETE)
         && mt.plan.lefttree.and_then(|n| gravity_decompose::catalog::rows::max_rows(&facts, pstmt, n)).is_some_and(|m| m <= 1);
+    #[allow(clippy::nonminimal_bool)]
     if !(one && builtin) || !relcache_seams::relation_get_trigger_desc::is_installed() {
         return Ok(false);
     }

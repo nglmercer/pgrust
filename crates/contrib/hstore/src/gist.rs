@@ -349,6 +349,7 @@ pub fn fc_ghstore_picksplit(f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> Pg
     // C: seed search over 1..n-2, distribution over 1..=n-1.
     let seed_maxoff = n - 2;
     let mut keys: Vec<Option<GhKey>> = (0..n).map(|_| None).collect();
+    #[allow(clippy::needless_range_loop)]
     for k in 1..n {
         keys[k] = Some(decode_key(key_image(entryvec.vector[k].key))?);
     }
@@ -383,6 +384,7 @@ pub fn fc_ghstore_picksplit(f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> Pg
     };
 
     let mut costvector: Vec<(usize, i32)> = ::mcx::std_vec_with_capacity("contrib", maxoff)?;
+    #[allow(clippy::needless_range_loop)]
     for j in 1..=maxoff {
         let kj = keys[j].as_ref().unwrap();
         let size_alpha = hemdist_working(datum_l_allistrue, &union_l, kj, siglen);

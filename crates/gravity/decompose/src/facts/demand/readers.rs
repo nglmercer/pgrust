@@ -273,8 +273,8 @@ pub fn uniq_params<'p>(b: &Builder<'p, '_>, nl: &'p NestLoop<'p>, inner: &mut Op
     let Some(u) = b.parents.as_ref().and_then(|p| p.uniq.iter().find(|u| u.at == at)) else { return Ok(&nl.nestParams) };
     let sub = u.how.as_ref().map_err(|why| Refusal::shape(k, id, why))?;
     let fail = || Refusal::shape(k, id, UNIQ_APPLY);
-    let mcx = b.alloc.ok_or_else(|| fail())?;
-    uniq_apply(mcx, nl, sub, inner).map_err(|_| fail())?.ok_or_else(|| fail())
+    let mcx = b.alloc.ok_or_else(&fail)?;
+    uniq_apply(mcx, nl, sub, inner).map_err(|_| fail())?.ok_or_else(fail)
 }
 
 fn uniq_apply<'p>(mcx: mcx::Mcx<'p>, nl: &'p NestLoop<'p>, u: &UniqSub<'p>, inner: &mut Open<'p>) -> types_error::PgResult<Option<&'p NodeList<'p>>> {
@@ -848,6 +848,7 @@ fn copies(n: Node<'_>, side: i32) -> bool {
         return side == OUTER_VAR;
     }
     let jt = n.as_hash_join().map(|j| j.join.jointype).or(n.as_nest_loop().map(|j| j.join.jointype)).or(n.as_merge_join().map(|j| j.join.jointype));
+    #[allow(clippy::match_like_matches_macro)]
     match (jt, side) {
         (Some(J::JOIN_INNER | J::JOIN_ANTI | J::JOIN_RIGHT_ANTI | J::JOIN_LEFT | J::JOIN_RIGHT | J::JOIN_FULL), OUTER_VAR | INNER_VAR) => true,
         (Some(J::JOIN_SEMI), OUTER_VAR) | (Some(J::JOIN_RIGHT_SEMI), INNER_VAR) => true,

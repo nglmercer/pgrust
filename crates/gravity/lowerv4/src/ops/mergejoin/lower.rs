@@ -32,6 +32,7 @@ pub(crate) use gravity_decompose::join::JoinDesc;
 pub(crate) use gravity_decompose::{Op, Source};
 pub(crate) use gravity_ir::builder::FunctionBuilder;
 pub(crate) use gravity_ir::{Block, IntBinOp, IntCond, Type, Value};
+#[allow(unused_imports)]
 pub(crate) use gravity_program::End;
 pub(crate) use types_nodes::jointype::JoinType;
 
@@ -313,7 +314,7 @@ pub(crate) fn make<'g>(px: &mut Px<'g, '_>, k: usize, j: usize) -> PgBox<'g, dyn
             };
             held_ahead.extend_in(accepted.iter().flatten().copied());
             let ahead = ahead || accepted.is_some();
-            return ahead.then_some(None).unwrap_or_else(|| shape(node, "a merge join whose inner side can raise or calls a user or volatile function (PG runs it only once an outer row needs it: D1236)"));
+            return if ahead { None } else { shape(node, "a merge join whose inner side can raise or calls a user or volatile function (PG runs it only once an outer row needs it: D1236)") };
         };
         group.into_iter().for_each(|x| px.lazy.push((x, k))); // alloc: Program
         Some((consumed, lz))
@@ -605,13 +606,13 @@ impl StepMech for Merge<'_> {
         let to = b.select(no, to_c, sk_c);
         let to = b.select(io, ii_c, to);
         env.store_word(b, self.w[W_ST as usize], to);
-        let p = mcx::to_vec_in(&b.block_params(l_m)[..], env.mcx);
+        let p = mcx::to_vec_in(b.block_params(l_m), env.mcx);
         b.br(l_mach, &p);
         b.switch_to(l_nm);
-        let p = mcx::to_vec_in(&b.block_params(l_nm)[..], env.mcx);
+        let p = mcx::to_vec_in(b.block_params(l_nm), env.mcx);
         b.br(if self.fill_outer() { l_fill } else { l_out }, &p);
         b.switch_to(l_eoj);
-        let p = mcx::to_vec_in(&b.block_params(l_eoj)[..], env.mcx);
+        let p = mcx::to_vec_in(b.block_params(l_eoj), env.mcx);
         self.st(b, env, if self.fill_inner() { ENDOUTER } else { DONE });
         b.br(if self.fill_inner() { l_out } else { l_done }, &p);
         // D3379 (mergecmd_rowc_cte :48): the outer row stays in reach of a writing CTE's MERGE redo in the IR (merge/epq.rs

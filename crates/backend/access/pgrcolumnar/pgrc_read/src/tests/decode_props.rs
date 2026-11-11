@@ -9,12 +9,14 @@
 use pgrc_format::abi::{ByteArena, DecodeOut, Selection, ValidityVerdict};
 use pgrc_format::class::StorageClass;
 use pgrc_format::geom::OVERSIZE_THRESHOLD;
-use pgrc_format::meta::{ProbeAnswer, MetaProbe};
+use pgrc_format::meta::{MetaProbe, ProbeAnswer};
 use pgrc_format::part::StreamRole;
 use pgrc_format::wire::varlena_4b_u_payload_len;
 
 use crate::cursor::{reference_binding_leaked, StreamCursor};
-use crate::testpart::{build_part, seq_i64_col, text_col, CellValue, ColSpec, PartSpec, RefEncoding};
+use crate::testpart::{
+    build_part, seq_i64_col, text_col, CellValue, ColSpec, PartSpec, RefEncoding,
+};
 use crate::ReadError;
 
 use super::{open_built, ArenaBuf, XorShift};
@@ -30,6 +32,7 @@ pub(super) fn assert_granule(
     base: usize,
     n: usize,
 ) {
+    #[allow(clippy::needless_range_loop)]
     for i in 0..n {
         let r = base + i;
         if !valid[r] {
@@ -37,10 +40,9 @@ pub(super) fn assert_granule(
         }
         let mut scratch = [0u8; 8];
         // SAFETY: pointer-class outputs point into the live decode arena.
-        let got = unsafe {
-            pgrc_format::abi::datum_canonical_bytes(class, datums[i], &mut scratch)
-        }
-        .expect("canonical bytes");
+        let got =
+            unsafe { pgrc_format::abi::datum_canonical_bytes(class, datums[i], &mut scratch) }
+                .expect("canonical bytes");
         assert_eq!(got, &canon[r][..], "row {r} canonical mismatch");
         if matches!(class, StorageClass::VarlenaVerbatim) {
             let ptr = datums[i];
@@ -59,8 +61,7 @@ pub(super) fn assert_granule(
 fn roundtrip_col(b: &crate::testpart::BuiltPart, attno: u32, role: StreamRole) {
     let part = open_built(b, 900 + attno as u64, 1);
     let binding = reference_binding_leaked();
-    let mut cur =
-        StreamCursor::open_role(part, binding, attno, 0, role).expect("cursor open");
+    let mut cur = StreamCursor::open_role(part, binding, attno, 0, role).expect("cursor open");
     let exp = b
         .expected
         .iter()
@@ -88,9 +89,8 @@ fn roundtrip_col(b: &crate::testpart::BuiltPart, attno: u32, role: StreamRole) {
                 1 => (0..n as u16).collect(),
                 2 => (0..n as u16).filter(|r| r % 3 == 0).collect(),
                 _ => {
-                    let mut picked: Vec<u16> = (0..n as u16)
-                        .filter(|_| rng.below(4) == 0)
-                        .collect();
+                    let mut picked: Vec<u16> =
+                        (0..n as u16).filter(|_| rng.below(4) == 0).collect();
                     picked.dedup();
                     picked
                 }
@@ -179,54 +179,158 @@ fn byval_i16_signed_negative() {
 fn typed_narrow_decodes_equal_the_widened_datums_and_refuse_another_width() {
     let rows = 20_000u64;
     let i4 = (0..rows)
-        .map(|r| (r % 11 != 3).then(|| CellValue::Word(((r as i64 * 7919) % 100_003 - 50_000) as u64)))
+        .map(|r| {
+            (r % 11 != 3).then(|| CellValue::Word(((r as i64 * 7919) % 100_003 - 50_000) as u64))
+        })
         .collect();
     let i2 = (0..rows)
         .map(|r| Some(CellValue::Word(((r as i64 % 60_000) - 30_000) as u64)))
         .collect();
-    let c4 = ColSpec::new(1, StorageClass::ByvalWord { width: 4, signed: true }, i4);
-    let c2 = ColSpec::new(2, StorageClass::ByvalWord { width: 2, signed: true }, i2);
+    let c4 = ColSpec::new(
+        1,
+        StorageClass::ByvalWord {
+            width: 4,
+            signed: true,
+        },
+        i4,
+    );
+    let c2 = ColSpec::new(
+        2,
+        StorageClass::ByvalWord {
+            width: 2,
+            signed: true,
+        },
+        i2,
+    );
     // a constant int2 column, an all-null int4 column, a wide int8 column read at width 4
-    let mut cc = ColSpec::new(4, StorageClass::ByvalWord { width: 2, signed: true }, (0..rows).map(|_| Some(CellValue::Word(-12345i64 as u64))).collect());
+    let mut cc = ColSpec::new(
+        4,
+        StorageClass::ByvalWord {
+            width: 2,
+            signed: true,
+        },
+        (0..rows)
+            .map(|_| Some(CellValue::Word(-12345i64 as u64)))
+            .collect(),
+    );
     cc.encoding = RefEncoding::Const;
-    let cn = ColSpec::new(5, StorageClass::ByvalWord { width: 4, signed: true }, (0..rows).map(|_| None).collect());
-    let c8 = ColSpec::new(6, StorageClass::ByvalWord { width: 8, signed: true }, (0..rows).map(|r| Some(CellValue::Word((((r as i64) << 33) - 5) as u64))).collect());
-    let b = build_part(&PartSpec::new(rows, vec![c4, c2, text_col(3, rows, Some(9)), cc, cn, c8]));
+    let cn = ColSpec::new(
+        5,
+        StorageClass::ByvalWord {
+            width: 4,
+            signed: true,
+        },
+        (0..rows).map(|_| None).collect(),
+    );
+    let c8 = ColSpec::new(
+        6,
+        StorageClass::ByvalWord {
+            width: 8,
+            signed: true,
+        },
+        (0..rows)
+            .map(|r| Some(CellValue::Word((((r as i64) << 33) - 5) as u64)))
+            .collect(),
+    );
+    let b = build_part(&PartSpec::new(
+        rows,
+        vec![c4, c2, text_col(3, rows, Some(9)), cc, cn, c8],
+    ));
     let binding = reference_binding_leaked();
     let part = open_built(&b, 950, 1);
     let mut cur4 = StreamCursor::open(part.clone(), binding, 1, 0).expect("cursor");
     let mut cur2 = StreamCursor::open(part.clone(), binding, 2, 0).expect("cursor");
     let mut curt = StreamCursor::open(part.clone(), binding, 3, 0).expect("cursor");
-    let mut curs: Vec<StreamCursor<'_>> = [4, 5, 6].iter().map(|&a| StreamCursor::open(part.clone(), binding, a, 0).expect("cursor")).collect();
+    let mut curs: Vec<StreamCursor<'_>> = [4, 5, 6]
+        .iter()
+        .map(|&a| StreamCursor::open(part.clone(), binding, a, 0).expect("cursor"))
+        .collect();
     let mut ab = ArenaBuf::new(1 << 16);
     for g in 0..cur4.granule_count() {
         let n = cur4.rows_in_granule(g) as usize;
         let mut wide = vec![0u64; n];
-        cur4.decode_full(g, &mut DecodeOut { datums: &mut wide, arena: ByteArena::new(ab.bytes_mut()) })
-            .expect("decode_full");
+        cur4.decode_full(
+            g,
+            &mut DecodeOut {
+                datums: &mut wide,
+                arena: ByteArena::new(ab.bytes_mut()),
+            },
+        )
+        .expect("decode_full");
         let mut narrow = vec![0i32; n];
-        assert_eq!(cur4.decode_i32(g, &mut narrow).expect("decode_i32") as usize, n);
-        assert!(narrow.iter().zip(&wide).all(|(a, b)| *a == *b as i32), "granule {g}: i32 lane == datums narrowed");
+        assert_eq!(
+            cur4.decode_i32(g, &mut narrow).expect("decode_i32") as usize,
+            n
+        );
+        assert!(
+            narrow.iter().zip(&wide).all(|(a, b)| *a == *b as i32),
+            "granule {g}: i32 lane == datums narrowed"
+        );
         let mut wide2 = vec![0u64; n];
-        cur2.decode_full(g, &mut DecodeOut { datums: &mut wide2, arena: ByteArena::new(ab.bytes_mut()) })
-            .expect("decode_full");
+        cur2.decode_full(
+            g,
+            &mut DecodeOut {
+                datums: &mut wide2,
+                arena: ByteArena::new(ab.bytes_mut()),
+            },
+        )
+        .expect("decode_full");
         let mut narrow2 = vec![0i16; n];
-        assert_eq!(cur2.decode_i16(g, &mut narrow2).expect("decode_i16") as usize, n);
-        assert!(narrow2.iter().zip(&wide2).all(|(a, b)| *a == *b as i16), "granule {g}: i16 lane == datums narrowed");
+        assert_eq!(
+            cur2.decode_i16(g, &mut narrow2).expect("decode_i16") as usize,
+            n
+        );
+        assert!(
+            narrow2.iter().zip(&wide2).all(|(a, b)| *a == *b as i16),
+            "granule {g}: i16 lane == datums narrowed"
+        );
         for (c, tag) in curs.iter_mut().zip(["const", "all-null", "int8"]) {
             let mut w = vec![0u64; n];
-            c.decode_full(g, &mut DecodeOut { datums: &mut w, arena: ByteArena::new(ab.bytes_mut()) }).expect("decode_full");
+            c.decode_full(
+                g,
+                &mut DecodeOut {
+                    datums: &mut w,
+                    arena: ByteArena::new(ab.bytes_mut()),
+                },
+            )
+            .expect("decode_full");
             let mut n16 = vec![0i16; n];
             let mut n32 = vec![0i32; n];
-            assert_eq!(c.decode_i16(g, &mut n16).expect("decode_i16") as usize, n, "{tag}");
-            assert_eq!(c.decode_i32(g, &mut n32).expect("decode_i32") as usize, n, "{tag}");
-            assert!(n16.iter().zip(&w).all(|(a, b)| *a == *b as i16), "{tag} granule {g}: i16");
-            assert!(n32.iter().zip(&w).all(|(a, b)| *a == *b as i32), "{tag} granule {g}: i32");
+            assert_eq!(
+                c.decode_i16(g, &mut n16).expect("decode_i16") as usize,
+                n,
+                "{tag}"
+            );
+            assert_eq!(
+                c.decode_i32(g, &mut n32).expect("decode_i32") as usize,
+                n,
+                "{tag}"
+            );
+            assert!(
+                n16.iter().zip(&w).all(|(a, b)| *a == *b as i16),
+                "{tag} granule {g}: i16"
+            );
+            assert!(
+                n32.iter().zip(&w).all(|(a, b)| *a == *b as i32),
+                "{tag} granule {g}: i32"
+            );
         }
-        assert!(matches!(curt.decode_i32(g, &mut narrow), Err(ReadError::Unsupported { .. })), "a text lane refuses the typed faces");
-        assert!(matches!(curt.decode_i16(g, &mut narrow2), Err(ReadError::Unsupported { .. })));
+        assert!(
+            matches!(
+                curt.decode_i32(g, &mut narrow),
+                Err(ReadError::Unsupported { .. })
+            ),
+            "a text lane refuses the typed faces"
+        );
+        assert!(matches!(
+            curt.decode_i16(g, &mut narrow2),
+            Err(ReadError::Unsupported { .. })
+        ));
         let mut short = vec![0i32; n / 2];
-        assert!(cur4.decode_i32(g, &mut short).is_err(), "a short output is a bounds error");
+        assert!(
+            cur4.decode_i32(g, &mut short).is_err(),
+            "a short output is a bounds error"
+        );
     }
 }
 

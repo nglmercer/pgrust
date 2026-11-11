@@ -90,6 +90,7 @@ pub(super) struct RunnerPlan {
     /// The program's plan key for the memo's group count (partitioned-record.md §3.12 item 5): a declared owner's.
     key: Option<PlanKey>,
     /// The dense key domain the group-by kernel was handed (`None`: hashed only), for the census.
+    #[allow(dead_code)]
     dense: Option<(i64, i64)>,
     /// The statement's granule relations, resolved once here on the leader and read by every
     /// source's bind through the binding (§4.2); boxed so the sources' pointer to it stands.
@@ -1047,6 +1048,7 @@ fn claims_of(mcx: Mcx<'static>, registry: &HostRegistry, site: usize, desc: &gra
             if plain {
                 fires::fire("walk.group.plain"); // shapecheck fire signal (RUNS-02: the run-time census sent a group walk to the plain claims)
             }
+            #[allow(clippy::nonminimal_bool)]
             if !plain && !(w.nulls_first && zo.mins.last().is_none_or(|&m| m == i64::MIN)) {
                 // one granule per first claim: the bound is known after the first window, and a
                 // walk that started with `c0` granules per worker would touch W × c0 before it

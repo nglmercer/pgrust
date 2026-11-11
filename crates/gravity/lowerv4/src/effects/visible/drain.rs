@@ -117,6 +117,7 @@ pub(crate) fn user_end(gx: &Gx<'_, '_>, d: usize) -> bool {
 /// plain or hashed fold whose every aggregate's result is its input's multiset's (no order-sensitive class, no ORDER BY
 /// or DISTINCT, no overflow a partial sum's order decides), or NEW-41 a plain fold's DISTINCT set, or D2136 a grouped one
 /// (`distinct_set_free`).
+#[allow(dead_code)]
 pub(crate) fn order_free(gx: &Gx<'_, '_>, d: usize) -> bool {
     order_free_in(gx, d, false)
 }

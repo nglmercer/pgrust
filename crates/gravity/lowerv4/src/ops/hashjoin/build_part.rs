@@ -92,9 +92,9 @@ mod tests {
         let d = buf.as_mut_ptr() as *mut u8;
         // SAFETY: `buf` is the region (4096 bytes).
         unsafe {
-            (wr::<u8>(d, PHASE, 1), wr::<u8>(d, WORDS, 1), wr::<u32>(d, REC, 8), wr::<u32>(d, FULL, 16 + 8 * pay as u32), crate::ops::hashjoin::layout::set_pay(d, pay as usize));
-            (wr::<u8>(d, ALLOW, allow), wr::<u8>(d, FLAGS, F_RANGE | F_COMPACT), wr::<u64>(d, N, keys.len() as u64));
-            (wr::<u64>(d, TOP, 4096), wr::<u64>(d, END, 4096), wr::<i64>(d, LO, *keys.iter().min().unwrap()), wr::<i64>(d, HI, *keys.iter().max().unwrap()));
+            wr::<u8>(d, PHASE, 1); wr::<u8>(d, WORDS, 1); wr::<u32>(d, REC, 8); wr::<u32>(d, FULL, 16 + 8 * pay as u32); crate::ops::hashjoin::layout::set_pay(d, pay as usize);
+            wr::<u8>(d, ALLOW, allow); wr::<u8>(d, FLAGS, F_RANGE | F_COMPACT); wr::<u64>(d, N, keys.len() as u64);
+            wr::<u64>(d, TOP, 4096); wr::<u64>(d, END, 4096); wr::<i64>(d, LO, *keys.iter().min().unwrap()); wr::<i64>(d, HI, *keys.iter().max().unwrap());
             keys.iter().enumerate().for_each(|(i, &k)| wr::<u64>(d, HDR + 8 * i, (k as u64 & 0xffff_ffff) | ((k & 1) as u64 * pay as u64) << 32));
         }
         buf
@@ -194,12 +194,12 @@ mod tests {
         let d = buf.as_mut_ptr() as *mut u8;
         // SAFETY: `buf` is the region (4096 bytes); the records fit below its end.
         unsafe {
-            (wr::<u8>(d, PHASE, 1), wr::<u8>(d, WORDS, 1), wr::<u32>(d, REC, 24), crate::ops::hashjoin::layout::set_pay(d, 1), wr::<u8>(d, ALLOW, allow), wr::<u8>(d, FLAGS, F_RANGE));
-            (wr::<u64>(d, N, keys.len() as u64), wr::<u64>(d, KEPT, keys.iter().filter(|k| k.is_none()).count() as u64), wr::<u64>(d, TOP, 4096), wr::<u64>(d, END, 4096));
-            (wr::<i64>(d, LO, keys.iter().flatten().copied().min().unwrap_or(i64::MAX)), wr::<i64>(d, HI, keys.iter().flatten().copied().max().unwrap_or(i64::MIN)));
+            wr::<u8>(d, PHASE, 1); wr::<u8>(d, WORDS, 1); wr::<u32>(d, REC, 24); crate::ops::hashjoin::layout::set_pay(d, 1); wr::<u8>(d, ALLOW, allow); wr::<u8>(d, FLAGS, F_RANGE);
+            wr::<u64>(d, N, keys.len() as u64); wr::<u64>(d, KEPT, keys.iter().filter(|k| k.is_none()).count() as u64); wr::<u64>(d, TOP, 4096); wr::<u64>(d, END, 4096);
+            wr::<i64>(d, LO, keys.iter().flatten().copied().min().unwrap_or(i64::MAX)); wr::<i64>(d, HI, keys.iter().flatten().copied().max().unwrap_or(i64::MIN));
             for (i, k) in keys.iter().enumerate() {
                 let r = d.add(HDR + 24 * i);
-                (wr::<i64>(r, 0, k.unwrap_or(0)), wr::<u64>(r, 8, if k.is_none() { NULLKEY } else { 0 }), wr::<u64>(r, 16, tag + i as u64));
+                wr::<i64>(r, 0, k.unwrap_or(0)); wr::<u64>(r, 8, if k.is_none() { NULLKEY } else { 0 }); wr::<u64>(r, 16, tag + i as u64);
             }
         }
         buf
@@ -222,12 +222,12 @@ mod tests {
             // the plan reads the headers only: a large N makes decision 5 worth it unless a partial keeps NULL-key records
             let (pa, pb) = (wa.as_mut_ptr() as *mut u8, wc.as_mut_ptr() as *mut u8);
             let (na, nc) = (rd::<u64>(pa, N), rd::<u64>(pb, N));
-            (wr::<u64>(pa, N, big), wr::<u64>(pb, N, big));
+            wr::<u64>(pa, N, big); wr::<u64>(pb, N, big);
             let two = |x: &mut Vec<u64>, y: &mut Vec<u64>| [Partial { ordinal: 0, bytes: bytes(x), rows_processed: 0 }, Partial { ordinal: 1, bytes: bytes(y), rows_processed: 0 }];
             let mut wc2 = wc.clone();
             assert_eq!(super::plan(&two(&mut wc, &mut wc2)), gravity_driver::partition_plan(2 * big, super::table_record(24, 2 * big, true)), "no NULL-key record: decision 5 as before");
             assert_eq!(super::plan(&two(&mut wa, &mut wc2)), None, "a NULL-key partial: the serial merge");
-            (wr::<u64>(pa, N, na), wr::<u64>(pb, N, nc));
+            wr::<u64>(pa, N, na); wr::<u64>(pb, N, nc);
             let mut lead = vec![0u64; 8192];
             let (d, sink) = (lead.as_mut_ptr() as *mut u8, &mut NoRows);
             let mut st = State::new(core::slice::from_raw_parts_mut(d, 65536), SinkRef::of(sink));
@@ -239,7 +239,7 @@ mod tests {
             assert_eq!((rd::<u64>(d, N), rd::<u64>(d, KEPT), rd::<u8>(d, FORM)), (4, 2, HASH));
             let row = |i: usize| rd::<u64>(d.add(HDR + 24 * i), 16);
             let (mut keyed, mut kept): (Vec<u64>, Vec<u64>) = ((0..4).map(row).collect(), (4..6).map(row).collect());
-            (keyed.sort_unstable(), kept.sort_unstable());
+            keyed.sort_unstable(); kept.sort_unstable();
             assert_eq!((keyed, kept), (vec![0, 2, 101, 102], vec![1, 100]));
             let m = rd::<u64>(d, MARKS) as usize;
             assert!(m >= HDR + 6 * 24 && (m..m + 6).all(|o| *d.add(o) == 0));

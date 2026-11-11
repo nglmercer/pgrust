@@ -418,6 +418,7 @@ fn int4_and_int2_lanes_are_published_narrow_and_read_as_the_datum_path_does() {
         windows
     };
     assert_eq!(pass(&mut src, Some(&mut by_windows)), 5, "one window per granule");
+    #[allow(clippy::needless_range_loop)]
     for k in 0..2 {
         assert_eq!(by_windows[k], (0..rows).map(|i| narrow_value(k, i)).collect::<Vec<_>>(), "lane {k} through the typed decode");
     }
@@ -2347,6 +2348,7 @@ fn every_storage_class_is_published_as_a_lane_of_its_kind_and_reads_as_the_datum
             }
             let Some(out) = out.as_deref_mut() else { continue };
             for i in 0..n as usize {
+                #[allow(clippy::needless_range_loop)]
                 for k in 0..6 {
                     let l = w.lanes()[k];
                     // SAFETY: `i < n` rows of the window; the lane's cells are at its width.
@@ -2370,6 +2372,7 @@ fn every_storage_class_is_published_as_a_lane_of_its_kind_and_reads_as_the_datum
         windows
     };
     assert_eq!(pass(&mut src, Some(&mut seen)), 5, "one window per granule");
+    #[allow(clippy::needless_range_loop)]
     for k in 0..6 {
         assert_eq!(seen[k].len() as u64, rows);
         assert!(seen[k].iter().enumerate().all(|(i, v)| *v == class_value(k, i as u64)), "lane {k} through the windows");
@@ -3108,6 +3111,7 @@ fn header(t: &Lane) -> &gravity_dict::table::Header {
 }
 
 #[test]
+#[allow(const_item_mutation, unused_attributes)]
 fn d3115_two_sources_share_one_sweep_of_a_parts_program_table() {
     let (mut srcs, resolved, list, _bf) = swept_sources(3);
     let (mut la, mut lb, mut lc) = ([Lane::NONE; MAX_LANES], [Lane::NONE; MAX_LANES], [Lane::NONE; MAX_LANES]);
@@ -3122,15 +3126,20 @@ fn d3115_two_sources_share_one_sweep_of_a_parts_program_table() {
     let n = header(&ta).ncodes;
     assert!(n > 0 && (n as u64) <= gravity_abi::site::SWEEP_CHUNK, "one chunk: {n} codes");
     assert_ne!(ta.ptr, tb.ptr, "each source its own header");
+    #[allow(unused_attributes)]
     assert_eq!((header(&ta).data, header(&ta).faults), (header(&tb).data, header(&tb).faults), "one table");
+    #[allow(const_item_mutation)]
     assert_eq!(a.lane(T | CLAIM, &[], &mut Lane::NONE).unwrap(), 0, "a sweeps the one chunk");
+    #[allow(unused_attributes)]
     assert_eq!(b.lane(T | CLAIM, &[], &mut Lane::NONE).unwrap(), WAIT, "b waits for a's chunk");
     // SAFETY: the shared fault bitmap holds `n` bits; a's chunk is codes 0..n.
     unsafe { *(header(&ta).faults as *mut u64) |= 0b10 };
     assert_eq!(a.lane(T | CLAIM, &[], &mut Lane::NONE).unwrap(), n, "a's chunk swept: every chunk is");
+    #[allow(unused_attributes)]
     assert_eq!(b.lane(T | CLAIM, &[], &mut Lane::NONE).unwrap(), n);
     // the kernel's done host writes the source's own count before LANE_DONE: b swept nothing, a one fault
     // SAFETY: each source's own header.
+    #[allow(const_item_mutation)]
     unsafe {
         let hb = tb.ptr as *mut gravity_dict::table::Header;
         (*hb).faults = gravity_abi::word(core::ptr::null());
@@ -3138,9 +3147,12 @@ fn d3115_two_sources_share_one_sweep_of_a_parts_program_table() {
     assert_eq!(a.lane(T | DONE, &[], &mut Lane::NONE).unwrap(), 1);
     assert_eq!(b.lane(T | DONE, &[], &mut Lane::NONE).unwrap(), 1);
     for t in [&ta, &tb] {
+        #[allow(unused_attributes)]
         assert_eq!((header(t).nfaults, header(t).faults.is_null()), (1, false), "the table's one fault, whoever swept it");
     }
+    #[allow(unused_attributes)]
     first_window(c, &resolved, list.granules(), &mut lc);
+    #[allow(const_item_mutation)]
     let mut tc = Lane::NONE;
     assert_eq!(c.lane(T, &[], &mut tc).unwrap(), 1, "a later source finds the table swept");
     assert_eq!((header(&tc).data, header(&tc).nfaults), (header(&ta).data, 1));
@@ -3150,6 +3162,7 @@ fn d3115_two_sources_share_one_sweep_of_a_parts_program_table() {
 }
 
 #[test]
+#[allow(const_item_mutation, unused_attributes)]
 fn d3115_a_chunk_left_by_a_failed_claim_goes_to_the_next_claimer() {
     let (mut srcs, resolved, list, _bf) = swept_sources(2);
     let (mut la, mut lb) = ([Lane::NONE; MAX_LANES], [Lane::NONE; MAX_LANES]);
@@ -3165,9 +3178,12 @@ fn d3115_a_chunk_left_by_a_failed_claim_goes_to_the_next_claimer() {
     a.release(); // a's claim ended mid-sweep (an error): its chunk is an orphan
     assert_eq!(b.lane(T | CLAIM, &[], &mut Lane::NONE).unwrap(), 0, "b takes a's chunk");
     assert_eq!(b.lane(T | CLAIM, &[], &mut Lane::NONE).unwrap(), n);
+    #[allow(unused_attributes)]
     assert_eq!(b.lane(T | DONE, &[], &mut Lane::NONE).unwrap(), 1);
+    #[allow(const_item_mutation)]
     assert!(header(&tb).faults.is_null(), "no entry faulted: b's header drops the bitmap");
     for s in srcs.iter_mut() {
+        #[allow(unused_attributes)]
         s.unbind();
     }
 }
@@ -3284,6 +3300,7 @@ fn a_length_only_code_lane_codes_a_verbatim_part_by_its_sealed_octet_lane() {
 }
 
 #[test]
+#[allow(const_item_mutation, unused_attributes)]
 fn d3250_a_source_dropped_with_its_sweep_unfinished_writes_nothing_into_freed_memory() {
     let (mut srcs, resolved, list, _bf) = swept_sources(2);
     let (mut la, mut lb) = ([Lane::NONE; MAX_LANES], [Lane::NONE; MAX_LANES]);

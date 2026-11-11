@@ -1,7 +1,7 @@
 //! heapam.c index-deletion arm: heap_index_delete_tuples (simple + bottom-up)
 //! + index_delete_sort/index_delete_check_htid + bottomup_sort_and_shrink.
-//! C divergence (recorded): index_delete_prefetch_buffer elided —
-//! PrefetchBuffer substrate unported.
+//!   C divergence (recorded): index_delete_prefetch_buffer elided —
+//!   PrefetchBuffer substrate unported.
 
 use ::bufmgr_seams::{BufferPin, BUFFER_LOCK_SHARE, BUFFER_LOCK_UNLOCK};
 use ::mcx::Mcx;
@@ -14,7 +14,8 @@ use ::types_snapshot::{SnapshotData, SnapshotType};
 use ::types_storage::bufpage::{ItemIdData, PageRef};
 use ::types_tuple::{
     FirstOffsetNumber, HeapTupleHeaderData, ItemPointerData, ItemPointerGetBlockNumber,
-    ItemPointerGetBlockNumberNoCheck, ItemPointerGetOffsetNumber, ItemPointerGetOffsetNumberNoCheck,
+    ItemPointerGetBlockNumberNoCheck, ItemPointerGetOffsetNumber,
+    ItemPointerGetOffsetNumberNoCheck,
 };
 
 use crate::fetch::heap_hot_search_buffer;

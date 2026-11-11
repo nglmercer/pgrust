@@ -203,6 +203,7 @@ pub(super) fn decline<'p>(b: &Builder<'p, '_>, a: &'p Agg<'p>, s: &Sets<'_, 'p>)
         }
     }
     let mut top = left.as_sort().and_then(|s| s.plan.lefttree).unwrap_or(left);
+    #[allow(clippy::while_let_loop)]
     loop {
         match (top.as_subquery_scan().and_then(|q| q.subplan), top.as_result().and_then(|r| r.plan.lefttree)) {
             (Some(n), _) | (None, Some(n)) => top = n,
@@ -309,6 +310,7 @@ pub(super) fn decline<'p>(b: &Builder<'p, '_>, a: &'p Agg<'p>, s: &Sets<'_, 'p>)
 /// walk's own column.
 struct Places {
     m: usize,
+    #[allow(dead_code)]
     base: usize,
     tag_at: i16,
     empty: Option<usize>,

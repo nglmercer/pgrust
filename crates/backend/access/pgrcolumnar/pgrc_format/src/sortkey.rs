@@ -115,7 +115,11 @@ impl SortKeyRecord {
                 collation_class: c.u8("SortKeyEntry")?,
                 pad: c.u8("SortKeyEntry")?,
             };
-            if e.dir > 1 || e.nulls > 1 || e.pad > SORT_KEY_KIND_TEXT_PATH || (e.pad != 0 && !has_paths) {
+            if e.dir > 1
+                || e.nulls > 1
+                || e.pad > SORT_KEY_KIND_TEXT_PATH
+                || (e.pad != 0 && !has_paths)
+            {
                 return Err(FormatError::Corrupt {
                     at: "SortKeyEntry dir/nulls",
                 });
@@ -136,7 +140,10 @@ impl SortKeyRecord {
                     }
                     for _ in 0..nsteps {
                         let len = c.u16("SortKeyRecord path step")? as usize;
-                        p.push(crate::try_to_vec(c.take(len, "SortKeyRecord path step")?, "sortkey")?);
+                        p.push(crate::try_to_vec(
+                            c.take(len, "SortKeyRecord path step")?,
+                            "sortkey",
+                        )?);
                     }
                 }
                 paths.push(p);

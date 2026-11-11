@@ -2,6 +2,7 @@
 pub(crate) use core::cmp::Ordering;
 pub(crate) use core::mem::size_of;
 
+#[allow(unused_imports)]
 pub(crate) use gravity_abi::breaker::{table_kind, NUM_SENT_HI, HashAgg, LAYOUT_IMPLICIT_COUNT, TABLE_T1, Owned, OwnerTop, Rec, RecordLayout, SlotKind, SortRun, TopK, T1, ACC_PAIRS, ADAPT_FACTOR, SORTRUN_HDR, HEAD_LEFT, HEAD_POS, LAYOUT_WORDS, TOPK_PAIRS, TOPK_SECOND_PAIR, OWNERTOP_HDR, SHARE, TABLE_OWNED, TABLE_SORT, T1_BYPASS, T1_EST, T1_HOLD, t1_default_bytes, t1_open_bytes, T1_HDR, T1_MAX_PARTS, IMG_BY_REF};
 pub(crate) use gravity_abi::hash::KeyHash;
 pub(crate) use gravity_abi::ctx::{resume, RESUME_NONE};
@@ -159,18 +160,21 @@ impl Host for RecordConsumed {
 /// D254: the calling pipeline's breaker region grown past its share (`gravity_abi::program::region_grow`, the driver's
 /// spill op): `[0, head)` and the old `[len - tail, len)` kept at the new region's two ends, the new length the u32 at
 /// the region's offset 8; the new 64-aligned base, or 0 with OutOfMemory held by the driver (the IR returns its HOST raise).
+#[allow(clippy::missing_safety_doc)]
 pub unsafe extern "C" fn region_grow(ctx: u64, need: u64, head: u64, tail: u64) -> u64 {
     gravity_abi::program::region_grow(ctx as *mut Ctx, need, head, tail)
 }
 
 /// op 14 (V4R-9): a build's held error raised by each probing participant (`gravity_abi::program::raise_held`, the
 /// driver's spill op): the error status for the IR's raise exit when the build failed and its error was held, else 0.
+#[allow(clippy::missing_safety_doc)]
 pub unsafe extern "C" fn raise_held(ctx: *mut Ctx) -> i64 {
     gravity_abi::program::raise_held(ctx)
 }
 
 /// D1339 row C: `agg_gather` over consumed region `at & 0xff` (an embedded inner's group among its owner's regions), fresh
 /// by `GATHER_FRESH` alone: the resume word is the owner's, never read or written here. Its array is `kept_array`'s.
+#[allow(clippy::missing_safety_doc)]
 pub unsafe extern "C" fn agg_gather_at(ctx: u64, desc: u64, at: u64, cache: u64) -> u64 {
     // the host ABI takes and answers every pointer as a 64-bit word (gravity_abi::host; wasm32: the word, not an i32)
     crate::table::emit::gather_in(ctx as *mut Ctx, desc as *const u8, (at & 0xff) as usize, Some((at & GATHER_FRESH != 0, cache as *mut u64))) as u64
@@ -179,6 +183,7 @@ pub unsafe extern "C" fn agg_gather_at(ctx: u64, desc: u64, at: u64, cache: u64)
 /// A count(DISTINCT) emit's one accumulator record (`pairs_total`) over consumed region `at`: an embedded inner's distinct
 /// table among its owner's regions (two SubPlans in one select list, the count(DISTINCT) one past the first), gathered
 /// fresh at every call; the resume word is the owner's, never read or written here.
+#[allow(clippy::missing_safety_doc)]
 pub unsafe extern "C" fn pairs_total_at(ctx: u64, desc: u64, at: u64) -> u64 {
     // the host ABI takes and answers every pointer as a 64-bit word (gravity_abi::host; wasm32: the word, not an i32)
     crate::table::emit::pairs_total_in(ctx as *mut Ctx, desc as *const u8, (at & 0xff) as usize, Some(true)) as u64
@@ -188,6 +193,7 @@ pub unsafe extern "C" fn pairs_total_at(ctx: u64, desc: u64, at: u64) -> u64 {
 /// embedded inner that runs in its owner's call (two SubPlans over plain aggregates in one pipeline read regions 0 and 1).
 /// No handle: region 0 keeps `record_consumed`, so a served statement's IR is unchanged. A call with no live region `k`
 /// (a null inline region, or no `more` table past two) fails closed: the caught panic raises an ERROR, never a SIGSEGV.
+#[allow(clippy::missing_safety_doc)]
 pub unsafe extern "C" fn record_consumed_at(ctx: u64, layout: u64, bytes: u64, k: u64) -> u64 {
     guard!(sunk(bytes), {
         let p = &*(*(*(ctx as *mut Ctx)).program.ptr()).partial.ptr();

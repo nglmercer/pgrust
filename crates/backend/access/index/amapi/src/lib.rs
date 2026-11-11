@@ -1,5 +1,4 @@
-#![allow(non_snake_case)]
-#![allow(non_upper_case_globals)]
+#![allow(non_snake_case, non_upper_case_globals)]
 
 use cache_syscache::cacheinfo::AMOID;
 use cache_syscache::{ReleaseSysCache, SearchSysCache1, SysCacheGetAttrNotNull, SysCacheKey};
@@ -68,16 +67,15 @@ fn resolve_extension_handler(amhandler: Oid) -> PgResult<IndexAmKind> {
     };
     // A LANGUAGE internal alias dispatches by prosrc whatever its SQL name
     // (fmgr.c:236-247), so it resolves before the proname arms.
-    let kind = match fmgr_core::internal_builtin_of(amhandler)?
-        .and_then(|b| builtin_index_am(b.foid))
-    {
-        Some(kind) => kind,
-        None => match name.name_str() {
-            b"hnswhandler" => IndexAmKind::Hnsw,
-            b"blhandler" => IndexAmKind::Bloom,
-            _ => return Err(not_an_am_routine(amhandler)),
-        },
-    };
+    let kind =
+        match fmgr_core::internal_builtin_of(amhandler)?.and_then(|b| builtin_index_am(b.foid)) {
+            Some(kind) => kind,
+            None => match name.name_str() {
+                b"hnswhandler" => IndexAmKind::Hnsw,
+                b"blhandler" => IndexAmKind::Bloom,
+                _ => return Err(not_an_am_routine(amhandler)),
+            },
+        };
     apply_handler_proconfig(amhandler)?;
     Ok(kind)
 }
@@ -253,7 +251,12 @@ fn gisttranslatecmptype(cmptype: CompareType, opfamily: Oid) -> PgResult<Strateg
         return Ok(InvalidStrategy);
     }
     let call_cx = ::mcx::MemoryContext::new_bump("gisttranslatecmptype");
-    let result = fmgr_core::oid_function_call1_coll_in(funcid, InvalidOid, call_cx.mcx(), Datum::from_i32(cmptype))?;
+    let result = fmgr_core::oid_function_call1_coll_in(
+        funcid,
+        InvalidOid,
+        call_cx.mcx(),
+        Datum::from_i32(cmptype),
+    )?;
     Ok(result.as_u16())
 }
 
@@ -491,8 +494,11 @@ fn opclass_lookup_failed(opclassoid: Oid) -> Box<PgError> {
 #[inline(never)]
 fn not_index_am(name: String) -> Box<PgError> {
     Box::new(
-        PgError::error(format!("access method \"{name}\" is not of type {}", "INDEX"))
-            .with_sqlstate(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+        PgError::error(format!(
+            "access method \"{name}\" is not of type {}",
+            "INDEX"
+        ))
+        .with_sqlstate(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
     )
 }
 

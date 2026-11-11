@@ -208,6 +208,7 @@ fn conn_key(name: &str, warn: bool) -> PgResult<Vec<u8>> {
 
 // A connection in use is lifted out: re-entrant callers see it busy (libpq
 // asyncStatus).
+#[allow(clippy::large_enum_variant)]
 enum Slot {
     Ready(RemoteConn),
     InUse(pgclient::CancelTarget),

@@ -9,9 +9,9 @@
 //!   and equals NaN). A float4's image is its float8's, so one image compares across the two sides of a merge.
 //! - An enum orders by `enumsortorder`, which `ALTER TYPE .. ADD VALUE` can move with no relcache or pg_proc invalidation,
 //!   so a rank table baked into a cached program could go stale: an enum orders through its comparator (`rep.hosted.order`).
-//! DESC and NULLS FIRST / LAST fold in `fold` (a run's key column: `gravity_abi` TopK's one signed word, or its
-//! `TOPK_PAIRS` pair `[flags, word]`). O3 (M3 decision 16): `name` under a collation that orders by bytes is its 64-byte
-//! NUL-padded image, eight words (`name_image`), for psql `\d`'s `ORDER BY` over `nspname` / `relname`.
+//!   DESC and NULLS FIRST / LAST fold in `fold` (a run's key column: `gravity_abi` TopK's one signed word, or its
+//!   `TOPK_PAIRS` pair `[flags, word]`). O3 (M3 decision 16): `name` under a collation that orders by bytes is its 64-byte
+//!   NUL-padded image, eight words (`name_image`), for psql `\d`'s `ORDER BY` over `nspname` / `relname`.
 use gravity_decompose::catalog::typefacts::{KeyColl, TypeFacts};
 use gravity_ir::builder::FunctionBuilder;
 use gravity_ir::{ConvOp, FloatBinOp, FloatCond, IntBinOp, IntCond, IntUnOp, Type, Value};
@@ -86,6 +86,7 @@ pub fn float_order(b: &mut FunctionBuilder<'_>, v: Value, f32: bool) -> Value {
 
 /// Whether a type's order image fits 33 signed bits (an integer of at most four bytes), so a NULL folds into the one word
 /// at `i64::MIN` / `i64::MAX` with room to spare after a DESC's `!` (`fold`). A float's image is 64 bits wide.
+#[allow(dead_code)]
 pub const fn narrow(tf: &TypeFacts) -> bool {
     tf.typlen <= 4 && tf.image.is_word()
 }

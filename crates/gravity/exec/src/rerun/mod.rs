@@ -141,6 +141,7 @@ enum Src {
 
 /// The protocol's `Live`: the object (the handle's target) and the state its trailing word names.
 struct RerunLive {
+    #[allow(dead_code)]
     cell: Box<[u64]>,
     rt: Box<RerunRt>,
 }
@@ -709,6 +710,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(unused_assignments)]
     fn d4120_an_enclosing_run_marks_a_nested_sets_kept_members_stale_and_its_next_run_fills_them_again() {
         // set 0 = pipelines 1 (kept: a hashed fill reading set 1's param) and 2 on word 2; set 1 = pipeline 4 on word 5, its
         // runs marking set 0 stale (its refills)
@@ -739,6 +741,7 @@ mod tests {
         let ms = vec![member(4, Runner::Set(0), RunLife::EveryRun)]; // alloc: Cold
         let odd = Lifetimes::new(ms).unwrap().with_rearms(vec![SetRearms { refills: [6].into(), ..SetRearms::default() }]); // alloc: Cold
         let (ls, words) = lives_in(&[proto(4, 5, 0)], &odd, 6);
+        #[allow(unused_assignments)]
         ls[0].frame(Some(frame(&mut r)));
         hdr[gravity_abi::ctx::hdr::PARAMS / 8] = words.as_ptr() as u64;
         assert_eq!(unsafe { abi::m8_rerun(ctx as u64, words[5]) }, ERROR);

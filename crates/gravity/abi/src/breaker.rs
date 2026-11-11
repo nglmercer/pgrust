@@ -1428,6 +1428,7 @@ impl<'a> Rec<'a> {
     /// so a lone -0 stays -0).
     #[inline(always)]
     #[must_use]
+    #[allow(clippy::double_must_use)]
     pub fn add_f64(&self, j: usize, v: f64) -> Result<(), FloatOverflow> {
         let o = self.off(j);
         let s = if self.layout.has_validity() && !self.valid(j) { v } else { float8_pl(self.f64(j), v)? };
@@ -1439,6 +1440,7 @@ impl<'a> Rec<'a> {
     /// `sum(float4)`'s merge: `float4_pl` in float4 (both sides are f32 values kept as f64).
     #[inline(always)]
     #[must_use]
+    #[allow(clippy::double_must_use)]
     pub fn add_f32(&self, j: usize, v: f64) -> Result<(), FloatOverflow> {
         let o = self.off(j);
         let s = if self.layout.has_validity() && !self.valid(j) { v as f32 } else { float4_pl(self.f64(j) as f32, v as f32)? };
@@ -1457,6 +1459,7 @@ impl<'a> Rec<'a> {
     /// `avg(float)`'s merge: `float8_combine` of the slot's state and `v`.
     #[inline(always)]
     #[must_use]
+    #[allow(clippy::double_must_use)]
     pub fn combine_f64_accum(&self, j: usize, v: [f64; 3]) -> Result<(), FloatOverflow> {
         let o = self.off(j);
         let r = float8_combine(self.f64_accum(j), v)?;
@@ -1590,6 +1593,7 @@ impl<'a> Rec<'a> {
     /// one place the slot vocabulary is matched for combining); `null_seen` ORs. A float slot's merge is PG's combine
     /// function with its overflow check (D244): on `FloatOverflow` the statement raises, the record is garbage.
     #[must_use]
+    #[allow(clippy::double_must_use)]
     pub fn fold(&self, src: &Rec<'_>) -> Result<(), FloatOverflow> {
         self.fold_slots::<false>(src, false)
     }
@@ -1597,6 +1601,7 @@ impl<'a> Rec<'a> {
     /// `fold` where `src` holds rows later than this record's: an order-key extreme (`LAYOUT_KEY_TIES`) takes `src`'s
     /// word on a tie of value, as numeric_smaller / numeric_larger return their second argument, and never raises.
     #[must_use]
+    #[allow(clippy::double_must_use)]
     pub fn fold_newer(&self, src: &Rec<'_>) -> Result<(), FloatOverflow> {
         self.fold_slots::<true>(src, false)
     }
@@ -1797,6 +1802,7 @@ impl<'a> Rec<'a> {
     /// partial the merge discards) into an empty slot; a second held state has no byte merge (its combinefn is the host's),
     /// so it raises (the lowering never folds two: keyed ends refuse a hosted class, a plain record folds one partial).
     #[must_use]
+    #[allow(clippy::double_must_use)]
     pub fn move_state(&self, d: usize, src: &Rec<'_>, s: usize) -> Result<(), FloatOverflow> {
         let (o, so) = (self.off(d), src.off(s));
         if src.u8_at(so + AGGSTATE_HELD) == 0 {
@@ -2181,6 +2187,7 @@ impl HashAgg {
         let layout = self.layout;
         let (rec, nkeys, pkeys) = (layout.size() as usize, layout.nkeys(), layout.partition_keys());
         let mut ring = [KeyHash::word(0); FOLD_PF];
+        #[allow(clippy::needless_range_loop)]
         for i in 0..nrecs.min(FOLD_PF) {
             let h = hash_at(recs.add(i * rec), nkeys);
             ring[i] = h;
@@ -3078,6 +3085,7 @@ pub struct Appender {
 impl Appender {
     /// The next record's slot in partition `part`'s buffer (the caller writes every byte of it); `None` when the pool is exhausted (finish, flush, re-open). # Safety — the table is untouched since `appender`.
     #[inline(always)]
+    #[allow(clippy::missing_safety_doc)]
     pub unsafe fn reserve(&mut self, part: u32) -> Option<*mut u8> {
         let hp = self.heads.add(part as usize);
         let mut h = *hp;
@@ -3091,6 +3099,7 @@ impl Appender {
 
     /// `reserve` without the block path: `None` when `part`'s block is full or absent (`ensure` links one, outside a loop that must not call). # Safety — as `reserve`.
     #[inline(always)]
+    #[allow(clippy::missing_safety_doc)]
     pub unsafe fn reserve_fast(&mut self, part: u32) -> Option<*mut u8> {
         let hp = self.heads.add(part as usize);
         let h = *hp;
@@ -3103,6 +3112,7 @@ impl Appender {
     }
 
     /// A block behind `part`'s head when it has no room for a record; false when the pool is exhausted. # Safety — as `reserve`.
+    #[allow(clippy::missing_safety_doc)]
     pub unsafe fn ensure(&mut self, part: u32) -> bool {
         let hp = self.heads.add(part as usize);
         let h = *hp;
@@ -3121,6 +3131,7 @@ impl Appender {
 
     /// `src`'s record into partition `part`'s buffer; false when the pool is exhausted (safety: as `reserve`).
     #[inline(always)]
+    #[allow(clippy::missing_safety_doc)]
     pub unsafe fn append(&mut self, part: u32, src: *const u8) -> bool {
         match self.reserve(part) {
             Some(dst) => {
@@ -3133,6 +3144,7 @@ impl Appender {
 
     /// The counters back into the header (safety: as `append`).
     #[inline(always)]
+    #[allow(clippy::missing_safety_doc)]
     pub unsafe fn finish(&mut self) {
         (*self.t).next_block = self.next_block;
         (*self.t).buffered += self.appended;
@@ -3150,6 +3162,7 @@ const _: () = assert!(BLOCK_BYTES as usize - BLOCK_STAGGER <= BLOCK_MAX, "a full
 
 /// A record copied by its width in whole words (a runtime-length copy is a `memcpy` call per record). # Safety — `n` bytes each, disjoint.
 #[inline(always)]
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn copy_record(src: *const u8, dst: *mut u8, n: usize) {
     macro_rules! words {
         ($k:literal) => {
@@ -3812,6 +3825,7 @@ impl T1 {
     /// The append path's state hoisted out of the header for a loop of appends (`Appender`).
     /// # Safety — `this` is a live table; the appender is finished before any other table call.
     #[inline(always)]
+    #[allow(clippy::missing_safety_doc)]
     pub unsafe fn appender(this: *mut T1) -> Appender {
         let rec = (*this).layout.size() as u64;
         Appender { t: this, thresh: rec << HEAD_LEFT, delta: rec.wrapping_sub(rec << HEAD_LEFT), rec: rec as u32, block_bytes: (*this).block_bytes, nblocks: (*this).nblocks, next_block: (*this).next_block, first: (*this).first(), heads: (*this).heads(), next: (*this).next(), pool: (*this).base().add((*this).pool_off as usize), appended: 0 }

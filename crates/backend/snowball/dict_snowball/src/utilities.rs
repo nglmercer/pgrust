@@ -22,6 +22,7 @@ unsafe fn sym_cmp(a: *const symbol, b: *const symbol, n: c_int) -> c_int {
     0
 }
 
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn create_s() -> *mut symbol {
     let mem: *mut c_void = palloc(
         HEAD.wrapping_add(((CREATE_SIZE + 1) as usize).wrapping_mul(size_of::<symbol>())),
@@ -37,6 +38,7 @@ pub unsafe fn create_s() -> *mut symbol {
     p
 }
 
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn lose_s(p: *mut symbol) {
     if p.is_null() {
         return;
@@ -46,6 +48,7 @@ pub unsafe fn lose_s(p: *mut symbol) {
     }
 }
 
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn skip_utf8(p: *const symbol, mut c: c_int, limit: c_int, mut n: c_int) -> c_int {
     let mut b: c_int;
     if n < 0 {
@@ -61,7 +64,7 @@ pub unsafe fn skip_utf8(p: *const symbol, mut c: c_int, limit: c_int, mut n: c_i
         if b >= 0xc0 {
             while c < limit {
                 b = unsafe { *p.offset(c as isize) } as c_int;
-                if b >= 0xc0 || b < 0x80 {
+                if !(0x80..0xc0).contains(&b) {
                     break;
                 }
                 c += 1;
@@ -72,6 +75,7 @@ pub unsafe fn skip_utf8(p: *const symbol, mut c: c_int, limit: c_int, mut n: c_i
     c
 }
 
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn skip_b_utf8(p: *const symbol, mut c: c_int, limit: c_int, mut n: c_int) -> c_int {
     let mut b: c_int;
     if n < 0 {
@@ -98,29 +102,29 @@ pub unsafe fn skip_b_utf8(p: *const symbol, mut c: c_int, limit: c_int, mut n: c
 }
 
 unsafe fn get_utf8(p: *const symbol, mut c: c_int, l: c_int, slot: *mut c_int) -> c_int {
-    let b0: c_int;
-    let b1: c_int;
-    let b2: c_int;
+    
+    
+    
     if c >= l {
         return 0;
     }
     let fresh1 = c;
     c += 1;
-    b0 = unsafe { *p.offset(fresh1 as isize) } as c_int;
+    let b0: c_int = unsafe { *p.offset(fresh1 as isize) } as c_int;
     if b0 < 0xc0 || c == l {
         unsafe { *slot = b0 };
         return 1;
     }
     let fresh2 = c;
     c += 1;
-    b1 = unsafe { *p.offset(fresh2 as isize) } as c_int & 0x3f;
+    let b1: c_int = unsafe { *p.offset(fresh2 as isize) } as c_int & 0x3f;
     if b0 < 0xe0 || c == l {
         unsafe { *slot = (b0 & 0x1f) << 6 | b1 };
         return 2;
     }
     let fresh3 = c;
     c += 1;
-    b2 = unsafe { *p.offset(fresh3 as isize) } as c_int & 0x3f;
+    let b2: c_int = unsafe { *p.offset(fresh3 as isize) } as c_int & 0x3f;
     if b0 < 0xf0 || c == l {
         unsafe { *slot = (b0 & 0xf) << 12 | b1 << 6 | b2 };
         return 3;
@@ -164,6 +168,7 @@ unsafe fn get_b_utf8(p: *const symbol, mut c: c_int, lb: c_int, slot: *mut c_int
     4
 }
 
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn in_grouping_U(
     z: *mut SN_env,
     s: *const c_uchar,
@@ -194,6 +199,7 @@ pub unsafe fn in_grouping_U(
     0
 }
 
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn in_grouping_b_U(
     z: *mut SN_env,
     s: *const c_uchar,
@@ -224,6 +230,7 @@ pub unsafe fn in_grouping_b_U(
     0
 }
 
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn out_grouping_U(
     z: *mut SN_env,
     s: *const c_uchar,
@@ -254,6 +261,7 @@ pub unsafe fn out_grouping_U(
     0
 }
 
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn out_grouping_b_U(
     z: *mut SN_env,
     s: *const c_uchar,
@@ -284,6 +292,7 @@ pub unsafe fn out_grouping_b_U(
     0
 }
 
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn in_grouping(
     z: *mut SN_env,
     s: *const c_uchar,
@@ -314,6 +323,7 @@ pub unsafe fn in_grouping(
     0
 }
 
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn in_grouping_b(
     z: *mut SN_env,
     s: *const c_uchar,
@@ -344,6 +354,7 @@ pub unsafe fn in_grouping_b(
     0
 }
 
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn out_grouping(
     z: *mut SN_env,
     s: *const c_uchar,
@@ -374,6 +385,7 @@ pub unsafe fn out_grouping(
     0
 }
 
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn out_grouping_b(
     z: *mut SN_env,
     s: *const c_uchar,
@@ -404,6 +416,7 @@ pub unsafe fn out_grouping_b(
     0
 }
 
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn eq_s(z: *mut SN_env, s_size: c_int, s: *const symbol) -> c_int {
     unsafe {
         if (*z).l - (*z).c < s_size || sym_cmp((*z).p.offset((*z).c as isize), s, s_size) != 0 {
@@ -414,6 +427,7 @@ pub unsafe fn eq_s(z: *mut SN_env, s_size: c_int, s: *const symbol) -> c_int {
     1
 }
 
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn eq_s_b(z: *mut SN_env, s_size: c_int, s: *const symbol) -> c_int {
     unsafe {
         if (*z).c - (*z).lb < s_size
@@ -430,14 +444,17 @@ pub unsafe fn eq_s_b(z: *mut SN_env, s_size: c_int, s: *const symbol) -> c_int {
     1
 }
 
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn eq_v(z: *mut SN_env, p: *const symbol) -> c_int {
     unsafe { eq_s(z, *(p as *mut c_int).offset(-1), p) }
 }
 
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn eq_v_b(z: *mut SN_env, p: *const symbol) -> c_int {
     unsafe { eq_s_b(z, *(p as *mut c_int).offset(-1), p) }
 }
 
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn find_among(z: *mut SN_env, v: *const among, v_size: c_int) -> c_int {
     let mut i: c_int = 0;
     let mut j: c_int = v_size;
@@ -449,7 +466,7 @@ pub unsafe fn find_among(z: *mut SN_env, v: *const among, v_size: c_int) -> c_in
     let mut common_j: c_int = 0;
     let mut first_key_inspected: c_int = 0;
     loop {
-        let k: c_int = i + (j - i >> 1);
+        let k: c_int = i + ((j - i) >> 1);
         let mut diff: c_int = 0;
         let mut common: c_int = if common_i < common_j {
             common_i
@@ -512,6 +529,7 @@ pub unsafe fn find_among(z: *mut SN_env, v: *const among, v_size: c_int) -> c_in
     }
 }
 
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn find_among_b(z: *mut SN_env, v: *const among, v_size: c_int) -> c_int {
     let mut i: c_int = 0;
     let mut j: c_int = v_size;
@@ -523,7 +541,7 @@ pub unsafe fn find_among_b(z: *mut SN_env, v: *const among, v_size: c_int) -> c_
     let mut common_j: c_int = 0;
     let mut first_key_inspected: c_int = 0;
     loop {
-        let k: c_int = i + (j - i >> 1);
+        let k: c_int = i + ((j - i) >> 1);
         let mut diff: c_int = 0;
         let mut common: c_int = if common_i < common_j {
             common_i
@@ -603,6 +621,7 @@ unsafe fn increase_size(p: *mut symbol, n: c_int) -> *mut symbol {
     q
 }
 
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn replace_s(
     z: *mut SN_env,
     c_bra: c_int,
@@ -666,6 +685,7 @@ unsafe fn slice_check(z: *mut SN_env) -> c_int {
     0
 }
 
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn slice_from_s(z: *mut SN_env, s_size: c_int, s: *const symbol) -> c_int {
     unsafe {
         if slice_check(z) != 0 {
@@ -675,14 +695,17 @@ pub unsafe fn slice_from_s(z: *mut SN_env, s_size: c_int, s: *const symbol) -> c
     }
 }
 
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn slice_from_v(z: *mut SN_env, p: *const symbol) -> c_int {
     unsafe { slice_from_s(z, *(p as *mut c_int).offset(-1), p) }
 }
 
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn slice_del(z: *mut SN_env) -> c_int {
     unsafe { slice_from_s(z, 0, core::ptr::null()) }
 }
 
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn insert_s(
     z: *mut SN_env,
     bra: c_int,
@@ -705,10 +728,12 @@ pub unsafe fn insert_s(
     0
 }
 
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn insert_v(z: *mut SN_env, bra: c_int, ket: c_int, p: *const symbol) -> c_int {
     unsafe { insert_s(z, bra, ket, *(p as *mut c_int).offset(-1), p) }
 }
 
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn slice_to(z: *mut SN_env, mut p: *mut symbol) -> *mut symbol {
     unsafe {
         if slice_check(z) != 0 {
@@ -728,6 +753,7 @@ pub unsafe fn slice_to(z: *mut SN_env, mut p: *mut symbol) -> *mut symbol {
     }
 }
 
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn assign_to(z: *mut SN_env, mut p: *mut symbol) -> *mut symbol {
     unsafe {
         let len: c_int = (*z).l;
@@ -743,6 +769,7 @@ pub unsafe fn assign_to(z: *mut SN_env, mut p: *mut symbol) -> *mut symbol {
     }
 }
 
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn len_utf8(mut p: *const symbol) -> c_int {
     let mut size: c_int = unsafe { *(p as *mut c_int).offset(-1) };
     let mut len: c_int = 0;

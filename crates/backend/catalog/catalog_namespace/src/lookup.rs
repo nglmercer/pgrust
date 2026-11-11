@@ -301,7 +301,9 @@ pub fn RangeVarGetRelidFromNameBytes(
         if !dbname_matches(c)? {
             return Err(Box::new(
                 PgError::error_raw_message(raw_name_message(
-                    b"cross-database references are not implemented: \"", names, b"\"",
+                    b"cross-database references are not implemented: \"",
+                    names,
+                    b"\"",
                 ))
                 .with_sqlstate(ERRCODE_FEATURE_NOT_SUPPORTED),
             ));
@@ -314,7 +316,9 @@ pub fn RangeVarGetRelidFromNameBytes(
             }
             return Err(Box::new(
                 PgError::error_raw_message(raw_name_message(
-                    b"schema \"", &[s], b"\" does not exist",
+                    b"schema \"",
+                    &[s],
+                    b"\" does not exist",
                 ))
                 .with_sqlstate(ERRCODE_UNDEFINED_SCHEMA),
             ));
@@ -330,7 +334,9 @@ pub fn RangeVarGetRelidFromNameBytes(
     let parts = &names[usize::from(catalogname.is_some())..];
     Err(Box::new(
         PgError::error_raw_message(raw_name_message(
-            b"relation \"", parts, b"\" does not exist",
+            b"relation \"",
+            parts,
+            b"\" does not exist",
         ))
         .with_sqlstate(ERRCODE_UNDEFINED_TABLE),
     ))
@@ -615,6 +621,7 @@ pub fn get_ts_config_oid(names: &[&str], missing_ok: bool) -> PgResult<Oid> {
     let mut cfgoid = InvalidOid;
     if let Some(schemaname) = schemaname {
         let namespace_id = LookupExplicitNamespace(schemaname, missing_ok)?;
+        #[allow(clippy::nonminimal_bool)]
         if !(missing_ok && !OidIsValid(namespace_id)) {
             cfgoid = syscache_seams::lookup_pg_ts_config_oid_by_name_nsp::call(
                 config_name,
@@ -654,6 +661,7 @@ fn get_ts_object_oid_cached(
     let mut oid = InvalidOid;
     if let Some(schemaname) = schemaname {
         let namespace_id = LookupExplicitNamespace(schemaname, missing_ok)?;
+        #[allow(clippy::nonminimal_bool)]
         if !(missing_ok && !OidIsValid(namespace_id)) {
             oid = ts_cache_lookup(cache_id, objname, namespace_id)?;
         }
@@ -711,6 +719,7 @@ pub fn get_ts_dict_oid(names: &[&str], missing_ok: bool) -> PgResult<Oid> {
     let mut dictoid = InvalidOid;
     if let Some(schemaname) = schemaname {
         let namespace_id = LookupExplicitNamespace(schemaname, missing_ok)?;
+        #[allow(clippy::nonminimal_bool)]
         if !(missing_ok && !OidIsValid(namespace_id)) {
             dictoid =
                 syscache_seams::lookup_pg_ts_dict_oid_by_name_nsp::call(dict_name, namespace_id)?;
@@ -741,6 +750,7 @@ pub fn get_conversion_oid(names: &[&str], missing_ok: bool) -> PgResult<Oid> {
     let mut conoid = InvalidOid;
     if let Some(schemaname) = schemaname {
         let namespace_id = LookupExplicitNamespace(schemaname, missing_ok)?;
+        #[allow(clippy::nonminimal_bool)]
         if !(missing_ok && !OidIsValid(namespace_id)) {
             conoid = syscache_seams::lookup_pg_conversion_oid_by_name_nsp::call(
                 conversion_name,

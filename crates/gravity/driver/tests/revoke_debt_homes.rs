@@ -12,6 +12,7 @@ use std::sync::Arc;
 use common::*;
 use gravity_abi::breaker::{Breaker, BreakerKind, Budget, Spill};
 use gravity_abi::MorselRange;
+#[allow(unused_imports)]
 use gravity_driver::{Claimed, Entry, Grant, Step, SHARE_FLOOR};
 use gravity_program::spill::{Holds, NoSpill, Proof};
 use gravity_program::{Arena, Code, End, Layout, OutCol, Pipeline, Program, Reason, SiteDesc, WritePlan};

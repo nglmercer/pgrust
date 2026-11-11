@@ -3,10 +3,10 @@
 //! `WorkerPool` — the same pool population the server runs; this crate
 //! spawns no thread of its own (structurally pinned below).
 
-use pgrc_write::testkit::*;
-use pgrc_write::wvfs::WriteVfs;
-use pgrc_write::writer::{PartCutPolicy, SealEnv};
 use pgrc_write::par::ParIngestOpts;
+use pgrc_write::testkit::*;
+use pgrc_write::writer::{PartCutPolicy, SealEnv};
+use pgrc_write::wvfs::WriteVfs;
 use runtime::{Runtime, RuntimeConfig, WorkerPool};
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -109,11 +109,18 @@ fn full_pipeline_publish_e2e_at_dop4() {
     let probe = Probe::new(pgrc_write::publish::TxnVerdict::Committed);
     let mut vfs_handle = pgrc_write::par::SharedMemVfs::clone(&shared);
     let out = w.publish(&mut vfs_handle, &probe).expect("publish");
-    assert_eq!(out.part_nos, (0..3).collect::<Vec<u32>>(), "3 parts, seq order");
+    assert_eq!(
+        out.part_nos,
+        (0..3).collect::<Vec<u32>>(),
+        "3 parts, seq order"
+    );
 
     // No temp residue; every part file readable.
     let names = shared.with(|v| v.list_dir(DIR).expect("list"));
-    assert!(names.iter().all(|s| !s.starts_with("tmp-")), "temps all renamed");
+    assert!(
+        names.iter().all(|s| !s.starts_with("tmp-")),
+        "temps all renamed"
+    );
     for pn in &out.part_nos {
         let name = pgrc_format::dirlayout::part_file_name(*pn);
         assert!(names.contains(&name), "part file {name} published");
@@ -123,8 +130,7 @@ fn full_pipeline_publish_e2e_at_dop4() {
     let serial_totals = {
         let mut vfs = mem_with_dir();
         let mut kit = Kit::new();
-        let mut sw =
-            open_writer_policy(vec![int8_col(1), text_col(2)], stamp(FXID, 1), policy);
+        let mut sw = open_writer_policy(vec![int8_col(1), text_col(2)], stamp(FXID, 1), policy);
         for i in 0..n {
             let sources: [&dyn pgrc_write::elect::CandidateSource; 1] = [&kit.cands];
             let mut env = SealEnv {
@@ -134,7 +140,9 @@ fn full_pipeline_publish_e2e_at_dop4() {
                 shred: &mut kit.shred,
                 shred_opts: &kit.opts,
             };
-            with_mixed_row(i, |row| sw.append_row(row, &mut kit.ext, &mut env).expect("append"));
+            with_mixed_row(i, |row| {
+                sw.append_row(row, &mut kit.ext, &mut env).expect("append")
+            });
         }
         let sources: [&dyn pgrc_write::elect::CandidateSource; 1] = [&kit.cands];
         let mut env = SealEnv {
@@ -265,14 +273,13 @@ fn pool_engagement_witness() {
         )
         .expect("engine"),
     );
-    let (_parts, _reports, ()) =
-        pgrc_ingest_par::run_parallel(&rt, Arc::clone(&engine), |sess| {
-            for i in 0..20_000u64 {
-                with_mixed_row(i, |row| sess.append_row(row))?;
-            }
-            Ok(())
-        })
-        .expect("run");
+    let (_parts, _reports, ()) = pgrc_ingest_par::run_parallel(&rt, Arc::clone(&engine), |sess| {
+        for i in 0..20_000u64 {
+            with_mixed_row(i, |row| sess.append_row(row))?;
+        }
+        Ok(())
+    })
+    .expect("run");
     let seen = engine.workers_seen();
     assert!(!seen.is_empty(), "ingest work ran");
     let nthreads = rt.nthreads();
@@ -298,15 +305,26 @@ fn pool_workers_run_the_chunks_on_the_leaders_memory_account() {
     let (rt, pool) = rt_pool(4);
     let shared = shared_mem_with_dir();
     let seen = Arc::new(SeenAccounts(std::sync::Mutex::new(Vec::new())));
-    let providers = pgrc_write::par::ParProviders { detoast: Arc::clone(&seen) as Arc<dyn pgrc_write::par::DetoastProvider>, ..par_providers(&shared) };
+    let providers = pgrc_write::par::ParProviders {
+        detoast: Arc::clone(&seen) as Arc<dyn pgrc_write::par::DetoastProvider>,
+        ..par_providers(&shared)
+    };
     memledger::bind_backend(4001, 0);
     let leader = memledger::current();
-    let mut w = open_writer_policy(vec![int8_col(1), text_col(2)], stamp(FXID, 1), PartCutPolicy {
-        max_rows: 4096,
-        max_bytes: u64::MAX,
-        cut_granule_rows: 512,
-    });
-    let opts = ParIngestOpts { chunk_rows: 512, max_chunks_in_flight: 32, max_parts_in_flight: 8 };
+    let mut w = open_writer_policy(
+        vec![int8_col(1), text_col(2)],
+        stamp(FXID, 1),
+        PartCutPolicy {
+            max_rows: 4096,
+            max_bytes: u64::MAX,
+            cut_granule_rows: 512,
+        },
+    );
+    let opts = ParIngestOpts {
+        chunk_rows: 512,
+        max_chunks_in_flight: 32,
+        max_parts_in_flight: 8,
+    };
     pgrc_ingest_par::parallel_ingest(&mut w, &rt, providers, opts, |sess| {
         for i in 0..20_000u64 {
             with_mixed_row(i, |row| sess.append_row(row))?;
@@ -318,8 +336,15 @@ fn pool_workers_run_the_chunks_on_the_leaders_memory_account() {
     pool.shutdown();
     let seen = seen.0.lock().expect("seen");
     assert!(!seen.is_empty(), "the chunks were normalized");
-    assert!(leader.is_backend(), "the test thread took a backend's account");
-    assert!(seen.iter().all(|&a| a == leader.0), "every chunk on the leader's account {} (seen {seen:?})", leader.0);
+    assert!(
+        leader.is_backend(),
+        "the test thread took a backend's account"
+    );
+    assert!(
+        seen.iter().all(|&a| a == leader.0),
+        "every chunk on the leader's account {} (seen {seen:?})",
+        leader.0
+    );
 }
 
 /// colload (k): the publish's fsync fan-out runs on the runtime pool. Every descriptor is fsynced exactly once (the
@@ -344,7 +369,11 @@ fn publish_fsync_fanout_on_the_pool() {
     }
     let before = pgrc_write::wvfs::real_fsyncs();
     vfs.fsync_files(&fds).expect("fsync_files");
-    assert_eq!(pgrc_write::wvfs::real_fsyncs() - before, n as u64, "one fsync per descriptor");
+    assert_eq!(
+        pgrc_write::wvfs::real_fsyncs() - before,
+        n as u64,
+        "one fsync per descriptor"
+    );
     // FIFOs at index 5 and 40 of the first batch (fsync(2) of a FIFO is EINVAL): the error names index 5.
     let mut bad = Vec::new();
     for i in 0..48 {
@@ -359,8 +388,15 @@ fn publish_fsync_fanout_on_the_pool() {
     }
     let (p5, p40) = (bad[5].path().to_string(), bad[40].path().to_string());
     match vfs.fsync_files(&bad) {
-        Err(pgrc_write::WriteError::Io { op: "fsync", path, errno }) => {
-            assert_eq!(path, p5, "the first failing descriptor in order (not {p40})");
+        Err(pgrc_write::WriteError::Io {
+            op: "fsync",
+            path,
+            errno,
+        }) => {
+            assert_eq!(
+                path, p5,
+                "the first failing descriptor in order (not {p40})"
+            );
             assert_eq!(errno, libc::EINVAL);
         }
         other => panic!("expected the index-5 EINVAL, got {:?}", other.err()),

@@ -1,5 +1,4 @@
-#![allow(non_snake_case)]
-#![allow(non_upper_case_globals)]
+#![allow(non_snake_case, non_upper_case_globals)]
 
 pub mod ondisk;
 #[cfg(test)]
@@ -1205,7 +1204,7 @@ fn CanInvalidateIdleSlot(s: &ReplicationSlot) -> bool {
 
 // DetermineSlotInvalidationCause (slot.c:1740). Sequentially checks the
 // possible causes, returning the first the slot is eligible for.
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::if_same_then_else, clippy::too_many_arguments)]
 fn DetermineSlotInvalidationCause(
     possible_causes: u32,
     s: &ReplicationSlot,

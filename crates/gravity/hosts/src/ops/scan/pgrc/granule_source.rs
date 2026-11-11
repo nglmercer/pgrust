@@ -102,7 +102,7 @@ const NULLS_SOME: u8 = 2;
 const NULLS_UNKNOWN: u8 = 3;
 /// A lane's `PackedFrames` in `datums` words.
 const PF_WORDS: usize = core::mem::size_of::<PackedFrames>() / 8;
-const _: () = assert!(PACKED_FRAMES == FRAMES_PER_GRANULE as usize && core::mem::size_of::<PackedFrames>() % 8 == 0);
+const _: () = assert!(PACKED_FRAMES == FRAMES_PER_GRANULE as usize && core::mem::size_of::<PackedFrames>().is_multiple_of(8));
 
 /// The datum words a `lw`-byte by-value lane holds, as i64 (`[lo, hi]`): sign-extended, or zero-extended for an unsigned
 /// stream (oid: `StorageClass::ByvalWord { signed: false }`; an 8-byte one only up to i64::MAX), so a packed frame's
@@ -1822,7 +1822,7 @@ impl VerdictCell {
                     }
                 }
             } else if let Some(op) = zone_op_of(op) {
-                zone.push(ZonePred::word(lane as u16, op, value)); // alloc: Exec
+                zone.push(ZonePred::word(lane, op, value)); // alloc: Exec
             }
         }
     }
@@ -3027,7 +3027,7 @@ fn advise_piece() -> Option<u64> {
 fn advise_knobs(max_io: u64, queue: u64) -> (u64, u64) {
     let derived = ["max_sectors_kb", "read_ahead_kb"].into_iter().filter_map(crate::ops::scan::heap_window::device_attr).max().map(u64::from).filter(|&kb| kb > 0).unwrap_or(max_io >> 10);
     let piece = knob_kb("pgrust.gravity_read_advise_kb", "PGRUST_GRAVITY_READ_ADVISE_KB", derived);
-    let budget = if piece == 0 { 0 } else { knob_kb("pgrust.gravity_read_advise_budget_kb", "PGRUST_GRAVITY_READ_ADVISE_BUDGET_KB", queue * piece >> 10) };
+    let budget = if piece == 0 { 0 } else { knob_kb("pgrust.gravity_read_advise_budget_kb", "PGRUST_GRAVITY_READ_ADVISE_BUDGET_KB", (queue * piece) >> 10) };
     (piece, budget)
 }
 
@@ -3355,9 +3355,9 @@ mod prefix_verdict_tests {
             _ => x != c,
         };
         for lo in words {
-            for hi in words.into_iter().filter(|h| key(*h) >= key(lo)) {
+            for hi in words.into_iter().filter(|h| key(h) >= key(lo)) {
                 let rec = ZoneFacts { min_key: key(lo), max_key: key(hi), nonnull: 10, byte_len_min: 0, byte_len_max: 0, computed: false, key_kind: KeyKind::Coarse.as_u8(), sorted: 0 };
-                let inside: Vec<&[u8]> = words.into_iter().filter(|w| key(*w) >= key(lo) && key(*w) <= key(hi)).collect(); // alloc: Cold
+                let inside: Vec<&[u8]> = words.into_iter().filter(|w| key(w) >= key(lo) && key(w) <= key(hi)).collect(); // alloc: Cold
                 for c in words {
                     for op in ops {
                         let v = zone_verdict(&rec, 10, &ZonePred::prefix(0, op, key(c)));
@@ -3820,7 +3820,7 @@ mod mask_ne_tests {
         let mut next = || { seed ^= seed << 13; seed ^= seed >> 7; seed ^= seed << 17; seed };
         for &(from, to) in &[(0usize, 64usize), (0, 200), (64, 320), (3, 3), (128, 128 + 64 * 5 + 17), (0, 1024)] {
             let codes: Vec<u32> = (0..to.max(1)).map(|_| (next() % 5) as u32).collect();
-            let words = (to - from + 63) / 64;
+            let words = (to - from).div_ceil(64);
             let init: Vec<u64> = (0..words).map(|_| next()).collect();
             for c in 0..5u32 {
                 let (mut got, mut want) = (init.clone(), init.clone());
@@ -4626,6 +4626,7 @@ pub(crate) fn open_io(spec: &PartIoSpec) -> ReadResult<Box<dyn PartIo>> {
 /// A code lane's dictionary in one part: the writer's, or — a verbatim part — the byte-ranked codes
 /// of its distinct values with their `Fp128` table (`text_hosts::Ranks`, a property of the part
 /// cached process-wide; hosts.md "The verbatim part's code lane"); the kernels see one lane kind.
+#[allow(clippy::large_enum_variant)]
 enum Dict {
     Part(DictHandle),
     Ranked { table: crate::dict::text_hosts::FpPin, epoch: u64 },
@@ -4809,6 +4810,7 @@ enum StatsBody {
 
 /// The recipe a granule source reads: its own, or (sortmerge T2) the one its merged source owns and lends to each of its
 /// part streams' sources (merged.rs `Member`), which it outlives: a stream's source holds no recipe of its own.
+#[allow(clippy::large_enum_variant)]
 pub(crate) enum RecipeHome {
     Own(GranuleRecipe),
     Lent(&'static GranuleRecipe),
@@ -6045,7 +6047,7 @@ impl GranuleRangeSource {
             let v = &mut self.valid[k * VALIDITY_WORDS..(k + 1) * VALIDITY_WORDS];
             v.fill(0);
             v[..nv / 64].fill(u64::MAX);
-            if nv % 64 != 0 {
+            if !nv.is_multiple_of(64) {
                 v[nv / 64] = (1u64 << (nv % 64)) - 1;
             }
         }
@@ -6200,7 +6202,7 @@ impl GranuleRangeSource {
                 let v = &mut self.valid[j * VALIDITY_WORDS..(j + 1) * VALIDITY_WORDS];
                 v.fill(0);
                 v[..nj / 64].fill(u64::MAX);
-                if nj % 64 != 0 {
+                if !nj.is_multiple_of(64) {
                     v[nj / 64] = (1u64 << (nj % 64)) - 1;
                 }
             }
@@ -6967,7 +6969,7 @@ impl GranuleRangeSource {
                 // answers or skips a whole part before its lookup and pin, which a part the records decide never reads
                 late_pin = self.faces_known(list, p);
                 if !late_pin {
-                    self.pin_part_step(&mut step, &list, p)?;
+                    self.pin_part_step(&mut step, list, p)?;
                 }
                 // PS1-22: a text key's runtime filter over the whole part from its dictionary's fingerprints (pinned first)
                 let mut text_cut = false;
@@ -6978,7 +6980,7 @@ impl GranuleRangeSource {
                         continue;
                     }
                     if late_pin {
-                        self.pin_part_step(&mut step, &list, p)?;
+                        self.pin_part_step(&mut step, list, p)?;
                         late_pin = false;
                     }
                     let cut = self.rt_text_cuts(k, p)?;
@@ -7001,7 +7003,7 @@ impl GranuleRangeSource {
             // D3961: one walk iteration held a cancel 7-9 s (the loop polls at its top, D3887): each part-grain step is labelled
             // on its slow path, and the claim's first unit in a part polls after its verdict from the records (`entered`: no
             // per-granule load); a granule adds nothing
-            match self.stage_part(&list, p, unit) {
+            match self.stage_part(list, p, unit) {
                 PartStep::Answered => return Ok(true),
                 PartStep::Skipped => continue,
                 PartStep::Granules => {}
@@ -7010,7 +7012,7 @@ impl GranuleRangeSource {
                 step.tick().map_err(|_| err(WALK_CANCELED))?;
             }
             if late_pin {
-                self.pin_part_step(&mut step, &list, p)?;
+                self.pin_part_step(&mut step, list, p)?;
             }
             // P5-03 (the code verdict, `VERDICT_CODE_TABLE`): a part whose dictionary holds no code the leading code qual's
             // table may pass holds no survivor; the rest of the claim's granules in it are skipped before any lane opens
@@ -7029,7 +7031,7 @@ impl GranuleRangeSource {
             if self.recipe.entries.is_some() {
                 self.open_dicts(p)?;
                 step.tick().map_err(|_| err(WALK_CANCELED))?;
-                match self.stage_entries(&list, p, unit, g)? {
+                match self.stage_entries(list, p, unit, g)? {
                     PartStep::Answered => return Ok(true),
                     PartStep::Skipped => continue,
                     PartStep::Granules => {}
@@ -7052,7 +7054,7 @@ impl GranuleRangeSource {
             self.granule_stats(p)?;
             if entered {
                 self.late_meta_need(list, p, g)?;
-                self.read_claim_run(&list, p, g);
+                self.read_claim_run(list, p, g);
                 self.load_late_meta(p)?;
                 step.tick().map_err(|_| err(WALK_CANCELED))?;
             }
@@ -7105,7 +7107,7 @@ impl GranuleRangeSource {
             // decode.unread: the end counts a covered window whole (VERDICT_UNREAD), so a hit decodes no lane
             if self.cond_hit == V_ALL && self.on(VERDICT_UNREAD) {
                 self.g = unit + 1;
-                if self.unread(&list, p, lg, rows as usize)? == 0 {
+                if self.unread(list, p, lg, rows as usize)? == 0 {
                     self.granules_skipped += 1;
                     self.tally.skipped += 1;
                     continue;
@@ -7113,7 +7115,7 @@ impl GranuleRangeSource {
                 self.staged = g;
                 return Ok(true);
             }
-            let staged = self.decode(&list, p, lg, g, rows as usize)?;
+            let staged = self.decode(list, p, lg, g, rows as usize)?;
             // a miss publishes its words at the next advance: a Mixed granule with no delete mask. A row the host drops
             // fails a zone predicate (row_select's exact test; outside a PSMA window by PSMA's conservative bound), and
             // every zone predicate is one of the covered quals' (lowerv4 pgrc.rs declare_verdicts), so its clear bit is
@@ -7160,7 +7162,7 @@ impl GranuleRangeSource {
         // bounded("small-fixed: the mask words of one granule, at most VALIDITY_WORDS (128)")
         for w in (0..nw).filter(|_| stored.is_none()) {
             let mut m = if self.cond_mixed { self.cond_words[w] } else { !0 };
-            if w + 1 == nw && rows % 64 != 0 {
+            if w + 1 == nw && !rows.is_multiple_of(64) {
                 m &= (1u64 << (rows % 64)) - 1;
             }
             if let Some(d) = dv {
@@ -7466,12 +7468,14 @@ impl GranuleRangeSource {
             let mut sel = core::mem::take(&mut self.guard_sel);
             sel.clear();
             // bounded("small-fixed: the mask words of one granule, at most VALIDITY_WORDS (128)")
+            #[allow(clippy::needless_range_loop)]
             for w in 0..rows.div_ceil(64) {
                 let mut inv = 0u64;
                 // sortpath: an elided path lane (a covered window: no compare reads the cell) guards no row
                 // bounded("key-columns: the path lanes that guard one jsonb column, at most MaxTupleAttributeNumber (1664) columns")
                 for &(_, p) in guards.iter().filter(|g| g.0 == col && !self.elided.has(g.1 as usize)) {
                     let p = p as usize;
+                    #[allow(clippy::nonminimal_bool)]
                     if !self.all_valid[p] && !(p < 64 && null >> p & 1 != 0) {
                         inv |= !self.valid[p * VALIDITY_WORDS + w];
                     }
@@ -7599,7 +7603,7 @@ impl GranuleRangeSource {
             if cur.key().width != w {
                 None
             } else {
-                cur.verbatim_body(lg, IN_PLACE_SLACK).map_err(read_err)?.filter(|b| b.len() == rows * w as usize && b.as_ptr() as usize % w as usize == 0).map(|b| b.as_ptr())
+                cur.verbatim_body(lg, IN_PLACE_SLACK).map_err(read_err)?.filter(|b| b.len() == rows * w as usize && (b.as_ptr() as usize).is_multiple_of(w as usize)).map(|b| b.as_ptr())
             }
         };
         self.tally.in_place[got.is_some() as usize] += 1;
@@ -7730,10 +7734,10 @@ impl GranuleRangeSource {
                 continue;
             }
             let at = *c as usize * AT;
-            let (Some(off), Some(len)) = (word(&index, at), word(&index, at + 4)) else { return Err(err("gravity: pgrc character lane code past its dictionary")) };
+            let (Some(off), Some(len)) = (word(index, at), word(index, at + 4)) else { return Err(err("gravity: pgrc character lane code past its dictionary")) };
             *c = match form {
-                DictCharLenForm::Absolute => word(&index, at + 8),
-                DictCharLenForm::Delta => word(&index, at + 8).and_then(|f| len.checked_sub(f)),
+                DictCharLenForm::Absolute => word(index, at + 8),
+                DictCharLenForm::Delta => word(index, at + 8).and_then(|f| len.checked_sub(f)),
                 DictCharLenForm::Absent => payload.and_then(|b| b.get(off as usize + 4..off as usize + 4 + len as usize)).map(|v| crate::dict::text_hosts::utf8_chars(v) as u32),
             }
             .ok_or_else(|| err("gravity: pgrc character lane length past its dictionary"))?;

@@ -7,10 +7,12 @@
 //! The checker recovers the same way, then proves old-or-new: effective rows == committed rounds × rows/round,
 //! every live part decodes to the oracle, both manifest walks agree, and the directory holds exactly the live set.
 
-use pgrc_format::dirlayout::{manifest_file_name, part_file_name, sections_file_name, CURRENT_FILE_NAME};
+use pgrc_format::class::ColSchema;
+use pgrc_format::dirlayout::{
+    manifest_file_name, part_file_name, sections_file_name, CURRENT_FILE_NAME,
+};
 use pgrc_format::manifest::Manifest;
 use pgrc_format::sections::{self, SectionsFile};
-use pgrc_format::class::ColSchema;
 use pgrc_read::manifest_walk::{resolve_effective, TableExpect};
 use pgrc_write::publish::{effective_manifest, TxnVerdict};
 use pgrc_write::writer::PartCutPolicy;
@@ -19,11 +21,11 @@ use pgrc_write::{WriteError, WriteResult};
 use std::collections::BTreeSet;
 
 use crate::adapters::{memdir_of, ForcedPlan};
-use crate::walmodel::{probe_of, FileWal};
 use crate::corpus::{
     append_rows_planned, finish_planned, open_writer, verify_manifest, Fixture, OracleVal,
     RowOracle,
 };
+use crate::walmodel::{probe_of, FileWal};
 use crate::{int8_col, text_col};
 
 pub const FXID_BASE: u64 = 1_000;
@@ -76,7 +78,9 @@ impl RowOracle for LadderOracle {
                 } else {
                     let len = 3 + (mix(row) % 60) as usize;
                     Some(OracleVal::Bytes(
-                        (0..len).map(|k| (mix(row ^ (k as u64 + 11)) & 0xFF) as u8).collect(),
+                        (0..len)
+                            .map(|k| (mix(row ^ (k as u64 + 11)) & 0xFF) as u8)
+                            .collect(),
                     ))
                 }
             }
@@ -218,10 +222,13 @@ pub fn check_dir(
             removed_residue: 0,
         });
     }
-    let report = wal.recover(vfs, &fx.dir).map_err(|e| format!("recover: {e}"))?;
+    let report = wal
+        .recover(vfs, &fx.dir)
+        .map_err(|e| format!("recover: {e}"))?;
     let probe = probe_of(&commits, &[]);
 
-    let eff = effective_manifest(vfs, &fx.dir, &probe, None).map_err(|e| format!("effective: {e}"))?;
+    let eff =
+        effective_manifest(vfs, &fx.dir, &probe, None).map_err(|e| format!("effective: {e}"))?;
     let eff_gen = eff.as_ref().map(|m| m.header.gen).unwrap_or(0);
     let mut files = std::collections::BTreeMap::new();
     for n in vfs.list_dir(&fx.dir).map_err(|e| format!("listdir: {e}"))? {
@@ -234,13 +241,22 @@ pub fn check_dir(
         Ok(r) => {
             let rgen = r.as_ref().map(|m| m.manifest.header.gen).unwrap_or(0);
             if rgen != eff_gen {
-                return Err(format!("walk disagreement: writer gen {eff_gen} vs reader gen {rgen}"));
+                return Err(format!(
+                    "walk disagreement: writer gen {eff_gen} vs reader gen {rgen}"
+                ));
             }
         }
-        Err(e) => return Err(format!("the reader walk refused a recovered table (#462 law): {e:?}")),
+        Err(e) => {
+            return Err(format!(
+                "the reader walk refused a recovered table (#462 law): {e:?}"
+            ))
+        }
     }
 
-    let total: u64 = eff.as_ref().map(|m| m.parts.iter().map(|p| p.rows).sum()).unwrap_or(0);
+    let total: u64 = eff
+        .as_ref()
+        .map(|m| m.parts.iter().map(|p| p.rows).sum())
+        .unwrap_or(0);
     let committed_rounds = commits.len() as u64;
     if total != committed_rounds * rows_per_round {
         return Err(format!(
@@ -276,7 +292,11 @@ pub fn check_dir(
     if let Some(m) = &eff {
         allowed.extend((1..=m.header.gen).map(pgrc_format::dirlayout::sections_file_name));
         allowed.extend(m.parts.iter().map(|p| {
-            pgrc_format::dirlayout::sidecar_file_name(p.part_no, pgrc_format::sidecar::SidecarKind::Stats, 1)
+            pgrc_format::dirlayout::sidecar_file_name(
+                p.part_no,
+                pgrc_format::sidecar::SidecarKind::Stats,
+                1,
+            )
         }));
     }
     // The effective generation's stats plane is allowed, never required; when present it must prove its binding
@@ -314,14 +334,32 @@ pub fn check_dir(
     // Stats runs (P-1): the effective root and the runs it lists are required, and the recovered stats cover the
     // effective part set exactly; older runs (not yet reclaimed) are allowed at or below the effective generation.
     if let Some(m) = &eff {
-        if let Some(root) = pgrc_format::manifest::stats_ref(m).map_err(|e| format!("effective stats ref: {e:?}"))? {
-            let state = pgrc_write::stats::StatsState::load(vfs, &fx.dir, m, None, &mut |v, rec| pgrc_write::publish::part_stats_on_disk(v, &fx.dir, m, rec))
+        if let Some(root) = pgrc_format::manifest::stats_ref(m)
+            .map_err(|e| format!("effective stats ref: {e:?}"))?
+        {
+            let state =
+                pgrc_write::stats::StatsState::load(vfs, &fx.dir, m, None, &mut |v, rec| {
+                    pgrc_write::publish::part_stats_on_disk(v, &fx.dir, m, rec)
+                })
                 .map_err(|e| format!("effective stats runs refused: {e}"))?;
             required.insert(pgrc_format::dirlayout::run_file_name(root.gen, root.seq));
-            required.extend(state.runs.iter().map(|r| pgrc_format::dirlayout::run_file_name(r.rref.gen, r.rref.seq)));
+            required.extend(
+                state
+                    .runs
+                    .iter()
+                    .map(|r| pgrc_format::dirlayout::run_file_name(r.rref.gen, r.rref.seq)),
+            );
         }
         allowed.extend(required.iter().cloned());
-        allowed.extend(after.iter().filter(|n| pgrc_format::dirlayout::parse_run_file_name(n).is_some_and(|(g, _)| g <= m.header.gen)).cloned());
+        allowed.extend(
+            after
+                .iter()
+                .filter(|n| {
+                    pgrc_format::dirlayout::parse_run_file_name(n)
+                        .is_some_and(|(g, _)| g <= m.header.gen)
+                })
+                .cloned(),
+        );
     }
     for n in &after {
         if !allowed.contains(n) {
@@ -348,16 +386,27 @@ pub fn check_dir(
 /// the facts leaves it unwritten and the catalog completes the generation. When present it must positively name its manifest
 /// (gen, publisher fxid, the manifest file's own crc), never ride through a checker as unadjudicated bytes. Its name when
 /// present and bound; None when absent.
-pub fn check_sections_sidecar(vfs: &mut dyn WriteVfs, dir: &str, gen: u64) -> Result<Option<String>, String> {
+pub fn check_sections_sidecar(
+    vfs: &mut dyn WriteVfs,
+    dir: &str,
+    gen: u64,
+) -> Result<Option<String>, String> {
     let name = sections_file_name(gen);
     let path = format!("{dir}/{name}");
-    if !vfs.exists_path(&path).map_err(|e| format!("stat {name}: {e}"))? {
+    if !vfs
+        .exists_path(&path)
+        .map_err(|e| format!("stat {name}: {e}"))?
+    {
         return Ok(None);
     }
-    let bytes = vfs.read_full(&path).map_err(|e| format!("read live {name}: {e}"))?;
+    let bytes = vfs
+        .read_full(&path)
+        .map_err(|e| format!("read live {name}: {e}"))?;
     let file = SectionsFile::parse(bytes).map_err(|e| format!("live {name} undecodable: {e:?}"))?;
     let mname = manifest_file_name(gen);
-    let mbytes = vfs.read_full(&format!("{dir}/{mname}")).map_err(|e| format!("{name} without its manifest {mname}: {e}"))?;
+    let mbytes = vfs
+        .read_full(&format!("{dir}/{mname}"))
+        .map_err(|e| format!("{name} without its manifest {mname}: {e}"))?;
     let m = Manifest::decode(&mbytes).map_err(|e| format!("{mname} undecodable: {e:?}"))?;
     if !file.names(&m, sections::manifest_crc(&mbytes)) {
         return Err(format!("live {name} names another manifest than {mname}"));

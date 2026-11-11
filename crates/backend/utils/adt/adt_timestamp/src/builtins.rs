@@ -33,6 +33,7 @@ use crate::PartValue;
 // (load-speed lane perf, 2026-07-14; ~20M date/timestamp fields). The fast
 // arm validates with core's optimized `str::from_utf8` and borrows; invalid
 // input falls back to the identical lossy copy, so semantics are unchanged.
+#[allow(dead_code)]
 fn in_fastutf8() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ON.get_or_init(|| {
@@ -40,6 +41,7 @@ fn in_fastutf8() -> bool {
     })
 }
 
+#[allow(dead_code)]
 fn in_arg<'a>(fcinfo: &'a Fcinfo) -> std::borrow::Cow<'a, str> {
     // SAFETY: catalog arg 0 of the in-functions is cstring (typlen -2).
     let s = unsafe { fcinfo.arg_cstring(0) };

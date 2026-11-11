@@ -58,7 +58,9 @@ fn seal_with_order(
             shred: &mut kit.shred,
             shred_opts: &kit.opts,
         };
-        with_mixed_row(i, |row| w.append_row(row, &mut kit.ext, &mut env).expect("append"));
+        with_mixed_row(i, |row| {
+            w.append_row(row, &mut kit.ext, &mut env).expect("append")
+        });
     }
     let sources: [&dyn crate::elect::CandidateSource; 1] = [&kit.cands];
     let mut env = SealEnv {
@@ -122,7 +124,7 @@ fn declared_key_sorts_unsorted_input_and_stamps_the_witness() {
     let body = pv
         .section_bytes(SectionKind::SortKey, 0, 0)
         .expect("SortKey section present");
-    let rec = SortKeyRecord::decode(&body).expect("well-formed");
+    let rec = SortKeyRecord::decode(body).expect("well-formed");
     assert_eq!(rec.keys.len(), 1);
     assert_eq!(rec.keys[0].attno, 1);
     assert_eq!(rec.keys[0].dir, SortDir::Asc as u8);
@@ -162,7 +164,7 @@ fn undeclared_table_stays_unordered_nkeys_zero() {
     let body = pv
         .section_bytes(SectionKind::SortKey, 0, 0)
         .expect("SortKey section always present");
-    let rec = SortKeyRecord::decode(&body).expect("well-formed");
+    let rec = SortKeyRecord::decode(body).expect("well-formed");
     assert!(rec.keys.is_empty(), "OD-8: undeclared = unordered part");
 }
 
@@ -215,6 +217,7 @@ fn descending_key_seals_descending() {
     };
     let mut presorted_desc = unique_key_rows(n);
     presorted_desc.reverse();
+    #[allow(clippy::unusual_byte_groupings)]
     let shuffled = shuffle_of(unique_key_rows(n), 0x0DDB_A11_5EED_77);
     assert_eq!(
         seal_with_order(&shuffled, Some(desc.clone())).0,
@@ -244,28 +247,63 @@ fn seal_parts(order: &[u64], keys: Vec<ClusterKeyDecl>, policy: PartCutPolicy) -
     }
     for &i in order {
         let sources: [&dyn crate::elect::CandidateSource; 1] = [&kit.cands];
-        let mut env = SealEnv { vfs: &mut vfs, sources: &sources, resolver: &kit.resolver, shred: &mut kit.shred, shred_opts: &kit.opts };
-        with_mixed_row(i, |row| w.append_row(row, &mut kit.ext, &mut env).expect("append"));
+        let mut env = SealEnv {
+            vfs: &mut vfs,
+            sources: &sources,
+            resolver: &kit.resolver,
+            shred: &mut kit.shred,
+            shred_opts: &kit.opts,
+        };
+        with_mixed_row(i, |row| {
+            w.append_row(row, &mut kit.ext, &mut env).expect("append")
+        });
     }
     let sources: [&dyn crate::elect::CandidateSource; 1] = [&kit.cands];
-    let mut env = SealEnv { vfs: &mut vfs, sources: &sources, resolver: &kit.resolver, shred: &mut kit.shred, shred_opts: &kit.opts };
+    let mut env = SealEnv {
+        vfs: &mut vfs,
+        sources: &sources,
+        resolver: &kit.resolver,
+        shred: &mut kit.shred,
+        shred_opts: &kit.opts,
+    };
     w.finish(&mut env).expect("finish");
-    w.sealed_parts().iter().map(|p| vfs.read_full(&format!("{DIR}/{}", p.tmp_name)).expect("tmp bytes")).collect()
+    w.sealed_parts()
+        .iter()
+        .map(|p| {
+            vfs.read_full(&format!("{DIR}/{}", p.tmp_name))
+                .expect("tmp bytes")
+        })
+        .collect()
 }
 
 fn one_part(order: &[u64], keys: Vec<ClusterKeyDecl>) -> Vec<u8> {
-    let mut parts = seal_parts(order, keys, PartCutPolicy { max_rows: u64::MAX, max_bytes: u64::MAX, cut_granule_rows: 128 });
+    let mut parts = seal_parts(
+        order,
+        keys,
+        PartCutPolicy {
+            max_rows: u64::MAX,
+            max_bytes: u64::MAX,
+            cut_granule_rows: 128,
+        },
+    );
     assert_eq!(parts.len(), 1, "single-part fixture");
     parts.pop().unwrap()
 }
 
 /// The (granule records, part record) of `attno`'s Stats section.
 fn stats_records(bytes: &[u8], rows: u64, attno: u32) -> (Vec<StatsRecord>, StatsRecord) {
-    let body = view_of(bytes).meta_body(SectionKind::Stats, attno, 0).expect("Stats section");
+    let body = view_of(bytes)
+        .meta_body(SectionKind::Stats, attno, 0)
+        .expect("Stats section");
     let (gc, bc) = (geom::granule_count(rows), geom::band_count(rows));
-    assert_eq!(body.len(), (gc as usize + bc as usize + 1) * STATS_RECORD_LEN);
+    assert_eq!(
+        body.len(),
+        (gc as usize + bc as usize + 1) * STATS_RECORD_LEN
+    );
     let mut c = Cur::new(&body);
-    let g: Vec<StatsRecord> = (0..gc).map(|_| StatsRecord::decode(&mut c).expect("granule")).collect();
+    let g: Vec<StatsRecord> = (0..gc)
+        .map(|_| StatsRecord::decode(&mut c).expect("granule"))
+        .collect();
     for _ in 0..bc {
         StatsRecord::decode(&mut c).expect("band");
     }
@@ -306,18 +344,32 @@ fn composite_key_sorts_lexicographically_and_stamps_sortedness() {
     let keys = vec![asc_key(1), asc_key(2)];
     let got = one_part(&arrivals, keys.clone());
     let want = one_part(&composite_oracle(&arrivals), keys);
-    assert_eq!(got, want, "random feed must seal as the (k, t) stable oracle");
+    assert_eq!(
+        got, want,
+        "random feed must seal as the (k, t) stable oracle"
+    );
     let (g, p) = stats_records(&got, n, 1);
     for (gi, rec) in g.iter().enumerate() {
         let s = Sortedness::from_u8(rec.sortedness).unwrap();
-        assert!(matches!(s, Sortedness::Ascending | Sortedness::Constant), "granule {gi}: {s:?}");
+        assert!(
+            matches!(s, Sortedness::Ascending | Sortedness::Constant),
+            "granule {gi}: {s:?}"
+        );
     }
-    assert_eq!(Sortedness::from_u8(p.sortedness).unwrap(), Sortedness::Ascending, "part record");
+    assert_eq!(
+        Sortedness::from_u8(p.sortedness).unwrap(),
+        Sortedness::Ascending,
+        "part record"
+    );
     // The contrast: the same feed undeclared keeps its arrival order, and
     // the builder says so.
     let plain = one_part(&arrivals, Vec::new());
     let (_, p) = stats_records(&plain, n, 1);
-    assert_eq!(Sortedness::from_u8(p.sortedness).unwrap(), Sortedness::Unknown, "undeclared part record");
+    assert_eq!(
+        Sortedness::from_u8(p.sortedness).unwrap(),
+        Sortedness::Unknown,
+        "undeclared part record"
+    );
 }
 
 /// The per-part promise: a feed that cuts into two parts is sorted WITHIN
@@ -325,7 +377,11 @@ fn composite_key_sorts_lexicographically_and_stamps_sortedness() {
 /// and nothing across them (the second part starts below the first's end).
 #[test]
 fn two_parts_are_each_sorted_and_not_ordered_across() {
-    let cut = PartCutPolicy { max_rows: 256, max_bytes: u64::MAX, cut_granule_rows: 128 };
+    let cut = PartCutPolicy {
+        max_rows: 256,
+        max_bytes: u64::MAX,
+        cut_granule_rows: 128,
+    };
     let arrivals = shuffle_of(unique_key_rows(512), 0x7A57_0000_BEEF_CAFE);
     let parts = seal_parts(&arrivals, vec![asc_key(1)], cut);
     assert_eq!(parts.len(), 2, "256-row cut over 512 rows");
@@ -334,11 +390,29 @@ fn two_parts_are_each_sorted_and_not_ordered_across() {
     let mut oracle_second = second.to_vec();
     oracle_first.sort();
     oracle_second.sort();
-    let want = seal_parts(&[oracle_first.clone(), oracle_second.clone()].concat(), vec![asc_key(1)], cut);
-    assert_eq!(parts, want, "each part sorted on its own rows, seal order kept");
+    let want = seal_parts(
+        &[oracle_first.clone(), oracle_second.clone()].concat(),
+        vec![asc_key(1)],
+        cut,
+    );
+    assert_eq!(
+        parts, want,
+        "each part sorted on its own rows, seal order kept"
+    );
     let (_, p1) = stats_records(&parts[0], 256, 1);
     let (_, p2) = stats_records(&parts[1], 256, 1);
-    assert_eq!(Sortedness::from_u8(p1.sortedness).unwrap(), Sortedness::Ascending);
-    assert_eq!(Sortedness::from_u8(p2.sortedness).unwrap(), Sortedness::Ascending);
-    assert!(p2.min_key < p1.max_key, "a random split overlaps across parts: {} < {}", p2.min_key, p1.max_key);
+    assert_eq!(
+        Sortedness::from_u8(p1.sortedness).unwrap(),
+        Sortedness::Ascending
+    );
+    assert_eq!(
+        Sortedness::from_u8(p2.sortedness).unwrap(),
+        Sortedness::Ascending
+    );
+    assert!(
+        p2.min_key < p1.max_key,
+        "a random split overlaps across parts: {} < {}",
+        p2.min_key,
+        p1.max_key
+    );
 }

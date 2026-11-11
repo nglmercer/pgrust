@@ -7,9 +7,14 @@
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::Mutex;
 
-use memledger::arena::{cache_scope_for, cache_took, in_cache_scope, scope_foreign_frees, set_cache_heap_ready};
+use memledger::arena::{
+    cache_scope_for, cache_took, in_cache_scope, scope_foreign_frees, set_cache_heap_ready,
+};
 use memledger::charge::{owner_row, Door};
-use memledger::{account_row, bind_backend, door_heap, fold, unbind_backend, Acct, Charge, Consumer, Holder, Kind, Owner, Release, DOOR_FOLD_BYTES};
+use memledger::{
+    account_row, bind_backend, door_heap, fold, unbind_backend, Acct, Charge, Consumer, Holder,
+    Kind, Owner, Release, DOOR_FOLD_BYTES,
+};
 
 struct Door1;
 
@@ -82,12 +87,26 @@ fn a_build_in_flight_is_on_its_holder_and_the_image_gives_it_back_where_it_is_fr
         }
         let cap = img.capacity() as i64;
         let during = committed(H1) - h0;
-        assert!((during - cap).abs() <= DOOR_FOLD_BYTES, "the build in flight is the holder's: {during} for {cap}");
-        assert!((account(a) - a0 - (cap - during)).abs() < SLACK, "and off the backend's account but the unfolded rest");
+        assert!(
+            (during - cap).abs() <= DOOR_FOLD_BYTES,
+            "the build in flight is the holder's: {during} for {cap}"
+        );
+        assert!(
+            (account(a) - a0 - (cap - during)).abs() < SLACK,
+            "and off the backend's account but the unfolded rest"
+        );
         let taken = scope.finish().expect("a holder scope's charge");
-        assert_eq!(taken.committed() as i64, cap, "the growth's transient blocks netted: the image's block alone");
+        assert_eq!(
+            taken.committed() as i64,
+            cap,
+            "the growth's transient blocks netted: the image's block alone"
+        );
         assert_eq!(committed(H1) - h0, cap);
-        assert!((account(a) - a0).abs() < SLACK, "the backend's account holds none of it: {}", account(a) - a0);
+        assert!(
+            (account(a) - a0).abs() < SLACK,
+            "the backend's account holds none of it: {}",
+            account(a) - a0
+        );
         // the holder's insert takes the charge over: nothing committed twice
         let mut held = Charge::open(H1, Release::Evict, Kind::Region, Door::Heap, 0);
         assert_eq!(held.absorb(taken) as i64, cap);
@@ -105,9 +124,16 @@ fn a_build_in_flight_is_on_its_holder_and_the_image_gives_it_back_where_it_is_fr
         })
         .join()
         .unwrap();
-        assert!(b.abs() < SLACK, "the evicting thread's account nets to 0: {b}");
+        assert!(
+            b.abs() < SLACK,
+            "the evicting thread's account nets to 0: {b}"
+        );
         assert_eq!(committed(H1), h0, "the holder holds nothing after");
-        assert!((account(a) - a0).abs() < SLACK, "the building thread's account is back: {}", account(a) - a0);
+        assert!(
+            (account(a) - a0).abs() < SLACK,
+            "the building thread's account is back: {}",
+            account(a) - a0
+        );
     });
 }
 
@@ -121,8 +147,15 @@ fn a_scope_dropped_unfinished_gives_its_bytes_back_to_the_thread_that_frees_them
             assert_eq!(committed(H1) - h0, 2 * MIB, "taken: the holder's");
             v
         };
-        assert_eq!(committed(H1), h0, "a scope ended without finish holds nothing");
-        assert!((account(a) - a0 - 2 * MIB).abs() < SLACK, "the block is the thread's again");
+        assert_eq!(
+            committed(H1),
+            h0,
+            "a scope ended without finish holds nothing"
+        );
+        assert!(
+            (account(a) - a0 - 2 * MIB).abs() < SLACK,
+            "the block is the thread's again"
+        );
         drop(v);
         assert!((account(a) - a0).abs() < SLACK);
     });
@@ -136,8 +169,16 @@ fn a_free_the_scope_did_not_take_is_clamped_and_counted() {
         let scope = cache_scope_for(H1, Kind::Region);
         drop(older);
         let taken = scope.finish().expect("a charge");
-        assert_eq!((taken.committed(), committed(H1) - h0), (0, 0), "never below what it took");
-        assert_eq!(scope_foreign_frees() - f0, MIB as u64, "the foreign free counted");
+        assert_eq!(
+            (taken.committed(), committed(H1) - h0),
+            (0, 0),
+            "never below what it took"
+        );
+        assert_eq!(
+            scope_foreign_frees() - f0,
+            MIB as u64,
+            "the foreign free counted"
+        );
         drop(taken);
         assert!((account(a) - a0).abs() < SLACK);
     });
@@ -154,7 +195,11 @@ fn nested_scopes_charge_the_innermost_holder() {
         let t2 = inner.finish().expect("inner");
         let z = vec![3u8; MIB as usize];
         let t1 = outer.finish().expect("outer");
-        assert_eq!((t1.committed() as i64, t2.committed() as i64), (2 * MIB, 2 * MIB), "x + z on the outer, y on the inner");
+        assert_eq!(
+            (t1.committed() as i64, t2.committed() as i64),
+            (2 * MIB, 2 * MIB),
+            "x + z on the outer, y on the inner"
+        );
         assert_eq!((committed(H1) - h1, committed(H2) - h2), (2 * MIB, 2 * MIB));
         drop((t1, t2));
         drop((x, y, z));
@@ -171,9 +216,17 @@ fn absorb_moves_another_owners_charge_and_fit_brings_it_to_the_image() {
         let t = Charge::open(H2, Release::Evict, Kind::Region, Door::Heap, 3 * MIB as u64);
         let mut held = Charge::open(H1, Release::Evict, Kind::Sort, Door::Heap, 0);
         assert_eq!(held.absorb(t), 3 * MIB as u64);
-        assert_eq!((committed(H1) - h1, committed(H2) - h2), (3 * MIB, 0), "moved to the absorbing owner");
+        assert_eq!(
+            (committed(H1) - h1, committed(H2) - h2),
+            (3 * MIB, 0),
+            "moved to the absorbing owner"
+        );
         held.fit_committed(2 * MIB as u64);
-        assert_eq!(committed(H1) - h1, 2 * MIB, "a fit down frees the rest to this thread");
+        assert_eq!(
+            committed(H1) - h1,
+            2 * MIB,
+            "a fit down frees the rest to this thread"
+        );
         held.fit_committed(3 * MIB as u64);
         assert_eq!(committed(H1) - h1, 3 * MIB);
         drop(held);
@@ -192,15 +245,33 @@ fn split_off_moves_a_claim_and_each_part_gives_its_bytes_back() {
         let mut held = Charge::open(H1, Release::Evict, Kind::Sort, Door::Heap, 3 * MIB as u64);
         let a1 = account(a);
         let part = held.split_off(MIB as u64);
-        assert_eq!((held.committed() as i64, part.committed() as i64), (2 * MIB, MIB));
-        assert_eq!((part.owner(), part.release(), part.kind(), part.acct()), (held.owner(), held.release(), held.kind(), held.acct()));
-        assert_eq!(committed(H1) - h1, 3 * MIB, "the owner's total does not move");
+        assert_eq!(
+            (held.committed() as i64, part.committed() as i64),
+            (2 * MIB, MIB)
+        );
+        assert_eq!(
+            (part.owner(), part.release(), part.kind(), part.acct()),
+            (held.owner(), held.release(), held.kind(), held.acct())
+        );
+        assert_eq!(
+            committed(H1) - h1,
+            3 * MIB,
+            "the owner's total does not move"
+        );
         assert_eq!(account(a), a1, "nor the account's");
         assert_eq!(held.absorb(part), MIB as u64);
-        assert_eq!(held.committed() as i64, 3 * MIB, "absorbed back: the original claim");
+        assert_eq!(
+            held.committed() as i64,
+            3 * MIB,
+            "absorbed back: the original claim"
+        );
         let part = held.split_off(MIB as u64);
         drop(part);
-        assert_eq!(committed(H1) - h1, 2 * MIB, "the split part's drop gives its bytes back");
+        assert_eq!(
+            committed(H1) - h1,
+            2 * MIB,
+            "the split part's drop gives its bytes back"
+        );
         drop(held);
         drop(block);
         assert_eq!(committed(H1), h1);
@@ -219,10 +290,22 @@ fn a_scope_naming_an_operator_charges_it_with_the_statements_release() {
         let a0 = account(a);
         let scope = cache_scope_for(op, Kind::Region);
         let img = vec![3u8; 2 * MIB as usize];
-        assert_eq!(committed(op), 2 * MIB, "taken: the operator's as it was allocated");
-        let taken = scope.finish().expect("a scope naming an owner has its charge");
-        assert_eq!((taken.owner(), taken.release(), taken.committed() as i64), (op, Release::Statement, 2 * MIB));
-        assert!((account(a) - a0 - 2 * MIB).abs() < SLACK, "the bytes stay on the backend's account, now owned");
+        assert_eq!(
+            committed(op),
+            2 * MIB,
+            "taken: the operator's as it was allocated"
+        );
+        let taken = scope
+            .finish()
+            .expect("a scope naming an owner has its charge");
+        assert_eq!(
+            (taken.owner(), taken.release(), taken.committed() as i64),
+            (op, Release::Statement, 2 * MIB)
+        );
+        assert!(
+            (account(a) - a0 - 2 * MIB).abs() < SLACK,
+            "the bytes stay on the backend's account, now owned"
+        );
         // the reader's image drops its charge first, then its block (Img's field order)
         drop(taken);
         drop(img);

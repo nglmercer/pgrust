@@ -132,6 +132,7 @@ crate::hook_variants! {
 }
 
 pub use crate::face::ext::{expr_exts, Claim, ExprExtImpl, ExprExtMech, ExtPlan, SubEmit, EXT_AT};
+#[allow(unused_imports)]
 pub(crate) use crate::face::ext::exts_in;
 
 /// Kind `expr.volatile`'s mechanism (`VolatileImpl`): whether expression `ex`'s volatile calls are held, and in how many
@@ -291,6 +292,7 @@ pub trait StepMech {
     }
     /// Road `mask.rows` (frame/mask_rows.rs): the first step's counters (its frame words, read by its `prologue` where the
     /// road applies to it), `None` when the step has no row mask.
+    #[allow(private_interfaces)]
     fn row_stats(&self) -> Option<crate::frame::mask_rows::Stats> {
         None
     }

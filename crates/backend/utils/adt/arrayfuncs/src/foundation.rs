@@ -117,6 +117,7 @@ pub fn read_dims(a: &[u8]) -> (i32, [i32; MAXDIM]) {
     if ndim as u32 > MAXDIM as u32 {
         return (ndim, dims);
     }
+    #[allow(clippy::needless_range_loop)]
     for i in 0..ndim as usize {
         dims[i] = arr_dim(a, i);
     }
@@ -249,6 +250,7 @@ pub fn array_cast_and_set(
     typalign: u8,
     dest: &mut [u8],
 ) -> usize {
+    #[allow(clippy::needless_late_init)]
     let inc;
     if typlen > 0 {
         let n = typlen as usize;

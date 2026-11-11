@@ -34,7 +34,9 @@ fn header_first_abort_leaves_no_readable_part() {
     // Sealed but unpublished: exactly one tmp file, header magic first.
     let names = vfs.list_dir(DIR).expect("list");
     assert_eq!(names, vec!["tmp-50-0.pgrct".to_string()]);
-    let bytes = vfs.read_full(&format!("{DIR}/tmp-50-0.pgrct")).expect("tmp");
+    let bytes = vfs
+        .read_full(&format!("{DIR}/tmp-50-0.pgrct"))
+        .expect("tmp");
     assert_eq!(
         u64::from_le_bytes(bytes[..8].try_into().unwrap()),
         pgrc_format::part::PART_MAGIC,
@@ -311,7 +313,10 @@ fn orphan_sections_files_retired_facts_and_completion_temps_are_reclaimed_by_rec
     };
     let live = pgrc_format::dirlayout::sections_file_name(1);
     // P-1 L2: the publisher writes no sections file; a pre-P-1 directory's generation carries one
-    assert!(!vfs.exists_path(&format!("{DIR}/{live}")).unwrap(), "P-1 L2: the publisher writes none");
+    assert!(
+        !vfs.exists_path(&format!("{DIR}/{live}")).unwrap(),
+        "P-1 L2: the publisher writes none"
+    );
     plant(&mut vfs, &live);
     plant(&mut vfs, &pgrc_format::dirlayout::sections_file_name(0));
     plant(&mut vfs, &pgrc_format::dirlayout::sections_file_name(9));
@@ -320,7 +325,11 @@ fn orphan_sections_files_retired_facts_and_completion_temps_are_reclaimed_by_rec
     cleanup_dir(&mut vfs, &mut NoWal, DIR, &probe).expect("clean");
     let names = vfs.list_dir(DIR).expect("list");
     let secs: Vec<&String> = names.iter().filter(|n| n.contains("sections-")).collect();
-    assert_eq!(secs, vec![&live], "only a generation with its manifest keeps its sections file: {names:?}");
+    assert_eq!(
+        secs,
+        vec![&live],
+        "only a generation with its manifest keeps its sections file: {names:?}"
+    );
     assert!(!names.iter().any(|n| n.ends_with(".pgrcf")));
 }
 
@@ -334,7 +343,8 @@ fn seal_rows(w: &mut TableWriter, vfs: &mut MemVfs, kit: &mut Kit, n: u64) {
         shred_opts: &kit.opts,
     };
     for i in 0..n {
-        w.append_row(&[RawDatum::Word(i)], &mut kit.ext, &mut env).expect("append");
+        w.append_row(&[RawDatum::Word(i)], &mut kit.ext, &mut env)
+            .expect("append");
     }
     w.finish(&mut env).expect("finish");
 }
@@ -350,20 +360,34 @@ fn a_transactions_writers_share_the_tmp_seq() {
     let mut sealed = Vec::new();
     for (fx, cid) in [(70, 1), (70, 2), (70, 3)] {
         let w = reg
-            .get_or_open(&mut vfs, RELFILENUMBER, stamp(fx, cid), || Ok(open_writer(vec![int8_col(1)], stamp(fx, cid))))
+            .get_or_open(&mut vfs, RELFILENUMBER, stamp(fx, cid), || {
+                Ok(open_writer(vec![int8_col(1)], stamp(fx, cid)))
+            })
             .expect("open");
         seal_rows(w, &mut vfs, &mut kit, 10);
         sealed.push(w.sealed_parts()[0].tmp_name.clone());
-        let mut w = reg.take_for_publish(&mut vfs, RELFILENUMBER, stamp(fx, cid)).expect("take").expect("writer");
+        let mut w = reg
+            .take_for_publish(&mut vfs, RELFILENUMBER, stamp(fx, cid))
+            .expect("take")
+            .expect("writer");
         w.publish(&mut vfs, &probe).expect("publish");
     }
-    assert_eq!(sealed, vec!["tmp-70-0.pgrct", "tmp-70-1.pgrct", "tmp-70-2.pgrct"]);
+    assert_eq!(
+        sealed,
+        vec!["tmp-70-0.pgrct", "tmp-70-1.pgrct", "tmp-70-2.pgrct"]
+    );
     reg.at_eoxact(&mut vfs).expect("eoxact");
     let w = reg
-        .get_or_open(&mut vfs, RELFILENUMBER, stamp(71, 1), || Ok(open_writer(vec![int8_col(1)], stamp(71, 1))))
+        .get_or_open(&mut vfs, RELFILENUMBER, stamp(71, 1), || {
+            Ok(open_writer(vec![int8_col(1)], stamp(71, 1)))
+        })
         .expect("open");
     seal_rows(w, &mut vfs, &mut kit, 10);
-    assert_eq!(w.sealed_parts()[0].tmp_name, "tmp-71-0.pgrct", "a new transaction starts its own seq");
+    assert_eq!(
+        w.sealed_parts()[0].tmp_name,
+        "tmp-71-0.pgrct",
+        "a new transaction starts its own seq"
+    );
 }
 
 /// Abort logs one RECLAIM naming the sealed temps and unlinks them inside it (decision W0-4); the names are
@@ -396,13 +420,20 @@ fn stamp_of_reports_without_evicting() {
     let mut reg = WriterRegistry::new();
     assert_eq!(reg.stamp_of(RELFILENUMBER), None);
     let _ = reg
-        .get_or_open(&mut vfs, RELFILENUMBER, stamp(90, 3), || Ok(open_writer(vec![int8_col(1)], stamp(90, 3))))
+        .get_or_open(&mut vfs, RELFILENUMBER, stamp(90, 3), || {
+            Ok(open_writer(vec![int8_col(1)], stamp(90, 3)))
+        })
         .expect("open");
     assert_eq!(reg.stamp_of(RELFILENUMBER), Some(stamp(90, 3)));
     assert_eq!(reg.stamp_of(RELFILENUMBER + 1), None);
     assert_eq!(reg.len(), 1);
-    let taken = reg.take_for_publish(&mut vfs, RELFILENUMBER, stamp(90, 3)).expect("take");
-    taken.expect("its own stamp publishes").abort(&mut vfs).expect("abort");
+    let taken = reg
+        .take_for_publish(&mut vfs, RELFILENUMBER, stamp(90, 3))
+        .expect("take");
+    taken
+        .expect("its own stamp publishes")
+        .abort(&mut vfs)
+        .expect("abort");
     assert_eq!(reg.stamp_of(RELFILENUMBER), None);
 }
 
@@ -414,7 +445,12 @@ fn cleanup_keeps_the_held_parts() {
     use pgrc_format::sidecar::SidecarKind;
     let mut vfs = mem_with_dir();
     // not DVs: with no effective generation here, a DV at gen 2 is a dead compile's and goes whatever its part
-    let names = [part_file_name(3), sidecar_file_name(3, SidecarKind::PredicateCache, 2), part_file_name(4), sidecar_file_name(4, SidecarKind::PredicateCache, 2)];
+    let names = [
+        part_file_name(3),
+        sidecar_file_name(3, SidecarKind::PredicateCache, 2),
+        part_file_name(4),
+        sidecar_file_name(4, SidecarKind::PredicateCache, 2),
+    ];
     for n in &names {
         let fd = vfs.create_rw(&format!("{DIR}/{n}")).expect("create");
         vfs.pwrite_at(&fd, 0, b"x").expect("write");
@@ -422,13 +458,21 @@ fn cleanup_keeps_the_held_parts() {
     }
     let probe = Probe::new(TxnVerdict::Committed);
     let held: std::collections::BTreeSet<u32> = [3].into_iter().collect();
-    let rep = crate::cleanup::cleanup_dir_keeping(&mut vfs, &mut NoWal, DIR, &probe, &held).expect("clean");
+    let rep = crate::cleanup::cleanup_dir_keeping(&mut vfs, &mut NoWal, DIR, &probe, &held)
+        .expect("clean");
     let sorted = |mut v: Vec<String>| {
         v.sort();
         v
     };
-    assert_eq!(vfs.list_dir(DIR).expect("list"), sorted(names[..2].to_vec()), "part 3 and its sidecar kept");
+    assert_eq!(
+        vfs.list_dir(DIR).expect("list"),
+        sorted(names[..2].to_vec()),
+        "part 3 and its sidecar kept"
+    );
     assert_eq!(sorted(rep.removed), sorted(names[2..].to_vec()));
     cleanup_dir(&mut vfs, &mut NoWal, DIR, &probe).expect("clean");
-    assert!(vfs.list_dir(DIR).expect("list").is_empty(), "nothing held: no generation names them");
+    assert!(
+        vfs.list_dir(DIR).expect("list").is_empty(),
+        "nothing held: no generation names them"
+    );
 }

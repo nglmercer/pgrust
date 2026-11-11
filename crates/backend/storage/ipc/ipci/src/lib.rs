@@ -316,6 +316,7 @@ pub fn InitializeShmemGUCs(fastpath_lock_groups_per_backend: i32) -> PgResult<()
     // platform reports a huge page size (GetHugePageSize, sysv_shmem.c:479);
     // where it reports 0 the GUC keeps its -1 boot value.
     let hp = sysv_shmem::GetHugePageSize()?;
+    #[allow(clippy::manual_checked_ops)]
     if hp.hugepagesize != 0 {
         let hp_required = shmem::add_size(size_b / hp.hugepagesize, 1)?;
         guc::SetConfigOption(

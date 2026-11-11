@@ -24,6 +24,7 @@ pub(super) fn gimme_edge_table(
     num_gene: i32,
     edge_table: &mut [Edge],
 ) {
+    #[allow(clippy::needless_range_loop)]
     for i in 1..=num_gene as usize {
         edge_table[i].total_edges = 0;
         edge_table[i].unused_edges = 0;
@@ -121,6 +122,7 @@ fn gimme_gene(state: &mut GeqoState, edge: Edge, edge_table: &[Edge]) -> Gene {
     }
 
     let rand_decision = geqo_randint(state, minimum_count - 1, 0);
+    #[allow(clippy::redundant_locals)]
     let mut minimum_count = minimum_count;
     for i in 0..edge.unused_edges as usize {
         let friend = edge.edge_list[i];
@@ -146,6 +148,7 @@ fn edge_failure(
     let mut remaining_edges = 0;
     let mut four_count = 0;
 
+    #[allow(clippy::needless_range_loop)]
     for i in 1..=num_gene as usize {
         if edge_table[i].unused_edges != -1 && i as Gene != fail_gene {
             remaining_edges += 1;
@@ -158,6 +161,7 @@ fn edge_failure(
     if four_count != 0 {
         let rand_decision = geqo_randint(state, four_count - 1, 0);
         let mut four_count = four_count;
+        #[allow(clippy::needless_range_loop)]
         for i in 1..=num_gene as usize {
             if i as Gene != fail_gene
                 && edge_table[i].unused_edges != -1
@@ -172,6 +176,7 @@ fn edge_failure(
     } else if remaining_edges != 0 {
         let rand_decision = geqo_randint(state, remaining_edges - 1, 0);
         let mut remaining_edges = remaining_edges;
+        #[allow(clippy::needless_range_loop)]
         for i in 1..=num_gene as usize {
             if i as Gene != fail_gene && edge_table[i].unused_edges != -1 {
                 remaining_edges -= 1;
@@ -182,6 +187,7 @@ fn edge_failure(
         }
     } else {
         // Only at the last tour point: take the first unused point.
+        #[allow(clippy::needless_range_loop)]
         for i in 1..=num_gene as usize {
             if edge_table[i].unused_edges >= 0 {
                 return i as Gene;

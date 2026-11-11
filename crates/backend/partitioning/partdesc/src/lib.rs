@@ -41,6 +41,7 @@ pub struct PartitionDescData {
 
 struct PartDescState {
     root: &'static MemoryContext,
+    #[allow(dead_code)]
     mcx: Mcx<'static>,
     descs: PgHashMap<'static, Oid, Rc<PartitionDescData>>,
     descs_nodetached: PgHashMap<'static, Oid, (Rc<PartitionDescData>, TransactionId)>,

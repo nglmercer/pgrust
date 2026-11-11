@@ -142,6 +142,7 @@ fn nested_aggregate_is_42803() {
     );
 }
 
+#[allow(clippy::field_reassign_with_default)]
 fn query_with_rtable<'mcx>(mcx: Mcx<'mcx>, tlist: NodeList<'mcx>) -> Query<'mcx> {
     let colnames = NodeList::make1(mcx, Node::mk(mcx, PgStr { sval: "x" }).unwrap()).unwrap();
     let eref = Node::mk_mut(
@@ -336,6 +337,7 @@ fn grouped_column_passes_check() {
 }
 
 #[test]
+#[allow(clippy::field_reassign_with_default)]
 fn ungrouped_column_next_to_group_by_is_42803() {
     let ctx = MemoryContext::new("t");
     let mcx = ctx.mcx();
@@ -584,6 +586,7 @@ fn grouping_func_sets_hasaggs_and_levelsup() {
     assert!(grp.refs.is_nil() && grp.cols.is_nil());
 }
 
+#[allow(clippy::field_reassign_with_default)]
 fn expr_sublink<'mcx>(mcx: Mcx<'mcx>, sub_tlist: NodeList<'mcx>) -> Node<'mcx> {
     let mut subq = Query::default();
     subq.targetList = sub_tlist;
@@ -805,6 +808,7 @@ fn ungrouped_outer_var_in_sublink_is_42803() {
     );
 }
 
+#[allow(clippy::field_reassign_with_default)]
 fn sublink_with_from<'mcx>(mcx: Mcx<'mcx>, sub_tlist: NodeList<'mcx>) -> Node<'mcx> {
     let colnames = NodeList::make1(mcx, Node::mk(mcx, PgStr { sval: "z" }).unwrap()).unwrap();
     let eref = Node::mk_mut(
@@ -1099,6 +1103,7 @@ fn grouped_outer_var_in_window_frame_offset_is_substituted() {
 }
 
 #[test]
+#[allow(clippy::field_reassign_with_default)]
 fn group_rte_keeps_join_alias_vars() {
     // upstream c2c1962a64b5 (18.4): the RTE_GROUP's groupexprs hold the
     // original join alias Vars (pg_get_viewdef deparses them back); only the

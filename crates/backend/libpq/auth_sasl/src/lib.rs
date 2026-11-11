@@ -1,9 +1,7 @@
 //! auth-sasl.c: CheckSASLAuth; the mechanism vtable is a monomorphized trait,
 //! sendAuthRequest a parameter (direct dep would cycle auth -> auth_sasl -> auth).
 
-#![allow(non_snake_case)]
-#![allow(non_upper_case_globals)]
-#![allow(clippy::result_large_err)]
+#![allow(clippy::result_large_err, non_snake_case, non_upper_case_globals)]
 
 use elog::{elog, ereport};
 use mcx::MemoryContext;
@@ -101,7 +99,8 @@ pub fn CheckSASLAuth<M: SaslMech>(
         )?;
 
         let input: Option<Vec<u8>> = if initial {
-            let selected_mech = ::mcx::std_vec_from_slice("auth_sasl", pqformat::pq_getmsgrawstring(&mut buf)?)?;
+            let selected_mech =
+                ::mcx::std_vec_from_slice("auth_sasl", pqformat::pq_getmsgrawstring(&mut buf)?)?;
             // Missing/invalid secret still inits: doomed mock auth, so failure
             // is indistinguishable from a wrong password.
             opaq = Some(mech.init(port, &selected_mech, shadow_pass)?);
@@ -111,16 +110,24 @@ pub fn CheckSASLAuth<M: SaslMech>(
             if inputlen == -1 {
                 None
             } else {
-                Some(::mcx::std_vec_from_slice("auth_sasl", pqformat::pq_getmsgbytes(&mut buf, inputlen as usize)?)?)
+                Some(::mcx::std_vec_from_slice(
+                    "auth_sasl",
+                    pqformat::pq_getmsgbytes(&mut buf, inputlen as usize)?,
+                )?)
             }
         } else {
             let len = buf.len();
-            Some(::mcx::std_vec_from_slice("auth_sasl", pqformat::pq_getmsgbytes(&mut buf, len)?)?)
+            Some(::mcx::std_vec_from_slice(
+                "auth_sasl",
+                pqformat::pq_getmsgbytes(&mut buf, len)?,
+            )?)
         };
         pqformat::pq_getmsgend(&buf)?;
         drop(buf);
 
-        let state = opaq.as_mut().expect("SASL state initialized on first message");
+        let state = opaq
+            .as_mut()
+            .expect("SASL state initialized on first message");
         let (r, output) = mech.exchange(state, port, input.as_deref(), logdetail)?;
         result = r;
 

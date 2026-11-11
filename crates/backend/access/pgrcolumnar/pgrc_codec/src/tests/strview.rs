@@ -106,7 +106,9 @@ fn dict_gather_datums_are_zero_copy_views_into_the_dictionary() {
     let ndv = 500u32;
     let (index, payload) = super::roundtrip::dict_fixture(ndv);
     let rows = 8192u32;
-    let datums = (0..rows).map(|_| splitmix(&mut seed) % ndv as u64).collect();
+    let datums = (0..rows)
+        .map(|_| splitmix(&mut seed) % ndv as u64)
+        .collect();
     let gd = GranuleData {
         rows,
         datums,
@@ -143,6 +145,7 @@ fn dict_gather_datums_are_zero_copy_views_into_the_dictionary() {
         out.arena.used()
     };
     assert_eq!(used, 0, "gather copied through the arena (mechanism pin)");
+    #[allow(clippy::needless_range_loop)]
     for r in 0..rows as usize {
         let d = full[r];
         assert!(
@@ -204,6 +207,7 @@ fn packed_numeric_outputs_are_varlena_shaped() {
     let mut enc = PackedNumericEncoder::new(scale, width);
     let built = build_stream(&mut enc, &inputs, 0, true);
     let (datums, _arena) = dec_full(&built, 0);
+    #[allow(clippy::needless_range_loop)]
     for r in 0..rows as usize {
         varlena_shaped(datums[r]).unwrap_or_else(|e| panic!("numeric output row {r}: {e}"));
     }

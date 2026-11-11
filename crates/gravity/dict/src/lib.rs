@@ -37,6 +37,7 @@ impl View {
 
     /// # Safety — the bytes are live for `'a`.
     #[inline(always)]
+    #[allow(clippy::missing_safety_doc)]
     pub unsafe fn bytes<'a>(self) -> &'a [u8] {
         if self.ptr.is_null() {
             &[]
@@ -81,6 +82,7 @@ pub struct Region {
 
 impl Region {
     /// # Safety — `ptr..ptr+len` is writable for the region's lifetime and 8-aligned.
+    #[allow(clippy::missing_safety_doc)]
     pub unsafe fn new(ptr: *mut u8, len: usize) -> Region {
         Region { base: ptr, cur: ptr, end: ptr.add(len) }
     }

@@ -1,12 +1,10 @@
 //! brin_inclusion.c: inclusion opclasses for BRIN.
-#![allow(non_snake_case)]
-#![allow(non_upper_case_globals)]
-#![allow(clippy::too_many_arguments)]
+#![allow(clippy::too_many_arguments, non_snake_case, non_upper_case_globals)]
 
+use ::adt_scalar::datum_ops::datum_copy;
 use ::datum::Datum;
 use ::fmgr::FmgrInfo;
 use ::mcx::Mcx;
-use ::adt_scalar::datum_ops::datum_copy;
 use ::types_brin::{
     BrinColInfo, BrinDesc, BrinOpcKind, BrinValues, InclusionOpaque, MinmaxOpaque,
     INCLUSION_MAX_PROCNUMS, RT_MAX_STRATEGY,
@@ -14,14 +12,14 @@ use ::types_brin::{
 use ::types_core::{Oid, BOOLOID};
 use ::types_error::{PgError, PgResult, ERRCODE_INVALID_OBJECT_DEFINITION};
 use ::types_scan::scankey::{
-    ScanKeyData, RTAboveStrategyNumber, RTAdjacentStrategyNumber, RTBelowStrategyNumber,
+    RTAboveStrategyNumber, RTAdjacentStrategyNumber, RTBelowStrategyNumber,
     RTContainedByStrategyNumber, RTContainsElemStrategyNumber, RTContainsStrategyNumber,
     RTEqualStrategyNumber, RTGreaterEqualStrategyNumber, RTGreaterStrategyNumber,
     RTLeftStrategyNumber, RTLessEqualStrategyNumber, RTLessStrategyNumber,
     RTOverAboveStrategyNumber, RTOverBelowStrategyNumber, RTOverLeftStrategyNumber,
     RTOverRightStrategyNumber, RTOverlapStrategyNumber, RTRightStrategyNumber,
     RTSameStrategyNumber, RTSubEqualStrategyNumber, RTSubStrategyNumber,
-    RTSuperEqualStrategyNumber, RTSuperStrategyNumber,
+    RTSuperEqualStrategyNumber, RTSuperStrategyNumber, ScanKeyData,
 };
 
 const PROCNUM_MERGE: u16 = 11;
@@ -206,19 +204,16 @@ pub fn brin_inclusion_consistent(
 #[cold]
 #[inline(never)]
 fn invalid_strategy(strategy: u16) -> Box<PgError> {
-    Box::new(PgError::error(format!("invalid strategy number {strategy}")))
+    Box::new(PgError::error(format!(
+        "invalid strategy number {strategy}"
+    )))
 }
 
 // brin_inclusion.c:647 elog(ERROR, "missing operator %d(%u,%u) in opfamily %u").
 #[track_caller]
 #[cold]
 #[inline(never)]
-fn missing_operator(
-    strategynum: u16,
-    atttypid: Oid,
-    subtype: Oid,
-    opfamily: Oid,
-) -> Box<PgError> {
+fn missing_operator(strategynum: u16, atttypid: Oid, subtype: Oid, opfamily: Oid) -> Box<PgError> {
     Box::new(PgError::error(format!(
         "missing operator {strategynum}({atttypid},{subtype}) in opfamily {opfamily}"
     )))
@@ -253,7 +248,10 @@ pub fn brin_inclusion_union(
         return Ok(());
     }
 
-    let (union_a, union_b) = (col_a.bv_values[INCLUSION_UNION], col_b.bv_values[INCLUSION_UNION]);
+    let (union_a, union_b) = (
+        col_a.bv_values[INCLUSION_UNION],
+        col_b.bv_values[INCLUSION_UNION],
+    );
     let call2 = |procnum: u16, missing_ok: bool| {
         with_extra_proc(bdesc, attno, procnum, missing_ok, |fi| {
             fmgr_core::function_call2_coll_in(fi, colloid, mcx, union_a, union_b)
@@ -292,7 +290,10 @@ fn with_extra_proc<R>(
         return Ok(None);
     }
 
-    let mut procs = opaque.extra_procinfos.try_borrow_mut().map_err(|_| reentrant_call())?;
+    let mut procs = opaque
+        .extra_procinfos
+        .try_borrow_mut()
+        .map_err(|_| reentrant_call())?;
     if procs[basenum].is_none() {
         let opfamily = bdesc.bd_opfamily[attno as usize - 1];
         let opcintype = bdesc.bd_opcintype[attno as usize - 1];
@@ -331,7 +332,10 @@ fn with_strategy_proc<R>(
         .as_ref()
         .expect("inclusion column");
 
-    let mut cache = opaque.strategy_procinfos.try_borrow_mut().map_err(|_| reentrant_call())?;
+    let mut cache = opaque
+        .strategy_procinfos
+        .try_borrow_mut()
+        .map_err(|_| reentrant_call())?;
     if opaque.cached_subtype.get() != subtype {
         *cache = [const { None }; RT_MAX_STRATEGY];
         opaque.cached_subtype.set(subtype);
@@ -341,7 +345,8 @@ fn with_strategy_proc<R>(
     if slot.is_none() {
         let opfamily = bdesc.bd_opfamily[attno as usize - 1];
         let atttypid = bdesc.bd_tupdesc.attr(attno as usize - 1).atttypid;
-        let oprid = lsyscache::get_opfamily_member(opfamily, atttypid, subtype, strategynum as i16)?;
+        let oprid =
+            lsyscache::get_opfamily_member(opfamily, atttypid, subtype, strategynum as i16)?;
         if oprid == 0 {
             return Err(missing_operator(strategynum, atttypid, subtype, opfamily));
         }
@@ -355,7 +360,9 @@ fn with_strategy_proc<R>(
 #[cold]
 #[inline(never)]
 fn reentrant_call() -> Box<PgError> {
-    Box::new(PgError::error("recursive call of a BRIN inclusion support procedure"))
+    Box::new(PgError::error(
+        "recursive call of a BRIN inclusion support procedure",
+    ))
 }
 
 #[track_caller]

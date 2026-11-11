@@ -2,6 +2,7 @@
 #![allow(non_snake_case, non_upper_case_globals)]
 
 use amapi::{am_adjust_members, GetIndexAmRoutineByAmId};
+#[allow(unused_imports)]
 use cache_syscache::cacheinfo::{AMNAME, AMOID, AMOPSTRATEGY, AMPROCNUM};
 use cache_syscache::{
     GetSysCacheOid, SearchSysCache1, SearchSysCacheExists, SysCacheGetAttrNotNull, SysCacheKey,
@@ -79,7 +80,9 @@ fn err(sqlstate: types_error::SqlState, msg: String) -> Box<PgError> {
 #[cold]
 #[inline(never)]
 pub(crate) fn cache_lookup_failed(what: &str, oid: Oid) -> Box<PgError> {
-    Box::new(PgError::error(format!("cache lookup failed for {what} {oid}")))
+    Box::new(PgError::error(format!(
+        "cache lookup failed for {what} {oid}"
+    )))
 }
 
 // C passes the parser's name List through untouched; DeconstructQualifiedName
@@ -212,14 +215,16 @@ fn CreateOpFamily(
     )?) {
         return Err(err(
             ERRCODE_DUPLICATE_OBJECT,
-            format!(
-                "operator family \"{opfname}\" for access method \"{amname}\" already exists"
-            ),
+            format!("operator family \"{opfname}\" for access method \"{amname}\" already exists"),
         ));
     }
 
-    let opfamilyoid =
-        catalog::GetNewOidWithIndex(mcx, &rel, OPFAMILY_OID_INDEX_ID, Anum_pg_opfamily_oid as i16)?;
+    let opfamilyoid = catalog::GetNewOidWithIndex(
+        mcx,
+        &rel,
+        OPFAMILY_OID_INDEX_ID,
+        Anum_pg_opfamily_oid as i16,
+    )?;
     let mut opfName = NameData::default();
     opfName.namestrcpy(opfname);
     let values = [
@@ -250,7 +255,12 @@ fn CreateOpFamily(
         DependencyType::Normal,
     )?;
     // dependency on owner
-    recordDependencyOnOwner(mcx, OPERATOR_FAMILY_RELATION_ID, opfamilyoid, miscinit::GetUserId())?;
+    recordDependencyOnOwner(
+        mcx,
+        OPERATOR_FAMILY_RELATION_ID,
+        opfamilyoid,
+        miscinit::GetUserId(),
+    )?;
     // dependency on extension
     pg_depend::recordDependencyOnCurrentExtension(mcx, &myself, false)?;
 
@@ -337,9 +347,13 @@ fn typename_type_id(mcx: Mcx<'_>, n: Node<'_>) -> PgResult<Oid> {
 }
 
 // DefineOpClass: define a new index operator class.
-pub fn DefineOpClass<'mcx>(mcx: Mcx<'mcx>, stmt: &CreateOpClassStmt<'mcx>) -> PgResult<ObjectAddress> {
+pub fn DefineOpClass<'mcx>(
+    mcx: Mcx<'mcx>,
+    stmt: &CreateOpClassStmt<'mcx>,
+) -> PgResult<ObjectAddress> {
     let parts = name_parts(&stmt.opclassname);
-    let (namespaceoid, opcname) = catalog_namespace::QualifiedNameGetCreationNamespace(mcx, &parts)?;
+    let (namespaceoid, opcname) =
+        catalog_namespace::QualifiedNameGetCreationNamespace(mcx, &parts)?;
 
     namespace_create_check(mcx, namespaceoid)?;
 
@@ -370,7 +384,9 @@ pub fn DefineOpClass<'mcx>(mcx: Mcx<'mcx>, stmt: &CreateOpClassStmt<'mcx>) -> Pg
     let mut storageoid = InvalidOid;
 
     for n in stmt.items.iter() {
-        let item = n.as_variant::<CreateOpClassItem>().expect("CreateOpClassItem");
+        let item = n
+            .as_variant::<CreateOpClassItem>()
+            .expect("CreateOpClassItem");
         match item.itemtype {
             OPCLASS_ITEM_OPERATOR => {
                 if item.number <= 0 || item.number > am.max_op_number {
@@ -442,8 +458,7 @@ pub fn DefineOpClass<'mcx>(mcx: Mcx<'mcx>, stmt: &CreateOpClassStmt<'mcx>) -> Pg
                         "storage type specified more than once".into(),
                     ));
                 }
-                storageoid =
-                    typename_type_id(mcx, item.storedtype.expect("STORAGE Typename"))?;
+                storageoid = typename_type_id(mcx, item.storedtype.expect("STORAGE Typename"))?;
             }
             other => panic!("unrecognized item type: {other}"),
         }
@@ -472,9 +487,7 @@ pub fn DefineOpClass<'mcx>(mcx: Mcx<'mcx>, stmt: &CreateOpClassStmt<'mcx>) -> Pg
     )?) {
         return Err(err(
             ERRCODE_DUPLICATE_OBJECT,
-            format!(
-                "operator class \"{opcname}\" for access method \"{amname}\" already exists"
-            ),
+            format!("operator class \"{opcname}\" for access method \"{amname}\" already exists"),
         ));
     }
 
@@ -482,8 +495,7 @@ pub fn DefineOpClass<'mcx>(mcx: Mcx<'mcx>, stmt: &CreateOpClassStmt<'mcx>) -> Pg
     // ignored so typcache answers stay unique).
     if stmt.isDefault {
         let scratch = mcx::MemoryContext::new("DefineOpClass default check");
-        let rows =
-            syscache_seams::lookup_pg_opclass_rows_by_am::call(scratch.mcx(), am.amoid)?;
+        let rows = syscache_seams::lookup_pg_opclass_rows_by_am::call(scratch.mcx(), am.amoid)?;
         for &(_oid, _fam, opcintype, opcdefault, name) in rows.iter() {
             if opcintype == typeoid && opcdefault {
                 return Err(Box::new(
@@ -537,10 +549,30 @@ pub fn DefineOpClass<'mcx>(mcx: Mcx<'mcx>, stmt: &CreateOpClassStmt<'mcx>) -> Pg
     }
 
     // Let the index AM editorialize on the dependency choices.
-    am_adjust_members(am.kind, opfamilyoid, opclassoid, &mut operators, &mut procedures)?;
+    am_adjust_members(
+        am.kind,
+        opfamilyoid,
+        opclassoid,
+        &mut operators,
+        &mut procedures,
+    )?;
 
-    storeOperators(mcx, &stmt.opfamilyname, am.amoid, opfamilyoid, &operators, false)?;
-    storeProcedures(mcx, &stmt.opfamilyname, am.amoid, opfamilyoid, &procedures, false)?;
+    storeOperators(
+        mcx,
+        &stmt.opfamilyname,
+        am.amoid,
+        opfamilyoid,
+        &operators,
+        false,
+    )?;
+    storeProcedures(
+        mcx,
+        &stmt.opfamilyname,
+        am.amoid,
+        opfamilyoid,
+        &procedures,
+        false,
+    )?;
 
     let myself = ObjectAddress::set(OPERATOR_CLASS_RELATION_ID, opclassoid);
 
@@ -571,7 +603,12 @@ pub fn DefineOpClass<'mcx>(mcx: Mcx<'mcx>, stmt: &CreateOpClassStmt<'mcx>) -> Pg
             DependencyType::Normal,
         )?;
     }
-    recordDependencyOnOwner(mcx, OPERATOR_CLASS_RELATION_ID, opclassoid, miscinit::GetUserId())?;
+    recordDependencyOnOwner(
+        mcx,
+        OPERATOR_CLASS_RELATION_ID,
+        opclassoid,
+        miscinit::GetUserId(),
+    )?;
     // dependency on extension (C opclasscmds.c: ONE recordDependencyOnCurrentExtension;
     // t31 fold fix: the extowner x surgery-isn merge keep-both'd identical arms,
     // double-inserting DEPENDENCY_EXTENSION pg_depend rows for CREATE OPERATOR
@@ -600,7 +637,8 @@ pub fn DefineOpFamily<'mcx>(
     stmt: &CreateOpFamilyStmt<'mcx>,
 ) -> PgResult<ObjectAddress> {
     let parts = name_parts(&stmt.opfamilyname);
-    let (namespaceoid, opfname) = catalog_namespace::QualifiedNameGetCreationNamespace(mcx, &parts)?;
+    let (namespaceoid, opfname) =
+        catalog_namespace::QualifiedNameGetCreationNamespace(mcx, &parts)?;
 
     namespace_create_check(mcx, namespaceoid)?;
 
@@ -649,7 +687,9 @@ fn AlterOpFamilyAdd<'mcx>(
     let mut procedures: mcx::PgVec<'_, OpFamilyMember> = mcx::PgVec::new_in(mcx);
 
     for n in stmt.items.iter() {
-        let item = n.as_variant::<CreateOpClassItem>().expect("CreateOpClassItem");
+        let item = n
+            .as_variant::<CreateOpClassItem>()
+            .expect("CreateOpClassItem");
         match item.itemtype {
             OPCLASS_ITEM_OPERATOR => {
                 if item.number <= 0 || item.number > am.max_op_number {
@@ -665,8 +705,7 @@ fn AlterOpFamilyAdd<'mcx>(
                 if owa.objargs.is_nil() {
                     return Err(err(
                         ERRCODE_SYNTAX_ERROR,
-                        "operator argument types must be specified in ALTER OPERATOR FAMILY"
-                            .into(),
+                        "operator argument types must be specified in ALTER OPERATOR FAMILY".into(),
                     ));
                 }
                 let operOid = parse_oper::LookupOperWithArgs(&owa.objname, &owa.objargs, false)?;
@@ -686,7 +725,12 @@ fn AlterOpFamilyAdd<'mcx>(
                     refobjid: opfamilyoid,
                     ..Default::default()
                 };
-                assignOperTypes(&mut member, am.kind, stmt.amname.expect("amname"), InvalidOid)?;
+                assignOperTypes(
+                    &mut member,
+                    am.kind,
+                    stmt.amname.expect("amname"),
+                    InvalidOid,
+                )?;
                 addFamilyMember(&mut operators, member)?;
             }
             OPCLASS_ITEM_FUNCTION => {
@@ -732,10 +776,30 @@ fn AlterOpFamilyAdd<'mcx>(
         }
     }
 
-    am_adjust_members(am.kind, opfamilyoid, InvalidOid, &mut operators, &mut procedures)?;
+    am_adjust_members(
+        am.kind,
+        opfamilyoid,
+        InvalidOid,
+        &mut operators,
+        &mut procedures,
+    )?;
 
-    storeOperators(mcx, &stmt.opfamilyname, am.amoid, opfamilyoid, &operators, true)?;
-    storeProcedures(mcx, &stmt.opfamilyname, am.amoid, opfamilyoid, &procedures, true)?;
+    storeOperators(
+        mcx,
+        &stmt.opfamilyname,
+        am.amoid,
+        opfamilyoid,
+        &operators,
+        true,
+    )?;
+    storeProcedures(
+        mcx,
+        &stmt.opfamilyname,
+        am.amoid,
+        opfamilyoid,
+        &procedures,
+        true,
+    )?;
     Ok(())
 }
 
@@ -749,7 +813,9 @@ fn AlterOpFamilyDrop<'mcx>(
     let mut procedures: mcx::PgVec<'_, OpFamilyMember> = mcx::PgVec::new_in(mcx);
 
     for n in stmt.items.iter() {
-        let item = n.as_variant::<CreateOpClassItem>().expect("CreateOpClassItem");
+        let item = n
+            .as_variant::<CreateOpClassItem>()
+            .expect("CreateOpClassItem");
         match item.itemtype {
             OPCLASS_ITEM_OPERATOR => {
                 if item.number <= 0 || item.number > am.max_op_number {
@@ -841,9 +907,7 @@ fn assignOperTypes(
         if !amkind.amcanorderbyop() {
             return Err(err(
                 ERRCODE_INVALID_OBJECT_DEFINITION,
-                format!(
-                    "access method \"{amname}\" does not support ordering operators"
-                ),
+                format!("access method \"{amname}\" does not support ordering operators"),
             ));
         }
     } else {
@@ -893,18 +957,18 @@ fn assignProcTypes(
         }
         if prorettype != VOIDOID || pronargs != 1 || proargtypes[0] != INTERNALOID {
             return Err(Box::new(
-                (*def_err("invalid operator class options parsing function")).with_hint(
-                    format!(
-                        "Valid signature of operator class options parsing function is {}.",
-                        "(internal) RETURNS void"
-                    ),
-                ),
+                (*def_err("invalid operator class options parsing function")).with_hint(format!(
+                    "Valid signature of operator class options parsing function is {}.",
+                    "(internal) RETURNS void"
+                )),
             ));
         }
     } else if amkind.amcanorder() {
         if member.number as u16 == BTORDER_PROC {
             if pronargs != 2 {
-                return Err(def_err("ordering comparison functions must have two arguments"));
+                return Err(def_err(
+                    "ordering comparison functions must have two arguments",
+                ));
             }
             if prorettype != INT4OID {
                 return Err(def_err("ordering comparison functions must return integer"));
@@ -926,7 +990,9 @@ fn assignProcTypes(
             }
         } else if member.number as u16 == BTINRANGE_PROC {
             if pronargs != 5 {
-                return Err(def_err("ordering in_range functions must have five arguments"));
+                return Err(def_err(
+                    "ordering in_range functions must have five arguments",
+                ));
             }
             if prorettype != BOOLOID {
                 return Err(def_err("ordering in_range functions must return boolean"));
@@ -939,15 +1005,21 @@ fn assignProcTypes(
             }
         } else if member.number as u16 == BTEQUALIMAGE_PROC {
             if pronargs != 1 {
-                return Err(def_err("ordering equal image functions must have one argument"));
+                return Err(def_err(
+                    "ordering equal image functions must have one argument",
+                ));
             }
             if prorettype != BOOLOID {
-                return Err(def_err("ordering equal image functions must return boolean"));
+                return Err(def_err(
+                    "ordering equal image functions must return boolean",
+                ));
             }
             // equalimage is only called at CREATE INDEX time with the
             // opclass opcintype for both sides; cross-type is nonsense.
             if member.lefttype != member.righttype {
-                return Err(def_err("ordering equal image functions must not be cross-type"));
+                return Err(def_err(
+                    "ordering equal image functions must not be cross-type",
+                ));
             }
         } else if member.number as u16 == BTSKIPSUPPORT_PROC {
             if pronargs != 1 || proargtypes[0] != INTERNALOID {
@@ -959,7 +1031,9 @@ fn assignProcTypes(
                 return Err(def_err("btree skip support functions must return void"));
             }
             if member.lefttype != member.righttype {
-                return Err(def_err("btree skip support functions must not be cross-type"));
+                return Err(def_err(
+                    "btree skip support functions must not be cross-type",
+                ));
             }
         }
     } else if amkind.amcanhash() {
@@ -1003,13 +1077,20 @@ fn assignProcTypes(
 }
 
 // Reject duplicated strategy/proc numbers, then append.
-fn addFamilyMember(list: &mut mcx::PgVec<'_, OpFamilyMember>, member: OpFamilyMember) -> PgResult<()> {
+fn addFamilyMember(
+    list: &mut mcx::PgVec<'_, OpFamilyMember>,
+    member: OpFamilyMember,
+) -> PgResult<()> {
     for old in list.iter() {
         if old.number == member.number
             && old.lefttype == member.lefttype
             && old.righttype == member.righttype
         {
-            let what = if member.is_func { "function" } else { "operator" };
+            let what = if member.is_func {
+                "function"
+            } else {
+                "operator"
+            };
             return Err(err(
                 ERRCODE_INVALID_OBJECT_DEFINITION,
                 format!(
@@ -1063,7 +1144,11 @@ fn storeOperators(
             ));
         }
 
-        let oppurpose = if OidIsValid(op.sortfamily) { AMOP_ORDER } else { AMOP_SEARCH };
+        let oppurpose = if OidIsValid(op.sortfamily) {
+            AMOP_ORDER
+        } else {
+            AMOP_SEARCH
+        };
 
         let entryoid = catalog::GetNewOidWithIndex(
             mcx,
@@ -1093,7 +1178,11 @@ fn storeOperators(
             mcx,
             &myself,
             &ObjectAddress::set(OPERATOR_RELATION_ID, op.object),
-            if op.ref_is_hard { DependencyType::Normal } else { DependencyType::Auto },
+            if op.ref_is_hard {
+                DependencyType::Normal
+            } else {
+                DependencyType::Auto
+            },
         )?;
         recordDependencyOn(
             mcx,
@@ -1106,14 +1195,22 @@ fn storeOperators(
                 },
                 op.refobjid,
             ),
-            if op.ref_is_hard { DependencyType::Internal } else { DependencyType::Auto },
+            if op.ref_is_hard {
+                DependencyType::Internal
+            } else {
+                DependencyType::Auto
+            },
         )?;
         if typeDepNeeded(op.lefttype, op)? {
             recordDependencyOn(
                 mcx,
                 &myself,
                 &ObjectAddress::set(TYPE_RELATION_ID, op.lefttype),
-                if op.ref_is_hard { DependencyType::Normal } else { DependencyType::Auto },
+                if op.ref_is_hard {
+                    DependencyType::Normal
+                } else {
+                    DependencyType::Auto
+                },
             )?;
         }
         if op.lefttype != op.righttype && typeDepNeeded(op.righttype, op)? {
@@ -1121,7 +1218,11 @@ fn storeOperators(
                 mcx,
                 &myself,
                 &ObjectAddress::set(TYPE_RELATION_ID, op.righttype),
-                if op.ref_is_hard { DependencyType::Normal } else { DependencyType::Auto },
+                if op.ref_is_hard {
+                    DependencyType::Normal
+                } else {
+                    DependencyType::Auto
+                },
             )?;
         }
         // An ordering operator also depends on its referenced opfamily.
@@ -1130,7 +1231,11 @@ fn storeOperators(
                 mcx,
                 &myself,
                 &ObjectAddress::set(OPERATOR_FAMILY_RELATION_ID, op.sortfamily),
-                if op.ref_is_hard { DependencyType::Normal } else { DependencyType::Auto },
+                if op.ref_is_hard {
+                    DependencyType::Normal
+                } else {
+                    DependencyType::Auto
+                },
             )?;
         }
 
@@ -1198,7 +1303,11 @@ fn storeProcedures(
             mcx,
             &myself,
             &ObjectAddress::set(PROCEDURE_RELATION_ID, proc.object),
-            if proc.ref_is_hard { DependencyType::Normal } else { DependencyType::Auto },
+            if proc.ref_is_hard {
+                DependencyType::Normal
+            } else {
+                DependencyType::Auto
+            },
         )?;
         recordDependencyOn(
             mcx,
@@ -1211,14 +1320,22 @@ fn storeProcedures(
                 },
                 proc.refobjid,
             ),
-            if proc.ref_is_hard { DependencyType::Internal } else { DependencyType::Auto },
+            if proc.ref_is_hard {
+                DependencyType::Internal
+            } else {
+                DependencyType::Auto
+            },
         )?;
         if typeDepNeeded(proc.lefttype, proc)? {
             recordDependencyOn(
                 mcx,
                 &myself,
                 &ObjectAddress::set(TYPE_RELATION_ID, proc.lefttype),
-                if proc.ref_is_hard { DependencyType::Normal } else { DependencyType::Auto },
+                if proc.ref_is_hard {
+                    DependencyType::Normal
+                } else {
+                    DependencyType::Auto
+                },
             )?;
         }
         if proc.lefttype != proc.righttype && typeDepNeeded(proc.righttype, proc)? {
@@ -1226,7 +1343,11 @@ fn storeProcedures(
                 mcx,
                 &myself,
                 &ObjectAddress::set(TYPE_RELATION_ID, proc.righttype),
-                if proc.ref_is_hard { DependencyType::Normal } else { DependencyType::Auto },
+                if proc.ref_is_hard {
+                    DependencyType::Normal
+                } else {
+                    DependencyType::Auto
+                },
             )?;
         }
 
@@ -1417,9 +1538,15 @@ mod tests {
         let five = name_list(mcx, &["a", "b", "c", "d", "e"]);
         let e = get_opfamily_oid(BTREE_AM_OID, &five, false).unwrap_err();
         assert_eq!(e.sqlstate(), ERRCODE_SYNTAX_ERROR);
-        assert_eq!(e.message(), "improper qualified name (too many dotted names): a.b.c.d.e");
+        assert_eq!(
+            e.message(),
+            "improper qualified name (too many dotted names): a.b.c.d.e"
+        );
         let e = get_opclass_oid(BTREE_AM_OID, &five, false).unwrap_err();
-        assert_eq!(e.message(), "improper qualified name (too many dotted names): a.b.c.d.e");
+        assert_eq!(
+            e.message(),
+            "improper qualified name (too many dotted names): a.b.c.d.e"
+        );
 
         let seven = name_list(mcx, &["a", "b", "c", "d", "e", "f", "g"]);
         let e = get_opclass_oid(BTREE_AM_OID, &seven, false).unwrap_err();

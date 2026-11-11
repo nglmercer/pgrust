@@ -316,6 +316,7 @@ pub fn aclitemout_into(aip: &AclItem, buf: &mut Vec<u8>) -> PgResult<()> {
         put_role_name(buf, aip.ai_grantee)?;
     }
     buf.push(b'=');
+    #[allow(clippy::needless_range_loop)]
     for i in 0..ACL_ALL_RIGHTS_STR.len() {
         if aclitem_get_privs(aip) & (1u64 << i) != 0 {
             buf.push(ACL_ALL_RIGHTS_STR[i]);

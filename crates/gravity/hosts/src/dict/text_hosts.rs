@@ -968,7 +968,7 @@ pub mod reuse {
     /// idle release.
     static IDLE_HOOKS: memruntime::loops::IdleHooks = memruntime::loops::IdleHooks {
         reclaim_applies: gravity_driver::mem::reclaim::applies,
-        reclaim_tick: reclaim_tick,
+        reclaim_tick,
         reclaim_tick_ms: gravity_driver::mem::reclaim::TICK_MS,
         idle_ms,
         last_ms,
@@ -2775,6 +2775,7 @@ impl gravity_dict::Dict for DictView<'_> {
                         Err(e) => return err.set(Some(e)),
                     };
                     let codes = ranks.granule_codes(lg);
+                    #[allow(clippy::needless_range_loop)]
                     for i in 0..rows {
                         let c = codes[i];
                         if scratch.live(all, i) && first_seen(seen, c) {
@@ -2833,6 +2834,12 @@ struct Parked {
 
 const RENDER_MEMO_AFTER: u32 = 64;
 const RENDER_WALK_AFTER: u32 = 256;
+
+impl Default for RenderMemo {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl RenderMemo {
     pub const fn new() -> RenderMemo {
@@ -3135,6 +3142,7 @@ impl gravity_dict::EntryIndex for PgrcIndex<'_> {
 /// UTF-8 only; a `(?i)` pattern folded under a collation whose regex case map is ASCII's,
 /// `gravity_fn::typesem::collation::regex_ascii_cases`) or the function manager behind the required-literal prefilter,
 /// the engine's automaton per entry where the call would run it (`automaton`).
+#[allow(clippy::large_enum_variant)]
 pub enum RegexpPlan {
     Program { prog: gravity_dict::regexp::Program, tmpl: gravity_dict::regexp::Template, in_place: bool },
     Fmgr { required: Option<(usize, usize)> },
@@ -3480,7 +3488,7 @@ fn build_table_inner(spec: &TableSpec, dict: &DictView<'_>, region: &mut gravity
             }
             Ok(gravity_dict::Bits::build(dict, region, &mut |v| {
                 let b = raw::view_bytes(v);
-                Ok(b >= from.as_slice() && to.as_ref().map_or(true, |t| b < t.as_slice()))
+                Ok(b >= from.as_slice() && to.as_ref().is_none_or(|t| b < t.as_slice()))
             })?
             .header())
         }
@@ -3820,6 +3828,7 @@ fn ranked_scan_bits(m: &gravity_dict::like::Matcher<'_>, dict: &DictView<'_>, ra
                 None => {
                     // `matches` answers after the negation; `of_hits` takes the verdict before it
                     // bounded("small-fixed: one granule's rows (at most GRANULE_ROWS, 8192), a LIKE test each, as PG's per-row test; the granule loop ticks")
+                    #[allow(clippy::needless_range_loop)]
                     for i in 0..rows {
                         if scratch.live(all, i) && m.matches(raw::payload(scratch.datums[i])).unwrap_or(false) != m.is_negated() {
                             set(codes[i]);
@@ -3895,6 +3904,7 @@ mod d3887_tests {
     use super::Store;
 
     /// The rows' sort `row_codes` runs: `cancelpoll::sort_by` under a step; false when canceled.
+    #[allow(clippy::ptr_arg)]
     fn sorted_under_a_step(order: &mut Vec<u32>, cmp: impl Fn(&u32, &u32) -> core::cmp::Ordering) -> bool {
         let mut scratch = vec![0u32; order.len()]; // alloc: Cold
         cancelpoll::sort_by(&mut cancelpoll::step("test sort"), order, &mut scratch, cmp).is_ok()
@@ -4026,10 +4036,10 @@ pub(super) mod owner_tests {
                 let mut g: super::Grow<u8> = super::Grow::new(Some((slot, Kind::Sort)));
                 assert!(g.reserve(&mut step, 4 << 20).is_ok() && g.extend_from_slice(&[7u8; 4 << 20]).is_ok());
                 let one = usage(slot).held - before;
-                assert!(one >= 4 << 20 && one < (4 << 20) + (64 << 10), "the 4 MiB buffer on its owner: {one}");
+                assert!((4 << 20..(4 << 20) + (64 << 10)).contains(&one), "the 4 MiB buffer on its owner: {one}");
                 assert!(g.reserve(&mut step, 1).is_ok());
                 let two = usage(slot).held - before;
-                assert!(two >= 8 << 20 && two < (8 << 20) + (64 << 10), "the grown 8 MiB buffer alone, the old one freed: {two}");
+                assert!((8 << 20..(8 << 20) + (64 << 10)).contains(&two), "the grown 8 MiB buffer alone, the old one freed: {two}");
                 assert_eq!((g.len(), g.capacity()), (4 << 20, 8 << 20));
                 assert!(g.as_slice().iter().all(|&b| b == 7), "the elements moved");
             }
@@ -4045,7 +4055,7 @@ pub(super) mod owner_tests {
     #[test]
     fn a_tables_buffer_is_its_builders_until_the_cache_takes_it() {
         in_statement(3972, Kind::HashAgg, |_, slot| {
-            let built = |o| super::build_owned_held(1 << 20, super::Held::By(o), &mut |_| Ok(core::ptr::null())).ok().expect("built");
+            let built = |o| super::build_owned_held(1 << 20, super::Held::By(o), &mut |_| Ok(core::ptr::null())).expect("built");
             let before = usage(slot).held;
             let t = built(Some((slot, Kind::HashAgg)));
             let held = usage(slot).held - before;
@@ -4056,11 +4066,11 @@ pub(super) mod owner_tests {
             t.take_into_cache();
             assert_eq!(usage(slot).held, before, "the cache's now");
             assert!(t.cached.lock().unwrap().as_ref().is_some_and(|c| c.owner() == super::FP_OWNER && c.committed() == t.alloc_bytes()));
-            let n = super::build_owned_bytes(1 << 20, &mut |_| Ok(core::ptr::null())).ok().expect("built");
+            let n = super::build_owned_bytes(1 << 20, &mut |_| Ok(core::ptr::null())).expect("built");
             assert!(n.cached.lock().unwrap().is_none() && usage(slot).held == before, "no owner: no charge");
             // CACHE-CHARGE: a resident image's buffer is the fp tables' from its take (its scope's charge), fitted to what
             // the table allocates when the cache takes it
-            let r = super::build_owned_held(1 << 20, super::Held::Resident, &mut |_| Ok(core::ptr::null())).ok().expect("built");
+            let r = super::build_owned_held(1 << 20, super::Held::Resident, &mut |_| Ok(core::ptr::null())).expect("built");
             assert!(r.cached.lock().unwrap().as_ref().is_some_and(|c| c.owner() == super::FP_OWNER), "the fp tables' from the take");
             assert_eq!(usage(slot).held, before, "not the slot's");
             r.take_into_cache();

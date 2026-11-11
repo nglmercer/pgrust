@@ -136,7 +136,10 @@ fn InitTempTableNamespace(mcx: Mcx<'_>) -> PgResult<()> {
     MY_TEMP_TOAST_NAMESPACE.with(|c| c.set(toastspace_id));
     crate::advertise_temp_namespace(namespace_id);
 
-    debug_assert_eq!(MY_TEMP_NAMESPACE_SUB_ID.with(Cell::get), InvalidSubTransactionId);
+    debug_assert_eq!(
+        MY_TEMP_NAMESPACE_SUB_ID.with(Cell::get),
+        InvalidSubTransactionId
+    );
     MY_TEMP_NAMESPACE_SUB_ID.with(|c| c.set(xact::GetCurrentSubTransactionId()));
 
     BASE_SEARCH_PATH_VALID.with(|c| c.set(false));
@@ -188,8 +191,9 @@ pub fn ResetTempTableNamespace() -> PgResult<()> {
 
 pub fn RangeVarGetCreationNamespace(mcx: Mcx<'_>, rv: &rel_vocab::RangeVar<'_>) -> PgResult<Oid> {
     if let Some(catalogname) = rv.catalogname {
-        let dbname = dbcommands_seams::get_database_name::call(init_small::globals::MyDatabaseId())?
-            .unwrap_or_default();
+        let dbname =
+            dbcommands_seams::get_database_name::call(init_small::globals::MyDatabaseId())?
+                .unwrap_or_default();
         if catalogname != dbname {
             return Err(Box::new(
                 PgError::new(
@@ -227,8 +231,11 @@ pub fn RangeVarGetCreationNamespace(mcx: Mcx<'_>, rv: &rel_vocab::RangeVar<'_>) 
     let namespace_id = crate::BASE_CREATION_NAMESPACE.with(Cell::get);
     if !OidIsValid(namespace_id) {
         return Err(Box::new(
-            PgError::new(ERROR, "no schema has been selected to create in".to_string())
-                .with_sqlstate(types_error::ERRCODE_UNDEFINED_SCHEMA),
+            PgError::new(
+                ERROR,
+                "no schema has been selected to create in".to_string(),
+            )
+            .with_sqlstate(types_error::ERRCODE_UNDEFINED_SCHEMA),
         ));
     }
     Ok(namespace_id)
@@ -405,8 +412,11 @@ pub fn QualifiedNameGetCreationNamespace<'a>(
     let namespace_id = crate::BASE_CREATION_NAMESPACE.with(Cell::get);
     if !OidIsValid(namespace_id) {
         return Err(Box::new(
-            PgError::new(ERROR, "no schema has been selected to create in".to_string())
-                .with_sqlstate(types_error::ERRCODE_UNDEFINED_SCHEMA),
+            PgError::new(
+                ERROR,
+                "no schema has been selected to create in".to_string(),
+            )
+            .with_sqlstate(types_error::ERRCODE_UNDEFINED_SCHEMA),
         ));
     }
     Ok((namespace_id, objname))
@@ -452,7 +462,5 @@ pub fn RangeVarAdjustRelationPersistence(relpersistence: u8, nspid: Oid) -> PgRe
 #[track_caller]
 #[cold]
 fn invalid_table_definition(msg: &str) -> Box<PgError> {
-    Box::new(
-        PgError::new(ERROR, msg.to_string()).with_sqlstate(ERRCODE_INVALID_TABLE_DEFINITION),
-    )
+    Box::new(PgError::new(ERROR, msg.to_string()).with_sqlstate(ERRCODE_INVALID_TABLE_DEFINITION))
 }

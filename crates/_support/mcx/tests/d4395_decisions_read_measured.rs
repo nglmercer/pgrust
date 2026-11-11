@@ -30,7 +30,13 @@ struct Stmt {
 
 impl Stmt {
     fn new(procno: u32, asked: u64, measured: u64) -> Stmt {
-        Stmt { procno, limit: 0, asked: asked as usize, measured, spillable: 0 }
+        Stmt {
+            procno,
+            limit: 0,
+            asked: asked as usize,
+            measured,
+            spillable: 0,
+        }
     }
 }
 
@@ -73,7 +79,11 @@ fn within<T: Send + 'static>(s: Stmt, f: impl FnOnce() -> T + Send + 'static) ->
 }
 
 /// `s` running until `done`; it reports once it holds.
-fn running(s: Stmt, ready: mpsc::Sender<()>, done: Arc<Barrier>) -> std::thread::JoinHandle<(bool, u64)> {
+fn running(
+    s: Stmt,
+    ready: mpsc::Sender<()>,
+    done: Arc<Barrier>,
+) -> std::thread::JoinHandle<(bool, u64)> {
     std::thread::spawn(move || {
         let c = begin(s);
         ready.send(()).unwrap();
@@ -83,11 +93,22 @@ fn running(s: Stmt, ready: mpsc::Sender<()>, done: Arc<Barrier>) -> std::thread:
 }
 
 fn rise(bytes: u64) -> Rise99 {
-    Rise99 { bytes, prior: false }
+    Rise99 {
+        bytes,
+        prior: false,
+    }
 }
 
 fn publish(l: u64, b: u64, rise_slow: u64) {
-    governor::publish_decide(&governor::DecidePublish { l, b, u: MIB, fast: 0, rise_fast: rise(MIB), rise_slow: rise(rise_slow), revoke_on: false });
+    governor::publish_decide(&governor::DecidePublish {
+        l,
+        b,
+        u: MIB,
+        fast: 0,
+        rise_fast: rise(MIB),
+        rise_slow: rise(rise_slow),
+        revoke_on: false,
+    });
 }
 
 fn unpublish() {
@@ -99,9 +120,21 @@ fn unpublish() {
 #[test]
 fn the_statement_limit_counts_measured_bytes() {
     let _one = serial();
-    let fits = |measured| within(Stmt { limit: GIB as usize, ..Stmt::new(61, 0, measured) }, || governor::Charge::new("probe", 0).fits(1)).0;
+    let fits = |measured| {
+        within(
+            Stmt {
+                limit: GIB as usize,
+                ..Stmt::new(61, 0, measured)
+            },
+            || governor::Charge::new("probe", 0).fits(1),
+        )
+        .0
+    };
     assert!(fits(0), "nothing held: the 1 GiB limit has room");
-    assert!(!fits(4 * GIB), "a 1 GiB limit refuses a statement holding 4 GiB it never asked for");
+    assert!(
+        !fits(4 * GIB),
+        "a 1 GiB limit refuses a statement holding 4 GiB it never asked for"
+    );
 }
 
 #[test]
@@ -123,8 +156,16 @@ fn decide_grow_spills_a_statement_past_its_share_by_measured_bytes() {
     };
     let (within_share, past_share) = (grow(0), grow(4 * GIB));
     unpublish();
-    assert_eq!(within_share, (true, false), "1 GiB within its 2 GiB share: no spill-self");
-    assert_eq!(past_share, (false, true), "4 GiB measured is past its 2 GiB share: it spills itself");
+    assert_eq!(
+        within_share,
+        (true, false),
+        "1 GiB within its 2 GiB share: no spill-self"
+    );
+    assert_eq!(
+        past_share,
+        (false, true),
+        "4 GiB measured is past its 2 GiB share: it spills itself"
+    );
 }
 
 #[test]
@@ -145,9 +186,17 @@ fn the_fair_share_victim_is_picked_by_measured_bytes() {
     let t = governor::decide_tick().expect("projection decides at Tick");
     unpublish();
     done.wait();
-    let ((unasked_canceled, _), (asked_canceled, _)) = (unasked.join().unwrap(), asked.join().unwrap());
-    assert_eq!(t.victim.and_then(|v| v.backend).map(|(slot, _)| slot), Some(63), "the statement holding 4 GiB, not the 256 MiB charge");
-    assert!(unasked_canceled && !asked_canceled, "4 GiB canceled {unasked_canceled}, 256 MiB canceled {asked_canceled}");
+    let ((unasked_canceled, _), (asked_canceled, _)) =
+        (unasked.join().unwrap(), asked.join().unwrap());
+    assert_eq!(
+        t.victim.and_then(|v| v.backend).map(|(slot, _)| slot),
+        Some(63),
+        "the statement holding 4 GiB, not the 256 MiB charge"
+    );
+    assert!(
+        unasked_canceled && !asked_canceled,
+        "4 GiB canceled {unasked_canceled}, 256 MiB canceled {asked_canceled}"
+    );
 }
 
 fn read_past_line() -> Option<u64> {
@@ -169,19 +218,28 @@ fn the_ladder_asker_spills_its_own_by_measured_bytes() {
     let _one = serial();
     ladder::install(&ACTS);
     let climb = |measured| {
-        within(Stmt { spillable: (64 * MIB) as i64, ..Stmt::new(65, 0, measured) }, || {
-            // B 2 GiB over this one holder: its fair share is under 2 GiB
-            publish(64 * GIB, 2 * GIB, MIB);
-            ladder::publish(ladder::ON, 8 * GIB);
-            let c = ladder::climb(MIB);
-            ladder::publish(ladder::OFF, 0);
-            ladder::clear_narrow();
-            c.ran & (1 << mempolicy::ladder::Rung::OwnSpill as u8) != 0
-        })
+        within(
+            Stmt {
+                spillable: (64 * MIB) as i64,
+                ..Stmt::new(65, 0, measured)
+            },
+            || {
+                // B 2 GiB over this one holder: its fair share is under 2 GiB
+                publish(64 * GIB, 2 * GIB, MIB);
+                ladder::publish(ladder::ON, 8 * GIB);
+                let c = ladder::climb(MIB);
+                ladder::publish(ladder::OFF, 0);
+                ladder::clear_narrow();
+                c.ran & (1 << mempolicy::ladder::Rung::OwnSpill as u8) != 0
+            },
+        )
     };
     let ((none_held, (_, none_asked)), (held, (_, held_asked))) = (climb(0), climb(4 * GIB));
     unpublish();
-    assert!(!none_held && none_asked == 0, "holding nothing it does not spill its own (R4a ran {none_held}, asked {none_asked})");
+    assert!(
+        !none_held && none_asked == 0,
+        "holding nothing it does not spill its own (R4a ran {none_held}, asked {none_asked})"
+    );
     assert!(held && held_asked != 0, "4 GiB measured past its fair share: R4a asks it to spill its own (ran {held}, asked {held_asked})");
 }
 
@@ -192,8 +250,22 @@ fn revoke_asks_the_statement_furthest_past_its_share_by_measured_bytes() {
     let (tx, ready) = mpsc::channel();
     let done = Arc::new(Barrier::new(3));
     let spillable = (64 * MIB) as i64;
-    let unasked = running(Stmt { spillable, ..Stmt::new(66, 0, 4 * GIB) }, tx.clone(), done.clone());
-    let asked = running(Stmt { spillable, ..Stmt::new(67, GIB, 0) }, tx, done.clone());
+    let unasked = running(
+        Stmt {
+            spillable,
+            ..Stmt::new(66, 0, 4 * GIB)
+        },
+        tx.clone(),
+        done.clone(),
+    );
+    let asked = running(
+        Stmt {
+            spillable,
+            ..Stmt::new(67, GIB, 0)
+        },
+        tx,
+        done.clone(),
+    );
     ready.recv().unwrap();
     ready.recv().unwrap();
     // one MiB short: one ask, to the first in revoke's order

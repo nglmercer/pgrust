@@ -3,9 +3,7 @@
 //! with the shell module as the only in-core arm; loadable archive_library
 //! values are a typed FATAL (no-dlopen carve).
 
-#![allow(non_snake_case)]
-#![allow(non_upper_case_globals)]
-#![allow(clippy::result_large_err)]
+#![allow(clippy::result_large_err, non_snake_case, non_upper_case_globals)]
 
 use std::cell::Cell;
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicI64, AtomicU32, Ordering::Relaxed};
@@ -370,6 +368,7 @@ fn pgarch_ArchiverCopyLoop(af: &mut ArchFilesState, module: &ArchiveModule) -> P
             }
 
             let pathname = format!("{XLOGDIR}/{xlog}");
+            #[allow(clippy::match_like_matches_macro)]
             let missing = match std::fs::metadata(&pathname) {
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => true,
                 _ => false,

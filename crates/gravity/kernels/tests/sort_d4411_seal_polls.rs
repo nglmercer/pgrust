@@ -35,6 +35,7 @@ unsafe fn push_text(run: *mut u8, x: &[u8], tag: u64) {
 }
 
 unsafe fn text_at(r: *const SortRun, i: usize) -> Vec<u8> {
+    #[allow(clippy::unnecessary_cast)]
     let slot = ((*r).row(i) as *const u8).add(16);
     let (size, off) = ((slot as *const u32).read_unaligned() as usize, (slot.add(4) as *const u32).read_unaligned() as usize);
     core::slice::from_raw_parts(slot.add(off + 4), size - 4).to_vec()

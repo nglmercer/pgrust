@@ -210,6 +210,7 @@ impl Records {
     }
 
     /// The next record's bytes (valid until the next call), `None` past the run's last.
+    #[allow(clippy::should_implement_trait)]
     pub fn next(&mut self) -> Result<Option<&[u8]>> {
         let Some(n) = self.fill()? else { return Ok(None) };
         let at = self.lo;

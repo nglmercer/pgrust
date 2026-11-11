@@ -71,7 +71,7 @@ fn or_loads(b: &mut FunctionBuilder<'_>, p: Value, from: Value, to: Value, w: i6
     let (zero, step) = (b.iconst(Type::I64, 0), b.iconst(Type::I64, w));
     let (head, body, out) = (b.create_block(&[Type::I64, Type::I64]), b.create_block(&[]), b.create_block(&[Type::I64]));
     b.br(head, &[from, zero]);
-    (b.switch_to(head), b.mark_loop_header(head));
+    b.switch_to(head); b.mark_loop_header(head);
     let [i, acc] = [b.block_params(head)[0], b.block_params(head)[1]];
     let end = b.int_bin(IntBinOp::Add, i, step);
     let more = b.icmp(IntCond::Sle, end, to);
@@ -94,7 +94,7 @@ fn map(b: &mut FunctionBuilder<'_>, src: Value, dst: Value, from: Value, to: Val
     let (step, low7, ge_a, gt_z, high) = (b.iconst(Type::I64, w), k(b, 0x7f), k(b, 0x80 - a), k(b, 0x80 - z - 1), k(b, 0x80));
     let (ty, head, body, out) = (if w == 8 { Type::I64 } else { Type::I8 }, b.create_block(&[Type::I64]), b.create_block(&[]), b.create_block(&[Type::I64]));
     b.br(head, &[from]);
-    (b.switch_to(head), b.mark_loop_header(head));
+    b.switch_to(head); b.mark_loop_header(head);
     let i = b.block_params(head)[0];
     let end = b.int_bin(IntBinOp::Add, i, step);
     let more = b.icmp(IntCond::Sle, end, to);
@@ -170,7 +170,7 @@ pub(crate) fn memeq(b: &mut FunctionBuilder<'_>, p: Value, lit: &[u8]) -> Value 
     };
     let n = lit.len();
     (0..n / 8).for_each(|i| cmp(b, Type::I64, 8 * i, 8));
-    if n > 8 && n % 8 != 0 {
+    if n > 8 && !n.is_multiple_of(8) {
         cmp(b, Type::I64, n - 8, 8);
     } else if n < 8 {
         let mut at = 0;

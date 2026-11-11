@@ -1,6 +1,7 @@
 use core::arch::x86_64::{_mm_crc32_u32, _mm_crc32_u64, _mm_crc32_u8};
 
 #[target_feature(enable = "sse4.2")]
+#[allow(clippy::missing_safety_doc)]
 pub fn pg_comp_crc32c_sse42(mut crc: u32, data: &[u8]) -> u32 {
     let mut p = data.as_ptr();
     let mut len = data.len();

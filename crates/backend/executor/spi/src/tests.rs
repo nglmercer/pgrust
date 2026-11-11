@@ -69,18 +69,20 @@ fn at_eosubxact_abort_clears_handed_off_spi_tuptable() {
     reset();
     SPI_connect().unwrap();
     let cur = xact::GetCurrentSubTransactionId();
-    let table = mcx::McxOwned::<tuptable::TuptabTy>::try_new(
-        MemoryContext::new("SPI TupTable"),
-        |mcx| {
+    let table =
+        mcx::McxOwned::<tuptable::TuptabTy>::try_new(MemoryContext::new("SPI TupTable"), |mcx| {
             Ok(TuptabData {
                 tupdesc: tupdesc::CreateTemplateTupleDesc(mcx, 0)?,
                 vals: mcx::vec_with_capacity_in(mcx, 1)?,
             })
-        },
-    )
-    .unwrap();
+        })
+        .unwrap();
     with_current(|c| {
-        c.tuptables.push(tuptable::TuptabEntry { id: 77, subid: cur + 1, table });
+        c.tuptables.push(tuptable::TuptabEntry {
+            id: 77,
+            subid: cur + 1,
+            table,
+        });
     });
     // _SPI_execute_plan's tail: SPI_tuptable = my_tuptable;
     // _SPI_current->tuptable = NULL.
@@ -88,8 +90,16 @@ fn at_eosubxact_abort_clears_handed_off_spi_tuptable() {
     with_current(|c| c.tuptable = None);
 
     AtEOSubXact_SPI(false, cur + 1).unwrap();
-    assert_eq!(debug_stack_depth(), 1, "the connection belongs to the outer subxact");
-    assert_eq!(debug_live_counts().0, 0, "the subxact's tuple table is gone");
+    assert_eq!(
+        debug_stack_depth(),
+        1,
+        "the connection belongs to the outer subxact"
+    );
+    assert_eq!(
+        debug_live_counts().0,
+        0,
+        "the subxact's tuple table is gone"
+    );
     assert!(
         SPI_tuptable().is_none(),
         "SPI_tuptable still points at the dropped table (C resets it)"
@@ -105,18 +115,20 @@ fn tuptable_with_allows_nested_spi_connect() {
     reset();
     SPI_connect().unwrap();
     let cur = xact::GetCurrentSubTransactionId();
-    let table = mcx::McxOwned::<tuptable::TuptabTy>::try_new(
-        MemoryContext::new("SPI TupTable"),
-        |mcx| {
+    let table =
+        mcx::McxOwned::<tuptable::TuptabTy>::try_new(MemoryContext::new("SPI TupTable"), |mcx| {
             Ok(TuptabData {
                 tupdesc: tupdesc::CreateTemplateTupleDesc(mcx, 0)?,
                 vals: mcx::vec_with_capacity_in(mcx, 1)?,
             })
-        },
-    )
-    .unwrap();
+        })
+        .unwrap();
     with_current(|c| {
-        c.tuptables.push(tuptable::TuptabEntry { id: 78, subid: cur, table });
+        c.tuptables.push(tuptable::TuptabEntry {
+            id: 78,
+            subid: cur,
+            table,
+        });
     });
     let n = tuptable_with(TuptabHandle(78), |t| {
         SPI_connect().unwrap();
@@ -167,20 +179,38 @@ fn register_relation_roundtrip() {
         reldata: types_portal::TuplestoreHandle::NULL,
     };
     assert_eq!(SPI_register_relation(&enr).unwrap(), SPI_ERROR_UNCONNECTED);
-    assert_eq!(SPI_unregister_relation("enr_one").unwrap(), SPI_ERROR_UNCONNECTED);
+    assert_eq!(
+        SPI_unregister_relation("enr_one").unwrap(),
+        SPI_ERROR_UNCONNECTED
+    );
 
     SPI_connect().unwrap();
-    assert!(current_query_env().is_null(), "no environment before the first registration");
+    assert!(
+        current_query_env().is_null(),
+        "no environment before the first registration"
+    );
     assert_eq!(SPI_register_relation(&enr).unwrap(), SPI_OK_REL_REGISTER);
     assert!(!current_query_env().is_null());
-    assert_eq!(SPI_register_relation(&enr).unwrap(), SPI_ERROR_REL_DUPLICATE);
+    assert_eq!(
+        SPI_register_relation(&enr).unwrap(),
+        SPI_ERROR_REL_DUPLICATE
+    );
     let seen = queryenvironment::hold::with_env(current_query_env(), |env| {
         queryenvironment::get_ENR(env, "enr_one").map(|e| (e.md.reliddesc, e.md.enrtuples))
     });
     assert_eq!(seen, Some((12345, 3.0)));
-    assert_eq!(SPI_unregister_relation("enr_two").unwrap(), SPI_ERROR_REL_NOT_FOUND);
-    assert_eq!(SPI_unregister_relation("enr_one").unwrap(), SPI_OK_REL_UNREGISTER);
-    assert_eq!(SPI_unregister_relation("enr_one").unwrap(), SPI_ERROR_REL_NOT_FOUND);
+    assert_eq!(
+        SPI_unregister_relation("enr_two").unwrap(),
+        SPI_ERROR_REL_NOT_FOUND
+    );
+    assert_eq!(
+        SPI_unregister_relation("enr_one").unwrap(),
+        SPI_OK_REL_UNREGISTER
+    );
+    assert_eq!(
+        SPI_unregister_relation("enr_one").unwrap(),
+        SPI_ERROR_REL_NOT_FOUND
+    );
     assert_eq!(SPI_register_relation(&enr).unwrap(), SPI_OK_REL_REGISTER);
     SPI_finish().unwrap();
 }
@@ -237,7 +267,10 @@ fn dest_startup_misuse_is_an_error() {
     let cx = MemoryContext::new("spi dest startup");
     let desc = tupdesc::CreateTemplateTupleDesc(cx.mcx(), 0).unwrap();
     let err = tuptable::spi_dest_startup(0, &desc).unwrap_err();
-    assert_eq!(err.message(), "spi_dest_startup called while not connected to SPI");
+    assert_eq!(
+        err.message(),
+        "spi_dest_startup called while not connected to SPI"
+    );
     SPI_connect().unwrap();
     tuptable::spi_dest_startup(0, &desc).unwrap();
     let err = tuptable::spi_dest_startup(0, &desc).unwrap_err();

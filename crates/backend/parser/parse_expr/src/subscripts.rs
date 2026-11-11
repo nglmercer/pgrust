@@ -39,8 +39,7 @@ pub fn subscript_handler_for(container_type: Oid) -> PgResult<Option<(SubscriptH
         // FUNCTION RENAME does not change the dispatch.
         other => {
             let cx = ::mcx::MemoryContext::new("subscript handler probe");
-            let name = lsyscache::get_func_prosrc(cx.mcx(), other)?
-                .map(|n| n.as_str().to_string());
+            let name = lsyscache::get_func_prosrc(cx.mcx(), other)?.map(|n| n.as_str().to_string());
             match name.as_deref() {
                 Some("hstore_subscript_handler") => Ok(Some((SubscriptHandler::Hstore, typelem))),
                 Some("array_subscript_handler" | "raw_array_subscript_handler") => {
@@ -75,11 +74,13 @@ fn cannot_subscript(
     container_type: Oid,
     location: Option<ParseLoc>,
 ) -> Box<PgError> {
-    let t = format_type::format_type_be(container_type)
-        .unwrap_or_else(|_| container_type.to_string());
-    let mut report = elog::ereport(ERROR).errcode(ERRCODE_DATATYPE_MISMATCH).errmsg(format!(
-        "cannot subscript type {t} because it does not support subscripting"
-    ));
+    let t =
+        format_type::format_type_be(container_type).unwrap_or_else(|_| container_type.to_string());
+    let mut report = elog::ereport(ERROR)
+        .errcode(ERRCODE_DATATYPE_MISMATCH)
+        .errmsg(format!(
+            "cannot subscript type {t} because it does not support subscripting"
+        ));
     if let Some(location) = location {
         let encoding = mbutils::GetDatabaseEncoding();
         report = report.errposition(parser_errposition(pstate, location, encoding));
@@ -98,7 +99,11 @@ fn subscript_not_integer(pstate: &ParseState<'_, '_>, location: ParseLoc) -> Box
         elog::ereport(ERROR)
             .errcode(ERRCODE_DATATYPE_MISMATCH)
             .errmsg("array subscript must have type integer".to_string())
-            .errposition(parser_errposition(pstate, location, mbutils::GetDatabaseEncoding()))
+            .errposition(parser_errposition(
+                pstate,
+                location,
+                mbutils::GetDatabaseEncoding(),
+            ))
             .into_error()
             .with_error_location(ErrorLocation::new(
                 "arraysubs.c",
@@ -123,12 +128,18 @@ pub fn transformContainerSubscripts<'mcx>(
     }
 
     let Some((handler, element_type)) = subscript_handler_for(container_type)? else {
-        return Err(cannot_subscript(pstate, container_type, Some(expr_location(container_base))));
+        return Err(cannot_subscript(
+            pstate,
+            container_type,
+            Some(expr_location(container_base)),
+        ));
     };
 
     let mut is_slice = false;
     for el in indirection.iter() {
-        let ai = el.as_a_indices().expect("subscript list element is A_Indices");
+        let ai = el
+            .as_a_indices()
+            .expect("subscript list element is A_Indices");
         if ai.is_slice {
             is_slice = true;
             break;
@@ -217,8 +228,11 @@ fn array_subscript_transform<'mcx>(
 
     sbsref.refupperindexpr = upper;
     sbsref.reflowerindexpr = lower;
-    sbsref.refrestype =
-        if is_slice { sbsref.refcontainertype } else { sbsref.refelemtype };
+    sbsref.refrestype = if is_slice {
+        sbsref.refcontainertype
+    } else {
+        sbsref.refelemtype
+    };
     Ok(())
 }
 
@@ -229,7 +243,11 @@ pub(crate) fn jsonb_no_slices(pstate: &ParseState<'_, '_>, location: ParseLoc) -
         elog::ereport(ERROR)
             .errcode(ERRCODE_DATATYPE_MISMATCH)
             .errmsg("jsonb subscript does not support slices".to_string())
-            .errposition(parser_errposition(pstate, location, mbutils::GetDatabaseEncoding()))
+            .errposition(parser_errposition(
+                pstate,
+                location,
+                mbutils::GetDatabaseEncoding(),
+            ))
             .into_error()
             .with_error_location(ErrorLocation::new(
                 "jsonbsubs.c",
@@ -247,8 +265,7 @@ fn jsonb_bad_subscript_type(
     hint: &'static str,
     location: ParseLoc,
 ) -> Box<PgError> {
-    let t = format_type::format_type_be(subexpr_type)
-        .unwrap_or_else(|_| subexpr_type.to_string());
+    let t = format_type::format_type_be(subexpr_type).unwrap_or_else(|_| subexpr_type.to_string());
     jsonb_bad_subscript_type_named(pstate, &t, hint, location)
 }
 
@@ -265,7 +282,11 @@ pub(crate) fn jsonb_bad_subscript_type_named(
             .errcode(ERRCODE_DATATYPE_MISMATCH)
             .errmsg(format!("subscript type {t} is not supported"))
             .errhint(hint.to_string())
-            .errposition(parser_errposition(pstate, location, mbutils::GetDatabaseEncoding()))
+            .errposition(parser_errposition(
+                pstate,
+                location,
+                mbutils::GetDatabaseEncoding(),
+            ))
             .into_error()
             .with_error_location(ErrorLocation::new(
                 "jsonbsubs.c",
@@ -292,10 +313,7 @@ fn jsonb_subscript_transform<'mcx>(
 
         if is_slice {
             let expr = ai.uidx.or(ai.lidx);
-            return Err(jsonb_no_slices(
-                pstate,
-                expr.map_or(-1, expr_location),
-            ));
+            return Err(jsonb_no_slices(pstate, expr.map_or(-1, expr_location)));
         }
         let Some(uidx) = ai.uidx else {
             debug_assert!(is_slice && ai.is_slice);
@@ -360,7 +378,11 @@ fn hstore_one_subscript(pstate: &ParseState<'_, '_>, location: ParseLoc) -> Box<
         elog::ereport(ERROR)
             .errcode(types_error::ERRCODE_FEATURE_NOT_SUPPORTED)
             .errmsg("hstore allows only one subscript".to_string())
-            .errposition(parser_errposition(pstate, location, mbutils::GetDatabaseEncoding()))
+            .errposition(parser_errposition(
+                pstate,
+                location,
+                mbutils::GetDatabaseEncoding(),
+            ))
             .into_error()
             .with_error_location(ErrorLocation::new(
                 "hstore_subs.c",
@@ -377,7 +399,11 @@ fn hstore_subscript_not_text(pstate: &ParseState<'_, '_>, location: ParseLoc) ->
         elog::ereport(ERROR)
             .errcode(ERRCODE_DATATYPE_MISMATCH)
             .errmsg("hstore subscript must have type text".to_string())
-            .errposition(parser_errposition(pstate, location, mbutils::GetDatabaseEncoding()))
+            .errposition(parser_errposition(
+                pstate,
+                location,
+                mbutils::GetDatabaseEncoding(),
+            ))
             .into_error()
             .with_error_location(ErrorLocation::new(
                 "hstore_subs.c",

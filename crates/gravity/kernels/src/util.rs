@@ -18,6 +18,7 @@ pub const fn end(s: &Site) -> u32 {
 
 /// The window row behind iteration index `j`.
 #[inline(always)]
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn index(s: &Site, j: u32) -> usize {
     s.index(j)
 }
@@ -39,10 +40,12 @@ pub const RESUME_OPEN: i64 = gravity_abi::ctx::resume::word(gravity_abi::ctx::re
 
 /// D1705: the host rewrites the block in place (`window`, `seek`), which disables this reference (Tree Borrows):
 /// re-derive it after every host call, never hold it across one.
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn site<'a>(ctx: *mut Ctx, i: usize) -> &'a mut Site {
     &mut *site_ptr(ctx, i)
 }
 
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn copy_row(dst_v: *mut Datum, dst_n: *mut u8, src_v: *const Datum, src_n: *const u8, n: usize) {
     for k in 0..n {
         *dst_v.add(k) = *src_v.add(k);
@@ -50,11 +53,13 @@ pub unsafe fn copy_row(dst_v: *mut Datum, dst_n: *mut u8, src_v: *const Datum, s
     }
 }
 
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn key_from_param(ctx: *mut Ctx, s: &mut Site, k: usize, p: usize) {
     *s.keys.ptr().add(k) = *(*ctx).params.ptr().add(p);
     *s.keys_null.ptr().add(k) = *(*ctx).params_null.ptr().add(p);
 }
 
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn keys_from_params(ctx: *mut Ctx, s: &mut Site, slots: &[usize]) {
     for (k, &p) in slots.iter().enumerate() {
         key_from_param(ctx, s, k, p);
@@ -62,12 +67,14 @@ pub unsafe fn keys_from_params(ctx: *mut Ctx, s: &mut Site, slots: &[usize]) {
 }
 
 /// Ask site `i` to seek from its key cells at its next fill (the source seeks inside `next`).
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn seek(ctx: *mut Ctx, i: usize) -> i64 {
     abi_site::seek(site_ptr(ctx, i));
     OK
 }
 
 /// A range site's claim as its keys, then the seek request.
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn range_seek(ctx: *mut Ctx, i: usize) -> i64 {
     let s = site(ctx, i);
     let c = (*ctx).claim;
@@ -79,12 +86,14 @@ pub unsafe fn range_seek(ctx: *mut Ctx, i: usize) -> i64 {
 }
 
 /// The row protocol: one row of site `i` into its `values` / `isnull`; `HOST_ROW`, 0, or a status.
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn next(ctx: *mut Ctx, i: usize) -> i64 {
     let s = site_ptr(ctx, i);
     next_row(s, (*s).natts as usize)
 }
 
 /// The next window of site `i`: rows, 0 at the end, or a status.
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn window(ctx: *mut Ctx, i: usize) -> i64 {
     abi_site::next(site_ptr(ctx, i))
 }
@@ -151,12 +160,14 @@ impl Cell for u64 {
 }
 
 #[inline(always)]
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn row_valid(valid: *const u64, i: usize) -> bool {
     valid.is_null() || (*valid.add(i / 64) >> (i % 64)) & 1 != 0
 }
 
 /// Rows `cursor..end` of the site's window through `f(i)` until it says stop; true when every row ran.
 #[inline(always)]
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn for_each_row(s: &Site, mut f: impl FnMut(usize) -> bool) -> bool {
     let (from, to) = (s.cursor, s.end());
     if s.sel.ptr().is_null() {
@@ -178,6 +189,7 @@ pub unsafe fn for_each_row(s: &Site, mut f: impl FnMut(usize) -> bool) -> bool {
 /// The next window when the current one is spent: rows left to process
 /// (> 0), 0 at the claim's end (state `EOF`), a status below zero.
 /// The abort byte is read once per window.
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn advance(ctx: *mut Ctx, i: usize) -> i64 {
     loop {
         let s = site_ptr(ctx, i);
@@ -203,24 +215,29 @@ pub unsafe fn advance(ctx: *mut Ctx, i: usize) -> i64 {
     }
 }
 
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn write(ctx: *mut Ctx, i: usize, op: u32) -> i64 {
     program::write(ctx, op, i as u64)
 }
 
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn lock(ctx: *mut Ctx, i: usize) -> i64 {
     program::lock(ctx, i as u64)
 }
 
 /// `Program.spill` with the kernels' signed argument words.
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn spill(ctx: *mut Ctx, op: u32, arg: i64) -> i64 {
     program::spill(ctx, op, arg as u64)
 }
 
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn out_count(ctx: *mut Ctx) -> i64 {
     (*(*ctx).out.ptr()).count
 }
 
 /// Push the out block: `HOST_CONTINUE` / `HOST_STOP`, or a status below zero.
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn push(ctx: *mut Ctx) -> i64 {
     match program::push(ctx) {
         STOP => HOST_STOP,
@@ -228,6 +245,7 @@ pub unsafe fn push(ctx: *mut Ctx) -> i64 {
     }
 }
 
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn flush(ctx: *mut Ctx) -> i64 {
     if out_count(ctx) > 0 {
         push(ctx)
@@ -236,6 +254,7 @@ pub unsafe fn flush(ctx: *mut Ctx) -> i64 {
     }
 }
 
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn done(ctx: *mut Ctx) -> i64 {
     (*ctx).resume = RESUME_NONE;
     if flush(ctx) < 0 {
@@ -245,10 +264,12 @@ pub unsafe fn done(ctx: *mut Ctx) -> i64 {
     }
 }
 
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn stopped(ctx: *mut Ctx) -> i64 {
     suspend(out_count(ctx) == 0)
 }
 
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn emit(ctx: *mut Ctx, natts: usize, parts: &[(*const Datum, *const u8, usize)]) -> i64 {
     let o = &mut *(*ctx).out.ptr();
     let row = o.count as usize;
@@ -267,15 +288,18 @@ pub unsafe fn emit(ctx: *mut Ctx, natts: usize, parts: &[(*const Datum, *const u
 
 /// The cancellation test: one load of the abort byte.
 #[inline(always)]
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn interrupted(ctx: *mut Ctx) -> bool {
     cancel_pending(ctx)
 }
 
 /// `bytes` of arena scratch (the zeroed scratch region first, then chunks); null when refused.
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn scratch(ctx: *mut Ctx, bytes: usize) -> *mut u8 {
     arena_alloc(ctx, bytes)
 }
 
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn probe_emit(ctx: *mut Ctx, slots: &[usize], natts: usize) -> i64 {
     if (*ctx).resume == RESUME_NONE {
         keys_from_params(ctx, site(ctx, 0), slots);
@@ -368,6 +392,7 @@ const _: fn(&Lane) = |_| {};
 
 /// A varlena datum's payload bytes (4-byte header; moved from the deleted hand frame kernel's module, 09-29).
 #[inline(always)]
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn text_bytes<'a>(d: u64) -> &'a [u8] {
     let p = d as *const u8;
     core::slice::from_raw_parts(p.add(4), (*(p as *const u32) >> 2) as usize - 4)

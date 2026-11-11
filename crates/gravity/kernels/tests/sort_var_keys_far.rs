@@ -67,7 +67,9 @@ fn cmp(t: &[u32], a: &Row, b: &Row) -> Ordering {
 }
 
 #[test]
+#[allow(clippy::assertions_on_constants, unused_attributes)]
 fn key_seventeen_orders_by_its_tail_past_the_prefix_word() {
+    #[allow(clippy::assertions_on_constants)]
     assert!(NKEY > ROWCMP_KEYS + 3);
     let t = table(false, false, false);
     let (jam, fool) = (Row::new([b"strawberry jam", b"x", b"x"]), Row::new([b"strawberry fool", b"x", b"x"]));

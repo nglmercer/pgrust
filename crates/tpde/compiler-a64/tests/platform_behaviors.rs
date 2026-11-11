@@ -21,6 +21,7 @@ use tpde_compiler_a64::{
     calls, prologue, raw, values, A64CompilerState, A64Frontend, CCAssignerAAPCS, CompilerA64,
     Jump, AAPCS_INFO, FP_BANK, GP_BANK,
 };
+#[allow(unused_imports)]
 use tpde_core::{
     calling_convention::{CCAssigner, CCAssignment},
     compiler::{ValRefSpecial, ValueParts},
@@ -28,6 +29,7 @@ use tpde_core::{
     Reg, RegBank,
 };
 use tpde_disarm::*;
+#[allow(unused_imports)]
 use tpde_elf_mapper::ElfMapper;
 use tpde_function_writer_a64::A64Target;
 use tpde_test_ir::{IRFuncRef, IRInstRef, IRValueRef, Op, TestIR};

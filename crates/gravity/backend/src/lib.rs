@@ -32,7 +32,9 @@ pub fn check_entry(program: &Program, entry: Func) -> Result<(), String> {
 }
 
 struct Mapped {
+    #[allow(dead_code)]
     compiled: gravity_tpde::Compiled<'static>,
+    #[allow(dead_code)]
     context: SendRoot,
 }
 
@@ -410,6 +412,7 @@ pub fn warm() -> PgResult<()> {
     let mut b = pb.define(f);
     let k = b.iconst(Type::I64, 0);
     b.ret(&[k]);
+    #[allow(clippy::drop_non_drop)]
     drop(b);
     compiled_all(&pb.finish(), &[f]).map(|_| ())
 }

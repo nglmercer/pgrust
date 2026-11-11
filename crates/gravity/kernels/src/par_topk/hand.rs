@@ -9,6 +9,7 @@ use gravity_abi::{Ctx, Datum};
 use gravity_abi::ctx::RESUME_NONE;
 
 /// `SELECT cols FROM t ORDER BY cols[0] LIMIT n` over the zone walk (§1.10 increment 3 step
+#[allow(clippy::missing_safety_doc)]
 pub unsafe extern "C-unwind" fn par_topk(ctx: *mut Ctx) -> i64 {
     if range_seek(ctx, 0) < 0 {
         return ERROR;

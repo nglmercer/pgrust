@@ -113,20 +113,22 @@ pub use lifecycle::{
     ForeignParticipationDisabled, Generation, LifecycleState, ParticipantOwner, QueryTaskLifecycle,
     TaskHandle, TaskLifecycle, TaskParticipant,
 };
-pub use morsel::{MorselRange, MorselSource, StreamSource, SyntheticMorselSource};
 pub use morsel::{GranuleMap, GranuleMapSource, Segments};
+pub use morsel::{MorselRange, MorselSource, StreamSource, SyntheticMorselSource};
 pub use rg::{
     BoundDescriptor, BoundServe, CompletionWaiter, QuerySpec, RgClass, RgHandle, RgOutcome,
     TaskSetSpec, TaskSetWork, WeakRgHandle,
 };
-pub use sched::{DriveLocal, Step, WorkerLocal, DEFAULT_SLOTS, MAX_EXTERNAL_LANES};
 #[cfg(not(loom))]
 pub use sched::install_qos_mem_probe;
+pub use sched::{DriveLocal, Step, WorkerLocal, DEFAULT_SLOTS, MAX_EXTERNAL_LANES};
 pub use sink::{
     sealed_sink_tasksets, sink_tasksets, ParallelSink, SealedParallelSink, SealedSinkTaskSets,
     SinkProbe, SinkTaskSets,
 };
-pub use sizing::{Phase, SizingDecision, SizingParams, DEFAULT_T_MAX_NS, DEFAULT_T_MIN_NS, EWMA_ALPHA};
+pub use sizing::{
+    Phase, SizingDecision, SizingParams, DEFAULT_T_MAX_NS, DEFAULT_T_MIN_NS, EWMA_ALPHA,
+};
 pub use stats::{RgStatsSnapshot, RuntimeStatsSnapshot};
 pub use sync::{IoGuard, Semaphore};
 
@@ -262,11 +264,15 @@ impl RuntimeConfig {
             .map(|n| n.get())
             .unwrap_or(1)
             .min(cpuset::plan().workers_cap());
-        let workers = env_u64("PGRUST_RUNTIME_WORKERS").map(|n| n.max(1) as usize).unwrap_or(cores);
-        let standbys =
-            env_u64("PGRUST_RUNTIME_STANDBYS").map(|n| n as usize).unwrap_or(DEFAULT_STANDBYS);
-        let t_max_ns =
-            env_u64("PGRUST_RUNTIME_TMAX_US").map(|us| us.max(1) * 1_000).unwrap_or(DEFAULT_T_MAX_NS);
+        let workers = env_u64("PGRUST_RUNTIME_WORKERS")
+            .map(|n| n.max(1) as usize)
+            .unwrap_or(cores);
+        let standbys = env_u64("PGRUST_RUNTIME_STANDBYS")
+            .map(|n| n as usize)
+            .unwrap_or(DEFAULT_STANDBYS);
+        let t_max_ns = env_u64("PGRUST_RUNTIME_TMAX_US")
+            .map(|us| us.max(1) * 1_000)
+            .unwrap_or(DEFAULT_T_MAX_NS);
         let t_min_ns = env_u64("PGRUST_RUNTIME_TMIN_US")
             .map(|us| us.max(1) * 1_000)
             .unwrap_or_else(|| (t_max_ns / 4).max(1));
@@ -330,8 +336,15 @@ impl Runtime {
     /// parking on the returned waiter (§2.5: submit-and-park; no leader
     /// execution path exists, deliberately).
     pub fn submit(&self, spec: QuerySpec) -> (RgHandle, CompletionWaiter) {
-        let rg = self.sched.submit(spec, false, RgClass::Foreground, 0, None, None, None);
-        (RgHandle { rg: Arc::clone(&rg) }, CompletionWaiter { rg })
+        let rg = self
+            .sched
+            .submit(spec, false, RgClass::Foreground, 0, None, None, None);
+        (
+            RgHandle {
+                rg: Arc::clone(&rg),
+            },
+            CompletionWaiter { rg },
+        )
     }
 
     /// [`Runtime::submit`] with a leader-session affinity token (M5-4): the
@@ -346,8 +359,21 @@ impl Runtime {
         spec: QuerySpec,
         session_token: u64,
     ) -> (RgHandle, CompletionWaiter) {
-        let rg = self.sched.submit(spec, false, RgClass::Foreground, session_token, None, None, None);
-        (RgHandle { rg: Arc::clone(&rg) }, CompletionWaiter { rg })
+        let rg = self.sched.submit(
+            spec,
+            false,
+            RgClass::Foreground,
+            session_token,
+            None,
+            None,
+            None,
+        );
+        (
+            RgHandle {
+                rg: Arc::clone(&rg),
+            },
+            CompletionWaiter { rg },
+        )
     }
 
     /// [`Runtime::submit`] carrying an explicit [`WidthRequest`] (WS-B
@@ -362,8 +388,15 @@ impl Runtime {
         spec: QuerySpec,
         width: WidthRequest,
     ) -> (RgHandle, CompletionWaiter) {
-        let rg = self.sched.submit(spec, false, RgClass::Foreground, 0, Some(width), None, None);
-        (RgHandle { rg: Arc::clone(&rg) }, CompletionWaiter { rg })
+        let rg = self
+            .sched
+            .submit(spec, false, RgClass::Foreground, 0, Some(width), None, None);
+        (
+            RgHandle {
+                rg: Arc::clone(&rg),
+            },
+            CompletionWaiter { rg },
+        )
     }
 
     /// [`Runtime::submit_pinned_with_affinity`] carrying an explicit
@@ -374,8 +407,21 @@ impl Runtime {
         session_token: u64,
         width: WidthRequest,
     ) -> (RgHandle, CompletionWaiter) {
-        let rg = self.sched.submit(spec, true, RgClass::Foreground, session_token, Some(width), None, None);
-        (RgHandle { rg: Arc::clone(&rg) }, CompletionWaiter { rg })
+        let rg = self.sched.submit(
+            spec,
+            true,
+            RgClass::Foreground,
+            session_token,
+            Some(width),
+            None,
+            None,
+        );
+        (
+            RgHandle {
+                rg: Arc::clone(&rg),
+            },
+            CompletionWaiter { rg },
+        )
     }
 
     /// WS-B ledger-policy toggle (tests / A-B). Production default is the
@@ -416,7 +462,11 @@ impl Runtime {
     /// composition rule). Dropping the lease retires the entry.
     pub fn lease_parallel_width(self: &Arc<Self>, requested: u32) -> Option<ParallelWidthLease> {
         let (id, granted) = self.sched.lease_gang_width(requested)?;
-        Some(ParallelWidthLease { rt: Arc::clone(self), id, granted })
+        Some(ParallelWidthLease {
+            rt: Arc::clone(self),
+            id,
+            granted,
+        })
     }
 
     /// WS-B test hook (the set_decay_quantum_ns precedent): per-instance
@@ -488,8 +538,15 @@ impl Runtime {
     /// deadlines. Cycle task sets are single-morsel by construction, so the
     /// preference diverts at most one worker for one cycle body.
     pub fn submit_maintenance(&self, spec: QuerySpec) -> (RgHandle, CompletionWaiter) {
-        let rg = self.sched.submit(spec, false, RgClass::Maintenance, 0, None, None, None);
-        (RgHandle { rg: Arc::clone(&rg) }, CompletionWaiter { rg })
+        let rg = self
+            .sched
+            .submit(spec, false, RgClass::Maintenance, 0, None, None, None);
+        (
+            RgHandle {
+                rg: Arc::clone(&rg),
+            },
+            CompletionWaiter { rg },
+        )
     }
 
     /// Submit a UTILITY resource group (Track-4 Q0/Q1, scratchpad/night/
@@ -514,8 +571,15 @@ impl Runtime {
         spec: QuerySpec,
         width: Option<WidthRequest>,
     ) -> (RgHandle, CompletionWaiter) {
-        let rg = self.sched.submit(spec, false, RgClass::Utility, 0, width, None, None);
-        (RgHandle { rg: Arc::clone(&rg) }, CompletionWaiter { rg })
+        let rg = self
+            .sched
+            .submit(spec, false, RgClass::Utility, 0, width, None, None);
+        (
+            RgHandle {
+                rg: Arc::clone(&rg),
+            },
+            CompletionWaiter { rg },
+        )
     }
 
     /// Track-4 kill-switch toggle (tests / A-B arms). Production default is
@@ -573,8 +637,21 @@ impl Runtime {
         spec: QuerySpec,
         session_token: u64,
     ) -> (RgHandle, CompletionWaiter) {
-        let rg = self.sched.submit(spec, true, RgClass::Foreground, session_token, None, None, None);
-        (RgHandle { rg: Arc::clone(&rg) }, CompletionWaiter { rg })
+        let rg = self.sched.submit(
+            spec,
+            true,
+            RgClass::Foreground,
+            session_token,
+            None,
+            None,
+            None,
+        );
+        (
+            RgHandle {
+                rg: Arc::clone(&rg),
+            },
+            CompletionWaiter { rg },
+        )
     }
 
     /// M2 inc-2 (PGPROC-leasing pool workers): [`Runtime::submit_pinned_with_affinity`]
@@ -623,7 +700,12 @@ impl Runtime {
             Some(descriptor),
             Some(&mut call),
         );
-        (RgHandle { rg: Arc::clone(&rg) }, CompletionWaiter { rg })
+        (
+            RgHandle {
+                rg: Arc::clone(&rg),
+            },
+            CompletionWaiter { rg },
+        )
     }
 
     /// M4.1 (utility compute onto the pool — scratchpad/night/
@@ -661,7 +743,12 @@ impl Runtime {
             Some(descriptor),
             Some(&mut call),
         );
-        (RgHandle { rg: Arc::clone(&rg) }, CompletionWaiter { rg })
+        (
+            RgHandle {
+                rg: Arc::clone(&rg),
+            },
+            CompletionWaiter { rg },
+        )
     }
 
     /// Per-thread bookkeeping for an external participant (pin-board lane
@@ -699,7 +786,10 @@ impl Runtime {
                     )
                     .is_ok()
                 {
-                    return Some(ExternalLane { rt: Arc::clone(self), ordinal: wi * 64 + bit });
+                    return Some(ExternalLane {
+                        rt: Arc::clone(self),
+                        ordinal: wi * 64 + bit,
+                    });
                 }
             }
         }
@@ -862,9 +952,8 @@ impl Runtime {
             }
             // Class read per iteration: demotion mid-drive downgrades the
             // drive's posture at the next boundary (one Relaxed load).
-            let interactive =
-                rg.rg.priority.load(crate::sync::atomic::Ordering::Relaxed)
-                    >= crate::sched::qos_interactive_p();
+            let interactive = rg.rg.priority.load(crate::sync::atomic::Ordering::Relaxed)
+                >= crate::sched::qos_interactive_p();
             let epoch = self.park_epoch();
             if held.is_none() {
                 if interactive {
@@ -1094,7 +1183,9 @@ impl Runtime {
     /// can run — governed accounting, not a bypass.
     pub fn try_borrow_seat(self: &Arc<Self>) -> Option<InlineSeat> {
         if self.sched.permits.try_acquire() {
-            Some(InlineSeat { rt: Arc::clone(self) })
+            Some(InlineSeat {
+                rt: Arc::clone(self),
+            })
         } else {
             None
         }
@@ -1347,7 +1438,9 @@ impl ParallelWidthLease {
             "settling above the frozen grant ({active} > {})",
             self.granted
         );
-        self.rt.sched.settle_gang_width(self.id, active.min(self.granted));
+        self.rt
+            .sched
+            .settle_gang_width(self.id, active.min(self.granted));
     }
 }
 
@@ -1394,7 +1487,9 @@ impl Drop for ExternalLane {
         // Release the lane bit. The pin was settled by the drive (every
         // worker_step_pinned settles before returning), so the next lessee
         // starts from a clean pin.
-        self.rt.sched.external_lanes[self.ordinal / 64]
-            .fetch_and(!(1u64 << (self.ordinal % 64)), crate::sync::atomic::Ordering::SeqCst);
+        self.rt.sched.external_lanes[self.ordinal / 64].fetch_and(
+            !(1u64 << (self.ordinal % 64)),
+            crate::sync::atomic::Ordering::SeqCst,
+        );
     }
 }

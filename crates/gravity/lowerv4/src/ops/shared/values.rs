@@ -80,7 +80,7 @@ pub fn coded_cells_max() -> usize {
 /// CAP-29: more than `cost::VALUES_CODED_ROWS_MAX` rows holding a cell that is not a Const (a row that is not a list
 /// holds one).
 pub(crate) fn over_rows(lists: &types_nodes::NodeList<'_>) -> bool {
-    lists.iter().filter(|l| l.as_list().map_or(true, |l| l.iter().any(|n| n.as_const().is_none()))).count() > gravity_program::cost::VALUES_CODED_ROWS_MAX
+    lists.iter().filter(|l| l.as_list().is_none_or(|l| l.iter().any(|n| n.as_const().is_none()))).count() > gravity_program::cost::VALUES_CODED_ROWS_MAX
 }
 
 /// CAP-29: every row a list whose every cell is a Const or one PostgreSQL's evaluator takes alone (`streams`).

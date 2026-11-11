@@ -57,7 +57,9 @@ struct PruneContext<'mcx> {
 // es_part_prune_results; the states themselves are rebuilt at node init.
 pub fn exec_do_initial_pruning<'mcx>(estate: &mut EStateData<'mcx>) -> PgResult<()> {
     let mcx = estate.es_query_cxt;
-    let pstmt = estate.es_plannedstmt.expect("es_plannedstmt set before pruning");
+    let pstmt = estate
+        .es_plannedstmt
+        .expect("es_plannedstmt set before pruning");
     for pruneinfo in pstmt.partPruneInfos.iter() {
         let mut all_leafpart_rtis = Bitmapset::empty();
         let mut prunestate =
@@ -74,7 +76,9 @@ pub fn exec_do_initial_pruning<'mcx>(estate: &mut EStateData<'mcx>) -> PgResult<
             result = None;
             validsubplan_rtis = all_leafpart_rtis;
         }
-        estate.es_unpruned_relids.add_members(mcx, &validsubplan_rtis)?;
+        estate
+            .es_unpruned_relids
+            .add_members(mcx, &validsubplan_rtis)?;
         estate.es_part_prune_results.push(result);
         let econtext = prunestate.econtext;
         drop(prunestate);
@@ -178,7 +182,9 @@ fn create_partition_prune_state<'mcx>(
                 .as_partitioned_rel_prune_info()
                 .expect("PartitionedRelPruneInfo node");
             let (partdesc, partkey) = {
-                let partrel = estate.exec_get_range_table_relation(pinfo.rtindex, false)?.alias();
+                let partrel = estate
+                    .exec_get_range_table_relation(pinfo.rtindex, false)?
+                    .alias();
                 // execPartition.c:2058-2060: through es_partition_directory,
                 // so InitExecPartitionPruneContexts' second lookup
                 // (execPartition.c:2412-2413) is the stored `partdesc`.
@@ -199,7 +205,11 @@ fn create_partition_prune_state<'mcx>(
             // -1/-1/0 (as if pruned).
             let n_new = partdesc.nparts;
             let identical = n_new as i32 == pinfo.nparts
-                && partdesc.oids.iter().zip(pinfo.relid_map.iter()).all(|(a, b)| a == b);
+                && partdesc
+                    .oids
+                    .iter()
+                    .zip(pinfo.relid_map.iter())
+                    .all(|(a, b)| a == b);
             let (subplan_map, subpart_map, leafpart_rti_map) = if identical {
                 (
                     ::mcx::std_vec_from_slice("execpartition", pinfo.subplan_map)?,
@@ -252,8 +262,11 @@ fn create_partition_prune_state<'mcx>(
             if !pinfo.initial_pruning_steps.is_nil() && !explain_generic {
                 if for_initial {
                     let partnatts = pprune.partkey.partnatts as usize;
-                    pprune.initial_ctx =
-                        Some(init_prune_context(estate, &pinfo.initial_pruning_steps, partnatts)?);
+                    pprune.initial_ctx = Some(init_prune_context(
+                        estate,
+                        &pinfo.initial_pruning_steps,
+                        partnatts,
+                    )?);
                 }
                 state.do_initial_prune = true;
             }
@@ -294,13 +307,18 @@ fn init_prune_context<'mcx>(
     exprstates.resize_with(total, || None);
     let mut cmpfuncs = ::mcx::std_vec_with_capacity("ExecutorState", total)?;
     cmpfuncs.resize_with(total, || None);
-    let mut ctx = PruneContext { exprstates, cmpfuncs };
+    let mut ctx = PruneContext {
+        exprstates,
+        cmpfuncs,
+    };
     let params = estate.param_bind();
     // C compiles exec-pruning step exprs against the parent planstate
     // (execPartition.c:2311); SubPlans in step exprs need the env.
     ::executils::with_subplan_compile_env(estate, |env| -> PgResult<()> {
         for step in steps.iter() {
-            let Some(op) = step.as_partition_prune_step_op() else { continue };
+            let Some(op) = step.as_partition_prune_step_op() else {
+                continue;
+            };
             debug_assert!(op.exprs.len() <= partnatts);
             let mut it = op.exprs.iter().zip(op.cmpfns.iter());
             for keyno in 0..partnatts {
@@ -356,14 +374,20 @@ fn init_exec_partition_prune_contexts<'mcx>(
 
     for hi in 0..prunestate.hierarchies.len() {
         for j in (0..prunestate.hierarchies[hi].len()).rev() {
-            if !prunestate.hierarchies[hi][j].pinfo.exec_pruning_steps.is_nil() {
+            if !prunestate.hierarchies[hi][j]
+                .pinfo
+                .exec_pruning_steps
+                .is_nil()
+            {
                 let partnatts = prunestate.hierarchies[hi][j].partkey.partnatts as usize;
                 let steps = &prunestate.hierarchies[hi][j].pinfo.exec_pruning_steps;
                 let ctx = init_prune_context(estate, steps, partnatts)?;
                 prunestate.hierarchies[hi][j].exec_ctx = Some(ctx);
             }
 
-            let Some(map) = new_subplan_indexes.as_ref() else { continue };
+            let Some(map) = new_subplan_indexes.as_ref() else {
+                continue;
+            };
             // C pprune->nparts: the executor-time partdesc size.
             let nparts = prunestate.hierarchies[hi][j].subplan_map.len();
             let mut present = Bitmapset::empty();
@@ -378,7 +402,9 @@ fn init_exec_partition_prune_contexts<'mcx>(
                 } else {
                     let subidx = prunestate.hierarchies[hi][j].subpart_map[k];
                     if subidx >= 0
-                        && !prunestate.hierarchies[hi][subidx as usize].present_parts.is_empty()
+                        && !prunestate.hierarchies[hi][subidx as usize]
+                            .present_parts
+                            .is_empty()
                     {
                         present.add_member(mcx, k as i32)?;
                     }
@@ -497,9 +523,16 @@ fn get_matching_partitions<'mcx>(
     let partdesc = Rc::clone(&pprune.partdesc);
     let partkey = Rc::clone(&pprune.partkey);
     let strategy = partkey.strategy as u8;
-    let boundinfo = partdesc.boundinfo.as_ref().expect("partitioned rel has bounds");
-    let ctx = if initial { pprune.initial_ctx.as_mut() } else { pprune.exec_ctx.as_mut() }
-        .expect("prune context initialized for this pass");
+    let boundinfo = partdesc
+        .boundinfo
+        .as_ref()
+        .expect("partitioned rel has bounds");
+    let ctx = if initial {
+        pprune.initial_ctx.as_mut()
+    } else {
+        pprune.exec_ctx.as_mut()
+    }
+    .expect("prune context initialized for this pass");
 
     let mut results: Vec<Option<PruneStepResult<'mcx>>> =
         ::mcx::std_vec_with_capacity("ExecutorState", num_steps)?;
@@ -508,9 +541,8 @@ fn get_matching_partitions<'mcx>(
         match step.node_tag() {
             NodeTag::T_PartitionPruneStepOp => {
                 let op = step.as_partition_prune_step_op().unwrap();
-                let res = perform_pruning_base_step_exec(
-                    estate, econtext, ctx, &partkey, boundinfo, op,
-                )?;
+                let res =
+                    perform_pruning_base_step_exec(estate, econtext, ctx, &partkey, boundinfo, op)?;
                 results[op.step_id as usize] = Some(res);
             }
             NodeTag::T_PartitionPruneStepCombine => {
@@ -528,7 +560,9 @@ fn get_matching_partitions<'mcx>(
             other => panic!("invalid pruning step type: {other:?}"),
         }
     }
-    let final_result = results[num_steps - 1].as_ref().expect("final step evaluated");
+    let final_result = results[num_steps - 1]
+        .as_ref()
+        .expect("final step evaluated");
     partprune::matching_bounds_to_partitions(mcx, boundinfo, final_result, strategy)
 }
 
@@ -644,7 +678,9 @@ fn perform_pruning_base_step_exec<'mcx>(
                     if opstep.nullkeys.is_member(keyno) {
                         continue;
                     }
-                    let f = ctx.cmpfuncs[base + keyno as usize].as_mut().expect("cmpfn resolved");
+                    let f = ctx.cmpfuncs[base + keyno as usize]
+                        .as_mut()
+                        .expect("cmpfn resolved");
                     let h = sup(
                         f,
                         partcollation[keyno as usize],
@@ -681,7 +717,9 @@ fn perform_pruning_base_step_exec<'mcx>(
                 nvalues,
                 &opstep.nullkeys,
                 &mut |j: i32, bound: Datum| {
-                    let f = cmpfuncs[base + j as usize].as_mut().expect("cmpfn resolved");
+                    let f = cmpfuncs[base + j as usize]
+                        .as_mut()
+                        .expect("cmpfn resolved");
                     sup(f, partcollation[j as usize], bound, values[j as usize]).as_i32()
                 },
             )

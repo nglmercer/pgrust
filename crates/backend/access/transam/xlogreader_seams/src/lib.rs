@@ -1,6 +1,4 @@
-#![allow(non_snake_case)]
-#![allow(non_upper_case_globals)]
-#![allow(non_camel_case_types)]
+#![allow(non_camel_case_types, non_snake_case, non_upper_case_globals)]
 
 use types_core::{
     BlockNumber, Buffer, ForkNumber, RepOriginId, RmgrId, TimeLineID, TransactionId, XLogRecPtr,
@@ -181,7 +179,8 @@ impl XLogReaderState {
     pub fn has_block_ref(&self, block_id: u8) -> bool {
         match &self.record {
             Some(r) => {
-                i32::from(block_id) <= i32::from(r.max_block_id) && r.blocks[block_id as usize].in_use
+                i32::from(block_id) <= i32::from(r.max_block_id)
+                    && r.blocks[block_id as usize].in_use
             }
             None => false,
         }
@@ -275,6 +274,7 @@ mod block_tag_tests {
     // a present one yields its (rlocator, forknum, blkno) without the
     // prefetch buffer (audit-18.6 w2-053, row xlogreader-3a26fc89).
     #[test]
+    #[allow(clippy::field_reassign_with_default)]
     fn block_tag_is_c_exact() {
         let mut rec = DecodedXLogRecord::default();
         rec.max_block_id = 0;
@@ -286,20 +286,33 @@ mod block_tag_tests {
             prefetch_buffer: 9,
             ..DecodedBkpBlock::EMPTY
         };
-        let record = XLogReaderState { record: Some(rec), ..Default::default() };
+        let record = XLogReaderState {
+            record: Some(rec),
+            ..Default::default()
+        };
         assert_eq!(
             record.block_tag(0).unwrap(),
-            (RelFileLocator::new(1663, 5, 42), ForkNumber::MAIN_FORKNUM, 3)
+            (
+                RelFileLocator::new(1663, 5, 42),
+                ForkNumber::MAIN_FORKNUM,
+                3
+            )
         );
         let err = record.block_tag(1).expect_err("block 1 is not registered");
-        assert_eq!(err.message(), "could not locate backup block with ID 1 in WAL record");
+        assert_eq!(
+            err.message(),
+            "could not locate backup block with ID 1 in WAL record"
+        );
         assert_eq!(err.level(), types_error::ERROR);
         assert_eq!(err.sqlstate(), types_error::ERRCODE_INTERNAL_ERROR);
 
         // No decoded record at all: still the C error, never a panic.
         let empty = XLogReaderState::default();
         let err = empty.block_tag(0).expect_err("no record");
-        assert_eq!(err.message(), "could not locate backup block with ID 0 in WAL record");
+        assert_eq!(
+            err.message(),
+            "could not locate backup block with ID 0 in WAL record"
+        );
     }
 
     // XLogRecHasBlockRef (xlogreader.h:426-429): `block_id <= max_block_id` in
@@ -307,11 +320,18 @@ mod block_tag_tests {
     // cast made them negative (always <= max_block_id) and indexed past the
     // 33-entry blocks array. Detail bug_1203e574.
     #[test]
+    #[allow(clippy::field_reassign_with_default)]
     fn has_block_ref_treats_high_block_ids_as_absent() {
         let mut rec = DecodedXLogRecord::default();
         rec.max_block_id = 0;
-        rec.blocks[0] = DecodedBkpBlock { in_use: true, ..DecodedBkpBlock::EMPTY };
-        let record = XLogReaderState { record: Some(rec), ..Default::default() };
+        rec.blocks[0] = DecodedBkpBlock {
+            in_use: true,
+            ..DecodedBkpBlock::EMPTY
+        };
+        let record = XLogReaderState {
+            record: Some(rec),
+            ..Default::default()
+        };
         assert!(record.has_block_ref(0));
         assert!(!record.has_block_ref(1));
         assert!(!record.has_block_ref(128));

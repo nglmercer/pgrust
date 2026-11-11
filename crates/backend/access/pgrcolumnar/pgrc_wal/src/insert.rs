@@ -6,10 +6,12 @@ use std::sync::atomic::Ordering::Relaxed;
 
 use pgrc_format::spool::spool_name;
 use pgrc_format::wal::{
-    encode_dir, BulkRowsRec, DirLoc, FileRefRec, FileWriteRec, InstallRec, PublishRec, ReclaimRec, RowRec, RowidReserveRec, TupleImage,
-    FILE_WRITE_MAX_CHUNK, XLOG_PGRC_BULK_ROWS, XLOG_PGRC_DIR_CREATE, XLOG_PGRC_FILE_CREATE, XLOG_PGRC_FILE_REF,
-    XLOG_PGRC_FILE_WRITE, XLOG_PGRC_INSTALL, XLOG_PGRC_PUBLISH, XLOG_PGRC_RECLAIM, XLOG_PGRC_ROW_DELETE,
-    XLOG_PGRC_ROWID_EXTENTS, XLOG_PGRC_ROWID_RESERVE, XLOG_PGRC_ROWID_SET, XLOG_PGRC_ROW_UPDATE, XLOG_PGRC_TRUNCATE,
+    encode_dir, BulkRowsRec, DirLoc, FileRefRec, FileWriteRec, InstallRec, PublishRec, ReclaimRec,
+    RowRec, RowidReserveRec, TupleImage, FILE_WRITE_MAX_CHUNK, XLOG_PGRC_BULK_ROWS,
+    XLOG_PGRC_DIR_CREATE, XLOG_PGRC_FILE_CREATE, XLOG_PGRC_FILE_REF, XLOG_PGRC_FILE_WRITE,
+    XLOG_PGRC_INSTALL, XLOG_PGRC_PUBLISH, XLOG_PGRC_RECLAIM, XLOG_PGRC_ROWID_EXTENTS,
+    XLOG_PGRC_ROWID_RESERVE, XLOG_PGRC_ROWID_SET, XLOG_PGRC_ROW_DELETE, XLOG_PGRC_ROW_UPDATE,
+    XLOG_PGRC_TRUNCATE,
 };
 use pgrc_write::plan::publish_touched;
 use pgrc_write::walsink::{Apply, FileRef, NoWal, RefSync, WalSink, WAL_INSERT_FAILED};
@@ -31,7 +33,9 @@ pub fn take_insert_error() -> Option<Box<PgError>> {
 
 pub(crate) fn stash(e: Box<PgError>) -> WriteError {
     INSERT_ERROR.with(|s| *s.borrow_mut() = Some(e));
-    WriteError::Contract { detail: WAL_INSERT_FAILED }
+    WriteError::Contract {
+        detail: WAL_INSERT_FAILED,
+    }
 }
 
 /// Only `FILE_REF` carries `XLR_SPECIAL_REL_UPDATE`: stock pg_rewind copies `pgrc_<n>` directories whole and replay
@@ -45,7 +49,9 @@ struct DelayChkpt(ProcNumber);
 impl DelayChkpt {
     fn start() -> DelayChkpt {
         let me = lmgr_proc::MyProc().expect("pgrc WAL insert without MyProc");
-        let prev = lmgr_proc::GetPGProcByNumber(me).delayChkptFlags.fetch_or(DELAY_CHKPT_START, Relaxed);
+        let prev = lmgr_proc::GetPGProcByNumber(me)
+            .delayChkptFlags
+            .fetch_or(DELAY_CHKPT_START, Relaxed);
         debug_assert_eq!(prev & DELAY_CHKPT_START, 0);
         DelayChkpt(me)
     }
@@ -53,7 +59,9 @@ impl DelayChkpt {
 
 impl Drop for DelayChkpt {
     fn drop(&mut self) {
-        lmgr_proc::GetPGProcByNumber(self.0).delayChkptFlags.fetch_and(!DELAY_CHKPT_START, Relaxed);
+        lmgr_proc::GetPGProcByNumber(self.0)
+            .delayChkptFlags
+            .fetch_and(!DELAY_CHKPT_START, Relaxed);
     }
 }
 
@@ -66,10 +74,19 @@ pub struct XlogSink {
 
 impl XlogSink {
     pub fn new(loc: DirLoc) -> XlogSink {
-        XlogSink { loc, first_redo: BTreeMap::new() }
+        XlogSink {
+            loc,
+            first_redo: BTreeMap::new(),
+        }
     }
 
-    fn logged(&mut self, info: u8, payload: &[u8], touched: Vec<String>, apply: Apply<'_>) -> WriteResult<()> {
+    fn logged(
+        &mut self,
+        info: u8,
+        payload: &[u8],
+        touched: Vec<String>,
+        apply: Apply<'_>,
+    ) -> WriteResult<()> {
         let _delay = DelayChkpt::start();
         let lsn = insert(info, &[payload]).map_err(stash)?;
         if info == XLOG_PGRC_PUBLISH {
@@ -82,11 +99,18 @@ impl XlogSink {
         }
         // a PUBLISH logged by a transaction with no xid has no commit record to flush it, and its apply moves CURRENT
         // at once, so it is flushed before its apply, as a RECLAIM is.
-        let no_xid_publish = info == XLOG_PGRC_PUBLISH && !xact::GetTopFullTransactionIdIfAny().is_valid();
+        let no_xid_publish =
+            info == XLOG_PGRC_PUBLISH && !xact::GetTopFullTransactionIdIfAny().is_valid();
         init_small::globals::StartCriticalSection();
         // WAL before data: a RECLAIM's unlinks cannot be undone, so its record is flushed first.
-        let flushed = if info == XLOG_PGRC_RECLAIM || no_xid_publish { transam_xlog::XLogFlush(lsn) } else { Ok(()) };
-        let critical = flushed.and_then(|()| apply().map_err(pgrc_am::write_error)).and_then(|()| crate::sync::register(self.loc, touched));
+        let flushed = if info == XLOG_PGRC_RECLAIM || no_xid_publish {
+            transam_xlog::XLogFlush(lsn)
+        } else {
+            Ok(())
+        };
+        let critical = flushed
+            .and_then(|()| apply().map_err(pgrc_am::write_error))
+            .and_then(|()| crate::sync::register(self.loc, touched));
         if let Err(err) = &critical {
             elog::panic_on_crit_section_escape(err);
         }
@@ -105,16 +129,37 @@ impl WalSink for XlogSink {
     }
 
     fn file_write(&mut self, name: &str, off: u64, bytes: &[u8], create: bool) -> WriteResult<()> {
-        self.first_redo.entry(name.to_string()).or_insert_with(transam_xlog::GetRedoRecPtr);
+        self.first_redo
+            .entry(name.to_string())
+            .or_insert_with(transam_xlog::GetRedoRecPtr);
         let mut head = Vec::new();
-        FileWriteRec { dir: self.loc, name, off, bytes }.encode_header(&mut head)?;
-        let info = if create { XLOG_PGRC_FILE_CREATE } else { XLOG_PGRC_FILE_WRITE };
+        FileWriteRec {
+            dir: self.loc,
+            name,
+            off,
+            bytes,
+        }
+        .encode_header(&mut head)?;
+        let info = if create {
+            XLOG_PGRC_FILE_CREATE
+        } else {
+            XLOG_PGRC_FILE_WRITE
+        };
         insert(info, &[&head, bytes]).map_err(stash)?;
         // a paced seal may wait here: never inside a critical section or a DELAY_CHKPT_START window
         if pgrc_write::walsink::pace::active() {
             let crit = init_small::globals::CritSectionCount() > 0;
-            let delaying = lmgr_proc::MyProc().is_some_and(|me| lmgr_proc::GetPGProcByNumber(me).delayChkptFlags.load(Relaxed) & DELAY_CHKPT_START != 0);
-            debug_assert!(!crit && !delaying, "pgrc seal WAL pacing inside a critical section or DELAY_CHKPT_START window");
+            let delaying = lmgr_proc::MyProc().is_some_and(|me| {
+                lmgr_proc::GetPGProcByNumber(me)
+                    .delayChkptFlags
+                    .load(Relaxed)
+                    & DELAY_CHKPT_START
+                    != 0
+            });
+            debug_assert!(
+                !crit && !delaying,
+                "pgrc seal WAL pacing inside a critical section or DELAY_CHKPT_START window"
+            );
             if !crit && !delaying {
                 pgrc_write::walsink::pace::paced(bytes.len() as u64);
             }
@@ -122,7 +167,11 @@ impl WalSink for XlogSink {
         Ok(())
     }
 
-    fn file_done(&mut self, name: &str, fsync: &mut dyn FnMut() -> WriteResult<()>) -> WriteResult<()> {
+    fn file_done(
+        &mut self,
+        name: &str,
+        fsync: &mut dyn FnMut() -> WriteResult<()>,
+    ) -> WriteResult<()> {
         let first = self.first_redo.remove(name);
         {
             let _delay = DelayChkpt::start();
@@ -143,7 +192,12 @@ impl WalSink for XlogSink {
     fn install(&mut self, rec: &InstallRec, apply: Apply<'_>) -> WriteResult<()> {
         let mut b = Vec::new();
         rec.encode(&mut b)?;
-        self.logged(XLOG_PGRC_INSTALL, &b, rec.renames.iter().map(|(_, to)| to.clone()).collect(), apply)
+        self.logged(
+            XLOG_PGRC_INSTALL,
+            &b,
+            rec.renames.iter().map(|(_, to)| to.clone()).collect(),
+            apply,
+        )
     }
 
     fn reclaim(&mut self, rec: &ReclaimRec, apply: Apply<'_>) -> WriteResult<()> {
@@ -164,13 +218,20 @@ impl WalSink for XlogSink {
     /// inside one `DELAY_CHKPT_START` window, `FILE_REF` is inserted and the pending entry renamed to the record's LSN.
     /// A crash anywhere leaves either no record or a record whose bytes are durable under one of the two spool names.
     /// Under `wal_level=minimal` the fsync is all; while a low-level backup runs, the file is logged as bytes.
-    fn file_ref(&mut self, f: &FileRef<'_>, vfs: &mut dyn WriteVfs, fsync: RefSync<'_>) -> WriteResult<()> {
+    fn file_ref(
+        &mut self,
+        f: &FileRef<'_>,
+        vfs: &mut dyn WriteVfs,
+        fsync: RefSync<'_>,
+    ) -> WriteResult<()> {
         fsync(vfs)?;
         injection_point::injection_point("pgrc-ref-after-fsync").map_err(stash)?;
         if !transam_xlog::XLogIsNeeded() {
             return Ok(());
         }
-        let Some(ticket) = pgrc_spool::begin_ref_unless_backup() else { return self.log_bytes_of(vfs, f) };
+        let Some(ticket) = pgrc_spool::begin_ref_unless_backup() else {
+            return self.log_bytes_of(vfs, f);
+        };
         let spool = pgrc_spool::Spool::data();
         let table_path = format!("{}/{}", f.dir, f.name);
         let pending = match spool.link_pending(&table_path, self.loc, f.name) {
@@ -188,7 +249,15 @@ impl WalSink for XlogSink {
             return Err(stash(e));
         }
         let mut b = Vec::new();
-        if let Err(e) = (FileRefRec { dir: self.loc, name: f.name, len: f.len, crc: f.crc, masks: f.masks }.encode(&mut b)) {
+        if let Err(e) = (FileRefRec {
+            dir: self.loc,
+            name: f.name,
+            len: f.len,
+            crc: f.crc,
+            masks: f.masks,
+        }
+        .encode(&mut b))
+        {
             pgrc_spool::end_ref(ticket, None);
             return Err(e.into());
         }
@@ -242,11 +311,18 @@ impl XlogSink {
 }
 
 fn link_unsupported(e: &std::io::Error) -> bool {
-    matches!(e.raw_os_error(), Some(libc::EXDEV | libc::EPERM | libc::EMLINK | libc::ENOTSUP))
+    matches!(
+        e.raw_os_error(),
+        Some(libc::EXDEV | libc::EPERM | libc::EMLINK | libc::ENOTSUP)
+    )
 }
 
 fn io_error(op: &'static str, path: &str, e: &std::io::Error) -> WriteError {
-    WriteError::Io { op, path: path.to_string(), errno: e.raw_os_error().unwrap_or(libc::EIO) }
+    WriteError::Io {
+        op,
+        path: path.to_string(),
+        errno: e.raw_os_error().unwrap_or(libc::EIO),
+    }
 }
 
 const PARTS_IN_WAL_GUC: &str = "pgrust.pgrc_parts_in_wal";
@@ -283,7 +359,12 @@ pub struct RefPolicy {
 
 impl RefPolicy {
     /// At `wal_level=minimal` a file past it is only fsynced, in every mode: only crash recovery reads WAL there.
-    pub fn ref_min(&self, archiving: bool, wal_needed: bool, same_device: impl FnOnce() -> bool) -> Option<u64> {
+    pub fn ref_min(
+        &self,
+        archiving: bool,
+        wal_needed: bool,
+        same_device: impl FnOnce() -> bool,
+    ) -> Option<u64> {
         if !wal_needed {
             return Some(self.ref_min.max(1));
         }
@@ -298,21 +379,32 @@ fn raw_setting(name: &str) -> Option<String> {
     if !guc_seams::get_config_option_missing_ok::is_installed() {
         return None;
     }
-    guc_seams::get_config_option_missing_ok::call(name).ok().flatten()
+    guc_seams::get_config_option_missing_ok::call(name)
+        .ok()
+        .flatten()
 }
 
 /// Read at each by-reference decision (once per file close): a session's `SET` or `PGOPTIONS` applies to its own
 /// writes, and a pooled thread never carries another session's answer.
 pub fn ref_policy() -> RefPolicy {
     RefPolicy {
-        mode: raw_setting(PARTS_IN_WAL_GUC).and_then(|v| PartsInWal::parse(&v)).unwrap_or(PartsInWal::Bytes),
-        ref_min: raw_setting(REF_MIN_GUC).and_then(|v| v.trim().parse().ok()).unwrap_or(DEFAULT_REF_MIN),
-        archive_parts: raw_setting(ARCHIVE_PARTS_GUC).is_some_and(|v| matches!(v.trim(), "on" | "true" | "1" | "yes")),
+        mode: raw_setting(PARTS_IN_WAL_GUC)
+            .and_then(|v| PartsInWal::parse(&v))
+            .unwrap_or(PartsInWal::Bytes),
+        ref_min: raw_setting(REF_MIN_GUC)
+            .and_then(|v| v.trim().parse().ok())
+            .unwrap_or(DEFAULT_REF_MIN),
+        archive_parts: raw_setting(ARCHIVE_PARTS_GUC)
+            .is_some_and(|v| matches!(v.trim(), "on" | "true" | "1" | "yes")),
     }
 }
 
 pub fn ref_min_for(table_dir: &str) -> Option<u64> {
-    ref_policy().ref_min(transam_xlog::XLogArchivingActive(), transam_xlog::XLogIsNeeded(), || pgrc_spool::same_device(table_dir))
+    ref_policy().ref_min(
+        transam_xlog::XLogArchivingActive(),
+        transam_xlog::XLogIsNeeded(),
+        || pgrc_spool::same_device(table_dir),
+    )
 }
 
 pub fn relation_needs_wal(rel: &RelationData<'_>) -> bool {
@@ -341,7 +433,12 @@ impl UnloggedSink {
 const UNLOGGED_SYNC_GUC: &str = "pgrust.pgrc_unlogged_sync";
 
 pub fn unlogged_sync() -> bool {
-    !raw_setting(UNLOGGED_SYNC_GUC).is_some_and(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "off" | "false" | "0" | "no"))
+    !raw_setting(UNLOGGED_SYNC_GUC).is_some_and(|v| {
+        matches!(
+            v.trim().to_ascii_lowercase().as_str(),
+            "off" | "false" | "0" | "no"
+        )
+    })
 }
 
 impl WalSink for UnloggedSink {
@@ -382,7 +479,10 @@ pub fn sink_for(rel: &RelationData<'_>) -> Box<dyn WalSink + Send> {
     if relation_needs_wal(rel) {
         Box::new(XlogSink::new(loc))
     } else if rel.rd_rel.relpersistence == types_core::catalog::RELPERSISTENCE_UNLOGGED {
-        Box::new(UnloggedSink { loc, sync: unlogged_sync() })
+        Box::new(UnloggedSink {
+            loc,
+            sync: unlogged_sync(),
+        })
     } else {
         Box::new(NoWal)
     }
@@ -410,7 +510,10 @@ pub fn log_rowid_reserve(rel: &RelationData<'_>, dir: &str, high: u64) -> PgResu
 
 fn log_rowid_mark(rel: &RelationData<'_>, dir: &str, high: u64, op: u8) -> PgResult<()> {
     let loc = crate::dir_loc(rel.rd_locator.get());
-    let write = || pgrc_am::rowid_alloc::write_file(&mut pgrc_write::wvfs::RealVfs, dir, high).map_err(pgrc_am::write_error);
+    let write = || {
+        pgrc_am::rowid_alloc::write_file(&mut pgrc_write::wvfs::RealVfs, dir, high)
+            .map_err(pgrc_am::write_error)
+    };
     let name = || [pgrc_format::dirlayout::ROWID_FILE_NAME.to_string()];
     if !relation_needs_wal(rel) {
         write()?;
@@ -431,10 +534,16 @@ fn log_rowid_mark(rel: &RelationData<'_>, dir: &str, high: u64, op: u8) -> PgRes
 
 /// A temp table's is never synced; an unlogged table's follows `pgrust.pgrc_unlogged_sync` as its parts do; a
 /// permanent table skipping WAL registers it, and its commit syncs the directory.
-fn unlogged_or_minimal_sync(rel: &RelationData<'_>, loc: DirLoc, names: [String; 1]) -> PgResult<()> {
+fn unlogged_or_minimal_sync(
+    rel: &RelationData<'_>,
+    loc: DirLoc,
+    names: [String; 1],
+) -> PgResult<()> {
     match rel.rd_rel.relpersistence {
         types_core::catalog::RELPERSISTENCE_TEMP => Ok(()),
-        types_core::catalog::RELPERSISTENCE_UNLOGGED if !unlogged_sync() => pgrc_am::dirpath::mark_unsynced(&crate::dir_path(loc)),
+        types_core::catalog::RELPERSISTENCE_UNLOGGED if !unlogged_sync() => {
+            pgrc_am::dirpath::mark_unsynced(&crate::dir_path(loc))
+        }
         _ => crate::sync::register(loc, names),
     }
 }
@@ -445,13 +554,19 @@ pub fn log_rowid_set(rel: &RelationData<'_>, dir: &str, high: u64) -> PgResult<(
 
 pub fn log_rowid_extents(rel: &RelationData<'_>, dir: &str, image: &[u8]) -> PgResult<()> {
     let loc = crate::dir_loc(rel.rd_locator.get());
-    let write = || pgrc_am::rowid_alloc::write_segext(&mut pgrc_write::wvfs::RealVfs, dir, image).map_err(pgrc_am::write_error);
+    let write = || {
+        pgrc_am::rowid_alloc::write_segext(&mut pgrc_write::wvfs::RealVfs, dir, image)
+            .map_err(pgrc_am::write_error)
+    };
     let name = || [pgrc_format::dirlayout::SEGEXT_FILE_NAME.to_string()];
     if !relation_needs_wal(rel) {
         write()?;
         return unlogged_or_minimal_sync(rel, loc, name());
     }
-    let mut b = ::mcx::stdvec::try_vec(pgrc_format::wal::DIR_LOC_LEN + image.len(), "pgrc rowid extents WAL")?;
+    let mut b = ::mcx::stdvec::try_vec(
+        pgrc_format::wal::DIR_LOC_LEN + image.len(),
+        "pgrc rowid extents WAL",
+    )?;
     loc.encode_into(&mut b);
     b.extend_from_slice(image);
     let _delay = DelayChkpt::start();
@@ -474,7 +589,13 @@ fn format_error(e: pgrc_format::FormatError) -> Box<PgError> {
 fn log_logical(info: u8, data: &[&[u8]]) -> PgResult<XLogRecPtr> {
     debug_assert!(transam_xlog::XLogLogicalInfoActive());
     xact::GetCurrentTransactionId()?;
-    xloginsert::insert_record(RM_PGRC_ID, info, transam_xlog::XLOG_INCLUDE_ORIGIN, data, &[])
+    xloginsert::insert_record(
+        RM_PGRC_ID,
+        info,
+        transam_xlog::XLOG_INCLUDE_ORIGIN,
+        data,
+        &[],
+    )
 }
 
 fn log_row(op: u8, rec: RowRec<'_>) -> PgResult<XLogRecPtr> {
@@ -484,15 +605,39 @@ fn log_row(op: u8, rec: RowRec<'_>) -> PgResult<XLogRecPtr> {
 }
 
 pub fn log_row_delete(parent: DirLoc, old: Option<TupleImage<'_>>) -> PgResult<XLogRecPtr> {
-    log_row(XLOG_PGRC_ROW_DELETE, RowRec { parent, old, new: None })
+    log_row(
+        XLOG_PGRC_ROW_DELETE,
+        RowRec {
+            parent,
+            old,
+            new: None,
+        },
+    )
 }
 
-pub fn log_row_update(parent: DirLoc, old: Option<TupleImage<'_>>, new: TupleImage<'_>) -> PgResult<XLogRecPtr> {
-    log_row(XLOG_PGRC_ROW_UPDATE, RowRec { parent, old, new: Some(new) })
+pub fn log_row_update(
+    parent: DirLoc,
+    old: Option<TupleImage<'_>>,
+    new: TupleImage<'_>,
+) -> PgResult<XLogRecPtr> {
+    log_row(
+        XLOG_PGRC_ROW_UPDATE,
+        RowRec {
+            parent,
+            old,
+            new: Some(new),
+        },
+    )
 }
 
 pub fn log_bulk_rows(parent: DirLoc, ntuples: u32, tuples: &[u8]) -> PgResult<XLogRecPtr> {
     let mut head = Vec::new();
-    BulkRowsRec { parent, ntuples, tuples }.encode_header(&mut head).map_err(format_error)?;
+    BulkRowsRec {
+        parent,
+        ntuples,
+        tuples,
+    }
+    .encode_header(&mut head)
+    .map_err(format_error)?;
     log_logical(XLOG_PGRC_BULK_ROWS, &[&head, tuples])
 }

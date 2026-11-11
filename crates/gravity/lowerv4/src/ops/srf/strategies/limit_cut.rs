@@ -13,8 +13,8 @@
 //!   full materialization alone would hit are resource limits (53xxx, 54xxx, 57014), outside error-vs-value; every
 //!   other error still matches PG. Anything else (a PL or user function, D6; a Materialize-mode function; a library entry
 //!   that can raise mid-set) runs to its end first, as PG does, and the cut applies to the read only.
-//! With the road off (`gravity_road_off=srf.limitcut`) every FROM set drains first; the target list is unchanged.
-//! Owner M5-PSET.
+//!   With the road off (`gravity_road_off=srf.limitcut`) every FROM set drains first; the target list is unchanged.
+//!   Owner M5-PSET.
 use gravity_decompose::effects;
 use gravity_decompose::ops::shared::srf::{SrfFn, SrfKind, SrfPlace};
 

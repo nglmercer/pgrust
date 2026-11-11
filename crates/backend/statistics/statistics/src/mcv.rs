@@ -129,6 +129,7 @@ pub fn statext_mcv_build<'mcx>(
     }
 
     let mut types = [0 as Oid; STATS_MAX_DIMENSIONS];
+    #[allow(clippy::needless_range_loop)]
     for i in 0..numattrs {
         types[i] = data.stats[i].attrtypid;
     }
@@ -248,6 +249,7 @@ pub fn statext_mcv_serialize<'mcx>(
     let mut info: PgVec<'_, DimensionInfo> = mcx::vec_with_capacity_in(mcx, ndims)?;
     let mut cmps: Vec<MultiSort> = ::mcx::std_vec_with_capacity("statistics", ndims)?;
 
+    #[allow(clippy::needless_range_loop)]
     for dim in 0..ndims {
         let mut mss = MultiSort::init(1)?;
         mss.add_dimension(stats[dim].attrtypid, stats[dim].attrcollid)?;
@@ -528,6 +530,7 @@ pub fn statext_mcv_deserialize<'mcx>(mcx: Mcx<'mcx>, data: &[u8]) -> PgResult<MC
         // not match the column-type operator that later reads it. Reject it
         // as corruption. This never rejects a valid blob, because the
         // serializer always stores one of these typlen values.
+        #[allow(clippy::nonminimal_bool)]
         if !typbyval && !(typlen > 0 || typlen == -1 || typlen == -2) {
             return Err(
                 PgError::error(format!("invalid MCV typlen ({typlen}) in MCVList")).into()

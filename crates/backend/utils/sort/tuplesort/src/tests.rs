@@ -1774,7 +1774,7 @@ fn radix_heap_two_key_matches_pgqsort() {
                 // dup texts; (text, i2) pairs include full duplicates
                 Some(format!("w{:07}", lcg(&mut s) % 700).into_bytes())
             };
-            (t, ((i % 5)))
+            (t, (i % 5))
         })
         .collect();
 

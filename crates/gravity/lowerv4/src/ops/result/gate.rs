@@ -355,7 +355,7 @@ fn limit_feeder<'g, 'p>(px: &mut Px<'g, 'p>, k: usize) -> Option<PgBox<'g, dyn S
         }
         None => walk(),
     };
-    if !ops.last().is_some_and(|&(q, _)| q as usize > k) {
+    if ops.last().is_none_or(|&(q, _)| q as usize <= k) {
         return None;
     }
     let r = Reach::of(gx, k);

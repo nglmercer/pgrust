@@ -341,6 +341,7 @@ fn lazy_ahead<'p>(b: &mut Builder<'p, '_>, s: &'p Sort<'p>, limited: bool, over_
     use crate::effects::{denying, denying_bounded, licence, of_plan, unobservable, Cx, Departure, Effects};
     let whole = !limited && whole_read(b, id);
     let merge = !limited && !whole && merge_stops(b, id);
+    #[allow(clippy::nonminimal_bool)]
     if !whole && !merge && !(limited && over_union) {
         return Ok(None);
     }

@@ -32,7 +32,6 @@ use crate::Runtime;
 /// and a non-blocking boundary reap after EVERY step — completions run
 /// (IoToken unpark-all) and issuer pins drop before the worker runs its
 /// next task or parks.
-
 /// Lane wakelit arm (iii), `PGRUST_POOL_SPIN_US=<µs>` (default 0 = off):
 /// a worker that is about to park spins on the park-lot epoch for at most
 /// this window first. Consecutive phases of one statement are published
@@ -44,7 +43,10 @@ use crate::Runtime;
 fn spin_us() -> u64 {
     static V: crate::sync::OnceLock<u64> = crate::sync::OnceLock::new();
     *V.get_or_init(|| {
-        std::env::var("PGRUST_POOL_SPIN_US").ok().and_then(|v| v.trim().parse().ok()).unwrap_or(0)
+        std::env::var("PGRUST_POOL_SPIN_US")
+            .ok()
+            .and_then(|v| v.trim().parse().ok())
+            .unwrap_or(0)
     })
 }
 
@@ -92,7 +94,11 @@ pub fn worker_loop(rt: &Arc<Runtime>, worker: usize) {
     let _blocking_reg = unsafe { crate::blocking::PermitThreadReg::new(rt.execution_permits()) };
     // Exit discipline on every path, unwind included: a task-body panic
     // must not leak this worker's permit (the pool would shrink for good).
-    let mut exit = LoopExit { rt, worker, held: false };
+    let mut exit = LoopExit {
+        rt,
+        worker,
+        held: false,
+    };
     if crate::sched::step_v2() {
         // STEP-V2 (agg192-contention, 48xl finding #1): permit held ACROSS
         // steps (released around parks and at exit) — the per-step global
@@ -271,7 +277,10 @@ impl WorkerPool {
         let mut handles = Vec::with_capacity(n);
         for ordinal in 0..n {
             let rt2 = Arc::clone(&rt);
-            handles.push(spawn(ordinal, Box::new(move || worker_loop(&rt2, ordinal)))?);
+            handles.push(spawn(
+                ordinal,
+                Box::new(move || worker_loop(&rt2, ordinal)),
+            )?);
         }
         Ok(WorkerPool { rt, handles })
     }

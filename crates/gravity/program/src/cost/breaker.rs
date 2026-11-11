@@ -2,6 +2,7 @@
 //! record the lowering laid out and the rows the plan estimated. The grant ask (`grant_need`) sums it; a family that sizes a
 //! table, a top-k budget, a partition fan-out or a reserve from a breaker asks it instead of a width guess of its own (DR-1..3,
 //! DR-12, DR-18, DC-04, STEP-21 adopt it in their lanes). Split out of the grant ask with the same bytes for every program.
+#[allow(unused_imports)]
 use gravity_abi::breaker::{opened_bits, BreakerKind, Budget, Spill, BLOCK_BYTES, BLOCK_FULL_CHAIN, HASHBUILD_ENTRY, HASHBUILD_HDR, t1_default_bytes};
 
 use super::{FALLBACK_RECORD, HELD_TABLES, PARTITION_BYTES};

@@ -58,6 +58,7 @@ impl WordEntry {
     }
 
     #[inline]
+    #[allow(clippy::len_without_is_empty)]
     pub fn len(self) -> usize {
         ((self.0 >> 1) & 0x7ff) as usize
     }

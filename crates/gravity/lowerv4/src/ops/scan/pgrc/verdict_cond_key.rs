@@ -72,11 +72,11 @@ fn lowered(p: &Program<'_>, id: NodeId, cat: &dyn Catalog<'_>, out: &mut PgVec<'
     let span = |k: gravity_expr::Kids| p.kids.get(k.start as usize..(k.start + k.len) as usize);
     let kids = match p.nodes.get(id.0 as usize)? {
         ExprNode::Const(c) => {
-            out.push_in((c.typ as u32, !c.byval && c.typlen == -1, None));
+            out.push_in((c.typ, !c.byval && c.typlen == -1, None));
             return Some(());
         }
         ExprNode::Param(q) if matches!(q.kind, ParamKind::PARAM_EXTERN) => {
-            out.push_in((q.typ as u32, storage::of(cat, q.typ).ok()?.len == -1, None));
+            out.push_in((q.typ, storage::of(cat, q.typ).ok()?.len == -1, None));
             return Some(());
         }
         ExprNode::Var(_) | ExprNode::Imm(_) => return Some(()),
@@ -86,7 +86,7 @@ fn lowered(p: &Program<'_>, id: NodeId, cat: &dyn Catalog<'_>, out: &mut PgVec<'
             let a = span(p.sites.get(s.site.0 as usize)?.args)?;
             lowered(p, *a.first()?, cat, out)?;
             let (ExprNode::Const(c), false) = (p.nodes.get(a.get(1)?.0 as usize)?, !s.elem.byval && s.elem.len != -1) else { return lowered(p, a[1], cat, out) };
-            out.push_in((c.typ as u32, !s.elem.byval, Some((if c.is_null() { 0 } else { c.list_len()? }, c.is_null()))));
+            out.push_in((c.typ, !s.elem.byval, Some((if c.is_null() { 0 } else { c.list_len()? }, c.is_null()))));
             return Some(());
         }
         ExprNode::Bool(n) => span(n.args)?,
@@ -169,7 +169,7 @@ fn walk<'p, 'g, 'o>(n: Node<'p>, varno: i32, cat: &dyn Catalog<'p>, out: &mut Pg
     if let Some(q) = n.as_param() {
         let tf = storage::of(cat, q.paramtype).ok().filter(|t| matches!(q.paramkind, ParamKind::PARAM_EXTERN) && (t.byval || t.len == -1))?;
         put(out, b'P', &[q.paramtype as u64, q.paramtypmod as u32 as u64, q.paramcollid as u64, tf.len as u32 as u64, tf.byval as u64, consts.len() as u64]);
-        consts.push_in(q.paramtype as u32);
+        consts.push_in(q.paramtype);
         return Some(());
     }
     if let Some(c) = n.as_const() {
@@ -178,7 +178,7 @@ fn walk<'p, 'g, 'o>(n: Node<'p>, varno: i32, cat: &dyn Catalog<'p>, out: &mut Pg
             return None;
         }
         put(out, b'C', &[c.consttype as u64, c.consttypmod as u32 as u64, c.constcollid as u64, c.constlen as u32 as u64, c.constbyval as u64, consts.len() as u64]);
-        consts.push_in(c.consttype as u32);
+        consts.push_in(c.consttype);
         return Some(());
     }
     let op = n.as_op_expr().map(|o| (b'O', o.opno, o.opfuncid, o.opresulttype, o.opretset, o.opcollid, o.inputcollid, &o.args));

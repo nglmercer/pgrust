@@ -16,7 +16,10 @@ pub struct RegMatch {
 }
 
 impl RegMatch {
-    pub const UNSET: RegMatch = RegMatch { rm_so: -1, rm_eo: -1 };
+    pub const UNSET: RegMatch = RegMatch {
+        rm_so: -1,
+        rm_eo: -1,
+    };
 }
 
 #[derive(Clone)]
@@ -72,6 +75,7 @@ pub const REG_NLSTOP: i32 = 0o100;
 pub const REG_NLANCH: i32 = 0o200;
 pub const REG_NEWLINE: i32 = 0o300;
 
+#[allow(clippy::nonminimal_bool)]
 pub fn cflags_valid(cflags: i32) -> bool {
     !((cflags & REG_QUOTE) != 0 && (cflags & (REG_ADVANCED | REG_EXPANDED | REG_NEWLINE)) != 0)
         && !((cflags & REG_EXTENDED) == 0 && (cflags & REG_ADVF) != 0)

@@ -10,9 +10,8 @@ use types_core::{
 use types_error::{
     PgError, PgResult, ERRCODE_CHECK_VIOLATION, ERRCODE_DATATYPE_MISMATCH,
     ERRCODE_DUPLICATE_COLUMN, ERRCODE_DUPLICATE_OBJECT, ERRCODE_FEATURE_NOT_SUPPORTED,
-    ERRCODE_INVALID_TABLE_DEFINITION,
-    ERRCODE_NOT_NULL_VIOLATION, ERRCODE_PROGRAM_LIMIT_EXCEEDED, ERRCODE_TOO_MANY_COLUMNS,
-    ERRCODE_UNDEFINED_COLUMN, ERROR, NOTICE,
+    ERRCODE_INVALID_TABLE_DEFINITION, ERRCODE_NOT_NULL_VIOLATION, ERRCODE_PROGRAM_LIMIT_EXCEEDED,
+    ERRCODE_TOO_MANY_COLUMNS, ERRCODE_UNDEFINED_COLUMN, ERROR, NOTICE,
 };
 use types_nodes::parsenodes::{AlterTableCmd, AlterTableStmt, AlterTableType, ObjectType};
 use types_nodes::rawnodes::{ColumnDef, ConstrType, Constraint, TypeName};
@@ -325,10 +324,10 @@ fn RangeVarCallbackForAlterRelation<'mcx>(
         ObjectType::OBJECT_INDEX
             if relkind != types_rel::RELKIND_INDEX
                 && relkind != types_rel::RELKIND_PARTITIONED_INDEX
-                && stmt_kind != AlterRelationStmtKind::Rename
-            => {
-                return wrong_type(format!("\"{}\" is not an index", rel.relname));
-            }
+                && stmt_kind != AlterRelationStmtKind::Rename =>
+        {
+            return wrong_type(format!("\"{}\" is not an index", rel.relname));
+        }
         _ => {}
     }
     if objtype != ObjectType::OBJECT_TYPE && relkind == types_rel::RELKIND_COMPOSITE_TYPE {
@@ -598,7 +597,10 @@ fn ATController<'mcx>(
     }
     rel.close(NoLock)?;
     // A pgrcolumnar column change or move seals the front while the catalogs still describe its rows.
-    for tab in wqueue.iter().filter(|t| t.relkind == RELKIND_RELATION || t.relkind == types_rel::RELKIND_MATVIEW) {
+    for tab in wqueue
+        .iter()
+        .filter(|t| t.relkind == RELKIND_RELATION || t.relkind == types_rel::RELKIND_MATVIEW)
+    {
         let passes = [AT_PASS_ALTER_TYPE, AT_PASS_SET_EXPRESSION];
         if tab.new_tablespace == InvalidOid && passes.iter().all(|&p| tab.subcmds[p].is_nil()) {
             continue;
@@ -612,7 +614,10 @@ fn ATController<'mcx>(
     ATRewriteCatalogs(mcx, &mut wqueue, lockmode, query_string)?;
     ATRewriteTables(mcx, &mut wqueue, lockmode, rewrite_tag, query_string)?;
     // After the rewrite: SET ACCESS METHOD and rewrites give the table its new AM and relfilenumber there.
-    for tab in wqueue.iter().filter(|t| t.relkind == RELKIND_RELATION || t.relkind == types_rel::RELKIND_MATVIEW) {
+    for tab in wqueue
+        .iter()
+        .filter(|t| t.relkind == RELKIND_RELATION || t.relkind == types_rel::RELKIND_MATVIEW)
+    {
         pgrc_front::ensure_companions(mcx, tab.relid)?;
     }
     Ok(())
@@ -2014,11 +2019,14 @@ fn ATRewriteTableOne<'mcx>(
     // readers fill the added ones from attmissingval. Before any verify scan, which reads the new schema.
     if tab.relkind == RELKIND_RELATION || tab.relkind == types_rel::RELKIND_MATVIEW {
         let rel = table::table_open(mcx, tab.relid, NoLock)?;
-        let moved = tab.new_tablespace != InvalidOid && tableam_vocab::is_pgrcolumnar_am_oid(rel.rd_rel.relam);
+        let moved = tab.new_tablespace != InvalidOid
+            && tableam_vocab::is_pgrcolumnar_am_oid(rel.rd_rel.relam);
         let rewrite = match tableam::pgrc_columns_verdict(&rel, &tab.old_desc) {
             Ok(tableam::PgrcColumnsVerdict::Same) => Ok(moved),
             Ok(tableam::PgrcColumnsVerdict::Rewrite) => Ok(true),
-            Ok(tableam::PgrcColumnsVerdict::Fast(old)) if tab.rewrite == 0 && !moved => pgrc_alter_fast(mcx, &rel, &tab.old_desc, old).map(|()| false),
+            Ok(tableam::PgrcColumnsVerdict::Fast(old)) if tab.rewrite == 0 && !moved => {
+                pgrc_alter_fast(mcx, &rel, &tab.old_desc, old).map(|()| false)
+            }
             Ok(tableam::PgrcColumnsVerdict::Fast(_)) => Ok(moved),
             Err(e) => Err(e),
         };
@@ -2157,7 +2165,12 @@ fn ATRewriteTableOne<'mcx>(
 
 /// The publish keeps every part under the schema it was written with, then every segment companion follows the
 /// parent. Tombstone heaps hold no columns.
-fn pgrc_alter_fast<'mcx>(mcx: Mcx<'mcx>, rel: &Relation<'mcx>, old_desc: &TupleDescData<'_>, old: Vec<pgrc_front::ColSchema>) -> PgResult<()> {
+fn pgrc_alter_fast<'mcx>(
+    mcx: Mcx<'mcx>,
+    rel: &Relation<'mcx>,
+    old_desc: &TupleDescData<'_>,
+    old: Vec<pgrc_front::ColSchema>,
+) -> PgResult<()> {
     pgrc_front::alter_columns(rel, old)?;
     let (old_natts, new) = (old_desc.natts as usize, &rel.rd_att);
     for seg in pgrc_front::segments(rel.rd_id)? {
@@ -2175,7 +2188,12 @@ fn pgrc_alter_fast<'mcx>(mcx: Mcx<'mcx>, rel: &Relation<'mcx>, old_desc: &TupleD
 
 /// A dropped one as the companion's creation makes it (an int4 placeholder, dropped). A companion that has the attnum
 /// already is left alone.
-fn add_companion_column<'mcx>(mcx: Mcx<'mcx>, seg: Oid, parent: &Relation<'mcx>, attnum: AttrNumber) -> PgResult<()> {
+fn add_companion_column<'mcx>(
+    mcx: Mcx<'mcx>,
+    seg: Oid,
+    parent: &Relation<'mcx>,
+    attnum: AttrNumber,
+) -> PgResult<()> {
     const INT4OID: Oid = 23;
     let segrel = table::table_open(mcx, seg, AccessExclusiveLock)?;
     let natts = segrel.rd_att.natts;
@@ -2184,7 +2202,10 @@ fn add_companion_column<'mcx>(mcx: Mcx<'mcx>, seg: Oid, parent: &Relation<'mcx>,
         return Ok(());
     }
     if natts != attnum as i32 - 1 {
-        return Err(Box::new(PgError::error(format!("pgrcolumnar: segment {seg} has {natts} columns, not {}", attnum - 1))));
+        return Err(Box::new(PgError::error(format!(
+            "pgrcolumnar: segment {seg} has {natts} columns, not {}",
+            attnum - 1
+        ))));
     }
     let i = attnum as usize - 1;
     let att = *parent.rd_att.attr(i);
@@ -2196,7 +2217,14 @@ fn add_companion_column<'mcx>(mcx: Mcx<'mcx>, seg: Oid, parent: &Relation<'mcx>,
     let mut desc = tupdesc::CreateTemplateTupleDesc(mcx, 1)?;
     match dropped {
         true => tupdesc::TupleDescInitEntry(&mut desc, 1, Some(&name), INT4OID, -1, 0)?,
-        false => tupdesc::TupleDescInitEntry(&mut desc, 1, Some(&name), att.atttypid, att.atttypmod, att.attndims as i32)?,
+        false => tupdesc::TupleDescInitEntry(
+            &mut desc,
+            1,
+            Some(&name),
+            att.atttypid,
+            att.atttypmod,
+            att.attndims as i32,
+        )?,
     }
     let mut attribute = desc.attrs[0];
     attribute.attnum = attnum;
@@ -2204,7 +2232,14 @@ fn add_companion_column<'mcx>(mcx: Mcx<'mcx>, seg: Oid, parent: &Relation<'mcx>,
         attribute.attcollation = att.attcollation;
     }
     let attrdesc = table::table_open(mcx, types_core::ATTRIBUTE_RELATION_ID, RowExclusiveLock)?;
-    catalog_heap::InsertPgAttributeTuples(mcx, &attrdesc, core::slice::from_ref(&attribute), seg, None, None)?;
+    catalog_heap::InsertPgAttributeTuples(
+        mcx,
+        &attrdesc,
+        core::slice::from_ref(&attribute),
+        seg,
+        None,
+        None,
+    )?;
     attrdesc.close(RowExclusiveLock)?;
     set_relnatts(mcx, seg, attnum)?;
     xact::CommandCounterIncrement()?;
@@ -2212,7 +2247,13 @@ fn add_companion_column<'mcx>(mcx: Mcx<'mcx>, seg: Oid, parent: &Relation<'mcx>,
         return catalog_heap::RemoveAttributeById(mcx, seg, attnum);
     }
     let missing = match att.atthasmissing {
-        true => parent.rd_att.constr.as_ref().and_then(|c| c.missing.get(i)).filter(|m| m.am_present).map(|m| m.am_value),
+        true => parent
+            .rd_att
+            .constr
+            .as_ref()
+            .and_then(|c| c.missing.get(i))
+            .filter(|m| m.am_present)
+            .map(|m| m.am_value),
         false => None,
     };
     if let Some(value) = missing {
@@ -2237,21 +2278,29 @@ fn add_companion_column<'mcx>(mcx: Mcx<'mcx>, seg: Oid, parent: &Relation<'mcx>,
 /// A companion without it, or with it dropped, is left alone.
 fn drop_companion_column(mcx: Mcx<'_>, seg: Oid, attnum: AttrNumber) -> PgResult<()> {
     let segrel = table::table_open(mcx, seg, AccessExclusiveLock)?;
-    let live = segrel.rd_att.natts >= attnum as i32 && !segrel.rd_att.attr(attnum as usize - 1).attisdropped;
+    let live = segrel.rd_att.natts >= attnum as i32
+        && !segrel.rd_att.attr(attnum as usize - 1).attisdropped;
     segrel.close(NoLock)?;
     if !live {
         return Ok(());
     }
     let object = pg_depend::ObjectAddress::sub_set(RELATION_RELATION_ID, seg, attnum as i32);
-    catalog_dependency::performDeletion(mcx, &object, types_nodes::parsenodes::DropBehavior::DROP_RESTRICT, catalog_dependency::PERFORM_DELETION_INTERNAL)?;
+    catalog_dependency::performDeletion(
+        mcx,
+        &object,
+        types_nodes::parsenodes::DropBehavior::DROP_RESTRICT,
+        catalog_dependency::PERFORM_DELETION_INTERNAL,
+    )?;
     xact::CommandCounterIncrement()
 }
 
 fn set_relnatts(mcx: Mcx<'_>, relid: Oid, natts: AttrNumber) -> PgResult<()> {
     let pgclass = table::table_open(mcx, RELATION_RELATION_ID, RowExclusiveLock)?;
     let key = oid_scankey(1, relid);
-    let mut scan = genam::systable_beginscan(mcx, &pgclass, catalog::ClassOidIndexId, true, None, &[key])?;
-    let reltup = genam::systable_getnext(mcx, &mut scan)?.ok_or_else(|| crate::cache_lookup_failed("relation", relid))?;
+    let mut scan =
+        genam::systable_beginscan(mcx, &pgclass, catalog::ClassOidIndexId, true, None, &[key])?;
+    let reltup = genam::systable_getnext(mcx, &mut scan)?
+        .ok_or_else(|| crate::cache_lookup_failed("relation", relid))?;
     let cdesc = pgclass.descr();
     let n = cdesc.natts as usize;
     let mut values: PgVec<'_, Datum> = mcx::vec_with_capacity_in(mcx, n)?;
@@ -2274,7 +2323,12 @@ fn drop_companions(mcx: Mcx<'_>, parent: Oid) -> PgResult<()> {
         pg_depend::deleteDependencyRecordsFor(mcx, RELATION_RELATION_ID, relid, false)?;
         xact::CommandCounterIncrement()?;
         let object = pg_depend::ObjectAddress::set(RELATION_RELATION_ID, relid);
-        catalog_dependency::performDeletion(mcx, &object, types_nodes::parsenodes::DropBehavior::DROP_RESTRICT, catalog_dependency::PERFORM_DELETION_INTERNAL)?;
+        catalog_dependency::performDeletion(
+            mcx,
+            &object,
+            types_nodes::parsenodes::DropBehavior::DROP_RESTRICT,
+            catalog_dependency::PERFORM_DELETION_INTERNAL,
+        )?;
     }
     xact::CommandCounterIncrement()
 }
@@ -2297,7 +2351,9 @@ fn ATRewriteTable<'mcx>(
 ) -> PgResult<()> {
     // tablecmds.c:6371/6540: expressions run in the per-tuple context, reset
     // after every row. Declared before the states so it outlives them.
-    let per_tuple = mcx.context().new_child_wholesale("ATRewriteTable per-tuple");
+    let per_tuple = mcx
+        .context()
+        .new_child_wholesale("ATRewriteTable per-tuple");
     let oldrel = table::table_open(mcx, tab.relid, NoLock)?;
     let new_tupdesc = &oldrel.rd_att;
     let newrel = if oid_new_heap != InvalidOid {
@@ -2448,7 +2504,9 @@ fn ATRewriteTable<'mcx>(
         let mut bistate = newrel.as_ref().map(|_| heapam::GetBulkInsertState());
         // C evaluates every per-row expression in the per-tuple context and
         // resets it after each row (tablecmds.c ResetExprContext).
-        let mut per_tuple = mcx.context().new_child_wholesale("ATRewriteTable per-tuple");
+        let mut per_tuple = mcx
+            .context()
+            .new_child_wholesale("ATRewriteTable per-tuple");
         // SAFETY: per_tuple is a local that never moves and outlives every
         // evaluation below; nothing evaluated in it survives the row.
         unsafe {
@@ -2468,8 +2526,16 @@ fn ATRewriteTable<'mcx>(
         let snapshot = snapmgr::GetLatestSnapshot()?;
         let snapshot = snapmgr::RegisterSnapshot(Some(&snapshot))?.expect("registered snapshot");
         let mut scan = match tab.rewrite > 0 {
-            true => tableam::table_beginscan_as(mcx, &oldrel, Some(snapshot.clone()), &tab.old_desc)?,
-            false => tableam::table_beginscan(mcx, &oldrel, Some(snapshot.clone()), 0, PgVec::new_in(mcx))?,
+            true => {
+                tableam::table_beginscan_as(mcx, &oldrel, Some(snapshot.clone()), &tab.old_desc)?
+            }
+            false => tableam::table_beginscan(
+                mcx,
+                &oldrel,
+                Some(snapshot.clone()),
+                0,
+                PgVec::new_in(mcx),
+            )?,
         };
         while tableam::table_scan_getnextslot(
             mcx,
@@ -2650,7 +2716,14 @@ fn ATRewriteTable<'mcx>(
 
             if let Some(nr) = &newrel {
                 exectuples::exec_materialize_slot(insertslot, mcx)?;
-                tableam::table_tuple_insert(mcx, nr, insertslot, mycid, ti_options, bistate.as_mut())?;
+                tableam::table_tuple_insert(
+                    mcx,
+                    nr,
+                    insertslot,
+                    mycid,
+                    ti_options,
+                    bistate.as_mut(),
+                )?;
             }
             per_tuple.reset();
             if init_small::globals::InterruptPending() {
@@ -4694,7 +4767,10 @@ pub(crate) fn ATExecSetNotNull<'mcx>(
                 &childrel,
                 // Children take the parent's name through the &str
                 // recursion surface: typed refusal for a non-UTF-8 clip.
-                Some(pg_constraint::generated_name_utf8(con_name, "not-null constraint")?),
+                Some(pg_constraint::generated_name_utf8(
+                    con_name,
+                    "not-null constraint",
+                )?),
                 col_name,
                 recurse,
                 true,
@@ -4864,7 +4940,7 @@ fn verify_notnull_pk_compatible(
 
 // ATAddCheckNNConstraint (tablecmds.c): CHECK and NOT NULL constraints with
 // exec-time recursion, one inheritance level at a time.
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::only_used_in_recursion, clippy::too_many_arguments)]
 pub(crate) fn ATAddCheckNNConstraint<'mcx>(
     mcx: Mcx<'mcx>,
     wqueue: &mut Wqueue<'mcx>,
@@ -5302,8 +5378,7 @@ fn ATExecSetStatistics<'mcx>(
             )?;
         }
     }
-    let attrelation =
-        table::table_open(mcx, types_core::ATTRIBUTE_RELATION_ID, RowExclusiveLock)?;
+    let attrelation = table::table_open(mcx, types_core::ATTRIBUTE_RELATION_ID, RowExclusiveLock)?;
     let attnum = match cmd.name {
         Some(col_name) => {
             let Some((attnum, _)) = attname_lookup(mcx, rel.rd_id, col_name, false)? else {
@@ -7699,6 +7774,7 @@ fn ATExecReplicaIdentity<'mcx>(
     // covers non-builtin AMs over builtin handlers.
     let amcanunique = types_relscan::IndexAmKind::from_relam(index_rel.rd_rel.relam)
         == types_relscan::IndexAmKind::Btree;
+    #[allow(clippy::nonminimal_bool)]
     if (!amcanunique || !index_form.indisunique)
         && !(index_form.indisunique && index_form.indisexclusion)
     {
@@ -9015,6 +9091,7 @@ mod tests {
     // NotNullImpliedByRelConstraints builds C's NullTest probe: IS NOT NULL
     // over a varno-1 Var carrying the column's type identity, argisrow=false.
     #[test]
+    #[allow(clippy::field_reassign_with_default)]
     fn notnull_probe_shape_matches_c() {
         let root = mcx::session_root("notnull-probe-test");
         let mcx = root.mcx();

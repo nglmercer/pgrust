@@ -346,6 +346,7 @@ impl Bits {
     }
 
     /// # Safety — `hdr` is a `Bits` table header (`ELEM_BITS`).
+    #[allow(clippy::missing_safety_doc)]
     pub unsafe fn at(hdr: *const Header) -> Bits {
         debug_assert_eq!((*hdr).elem, crate::lane::ELEM_BITS);
         Bits { hdr, words: (*hdr).data.ptr() as *const u64, faults: (*hdr).faults.ptr(), ncodes: (*hdr).ncodes }
@@ -365,12 +366,14 @@ impl Bits {
 
     /// # Safety — `code < ncodes()`.
     #[inline(always)]
+    #[allow(clippy::missing_safety_doc)]
     pub unsafe fn get(&self, code: u32) -> bool {
         bit(self.words, code)
     }
 
     /// # Safety — `code < ncodes()`.
     #[inline(always)]
+    #[allow(clippy::missing_safety_doc)]
     pub unsafe fn faulted(&self, code: u32) -> bool {
         faulted(self.faults, code)
     }
@@ -392,6 +395,7 @@ impl Bits {
     /// kept row whose entry faulted is returned instead (row order), so an unselected fault is silent.
     /// # Safety — `codes` holds `rows` codes below `ncodes()`, `valid` null or `rows` bits, `out` ≥ `rows` bits.
     #[inline(always)]
+    #[allow(clippy::missing_safety_doc)]
     pub unsafe fn gather_mask<C: CodeCell>(&self, codes: *const C, valid: *const u64, rows: usize, first: bool, out: &mut [u64]) -> Result<(), Deferred> {
         for w in 0..rows.div_ceil(64) {
             let keep = keep_word(valid, rows, first, out, w);
@@ -484,6 +488,7 @@ impl I64 {
     }
 
     /// # Safety — `hdr` is an `I64` table header.
+    #[allow(clippy::missing_safety_doc)]
     pub unsafe fn at(hdr: *const Header) -> I64 {
         let (stride, m1, s1, m2, s2) = match ((*hdr).elem, (*hdr).pad[0]) {
             (crate::lane::ELEM_I64, _) => (8, u64::MAX, 0, 0, 0),
@@ -508,6 +513,7 @@ impl I64 {
 
     /// # Safety — `code < ncodes()`.
     #[inline(always)]
+    #[allow(clippy::missing_safety_doc)]
     pub unsafe fn get(&self, code: u32) -> i64 {
         let v = core::ptr::read_unaligned(self.vals.add(code as usize * self.stride as usize) as *const u64);
         ((v & self.m1) >> self.s1) as i64 - ((v & self.m2) >> self.s2) as i64
@@ -515,6 +521,7 @@ impl I64 {
 
     /// # Safety — `code < ncodes()`.
     #[inline(always)]
+    #[allow(clippy::missing_safety_doc)]
     pub unsafe fn faulted(&self, code: u32) -> bool {
         faulted(self.faults, code)
     }
@@ -523,6 +530,7 @@ impl I64 {
     /// result's validity is the lane's); the first valid row of a faulting entry is returned.
     /// # Safety — as `Bits::gather_mask`, `out` holds `rows` cells.
     #[inline(always)]
+    #[allow(clippy::missing_safety_doc)]
     pub unsafe fn gather<C: CodeCell>(&self, codes: *const C, valid: *const u64, rows: usize, out: *mut i64) -> Result<(), Deferred> {
         gather_words(self.vals as *const u64, self.faults, codes, valid, rows, out as *mut u64)
     }
@@ -553,6 +561,7 @@ impl Hash {
     }
 
     /// # Safety — `hdr` is a `Hash` table header.
+    #[allow(clippy::missing_safety_doc)]
     pub unsafe fn at(hdr: *const Header) -> Hash {
         debug_assert_eq!((*hdr).elem, crate::lane::ELEM_HASH);
         Hash { hdr, vals: (*hdr).data.ptr() as *const u64, faults: (*hdr).faults.ptr(), ncodes: (*hdr).ncodes }
@@ -572,18 +581,21 @@ impl Hash {
 
     /// # Safety — `code < ncodes()`.
     #[inline(always)]
+    #[allow(clippy::missing_safety_doc)]
     pub unsafe fn get(&self, code: u32) -> u64 {
         *self.vals.add(code as usize)
     }
 
     /// # Safety — `code < ncodes()`.
     #[inline(always)]
+    #[allow(clippy::missing_safety_doc)]
     pub unsafe fn faulted(&self, code: u32) -> bool {
         faulted(self.faults, code)
     }
 
     /// # Safety — as `I64::gather`.
     #[inline(always)]
+    #[allow(clippy::missing_safety_doc)]
     pub unsafe fn gather<C: CodeCell>(&self, codes: *const C, valid: *const u64, rows: usize, out: *mut u64) -> Result<(), Deferred> {
         gather_words(self.vals, self.faults, codes, valid, rows, out)
     }
@@ -769,6 +781,7 @@ impl Fp128 {
                 continue;
             }
             zero_to(&mut unset, code);
+            #[allow(clippy::nonminimal_bool)]
             if !bytes.is_empty() && !(lo <= bytes.as_ptr() as usize && bytes.as_ptr() as usize + bytes.len() <= hi) {
                 return Err(BuildError::OutsideBase);
             }
@@ -788,6 +801,7 @@ impl Fp128 {
     }
 
     /// # Safety — `hdr` is an `Fp128` table header.
+    #[allow(clippy::missing_safety_doc)]
     pub unsafe fn at(hdr: *const Header) -> Fp128 {
         debug_assert_eq!((*hdr).elem, crate::lane::ELEM_FP128);
         Fp128 { hdr, vals: (*hdr).data.ptr() as *const [u64; 2], faults: (*hdr).faults.ptr(), ncodes: (*hdr).ncodes }
@@ -807,18 +821,21 @@ impl Fp128 {
 
     /// # Safety — `code < ncodes()`.
     #[inline(always)]
+    #[allow(clippy::missing_safety_doc)]
     pub unsafe fn get(&self, code: u32) -> [u64; 2] {
         *self.vals.add(code as usize)
     }
 
     /// The entry's address (a prefetch target).
     /// # Safety — `code < ncodes()`.
+    #[allow(clippy::missing_safety_doc)]
     pub unsafe fn entry_ptr(&self, code: u32) -> *const u8 {
         self.vals.add(code as usize) as *const u8
     }
 
     /// # Safety — `code < ncodes()`.
     #[inline(always)]
+    #[allow(clippy::missing_safety_doc)]
     pub unsafe fn faulted(&self, code: u32) -> bool {
         faulted(self.faults, code)
     }
@@ -860,6 +877,7 @@ pub struct IdxLen<const DELTA: bool> {
 
 impl<const DELTA: bool> IdxLen<DELTA> {
     /// # Safety — `hdr` is an `ELEM_LEN_IDX` / `ELEM_LEN_IDX_DELTA` header (`index_len_header`).
+    #[allow(clippy::missing_safety_doc)]
     pub unsafe fn at(hdr: *const Header) -> IdxLen<DELTA> {
         IdxLen { data: (*hdr).data.ptr(), ncodes: (*hdr).ncodes }
     }
@@ -870,6 +888,7 @@ impl<const DELTA: bool> IdxLen<DELTA> {
 
     /// # Safety — `code < ncodes()`.
     #[inline(always)]
+    #[allow(clippy::missing_safety_doc)]
     pub unsafe fn get(&self, code: u32) -> i64 {
         let p = self.data.add(code as usize * INDEX_ENTRY_LEN);
         let bytes = core::ptr::read_unaligned(p as *const u32);
@@ -885,6 +904,7 @@ impl<const DELTA: bool> IdxLen<DELTA> {
 /// A per-code length: an `I64` table (a verbatim part's, built by a sweep) or the index view.
 pub trait Lens: Copy {
     /// # Safety — `code` is a code of the lane's dictionary.
+    #[allow(clippy::missing_safety_doc)]
     unsafe fn get(&self, code: u32) -> i64;
 }
 
@@ -914,6 +934,7 @@ pub enum LenField {
 /// The header of an index-view length lane over `index` (the part's dictionary index, `ncodes`
 /// entries of `INDEX_ENTRY_LEN` bytes, live for the part's open).
 /// # Safety — `index` holds `ncodes * INDEX_ENTRY_LEN` bytes and outlives every lane published from the header.
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn index_len_header(region: &mut Region, index: *const u8, ncodes: u32, field: LenField) -> Result<*const Header, BuildError> {
     let codes = Codes { ncodes, null: None };
     let (elem, mode) = match field {

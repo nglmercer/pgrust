@@ -120,6 +120,7 @@ fn des_init() -> Box<DesTables> {
     // Invert the S-boxes, reordering the input bits.
     let mut u_sbox = [[0u8; 64]; 8];
     for i in 0..8 {
+        #[allow(clippy::needless_range_loop)]
         for j in 0..64usize {
             let b = (j & 0x20) | ((j & 1) << 4) | ((j >> 1) & 0xf);
             u_sbox[i][j] = SBOX[i][b];
@@ -173,6 +174,7 @@ fn des_init() -> Box<DesTables> {
             let mut ir = 0u32;
             let mut fl = 0u32;
             let mut fr = 0u32;
+            #[allow(clippy::needless_range_loop)]
             for j in 0..8usize {
                 let inbit = 8 * k + j;
                 if (i as u8 & CRYPT_BITS8[j]) != 0 {
@@ -246,6 +248,7 @@ fn des_init() -> Box<DesTables> {
 
     let mut psbox = [[0u32; 256]; 4];
     for b in 0..4usize {
+        #[allow(clippy::needless_range_loop)]
         for i in 0..256usize {
             let mut p = 0u32;
             for j in 0..8usize {
@@ -343,6 +346,7 @@ impl DesState {
         let cml = &t.comp_maskl;
         let cmr = &t.comp_maskr;
         let mut shifts = 0u32;
+        #[allow(clippy::needless_range_loop)]
         for round in 0..16usize {
             shifts += KEY_SHIFTS[round] as u32;
 
@@ -551,10 +555,12 @@ pub fn px_crypt_des(key: &[u8], setting: &[u8]) -> Result<Vec<u8>, CryptError> {
     if setting.first() == Some(&b'_') {
         // "new"-style (xdes). Caller guarantees setting.len() >= 9.
         let mut c: u32 = 0;
+        #[allow(clippy::needless_range_loop)]
         for i in 1..5usize {
             c |= ascii_to_bin(setting[i]) << ((i - 1) * 6);
         }
         let mut s: u32 = 0;
+        #[allow(clippy::needless_range_loop)]
         for i in 5..9usize {
             s |= ascii_to_bin(setting[i]) << ((i - 5) * 6);
         }

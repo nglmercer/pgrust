@@ -1,4 +1,3 @@
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Machine {
     pub l1d: u64,
@@ -11,7 +10,13 @@ pub struct Machine {
 pub(crate) const L2_SHARE_FLOOR: u64 = 64 << 10;
 
 impl Machine {
-    pub const REFERENCE: Machine = Machine { l1d: 64 << 10, l2: 2 << 20, line: 64, smt: 1, prefetch: 16 };
+    pub const REFERENCE: Machine = Machine {
+        l1d: 64 << 10,
+        l2: 2 << 20,
+        line: 64,
+        smt: 1,
+        prefetch: 16,
+    };
 
     /// A detected machine: the driver's L2, SMT siblings and prefetch ring, and L1d when it was read (else the reference's).
     pub const fn detected(l1d: Option<u64>, l2: u64, smt: u32, prefetch: usize) -> Machine {
@@ -19,7 +24,13 @@ impl Machine {
             Some(b) if b > 0 => b,
             _ => Machine::REFERENCE.l1d,
         };
-        Machine { l1d, l2, line: Machine::REFERENCE.line, smt: if smt == 0 { 1 } else { smt }, prefetch: if prefetch == 0 { 1 } else { prefetch } }
+        Machine {
+            l1d,
+            l2,
+            line: Machine::REFERENCE.line,
+            smt: if smt == 0 { 1 } else { smt },
+            prefetch: if prefetch == 0 { 1 } else { prefetch },
+        }
     }
 
     pub const fn l2_share(&self) -> u64 {
@@ -93,7 +104,16 @@ fn host_facts() -> &'static (Machine, bool, Option<u64>) {
     static ONCE: std::sync::OnceLock<(Machine, bool, Option<u64>)> = std::sync::OnceLock::new();
     ONCE.get_or_init(|| {
         let (l1d, l2, smt) = (sysfs_cache(1, "Data"), sysfs_cache(2, ""), sysfs_smt());
-        let m = Machine::detected(l1d, l2.unwrap_or(Machine::REFERENCE.l2), smt.unwrap_or(1).max(1), if smt.unwrap_or(1) > 1 { SMT_PREFETCH } else { Machine::REFERENCE.prefetch });
+        let m = Machine::detected(
+            l1d,
+            l2.unwrap_or(Machine::REFERENCE.l2),
+            smt.unwrap_or(1).max(1),
+            if smt.unwrap_or(1) > 1 {
+                SMT_PREFETCH
+            } else {
+                Machine::REFERENCE.prefetch
+            },
+        );
         (m, l2.is_some(), l1d)
     })
 }
@@ -105,7 +125,9 @@ pub fn sysfs_cache(level: u32, kind: &str) -> Option<u64> {
         let dir = format!("/sys/devices/system/cpu/cpu0/cache/index{i}");
         let read = |name: &str| std::fs::read_to_string(format!("{dir}/{name}")).ok();
         let at = read("level")?;
-        if at.trim().parse::<u32>().ok() != Some(level) || (!kind.is_empty() && read("type")?.trim() != kind) {
+        if at.trim().parse::<u32>().ok() != Some(level)
+            || (!kind.is_empty() && read("type")?.trim() != kind)
+        {
             continue;
         }
         return parse_size(read("size")?.trim());
@@ -114,7 +136,11 @@ pub fn sysfs_cache(level: u32, kind: &str) -> Option<u64> {
 }
 
 pub fn sysfs_smt() -> Option<u32> {
-    count_list(std::fs::read_to_string("/sys/devices/system/cpu/cpu0/topology/thread_siblings_list").ok()?.trim())
+    count_list(
+        std::fs::read_to_string("/sys/devices/system/cpu/cpu0/topology/thread_siblings_list")
+            .ok()?
+            .trim(),
+    )
 }
 
 pub fn count_list(s: &str) -> Option<u32> {
@@ -146,20 +172,38 @@ mod tests {
     #[test]
     fn the_reference_derives_the_constants_it_replaces() {
         let m = Machine::REFERENCE;
-        assert_eq!((m.l2_share(), m.l1d_share(), m.prefetch), (2 << 20, 64 << 10, 16));
+        assert_eq!(
+            (m.l2_share(), m.l1d_share(), m.prefetch),
+            (2 << 20, 64 << 10, 16)
+        );
         assert_eq!(m.l1_span(8, 1, 2), 4096);
     }
 
     #[test]
     fn an_smt_machine_shares_its_caches() {
         let m = Machine::detected(Some(32 << 10), 512 << 10, 2, 8);
-        assert_eq!((m.l2_share(), m.l1d_share(), m.prefetch), (256 << 10, 16 << 10, 8));
-        assert_eq!(Machine::detected(None, 64 << 10, 4, 0).l2_share(), L2_SHARE_FLOOR);
-        assert_eq!(Machine::detected(None, 2 << 20, 0, 16).l1d, Machine::REFERENCE.l1d);
+        assert_eq!(
+            (m.l2_share(), m.l1d_share(), m.prefetch),
+            (256 << 10, 16 << 10, 8)
+        );
+        assert_eq!(
+            Machine::detected(None, 64 << 10, 4, 0).l2_share(),
+            L2_SHARE_FLOOR
+        );
+        assert_eq!(
+            Machine::detected(None, 2 << 20, 0, 16).l1d,
+            Machine::REFERENCE.l1d
+        );
     }
 
     #[test]
     fn a_span_is_at_least_one_entry() {
-        assert_eq!((Machine::span(64, 128, 1, 1), Machine::span(1 << 20, 0, 1, 0)), (1, 1 << 20));
+        assert_eq!(
+            (
+                Machine::span(64, 128, 1, 1),
+                Machine::span(1 << 20, 0, 1, 0)
+            ),
+            (1, 1 << 20)
+        );
     }
 }

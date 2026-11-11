@@ -333,6 +333,7 @@ fn fc_gtsvector_compress(f: Option<&mut FmgrInfo>, fcinfo: &mut Fcinfo) -> PgRes
         let key = unsafe { GtsRef::at(entry.key) };
         if key.is_signkey() && !key.is_alltrue() {
             let sign = key.sign();
+            #[allow(clippy::needless_range_loop)]
             for i in 0..siglen {
                 if sign[i] != 0xff {
                     return Ok(fcinfo.arg(0));

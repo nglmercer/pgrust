@@ -98,6 +98,7 @@ fn os_error() -> std::io::Error {
 // cmin/cmax lookups keep working against the rewritten catalog heap.
 pub(crate) fn ApplyLogicalMappingFile(
     hash: &RefCell<TupleCidHash>,
+    #[allow(clippy::ptr_arg)]
     dir: &PathBuf,
     fname: &str,
 ) -> PgResult<()> {

@@ -182,6 +182,7 @@ fn proc_stamp(fn_oid: Oid) -> PgResult<(u32, (u32, u16))> {
         t.t_data().xmin_raw(),
         (((t.t_self.ip_blkid.bi_hi as u32) << 16) | t.t_self.ip_blkid.bi_lo as u32, t.t_self.ip_posid),
     );
+    #[allow(clippy::drop_non_drop)]
     drop(t);
     ReleaseSysCache(tup);
     Ok(stamp)
@@ -345,6 +346,7 @@ fn proc_call_stamp(
         ((t.t_self.ip_blkid.bi_hi as u32) << 16) | t.t_self.ip_blkid.bi_lo as u32,
         t.t_self.ip_posid,
     );
+    #[allow(clippy::drop_non_drop)]
     drop(t);
     let stamp_result = (|| -> PgResult<Vec<Oid>> {
         let (argv, _) = SysCacheGetAttr(PROCOID, &tup, ANUM_PG_PROC_PROARGTYPES)?;

@@ -375,6 +375,7 @@ pub fn array_get_slice<'mcx>(
     out[8..12].copy_from_slice(&(dataoffset as i32).to_ne_bytes());
     out[12..16].copy_from_slice(&(elemtype as u32).to_ne_bytes());
     let mut off = ARRAYTYPE_HDRSZ;
+    #[allow(clippy::needless_range_loop)]
     for i in 0..ndim as usize {
         out[off..off + 4].copy_from_slice(&span[i].to_ne_bytes());
         off += 4;
@@ -700,10 +701,12 @@ pub fn array_set_slice<'mcx>(
     out[8..12].copy_from_slice(&(if newhasnulls { overheadlen as i32 } else { 0 }).to_ne_bytes());
     out[12..16].copy_from_slice(&(elemtype as u32).to_ne_bytes());
     let mut off = ARRAYTYPE_HDRSZ;
+    #[allow(clippy::needless_range_loop)]
     for i in 0..ndim as usize {
         out[off..off + 4].copy_from_slice(&dims[i].to_ne_bytes());
         off += 4;
     }
+    #[allow(clippy::needless_range_loop)]
     for i in 0..ndim as usize {
         out[off..off + 4].copy_from_slice(&lbs[i].to_ne_bytes());
         off += 4;
@@ -1086,10 +1089,12 @@ fn array_set_element_impl<'mcx>(
     out[8..12].copy_from_slice(&(if newhasnulls { overheadlen as i32 } else { 0 }).to_ne_bytes());
     out[12..16].copy_from_slice(&(arr_elemtype(array) as u32).to_ne_bytes());
     let mut off = ARRAYTYPE_HDRSZ;
+    #[allow(clippy::needless_range_loop)]
     for i in 0..ndim as usize {
         out[off..off + 4].copy_from_slice(&dims[i].to_ne_bytes());
         off += 4;
     }
+    #[allow(clippy::needless_range_loop)]
     for i in 0..ndim as usize {
         out[off..off + 4].copy_from_slice(&lbs[i].to_ne_bytes());
         off += 4;

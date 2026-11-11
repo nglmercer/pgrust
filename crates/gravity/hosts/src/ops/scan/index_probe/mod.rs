@@ -8,11 +8,11 @@
 //!   (`bitmap_morsel.rs`): relcache-free page reads under the leader's snapshot, each visible tuple kept whose HOT chain
 //!   root is a probed TID (PostgreSQL's heap_hot_search_buffer from the index's TID). A step marked wide has an order-free
 //!   end (widen.rs), so the block order is never seen.
-//! The image is captured once per execution on the leader (exec runner plan.rs, `capture`), with bitmap_image.rs's gates
-//! (a btree, not backend-local, every function it or the keys call pool-hosted, not SERIALIZABLE); when it does not hold,
-//! the execution runs the pipeline on the leader alone (D3014O P3), so a worker's probe never runs without one.
-//! pgstat: the index's scans (one per probe, `idx_scan`), the TIDs it returned (`idx_tup_read`) and its block reads land at
-//! the unbind (the leader's thread), as the heap's fetched tuples do (`SampleFilter::BITMAP`).
+//!   The image is captured once per execution on the leader (exec runner plan.rs, `capture`), with bitmap_image.rs's gates
+//!   (a btree, not backend-local, every function it or the keys call pool-hosted, not SERIALIZABLE); when it does not hold,
+//!   the execution runs the pipeline on the leader alone (D3014O P3), so a worker's probe never runs without one.
+//!   pgstat: the index's scans (one per probe, `idx_scan`), the TIDs it returned (`idx_tup_read`) and its block reads land at
+//!   the unbind (the leader's thread), as the heap's fetched tuples do (`SampleFilter::BITMAP`).
 use std::sync::Arc;
 
 use gravity_abi::Datum as Word;
@@ -89,6 +89,7 @@ struct View {
     rel: nbtree::ImageRel<'static, 'static>,
     filed: Arc<Filed>,
     thread: std::thread::ThreadId,
+    #[allow(dead_code)]
     scratch: NodeScratch,
 }
 

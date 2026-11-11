@@ -30,7 +30,10 @@ fn CatalogIndexInsert<'mcx>(
     tup: &HeapTupleData<'mcx>,
     update_indexes: tableam_vocab::TU_UpdateIndexes,
 ) -> PgResult<()> {
-    let only_summarized = matches!(update_indexes, tableam_vocab::TU_UpdateIndexes::TU_Summarizing);
+    let only_summarized = matches!(
+        update_indexes,
+        tableam_vocab::TU_UpdateIndexes::TU_Summarizing
+    );
     // HOT update does not require index inserts, unless only summarizing ones.
     if tup.is_heap_only() && !only_summarized {
         return Ok(());
@@ -59,7 +62,16 @@ fn CatalogIndexInsert<'mcx>(
     }
     // CatalogIndexInsert (indexing.c:157): a plain insert, no UPDATE hint.
     execindexing::ExecInsertIndexTuples(
-        mcx, mcx, indstate, heap_rel, &mut slot, None, false, None, &[], only_summarized,
+        mcx,
+        mcx,
+        indstate,
+        heap_rel,
+        &mut slot,
+        None,
+        false,
+        None,
+        &[],
+        only_summarized,
     )?;
     exectuples::exec_clear_tuple(&mut slot, mcx);
     Ok(())
@@ -73,7 +85,11 @@ pub fn CatalogTupleInsert<'mcx>(
     let mut indstate = CatalogOpenIndexes(mcx, heap_rel)?;
     heapam::simple_heap_insert(heap_rel.data_rc(), tup.as_tuple_mut())?;
     CatalogIndexInsert(
-        mcx, &mut indstate, heap_rel, tup.as_tuple(), tableam_vocab::TU_UpdateIndexes::TU_All,
+        mcx,
+        &mut indstate,
+        heap_rel,
+        tup.as_tuple(),
+        tableam_vocab::TU_UpdateIndexes::TU_All,
     )?;
     CatalogCloseIndexes(indstate)
 }
@@ -86,7 +102,12 @@ pub fn CatalogTupleUpdate<'mcx>(
 ) -> PgResult<()> {
     let mut update_indexes = tableam_vocab::TU_UpdateIndexes::TU_All;
     let mut indstate = CatalogOpenIndexes(mcx, heap_rel)?;
-    heapam::simple_heap_update(heap_rel.data_rc(), otid, tup.as_tuple_mut(), &mut update_indexes)?;
+    heapam::simple_heap_update(
+        heap_rel.data_rc(),
+        otid,
+        tup.as_tuple_mut(),
+        &mut update_indexes,
+    )?;
     CatalogIndexInsert(mcx, &mut indstate, heap_rel, tup.as_tuple(), update_indexes)?;
     CatalogCloseIndexes(indstate)
 }
@@ -125,7 +146,11 @@ pub fn CatalogTuplesMultiInsertWithInfo<'mcx>(
         };
         let tup = h.tuple.as_ref().expect("multi-insert slot holds a tuple");
         CatalogIndexInsert(
-            mcx, indstate, heap_rel, tup, tableam_vocab::TU_UpdateIndexes::TU_All,
+            mcx,
+            indstate,
+            heap_rel,
+            tup,
+            tableam_vocab::TU_UpdateIndexes::TU_All,
         )?;
     }
     Ok(())
@@ -139,7 +164,11 @@ pub fn CatalogTupleInsertWithInfo<'mcx>(
 ) -> PgResult<()> {
     heapam::simple_heap_insert(heap_rel.data_rc(), tup.as_tuple_mut())?;
     CatalogIndexInsert(
-        mcx, indstate, heap_rel, tup.as_tuple(), tableam_vocab::TU_UpdateIndexes::TU_All,
+        mcx,
+        indstate,
+        heap_rel,
+        tup.as_tuple(),
+        tableam_vocab::TU_UpdateIndexes::TU_All,
     )
 }
 
@@ -151,6 +180,11 @@ pub fn CatalogTupleUpdateWithInfo<'mcx>(
     indstate: &mut CatalogIndexState<'mcx>,
 ) -> PgResult<()> {
     let mut update_indexes = tableam_vocab::TU_UpdateIndexes::TU_All;
-    heapam::simple_heap_update(heap_rel.data_rc(), otid, tup.as_tuple_mut(), &mut update_indexes)?;
+    heapam::simple_heap_update(
+        heap_rel.data_rc(),
+        otid,
+        tup.as_tuple_mut(),
+        &mut update_indexes,
+    )?;
     CatalogIndexInsert(mcx, indstate, heap_rel, tup.as_tuple(), update_indexes)
 }

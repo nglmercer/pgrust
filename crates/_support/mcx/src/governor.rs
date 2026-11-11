@@ -19,10 +19,10 @@ static GATE_LIMIT: AtomicUsize = AtomicUsize::new(usize::MAX);
 static RESIDENT_PROBE: core::sync::atomic::AtomicPtr<()> =
     core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
 // D3808: the limiting cgroup's dirty + writeback page-cache bytes, read now (`set_dirty_probe`).
-static DIRTY_PROBE: core::sync::atomic::AtomicPtr<()> = core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
+static DIRTY_PROBE: core::sync::atomic::AtomicPtr<()> =
+    core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
 static EXEMPT_PROBE: core::sync::atomic::AtomicPtr<()> =
     core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
-
 
 #[cfg(any(feature = "std", test))]
 std::thread_local! {
@@ -72,7 +72,9 @@ pub static SLOT_TABLE: [Slot; SLOTS] = [const {
 
 /// Bind this thread to slot `procno` (a backend's ProcNumber) as `pid`.
 pub fn register(procno: i32, pid: i32) {
-    let Ok(i) = usize::try_from(procno) else { return };
+    let Ok(i) = usize::try_from(procno) else {
+        return;
+    };
     if i >= SLOTS {
         return;
     }
@@ -186,7 +188,11 @@ pub fn publish_gate(read: usize, footprint: usize) {
     GATE_READ.store(read, Relaxed);
     GATE_FOOTPRINT_AT.store(footprint, Relaxed);
     let gate = if gate_on() {
-        mempolicy::admit::cancel_line_footprint(crate::ladder::cancel_line() as usize, read, footprint)
+        mempolicy::admit::cancel_line_footprint(
+            crate::ladder::cancel_line() as usize,
+            read,
+            footprint,
+        )
     } else {
         usize::MAX
     };
@@ -199,7 +205,10 @@ pub fn publish_gate(read: usize, footprint: usize) {
 /// D4812 (2): the block gate's projection at the context footprint `footprint`: its sample's read and the context bytes
 /// taken since.
 pub fn gate_projection_at(footprint: usize) -> usize {
-    GATE_READ.load(Relaxed).saturating_add(footprint).saturating_sub(GATE_FOOTPRINT_AT.load(Relaxed))
+    GATE_READ
+        .load(Relaxed)
+        .saturating_add(footprint)
+        .saturating_sub(GATE_FOOTPRINT_AT.load(Relaxed))
 }
 
 /// D4812 (2): the block gate's projection now.
@@ -225,7 +234,10 @@ pub fn limit() -> usize {
 pub fn projected() -> usize {
     let now = crate::global_footprint::bytes();
     let at = FOOTPRINT_AT.load(Relaxed);
-    RESIDENT.load(Relaxed).saturating_add(now).saturating_sub(at)
+    RESIDENT
+        .load(Relaxed)
+        .saturating_add(now)
+        .saturating_sub(at)
 }
 
 /// whether `n` bytes taken outside memory contexts (a Gravity grant draw: its regions are raw allocations the
@@ -264,7 +276,8 @@ const REFUSED_BYTES: u64 = (1 << 56) - 1;
 /// the last one kept (none with no statement charged here).
 pub fn note_stmt_refusal(why: u8, bytes: u64) {
     if let Some(l) = charged_ledger() {
-        l.refused.store((u64::from(why) << 56) | bytes.min(REFUSED_BYTES), Relaxed);
+        l.refused
+            .store((u64::from(why) << 56) | bytes.min(REFUSED_BYTES), Relaxed);
     }
 }
 
@@ -273,7 +286,13 @@ pub fn note_stmt_refusal(why: u8, bytes: u64) {
 pub fn stmt_refusal() -> Option<(u8, u64, u64)> {
     let l = charged_ledger()?;
     let r = l.refused.load(Relaxed);
-    (r != 0).then(|| ((r >> 56) as u8, r & REFUSED_BYTES, l.draw_waited_ns.load(Relaxed)))
+    (r != 0).then(|| {
+        (
+            (r >> 56) as u8,
+            r & REFUSED_BYTES,
+            l.draw_waited_ns.load(Relaxed),
+        )
+    })
 }
 
 /// C3: whether decide(Grow) sent this thread's statement down its own road: a draw past its grant is refused at once (no
@@ -360,10 +379,10 @@ pub fn resample() -> bool {
     }
 }
 
-
 /// The limiting cgroup's resident bytes read now (memory.stat anon + shmem), for the memory ledger's views; installed by
 /// the sampler's owner. `None` with no probe, no cgroup limit or an unreadable file.
-static CGROUP_PROBE: core::sync::atomic::AtomicPtr<()> = core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
+static CGROUP_PROBE: core::sync::atomic::AtomicPtr<()> =
+    core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
 
 pub fn set_cgroup_resident_probe(f: fn() -> Option<usize>) {
     CGROUP_PROBE.store(f as *mut (), Relaxed);
@@ -371,7 +390,8 @@ pub fn set_cgroup_resident_probe(f: fn() -> Option<usize>) {
 
 /// The allocator's resident bytes read now (the present pages of its own mappings), for the memory ledger's views;
 /// installed by the sampler's owner, read only when a view asks. `None` with no probe or an unreadable file.
-static ALLOC_RESIDENT_PROBE: core::sync::atomic::AtomicPtr<()> = core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
+static ALLOC_RESIDENT_PROBE: core::sync::atomic::AtomicPtr<()> =
+    core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
 
 pub fn set_allocator_resident_probe(f: fn() -> Option<usize>) {
     ALLOC_RESIDENT_PROBE.store(f as *mut (), Relaxed);
@@ -391,7 +411,8 @@ pub fn probe_allocator_resident() -> Option<usize> {
 /// The Gravity region mappings' resident bytes read now (the present pages of the mappings named `pgrust:region...`,
 /// named only while the memory policy's trace is on), for the memory ledger's views; installed by the sampler's owner,
 /// read only when a view asks. `None` with no probe or an unreadable file.
-static REGION_RESIDENT_PROBE: core::sync::atomic::AtomicPtr<()> = core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
+static REGION_RESIDENT_PROBE: core::sync::atomic::AtomicPtr<()> =
+    core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
 
 pub fn set_region_resident_probe(f: fn() -> Option<usize>) {
     REGION_RESIDENT_PROBE.store(f as *mut (), Relaxed);
@@ -435,7 +456,8 @@ pub mod reconcile {
     pub const TERMS: usize = 8;
 }
 
-static RECONCILE_PROBE: core::sync::atomic::AtomicPtr<()> = core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
+static RECONCILE_PROBE: core::sync::atomic::AtomicPtr<()> =
+    core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
 
 pub fn set_reconcile_probe(f: fn() -> [Option<u64>; reconcile::TERMS]) {
     RECONCILE_PROBE.store(f as *mut (), Relaxed);
@@ -452,8 +474,10 @@ pub fn probe_reconcile() -> [Option<u64>; reconcile::TERMS] {
     f()
 }
 
-static ALLOC_IN_USE: core::sync::atomic::AtomicPtr<()> = core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
-static ALLOC_COMMITTED: core::sync::atomic::AtomicPtr<()> = core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
+static ALLOC_IN_USE: core::sync::atomic::AtomicPtr<()> =
+    core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
+static ALLOC_COMMITTED: core::sync::atomic::AtomicPtr<()> =
+    core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
 
 pub fn set_allocator_probes(in_use: fn() -> Option<usize>, committed: fn() -> usize) {
     ALLOC_IN_USE.store(in_use as *mut (), Relaxed);
@@ -493,14 +517,19 @@ pub fn allocator_census(resident: usize) -> Option<alloc::string::String> {
     ))
 }
 
-pub const TRIP_KINDS: [&str; 4] =
-    ["a block past the bar", "a part open past the bar", "a statement past its ledger", "a raw draw past the bar"];
+pub const TRIP_KINDS: [&str; 4] = [
+    "a block past the bar",
+    "a part open past the bar",
+    "a statement past its ledger",
+    "a raw draw past the bar",
+];
 const TRIP_BLOCK: usize = 0;
 const TRIP_CACHE: usize = 1;
 const TRIP_STATEMENT: usize = 2;
 const TRIP_DRAW: usize = 3;
 
-static TRIPS: [core::sync::atomic::AtomicU64; 4] = [const { core::sync::atomic::AtomicU64::new(0) }; 4];
+static TRIPS: [core::sync::atomic::AtomicU64; 4] =
+    [const { core::sync::atomic::AtomicU64::new(0) }; 4];
 static TRIP_KIND: AtomicUsize = AtomicUsize::new(0);
 static TRIP_N: AtomicUsize = AtomicUsize::new(0);
 static TRIP_PROJECTED: AtomicUsize = AtomicUsize::new(0);
@@ -627,8 +656,10 @@ pub fn block_gate_counts() -> BlockGateCounts {
     }
 }
 
-static SLEEP_PROBE: core::sync::atomic::AtomicPtr<()> = core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
-static INTERRUPT_PROBE: core::sync::atomic::AtomicPtr<()> = core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
+static SLEEP_PROBE: core::sync::atomic::AtomicPtr<()> =
+    core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
+static INTERRUPT_PROBE: core::sync::atomic::AtomicPtr<()> =
+    core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
 
 /// D4812 (2): a probe for "an interrupt is pending on this thread" (tcop's: InterruptPending, a query cancel or a die):
 /// the block gate stops waiting on it and takes the block, so the caller's next CHECK_FOR_INTERRUPTS answers a cancel or
@@ -685,7 +716,13 @@ fn admit_slow(bar: usize, n: usize, context_name: &'static str) {
             return;
         }
     }
-    if bar != 0 && mempolicy::admit::past_footprint(crate::global_footprint::bytes(), n, BAR_LIMIT.load(Relaxed)) {
+    if bar != 0
+        && mempolicy::admit::past_footprint(
+            crate::global_footprint::bytes(),
+            n,
+            BAR_LIMIT.load(Relaxed),
+        )
+    {
         bar_slow(bar, n, context_name);
     }
     #[cfg(any(feature = "std", test))]
@@ -697,7 +734,10 @@ fn admit_slow(bar: usize, n: usize, context_name: &'static str) {
 /// The bar's test of a block past its limit (`admit_slow`): 53200 on the armed statement past the bar.
 fn bar_slow(bar: usize, n: usize, context_name: &'static str) {
     if let Some(s) = my_slot() {
-        s.bytes.store(crate::global_footprint::thread_current().max(0) as usize, Relaxed);
+        s.bytes.store(
+            crate::global_footprint::thread_current().max(0) as usize,
+            Relaxed,
+        );
     }
     if bar == 0 || !armed() {
         return;
@@ -705,7 +745,13 @@ fn bar_slow(bar: usize, n: usize, context_name: &'static str) {
     resample();
     let p = projected();
     let want = p.saturating_add(n);
-    if mempolicy::admit::under_bar(p, n, bar) || mempolicy::admit::small_session_grace(want, bar, crate::global_footprint::thread_current()) {
+    if mempolicy::admit::under_bar(p, n, bar)
+        || mempolicy::admit::small_session_grace(
+            want,
+            bar,
+            crate::global_footprint::thread_current(),
+        )
+    {
         return;
     }
     #[cfg(any(feature = "std", test))]
@@ -752,14 +798,19 @@ fn block_gate(n: usize) {
     let l = unsafe { &*p };
     let line = crate::ladder::cancel_line() as usize;
     let over = || mempolicy::admit::past_cancel_line(gate_projected(), n, line);
-    if line == 0 || !l.on.load(Relaxed) || l.cancel_pct() != 0 || !armed() || !gate_on() || !over() {
+    if line == 0 || !l.on.load(Relaxed) || l.cancel_pct() != 0 || !armed() || !gate_on() || !over()
+    {
         return;
     }
     if !may_sleep() {
         GATE_SKIPPED.fetch_add(1, Relaxed);
         return;
     }
-    let ep = crate::ladder_stats::Wait::begin_at(crate::ladder_stats::Site::Block, n as u64, gate_projected() as u64);
+    let ep = crate::ladder_stats::Wait::begin_at(
+        crate::ladder_stats::Site::Block,
+        n as u64,
+        gate_projected() as u64,
+    );
     let (ran, busy) = crate::ladder::block_climb(gate_projected() as u64, n as u64);
     if ran != 0 {
         GATE_CLIMBS.fetch_add(1, Relaxed);
@@ -782,7 +833,8 @@ fn block_gate(n: usize) {
         if mempolicy::admit::block_gate_spent(t0.elapsed()) {
             ep.last_try();
             let limit = LIMIT.load(Relaxed).max(1);
-            let pct = (gate_projected().saturating_add(n).saturating_mul(100) / limit).clamp(1, 100);
+            let pct =
+                (gate_projected().saturating_add(n).saturating_mul(100) / limit).clamp(1, 100);
             let min = mempolicy::consts::get(mempolicy::consts::K::CancelMin) as usize;
             let canceled = try_cancel_self(p, pct, min).unwrap_or_else(|Busy| {
                 GATE_BUSY.fetch_add(1, Relaxed);
@@ -790,9 +842,20 @@ fn block_gate(n: usize) {
             });
             if let Some((held, charged)) = canceled {
                 ep.refused();
-                let backend = l.slot.load(Relaxed).checked_sub(1).and_then(|i| SLOT_TABLE.get(i).map(|s| (i, s.pid.load(Relaxed))));
+                let backend = l
+                    .slot
+                    .load(Relaxed)
+                    .checked_sub(1)
+                    .and_then(|i| SLOT_TABLE.get(i).map(|s| (i, s.pid.load(Relaxed))));
                 let v = gate_projected().saturating_add(n) as u64;
-                crate::ladder::block_canceled(v, n as u64, line as u64, limit as u64, (held as u64, charged as u64), backend);
+                crate::ladder::block_canceled(
+                    v,
+                    n as u64,
+                    line as u64,
+                    limit as u64,
+                    (held as u64, charged as u64),
+                    backend,
+                );
             } else {
                 // R2b and R6 are the pass's (one cancel in flight, D4374); the block is taken
                 crate::ladder::block_hand_off();
@@ -823,7 +886,11 @@ fn block_gate(n: usize) {
 /// this block. No `note_pick` either: the stale-pick counters see the pass's picks only, by design (a self-cancel reads
 /// no residency).
 #[cfg(any(feature = "std", test))]
-fn try_cancel_self(own: *const StmtMem, pct: usize, min: usize) -> Result<Option<(usize, usize)>, Busy> {
+fn try_cancel_self(
+    own: *const StmtMem,
+    pct: usize,
+    min: usize,
+) -> Result<Option<(usize, usize)>, Busy> {
     if pending_bytes(decide_ms()) != 0 {
         return Ok(None);
     }
@@ -841,11 +908,16 @@ fn try_cancel_self(own: *const StmtMem, pct: usize, min: usize) -> Result<Option
     }
     // Acquire: pairs with `next_generation`'s Release, after the statement's reset bytes
     let word = big.cancel.load(core::sync::atomic::Ordering::Acquire);
-    let (b, charged) = (rank_of(&big, &pins), big.bytes.load(Relaxed).wrapping_add(big.cache_share() as isize).max(0) as usize);
+    let (b, charged) = (
+        rank_of(&big, &pins),
+        big.bytes
+            .load(Relaxed)
+            .wrapping_add(big.cache_share() as isize)
+            .max(0) as usize,
+    );
     drop(pins);
     Ok(act_cancel(&big, word, b, charged, pct, min, now).map(|_| (b, charged)))
 }
-
 
 static CACHE: AtomicUsize = AtomicUsize::new(0);
 
@@ -882,7 +954,9 @@ pub fn charge_cache(n: usize, name: &'static str, rec: &mut CacheCharge) {
         if !p.is_null() {
             // SAFETY: LEDGER points at a live StmtMem while set (the backend's own, or an `enter` guard's Arc).
             let l = unsafe { &*p };
-            if let Some(i) = l.slot_index().filter(|_| mempolicy::consts::get(mempolicy::consts::K::GovernorCacheGiveback) != 0) {
+            if let Some(i) = l.slot_index().filter(|_| {
+                mempolicy::consts::get(mempolicy::consts::K::GovernorCacheGiveback) != 0
+            }) {
                 // the statement's part goes on the share only, never on the count itself: a fault at a statement boundary
                 // lands on no statement, or on the share's new epoch with a record that takes it back
                 crate::global_footprint::add_unledgered(n);
@@ -890,7 +964,12 @@ pub fn charge_cache(n: usize, name: &'static str, rec: &mut CacheCharge) {
                     share_charge(i, n as u64, rec);
                     let share = l.cache_share();
                     l.note_consumer(name, share as usize);
-                    l.rose(l.bytes.load(Relaxed).wrapping_add(own_pending(l)).wrapping_add(share as isize));
+                    l.rose(
+                        l.bytes
+                            .load(Relaxed)
+                            .wrapping_add(own_pending(l))
+                            .wrapping_add(share as isize),
+                    );
                 }
                 return;
             }
@@ -915,15 +994,32 @@ fn share_charge(i: usize, n: u64, rec: &mut CacheCharge) {
     let mut x = w.load(core::sync::atomic::Ordering::Acquire);
     loop {
         let e = (x >> 32) as u32;
-        let before = if rec.slot as usize == i + 1 && rec.epoch == e { rec.bytes } else { 0 };
+        let before = if rec.slot as usize == i + 1 && rec.epoch == e {
+            rec.bytes
+        } else {
+            0
+        };
         let after = before.saturating_add(n);
         let (k, d) = (x & CACHE_KIB, kib(after) - kib(before));
         let nk = k.saturating_add(d).min(CACHE_KIB);
-        match w.compare_exchange_weak(x, (x & !CACHE_KIB) | nk, core::sync::atomic::Ordering::AcqRel, core::sync::atomic::Ordering::Acquire) {
+        match w.compare_exchange_weak(
+            x,
+            (x & !CACHE_KIB) | nk,
+            core::sync::atomic::Ordering::AcqRel,
+            core::sync::atomic::Ordering::Acquire,
+        ) {
             Ok(_) => {
                 // a full field took less: the record holds what it took, so its release nets to it
-                let bytes = if nk - k == d { after } else { (kib(before) + (nk - k)) << 10 };
-                *rec = CacheCharge { slot: (i + 1) as u32, epoch: e, bytes };
+                let bytes = if nk - k == d {
+                    after
+                } else {
+                    (kib(before) + (nk - k)) << 10
+                };
+                *rec = CacheCharge {
+                    slot: (i + 1) as u32,
+                    epoch: e,
+                    bytes,
+                };
                 return;
             }
             Err(v) => x = v,
@@ -936,31 +1032,51 @@ fn share_charge(i: usize, n: u64, rec: &mut CacheCharge) {
 /// bytes off the statement that charged them, only while that statement runs (its slot's epoch is the record's), checked
 /// and subtracted in one compare-exchange, never below 0, no lock.
 pub fn release_cache(n: usize, rec: &mut CacheCharge) {
-    let prev = CACHE.fetch_update(Relaxed, Relaxed, |c| Some(c.saturating_sub(n))).unwrap_or(0);
+    let prev = CACHE
+        .fetch_update(Relaxed, Relaxed, |c| Some(c.saturating_sub(n)))
+        .unwrap_or(0);
     let m = n.min(prev);
     if m != 0 {
         crate::global_footprint::sub_process(m);
     }
-    let Some(i) = (rec.slot as usize).checked_sub(1).filter(|&i| i < SLOTS) else { return };
+    let Some(i) = (rec.slot as usize).checked_sub(1).filter(|&i| i < SLOTS) else {
+        return;
+    };
     let (e, before) = (rec.epoch, rec.bytes);
     let after = before.saturating_sub(n as u64);
-    *rec = if after == 0 { CacheCharge::default() } else { CacheCharge { bytes: after, ..*rec } };
+    *rec = if after == 0 {
+        CacheCharge::default()
+    } else {
+        CacheCharge {
+            bytes: after,
+            ..*rec
+        }
+    };
     let d = kib(before) - kib(after);
     if d == 0 {
         return;
     }
-    let _ = SLOT_TABLE[i].cache.fetch_update(core::sync::atomic::Ordering::AcqRel, core::sync::atomic::Ordering::Acquire, |x| {
-        ((x >> 32) as u32 == e).then(|| (x & !CACHE_KIB) | (x & CACHE_KIB).saturating_sub(d))
-    });
+    let _ = SLOT_TABLE[i].cache.fetch_update(
+        core::sync::atomic::Ordering::AcqRel,
+        core::sync::atomic::Ordering::Acquire,
+        |x| ((x >> 32) as u32 == e).then(|| (x & !CACHE_KIB) | (x & CACHE_KIB).saturating_sub(d)),
+    );
 }
 
 /// D4795 (2a): slot `i`'s share at a statement's start (the next epoch, no bytes) or end (the next epoch, its bytes kept
 /// for the ended statement's reads): a release of an earlier epoch's record then takes nothing.
 #[cfg(any(feature = "std", test))]
 fn share_epoch(i: usize, keep: bool) {
-    let _ = SLOT_TABLE[i].cache.fetch_update(core::sync::atomic::Ordering::AcqRel, core::sync::atomic::Ordering::Acquire, |x| {
-        Some(((((x >> 32) as u32).wrapping_add(1) as u64) << 32) | if keep { x & CACHE_KIB } else { 0 })
-    });
+    let _ = SLOT_TABLE[i].cache.fetch_update(
+        core::sync::atomic::Ordering::AcqRel,
+        core::sync::atomic::Ordering::Acquire,
+        |x| {
+            Some(
+                ((((x >> 32) as u32).wrapping_add(1) as u64) << 32)
+                    | if keep { x & CACHE_KIB } else { 0 },
+            )
+        },
+    );
 }
 
 /// the statement error a process cache's check point returns (no allocation and no unwind: the caller
@@ -1005,7 +1121,6 @@ pub fn refusal(_consumer: &'static str) -> Option<types_error::PgError> {
 pub fn cache_bytes() -> usize {
     CACHE.load(Relaxed)
 }
-
 
 #[derive(Default)]
 pub struct StmtMem {
@@ -1060,12 +1175,16 @@ impl core::fmt::Debug for StmtMem {
 
 impl StmtMem {
     pub fn bytes(&self) -> isize {
-        self.bytes.load(Relaxed).wrapping_add(own_pending(self)).wrapping_add(self.cache_share() as isize)
+        self.bytes
+            .load(Relaxed)
+            .wrapping_add(own_pending(self))
+            .wrapping_add(self.cache_share() as isize)
     }
 
     /// D4795 (2a): the part-cache bytes its slot's share holds for it (`charge_cache`), 0 with no slot.
     fn cache_share(&self) -> u64 {
-        self.slot_index().map_or(0, |i| (SLOT_TABLE[i].cache.load(Relaxed) & CACHE_KIB) << 10)
+        self.slot_index()
+            .map_or(0, |i| (SLOT_TABLE[i].cache.load(Relaxed) & CACHE_KIB) << 10)
     }
 
     /// C8 move 3c (b): the charged bytes less the grant's room no draw backs (`room`): what the statement has committed.
@@ -1075,7 +1194,11 @@ impl StmtMem {
 
     /// `committed` as the watchdog reads another statement's (the shared total, no thread's pending fold), at least 0.
     fn committed_shared(&self) -> usize {
-        self.bytes.load(Relaxed).wrapping_add(self.cache_share() as isize).wrapping_sub(self.room.load(Relaxed)).max(0) as usize
+        self.bytes
+            .load(Relaxed)
+            .wrapping_add(self.cache_share() as isize)
+            .wrapping_sub(self.room.load(Relaxed))
+            .max(0) as usize
     }
 
     /// D4395: the statement's bytes in memory as its backend's ledger row measures them since its start (heap the
@@ -1083,7 +1206,9 @@ impl StmtMem {
     pub fn measured(&self) -> u64 {
         #[cfg(any(feature = "std", test))]
         {
-            ledger_row(self).map_or(0, |(_, bytes, nr, _)| mempolicy::watchdog::resident_of(bytes, nr))
+            ledger_row(self).map_or(0, |(_, bytes, nr, _)| {
+                mempolicy::watchdog::resident_of(bytes, nr)
+            })
         }
         #[cfg(not(any(feature = "std", test)))]
         0
@@ -1156,7 +1281,10 @@ impl StmtMem {
 
     /// C5: the backend running it (its governor slot), if one registered.
     pub(crate) fn slot_index(&self) -> Option<usize> {
-        self.slot.load(Relaxed).checked_sub(1).filter(|&i| i < SLOTS)
+        self.slot
+            .load(Relaxed)
+            .checked_sub(1)
+            .filter(|&i| i < SLOTS)
     }
 
     /// C5: the statement's generation (its cancel word's, moved at every start and end): an ask chosen for one statement
@@ -1180,7 +1308,8 @@ impl StmtMem {
     fn next_generation(&self) {
         let g = (self.cancel.load(Relaxed) >> CANCEL_GEN_SHIFT).wrapping_add(1);
         // Release: the watchdog that reads this word (Acquire) sees the bytes reset before it
-        self.cancel.store(g << CANCEL_GEN_SHIFT, core::sync::atomic::Ordering::Release);
+        self.cancel
+            .store(g << CANCEL_GEN_SHIFT, core::sync::atomic::Ordering::Release);
     }
 
     fn fits(&self, n: usize) -> bool {
@@ -1219,11 +1348,15 @@ impl StmtMem {
                 top >> 10
             )
         };
-        let e = types_error::PgError::error("out of memory").with_sqlstate(types_error::ERRCODE_OUT_OF_MEMORY).with_detail(detail);
+        let e = types_error::PgError::error("out of memory")
+            .with_sqlstate(types_error::ERRCODE_OUT_OF_MEMORY)
+            .with_detail(detail);
         if projected {
             e.with_hint("pgrust.memory_cancel_rule = projection canceled the statement furthest past its fair share of memory.")
         } else if pct != 0 {
-            e.with_hint("pgrust.memory_cancel_threshold canceled the statement holding the most memory.")
+            e.with_hint(
+                "pgrust.memory_cancel_threshold canceled the statement holding the most memory.",
+            )
         } else {
             e
         }
@@ -1231,7 +1364,8 @@ impl StmtMem {
 }
 
 #[cfg(any(feature = "std", test))]
-static REGISTRY: std::sync::Mutex<alloc::vec::Vec<alloc::sync::Weak<StmtMem>>> = std::sync::Mutex::new(alloc::vec::Vec::new());
+static REGISTRY: std::sync::Mutex<alloc::vec::Vec<alloc::sync::Weak<StmtMem>>> =
+    std::sync::Mutex::new(alloc::vec::Vec::new());
 
 pub fn statement_start(limit: usize, watch: bool) {
     #[cfg(any(feature = "std", test))]
@@ -1264,7 +1398,11 @@ pub fn statement_start(limit: usize, watch: bool) {
             l.draw_waited_ns.store(0, Relaxed);
             l.refused.store(0, Relaxed);
             start_credit(l);
-            l.slot.store(SLOT.try_with(|c| c.get()).map_or(0, |i| usize::try_from(i).map_or(0, |i| i + 1)), Relaxed);
+            l.slot.store(
+                SLOT.try_with(|c| c.get())
+                    .map_or(0, |i| usize::try_from(i).map_or(0, |i| i + 1)),
+                Relaxed,
+            );
             if let Some(i) = l.slot_index() {
                 share_epoch(i, false);
             }
@@ -1305,7 +1443,12 @@ pub fn statement_end() {
 pub fn take_ended_condemned() -> bool {
     #[cfg(any(feature = "std", test))]
     {
-        OWN.try_with(|own| own.borrow().as_ref().is_some_and(|l| l.ended_condemned.swap(false, Relaxed))).unwrap_or(false)
+        OWN.try_with(|own| {
+            own.borrow()
+                .as_ref()
+                .is_some_and(|l| l.ended_condemned.swap(false, Relaxed))
+        })
+        .unwrap_or(false)
     }
     #[cfg(not(any(feature = "std", test)))]
     false
@@ -1381,12 +1524,19 @@ pub struct Entered {
 pub fn enter(ledger: Option<alloc::sync::Arc<StmtMem>>) -> Entered {
     #[cfg(any(feature = "std", test))]
     {
-        let p = ledger.as_deref().map_or(core::ptr::null(), |l| l as *const StmtMem);
+        let p = ledger
+            .as_deref()
+            .map_or(core::ptr::null(), |l| l as *const StmtMem);
         flush_pending();
-        let prev_l = LEDGER.try_with(|c| c.replace(p)).unwrap_or(core::ptr::null());
+        let prev_l = LEDGER
+            .try_with(|c| c.replace(p))
+            .unwrap_or(core::ptr::null());
         let prev_a = armed();
         arm(true);
-        Entered { prev: (prev_l, prev_a), _ledger: ledger }
+        Entered {
+            prev: (prev_l, prev_a),
+            _ledger: ledger,
+        }
     }
     #[cfg(not(any(feature = "std", test)))]
     Entered { _ledger: ledger }
@@ -1539,10 +1689,21 @@ impl core::fmt::Debug for Charge {
 }
 
 impl Charge {
-    pub const NONE: Charge = Charge { ledger: None, bytes: core::cell::Cell::new(0), room: core::cell::Cell::new(0), name: "" };
+    #[allow(clippy::declare_interior_mutable_const)]
+    pub const NONE: Charge = Charge {
+        ledger: None,
+        bytes: core::cell::Cell::new(0),
+        room: core::cell::Cell::new(0),
+        name: "",
+    };
 
     pub fn new(name: &'static str, bytes: usize) -> Charge {
-        let c = Charge { ledger: current(), bytes: core::cell::Cell::new(0), room: core::cell::Cell::new(0), name };
+        let c = Charge {
+            ledger: current(),
+            bytes: core::cell::Cell::new(0),
+            room: core::cell::Cell::new(0),
+            name,
+        };
         c.grow(bytes);
         c
     }
@@ -1678,7 +1839,11 @@ pub struct Cand {
 #[cfg(any(feature = "std", test))]
 fn watchdog_ms() -> u64 {
     static EPOCH: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
-    EPOCH.get_or_init(std::time::Instant::now).elapsed().as_millis() as u64 + 1
+    EPOCH
+        .get_or_init(std::time::Instant::now)
+        .elapsed()
+        .as_millis() as u64
+        + 1
 }
 
 /// The watchdog's cancel: `cancel_largest_victim`'s bytes, or 0.
@@ -1708,8 +1873,15 @@ pub fn try_cancel_largest_victim(pct: usize, min: usize) -> Result<Option<Victim
 pub struct Busy;
 
 #[cfg(any(feature = "std", test))]
-fn locked<T>(m: &'static std::sync::Mutex<T>, wait: bool) -> Result<std::sync::MutexGuard<'static, T>, Busy> {
-    if wait { m.lock().map_err(|_| Busy) } else { m.try_lock().map_err(|_| Busy) }
+fn locked<T>(
+    m: &'static std::sync::Mutex<T>,
+    wait: bool,
+) -> Result<std::sync::MutexGuard<'static, T>, Busy> {
+    if wait {
+        m.lock().map_err(|_| Busy)
+    } else {
+        m.try_lock().map_err(|_| Busy)
+    }
 }
 
 fn pick_victim(pct: usize, min: usize, wait: bool) -> Result<Option<Victim>, Busy> {
@@ -1763,17 +1935,33 @@ fn pick_held(
     drop(r);
     // Acquire: pairs with `next_generation`'s Release, after the statement's reset bytes
     let word = big.cancel.load(core::sync::atomic::Ordering::Acquire);
-    let (b, charged) = (rank_of(&big, &pins), big.bytes.load(Relaxed).wrapping_add(big.cache_share() as isize).max(0) as usize);
+    let (b, charged) = (
+        rank_of(&big, &pins),
+        big.bytes
+            .load(Relaxed)
+            .wrapping_add(big.cache_share() as isize)
+            .max(0) as usize,
+    );
     drop(pins);
     let Some(canceled) = act_cancel(&big, word, b, charged, pct, min, now) else {
         return Ok(None);
     };
     note_pick(stale, now);
-    let backend = big.slot.load(Relaxed).checked_sub(1).and_then(|i| SLOT_TABLE.get(i).map(|s| (i, s.pid.load(Relaxed))));
+    let backend = big
+        .slot
+        .load(Relaxed)
+        .checked_sub(1)
+        .and_then(|i| SLOT_TABLE.get(i).map(|s| (i, s.pid.load(Relaxed))));
     if let Some((slot, _)) = backend {
         condemn(slot, canceled);
     }
-    Ok(Some(Victim { bytes: b, charged, word: canceled, backend, top }))
+    Ok(Some(Victim {
+        bytes: b,
+        charged,
+        word: canceled,
+        backend,
+        top,
+    }))
 }
 
 /// memfuzz (P4): the `PICK_TOP` live statements of `r` with the largest ranks, largest first, each with its rank's terms
@@ -1781,7 +1969,11 @@ fn pick_held(
 #[cfg(any(feature = "std", test))]
 fn top_of(r: &[alloc::sync::Weak<StmtMem>], pins: &[u64; PIN_SLOTS]) -> [Cand; PICK_TOP] {
     let mut top = [Cand::default(); PICK_TOP];
-    for l in r.iter().filter_map(alloc::sync::Weak::upgrade).filter(|l| l.on.load(Relaxed)) {
+    for l in r
+        .iter()
+        .filter_map(alloc::sync::Weak::upgrade)
+        .filter(|l| l.on.load(Relaxed))
+    {
         let c = cand_of(&l, pins);
         if let Some(at) = top.iter().position(|t| c.rank > t.rank) {
             top.copy_within(at..PICK_TOP - 1, at + 1);
@@ -1796,11 +1988,17 @@ fn top_of(r: &[alloc::sync::Weak<StmtMem>], pins: &[u64; PIN_SLOTS]) -> [Cand; P
 #[cfg(any(feature = "std", test))]
 fn cand_of(l: &StmtMem, pins: &[u64; PIN_SLOTS]) -> Cand {
     let row = ledger_row(l);
-    let backend = l.slot.load(Relaxed).checked_sub(1).and_then(|i| SLOT_TABLE.get(i).map(|s| (i, s.pid.load(Relaxed))));
+    let backend = l
+        .slot
+        .load(Relaxed)
+        .checked_sub(1)
+        .and_then(|i| SLOT_TABLE.get(i).map(|s| (i, s.pid.load(Relaxed))));
     Cand {
         backend,
         rank: rank_of(l, pins) as u64,
-        resident: row.map_or(0, |(_, bytes, nr, _)| mempolicy::watchdog::resident_of(bytes, nr)),
+        resident: row.map_or(0, |(_, bytes, nr, _)| {
+            mempolicy::watchdog::resident_of(bytes, nr)
+        }),
         parts: row.map_or(0, |(a, ..)| pins.get(a as usize).copied().unwrap_or(0)),
         canceled: l.cancel_pct() != 0,
     }
@@ -1811,7 +2009,15 @@ fn cand_of(l: &StmtMem, pins: &[u64; PIN_SLOTS]) -> Cand {
 /// rank and charged bytes kept, and (D4023: the victim answers at once, its bytes leave resident over seconds) its bytes
 /// counted landing for `cancel_landing_ms`. The cancel word set; `None` when it did not qualify or the word moved.
 #[cfg(any(feature = "std", test))]
-fn act_cancel(big: &StmtMem, word: usize, b: usize, charged: usize, pct: usize, min: usize, now: u64) -> Option<usize> {
+fn act_cancel(
+    big: &StmtMem,
+    word: usize,
+    b: usize,
+    charged: usize,
+    pct: usize,
+    min: usize,
+    now: u64,
+) -> Option<usize> {
     if !big.on.load(Relaxed) || b < min.max(1) || word & CANCEL_PCT != 0 {
         return None;
     }
@@ -1819,8 +2025,19 @@ fn act_cancel(big: &StmtMem, word: usize, b: usize, charged: usize, pct: usize, 
     big.ranked.store(b, Relaxed);
     big.ranked_charged.store(charged, Relaxed);
     big.canceled_ms.store(now, Relaxed);
-    big.cancel.compare_exchange(word, canceled, core::sync::atomic::Ordering::AcqRel, Relaxed).ok()?;
-    pending_add(b as u64, mempolicy::consts::get(mempolicy::consts::K::CancelLandingMs), decide_ms());
+    big.cancel
+        .compare_exchange(
+            word,
+            canceled,
+            core::sync::atomic::Ordering::AcqRel,
+            Relaxed,
+        )
+        .ok()?;
+    pending_add(
+        b as u64,
+        mempolicy::consts::get(mempolicy::consts::K::CancelLandingMs),
+        decide_ms(),
+    );
     Some(canceled)
 }
 
@@ -1832,7 +2049,12 @@ pub fn try_largest_live() -> Result<usize, Busy> {
         let mut pins = locked(&PINS, false)?;
         part_pins(&mut pins);
         let r = locked(&REGISTRY, false)?;
-        Ok(r.iter().filter_map(alloc::sync::Weak::upgrade).filter(|l| l.on.load(Relaxed)).map(|l| rank_of(&l, &pins)).max().unwrap_or(0))
+        Ok(r.iter()
+            .filter_map(alloc::sync::Weak::upgrade)
+            .filter(|l| l.on.load(Relaxed))
+            .map(|l| rank_of(&l, &pins))
+            .max()
+            .unwrap_or(0))
     }
     #[cfg(not(any(feature = "std", test)))]
     Ok(0)
@@ -1854,10 +2076,15 @@ fn ranks_of(l: &StmtMem, pins: &[u64; PIN_SLOTS]) -> (usize, usize) {
     // backend's row with its parts): the tree replaces the charge fallback (no row, a row below its start), which ranked
     // a statement by bytes it was charged but did not hold (D4374's bystander)
     let v2 = crate::ledger2::on();
-    let tree = if v2 { crate::ledger2::owned(l.slot_index()) as usize } else { 0 };
+    let tree = if v2 {
+        crate::ledger2::owned(l.slot_index()) as usize
+    } else {
+        0
+    };
     let charged = if v2 { 0 } else { l.committed_shared() as u64 };
     let rank = |nr: i64| {
-        let resident = row.map(|(_, bytes, _, net)| (mempolicy::watchdog::resident_of(bytes, nr), net));
+        let resident =
+            row.map(|(_, bytes, _, net)| (mempolicy::watchdog::resident_of(bytes, nr), net));
         (mempolicy::watchdog::rank_bytes(resident, parts, charged) as usize).max(tree)
     };
     (rank(row.map_or(0, |(_, _, nr, _)| nr)), rank(0))
@@ -1873,9 +2100,15 @@ fn shadow_pick(
     min: usize,
     now: u64,
 ) -> (crate::ledger2::Choice, crate::ledger2::Choice, u64) {
-    let today = i.and_then(|i| r.get(i)?.upgrade()).map_or((None, 0), |l| (l.slot_index(), rank_of(&l, pins) as u64));
+    let today = i
+        .and_then(|i| r.get(i)?.upgrade())
+        .map_or((None, 0), |l| (l.slot_index(), rank_of(&l, pins) as u64));
     let mut tree: crate::ledger2::Choice = (None, 0);
-    for l in r.iter().filter_map(alloc::sync::Weak::upgrade).filter(|l| l.on.load(Relaxed) && l.cancel_pct() == 0) {
+    for l in r
+        .iter()
+        .filter_map(alloc::sync::Weak::upgrade)
+        .filter(|l| l.on.load(Relaxed) && l.cancel_pct() == 0)
+    {
         let b = crate::ledger2::owned(l.slot_index());
         if b >= min.max(1) as u64 && b > tree.1 {
             tree = (l.slot_index(), b);
@@ -1886,12 +2119,23 @@ fn shadow_pick(
 
 /// The statement `cancel_largest_victim` picks: `mempolicy::watchdog::cancel_victim` over the live statements' ranks.
 #[cfg(any(feature = "std", test))]
-fn pick_of(r: &[alloc::sync::Weak<StmtMem>], pins: &[u64; PIN_SLOTS], now: u64, min: usize) -> Option<usize> {
+fn pick_of(
+    r: &[alloc::sync::Weak<StmtMem>],
+    pins: &[u64; PIN_SLOTS],
+    now: u64,
+    min: usize,
+) -> Option<usize> {
     let stmts = r.iter().map(|w| {
-        w.upgrade().filter(|l| l.on.load(Relaxed)).map_or((0, 0), |l| {
-            let at = if l.cancel_pct() != 0 { l.canceled_ms.load(Relaxed).max(1) } else { 0 };
-            (rank_of(&l, pins), at)
-        })
+        w.upgrade()
+            .filter(|l| l.on.load(Relaxed))
+            .map_or((0, 0), |l| {
+                let at = if l.cancel_pct() != 0 {
+                    l.canceled_ms.load(Relaxed).max(1)
+                } else {
+                    0
+                };
+                (rank_of(&l, pins), at)
+            })
     });
     mempolicy::watchdog::cancel_victim(stmts, now, min)
 }
@@ -2025,14 +2269,28 @@ const NO_HINTS: Hints = [(0, 0); mempolicy::watchdog::STALE_REFRESH_MAX];
 /// free), never read here; none while a cancel is pending (no cancel goes then). No allocation, no wait, no residency
 /// read.
 #[cfg(any(feature = "std", test))]
-fn stale_of(r: &[alloc::sync::Weak<StmtMem>], pins: &[u64; PIN_SLOTS], pick: Option<usize>, min: usize, now: u64) -> Hints {
-    let top = pick.and_then(|i| r.get(i)?.upgrade()).map_or(min.max(1) - 1, |l| rank_of(&l, pins));
+fn stale_of(
+    r: &[alloc::sync::Weak<StmtMem>],
+    pins: &[u64; PIN_SLOTS],
+    pick: Option<usize>,
+    min: usize,
+    now: u64,
+) -> Hints {
+    let top = pick
+        .and_then(|i| r.get(i)?.upgrade())
+        .map_or(min.max(1) - 1, |l| rank_of(&l, pins));
     let mut best = NO_HINTS;
     // the pick itself is not stale against itself: read again, it only ranks higher
-    let others = r.iter().enumerate().filter(|&(k, _)| Some(k) != pick).filter_map(|(_, w)| w.upgrade());
+    let others = r
+        .iter()
+        .enumerate()
+        .filter(|&(k, _)| Some(k) != pick)
+        .filter_map(|(_, w)| w.upgrade());
     for l in others.filter(|l| l.on.load(Relaxed)) {
         if l.cancel_pct() != 0 {
-            if now.saturating_sub(l.canceled_ms.load(Relaxed).max(1)) < mempolicy::watchdog::CANCEL_ACK_MS {
+            if now.saturating_sub(l.canceled_ms.load(Relaxed).max(1))
+                < mempolicy::watchdog::CANCEL_ACK_MS
+            {
                 return NO_HINTS;
             }
             continue;
@@ -2041,7 +2299,9 @@ fn stale_of(r: &[alloc::sync::Weak<StmtMem>], pins: &[u64; PIN_SLOTS], pick: Opt
         if !mempolicy::watchdog::stale_may_outrank(stale as u64, unstale as u64, top as u64) {
             continue;
         }
-        let Some((a, ..)) = ledger_row(&l) else { continue };
+        let Some((a, ..)) = ledger_row(&l) else {
+            continue;
+        };
         if let Some(k) = best.iter().position(|&(u, _)| unstale > u) {
             best.copy_within(k..mempolicy::watchdog::STALE_REFRESH_MAX - 1, k + 1);
             best[k] = (unstale, a);
@@ -2087,12 +2347,27 @@ pub fn try_top_holders(k: usize, out: &mut [TopHolder]) -> Result<usize, Busy> {
         part_pins(&mut pins);
         let r = locked(&REGISTRY, false)?;
         let mut n = 0;
-        for l in r.iter().filter_map(alloc::sync::Weak::upgrade).filter(|l| l.on.load(Relaxed)) {
-            let Some((slot, pid)) = l.slot.load(Relaxed).checked_sub(1).and_then(|i| SLOT_TABLE.get(i).map(|s| (i, s.pid.load(Relaxed)))) else { continue };
+        for l in r
+            .iter()
+            .filter_map(alloc::sync::Weak::upgrade)
+            .filter(|l| l.on.load(Relaxed))
+        {
+            let Some((slot, pid)) = l
+                .slot
+                .load(Relaxed)
+                .checked_sub(1)
+                .and_then(|i| SLOT_TABLE.get(i).map(|s| (i, s.pid.load(Relaxed))))
+            else {
+                continue;
+            };
             if pid == 0 {
                 continue;
             }
-            let h = TopHolder { slot, pid, bytes: rank_of(&l, &pins) };
+            let h = TopHolder {
+                slot,
+                pid,
+                bytes: rank_of(&l, &pins),
+            };
             if let Some(j) = out[..n].iter().position(|e| e.slot == slot) {
                 if out[j].bytes >= h.bytes {
                     continue;
@@ -2164,9 +2439,16 @@ pub fn try_pending_acks(own: Option<(Option<usize>, usize)>) -> Result<PendingAc
         let r = locked(&REGISTRY, false)?;
         let now = watchdog_ms();
         let mut a = PendingAcks::default();
-        for l in r.iter().filter_map(alloc::sync::Weak::upgrade).filter(|l| l.on.load(Relaxed)) {
+        for l in r
+            .iter()
+            .filter_map(alloc::sync::Weak::upgrade)
+            .filter(|l| l.on.load(Relaxed))
+        {
             let word = l.cancel.load(core::sync::atomic::Ordering::Acquire);
-            if word & CANCEL_PCT == 0 || now.saturating_sub(l.canceled_ms.load(Relaxed)) >= mempolicy::watchdog::CANCEL_ACK_MS {
+            if word & CANCEL_PCT == 0
+                || now.saturating_sub(l.canceled_ms.load(Relaxed))
+                    >= mempolicy::watchdog::CANCEL_ACK_MS
+            {
                 continue;
             }
             let slot = l.slot.load(Relaxed).checked_sub(1);
@@ -2174,7 +2456,8 @@ pub fn try_pending_acks(own: Option<(Option<usize>, usize)>) -> Result<PendingAc
                 a.own = true;
             } else {
                 a.other = true;
-                a.other_young |= now.saturating_sub(l.canceled_ms.load(Relaxed)) < mempolicy::ladder::R6_ACK_BOUND_MS;
+                a.other_young |= now.saturating_sub(l.canceled_ms.load(Relaxed))
+                    < mempolicy::ladder::R6_ACK_BOUND_MS;
             }
         }
         Ok(a)
@@ -2194,7 +2477,11 @@ fn view_of(wait: bool) -> Result<NoVictimView, Busy> {
         let r = locked(&REGISTRY, wait)?;
         let now = watchdog_ms();
         let mut v = NoVictimView::default();
-        for l in r.iter().filter_map(alloc::sync::Weak::upgrade).filter(|l| l.on.load(Relaxed)) {
+        for l in r
+            .iter()
+            .filter_map(alloc::sync::Weak::upgrade)
+            .filter(|l| l.on.load(Relaxed))
+        {
             let word = l.cancel.load(core::sync::atomic::Ordering::Acquire);
             if word & CANCEL_PCT == 0 {
                 v.largest_other = v.largest_other.max(rank_of(&l, &pins));
@@ -2204,8 +2491,18 @@ fn view_of(wait: bool) -> Result<NoVictimView, Busy> {
             if age_ms < mempolicy::watchdog::CANCEL_ACK_MS {
                 v.pending_ack = true;
             } else if v.stalled.is_none_or(|s| age_ms > s.age_ms) {
-                let backend = l.slot.load(Relaxed).checked_sub(1).and_then(|i| SLOT_TABLE.get(i).map(|s| (i, s.pid.load(Relaxed))));
-                v.stalled = Some(Stalled { backend, word, age_ms, ranked: l.ranked.load(Relaxed), now: rank_of(&l, &pins) });
+                let backend = l
+                    .slot
+                    .load(Relaxed)
+                    .checked_sub(1)
+                    .and_then(|i| SLOT_TABLE.get(i).map(|s| (i, s.pid.load(Relaxed))));
+                v.stalled = Some(Stalled {
+                    backend,
+                    word,
+                    age_ms,
+                    ranked: l.ranked.load(Relaxed),
+                    now: rank_of(&l, &pins),
+                });
             }
         }
         Ok(v)
@@ -2229,7 +2526,8 @@ fn ledger_row(l: &StmtMem) -> Option<(u32, u64, i64, i64)> {
         let r = memledger::account_row(a);
         // below its start by more than the fold's lag
         let net = r.statement_net.saturating_add(r.fold_slack as i64);
-        r.running.then_some((a.0, r.statement_bytes, r.not_resident_bytes, net))
+        r.running
+            .then_some((a.0, r.statement_bytes, r.not_resident_bytes, net))
     }
     #[cfg(not(feature = "std"))]
     {
@@ -2239,7 +2537,8 @@ fn ledger_row(l: &StmtMem) -> Option<(u32, u64, i64, i64)> {
 }
 
 /// D3999: the in-use part bytes each memory ledger account pins alone (installed by Gravity's hosts).
-static PART_PINS: core::sync::atomic::AtomicPtr<()> = core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
+static PART_PINS: core::sync::atomic::AtomicPtr<()> =
+    core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
 
 pub fn set_part_pins_probe(f: fn(&mut dyn FnMut(u32, u64))) {
     PART_PINS.store(f as *mut (), Relaxed);
@@ -2301,8 +2600,10 @@ static SPILL_SET: AtomicBool = AtomicBool::new(false);
 static DECIDING: AtomicBool = AtomicBool::new(false);
 /// Bytes asked and not landed yet: (bytes, landing time `decide_ms`), written under `Deciding`.
 const ASKED_SLOTS: usize = 16;
-static ASKED: [(AtomicU64, AtomicU64); ASKED_SLOTS] = [const { (AtomicU64::new(0), AtomicU64::new(0)) }; ASKED_SLOTS];
-static RAISE: core::sync::atomic::AtomicPtr<()> = core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
+static ASKED: [(AtomicU64, AtomicU64); ASKED_SLOTS] =
+    [const { (AtomicU64::new(0), AtomicU64::new(0)) }; ASKED_SLOTS];
+static RAISE: core::sync::atomic::AtomicPtr<()> =
+    core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
 
 static INLINE_DECIDES: AtomicU64 = AtomicU64::new(0);
 static INLINE_CANCELS: AtomicU64 = AtomicU64::new(0);
@@ -2318,7 +2619,11 @@ pub fn decide_ms() -> u64 {
     #[cfg(any(feature = "std", test))]
     {
         static EPOCH: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
-        EPOCH.get_or_init(std::time::Instant::now).elapsed().as_millis() as u64 + 1
+        EPOCH
+            .get_or_init(std::time::Instant::now)
+            .elapsed()
+            .as_millis() as u64
+            + 1
     }
     #[cfg(not(any(feature = "std", test)))]
     0
@@ -2340,7 +2645,10 @@ fn pack(r: Rise99) -> u64 {
 }
 
 fn unpack(v: u64) -> Rise99 {
-    Rise99 { bytes: v & !RISE_PRIOR, prior: v & RISE_PRIOR != 0 }
+    Rise99 {
+        bytes: v & !RISE_PRIOR,
+        prior: v & RISE_PRIOR != 0,
+    }
 }
 
 /// D3934: decide's R (memruntime, every sample under projection, whatever the governor's threshold).
@@ -2352,7 +2660,10 @@ pub fn publish_decide_resident(resident: usize, footprint: usize) {
 /// decide's R now: the last sample's resident bytes plus the context growth since (as `projected`).
 pub fn decide_resident() -> u64 {
     let now = crate::global_footprint::bytes();
-    DEC_R.load(Relaxed).saturating_add(now).saturating_sub(DEC_R_FOOTPRINT.load(Relaxed)) as u64
+    DEC_R
+        .load(Relaxed)
+        .saturating_add(now)
+        .saturating_sub(DEC_R_FOOTPRINT.load(Relaxed)) as u64
 }
 
 /// The backstop's sample for decide (memruntime, every sample under projection); counts the running statements.
@@ -2366,7 +2677,10 @@ pub fn publish_decide(p: &DecidePublish) {
     REVOKE_ON.store(p.revoke_on, Relaxed);
     #[cfg(any(feature = "std", test))]
     if let Ok(r) = REGISTRY.lock() {
-        let n = r.iter().filter(|w| w.upgrade().is_some_and(|l| l.on.load(Relaxed))).count();
+        let n = r
+            .iter()
+            .filter(|w| w.upgrade().is_some_and(|l| l.on.load(Relaxed)))
+            .count();
         DEC_RUNNING.store(n as u64, Relaxed);
     }
 }
@@ -2402,7 +2716,11 @@ pub(crate) fn clear_pending() {
 }
 
 fn pending_bytes(now: u64) -> u64 {
-    ASKED.iter().filter(|(_, at)| at.load(Relaxed) > now).map(|(b, _)| b.load(Relaxed)).sum()
+    ASKED
+        .iter()
+        .filter(|(_, at)| at.load(Relaxed) > now)
+        .map(|(b, _)| b.load(Relaxed))
+        .sum()
 }
 
 /// `bytes` asked now, landing `landing_ms` from `now` (under `Deciding`): into the slot that lands first.
@@ -2410,14 +2728,18 @@ fn pending_add(bytes: u64, landing_ms: u64, now: u64) {
     if bytes == 0 {
         return;
     }
-    let k = (0..ASKED_SLOTS).min_by_key(|&k| ASKED[k].1.load(Relaxed)).unwrap_or(0);
+    let k = (0..ASKED_SLOTS)
+        .min_by_key(|&k| ASKED[k].1.load(Relaxed))
+        .unwrap_or(0);
     ASKED[k].0.store(bytes, Relaxed);
     ASKED[k].1.store(now.saturating_add(landing_ms), Relaxed);
 }
 
 /// decide's snapshot now: the backstop's last sample, R read now (`decide_resident`) and what is pending.
 pub fn decide_inputs() -> Inputs {
-    let holders = DEC_RUNNING.load(Relaxed).saturating_add(IDLE_HOLDERS.load(Relaxed));
+    let holders = DEC_RUNNING
+        .load(Relaxed)
+        .saturating_add(IDLE_HOLDERS.load(Relaxed));
     Inputs {
         l: DEC_L.load(Relaxed),
         b: DEC_B.load(Relaxed),
@@ -2452,7 +2774,10 @@ struct Deciding;
 
 impl Deciding {
     fn try_lock() -> Option<Deciding> {
-        DECIDING.compare_exchange(false, true, core::sync::atomic::Ordering::Acquire, Relaxed).ok().map(|_| Deciding)
+        DECIDING
+            .compare_exchange(false, true, core::sync::atomic::Ordering::Acquire, Relaxed)
+            .ok()
+            .map(|_| Deciding)
     }
 }
 
@@ -2470,9 +2795,16 @@ fn published(i: &Inputs) -> bool {
 fn start_credit(l: &StmtMem) {
     l.due.store(false, Relaxed);
     l.spill_epoch.store(0, Relaxed);
-    let i = if decide::projection() { decide_inputs() } else { Inputs::default() };
+    let i = if decide::projection() {
+        decide_inputs()
+    } else {
+        Inputs::default()
+    };
     if published(&i) {
-        l.check_at.store(decide::tranche(i.free(), i.holders).min(isize::MAX as u64) as isize, Relaxed);
+        l.check_at.store(
+            decide::tranche(i.free(), i.holders).min(isize::MAX as u64) as isize,
+            Relaxed,
+        );
         l.started_ms.store(decide_ms(), Relaxed);
     } else {
         l.check_at.store(isize::MAX, Relaxed);
@@ -2484,7 +2816,9 @@ fn charged_ledger() -> Option<&'static StmtMem> {
     {
         let p = LEDGER.try_with(|c| c.get()).unwrap_or(core::ptr::null());
         // SAFETY: as in `current`; the reference does not outlive this thread's charging of it.
-        (!p.is_null()).then(|| unsafe { &*p }).filter(|l| l.on.load(Relaxed))
+        (!p.is_null())
+            .then(|| unsafe { &*p })
+            .filter(|l| l.on.load(Relaxed))
     }
     #[cfg(not(any(feature = "std", test)))]
     None
@@ -2511,7 +2845,10 @@ fn serve_due(l: &StmtMem) {
     }
     let p = decide::decide(Event::Grow { held }, &i);
     // the credit counts in the charge's units: `charge` compares the charge with it
-    l.check_at.store(asked.saturating_add(p.tranche).min(isize::MAX as u64) as isize, Relaxed);
+    l.check_at.store(
+        asked.saturating_add(p.tranche).min(isize::MAX as u64) as isize,
+        Relaxed,
+    );
     INLINE_DECIDES.fetch_add(1, Relaxed);
     if p.spill_self {
         let e = SPILL_EPOCH.load(Relaxed);
@@ -2536,15 +2873,34 @@ fn serve_due(l: &StmtMem) {
             }
         }
     }
-    trace_inline(Event::Grow { held }, &i, &p, l.slot.load(Relaxed).checked_sub(1), victim);
+    trace_inline(
+        Event::Grow { held },
+        &i,
+        &p,
+        l.slot.load(Relaxed).checked_sub(1),
+        victim,
+    );
 }
 
 /// Under `Deciding`: `p`'s revoke, then the cancel if the projection still crosses with that pending.
-fn act(i: &mut Inputs, p: &decide::Plan, requester: Option<usize>, backstop: bool) -> (u64, Option<Victim>) {
+fn act(
+    i: &mut Inputs,
+    p: &decide::Plan,
+    requester: Option<usize>,
+    backstop: bool,
+) -> (u64, Option<Victim>) {
     let now = decide_ms();
-    let asked = if p.revoke != 0 { request_revoke(p.revoke, i.share(), requester) } else { 0 };
+    let asked = if p.revoke != 0 {
+        request_revoke(p.revoke, i.share(), requester)
+    } else {
+        0
+    };
     if asked != 0 {
-        pending_add(asked, mempolicy::consts::get(mempolicy::consts::K::RevokeWaitMs), now);
+        pending_add(
+            asked,
+            mempolicy::consts::get(mempolicy::consts::K::RevokeWaitMs),
+            now,
+        );
         i.pending = i.pending.saturating_add(asked);
     }
     if p.cancel != decide::Cancel::Victim || !i.crosses() {
@@ -2558,7 +2914,11 @@ fn act(i: &mut Inputs, p: &decide::Plan, requester: Option<usize>, backstop: boo
 fn cancel_fair_victim(i: &Inputs, now: u64, backstop: bool) -> Option<Victim> {
     #[cfg(any(feature = "std", test))]
     {
-        let r = if backstop { REGISTRY.lock().ok()? } else { REGISTRY.try_lock().ok()? };
+        let r = if backstop {
+            REGISTRY.lock().ok()?
+        } else {
+            REGISTRY.try_lock().ok()?
+        };
         let cand = |w: &alloc::sync::Weak<StmtMem>| match w.upgrade() {
             // C8 move 3c (b): RUNNING counts committed bytes (policy 3.2), not the grant's untouched room
             Some(l) if l.on.load(Relaxed) => decide::Cand {
@@ -2567,21 +2927,35 @@ fn cancel_fair_victim(i: &Inputs, now: u64, backstop: bool) -> Option<Victim> {
                 idle: false,
                 canceled: l.cancel_pct() != 0,
             },
-            _ => decide::Cand { held: 0, elapsed_ms: 0, idle: true, canceled: false },
+            _ => decide::Cand {
+                held: 0,
+                elapsed_ms: 0,
+                idle: true,
+                canceled: false,
+            },
         };
         let today = decide::victim(r.iter().map(cand), i.share(), i.overshoot());
         // LEDGER2 step 4: the same rule over the owner tree's bytes, noted beside today's pick
         let tree_cand = |w: &alloc::sync::Weak<StmtMem>| {
             let mut c = cand(w);
             if !c.idle {
-                c.held = w.upgrade().map_or(0, |l| crate::ledger2::owned(l.slot_index()));
+                c.held = w
+                    .upgrade()
+                    .map_or(0, |l| crate::ledger2::owned(l.slot_index()));
             }
             c
         };
         let tree = decide::victim(r.iter().map(tree_cand), i.share(), i.overshoot());
         let choice = |k: Option<usize>, tree: bool| {
             k.and_then(|k| r.get(k)?.upgrade()).map_or((None, 0), |l| {
-                (l.slot_index(), if tree { crate::ledger2::owned(l.slot_index()) } else { l.committed_held() })
+                (
+                    l.slot_index(),
+                    if tree {
+                        crate::ledger2::owned(l.slot_index())
+                    } else {
+                        l.committed_held()
+                    },
+                )
             })
         };
         let shadow = (choice(today, false), choice(tree, true));
@@ -2596,22 +2970,49 @@ fn cancel_fair_victim(i: &Inputs, now: u64, backstop: bool) -> Option<Victim> {
             if !big.on.load(Relaxed) || word & CANCEL_PCT != 0 {
                 return None;
             }
-            let pct = (i.r.saturating_mul(100) / i.l.max(1)).clamp(1, CANCEL_PROJECTED as u64 - 1) as usize;
+            let pct = (i.r.saturating_mul(100) / i.l.max(1)).clamp(1, CANCEL_PROJECTED as u64 - 1)
+                as usize;
             let canceled = word | pct | CANCEL_PROJECTED;
             // D3934: on the threshold rung's clock, so its backstop waits CANCEL_ACK_MS on this cancel as on its own
             big.canceled_ms.store(watchdog_ms(), Relaxed);
-            big.cancel.compare_exchange(word, canceled, core::sync::atomic::Ordering::AcqRel, Relaxed).ok()?;
+            big.cancel
+                .compare_exchange(
+                    word,
+                    canceled,
+                    core::sync::atomic::Ordering::AcqRel,
+                    Relaxed,
+                )
+                .ok()?;
             let b = big.committed_held() as usize;
-            pending_add(b as u64, mempolicy::consts::get(mempolicy::consts::K::CancelLandingMs), now);
-            let backend = big.slot.load(Relaxed).checked_sub(1).and_then(|s| SLOT_TABLE.get(s).map(|t| (s, t.pid.load(Relaxed))));
+            pending_add(
+                b as u64,
+                mempolicy::consts::get(mempolicy::consts::K::CancelLandingMs),
+                now,
+            );
+            let backend = big
+                .slot
+                .load(Relaxed)
+                .checked_sub(1)
+                .and_then(|s| SLOT_TABLE.get(s).map(|t| (s, t.pid.load(Relaxed))));
             if let Some((slot, pid)) = backend {
                 condemn(slot, canceled);
                 raise(slot, pid);
             }
             // (the projection's cancel ranks by committed bytes, not R6's rank: no candidates kept)
-            Some(Victim { bytes: b, charged: big.committed_shared(), word: canceled, backend, top: [Cand::default(); PICK_TOP] })
+            Some(Victim {
+                bytes: b,
+                charged: big.committed_shared(),
+                word: canceled,
+                backend,
+                top: [Cand::default(); PICK_TOP],
+            })
         })();
-        crate::ledger2::note(crate::ledger2::Decision::FairCancel, shadow.0, shadow.1, now);
+        crate::ledger2::note(
+            crate::ledger2::Decision::FairCancel,
+            shadow.0,
+            shadow.1,
+            now,
+        );
         v
     }
     #[cfg(not(any(feature = "std", test)))]
@@ -2653,7 +3054,12 @@ pub fn decide_tick() -> Option<Tick> {
         SPILL_EPOCH.fetch_add(1, Relaxed);
     }
     let reclaim_fast = RECLAIM_ASK.swap(false, Relaxed) || plan.reclaim_fast;
-    let mut t = Tick { inputs: i, plan, reclaim_fast, ..Tick::default() };
+    let mut t = Tick {
+        inputs: i,
+        plan,
+        reclaim_fast,
+        ..Tick::default()
+    };
     if plan.revoke != 0 || plan.cancel == decide::Cancel::Victim {
         if let Some(_one) = Deciding::try_lock() {
             let (asked, v) = act(&mut i, &plan, None, true);
@@ -2725,8 +3131,11 @@ struct InlineRing {
 }
 
 #[cfg(any(feature = "std", test))]
-static INLINE_TRACE: std::sync::Mutex<InlineRing> =
-    std::sync::Mutex::new(InlineRing { rec: [const { core::mem::MaybeUninit::zeroed() }; 64], n: 0, dropped: 0 });
+static INLINE_TRACE: std::sync::Mutex<InlineRing> = std::sync::Mutex::new(InlineRing {
+    rec: [const { core::mem::MaybeUninit::zeroed() }; 64],
+    n: 0,
+    dropped: 0,
+});
 
 /// One decide into the ring (dropped, and counted, when the ring is full or a drain holds it).
 #[cfg(any(feature = "std", test))]
@@ -2742,12 +3151,25 @@ fn ring_push(d: InlineDecide) {
     }
 }
 
-fn trace_inline(event: Event, inputs: &Inputs, plan: &decide::Plan, slot: Option<usize>, victim: Option<Victim>) {
+fn trace_inline(
+    event: Event,
+    inputs: &Inputs,
+    plan: &decide::Plan,
+    slot: Option<usize>,
+    victim: Option<Victim>,
+) {
     if !mempolicy::trace::on() {
         return;
     }
     #[cfg(any(feature = "std", test))]
-    ring_push(InlineDecide { at_ms: decide_ms(), event, inputs: *inputs, plan: *plan, slot, victim });
+    ring_push(InlineDecide {
+        at_ms: decide_ms(),
+        event,
+        inputs: *inputs,
+        plan: *plan,
+        slot,
+        victim,
+    });
     #[cfg(not(any(feature = "std", test)))]
     let _ = (event, inputs, plan, slot, victim);
 }
@@ -2766,7 +3188,10 @@ pub fn drain_inline_trace(mut f: impl FnMut(&InlineDecide)) -> u64 {
             Err(_) => return 0,
         };
         // SAFETY: `ring_push` wrote `rec[..n]` before it counted them in `n`.
-        rec[..n].iter().map(|r| unsafe { r.assume_init_ref() }).for_each(&mut f);
+        rec[..n]
+            .iter()
+            .map(|r| unsafe { r.assume_init_ref() })
+            .for_each(&mut f);
         dropped
     }
     #[cfg(not(any(feature = "std", test)))]
@@ -2785,31 +3210,48 @@ mod inline_trace_tests {
     #[cfg(target_os = "linux")]
     #[test]
     fn the_inline_trace_ring_is_in_bss() {
-        let last = core::ptr::addr_of!(INLINE_TRACE) as usize + core::mem::size_of_val(&INLINE_TRACE) - 1;
+        let last =
+            core::ptr::addr_of!(INLINE_TRACE) as usize + core::mem::size_of_val(&INLINE_TRACE) - 1;
         let maps = std::fs::read_to_string("/proc/self/maps").unwrap();
         let line = maps
             .lines()
             .find(|l| {
                 let (a, z) = l.split(' ').next().unwrap().split_once('-').unwrap();
-                (usize::from_str_radix(a, 16).unwrap()..usize::from_str_radix(z, 16).unwrap()).contains(&last)
+                (usize::from_str_radix(a, 16).unwrap()..usize::from_str_radix(z, 16).unwrap())
+                    .contains(&last)
             })
             .unwrap_or_else(|| panic!("no mapping holds {last:#x}"));
         let f: std::vec::Vec<&str> = line.split_whitespace().collect();
-        assert!(f[1].starts_with("rw") && (f.len() == 5 || f[5] == "[heap]"), "the inline trace ring is mapped from the binary (.data), not .bss: {line}");
+        assert!(
+            f[1].starts_with("rw") && (f.len() == 5 || f[5] == "[heap]"),
+            "the inline trace ring is mapped from the binary (.data), not .bss: {line}"
+        );
     }
 
     /// D4514: the ring hands back exactly what was pushed, oldest first, counts what a full ring dropped, and is empty
     /// after a drain.
     #[test]
     fn the_inline_trace_ring_drains_what_was_pushed() {
-        let d = |at_ms| InlineDecide { at_ms, event: Event::Tick, inputs: Inputs::default(), plan: decide::Plan::default(), slot: Some(3), victim: None };
+        let d = |at_ms| InlineDecide {
+            at_ms,
+            event: Event::Tick,
+            inputs: Inputs::default(),
+            plan: decide::Plan::default(),
+            slot: Some(3),
+            victim: None,
+        };
         let _ = drain_inline_trace(|_| {});
         for at in 1..=66 {
             ring_push(d(at));
         }
         let mut seen = std::vec::Vec::new();
         let dropped = drain_inline_trace(|r| seen.push((r.at_ms, r.slot)));
-        assert_eq!(seen, (1..=64).map(|at| (at, Some(3))).collect::<std::vec::Vec<_>>());
+        assert_eq!(
+            seen,
+            (1..=64)
+                .map(|at| (at, Some(3)))
+                .collect::<std::vec::Vec<_>>()
+        );
         assert_eq!(dropped, 2);
         assert_eq!(drain_inline_trace(|_| panic!("drained twice")), 0);
     }

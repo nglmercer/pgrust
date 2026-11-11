@@ -25,18 +25,17 @@ const SIZEOF_DSA_POINTER: usize = 8;
 const DSA_SCLASS_BLOCK_OF_SPANS: usize = 0;
 
 const DSA_SIZE_CLASSES: [usize; 38] = [
-    56, 0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 384, 448,
-    512, 640, 768, 896, 1024, 1280, 1560, 1816, 2048, 2616, 3120, 3640, 4096, 5456, 6552, 7280,
-    8192,
+    56, 0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 384, 448, 512,
+    640, 768, 896, 1024, 1280, 1560, 1816, 2048, 2616, 3120, 3640, 4096, 5456, 6552, 7280, 8192,
 ];
 
 const DSA_SIZE_CLASS_MAP: [u8; 128] = [
-    2, 3, 4, 5, 6, 7, 8, 9, 10, 10, 11, 11, 12, 12, 13, 13, 14, 14, 14, 14, 15, 15, 15, 15, 16,
-    16, 16, 16, 17, 17, 17, 17, 18, 18, 18, 18, 18, 18, 18, 18, 19, 19, 19, 19, 19, 19, 19, 19,
-    20, 20, 20, 20, 20, 20, 20, 20, 21, 21, 21, 21, 21, 21, 21, 21, 22, 22, 22, 22, 22, 22, 22,
-    22, 22, 22, 22, 22, 22, 22, 22, 22, 23, 23, 23, 23, 23, 23, 23, 23, 23, 23, 23, 23, 23, 23,
-    23, 23, 24, 24, 24, 24, 24, 24, 24, 24, 24, 24, 24, 24, 24, 24, 24, 24, 25, 25, 25, 25, 25,
-    25, 25, 25, 25, 25, 25, 25, 25, 25, 25, 25,
+    2, 3, 4, 5, 6, 7, 8, 9, 10, 10, 11, 11, 12, 12, 13, 13, 14, 14, 14, 14, 15, 15, 15, 15, 16, 16,
+    16, 16, 17, 17, 17, 17, 18, 18, 18, 18, 18, 18, 18, 18, 19, 19, 19, 19, 19, 19, 19, 19, 20, 20,
+    20, 20, 20, 20, 20, 20, 21, 21, 21, 21, 21, 21, 21, 21, 22, 22, 22, 22, 22, 22, 22, 22, 22, 22,
+    22, 22, 22, 22, 22, 22, 23, 23, 23, 23, 23, 23, 23, 23, 23, 23, 23, 23, 23, 23, 23, 23, 24, 24,
+    24, 24, 24, 24, 24, 24, 24, 24, 24, 24, 24, 24, 24, 24, 25, 25, 25, 25, 25, 25, 25, 25, 25, 25,
+    25, 25, 25, 25, 25, 25,
 ];
 const DSA_SIZE_CLASS_MAP_QUANTUM: usize = 8;
 
@@ -163,7 +162,10 @@ impl DsaSizeModel {
                 (1, FPM_PAGE_SIZE / obsize - 1)
             } else {
                 self.alloc_object(DSA_SCLASS_BLOCK_OF_SPANS, request)?;
-                (DSA_PAGES_PER_SUPERBLOCK, DSA_PAGES_PER_SUPERBLOCK * FPM_PAGE_SIZE / obsize)
+                (
+                    DSA_PAGES_PER_SUPERBLOCK,
+                    DSA_PAGES_PER_SUPERBLOCK * FPM_PAGE_SIZE / obsize,
+                )
             };
             self.get_pages(npages, request)?;
             self.free_objects[size_class] = nmax;
@@ -175,7 +177,9 @@ impl DsaSizeModel {
     fn get_pages(&mut self, npages: usize, request: usize) -> PgResult<()> {
         let idx = match self.best_segment(npages) {
             Some(idx) => idx,
-            None => self.make_new_segment(npages).ok_or_else(|| out_of_memory(request))??,
+            None => self
+                .make_new_segment(npages)
+                .ok_or_else(|| out_of_memory(request))??,
         };
         self.segments[idx].free_pages -= npages;
         Ok(())

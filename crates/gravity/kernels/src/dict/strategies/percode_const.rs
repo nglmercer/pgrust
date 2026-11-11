@@ -140,6 +140,7 @@ pub fn percode_const_census() -> [u64; 4] {
 /// The survivor words of site `s`'s window when it is a condition-cache miss: its verdict lane (`LaneId::Verdict(0)`, the
 /// cache's) not covered, whose words the rows passing every covered step set (lowerv4 source/verdict_cond.rs `record`) and
 /// the granule host publishes once the window is consumed; null for a hit or a site without the cache.
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn miss_words(s: *const gravity_abi::site::Site) -> *mut u64 {
     let (lanes, verdict) = ((*s).lanes.ptr() as *const Lane, lane::id(lane::ID_VERDICT, 0));
     let miss = (0..(*s).nlanes as usize).map(|l| &*lanes.add(l)).find(|l| l.id == verdict && !l.ptr.ptr().is_null() && l.flags & lane::VERDICT_MASK != lane::VERDICT_ALL_MATCH);

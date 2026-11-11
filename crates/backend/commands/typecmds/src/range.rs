@@ -17,8 +17,8 @@ use types_nodes::NodeList;
 
 use pg_depend::DependencyType;
 use pg_proc::{
-    INTERNALlanguageId, PROARGMODE_VARIADIC, PROKIND_FUNCTION, PROPARALLEL_SAFE,
-    PROVOLATILE_IMMUTABLE, ProcedureCreateArgs,
+    INTERNALlanguageId, ProcedureCreateArgs, PROARGMODE_VARIADIC, PROKIND_FUNCTION,
+    PROPARALLEL_SAFE, PROVOLATILE_IMMUTABLE,
 };
 use pg_type::{ObjectAddress, TypeCreateParams, DEFAULT_TYPDELIM, TYPCATEGORY_ARRAY, TYPTYPE_BASE};
 
@@ -47,8 +47,7 @@ pub fn DefineRange<'mcx>(
     pstate: &mut ParseState<'_, 'mcx>,
     stmt: &CreateRangeStmt<'mcx>,
 ) -> PgResult<ObjectAddress> {
-    let (typeNamespace, typeName) =
-        crate::creation_namespace(mcx, &stmt.typeName, "DefineRange")?;
+    let (typeNamespace, typeName) = crate::creation_namespace(mcx, &stmt.typeName, "DefineRange")?;
 
     let mut typoid = syscache_seams::lookup_pg_type_oid_by_name::call(typeName, typeNamespace)?;
     if OidIsValid(typoid) && lsyscache::get_typisdefined(typoid)? {
@@ -68,9 +67,16 @@ pub fn DefineRange<'mcx>(
     let mut multirangeNamespace = InvalidOid;
 
     for n in stmt.params.iter() {
-        let defel = n.as_def_elem().expect("CREATE TYPE AS RANGE params: DefElem list");
+        let defel = n
+            .as_def_elem()
+            .expect("CREATE TYPE AS RANGE params: DefElem list");
         let conflicting = |defel: &DefElem<'_>| {
-            domain_err(pstate, ERRCODE_SYNTAX_ERROR, "conflicting or redundant options", defel.location)
+            domain_err(
+                pstate,
+                ERRCODE_SYNTAX_ERROR,
+                "conflicting or redundant options",
+                defel.location,
+            )
         };
         match defel.defname.unwrap_or("") {
             "subtype" => {
@@ -207,8 +213,7 @@ pub fn DefineRange<'mcx>(
             return Err(Box::new(
                 PgError::new(
                     ERROR,
-                    "range collation specified but subtype does not support collation"
-                        .to_string(),
+                    "range collation specified but subtype does not support collation".to_string(),
                 )
                 .with_sqlstate(ERRCODE_WRONG_OBJECT_TYPE),
             ));
@@ -243,7 +248,11 @@ pub fn DefineRange<'mcx>(
     };
 
     let (_subtyplen, _subtypbyval, subtypalign) = lsyscache::get_typlenbyvalalign(rangeSubtype)?;
-    let alignment = if subtypalign == TYPALIGN_DOUBLE { TYPALIGN_DOUBLE } else { TYPALIGN_INT };
+    let alignment = if subtypalign == TYPALIGN_DOUBLE {
+        TYPALIGN_DOUBLE
+    } else {
+        TYPALIGN_INT
+    };
 
     let rangeArrayOid = pg_type::AssignTypeArrayOid(mcx)?;
     let multirangeOid = pg_type::AssignTypeMultirangeOid(mcx)?;
@@ -403,8 +412,7 @@ pub fn DefineRange<'mcx>(
         },
     )?;
 
-    let multirangeArrayName =
-        pg_type::makeArrayTypeName(multirangeTypeName, typeNamespace)?;
+    let multirangeArrayName = pg_type::makeArrayTypeName(multirangeTypeName, typeNamespace)?;
     pg_type::TypeCreate(
         mcx,
         &TypeCreateParams {
@@ -511,7 +519,7 @@ fn makeRangeConstructors<'mcx>(
                 procost: 1.0,
                 prorows: 0.0,
                 prosupport: InvalidOid,
-            parameterDefaults: None,
+                parameterDefaults: None,
                 numDefaults: 0,
             },
         )?;
@@ -697,7 +705,10 @@ fn range_func_check<'mcx>(
         return Err(Box::new(
             PgError::new(
                 ERROR,
-                format!("{what} function {} must be immutable", func_sig(mcx, procname, argtypes)?),
+                format!(
+                    "{what} function {} must be immutable",
+                    func_sig(mcx, procname, argtypes)?
+                ),
             )
             .with_sqlstate(ERRCODE_INVALID_OBJECT_DEFINITION),
         ));
@@ -720,12 +731,10 @@ fn range_func_check<'mcx>(
     Ok(())
 }
 
-fn func_sig<'mcx>(
-    mcx: Mcx<'mcx>,
-    procname: &NodeList<'mcx>,
-    argtypes: &[Oid],
-) -> PgResult<String> {
-    let mut sig = commands_define::NameListToString(mcx, procname)?.as_str().to_string();
+fn func_sig<'mcx>(mcx: Mcx<'mcx>, procname: &NodeList<'mcx>, argtypes: &[Oid]) -> PgResult<String> {
+    let mut sig = commands_define::NameListToString(mcx, procname)?
+        .as_str()
+        .to_string();
     sig.push('(');
     for (i, &t) in argtypes.iter().enumerate() {
         if i > 0 {

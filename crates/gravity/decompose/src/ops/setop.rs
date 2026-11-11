@@ -958,6 +958,7 @@ impl<'p> Reach<'p, '_> {
                 }
                 // D2212 (Hibernate's jsonb_mergepatch): a recursive union whose seed reads this union whole before its first
                 // row, under a reader that surely pulls it once: read whole there, so its seed needs no pull (E-1 below)
+                #[allow(clippy::nonminimal_bool)]
                 let sure = at.early && !at.stop && !at.window && !at.probe && !at.none && !(self.partial && at.top);
                 if let Some(outer) = root.as_recursive_union().filter(|_| !dml && sure && !at.whole) {
                     if self.enter_first_whole(id, outer)? {

@@ -19,9 +19,9 @@
 //!     serialization/launch/instrumentation paths (execParallel.c,
 //!     readfuncs), including parallel-restricted shapes the cost route
 //!     never gathers (e.g. array_agg runs below the Gather here).
-//! Every bracket SET has its RESET in the same group; the diffrunner's
-//! GucPinned wrapper re-applies the C-parity pin after each RESET on BOTH
-//! sides identically, so the pin invariant survives the brackets.
+//!     Every bracket SET has its RESET in the same group; the diffrunner's
+//!     GucPinned wrapper re-applies the C-parity pin after each RESET on BOTH
+//!     sides identically, so the pin invariant survives the brackets.
 //!
 //! Determinism laws honored (worker row order is nondeterministic):
 //!   - every row-returning parallel SELECT is order-normalized: top-level
@@ -748,6 +748,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::manual_strip)]
     fn vacuum_parallel_only_on_two_index_tables() {
         // Every VACUUM (PARALLEL n) target was created with two secondary
         // indexes (the create group emits them before any vacuum can
@@ -759,6 +760,7 @@ mod tests {
                 created.push(rest.split(' ').next().unwrap().to_string());
             }
             if sql.starts_with("VACUUM (PARALLEL ") {
+                #[allow(clippy::manual_strip)]
                 let n: u32 = sql["VACUUM (PARALLEL ".len()..]
                     .chars()
                     .next()

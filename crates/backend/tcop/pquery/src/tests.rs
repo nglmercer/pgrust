@@ -114,11 +114,14 @@ mod e2e {
     use mcx::{Mcx, MemoryContext};
     use types_dest::CommandDest;
     use types_fmgr::{FmgrInfo, FunctionCallInfoBaseData};
+    #[allow(unused_imports)]
     use types_nodes::list::NodeList;
     use types_nodes::node_tree::Node;
     use types_nodes::nodes_enums::CmdType;
+    #[allow(unused_imports)]
     use types_nodes::parsenodes::{ExplainStmt, Query, VariableShowStmt};
     use types_nodes::plannodes::PlannedStmt;
+    #[allow(unused_imports)]
     use types_nodes::primnodes::FromExpr;
     use types_portal::{
         CachedPlanHandle, ParamListHandle, QueryCompletion, FETCH_ALL,

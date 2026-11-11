@@ -572,6 +572,7 @@ fn tuple_len(types: &[u32], width: i32) -> Option<u64> {
     let cols = cols.as_slice();
     let fixed: u64 = cols.iter().filter(|c| c.0 > 0).map(|c| c.0 as u64).sum();
     let nvar = cols.iter().filter(|c| c.0 <= 0).count() as u64;
+    #[allow(clippy::manual_checked_ops)]
     let var = if nvar == 0 { 0 } else { (width.max(0) as u64).saturating_sub(fixed).max(nvar) / nvar };
     let mut off = 0u64;
     for &(len, align) in cols {

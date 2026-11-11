@@ -8,7 +8,7 @@
 //!   down by the tail, the region parked; a take after it gets the region with the tail closed (PROT_NONE);
 //! - a trim never waits for a park job queued before it (take-back TB3): a depot trim and a draw's trim (`reap::drain`)
 //!   go on at once without the region, never giving the job back themselves; the service parks it.
-//! Its own [[test]]: a #[global_allocator] (door 1, as the server counts it), process-wide knobs and hooks.
+//!   Its own [[test]]: a #[global_allocator] (door 1, as the server counts it), process-wide knobs and hooks.
 
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};

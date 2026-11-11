@@ -1033,7 +1033,7 @@ pub fn verify_carried(m: &Mint, f0: &Function, f1: &Function, cells: &[Cell], re
                 return Err(format!("b{bi}: instruction {:?} became {:?}", inst0, inst1)); // alloc: Cold
             }
             // (`operands_into` visits the operands in `op_values_mut`'s order)
-            (vs0.clear(), vs1.clear());
+            vs0.clear(); vs1.clear();
             inst0.op.for_each_operand(|v| vs0.push(v));
             inst1.op.for_each_operand(|v| vs1.push(v));
             if vs0.len() != vs1.len() {

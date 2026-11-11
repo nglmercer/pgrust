@@ -78,6 +78,7 @@ pub(crate) fn paths<'g>(gx: &Gx<'g, '_>, k: usize) -> PgVec<'g, (i16, PgVec<'g, 
         }
     }
     // a group's keys and aggregates' arguments over the scan row (no projection before them)
+    #[allow(for_loops_over_fallibles)]
     for g in gx.group_at(k).filter(|_| row_step(gx, k, p.ops.len())) {
         g.keys.iter().for_each(|x| see(x.expr.node()));
         g.aggs.iter().for_each(|a| a.filter.iter().copied().chain([a.node]).for_each(&mut see));

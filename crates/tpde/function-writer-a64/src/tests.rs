@@ -167,6 +167,7 @@ fn invalid_label_and_unknown_fixup_are_explicit_and_module_is_reusable() {
     module.label_place(label, 4).unwrap();
     module.label_ref(label, 0, LabelFixupKind(77)).unwrap();
     assert!(module.finish_func().is_err());
+    #[allow(clippy::drop_non_drop)]
     drop(module);
     assembler.reset().unwrap();
     let text = assembler.get_default_section(SectionKind::Text).unwrap();
@@ -185,6 +186,7 @@ fn backward_unconditional_fixup_refuses_then_new_module_succeeds() {
     module.write_inst(NOP).unwrap();
     reference(&mut module, label, LabelFixupKind::AARCH64_BR, 0x14000000);
     assert!(module.finish_func().is_err());
+    #[allow(clippy::drop_non_drop)]
     drop(module);
     assembler.reset().unwrap();
     let text = assembler.get_default_section(SectionKind::Text).unwrap();
@@ -400,6 +402,7 @@ fn partial_table_finalization_is_discarded_by_module_reset() {
     module.label_place(placed, 48).unwrap();
     assert!(module.finish_func().is_err());
     assert_eq!(module.get_section().unwrap().relocations().len(), 2);
+    #[allow(clippy::drop_non_drop)]
     drop(module);
     assembler.reset().unwrap();
     let text = assembler.get_default_section(SectionKind::Text).unwrap();

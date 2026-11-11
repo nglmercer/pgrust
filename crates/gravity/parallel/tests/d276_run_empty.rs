@@ -8,6 +8,7 @@
 //! `run_pipeline`): a masked pipeline without a driving site (here the emit, 2) is no longer left alone: it opens and ends
 //! at its first call without its program, so with its bit set too the statement completes with no row.
 
+#[allow(clippy::duplicate_mod)]
 mod common;
 
 use std::sync::atomic::Ordering;

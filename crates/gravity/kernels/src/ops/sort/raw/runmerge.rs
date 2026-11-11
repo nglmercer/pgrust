@@ -34,12 +34,14 @@ pub unsafe fn open(ctx: *mut Ctx, own: *mut u8, usable: usize, rec: usize, key_o
 }
 /// `open` over the rows' first `nkey` words (unsigned, lexicographic), the caller-owned protocol
 /// flagged in the header. # Safety — as `open`.
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn open_words(ctx: *mut Ctx, own: *mut u8, usable: usize, rec: usize, nkey: u16) -> Result<bool, i64> {
     open_by(ctx, own, usable, rec, nkey, true, 0, &|a, b| cmp_words(nkey as usize, a, b))
 }
 /// `open_words` over run stream `stream` (`slot + 1`; 0 the pipeline's own) laid in memory the caller owns (`home`, `usable` bytes): a pipeline that merges one slot's runs while producing another's (lower.md §15.20 — the caller
 /// declares `SPILL_RUN_BASE home` before this and before every `drain_words`, so the fills land in `home`).
 /// # Safety — as `open`, over `home`.
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn open_words_in(ctx: *mut Ctx, home: *mut u8, usable: usize, rec: usize, nkey: u16, stream: u64) -> Result<bool, i64> {
     open_by(ctx, home, usable, rec, nkey, true, stream, &|a, b| cmp_words(nkey as usize, a, b))
 }
@@ -52,16 +54,19 @@ unsafe fn cmp_words(n: usize, a: *const u8, b: *const u8) -> core::cmp::Ordering
     }
     core::cmp::Ordering::Equal
 }
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn open_by(ctx: *mut Ctx, own: *mut u8, usable: usize, rec: usize, nkey: u16, own_protocol: bool, stream: u64, cmp: Cmp<'_>) -> Result<bool, i64> {
     open_impl(ctx, own, usable, rec, nkey, own_protocol, stream, None, cmp)
 }
 /// `open_by` over variable-length records (M4 sort rows carrying their by-reference bytes): `rec` is the fixed head every record has, the record's total length (8-rounded) is the `u32` at `rec_off` inside it; a record longer than a run's buffer grows that run's buffer past the region (D1327 `grow`).
 /// # Safety — as `open`.
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn open_var_by(ctx: *mut Ctx, own: *mut u8, usable: usize, rec: usize, rec_off: u16, cmp: Cmp<'_>) -> Result<bool, i64> {
     open_impl(ctx, own, usable, rec, 0, true, 0, Some(rec_off), cmp)
 }
 /// `open_var_by` over run stream `stream` (`slot + 1`; 0 the pipeline's own), D457's consumed sort.
 /// # Safety — as `open`.
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn open_var_in(ctx: *mut Ctx, own: *mut u8, usable: usize, rec: usize, rec_off: u16, stream: u64, cmp: Cmp<'_>) -> Result<bool, i64> {
     open_impl(ctx, own, usable, rec, 0, true, stream, Some(rec_off), cmp)
 }
@@ -100,6 +105,7 @@ unsafe fn open_impl(ctx: *mut Ctx, own: *mut u8, usable: usize, rec: usize, nkey
 /// run's slice, `SPILL_RUN_SLICE`) in one merge: no pass (the caller sized `usable` for every run's least buffer, else
 /// `UNSUPPORTED_SCRATCH`); `Ok(false)` without runs.
 /// # Safety — as `open`, over `own`.
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn open_slices(ctx: *mut Ctx, own: *mut u8, usable: usize, rec: usize, nkey: u16, var: Option<u16>, nruns: usize, open: &dyn Fn(usize) -> i64, cmp: Cmp<'_>) -> Result<bool, i64> {
     if nruns == 0 {
         return Ok(false);
@@ -299,10 +305,12 @@ pub unsafe fn drain(ctx: *mut Ctx, own: *mut u8, key_of: KeyOf, emit_row: EmitRo
 }
 /// `drain_rows` over an `open_words` merge: no flush, the resume word untouched; `DONE` when every
 /// run is spent, `HOST_STOP` when `emit_row` said stop (the row consumed). # Safety — as `drain`.
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn drain_words(ctx: *mut Ctx, own: *mut u8, emit_row: EmitRow) -> i64 {
     let nkey = key_words(&*(own as *const RunMerge));
     drain_rows(ctx, own, &|a, b| cmp_words(nkey, a, b), emit_row)
 }
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn drain_by(ctx: *mut Ctx, own: *mut u8, cmp: Cmp<'_>, emit_row: EmitRow) -> i64 {
     drain_rows(ctx, own, cmp, emit_row)
 }

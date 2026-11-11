@@ -950,6 +950,7 @@ fn public_subkey_tail_is_parsed_as_a_header() {
 // the append rounded up to STEP plus a STEP, and the growth past
 // MaxAllocSize is mcxt.c's error with that request size (batch-76 mbuf#3).
 #[test]
+#[allow(clippy::field_reassign_with_default)]
 fn decrypt_output_grows_like_prepare_room() {
     let mut ctx = pgp::context::PgpContext::default();
     ctx.mbuf_cap = ::mcx::MAX_ALLOC_SIZE - 10;

@@ -47,7 +47,9 @@ fn sorted(last: &[i32], desc9: bool, wide: bool) -> Vec<i32> {
 }
 
 #[test]
+#[allow(clippy::assertions_on_constants, unused_attributes)]
 fn a_wide_descriptor_reads_its_comparator_words_after_its_sort_words() {
+    #[allow(clippy::assertions_on_constants)]
     assert!(NKEY > DESC_MAX_SORT);
     assert_eq!(sorted(&[1, -1, 3, -7], false, true), [-7, -1, 1, 3], "btint4cmp's order, not the words' bits");
     assert_eq!(sorted(&[1, -1, 3, -7], true, true), [3, 1, -1, -7], "DESC reverses the comparator");

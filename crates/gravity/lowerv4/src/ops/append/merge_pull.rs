@@ -247,7 +247,8 @@ pub(crate) fn make<'g>(px: &mut Px<'g, '_>, k: usize, m: &Merge<'_>, cols: &type
     // the heap's words follow the arms' (keyed past the last arm): its size, then one word per position, contiguous
     let first = m.arms.len() + 1;
     let size = word(px, first, 0);
-    let hw = (0..m.arms.len()).map(|p| word(px, first + 1 + p / 256, (p % 256) as usize)).collect_in(mcx);
+    #[allow(clippy::double_parens, unused_parens)]
+    let hw = (0..m.arms.len()).map(|p| word(px, first + 1 + p / 256, ((p % 256)))).collect_in(mcx);
     if hw.iter().enumerate().any(|(p, &x)| x != hw[0] + 8 * p as i32) {
         bug(node, "a pull-form merge whose heap words are not contiguous");
     }

@@ -13,15 +13,15 @@
 //! - linear (`ExecEvalScalarArrayOp`) for the rest: a NULL array is NULL, an empty one false (ANY) / true (ALL) whatever
 //!   the operand, a NULL operand of the strict operator NULL, else the elements in order, true (false for ALL) at the
 //!   first decided one, NULL when none decided and an element or a compare was NULL.
-//! Calls go through the functions' shims (gravity_fn: pure over their arguments, so a pool worker runs them) with the
-//! node's collation; an operator without a shim (a function-manager call) is not claimed: gravity_expr walks a non-constant
-//! array itself (expr/src/emit/host.rs `saop_walk`, the site's cell per element), a constant of more than 16 stays "a long list". A
-//! constant array PG did not hash (no hash function), of more than 16 elements, is an operand like any array (V4R-110):
-//! its word bound per execution, walked in the linear form, never read here but for its count (konst.rs `list_len`, the
-//! class the keys hash), so every list of the statement's shape is one program. The host half (the `Desc` the program
-//! owns, frame/px.rs `owned`) is step/raw/saop_host.rs. A text `= ANY` of a constant array PG did not hash that road
-//! text.eq claims (rep/varlena/cmp_text.rs `claims_any`) is declined here: kind rows are tried before road rows. Owner
-//! M2-FRAME.
+//!   Calls go through the functions' shims (gravity_fn: pure over their arguments, so a pool worker runs them) with the
+//!   node's collation; an operator without a shim (a function-manager call) is not claimed: gravity_expr walks a non-constant
+//!   array itself (expr/src/emit/host.rs `saop_walk`, the site's cell per element), a constant of more than 16 stays "a long list". A
+//!   constant array PG did not hash (no hash function), of more than 16 elements, is an operand like any array (V4R-110):
+//!   its word bound per execution, walked in the linear form, never read here but for its count (konst.rs `list_len`, the
+//!   class the keys hash), so every list of the statement's shape is one program. The host half (the `Desc` the program
+//!   owns, frame/px.rs `owned`) is step/raw/saop_host.rs. A text `= ANY` of a constant array PG did not hash that road
+//!   text.eq claims (rep/varlena/cmp_text.rs `claims_any`) is declined here: kind rows are tried before road rows. Owner
+//!   M2-FRAME.
 use std::rc::Rc;
 
 use gravity_abi::status::raise;
@@ -58,6 +58,7 @@ static SAOP: Saop = Saop;
 #[derive(Clone, Copy)]
 enum Arr {
     Sub(u32),
+    #[allow(dead_code)]
     Set(Option<u16>, Option<Licence>),
 }
 
@@ -183,6 +184,7 @@ pub(crate) fn list_form(p: &gravity_expr::Program<'_>, root: NodeId, id: NodeId)
     let bpchar = matches!((name, s.use_or), (Some("bpchareq"), true) | (Some("bpcharne"), false)) && stored(p, lhs) && text_set::bpchar_on()
         && !crate::rep::varlena::cmp_text::claims_some(p, root);
     // road text.set: or a view of one (text_set.rs `is_view`: substring / rtrim1 of a column), read in place
+    #[allow(clippy::nonminimal_bool)]
     if !bpchar && !stored(p, lhs) && !(text_set::on() && text_set::is_view(p, lhs)) {
         return None;
     }
@@ -621,7 +623,8 @@ mod tests {
     fn a_short_constant_list_is_not_claimed() {
         let mut img = vec![0u64; 5];
         let b = unsafe { core::slice::from_raw_parts_mut(img.as_mut_ptr().cast::<u8>(), 40) };
-        let hdr: [i32; 6] = [(36 << 2) as i32, 1, 0, 23, 3, 1];
+        #[allow(clippy::double_parens)]
+        let hdr: [i32; 6] = [((36 << 2)), 1, 0, 23, 3, 1];
         hdr.iter().enumerate().for_each(|(i, x)| b[i * 4..i * 4 + 4].copy_from_slice(&x.to_le_bytes()));
         [7i32, 8, 9].iter().enumerate().for_each(|(i, x)| b[24 + i * 4..28 + i * 4].copy_from_slice(&x.to_le_bytes()));
         let k = ConstNode::new(gravity_fn::NullableDatum::value(Datum::from_usize(img.as_ptr() as usize)), 1007, -1, false);

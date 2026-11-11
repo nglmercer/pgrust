@@ -151,7 +151,7 @@ pub(crate) fn presence(px: &mut Px<'_, '_>, k: usize, j: usize, c: &mut Compiled
             tests_.push_in(NodeId(p.nodes.len() as u32));
             p.nodes.push_in(ExprNode::NullTest(NullTestNode { arg: lane, is_null: true, row: false, site: None }));
         }
-        let mut join = |p: &mut gravity_expr::Program<'_>, ids: &[NodeId], op: BoolExprType| -> NodeId {
+        let join = |p: &mut gravity_expr::Program<'_>, ids: &[NodeId], op: BoolExprType| -> NodeId {
             if let [one] = ids {
                 return *one;
             }
@@ -271,7 +271,7 @@ fn contains_case(c: &mut Compiled<'_>, i: usize, leaves: &[(usize, PgVec<'_, u8>
         eqs.push_in(NodeId(p.nodes.len() as u32));
         p.nodes.push_in(ExprNode::Op(FuncNode { site: sid }));
     }
-    let mut join = |p: &mut gravity_expr::Program<'_>, ids: &[NodeId], op: BoolExprType| -> NodeId {
+    let join = |p: &mut gravity_expr::Program<'_>, ids: &[NodeId], op: BoolExprType| -> NodeId {
         if let [one] = ids {
             return *one;
         }

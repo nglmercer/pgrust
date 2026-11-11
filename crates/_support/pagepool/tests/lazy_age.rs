@@ -26,19 +26,37 @@ fn lazy_age() {
     let s0 = stats();
     // SAFETY: ours, not used again.
     unsafe { give_span(l) };
-    assert_eq!(lazy_pass_now(), 0, "a span warm for less than the decay stays");
-    swap_exact!(sw, resident(la, 32 * MIB) >= 32 * MIB, "the warm span resident");
+    assert_eq!(
+        lazy_pass_now(),
+        0,
+        "a span warm for less than the decay stays"
+    );
+    swap_exact!(
+        sw,
+        resident(la, 32 * MIB) >= 32 * MIB,
+        "the warm span resident"
+    );
     std::thread::sleep(Duration::from_millis(250));
     let r = resident(la, 32 * MIB);
     let got = lazy_pass_now();
-    swap_exact!(sw, got == 32 * MIB, "past the decay its commit goes back: {got}");
+    swap_exact!(
+        sw,
+        got == 32 * MIB,
+        "past the decay its commit goes back: {got}"
+    );
     assert_eq!(resident(la, 32 * MIB), 0);
     let s1 = stats();
     assert_eq!(s1.lazy_committed, s0.lazy_committed - 32 * MIB);
     // released bytes count resident pages only: on a swap host under memory pressure (a loaded precheck box) some of the
     // span may sit on swap by the pass, and those pages are cleared, not counted
-    assert!(r == 0 || (s1.releases > s0.releases && s1.released_bytes > s0.released_bytes), "{r} resident: {s0:?} -> {s1:?}");
-    assert!(s1.released_bytes <= s0.released_bytes + (32 * MIB) as u64, "never more than the commit");
+    assert!(
+        r == 0 || (s1.releases > s0.releases && s1.released_bytes > s0.released_bytes),
+        "{r} resident: {s0:?} -> {s1:?}"
+    );
+    assert!(
+        s1.released_bytes <= s0.released_bytes + (32 * MIB) as u64,
+        "never more than the commit"
+    );
     let mut l = span(64 * MIB, h).expect("the warm span again");
     assert_eq!(l.as_ptr() as usize, la, "still warm: the next ask takes it");
     assert_eq!(l.committed(), 0);
@@ -56,19 +74,39 @@ fn lazy_age() {
     }
     assert_eq!(stats().dead, 48 * MIB);
     assert_eq!(lazy_pass_now(), 0, "the first pass only sees them");
-    swap_exact!(sw, resident(la, 16 * MIB) >= 16 * MIB && resident(la + 16 * MIB, 16 * MIB) >= 16 * MIB, "the dead runs resident");
+    swap_exact!(
+        sw,
+        resident(la, 16 * MIB) >= 16 * MIB && resident(la + 16 * MIB, 16 * MIB) >= 16 * MIB,
+        "the dead runs resident"
+    );
     // SAFETY: as above.
-    assert_eq!(unsafe { take_pages(p, 16 * MIB, 16 * MIB) }, Zeroed::No, "live again, its bytes kept");
+    assert_eq!(
+        unsafe { take_pages(p, 16 * MIB, 16 * MIB) },
+        Zeroed::No,
+        "live again, its bytes kept"
+    );
     let r0 = stats().releases;
     pagepool::hooks::clear();
     let got = lazy_pass_now();
-    swap_exact!(sw, got == 32 * MIB, "the second pass gives back the two still dead: {got}");
+    swap_exact!(
+        sw,
+        got == 32 * MIB,
+        "the second pass gives back the two still dead: {got}"
+    );
     assert_eq!(resident(la, 16 * MIB), 0);
-    swap_exact!(sw, resident(la + 16 * MIB, 16 * MIB) >= 16 * MIB, "never a run taken live between");
+    swap_exact!(
+        sw,
+        resident(la + 16 * MIB, 16 * MIB) >= 16 * MIB,
+        "never a run taken live between"
+    );
     // off Linux no residency is read: every range is remapped there
     let remaps = if cfg!(target_os = "linux") { 8 } else { 16 };
     let got = stats().releases - r0;
-    swap_exact!(sw, got == remaps, "16 MiB in 2 MiB remaps; the range with no page resident with none: {got}");
+    swap_exact!(
+        sw,
+        got == remaps,
+        "16 MiB in 2 MiB remaps; the range with no page resident with none: {got}"
+    );
     // never faulted, so on no swap device either, yet D4869: cleared by MADV_DONTNEED all the same (non-residency is never
     // trusted to read zero: a swap device enabled after the pool's one /proc/swaps read could hold its pages)
     let mut cleared = 0;
@@ -78,7 +116,11 @@ fn lazy_age() {
         }
     }));
     if cfg!(target_os = "linux") {
-        assert_eq!(cleared, 16 * MIB, "D4869: the range with no page resident or swapped is cleared, not trusted");
+        assert_eq!(
+            cleared,
+            16 * MIB,
+            "D4869: the range with no page resident or swapped is cleared, not trusted"
+        );
     }
     assert_eq!(stats().dead, 0);
     // SAFETY: as above.
@@ -107,7 +149,9 @@ fn lazy_age() {
     unsafe { give_pages(p, 32 * MIB, 2 * MIB) };
     #[cfg(target_os = "linux")]
     // SAFETY: advice on our own dead range: its pages go out, or stay.
-    unsafe { libc::madvise(d as *mut libc::c_void, 2 * MIB, libc::MADV_PAGEOUT) };
+    unsafe {
+        libc::madvise(d as *mut libc::c_void, 2 * MIB, libc::MADV_PAGEOUT)
+    };
     // the page-out above is this test's own swap: count the host's from here
     let sw = swap_counts();
     assert_eq!(lazy_pass_now(), 0, "the first pass only sees it");

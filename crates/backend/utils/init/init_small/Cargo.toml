@@ -35,7 +35,7 @@ pagepool = { path = "../../../../_support/pagepool", features = ["global"] }
 # `pgrust_sim` (non-default cfg): P4 sim arms live behind it; empty/absent
 # in product builds (law 0.1).
 [lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(pgrust_sim)'] }
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(pgrust_sim)', 'cfg(loom)'] }
 
 [features]
 # P6 (main_main's `pagepool-global`): door 1's rounding from the layout (`oom::charge_usable_layout`), the cache class's

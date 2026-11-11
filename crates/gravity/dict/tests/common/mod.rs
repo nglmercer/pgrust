@@ -1,4 +1,4 @@
-#![allow(dead_code)]
+#![allow(clippy::duplicate_mod, dead_code)]
 use gravity_dict::{Dict, Region, View};
 
 /// A synthetic dictionary: entries in code order, an optional code standing for NULL.

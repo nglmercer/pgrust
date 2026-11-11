@@ -31,13 +31,20 @@ thread_local! {
 
 // elog(ERROR) (spi.c:2130-2133, 2177-2181): XX000, catchable.
 fn elog_error(msg: &'static str) -> Box<types_error::PgError> {
-    ereport(types_error::ERROR).errmsg_internal(msg).into_error().into()
+    ereport(types_error::ERROR)
+        .errmsg_internal(msg)
+        .into_error()
+        .into()
 }
 
 pub(crate) fn spi_dest_startup(_operation: i32, typeinfo: &TupleDescData<'_>) -> PgResult<()> {
     let connected = with_current(|conn| conn.tuptable.is_some());
     match connected {
-        None => return Err(elog_error("spi_dest_startup called while not connected to SPI")),
+        None => {
+            return Err(elog_error(
+                "spi_dest_startup called while not connected to SPI",
+            ))
+        }
         Some(true) => return Err(elog_error("improper call to spi_dest_startup")),
         Some(false) => {}
     }
@@ -80,8 +87,12 @@ pub(crate) fn spi_printtup(slot: &mut SlotData<'_>) -> PgResult<bool> {
             .expect("current tuptable is registered");
         entry.table.with_mut_mcx(|mcx, data| {
             let tuple = exectuples::exec_copy_slot_heap_tuple(slot, slot_mcx, mcx)?;
-            let (ptr, len, tid, oid) =
-                (tuple.as_tuple().header_ptr(), tuple.t_len, tuple.t_self, tuple.t_tableOid);
+            let (ptr, len, tid, oid) = (
+                tuple.as_tuple().header_ptr(),
+                tuple.t_len,
+                tuple.t_self,
+                tuple.t_tableOid,
+            );
             // C stores bare HeapTuple pointers freed wholesale with tuptabcxt;
             // forget drops the owning wrapper, the image stays in the arena.
             core::mem::forget(tuple);
@@ -132,7 +143,9 @@ pub fn tuptable_with<R>(h: TuptabHandle, f: impl for<'mcx> FnOnce(&TuptabData<'m
     // before it runs: the table state lives in its own arena, address-stable
     // until SPI_freetuptable drops the entry.
     let data: *const () = SPI_STACK.with(|s| {
-        s.borrow()[ci].tuptables[ti].table.with(|d| d as *const TuptabData<'_> as *const ())
+        s.borrow()[ci].tuptables[ti]
+            .table
+            .with(|d| d as *const TuptabData<'_> as *const ())
     });
     // SAFETY: only the owning connection's SPI_freetuptable / SPI_finish free
     // the entry, neither reachable from a nested connection; the arena block
@@ -143,7 +156,10 @@ pub fn tuptable_with<R>(h: TuptabHandle, f: impl for<'mcx> FnOnce(&TuptabData<'m
 pub fn SPI_freetuptable(h: TuptabHandle) -> PgResult<()> {
     let removed = SPI_STACK.with(|s| {
         let mut stack = s.borrow_mut();
-        let Some(conn) = stack.last_mut() else { return None };
+        #[allow(clippy::question_mark)]
+        let Some(conn) = stack.last_mut() else {
+            return None;
+        };
         let ti = conn.tuptables.iter().rposition(|tt| tt.id == h.0)?;
         if conn.tuptable == Some(h.0) {
             conn.tuptable = None;
@@ -159,7 +175,10 @@ pub fn SPI_freetuptable(h: TuptabHandle) -> PgResult<()> {
             Ok(())
         }
         None => ereport(WARNING)
-            .errmsg(format!("attempt to delete invalid SPITupleTable {:#x}", h.0))
+            .errmsg(format!(
+                "attempt to delete invalid SPITupleTable {:#x}",
+                h.0
+            ))
             .finish(loc("SPI_freetuptable")),
     }
 }

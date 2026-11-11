@@ -71,6 +71,7 @@ pub struct TransformElements<'mcx> {
     pub tosql: Option<Node<'mcx>>,
 }
 
+#[allow(clippy::upper_case_acronyms)]
 pub struct YYSTYPE<'mcx> {
     p: *mut u8,
     meta: u64,

@@ -1,8 +1,7 @@
 //! ginxlog.c — GIN rmgr redo + gin_mask, including ginRedoRecompress's
 //! in-place conversion of pre-9.4 uncompressed leaves.
 
-#![allow(non_snake_case)]
-#![allow(non_upper_case_globals)]
+#![allow(non_snake_case, non_upper_case_globals)]
 
 use gin_vocab::*;
 use types_core::{BlockNumber, Buffer, InvalidBlockNumber, OffsetNumber, BLCKSZ};
@@ -34,7 +33,10 @@ pub mod sim_red {
 }
 
 fn main_data(record: &XLogReaderState) -> &[u8] {
-    let rec = record.record.as_ref().expect("gin redo with no decoded record");
+    let rec = record
+        .record
+        .as_ref()
+        .expect("gin redo with no decoded record");
     // SAFETY: points into the reader's decode buffer, valid for the redo
     // callback's duration.
     unsafe { rec.main_data_bytes() }
@@ -66,7 +68,13 @@ fn unlock_release(buffer: Buffer) -> PgResult<()> {
 
 fn opaque_of(bytes: &[u8]) -> GinPageOpaqueData {
     // SAFETY: in-bounds 4-aligned special area of a BLCKSZ image.
-    unsafe { bytes.as_ptr().add(OPAQUE_OFF).cast::<GinPageOpaqueData>().read() }
+    unsafe {
+        bytes
+            .as_ptr()
+            .add(OPAQUE_OFF)
+            .cast::<GinPageOpaqueData>()
+            .read()
+    }
 }
 
 fn write_opaque_to(bytes: &mut [u8], o: &GinPageOpaqueData) {
@@ -598,8 +606,7 @@ fn redo_insert_data(
         require_len(rdata, 12, "insert-data internal")?;
         let offset = u16::from_ne_bytes([rdata[0], rdata[1]]) as OffsetNumber;
         // SAFETY: PostingItem is a 10-byte POD in the WAL image.
-        let newitem =
-            unsafe { rdata.as_ptr().add(2).cast::<PostingItem>().read_unaligned() };
+        let newitem = unsafe { rdata.as_ptr().add(2).cast::<PostingItem>().read_unaligned() };
         // SAFETY: redo lock protocol.
         let bytes = unsafe { page_bytes_mut(buffer) };
 
@@ -618,7 +625,11 @@ fn redo_insert_data(
         unsafe {
             let mut old = bytes.as_ptr().add(p).cast::<PostingItem>().read_unaligned();
             PostingItemSetBlockNumber(&mut old, rightblkno);
-            bytes.as_mut_ptr().add(p).cast::<PostingItem>().write_unaligned(old);
+            bytes
+                .as_mut_ptr()
+                .add(p)
+                .cast::<PostingItem>()
+                .write_unaligned(old);
         }
 
         if offset != maxoff + 1 {
@@ -969,7 +980,11 @@ fn redo_delete_page(record: &XLogReaderState) -> PgResult<()> {
 }
 
 pub fn gin_redo(record: &mut XLogReaderState) -> PgResult<()> {
-    let info = record.record.as_ref().expect("gin_redo with no decoded record").xl_info
+    let info = record
+        .record
+        .as_ref()
+        .expect("gin_redo with no decoded record")
+        .xl_info
         & !XLR_INFO_MASK;
     match info {
         XLOG_GIN_CREATE_PTREE => redo_create_ptree(record),
@@ -1115,7 +1130,10 @@ mod tests {
         });
         let page: &'static mut FakePage = Box::leak(Box::new(FakePage([0u8; BLCKSZ])));
         gin_init_page_bytes(&mut page.0, flags);
-        REDO_PAGES.lock().unwrap().insert(buffer, page.0.as_mut_ptr() as usize);
+        REDO_PAGES
+            .lock()
+            .unwrap()
+            .insert(buffer, page.0.as_mut_ptr() as usize);
         &mut page.0
     }
 
@@ -1141,7 +1159,10 @@ mod tests {
         )
         .expect_err("PageAddItem on a full page fails");
         assert_eq!(err.sqlstate(), types_error::ERRCODE_INTERNAL_ERROR);
-        assert_eq!(err.message(), "failed to add item to index page in 1663/5/16391");
+        assert_eq!(
+            err.message(),
+            "failed to add item to index page in 1663/5/16391"
+        );
     }
 
     // ginxlog.c:298: an unknown action code is elog(ERROR) XX000

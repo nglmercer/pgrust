@@ -1,7 +1,6 @@
 //! BRIN vocabulary shared by brin_tuple/brin_pageops/brin_minmax/brin/brin_xlog
 //! and relscan (BrinOpaque), split out so the AM crates avoid cycles.
-#![allow(non_snake_case)]
-#![allow(non_upper_case_globals)]
+#![allow(non_snake_case, non_upper_case_globals)]
 
 use core::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -9,8 +8,8 @@ use std::rc::Rc;
 use ::datum::Datum;
 use ::fmgr::{FmgrInfo, OpclassOptions};
 use ::mcx::MemoryContext;
-use ::types_error::{PgError, PgResult, ERRCODE_DATA_CORRUPTED};
 use ::types_core::{BlockNumber, Buffer, InvalidBlockNumber, Oid, BLCKSZ};
+use ::types_error::{PgError, PgResult, ERRCODE_DATA_CORRUPTED};
 use ::types_storage::bufpage::{PageMut, PageRef, SizeOfPageHeaderData};
 use ::types_tuple::itemptr::ItemPointerData;
 use ::types_tuple::TupleDescData;
@@ -85,7 +84,14 @@ fn page_read_u16(page: &PageRef<'_>, off: usize) -> u16 {
 #[inline]
 fn page_write_u16(page: &mut PageMut<'_>, off: usize, v: u16) {
     // SAFETY: off + 2 <= BLCKSZ; caller holds exclusive page access.
-    unsafe { page.as_ref().as_ptr().cast_mut().add(off).cast::<u16>().write_unaligned(v) }
+    unsafe {
+        page.as_ref()
+            .as_ptr()
+            .cast_mut()
+            .add(off)
+            .cast::<u16>()
+            .write_unaligned(v)
+    }
 }
 
 #[inline]
@@ -154,7 +160,12 @@ pub fn brin_meta_read(page: &PageRef<'_>) -> BrinMetaPageData {
 pub fn brin_meta_write(page: &mut PageMut<'_>, meta: &BrinMetaPageData) {
     // SAFETY: as brin_meta_read; caller holds exclusive page access.
     unsafe {
-        let p = page.as_ref().as_ptr().cast_mut().add(META_OFF).cast::<u32>();
+        let p = page
+            .as_ref()
+            .as_ptr()
+            .cast_mut()
+            .add(META_OFF)
+            .cast::<u32>();
         p.write(meta.brinMagic);
         p.add(1).write(meta.brinVersion);
         p.add(2).write(meta.pagesPerRange);
@@ -323,7 +334,11 @@ fn short_brin_record(op: &str, need: usize, got: usize) -> Box<PgError> {
 
 pub fn decode_createidx(d: &[u8]) -> PgResult<XlBrinCreateIdx> {
     if d.len() < SizeOfBrinCreateIdx {
-        return Err(short_brin_record("create_index", SizeOfBrinCreateIdx, d.len()));
+        return Err(short_brin_record(
+            "create_index",
+            SizeOfBrinCreateIdx,
+            d.len(),
+        ));
     }
     Ok(XlBrinCreateIdx {
         pagesPerRange: u32::from_ne_bytes(d[0..4].try_into().unwrap()),
@@ -395,7 +410,11 @@ pub struct XlBrinDesummarize {
 
 pub fn decode_desummarize(d: &[u8]) -> PgResult<XlBrinDesummarize> {
     if d.len() < SizeOfBrinDesummarize {
-        return Err(short_brin_record("desummarize", SizeOfBrinDesummarize, d.len()));
+        return Err(short_brin_record(
+            "desummarize",
+            SizeOfBrinDesummarize,
+            d.len(),
+        ));
     }
     Ok(XlBrinDesummarize {
         pagesPerRange: u32::from_ne_bytes(d[0..4].try_into().unwrap()),
@@ -635,7 +654,9 @@ mod short_record_tests {
         assert_short("create_index", decode_createidx(&[]).err().unwrap());
         assert_short(
             "create_index",
-            decode_createidx(&[0u8; SizeOfBrinCreateIdx - 1]).err().unwrap(),
+            decode_createidx(&[0u8; SizeOfBrinCreateIdx - 1])
+                .err()
+                .unwrap(),
         );
 
         assert_short("insert", decode_insert(&[]).err().unwrap());
@@ -650,22 +671,31 @@ mod short_record_tests {
             decode_update(&[0u8; SizeOfBrinUpdate - 1]).err().unwrap(),
         );
 
-        assert_short("samepage_update", decode_samepage_update(&[]).err().unwrap());
         assert_short(
             "samepage_update",
-            decode_samepage_update(&[0u8; SizeOfBrinSamepageUpdate - 1]).err().unwrap(),
+            decode_samepage_update(&[]).err().unwrap(),
+        );
+        assert_short(
+            "samepage_update",
+            decode_samepage_update(&[0u8; SizeOfBrinSamepageUpdate - 1])
+                .err()
+                .unwrap(),
         );
 
         assert_short("revmap_extend", decode_revmap_extend(&[]).err().unwrap());
         assert_short(
             "revmap_extend",
-            decode_revmap_extend(&[0u8; SizeOfBrinRevmapExtend - 1]).err().unwrap(),
+            decode_revmap_extend(&[0u8; SizeOfBrinRevmapExtend - 1])
+                .err()
+                .unwrap(),
         );
 
         assert_short("desummarize", decode_desummarize(&[]).err().unwrap());
         assert_short(
             "desummarize",
-            decode_desummarize(&[0u8; SizeOfBrinDesummarize - 1]).err().unwrap(),
+            decode_desummarize(&[0u8; SizeOfBrinDesummarize - 1])
+                .err()
+                .unwrap(),
         );
     }
 
@@ -684,8 +714,14 @@ mod short_record_tests {
         assert_eq!(upd.oldOffnum, 5);
         assert_eq!(upd.insert.heapBlk, 7);
 
-        assert_eq!(decode_samepage_update(&xl_brin_samepage_update(9)).unwrap(), 9);
-        assert_eq!(decode_revmap_extend(&xl_brin_revmap_extend(42)).unwrap(), 42);
+        assert_eq!(
+            decode_samepage_update(&xl_brin_samepage_update(9)).unwrap(),
+            9
+        );
+        assert_eq!(
+            decode_revmap_extend(&xl_brin_revmap_extend(42)).unwrap(),
+            42
+        );
 
         let de = decode_desummarize(&xl_brin_desummarize(128, 7, 2)).unwrap();
         assert_eq!(de.pagesPerRange, 128);

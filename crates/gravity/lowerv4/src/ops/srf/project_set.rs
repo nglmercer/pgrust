@@ -20,9 +20,9 @@
 //! - stop / resume (H17 c): the offset word is `k + 1` while output `k` goes on, 0 between rows. A resumed row re-enters
 //!   at `k + 1`, or at `k` when a later expanding step stopped inside output `k`'s rows (its offset word is set);
 //! - cancel (§3.10): one input row can yield 10^10 rows, so the set loop's header polls.
-//! The functions: srf/iter.rs's open-coded iterators (no host, no memory per element). A LIMIT after the step cuts the set
-//! loop where PG's lazy ProjectSet stops (step/limit.rs exits the pipeline after the count; srf/limit_cut.rs's rule).
-//! Owner M5-PSET.
+//!   The functions: srf/iter.rs's open-coded iterators (no host, no memory per element). A LIMIT after the step cuts the set
+//!   loop where PG's lazy ProjectSet stops (step/limit.rs exits the pipeline after the count; srf/limit_cut.rs's rule).
+//!   Owner M5-PSET.
 use gravity_decompose::effects;
 use gravity_decompose::ops::shared::srf::SrfPlace;
 use gravity_decompose::Op;
@@ -513,7 +513,7 @@ impl<'g> StepMech for PSet<'g> {
         let mark = env.hir.mark(b);
         b.br(l_head, &init[..]);
         b.switch_to(l_body);
-        let ps = mcx::to_vec_in(&b.block_params(l_body)[..], env.mcx);
+        let ps = mcx::to_vec_in(b.block_params(l_body), env.mcx);
         let k = ps[0];
         let mut at = 1;
         let curs: PgVec<'_, &[Value]> = ncur.iter().map(|&n| {

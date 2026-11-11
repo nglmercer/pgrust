@@ -49,6 +49,7 @@ fn each_child<'p>(n: Node<'p>, prune: Option<&Initial>, mut f: impl FnMut(Node<'
     for c in bitmaps.into_iter().flat_map(|l| l.iter()) {
         f(c);
     }
+    #[allow(for_loops_over_fallibles)]
     for c in n.as_subquery_scan().and_then(|s| s.subplan) {
         f(c);
     }

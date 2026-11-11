@@ -152,6 +152,7 @@ fn direct_args<'e>(d: &Drain<'_, '_>, b: &mut FunctionBuilder<'_>, env: &mut Env
             (Some(c), _) => out.push_in((env.zero, b.iconst(Type::I64, (if c.constisnull { DIRECT_NULL } else { DIRECT_BOUND }) as i64))),
             (None, Some(x)) => {
                 let c = crate::table::rec::ex_ref(b, env, node, row, x.2, &x.3);
+                #[allow(clippy::question_mark)]
                 let Some(tf) = gravity_decompose::catalog::typefacts::row_of(c.cell.typid).copied() else { return None };
                 out.push_in(crate::table::rec::direct_word(b, env, node, c, &tf));
             }

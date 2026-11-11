@@ -565,12 +565,10 @@ fn btree_split_wal_roundtrip() {
     let left_ref = unsafe { PageRef::from_raw(NonNull::new(left.0.as_ptr().cast_mut()).unwrap()) };
     let right_ref =
         unsafe { PageRef::from_raw(NonNull::new(right.0.as_ptr().cast_mut()).unwrap()) };
-    let last_lsn = right_ref.lsn().max(
-        {
-            let r = unsafe { PageRef::from_raw(NonNull::new(root.0.as_ptr().cast_mut()).unwrap()) };
-            r.lsn()
-        },
-    );
+    let last_lsn = right_ref.lsn().max({
+        let r = unsafe { PageRef::from_raw(NonNull::new(root.0.as_ptr().cast_mut()).unwrap()) };
+        r.lsn()
+    });
     transam_xlog::XLogFlush(last_lsn).unwrap();
 
     let reader_ctx: &'static MemoryContext = Box::leak(Box::new(MemoryContext::new("reader")));

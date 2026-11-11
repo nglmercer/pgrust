@@ -112,7 +112,7 @@ pub(crate) fn claim<'g>(px: &mut Px<'g, '_>, k: usize, relid: u32, natts: u16, p
         Cmd::Update | Cmd::Delete | Cmd::Merge => {
             // D3605: or a producer's nest inner's (nest_write.rs `producer_inners`)
             let inners = w.is_some_and(|w| super::nest_ref::chain(px.gx, k, w) || super::nest_write::dml_chain(px.gx, k, w) || super::nest_write::producer_inners(px.gx, k, w));
-            let marks = crate::rerun::epq::marks::sites_in(px, k, node, w.map_or(&[][..], |w| &w.mark_descs[..]), &|rti| w.is_some_and(|w| w.targets.iter().any(|t| t.rti == rti)), inners);
+            let marks = crate::rerun::epq::marks::sites_in(px, k, node, w.map_or(&[][..], |w| w.mark_descs), &|rti| w.is_some_and(|w| w.targets.iter().any(|t| t.rti == rti)), inners);
             if let Some(w) = w {
                 let targets: PgVec<'_, u32> = w.targets.iter().map(|t| t.rti).collect_in(px.mcx());
                 crate::rerun::epq::write_road::admit(px, k, node, w.mark_descs, &targets[..]);
@@ -419,7 +419,7 @@ fn one_row_chain(gx: &crate::graph::Gx<'_, '_>) -> bool {
         }
         crate::ops::shared::unique::unique_on(gx, w.plan.target_rel, &eqs[..])
     };
-    let chain = |(ka, wa): (usize, &WriteDesc<'_>), (kb, wb): (usize, &WriteDesc<'_>)| {
+    let chain = |(ka, wa): (usize, &WriteDesc<'_>), (kb, _wb): (usize, &WriteDesc<'_>)| {
         let Some(slot) = ps[ka].desc.produces() else { return false };
         let reads = matches!(ps[kb].source, Source::Breaker { slot: s } if s == slot) && ps[kb].desc.consumes.iter().all(|&x| x == slot);
         wa.returning.is_some() && reads && before(kb, &|o| matches!(o, Op::Filter(_) | Op::Project(_))) && one_row(ka, wa)

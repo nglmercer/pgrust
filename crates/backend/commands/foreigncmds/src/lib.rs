@@ -16,8 +16,9 @@ use types_core::{
     USER_MAPPING_RELATION_ID,
 };
 use types_error::{
-    PgError, PgResult, ERRCODE_DUPLICATE_OBJECT, ERRCODE_INSUFFICIENT_PRIVILEGE, ERRCODE_SYNTAX_ERROR,
-    ERRCODE_UNDEFINED_OBJECT, ERRCODE_WRONG_OBJECT_TYPE, ERROR, NOTICE, WARNING,
+    PgError, PgResult, ERRCODE_DUPLICATE_OBJECT, ERRCODE_INSUFFICIENT_PRIVILEGE,
+    ERRCODE_SYNTAX_ERROR, ERRCODE_UNDEFINED_OBJECT, ERRCODE_WRONG_OBJECT_TYPE, ERROR, NOTICE,
+    WARNING,
 };
 use types_nodes::list::NodeList;
 use types_nodes::parsenodes::{DefElem, DropBehavior, ObjectType, RoleSpec, RoleSpecType};
@@ -28,7 +29,9 @@ use types_nodes::rawnodes::{
 };
 use types_rel::RowExclusiveLock;
 
-use cache_syscache::cacheinfo::{FOREIGNDATAWRAPPERNAME, FOREIGNSERVERNAME, FOREIGNSERVEROID, USERMAPPINGUSERSERVER};
+use cache_syscache::cacheinfo::{
+    FOREIGNDATAWRAPPERNAME, FOREIGNSERVERNAME, FOREIGNSERVEROID, USERMAPPINGUSERSERVER,
+};
 use cache_syscache::{ReleaseSysCache, SearchSysCacheCopy, SysCacheGetAttrNotNull, SysCacheKey};
 
 use crate::foreign::*;
@@ -332,7 +335,9 @@ pub fn AlterForeignDataWrapper<'mcx>(
             )?;
         }
     } else {
-        fdwvalidator = getattr(Anum_pg_foreign_data_wrapper_fdwvalidator).0.as_oid();
+        fdwvalidator = getattr(Anum_pg_foreign_data_wrapper_fdwvalidator)
+            .0
+            .as_oid();
     }
 
     let new_options;
@@ -640,7 +645,12 @@ fn AlterForeignServerOwner_internal<'mcx>(
         let otid = tp.t_self;
         catalog_indexing::CatalogTupleUpdate(mcx, rel, &otid, &mut newtup)?;
 
-        pg_shdepend::changeDependencyOnOwner(mcx, FOREIGN_SERVER_RELATION_ID, srv_id, new_owner_id)?;
+        pg_shdepend::changeDependencyOnOwner(
+            mcx,
+            FOREIGN_SERVER_RELATION_ID,
+            srv_id,
+            new_owner_id,
+        )?;
     }
 
     objectaccess::InvokeObjectPostAlterHook(FOREIGN_SERVER_RELATION_ID, srv_id, 0)?;
@@ -666,7 +676,11 @@ pub fn CreateForeignServer<'mcx>(
             ::elog::ereport(NOTICE)
                 .errcode(ERRCODE_DUPLICATE_OBJECT)
                 .errmsg(format!("server \"{servername}\" already exists, skipping"))
-                .finish(types_error::ErrorLocation::new(file!(), line!() as i32, "CreateForeignServer"))?;
+                .finish(types_error::ErrorLocation::new(
+                    file!(),
+                    line!() as i32,
+                    "CreateForeignServer",
+                ))?;
             rel.close(RowExclusiveLock)?;
             return Ok(InvalidOid);
         }
@@ -685,7 +699,11 @@ pub fn CreateForeignServer<'mcx>(
         adt_acl::ACL_USAGE,
     )? != aclchk::ACLCHECK_OK
     {
-        aclchk::aclcheck_error(aclchk::ACLCHECK_NO_PRIV, ObjectType::OBJECT_FDW, fdw.fdwname)?;
+        aclchk::aclcheck_error(
+            aclchk::ACLCHECK_NO_PRIV,
+            ObjectType::OBJECT_FDW,
+            fdw.fdwname,
+        )?;
     }
 
     let srv_id = catalog::GetNewOidWithIndex(
@@ -841,9 +859,8 @@ fn user_mapping_ddl_aclcheck(umuserid: Oid, serverid: Oid, servername: &str) -> 
         else {
             return Err(cache_lookup_failed("foreign server", serverid));
         };
-        let owner =
-            SysCacheGetAttrNotNull(FOREIGNSERVEROID, &tp, Anum_pg_foreign_server_srvowner)?
-                .as_oid();
+        let owner = SysCacheGetAttrNotNull(FOREIGNSERVEROID, &tp, Anum_pg_foreign_server_srvowner)?
+            .as_oid();
         ReleaseSysCache(tp);
         owner
     };
@@ -892,7 +909,11 @@ pub fn CreateUserMapping<'mcx>(
                     "user mapping for \"{}\" already exists for server \"{servername}\", skipping",
                     MappingUserName(mcx, use_id)?
                 ))
-                .finish(types_error::ErrorLocation::new(file!(), line!() as i32, "CreateUserMapping"))?;
+                .finish(types_error::ErrorLocation::new(
+                    file!(),
+                    line!() as i32,
+                    "CreateUserMapping",
+                ))?;
             rel.close(RowExclusiveLock)?;
             // C: return InvalidObjectAddress on the IF NOT EXISTS skip.
             return Ok(ObjectAddress::set(InvalidOid, InvalidOid));
@@ -1027,7 +1048,10 @@ pub fn RemoveUserMapping<'mcx>(mcx: Mcx<'mcx>, stmt: &DropUserMappingStmt<'mcx>)
         if oid == InvalidOid {
             elog_seams::ereport_msg::call(
                 NOTICE,
-                format!("role \"{}\" does not exist, skipping", role.rolename.unwrap_or("")),
+                format!(
+                    "role \"{}\" does not exist, skipping",
+                    role.rolename.unwrap_or("")
+                ),
                 None,
             )?;
             return Ok(());
@@ -1152,8 +1176,7 @@ static IMPORT_ROUTINES: [core::sync::atomic::AtomicUsize; types_nodes::NUM_FDW_K
     [const { core::sync::atomic::AtomicUsize::new(0) }; types_nodes::NUM_FDW_KINDS];
 
 pub fn install_fdw_import_routine(kind: types_nodes::FdwKind, f: ImportForeignSchemaFn) {
-    IMPORT_ROUTINES[kind.index()]
-        .store(f as usize, core::sync::atomic::Ordering::Relaxed);
+    IMPORT_ROUTINES[kind.index()].store(f as usize, core::sync::atomic::Ordering::Relaxed);
 }
 
 fn fdw_import_routine(kind: types_nodes::FdwKind) -> Option<ImportForeignSchemaFn> {
@@ -1173,19 +1196,14 @@ fn fdw_import_routine(kind: types_nodes::FdwKind) -> Option<ImportForeignSchemaF
 /// (tablecmds.c:2396 refuses the table with 0A000). `rels` are the foreign
 /// tables of ONE server (ExecuteTruncateGuts groups by serverid,
 /// tablecmds.c:2168-2201).
-pub type ExecForeignTruncateFn = for<'mcx> fn(
-    Mcx<'mcx>,
-    &[&types_rel::Relation<'mcx>],
-    DropBehavior,
-    bool,
-) -> PgResult<()>;
+pub type ExecForeignTruncateFn =
+    for<'mcx> fn(Mcx<'mcx>, &[&types_rel::Relation<'mcx>], DropBehavior, bool) -> PgResult<()>;
 
 static TRUNCATE_ROUTINES: [core::sync::atomic::AtomicUsize; types_nodes::NUM_FDW_KINDS] =
     [const { core::sync::atomic::AtomicUsize::new(0) }; types_nodes::NUM_FDW_KINDS];
 
 pub fn install_fdw_truncate_routine(kind: types_nodes::FdwKind, f: ExecForeignTruncateFn) {
-    TRUNCATE_ROUTINES[kind.index()]
-        .store(f as usize, core::sync::atomic::Ordering::Relaxed);
+    TRUNCATE_ROUTINES[kind.index()].store(f as usize, core::sync::atomic::Ordering::Relaxed);
 }
 
 /// `GetFdwRoutineByServerId(serverid)->ExecForeignTruncate`: None is C's NULL
@@ -1225,7 +1243,9 @@ pub fn ImportForeignSchema<'mcx>(
     mcx: Mcx<'mcx>,
     stmt: &ImportForeignSchemaStmt<'mcx>,
 ) -> PgResult<(&'mcx str, mcx::PgVec<'mcx, &'mcx str>)> {
-    let servername = stmt.server_name.expect("ImportForeignSchemaStmt.server_name");
+    let servername = stmt
+        .server_name
+        .expect("ImportForeignSchemaStmt.server_name");
     let server = GetForeignServerByName(mcx, servername, false)?.expect("missing_ok=false");
     if aclchk::object_aclcheck(
         FOREIGN_SERVER_RELATION_ID,
@@ -1242,13 +1262,17 @@ pub fn ImportForeignSchema<'mcx>(
     }
     catalog_namespace::LookupCreationNamespace(
         mcx,
-        stmt.local_schema.expect("ImportForeignSchemaStmt.local_schema"),
+        stmt.local_schema
+            .expect("ImportForeignSchemaStmt.local_schema"),
     )?;
     let fdw = GetForeignDataWrapper(mcx, server.fdwid)?;
     if fdw.fdwhandler == InvalidOid {
         return Err(::elog::ereport(ERROR)
             .errcode(types_error::ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE)
-            .errmsg(format!("foreign-data wrapper \"{}\" has no handler", fdw.fdwname))
+            .errmsg(format!(
+                "foreign-data wrapper \"{}\" has no handler",
+                fdw.fdwname
+            ))
             .into_error()
             .into());
     }
@@ -1296,7 +1320,11 @@ impl ImportErrorContext {
                 import_error_callback(e, &cmd, tablename.borrow().as_deref());
             }))
         };
-        ImportErrorContext { cmd: cmd.to_owned(), tablename, callback }
+        ImportErrorContext {
+            cmd: cmd.to_owned(),
+            tablename,
+            callback,
+        }
     }
 
     /// C: callback_arg.tablename = cstmt->base.relation->relname (:1585),
@@ -1354,7 +1382,9 @@ pub fn init_seams() {
 #[cold]
 #[inline(never)]
 pub(crate) fn cache_lookup_failed(what: &str, oid: Oid) -> Box<PgError> {
-    Box::new(PgError::error(format!("cache lookup failed for {what} {oid}")))
+    Box::new(PgError::error(format!(
+        "cache lookup failed for {what} {oid}"
+    )))
 }
 
 // foreign.c:304 elog(ERROR, "cache lookup failed for attribute %d of relation %u").
@@ -1379,9 +1409,18 @@ mod parse_func_options_tests {
     fn unknown_func_option_is_a_catchable_xx000() {
         let ctx = mcx::MemoryContext::new("foreigncmds-test");
         let mcx = ctx.mcx();
-        let def = Node::mk(mcx, DefElem { defname: Some("bogus"), ..DefElem::default() }).unwrap();
+        let def = Node::mk(
+            mcx,
+            DefElem {
+                defname: Some("bogus"),
+                ..DefElem::default()
+            },
+        )
+        .unwrap();
         let opts = NodeList::make1(mcx, def).unwrap();
-        let e = parse_func_options(mcx, &opts, "").err().expect("unrecognized option is an error");
+        let e = parse_func_options(mcx, &opts, "")
+            .err()
+            .expect("unrecognized option is an error");
         assert_eq!(e.message(), "option \"bogus\" not recognized");
         assert_eq!(e.sqlstate(), types_error::ERRCODE_INTERNAL_ERROR);
         assert_eq!(e.level(), types_error::ERROR);
@@ -1403,7 +1442,10 @@ mod cache_lookup_error_tests {
         assert_eq!(e.level(), types_error::ERROR);
 
         let e = cache_lookup_failed_attribute(3, 16384);
-        assert_eq!(e.message(), "cache lookup failed for attribute 3 of relation 16384");
+        assert_eq!(
+            e.message(),
+            "cache lookup failed for attribute 3 of relation 16384"
+        );
         assert_eq!(e.sqlstate(), types_error::ERRCODE_INTERNAL_ERROR);
         assert_eq!(e.level(), types_error::ERROR);
     }

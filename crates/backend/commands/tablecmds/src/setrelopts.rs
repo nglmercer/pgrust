@@ -104,7 +104,9 @@ fn update_one<'mcx>(
         && relkind == RELKIND_RELATION
         && reloptions::relam_is_pgrcolumnar(relam)
         && operation != AlterTableType::AT_ResetRelOptions
-        && def_list.iter().any(|d| d.as_def_elem().and_then(|d| d.defname) == Some(reloptions::PGRC_SORTED_BY));
+        && def_list
+            .iter()
+            .any(|d| d.as_def_elem().and_then(|d| d.defname) == Some(reloptions::PGRC_SORTED_BY));
     let mut with_partial;
     let def_list = if sets_key {
         with_partial = NodeList::nil();
@@ -113,7 +115,10 @@ fn update_one<'mcx>(
                 with_partial.lappend(mcx, d)?;
             }
         }
-        with_partial.lappend(mcx, reloptions::pgrc_sorted_by_partial_def(mcx, tableam::pgrc_table_has_data(rel)?)?)?;
+        with_partial.lappend(
+            mcx,
+            reloptions::pgrc_sorted_by_partial_def(mcx, tableam::pgrc_table_has_data(rel)?)?,
+        )?;
         &with_partial
     } else {
         def_list

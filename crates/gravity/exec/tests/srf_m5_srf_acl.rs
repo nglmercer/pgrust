@@ -4,6 +4,7 @@
 //! `eval_keys` -> `recheck_execute_acls`), not FmgrSet's open. It holds while the key traversal visits every `SrfFn`'s call
 //! (key.rs `Op::Srf`): this pins that for a ProjectSet's entries, a FunctionScan's function and each ROWS FROM function,
 //! so a change to how `Op::Srf` is keyed (L0-f) cannot silently drop a set-returning function from the ACL list.
+#[allow(unused_imports)]
 use std::path::Path;
 
 use gravity_decompose::{corpus, decompose_in, Op};

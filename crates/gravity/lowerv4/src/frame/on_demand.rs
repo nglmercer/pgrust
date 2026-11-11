@@ -95,7 +95,7 @@ fn eager_reader(pipelines: &[Pipeline], protos: &[Proto], init_reads: &[bool], s
     // D1262: an Init a rerun set re-arms runs again per re-open, never ahead
     let rerun = protos.iter().any(|q| q.kind == ProtoKind::Rerun && q.pipeline == p.pipeline);
     let union = reads_union(pipelines, protos, p.pipeline as usize);
-    (one && p.arg & m8::INIT_EAGER != 0 && !serial[reader] && !rerun && !union && reader <= u16::MAX as usize - 1).then_some((init, reader))
+    (one && p.arg & m8::INIT_EAGER != 0 && !serial[reader] && !rerun && !union && reader < u16::MAX as usize).then_some((init, reader))
 }
 
 /// with#32: whether a member of on-demand run `p` (`members_in`) reads a slot whose nearest earlier producer is a recursive

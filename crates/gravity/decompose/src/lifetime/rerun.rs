@@ -68,7 +68,7 @@ pub(crate) fn kept_hashed(b: &Builder<'_, '_>, p0: usize, set: &[u16], params: &
         }
         // another table form runs again at every re-open (PG's answer under a spill), unless its calls may raise
         if !matches!(ps[q].desc.ends_in, gravity_program::End::Breaker(br) if matches!(br.kind, BreakerKind::HashAgg | BreakerKind::Distinct)) {
-            if { let e = fill_effects(b, q); e.acts && e.may_raise } {
+            let res = { let e = fill_effects(b, q); e.acts && e.may_raise }; if res {
                 return Err(KEPT_HASHED_RAISES);
             }
             continue;
@@ -464,6 +464,7 @@ pub(crate) fn sub_kept_fills(b: &Builder<'_, '_>, p0: usize, node_id: i32, plan_
             if e.acts {
                 return ArenaVec::new_in(b.arena); // alloc: Cold
             }
+            #[allow(clippy::nonminimal_bool)]
             if !e.may_raise && !(at == n && member_reread(b, q, end)) {
                 continue;
             }

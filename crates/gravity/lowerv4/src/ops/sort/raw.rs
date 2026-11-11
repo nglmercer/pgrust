@@ -175,6 +175,7 @@ mod tests {
             assert_eq!(incsort_span(core::ptr::null_mut(), run, 1, 5, 1, 0, tbl.as_ptr() as u64), 0);
             let got: Vec<u64> = (0..rows).map(|i| (run.add(SORTRUN_HDR + i * rb + 8) as *const u64).read_unaligned()).collect();
             assert_eq!(got, vec![5, 1, 3, 3, 9, 7]);
+            #[allow(clippy::needless_range_loop)]
             for i in 0..rows {
                 for c in 0..NVAR {
                     let slot = run.add(SORTRUN_HDR + i * rb + 16 + 8 * c);

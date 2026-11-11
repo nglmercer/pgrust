@@ -39,6 +39,7 @@ fn slavo_germanic(s: &[u8]) -> bool {
     contains(s, b"W") || contains(s, b"K") || contains(s, b"CZ") || contains(s, b"WITZ")
 }
 
+#[allow(clippy::if_same_then_else)]
 pub fn double_metaphone(input: &[u8]) -> PgResult<(Vec<u8>, Vec<u8>)> {
     let length = input.len() as isize;
     let last = length - 1;
@@ -460,6 +461,7 @@ pub fn double_metaphone(input: &[u8]) -> PgResult<(Vec<u8>, Vec<u8>)> {
                 }
             }
             b'T' => {
+                #[allow(clippy::if_same_then_else)]
                 if string_at(s, current, 4, &[b"TION"]) {
                     add!(b"X", b"X");
                     current += 3;

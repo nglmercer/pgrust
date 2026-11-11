@@ -78,7 +78,7 @@ fn cell_lines(s: &str) -> Vec<&str> {
 ///   - tab                     -> spaces to the next multiple of 8
 ///   - single-byte control/DEL -> "\xNN" (uppercase hex)
 ///   - non-ASCII (UTF-8) control char -> "\uXXXX"
-/// All other characters are copied verbatim.
+///     All other characters are copied verbatim.
 fn wcsformat(s: &str) -> String {
     let b = s.as_bytes();
     let mut out = String::with_capacity(b.len());

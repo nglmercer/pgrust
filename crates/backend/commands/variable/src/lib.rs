@@ -15,8 +15,8 @@ use guc_tables::{hooks, vars, GucHookExtra, GucVarAccessors};
 use types_core::{BackendType, InvalidOid, Oid, XACT_SERIALIZABLE};
 use types_error::{
     ErrorLocation, PgResult, ERRCODE_ACTIVE_SQL_TRANSACTION, ERRCODE_FEATURE_NOT_SUPPORTED,
-    ERRCODE_INSUFFICIENT_PRIVILEGE, ERRCODE_INVALID_TRANSACTION_STATE,
-    ERRCODE_UNDEFINED_OBJECT, LOG, NOTICE,
+    ERRCODE_INSUFFICIENT_PRIVILEGE, ERRCODE_INVALID_TRANSACTION_STATE, ERRCODE_UNDEFINED_OBJECT,
+    LOG, NOTICE,
 };
 use types_guc::{GucSource, PGC_S_DEFAULT, PGC_S_INTERACTIVE, PGC_S_TEST};
 
@@ -39,10 +39,10 @@ fn initializing_parallel_worker() -> bool {
 }
 
 fn is_parallel_worker() -> bool {
-    parallel_seams::is_parallel_worker::is_installed()
-        && parallel_seams::is_parallel_worker::call()
+    parallel_seams::is_parallel_worker::is_installed() && parallel_seams::is_parallel_worker::call()
 }
 
+#[allow(clippy::only_used_in_recursion)]
 fn parse_datestyle(
     value: &str,
     source: GucSource,
@@ -53,12 +53,8 @@ fn parse_datestyle(
 ) -> PgResult<bool> {
     // Cold SET/boot path: per-call scratch context mirrors C's palloc churn.
     let ctx = mcx::MemoryContext::new("check_datestyle");
-    let Some(elemlist) = varlena::split_identifier_string(
-        ctx.mcx(),
-        value,
-        b',',
-        mbutils::GetDatabaseEncoding(),
-    )?
+    let Some(elemlist) =
+        varlena::split_identifier_string(ctx.mcx(), value, b',', mbutils::GetDatabaseEncoding())?
     else {
         GUC_check_errdetail("List syntax is invalid.");
         return Ok(false);
@@ -166,7 +162,14 @@ pub fn check_datestyle(
     let mut order = adt_datetime::settings::date_order();
     let mut have_style = false;
     let mut have_order = false;
-    if !parse_datestyle(&value, source, &mut style, &mut order, &mut have_style, &mut have_order)? {
+    if !parse_datestyle(
+        &value,
+        source,
+        &mut style,
+        &mut order,
+        &mut have_style,
+        &mut have_order,
+    )? {
         return Ok(false);
     }
 
@@ -233,8 +236,11 @@ fn check_timezone_value(value: &str, log_only: bool) -> PgResult<Option<PgTzRef>
         if scan.consumed != 0 && scan.consumed == value.len() {
             let hours = scan.value;
             // variable.c:332: (long)NaN is LONG_MIN on x86-64, out of range.
-            let gmtoffset =
-                if hours.is_nan() { i64::MIN } else { (-hours * SECS_PER_HOUR as f64) as i64 };
+            let gmtoffset = if hours.is_nan() {
+                i64::MIN
+            } else {
+                (-hours * SECS_PER_HOUR as f64) as i64
+            };
             let new_tz = tz::pg_tzset_offset(gmtoffset)?;
             if new_tz.is_none() {
                 GUC_check_errdetail("UTC timezone offset is out of range.");
@@ -566,7 +572,10 @@ pub fn check_session_authorization(
         return Ok(false);
     }
 
-    *extra = Some(Box::new(RoleAuthExtra { roleid, is_superuser }));
+    *extra = Some(Box::new(RoleAuthExtra {
+        roleid,
+        is_superuser,
+    }));
     Ok(true)
 }
 
@@ -626,7 +635,10 @@ pub fn check_role(
         }
     }
 
-    *extra = Some(Box::new(RoleAuthExtra { roleid, is_superuser }));
+    *extra = Some(Box::new(RoleAuthExtra {
+        roleid,
+        is_superuser,
+    }));
     Ok(true)
 }
 
@@ -641,7 +653,9 @@ pub fn show_role() -> String {
     if miscinit::GetCurrentRoleId() == InvalidOid {
         return "none".to_string();
     }
-    vars::role_string.read().unwrap_or_else(|| "none".to_string())
+    vars::role_string
+        .read()
+        .unwrap_or_else(|| "none".to_string())
 }
 
 pub fn check_canonical_path(

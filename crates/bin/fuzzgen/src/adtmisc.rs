@@ -2166,7 +2166,7 @@ fn gen_deparse(g: &mut Gen) -> Vec<StmtKind> {
 
 /// Composite/record comparisons + record image ops + tid ops + oidvector
 /// + aclitem machinery (role oid 10 only — fuzz-role oids differ across
-/// engines and never reach an acl output; standing adtmisc law).
+///   engines and never reach an acl output; standing adtmisc law).
 fn gen_rec(g: &mut Gen) -> Vec<StmtKind> {
     g.fire("adtm:rec");
     let sql = match g.rng.below(8) {

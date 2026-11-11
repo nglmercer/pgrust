@@ -46,7 +46,7 @@ impl MaskRunMech for Run {
         first.extend_in(carry.params());
         b.br(l_it, &first[..]);
         b.switch_to(l_it);
-        let p = mcx::to_vec_in(&b.block_params(l_it)[..], env.mcx);
+        let p = mcx::to_vec_in(b.block_params(l_it), env.mcx);
         let (i, rest) = (p[0], p[1]);
         let c = row(b, env, i, Carry::from_params(&p[2..], env.mcx));
         let (l_inc, l_ctz, l_step) = (b.create_block(&[]), b.create_block(&[]), b.create_block(&[]));

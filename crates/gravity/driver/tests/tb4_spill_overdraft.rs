@@ -8,12 +8,12 @@
 //!   draw then takes the room that freed, back under the limit;
 //! - the hand-off of a give (`Held::take_pool`: a region charged to a statement's G) with the pool full: a pool fallback
 //!   (an inline give) with the knob off, a job with it on, the overdraft counted.
-//! Its own [[test]]: a #[global_allocator] (door 1, as the server counts it), process-wide knobs and hooks.
-//! pagepool P3 (branch malisper/pagepool; PGRUST_POOL_GRAVITY=1): when the page pool backs a region (`v4::is_pool`,
-//! `RegionBuf::is_pool`: the region's own flag) its give is no job: each give then asserts the pool's path instead
-//! (`pool_give`: back to the pool, no give_back_spill_* count moved, the owner's account released, REAPING and PARKED
-//! unchanged), and each draw that would have held on the job's landing asserts that, with nothing landing, it held on
-//! none (refused, no overdraft counted).
+//!   Its own [[test]]: a #[global_allocator] (door 1, as the server counts it), process-wide knobs and hooks.
+//!   pagepool P3 (branch malisper/pagepool; PGRUST_POOL_GRAVITY=1): when the page pool backs a region (`v4::is_pool`,
+//!   `RegionBuf::is_pool`: the region's own flag) its give is no job: each give then asserts the pool's path instead
+//!   (`pool_give`: back to the pool, no give_back_spill_* count moved, the owner's account released, REAPING and PARKED
+//!   unchanged), and each draw that would have held on the job's landing asserts that, with nothing landing, it held on
+//!   none (refused, no overdraft counted).
 
 use gravity_driver_rig as common;
 

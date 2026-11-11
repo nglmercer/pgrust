@@ -2,6 +2,7 @@
 //! called over it, and the codes fold's view of the merged table, its rendered words and its records' key words.
 #![allow(unsafe_code)]
 
+#[allow(unused_imports)]
 use super::*;
 
 /// Whether `region` is a finished `Owned` leader region (at least an `Owned` header long, its kind byte `TABLE_OWNED`).

@@ -6,6 +6,7 @@ use std::path::PathBuf;
 
 use tpde_fadec_gen::{INSTRUCTION_TABLE, Mode, Options, generate};
 
+#[allow(clippy::if_same_then_else)]
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=../fadec-gen/src");

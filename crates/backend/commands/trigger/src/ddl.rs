@@ -20,8 +20,8 @@ use types_trigger::TRIGGER_FIRES_ON_ORIGIN;
 
 use crate::cache_lookup_failed;
 use crate::catalog::{
-    name_arg, relkind_not_supported_detail, scan_key, CreateTriggerFiringOn,
-    TRIGGER_OID_INDEX_ID, TRIGGER_RELATION_ID, TRIGGER_RELID_NAME_INDEX_ID,
+    name_arg, relkind_not_supported_detail, scan_key, CreateTriggerFiringOn, TRIGGER_OID_INDEX_ID,
+    TRIGGER_RELATION_ID, TRIGGER_RELID_NAME_INDEX_ID,
 };
 
 #[allow(non_upper_case_globals)] // C-parity name
@@ -70,7 +70,11 @@ pub fn get_trigger_oid<'mcx>(
 ) -> PgResult<Oid> {
     // nameeq compares NAMEDATALEN bytes: a longer name matches no row.
     if trigname.len() >= types_core::NAMEDATALEN as usize {
-        return if missing_ok { Ok(InvalidOid) } else { Err(no_such_trigger(mcx, relid, trigname)?) };
+        return if missing_ok {
+            Ok(InvalidOid)
+        } else {
+            Err(no_such_trigger(mcx, relid, trigname)?)
+        };
     }
     let tgrel = table::table_open(mcx, TRIGGER_RELATION_ID, types_rel::AccessShareLock)?;
     let cname = name_arg(mcx, trigname)?;
@@ -84,8 +88,10 @@ pub fn get_trigger_oid<'mcx>(
         Some(tup) => {
             let mut isnull = false;
             // SAFETY: NOT NULL pg_trigger oid column under its descriptor.
-            unsafe { types_tuple::heap_getattr(tup, Anum_pg_trigger_oid, tgrel.descr(), &mut isnull) }
-                .as_oid()
+            unsafe {
+                types_tuple::heap_getattr(tup, Anum_pg_trigger_oid, tgrel.descr(), &mut isnull)
+            }
+            .as_oid()
         }
         None => {
             if !missing_ok {
@@ -103,7 +109,10 @@ fn no_such_trigger(mcx: Mcx<'_>, relid: Oid, trigname: &str) -> PgResult<Box<PgE
     let relname = lsyscache::get_rel_name(mcx, relid)?
         .ok_or_else(|| cache_lookup_failed("relation", relid))?;
     Ok(err(
-        format!("trigger \"{trigname}\" for table \"{}\" does not exist", relname.as_str()),
+        format!(
+            "trigger \"{trigname}\" for table \"{}\" does not exist",
+            relname.as_str()
+        ),
         ERRCODE_UNDEFINED_OBJECT,
     ))
 }
@@ -204,8 +213,16 @@ fn rename_trigger_relkind_callback(rv: &rel_vocab::RangeVar<'_>, relid: Oid) -> 
         }
     }
     // You must own the table to rename one of its triggers.
-    if !aclchk::object_ownercheck(types_core::RELATION_RELATION_ID, relid, miscinit::GetUserId())? {
-        aclchk::aclcheck_error(aclchk::ACLCHECK_NOT_OWNER, get_relkind_objtype(relkind), rv.relname)?;
+    if !aclchk::object_ownercheck(
+        types_core::RELATION_RELATION_ID,
+        relid,
+        miscinit::GetUserId(),
+    )? {
+        aclchk::aclcheck_error(
+            aclchk::ACLCHECK_NOT_OWNER,
+            get_relkind_objtype(relkind),
+            rv.relname,
+        )?;
     }
     if !init_small::globals::allowSystemTableMods()
         && (::catalog::IsCatalogRelationOid(relid)
@@ -326,8 +343,14 @@ fn renametrig_internal<'mcx>(
         scan_key(2, F_OIDEQ, Datum::from_oid(targetrel.rd_id)),
         scan_key(4, F_NAMEEQ, Datum::from_usize(newcname.as_ptr() as usize)),
     ];
-    let mut dupscan =
-        genam::systable_beginscan(mcx, tgrel, TRIGGER_RELID_NAME_INDEX_ID, true, None, &dupkeys)?;
+    let mut dupscan = genam::systable_beginscan(
+        mcx,
+        tgrel,
+        TRIGGER_RELID_NAME_INDEX_ID,
+        true,
+        None,
+        &dupkeys,
+    )?;
     if genam::systable_getnext(mcx, &mut dupscan)?.is_some() {
         return Err(err(
             format!(
@@ -418,7 +441,12 @@ fn renametrig_partition<'mcx>(
                 types_tuple::heap_getattr(tup, Anum_pg_trigger_tgparentid, td, &mut isnull)
                     .as_oid(),
                 types_tuple::heap_getattr(tup, Anum_pg_trigger_oid, td, &mut isnull).as_oid(),
-                name_datum_str(types_tuple::heap_getattr(tup, Anum_pg_trigger_tgname, td, &mut isnull)),
+                name_datum_str(types_tuple::heap_getattr(
+                    tup,
+                    Anum_pg_trigger_tgname,
+                    td,
+                    &mut isnull,
+                )),
             )
         };
         if tgparentid != parent_trigger_oid {
@@ -433,7 +461,14 @@ fn renametrig_partition<'mcx>(
     };
 
     let partition_rel = table::table_open(mcx, partition_id, NoLock)?;
-    renametrig_internal(mcx, tgrel, &partition_rel, child_name.as_str(), newname, expected_name)?;
+    renametrig_internal(
+        mcx,
+        tgrel,
+        &partition_rel,
+        child_name.as_str(),
+        newname,
+        expected_name,
+    )?;
     if partition_rel.rd_rel.relkind == RELKIND_PARTITIONED_TABLE {
         let partdesc = partdesc::RelationGetPartitionDesc(&partition_rel, true)?;
         for i in 0..partdesc.nparts {
@@ -461,7 +496,7 @@ const Anum_pg_trigger_tgisinternal: i32 = 8;
 // EnableDisableTrigger (trigger.c): tgname None = all triggers; tgparent
 // filters partition clones; recursion follows FOR EACH ROW triggers into
 // partitions.
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::unnecessary_unwrap)]
 pub fn EnableDisableTrigger<'mcx>(
     mcx: Mcx<'mcx>,
     rel: &Relation<'mcx>,
@@ -477,7 +512,11 @@ pub fn EnableDisableTrigger<'mcx>(
     let cname;
     if let Some(name) = tgname {
         cname = name_arg(mcx, name)?;
-        keys.push(scan_key(4, F_NAMEEQ, Datum::from_usize(cname.as_ptr() as usize)));
+        keys.push(scan_key(
+            4,
+            F_NAMEEQ,
+            Datum::from_usize(cname.as_ptr() as usize),
+        ));
     }
     let mut scan =
         genam::systable_beginscan(mcx, &tgrel, TRIGGER_RELID_NAME_INDEX_ID, true, None, &keys)?;
@@ -499,8 +538,7 @@ pub fn EnableDisableTrigger<'mcx>(
                     .as_oid(),
                 types_tuple::heap_getattr(tup, Anum_pg_trigger_oid, td, &mut isnull).as_oid(),
                 types_tuple::heap_getattr(tup, Anum_pg_trigger_tgtype, td, &mut isnull).as_i16(),
-                types_tuple::heap_getattr(tup, Anum_pg_trigger_tgenabled, td, &mut isnull)
-                    .as_i8(),
+                types_tuple::heap_getattr(tup, Anum_pg_trigger_tgenabled, td, &mut isnull).as_i8(),
                 types_tuple::heap_getattr(tup, Anum_pg_trigger_tgisinternal, td, &mut isnull)
                     .as_bool(),
                 name_datum_str(types_tuple::heap_getattr(
@@ -526,7 +564,11 @@ pub fn EnableDisableTrigger<'mcx>(
             }
         }
         found = true;
-        hits.push(Hit { oid, tgtype, enabled });
+        hits.push(Hit {
+            oid,
+            tgtype,
+            enabled,
+        });
     }
     genam::systable_endscan(mcx, scan)?;
 
@@ -557,8 +599,7 @@ pub fn EnableDisableTrigger<'mcx>(
             repl_values.resize(natts, Datum::null());
             repl_isnull.resize(natts, false);
             repl.resize(natts, false);
-            repl_values[(Anum_pg_trigger_tgenabled - 1) as usize] =
-                Datum::from_i8(fires_when);
+            repl_values[(Anum_pg_trigger_tgenabled - 1) as usize] = Datum::from_i8(fires_when);
             repl[(Anum_pg_trigger_tgenabled - 1) as usize] = true;
             let mut newtup =
                 heaptuple::heap_modify_tuple(mcx, tup, td, &repl_values, &repl_isnull, &repl)?;
@@ -605,7 +646,9 @@ pub fn EnableDisableTrigger<'mcx>(
     if changed {
         // C3 S5 (D3890): the triggers' enabled states are all this changed (pg_trigger has no syscache), so the message
         // is scoped to them: a program that never read the relation's triggers stays filed
-        inval::with_relcache_scope(inval::REL_SCOPE_TRIGGERS, || inval::invalidate::CacheInvalidateRelcacheByRelid(rel.rd_id))?;
+        inval::with_relcache_scope(inval::REL_SCOPE_TRIGGERS, || {
+            inval::invalidate::CacheInvalidateRelcacheByRelid(rel.rd_id)
+        })?;
     }
     Ok(())
 }
@@ -620,10 +663,19 @@ mod ddl_tests {
     // triggers, and the aclcheck_error(ACLCHECK_NOT_OWNER) shape C raises.
     #[test]
     fn rename_trigger_owner_error_matches_c() {
-        assert_eq!(get_relkind_objtype(RELKIND_RELATION), ObjectType::OBJECT_TABLE);
+        assert_eq!(
+            get_relkind_objtype(RELKIND_RELATION),
+            ObjectType::OBJECT_TABLE
+        );
         assert_eq!(get_relkind_objtype(b'v'), ObjectType::OBJECT_VIEW);
-        assert_eq!(get_relkind_objtype(RELKIND_FOREIGN_TABLE), ObjectType::OBJECT_FOREIGN_TABLE);
-        assert_eq!(get_relkind_objtype(RELKIND_PARTITIONED_TABLE), ObjectType::OBJECT_TABLE);
+        assert_eq!(
+            get_relkind_objtype(RELKIND_FOREIGN_TABLE),
+            ObjectType::OBJECT_FOREIGN_TABLE
+        );
+        assert_eq!(
+            get_relkind_objtype(RELKIND_PARTITIONED_TABLE),
+            ObjectType::OBJECT_TABLE
+        );
 
         let e = aclchk::aclcheck_error(
             aclchk::ACLCHECK_NOT_OWNER,
@@ -633,12 +685,8 @@ mod ddl_tests {
         .unwrap_err();
         assert_eq!(e.message(), "must be owner of table t1");
         assert_eq!(e.sqlstate(), ERRCODE_INSUFFICIENT_PRIVILEGE);
-        let e = aclchk::aclcheck_error(
-            aclchk::ACLCHECK_NOT_OWNER,
-            get_relkind_objtype(b'v'),
-            "v1",
-        )
-        .unwrap_err();
+        let e = aclchk::aclcheck_error(aclchk::ACLCHECK_NOT_OWNER, get_relkind_objtype(b'v'), "v1")
+            .unwrap_err();
         assert_eq!(e.message(), "must be owner of view v1");
     }
 }

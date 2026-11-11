@@ -26,6 +26,7 @@ fn entry_edge() -> (Program, Func) {
     b.cond_br(c, (done, &[]), (entry, &[ctx]));
     b.switch_to(done);
     b.ret(&[z]);
+    #[allow(clippy::drop_non_drop)]
     drop(b);
     (pb.finish(), f)
 }
@@ -48,6 +49,7 @@ fn use_before_def() -> (Program, Func) {
     b.br(join, &[]);
     b.switch_to(join);
     b.ret(&[v]);
+    #[allow(clippy::drop_non_drop)]
     drop(b);
     (pb.finish(), f)
 }
@@ -80,6 +82,7 @@ fn a_code_generator_panic_is_the_compiles_error() {
     let mut b = pb.define(f);
     let k = b.iconst(Type::I64, 3);
     b.ret(&[k]);
+    #[allow(clippy::drop_non_drop)]
     drop(b);
     let p = pb.finish();
     assert!(gravity_backend::mapped_cached_all(&p, &[f]).is_ok());

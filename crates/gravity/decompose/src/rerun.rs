@@ -347,7 +347,7 @@ pub fn fixed_params<'p>(stmt: &'p PlannedStmt<'p>, arena: ArenaRef) -> ArenaVec<
 ///   parameterised nest inner): every run after the first comes after the outer's earlier rows may have left;
 /// - it sits in the plan of a SubPlan that is no CTE's (an InitPlan or a SubPlan, run on demand at its first read, which
 ///   may come after a UNION ALL arm sent its row).
-/// A node in a CTE's plan is lowerv4's to answer (D4203: ops/ctescan/lower.rs runs the producers first or refuses).
+///   A node in a CTE's plan is lowerv4's to answer (D4203: ops/ctescan/lower.rs runs the producers first or refuses).
 pub(crate) fn runs_late<'p>(stmt: &'p PlannedStmt<'p>, arena: ArenaRef, plan: &types_nodes::plannodes::Plan<'p>) -> bool {
     let me = plan.plan_node_id;
     let mut ctes: ArenaVec<i32> = ArenaVec::new_in(arena); // alloc: Cold
@@ -855,7 +855,7 @@ impl<'a, 'p> Walk<'a, 'p> {
                     self.found.rescan_stable = false;
                 }
                 // the clause's own raise at each scan's start (the effects home's `sample_class`; its arguments below)
-                if !clause.is_some_and(|t| crate::effects::sample_class(t.tsmhandler, &t.args, t.repeatable, &crate::bake::read) == Some(true)) {
+                if clause.is_none_or(|t| crate::effects::sample_class(t.tsmhandler, &t.args, t.repeatable, &crate::bake::read) != Some(true)) {
                     self.raises();
                 }
                 if let Some(t) = clause {

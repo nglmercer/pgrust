@@ -47,10 +47,10 @@
 //!   give's hand-off of its hold) the pool has no room for holds past the pool's limit by at most the pool bytes the
 //!   queued jobs hold (and the service's backlog cap): no claim, no decommit, no wait; the overage is gone as the jobs
 //!   land (counted). An admission never does (it has its own wait and halving).
-//! The queue is two static rings, `QUEUE_MAX` whole gives and `PARK_MAX` park jobs, numbered in one order (no storage
-//! grows on the enqueue path, A6). Their bytes are this lane's landing (`landing_bytes`): the REAPING-charged bytes
-//! (`charged_landing_bytes`) and an allocator reservation's committed bytes, pending relief with no named charge. It is
-//! in the service's one landing account and the ladder's landing credit (`reap::landing_credit`).
+//!   The queue is two static rings, `QUEUE_MAX` whole gives and `PARK_MAX` park jobs, numbered in one order (no storage
+//!   grows on the enqueue path, A6). Their bytes are this lane's landing (`landing_bytes`): the REAPING-charged bytes
+//!   (`charged_landing_bytes`) and an allocator reservation's committed bytes, pending relief with no named charge. It is
+//!   in the service's one landing account and the ladder's landing credit (`reap::landing_credit`).
 
 use core::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering::Acquire, Ordering::Relaxed, Ordering::Release};
 
@@ -139,6 +139,7 @@ impl Ring {
 static QUEUE: Mutex<Ring> = Mutex::new(Ring { gives: Fifo::new(), parks: Fifo::new(), parks_held: 0, next: 0, low: 0, done: [false; SEQS] });
 
 /// A job of either kind, as taken off the rings.
+#[allow(clippy::large_enum_variant)]
 enum Job {
     Give(GiveParts),
     Park(ParkParts),

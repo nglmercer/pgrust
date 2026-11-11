@@ -60,12 +60,12 @@ pub fn nonbase_select(base: u32, width: u8, bits: &[u8], values: usize, f: &mut 
         let i = raw::neon(base, wu, bits, values, f);
         return tail(base, wu, bits, i, values, f);
     }
-    let (mask, inv, n) = ((1u64 << wu) - 1, (65536 + wu - 1) / wu, bits.len());
+    let (mask, inv, n) = ((1u64 << wu) - 1, 65536_usize.div_ceil(wu), bits.len());
     // the codes whose whole 8-byte window is readable; floor(x / wu) == (x * inv) >> 16 for every x < 64
     let fast = if n >= 8 { (((n - 8) * 8 + 7) / wu + 1).min(values) } else { 0 };
     let mut i = 0;
     while i < fast {
-        let (bo, ws) = (i * wu, i * wu & !63);
+        let (bo, ws) = (i * wu, (i * wu) & !63);
         // code i < fast: its word's 8 bytes lie inside `bits`
         let word = raw::word(bits, ws >> 3);
         let b = bo - ws;

@@ -141,7 +141,8 @@ fn regular_page(tuples: &[&[u8]]) -> Box<FakePage> {
     with_page_mut(&mut p, |pm| {
         brin_page_init(pm, BRIN_PAGETYPE_REGULAR);
         for t in tuples {
-            pm.add_item(t, InvalidOffsetNumber, 0).expect("page has room");
+            pm.add_item(t, InvalidOffsetNumber, 0)
+                .expect("page has room");
         }
     });
     p
@@ -217,7 +218,10 @@ fn index_rel(mcx: Mcx<'_>) -> Relation<'_> {
         rd_firstRelfilelocatorSubid: Cell::new(0),
         rd_droppedSubid: Cell::new(0),
         rd_lockInfo: LockInfoData {
-            lockRelId: LockRelId { relId: 5000, dbId: 5 },
+            lockRelId: LockRelId {
+                relId: 5000,
+                dbId: 5,
+            },
         },
         rd_rel: FormData_pg_class {
             relname,
@@ -301,8 +305,16 @@ fn doinsert_mutates_and_logs_inside_a_critical_section() {
     let t = tup(0x5A);
     let off = brin_doinsert(&rel, 1, &rm, &mut buffer, 0, &t.0).expect("insert");
     assert_eq!(off, 1);
-    assert_eq!(xlog_crit_counts(), vec![1], "XLogInsert must run with CritSectionCount > 0");
-    assert_eq!(g::CritSectionCount(), 0, "END_CRIT_SECTION after the WAL record");
+    assert_eq!(
+        xlog_crit_counts(),
+        vec![1],
+        "XLogInsert must run with CritSectionCount > 0"
+    );
+    assert_eq!(
+        g::CritSectionCount(),
+        0,
+        "END_CRIT_SECTION after the WAL record"
+    );
 }
 
 // The promotion contract: a WAL failure after the page was mutated must
@@ -405,6 +417,9 @@ fn uncovered_heap_block_is_an_error_not_a_panic() {
     let err = outcome
         .expect("revmap_get_buffer must not panic")
         .expect_err("the uncovered block must be reported");
-    assert_eq!(err.message, format!("revmap does not cover heap block {heap_blk}"));
+    assert_eq!(
+        err.message,
+        format!("revmap does not cover heap block {heap_blk}")
+    );
     assert_eq!(err.sqlstate(), ERRCODE_INTERNAL_ERROR);
 }

@@ -1,4 +1,3 @@
-
 use ::datum::Datum;
 
 use crate::rep::ColRep;
@@ -17,7 +16,13 @@ pub struct Column {
 impl Column {
     pub fn new(base: ColRep) -> Column {
         debug_assert!(base.is_base(), "Column::new wants a base tag, got {base:?}");
-        Column { rep: base, base, datums: Vec::new(), validity: Validity::new(), text_span: None }
+        Column {
+            rep: base,
+            base,
+            datums: Vec::new(),
+            validity: Validity::new(),
+            text_span: None,
+        }
     }
 
     pub fn ensure_rows(&mut self, nrows: usize) {
@@ -55,6 +60,7 @@ impl Column {
                     space.base_rep(),
                     self.base
                 );
+                #[allow(clippy::needless_range_loop)]
                 for row in 0..nrows {
                     if self.validity.is_valid(row) {
                         self.datums[row] = space.entry_datum(codes[row]);
@@ -70,7 +76,9 @@ impl Column {
                     "StrView overlay on a non-varlena base {:?}",
                     self.base
                 );
-                self.rep = ColRep::Varlena { inline_proven: true };
+                self.rep = ColRep::Varlena {
+                    inline_proven: true,
+                };
             }
             ColRep::Const => {
                 self.ensure_rows(nrows);
@@ -100,7 +108,11 @@ pub struct Batch {
 
 impl Batch {
     pub fn new() -> Batch {
-        Batch { cols: Vec::new(), nrows: 0, sel: Selection::new() }
+        Batch {
+            cols: Vec::new(),
+            nrows: 0,
+            sel: Selection::new(),
+        }
     }
 
     pub fn begin(&mut self) {

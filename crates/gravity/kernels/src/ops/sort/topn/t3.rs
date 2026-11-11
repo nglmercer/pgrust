@@ -614,6 +614,7 @@ pub fn layout_of_kinds_gmark(kinds: &[u8], nslots: usize, slot_kinds: &[u8], nn:
     let nkeys = kinds.len();
     let mut pl = Plan { nkeys, nslots, order: 0, mode: 0, filter: None, topk: 0, key_lane: [0; MAX_KEYS], key_kind: [0; MAX_KEYS], slot_lane: [0; MAX_SLOTS], slot_kind: [0; MAX_SLOTS], nout: 0, out_kind: [0; MAX_OUT], out_index: [0; MAX_OUT], out_val: [0; MAX_OUT], limit: 1, offset: 0, bits: 0, t1_16k: 0, order_slot: 0, groups: 0, fp_lane: [0; MAX_KEYS], key_word: [0; MAX_KEYS], rep_slot: [usize::MAX; MAX_KEYS], nwords: 0, ntext: 0, nn, two_pass: false, admit: false, site: 0, gmark, bycode: false, export: 0, nquals: 0, qual_lane: [0; MAX_QUALS], qual_code: [0; MAX_QUALS], qual_neg: [false; MAX_QUALS] };
     pl.key_kind[..nkeys].copy_from_slice(kinds);
+    #[allow(clippy::needless_range_loop)]
     for k in 0..nkeys {
         pl.key_word[k] = pl.nwords;
         if is_text(kinds[k]) {

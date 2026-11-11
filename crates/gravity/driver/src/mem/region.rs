@@ -953,6 +953,7 @@ impl RegionBuf {
         if self.rw != 0 { self.rw.next_multiple_of(POOL_RUN) } else { self.reserve + self.round }
     }
 
+    #[allow(clippy::wrong_self_convention)]
     pub(crate) fn to_pool(&mut self) -> bool {
         self.held.to_pool()
     }
@@ -2392,6 +2393,7 @@ fn frame_cell(node: &crate::node::Node, i: u16) -> Option<*mut u64> {
         return None;
     }
     // SAFETY: a bound node's ctx lays site `ws` with `n` key cells (node/image.rs), alive while the node is; `i < n`
+    #[allow(clippy::unnecessary_cast)]
     let keys = unsafe { (*gravity_abi::ctx::site_ptr(ctx, ws)).keys.ptr() as *mut u64 };
     // SAFETY: `keys` points at `n` cells
     (!keys.is_null()).then(|| unsafe { keys.add(i as usize) })

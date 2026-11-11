@@ -54,7 +54,11 @@ fn build_left_parts_dictionary(samples: &[f64], right_bit_width: u8) -> (RdDicti
         + left_bit_width as f64
         + exceptions_bits as f64 / samples.len() as f64;
     (
-        RdDictionary { right_bit_width, left_bit_width, dict },
+        RdDictionary {
+            right_bit_width,
+            left_bit_width,
+            dict,
+        },
         estimated,
     )
 }
@@ -91,7 +95,8 @@ impl RdVector {
     /// len(2) + exception count(2) + both packed substreams + 4 bytes per
     /// exception.
     pub fn size_bytes(&self) -> usize {
-        2 + 2 + (self.packed_right.len() + self.packed_left.len()) * 8
+        2 + 2
+            + (self.packed_right.len() + self.packed_left.len()) * 8
             + self.exc_positions.len() * 4
     }
 }
@@ -125,7 +130,11 @@ pub(crate) fn encode_rd_vector(values: &[f64], d: &RdDictionary) -> RdVector {
         miss[i] = (code == MAX_RD_DICTIONARY_SIZE) as u8;
         // Misses store the always-valid code 0; the decode patch
         // overwrites the whole left part.
-        lefts[i] = if code == MAX_RD_DICTIONARY_SIZE { 0 } else { code as u64 };
+        lefts[i] = if code == MAX_RD_DICTIONARY_SIZE {
+            0
+        } else {
+            code as u64
+        };
     }
     let mut exc_positions = Vec::new();
     let mut exc_left = Vec::new();
@@ -175,7 +184,8 @@ pub(crate) fn decode_rd_packed_into(
         *slot = (d.dict[j.min(d.dict.len() - 1)] as u64) << r;
     }
     for i in 0..VECTOR_SIZE {
-        buf[i] = f64::from_bits(table[lefts[i] as usize & (MAX_RD_DICTIONARY_SIZE - 1)] | rights[i]);
+        buf[i] =
+            f64::from_bits(table[lefts[i] as usize & (MAX_RD_DICTIONARY_SIZE - 1)] | rights[i]);
     }
 }
 

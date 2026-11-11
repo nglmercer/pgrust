@@ -29,18 +29,34 @@ fn free_runs_of_one_class_serve_another_before_a_fresh_superpage() {
             freed += 1;
         }
     }
-    assert!(freed >= 30, "the takes shared superpages: {freed} freed of 60");
+    assert!(
+        freed >= 30,
+        "the takes shared superpages: {freed} freed of 60"
+    );
     let o = occupancy();
-    assert!(o.free_run_bytes[2] >= freed * K9, "Cache's partly free superpages hold the freed runs: {o:?}");
+    assert!(
+        o.free_run_bytes[2] >= freed * K9,
+        "Cache's partly free superpages hold the freed runs: {o:?}"
+    );
     let claimed = stats().claimed;
     let y = Hint::new(Class::Task, Tag::REGION);
     let got: Vec<usize> = (0..freed).map(|_| take9(y)).collect();
-    assert_eq!(stats().claimed, claimed, "{freed} Task takes of 9 runs fit the runs Cache gave back");
-    assert!(got.iter().all(|a| seen.contains(&(a / SUPER))), "every Task take sits in a superpage Cache claimed");
+    assert_eq!(
+        stats().claimed,
+        claimed,
+        "{freed} Task takes of 9 runs fit the runs Cache gave back"
+    );
+    assert!(
+        got.iter().all(|a| seen.contains(&(a / SUPER))),
+        "every Task take sits in a superpage Cache claimed"
+    );
     for a in got.into_iter().chain(kept) {
         // SAFETY: taken above, not used again.
         unsafe { give(NonNull::new(a as *mut u8).unwrap(), K9) };
     }
     let o = occupancy();
-    assert!(o.used_runs.iter().all(|c| c.iter().all(|&n| n == 0)), "every superpage wholly free again: {o:?}");
+    assert!(
+        o.used_runs.iter().all(|c| c.iter().all(|&n| n == 0)),
+        "every superpage wholly free again: {o:?}"
+    );
 }

@@ -64,7 +64,9 @@ fn to_20s() -> Vec<String> {
 }
 
 /// The CONCUR scenario deck (appended to ssi::deck()).
+#[allow(clippy::vec_init_then_push)]
 pub fn deck() -> Vec<Scenario> {
+    #[allow(clippy::vec_init_then_push)]
     let mut v = Vec::new();
 
     // ---------------------------------------------------- EPQ: UPDATE --

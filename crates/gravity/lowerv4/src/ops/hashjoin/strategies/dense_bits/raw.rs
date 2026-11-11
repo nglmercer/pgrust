@@ -19,7 +19,7 @@ pub(crate) unsafe fn need(d: *const u8) -> usize {
 pub(crate) unsafe fn prepare(t: &Rt) {
     let (at, s) = (t.dir(), bitmap(span(rd::<i64>(t.d, LO), rd::<i64>(t.d, HI), t.n).unwrap_or(0)));
     core::ptr::write_bytes(t.d.add(at), 0, need(t.d));
-    (wr::<u64>(t.d, DIR, at as u64), wr::<u64>(t.d, SLOTS, (at + s) as u64), wr::<u8>(t.d, crate::ops::hashjoin::build::FORM, DBITS));
+    wr::<u64>(t.d, DIR, at as u64); wr::<u64>(t.d, SLOTS, (at + s) as u64); wr::<u8>(t.d, crate::ops::hashjoin::build::FORM, DBITS);
 }
 
 /// Records `r` of `src` (the region itself, or a worker's: build_part.rs) into `t`'s bitmaps, one atomic OR per 64-key word
@@ -28,6 +28,7 @@ pub(crate) unsafe fn prepare(t: &Rt) {
 pub(crate) unsafe fn put(t: &Rt, src: &Rt, r: core::ops::Range<usize>) {
     let (dir, stride, lo) = (rd::<u64>(t.d, DIR) as usize, (rd::<u64>(t.d, SLOTS) - rd::<u64>(t.d, DIR)) as usize, rd::<i64>(t.d, LO));
     let wide = rd::<u8>(t.d, PAY) != 0 && vbits(rd::<u8>(t.d, VBITS)) == WIDE;
+    #[allow(clippy::unnecessary_fold)]
     let or = |at: usize, m: [u64; 3]| (0..3).filter(|&j| m[j] != 0).fold(false, |dup, j| {
         (*(t.d.add(at + j * stride) as *const AtomicU64)).fetch_or(m[j], Relaxed) & m[j] != 0 && j == 0 || dup
     });
@@ -45,7 +46,7 @@ pub(crate) unsafe fn put(t: &Rt, src: &Rt, r: core::ops::Range<usize>) {
             }
             false => (w >> 32 & 1, w >> 33 & 1),
         };
-        (dup, at, m) = (dup || m[0] & b != 0, a, [m[0] | b, m[1] | b * v, m[2] | b * nul]);
+        (dup, at, m) = (dup || m[0] & b != 0, a, [m[0] | b, m[1] | (b * v), m[2] | (b * nul)]);
     }
     if m[0] != 0 && or(at, m) || dup {
         (*(t.d.add(FLAGS) as *const AtomicU8)).fetch_or(F_DUP, Relaxed);
@@ -69,10 +70,10 @@ pub(crate) unsafe fn expand(d: *mut u8) {
     for i in (0..n).rev() {
         let (w, r) = (rd::<u64>(d.add(HDR + 8 * i), 0), d.add(HDR + full as usize * i));
         let (v, nul) = if wide { ((w >> 32) as u16 as i16 as i64 as u64, w >> 48 & 1) } else { (w >> 32 & 1, w >> 33 & 1) };
-        (wr::<i64>(r, 0, w as u32 as i32 as i64), wr::<u64>(r, 8, nul << 32));
+        wr::<i64>(r, 0, w as u32 as i32 as i64); wr::<u64>(r, 8, nul << 32);
         if pay == 1 {
             wr::<u64>(r, 16, v);
         }
     }
-    (wr::<u32>(d, REC, full), wr::<u8>(d, FLAGS, rd::<u8>(d, FLAGS) & !F_COMPACT));
+    wr::<u32>(d, REC, full); wr::<u8>(d, FLAGS, rd::<u8>(d, FLAGS) & !F_COMPACT);
 }

@@ -19,7 +19,7 @@ use ::gin_vocab::*;
 use ::mcx::{Mcx, MemoryContext, PgVec};
 use ::nbtree::itup::{self, ItupBuf};
 use ::types_core::{
-    BlockNumber, Buffer, InvalidBlockNumber, Oid, OffsetNumber, BLCKSZ, INVALID_PROC_NUMBER,
+    BlockNumber, Buffer, InvalidBlockNumber, OffsetNumber, Oid, BLCKSZ, INVALID_PROC_NUMBER,
     RELPERSISTENCE_PERMANENT,
 };
 use ::types_error::{ErrorLevel, PgError, PgResult, ERRCODE_INTERNAL_ERROR};
@@ -69,7 +69,10 @@ pub(crate) mod rig {
     /// This thread's XLogInsert ledger entry plus the simulated-WAL-failure
     /// arm (also fed by the b084 rig's seam closure).
     pub(crate) fn record_wal(info: u8) -> PgResult<()> {
-        WAL.with(|w| w.borrow_mut().push((info, init_small::globals::CritSectionCount())));
+        WAL.with(|w| {
+            w.borrow_mut()
+                .push((info, init_small::globals::CritSectionCount()))
+        });
         if WAL_FAIL.with(Cell::get) {
             return Err(Box::new(PgError::error("simulated WAL insert failure")));
         }
@@ -351,7 +354,10 @@ pub(crate) mod rig {
             rd_firstRelfilelocatorSubid: Cell::new(0),
             rd_droppedSubid: Cell::new(0),
             rd_lockInfo: LockInfoData {
-                lockRelId: LockRelId { relId: 6000, dbId: 5 },
+                lockRelId: LockRelId {
+                    relId: 6000,
+                    dbId: 5,
+                },
             },
             rd_rel: FormData_pg_class {
                 relname,
@@ -461,7 +467,11 @@ pub(crate) mod rig {
     }
 
     /// PageAddItem of a whole tuple image onto a raw page image.
-    pub(crate) fn add_tuple(page: &mut [u8], t: &ItupBuf<'_>, off: OffsetNumber) -> Option<OffsetNumber> {
+    pub(crate) fn add_tuple(
+        page: &mut [u8],
+        t: &ItupBuf<'_>,
+        off: OffsetNumber,
+    ) -> Option<OffsetNumber> {
         // SAFETY: owned image; true length in t_info.
         let size = unsafe { itup::index_tuple_size(t.as_ptr()) };
         let bytes = unsafe { core::slice::from_raw_parts(t.as_ptr(), size) };
@@ -486,12 +496,28 @@ fn entry_insert_wal_record_is_inside_critical_section() {
     let rel = index_rel(mcx, KeyKind::Int4);
     let state = one_col_state(KeyKind::Int4);
 
-    crate::insert::ginEntryInsert(mcx, &rel, &state, 1, Datum::from_i32(7), GIN_CAT_NORM_KEY, &[tid(1, 1)], None)
-        .unwrap();
+    crate::insert::ginEntryInsert(
+        mcx,
+        &rel,
+        &state,
+        1,
+        Datum::from_i32(7),
+        GIN_CAT_NORM_KEY,
+        &[tid(1, 1)],
+        None,
+    )
+    .unwrap();
 
     assert_wal_in_crit_section(&[XLOG_GIN_INSERT]);
-    assert_eq!(init_small::globals::CritSectionCount(), 0, "critical section left open");
-    assert!(dirtied().contains(&2), "root leaf (buffer 2) was not marked dirty");
+    assert_eq!(
+        init_small::globals::CritSectionCount(),
+        0,
+        "critical section left open"
+    );
+    assert!(
+        dirtied().contains(&2),
+        "root leaf (buffer 2) was not marked dirty"
+    );
     assert_eq!(net_pins(), 0, "pins leaked");
 }
 
@@ -508,8 +534,17 @@ fn entry_root_split_wal_record_is_inside_critical_section() {
     // GPTP_SPLIT with stack->parent == NULL, three full-page images).
     let mut split = false;
     for k in 0..2000i32 {
-        crate::insert::ginEntryInsert(mcx, &rel, &state, 1, Datum::from_i32(k), GIN_CAT_NORM_KEY, &[tid(1, 1)], None)
-            .unwrap();
+        crate::insert::ginEntryInsert(
+            mcx,
+            &rel,
+            &state,
+            1,
+            Datum::from_i32(k),
+            GIN_CAT_NORM_KEY,
+            &[tid(1, 1)],
+            None,
+        )
+        .unwrap();
         if wal_records().iter().any(|(i, _)| *i == XLOG_GIN_SPLIT) {
             split = true;
             break;
@@ -536,7 +571,16 @@ fn wal_failure_inside_entry_insert_keeps_critical_section_open() {
     let state = one_col_state(KeyKind::Int4);
 
     set_wal_fail(true);
-    let res = crate::insert::ginEntryInsert(mcx, &rel, &state, 1, Datum::from_i32(7), GIN_CAT_NORM_KEY, &[tid(1, 1)], None);
+    let res = crate::insert::ginEntryInsert(
+        mcx,
+        &rel,
+        &state,
+        1,
+        Datum::from_i32(7),
+        GIN_CAT_NORM_KEY,
+        &[tid(1, 1)],
+        None,
+    );
     set_wal_fail(false);
     let err = res.expect_err("simulated WAL failure must surface");
     assert_eq!(err.message(), "simulated WAL insert failure");
@@ -564,7 +608,9 @@ fn create_posting_tree_wal_record_is_inside_critical_section() {
     assert_eq!(root, 2, "first extended block");
     assert_wal_in_crit_section(&[XLOG_GIN_CREATE_PTREE]);
     assert_eq!(init_small::globals::CritSectionCount(), 0);
-    assert!(crate::GinPageIsCompressed(&crate::opaque_of(page_bytes_of(2))));
+    assert!(crate::GinPageIsCompressed(&crate::opaque_of(
+        page_bytes_of(2)
+    )));
 }
 
 #[test]
@@ -575,8 +621,12 @@ fn vacuum_posting_tree_leaf_wal_record_is_inside_critical_section() {
     // A compressed posting-tree leaf holding TIDs (1..=30, 1).
     let mut leaf = gin_page(GIN_DATA | GIN_LEAF | GIN_COMPRESSED);
     let items: Vec<ItemPointerData> = (1..=30u32).map(|b| tid(b, 1)).collect();
-    let (seg, n) =
-        crate::postinglist::ginCompressPostingList(mcx, &items, crate::datapage::GinPostingListSegmentMaxSize).unwrap();
+    let (seg, n) = crate::postinglist::ginCompressPostingList(
+        mcx,
+        &items,
+        crate::datapage::GinPostingListSegmentMaxSize,
+    )
+    .unwrap();
     assert_eq!(n, items.len());
     leaf.0[GinDataPageDataOffset..GinDataPageDataOffset + seg.len()].copy_from_slice(&seg);
     crate::datapage::set_data_page_data_size(&mut leaf.0, seg.len());
@@ -602,7 +652,9 @@ fn vacuum_posting_tree_leaf_wal_record_is_inside_critical_section() {
     let mut out = mcx::vec_new_in(mcx);
     crate::datapage::gin_data_leaf_page_get_items(page_bytes_of(2), &tid(0, 0), &mut out).unwrap();
     assert_eq!(out.len(), 28);
-    assert!(!out.iter().any(|t| t.ip_blkid.bi_lo == 5 || t.ip_blkid.bi_lo == 17));
+    assert!(!out
+        .iter()
+        .any(|t| t.ip_blkid.bi_lo == 5 || t.ip_blkid.bi_lo == 17));
 }
 
 // --- ginfast.c:71 writeListPage, :302/:328/:372 ginHeapTupleFastInsert,
@@ -646,12 +698,21 @@ fn pending_list_insert_wal_records_are_inside_critical_section() {
     fast_insert_rows(mcx, &rel, &state);
 
     let meta = crate::meta_of(page_bytes_of(0));
-    assert_eq!(meta.nPendingPages, 2, "two pending pages expected: {meta:?}");
+    assert_eq!(
+        meta.nPendingPages, 2,
+        "two pending pages expected: {meta:?}"
+    );
     assert_eq!(meta.nPendingHeapTuples, 2);
     assert_eq!(meta.head, 2);
     assert_eq!(meta.tail, 3);
-    let n_listpage = wal_records().iter().filter(|(i, _)| *i == XLOG_GIN_INSERT_LISTPAGE).count();
-    let n_meta = wal_records().iter().filter(|(i, _)| *i == XLOG_GIN_UPDATE_META_PAGE).count();
+    let n_listpage = wal_records()
+        .iter()
+        .filter(|(i, _)| *i == XLOG_GIN_INSERT_LISTPAGE)
+        .count();
+    let n_meta = wal_records()
+        .iter()
+        .filter(|(i, _)| *i == XLOG_GIN_UPDATE_META_PAGE)
+        .count();
     assert_eq!((n_listpage, n_meta), (2, 2), "records: {:?}", wal_records());
     assert_wal_in_crit_section(&[XLOG_GIN_INSERT_LISTPAGE, XLOG_GIN_UPDATE_META_PAGE]);
     assert_eq!(init_small::globals::CritSectionCount(), 0);
@@ -680,7 +741,10 @@ fn pending_list_cleanup_delays_and_logs_inside_critical_section() {
     // Five distinct keys dumped into the entry tree, then both pending pages
     // deleted in one shiftList batch.
     let n_insert = recs.iter().filter(|(i, _)| *i == XLOG_GIN_INSERT).count();
-    let n_delete = recs.iter().filter(|(i, _)| *i == XLOG_GIN_DELETE_LISTPAGE).count();
+    let n_delete = recs
+        .iter()
+        .filter(|(i, _)| *i == XLOG_GIN_DELETE_LISTPAGE)
+        .count();
     assert_eq!((n_insert, n_delete), (5, 1), "cleanup records: {recs:?}");
     assert_wal_in_crit_section(&[XLOG_GIN_DELETE_LISTPAGE]);
     assert_eq!(init_small::globals::CritSectionCount(), 0);
@@ -717,7 +781,10 @@ fn step_right_onto_different_page_type_is_internal_error() {
     let buf = bm::read_buffer::call(&rel, 1).unwrap();
     let err = crate::btree::ginStepRight(buf, &rel, crate::GIN_SHARE)
         .expect_err("mismatched sibling must be a catchable error");
-    assert_eq!(err.message(), "right sibling of GIN page is of different type");
+    assert_eq!(
+        err.message(),
+        "right sibling of GIN page is of different type"
+    );
     assert_eq!(err.sqlstate(), ERRCODE_INTERNAL_ERROR);
 }
 
@@ -736,7 +803,8 @@ fn uncompressed_leaf(n: u32) -> Box<FakePage> {
     for b in 1..=n {
         let it = tid(b, 1);
         // SAFETY: ItemPointerData is a 6-byte POD.
-        let b = unsafe { core::slice::from_raw_parts((&it as *const ItemPointerData).cast::<u8>(), 6) };
+        let b =
+            unsafe { core::slice::from_raw_parts((&it as *const ItemPointerData).cast::<u8>(), 6) };
         p.0[at..at + 6].copy_from_slice(b);
         at += 6;
     }
@@ -769,7 +837,9 @@ fn uncompressed_posting_leaf_reads_like_c() {
     // ginblock.h:285 GinDataLeafPageIsEmpty: maxoff < FirstOffsetNumber on
     // an uncompressed page, whatever pd_lower says.
     assert!(!crate::datapage::gin_data_leaf_page_is_empty(&page.0));
-    assert!(crate::datapage::gin_data_leaf_page_is_empty(&uncompressed_leaf(0).0));
+    assert!(crate::datapage::gin_data_leaf_page_is_empty(
+        &uncompressed_leaf(0).0
+    ));
 }
 
 #[test]
@@ -777,7 +847,10 @@ fn uncompressed_posting_leaf_vacuum_converts_to_compressed_format() {
     install();
     let ctx = MemoryContext::new_bump("t");
     let mcx = ctx.mcx();
-    set_pages(vec![metapage(), gin_page(GIN_LEAF), uncompressed_leaf(3)], 0);
+    set_pages(
+        vec![metapage(), gin_page(GIN_LEAF), uncompressed_leaf(3)],
+        0,
+    );
 
     let rel = index_rel(mcx, KeyKind::Int4);
     let state = one_col_state(KeyKind::Int4);
@@ -819,9 +892,20 @@ fn read_tuple_item_count_mismatch_is_internal_error() {
     let items = [tid(1, 1), tid(2, 1), tid(3, 1)];
     let (seg, n) = crate::postinglist::ginCompressPostingList(mcx, &items, GinMaxItemSize).unwrap();
     assert_eq!(n, 3);
-    let mut t = GinFormTuple(mcx, &rel, &state, 1, Datum::from_i32(1), GIN_CAT_NORM_KEY, &seg, seg.len(), 3, false)
-        .unwrap()
-        .expect("fits");
+    let mut t = GinFormTuple(
+        mcx,
+        &rel,
+        &state,
+        1,
+        Datum::from_i32(1),
+        GIN_CAT_NORM_KEY,
+        &seg,
+        seg.len(),
+        3,
+        false,
+    )
+    .unwrap()
+    .expect("fits");
     // Corrupt the header's item count (t_tid.ip_posid) to 2.
     // SAFETY: owned tuple image.
     unsafe {
@@ -880,9 +964,18 @@ fn exec_place_to_page_at_bad_offset_is_internal_error() {
     let rel = index_rel(mcx, KeyKind::Int4);
     let state = one_col_state(KeyKind::Int4);
     let entry = pending_tuple(mcx, &rel, &state, 1, tid(1, 1));
-    let mut btree =
-        crate::entrypage::EntryBtree::new(&rel, &state, 1, Datum::from_i32(1), GIN_CAT_NORM_KEY, mcx);
-    btree.payload = Some(crate::entrypage::EntryPayload { entry, is_delete: false });
+    let mut btree = crate::entrypage::EntryBtree::new(
+        &rel,
+        &state,
+        1,
+        Datum::from_i32(1),
+        GIN_CAT_NORM_KEY,
+        mcx,
+    );
+    btree.payload = Some(crate::entrypage::EntryPayload {
+        entry,
+        is_delete: false,
+    });
 
     // Offset 3 on an empty leaf: PageAddItem refuses (offset past maxoff+1),
     // logging bufpage.c:292's WARNING first, as C does.
@@ -890,7 +983,10 @@ fn exec_place_to_page_at_bad_offset_is_internal_error() {
     let err = btree
         .exec_place_to_page(2, 3, InvalidBlockNumber)
         .expect_err("PageAddItem failure must be a catchable error");
-    assert_eq!(err.message(), "failed to add item to index page in \"t_gin\"");
+    assert_eq!(
+        err.message(),
+        "failed to add item to index page in \"t_gin\""
+    );
     assert_eq!(err.sqlstate(), ERRCODE_INTERNAL_ERROR);
     let reports = rig::reports_since(start);
     assert!(
@@ -919,7 +1015,8 @@ fn leaf_search_over_corrupt_varlena_key_does_not_panic() {
     b.0[8..12].copy_from_slice(&word);
     b.0[6..8].copy_from_slice(&16u16.to_ne_bytes());
     // SAFETY: exclusive access to a BLCKSZ image.
-    let mut pm = unsafe { PageMut::from_raw(core::ptr::NonNull::new(leaf.0.as_mut_ptr()).unwrap()) };
+    let mut pm =
+        unsafe { PageMut::from_raw(core::ptr::NonNull::new(leaf.0.as_mut_ptr()).unwrap()) };
     assert!(pm.add_item(&b.0, FirstOffsetNumber, 0).is_some());
     set_pages(vec![metapage(), leaf], 0);
 
@@ -933,7 +1030,8 @@ fn leaf_search_over_corrupt_varlena_key_does_not_panic() {
     // A panic here fails the test outright, so no unwind catch is needed
     // (the unwind-policy gate forbids one outside a tests/ tree or tests.rs).
     let res = crate::insert::entry_locate_leaf_pub(&btree, 2);
-    let err = res
-        .expect_err("corrupt key must raise ERRCODE_DATA_CORRUPTED as a catchable error, not succeed");
+    let err = res.expect_err(
+        "corrupt key must raise ERRCODE_DATA_CORRUPTED as a catchable error, not succeed",
+    );
     assert_eq!(err.sqlstate(), ::types_error::ERRCODE_DATA_CORRUPTED);
 }

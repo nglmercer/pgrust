@@ -301,6 +301,7 @@ pub fn select_features(
 /// assert!(result.public_rust.contains("DA64I_BASE"));
 /// assert!(result.manifest.contains("emitted\tBASE\tBASE\t0\n"));
 /// ```
+#[allow(clippy::field_reassign_with_default)]
 pub fn generate(
     descfiles: &[&str],
     feature_desc: Option<&str>,

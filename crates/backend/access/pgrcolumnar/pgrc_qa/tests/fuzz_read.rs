@@ -34,10 +34,27 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 #[derive(Debug)]
 #[allow(dead_code)] // fields are read via Debug in the findings report
 enum Finding {
-    Panic { fx: &'static str, part: String, desc: MutationDesc },
-    OutOfArena { fx: &'static str, part: String, desc: MutationDesc },
-    WrongSilentResult { fx: &'static str, part: String, desc: MutationDesc, what: String },
-    SelDiverged { fx: &'static str, part: String, desc: MutationDesc },
+    Panic {
+        fx: &'static str,
+        part: String,
+        desc: MutationDesc,
+    },
+    OutOfArena {
+        fx: &'static str,
+        part: String,
+        desc: MutationDesc,
+    },
+    WrongSilentResult {
+        fx: &'static str,
+        part: String,
+        desc: MutationDesc,
+        what: String,
+    },
+    SelDiverged {
+        fx: &'static str,
+        part: String,
+        desc: MutationDesc,
+    },
 }
 
 fn part_names(files: &std::collections::BTreeMap<String, Vec<u8>>) -> Vec<String> {
@@ -167,14 +184,12 @@ fn read_fuzzer() {
                                         desc,
                                     })
                                 }
-                                Ok(Err(other)) => {
-                                    findings.push(Finding::WrongSilentResult {
-                                        fx: b.fx.name,
-                                        part: name.clone(),
-                                        desc,
-                                        what: format!("cross-check issue: {other:?}"),
-                                    })
-                                }
+                                Ok(Err(other)) => findings.push(Finding::WrongSilentResult {
+                                    fx: b.fx.name,
+                                    part: name.clone(),
+                                    desc,
+                                    what: format!("cross-check issue: {other:?}"),
+                                }),
                             }
                         }
                     }

@@ -9,7 +9,9 @@ use gravity_decompose::ops::shared::append::AppendDesc;
 use gravity_decompose::join::JoinDesc;
 use gravity_decompose::ops::shared::subplan::{SubForm, SubPlanDesc};
 use gravity_decompose::ops::modifytable::trig_facts::cmd_bits;
+#[allow(unused_imports)]
 use gravity_decompose::{Op, PipelineNode, Source};
+#[allow(unused_imports)]
 use types_nodes::jointype::JoinType;
 use mcx::{GrowIn, PgVec};
 use types_nodes::list::NodeList;

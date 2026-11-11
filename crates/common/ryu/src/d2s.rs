@@ -206,6 +206,7 @@ fn d2d(ieee_mantissa: u64, ieee_exponent: u32) -> FloatingDecimal64 {
     let mut last_removed_digit: u8 = 0;
     let output: u64;
     let mut vr = vr;
+    #[allow(clippy::redundant_locals)]
     let mut vp = vp;
     let mut vm = vm;
 

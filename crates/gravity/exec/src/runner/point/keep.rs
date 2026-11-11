@@ -7,14 +7,14 @@
 //! - S1's probe scan, parked (`ProbeKept`), its scan keys' functions and slot, the out columns, the parked relation handles;
 //! - the relation tests' verdict;
 //! - an UPDATE's SET values compiled once (`SetKept`).
-//! Per statement, as PostgreSQL's ExecutorStart does, nothing kept:
+//!   Per statement, as PostgreSQL's ExecutorStart does, nothing kept:
 //! - the permission checks and the snapshot;
 //! - every lock (the index's where hook A left none, the hosts' at their binds);
 //! - the relations re-opened through the parked handles;
 //! - the EXECUTE gates of the SET values' and the keys' functions;
 //! - the keys' and the SET values' constants.
-//! A run that raises drops the pieces (they may be bound); the next statement of the entry builds them again.
-//! pgrust.point_keep (default off) turns it on; off, nothing is kept and a point UPDATE declines (update.rs).
+//!   A run that raises drops the pieces (they may be bound); the next statement of the entry builds them again.
+//!   pgrust.point_keep (default off) turns it on; off, nothing is kept and a point UPDATE declines (update.rs).
 use std::rc::Weak;
 
 use execexpr::{EvalSlots, ExprState, ParamBind};
@@ -103,6 +103,7 @@ pub(super) enum Kept<'k> {
 }
 
 /// The pieces as a statement made them, before `boxed` keeps them.
+#[allow(clippy::large_enum_variant)]
 pub(super) enum Made {
     Write(WriteKept),
     Probe(ProbeKept),

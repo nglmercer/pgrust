@@ -25,6 +25,7 @@ use crate::frame::frame::{EndMaker, Mask, Win, WordWin};
 use crate::frame::px::{ExId, Px};
 use crate::frame::row::{Carry, RowVals};
 use crate::frame::stop::Exits;
+#[allow(unused_imports)]
 use crate::admit::refusal::{Reason, Variant};
 
 pub(crate) use crate::ops::agg::trans::args::{args_of, args_ok, n_of, weighted, with_args, Arg};

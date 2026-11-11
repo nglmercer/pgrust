@@ -88,7 +88,8 @@ fn hull(pts: &[(u64, f64)], out: &mut [(u64, f64); POINTS]) -> usize {
     for &p in pts {
         while n >= 2 {
             let (o, a) = (out[n - 2], out[n - 1]);
-            let cross = (a.0 as f64 - o.0 as f64) * (p.1 - o.1) - (a.1 - o.1) * (p.0 as f64 - o.0 as f64);
+            let cross =
+                (a.0 as f64 - o.0 as f64) * (p.1 - o.1) - (a.1 - o.1) * (p.0 as f64 - o.0 as f64);
             if cross > 0.0 {
                 break;
             }
@@ -121,7 +122,11 @@ fn knee(h: &[(u64, f64)]) -> u64 {
     for w in h.windows(2) {
         let (a, b) = (w[0], w[1]);
         if b.1 <= target {
-            let f = if a.1 > b.1 { (a.1 - target) / (a.1 - b.1) } else { 0.0 };
+            let f = if a.1 > b.1 {
+                (a.1 - target) / (a.1 - b.1)
+            } else {
+                0.0
+            };
             return a.0 + (f * (b.0 - a.0) as f64) as u64;
         }
     }
@@ -194,7 +199,11 @@ impl Curve {
         let h = &self.hull[..self.n];
         self.loss0 = h.first().map_or(0.0, |p| p.1);
         let d = BATCH.min(self.size);
-        self.v = if d == 0 { 0.0 } else { (eval(h, self.size - d) - eval(h, self.size)) / d as f64 };
+        self.v = if d == 0 {
+            0.0
+        } else {
+            (eval(h, self.size - d) - eval(h, self.size)) / d as f64
+        };
         self.knee = knee(h);
         self.floor_knee = match floor {
             Some(f) => {
@@ -275,7 +284,13 @@ struct Node {
     freq: u8,
 }
 
-const NO_NODE: Node = Node { prev: NIL, next: NIL, b: 0, st: OUT, freq: 0 };
+const NO_NODE: Node = Node {
+    prev: NIL,
+    next: NIL,
+    b: 0,
+    st: OUT,
+    freq: 0,
+};
 
 #[derive(Clone, Copy)]
 struct Fifo {
@@ -296,8 +311,18 @@ struct Sim {
 
 impl Sim {
     fn new(n: usize) -> Result<Sim, TryReserveError> {
-        let q = [Fifo { head: NIL, tail: NIL, bytes: 0 }; 3];
-        Ok(Sim { nodes: filled(n, NO_NODE)?, q, cap: 0, loss: 0.0, rank: 0.0 })
+        let q = [Fifo {
+            head: NIL,
+            tail: NIL,
+            bytes: 0,
+        }; 3];
+        Ok(Sim {
+            nodes: filled(n, NO_NODE)?,
+            q,
+            cap: 0,
+            loss: 0.0,
+            rank: 0.0,
+        })
     }
 
     fn unlink(&mut self, i: u32) {
@@ -306,16 +331,34 @@ impl Sim {
             return;
         }
         let f = &mut self.q[n.st as usize];
-        if n.prev == NIL { f.head = n.next } else { self.nodes[n.prev as usize].next = n.next }
-        if n.next == NIL { f.tail = n.prev } else { self.nodes[n.next as usize].prev = n.prev }
+        if n.prev == NIL {
+            f.head = n.next
+        } else {
+            self.nodes[n.prev as usize].next = n.next
+        }
+        if n.next == NIL {
+            f.tail = n.prev
+        } else {
+            self.nodes[n.next as usize].prev = n.prev
+        }
         f.bytes -= n.b;
         self.nodes[i as usize] = NO_NODE;
     }
 
     fn push(&mut self, i: u32, st: u8, b: u64, freq: u8) {
         let f = &mut self.q[st as usize];
-        self.nodes[i as usize] = Node { prev: NIL, next: f.head, b, st, freq };
-        if f.head == NIL { f.tail = i } else { self.nodes[f.head as usize].prev = i }
+        self.nodes[i as usize] = Node {
+            prev: NIL,
+            next: f.head,
+            b,
+            st,
+            freq,
+        };
+        if f.head == NIL {
+            f.tail = i
+        } else {
+            self.nodes[f.head as usize].prev = i
+        }
         f.head = i;
         f.bytes += b;
     }
@@ -460,7 +503,13 @@ impl Sim {
     /// W-TinyLFU: entries out by `T_EVICT_ORDER` (each segment's least recent) until the cache is within its size.
     fn tlfu_trim(&mut self) {
         while self.held() > self.cap {
-            let Some(t) = T_EVICT_ORDER.iter().map(|&g| self.q[g as usize].tail).find(|&t| t != NIL) else { break };
+            let Some(t) = T_EVICT_ORDER
+                .iter()
+                .map(|&g| self.q[g as usize].tail)
+                .find(|&t| t != NIL)
+            else {
+                break;
+            };
             self.unlink(t);
         }
     }
@@ -536,7 +585,12 @@ impl Tracker {
     pub fn new(cap: usize) -> Result<Tracker, TryReserveError> {
         let cap = cap.clamp(2, 1 << 24);
         let tbl = (2 * cap).next_power_of_two();
-        let sims = [Sim::new(cap)?, Sim::new(cap)?, Sim::new(cap)?, Sim::new(cap)?];
+        let sims = [
+            Sim::new(cap)?,
+            Sim::new(cap)?,
+            Sim::new(cap)?,
+            Sim::new(cap)?,
+        ];
         Ok(Tracker {
             cap,
             n: 0,
@@ -585,9 +639,16 @@ impl Tracker {
     /// Heap bytes the tracker holds (fixed from construction).
     pub fn heap_bytes(&self) -> u64 {
         let s = core::mem::size_of::<Slot>() * self.slots.capacity()
-            + 4 * (self.table.capacity() + self.heap.capacity() + self.at.capacity() + self.free.capacity())
+            + 4 * (self.table.capacity()
+                + self.heap.capacity()
+                + self.at.capacity()
+                + self.free.capacity())
             + 8 * self.fw.capacity()
-            + self.sims.iter().map(|s| core::mem::size_of::<Node>() * s.nodes.capacity()).sum::<usize>()
+            + self
+                .sims
+                .iter()
+                .map(|s| core::mem::size_of::<Node>() * s.nodes.capacity())
+                .sum::<usize>()
             + self.freq.capacity();
         s as u64
     }
@@ -923,7 +984,14 @@ impl Tracker {
             self.door = self.door.min(tp);
             (top, 0)
         };
-        self.slots[s] = Slot { key, size, dsize, pri, hpos: hpos as u32, ..NO_SLOT };
+        self.slots[s] = Slot {
+            key,
+            size,
+            dsize,
+            pri,
+            hpos: hpos as u32,
+            ..NO_SLOT
+        };
         self.slots[s].wb = self.wb(size, dsize);
         self.sift(hpos);
         self.tbl_insert(s);
@@ -950,7 +1018,11 @@ impl Tracker {
 
     /// The largest live sampled entry (bytes).
     pub fn max_size(&self) -> u64 {
-        self.heap[..self.n].iter().map(|&s| self.slots[s as usize].size).max().unwrap_or(0)
+        self.heap[..self.n]
+            .iter()
+            .map(|&s| self.slots[s as usize].size)
+            .max()
+            .unwrap_or(0)
     }
 
     /// Live sampled keys.
@@ -1001,7 +1073,10 @@ impl Tracker {
                 self.settle(s, true);
                 let sl = self.slots[s];
                 let size = if bytes == 0 { sl.size } else { bytes };
-                let d = self.total.wrapping_sub(self.fw_prefix(sl.last)).saturating_add(size);
+                let d = self
+                    .total
+                    .wrapping_sub(self.fw_prefix(sl.last))
+                    .saturating_add(size);
                 // A6: a reference that misses at the smallest size the curve predicts at starts a new use of the key; what
                 // was read back of it since the last such reference was one use's reload (a use's own block faults pass
                 // the door too, as near references, and add to it). The largest use's stands as what a miss reloads.
@@ -1020,7 +1095,11 @@ impl Tracker {
                 (s, Some(d))
             }
             None => {
-                let size = if bytes == 0 { (self.size_mean as u64).max(1) } else { bytes };
+                let size = if bytes == 0 {
+                    (self.size_mean as u64).max(1)
+                } else {
+                    bytes
+                };
                 match self.admit(key, size, dsize, pri) {
                     Some(s) => (s, None),
                     None => return,
@@ -1140,8 +1219,13 @@ impl Tracker {
     fn fold(&mut self) {
         self.settle_all();
         let secs = EPOCH_NS as f64 / 1e9;
-        let a = if self.epochs == 0 { 1.0 } else { 1.0 - 0.5f64.powf(1.0 / HALF_LIFE_EPOCHS) };
+        let a = if self.epochs == 0 {
+            1.0
+        } else {
+            1.0 - 0.5f64.powf(1.0 / HALF_LIFE_EPOCHS)
+        };
         let blk = &mut self.blocks[self.block];
+        #[allow(clippy::needless_range_loop)]
         for b in 0..BINS {
             let x = self.cur[b] / secs;
             self.rank[b] += a * (x - self.rank[b]);
@@ -1204,13 +1288,20 @@ impl Tracker {
     fn kappa_at(&self, k: [f64; 4], s: u64) -> f64 {
         let x = s as f64 / self.size.max(1) as f64;
         match KAPPA_AT.iter().rposition(|&a| a <= x) {
-            Some(i) if i + 1 < KAPPA_AT.len() => k[i] + (x - KAPPA_AT[i]) / (KAPPA_AT[i + 1] - KAPPA_AT[i]) * (k[i + 1] - k[i]),
+            Some(i) if i + 1 < KAPPA_AT.len() => {
+                k[i] + (x - KAPPA_AT[i]) / (KAPPA_AT[i + 1] - KAPPA_AT[i]) * (k[i + 1] - k[i])
+            }
             _ => k[KAPPA_AT.len() - 1],
         }
     }
 
     /// Raw points (size, kappa-corrected loss vs the current size): 0, every bin edge below the size, the size.
-    fn points(&self, h: &[f64; BINS], k: Option<[f64; 4]>, out: &mut [(u64, f64); POINTS]) -> usize {
+    fn points(
+        &self,
+        h: &[f64; BINS],
+        k: Option<[f64; 4]>,
+        out: &mut [(u64, f64); POINTS],
+    ) -> usize {
         let y = |s: u64| self.lru(h, s) * k.map_or(1.0, |k| self.kappa_at(k, s));
         let mut n = 0;
         out[n] = (0, y(0));
@@ -1241,7 +1332,10 @@ impl Tracker {
         c.door = self.door;
         c.kappa = k.unwrap_or([1.0; 4]);
         let live = self.heap[..self.n].iter().map(|&s| &self.slots[s as usize]);
-        c.rate = live.map(|s| s.size as f64 / s.wb.max(1) as f64).sum::<f64>() / self.n.max(1) as f64;
+        c.rate = live
+            .map(|s| s.size as f64 / s.wb.max(1) as f64)
+            .sum::<f64>()
+            / self.n.max(1) as f64;
         c.raw = PREDICT_AT.map(|f| {
             let s = (self.size as f64 * f) as u64;
             self.lru(&h, s) * k.map_or(1.0, |k| self.kappa_at(k, s))
@@ -1259,7 +1353,13 @@ impl Tracker {
         self.curve_with(true)
     }
 
-    fn correction(&self, policy: bool, h: &[f64; BINS], sims: [f64; 4], all: f64) -> Option<[f64; 4]> {
+    fn correction(
+        &self,
+        policy: bool,
+        h: &[f64; BINS],
+        sims: [f64; 4],
+        all: f64,
+    ) -> Option<[f64; 4]> {
         (policy && self.size > 0 && self.policy != Policy::Lru).then(|| self.kappas(h, sims, all))
     }
 
@@ -1338,7 +1438,11 @@ impl PoolCurve {
         self.roll(now);
         self.takes[self.i] += 1;
         let x = alloc_ns as f64;
-        self.alloc_ns = if self.alloc_ns == 0.0 { x } else { self.alloc_ns + (x - self.alloc_ns) / 32.0 };
+        self.alloc_ns = if self.alloc_ns == 0.0 {
+            x
+        } else {
+            self.alloc_ns + (x - self.alloc_ns) / 32.0
+        };
     }
 
     /// The peak concurrent demand K over the window.
@@ -1348,10 +1452,17 @@ impl PoolCurve {
 
     pub fn curve(&self, size: u64) -> Curve {
         let k = self.peak();
-        let full = self.minutes.min(POOL_MINUTES as u64 - 1) * EPOCH_NS + (self.last_ns - self.start);
+        let full =
+            self.minutes.min(POOL_MINUTES as u64 - 1) * EPOCH_NS + (self.last_ns - self.start);
         let rate = self.takes.iter().sum::<u64>() as f64 / (full as f64 / 1e9).max(1.0);
         let l0 = rate * self.alloc_ns;
-        let g = |s: u64| if k == 0 || s >= k { 0.0 } else { l0 * (k - s) as f64 / k as f64 };
+        let g = |s: u64| {
+            if k == 0 || s >= k {
+                0.0
+            } else {
+                l0 * (k - s) as f64 / k as f64
+            }
+        };
         let mut pts = [(0, 0.0); 3];
         let mut n = 0;
         pts[n] = (0, g(0) - g(size));
@@ -1426,7 +1537,9 @@ mod tests {
             total += sz as i64;
             last.insert(k, (t, sz));
         }
-        grid.iter().map(|&s| ds.iter().filter(|&&d| d > s).count() as f64 / n as f64).collect()
+        grid.iter()
+            .map(|&s| ds.iter().filter(|&&d| d > s).count() as f64 / n as f64)
+            .collect()
     }
 
     /// The sampled miss ratio over the true reference count (SHARDS-adj: a hot key's over- or under-sampling is hits).
@@ -1435,7 +1548,9 @@ mod tests {
     }
 
     fn grid(lo: u64, hi: u64, n: usize) -> Vec<u64> {
-        (0..n).map(|i| (lo as f64 * (hi as f64 / lo as f64).powf(i as f64 / (n - 1) as f64)) as u64).collect()
+        (0..n)
+            .map(|i| (lo as f64 * (hi as f64 / lo as f64).powf(i as f64 / (n - 1) as f64)) as u64)
+            .collect()
     }
 
     /// 100 evenly spaced sizes up to the trace's footprint (the usual MRC MAE grid). Below ~1 % of the footprint a
@@ -1449,7 +1564,13 @@ mod tests {
         (1..=100).map(|i| foot * i / 100).collect()
     }
 
-    fn zipf_trace(rng: &mut Rng, keys: usize, refs: usize, alpha: f64, size: impl Fn(u64) -> u64) -> Vec<(u64, u64)> {
+    fn zipf_trace(
+        rng: &mut Rng,
+        keys: usize,
+        refs: usize,
+        alpha: f64,
+        size: impl Fn(u64) -> u64,
+    ) -> Vec<(u64, u64)> {
         let mut cdf = Vec::with_capacity(keys);
         let mut acc = 0.0;
         for i in 0..keys {
@@ -1475,7 +1596,11 @@ mod tests {
 
     fn mae(t: &Tracker, trace: &[(u64, u64)], g: &[u64]) -> f64 {
         let ex = exact(trace, g);
-        g.iter().zip(&ex).map(|(&s, e)| (est(t, s, trace.len()) - e).abs()).sum::<f64>() / g.len() as f64
+        g.iter()
+            .zip(&ex)
+            .map(|(&s, e)| (est(t, s, trace.len()) - e).abs())
+            .sum::<f64>()
+            / g.len() as f64
     }
 
     #[test]
@@ -1537,10 +1662,16 @@ mod tests {
     #[test]
     fn sampled_curve_within_mae_002() {
         let mut rng = Rng(3);
-        let trace = zipf_trace(&mut rng, 30_000, 250_000, 0.8, |k| 4096 * (1 + (k * 7919) % 16));
+        let trace = zipf_trace(&mut rng, 30_000, 250_000, 0.8, |k| {
+            4096 * (1 + (k * 7919) % 16)
+        });
         let mut t = Tracker::new(SAMPLES).unwrap();
         feed(&mut t, &trace);
-        assert!(t.door < DOOR_ALL / 4096, "the sample must have filled: door {}", t.door);
+        assert!(
+            t.door < DOOR_ALL / 4096,
+            "the sample must have filled: door {}",
+            t.door
+        );
         let m = mae(&t, &trace, &even(&trace));
         assert!(m < 0.02, "mae {m}");
     }
@@ -1559,7 +1690,9 @@ mod tests {
     fn hull_prices_the_flat_stretch_before_a_cliff() {
         // 3328 keys of 64 KiB = 208 MiB: mid-bin, so sampling noise keeps the cliff in one distance bin.
         let (keys, sz) = (3328u64, 64u64 << 10);
-        let trace: Vec<(u64, u64)> = (0..10 * keys).map(|i| ((i % keys) * 977 + 13, sz)).collect();
+        let trace: Vec<(u64, u64)> = (0..10 * keys)
+            .map(|i| ((i % keys) * 977 + 13, sz))
+            .collect();
         let mut t = Tracker::new(SAMPLES).unwrap();
         t.set_size(272 << 20);
         feed(&mut t, &trace);
@@ -1573,7 +1706,10 @@ mod tests {
             assert!(raw.abs() < 1e-9 * l0, "raw curve is flat before the cliff");
             let slope = (lru.at(s - BATCH) - lru.at(s)) / BATCH as f64;
             let want = l0 / cliff;
-            assert!(slope > 0.75 * want && slope < 1.05 * want, "slope {slope} want {want}");
+            assert!(
+                slope > 0.75 * want && slope < 1.05 * want,
+                "slope {slope} want {want}"
+            );
         }
         // within the cliff's distance bin (a quarter octave)
         let k = lru.knee as f64 / (0.95 * cliff);
@@ -1601,8 +1737,18 @@ mod tests {
         feed(&mut t, &trace);
         let (lru, pol) = (t.curve_with(false), t.curve());
         let w = hot * sz;
-        assert!(pol.at(w) < 0.5 * lru.at(w), "corrected {} lru {}", pol.at(w), lru.at(w));
-        assert!(pol.knee < lru.knee, "knee corrected {} lru {}", pol.knee, lru.knee);
+        assert!(
+            pol.at(w) < 0.5 * lru.at(w),
+            "corrected {} lru {}",
+            pol.at(w),
+            lru.at(w)
+        );
+        assert!(
+            pol.knee < lru.knee,
+            "knee corrected {} lru {}",
+            pol.knee,
+            lru.knee
+        );
         assert!(pol.v < 0.5 * lru.v, "v corrected {} lru {}", pol.v, lru.v);
     }
 
@@ -1627,13 +1773,21 @@ mod tests {
             }
         }
         t.settle_all();
-        assert!(t.door < DOOR_ALL / 4, "the sample must have cut its door: {}", t.door);
+        assert!(
+            t.door < DOOR_ALL / 4,
+            "the sample must have cut its door: {}",
+            t.door
+        );
         let truth = 7.0 * n as f64 * 1000.0;
         for s in [size / 2, size / 4, size / 10] {
             let got = t.loss_at(s, false);
             assert!((got / truth - 1.0).abs() < 0.15, "at {s}: {got} vs {truth}");
         }
-        assert!(t.loss_at(size, false) < 0.15 * truth, "nothing lost at the size: {}", t.loss_at(size, false));
+        assert!(
+            t.loss_at(size, false) < 0.15 * truth,
+            "nothing lost at the size: {}",
+            t.loss_at(size, false)
+        );
     }
 
     /// Under LRU the model is the policy: no correction, no simulation, and the raw loss is the model's.
@@ -1652,13 +1806,25 @@ mod tests {
         feed(&mut t, &trace);
         let (lru, pol) = (t.curve_with(false), t.curve());
         assert_eq!(pol.kappa, [1.0; 4]);
-        assert!(t.sims.iter().all(|s| s.loss == 0.0 && s.q.iter().all(|q| q.bytes == 0)), "no simulation ran");
+        assert!(
+            t.sims
+                .iter()
+                .all(|s| s.loss == 0.0 && s.q.iter().all(|q| q.bytes == 0)),
+            "no simulation ran"
+        );
         for s in [0, 8 << 20, 16 << 20, 32 << 20, 48 << 20] {
             assert_eq!(pol.at(s), lru.at(s));
             assert_eq!(t.loss_at(s, true), t.loss_at(s, false));
-            assert!(t.loss_at(s, false) + 1e-6 >= lru.at(s), "the hull lies under the raw loss at {s}");
+            assert!(
+                t.loss_at(s, false) + 1e-6 >= lru.at(s),
+                "the hull lies under the raw loss at {s}"
+            );
         }
-        assert_eq!(t.loss_at(64 << 20, false), 0.0, "nothing lost at the current size");
+        assert_eq!(
+            t.loss_at(64 << 20, false),
+            0.0,
+            "nothing lost at the current size"
+        );
     }
 
     #[test]
@@ -1696,8 +1862,14 @@ mod tests {
         }
         assert!(misses < 0.1 * 10_000.0, "hot misses {misses}");
         assert!(s.held() <= 100);
-        assert!(s.q[T_PROT as usize].bytes <= crate::cache::tinylfu_protected(100), "protected within its share");
-        assert!(s.q[T_WIN as usize].bytes <= crate::cache::tinylfu_window(100), "the window within its share");
+        assert!(
+            s.q[T_PROT as usize].bytes <= crate::cache::tinylfu_protected(100),
+            "protected within its share"
+        );
+        assert!(
+            s.q[T_WIN as usize].bytes <= crate::cache::tinylfu_window(100),
+            "the window within its share"
+        );
     }
 
     /// D4889: the condition cache under `cache_policy` = 2 runs W-TinyLFU; its curve is corrected by a W-TinyLFU
@@ -1740,14 +1912,22 @@ mod tests {
         t.tick(EPOCH_NS);
         let c0 = t.curve_with(false);
         let r0 = c0.loss0;
-        assert!(r0 > 0.0 && c0.knee > 0 && c0.knee <= 5 << 18, "64 keys of 16 KiB: knee {}", c0.knee);
+        assert!(
+            r0 > 0.0 && c0.knee > 0 && c0.knee <= 5 << 18,
+            "64 keys of 16 KiB: knee {}",
+            c0.knee
+        );
         t.tick(EPOCH_NS * (1 + HALF_LIFE_EPOCHS as u64));
         let r1 = t.curve_with(false).loss0;
         assert!((r1 / r0 - 0.5).abs() < 0.01, "half-life: {r1} vs {r0}");
         let fk = t.curve_with(false).floor_knee;
         assert!(fk > 0, "the floor keeps the 2 h max");
         t.tick(EPOCH_NS * (2 + (BLOCKS as u64) * BLOCK_EPOCHS as u64));
-        assert_eq!(t.curve_with(false).floor_knee, 0, "the max ages out after its window");
+        assert_eq!(
+            t.curve_with(false).floor_knee,
+            0,
+            "the max ages out after its window"
+        );
     }
 
     #[test]
@@ -1761,8 +1941,16 @@ mod tests {
         for i in 100..1000u64 {
             t.reference(i % 100, 0, i);
         }
-        assert!(est(&t, 6 << 20, 1000) > 0.99, "100 keys of 64 KiB apart: {}", est(&t, 6 << 20, 1000));
-        assert!(est(&t, 7 << 20, 1000) < 0.11, "only the first loop misses: {}", est(&t, 7 << 20, 1000));
+        assert!(
+            est(&t, 6 << 20, 1000) > 0.99,
+            "100 keys of 64 KiB apart: {}",
+            est(&t, 6 << 20, 1000)
+        );
+        assert!(
+            est(&t, 7 << 20, 1000) < 0.11,
+            "only the first loop misses: {}",
+            est(&t, 7 << 20, 1000)
+        );
     }
 
     /// Broker ruling 10-16: the cache's price is its seed (C0's measured cost per extra miss) until a re-fill; cold first
@@ -1784,7 +1972,10 @@ mod tests {
         }
         let missed = above(&t.cur, 4 << 20) + t.cur_cold;
         let want = 10.0 * (10.0 * (1u64 << 20) as f64 + 10.0 * (4u64 << 10) as f64);
-        assert!((missed - want).abs() < want * 1e-9, "missed {missed} want {want}");
+        assert!(
+            (missed - want).abs() < want * 1e-9,
+            "missed {missed} want {want}"
+        );
     }
 
     #[test]
@@ -1804,7 +1995,11 @@ mod tests {
         at(&mut t, a, 4 * MIB);
         t.reload(a, MIB, 0);
         let s = t.find(a).unwrap();
-        assert_eq!((t.slots[s].reload, t.slots[s].reload_acc), (0, 2 * MIB), "one use so far, open");
+        assert_eq!(
+            (t.slots[s].reload, t.slots[s].reload_acc),
+            (0, 2 * MIB),
+            "one use so far, open"
+        );
         assert_eq!(t.reload_bytes(s), 4 * MIB, "no use closed: its size");
         // 20 MiB of other keys, then a's next use closes the first: a miss of a reloads its 2 MiB, not its 4
         for k in 100..120u64 {
@@ -1813,10 +2008,18 @@ mod tests {
         at(&mut t, a, 4 * MIB);
         assert_eq!((t.slots[s].reload, t.slots[s].reload_acc), (2 * MIB, 0));
         t.set_price_bytes(true);
-        assert_eq!(t.price(s), (2 * MIB) as f64, "bytes mode: the bytes it reloads");
+        assert_eq!(
+            t.price(s),
+            (2 * MIB) as f64,
+            "bytes mode: the bytes it reloads"
+        );
         t.set_price_bytes(false);
         t.set_ns_per_byte(0.5);
-        assert_eq!(t.price(s), MIB as f64, "ns mode, no stall measured: its reload at 0.5 ns a byte");
+        assert_eq!(
+            t.price(s),
+            MIB as f64,
+            "ns mode, no stall measured: its reload at 0.5 ns a byte"
+        );
         // a later use that reads back less leaves the largest use's
         t.reload(a, MIB / 2, 0);
         for k in 200..220u64 {
@@ -1838,10 +2041,17 @@ mod tests {
             t.reference(k, 4096, k);
             t.fill(k, 4096, 10_000, k);
         }
-        assert_eq!(t.price_mean, 500.0, "cold first fills (a build that also paid its inputs' cold reads) never price");
+        assert_eq!(
+            t.price_mean, 500.0,
+            "cold first fills (a build that also paid its inputs' cold reads) never price"
+        );
         t.reference(1, 4096, 20);
         t.fill(1, 4096, 2_100, 20);
-        assert_eq!(t.price_mean, 500.0 + (2_100.0 - 500.0) / 32.0, "a re-fill feeds the mean");
+        assert_eq!(
+            t.price_mean,
+            500.0 + (2_100.0 - 500.0) / 32.0,
+            "a re-fill feeds the mean"
+        );
         assert_eq!(t.price(t.find(1).unwrap()), 2_100.0, "and prices its key");
     }
 
@@ -1850,7 +2060,11 @@ mod tests {
         let mut t = Tracker::new(64).unwrap();
         t.reference(1, 4096, 0);
         t.fill(1, 0, 70, 1);
-        assert_eq!(t.price(t.find(1).unwrap()), 0.0, "a first fill never prices");
+        assert_eq!(
+            t.price(t.find(1).unwrap()),
+            0.0,
+            "a first fill never prices"
+        );
         t.reference(1, 4096, 1);
         t.fill(1, 0, 100, 1);
         assert_eq!(t.price(t.find(1).unwrap()), 100.0, "a re-fill does");
@@ -1858,7 +2072,11 @@ mod tests {
         assert_eq!(t.price(t.find(1).unwrap()), 150.0);
         t.fill(1, 0, 100, 2);
         t.couple(1, 10);
-        assert_eq!(t.price(t.find(1).unwrap()), 150.0, "the last cycle's coupled loss stands until a bigger one");
+        assert_eq!(
+            t.price(t.find(1).unwrap()),
+            150.0,
+            "the last cycle's coupled loss stands until a bigger one"
+        );
     }
 
     #[test]

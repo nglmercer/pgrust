@@ -176,6 +176,7 @@ fn run(rel: &str) -> Vec<(u64, u64, u64, u64)> {
     let r = entry.run(&mut exec, &mut b, Call::batch(1024));
     entry.end(exec, matches!(r, Ok(Step::Done)));
     assert!(matches!(r, Ok(Step::Done)), "{r:?}");
+    #[allow(clippy::drop_non_drop)]
     drop(b);
     held(&SEEN).clone()
 }

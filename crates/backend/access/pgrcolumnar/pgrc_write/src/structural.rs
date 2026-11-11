@@ -47,7 +47,12 @@ pub struct ClusterKeyDecl {
 impl ClusterKeyDecl {
     /// ASC NULLS LAST on a column (the `sorted_by` default).
     pub fn column(attno: u32) -> ClusterKeyDecl {
-        ClusterKeyDecl { attno, dir: SortDir::Asc, nulls: NullsOrder::Last, path: Vec::new() }
+        ClusterKeyDecl {
+            attno,
+            dir: SortDir::Asc,
+            nulls: NullsOrder::Last,
+            path: Vec::new(),
+        }
     }
 }
 

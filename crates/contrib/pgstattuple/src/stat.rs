@@ -134,6 +134,7 @@ fn pgstat_heap(
     let mut block: BlockNumber = 0; // next block to count free space in
     let mut stat = PgStatTuple::default();
 
+    #[allow(clippy::while_let_loop)]
     loop {
         let (t_len, t_self, t_table_oid, hdr) =
             match heapam::heap_getnext(&mut hscan, ScanDirection::ForwardScanDirection)? {

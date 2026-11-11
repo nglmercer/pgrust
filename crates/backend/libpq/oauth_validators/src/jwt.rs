@@ -154,7 +154,10 @@ pub fn jwk_from_json(obj: &Json) -> Result<Jwk, String> {
 // commonly mixes them with the signing keys.
 pub fn parse_jwks(text: &str) -> Result<(Vec<Jwk>, Vec<String>), String> {
     let doc = parse(text)?;
-    let keys = doc.get("keys").and_then(Json::as_arr).ok_or("JWKS has no \"keys\" array")?;
+    let keys = doc
+        .get("keys")
+        .and_then(Json::as_arr)
+        .ok_or("JWKS has no \"keys\" array")?;
     let mut out = Vec::new();
     let mut skipped = Vec::new();
     for k in keys {
@@ -198,10 +201,17 @@ pub fn parse_jws(token: &str) -> Result<Jws<'_>, String> {
     if !header.is_obj() {
         return Err("JWS header is not an object".into());
     }
-    let alg_name = header.get("alg").and_then(Json::as_str).ok_or("JWS header has no \"alg\"")?;
-    let alg = Alg::from_name(alg_name).ok_or_else(|| format!("unsupported JWS algorithm \"{alg_name}\""))?;
+    let alg_name = header
+        .get("alg")
+        .and_then(Json::as_str)
+        .ok_or("JWS header has no \"alg\"")?;
+    let alg = Alg::from_name(alg_name)
+        .ok_or_else(|| format!("unsupported JWS algorithm \"{alg_name}\""))?;
     if let Some(typ) = header.get("typ").and_then(Json::as_str) {
-        if !matches!(typ.to_ascii_lowercase().as_str(), "jwt" | "at+jwt" | "application/at+jwt") {
+        if !matches!(
+            typ.to_ascii_lowercase().as_str(),
+            "jwt" | "at+jwt" | "application/at+jwt"
+        ) {
             return Err(format!("unsupported JWS type \"{typ}\""));
         }
     }
@@ -244,8 +254,10 @@ pub fn verify_signature(jws: &Jws<'_>, key: &PKey<Public>) -> Result<bool, Strin
     };
     let mut v = Verifier::new(jws.alg.digest(), key).map_err(|e| e.to_string())?;
     if matches!(jws.alg, Alg::Ps256 | Alg::Ps384 | Alg::Ps512) {
-        v.set_rsa_padding(Padding::PKCS1_PSS).map_err(|e| e.to_string())?;
-        v.set_rsa_pss_saltlen(RsaPssSaltlen::DIGEST_LENGTH).map_err(|e| e.to_string())?;
+        v.set_rsa_padding(Padding::PKCS1_PSS)
+            .map_err(|e| e.to_string())?;
+        v.set_rsa_pss_saltlen(RsaPssSaltlen::DIGEST_LENGTH)
+            .map_err(|e| e.to_string())?;
     }
     v.update(jws.signing_input).map_err(|e| e.to_string())?;
     v.verify(&sig).map_err(|e| e.to_string())
@@ -278,7 +290,12 @@ pub struct Policy<'a> {
 pub fn check_claims(claims: &Json, policy: &Policy<'_>, strict: bool) -> Result<String, String> {
     match claims.get("iss").and_then(Json::as_str) {
         Some(iss) if iss == policy.issuer => {}
-        Some(iss) => return Err(format!("issuer \"{iss}\" does not match \"{}\"", policy.issuer)),
+        Some(iss) => {
+            return Err(format!(
+                "issuer \"{iss}\" does not match \"{}\"",
+                policy.issuer
+            ))
+        }
         None if strict => return Err("token has no \"iss\" claim".into()),
         None => {}
     }
@@ -304,7 +321,10 @@ pub fn check_claims(claims: &Json, policy: &Policy<'_>, strict: bool) -> Result<
     let time_claim = |name: &str| -> Result<Option<i64>, String> {
         match claims.get(name) {
             None | Some(Json::Null) => Ok(None),
-            Some(v) => v.as_i64().map(Some).ok_or_else(|| format!("\"{name}\" claim is not a number")),
+            Some(v) => v
+                .as_i64()
+                .map(Some)
+                .ok_or_else(|| format!("\"{name}\" claim is not a number")),
         }
     };
     match time_claim("exp")? {
@@ -322,20 +342,29 @@ pub fn check_claims(claims: &Json, policy: &Policy<'_>, strict: bool) -> Result<
     }
     if let Some(iat) = time_claim("iat")? {
         if iat - policy.clock_skew > policy.now {
-            return Err(format!("token issued in the future at {iat} (now {})", policy.now));
+            return Err(format!(
+                "token issued in the future at {iat} (now {})",
+                policy.now
+            ));
         }
     }
     if !policy.required_scopes.is_empty() {
         let granted: Vec<String> = match (claims.get("scope"), claims.get("scp")) {
             (Some(Json::Str(s)), _) => s.split_ascii_whitespace().map(str::to_string).collect(),
-            (Some(Json::Arr(a)), _) | (None, Some(Json::Arr(a))) => {
-                a.iter().filter_map(Json::as_str).map(str::to_string).collect()
-            }
+            (Some(Json::Arr(a)), _) | (None, Some(Json::Arr(a))) => a
+                .iter()
+                .filter_map(Json::as_str)
+                .map(str::to_string)
+                .collect(),
             (None, Some(Json::Str(s))) => s.split_ascii_whitespace().map(str::to_string).collect(),
             (None, None) => return Err("token has no \"scope\" claim".into()),
             _ => return Err("\"scope\" claim is not a string or array".into()),
         };
-        if let Some(missing) = policy.required_scopes.iter().find(|s| !granted.iter().any(|g| g == *s)) {
+        if let Some(missing) = policy
+            .required_scopes
+            .iter()
+            .find(|s| !granted.iter().any(|g| g == *s))
+        {
             return Err(format!("token lacks required scope \"{missing}\""));
         }
     }
@@ -349,7 +378,12 @@ pub fn check_claims(claims: &Json, policy: &Policy<'_>, strict: bool) -> Result<
             .get("username")
             .and_then(Json::as_str)
             .filter(|s| !s.is_empty())
-            .ok_or_else(|| format!("response has no \"{}\" or \"username\" field", policy.identity_claim))?,
+            .ok_or_else(|| {
+                format!(
+                    "response has no \"{}\" or \"username\" field",
+                    policy.identity_claim
+                )
+            })?,
         None => return Err(format!("token has no \"{}\" claim", policy.identity_claim)),
     };
     Ok(identity.to_string())
@@ -374,6 +408,9 @@ pub fn discovery_url(hba_issuer: &str) -> String {
     if hba_issuer.contains("/.well-known/") {
         hba_issuer.to_string()
     } else {
-        format!("{}/.well-known/openid-configuration", hba_issuer.trim_end_matches('/'))
+        format!(
+            "{}/.well-known/openid-configuration",
+            hba_issuer.trim_end_matches('/')
+        )
     }
 }

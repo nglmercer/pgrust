@@ -314,6 +314,7 @@ fn a_cancel_mid_pull_drops_the_parked_call_and_nothing_outlives_the_statement() 
     assert_eq!(exec.node().parked_pulls(), 0, "the cancel dropped the parked call");
     entry.end(exec, false);
     // the entry's parked node (its plan cache) is the statement's no longer: gone with the entry, every region back
+    #[allow(clippy::drop_non_drop)]
     drop(b);
     drop(entry);
     REGIONS.trim();

@@ -2,8 +2,7 @@
 //! C divergences: the Start/Register/Finish protocol keeps C's shape but the
 //! record is emitted through the one-call xloginsert form.
 
-#![allow(non_snake_case)]
-#![allow(non_upper_case_globals)]
+#![allow(non_snake_case, non_upper_case_globals)]
 
 use mcx::{alloc_in, Mcx, PgBox};
 use types_core::{BlockNumber, Buffer, InvalidBuffer, OffsetNumber, XLogRecPtr, BLCKSZ};
@@ -102,7 +101,9 @@ impl GenericXLogState {
                 pd.buffer = buffer;
                 pd.flags = flags;
                 // SAFETY: contract at buffer_page.
-                self.images[block_id].0.copy_from_slice(unsafe { buffer_page(buffer) });
+                self.images[block_id]
+                    .0
+                    .copy_from_slice(unsafe { buffer_page(buffer) });
                 return Ok(&mut self.images[block_id].0);
             } else if pd.buffer == buffer {
                 return Ok(&mut self.images[block_id].0);
@@ -173,6 +174,7 @@ fn finish_logged(st: &mut GenericXLogState) -> PgResult<XLogRecPtr> {
         bufdata: &[],
     });
     let mut n = 0;
+    #[allow(clippy::needless_range_loop)]
     for i in 0..MAX_GENERIC_XLOG_PAGES {
         let pd = &st.pages[i];
         if pd.buffer == InvalidBuffer {

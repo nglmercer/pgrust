@@ -83,7 +83,9 @@ pub fn floatVal(fval: &str) -> f64 {
 
 pub fn defGetNumeric(def: &DefElem<'_>) -> PgResult<f64> {
     let err = || syntax_err(format!("{} requires a numeric value", defname(def)));
-    let Some(arg) = def.arg else { return Err(err()) };
+    let Some(arg) = def.arg else {
+        return Err(err());
+    };
     match arg.node_tag() {
         NodeTag::T_Integer => Ok(arg.as_integer().unwrap().ival as f64),
         NodeTag::T_Float => Ok(floatVal(arg.as_float().unwrap().fval)),
@@ -95,7 +97,9 @@ pub fn defGetNumeric(def: &DefElem<'_>) -> PgResult<f64> {
 // for int4 lex as Float) through oidin (oid.c:37 -> uint32in_subr).
 pub fn defGetObjectId(def: &DefElem<'_>) -> PgResult<Oid> {
     let err = || syntax_err(format!("{} requires a numeric value", defname(def)));
-    let Some(arg) = def.arg else { return Err(err()) };
+    let Some(arg) = def.arg else {
+        return Err(err());
+    };
     match arg.node_tag() {
         NodeTag::T_Integer => Ok(arg.as_integer().unwrap().ival as Oid),
         NodeTag::T_Float => {
@@ -125,7 +129,10 @@ pub fn defGetBoolean(def: &DefElem<'_>) -> PgResult<bool> {
             return Ok(false);
         }
     }
-    Err(syntax_err(format!("{} requires a Boolean value", defname(def))))
+    Err(syntax_err(format!(
+        "{} requires a Boolean value",
+        defname(def)
+    )))
 }
 
 pub fn defGetInt32(def: &DefElem<'_>) -> PgResult<i32> {
@@ -134,12 +141,17 @@ pub fn defGetInt32(def: &DefElem<'_>) -> PgResult<i32> {
             return Ok(i.ival);
         }
     }
-    Err(syntax_err(format!("{} requires an integer value", defname(def))))
+    Err(syntax_err(format!(
+        "{} requires an integer value",
+        defname(def)
+    )))
 }
 
 pub fn defGetInt64(def: &DefElem<'_>) -> PgResult<i64> {
     let err = || syntax_err(format!("{} requires a numeric value", defname(def)));
-    let Some(arg) = def.arg else { return Err(err()) };
+    let Some(arg) = def.arg else {
+        return Err(err());
+    };
     match arg.node_tag() {
         NodeTag::T_Integer => Ok(arg.as_integer().unwrap().ival as i64),
         NodeTag::T_Float => adt_int8::int8in(arg.as_float().unwrap().fval, None),
@@ -162,7 +174,10 @@ pub fn defGetQualifiedName<'mcx>(
             let list = NodeList::make1(mcx, arg)?;
             Ok(Node::mk_list(mcx, list)?.as_list().unwrap())
         }
-        _ => Err(syntax_err(format!("argument of {} must be a name", defname(def)))),
+        _ => Err(syntax_err(format!(
+            "argument of {} must be a name",
+            defname(def)
+        ))),
     }
 }
 
@@ -180,7 +195,10 @@ pub fn defGetTypeName<'mcx>(mcx: Mcx<'mcx>, def: &DefElem<'mcx>) -> PgResult<&'m
             tn.location = -1;
             Ok(tn.seal_ref())
         }
-        _ => Err(syntax_err(format!("argument of {} must be a type name", defname(def)))),
+        _ => Err(syntax_err(format!(
+            "argument of {} must be a type name",
+            defname(def)
+        ))),
     }
 }
 
@@ -193,10 +211,18 @@ pub fn defGetTypeLength(def: &DefElem<'_>) -> PgResult<i32> {
     match arg.node_tag() {
         NodeTag::T_Integer => return Ok(arg.as_integer().unwrap().ival),
         NodeTag::T_Float => {
-            return Err(syntax_err(format!("{} requires an integer value", defname(def))))
+            return Err(syntax_err(format!(
+                "{} requires an integer value",
+                defname(def)
+            )))
         }
         NodeTag::T_String => {
-            if arg.as_string().unwrap().sval.eq_ignore_ascii_case("variable") {
+            if arg
+                .as_string()
+                .unwrap()
+                .sval
+                .eq_ignore_ascii_case("variable")
+            {
                 return Ok(-1);
             }
         }
@@ -315,8 +341,7 @@ mod tests {
     fn type_name_to_string_decorations_match_c() {
         let ctx = mcx::MemoryContext::new("commands_define-test");
         let mcx = ctx.mcx();
-        let string_node =
-            |s: &'static str| Node::mk(mcx, types_nodes::String { sval: s }).unwrap();
+        let string_node = |s: &'static str| Node::mk(mcx, types_nodes::String { sval: s }).unwrap();
         let bound = |n: i32| Node::mk(mcx, types_nodes::Integer { ival: n }).unwrap();
 
         let tn = TypeName {
@@ -375,7 +400,10 @@ mod tests {
         let def = defel_with(mcx, "opt", Some(list));
         assert_xx000(
             &defGetStringList(&def).err().unwrap(),
-            &format!("unexpected node type in name list: {}", NodeTag::T_Integer as u16),
+            &format!(
+                "unexpected node type in name list: {}",
+                NodeTag::T_Integer as u16
+            ),
         );
 
         // NameListToString (namespace.c:3616): same message; A_Star joins as
@@ -383,7 +411,10 @@ mod tests {
         let names = NodeList::make1(mcx, int_node).unwrap();
         assert_xx000(
             &NameListToString(mcx, &names).err().unwrap(),
-            &format!("unexpected node type in name list: {}", NodeTag::T_Integer as u16),
+            &format!(
+                "unexpected node type in name list: {}",
+                NodeTag::T_Integer as u16
+            ),
         );
         let star = Node::mk(mcx, types_nodes::A_Star).unwrap();
         let s = Node::mk(mcx, types_nodes::String { sval: "s" }).unwrap();
@@ -405,15 +436,24 @@ mod tests {
         assert_eq!(defGetObjectId(&def).unwrap(), 3_000_000_000);
         let def = defel_with(mcx, "oid", Some(float("4294967296")));
         let e = defGetObjectId(&def).err().unwrap();
-        assert_eq!(e.message(), "value \"4294967296\" is out of range for type oid");
-        assert_eq!(e.sqlstate(), types_error::ERRCODE_NUMERIC_VALUE_OUT_OF_RANGE);
+        assert_eq!(
+            e.message(),
+            "value \"4294967296\" is out of range for type oid"
+        );
+        assert_eq!(
+            e.sqlstate(),
+            types_error::ERRCODE_NUMERIC_VALUE_OUT_OF_RANGE
+        );
         let text = Node::mk(mcx, types_nodes::String { sval: "abc" }).unwrap();
         let def = defel_with(mcx, "oid", Some(text));
         let e = defGetObjectId(&def).err().unwrap();
         assert_eq!(e.message(), "oid requires a numeric value");
         assert_eq!(e.sqlstate(), ERRCODE_SYNTAX_ERROR);
         let def = defel_with(mcx, "oid", None);
-        assert_eq!(defGetObjectId(&def).err().unwrap().message(), "oid requires a numeric value");
+        assert_eq!(
+            defGetObjectId(&def).err().unwrap().message(),
+            "oid requires a numeric value"
+        );
     }
 
     // errorConflictingDefElem (define.c:371-377): the cursor comes from
@@ -442,10 +482,16 @@ mod tests {
 
         assert_eq!(errorConflictingDefElem(&def, None).cursor_position, None);
         def.location = -1;
-        assert_eq!(errorConflictingDefElem(&def, Some(&pstate)).cursor_position, None);
+        assert_eq!(
+            errorConflictingDefElem(&def, Some(&pstate)).cursor_position,
+            None
+        );
         pstate.p_sourcetext = None;
         def.location = second;
-        assert_eq!(errorConflictingDefElem(&def, Some(&pstate)).cursor_position, None);
+        assert_eq!(
+            errorConflictingDefElem(&def, Some(&pstate)).cursor_position,
+            None
+        );
     }
 
     #[test]

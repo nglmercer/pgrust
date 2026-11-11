@@ -29,7 +29,11 @@ fn free_runs_inside_used_superpages_go_back_under_pressure() {
         let b = take(BLOCK, 64, h).expect("a runs block");
         let p = b.cast::<u8>().as_ptr() as usize;
         touch(p, BLOCK);
-        if seen.insert(p / SUPER) { kept.push(b) } else { freed.push(p) }
+        if seen.insert(p / SUPER) {
+            kept.push(b)
+        } else {
+            freed.push(p)
+        }
     }
     let supers = seen.len();
     for &p in &freed {
@@ -46,7 +50,10 @@ fn free_runs_inside_used_superpages_go_back_under_pressure() {
     assert!(got >= want, "released {got} < the freed runs' {want}");
     assert_eq!(left, 0, "no resident free run is left in a used superpage");
     assert!(gone >= want, "the freed runs are gone: {gone} < {want}");
-    assert!(before.claimed - after.claimed >= want, "claimed fell by the gone runs: {before:?} -> {after:?}");
+    assert!(
+        before.claimed - after.claimed >= want,
+        "claimed fell by the gone runs: {before:?} -> {after:?}"
+    );
     for &p in &freed {
         assert_eq!(resident(p, BLOCK), 0, "a gone run's pages left the process");
     }
@@ -59,16 +66,27 @@ fn free_runs_inside_used_superpages_go_back_under_pressure() {
         }
     });
     assert!(complete, "the syscall log overflowed");
-    assert!(inside >= supers && bytes >= want && whole == 0, "{inside} releases inside {supers} superpages, {bytes} bytes, {whole} across a superpage");
+    assert!(
+        inside >= supers && bytes >= want && whole == 0,
+        "{inside} releases inside {supers} superpages, {bytes} bytes, {whole} across a superpage"
+    );
     balanced();
-    let again: Vec<_> = (0..freed.len()).map(|_| take(BLOCK, 64, h).expect("a runs block again")).collect();
+    let again: Vec<_> = (0..freed.len())
+        .map(|_| take(BLOCK, 64, h).expect("a runs block again"))
+        .collect();
     for b in &again {
         let p = b.cast::<u8>().as_ptr() as usize;
         // SAFETY: a fresh block of BLOCK bytes, ours.
         let z = unsafe { core::slice::from_raw_parts(p as *const u8, BLOCK) };
-        assert!(z.iter().all(|&x| x == 0), "a run taken again from the OS reads zero");
+        assert!(
+            z.iter().all(|&x| x == 0),
+            "a run taken again from the OS reads zero"
+        );
     }
-    assert!(stats().claimed >= after.claimed + want, "the runs taken again are claimed again");
+    assert!(
+        stats().claimed >= after.claimed + want,
+        "the runs taken again are claimed again"
+    );
     balanced();
     for b in again.into_iter().chain(kept) {
         // SAFETY: ours, freed once.

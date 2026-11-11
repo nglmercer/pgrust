@@ -21,12 +21,17 @@ pub const PQ_RECV_BUFFER_SIZE: usize = 8192;
 /// The size a full send buffer grows to once before it flushes when full (`set_send_grow`; on until set).
 pub const PQ_SEND_BUFFER_GROWN: usize = 64 * 1024;
 
-static SEND_GROW: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(PQ_SEND_BUFFER_GROWN);
+static SEND_GROW: core::sync::atomic::AtomicUsize =
+    core::sync::atomic::AtomicUsize::new(PQ_SEND_BUFFER_GROWN);
 
 /// On: a send buffer a message fills grows once to PQ_SEND_BUFFER_GROWN before it flushes when full, so a result of tens
 /// of kilobytes leaves in one send at the protocol's flush, not one per 8 KiB; off: C's flush when full.
 pub fn set_send_grow(on: bool) {
-    let bytes = if on { PQ_SEND_BUFFER_GROWN } else { PQ_SEND_BUFFER_SIZE };
+    let bytes = if on {
+        PQ_SEND_BUFFER_GROWN
+    } else {
+        PQ_SEND_BUFFER_SIZE
+    };
     SEND_GROW.store(bytes, core::sync::atomic::Ordering::Relaxed);
 }
 
@@ -99,7 +104,8 @@ fn loc(funcname: &'static str) -> ErrorLocation {
 fn grow_zeroed(buf: &mut PgVec<'_, u8>, new_len: usize) -> PgResult<()> {
     let mcx = *buf.allocator();
     let old = buf.len();
-    buf.try_reserve_exact(new_len - old).map_err(|_| mcx.oom(new_len))?;
+    buf.try_reserve_exact(new_len - old)
+        .map_err(|_| mcx.oom(new_len))?;
     // SAFETY: capacity >= new_len after the reserve; the tail is fully
     // initialized before set_len.
     unsafe {
@@ -164,9 +170,7 @@ fn register_send_teardown() {
     }
 }
 
-fn with_send<R>(
-    f: impl for<'mcx> FnOnce(&mut SendBuf<'mcx>) -> PgResult<R>,
-) -> PgResult<R> {
+fn with_send<R>(f: impl for<'mcx> FnOnce(&mut SendBuf<'mcx>) -> PgResult<R>) -> PgResult<R> {
     #[cfg(debug_assertions)]
     let _active = send_active_guard();
     SEND.with(|cell| -> PgResult<R> {

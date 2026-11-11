@@ -52,24 +52,24 @@ pub(crate) const F_GIN_TSQUERY_CONSISTENT_OLDSIG: ::types_core::Oid = 3792;
 /// type; the timestamptz / cidr / varbit rows share the collapsed tags.
 pub(crate) fn btree_type_of_core_cmp(cmp_proc: ::types_core::Oid) -> Option<GinBtreeType> {
     Some(match cmp_proc {
-        354 => GinBtreeType::Float4,      // btfloat4cmp
-        355 => GinBtreeType::Float8,      // btfloat8cmp
-        377 => GinBtreeType::Money,       // cash_cmp
+        354 => GinBtreeType::Float4,            // btfloat4cmp
+        355 => GinBtreeType::Float8,            // btfloat8cmp
+        377 => GinBtreeType::Money,             // cash_cmp
         2045 | 1314 => GinBtreeType::Timestamp, // timestamp_cmp / timestamptz_cmp
-        1107 => GinBtreeType::Time,       // time_cmp
-        1358 => GinBtreeType::Timetz,     // timetz_cmp
-        1092 => GinBtreeType::Date,       // date_cmp
-        1315 => GinBtreeType::Interval,   // interval_cmp
-        836 => GinBtreeType::Macaddr,     // macaddr_cmp
-        4119 => GinBtreeType::Macaddr8,   // macaddr8_cmp
-        926 => GinBtreeType::Inet,        // network_cmp (inet and cidr)
-        1078 => GinBtreeType::Bpchar,     // bpcharcmp
-        358 => GinBtreeType::Char,        // btcharcmp
-        1954 => GinBtreeType::Bytea,      // byteacmp
-        1596 | 1672 => GinBtreeType::Bit, // bitcmp / varbitcmp
-        2960 => GinBtreeType::Uuid,       // uuid_cmp
-        359 => GinBtreeType::Name,        // btnamecmp
-        1693 => GinBtreeType::Bool,       // btboolcmp
+        1107 => GinBtreeType::Time,             // time_cmp
+        1358 => GinBtreeType::Timetz,           // timetz_cmp
+        1092 => GinBtreeType::Date,             // date_cmp
+        1315 => GinBtreeType::Interval,         // interval_cmp
+        836 => GinBtreeType::Macaddr,           // macaddr_cmp
+        4119 => GinBtreeType::Macaddr8,         // macaddr8_cmp
+        926 => GinBtreeType::Inet,              // network_cmp (inet and cidr)
+        1078 => GinBtreeType::Bpchar,           // bpcharcmp
+        358 => GinBtreeType::Char,              // btcharcmp
+        1954 => GinBtreeType::Bytea,            // byteacmp
+        1596 | 1672 => GinBtreeType::Bit,       // bitcmp / varbitcmp
+        2960 => GinBtreeType::Uuid,             // uuid_cmp
+        359 => GinBtreeType::Name,              // btnamecmp
+        1693 => GinBtreeType::Bool,             // btboolcmp
         _ => return None,
     })
 }
@@ -154,9 +154,7 @@ fn text_payload<'x>(d: Datum) -> &'x [u8] {
 pub(crate) fn inline_image(d: Datum) -> bool {
     let p = d.as_usize() as *const u8;
     // SAFETY: non-null varlena datum readable through its header.
-    unsafe {
-        (varatt::varatt_is_1b(p) && !varatt::varatt_is_1b_e(p)) || varatt::varatt_is_4b_u(p)
-    }
+    unsafe { (varatt::varatt_is_1b(p) && !varatt::varatt_is_1b_e(p)) || varatt::varatt_is_4b_u(p) }
 }
 
 // index_form_tuple inline-compresses varlena index keys above the size
@@ -226,8 +224,7 @@ pub(crate) fn compare(col: &GinColState, a: Datum, b: Datum) -> PgResult<i32> {
         // bttextcmp under the support collation; the collation is resolved
         // by the time an index key is compared, so the PgResult never fires.
         GinCompareFn::Text => cmp_text_keys(a, b, |x, y| {
-            varlena::varstr_cmp(x, y, col.support_collation)
-                .expect("bttextcmp: varstr_cmp failed")
+            varlena::varstr_cmp(x, y, col.support_collation).expect("bttextcmp: varstr_cmp failed")
         }),
         GinCompareFn::Jsonb => cmp_text_keys(a, b, ::adt_jsonb::gin::gin_compare_jsonb),
         GinCompareFn::TsLexeme => cmp_text_keys(a, b, ::adt_tsginidx::gin_cmp_tslexeme),
@@ -247,14 +244,8 @@ pub(crate) fn compare(col: &GinColState, a: Datum, b: Datum) -> PgResult<i32> {
             let mut finfo = ::fmgr_seams::fmgr_info::call(cmp_proc)
                 .expect("GIN compare support function resolved at initGinState");
             let cx = ::mcx::MemoryContext::new_wholesale("gin fmgr key compare");
-            ::types_fmgr::function_call2_coll_in(
-                &mut finfo,
-                col.support_collation,
-                cx.mcx(),
-                a,
-                b,
-            )?
-            .as_i32()
+            ::types_fmgr::function_call2_coll_in(&mut finfo, col.support_collation, cx.mcx(), a, b)?
+                .as_i32()
         }
     })
 }
@@ -299,7 +290,10 @@ pub(crate) fn extract_value<'m>(
         }
         GinExtractValueFn::JsonbPath => {
             let payload = detoast_payload(mcx, value)?;
-            Ok((::adt_jsonb::gin::gin_extract_jsonb_path(mcx, payload)?, no_nulls))
+            Ok((
+                ::adt_jsonb::gin::gin_extract_jsonb_path(mcx, payload)?,
+                no_nulls,
+            ))
         }
         GinExtractValueFn::Tsvector => {
             let payload = detoast_payload(mcx, value)?;
@@ -433,7 +427,9 @@ pub(crate) fn extract_query<'m>(
             })
         }
         GinExtractQueryFn::Tsquery => {
-            let q = ::adt_tsvector_core::query::TsQueryRef { payload: &image[4..] };
+            let q = ::adt_tsvector_core::query::TsQueryRef {
+                payload: &image[4..],
+            };
             let out = ::adt_tsginidx::gin_extract_tsquery(mcx, q)?;
             Ok(ExtractedQuery {
                 entries: out.entries,
@@ -491,11 +487,8 @@ pub(crate) fn extract_query<'m>(
             })
         }
         GinExtractQueryFn::Trgm => {
-            let (keys, search_mode, trgm_graph) = gin_trgm_seams::trgm_extract_query::call(
-                &image[4..],
-                strategy,
-                collation,
-            )?;
+            let (keys, search_mode, trgm_graph) =
+                gin_trgm_seams::trgm_extract_query::call(&image[4..], strategy, collation)?;
             let mut entries: PgVec<'m, Datum> = mcx::vec_with_capacity_in(mcx, keys.len())?;
             for k in keys {
                 entries.push(Datum::from_i32(k));
@@ -586,16 +579,21 @@ pub fn consistent(
             if f == GinConsistentFn::Jsonb {
                 ::adt_jsonb::gin::gin_consistent_jsonb(check, strategy, nkeys, recheck, jsp_ops)
             } else {
-                ::adt_jsonb::gin::gin_consistent_jsonb_path(check, strategy, nkeys, recheck, jsp_ops)
+                ::adt_jsonb::gin::gin_consistent_jsonb_path(
+                    check, strategy, nkeys, recheck, jsp_ops,
+                )
             }
         }
         GinConsistentFn::Tsquery => {
             let image = detoast_image(mcx, query)?;
-            let q = ::adt_tsvector_core::query::TsQueryRef { payload: &image[4..] };
+            let q = ::adt_tsvector_core::query::TsQueryRef {
+                payload: &image[4..],
+            };
             if map_item_operand.len() < q.size() {
                 return Err(missing_extra_data("gin_tsquery_consistent"));
             }
-            let (res, rc) = ::adt_tsginidx::gin_tsquery_consistent(mcx, check, q, map_item_operand)?;
+            let (res, rc) =
+                ::adt_tsginidx::gin_tsquery_consistent(mcx, check, q, map_item_operand)?;
             *recheck = rc;
             Ok(res)
         }
@@ -685,7 +683,9 @@ pub fn tri_consistent(
         }
         GinTriConsistentFn::Tsquery => {
             let image = detoast_image(mcx, query)?;
-            let q = ::adt_tsvector_core::query::TsQueryRef { payload: &image[4..] };
+            let q = ::adt_tsvector_core::query::TsQueryRef {
+                payload: &image[4..],
+            };
             if map_item_operand.len() < q.size() {
                 return Err(missing_extra_data("gin_tsquery_triconsistent"));
             }
@@ -697,6 +697,7 @@ pub fn tri_consistent(
             let res = match strategy {
                 GinOverlapStrategy => {
                     let mut res = GIN_FALSE;
+                    #[allow(clippy::needless_range_loop)]
                     for i in 0..nkeys {
                         if !null(i) {
                             if check[i] == GIN_TRUE {
@@ -711,6 +712,7 @@ pub fn tri_consistent(
                 }
                 GinContainsStrategy => {
                     let mut res = GIN_TRUE;
+                    #[allow(clippy::needless_range_loop)]
                     for i in 0..nkeys {
                         if check[i] == GIN_FALSE || null(i) {
                             res = GIN_FALSE;
@@ -725,6 +727,7 @@ pub fn tri_consistent(
                 GinContainedStrategy => GIN_MAYBE,
                 GinEqualStrategy => {
                     let mut res = GIN_MAYBE;
+                    #[allow(clippy::needless_range_loop)]
                     for i in 0..nkeys {
                         if check[i] == GIN_FALSE {
                             res = GIN_FALSE;
@@ -774,12 +777,8 @@ pub fn gincost_extract_query(
     indexcol: usize,
     index_oid: ::types_core::Oid,
 ) -> PgResult<(i32, i32, i32)> {
-    let extract = lsyscache::get_opfamily_proc(
-        opfamily,
-        opcintype,
-        opcintype,
-        GIN_EXTRACTQUERY_PROC as i16,
-    )?;
+    let extract =
+        lsyscache::get_opfamily_proc(opfamily, opcintype, opcintype, GIN_EXTRACTQUERY_PROC as i16)?;
     if extract == ::types_core::InvalidOid {
         // User-reachable: CREATE OPERATOR CLASS ... USING gin without a
         // FUNCTION 3 (extractQuery) entry is accepted at DDL time, and the
@@ -800,4 +799,3 @@ pub fn gincost_extract_query(
     let npartial = out.partial_match.iter().filter(|&&p| p).count() as i32;
     Ok((out.entries.len() as i32, npartial, out.search_mode))
 }
-

@@ -30,7 +30,7 @@
 //!      partial coverage (an uncovering flush neither completes early nor
 //!      strands) and one-walk-completes-multiple (two registrants, hint
 //!      coherence).
-//!   6b. flushpipe `handoff` + `quiet` (D4574) — a registrant that skips the
+//!      6b. flushpipe `handoff` + `quiet` (D4574) — a registrant that skips the
 //!      walwriter wake because a commit flush is in flight is seen by that
 //!      flush's walk, which covers it or hands it the lead (no strand); and a
 //!      lead verdict is never given to a covered waiter.

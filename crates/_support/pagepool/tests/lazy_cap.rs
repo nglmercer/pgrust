@@ -49,21 +49,41 @@ fn lazy_cap() {
     // 64 MiB warm against a 16 MiB cap, 8 MiB a pass
     let got = lazy_pass_now();
     exact!(sw, got == 8 * MIB, "one budget a pass: {got}");
-    exact!(sw, resident(aa + 24 * MIB, 8 * MIB) == 0, "the oldest span's top first");
-    exact!(sw, resident(aa, 24 * MIB) >= 24 * MIB && resident(ba, 32 * MIB) >= 32 * MIB, "the rest resident");
+    exact!(
+        sw,
+        resident(aa + 24 * MIB, 8 * MIB) == 0,
+        "the oldest span's top first"
+    );
+    exact!(
+        sw,
+        resident(aa, 24 * MIB) >= 24 * MIB && resident(ba, 32 * MIB) >= 32 * MIB,
+        "the rest resident"
+    );
     for _ in 0..3 {
         let got = lazy_pass_now();
         exact!(sw, got == 8 * MIB, "a budget: {got}");
     }
-    exact!(sw, resident(aa, 32 * MIB) == 0, "the oldest span all given back");
+    exact!(
+        sw,
+        resident(aa, 32 * MIB) == 0,
+        "the oldest span all given back"
+    );
     for _ in 0..2 {
         let got = lazy_pass_now();
         exact!(sw, got == 8 * MIB, "a budget: {got}");
     }
     let got = lazy_pass_now();
     exact!(sw, got == 0, "at the cap: nothing more: {got}");
-    exact!(sw, resident(ba, 16 * MIB) >= 16 * MIB, "the newer span's bottom stays");
-    exact!(sw, resident(ba + 16 * MIB, 16 * MIB) == 0, "its top given back");
+    exact!(
+        sw,
+        resident(ba, 16 * MIB) >= 16 * MIB,
+        "the newer span's bottom stays"
+    );
+    exact!(
+        sw,
+        resident(ba + 16 * MIB, 16 * MIB) == 0,
+        "its top given back"
+    );
 
     // dead runs count against the cap too, after the warm spans (a span too big for either warm one: a new one)
     let mut c = span(160 * MIB, h).expect("a lazy span");
@@ -79,11 +99,23 @@ fn lazy_cap() {
         exact!(sw, got == 8 * MIB, "a budget: {got}");
     }
     exact!(sw, resident(ba, 32 * MIB) == 0, "the warm span first");
-    exact!(sw, resident(ca, 24 * MIB) >= 24 * MIB, "the dead runs still resident");
+    exact!(
+        sw,
+        resident(ca, 24 * MIB) >= 24 * MIB,
+        "the dead runs still resident"
+    );
     let got = lazy_pass_now();
-    exact!(sw, got == 8 * MIB, "then dead runs, in address order: {got}");
+    exact!(
+        sw,
+        got == 8 * MIB,
+        "then dead runs, in address order: {got}"
+    );
     exact!(sw, resident(ca, 8 * MIB) == 0, "the lowest dead runs first");
-    exact!(sw, resident(ca + 8 * MIB, 16 * MIB) >= 16 * MIB, "the rest of the dead runs stay");
+    exact!(
+        sw,
+        resident(ca + 8 * MIB, 16 * MIB) >= 16 * MIB,
+        "the rest of the dead runs stay"
+    );
     let got = lazy_pass_now();
     exact!(sw, got == 0, "at the cap: {got}");
     assert_eq!(stats().dead, 16 * MIB);

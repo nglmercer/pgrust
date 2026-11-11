@@ -17,6 +17,7 @@ use crate::{ReadError, ReadResult};
 /// Positioned-read access to one (immutable, sealed) part file plus the
 /// physical identity facts spec §11 keys on. Implementations are read-only
 /// and internally immutable; `&self` reads are safe from any thread.
+#[allow(clippy::len_without_is_empty)]
 pub trait PartIo: Send + Sync {
     /// File length in bytes (identity word 3).
     fn len(&self) -> u64;
@@ -55,7 +56,12 @@ pub trait PartIo: Send + Sync {
 /// three grouping scans); `PGRUST_PGRC_FADV_RANDOM=0`/`off` is the kill switch.
 pub(crate) fn fadv_random_armed() -> bool {
     static F: pgsync::OnceLock<bool> = pgsync::OnceLock::new();
-    *F.get_or_init(|| !matches!(std::env::var("PGRUST_PGRC_FADV_RANDOM").as_deref(), Ok("0") | Ok("off")))
+    *F.get_or_init(|| {
+        !matches!(
+            std::env::var("PGRUST_PGRC_FADV_RANDOM").as_deref(),
+            Ok("0") | Ok("off")
+        )
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -73,7 +79,9 @@ pub struct VfsPartIo {
 impl VfsPartIo {
     /// Open `path` read-only and gather identity facts.
     pub fn open(path: &CStr) -> ReadResult<VfsPartIo> {
-        Ok(VfsPartIo { slot: crate::fdpool::open(path)? })
+        Ok(VfsPartIo {
+            slot: crate::fdpool::open(path)?,
+        })
     }
 }
 
@@ -111,7 +119,8 @@ impl PartIo for VfsPartIo {
             return None;
         }
         let l = crate::fdpool::lease(&self.slot).ok()?;
-        (vfs::cachestat(l.fd, off as libc::off_t, len as libc::off_t, &mut out) == 0).then_some((out[0], out[1]))
+        (vfs::cachestat(l.fd, off as libc::off_t, len as libc::off_t, &mut out) == 0)
+            .then_some((out[0], out[1]))
     }
 
     fn advise_willneed(&self, off: u64, len: u64) {
@@ -135,11 +144,19 @@ impl PartIo for VfsPartIo {
         READ_DEPTH_MAX.fetch_max(depth, core::sync::atomic::Ordering::Relaxed);
         THREAD_READS.with(|t| {
             let [calls, bytes, depth, max] = t.get();
-            t.set([calls + 1, bytes + buf.len() as u64, depth + 1, max.max(depth + 1)]);
+            t.set([
+                calls + 1,
+                bytes + buf.len() as u64,
+                depth + 1,
+                max.max(depth + 1),
+            ]);
         });
         let t0 = std::time::Instant::now();
         let r = self.pread_loop(off, buf, at);
-        PREAD_NS.fetch_add(t0.elapsed().as_nanos() as u64, core::sync::atomic::Ordering::Relaxed);
+        PREAD_NS.fetch_add(
+            t0.elapsed().as_nanos() as u64,
+            core::sync::atomic::Ordering::Relaxed,
+        );
         READ_DEPTH.fetch_sub(1, core::sync::atomic::Ordering::Relaxed);
         THREAD_READS.with(|t| {
             let [calls, bytes, depth, max] = t.get();
@@ -203,7 +220,10 @@ pub static READ_DEPTH_MAX: core::sync::atomic::AtomicU64 = core::sync::atomic::A
 
 /// The high-water mark of preads in flight since the previous call (the served line's `depth:`); resets it.
 pub fn take_read_depth_max() -> u64 {
-    READ_DEPTH_MAX.swap(READ_DEPTH.load(core::sync::atomic::Ordering::Relaxed), core::sync::atomic::Ordering::Relaxed)
+    READ_DEPTH_MAX.swap(
+        READ_DEPTH.load(core::sync::atomic::Ordering::Relaxed),
+        core::sync::atomic::Ordering::Relaxed,
+    )
 }
 
 std::thread_local! {
@@ -380,9 +400,7 @@ impl VfsTableDir {
             if n == 0 {
                 // Shrank under us; sealed dir files never shrink — refuse.
                 vfs::close(fd);
-                return Err(ReadError::Format(FormatError::Truncated {
-                    at: "dir file",
-                }));
+                return Err(ReadError::Format(FormatError::Truncated { at: "dir file" }));
             }
             done += n as usize;
         }

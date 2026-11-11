@@ -397,7 +397,7 @@ pub(crate) fn held_child(gx: &Gx<'_, '_>, k: usize, o: usize, j: usize) -> bool 
     let rerun = |x: usize| gx.graph.reruns.iter().any(|r| r.pipelines.contains(&(x as u16)));
     let Some(Op::Join(JoinDesc::Nest { .. })) = ps[o].ops.get(j) else { return false };
     let Some((Op::Join(JoinDesc::Spool), body)) = ps[k].ops.split_last() else { return false };
-    !rerun(k) && !rerun(owner(gx, o)) && exact_child(gx, &ps[k].source, &ps[k].desc.consumes, Some(k), body)
+    !rerun(k) && !rerun(owner(gx, o)) && exact_child(gx, &ps[k].source, ps[k].desc.consumes, Some(k), body)
 }
 
 /// The graph pipeline whose call runs pipeline `o`: `o` itself, or the owner an embedded inner's chain of owners ends in.
@@ -465,7 +465,7 @@ fn exact_child(gx: &Gx<'_, '_>, source: &Source<'_>, consumes: &[u8], fill: Opti
                     && d.functions.iter().all(|f| matches!(f.kind, SrfKind::SeriesInt { .. } | SrfKind::Unnest) && list(f.args))
                     && list(d.tlist)
             }
-            Op::Join(JoinDesc::Nest { params, qual, inner, .. }) => params.is_nil() && list(qual) && exact_child(gx, &inner.source, &inner.desc.consumes, fill, &inner.ops),
+            Op::Join(JoinDesc::Nest { params, qual, inner, .. }) => params.is_nil() && list(qual) && exact_child(gx, &inner.source, inner.desc.consumes, fill, &inner.ops),
             op => crate::frame::iface::limit_bounds(op).is_some_and(|(count, offset)| bound(count) && bound(offset)),
         })
 }

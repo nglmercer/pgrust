@@ -162,6 +162,7 @@ unsafe fn parser_print_file_context(input: *const xmlParserInputHdr) -> Option<V
     }
 }
 
+#[allow(clippy::missing_safety_doc)]
 pub unsafe extern "C" fn xml_error_handler(_user_data: *mut c_void, error: *mut c_void) {
     // SAFETY (fn body): libxml passes a live xmlError; header prefixes match
     // the stable 2.x ABI (libxml.rs).

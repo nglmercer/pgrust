@@ -43,7 +43,10 @@ fn find_pgbin() -> Option<PathBuf> {
 }
 
 fn tzdir(pgbin: &Path) -> Option<PathBuf> {
-    for share in ["../share/postgresql/timezone", "../share/postgresql@18/timezone"] {
+    for share in [
+        "../share/postgresql/timezone",
+        "../share/postgresql@18/timezone",
+    ] {
         let d = pgbin.join(share);
         if d.is_dir() {
             return Some(d);
@@ -58,7 +61,11 @@ fn tzdir(pgbin: &Path) -> Option<PathBuf> {
 fn server_binary() -> PathBuf {
     if let Some(p) = std::env::var_os("PGRUST_TEST_SERVER_BIN").filter(|p| !p.is_empty()) {
         let bin = PathBuf::from(p);
-        assert!(bin.is_file(), "PGRUST_TEST_SERVER_BIN={} is not a file", bin.display());
+        assert!(
+            bin.is_file(),
+            "PGRUST_TEST_SERVER_BIN={} is not a file",
+            bin.display()
+        );
         return bin;
     }
     // target/<profile>/deps/refresh_freeze_e2e-... -> target/<profile>/postgres
@@ -70,17 +77,33 @@ fn server_binary() -> PathBuf {
         .expect("profile dir")
         .to_path_buf();
     let bin = profile_dir.join("postgres");
-    let dir = profile_dir.file_name().and_then(|n| n.to_str()).unwrap_or("debug").to_string();
-    let profile = if dir == "debug" { "dev".to_string() } else { dir };
+    let dir = profile_dir
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("debug")
+        .to_string();
+    let profile = if dir == "debug" {
+        "dev".to_string()
+    } else {
+        dir
+    };
     let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
     let root = manifest.ancestors().nth(4).expect("workspace root");
     let mut cmd = Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()));
-    cmd.current_dir(root).args(["build", "-p", "main_main", "--bin", "postgres"]);
+    cmd.current_dir(root)
+        .args(["build", "-p", "main_main", "--bin", "postgres"]);
     cmd.args(["--profile", profile.as_str()]);
     eprintln!("(building {profile} postgres server binary...)");
     let status = cmd.status().expect("spawn cargo build");
-    assert!(status.success(), "cargo build of the postgres binary failed");
-    assert!(bin.is_file(), "built server binary missing at {}", bin.display());
+    assert!(
+        status.success(),
+        "cargo build of the postgres binary failed"
+    );
+    assert!(
+        bin.is_file(),
+        "built server binary missing at {}",
+        bin.display()
+    );
     bin
 }
 
@@ -113,7 +136,14 @@ impl Server {
         let st = Command::new(pgbin.join("initdb"))
             .args(["-D"])
             .arg(&dd)
-            .args(["--no-locale", "--encoding=UTF8", "-U", "postgres", "-A", "trust"])
+            .args([
+                "--no-locale",
+                "--encoding=UTF8",
+                "-U",
+                "postgres",
+                "-A",
+                "trust",
+            ])
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .status()
@@ -135,13 +165,22 @@ impl Server {
             .arg(&log)
             .env("RUST_MIN_STACK", "67108864")
             .env("RUST_BACKTRACE", "1")
-            .env("PGRUST_CTAS_MULTIINSERT", if multiinsert_on { "1" } else { "0" });
+            .env(
+                "PGRUST_CTAS_MULTIINSERT",
+                if multiinsert_on { "1" } else { "0" },
+            );
         if let Some(tz) = tzdir(pgbin) {
             cmd.env("PGRUST_PGSHAREDIR", tz.parent().unwrap());
             cmd.env("PGRUST_TZDIR", tz);
         }
         let child = cmd.spawn().expect("spawn server");
-        let mut srv = Server { child, sock, port, pgbin: pgbin.to_path_buf(), log };
+        let mut srv = Server {
+            child,
+            sock,
+            port,
+            pgbin: pgbin.to_path_buf(),
+            log,
+        };
         srv.wait_ready();
         srv
     }
@@ -150,7 +189,10 @@ impl Server {
         let deadline = Instant::now() + Duration::from_secs(120);
         while Instant::now() < deadline {
             if let Ok(Some(st)) = self.child.try_wait() {
-                panic!("server exited ({st}) during startup; log tail:\n{}", self.log_tail());
+                panic!(
+                    "server exited ({st}) during startup; log tail:\n{}",
+                    self.log_tail()
+                );
             }
             if self.try_sql("SELECT 1").is_ok() {
                 return;
@@ -170,7 +212,15 @@ impl Server {
         let mut child = Command::new(self.pgbin.join("psql"))
             .arg("-h")
             .arg(&self.sock)
-            .args(["-p", &self.port.to_string(), "-U", "postgres", "-X", "-t", "-A"])
+            .args([
+                "-p",
+                &self.port.to_string(),
+                "-U",
+                "postgres",
+                "-X",
+                "-t",
+                "-A",
+            ])
             .args(["-v", "ON_ERROR_STOP=1", "-f", "-"])
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -202,7 +252,9 @@ impl Server {
     }
 
     fn stop(mut self) {
-        let _ = Command::new("kill").args(["-INT", &self.child.id().to_string()]).status();
+        let _ = Command::new("kill")
+            .args(["-INT", &self.child.id().to_string()])
+            .status();
         let deadline = Instant::now() + Duration::from_secs(60);
         while Instant::now() < deadline {
             if let Ok(Some(_)) = self.child.try_wait() {
@@ -220,7 +272,11 @@ impl Server {
 /// exactly the frozen pair HEAP_XMIN_COMMITTED|HEAP_XMIN_INVALID).
 fn scan_heap_frozen(path: &Path) -> (usize, usize) {
     let data = std::fs::read(path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
-    assert!(data.len().is_multiple_of(BLCKSZ), "heap file not page-aligned: {}", path.display());
+    assert!(
+        data.len().is_multiple_of(BLCKSZ),
+        "heap file not page-aligned: {}",
+        path.display()
+    );
     let (mut ntup, mut nfrozen) = (0usize, 0usize);
     for page in data.chunks_exact(BLCKSZ) {
         let pd_lower = u16::from_le_bytes([page[12], page[13]]) as usize;
@@ -248,7 +304,11 @@ fn run_arm(pgbin: &Path, bin: &Path, work: &Path, port: u16, multiinsert_on: boo
     let _ = std::fs::remove_dir_all(work);
     std::fs::create_dir_all(work).unwrap();
     let srv = Server::start(work, pgbin, bin, port, multiinsert_on);
-    let arm = if multiinsert_on { "multi-insert" } else { "per-tuple" };
+    let arm = if multiinsert_on {
+        "multi-insert"
+    } else {
+        "per-tuple"
+    };
 
     srv.sql(
         "CREATE TABLE src (id int4, t text);\n\
@@ -262,13 +322,27 @@ fn run_arm(pgbin: &Path, bin: &Path, work: &Path, port: u16, multiinsert_on: boo
 
     // (a) rows visible right after the fill — no vacuum has ever run
     // (autovacuum=off) and none is run before the on-disk check either.
-    assert_eq!(srv.scalar("SELECT count(*) FROM mv"), "10000", "[{arm}] refreshed rows visible");
-    assert_eq!(srv.scalar("SELECT count(*) FROM mv_create_only"), "5000", "[{arm}] created rows visible");
-    assert_eq!(srv.scalar("SELECT count(*) FROM ctas_ctrl"), "5000", "[{arm}] ctas rows visible");
+    assert_eq!(
+        srv.scalar("SELECT count(*) FROM mv"),
+        "10000",
+        "[{arm}] refreshed rows visible"
+    );
+    assert_eq!(
+        srv.scalar("SELECT count(*) FROM mv_create_only"),
+        "5000",
+        "[{arm}] created rows visible"
+    );
+    assert_eq!(
+        srv.scalar("SELECT count(*) FROM ctas_ctrl"),
+        "5000",
+        "[{arm}] ctas rows visible"
+    );
 
     let dboid = srv.scalar("SELECT oid FROM pg_database WHERE datname = 'postgres'");
     let rfn = |rel: &str| {
-        srv.scalar(&format!("SELECT relfilenode FROM pg_class WHERE relname = '{rel}'"))
+        srv.scalar(&format!(
+            "SELECT relfilenode FROM pg_class WHERE relname = '{rel}'"
+        ))
     };
     let (mv, mv_create, ctas) = (rfn("mv"), rfn("mv_create_only"), rfn("ctas_ctrl"));
     srv.sql("CHECKPOINT;");
@@ -278,16 +352,26 @@ fn run_arm(pgbin: &Path, bin: &Path, work: &Path, port: u16, multiinsert_on: boo
     let base = dd.join("base").join(&dboid);
 
     // (b) tuples actually frozen on disk, both transientrel-fed heaps.
-    for (name, node) in [("mv", &mv), ("mv_create_only", &mv_create), ("ctas_ctrl", &ctas)] {
+    for (name, node) in [
+        ("mv", &mv),
+        ("mv_create_only", &mv_create),
+        ("ctas_ctrl", &ctas),
+    ] {
         let (n, f) = scan_heap_frozen(&base.join(node));
         eprintln!("[{arm}] {name}: {n} tuples, {f} frozen");
     }
     let (n, f) = scan_heap_frozen(&base.join(&mv));
     assert_eq!(n, 10000, "[{arm}] REFRESH heap tuple count");
-    assert_eq!(f, n, "[{arm}] every REFRESH-written tuple carries the frozen xmin hint");
+    assert_eq!(
+        f, n,
+        "[{arm}] every REFRESH-written tuple carries the frozen xmin hint"
+    );
     let (n, f) = scan_heap_frozen(&base.join(&mv_create));
     assert_eq!(n, 5000, "[{arm}] CREATE-datafill heap tuple count");
-    assert_eq!(f, n, "[{arm}] every CREATE-datafill tuple carries the frozen xmin hint");
+    assert_eq!(
+        f, n,
+        "[{arm}] every CREATE-datafill tuple carries the frozen xmin hint"
+    );
 
     // Control: plain CTAS must NOT freeze (C intorel parity) — and this
     // proves the frozen assertions above cannot pass vacuously.
@@ -325,8 +409,15 @@ fn volatile_matview_fill_sees_prior_rows() {
     std::fs::create_dir_all(&work).unwrap();
     let srv = Server::start(&work, &pgbin, &bin, 5575, true);
     let output = srv.sql(include_str!("fixtures/volatile_fill.sql"));
-    let arrays = output.lines().filter(|line| line.starts_with('{')).collect::<Vec<_>>().join("\n");
+    let arrays = output
+        .lines()
+        .filter(|line| line.starts_with('{'))
+        .collect::<Vec<_>>()
+        .join("\n");
     srv.stop();
-    assert_eq!(arrays, include_str!("fixtures/volatile_fill.expected").trim());
+    assert_eq!(
+        arrays,
+        include_str!("fixtures/volatile_fill.expected").trim()
+    );
     let _ = std::fs::remove_dir_all(&work);
 }

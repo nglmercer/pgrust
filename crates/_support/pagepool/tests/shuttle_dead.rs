@@ -78,9 +78,13 @@ fn one_round() {
                 REVIVED_ZERO.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             }
             for r in 1..3 {
-                let got = run_bytes(p, r).unwrap_or_else(|| panic!("run {r} part released, part not, after take_pages"));
+                let got = run_bytes(p, r)
+                    .unwrap_or_else(|| panic!("run {r} part released, part not, after take_pages"));
                 if z == Zeroed::No {
-                    assert!(got, "run {r} reads zero but take_pages said nothing was released");
+                    assert!(
+                        got,
+                        "run {r} reads zero but take_pages said nothing was released"
+                    );
                 }
             }
             // SAFETY: the block we hold again.
@@ -102,7 +106,10 @@ fn one_round() {
     owner.join().unwrap();
     purger.join().unwrap();
     let st = pagepool::stats();
-    assert_eq!(st.dead, 0, "dead bytes left after every run was revived: {st:?}");
+    assert_eq!(
+        st.dead, 0,
+        "dead bytes left after every run was revived: {st:?}"
+    );
     if let Err(e) = pagepool::hooks::check() {
         panic!("{e}: {st:?}");
     }
@@ -110,9 +117,18 @@ fn one_round() {
 
 #[test]
 fn dead_runs_race_the_purger() {
-    let iters = std::env::var("SHUTTLE_ITERS").ok().and_then(|v| v.parse().ok()).unwrap_or(1000);
+    let iters = std::env::var("SHUTTLE_ITERS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(1000);
     shuttle::check_random(one_round, iters);
     shuttle::check_pct(one_round, iters, 3);
-    let (z, b) = (REVIVED_ZERO.load(std::sync::atomic::Ordering::Relaxed), PURGED.load(std::sync::atomic::Ordering::Relaxed));
-    eprintln!("MODEL dead runs: {} rounds, {z} revivals found a run released, the purger gave {b} bytes", 2 * iters);
+    let (z, b) = (
+        REVIVED_ZERO.load(std::sync::atomic::Ordering::Relaxed),
+        PURGED.load(std::sync::atomic::Ordering::Relaxed),
+    );
+    eprintln!(
+        "MODEL dead runs: {} rounds, {z} revivals found a run released, the purger gave {b} bytes",
+        2 * iters
+    );
 }

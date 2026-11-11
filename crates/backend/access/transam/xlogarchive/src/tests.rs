@@ -32,7 +32,10 @@ fn install_vars() {
 
 fn with_wal_cwd(f: impl FnOnce()) {
     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-    let _g = LOCK.get_or_init(|| Mutex::new(())).lock().unwrap_or_else(|e| e.into_inner());
+    let _g = LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     install_vars();
     let dir = std::env::temp_dir().join(format!(
         "xlogarchive-test-{}-{:?}",
@@ -166,7 +169,10 @@ fn build_restore_command_substitution() {
 fn restore_archived_file_not_in_archive_recovery() {
     // ArchiveRecoveryRequested=false short-circuits to the pg_wal fallback.
     xlogrecovery_seams::archive_recovery_requested::set(|| false);
-    assert_eq!(RestoreArchivedFile(SEG, "RECOVERYXLOG", 0, false).unwrap(), None);
+    assert_eq!(
+        RestoreArchivedFile(SEG, "RECOVERYXLOG", 0, false).unwrap(),
+        None
+    );
 }
 
 // KeepFileRestoredFromArchive notifies the walsenders (WalSndWakeup(true,
@@ -186,7 +192,10 @@ fn keep_file_restored_notifies_walsenders() {
         KeepFileRestoredFromArchive("pg_wal/RECOVERYXLOG", SEG).unwrap();
 
         assert!(Path::new(&format!("pg_wal/{SEG}")).exists());
-        assert!(Path::new(&done_path(SEG)).exists(), "forced .done (archive off)");
+        assert!(
+            Path::new(&done_path(SEG)).exists(),
+            "forced .done (archive off)"
+        );
         assert_eq!(WAKEUPS.load(Ordering::Relaxed), 1);
     });
 }
@@ -208,12 +217,20 @@ fn keep_file_restored_requests_reload_only_when_replacing() {
         std::fs::write("pg_wal/RECOVERYXLOG", b"restored segment").unwrap();
         KeepFileRestoredFromArchive("pg_wal/RECOVERYXLOG", seg2).unwrap();
         assert!(Path::new(&format!("pg_wal/{seg2}")).exists());
-        assert_eq!(RELOADS.load(Ordering::Relaxed), 0, "no replacement, no reload request");
+        assert_eq!(
+            RELOADS.load(Ordering::Relaxed),
+            0,
+            "no replacement, no reload request"
+        );
 
         // Existing destination: the restore replaces it, so walsenders are
         // asked to reload their currently-open segment.
         std::fs::write("pg_wal/RECOVERYXLOG", b"restored segment v2").unwrap();
         KeepFileRestoredFromArchive("pg_wal/RECOVERYXLOG", seg2).unwrap();
-        assert_eq!(RELOADS.load(Ordering::Relaxed), 1, "replacement requests a reload");
+        assert_eq!(
+            RELOADS.load(Ordering::Relaxed),
+            1,
+            "replacement requests a reload"
+        );
     });
 }

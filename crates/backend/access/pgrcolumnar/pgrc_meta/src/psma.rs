@@ -59,7 +59,11 @@ pub struct KeyBuf {
 
 impl Default for KeyBuf {
     fn default() -> Self {
-        KeyBuf { keys: Vec::new(), rows: Vec::new(), dense: true }
+        KeyBuf {
+            keys: Vec::new(),
+            rows: Vec::new(),
+            dense: true,
+        }
     }
 }
 
@@ -72,7 +76,9 @@ impl KeyBuf {
     /// Append keys at ascending granule-relative rows (`rows[i] < GRANULE_ROWS`, above every row already held).
     pub fn extend(&mut self, rows: &[u32], keys: &[i64]) {
         debug_assert_eq!(rows.len(), keys.len());
-        debug_assert!(rows.windows(2).all(|w| w[0] < w[1]) && rows.last().is_none_or(|&r| r < GRANULE_ROWS));
+        debug_assert!(
+            rows.windows(2).all(|w| w[0] < w[1]) && rows.last().is_none_or(|&r| r < GRANULE_ROWS)
+        );
         if self.dense {
             let at = self.keys.len() as u32;
             match (rows.first(), rows.last()) {

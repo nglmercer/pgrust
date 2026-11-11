@@ -1049,12 +1049,12 @@ mod tests {
     ///     n_ins_since_vacuum, so an insert-triggered autovacuum still
     ///     fires with NO subsequent DML at all. The round-10 version of
     ///     this test only modeled the first path and missed it.
-    /// The rule is therefore blanket: EVERY executed storage-bearing
-    /// CREATE TABLE in an exd group (bare, or inside an instrumented
-    /// EXPLAIN ANALYZE — plain EXPLAIN never executes) must pin
-    /// autovacuum_enabled = off, so fixture stats change only via the
-    /// batch's own ANALYZE. Partitioned parents are exempt (no storage;
-    /// the reloption is rejected there) — their partitions carry the pin.
+    ///     The rule is therefore blanket: EVERY executed storage-bearing
+    ///     CREATE TABLE in an exd group (bare, or inside an instrumented
+    ///     EXPLAIN ANALYZE — plain EXPLAIN never executes) must pin
+    ///     autovacuum_enabled = off, so fixture stats change only via the
+    ///     batch's own ANALYZE. Partitioned parents are exempt (no storage;
+    ///     the reloption is rejected there) — their partitions carry the pin.
     #[test]
     fn executed_fixtures_pin_autovacuum_off() {
         let (groups, _) = gen_groups(0x8B15, 400, &WeightTable::defaults());

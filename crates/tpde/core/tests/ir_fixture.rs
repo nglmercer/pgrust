@@ -32,6 +32,7 @@ impl FixtureRef for u64 {
 }
 
 #[derive(Clone, Copy, PartialEq)]
+#[allow(dead_code)]
 pub struct LargeRef(pub [u64; 2]);
 impl fmt::Display for LargeRef {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -348,6 +349,7 @@ where
 }
 
 #[test]
+#[allow(clippy::assertions_on_constants)]
 fn complete_api_preserves_shared_aux_and_reuse() {
     let mut ir = Adaptor::new(<Fixture<'_>>::new());
     assert!(Adaptor::<Fixture<'_>>::TPDE_PROVIDES_HIGHEST_VAL_IDX);
@@ -430,6 +432,7 @@ fn complete_api_preserves_shared_aux_and_reuse() {
 }
 
 #[test]
+#[allow(clippy::assertions_on_constants)]
 fn absent_highest_callback_and_eight_byte_references_are_admitted() {
     type Without = Fixture<'static, u64, u64, u64, NoHighestValue>;
     let mut ir = Adaptor::new(Without::new());

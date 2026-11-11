@@ -87,6 +87,7 @@ fn a_write_host_owns_its_modified_columns_from_its_first_bind() {
     let ins = mcx::alloc_leak_in(sm, Bitmapset::empty()).unwrap();
     let upd = mcx::alloc_leak_in(sm, Bitmapset::make_singleton(sm, 2).unwrap()).unwrap();
     // SAFETY: the plan's bitmaps as the admission hands them in (`admit::modified_cols`: 'static over the statement's plan)
+    #[allow(clippy::unnecessary_cast)]
     let cols: ModifiedCols = unsafe { (&*(ins as *const Bitmapset<'_> as *const Bitmapset<'static>), &*(upd as *const Bitmapset<'_> as *const Bitmapset<'static>)) };
     let plan_at = (cols.0 as *const Bitmapset<'static> as usize, cols.1 as *const Bitmapset<'static> as usize);
 

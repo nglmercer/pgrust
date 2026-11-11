@@ -25,7 +25,16 @@ static TOLERANCE: AtomicU64 = AtomicU64::new(0);
 static PREV_CURRENT: AtomicU64 = AtomicU64::new(0);
 
 pub const SPLIT_FIELDS: usize = 8;
-pub const SPLIT_NAMES: [&str; SPLIT_FIELDS] = ["current", "anon", "shmem", "file", "inactive_file", "clean_file", "line", "limit"];
+pub const SPLIT_NAMES: [&str; SPLIT_FIELDS] = [
+    "current",
+    "anon",
+    "shmem",
+    "file",
+    "inactive_file",
+    "clean_file",
+    "line",
+    "limit",
+];
 
 #[inline]
 pub fn on() -> bool {
@@ -54,7 +63,14 @@ pub fn sample(s: Split) {
         }
     }
     let prev = PREV_CURRENT.swap(s.current, Relaxed);
-    let tol = rc::tolerance(s.limit, if prev == 0 { 0 } else { s.current.abs_diff(prev) });
+    let tol = rc::tolerance(
+        s.limit,
+        if prev == 0 {
+            0
+        } else {
+            s.current.abs_diff(prev)
+        },
+    );
     let o = rc::check(&v, &s, tol);
     for i in 0..ROWS {
         LAST[i].store(o.value[i], Relaxed);
@@ -65,7 +81,9 @@ pub fn sample(s: Split) {
             }
         }
     }
-    let fields = [s.current, s.anon, s.shmem, s.file, s.inactive, s.clean, s.line, s.limit];
+    let fields = [
+        s.current, s.anon, s.shmem, s.file, s.inactive, s.clean, s.line, s.limit,
+    ];
     for (a, x) in SPLIT.iter().zip(fields) {
         a.store(x, Relaxed);
     }
@@ -83,12 +101,20 @@ pub struct RowCounts {
 }
 
 pub fn row(i: usize) -> RowCounts {
-    RowCounts { hits: HITS[i].load(Relaxed), worst: WORST[i].load(Relaxed), last: LAST[i].load(Relaxed), at_worst: AT_WORST[i].load(Relaxed) }
+    RowCounts {
+        hits: HITS[i].load(Relaxed),
+        worst: WORST[i].load(Relaxed),
+        last: LAST[i].load(Relaxed),
+        at_worst: AT_WORST[i].load(Relaxed),
+    }
 }
 
 /// A term's last value (`NONE` = never stored) and its most since start.
 pub fn term(t: Term) -> (u64, u64) {
-    (VALUES[t as usize].load(Relaxed), TERM_MAX[t as usize].load(Relaxed))
+    (
+        VALUES[t as usize].load(Relaxed),
+        TERM_MAX[t as usize].load(Relaxed),
+    )
 }
 
 /// The samples checked, the last split (`SPLIT_NAMES`' order) and the last tolerance.
@@ -105,7 +131,14 @@ pub(crate) fn reset() {
     for a in VALUES.iter() {
         a.store(NONE, Relaxed);
     }
-    for a in TERM_MAX.iter().chain(HITS.iter()).chain(WORST.iter()).chain(LAST.iter()).chain(AT_WORST.iter()).chain(SPLIT.iter()) {
+    for a in TERM_MAX
+        .iter()
+        .chain(HITS.iter())
+        .chain(WORST.iter())
+        .chain(LAST.iter())
+        .chain(AT_WORST.iter())
+        .chain(SPLIT.iter())
+    {
         a.store(0, Relaxed);
     }
     for a in [&SAMPLES, &TOLERANCE, &PREV_CURRENT] {
@@ -125,23 +158,63 @@ mod tests {
     #[test]
     fn a_sample_counts_each_broken_row_and_keeps_its_worst_and_the_split() {
         reset();
-        let s = Split { current: 12 * GIB, anon: 9 * GIB, shmem: 0, file: 3 * GIB, inactive: GIB, clean: 2 * GIB, line: 14 * GIB, limit: 16 * GIB };
+        let s = Split {
+            current: 12 * GIB,
+            anon: 9 * GIB,
+            shmem: 0,
+            file: 3 * GIB,
+            inactive: GIB,
+            clean: 2 * GIB,
+            line: 14 * GIB,
+            limit: 16 * GIB,
+        };
         let tol = rc::tolerance(s.limit, 0);
         put(Term::LandingPool, 2 * GIB);
         put(Term::Governed, 9 * GIB);
         sample(s);
         let pool = row(Row::WrongKind(Term::LandingPool).index());
-        assert_eq!((pool.hits, pool.worst, pool.last, pool.at_worst), (1, 2 * GIB - tol, 2 * GIB, 2 * GIB));
-        assert_eq!(row(Row::Split(Check::KillRead).index()).hits, 1, "a GiB under the split's governed resident");
-        assert_eq!(row(Row::Split(Check::Landing).index()).hits, 0, "2 GiB of landing under an 11 GiB read");
+        assert_eq!(
+            (pool.hits, pool.worst, pool.last, pool.at_worst),
+            (1, 2 * GIB - tol, 2 * GIB, 2 * GIB)
+        );
+        assert_eq!(
+            row(Row::Split(Check::KillRead).index()).hits,
+            1,
+            "a GiB under the split's governed resident"
+        );
+        assert_eq!(
+            row(Row::Split(Check::Landing).index()).hits,
+            0,
+            "2 GiB of landing under an 11 GiB read"
+        );
         put(Term::LandingPool, GIB);
         put(Term::Governed, 10 * GIB);
-        sample(Split { current: 12 * GIB + 256 * (1 << 20), ..s });
+        sample(Split {
+            current: 12 * GIB + 256 * (1 << 20),
+            ..s
+        });
         let pool = row(Row::WrongKind(Term::LandingPool).index());
-        assert_eq!((pool.hits, pool.worst, pool.last, pool.at_worst), (2, 2 * GIB - tol, GIB, 2 * GIB), "the worst stays the first");
-        assert_eq!(row(Row::Split(Check::KillRead).index()).hits, 1, "back on the split");
+        assert_eq!(
+            (pool.hits, pool.worst, pool.last, pool.at_worst),
+            (2, 2 * GIB - tol, GIB, 2 * GIB),
+            "the worst stays the first"
+        );
+        assert_eq!(
+            row(Row::Split(Check::KillRead).index()).hits,
+            1,
+            "back on the split"
+        );
         let (n, f, t) = split();
-        assert_eq!((n, f[0], f[1], t), (2, 12 * GIB + 256 * (1 << 20), 9 * GIB, tol + 256 * (1 << 20)), "the tolerance takes the sample's growth");
+        assert_eq!(
+            (n, f[0], f[1], t),
+            (
+                2,
+                12 * GIB + 256 * (1 << 20),
+                9 * GIB,
+                tol + 256 * (1 << 20)
+            ),
+            "the tolerance takes the sample's growth"
+        );
         assert_eq!(term(Term::LandingPool), (GIB, 2 * GIB));
         reset();
     }

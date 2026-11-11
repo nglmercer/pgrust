@@ -530,7 +530,7 @@ impl MergeEnd<'_> {
             // W6: a target row concurrently deleted falls through to the NOT MATCHED actions (merge/nm.rs `chain`); under
             // RETURNING (14a) the INSERT it runs returns its row as any NOT MATCHED INSERT does (ExecMergeNotMatched)
             let (nm, fx) = (&self.nm[..], (&self.nm[..], self.ex, self.node, self.atts.len(), self.mt));
-            let mut fall = |b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, r: &RowVals| crate::ops::modifytable::merge::nm::chain(b, env, fx, (r, arm), op, ret, &mut **next.borrow_mut());
+            let mut fall = |b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, r: &RowVals| crate::ops::modifytable::merge::nm::chain(b, env, fx, (r, arm), op, ret, &mut next.borrow_mut());
             let mut call = |b: &mut FunctionBuilder<'_>, env: &mut Env<'e, '_>, w: u32, r: RowOpRow<'_>, done: Next<'_, 'e>| {
                 let fall = (!nm.is_empty()).then_some(&mut fall as Next<'_, 'e>);
                 op.call_op(b, env, at, w, r, done, match redo { Some(l) => Arm::MergeEpq(fall, l), None => Arm::Merge(fall) })

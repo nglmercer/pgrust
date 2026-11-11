@@ -160,7 +160,7 @@ impl Rule {
             shape(node, "a two-pass key image wider than two words");
         }
         let size = rec.layout.size();
-        if size % 8 != 0 || size / 8 > 255 || count_off % 8 != 0 {
+        if !size.is_multiple_of(8) || size / 8 > 255 || !count_off.is_multiple_of(8) {
             shape(node, "a pass-1 record past 255 words");
         }
         Rule { img_words: n as u8, nullable: rec.nullable && !fp, rec_words: (size / 8) as u8, count_word: (count_off / 8) as u8, ..Rule::default() }
@@ -431,7 +431,7 @@ pub(crate) fn planner_pass2(px: &mut Px<'_, '_>, k: usize, g: &GroupDecl<'_>, re
         // a nullable key probes its NULL flag as the image's second word (Admit::probe); the reader admits the NULL key
         let (word, nullable) = (px.proto_words(1), rec.flags_word().is_some());
         let rule = Rule { n, nullable, img_words: 1 + nullable as u8, ..Rule::default() };
-        let p = Proto::new(ProtoKind::TwoPass, px.ident(k) as u16).peer(tp.pass1 as u16).slot(tp.slot).words(word, 1).arg(rule.pack(None)).reading(0, crate::ops::sort::topn::raw::bare_keys);
+        let p = Proto::new(ProtoKind::TwoPass, px.ident(k) as u16).peer(tp.pass1).slot(tp.slot).words(word, 1).arg(rule.pack(None)).reading(0, crate::ops::sort::topn::raw::bare_keys);
         px.declare_proto(p);
         return Some(Admit { word, key: Some(key), null_word: nullable, every_window: false }); // V4R-197: the bare pass 1's list
     }

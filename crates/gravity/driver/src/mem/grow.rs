@@ -687,6 +687,7 @@ pub(crate) fn revoke_leader(n: &mut Inner) -> bool {
 /// C5: `revoke_home` for the kernels' poll on a set `REVOKE_BIT` (exec glue `poll_kernel`): the participant `ctx` is bound
 /// to (the leader's own run or a pool worker's claim).
 /// # Safety — `ctx` is bound, on the thread running its call.
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn revoke_poll(ctx: *mut gravity_abi::Ctx) -> bool {
     use gravity_abi::PtrWord;
     // a ctx no program block binds (a host loop's own), or a block with no participant, has no region to cut

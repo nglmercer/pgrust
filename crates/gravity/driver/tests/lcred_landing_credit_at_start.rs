@@ -6,11 +6,11 @@
 //! - after `reap::start` the hook's landing (`mcx::ladder::unmap_landing`) is the credit, the job's bytes included;
 //! - the hook's pass nets it: a read past the ladder's line by less than the landing leaves no need;
 //! - past the watchdog's cancel line nothing nets (R5): the same read leaves the whole overage.
-//! Its own [[test]]: a #[global_allocator] (door 1, as the server counts it), process-wide knobs and hooks.
-//! pagepool P3 (branch malisper/pagepool; PGRUST_POOL_GRAVITY=1): when the page pool backs the spill region
-//! (`v4::is_pool`, the region's own flag) its give is no job: the test then asserts the pool's path (back to the pool, no
-//! give_back_spill_* count moved, the owner's account released, REAPING and PARKED unchanged), and that with nothing
-//! queued nothing nets the read under the cancel line either; the hook / credit and R5 checks run as they are.
+//!   Its own [[test]]: a #[global_allocator] (door 1, as the server counts it), process-wide knobs and hooks.
+//!   pagepool P3 (branch malisper/pagepool; PGRUST_POOL_GRAVITY=1): when the page pool backs the spill region
+//!   (`v4::is_pool`, the region's own flag) its give is no job: the test then asserts the pool's path (back to the pool, no
+//!   give_back_spill_* count moved, the owner's account released, REAPING and PARKED unchanged), and that with nothing
+//!   queued nothing nets the read under the cancel line either; the hook / credit and R5 checks run as they are.
 
 use gravity_driver_rig as common;
 

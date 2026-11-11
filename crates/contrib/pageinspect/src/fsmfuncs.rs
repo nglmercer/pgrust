@@ -20,6 +20,7 @@ pub(crate) fn fc_fsm_page_contents(
     let fp_nodes = &b[contents + 4..];
 
     let mut out = String::new();
+    #[allow(clippy::needless_range_loop)]
     for i in 0..freespace::NODES_PER_PAGE as usize {
         if fp_nodes[i] != 0 {
             out.push_str(&format!("{}: {}\n", i, fp_nodes[i]));

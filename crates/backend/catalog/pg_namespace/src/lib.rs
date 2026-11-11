@@ -33,12 +33,8 @@ pub fn NamespaceCreate<'mcx>(
     };
 
     let nspdesc = table::table_open(mcx, NAMESPACE_RELATION_ID, RowExclusiveLock)?;
-    let nspoid = catalog::GetNewOidWithIndex(
-        mcx,
-        &nspdesc,
-        NamespaceOidIndexId,
-        Anum_pg_namespace_oid,
-    )?;
+    let nspoid =
+        catalog::GetNewOidWithIndex(mcx, &nspdesc, NamespaceOidIndexId, Anum_pg_namespace_oid)?;
     let mut name = NameData::default();
     name.namestrcpy(nspName);
     let mut values = [
@@ -88,7 +84,9 @@ pub fn NamespaceCreate<'mcx>(
 #[cold]
 #[inline(never)]
 fn namespace_lookup_failed(schemaOid: Oid) -> Box<PgError> {
-    Box::new(PgError::error(format!("cache lookup failed for schema {schemaOid}")))
+    Box::new(PgError::error(format!(
+        "cache lookup failed for schema {schemaOid}"
+    )))
 }
 
 // RemoveSchemaById (schemacmds.c), hosted here: schemacmds reaches

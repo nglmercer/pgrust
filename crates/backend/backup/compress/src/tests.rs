@@ -36,7 +36,10 @@ impl<'a, 'mcx> BbsinkOps<'mcx> for CaptureOps<'a, 'mcx> {
         _state: &mut BbsinkState,
         name: &str,
     ) -> PgResult<()> {
-        self.out.borrow_mut().archives.push((name.to_string(), Vec::new()));
+        self.out
+            .borrow_mut()
+            .archives
+            .push((name.to_string(), Vec::new()));
         Ok(())
     }
     fn archive_contents(
@@ -48,13 +51,21 @@ impl<'a, 'mcx> BbsinkOps<'mcx> for CaptureOps<'a, 'mcx> {
         let mut out = self.out.borrow_mut();
         out.chunk_lens.push(len);
         let data = sink.buffer_slice(len).to_vec();
-        out.archives.last_mut().expect("archive begun").1.extend_from_slice(&data);
+        out.archives
+            .last_mut()
+            .expect("archive begun")
+            .1
+            .extend_from_slice(&data);
         Ok(())
     }
     fn end_archive(&mut self, _sink: &mut Bbsink<'mcx>, _state: &mut BbsinkState) -> PgResult<()> {
         Ok(())
     }
-    fn begin_manifest(&mut self, _sink: &mut Bbsink<'mcx>, _state: &mut BbsinkState) -> PgResult<()> {
+    fn begin_manifest(
+        &mut self,
+        _sink: &mut Bbsink<'mcx>,
+        _state: &mut BbsinkState,
+    ) -> PgResult<()> {
         Ok(())
     }
     fn manifest_contents(
@@ -89,7 +100,9 @@ fn payload(total: usize) -> Vec<u8> {
     let mut v = Vec::with_capacity(total);
     let mut x: u64 = 0x243F6A8885A308D3;
     while v.len() < total {
-        x = x.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        x = x
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         // Mix of repetitive and noisy runs.
         if (x >> 60) & 1 == 0 {
             v.extend_from_slice(b"pgrust base backup block ");
@@ -142,7 +155,8 @@ fn run_chain(
             let mut off = 0;
             while off < data.len() {
                 let n = BUFLEN.min(data.len() - off);
-                sink.buffer_slice_mut(n).copy_from_slice(&data[off..off + n]);
+                sink.buffer_slice_mut(n)
+                    .copy_from_slice(&data[off..off + n]);
                 bbsink_archive_contents(&mut sink, &mut state, n).expect("archive_contents");
                 off += n;
             }
@@ -152,7 +166,8 @@ fn run_chain(
         let mut off = 0;
         while off < manifest.len() {
             let n = BUFLEN.min(manifest.len() - off);
-            sink.buffer_slice_mut(n).copy_from_slice(&manifest[off..off + n]);
+            sink.buffer_slice_mut(n)
+                .copy_from_slice(&manifest[off..off + n]);
             bbsink_manifest_contents(&mut sink, &mut state, n).expect("manifest_contents");
             off += n;
         }
@@ -182,7 +197,11 @@ fn gunzip(member: &[u8]) -> Vec<u8> {
     assert_eq!(member[3], 0, "no FLG bits expected");
     let body = &member[10..member.len() - 8];
     let out = miniz_oxide::inflate::decompress_to_vec(body).expect("raw inflate");
-    let crc = u32::from_le_bytes(member[member.len() - 8..member.len() - 4].try_into().unwrap());
+    let crc = u32::from_le_bytes(
+        member[member.len() - 8..member.len() - 4]
+            .try_into()
+            .unwrap(),
+    );
     let isize_ = u32::from_le_bytes(member[member.len() - 4..].try_into().unwrap());
     assert_eq!(crc, crc32c::zlib_crc32_extend(0, &out), "trailer CRC32");
     assert_eq!(isize_, out.len() as u32, "trailer ISIZE");

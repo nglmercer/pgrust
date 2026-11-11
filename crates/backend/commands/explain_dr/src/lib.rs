@@ -91,9 +91,10 @@ impl<'mcx> SerializeDestReceiver<'mcx> {
         }
 
         let mut finfos: PgVec<'mcx, FmgrInfo> = PgVec::new_in(self.mcx);
-        finfos
-            .try_reserve_exact(nattrs as usize)
-            .map_err(|_| self.mcx.oom(nattrs as usize * core::mem::size_of::<FmgrInfo>()))?;
+        finfos.try_reserve_exact(nattrs as usize).map_err(|_| {
+            self.mcx
+                .oom(nattrs as usize * core::mem::size_of::<FmgrInfo>())
+        })?;
         for i in 0..nattrs as usize {
             let attr = typeinfo.attr(i);
             let fn_oid = match self.format {
@@ -149,6 +150,7 @@ impl<'mcx> SerializeDestReceiver<'mcx> {
         pq_beginmessage_reuse(buf, PQMSG_DATA_ROW);
         pq_sendint16(buf, natts as u16)?;
 
+        #[allow(clippy::needless_range_loop)]
         for i in 0..natts {
             if base.tts_isnull[i] {
                 pq_sendint32(buf, (-1i32) as u32)?;

@@ -56,7 +56,7 @@ impl<'g> JoinExt<'g> {
         JoinExt { shapes: PgVec::new_in(m), pairs: PgVec::new_in(m), pairing: None, grown: PgVec::new_in(m), pair_runs: PgVec::new_in(m) }
     }
 }
-crate::frame::px::ext_g!(JoinExt<'g>, |m| JoinExt::new(m));
+crate::frame::px::ext_g!(JoinExt<'g>, JoinExt::new);
 
 pub(crate) struct Shape {
     pub slot: u8,
@@ -190,7 +190,7 @@ impl Shape {
                 valued[i / 64] |= m;
             }
         }
-        (self.valued.set(valued), self.rel.set(out));
+        self.valued.set(valued); self.rel.set(out);
     }
 }
 
@@ -281,6 +281,7 @@ pub(crate) fn read_after(gx: &Gx<'_, '_>, p: &PipelineNode<'_>, j: usize, varno:
     let Op::Join(JoinDesc::Probe { qual, clauses, .. }) = &p.ops[j] else { return None };
     let mut pay = Vec::new(); // alloc: Program
     let confirm = crate::ops::hashjoin::keys::confirms(gx, clauses);
+    #[allow(clippy::unnecessary_fold)]
     let mut ok = clauses.iter().filter(|_| confirm).chain(qual.iter()).fold(true, |ok, n| uses(n, varno, &mut pay) && ok);
     for op in p.ops[j + 1..].iter() {
         if crate::frame::iface::limit_bounds(op).is_some() {
@@ -291,6 +292,7 @@ pub(crate) fn read_after(gx: &Gx<'_, '_>, p: &PipelineNode<'_>, j: usize, varno:
             // a SubPlan evaluated on the joined row reads it only through its arguments (the parameters its plan reads)
             // and its test (an ANY / ALL / ROWCOMPARE's left operands, a hashed SubPlan's probe keys); its result is a
             // cell the ops after it read (psql's \dp: a correlated ARRAY SubPlan over the probe side after the probe)
+            #[allow(clippy::unnecessary_fold)]
             Op::SubPlan(d) => ok &= d.test.is_none_or(|t| uses(t, varno, &mut pay)) && d.args.iter().fold(true, |ok, a| uses(a, varno, &mut pay) && ok),
             Op::Project(l) => return (l.iter().fold(ok, |ok, n| uses(n, varno, &mut pay) && ok)).then_some(pay),
             _ => ok = false,

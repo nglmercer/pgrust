@@ -3066,6 +3066,7 @@ fn explain_foreign_scan<'mcx>(
                 let rte = estate.es_range_table[(rti - 1) as usize];
                 let relname = lsyscache::get_rel_name(mcx, rte.relid)?
                     .expect("relation exists");
+                #[allow(unused_imports)]
                 use crate::deparse::Push as _;
                 let mut piece = mcx::PgString::new_in(mcx);
                 if flags.verbose {

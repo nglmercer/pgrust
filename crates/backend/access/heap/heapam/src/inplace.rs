@@ -168,8 +168,8 @@ pub fn heap_inplace_update_and_unlock(
     // in single-threaded unit harnesses).
     CritSection::run(|| {
         if let Some(proc) = my_proc {
-            use core::sync::atomic::Ordering::Relaxed;
             use ::types_storage::storage::DELAY_CHKPT_START;
+            use core::sync::atomic::Ordering::Relaxed;
             debug_assert_eq!(proc.delayChkptFlags.load(Relaxed) & DELAY_CHKPT_START, 0);
             proc.delayChkptFlags.fetch_or(DELAY_CHKPT_START, Relaxed);
         }
@@ -191,8 +191,8 @@ pub fn heap_inplace_update_and_unlock(
         inval::eoxact::AtInplace_Inval()?;
 
         if let Some(proc) = my_proc {
-            use core::sync::atomic::Ordering::Relaxed;
             use ::types_storage::storage::DELAY_CHKPT_START;
+            use core::sync::atomic::Ordering::Relaxed;
             proc.delayChkptFlags.fetch_and(!DELAY_CHKPT_START, Relaxed);
         }
         Ok(())
@@ -326,7 +326,9 @@ pub fn heap_overwrite_own_insert(
     let mut tup = on_page_tuple(relation, buffer, tid);
     let xid = xact_seams::get_current_transaction_id::call()?;
     let hoff = tup.t_data().t_hoff;
-    let ok = tup.t_data().xmin_raw() == xid && !tup.t_data().xmin_frozen() && tup.t_len as usize - hoff as usize == data.len();
+    let ok = tup.t_data().xmin_raw() == xid
+        && !tup.t_data().xmin_frozen()
+        && tup.t_len as usize - hoff as usize == data.len();
     if !ok {
         bufmgr_seams::lock_buffer::call(buffer, BUFFER_LOCK_UNLOCK)?;
         bufmgr_seams::release_buffer::call(buffer)?;
@@ -340,13 +342,26 @@ pub fn heap_overwrite_own_insert(
     init_small::globals::StartCriticalSection();
     if let Some(proc) = my_proc {
         use core::sync::atomic::Ordering::Relaxed;
-        proc.delayChkptFlags.fetch_or(::types_storage::storage::DELAY_CHKPT_START, Relaxed);
+        proc.delayChkptFlags
+            .fetch_or(::types_storage::storage::DELAY_CHKPT_START, Relaxed);
     }
     // unlocks the buffer
-    inplace_write_wal_and_page(mcx, relation, &tup, buffer, data, hoff, data.len(), false, 0, &none)?;
+    inplace_write_wal_and_page(
+        mcx,
+        relation,
+        &tup,
+        buffer,
+        data,
+        hoff,
+        data.len(),
+        false,
+        0,
+        &none,
+    )?;
     if let Some(proc) = my_proc {
         use core::sync::atomic::Ordering::Relaxed;
-        proc.delayChkptFlags.fetch_and(!::types_storage::storage::DELAY_CHKPT_START, Relaxed);
+        proc.delayChkptFlags
+            .fetch_and(!::types_storage::storage::DELAY_CHKPT_START, Relaxed);
     }
     init_small::globals::EndCriticalSection();
     bufmgr_seams::release_buffer::call(buffer)

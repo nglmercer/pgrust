@@ -75,6 +75,7 @@ enum Link {
     MultiExpr,
 }
 
+#[allow(clippy::large_enum_variant)]
 enum Body<'g> {
     /// A Result without a child: its one-time qual and quals in order, and the entries the fold reads; D1262: the rerun set
     /// of its InitPlans, re-armed at every call before the Result reads a parameter.
@@ -240,7 +241,7 @@ fn order(px: &mut Px<'_, '_>, k: usize, j: usize, d: &gravity_decompose::ops::sh
                 // it: step.limit's feeder stops this pipeline before its first row then, or refuses (result/gate.rs
                 // `SPOOL_ZERO`)
                 let mut sets = (k + 1..ps.len()).filter(|&q| matches!(ps[q].source, Source::Breaker { slot: x } if x == slot) && gx.life_of(q, slot) == Some(gravity_program::LifeId(k as u16))).filter_map(|q| gx.group_at(q)).peekable();
-                whole = !ps.iter().any(|p| p.ops.iter().any(|o| matches!(o, Op::Gate(_)))) && sets.peek().is_some() && sets.all(|g| g.set.map_or(true, |s| s.whole));
+                whole = !ps.iter().any(|p| p.ops.iter().any(|o| matches!(o, Op::Gate(_)))) && sets.peek().is_some() && sets.all(|g| g.set.is_none_or(|s| s.whole));
                 arm(slot)
             }
             (None, None, None) => None,
@@ -735,6 +736,7 @@ fn certain_first(px: &mut Px<'_, '_>, (k, j): (usize, usize), lend: Lend, kept: 
     let gx = px.gx;
     let ps = gx.pipelines();
     let calm = |n: Node<'_>| crate::effects::raise_free(gx, n) && !crate::effects::user_or_volatile(gx, n) && !crate::effects::user_typed(gx, n);
+    #[allow(clippy::question_mark)]
     let Some(p) = (k < ps.len()).then(|| &ps[k]) else { return None };
     let rerun = |q: usize| gx.graph.reruns.iter().any(|r| r.pipelines.contains(&(q as u16)));
     let rows = match &p.source {
@@ -755,7 +757,7 @@ fn certain_first(px: &mut Px<'_, '_>, (k, j): (usize, usize), lend: Lend, kept: 
         _ => false,
     };
     let limit = (0..ps.len()).any(|q| crate::frame::iface::holds_limit(&ps[q].ops));
-    let mut feeds: PgVec<'_, usize> = mcx::to_vec_in(&kept[..], gx.mcx);
+    let mut feeds: PgVec<'_, usize> = mcx::to_vec_in(kept, gx.mcx);
     let mut at = 0;
     while let Some(&q) = feeds.get(at) {
         at += 1;
@@ -1046,7 +1048,7 @@ impl Eval for Sub<'_> {
                     let mut early: PgVec<'_, Option<(Value, Value)>> = mcx::pg_vec![in env.mcx; None; self.tfs.len()];
                     if sited.iter().any(|&x| x) {
                         let Some(s) = site else { shape(self.node, "a SubPlan reading a nest inner column in its site's dictionary or window form (an inner without a scan site: D2213)") };
-                        let saved = core::mem::replace(&mut env.site, Some(s));
+                        let saved = env.site.replace(s);
                         {
                             let mut cx = env.lx(b, self.node);
                             for (i, tf) in self.tfs.iter().enumerate().filter(|(i, _)| sited[*i]) {

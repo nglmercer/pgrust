@@ -697,6 +697,7 @@ mod fc_results {
             fc_byteain,
             0,
             ctx.mcx(),
+            #[allow(clippy::manual_c_str_literals)]
             Datum::from_usize(b"\\x6465616462656566\0".as_ptr() as usize),
         )
         .unwrap();

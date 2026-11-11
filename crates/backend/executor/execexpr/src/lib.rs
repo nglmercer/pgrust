@@ -31,37 +31,34 @@ pub use compile::{
     economy_window, erase_fn_expr, exec_build_agg_projection_info,
     exec_build_agg_projection_info_subplans, exec_build_agg_qual, exec_build_agg_qual_subplans,
     exec_build_agg_trans, exec_build_agg_trans_gsets, exec_build_agg_trans_gsets_subplans,
-    exec_build_agg_trans_hashed,
-    exec_build_agg_trans_hashed_masked, exec_build_agg_trans_hashed_nullcheck_subplans,
-    exec_build_agg_trans_hashed_subplans, exec_build_agg_trans_mixed,
-    exec_build_agg_trans_mixed_subplans, exec_build_agg_trans_plain_masked,
-    exec_build_agg_trans_subplans,
-    exec_build_grouping_equal, exec_build_hash32_from_attrs, exec_build_hash32_from_exprs,
+    exec_build_agg_trans_hashed, exec_build_agg_trans_hashed_masked,
+    exec_build_agg_trans_hashed_nullcheck_subplans, exec_build_agg_trans_hashed_subplans,
+    exec_build_agg_trans_mixed, exec_build_agg_trans_mixed_subplans,
+    exec_build_agg_trans_plain_masked, exec_build_agg_trans_subplans, exec_build_grouping_equal,
+    exec_build_hash32_from_attrs, exec_build_hash32_from_exprs,
     exec_build_merge_projection_info_subplans, exec_build_param_set_equal,
-    exec_build_projection_info,
-    exec_build_projection_info_subplans, exec_build_projection_info_subplans_merge,
-    exec_build_window_projection_info,
-    exec_build_window_projection_info_subplans, execute_acl_window, exec_init_expr, exec_init_expr_subplans,
+    exec_build_projection_info, exec_build_projection_info_subplans,
+    exec_build_projection_info_subplans_merge, exec_build_window_projection_info,
+    exec_build_window_projection_info_subplans, exec_init_expr, exec_init_expr_subplans,
     exec_init_expr_subplans_agg, exec_init_expr_subplans_agg_merge, exec_init_expr_with_case_test,
-    exec_init_expr_with_case_test_subplans, exec_init_qual,
-    exec_init_qual_subplans, expr_type, lane_scan_qual, recheck_execute_acls, AggBind,
-    AggOrderedSpec, AggTransSpec,
-    EconomyWindow, ExecuteAclWindow, LaneBoolTest, LaneClause, LaneCmpClause, LaneCmpRhs, LaneQualShape, LaneSuffix,
-    MergeActionCell, SubplanCompileEnv, WinBind, INDEX_VAR, INNER_VAR, OUTER_VAR,
+    exec_init_expr_with_case_test_subplans, exec_init_qual, exec_init_qual_subplans,
+    execute_acl_window, expr_type, lane_scan_qual, recheck_execute_acls, AggBind, AggOrderedSpec,
+    AggTransSpec, EconomyWindow, ExecuteAclWindow, LaneBoolTest, LaneClause, LaneCmpClause,
+    LaneCmpRhs, LaneQualShape, LaneSuffix, MergeActionCell, SubplanCompileEnv, WinBind, INDEX_VAR,
+    INNER_VAR, OUTER_VAR,
 };
 pub use interp::{
-    agg_copy_trans_value, agg_datum_copy, agg_datum_free, agg_datum_replace, agg_trans_value_copy, exec_eval_expr,
-    exec_eval_expr_outcome, exec_eval_expr_outcome_ret, exec_project, exec_project_outcome, exec_project_outcome_ret,
-    exec_project_prearmed, exec_project_returning,
+    agg_copy_trans_value, agg_datum_copy, agg_datum_free, agg_datum_replace, agg_trans_value_copy,
+    exec_eval_expr, exec_eval_expr_outcome, exec_eval_expr_outcome_ret, exec_project,
+    exec_project_outcome, exec_project_outcome_ret, exec_project_prearmed, exec_project_returning,
     exec_project_returning_outcome, exec_qual, exec_qual_outcome, EvalOutcome, EvalSlots,
     QualOutcome, Resume, RetSlot, RetSlots, SuspendKind, Suspension,
 };
 pub use steps::{
     agg_count_star_advance, agg_pergroup_null, qual_bitmap_cmp_const, qual_bitmap_contains,
-    AggPerGroup, AggPresortedHook, CmpOp,
-    ExprState, GroupedColsCell, Kernel, OutRef, ProjArithOp, ProjKeyCall, ScanCmpClauses,
-    ScanContainsClause, ScanProjCol, ScanProjCols, ScanProjExprKey, SlotSrc, Step,
-    PROJ_KEY_MAX_ARGS, PROJ_KEY_MAX_CALLS, SCAN_CMP_MAX_CLAUSES, SCAN_PROJ_MAX_COLS,
+    AggPerGroup, AggPresortedHook, CmpOp, ExprState, GroupedColsCell, Kernel, OutRef, ProjArithOp,
+    ProjKeyCall, ScanCmpClauses, ScanContainsClause, ScanProjCol, ScanProjCols, ScanProjExprKey,
+    SlotSrc, Step, PROJ_KEY_MAX_ARGS, PROJ_KEY_MAX_CALLS, SCAN_CMP_MAX_CLAUSES, SCAN_PROJ_MAX_COLS,
 };
 pub use types_portal::params::ParamBind;
 pub use xmlops::{map_sql_value_to_xml_value, map_sql_value_to_xml_value_utf8};
@@ -79,7 +76,14 @@ pub fn evaluate_expr<'mcx>(
     let tmp = mcx.context().new_child("evaluate_expr");
     let tmcx = tmp.mcx();
     let state = exec_init_expr(tmcx, Some(expr), ParamBind::NONE)?.expect("expr is Some");
-    evaluate_prepared_expr(mcx, tmcx, state, result_type, result_typmod, result_collation)
+    evaluate_prepared_expr(
+        mcx,
+        tmcx,
+        state,
+        result_type,
+        result_typmod,
+        result_collation,
+    )
 }
 
 /// Evaluate an ExprState from [`exec_init_expr`] (built in `tmcx`) once and

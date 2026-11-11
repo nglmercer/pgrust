@@ -383,8 +383,7 @@ fn smgr_create_unknown_fork_is_an_error_not_a_panic() {
     let mut data = [0u8; 16];
     data[12..16].copy_from_slice(&4i32.to_ne_bytes());
     let err = smgr_create_forknum(&data)
-        .err()
-        .expect("fork number 4 is outside -1..=3 and must be refused");
+        .expect_err("fork number 4 is outside -1..=3 and must be refused");
     assert_eq!(err.sqlstate, types_error::ERRCODE_DATA_CORRUPTED);
     assert_eq!(
         err.message,
@@ -398,7 +397,7 @@ fn smgr_create_unknown_fork_is_an_error_not_a_panic() {
         (2, VISIBILITYMAP_FORKNUM),
         (3, ForkNumber::INIT_FORKNUM),
     ] {
-        data[12..16].copy_from_slice(&(raw as i32).to_ne_bytes());
+        data[12..16].copy_from_slice(&i32::to_ne_bytes(raw));
         assert_eq!(smgr_create_forknum(&data).unwrap(), fork);
     }
 }
@@ -439,8 +438,7 @@ fn wal_summary_write_errors_match_walsummary_c() {
         fd::set_errno(libc::EIO);
         Ok(-1)
     })
-    .err()
-    .expect("a negative write return is an error");
+    .expect_err("a negative write return is an error");
     assert_eq!(
         err.message,
         format!("could not write file \"{PATH}\": {}", strerror(libc::EIO))
@@ -453,8 +451,7 @@ fn wal_summary_write_errors_match_walsummary_c() {
         fd::set_errno(libc::ENOSPC);
         Ok(3)
     })
-    .err()
-    .expect("a short write is an error");
+    .expect_err("a short write is an error");
     assert_eq!(
         err.message,
         format!("could not write file \"{PATH}\": wrote only 3 of 4 bytes at offset 7")

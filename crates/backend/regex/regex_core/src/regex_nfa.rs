@@ -988,12 +988,14 @@ pub fn delsub(
     Ok(())
 }
 
+#[allow(clippy::only_used_in_recursion)]
 fn deltraverse(
     nfa: &mut Nfa,
     cm: &mut ColorMap,
     has_parent: bool,
     leftend: StateId,
     s: StateId,
+    #[allow(clippy::only_used_in_recursion)]
     depth: u32,
 ) -> RegResult<()> {
     // C regc_nfa.c STACK_TOO_DEEP(nfa->v->re) == stack_is_too_deep(): BYTE-based.
@@ -1052,6 +1054,7 @@ pub fn dupnfa<'mcx>(
     Ok(())
 }
 
+#[allow(clippy::only_used_in_recursion)]
 fn duptraverse<'mcx>(
     mcx: Mcx<'mcx>,
     nfa: &mut Nfa,
@@ -1059,6 +1062,7 @@ fn duptraverse<'mcx>(
     has_parent: bool,
     s: StateId,
     stmp: Option<StateId>,
+    #[allow(clippy::only_used_in_recursion)]
     depth: u32,
 ) -> RegResult<()> {
     // C regc_nfa.c STACK_TOO_DEEP(nfa->v->re) == stack_is_too_deep(): BYTE-based.
@@ -1109,12 +1113,14 @@ pub fn removeconstraints<'mcx>(
     Ok(())
 }
 
+#[allow(clippy::only_used_in_recursion)]
 fn removetraverse<'mcx>(
     mcx: Mcx<'mcx>,
     nfa: &mut Nfa,
     cm: &mut ColorMap,
     has_parent: bool,
     s: StateId,
+    #[allow(clippy::only_used_in_recursion)]
     depth: u32,
 ) -> RegResult<()> {
     // C regc_nfa.c STACK_TOO_DEEP(nfa->v->re) == stack_is_too_deep(): BYTE-based.
@@ -1145,6 +1151,7 @@ fn removetraverse<'mcx>(
     Ok(())
 }
 
+#[allow(clippy::only_used_in_recursion)]
 fn cleartraverse(nfa: &mut Nfa, s: StateId, depth: u32) -> RegResult<()> {
     // C regc_nfa.c STACK_TOO_DEEP(nfa->v->re) == stack_is_too_deep(): BYTE-based.
     if ::stack_depth::stack_is_too_deep() {
@@ -1190,6 +1197,7 @@ pub fn dupnfa_cross<'mcx>(
     Ok(())
 }
 
+#[allow(clippy::only_used_in_recursion)]
 fn duptraverse_cross<'mcx>(
     mcx: Mcx<'mcx>,
     dst: &mut Nfa,
@@ -1197,6 +1205,7 @@ fn duptraverse_cross<'mcx>(
     cm: &mut ColorMap,
     s: StateId,
     stmp: Option<StateId>,
+    #[allow(clippy::only_used_in_recursion)]
     depth: u32,
 ) -> RegResult<()> {
     // C regc_nfa.c STACK_TOO_DEEP(nfa->v->re) == stack_is_too_deep(): BYTE-based.
@@ -1228,11 +1237,13 @@ fn duptraverse_cross<'mcx>(
 }
 
 
+#[allow(clippy::only_used_in_recursion)]
 fn markreachable(
     nfa: &mut Nfa,
     s: StateId,
     okay: Option<StateId>,
     mark: Option<StateId>,
+    #[allow(clippy::only_used_in_recursion)]
     depth: u32,
 ) -> RegResult<()> {
     // C regc_nfa.c STACK_TOO_DEEP(nfa->v->re) == stack_is_too_deep(): BYTE-based.
@@ -1254,11 +1265,13 @@ fn markreachable(
     Ok(())
 }
 
+#[allow(clippy::only_used_in_recursion)]
 fn markcanreach(
     nfa: &mut Nfa,
     s: StateId,
     okay: Option<StateId>,
     mark: Option<StateId>,
+    #[allow(clippy::only_used_in_recursion)]
     depth: u32,
 ) -> RegResult<()> {
     // C regc_nfa.c STACK_TOO_DEEP(nfa->v->re) == stack_is_too_deep(): BYTE-based.
@@ -1883,11 +1896,13 @@ pub fn fixempties<'mcx>(
     Ok(())
 }
 
+#[allow(clippy::only_used_in_recursion)]
 fn emptyreachable(
     nfa: &mut Nfa,
     s: StateId,
     lastfound: StateId,
     inarcsorig: &[Option<ArcId>],
+    #[allow(clippy::only_used_in_recursion)]
     depth: u32,
 ) -> RegResult<StateId> {
     // C regc_nfa.c STACK_TOO_DEEP(nfa->v->re) == stack_is_too_deep(): BYTE-based.
@@ -1925,6 +1940,7 @@ pub fn checkmatchall(nfa: &mut Nfa, cm: &ColorMap) {
                 let co = nfa.ar(a).co;
                 if (cm.cd[co as usize].flags & crate::regguts::PSEUDO) != 0 {
                     let ato = nfa.ar(a).to.unwrap();
+                    #[allow(clippy::if_same_then_else)]
                     if s == nfa.pre && (co == nfa.bos[0] || co == nfa.bos[1]) {
                     } else if ato == nfa.post && (co == nfa.eos[0] || co == nfa.eos[1]) {
                     } else {
@@ -1999,10 +2015,12 @@ pub fn checkmatchall(nfa: &mut Nfa, cm: &ColorMap) {
     }
 }
 
+#[allow(clippy::only_used_in_recursion)]
 fn checkmatchall_recurse(
     nfa: &mut Nfa,
     s: StateId,
     haspaths: &mut Vec<Option<Vec<bool>>>,
+    #[allow(clippy::only_used_in_recursion)]
     depth: u32,
 ) -> bool {
     // C regc_nfa.c STACK_TOO_DEEP(nfa->v->re) == stack_is_too_deep(): BYTE-based.
@@ -2276,12 +2294,14 @@ pub fn fixconstraintloops<'mcx>(
     Ok(())
 }
 
+#[allow(clippy::only_used_in_recursion)]
 fn findconstraintloop<'mcx>(
     mcx: Mcx<'mcx>,
     nfa: &mut Nfa,
     cm: &mut ColorMap,
     has_parent: bool,
     s: StateId,
+    #[allow(clippy::only_used_in_recursion)]
     depth: u32,
 ) -> RegResult<bool> {
     // C regc_nfa.c STACK_TOO_DEEP(nfa->v->re) == stack_is_too_deep(): BYTE-based.

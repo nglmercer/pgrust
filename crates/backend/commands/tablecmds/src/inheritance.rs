@@ -586,6 +586,7 @@ fn coldef_collation(def: &ColumnDef<'_>, typeoid: Oid) -> PgResult<Oid> {
 }
 
 // MergeInheritedAttribute (tablecmds.c:3418).
+#[allow(clippy::unnecessary_unwrap)]
 fn merge_inherited_attribute<'mcx>(
     _mcx: Mcx<'mcx>,
     prevdef: &mut ColumnDef<'mcx>,
@@ -660,6 +661,7 @@ fn merge_inherited_attribute<'mcx>(
 }
 
 // MergeChildAttribute (tablecmds.c:3311).
+#[allow(clippy::unnecessary_unwrap)]
 fn merge_child_attribute<'mcx>(
     _mcx: Mcx<'mcx>,
     inh_defs: &mut PgVec<'mcx, ColumnDef<'mcx>>,

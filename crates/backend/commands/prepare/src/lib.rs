@@ -23,7 +23,9 @@ use types_hash::hsearch::{
 };
 use types_nodes::parsenodes::{DeallocateStmt, ExecuteStmt, PrepareStmt};
 use types_nodes::rawnodes::{IntoClause, RawStmt};
-use types_portal::{ParamListHandle, QueryCompletion, QueryEnvHandle, CURSOR_OPT_PARALLEL_OK, FETCH_ALL};
+use types_portal::{
+    ParamListHandle, QueryCompletion, QueryEnvHandle, CURSOR_OPT_PARALLEL_OK, FETCH_ALL,
+};
 
 pub fn init_seams() {
     prepare_seams::store_prepared_statement::set(StorePreparedStatement);
@@ -63,6 +65,7 @@ thread_local! {
     static PREPARED_QUERIES: Cell<*mut HTAB> = const { Cell::new(core::ptr::null_mut()) };
 }
 
+#[allow(clippy::field_reassign_with_default)]
 fn query_hash_table() -> PgResult<*mut HTAB> {
     let hashp = PREPARED_QUERIES.with(Cell::get);
     if !hashp.is_null() {
@@ -121,7 +124,11 @@ pub fn PrepareQuery(
     };
 
     let query = stmt.query.expect("PREPARE has a query");
-    let rawstmt = RawStmt { stmt: Some(query), stmt_location, stmt_len };
+    let rawstmt = RawStmt {
+        stmt: Some(query),
+        stmt_location,
+        stmt_len,
+    };
     let tag = utility_seams::create_command_tag::call(query);
     let plansource = plancache::CreateCachedPlan(Some(&rawstmt), source_text, tag)?;
 
@@ -151,15 +158,17 @@ fn fill_plansource(
     // retained copy is copied once more into the query arena (no re-lex: a
     // second lex re-emits scanner warnings C doesn't).
     let qmcx = plancache::SourceQueryMcx(plansource);
-    let inner = plancache::CachedPlanRawParseTreeCopy(qmcx, plansource)?
-        .expect("created with a raw tree");
+    let inner =
+        plancache::CachedPlanRawParseTreeCopy(qmcx, plansource)?.expect("created with a raw tree");
 
     let mut pstate = parser_small1::make_parsestate(qmcx, None);
     pstate.p_sourcetext = Some(source_text.as_bytes());
     let mut argtypes: mcx::PgVec<'_, types_core::Oid> =
         mcx::vec_with_capacity_in(qmcx, stmt.argtypes.len())?;
     for tn_node in stmt.argtypes.iter() {
-        let tn = tn_node.as_type_name().expect("PREPARE argtypes are TypeNames");
+        let tn = tn_node
+            .as_type_name()
+            .expect("PREPARE argtypes are TypeNames");
         argtypes.push(parse_utilcmd::typenameTypeId(qmcx, Some(&pstate), tn)?);
     }
     parser_small1::free_parsestate(pstate)?;
@@ -172,7 +181,13 @@ fn fill_plansource(
         QueryEnvHandle::NULL,
     )?;
 
-    plancache::CompleteCachedPlan(plansource, query_list, &resolved, CURSOR_OPT_PARALLEL_OK, true)
+    plancache::CompleteCachedPlan(
+        plansource,
+        query_list,
+        &resolved,
+        CURSOR_OPT_PARALLEL_OK,
+        true,
+    )
 }
 
 pub fn ExecuteQuery<'mcx>(
@@ -243,7 +258,12 @@ pub fn ExecuteQuery<'mcx>(
             None => (0, FETCH_ALL),
         };
 
-        pquery::PortalStart(&portal, param_li, eflags, Some(snapmgr::GetActiveSnapshot()))?;
+        pquery::PortalStart(
+            &portal,
+            param_li,
+            eflags,
+            Some(snapmgr::GetActiveSnapshot()),
+        )?;
 
         let _ = pquery::PortalRun(&portal, count, false, dest, None, qc)?;
 
@@ -276,7 +296,9 @@ fn EvaluateParams<'mcx>(
             .errmsg(format!(
                 "wrong number of parameters for prepared statement \"{stmt_name}\""
             ))
-            .errdetail(format!("Expected {num_params} parameters but got {nparams}."))
+            .errdetail(format!(
+                "Expected {num_params} parameters but got {nparams}."
+            ))
             .into_error()
             .into());
     }
@@ -421,11 +443,13 @@ pub fn FetchPreparedStatement(
         let entry = dynahash::hash_search(hashp, key.as_ptr(), HASH_FIND, None)?;
         // SAFETY: a non-null hit is a live PreparedStatementEntry.
         unsafe {
-            (entry as *const PreparedStatementEntry).as_ref().map(|e| PreparedStatement {
-                plansource: e.plansource,
-                from_sql: e.from_sql,
-                prepare_time: e.prepare_time,
-            })
+            (entry as *const PreparedStatementEntry)
+                .as_ref()
+                .map(|e| PreparedStatement {
+                    plansource: e.plansource,
+                    from_sql: e.from_sql,
+                    prepare_time: e.prepare_time,
+                })
         }
     };
     if entry.is_none() && throw_error {
@@ -470,7 +494,12 @@ pub fn DropPreparedStatement(stmt_name: &str, show_error: bool) -> PgResult<()> 
     if let Some(entry) = entry {
         plancache::DropCachedPlan(entry.plansource);
         let key = key_buf(stmt_name);
-        dynahash::hash_search(PREPARED_QUERIES.with(Cell::get), key.as_ptr(), HASH_REMOVE, None)?;
+        dynahash::hash_search(
+            PREPARED_QUERIES.with(Cell::get),
+            key.as_ptr(),
+            HASH_REMOVE,
+            None,
+        )?;
     }
     Ok(())
 }
@@ -573,8 +602,11 @@ pub fn pg_prepared_statement(
             }
             // SAFETY: live entry from the seq scan.
             let e = unsafe { &*(entry as *const PreparedStatementEntry) };
-            let name_len =
-                e.stmt_name.iter().position(|&b| b == 0).unwrap_or(NAMEDATALEN);
+            let name_len = e
+                .stmt_name
+                .iter()
+                .position(|&b| b == 0)
+                .unwrap_or(NAMEDATALEN);
             let query_string = plancache::CachedPlanQueryString(e.plansource);
             let param_types = plancache::CachedPlanParamTypes(e.plansource);
             let (n_generic, n_custom) = plancache::CachedPlanCounts(e.plansource);

@@ -63,8 +63,8 @@ use ::types_storage::buf::{BufferAccessStrategy, BufferAccessStrategyType};
 use ::types_storage::bufpage::PageRef;
 use ::types_storage::ReadBufferMode;
 use ::vacuum_morsels::{
-    merge_dead_runs, resume_granule, verify_prefix_coverage, ClaimRecord, CoverageError,
-    DeadRun, EagerAdmit, EagerScanShared, QuiesceState, ScanCounters, SkipMapParams, VacScanLocal,
+    merge_dead_runs, resume_granule, verify_prefix_coverage, ClaimRecord, CoverageError, DeadRun,
+    EagerAdmit, EagerScanShared, QuiesceState, ScanCounters, SkipMapParams, VacScanLocal,
     VacuumBlockSource, VM_ALL_FROZEN, VM_ALL_VISIBLE,
 };
 use ::visibilitymap::{
@@ -72,16 +72,15 @@ use ::visibilitymap::{
     VISIBILITYMAP_ALL_VISIBLE,
 };
 
-use ::backend_progress::progress::*;
 use ::backend_progress::pgstat_progress_update_param;
+use ::backend_progress::progress::*;
 use ::bufmgr_seams::{BUFFER_LOCK_SHARE, BUFFER_LOCK_UNLOCK};
 
 use super::{
     apply_failsafe, dead_items_add, eager_scan_disable_ereport, lazy_check_wraparound_failsafe,
-    SKIP_PAGES_THRESHOLD,
     lazy_scan_new_or_empty, lazy_scan_noprune, lazy_scan_prune, lazy_vacuum,
-    update_vacuum_error_info, LVRelState, ScanEnv, VacErrContext, VacErrInfo, VacErrPhase,
-    ScanFolds, FAILSAFE_EVERY_PAGES,
+    update_vacuum_error_info, LVRelState, ScanEnv, ScanFolds, VacErrContext, VacErrInfo,
+    VacErrPhase, FAILSAFE_EVERY_PAGES, SKIP_PAGES_THRESHOLD,
 };
 
 use init_small::globals as g;
@@ -96,9 +95,7 @@ fn flag_enabled() -> bool {
     // PGRUST_RUNTIME_VACUUM=0 is the kill switch. Layering unchanged:
     // PGRUST_RUNTIME=0 still disarms everything above this flag.
     static ON: OnceLock<bool> = OnceLock::new();
-    *ON.get_or_init(|| {
-        !std::env::var("PGRUST_RUNTIME_VACUUM").is_ok_and(|v| v.trim() == "0")
-    })
+    *ON.get_or_init(|| !std::env::var("PGRUST_RUNTIME_VACUUM").is_ok_and(|v| v.trim() == "0"))
 }
 
 /// M4.1 driver-swap switch (scratchpad/night/all-morsels-plan.md Track 3
@@ -184,7 +181,11 @@ pub(crate) fn admit(vacrel: &LVRelState<'_, '_>, nrequested: i32) -> Option<i32>
     if mpmw <= 0 {
         return None;
     }
-    let k = if nrequested > 0 { mpmw.min(nrequested) } else { mpmw };
+    let k = if nrequested > 0 {
+        mpmw.min(nrequested)
+    } else {
+        mpmw
+    };
     // Fail-closed index-AM gate: the rounds' INDEX phase is the ported
     // serial/vacuumparallel path, which reaches indexes only through
     // indexam::index_bulk_delete / index_vacuum_cleanup — admit exactly the
@@ -195,14 +196,7 @@ pub(crate) fn admit(vacrel: &LVRelState<'_, '_>, nrequested: i32) -> Option<i32>
     for ind in vacrel.indrels.iter() {
         use ::types_relscan::IndexAmKind as K;
         match K::from_relam(ind.rd_rel.relam) {
-            K::Btree
-            | K::Hash
-            | K::Gin
-            | K::Gist
-            | K::Spgist
-            | K::Brin
-            | K::Hnsw
-            | K::Bloom => {}
+            K::Btree | K::Hash | K::Gin | K::Gist | K::Spgist | K::Brin | K::Hnsw | K::Bloom => {}
             #[allow(unreachable_patterns)]
             _ => return None,
         }
@@ -223,14 +217,20 @@ pub(crate) enum ScanHandoff {
     /// Rounds ran; the serial cursor machine resumes at `block`
     /// (== rel_pages when the scan completed) with the FSM-vacuum cursor at
     /// `next_fsm`.
-    Resume { block: BlockNumber, next_fsm: BlockNumber },
+    Resume {
+        block: BlockNumber,
+        next_fsm: BlockNumber,
+    },
 }
 
 /// Build the round's skip map from `resume_block` (doc §3.1): one pass over
 /// the VM fork evaluating C's exact skip rules. Eager decisions vs C's
 /// cursor-lazy ones are the recorded §3.1 divergence (same observable
 /// class; window bounded by the round).
-fn build_source(vacrel: &mut LVRelState<'_, '_>, resume_block: BlockNumber) -> PgResult<VacuumBlockSource> {
+fn build_source(
+    vacrel: &mut LVRelState<'_, '_>,
+    resume_block: BlockNumber,
+) -> PgResult<VacuumBlockSource> {
     // Bit-layout parity between the pure units and the visibilitymap crate.
     const _: () = assert!(VM_ALL_VISIBLE == VISIBILITYMAP_ALL_VISIBLE);
     const _: () = assert!(VM_ALL_FROZEN == VISIBILITYMAP_ALL_FROZEN);
@@ -336,11 +336,17 @@ pub(crate) fn scan_rounds(vacrel: &mut LVRelState<'_, '_>, k: i32) -> PgResult<S
         // hands the remainder to the serial arm with index vacuuming off.
         if lazy_check_wraparound_failsafe(vacrel)? {
             clock.emit(vacrel.rel.name(), rounds, k, "failsafe-preround");
-            return Ok(ScanHandoff::Resume { block: resume_block, next_fsm });
+            return Ok(ScanHandoff::Resume {
+                block: resume_block,
+                next_fsm,
+            });
         }
         if resume_block >= vacrel.rel_pages {
             clock.emit(vacrel.rel.name(), rounds, k, "complete");
-            return Ok(ScanHandoff::Resume { block: vacrel.rel_pages, next_fsm });
+            return Ok(ScanHandoff::Resume {
+                block: vacrel.rel_pages,
+                next_fsm,
+            });
         }
 
         let t_source = std::time::Instant::now();
@@ -352,7 +358,10 @@ pub(crate) fn scan_rounds(vacrel: &mut LVRelState<'_, '_>, k: i32) -> PgResult<S
             // means resume >= rel_pages (handled above).
             vacrel.skippedallvis |= source.skipsallvis();
             clock.emit(vacrel.rel.name(), rounds, k, "complete");
-            return Ok(ScanHandoff::Resume { block: vacrel.rel_pages, next_fsm });
+            return Ok(ScanHandoff::Resume {
+                block: vacrel.rel_pages,
+                next_fsm,
+            });
         }
         if total < floor {
             // Small (or tail) geometry: the serial arm wins outright (V9).
@@ -360,7 +369,10 @@ pub(crate) fn scan_rounds(vacrel: &mut LVRelState<'_, '_>, k: i32) -> PgResult<S
             return Ok(if rounds == 0 {
                 ScanHandoff::Refused
             } else {
-                ScanHandoff::Resume { block: resume_block, next_fsm }
+                ScanHandoff::Resume {
+                    block: resume_block,
+                    next_fsm,
+                }
             });
         }
 
@@ -375,7 +387,10 @@ pub(crate) fn scan_rounds(vacrel: &mut LVRelState<'_, '_>, k: i32) -> PgResult<S
                 return Ok(if rounds == 0 {
                     ScanHandoff::Refused
                 } else {
-                    ScanHandoff::Resume { block: resume_block, next_fsm }
+                    ScanHandoff::Resume {
+                        block: resume_block,
+                        next_fsm,
+                    }
                 });
             }
             RoundOutcome::Completed => {}
@@ -442,8 +457,9 @@ pub(crate) fn scan_rounds(vacrel: &mut LVRelState<'_, '_>, k: i32) -> PgResult<S
             vacrel.folds.counters.fold(&l.counters);
             // Eagerly scanned pages are the ones the workers ADMITTED at
             // scan time (C :1336-1337), not the map's candidates.
-            vacrel.eager_scanned_pages =
-                vacrel.eager_scanned_pages.wrapping_add(l.eager_scanned_pages as BlockNumber);
+            vacrel.eager_scanned_pages = vacrel
+                .eager_scanned_pages
+                .wrapping_add(l.eager_scanned_pages as BlockNumber);
         }
         // Skip decisions below the resume point are consumed (jumped over
         // for good); later ones are re-decided by the next round's map.
@@ -462,8 +478,11 @@ pub(crate) fn scan_rounds(vacrel: &mut LVRelState<'_, '_>, k: i32) -> PgResult<S
         // when the re-scan re-adds the same blocks (set_block_offsets
         // replaces per block; the num_items += does not — tracker #66).
         let complete = resume_g >= total;
-        resume_block =
-            if complete { vacrel.rel_pages } else { source.block_of(resume_g).block };
+        resume_block = if complete {
+            vacrel.rel_pages
+        } else {
+            source.block_of(resume_g).block
+        };
         let (succ, fails, max_fails, next_region) = shared.eager.snapshot(resume_block);
         vacrel.eager_scan_remaining_successes = succ;
         vacrel.eager_scan_remaining_fails = fails;
@@ -487,7 +506,11 @@ pub(crate) fn scan_rounds(vacrel: &mut LVRelState<'_, '_>, k: i32) -> PgResult<S
                 vacuum_if_over_budget(vacrel, blk, &mut next_fsm)?;
             }
             {
-                let super::LVRelState { dead_items, dead_items_info, .. } = &mut *vacrel;
+                let super::LVRelState {
+                    dead_items,
+                    dead_items_info,
+                    ..
+                } = &mut *vacrel;
                 dead_items_add(
                     dead_items.as_mut().expect("dead_items live during scan"),
                     dead_items_info,
@@ -575,7 +598,10 @@ pub(crate) fn scan_rounds(vacrel: &mut LVRelState<'_, '_>, k: i32) -> PgResult<S
             // Fail-closed: never loop the morsel arm over unverifiable
             // coverage — the serial arm finishes from the hole.
             clock.emit(vacrel.rel.name(), rounds, k, "coverage-hole");
-            return Ok(ScanHandoff::Resume { block: resume_block, next_fsm });
+            return Ok(ScanHandoff::Resume {
+                block: resume_block,
+                next_fsm,
+            });
         }
 
         if shared.failsafe.load(Ordering::Acquire) {
@@ -586,13 +612,19 @@ pub(crate) fn scan_rounds(vacrel: &mut LVRelState<'_, '_>, k: i32) -> PgResult<S
                 apply_failsafe(vacrel)?;
             }
             clock.emit(vacrel.rel.name(), rounds, k, "failsafe");
-            return Ok(ScanHandoff::Resume { block: resume_block, next_fsm });
+            return Ok(ScanHandoff::Resume {
+                block: resume_block,
+                next_fsm,
+            });
         }
         if complete {
             // Whole remaining scan done: the final lazy_vacuum runs in the
             // caller's epilogue, C-exactly (bypass arithmetic included).
             clock.emit(vacrel.rel.name(), rounds, k, "complete");
-            return Ok(ScanHandoff::Resume { block: vacrel.rel_pages, next_fsm });
+            return Ok(ScanHandoff::Resume {
+                block: vacrel.rel_pages,
+                next_fsm,
+            });
         }
 
         // Quiesce trip: the helpers' run buffers hit their bound. The dead
@@ -609,7 +641,11 @@ fn vacuum_if_over_budget(
     next_fsm: &mut BlockNumber,
 ) -> PgResult<()> {
     if vacrel.dead_items_info.num_items > 0
-        && vacrel.dead_items.as_ref().expect("dead_items live during scan").memory_usage()
+        && vacrel
+            .dead_items
+            .as_ref()
+            .expect("dead_items live during scan")
+            .memory_usage()
             > vacrel.dead_items_info.max_bytes
     {
         vacrel.consider_bypass_optimization = false;
@@ -721,7 +757,12 @@ fn leader_deferred_block(
         mark_unused_now: super::mark_unused_now(*nindexes, *keep_items),
     };
     let mut sink = |blkno: BlockNumber, offsets: &[OffsetNumber]| {
-        dead_items_add(dead_items.as_mut().unwrap(), dead_items_info, blkno, offsets)
+        dead_items_add(
+            dead_items.as_mut().unwrap(),
+            dead_items_info,
+            blkno,
+            offsets,
+        )
     };
 
     if lazy_scan_new_or_empty(&env, folds, buf, blkno, page, !got_cleanup_lock, &vmbuffer)? {
@@ -731,7 +772,15 @@ fn leader_deferred_block(
 
     let mut has_lpdead_items = false;
     if !got_cleanup_lock
-        && !lazy_scan_noprune(&env, folds, &mut sink, buf, blkno, page, &mut has_lpdead_items)?
+        && !lazy_scan_noprune(
+            &env,
+            folds,
+            &mut sink,
+            buf,
+            blkno,
+            page,
+            &mut has_lpdead_items,
+        )?
     {
         debug_assert!(env.aggressive);
         // The blocking wait workers must never take (BM_PIN_COUNT_WAITER +
@@ -785,7 +834,10 @@ struct Frontier {
 
 impl Frontier {
     fn new() -> Self {
-        Frontier { done: Mutex::new(std::collections::BTreeMap::new()), prefix: AtomicU64::new(0) }
+        Frontier {
+            done: Mutex::new(std::collections::BTreeMap::new()),
+            prefix: AtomicU64::new(0),
+        }
     }
 
     fn complete(&self, start: u64, end: u64) {
@@ -895,7 +947,9 @@ impl VacScanShared {
             started: AtomicUsize::new(0),
             error: Mutex::new(None),
             failed: AtomicBool::new(false),
-            locals: (0..runtime::MAX_EXTERNAL_LANES).map(|_| Mutex::new(None)).collect(),
+            locals: (0..runtime::MAX_EXTERNAL_LANES)
+                .map(|_| Mutex::new(None))
+                .collect(),
             usage: ScanUsage::default(),
             eager: EagerScanShared::new(
                 vacrel.eager_scan_remaining_successes,
@@ -1035,7 +1089,11 @@ impl VacScanShared {
         // Claim-boundary quiesce observation (§3.3, the inc-1 amendment):
         // claims entered after the trip (or a failsafe fire) are no-ops.
         if self.quiesce.tripped() || self.failsafe.load(Ordering::Acquire) {
-            local.claims.push(ClaimRecord { start: range.start, end: range.end, scanned: false });
+            local.claims.push(ClaimRecord {
+                start: range.start,
+                end: range.end,
+                scanned: false,
+            });
             return Ok(());
         }
 
@@ -1045,7 +1103,13 @@ impl VacScanShared {
         while gidx < range.end {
             let sb = self.source.block_of(gidx);
             if !sb.was_eager_scanned {
-                self.scan_block_worker(wcx, local, sb.block, sb.all_visible_according_to_vm, false)?;
+                self.scan_block_worker(
+                    wcx,
+                    local,
+                    sb.block,
+                    sb.all_visible_according_to_vm,
+                    false,
+                )?;
                 scanned += 1;
                 gidx += 1;
                 continue;
@@ -1136,7 +1200,11 @@ impl VacScanShared {
             gidx += 1;
         }
         local.counters.fold(&wcx.folds.counters);
-        local.claims.push(ClaimRecord { start: range.start, end: range.end, scanned: true });
+        local.claims.push(ClaimRecord {
+            start: range.start,
+            end: range.end,
+            scanned: true,
+        });
         self.scanned_pages.fetch_add(scanned, Ordering::Relaxed);
         self.frontier.complete(range.start, range.end);
         Ok(())
@@ -1186,8 +1254,7 @@ impl VacScanShared {
         let r = (|| -> PgResult<()> {
             visibilitymap_pin(wcx.rel, blkno, &mut wcx.vmbuffer)?;
 
-            let got_cleanup_lock =
-                bufmgr_seams::conditional_lock_buffer_for_cleanup::call(buf)?;
+            let got_cleanup_lock = bufmgr_seams::conditional_lock_buffer_for_cleanup::call(buf)?;
             if !got_cleanup_lock {
                 bufmgr_seams::lock_buffer::call(buf, BUFFER_LOCK_SHARE)?;
             }
@@ -1209,7 +1276,10 @@ impl VacScanShared {
             let runs = &mut local.runs;
             let mut sink = |blk: BlockNumber, offsets: &[OffsetNumber]| -> PgResult<()> {
                 debug_assert!(runs.last().is_none_or(|r| r.block < blk));
-                runs.push(::vacuum_morsels::DeadRun { block: blk, offsets: offsets.to_vec() });
+                runs.push(::vacuum_morsels::DeadRun {
+                    block: blk,
+                    offsets: offsets.to_vec(),
+                });
                 num_dead.fetch_add(offsets.len() as i64, Ordering::Relaxed);
                 // Byte accounting per block (C cadence); trip observed at
                 // the NEXT claim boundary.
@@ -1314,8 +1384,12 @@ impl VacScanShared {
 /// the pinned drive): the substrate has already connected the helper to the
 /// leader's database, restored leader state, and entered parallel mode.
 fn vacuum_scan_worker_main(pshared: &parallel::ParallelShared) -> PgResult<()> {
-    let Some(private) = pshared.private() else { return Ok(()) };
-    let Ok(shared) = private.downcast::<VacScanShared>() else { return Ok(()) };
+    let Some(private) = pshared.private() else {
+        return Ok(());
+    };
+    let Ok(shared) = private.downcast::<VacScanShared>() else {
+        return Ok(());
+    };
 
     // unwind-ok: worker-containment
     let r = catch_unwind(AssertUnwindSafe(|| worker_drive(&shared)));
@@ -1329,7 +1403,10 @@ fn vacuum_scan_worker_main(pshared: &parallel::ParallelShared) -> PgResult<()> {
                 ));
                 parallel::standing::resume_exit_or_abort(unwind);
             }
-            Err(Box::new(PgError::new(ERROR, "vacuum scan worker failed (see leader error)")))
+            Err(Box::new(PgError::new(
+                ERROR,
+                "vacuum scan worker failed (see leader error)",
+            )))
         }
     };
     // Wake the parked leader: completion/refusal/error all re-poll there.
@@ -1340,7 +1417,12 @@ fn vacuum_scan_worker_main(pshared: &parallel::ParallelShared) -> PgResult<()> {
 }
 
 #[derive(Default)]
-struct ScanUsage(pgsync::Mutex<(types_core::instrument::BufferUsage, types_core::instrument::WalUsage)>);
+struct ScanUsage(
+    pgsync::Mutex<(
+        types_core::instrument::BufferUsage,
+        types_core::instrument::WalUsage,
+    )>,
+);
 
 impl ScanUsage {
     fn capture<T>(&self, work: impl FnOnce() -> T) -> T {
@@ -1379,7 +1461,10 @@ fn worker_drive_inner(shared: &Arc<VacScanShared>) -> PgResult<()> {
     // "parallel worker", leader_pid via the lock group, the leader's
     // statement + query id); a pool serve hides its entry again on return.
     let _serve = ::backend_status::PoolWorkerServe::begin(parallel::standing::serving_on_pool());
-    let _debug_query = shared.query_text.as_deref().map(elog::debug_query_string_scope);
+    let _debug_query = shared
+        .query_text
+        .as_deref()
+        .map(elog::debug_query_string_scope);
     ::backend_status::pgstat_report_activity(
         ::backend_status::BackendState::STATE_RUNNING,
         shared.query_text.as_deref(),
@@ -1409,7 +1494,10 @@ fn worker_drive_inner(shared: &Arc<VacScanShared>) -> PgResult<()> {
     set_vacuum_cost_balance_local(0);
     set_vacuum_shared_cost(Some(Arc::clone(&shared.cost)));
     let _delay_sink = ::commands_vacuum::WorkerDelaySink::install(Arc::clone(&shared.delay_ns));
-    shared.cost.active_nworkers.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    shared
+        .cost
+        .active_nworkers
+        .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
 
     let bstrategy = bufmgr_seams::get_access_strategy_with_size::call(
         BufferAccessStrategyType::BasVacuum,
@@ -1436,7 +1524,10 @@ fn worker_drive_inner(shared: &Arc<VacScanShared>) -> PgResult<()> {
             counters: ScanCounters::seed(shared.cutoffs.OldestXmin, shared.cutoffs.OldestMxact),
             // This worker's vacrel->{phase,blkno,offnum} (vacuumlazy.c:669-673
             // names, PHASE_UNKNOWN until its first block).
-            err: VacErrInfo::new(shared.eager_relnamespace.clone(), shared.eager_relname.clone()),
+            err: VacErrInfo::new(
+                shared.eager_relnamespace.clone(),
+                shared.eager_relname.clone(),
+            ),
         },
     };
     // The worker's error_context_stack frame (vacuum_error_callback over its
@@ -1461,7 +1552,10 @@ fn worker_drive_inner(shared: &Arc<VacScanShared>) -> PgResult<()> {
 
     // Teardown (parallel_vacuum_main order).
     wcx.vmbuffer.release();
-    shared.cost.active_nworkers.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+    shared
+        .cost
+        .active_nworkers
+        .fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
     set_vacuum_shared_cost(None);
     let strategy = core::mem::take(&mut wcx.bstrategy);
     if strategy.is_some() {
@@ -1492,9 +1586,7 @@ fn worker_drive_inner(shared: &Arc<VacScanShared>) -> PgResult<()> {
 /// the runtime's verdict (the parallel crate cannot name runtime types —
 /// the standing_channel adapter precedent, replicated here because the
 /// vacuum driver lives outside execmain).
-fn vacuum_pooldb_serve(
-    payload: &Arc<dyn std::any::Any + Send + Sync>,
-) -> runtime::BoundServe {
+fn vacuum_pooldb_serve(payload: &Arc<dyn std::any::Any + Send + Sync>) -> runtime::BoundServe {
     match parallel::standing::pool_serve(payload) {
         parallel::standing::PoolServe::Served => runtime::BoundServe::Served,
         parallel::standing::PoolServe::Refused => runtime::BoundServe::Refused,
@@ -1512,8 +1604,12 @@ fn vacuum_pooldb_serve(
 /// unwinds (FATAL) are rethrown to the pool glue — a terminated worker
 /// must die (swallowing one would resurrect it into the pool).
 fn vacuum_scan_pool_driver(shared: &parallel::ParallelShared) {
-    let Some(private) = shared.private() else { return };
-    let Ok(payload) = private.downcast::<VacScanShared>() else { return };
+    let Some(private) = shared.private() else {
+        return;
+    };
+    let Ok(payload) = private.downcast::<VacScanShared>() else {
+        return;
+    };
     let Some(target) = payload.pcxt_shared.get() else {
         payload.refused.fetch_add(1, Ordering::SeqCst);
         return;
@@ -1552,9 +1648,7 @@ fn vacuum_scan_pool_driver(shared: &parallel::ParallelShared) {
             }
         }
         Err(unwind) => {
-            payload.fail(
-                PgError::new(ERROR, "vacuum scan pool executor panicked").into(),
-            );
+            payload.fail(PgError::new(ERROR, "vacuum scan pool executor panicked").into());
             latch::SetLatch(::types_storage::latch::LatchHandle::proc(
                 shared.parallel_leader_proc_number,
             ));
@@ -1580,7 +1674,10 @@ fn try_pool_channel(
     pcxt: parallel::ParallelContextId,
     shared: &Arc<VacScanShared>,
     k: i32,
-) -> Option<(Arc<parallel::standing::StandingEngagement>, runtime::BoundDescriptor)> {
+) -> Option<(
+    Arc<parallel::standing::StandingEngagement>,
+    runtime::BoundDescriptor,
+)> {
     if !pool_enabled() {
         return None;
     }
@@ -1608,15 +1705,18 @@ fn try_pool_channel(
     let target = shared.pcxt_shared.get()?;
     let entry = parallel::standing::try_engage_pool(target, k.max(0) as usize)?;
     let payload: Arc<dyn std::any::Any + Send + Sync> = Arc::clone(&entry) as _;
-    Some((entry, runtime::BoundDescriptor {
-        serve: vacuum_pooldb_serve,
-        payload,
-        // POOL-QOS: utility engagements never charge interactive demand
-        // (their RGs run at the utility stride weight, below the
-        // interactive threshold once seeded); width 0 keeps them out of
-        // the demand ledger entirely.
-        width: 0,
-    }))
+    Some((
+        entry,
+        runtime::BoundDescriptor {
+            serve: vacuum_pooldb_serve,
+            payload,
+            // POOL-QOS: utility engagements never charge interactive demand
+            // (their RGs run at the utility stride weight, below the
+            // interactive threshold once seeded); width 0 keeps them out of
+            // the demand ledger entirely.
+            width: 0,
+        },
+    ))
 }
 
 fn wfin_enabled() -> bool {
@@ -1630,7 +1730,12 @@ fn emit_wfin(ordinal: usize, local: &runtime::WorkerLocal, rg: &runtime::RgHandl
         return;
     }
     let d = local.drive;
-    let task_avg_us = if d.tasks > 0 { d.busy_ns / d.tasks / 1000 } else { 0 };
+    #[allow(clippy::manual_checked_ops)]
+    let task_avg_us = if d.tasks > 0 {
+        d.busy_ns / d.tasks / 1000
+    } else {
+        0
+    };
     eprintln!(
         "MORSEL|WFIN|qid={}|pipe=0|worker={}|t_us={}|tasks={}|task_avg_us={}|first_us={}|busy_us={}|morsels={}|granules={}|chan=vacscan",
         rg.query_id(),
@@ -1654,7 +1759,9 @@ fn emit_wfin(ordinal: usize, local: &runtime::WorkerLocal, rg: &runtime::RgHandl
 /// worker exit. Abort + drain the RG so every helper's drive observes
 /// completion and can exit (idempotent on completed RGs).
 fn vacuum_scan_private_shutdown(private: &(dyn std::any::Any + Send + Sync)) {
-    let Some(payload) = private.downcast_ref::<VacScanShared>() else { return };
+    let Some(payload) = private.downcast_ref::<VacScanShared>() else {
+        return;
+    };
     if let Some(rg) = payload.rg.get().and_then(|w| w.upgrade()) {
         if rg.try_outcome().is_none() {
             drain_rg(payload.rt, &rg);
@@ -1664,7 +1771,11 @@ fn vacuum_scan_private_shutdown(private: &(dyn std::any::Any + Send + Sync)) {
     // own cleanup leaves the board entry live — complete the standing join
     // (close + await detach) so pool participants never outlive the leader
     // arena (the arm-side shutdown_standing_join law).
-    let board = payload.pool_board.lock().unwrap_or_else(|p| p.into_inner()).take();
+    let board = payload
+        .pool_board
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .take();
     if let Some(entry) = board {
         parallel::standing::close_and_await(&entry);
     }
@@ -1750,7 +1861,10 @@ impl LeaderCadence {
             self.err.blkno.set(block);
         }
         ::backend_progress::pgstat_progress_update_multi_param(
-            &[PROGRESS_VACUUM_NUM_DEAD_ITEM_IDS, PROGRESS_VACUUM_DEAD_TUPLE_BYTES],
+            &[
+                PROGRESS_VACUUM_NUM_DEAD_ITEM_IDS,
+                PROGRESS_VACUUM_DEAD_TUPLE_BYTES,
+            ],
             &[
                 self.progress_base_items + shared.num_dead_items.load(Ordering::Relaxed),
                 (self.progress_base_bytes + shared.quiesce.bytes()) as i64,
@@ -1811,7 +1925,11 @@ fn pool_wait(
     waiter: &runtime::CompletionWaiter,
 ) -> PgResult<PoolWait> {
     let take_board = || {
-        shared.pool_board.lock().unwrap_or_else(|p| p.into_inner()).take();
+        shared
+            .pool_board
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .take();
     };
     let close = |why: &str| {
         take_board();
@@ -1862,7 +1980,9 @@ fn pool_wait(
         // Nobody will participate: every ticket-holder refused pre-bind or
         // at the bind/lane stage, before any granule was claimed.
         if started == 0 && refused >= entry.tickets() {
-            close(&format!("pooldb refused ({refused} refusals) — launched fallback"));
+            close(&format!(
+                "pooldb refused ({refused} refusals) — launched fallback"
+            ));
             return Ok(PoolWait::Fallback);
         }
         // Nothing driving and nothing pending within the deadline: the pool
@@ -1883,7 +2003,10 @@ fn pool_wait(
                 close("");
                 return Ok(PoolWait::Done(o));
             }
-            if let Some(e) = shared.take_error().map(|e| leader_rethrow(&vacrel.folds.err, e)) {
+            if let Some(e) = shared
+                .take_error()
+                .map(|e| leader_rethrow(&vacrel.folds.err, e))
+            {
                 rg.abort();
                 drain_rg(rt, rg);
                 close("");
@@ -1958,11 +2081,14 @@ fn round_ceremony(
         // serve the instant the publication lands, and their shared-cost
         // fetch_adds must never race the carry-in stores. The parked leader
         // accrues nothing until the round's carry-back.
+        shared.cost.cost_balance.store(
+            g::VacuumCostBalance() as u32,
+            std::sync::atomic::Ordering::SeqCst,
+        );
         shared
             .cost
-            .cost_balance
-            .store(g::VacuumCostBalance() as u32, std::sync::atomic::Ordering::SeqCst);
-        shared.cost.active_nworkers.store(0, std::sync::atomic::Ordering::SeqCst);
+            .active_nworkers
+            .store(0, std::sync::atomic::Ordering::SeqCst);
 
         // Submit the pinned RG before launch: helpers find work immediately.
         static NEXT_QUERY_ID: AtomicU64 = AtomicU64::new(1);
@@ -1970,7 +2096,11 @@ fn round_ceremony(
         let source: Arc<dyn runtime::MorselSource> = Arc::clone(&shared.source) as _;
         let spec = runtime::QuerySpec {
             query_id: NEXT_QUERY_ID.fetch_add(1, Ordering::SeqCst),
-            tasksets: vec![runtime::TaskSetSpec { source, work, deps: vec![] }],
+            tasksets: vec![runtime::TaskSetSpec {
+                source,
+                work,
+                deps: vec![],
+            }],
         };
         let (rg, waiter) = match &pool {
             // QoS class Utility (Track-4 Q0/Q1): utility stride weight +
@@ -1981,13 +2111,17 @@ fn round_ceremony(
                 Some(runtime::WidthRequest::unbounded(k.max(1) as u32)),
                 descriptor.clone(),
                 |rg| {
-                    shared.rg.set(rg.downgrade())
+                    shared
+                        .rg
+                        .set(rg.downgrade())
                         .unwrap_or_else(|_| unreachable!("rg set once per round payload"));
                 },
             ),
             None => {
                 let submitted = rt.submit_pinned(spec);
-                shared.rg.set(submitted.0.downgrade())
+                shared
+                    .rg
+                    .set(submitted.0.downgrade())
                     .unwrap_or_else(|_| unreachable!("rg set once per round payload"));
                 submitted
             }
@@ -1998,11 +2132,13 @@ fn round_ceremony(
         // path's post-outcome tail below; Fallback leaves the RG untouched
         // (started == 0, nothing claimed) and the launched gang takes over.
         if let Some((entry, _)) = &pool {
-            *shared.pool_board.lock().unwrap_or_else(|p| p.into_inner()) =
-                Some(Arc::clone(entry));
+            *shared.pool_board.lock().unwrap_or_else(|p| p.into_inner()) = Some(Arc::clone(entry));
             match pool_wait(vacrel, rt, shared, entry, &rg, &waiter)? {
                 PoolWait::Done(outcome) => {
-                    if let Some(e) = shared.take_error().map(|e| leader_rethrow(&vacrel.folds.err, e)) {
+                    if let Some(e) = shared
+                        .take_error()
+                        .map(|e| leader_rethrow(&vacrel.folds.err, e))
+                    {
                         return Err(e);
                     }
                     if outcome == runtime::RgOutcome::Aborted {
@@ -2066,7 +2202,10 @@ fn round_ceremony(
                 if claimed == 0 && drained {
                     return Ok(RoundOutcome::Refused);
                 }
-                if let Some(e) = shared.take_error().map(|e| leader_rethrow(&vacrel.folds.err, e)) {
+                if let Some(e) = shared
+                    .take_error()
+                    .map(|e| leader_rethrow(&vacrel.folds.err, e))
+                {
                     return Err(e);
                 }
                 return Err(Box::new(PgError::new(
@@ -2089,14 +2228,20 @@ fn round_ceremony(
             }
         };
 
-        if let Some(e) = shared.take_error().map(|e| leader_rethrow(&vacrel.folds.err, e)) {
+        if let Some(e) = shared
+            .take_error()
+            .map(|e| leader_rethrow(&vacrel.folds.err, e))
+        {
             return Err(e);
         }
         if outcome == runtime::RgOutcome::Aborted {
             // Aborted without a recorded error: a cancel raced us — let the
             // pending interrupt surface; otherwise report the abort.
             postgres_seams::check_for_interrupts::call()?;
-            return Err(Box::new(PgError::new(ERROR, "vacuum morsel scan round aborted")));
+            return Err(Box::new(PgError::new(
+                ERROR,
+                "vacuum morsel scan round aborted",
+            )));
         }
         if shared.started.load(Ordering::SeqCst) == 0 {
             // Completed but nobody participated (only possible pre-claim).
@@ -2119,7 +2264,10 @@ fn round_ceremony(
     // leader's serial accounting; on refused paths this is the carry-in).
     if submitted.is_some() {
         g::SetVacuumCostBalance(
-            shared.cost.cost_balance.load(std::sync::atomic::Ordering::SeqCst) as i32
+            shared
+                .cost
+                .cost_balance
+                .load(std::sync::atomic::Ordering::SeqCst) as i32,
         );
     }
     clock.ceremony_ns += t_teardown.elapsed().as_nanos() as u64;
@@ -2147,7 +2295,11 @@ mod usage_tests {
                         shared_blks_dirtied: 3,
                         ..Default::default()
                     };
-                    let wal = WalUsage { wal_records: 5, wal_bytes: 101, ..Default::default() };
+                    let wal = WalUsage {
+                        wal_records: 5,
+                        wal_bytes: 101,
+                        ..Default::default()
+                    };
                     instrument::instr_accum_parallel_query(&buf, &wal);
                     for _ in 0..2 {
                         usage.capture(|| instrument::instr_accum_parallel_query(&buf, &wal));

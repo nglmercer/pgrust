@@ -143,9 +143,9 @@ pub(crate) fn soft(b: &mut FunctionBuilder<'_>, env: &Env, l: Lim, cond: IntCond
 /// statement reads the CTE's store only through the INSERT's own pipeline: that pipeline scans the store as its source (no
 /// other pipeline or nest inner consumes it) and runs only projections before a Limit of such bounds, reading `n` = offset
 /// + count rows. PostgreSQL's Limit fetches no row past its count (nodeLimit.c tests it before the next fetch; a count of 0
-/// never pulls its child), so the CteScan pulls the CTE's Limit, and through it the LockRows, for those `n` rows alone: the
-/// CTE's Limit counting no further than `n` (limit/lower.rs `make`) locks the same rows and evaluates no row PostgreSQL does
-/// not. A negative or run-time bound in the CTE (an error or a value only PostgreSQL's pull reads) gets no cap.
+///   never pulls its child), so the CteScan pulls the CTE's Limit, and through it the LockRows, for those `n` rows alone: the
+///   CTE's Limit counting no further than `n` (limit/lower.rs `make`) locks the same rows and evaluates no row PostgreSQL does
+///   not. A negative or run-time bound in the CTE (an error or a value only PostgreSQL's pull reads) gets no cap.
 pub(crate) fn cte_lock_cap(gx: &crate::graph::Gx<'_, '_>, k: usize) -> Option<(usize, i64)> {
     use crate::frame::iface::demand;
     let ps = gx.pipelines();

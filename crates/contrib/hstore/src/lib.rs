@@ -841,6 +841,7 @@ fn hstore_to_array_common(fcinfo: &mut Fcinfo, ndims: i32) -> PgResult<Datum> {
 // btree / hash support (hstore_op.c).
 // ===========================================================================
 
+#[allow(clippy::if_same_then_else)]
 pub(crate) fn hstore_cmp(hs1: &HstoreView<'_>, hs2: &HstoreView<'_>) -> i32 {
     let (c1, c2) = (hs1.count(), hs2.count());
     if c1 == 0 || c2 == 0 {

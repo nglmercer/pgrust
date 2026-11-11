@@ -186,6 +186,7 @@ pub struct VecEmit<'s> {
     scratch: Mcx<'s>,
 }
 
+#[allow(private_interfaces)]
 pub fn emit<'s>(p: &Program<'_>, root: NodeId, b: &mut FunctionBuilder<'_>, w: &WordRefs<'s>, plan: &Plan) -> Result<VecEmit<'s>, EmitError> {
     let m = w.scratch;
     let mut c = Check { p, plan, w, width: None, shapes: PgVec::new_in(m) };
@@ -331,6 +332,7 @@ fn ceil_log2(n: u32) -> u32 {
     32 - n.max(1).saturating_sub(1).leading_zeros()
 }
 
+#[allow(clippy::match_overlapping_arm)]
 fn lane_of_bits(bits: u32) -> Option<Type> {
     match bits {
         ..=8 => Some(Type::V16I8),

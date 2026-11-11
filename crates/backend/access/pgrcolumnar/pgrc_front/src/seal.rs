@@ -11,10 +11,10 @@ use tableam_vocab::{SO_ALLOW_PAGEMODE, SO_TYPE_SEQSCAN};
 use types_core::Oid;
 use types_error::{PgError, PgResult, ERRCODE_LOCK_NOT_AVAILABLE, ERROR};
 use types_rel::{NoLock, Relation, ShareLock};
-use types_storage::lock::LOCKTAG;
 use types_scan::sdir::ScanDirection;
-use types_tuple::{ItemPointerGetBlockNumber, ItemPointerGetOffsetNumberNoCheck};
+use types_storage::lock::LOCKTAG;
 use types_storage::waiteventset::{WL_EXIT_ON_PM_DEATH, WL_LATCH_SET, WL_TIMEOUT};
+use types_tuple::{ItemPointerGetBlockNumber, ItemPointerGetOffsetNumberNoCheck};
 
 use crate::ring;
 
@@ -24,15 +24,39 @@ pub fn seal_all<'mcx>(mcx: Mcx<'mcx>, rel: &Relation<'mcx>) -> PgResult<(u32, u3
     seal_some(mcx, rel, u32::MAX)
 }
 
-pub fn seal_one_waiting<'mcx>(mcx: Mcx<'mcx>, rel: &Relation<'mcx>, targets: &[(Oid, u32)]) -> PgResult<bool> {
-    let Some(g) = ring::newest(rel)? else { return Ok(false) };
+pub fn seal_one_waiting<'mcx>(
+    mcx: Mcx<'mcx>,
+    rel: &Relation<'mcx>,
+    targets: &[(Oid, u32)],
+) -> PgResult<bool> {
+    let Some(g) = ring::newest(rel)? else {
+        return Ok(false);
+    };
     let recs = ring::records(&g);
-    let Some(rec) = recs.iter().find(|r| r.state == SegState::Sealing && targets.contains(&(r.relid, r.part_no))).copied() else { return Ok(false) };
-    let pool = pgrc_front_seams::seal_pool::is_installed().then(pgrc_front_seams::seal_pool::call).flatten();
+    let Some(rec) = recs
+        .iter()
+        .find(|r| r.state == SegState::Sealing && targets.contains(&(r.relid, r.part_no)))
+        .copied()
+    else {
+        return Ok(false);
+    };
+    let pool = pgrc_front_seams::seal_pool::is_installed()
+        .then(pgrc_front_seams::seal_pool::call)
+        .flatten();
     if seal_as(mcx, rel, rec, pool, true, true)? != Sealed::Yes {
-        return Err(Box::new(PgError::error(format!("pgrcolumnar: VACUUM could not drain segment slot {} of \"{}\"", rec.slot, rel.name()))));
+        return Err(Box::new(PgError::error(format!(
+            "pgrcolumnar: VACUUM could not drain segment slot {} of \"{}\"",
+            rec.slot,
+            rel.name()
+        ))));
     }
-    let left: Vec<SegmentRecord> = recs.iter().filter(|r| r.state == SegState::Sealing && (r.relid, r.part_no) != (rec.relid, rec.part_no)).copied().collect();
+    let left: Vec<SegmentRecord> = recs
+        .iter()
+        .filter(|r| {
+            r.state == SegState::Sealing && (r.relid, r.part_no) != (rec.relid, rec.part_no)
+        })
+        .copied()
+        .collect();
     crate::maint::set_sealing(rel.rd_id, ring::blocks(mcx, &left, &|_| true)?);
     Ok(true)
 }
@@ -55,11 +79,18 @@ pub fn seal_some_nowait<'mcx>(mcx: Mcx<'mcx>, rel: &Relation<'mcx>, limit: u32) 
 }
 
 fn seals<'mcx>(mcx: Mcx<'mcx>, rel: &Relation<'mcx>, limit: u32, wait: bool) -> PgResult<Seals> {
-    let Some(g) = ring::newest(rel)? else { return Ok(Seals::default()) };
-    let pool = pgrc_front_seams::seal_pool::is_installed().then(pgrc_front_seams::seal_pool::call).flatten();
+    let Some(g) = ring::newest(rel)? else {
+        return Ok(Seals::default());
+    };
+    let pool = pgrc_front_seams::seal_pool::is_installed()
+        .then(pgrc_front_seams::seal_pool::call)
+        .flatten();
     let mut out = Seals::default();
     let mut left = Vec::new();
-    for rec in ring::records(&g).iter().filter(|r| r.state == SegState::Sealing) {
+    for rec in ring::records(&g)
+        .iter()
+        .filter(|r| r.state == SegState::Sealing)
+    {
         if out.sealed == limit || out.over_budget > 0 {
             left.push(*rec);
             continue;
@@ -89,7 +120,11 @@ pub enum Sealed {
 
 /// A reservation is all or nothing and a holder never waits for one, so a wait only outlasts that bound when seals hold
 /// the budget that long.
-fn seal_mem(rel: &Relation<'_>, blocks: u64, wait: bool) -> PgResult<Option<crate::maint::SealMem>> {
+fn seal_mem(
+    rel: &Relation<'_>,
+    blocks: u64,
+    wait: bool,
+) -> PgResult<Option<crate::maint::SealMem>> {
     let est = crate::maint::seal_mem_estimate(rel.rd_id, blocks);
     let t0 = pg_clock::MonoStamp::now();
     loop {
@@ -104,7 +139,13 @@ fn seal_mem(rel: &Relation<'_>, blocks: u64, wait: bool) -> PgResult<Option<crat
             elog::elog(types_error::LOG, msg)?;
             return Ok(Some(crate::maint::force_seal_mem(est)));
         }
-        if latch_seams::wait_latch_my_latch::call(WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH, 10, PG_WAIT_EXTENSION) & WL_LATCH_SET != 0 {
+        if latch_seams::wait_latch_my_latch::call(
+            WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
+            10,
+            PG_WAIT_EXTENSION,
+        ) & WL_LATCH_SET
+            != 0
+        {
             latch_seams::reset_latch_my_latch::call();
         }
         postgres_seams::check_for_interrupts::call()?;
@@ -117,7 +158,11 @@ const PACE_SLICE_NS: u64 = 50_000_000;
 /// The rest of the seal goes unpaced as soon as pacing could hold anyone: a full segment waits behind it (the active
 /// segment reached the rotation size: the next one would back inserters up), someone waits for a lock the worker holds
 /// (a `pgrc_flush`, VACUUM), or an interrupt is pending (it is served at the seal's next check).
-fn pace_scope(parent: types_core::Oid, rate: u64, paced: std::rc::Rc<std::cell::Cell<u64>>) -> pgrc_write::walsink::pace::Scope {
+fn pace_scope(
+    parent: types_core::Oid,
+    rate: u64,
+    paced: std::rc::Rc<std::cell::Cell<u64>>,
+) -> pgrc_write::walsink::pace::Scope {
     use pgrc_write::walsink::pace;
     let start = pg_clock::MonoStamp::now();
     let mut bucket = pace::Bucket::new(rate, PACE_BURST, 0);
@@ -137,7 +182,13 @@ fn pace_scope(parent: types_core::Oid, rate: u64, paced: std::rc::Rc<std::cell::
             }
             let t = pg_clock::MonoStamp::now();
             let ms = wait.min(PACE_SLICE_NS).div_ceil(1_000_000) as i64;
-            if latch_seams::wait_latch_my_latch::call(WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH, ms, PG_WAIT_EXTENSION) & WL_LATCH_SET != 0 {
+            if latch_seams::wait_latch_my_latch::call(
+                WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
+                ms,
+                PG_WAIT_EXTENSION,
+            ) & WL_LATCH_SET
+                != 0
+            {
                 latch_seams::reset_latch_my_latch::call();
             }
             let spent = t.elapsed_ns();
@@ -151,11 +202,24 @@ const SEAL_MEM_WAIT_S: u64 = 120;
 const PG_WAIT_EXTENSION: u32 = 0x0700_0000;
 
 /// The drain is a conditional ShareLock: it waits out no one and is skipped while a pre-switch inserter is open.
-pub fn seal<'mcx>(mcx: Mcx<'mcx>, rel: &Relation<'mcx>, rec: SegmentRecord, pool: Option<Arc<dyn ColumnPool>>, wait: bool) -> PgResult<Sealed> {
+pub fn seal<'mcx>(
+    mcx: Mcx<'mcx>,
+    rel: &Relation<'mcx>,
+    rec: SegmentRecord,
+    pool: Option<Arc<dyn ColumnPool>>,
+    wait: bool,
+) -> PgResult<Sealed> {
     seal_as(mcx, rel, rec, pool, wait, false)
 }
 
-fn seal_as<'mcx>(mcx: Mcx<'mcx>, rel: &Relation<'mcx>, rec: SegmentRecord, pool: Option<Arc<dyn ColumnPool>>, wait: bool, drain_wait: bool) -> PgResult<Sealed> {
+fn seal_as<'mcx>(
+    mcx: Mcx<'mcx>,
+    rel: &Relation<'mcx>,
+    rec: SegmentRecord,
+    pool: Option<Arc<dyn ColumnPool>>,
+    wait: bool,
+    drain_wait: bool,
+) -> PgResult<Sealed> {
     let drained = match drain_wait {
         false => lmgr::ConditionalLockRelationOid(rec.relid, ShareLock)?,
         true => drain_waiting(mcx, rec.relid)?,
@@ -164,7 +228,10 @@ fn seal_as<'mcx>(mcx: Mcx<'mcx>, rel: &Relation<'mcx>, rec: SegmentRecord, pool:
         return Ok(Sealed::DrainHeld);
     }
     let seg = table::table_open(mcx, rec.relid, NoLock)?;
-    let (t0, blocks) = (std::time::Instant::now(), bufmgr::RelationGetNumberOfBlocksInFork(&seg, types_core::ForkNumber::MAIN_FORKNUM)?);
+    let (t0, blocks) = (
+        std::time::Instant::now(),
+        bufmgr::RelationGetNumberOfBlocksInFork(&seg, types_core::ForkNumber::MAIN_FORKNUM)?,
+    );
     let Some(_mem) = seal_mem(rel, u64::from(blocks), wait)? else {
         seg.close(NoLock)?;
         return Ok(Sealed::OverBudget);
@@ -173,7 +240,11 @@ fn seal_as<'mcx>(mcx: Mcx<'mcx>, rel: &Relation<'mcx>, rec: SegmentRecord, pool:
         injection_point::injection_point("pgrc-front-seal-start")?;
     }
     let paced = std::rc::Rc::new(std::cell::Cell::new(0u64));
-    let rate = if wait { 0 } else { crate::maint::seal_wal_rate() };
+    let rate = if wait {
+        0
+    } else {
+        crate::maint::seal_wal_rate()
+    };
     let _pace = (rate > 0).then(|| pace_scope(rel.rd_id, rate, paced.clone()));
     let mut w = SealWriter::open(rel, pool)?;
     let fed = feed(mcx, rel, &seg, &mut w);
@@ -195,23 +266,36 @@ fn seal_as<'mcx>(mcx: Mcx<'mcx>, rel: &Relation<'mcx>, rec: SegmentRecord, pool:
         }
     };
     // the part homes the segment's extents (every row's ID is in one: the inserter reserved it first)
-    let mut bases = pgrc_am::rowid_alloc::extents(&pgrc_am::rowid_alloc::dir_of(rel))?.bases(rec.part_no);
+    let mut bases =
+        pgrc_am::rowid_alloc::extents(&pgrc_am::rowid_alloc::dir_of(rel))?.bases(rec.part_no);
     // a segment written before row IDs (no extents at all) gets them now, as its inserters would have: its rows read
     // with an invalid TID until this seal, so nothing has seen another ID
     if bases.is_empty() {
         if let Some(last) = positions.last() {
-            if let Err(e) = pgrc_am::rowid_alloc::extend(rel, rec.part_no, (u64::from(last) / pgrc_format::rowid::SEG_EXTENT_IDS) as u32) {
+            if let Err(e) = pgrc_am::rowid_alloc::extend(
+                rel,
+                rec.part_no,
+                (u64::from(last) / pgrc_format::rowid::SEG_EXTENT_IDS) as u32,
+            ) {
                 w.abort()?;
                 return Err(e);
             }
-            bases = pgrc_am::rowid_alloc::extents(&pgrc_am::rowid_alloc::dir_of(rel))?.bases(rec.part_no);
+            bases = pgrc_am::rowid_alloc::extents(&pgrc_am::rowid_alloc::dir_of(rel))?
+                .bases(rec.part_no);
         }
     }
     let ids = match pgrc_am::rowid_alloc::extent_ranges(&bases) {
         Some(ids) if positions.last().is_none_or(|l| seg_id(&bases, l).is_some()) => ids,
         _ => {
             w.abort()?;
-            return Err(Box::new(PgError::error(format!("pgrcolumnar: segment {} of \"{}\" has rows past its extents", rec.part_no, rel.name())).with_sqlstate(types_error::ERRCODE_DATA_CORRUPTED)));
+            return Err(Box::new(
+                PgError::error(format!(
+                    "pgrcolumnar: segment {} of \"{}\" has rows past its extents",
+                    rec.part_no,
+                    rel.name()
+                ))
+                .with_sqlstate(types_error::ERRCODE_DATA_CORRUPTED),
+            ));
         }
     };
     let runs = match positions.id_runs(&bases) {
@@ -221,25 +305,41 @@ fn seal_as<'mcx>(mcx: Mcx<'mcx>, rel: &Relation<'mcx>, rec: SegmentRecord, pool:
             return Err(e);
         }
     };
-    let map = match runs.map(|r| pgrc_format::rowmap::encode_runs(&r, pgrc_format::rowmap::Opts::default())) {
+    let map = match runs
+        .map(|r| pgrc_format::rowmap::encode_runs(&r, pgrc_format::rowmap::Opts::default()))
+    {
         Some(Ok(m)) => m,
         _ => {
             w.abort()?;
-            return Err(Box::new(PgError::error(format!("pgrcolumnar: segment {} of \"{}\": its row map does not encode", rec.part_no, rel.name())).with_sqlstate(types_error::ERRCODE_DATA_CORRUPTED)));
+            return Err(Box::new(
+                PgError::error(format!(
+                    "pgrcolumnar: segment {} of \"{}\": its row map does not encode",
+                    rec.part_no,
+                    rel.name()
+                ))
+                .with_sqlstate(types_error::ERRCODE_DATA_CORRUPTED),
+            ));
         }
     };
     w.publish(rel, rec.part_no, &map, &ids, &mut |base, b| {
         let mut recs = base.map(segments).transpose()?.unwrap_or_default();
         // re-checked on every try (a publish that waited out another transaction's redoes this edit on the new base)
         let mut flipped = 0;
-        for r in recs.iter_mut().filter(|r| r.slot == rec.slot && r.part_no == rec.part_no && r.state == SegState::Sealing) {
+        for r in recs.iter_mut().filter(|r| {
+            r.slot == rec.slot && r.part_no == rec.part_no && r.state == SegState::Sealing
+        }) {
             r.state = SegState::Sealed;
             flipped += 1;
         }
         if flipped == 0 {
-            return Err(pgrc_write::WriteError::Contract { detail: "a seal's segment is no longer Sealing in the base generation" });
+            return Err(pgrc_write::WriteError::Contract {
+                detail: "a seal's segment is no longer Sealing in the base generation",
+            });
         }
-        b.ext(ring::with_segments(base.map_or(&[][..], |m| &m.ext), &recs)?);
+        b.ext(ring::with_segments(
+            base.map_or(&[][..], |m| &m.ext),
+            &recs,
+        )?);
         Ok(())
     })?;
     for _ in 0..crate::maint::setting(PAUSE_GUC).unwrap_or(0).div_ceil(10) {
@@ -297,7 +397,11 @@ fn drain_waiting(mcx: Mcx<'_>, relid: Oid) -> PgResult<bool> {
 
 fn queued_attempt(relid: Oid, ms: i32) -> PgResult<bool> {
     let owner = resowner::CurrentResourceOwner();
-    let held = (init_small::globals::InterruptHoldoffCount(), init_small::globals::QueryCancelHoldoffCount(), init_small::globals::CritSectionCount());
+    let held = (
+        init_small::globals::InterruptHoldoffCount(),
+        init_small::globals::QueryCancelHoldoffCount(),
+        init_small::globals::CritSectionCount(),
+    );
     xact::BeginInternalSubTransaction(Some("pgrc drain"))?;
     let got = with_lock_timeout(ms, &mut || lmgr::LockRelationOid(relid, ShareLock));
     let out = match got {
@@ -358,7 +462,9 @@ impl LocalRuns {
             let (mut at, end) = (u64::from(s), u64::from(s) + u64::from(l));
             while at < end {
                 let room = end.min((at / SEG_EXTENT_IDS + 1) * SEG_EXTENT_IDS) - at;
-                let Some(id) = u32::try_from(at).ok().and_then(|a| seg_id(bases, a)) else { return Ok(None) };
+                let Some(id) = u32::try_from(at).ok().and_then(|a| seg_id(bases, a)) else {
+                    return Ok(None);
+                };
                 out.push((id, room as u32));
                 at += room;
             }
@@ -368,19 +474,41 @@ impl LocalRuns {
 }
 
 /// A snapshot after the drain sees every row that will ever commit; no sync scan, so rows come in TID order.
-fn feed<'mcx>(mcx: Mcx<'mcx>, rel: &Relation<'mcx>, seg: &Relation<'mcx>, w: &mut SealWriter) -> PgResult<LocalRuns> {
+fn feed<'mcx>(
+    mcx: Mcx<'mcx>,
+    rel: &Relation<'mcx>,
+    seg: &Relation<'mcx>,
+    w: &mut SealWriter,
+) -> PgResult<LocalRuns> {
     let snap = snapmgr::GetLatestSnapshot()?;
     let snap = snapmgr::RegisterSnapshot(Some(&snap))?.expect("registered a snapshot");
-    let mut scan = heapam::heap_beginscan(mcx, seg, Some(snap.clone()), 0, PgVec::new_in(mcx), None, SO_TYPE_SEQSCAN | SO_ALLOW_PAGEMODE)?;
+    let mut scan = heapam::heap_beginscan(
+        mcx,
+        seg,
+        Some(snap.clone()),
+        0,
+        PgVec::new_in(mcx),
+        None,
+        SO_TYPE_SEQSCAN | SO_ALLOW_PAGEMODE,
+    )?;
     let natts = rel.rd_att.natts as usize;
-    let (mut values, mut isnull) = (::mcx::stdvec::try_filled(natts, datum::Datum::null(), "pgrc seal feed")?, ::mcx::stdvec::try_filled(natts, true, "pgrc seal feed")?);
+    let (mut values, mut isnull) = (
+        ::mcx::stdvec::try_filled(natts, datum::Datum::null(), "pgrc seal feed")?,
+        ::mcx::stdvec::try_filled(natts, true, "pgrc seal feed")?,
+    );
     let mut positions = LocalRuns::default();
     let mut out = Ok(());
     while let Some(tup) = heapam::heap_getnext(&mut scan, ScanDirection::ForwardScanDirection)? {
         types_tuple::heap_deform_tuple(tup, &seg.rd_att, &mut values, &mut isnull);
-        let (block, off) = (ItemPointerGetBlockNumber(&tup.t_self), ItemPointerGetOffsetNumberNoCheck(&tup.t_self));
+        let (block, off) = (
+            ItemPointerGetBlockNumber(&tup.t_self),
+            ItemPointerGetOffsetNumberNoCheck(&tup.t_self),
+        );
         let Some(pos) = seg_local(block, off) else {
-            out = Err(Box::new(PgError::error(format!("pgrcolumnar: segment {} row ({block},{off}) past the position range", seg.rd_id))));
+            out = Err(Box::new(PgError::error(format!(
+                "pgrcolumnar: segment {} row ({block},{off}) past the position range",
+                seg.rd_id
+            ))));
             break;
         };
         positions.push(pos);
@@ -392,7 +520,8 @@ fn feed<'mcx>(mcx: Mcx<'mcx>, rel: &Relation<'mcx>, seg: &Relation<'mcx>, w: &mu
             let p = values[c].as_u64() as *const u8;
             // SAFETY: a deformed varlena datum points at a live image in the pinned page.
             if unsafe { types_tuple::varatt::varatt_is_1b_e(p) } {
-                let img = unsafe { core::slice::from_raw_parts(p, types_tuple::varatt::varsize_any(p)) };
+                let img =
+                    unsafe { core::slice::from_raw_parts(p, types_tuple::varatt::varsize_any(p)) };
                 held.push(detoast::detoast_attr(mcx, img)?);
                 values[c] = datum::Datum::from_u64(held.last().expect("pushed").as_ptr() as u64);
             }

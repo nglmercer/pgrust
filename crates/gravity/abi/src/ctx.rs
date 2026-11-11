@@ -317,6 +317,7 @@ impl Lane {
 
     /// # Safety — `i < rows` of the window that published this lane.
     #[inline(always)]
+    #[allow(clippy::missing_safety_doc)]
     pub unsafe fn is_valid(&self, i: usize) -> bool {
         let valid = unword(self.valid);
         valid.is_null() || (*valid.add(i / 64) >> (i % 64)) & 1 != 0
@@ -325,6 +326,7 @@ impl Lane {
     /// The element as a sign-extended datum word (int2/int4/int8 lanes).
     /// # Safety — `i < rows` of the window that published this lane.
     #[inline(always)]
+    #[allow(clippy::missing_safety_doc)]
     pub unsafe fn datum(&self, i: usize) -> Datum {
         let ptr = unword(self.ptr);
         match self.width {
@@ -385,11 +387,13 @@ pub const fn ctx_size(nsites: usize) -> usize {
 
 /// # Safety — `ctx` points at a ctx of at least `i + 1` sites.
 #[inline(always)]
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn site_ptr(ctx: *mut Ctx, i: usize) -> *mut Site {
     unword((*ctx).sites).add(i)
 }
 
 /// # Safety — `ctx` points at a ctx and `off` is a cell offset inside it.
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn cell(ctx: *mut Ctx, off: usize) -> *mut u64 {
     (ctx as *mut u8).add(off) as *mut u64
 }
@@ -413,6 +417,7 @@ pub fn abort_set(flag: &AtomicU8) -> bool {
 /// `abort_set` over the byte a binding lends (`Ctx::cancel`; null: none).
 /// # Safety — `cancel` is null or a live abort byte.
 #[inline(always)]
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn abort_byte_set(cancel: *const u8) -> bool {
     !cancel.is_null() && abort_set(&*(cancel as *const AtomicU8))
 }
@@ -437,6 +442,7 @@ pub const SMALL_SORT_ROW_BYTES: usize = 512;
 /// A kernel's check (the lowered back-edge's, `cancel_pending`): the byte is non-zero, then `poll` says whether to stop.
 /// # Safety — `ctx` is bound (`cancel` null or a live byte).
 #[inline(always)]
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn cancel_pending(ctx: *mut Ctx) -> bool {
     let cancel = unword((*ctx).cancel);
     !cancel.is_null() && (*(cancel as *const AtomicU8)).load(Ordering::Acquire) != 0 && poll(ctx)
@@ -459,6 +465,7 @@ pub fn set_poll(f: PollFn) {
 /// # Safety — `ctx` is bound and its `cancel` a live byte.
 #[cold]
 #[inline(never)]
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn poll(ctx: *mut Ctx) -> bool {
     let f = POLL.load(Ordering::Acquire);
     if f == 0 {
@@ -472,6 +479,7 @@ pub unsafe fn poll(ctx: *mut Ctx) -> bool {
 /// `bytes` from the arena window, 8-aligned; null when exhausted (`arena_alloc` grows and retries).
 /// # Safety — `ctx` is bound.
 #[inline(always)]
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn arena_bump(ctx: *mut Ctx, bytes: usize) -> *mut u8 {
     let n = (bytes + 7) & !7;
     let cur = unword((*ctx).arena_cur);
@@ -484,6 +492,7 @@ pub unsafe fn arena_bump(ctx: *mut Ctx, bytes: usize) -> *mut u8 {
 
 /// # Safety — `ctx` is bound.
 #[inline(always)]
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn arena_alloc(ctx: *mut Ctx, bytes: usize) -> *mut u8 {
     let p = arena_bump(ctx, bytes);
     if !p.is_null() {

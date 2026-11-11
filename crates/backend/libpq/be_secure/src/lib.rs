@@ -1,8 +1,7 @@
 // be-secure.c, USE_SSL build (openssl) with GSSAPI encryption (gssapi.rs)
 // when a system GSSAPI library loads.
 
-#![allow(non_upper_case_globals)]
-#![allow(clippy::result_large_err)]
+#![allow(clippy::result_large_err, non_upper_case_globals)]
 
 use elog::ereport;
 use types_core::STATUS_ERROR;
@@ -119,9 +118,10 @@ pub fn secure_open_server() -> PgResult<i32> {
         .errmsg_internal(format!(
             "SSL connection from DN:\"{}\" CN:\"{}\"",
             open.peer_dn.as_deref().unwrap_or("(anonymous)"),
-            open.peer_cn
-                .as_deref()
-                .map_or(std::borrow::Cow::Borrowed("(anonymous)"), String::from_utf8_lossy),
+            open.peer_cn.as_deref().map_or(
+                std::borrow::Cow::Borrowed("(anonymous)"),
+                String::from_utf8_lossy
+            ),
         ))
         .finish(loc("secure_open_server"))?;
     Ok(open.r)

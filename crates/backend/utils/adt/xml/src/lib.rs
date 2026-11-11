@@ -814,6 +814,7 @@ fn libxml_get_utf8_char(utf8: &[u8]) -> i32 {
 }
 
 /// `PG_XMLISNAMECHAR(c)` (xml.c:1366).
+#[allow(clippy::nonminimal_bool)]
 fn pg_xml_is_name_char(c: i32) -> bool {
     let Ok(c) = u32::try_from(c) else {
         return false;

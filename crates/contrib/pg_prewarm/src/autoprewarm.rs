@@ -39,6 +39,7 @@ use types_error::{
 use types_fmgr::{FmgrInfo, FunctionCallInfoBaseData as Fcinfo};
 use types_guc::GucContext::PGC_SIGHUP;
 use types_storage::buf::{BM_PERMANENT, BM_TAG_VALID};
+#[allow(unused_imports)]
 use types_storage::storage::ReadBufferMode;
 use types_storage::waiteventset::{WL_EXIT_ON_PM_DEATH, WL_LATCH_SET, WL_TIMEOUT};
 

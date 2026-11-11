@@ -100,7 +100,7 @@ pub fn equal_cols(f: &dyn crate::catalog::Facts, ops: &[Op<'_>], x: (u32, i16), 
                 let bound = |p: &Param| params.iter().filter_map(|n| n.as_nest_loop_param()).find(|n| n.paramno == p.paramid).and_then(|n| syn_col(n.paramval));
                 let key = |k: &crate::graph::IndexKey<'_>, rti: u16| {
                     matches!(k.form, crate::graph::KeyForm::Op | crate::graph::KeyForm::AmOp) && k.attno > 0 && image_eq(f, k.opno).is_some()
-                        && relabels(k.value).as_param().filter(|p| p.paramkind == ParamKind::PARAM_EXEC).and_then(|p| bound(p)).is_some_and(|o| pair((u32::from(rti), k.attno), o, x, y))
+                        && relabels(k.value).as_param().filter(|p| p.paramkind == ParamKind::PARAM_EXEC).and_then(&bound).is_some_and(|o| pair((u32::from(rti), k.attno), o, x, y))
                 };
                 eq(qual, x, y) || matches!(&inner.source, Source::Index { scanrelid, keys, .. } if keys.iter().any(|k| key(k, *scanrelid)))
             }

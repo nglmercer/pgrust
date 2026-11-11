@@ -182,7 +182,10 @@ pub(crate) fn hostname_match(pattern: &[u8], actual_hostname: &[u8]) -> bool {
         if actual_hostname.len() < pattern.len() {
             return false;
         }
-        pg_strcasecmp(pattern, &actual_hostname[actual_hostname.len() - pattern.len()..]) == 0
+        pg_strcasecmp(
+            pattern,
+            &actual_hostname[actual_hostname.len() - pattern.len()..],
+        ) == 0
     } else {
         pg_strcasecmp(pattern, actual_hostname) == 0
     }
@@ -305,10 +308,7 @@ pub(crate) fn check_ip(raddr: &SockAddr, addr: &SockAddr, mask: &SockAddr) -> bo
     }
 }
 
-pub(crate) fn check_same_host_or_net(
-    raddr: &SockAddr,
-    method: IPCompareMethod,
-) -> PgResult<bool> {
+pub(crate) fn check_same_host_or_net(raddr: &SockAddr, method: IPCompareMethod) -> PgResult<bool> {
     let mut result = false;
     let res = ifaddr::pg_foreach_ifaddr(|addr, netmask| {
         if result {
@@ -322,7 +322,11 @@ pub(crate) fn check_same_host_or_net(
                     IpAddr::V6(_) => ifaddr::AddressFamily::Inet6,
                 },
             ) {
-                result = check_ip(raddr, &ipaddr_to_sockaddr(&addr), &ipaddr_to_sockaddr(&mask));
+                result = check_ip(
+                    raddr,
+                    &ipaddr_to_sockaddr(&addr),
+                    &ipaddr_to_sockaddr(&mask),
+                );
             }
         } else {
             result = check_ip(
@@ -381,6 +385,7 @@ pub fn check_hba(port: &Port) -> PgResult<HbaMatch> {
 
                 // Check GSSAPI state.
                 let gss_enc = port.gss.as_ref().is_some_and(|g| g.encrypted);
+                #[allow(clippy::if_same_then_else)]
                 if gss_enc && hba.conntype == types_startup::ctHostNoGSS {
                     continue;
                 } else if !gss_enc && hba.conntype == ctHostGSS {
@@ -398,9 +403,7 @@ pub fn check_hba(port: &Port) -> PgResult<HbaMatch> {
                     }
                 } else if hba.ip_cmp_method == ipCmpAll {
                     // matches anything
-                } else if hba.ip_cmp_method == ipCmpSameHost
-                    || hba.ip_cmp_method == ipCmpSameNet
-                {
+                } else if hba.ip_cmp_method == ipCmpSameHost || hba.ip_cmp_method == ipCmpSameNet {
                     if !check_same_host_or_net(&port.raddr, hba.ip_cmp_method)? {
                         continue;
                     }

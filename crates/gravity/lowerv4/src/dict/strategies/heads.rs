@@ -102,9 +102,12 @@ impl CodeTopkMech for Heads {
     fn emit<'g>(&self, px: &mut Px<'g, '_>, top: &TopDesc<'_, '_>, reader: &mut dyn FnMut() -> PgBox<'g, dyn RunReader + 'g>) -> Option<PgBox<'g, dyn SourceMech + 'g>> {
         let gx = px.gx;
         let Source::Breaker { slot } = gx.pipelines()[top.k].source else { return None };
+        #[allow(clippy::question_mark)]
         let Some(producer) = gx.life_of(top.k, slot).map(|l| l.0 as usize) else { return None };
+        #[allow(clippy::question_mark)]
         let Some((relid, attno, _)) = key(gx, &TopDesc { k: producer, ..*top }) else { return None };
         let lane = px.pipeline_site(producer).and_then(|i| px.sites.get(i)?.lanes().iter().find(|l| l.id == LaneId::Attr(attno)).copied());
+        #[allow(clippy::question_mark)]
         let Some(ld) = lane.filter(|l| l.kind == lane::KIND_CODES) else { return None };
         let mut s = SiteDesc::range_source(px.arena, relid, &[attno]);
         s.lanes[0] = ld;

@@ -1,5 +1,6 @@
 use core::fmt::{self, Write};
 
+#[allow(unused_imports)]
 use gravity_abi::breaker::{SlotKind, ORDER_KEY, ORDER_NONE};
 use gravity_abi::ctx::lane;
 use gravity_program::{End, Parallel, SiteDesc, WordsDesc, ZoneOp};

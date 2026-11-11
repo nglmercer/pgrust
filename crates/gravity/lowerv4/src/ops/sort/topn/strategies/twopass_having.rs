@@ -125,7 +125,7 @@ fn qual_floor<'p>(px: &mut Px<'_, 'p>, rec: &GroupRec<'_, '_>, q: Node<'p>) -> O
         None => px.claim_const(k)?,
     };
     let Place::Word(word) = place else { return None };
-    Some((Floor { off: rec.layout.slot_off(agg.d.slot as usize) as i32, slot: agg.d.slot as u16, word, gt, int4, num, below, count }, k))
+    Some((Floor { off: rec.layout.slot_off(agg.d.slot as usize) as i32, slot: agg.d.slot, word, gt, int4, num, below, count }, k))
 }
 
 /// The bound pipeline `k`'s leading HAVING filters require (their first bounding qual's), when `twopass.having` is on.

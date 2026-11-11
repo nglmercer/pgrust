@@ -149,6 +149,7 @@ pub(crate) fn key_exprs_for(nparams: usize) -> KeyExprs {
 
 
 /// The scan's filter compiled once per plan: a qual over the heap tuple with
+#[allow(dead_code)]
 pub(crate) fn compile_filter(mcx: Mcx<'static>, qual: &NodeList<'static>, exprs: &mut KeyExprs) -> PgResult<Option<Option<FilterFn>>> {
     let f = compile_filter_bound(mcx, qual, param_bind(exprs))?;
     exprs.filters += usize::from(matches!(f, Some(Some(_))));

@@ -14,7 +14,9 @@ fn main() {
         for dir in std::env::split_paths(&inc) {
             let conf = dir.join("openssl").join("configuration.h");
             println!("cargo:rerun-if-changed={}", conf.display());
-            let Ok(text) = std::fs::read_to_string(&conf) else { continue };
+            let Ok(text) = std::fs::read_to_string(&conf) else {
+                continue;
+            };
             for line in text.lines() {
                 // "#  define OPENSSL_NO_QUIC" (any spacing after the '#')
                 let rest = line.trim_start().trim_start_matches('#').trim_start();
@@ -30,10 +32,16 @@ fn main() {
     let ossl3 = std::env::var("DEP_OPENSSL_VERSION_NUMBER")
         .ok()
         .and_then(|v| u64::from_str_radix(&v, 16).ok())
-        .is_some_and(|v| v >= 0x3_00_00_00_0);
+        .is_some_and(|v| v >= 0x3000_0000);
     if ossl3 {
         println!("cargo:rustc-cfg=pgrust_ossl3");
     }
-    println!("cargo:rustc-env=PGRUST_OPENSSL_VENDORED={}", if vendored { "1" } else { "0" });
-    println!("cargo:rustc-env=PGRUST_OPENSSL_DISABLED={}", disabled.join(","));
+    println!(
+        "cargo:rustc-env=PGRUST_OPENSSL_VENDORED={}",
+        if vendored { "1" } else { "0" }
+    );
+    println!(
+        "cargo:rustc-env=PGRUST_OPENSSL_DISABLED={}",
+        disabled.join(",")
+    );
 }

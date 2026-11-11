@@ -81,7 +81,9 @@ fn registry_serves_the_hot_verbatim_kernels_and_the_oracle_is_distinct() {
     }
     // Hot per-width byval kernels are distinct monomorphizations (the S4
     // pin extended to the verbatim set).
+    #[allow(clippy::needless_range_loop)]
     for i in 0..4 {
+        #[allow(clippy::needless_range_loop)]
         for j in i + 1..4 {
             assert_ne!(
                 VT_VERBATIM_HOT[i].decode_full as usize, VT_VERBATIM_HOT[j].decode_full as usize,
@@ -262,6 +264,7 @@ fn byte_for_kernel_matches_naive_reader_every_width() {
 
 #[test]
 fn delta_for_kernel_matches_naive_reader() {
+    #[allow(clippy::unusual_byte_groupings)]
     let mut seed = 0xD1FF_DF_u64;
     let class = StorageClass::ByvalWord {
         width: 8,
@@ -301,6 +304,7 @@ fn delta_for_kernel_matches_naive_reader() {
 
 #[test]
 fn ffor_kernel_matches_naive_reader() {
+    #[allow(clippy::unusual_byte_groupings)]
     let mut seed = 0xD1FF_FF_u64;
     let class = StorageClass::ByvalWord {
         width: 8,
@@ -314,7 +318,15 @@ fn ffor_kernel_matches_naive_reader() {
             .collect();
         let signed = shape % 2 == 1;
         let inputs: Vec<EncodeInput<'_>> = gs.iter().map(|g| g.input(class)).collect();
-        let built = build_stream(&mut FforEncoder { signed, carry: None }, &inputs, 0, signed);
+        let built = build_stream(
+            &mut FforEncoder {
+                signed,
+                carry: None,
+            },
+            &inputs,
+            0,
+            signed,
+        );
         for g in 0..gs.len() as u32 {
             let (datums, _a) = dec_full(&built, g);
             assert_eq!(
@@ -328,6 +340,7 @@ fn ffor_kernel_matches_naive_reader() {
 
 #[test]
 fn dict_codes_kernel_matches_naive_reader_across_the_width_lattice() {
+    #[allow(clippy::unusual_byte_groupings)]
     let mut seed = 0xD1FF_DC_u64;
     for w in [0u32, 1, 2, 3, 5, 7, 8, 10, 13, 16, 17, 24, 29, 31, 32] {
         let span: u64 = if w == 0 { 0 } else { (1u64 << w) - 1 };
@@ -388,6 +401,7 @@ fn dict_codes_kernel_matches_naive_reader_across_the_width_lattice() {
 /// by the codes-face lattice, and entry resolution is width-independent.
 #[test]
 fn dict_gather_matches_naive_materialization_across_the_width_lattice() {
+    #[allow(clippy::unusual_byte_groupings)]
     let mut seed = 0xD1FF_6A_u64;
     for w in [0u32, 1, 2, 3, 5, 7, 8, 10, 13, 16, 17] {
         let span: u64 = if w == 0 { 0 } else { (1u64 << w) - 1 };
@@ -451,9 +465,7 @@ fn dict_gather_matches_naive_materialization_across_the_width_lattice() {
                     "w{w} granule {g} row {r}: datum escaped the payload region"
                 );
                 // SAFETY: containment proven above; image lives in `payload`.
-                let got = unsafe {
-                    core::slice::from_raw_parts(d as *const u8, e.image.len())
-                };
+                let got = unsafe { core::slice::from_raw_parts(d as *const u8, e.image.len()) };
                 assert_eq!(got, e.image, "w{w} granule {g} row {r}: image bytes");
             }
         }
@@ -724,8 +736,12 @@ fn verbatim_varlena_lengths_match_hot_and_oracle_payloads() {
                 .map(|r| {
                     let payload: Vec<u8> = match r % 89 {
                         0 => Vec::new(),
-                        1 if rows == 8192 && r < 1500 => vec![0xCD; OVERSIZE_THRESHOLD as usize + 3 + (r % 5) as usize],
-                        2 => "\u{e9}\u{4e2d}\u{1f600}".repeat(1 + (r % 7) as usize).into_bytes(),
+                        1 if rows == 8192 && r < 1500 => {
+                            vec![0xCD; OVERSIZE_THRESHOLD as usize + 3 + (r % 5) as usize]
+                        }
+                        2 => "\u{e9}\u{4e2d}\u{1f600}"
+                            .repeat(1 + (r % 7) as usize)
+                            .into_bytes(),
                         _ => {
                             let n = (splitmix(&mut seed) % 40) as usize;
                             (0..n).map(|_| splitmix(&mut seed) as u8).collect()
@@ -737,7 +753,11 @@ fn verbatim_varlena_lengths_match_hot_and_oracle_payloads() {
                 })
                 .collect();
             want.push(lens);
-            GranuleData { rows, datums, validity }
+            GranuleData {
+                rows,
+                datums,
+                validity,
+            }
         })
         .collect();
     let class = StorageClass::VarlenaVerbatim;
@@ -773,8 +793,15 @@ fn verbatim_varlena_lengths_match_hot_and_oracle_payloads() {
     }
     assert!(checked_null, "NULL rows must be exercised");
     // A non-varlena section refuses.
-    let wclass = StorageClass::ByvalWord { width: 4, signed: false };
-    let wg = [GranuleData { rows: 10, datums: (0..10).collect(), validity: None }];
+    let wclass = StorageClass::ByvalWord {
+        width: 4,
+        signed: false,
+    };
+    let wg = [GranuleData {
+        rows: 10,
+        datums: (0..10).collect(),
+        validity: None,
+    }];
     let winputs: Vec<EncodeInput<'_>> = wg.iter().map(|g| g.input(wclass)).collect();
     let wbuilt = build_stream(&mut VerbatimEncoder { class: wclass }, &winputs, 0, false);
     let mut wl = vec![0u32; 10];

@@ -57,6 +57,7 @@ pub struct AggHead {
 
 /// The state a slot stands for: its group's home when tagged `STATE_HOME`, else the slot itself.
 /// # Safety — `s` is an `AGG_STATE_BYTES` state slot.
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn at_home(s: *mut u8) -> *mut u8 {
     if s.add(STATE_HOME).read() == 1 { (s as *const u64).read_unaligned() as *mut u8 } else { s }
 }

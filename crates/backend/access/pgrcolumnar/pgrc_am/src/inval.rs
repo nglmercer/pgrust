@@ -45,22 +45,37 @@ pgsync::process_global! {
 /// D4537 T18b (R2): `charge` fitted to `bytes` on the part cache (opened at the first bytes; a tree node's links counted
 /// at two words).
 pub(crate) fn refit(charge: &pgsync::Mutex<memledger::Charge>, bytes: usize) {
-    const OWNER: memledger::Owner = memledger::Owner::Cache(memledger::Holder::Of(memledger::Consumer::PartCache));
+    const OWNER: memledger::Owner =
+        memledger::Owner::Cache(memledger::Holder::Of(memledger::Consumer::PartCache));
     let mut c = pgsync::lock(charge);
     if c.owner() != OWNER {
-        *c = memledger::Charge::open(OWNER, memledger::Release::Evict, memledger::Kind::Region, memledger::charge::Door::Heap, 0);
+        *c = memledger::Charge::open(
+            OWNER,
+            memledger::Release::Evict,
+            memledger::Kind::Region,
+            memledger::charge::Door::Heap,
+            0,
+        );
     }
     c.fit_committed(bytes as u64);
 }
 
 fn relids_bytes(map: &BTreeMap<u32, std::collections::BTreeSet<PartKey>>) -> usize {
     const NODE: usize = 2 * size_of::<usize>();
-    map.len() * (size_of::<(u32, std::collections::BTreeSet<PartKey>)>() + NODE) + map.values().map(|s| s.len() * (size_of::<PartKey>() + NODE)).sum::<usize>()
+    map.len() * (size_of::<(u32, std::collections::BTreeSet<PartKey>)>() + NODE)
+        + map
+            .values()
+            .map(|s| s.len() * (size_of::<PartKey>() + NODE))
+            .sum::<usize>()
 }
 
 fn locks_bytes(map: &BTreeMap<u64, Arc<pgsync::Mutex<()>>>) -> usize {
     const NODE: usize = 2 * size_of::<usize>();
-    map.len() * (size_of::<(u64, Arc<pgsync::Mutex<()>>)>() + NODE + 2 * size_of::<usize>() + size_of::<pgsync::Mutex<()>>())
+    map.len()
+        * (size_of::<(u64, Arc<pgsync::Mutex<()>>)>()
+            + NODE
+            + 2 * size_of::<usize>()
+            + size_of::<pgsync::Mutex<()>>())
 }
 
 fn refit_relids(map: &BTreeMap<u32, std::collections::BTreeSet<PartKey>>) {
@@ -112,8 +127,15 @@ fn cache_size_mib() -> u64 {
     #[cfg(test)]
     tests::note_setting_read();
     let seam = guc_seams::get_config_option_missing_ok::is_installed();
-    let set = seam.then(|| guc_seams::get_config_option_missing_ok::call(CACHE_SIZE_GUC).ok().flatten()).flatten();
-    set.and_then(|v| v.trim().parse().ok()).unwrap_or(pgrc_read::mem::DEFAULT_CAP >> 20)
+    let set = seam
+        .then(|| {
+            guc_seams::get_config_option_missing_ok::call(CACHE_SIZE_GUC)
+                .ok()
+                .flatten()
+        })
+        .flatten();
+    set.and_then(|v| v.trim().parse().ok())
+        .unwrap_or(pgrc_read::mem::DEFAULT_CAP >> 20)
 }
 
 /// Whether the setting is applied, and the lock its application holds.
@@ -170,7 +192,10 @@ pub const CACHE_BUILTINS: &[types_fmgr::FmgrBuiltin] = &[types_fmgr::FmgrBuiltin
     func: fc_pgrc_cache_stats,
 }];
 
-pub fn fc_pgrc_cache_stats(_flinfo: Option<&mut types_fmgr::FmgrInfo>, fcinfo: &mut types_fmgr::FunctionCallInfoBaseData) -> PgResult<datum::Datum> {
+pub fn fc_pgrc_cache_stats(
+    _flinfo: Option<&mut types_fmgr::FmgrInfo>,
+    fcinfo: &mut types_fmgr::FunctionCallInfoBaseData,
+) -> PgResult<datum::Datum> {
     let s = pgrc_read::mem::stats();
     let text = format!(
         "cap={} cached={} held={} sticky={} admitted={} evicted={} evicted_bytes={} over_cap={} futile={} slots={} image_bytes={}",
@@ -233,7 +258,13 @@ pub fn invalidate_relid(relid: Oid) {
         keys
     };
     if let Some(keys) = keys {
-        let _ = elog::elog(types_error::DEBUG1, format!("pgrc relcache invalidation: relid {relid}: {} part registry keys dropped", keys.len())); // alloc: Cold
+        let _ = elog::elog(
+            types_error::DEBUG1,
+            format!(
+                "pgrc relcache invalidation: relid {relid}: {} part registry keys dropped",
+                keys.len()
+            ),
+        ); // alloc: Cold
         for key in keys {
             reg.invalidate(key);
         }
@@ -268,7 +299,10 @@ pub fn ensure_inval_registered() -> PgResult<()> {
 /// The per-table publish lock: held across finish+publish, a catalog load, and a sections completion.
 pub fn publish_lock(relfilenumber: u64) -> Arc<pgsync::Mutex<()>> {
     let mut map = pgsync::lock(&PUBLISH_LOCKS);
-    let l = Arc::clone(map.entry(relfilenumber).or_insert_with(|| Arc::new(pgsync::Mutex::new(())))); // alloc: Cold charged the part cache (LOCKS_CHARGE, refit below)
+    let l = Arc::clone(
+        map.entry(relfilenumber)
+            .or_insert_with(|| Arc::new(pgsync::Mutex::new(()))),
+    ); // alloc: Cold charged the part cache (LOCKS_CHARGE, refit below)
     refit_locks(&map);
     l
 }
@@ -277,7 +311,13 @@ pub fn publish_lock(relfilenumber: u64) -> Arc<pgsync::Mutex<()>> {
 /// creation): its publish mutex goes when nothing holds it (no holder, no waiter: the next [`publish_lock`] makes an
 /// equal one).
 pub fn forget_dir(dir: &str) {
-    let parse = |p: &str| p.rsplit('/').next()?.strip_prefix("pgrc_")?.parse::<u64>().ok();
+    let parse = |p: &str| {
+        p.rsplit('/')
+            .next()?
+            .strip_prefix("pgrc_")?
+            .parse::<u64>()
+            .ok()
+    };
     let p = dir.trim_end_matches('/');
     if let Some(n) = parse(p) {
         forget_publish_lock(n);
@@ -319,7 +359,9 @@ pub fn forget_part_keys(gone: &dyn Fn(&PartKey) -> bool) {
 
 /// D4581 test witness: the part keys recorded for `relid`; whether a publish mutex is kept for `relfilenumber`.
 pub fn relid_part_keys(relid: Oid) -> usize {
-    pgsync::lock(&RELID_PARTS).get(&relid).map_or(0, std::collections::BTreeSet::len)
+    pgsync::lock(&RELID_PARTS)
+        .get(&relid)
+        .map_or(0, std::collections::BTreeSet::len)
 }
 pub fn publish_lock_kept(relfilenumber: u64) -> bool {
     pgsync::lock(&PUBLISH_LOCKS).contains_key(&relfilenumber)
@@ -331,7 +373,8 @@ mod tests {
     /// (read under the maps' locks, where the refit runs, so parallel tests cannot move them between the two reads).
     #[test]
     fn the_relid_map_and_the_publish_mutexes_are_on_the_part_cache() {
-        const OWNER: memledger::Owner = memledger::Owner::Cache(memledger::Holder::Of(memledger::Consumer::PartCache));
+        const OWNER: memledger::Owner =
+            memledger::Owner::Cache(memledger::Holder::Of(memledger::Consumer::PartCache));
         let relid: Oid = 4_282_000_007;
         let rel = 9_930_000_000 + u64::from(std::process::id());
         record_part_key(relid, (u64::MAX - 7, 1, 1));
@@ -339,13 +382,19 @@ mod tests {
         {
             let map = pgsync::lock(&RELID_PARTS);
             let c = pgsync::lock(&RELID_CHARGE);
-            assert_eq!((c.owner(), c.committed()), (OWNER, relids_bytes(&map) as u64));
+            assert_eq!(
+                (c.owner(), c.committed()),
+                (OWNER, relids_bytes(&map) as u64)
+            );
             assert!(c.committed() > 0);
         }
         {
             let map = pgsync::lock(&PUBLISH_LOCKS);
             let c = pgsync::lock(&LOCKS_CHARGE);
-            assert_eq!((c.owner(), c.committed()), (OWNER, locks_bytes(&map) as u64));
+            assert_eq!(
+                (c.owner(), c.committed()),
+                (OWNER, locks_bytes(&map) as u64)
+            );
             assert!(c.committed() > 0);
         }
         drop(held);
@@ -353,7 +402,11 @@ mod tests {
         invalidate_relid(relid);
         let map = pgsync::lock(&PUBLISH_LOCKS);
         assert!(!map.contains_key(&rel));
-        assert_eq!(pgsync::lock(&LOCKS_CHARGE).committed(), locks_bytes(&map) as u64, "the forgotten mutex's bytes went");
+        assert_eq!(
+            pgsync::lock(&LOCKS_CHARGE).committed(),
+            locks_bytes(&map) as u64,
+            "the forgotten mutex's bytes went"
+        );
     }
 
     use super::*;
@@ -384,7 +437,10 @@ mod tests {
     }
 
     fn unapplied() -> CapState {
-        CapState { applied: AtomicBool::new(false), lock: pgsync::Mutex::new(()) }
+        CapState {
+            applied: AtomicBool::new(false),
+            lock: pgsync::Mutex::new(()),
+        }
     }
 
     /// The memory broker's census, the budget's part-cache floor and the idle release's trim run on threads with no
@@ -394,15 +450,32 @@ mod tests {
         static SLOT: pgsync::Mutex<Option<Arc<PartRegistry>>> = pgsync::Mutex::new(None);
         let same = storeless(|| {
             let r = registry_in(&SLOT);
-            let _ = (r.in_use_bytes(), r.reuse_census(1), r.removed(), r.trim_contents(u64::MAX));
+            let _ = (
+                r.in_use_bytes(),
+                r.reuse_census(1),
+                r.removed(),
+                r.trim_contents(u64::MAX),
+            );
             let p = registry();
-            let _ = (p.in_use_bytes(), p.reuse_census(1), p.removed(), cache_cap());
+            let _ = (
+                p.in_use_bytes(),
+                p.reuse_census(1),
+                p.removed(),
+                cache_cap(),
+            );
             Arc::ptr_eq(&r, &registry_in(&SLOT))
         });
-        assert_eq!(same.ok(), Some(true), "the registry is created on a thread with no GUC store, reading no setting");
+        assert_eq!(
+            same.ok(),
+            Some(true),
+            "the registry is created on a thread with no GUC store, reading no setting"
+        );
         // the control: the setting's own read does panic on such a thread, and leaves the cap unapplied
         let state = unapplied();
-        assert!(storeless(|| apply_cap_once(&state, cache_size_mib, |_| {})).is_err(), "a setting read panics there");
+        assert!(
+            storeless(|| apply_cap_once(&state, cache_size_mib, |_| {})).is_err(),
+            "a setting read panics there"
+        );
         assert!(!state.applied.load(Ordering::Acquire));
     }
 
@@ -417,9 +490,18 @@ mod tests {
         let cap = AtomicU64::new(pgrc_read::mem::DEFAULT_CAP);
         let set = |b: u64| cap.store(b, std::sync::atomic::Ordering::Relaxed);
         assert!(storeless(|| drop(registry_in(&SLOT))).is_ok());
-        assert!(!state.applied.load(Ordering::Acquire), "creating the registry applies nothing");
-        assert_eq!(cap.load(std::sync::atomic::Ordering::Relaxed), pgrc_read::mem::DEFAULT_CAP);
-        assert!(apply_cap_once(&state, || 64, set), "the backend's registration applies the setting");
+        assert!(
+            !state.applied.load(Ordering::Acquire),
+            "creating the registry applies nothing"
+        );
+        assert_eq!(
+            cap.load(std::sync::atomic::Ordering::Relaxed),
+            pgrc_read::mem::DEFAULT_CAP
+        );
+        assert!(
+            apply_cap_once(&state, || 64, set),
+            "the backend's registration applies the setting"
+        );
         assert_eq!(cap.load(std::sync::atomic::Ordering::Relaxed), 64 << 20);
         assert!(!apply_cap_once(&state, || 128, set), "never read again");
         assert_eq!(cap.load(std::sync::atomic::Ordering::Relaxed), 64 << 20);
@@ -463,8 +545,15 @@ mod tests {
         });
         let seen = pgsync::lock(&seen).clone();
         assert_eq!(panicked.load(std::sync::atomic::Ordering::SeqCst), 0);
-        assert_eq!((reads.into_inner(), stores.into_inner()), (1, 1), "the setting is read and stored once");
+        assert_eq!(
+            (reads.into_inner(), stores.into_inner()),
+            (1, 1),
+            "the setting is read and stored once"
+        );
         assert_eq!(seen.len(), 8);
-        assert!(seen.iter().all(|&c| c == 64 << 20), "a backend returned before the cap was in place: {seen:?}");
+        assert!(
+            seen.iter().all(|&c| c == 64 << 20),
+            "a backend returned before the cap was in place: {seen:?}"
+        );
     }
 }

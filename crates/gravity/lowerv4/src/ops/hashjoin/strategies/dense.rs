@@ -161,10 +161,10 @@ mod tests {
         let d = v.as_mut_ptr() as *mut u8;
         // SAFETY: offsets inside `v`.
         unsafe {
-            (wr::<u64>(d, N, keys.len() as u64), wr::<i64>(d, LO, *keys.iter().min().unwrap()), wr::<i64>(d, HI, *keys.iter().max().unwrap()));
-            (wr::<u8>(d, FLAGS, F_RANGE | F_COMPACT), wr::<u8>(d, ALLOW, A_DENSE), crate::ops::hashjoin::layout::set_pay(d, 1), wr::<u8>(d, WORDS, 1), wr::<u8>(d, PHASE, 1));
-            (wr::<u32>(d, REC, 8), wr::<u32>(d, FULL, 24));
-            (wr::<u64>(d, TOP, 8 * v.len() as u64), wr::<u8>(d, VBITS, vbits));
+            wr::<u64>(d, N, keys.len() as u64); wr::<i64>(d, LO, *keys.iter().min().unwrap()); wr::<i64>(d, HI, *keys.iter().max().unwrap());
+            wr::<u8>(d, FLAGS, F_RANGE | F_COMPACT); wr::<u8>(d, ALLOW, A_DENSE); crate::ops::hashjoin::layout::set_pay(d, 1); wr::<u8>(d, WORDS, 1); wr::<u8>(d, PHASE, 1);
+            wr::<u32>(d, REC, 8); wr::<u32>(d, FULL, 24);
+            wr::<u64>(d, TOP, 8 * v.len() as u64); wr::<u8>(d, VBITS, vbits);
             let mask = if vbits == 1 { 1 } else { u16::MAX as u64 };
             for (i, &k) in keys.iter().enumerate() {
                 wr::<u64>(d.add(HDR + 8 * i), 0, (k as u64 & u32::MAX as u64) | (val(k, vbits) & mask) << 32 | ((k % 5 == 0) as u64) << (32 + vbits));

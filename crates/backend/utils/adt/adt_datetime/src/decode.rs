@@ -105,6 +105,7 @@ fn atoi(s: &[u8]) -> i32 {
 
 /// C `strncmp(key, token, TOKMAXLEN)` where both are NUL-terminated.
 fn tokcmp(key: &[u8], token: &[u8; TOKMAXLEN + 1]) -> i32 {
+    #[allow(clippy::needless_range_loop)]
     for i in 0..TOKMAXLEN {
         let kc = key.get(i).copied().unwrap_or(0);
         let tc = token[i];
@@ -628,6 +629,7 @@ pub fn DecodeDate(
     }
 
     // look first for text fields, since that will be unambiguous month
+    #[allow(clippy::needless_range_loop)]
     for i in 0..nf {
         let f = fields[i].unwrap();
         if !f.is_empty() && is_alpha(f[0]) {
@@ -654,6 +656,7 @@ pub fn DecodeDate(
     }
 
     // now pick up remaining numeric fields
+    #[allow(clippy::needless_range_loop)]
     for i in 0..nf {
         let Some(f) = fields[i] else { continue };
         if f.is_empty() {

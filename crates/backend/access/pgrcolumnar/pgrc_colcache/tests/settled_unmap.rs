@@ -3,11 +3,11 @@
 use std::cell::RefCell;
 use std::sync::Arc;
 
+use pgrc_am::rowid_alloc::Extents;
 use pgrc_colcache::image::{Images, NoImage};
 use pgrc_colcache::tomb::settled;
 use pgrc_colcache::view::NoGen;
 use pgrc_colcache::{Kind, PageSource, TxnOracle};
-use pgrc_am::rowid_alloc::Extents;
 use pgrc_format::rowid::{SegExtent, SUCC_NONE};
 use pgrc_marks::Registry;
 use pgrc_read::mem;
@@ -20,7 +20,11 @@ const LOC: pgrc_marks::Locator = (1663, 5, 91_411);
 const SEG7: u64 = 291 * 7000;
 
 fn nogen() -> NoGen {
-    NoGen(Arc::new(Extents::new(vec![SegExtent { part_no: 7, idx: 0, base: SEG7 }])))
+    NoGen(Arc::new(Extents::new(vec![SegExtent {
+        part_no: 7,
+        idx: 0,
+        base: SEG7,
+    }])))
 }
 
 struct TombPage(RefCell<Box<[u64]>>);
@@ -29,7 +33,11 @@ impl TombPage {
     fn new(n: u32) -> TombPage {
         let p = TombPage(RefCell::new(vec![0u64; BLCKSZ / 8].into_boxed_slice()));
         // SAFETY: an 8-aligned BLCKSZ buffer this page owns.
-        let mut page = unsafe { PageMut::from_raw(std::ptr::NonNull::new(p.0.borrow_mut().as_mut_ptr() as *mut u8).unwrap()) };
+        let mut page = unsafe {
+            PageMut::from_raw(
+                std::ptr::NonNull::new(p.0.borrow_mut().as_mut_ptr() as *mut u8).unwrap(),
+            )
+        };
         page.init(0);
         for pos in 0..n {
             let mut t = [0u8; 40];
@@ -93,26 +101,56 @@ fn an_unmapped_tomb_image_takes_its_settled_keyings() {
     let (reg, imgs) = (Registry::new(), Images::new());
     let keying = 4 * u64::from(TOMBS);
     let before = mem::stats();
-    let tomb = imgs.current(&reg, LOC, LOC.2, Kind::Tomb, &TombPage::new(TOMBS), &Committed).expect("current").expect("an image");
+    let tomb = imgs
+        .current(
+            &reg,
+            LOC,
+            LOC.2,
+            Kind::Tomb,
+            &TombPage::new(TOMBS),
+            &Committed,
+        )
+        .expect("current")
+        .expect("an image");
     let a = settled(&tomb, &mut nogen()).expect("settled");
     assert_eq!(a.count, TOMBS as usize);
-    assert_eq!(mem::stats().cached, before.cached + tomb.bytes as u64 + keying, "the image and its keying are cached");
+    assert_eq!(
+        mem::stats().cached,
+        before.cached + tomb.bytes as u64 + keying,
+        "the image and its keying are cached"
+    );
     drop(a);
 
     // A write makes the image stale, and the next view finds the heap past the page bound: unmapped, not evicted.
     reg.lookup(LOC).expect("marks").written(0);
-    let over = imgs.current(&reg, LOC, LOC.2, Kind::Tomb, &Big, &Committed).expect("current");
+    let over = imgs
+        .current(&reg, LOC, LOC.2, Kind::Tomb, &Big, &Committed)
+        .expect("current");
     assert_eq!(over.err(), Some(NoImage::OverCap));
     assert!(imgs.get(LOC).is_none(), "unmapped");
     let s1 = mem::stats();
-    assert_eq!(s1.cached, before.cached, "the unmapped image's settled keying left the cached class with it");
+    assert_eq!(
+        s1.cached, before.cached,
+        "the unmapped image's settled keying left the cached class with it"
+    );
 
     // A view still holding the unmapped image keys it privately.
     let b = settled(&tomb, &mut nogen()).expect("settled");
-    assert_eq!(mem::stats().cached, before.cached, "the keying of an unmapped image is not cached");
-    assert!(!Arc::ptr_eq(&b, &settled(&tomb, &mut nogen()).expect("settled")), "each call keys privately");
+    assert_eq!(
+        mem::stats().cached,
+        before.cached,
+        "the keying of an unmapped image is not cached"
+    );
+    assert!(
+        !Arc::ptr_eq(&b, &settled(&tomb, &mut nogen()).expect("settled")),
+        "each call keys privately"
+    );
     drop((b, tomb));
     imgs.drop_image(&reg, LOC);
     let s2 = mem::stats();
-    assert_eq!((s2.cached, s2.held), (before.cached, before.held), "every byte is gone");
+    assert_eq!(
+        (s2.cached, s2.held),
+        (before.cached, before.held),
+        "every byte is gone"
+    );
 }

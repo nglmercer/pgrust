@@ -493,6 +493,7 @@ pub fn numeric_out_bound(num: Num<'_>) -> usize {
 
 /// numeric_out rendered at `dst` (no NUL): the length written. # Safety: `dst` is writable for `numeric_out_bound(num)` bytes.
 #[inline]
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn numeric_out_raw(num: Num<'_>, dst: *mut u8) -> usize {
     if num.is_special() {
         let t: &[u8] = if num.is_pinf() { b"Infinity" } else if num.is_ninf() { b"-Infinity" } else { b"NaN" };
@@ -520,6 +521,7 @@ pub fn get_str_from_var(var: VarView<'_>, out: &mut Vec<u8>) {
 }
 
 /// get_str_from_var's body writing at `start`; the length written. # Safety: `start` is writable for `str_bound(var)` bytes.
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn get_str_raw(var: VarView<'_>, start: *mut u8) -> usize {
     let dscale = var.dscale;
     let mut cp = 0usize;

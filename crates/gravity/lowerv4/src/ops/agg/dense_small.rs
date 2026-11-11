@@ -497,7 +497,7 @@ mod tests {
         assert_eq!((slots, null_slot), (21, true));
         assert_eq!(buffered, (0..10_000i64).filter(|i| i % 7 != 0 && i % 23 >= 20).count());
         // keys below lo (90..99) append too
-        assert_eq!(fold_n(4_000, 90, 40, 100, 122).2, true);
+        assert!(fold_n(4_000, 90, 40, 100, 122).2);
         assert!(DENSE.takes(&decl_n()), "one nullable integer key over a bound domain with its Facts words");
         assert!(!DENSE.takes(&TableDecl { facts: 0, ..decl_n() }), "without its Facts words");
         assert!(!DENSE.takes(&TableDecl { key: KeyShape { code: None, dense: None, domain: Domain::Const { lo: 0, hi: 9 } }, ..decl_n() }), "a nullable key over a constant domain");

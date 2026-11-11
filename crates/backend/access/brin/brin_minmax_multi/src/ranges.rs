@@ -9,11 +9,11 @@ use ::types_tuple::varatt::{
     VARHDRSZ_EXTERNAL,
 };
 
-use ::pg_qsort::pg_qsort_arg;
 use crate::{
     minmax_multi_get_procinfo, minmax_multi_get_strategy_procinfo, BTEqualStrategyNumber,
     BTGreaterStrategyNumber, BTLessStrategyNumber, MINMAX_BUFFER_LOAD_FACTOR, PROCNUM_DISTANCE,
 };
+use ::pg_qsort::pg_qsort_arg;
 
 #[derive(Clone, Copy)]
 pub struct ExpandedRange {
@@ -303,7 +303,9 @@ fn fetch_byval(bytes: &[u8], typlen: i16) -> PgResult<Datum> {
         4 => Datum::from_i32(i32::from_ne_bytes(bytes[0..4].try_into().unwrap())),
         8 => Datum::from_i64(i64::from_ne_bytes(bytes[0..8].try_into().unwrap())),
         other => {
-            return Err(Box::new(PgError::error(format!("unsupported byval length: {other}"))))
+            return Err(Box::new(PgError::error(format!(
+                "unsupported byval length: {other}"
+            ))))
         }
     })
 }
@@ -462,9 +464,7 @@ pub fn range_contains_value(
             return Ok(true);
         }
     } else {
-        for i in
-            (2 * ranges.nranges) as usize..(2 * ranges.nranges + ranges.nsorted) as usize
-        {
+        for i in (2 * ranges.nranges) as usize..(2 * ranges.nranges + ranges.nsorted) as usize {
             if call_bool(mcx, &mut eq, colloid, newval, ranges.values[i])? {
                 return Ok(true);
             }
@@ -493,7 +493,10 @@ fn bsearch_values(
     sorted: &[Datum],
     key: Datum,
 ) -> PgResult<bool> {
-    Ok(bsearch_arg(sorted.len(), |i| compare_values(mcx, cmp, colloid, key, sorted[i]))?.is_some())
+    Ok(bsearch_arg(sorted.len(), |i| {
+        compare_values(mcx, cmp, colloid, key, sorted[i])
+    })?
+    .is_some())
 }
 
 /// src/port/bsearch_arg.c: the probe order (hence the comparator's call
@@ -538,7 +541,11 @@ pub fn fill_expanded_ranges(
     }
     for i in 0..ranges.nvalues as usize {
         let v = ranges.values[(2 * ranges.nranges) as usize + i];
-        eranges[idx] = ExpandedRange { minval: v, maxval: v, collapsed: true };
+        eranges[idx] = ExpandedRange {
+            minval: v,
+            maxval: v,
+            collapsed: true,
+        };
         idx += 1;
     }
     debug_assert!(idx == neranges);
@@ -553,7 +560,9 @@ pub fn sort_expanded_ranges(
     let neranges = eranges.len();
     debug_assert!(neranges > 0);
 
-    pg_qsort_arg(eranges, |a, b| compare_expanded_ranges(mcx, cmp, colloid, a, b))?;
+    pg_qsort_arg(eranges, |a, b| {
+        compare_expanded_ranges(mcx, cmp, colloid, a, b)
+    })?;
 
     let mut n = 1usize;
     for i in 1..neranges {
@@ -580,12 +589,24 @@ pub fn merge_overlapping_ranges(
 ) -> PgResult<usize> {
     let mut idx = 0usize;
     while idx + 1 < neranges {
-        if call_bool(mcx, cmp, colloid, eranges[idx].maxval, eranges[idx + 1].minval)? {
+        if call_bool(
+            mcx,
+            cmp,
+            colloid,
+            eranges[idx].maxval,
+            eranges[idx + 1].minval,
+        )? {
             idx += 1;
             continue;
         }
 
-        if call_bool(mcx, cmp, colloid, eranges[idx].maxval, eranges[idx + 1].maxval)? {
+        if call_bool(
+            mcx,
+            cmp,
+            colloid,
+            eranges[idx].maxval,
+            eranges[idx + 1].maxval,
+        )? {
             eranges[idx].maxval = eranges[idx + 1].maxval;
         }
         eranges[idx].collapsed = false;
@@ -618,7 +639,10 @@ pub fn build_distances<'mcx>(
             eranges[i].maxval,
             eranges[i + 1].minval,
         )?;
-        distances.push(DistanceValue { index: i as i32, value: r.as_f64() });
+        distances.push(DistanceValue {
+            index: i as i32,
+            value: r.as_f64(),
+        });
     }
 
     // compare_distances: descending by value. C's qsort call here is pg_qsort
@@ -648,7 +672,11 @@ pub fn build_expanded_ranges<'mcx>(
     ::mcx::pgvec_resize(
         &mut eranges,
         neranges,
-        ExpandedRange { minval: Datum::null(), maxval: Datum::null(), collapsed: false },
+        ExpandedRange {
+            minval: Datum::null(),
+            maxval: Datum::null(),
+            collapsed: false,
+        },
     )?;
     fill_expanded_ranges(&mut eranges, neranges, ranges);
     let n = sort_expanded_ranges(mcx, cmp, colloid, &mut eranges)?;
@@ -693,12 +721,13 @@ pub fn reduce_expanded_ranges<'mcx>(
     }
     debug_assert!(values.len().is_multiple_of(2));
 
-    pg_qsort_arg(&mut values, |a, b| compare_values(mcx, cmp, colloid, *a, *b))?;
+    pg_qsort_arg(&mut values, |a, b| {
+        compare_values(mcx, cmp, colloid, *a, *b)
+    })?;
 
     let nvalues = values.len();
     for i in 0..nvalues / 2 {
-        let collapsed =
-            compare_values(mcx, cmp, colloid, values[2 * i], values[2 * i + 1])? == 0;
+        let collapsed = compare_values(mcx, cmp, colloid, values[2 * i], values[2 * i + 1])? == 0;
         eranges[i] = ExpandedRange {
             minval: values[2 * i],
             maxval: values[2 * i + 1],
@@ -709,10 +738,7 @@ pub fn reduce_expanded_ranges<'mcx>(
     Ok(nvalues / 2)
 }
 
-pub fn store_expanded_ranges(
-    ranges: &mut MinMaxMultiRanges,
-    eranges: &[ExpandedRange],
-) {
+pub fn store_expanded_ranges(ranges: &mut MinMaxMultiRanges, eranges: &[ExpandedRange]) {
     let mut idx = 0usize;
 
     ranges.nranges = 0;
@@ -907,7 +933,12 @@ pub fn assert_check_ranges(
 
     let base = (2 * ranges.nranges) as usize;
     assert_array_order(mcx, cmp, colloid, &ranges.values[..base])?;
-    assert_array_order(mcx, cmp, colloid, &ranges.values[base..base + ranges.nsorted as usize])?;
+    assert_array_order(
+        mcx,
+        cmp,
+        colloid,
+        &ranges.values[base..base + ranges.nsorted as usize],
+    )?;
 
     if ranges.nranges > 0 {
         for i in 0..ranges.nvalues as usize {
@@ -922,7 +953,13 @@ pub fn assert_check_ranges(
             let mut end: i32 = ranges.nranges - 1;
             while start <= end {
                 let midpoint = (start + end) / 2;
-                if call_bool(mcx, cmp, colloid, value, ranges.values[(2 * midpoint) as usize])? {
+                if call_bool(
+                    mcx,
+                    cmp,
+                    colloid,
+                    value,
+                    ranges.values[(2 * midpoint) as usize],
+                )? {
                     end = midpoint - 1;
                     continue;
                 }
@@ -980,7 +1017,13 @@ pub fn assert_check_expanded_ranges(
         debug_assert!(ok);
     }
     for i in 1..eranges.len() {
-        debug_assert!(call_bool(mcx, &mut lt, colloid, eranges[i - 1].maxval, eranges[i].minval)?);
+        debug_assert!(call_bool(
+            mcx,
+            &mut lt,
+            colloid,
+            eranges[i - 1].maxval,
+            eranges[i].minval
+        )?);
     }
     Ok(())
 }
@@ -1031,7 +1074,10 @@ mod deserialize_tests {
         let outcome = std::panic::catch_unwind(|| {
             let _ = super::read_serialized_header(&image);
         });
-        assert!(outcome.is_ok(), "read_serialized_header must not panic on a short image");
+        assert!(
+            outcome.is_ok(),
+            "read_serialized_header must not panic on a short image"
+        );
     }
 
     // tupmacs.h fetch_att: elog(ERROR, "unsupported byval length: %d") for a
@@ -1042,13 +1088,18 @@ mod deserialize_tests {
         let outcome = std::panic::catch_unwind(|| {
             let _ = super::fetch_byval(&bytes, 3);
         });
-        assert!(outcome.is_ok(), "fetch_byval must not panic on an unsupported typlen");
+        assert!(
+            outcome.is_ok(),
+            "fetch_byval must not panic on an unsupported typlen"
+        );
     }
 
     #[test]
     fn truncated_header_image_is_data_corruption() {
         let image = [0u8; 10];
-        let err = super::read_serialized_header(&image).err().expect("short image");
+        let err = super::read_serialized_header(&image)
+            .err()
+            .expect("short image");
         assert_eq!(err.sqlstate(), ::types_error::ERRCODE_DATA_CORRUPTED);
         let ok = [0u8; 20];
         assert_eq!(super::read_serialized_header(&ok).unwrap().maxvalues, 0);

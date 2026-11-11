@@ -11,9 +11,8 @@ use init_small::globals::{EndCriticalSection, StartCriticalSection};
 
 use crate::ovfl::_hash_addovflpage;
 use crate::page::{
-    page_mut, page_opaque, page_ref,
-    with_meta_mut, _hash_dropbuf, _hash_expandtable, _hash_finish_split, _hash_getbuf,
-    _hash_getbucketbuf_from_hashkey, _hash_relbuf, with_cached_metap,
+    _hash_dropbuf, _hash_expandtable, _hash_finish_split, _hash_getbucketbuf_from_hashkey,
+    _hash_getbuf, _hash_relbuf, page_mut, page_opaque, page_ref, with_cached_metap, with_meta_mut,
 };
 use crate::util::{_hash_binsearch, _hash_checkpage, _hash_get_indextuple_hashkey};
 use crate::{relation_needs_wal, RM_HASH};
@@ -135,8 +134,18 @@ pub fn _hash_doinsert(
                 0,
                 &[&xlrec],
                 &[
-                    XLogRegBuf { block_id: 0, buffer: buf, flags: REGBUF_STANDARD, bufdata: &[itup] },
-                    XLogRegBuf { block_id: 1, buffer: metabuf, flags: REGBUF_STANDARD, bufdata: &[] },
+                    XLogRegBuf {
+                        block_id: 0,
+                        buffer: buf,
+                        flags: REGBUF_STANDARD,
+                        bufdata: &[itup],
+                    },
+                    XLogRegBuf {
+                        block_id: 1,
+                        buffer: metabuf,
+                        flags: REGBUF_STANDARD,
+                        bufdata: &[],
+                    },
                 ],
             )?;
             // SAFETY: pins + exclusive locks held.
@@ -166,7 +175,10 @@ pub fn _hash_doinsert(
 #[cold]
 #[inline(never)]
 fn failed_to_add_index_item(rel: &Relation<'_>) -> Box<PgError> {
-    Box::new(PgError::error(format!("failed to add index item to \"{}\"", rel.name())))
+    Box::new(PgError::error(format!(
+        "failed to add index item to \"{}\"",
+        rel.name()
+    )))
 }
 
 /// _hash_pgaddtup.
@@ -189,7 +201,8 @@ pub(crate) fn _hash_pgaddtup(
                 let r = page.as_ref();
                 let last = r.item_raw(r.item_id(off - 1)).0;
                 debug_assert!(
-                    _hash_get_indextuple_hashkey(last) <= _hash_get_indextuple_hashkey(itup.as_ptr())
+                    _hash_get_indextuple_hashkey(last)
+                        <= _hash_get_indextuple_hashkey(itup.as_ptr())
                 );
             }
         }
@@ -260,14 +273,13 @@ pub(crate) fn _hash_vacuum_one_page(
         // sits above the AM crates via indexam). Scratch context: C pallocs
         // the delstate in the caller's context and pfrees it before return.
         let cx = ::mcx::MemoryContext::new_wholesale("hash vacuum one page");
-        let snapshot_conflict_horizon =
-            ::genam_seams::index_compute_xid_horizon_for_tuples::call(
-                cx.mcx(),
-                rel,
-                hrel,
-                buf,
-                &deletable[..ndeletable],
-            )?;
+        let snapshot_conflict_horizon = ::genam_seams::index_compute_xid_horizon_for_tuples::call(
+            cx.mcx(),
+            rel,
+            hrel,
+            buf,
+            &deletable[..ndeletable],
+        )?;
 
         bm::lock_buffer::call(metabuf, bm::BUFFER_LOCK_EXCLUSIVE)?;
 
@@ -306,8 +318,18 @@ pub(crate) fn _hash_vacuum_one_page(
                 0,
                 &[&xlrec, &offbytes],
                 &[
-                    XLogRegBuf { block_id: 0, buffer: buf, flags: REGBUF_STANDARD, bufdata: &[] },
-                    XLogRegBuf { block_id: 1, buffer: metabuf, flags: REGBUF_STANDARD, bufdata: &[] },
+                    XLogRegBuf {
+                        block_id: 0,
+                        buffer: buf,
+                        flags: REGBUF_STANDARD,
+                        bufdata: &[],
+                    },
+                    XLogRegBuf {
+                        block_id: 1,
+                        buffer: metabuf,
+                        flags: REGBUF_STANDARD,
+                        bufdata: &[],
+                    },
                 ],
             )?;
             // SAFETY: pins + exclusive locks held.
@@ -321,4 +343,3 @@ pub(crate) fn _hash_vacuum_one_page(
     }
     Ok(())
 }
-

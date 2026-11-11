@@ -131,7 +131,8 @@ pub fn encrypt_password<'mcx>(
             .finish(loc("encrypt_password"))?;
     }
 
-    if md5_password_warnings() && get_password_type(encrypted_password.as_str()) == PasswordType::Md5
+    if md5_password_warnings()
+        && get_password_type(encrypted_password.as_str()) == PasswordType::Md5
     {
         elog::ereport(WARNING)
             .errcode(ERRCODE_WARNING_DEPRECATED_FEATURE)
@@ -164,9 +165,7 @@ pub fn md5_crypt_verify(
     let crypt_pwd = pg_md5_encrypt(&shadow_pass.as_bytes()[3..], md5_salt);
 
     // upstream d93ef413174d (18.4): Apply timingsafe_bcmp() in authentication paths
-    if client_pass.len() == crypt_pwd.len()
-        && timingsafe_bcmp(client_pass, &crypt_pwd) == 0
-    {
+    if client_pass.len() == crypt_pwd.len() && timingsafe_bcmp(client_pass, &crypt_pwd) == 0 {
         Ok(STATUS_OK)
     } else {
         *logdetail = Some(format!("Password does not match for user \"{role}\"."));

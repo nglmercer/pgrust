@@ -6,8 +6,8 @@ use crate::reserve::Zones;
 use crate::run::RUN;
 use crate::stats;
 use crate::superpage::{self, meta, State, ALL_RUNS, NONE, RUNS_PER, SUPER};
-use crate::{Class, Zero, CLASSES};
 use crate::sync::{AtomicBool, AtomicU32, AtomicU64, AtomicU8, Ordering::*};
+use crate::{Class, Zero, CLASSES};
 
 /// A hole bin per longest free stretch (1 .. 31 runs).
 const BINS: usize = RUNS_PER as usize - 1;
@@ -16,8 +16,10 @@ const USED_BINS: usize = 4;
 /// Partial-list fronts searched per bin before a fresh superpage is claimed.
 const SEARCH: usize = 16;
 
-static LOCKS: [crate::Line<AtomicU32>; CLASSES] = [const { crate::Line(AtomicU32::new(0)) }; CLASSES];
-static BIN_HEADS: [crate::Line<[AtomicU32; BINS]>; CLASSES] = [const { crate::Line([const { AtomicU32::new(NONE) }; BINS]) }; CLASSES];
+static LOCKS: [crate::Line<AtomicU32>; CLASSES] =
+    [const { crate::Line(AtomicU32::new(0)) }; CLASSES];
+static BIN_HEADS: [crate::Line<[AtomicU32; BINS]>; CLASSES] =
+    [const { crate::Line([const { AtomicU32::new(NONE) }; BINS]) }; CLASSES];
 /// Lock order: a class's spin bit, then this one, innermost; a take never takes another class's bit.
 static RUNS: crate::Line<AtomicU32> = crate::Line(AtomicU32::new(0));
 static LOW: AtomicBool = AtomicBool::new(false);
@@ -123,7 +125,11 @@ static HOLE_SWITCH: AtomicU8 = AtomicU8::new(0);
 pub(crate) fn hole_fit_on() -> bool {
     match HOLE_SWITCH.load(Relaxed) {
         0 => {
-            let v = if crate::os::env_on_by_default(c"PGRUST_POOL_HOLE_FIT") { 2 } else { 1 };
+            let v = if crate::os::env_on_by_default(c"PGRUST_POOL_HOLE_FIT") {
+                2
+            } else {
+                1
+            };
             HOLE_SWITCH.store(v, Relaxed);
             v == 2
         }
@@ -150,7 +156,11 @@ pub(crate) fn longest_free(mut free: u32) -> u32 {
 #[inline]
 fn hole_bin(free: u32) -> u32 {
     let s = longest_free(free);
-    if s as usize > BINS { 0 } else { s }
+    if s as usize > BINS {
+        0
+    } else {
+        s
+    }
 }
 
 /// The bins a take of `k` runs searches, in order (list indices). With the switch on: bin `k`, then the longer ones. A
@@ -235,7 +245,11 @@ fn settle(class: Class, i: u32) {
     let active = m.word.load(Relaxed) & superpage::ACTIVE;
     let free = m.free_runs.load(Relaxed);
     let used = RUNS_PER - free.count_ones();
-    let want = if hole_fit_on() { hole_bin(free) } else { bin_for(used) };
+    let want = if hole_fit_on() {
+        hole_bin(free)
+    } else {
+        bin_for(used)
+    };
     if used == 0 {
         unlist(class, i);
         let g = gone(m).swap(0, Relaxed).count_ones() as isize;
@@ -243,7 +257,11 @@ fn settle(class: Class, i: u32) {
         if g != 0 {
             stats::claim(g * RUN as isize);
         }
-        let st = if m.zero_runs.load(Relaxed) == ALL_RUNS { State::WarmZero } else { State::WarmDirty };
+        let st = if m.zero_runs.load(Relaxed) == ALL_RUNS {
+            State::WarmZero
+        } else {
+            State::WarmDirty
+        };
         superpage::put(i, st);
         return;
     }
@@ -253,7 +271,11 @@ fn settle(class: Class, i: u32) {
             list(class, i, want);
         }
     }
-    let st = if used == RUNS_PER { State::Full } else { State::Partial };
+    let st = if used == RUNS_PER {
+        State::Full
+    } else {
+        State::Partial
+    };
     m.set(st, class, want, 0, NONE);
     if active != 0 {
         m.word.fetch_or(active, Relaxed);
@@ -319,7 +341,10 @@ fn take_mask(class: Class, i: u32, mask: u32) -> (usize, bool) {
     settle(class, i);
     // pppress card 8: runs taken here
     active_sp(i);
-    (superpage::addr_of(i) + mask.trailing_zeros() as usize * RUN, zero)
+    (
+        superpage::addr_of(i) + mask.trailing_zeros() as usize * RUN,
+        zero,
+    )
 }
 
 /// `k` runs (start aligned to `align` runs) for the guard's class: a partial superpage of its own class, smallest fitting
@@ -524,7 +549,13 @@ pub(crate) fn release_free_runs_but(want: usize, fast: bool, skip: u32) -> usize
                 let len = (rest >> lo).trailing_ones();
                 let mask = (((1u64 << len) - 1) as u32) << lo;
                 // SAFETY: free runs out of the bitmap, handed out by no one; a run stays in use, so never a whole superpage
-                if unsafe { crate::os::release(superpage::addr_of(i) + lo as usize * RUN, len as usize * RUN) } == 0 {
+                if unsafe {
+                    crate::os::release(
+                        superpage::addr_of(i) + lo as usize * RUN,
+                        len as usize * RUN,
+                    )
+                } == 0
+                {
                     done[k] |= mask;
                 }
                 rest &= !mask;
@@ -588,7 +619,15 @@ pub(crate) fn age_free_runs(budget: usize) -> (usize, usize) {
                     if hot {
                         stats::THP_HOT_SKIPS.fetch_add(1, Relaxed);
                     }
-                    let ripe = if cand != 0 && !hot && remapped + asked < budget && !crate::purger::pass_late() { cand } else { 0 };
+                    let ripe = if cand != 0
+                        && !hot
+                        && remapped + asked < budget
+                        && !crate::purger::pass_late()
+                    {
+                        cand
+                    } else {
+                        0
+                    };
                     if ripe != 0 {
                         m.free_runs.clear(ripe);
                         batch[n] = (i, ripe);
@@ -610,7 +649,10 @@ pub(crate) fn age_free_runs(budget: usize) -> (usize, usize) {
                 let lo = rest.trailing_zeros();
                 let len = (rest >> lo).trailing_ones();
                 let mask = (((1u64 << len) - 1) as u32) << lo;
-                let (a, bytes) = (superpage::addr_of(s) + lo as usize * RUN, len as usize * RUN);
+                let (a, bytes) = (
+                    superpage::addr_of(s) + lo as usize * RUN,
+                    len as usize * RUN,
+                );
                 // SAFETY: free runs out of the bitmap, handed out by no one; a run stays in use, so never a whole superpage
                 if let Some(r) = unsafe { crate::os::age_release(a, bytes) } {
                     done[k] |= mask;
@@ -652,7 +694,12 @@ pub struct Occupancy {
 }
 
 pub fn occupancy() -> Occupancy {
-    let mut o = Occupancy { used_runs: [[0; RUNS_PER as usize + 1]; CLASSES], free_run_bytes: [0; CLASSES], spans: 0, gone_run_bytes: [0; CLASSES] };
+    let mut o = Occupancy {
+        used_runs: [[0; RUNS_PER as usize + 1]; CLASSES],
+        free_run_bytes: [0; CLASSES],
+        spans: 0,
+        gone_run_bytes: [0; CLASSES],
+    };
     if !crate::on() {
         return o;
     }
@@ -719,7 +766,13 @@ pub(crate) fn check() -> Result<(), &'static str> {
             counts[b] += on as usize;
         }
     }
-    if counts != [superpage::count(State::Cold), superpage::count(State::WarmZero), superpage::count(State::WarmDirty)] {
+    if counts
+        != [
+            superpage::count(State::Cold),
+            superpage::count(State::WarmZero),
+            superpage::count(State::WarmDirty),
+        ]
+    {
         return Err("a free-superpage count disagrees with its bitmap");
     }
     Ok(())

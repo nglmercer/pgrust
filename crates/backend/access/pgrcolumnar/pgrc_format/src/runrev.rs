@@ -104,7 +104,8 @@ fn bits_at(b: &[u8], pos: u64, w: u32) -> u64 {
 /// Every bit of `b` from bit `from` on is zero.
 fn zeros_from(b: &[u8], from: u64) -> bool {
     let whole = from.div_ceil(8) as usize;
-    (from.is_multiple_of(8) || bits_at(b, from, 8 - (from % 8) as u32) == 0) && b.get(whole..).is_none_or(|t| t.iter().all(|&x| x == 0))
+    (from.is_multiple_of(8) || bits_at(b, from, 8 - (from % 8) as u32) == 0)
+        && b.get(whole..).is_none_or(|t| t.iter().all(|&x| x == 0))
 }
 
 fn put_bits(b: &mut [u8], pos: u64, w: u32, v: u64) {
@@ -157,7 +158,11 @@ impl Page {
         if u32_at(&bytes, PAYLOAD) != page_crc(&bytes[..PAYLOAD], no) {
             return Err(FormatError::CrcMismatch { at: AT });
         }
-        Ok(Page { no, bytes, shape: AtomicU8::new(0) })
+        Ok(Page {
+            no,
+            bytes,
+            shape: AtomicU8::new(0),
+        })
     }
 
     pub fn no(&self) -> u64 {
@@ -180,7 +185,8 @@ impl Page {
             2 => Err(corrupt()),
             _ => {
                 let r = f(self.payload());
-                self.shape.store(if r.is_ok() { 1 } else { 2 }, Ordering::Release);
+                self.shape
+                    .store(if r.is_ok() { 1 } else { 2 }, Ordering::Release);
                 r
             }
         }
@@ -198,8 +204,14 @@ pub struct BytePages<'a>(pub &'a [u8]);
 
 impl Pages for BytePages<'_> {
     fn page(&self, no: u64) -> FormatResult<Arc<Page>> {
-        let at = usize::try_from(no).ok().and_then(|n| n.checked_mul(PAGE)).ok_or_else(corrupt)?;
-        let b = self.0.get(at..at + PAGE).ok_or(FormatError::Truncated { at: AT })?;
+        let at = usize::try_from(no)
+            .ok()
+            .and_then(|n| n.checked_mul(PAGE))
+            .ok_or_else(corrupt)?;
+        let b = self
+            .0
+            .get(at..at + PAGE)
+            .ok_or(FormatError::Truncated { at: AT })?;
         Ok(Arc::new(Page::check(no, b.into())?))
     }
 }
@@ -331,7 +343,9 @@ impl Writer {
     }
 
     fn flush_s(&mut self) {
-        let Some(&(lo0, r0)) = self.s_page.first() else { return };
+        let Some(&(lo0, r0)) = self.s_page.first() else {
+            return;
+        };
         let &(lo1, r1) = self.s_page.last().expect("a run");
         let (wlo, wr) = (bits_for(lo1 - lo0), bits_for(r1 - r0));
         let n = self.s_page.len();
@@ -340,8 +354,18 @@ impl Writer {
         self.page[5] = wr as u8;
         let base = S_HEAD as u64 * 8;
         for (k, &(lo, r)) in self.s_page.iter().enumerate() {
-            put_bits(&mut self.page, base + k as u64 * u64::from(wlo), wlo, lo - lo0);
-            put_bits(&mut self.page, base + n as u64 * u64::from(wlo) + k as u64 * u64::from(wr), wr, r - r0);
+            put_bits(
+                &mut self.page,
+                base + k as u64 * u64::from(wlo),
+                wlo,
+                lo - lo0,
+            );
+            put_bits(
+                &mut self.page,
+                base + n as u64 * u64::from(wlo) + k as u64 * u64::from(wr),
+                wr,
+                r - r0,
+            );
         }
         self.s_top.push((lo0, r0));
         self.dir[S_PAGES].2 += n as u64;
@@ -352,7 +376,11 @@ impl Writer {
     /// The next run of the ID set (SET): `len` IDs from `lo`, above every run before (one adjacent to the last
     /// extends it).
     pub fn push_s_run(&mut self, lo: u64, len: u64) -> FormatResult<()> {
-        if self.spec.rank != RankForm::Set || self.phase != S_PAGES || len == 0 || lo.checked_add(len).is_none_or(|e| e > ROWID_LIMIT) {
+        if self.spec.rank != RankForm::Set
+            || self.phase != S_PAGES
+            || len == 0
+            || lo.checked_add(len).is_none_or(|e| e > ROWID_LIMIT)
+        {
             return Err(contract("run reverse ID set"));
         }
         if self.s_rank > 0 && lo < self.s_end {
@@ -364,7 +392,9 @@ impl Writer {
             return Ok(());
         }
         if let Some(&(lo0, r0)) = self.s_page.first() {
-            let bits = S_HEAD as u64 * 8 + (self.s_page.len() as u64 + 1) * u64::from(bits_for(lo - lo0) + bits_for(self.s_rank - r0));
+            let bits = S_HEAD as u64 * 8
+                + (self.s_page.len() as u64 + 1)
+                    * u64::from(bits_for(lo - lo0) + bits_for(self.s_rank - r0));
             if bits > PAYLOAD as u64 * 8 {
                 self.flush_s();
             }
@@ -381,7 +411,12 @@ impl Writer {
         if label > self.spec.nsym || self.labels >= self.spec.ranks {
             return Err(contract("run reverse label"));
         }
-        put_bits(&mut self.page, self.in_page * u64::from(self.lw), self.lw, u64::from(label));
+        put_bits(
+            &mut self.page,
+            self.in_page * u64::from(self.lw),
+            self.lw,
+            u64::from(label),
+        );
         self.in_page += 1;
         self.labels += 1;
         if self.in_page == labels_per(self.lw) {
@@ -394,7 +429,11 @@ impl Writer {
     /// The next group (LABELS form): frames `va..vb` of slot `slot`'s map.
     pub fn push_group(&mut self, slot: u16, va: u32, vb: u32) -> FormatResult<()> {
         self.advance(GROUPS)?;
-        if self.spec.form != RunRevForm::Labels || u32::from(slot) >= self.spec.members || va >= vb || self.groups >= u64::from(self.spec.nsym) {
+        if self.spec.form != RunRevForm::Labels
+            || u32::from(slot) >= self.spec.members
+            || va >= vb
+            || self.groups >= u64::from(self.spec.nsym)
+        {
             return Err(contract("run reverse group"));
         }
         let at = (self.groups as usize % GROUPS_PER) * GROUP_LEN;
@@ -411,7 +450,11 @@ impl Writer {
     /// The next exception (IDs ascending): `id` is in frame `vframe` of slot `slot`'s map.
     pub fn push_exception(&mut self, id: u64, slot: u16, vframe: u32) -> FormatResult<()> {
         self.advance(EXCEPTIONS)?;
-        if self.spec.form != RunRevForm::Labels || u32::from(slot) >= self.spec.members || id >= ROWID_LIMIT || self.last_exc.is_some_and(|l| l >= id) {
+        if self.spec.form != RunRevForm::Labels
+            || u32::from(slot) >= self.spec.members
+            || id >= ROWID_LIMIT
+            || self.last_exc.is_some_and(|l| l >= id)
+        {
             return Err(contract("run reverse exception"));
         }
         let k = self.exc as usize % EXC_PER;
@@ -448,11 +491,18 @@ impl Writer {
         let frameix = sp.form == RunRevForm::FrameIx;
         let groups = if frameix { 0 } else { u64::from(sp.nsym) };
         let prefix_ok = if frameix {
-            prefix.len() == sp.members as usize + 1 && prefix[0] == 0 && prefix.windows(2).all(|w| w[0] < w[1]) && prefix[sp.members as usize] == sp.nsym
+            prefix.len() == sp.members as usize + 1
+                && prefix[0] == 0
+                && prefix.windows(2).all(|w| w[0] < w[1])
+                && prefix[sp.members as usize] == sp.nsym
         } else {
             prefix.is_empty()
         };
-        let ok = self.labels == sp.ranks && (sp.rank == RankForm::Dense || self.s_rank == sp.ranks) && self.groups == groups && (!frameix || self.exc == 0) && prefix_ok;
+        let ok = self.labels == sp.ranks
+            && (sp.rank == RankForm::Dense || self.s_rank == sp.ranks)
+            && self.groups == groups
+            && (!frameix || self.exc == 0)
+            && prefix_ok;
         if !ok {
             return Err(contract("run reverse counts"));
         }
@@ -523,7 +573,14 @@ impl Writer {
         let crc = page_crc(&p0, 0);
         put_u32(&mut p0, crc);
         let rev_crc = crate::wire::crc32c(&p0);
-        Ok((std::mem::take(&mut self.out), Finished { page0: p0, rev_len, rev_crc }))
+        Ok((
+            std::mem::take(&mut self.out),
+            Finished {
+                page0: p0,
+                rev_len,
+                rev_crc,
+            },
+        ))
     }
 }
 
@@ -542,7 +599,14 @@ pub fn form_pages(form: RunRevForm, ranks: u64, nsym: u32, members: u32) -> u64 
 
 /// A whole reverse in memory (tests, small runs): `s_runs` the ID set's runs (SET), `labels` by rank, `groups`
 /// (LABELS), `exceptions` by ID, `prefix` (FRAMEIX). The file, its length and its page-0 crc.
-pub fn encode(spec: Spec, s_runs: &[(u64, u64)], labels: &[u32], groups: &[(u16, u32, u32)], exceptions: &[(u64, u16, u32)], prefix: &[u32]) -> FormatResult<(Vec<u8>, Finished)> {
+pub fn encode(
+    spec: Spec,
+    s_runs: &[(u64, u64)],
+    labels: &[u32],
+    groups: &[(u16, u32, u32)],
+    exceptions: &[(u64, u16, u32)],
+    prefix: &[u32],
+) -> FormatResult<(Vec<u8>, Finished)> {
     let mut w = Writer::new(spec)?;
     for &(lo, len) in s_runs {
         w.push_s_run(lo, len)?;
@@ -605,11 +669,21 @@ impl RunRev {
         check(crate::wire::crc32c(&p0.bytes) == run.rev_crc)?;
         let b = p0.payload();
         let h = SidecarFileHeader::decode(b)?;
-        check(h.kind == SidecarKind::RunReverse.as_u16() && h.part_uuid == [0; 16] && h.key_fingerprint == run.run_id && h.payload_len == run.rev_len && h.flags == 0 && h.pad == 0)?;
+        check(
+            h.kind == SidecarKind::RunReverse.as_u16()
+                && h.part_uuid == [0; 16]
+                && h.key_fingerprint == run.run_id
+                && h.payload_len == run.rev_len
+                && h.flags == 0
+                && h.pad == 0,
+        )?;
         let mut c = Cur::new(&b[SIDECAR_FILE_HEADER_LEN..]);
         let (bv, form, rank, lw) = (c.u8(AT)?, c.u8(AT)?, c.u8(AT)?, u32::from(c.u8(AT)?));
         if bv != BODY_VERSION {
-            return Err(FormatError::BadVersion { at: AT, got: u32::from(bv) });
+            return Err(FormatError::BadVersion {
+                at: AT,
+                got: u32::from(bv),
+            });
         }
         let (page_size, run_id, ranks, rows) = (c.u32(AT)?, c.u64(AT)?, c.u64(AT)?, c.u64(AT)?);
         let (nsym, members, exceptions, pages) = (c.u32(AT)?, c.u32(AT)?, c.u64(AT)?, c.u64(AT)?);
@@ -622,8 +696,20 @@ impl RunRev {
         let form = RunRevForm::of(form).ok_or_else(corrupt)?;
         let rank = RankForm::of(rank).ok_or_else(corrupt)?;
         let frameix = form == RunRevForm::FrameIx;
-        check(form == run.rev && rank == run.rank && page_size == PAGE as u32 && run_id == run.run_id && rows == run.rows && members as usize == run.members.len())?;
-        check(pages.checked_mul(PAGE as u64) == Some(run.rev_len) && nsym >= 1 && lw == bits_for(u64::from(nsym)) && ranks >= rows)?;
+        check(
+            form == run.rev
+                && rank == run.rank
+                && page_size == PAGE as u32
+                && run_id == run.run_id
+                && rows == run.rows
+                && members as usize == run.members.len(),
+        )?;
+        check(
+            pages.checked_mul(PAGE as u64) == Some(run.rev_len)
+                && nsym >= 1
+                && lw == bits_for(u64::from(nsym))
+                && ranks >= rows,
+        )?;
         check(match rank {
             RankForm::Dense => ranks == run.span(),
             RankForm::Set => ranks == rows,
@@ -638,18 +724,38 @@ impl RunRev {
                 GROUPS => u64::from(if frameix { 0 } else { nsym }).div_ceil(GROUPS_PER as u64),
                 EXCEPTIONS => exceptions.div_ceil(EXC_PER as u64),
                 S_TOP => s_pages.div_ceil(S_TOP_PER as u64),
-                EXC_TOP => exceptions.div_ceil(EXC_PER as u64).div_ceil(EXC_TOP_PER as u64),
-                _ => if frameix { (u64::from(members) + 1).div_ceil(PREFIX_PER as u64) } else { 0 },
+                EXC_TOP => exceptions
+                    .div_ceil(EXC_PER as u64)
+                    .div_ceil(EXC_TOP_PER as u64),
+                _ => {
+                    if frameix {
+                        (u64::from(members) + 1).div_ceil(PREFIX_PER as u64)
+                    } else {
+                        0
+                    }
+                }
             })
         };
         let count = |sec: usize| -> u64 {
             match sec {
                 LABELS => ranks,
-                GROUPS => if frameix { 0 } else { u64::from(nsym) },
+                GROUPS => {
+                    if frameix {
+                        0
+                    } else {
+                        u64::from(nsym)
+                    }
+                }
                 EXCEPTIONS => exceptions,
                 S_TOP => s_pages,
                 EXC_TOP => exceptions.div_ceil(EXC_PER as u64),
-                PREFIX => if frameix { u64::from(members) + 1 } else { 0 },
+                PREFIX => {
+                    if frameix {
+                        u64::from(members) + 1
+                    } else {
+                        0
+                    }
+                }
                 _ => dir[S_PAGES].2,
             }
         };
@@ -677,14 +783,25 @@ impl RunRev {
         };
         // the read-at-open sections
         let mut s_top = crate::try_vec(s_pages as usize, "runrev s_top")?;
-        rr.read_top(src, S_TOP, 16, &mut |e| s_top.push((u64_at(e, 0), u64_at(e, 8))))?;
-        check(s_top.first().is_none_or(|t| t.1 == 0) && s_top.windows(2).all(|w| w[0].0 < w[1].0 && w[0].1 < w[1].1) && s_top.iter().all(|t| t.0 < ROWID_LIMIT && t.1 < ranks))?;
+        rr.read_top(src, S_TOP, 16, &mut |e| {
+            s_top.push((u64_at(e, 0), u64_at(e, 8)))
+        })?;
+        check(
+            s_top.first().is_none_or(|t| t.1 == 0)
+                && s_top.windows(2).all(|w| w[0].0 < w[1].0 && w[0].1 < w[1].1)
+                && s_top.iter().all(|t| t.0 < ROWID_LIMIT && t.1 < ranks),
+        )?;
         let mut exc_top = Vec::new();
         rr.read_top(src, EXC_TOP, 8, &mut |e| exc_top.push(u64_at(e, 0)))?;
         check(exc_top.windows(2).all(|w| w[0] < w[1]) && exc_top.iter().all(|&x| x < ROWID_LIMIT))?;
         let mut prefix = Vec::new();
         rr.read_top(src, PREFIX, 4, &mut |e| prefix.push(u32_at(e, 0)))?;
-        check(!frameix || (prefix[0] == 0 && prefix.windows(2).all(|w| w[0] < w[1]) && prefix[members as usize] == nsym))?;
+        check(
+            !frameix
+                || (prefix[0] == 0
+                    && prefix.windows(2).all(|w| w[0] < w[1])
+                    && prefix[members as usize] == nsym),
+        )?;
         rr.s_top = s_top.into();
         rr.exc_top = exc_top.into();
         rr.prefix = prefix.into();
@@ -704,7 +821,13 @@ impl RunRev {
     }
 
     /// Section `sec`'s entries of `len` bytes, page by page (whole entries per page, zeros after the last).
-    fn read_top(&self, src: &dyn Pages, sec: usize, len: usize, f: &mut dyn FnMut(&[u8])) -> FormatResult<()> {
+    fn read_top(
+        &self,
+        src: &dyn Pages,
+        sec: usize,
+        len: usize,
+        f: &mut dyn FnMut(&[u8]),
+    ) -> FormatResult<()> {
         let (first, n, count) = self.dir[sec];
         let per = (PAYLOAD / len) as u64;
         for p in 0..u64::from(n) {
@@ -747,19 +870,27 @@ impl RunRev {
 
     /// The open state's bytes in memory (the pages a lookup reads are the cache's).
     pub fn mem_bytes(&self) -> usize {
-        std::mem::size_of::<RunRev>() + self.s_top.len() * 16 + self.exc_top.len() * 8 + self.prefix.len() * 4 + self.dense.len() * 24
+        std::mem::size_of::<RunRev>()
+            + self.s_top.len() * 16
+            + self.exc_top.len() * 8
+            + self.prefix.len() * 4
+            + self.dense.len() * 24
     }
 
     /// The ID's rank, `None` outside the run's ID set (DENSE: its ranges).
     pub fn rank_of(&self, id: u64, src: &dyn Pages) -> FormatResult<Option<u64>> {
         match self.rank {
             RankForm::Dense => {
-                let Some(i) = self.dense.partition_point(|e| e.0 <= id).checked_sub(1) else { return Ok(None) };
+                let Some(i) = self.dense.partition_point(|e| e.0 <= id).checked_sub(1) else {
+                    return Ok(None);
+                };
                 let (lo, hi, r0) = self.dense[i];
                 Ok((id < hi).then(|| r0 + id - lo))
             }
             RankForm::Set => {
-                let Some(p) = self.s_top.partition_point(|e| e.0 <= id).checked_sub(1) else { return Ok(None) };
+                let Some(p) = self.s_top.partition_point(|e| e.0 <= id).checked_sub(1) else {
+                    return Ok(None);
+                };
                 let page = src.page(u64::from(self.dir[S_PAGES].0) + p as u64)?;
                 let (lo0, r0) = self.s_top[p];
                 let ranks_here = self.s_top.get(p + 1).map_or(self.ranks, |e| e.1) - r0;
@@ -783,7 +914,11 @@ impl RunRev {
                 let k = lo;
                 let start = bits_at(b, base + k * u64::from(wlo), wlo);
                 let rk = bits_at(b, base + n * u64::from(wlo) + k * u64::from(wr), wr);
-                let rn = if k + 1 < n { bits_at(b, base + n * u64::from(wlo) + (k + 1) * u64::from(wr), wr) } else { ranks_here };
+                let rn = if k + 1 < n {
+                    bits_at(b, base + n * u64::from(wlo) + (k + 1) * u64::from(wr), wr)
+                } else {
+                    ranks_here
+                };
                 Ok((off - start < rn - rk).then(|| r0 + rk + off - start))
             }
         }
@@ -806,7 +941,9 @@ impl RunRev {
 
     /// Where `id` is: [`Hit::Absent`] when the run holds no such ID.
     pub fn lookup(&self, id: u64, src: &dyn Pages) -> FormatResult<Hit> {
-        let Some(rank) = self.rank_of(id, src)? else { return Ok(Hit::Absent) };
+        let Some(rank) = self.rank_of(id, src)? else {
+            return Ok(Hit::Absent);
+        };
         let label = self.label_of(rank, src)?;
         if label == self.nsym {
             return self.exception(id, src);
@@ -815,7 +952,10 @@ impl RunRev {
             RunRevForm::Labels => self.group(label, src),
             _ => {
                 let slot = self.prefix.partition_point(|&f| f <= label) - 1;
-                Ok(Hit::Frame { slot: slot as u16, vframe: label - self.prefix[slot] })
+                Ok(Hit::Frame {
+                    slot: slot as u16,
+                    vframe: label - self.prefix[slot],
+                })
             }
         }
     }
@@ -830,26 +970,41 @@ impl RunRev {
         page.shaped(|b| {
             check((0..here).all(|i| {
                 let at = i * GROUP_LEN;
-                u32::from(u16_at(b, at)) < members && u16_at(b, at + 2) == 0 && u32_at(b, at + 4) < u32_at(b, at + 8)
+                u32::from(u16_at(b, at)) < members
+                    && u16_at(b, at + 2) == 0
+                    && u32_at(b, at + 4) < u32_at(b, at + 8)
             }))?;
             check(b[here * GROUP_LEN..].iter().all(|&x| x == 0))
         })?;
         let b = page.payload();
         let at = k * GROUP_LEN;
-        Ok(Hit::Group { slot: u16_at(b, at), va: u32_at(b, at + 4), vb: u32_at(b, at + 8) })
+        Ok(Hit::Group {
+            slot: u16_at(b, at),
+            va: u32_at(b, at + 4),
+            vb: u32_at(b, at + 8),
+        })
     }
 
     fn exception(&self, id: u64, src: &dyn Pages) -> FormatResult<Hit> {
-        let Some(p) = self.exc_top.partition_point(|&x| x <= id).checked_sub(1) else { return Ok(Hit::Absent) };
+        let Some(p) = self.exc_top.partition_point(|&x| x <= id).checked_sub(1) else {
+            return Ok(Hit::Absent);
+        };
         let page = src.page(u64::from(self.dir[EXCEPTIONS].0) + p as u64)?;
         let here = (self.exceptions as usize - p * EXC_PER).min(EXC_PER);
-        let (first, next, members) = (self.exc_top[p], self.exc_top.get(p + 1).copied().unwrap_or(ROWID_LIMIT), self.members);
+        let (first, next, members) = (
+            self.exc_top[p],
+            self.exc_top.get(p + 1).copied().unwrap_or(ROWID_LIMIT),
+            self.members,
+        );
         page.shaped(|b| {
             check(u64_at(b, 0) == first)?;
             check((0..here).all(|i| {
                 let at = i * EXC_LEN;
                 let x = u64_at(b, at);
-                x < next && (i == 0 || u64_at(b, at - EXC_LEN) < x) && u32::from(u16_at(b, at + 8)) < members && u16_at(b, at + 10) == 0
+                x < next
+                    && (i == 0 || u64_at(b, at - EXC_LEN) < x)
+                    && u32::from(u16_at(b, at + 8)) < members
+                    && u16_at(b, at + 10) == 0
             }))?;
             check(b[here * EXC_LEN..].iter().all(|&x| x == 0))
         })?;
@@ -860,7 +1015,10 @@ impl RunRev {
             let x = u64_at(b, mid * EXC_LEN);
             if x == id {
                 let at = mid * EXC_LEN;
-                return Ok(Hit::Frame { slot: u16_at(b, at + 8), vframe: u32_at(b, at + 12) });
+                return Ok(Hit::Frame {
+                    slot: u16_at(b, at + 8),
+                    vframe: u32_at(b, at + 12),
+                });
             }
             if x < id {
                 lo = mid + 1;
@@ -887,9 +1045,19 @@ fn check_s_page(b: &[u8], lo0: u64, ranks: u64, next_id: u64) -> FormatResult<()
     check(lo_at(0) == 0 && r_at(0) == 0)?;
     for k in 0..n {
         let r1 = if k + 1 < n { r_at(k + 1) } else { ranks };
-        let len = r1.checked_sub(r_at(k)).filter(|&l| l >= 1).ok_or_else(corrupt)?;
-        let stop = lo0.checked_add(lo_at(k)).and_then(|x| x.checked_add(len)).ok_or_else(corrupt)?;
-        let next = if k + 1 < n { lo0 + lo_at(k + 1) } else { next_id };
+        let len = r1
+            .checked_sub(r_at(k))
+            .filter(|&l| l >= 1)
+            .ok_or_else(corrupt)?;
+        let stop = lo0
+            .checked_add(lo_at(k))
+            .and_then(|x| x.checked_add(len))
+            .ok_or_else(corrupt)?;
+        let next = if k + 1 < n {
+            lo0 + lo_at(k + 1)
+        } else {
+            next_id
+        };
         check(stop < next && stop <= ROWID_LIMIT)?;
     }
     check(zeros_from(b, end))

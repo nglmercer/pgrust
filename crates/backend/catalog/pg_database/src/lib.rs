@@ -1,9 +1,7 @@
 //! pg_database catalog reads: the GetDatabaseTuple / GetDatabaseTupleByOid
 //! scans and the DATABASEOID syscache decode postinit.c consumes.
 
-#![allow(non_snake_case)]
-#![allow(non_upper_case_globals)]
-#![allow(clippy::result_large_err)]
+#![allow(clippy::result_large_err, non_snake_case, non_upper_case_globals)]
 
 use core::slice;
 
@@ -105,10 +103,9 @@ pub(crate) fn decode_form<'mcx>(
     let mut req = |attno: i32| -> PgResult<Datum> {
         let (d, isnull) = att(attno)?;
         if isnull {
-            return Err(PgError::error(format!(
-                "unexpected null in pg_database column {attno}"
-            ))
-            .into());
+            return Err(
+                PgError::error(format!("unexpected null in pg_database column {attno}")).into(),
+            );
         }
         Ok(d)
     };
@@ -127,6 +124,7 @@ pub(crate) fn decode_form<'mcx>(
     let dattablespace = req(Anum_pg_database_dattablespace)?.as_oid();
     let datcollate_d = req(Anum_pg_database_datcollate)?;
     let datctype_d = req(Anum_pg_database_datctype)?;
+    #[allow(clippy::drop_non_drop)]
     drop(req);
 
     let mut opt = |attno: i32| -> PgResult<Option<Datum>> {
@@ -236,8 +234,9 @@ pub fn search_database_syscache<'mcx>(
     else {
         return Ok(None);
     };
-    let decoded =
-        decode_form(mcx, |attno| cache_syscache::SysCacheGetAttr(DATABASEOID, &tup, attno));
+    let decoded = decode_form(mcx, |attno| {
+        cache_syscache::SysCacheGetAttr(DATABASEOID, &tup, attno)
+    });
     cache_syscache::ReleaseSysCache(tup);
     decoded.map(Some)
 }

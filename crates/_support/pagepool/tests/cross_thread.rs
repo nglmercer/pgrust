@@ -19,12 +19,20 @@ impl Held {
     }
     fn hold(&self, a: usize, len: usize) {
         for g in [a, a + len - 512] {
-            assert_eq!(self.grain(g).swap(1, AcqRel), 0, "{a:#x} (+{len}) handed out while held");
+            assert_eq!(
+                self.grain(g).swap(1, AcqRel),
+                0,
+                "{a:#x} (+{len}) handed out while held"
+            );
         }
     }
     fn free(&self, a: usize, len: usize) {
         for g in [a, a + len - 512] {
-            assert_eq!(self.grain(g).swap(0, AcqRel), 1, "{a:#x} given while not held");
+            assert_eq!(
+                self.grain(g).swap(0, AcqRel),
+                1,
+                "{a:#x} given while not held"
+            );
         }
     }
 }
@@ -53,16 +61,32 @@ fn stamp(a: usize, len: usize, tok: u64) {
 
 fn check(a: usize, len: usize, tok: u64) {
     // SAFETY: as above.
-    let (x, y) = unsafe { (((a + 16) as *const u64).read_unaligned(), ((a + len - 8) as *const u64).read_unaligned()) };
-    assert_eq!((x, y), (tok, !tok), "{a:#x} (+{len}) was written by another holder");
+    let (x, y) = unsafe {
+        (
+            ((a + 16) as *const u64).read_unaligned(),
+            ((a + len - 8) as *const u64).read_unaligned(),
+        )
+    };
+    assert_eq!(
+        (x, y),
+        (tok, !tok),
+        "{a:#x} (+{len}) was written by another holder"
+    );
 }
 
 #[test]
 fn cross_thread() {
     init_with(|c| c.va = if big() { 4 << 30 } else { 1 << 30 });
-    let (threads, ops) = if big() { (32usize, 10_000_000usize) } else { (8, 400_000) };
+    let (threads, ops) = if big() {
+        (32usize, 10_000_000usize)
+    } else {
+        (8, 400_000)
+    };
     let (lo, len) = range();
-    let held = Arc::new(Held { lo, flags: (0..len >> 9).map(|_| AtomicU8::new(0)).collect() });
+    let held = Arc::new(Held {
+        lo,
+        flags: (0..len >> 9).map(|_| AtomicU8::new(0)).collect(),
+    });
     let mut txs = Vec::new();
     let mut rxs = Vec::new();
     for _ in 0..threads {

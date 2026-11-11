@@ -98,6 +98,7 @@ pub unsafe extern "C-unwind" fn par_sort(ctx: *mut Ctx) -> i64 {
 }
 
 /// The buffer sorted and put as the worker's next run (the host clears it); nothing for an empty one.
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn put_run(ctx: *mut Ctx, run: *mut SortRun) -> i64 {
     if (*run).len == 0 {
         return DONE;

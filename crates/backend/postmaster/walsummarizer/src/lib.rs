@@ -3,9 +3,7 @@
 //! RemoveWalSummaryIfOlderThan, WriteWalSummary; backend-backup-walsummary
 //! stays non-core).
 
-#![allow(non_snake_case)]
-#![allow(non_upper_case_globals)]
-#![allow(clippy::result_large_err)]
+#![allow(clippy::result_large_err, non_snake_case, non_upper_case_globals)]
 
 use std::cell::Cell;
 use std::sync::atomic::{
@@ -1484,13 +1482,13 @@ fn parse_wal_summary_filename(name: &str) -> Option<(TimeLineID, XLogRecPtr, XLo
 /// walsummaryfuncs.c pg_wal_summary_contents, data half: open the summary
 /// file named by (tli, start_lsn, end_lsn) (C: OpenWalSummaryFile(ws, false)
 /// + ReadWalSummary feeding CreateBlockRefTableReader) and flatten it to the
-/// SRF's rows in C's emission order — per relation fork, one limit_block row
-/// first when the limit block is valid, then the modified blocks in reader
-/// order (C does not sort here; array chunks may yield out-of-order block
-/// numbers and that order is surfaced as-is). The SQL half (tli range check,
-/// tuplestore) lives with the builtin in adt_misc; C materializes into a
-/// tuplestore, here the rows come back as one Vec (memory-resident either
-/// way for the sizes summaries reach; C only spills past work_mem).
+///   SRF's rows in C's emission order — per relation fork, one limit_block row
+///   first when the limit block is valid, then the modified blocks in reader
+///   order (C does not sort here; array chunks may yield out-of-order block
+///   numbers and that order is surfaced as-is). The SQL half (tli range check,
+///   tuplestore) lives with the builtin in adt_misc; C materializes into a
+///   tuplestore, here the rows come back as one Vec (memory-resident either
+///   way for the sizes summaries reach; C only spills past work_mem).
 pub fn WalSummaryContentsRows(
     tli: TimeLineID,
     start_lsn: XLogRecPtr,

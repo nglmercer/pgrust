@@ -29,7 +29,11 @@ fn sealed(rng: &mut Rng, rows: usize, base: u64) -> Vec<u64> {
     let mut block = 0u64;
     while out.len() < rows {
         let per = 80 + rng.below(41);
-        out.extend((0..per).map(|off| base + block * IDS_PER_BLOCK + off).take(rows - out.len()));
+        out.extend(
+            (0..per)
+                .map(|off| base + block * IDS_PER_BLOCK + off)
+                .take(rows - out.len()),
+        );
         block += 1;
     }
     out
@@ -42,7 +46,11 @@ fn rowmap2_rowmap_bench() {
     let mut rng = Rng(77);
     let mono = sealed(&mut rng, n, 291 * 4096);
     let jitter = {
-        let mut k: Vec<(u64, u64)> = mono.iter().enumerate().map(|(t, &id)| (t as u64 + rng.below(50), id)).collect();
+        let mut k: Vec<(u64, u64)> = mono
+            .iter()
+            .enumerate()
+            .map(|(t, &id)| (t as u64 + rng.below(50), id))
+            .collect();
         k.sort_unstable();
         k.into_iter().map(|x| x.1).collect::<Vec<_>>()
     };
@@ -53,15 +61,40 @@ fn rowmap2_rowmap_bench() {
     };
     let cases: [(&str, &[u64], Opts); 5] = [
         ("mono sealed", &mono, Opts::default()),
-        ("fences (key within 50 rows)", &jitter, Opts { force: Some(RevForm::Fences) }),
-        ("labels (1000 envs)", &scattered, Opts { force: Some(RevForm::Labels) }),
-        ("frameix (1000 envs)", &scattered, Opts { force: Some(RevForm::FrameIx) }),
+        (
+            "fences (key within 50 rows)",
+            &jitter,
+            Opts {
+                force: Some(RevForm::Fences),
+            },
+        ),
+        (
+            "labels (1000 envs)",
+            &scattered,
+            Opts {
+                force: Some(RevForm::Labels),
+            },
+        ),
+        (
+            "frameix (1000 envs)",
+            &scattered,
+            Opts {
+                force: Some(RevForm::FrameIx),
+            },
+        ),
         ("elected (1000 envs)", &scattered, Opts::default()),
     ];
-    let mut maps: Vec<(&str, &[u64], RowMap)> = vec![("implicit", &mono[..0], RowMap::Implicit(291 * 4096))];
+    let mut maps: Vec<(&str, &[u64], RowMap)> =
+        vec![("implicit", &mono[..0], RowMap::Implicit(291 * 4096))];
     for (name, ids, opts) in cases {
         let body = encode(ids, opts).expect("encode");
-        maps.push((name, ids, RowMap::Granules(Arc::new(GranuleMap::new(GranMap::decode(&body, ids.len() as u64).expect("decode"))))));
+        maps.push((
+            name,
+            ids,
+            RowMap::Granules(Arc::new(GranuleMap::new(
+                GranMap::decode(&body, ids.len() as u64).expect("decode"),
+            ))),
+        ));
     }
     let implicit: Vec<u64> = (0..n as u64).map(|o| 291 * 4096 + o).collect();
     for (name, ids, m) in &maps {
@@ -89,7 +122,9 @@ fn rowmap2_rowmap_bench() {
             sum = sum.wrapping_add(out[k - 1]);
         }
         let dec_ns = t.elapsed().as_nanos() as f64 / rows as f64;
-        let probes: Vec<u64> = (0..1_000_000).map(|_| ids[rng.below(rows) as usize]).collect();
+        let probes: Vec<u64> = (0..1_000_000)
+            .map(|_| ids[rng.below(rows) as usize])
+            .collect();
         let mut hit = 0u64;
         let t = Instant::now();
         for &id in &probes {
@@ -101,7 +136,10 @@ fn rowmap2_rowmap_bench() {
         m.ordinals_of(rows, &probes, &mut answers);
         let batch_ns = t.elapsed().as_nanos() as f64 / probes.len() as f64;
         assert_eq!(hit, probes.len() as u64, "{name}: every probe hits");
-        assert!(answers.iter().all(Option::is_some), "{name}: every batch probe hits");
+        assert!(
+            answers.iter().all(Option::is_some),
+            "{name}: every batch probe hits"
+        );
         println!(
             "B-revam {name}: ID->ordinal {rev_ns:.1} ns, batch {batch_ns:.1} ns/ID; ident {ident_ns:.2} ns/row, ident_from {from_ns:.2} ns/row, decode_ids {dec_ns:.2} ns/row; held {} B (sum {})",
             m.mem_bytes(),

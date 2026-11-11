@@ -20,11 +20,18 @@ fn a_climbing_walk_keeps_the_claimers_warm_zero() {
         std::thread::sleep(Duration::from_millis(10));
     }
     let s0 = stats();
-    assert!(s0.warm_zero >= 8 * MIB, "the claimer met its target: {s0:?}");
+    assert!(
+        s0.warm_zero >= 8 * MIB,
+        "the claimer met its target: {s0:?}"
+    );
     let p0 = peak_counts().passes;
     hooks::peak_release_switch(true);
     hooks::peak_climb(Some(true));
-    for levers in [0, LEVER_SKIP | LEVER_AGE | LEVER_WARM1, LEVER_SKIP | LEVER_AGE | LEVER_DEAD1 | LEVER_WARM1] {
+    for levers in [
+        0,
+        LEVER_SKIP | LEVER_AGE | LEVER_WARM1,
+        LEVER_SKIP | LEVER_AGE | LEVER_DEAD1 | LEVER_WARM1,
+    ] {
         hooks::peak_levers(levers);
         for _ in 0..3 {
             std::thread::sleep(Duration::from_millis(WALK_MS as u64 + 30));
@@ -32,8 +39,16 @@ fn a_climbing_walk_keeps_the_claimers_warm_zero() {
         }
     }
     let s = stats();
-    assert!(peak_counts().passes >= p0 + 3, "the climbing walks ran: {:?}", peak_counts());
-    assert_eq!((s.warm_zero, s.prefaulted), (s0.warm_zero, s0.prefaulted), "warm zero kept, nothing prefaulted again: {s:?}");
+    assert!(
+        peak_counts().passes >= p0 + 3,
+        "the climbing walks ran: {:?}",
+        peak_counts()
+    );
+    assert_eq!(
+        (s.warm_zero, s.prefaulted),
+        (s0.warm_zero, s0.prefaulted),
+        "warm zero kept, nothing prefaulted again: {s:?}"
+    );
     hooks::peak_levers(0);
     hooks::peak_climb(None);
     hooks::peak_release_switch(false);

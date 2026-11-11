@@ -36,7 +36,7 @@ impl Tally {
 pub(crate) fn tally(q: Node<'_>) -> Option<(i16, Tally)> {
     let t = q.as_null_test().filter(|t| !t.argisrow && t.nulltesttype == NullTestType::IS_NOT_NULL)?;
     let v = t.arg?.as_var().filter(|v| int_width(v.vartype).is_some() && v.varattno > 0)?;
-    Some((v.varattno as i16, Tally::NotNull))
+    Some((v.varattno, Tally::NotNull))
 }
 
 /// An aggregate FILTER's predicate whose passing rows a granule record counts (a count battery
@@ -48,7 +48,7 @@ pub(crate) fn tally(q: Node<'_>) -> Option<(i16, Tally)> {
 pub(crate) fn filter_tally(q: Node<'_>, col: &dyn Fn(Node<'_>) -> Option<(i16, u32)>) -> Option<(i16, FilterTally)> {
     let boolean = |v: Node<'_>| col(v).filter(|c| c.1 == types_core::catalog::BOOLOID).map(|c| c.0);
     if let Some(t) = q.as_null_test().filter(|t| !t.argisrow) {
-        let c = t.arg.and_then(|v| col(v))?;
+        let c = t.arg.and_then(col)?;
         return match t.nulltesttype {
             NullTestType::IS_NULL => Some((c.0, FilterTally::IsNull)),
             _ if int_width(c.1).is_some() => Some((c.0, FilterTally::NotNull)),

@@ -49,10 +49,16 @@ unsafe fn give(p: *mut u8, bytes: usize, align: usize, life: Option<Lifetime>) {
 
 unsafe fn resize(p: *mut u8, old: usize, new: usize, align: usize) -> *mut u8 {
     // SAFETY: as `give`.
-    unsafe { pagepool::resize(NonNull::new_unchecked(p), old, new, align) }.map_or(null_mut(), |b| b.as_ptr().cast())
+    unsafe { pagepool::resize(NonNull::new_unchecked(p), old, new, align) }
+        .map_or(null_mut(), |b| b.as_ptr().cast())
 }
 
-static SOURCE: BlockSource = BlockSource { take, give, resize, usable: pagepool::usable };
+static SOURCE: BlockSource = BlockSource {
+    take,
+    give,
+    resize,
+    usable: pagepool::usable,
+};
 
 fn chunk(n: usize) -> Layout {
     Layout::from_size_align(n, 8).unwrap()
@@ -61,7 +67,10 @@ fn chunk(n: usize) -> Layout {
 #[test]
 fn the_source_gets_back_its_own_blocks_and_none_of_the_global_allocators() {
     let probe = vec![1u8; 8 * KIB];
-    assert!(pagepool::global_on() && pagepool::owns(probe.as_ptr()), "the global allocator serves from the pool's range");
+    assert!(
+        pagepool::global_on() && pagepool::owns(probe.as_ptr()),
+        "the global allocator serves from the pool's range"
+    );
     let (lo, len) = pagepool::range();
     set_block_owner(pagepool::taken);
     set_block_source(&SOURCE, lo, len, 64 * KIB, true);
@@ -73,9 +82,15 @@ fn the_source_gets_back_its_own_blocks_and_none_of_the_global_allocators() {
             let mut ctx = MemoryContext::new("pool-global");
             for round in 0..2 {
                 for _ in 0..300 {
-                    held.push((ctx.mcx().allocate(chunk(KIB)).unwrap().cast::<u8>(), chunk(KIB)));
+                    held.push((
+                        ctx.mcx().allocate(chunk(KIB)).unwrap().cast::<u8>(),
+                        chunk(KIB),
+                    ));
                 }
-                held.push((ctx.mcx().allocate(chunk(256 * KIB)).unwrap().cast::<u8>(), chunk(256 * KIB)));
+                held.push((
+                    ctx.mcx().allocate(chunk(256 * KIB)).unwrap().cast::<u8>(),
+                    chunk(256 * KIB),
+                ));
                 for (p, l) in held.drain(..) {
                     // SAFETY: each chunk is this context's for its layout, freed once
                     unsafe { ctx.mcx().deallocate(p, l) };
@@ -87,9 +102,20 @@ fn the_source_gets_back_its_own_blocks_and_none_of_the_global_allocators() {
             drop(ctx);
         }
         pagepool::flush_shelf();
-        assert!(TAKES.load(Relaxed) > 0, "the source served the bigger blocks");
-        assert_eq!(GIVES.load(Relaxed), TAKES.load(Relaxed), "the source got back what it took, nothing of the global allocator's");
-        assert_eq!(pagepool::stats().in_use[Tag::MCX.0 as usize], use0, "every taken block went back");
+        assert!(
+            TAKES.load(Relaxed) > 0,
+            "the source served the bigger blocks"
+        );
+        assert_eq!(
+            GIVES.load(Relaxed),
+            TAKES.load(Relaxed),
+            "the source got back what it took, nothing of the global allocator's"
+        );
+        assert_eq!(
+            pagepool::stats().in_use[Tag::MCX.0 as usize],
+            use0,
+            "every taken block went back"
+        );
         memledger::unbind_backend();
     })
     .join()

@@ -12,41 +12,44 @@ use core::ptr::NonNull;
 
 pub use allocator_api2::alloc::Allocator;
 
-use allocator_api2::alloc::AllocError;
 use ::types_error::{PgError, PgResult, ERRCODE_OUT_OF_MEMORY, ERRCODE_PROGRAM_LIMIT_EXCEEDED};
+use allocator_api2::alloc::AllocError;
 
 mod arena_safe;
 mod aset;
 mod bump;
+mod collect;
 mod external_allocation_guard;
 #[cfg(debug_assertions)]
 mod freed;
 mod generation;
-mod memo_map;
 pub mod governor;
 pub mod heap;
 pub mod ladder;
 pub mod ladder_stats;
-pub mod reconcile;
 pub mod ledger2;
-pub mod stdvec;
-pub mod revoke;
+mod memo_map;
 mod owned;
 mod owner;
+mod rc;
+pub mod reconcile;
+pub mod revoke;
 mod send_root;
 mod slab;
+pub mod stdvec;
 mod string;
-mod collect;
-mod rc;
 pub use arena_safe::{ArenaForget, ArenaSafe, ForgetSafe};
 pub use aset::{alloc_stats, parked_keeper_bytes};
+pub use collect::{
+    box_in, concat_in, format_in, raise, reserved_in, to_vec_in, vec_array_in, vec_elem_in,
+    CollectIn, GrowIn, PartitionIn, TryCollectOptionIn, TryCollectResultIn,
+};
 pub use external_allocation_guard::ExternalAllocationGuard;
 pub use memo_map::{PgMemoMap, MEMO_INLINE};
 pub use owned::{Bind, McxOwned, PinnedContext};
+pub use rc::PgRc;
 pub use send_root::{RootA, SendRoot};
 pub use string::PgString;
-pub use collect::{box_in, concat_in, format_in, raise, reserved_in, to_vec_in, vec_array_in, vec_elem_in, CollectIn, GrowIn, PartitionIn, TryCollectOptionIn, TryCollectResultIn};
-pub use rc::PgRc;
 
 /// # Safety: caller asserts the full [`ArenaSafe`] contract; the field list is only a guard.
 #[macro_export]
@@ -100,7 +103,9 @@ struct DropList {
 
 impl DropList {
     fn new() -> Self {
-        DropList { entries: alloc::vec::Vec::new() }
+        DropList {
+            entries: alloc::vec::Vec::new(),
+        }
     }
 
     // Entries stay in the list so a panicking destructor leaves the remainder for the next reset/drop.
@@ -184,7 +189,9 @@ impl Acct {
         if self.is_bump {
             self.window_tail.get()
         } else {
-            self.arena_footprint.get().saturating_sub(self.live_chunk_bytes.get())
+            self.arena_footprint
+                .get()
+                .saturating_sub(self.live_chunk_bytes.get())
         }
     }
 
@@ -211,7 +218,11 @@ impl Acct {
 
     #[inline]
     pub(crate) fn admit_block(&self, n: usize) {
-        crate::governor::admit(n, self.name.get(), self.arena_footprint.get().max(self.self_used.get()));
+        crate::governor::admit(
+            n,
+            self.name.get(),
+            self.arena_footprint.get().max(self.self_used.get()),
+        );
     }
 
     #[inline]
@@ -353,14 +364,11 @@ pub(crate) fn bump_fast_on() -> bool {
     }
 }
 
-
 #[cfg(all(feature = "std", not(test)))]
 #[inline]
 pub fn local_pool_on() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ON.get_or_init(|| {
-        !std::env::var("PGRUST_MCX_POOL_STRIPE").is_ok_and(|v| v.trim() == "0")
-    })
+    *ON.get_or_init(|| !std::env::var("PGRUST_MCX_POOL_STRIPE").is_ok_and(|v| v.trim() == "0"))
 }
 
 /// `Cell<Vec>` take/put keeps every access panic-free: a re-entrant access sees an empty list and falls through to `Global`, never a borrow error.
@@ -374,7 +382,11 @@ pub(crate) struct LocalStack<T> {
 #[cfg(feature = "std")]
 impl<T> LocalStack<T> {
     pub(crate) const fn new(cap: usize, dispose: fn(T)) -> Self {
-        LocalStack { items: Cell::new(alloc::vec::Vec::new()), cap, dispose }
+        LocalStack {
+            items: Cell::new(alloc::vec::Vec::new()),
+            cap,
+            dispose,
+        }
     }
 
     pub(crate) fn take(&self) -> Option<T> {
@@ -406,6 +418,7 @@ impl<T> LocalStack<T> {
         self.items.set(v);
     }
 
+    #[allow(dead_code)]
     pub(crate) fn drain_all(&self) {
         for it in self.items.take() {
             (self.dispose)(it);
@@ -460,6 +473,7 @@ mod tls_pools {
 }
 
 type AcctPool = PoolMutex<alloc::vec::Vec<NonNull<AcctInner>>>;
+#[allow(dead_code)]
 static ACCT_POOL: AcctPool = AcctPool::new(alloc::vec::Vec::new());
 
 // Per-query context churn must not pay a malloc/free for a 1-2 entry Vec.
@@ -477,7 +491,10 @@ fn child_vec_take() -> alloc::vec::Vec<AcctWeak> {
             .flatten()
             .unwrap_or_default();
     }
-    CHILD_VEC_POOL.try_with(|s| s.pop()).flatten().unwrap_or_default()
+    CHILD_VEC_POOL
+        .try_with(|s| s.pop())
+        .flatten()
+        .unwrap_or_default()
 }
 
 #[inline]
@@ -861,7 +878,8 @@ pub mod debug_census {
     const SLOTS: usize = 1024;
     // Open-addressed by name POINTER (each &'static str literal site is one
     // identity); snapshot merges equal strings from different sites.
-    static NAME_PTR: [AtomicPtr<u8>; SLOTS] = [const { AtomicPtr::new(core::ptr::null_mut()) }; SLOTS];
+    static NAME_PTR: [AtomicPtr<u8>; SLOTS] =
+        [const { AtomicPtr::new(core::ptr::null_mut()) }; SLOTS];
     static NAME_LEN: [AtomicUsize; SLOTS] = [const { AtomicUsize::new(0) }; SLOTS];
     static LIVE: [AtomicI64; SLOTS] = [const { AtomicI64::new(0) }; SLOTS];
 
@@ -939,7 +957,6 @@ pub mod debug_census {
     }
 }
 
-
 type SessionCleanup = alloc::boxed::Box<dyn FnOnce()>;
 
 /// Drain order: Portals, then State, then Roots.
@@ -960,7 +977,8 @@ pub fn set_session_cleanup_sink(f: fn(SessionCleanupPhase, SessionCleanup)) {
 /// D4812: mcx's own server-log lines (ledger2's shadow line, revoke's settled-ask line) go to the server's stderr writer once
 /// it installs one (memruntime's start: elog's, which hands a memory safety thread's write off the thread, so the
 /// watchdog's victim pick never waits on the log); raw stderr before that (a crate test).
-static LINE_SINK: core::sync::atomic::AtomicPtr<()> = core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
+static LINE_SINK: core::sync::atomic::AtomicPtr<()> =
+    core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
 
 pub fn set_line_sink(f: fn(&str)) {
     LINE_SINK.store(f as *mut (), core::sync::atomic::Ordering::Release);
@@ -970,8 +988,10 @@ pub fn set_line_sink(f: fn(&str)) {
 /// through the memlog ring, the one drainer, as a canceled statement's error recovery does), so a line a rung writes
 /// inside an allocation never waits on the log's sink. None installed (a crate test): the lines go as
 /// `server_log_line` writes them.
-static GATE_LOG_BEGIN: core::sync::atomic::AtomicPtr<()> = core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
-static GATE_LOG_END: core::sync::atomic::AtomicPtr<()> = core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
+static GATE_LOG_BEGIN: core::sync::atomic::AtomicPtr<()> =
+    core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
+static GATE_LOG_END: core::sync::atomic::AtomicPtr<()> =
+    core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
 
 pub fn set_gate_log_defer(begin: fn(), end: fn()) {
     GATE_LOG_END.store(end as *mut (), core::sync::atomic::Ordering::Release);
@@ -981,12 +1001,20 @@ pub fn set_gate_log_defer(begin: fn(), end: fn()) {
 /// `f` with this thread's server-log writes deferred (`set_gate_log_defer`), the writer it had put back after. No
 /// `Drop` (the no-drop rule): `f` never unwinds (the block gate's inline rungs neither allocate nor raise).
 pub(crate) fn with_gate_log_defer<T>(f: impl FnOnce() -> T) -> T {
-    let (b, e) = (GATE_LOG_BEGIN.load(core::sync::atomic::Ordering::Acquire), GATE_LOG_END.load(core::sync::atomic::Ordering::Acquire));
+    let (b, e) = (
+        GATE_LOG_BEGIN.load(core::sync::atomic::Ordering::Acquire),
+        GATE_LOG_END.load(core::sync::atomic::Ordering::Acquire),
+    );
     if b.is_null() || e.is_null() {
         return f();
     }
     // SAFETY: only set_gate_log_defer stores here, always from fn().
-    let (begin, end): (fn(), fn()) = unsafe { (core::mem::transmute::<*mut (), fn()>(b), core::mem::transmute::<*mut (), fn()>(e)) };
+    let (begin, end): (fn(), fn()) = unsafe {
+        (
+            core::mem::transmute::<*mut (), fn()>(b),
+            core::mem::transmute::<*mut (), fn()>(e),
+        )
+    };
     begin();
     let out = f();
     end();
@@ -1073,7 +1101,8 @@ std::thread_local! {
     static SESSION_ROOT_RETIRING: core::cell::Cell<bool> = const { core::cell::Cell::new(false) };
 }
 #[cfg(not(any(feature = "std", test)))]
-static SESSION_ROOT_RETIRING: RetiringFlag = RetiringFlag(core::sync::atomic::AtomicBool::new(false));
+static SESSION_ROOT_RETIRING: RetiringFlag =
+    RetiringFlag(core::sync::atomic::AtomicBool::new(false));
 #[cfg(not(any(feature = "std", test)))]
 struct RetiringFlag(core::sync::atomic::AtomicBool);
 #[cfg(not(any(feature = "std", test)))]
@@ -1163,9 +1192,11 @@ static COLLECT_ASK: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU6
 /// Answers so far (information).
 static COLLECT_ANSWERS: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(0);
 /// The wake that reaches parked answering threads (the runtime pool's park lot), installed by the pool.
-static COLLECT_WAKE: core::sync::atomic::AtomicPtr<()> = core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
+static COLLECT_WAKE: core::sync::atomic::AtomicPtr<()> =
+    core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
 /// The thread's own collect without the arena purge (mimalloc `mi_collect(false)`), installed by the binary.
-static OWN_COLLECT: core::sync::atomic::AtomicPtr<()> = core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
+static OWN_COLLECT: core::sync::atomic::AtomicPtr<()> =
+    core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
 
 pub fn set_collect_wake(f: fn()) {
     COLLECT_WAKE.store(f as *mut (), core::sync::atomic::Ordering::Release);
@@ -1213,7 +1244,8 @@ fn answer_collect_slow() {
 }
 
 /// The cache give-back's allocator step on the calling thread (`allocarena::give_back`), installed by the binary.
-static CACHE_GIVE_BACK: core::sync::atomic::AtomicPtr<()> = core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
+static CACHE_GIVE_BACK: core::sync::atomic::AtomicPtr<()> =
+    core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
 /// A give-back's purge after the owners answered: 1 = asked, 2 = one watchdog sample since (`purge_after_ask`).
 static PURGE_DUE: core::sync::atomic::AtomicU8 = core::sync::atomic::AtomicU8::new(0);
 
@@ -1225,7 +1257,8 @@ pub fn set_cache_give_back(f: fn()) {
 /// thread's cache-heap pages back to the cache arena with no purge (installed by the binary under the switch:
 /// `allocarena::collect_cache_local`) and every owner asked to collect at its idle park. False (nothing done) when the
 /// switch is off: the caller gives back as before.
-static REUSE_KEEP: core::sync::atomic::AtomicPtr<()> = core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
+static REUSE_KEEP: core::sync::atomic::AtomicPtr<()> =
+    core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
 
 pub fn set_reuse_keep(f: fn()) {
     REUSE_KEEP.store(f as *mut (), core::sync::atomic::Ordering::Release);
@@ -1280,7 +1313,10 @@ pub fn purge_after_ask() -> bool {
 
 /// (asks, answers) so far.
 pub fn collect_counts() -> (u64, u64) {
-    (COLLECT_ASK.load(core::sync::atomic::Ordering::Relaxed), COLLECT_ANSWERS.load(core::sync::atomic::Ordering::Relaxed))
+    (
+        COLLECT_ASK.load(core::sync::atomic::Ordering::Relaxed),
+        COLLECT_ANSWERS.load(core::sync::atomic::Ordering::Relaxed),
+    )
 }
 
 /// C3 (`cache_purge_now`): what a cut of the process caches did: the bytes its trims freed, and the bytes past the caps
@@ -1294,9 +1330,12 @@ pub struct CacheCut {
 /// C3: the process caches' cut, applied off every query thread (installed by Gravity's hosts: each cache's cap re-read and
 /// its trim run when it is past it); the cache arena's purge (installed by the binary: `allocarena::purge_cache_now`); and
 /// the purger's wake (installed by memruntime's purger when it starts).
-static CACHE_CUT: core::sync::atomic::AtomicPtr<()> = core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
-static CACHE_PURGE: core::sync::atomic::AtomicPtr<()> = core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
-static PURGE_WAKE: core::sync::atomic::AtomicPtr<()> = core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
+static CACHE_CUT: core::sync::atomic::AtomicPtr<()> =
+    core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
+static CACHE_PURGE: core::sync::atomic::AtomicPtr<()> =
+    core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
+static PURGE_WAKE: core::sync::atomic::AtomicPtr<()> =
+    core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
 
 pub fn set_cache_cut(f: fn() -> CacheCut) {
     CACHE_CUT.store(f as *mut (), core::sync::atomic::Ordering::Release);
@@ -1312,8 +1351,10 @@ pub fn set_purge_wake(f: fn()) {
 
 /// C3 (purge owned): the cache arena's purge made the purger's alone, and the dead-man fallback's purge count
 /// (both installed by the binary: `allocarena::set_cache_purge_owned` / `purge_owned_fallbacks`).
-static CACHE_PURGE_OWNER: core::sync::atomic::AtomicPtr<()> = core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
-static CACHE_PURGE_FALLBACKS: core::sync::atomic::AtomicPtr<()> = core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
+static CACHE_PURGE_OWNER: core::sync::atomic::AtomicPtr<()> =
+    core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
+static CACHE_PURGE_FALLBACKS: core::sync::atomic::AtomicPtr<()> =
+    core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
 
 pub fn set_cache_purge_owner(f: fn(bool)) {
     CACHE_PURGE_OWNER.store(f as *mut (), core::sync::atomic::Ordering::Release);
@@ -1321,7 +1362,8 @@ pub fn set_cache_purge_owner(f: fn(bool)) {
 
 /// REUSE BEFORE RELEASE: the allocator's reuse counters `(live bytes, claims, bytes claimed, misses)` (installed by the
 /// binary: `allocarena::reuse_stats`).
-static REUSE_STATS: core::sync::atomic::AtomicPtr<()> = core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
+static REUSE_STATS: core::sync::atomic::AtomicPtr<()> =
+    core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
 
 pub fn set_reuse_stats(f: fn() -> (u64, u64, u64, u64)) {
     REUSE_STATS.store(f as *mut (), core::sync::atomic::Ordering::Release);
@@ -1339,7 +1381,8 @@ pub fn reuse_stats() -> (u64, u64, u64, u64) {
 }
 
 /// REUSE (the C4 gate): where new allocations' pages came from (installed by the binary: `allocarena::alloc_sources`).
-static ALLOC_SOURCES: core::sync::atomic::AtomicPtr<()> = core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
+static ALLOC_SOURCES: core::sync::atomic::AtomicPtr<()> =
+    core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
 
 pub fn set_alloc_sources(f: fn() -> (u64, u64, u64, u64, u64)) {
     ALLOC_SOURCES.store(f as *mut (), core::sync::atomic::Ordering::Release);
@@ -1359,7 +1402,8 @@ pub fn alloc_sources() -> (u64, u64, u64, u64, u64) {
 
 /// REUSE BEFORE RELEASE sizing: the cache arena's free-run histogram `(committed, any)` in bytes per log2 bucket of slices
 /// (installed by the binary under `PGRUST_REUSE_RUNS=1`: `allocarena::cache_free_runs`).
-static CACHE_RUNS: core::sync::atomic::AtomicPtr<()> = core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
+static CACHE_RUNS: core::sync::atomic::AtomicPtr<()> =
+    core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
 
 pub type FreeRuns = ([u64; 12], [u64; 12]);
 
@@ -1394,8 +1438,10 @@ pub fn cache_purge_owner(on: bool) {
 
 /// C4 (query_purge_bg): the general arenas' purge made the purger's alone, and their expired ranges purged now (both
 /// installed by the binary: `allocarena::set_general_purge_owned` / `purge_general_expired`).
-static GENERAL_PURGE_OWNER: core::sync::atomic::AtomicPtr<()> = core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
-static GENERAL_PURGE: core::sync::atomic::AtomicPtr<()> = core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
+static GENERAL_PURGE_OWNER: core::sync::atomic::AtomicPtr<()> =
+    core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
+static GENERAL_PURGE: core::sync::atomic::AtomicPtr<()> =
+    core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
 
 pub fn set_general_purge_owner(f: fn(bool)) {
     GENERAL_PURGE_OWNER.store(f as *mut (), core::sync::atomic::Ordering::Release);
@@ -1428,8 +1474,10 @@ pub fn general_purge() -> u32 {
 
 /// Purge after idle (the purger's hold) and purged bytes by thread (both installed by the binary:
 /// `allocarena::purge_after_idle` / `purged_bytes`).
-static IDLE_PURGE: core::sync::atomic::AtomicPtr<()> = core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
-static PURGED_BYTES: core::sync::atomic::AtomicPtr<()> = core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
+static IDLE_PURGE: core::sync::atomic::AtomicPtr<()> =
+    core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
+static PURGED_BYTES: core::sync::atomic::AtomicPtr<()> =
+    core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
 
 pub fn set_idle_purge(f: fn(bool, bool, u64) -> u32) {
     IDLE_PURGE.store(f as *mut (), core::sync::atomic::Ordering::Release);
@@ -1453,7 +1501,8 @@ pub fn idle_purge(general: bool, cache: bool, idle_ms: u64) -> u32 {
 
 /// The purger's hold counters (installed by memruntime's purger when it starts: `purge::hold_counts`): `(ticks under
 /// ladder pressure, bytes purged on them, idle purges, bytes they purged)`.
-static PURGE_POLICY: core::sync::atomic::AtomicPtr<()> = core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
+static PURGE_POLICY: core::sync::atomic::AtomicPtr<()> =
+    core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
 
 pub fn set_purge_policy(f: fn() -> (u64, u64, u64, u64)) {
     PURGE_POLICY.store(f as *mut (), core::sync::atomic::Ordering::Release);
@@ -1569,14 +1618,26 @@ mod collect_ask_tests {
         a = super::answer_collect(a);
         assert_eq!(COLLECTED.load(Relaxed), 0, "nothing asked: no collect");
         let g1 = super::ask_collect();
-        assert_eq!((g1, WOKEN.load(Relaxed)), (g0 + 1, 1), "the ask wakes the parked threads");
+        assert_eq!(
+            (g1, WOKEN.load(Relaxed)),
+            (g0 + 1, 1),
+            "the ask wakes the parked threads"
+        );
         a = super::answer_collect(a);
         a = super::answer_collect(a);
-        assert_eq!((a, COLLECTED.load(Relaxed)), (g1, 1), "thread a answers once");
+        assert_eq!(
+            (a, COLLECTED.load(Relaxed)),
+            (g1, 1),
+            "thread a answers once"
+        );
         let _ = super::ask_collect();
         let g3 = super::ask_collect();
         b = super::answer_collect(b);
-        assert_eq!((b, COLLECTED.load(Relaxed)), (g3, 2), "thread b, two asks behind, collects once");
+        assert_eq!(
+            (b, COLLECTED.load(Relaxed)),
+            (g3, 2),
+            "thread b, two asks behind, collects once"
+        );
         assert_eq!(super::collect_counts().1, 2);
     }
 
@@ -1595,9 +1656,22 @@ mod collect_ask_tests {
         });
         let (g0, _) = super::collect_counts();
         super::give_back_caches();
-        assert_eq!((STEP.load(Relaxed), PURGES.load(Relaxed), super::collect_counts().0), (1, 1, g0 + 1));
-        assert!(!super::purge_after_ask(), "the sample of the ask: the owners have not answered yet");
-        assert!(super::purge_after_ask(), "one sample later: the second purge");
+        assert_eq!(
+            (
+                STEP.load(Relaxed),
+                PURGES.load(Relaxed),
+                super::collect_counts().0
+            ),
+            (1, 1, g0 + 1)
+        );
+        assert!(
+            !super::purge_after_ask(),
+            "the sample of the ask: the owners have not answered yet"
+        );
+        assert!(
+            super::purge_after_ask(),
+            "one sample later: the second purge"
+        );
         assert_eq!(PURGES.load(Relaxed), 2);
         assert!(!super::purge_after_ask(), "nothing more");
     }
@@ -1614,7 +1688,10 @@ mod collect_ask_tests {
         assert!(super::release_retained_at_exit(), "default: today's purge");
         assert_eq!(PURGES.load(Relaxed), 1);
         super::set_exit_purge(false);
-        assert!(!super::release_retained_at_exit(), "off: no purge at session end");
+        assert!(
+            !super::release_retained_at_exit(),
+            "off: no purge at session end"
+        );
         assert_eq!(PURGES.load(Relaxed), 1);
         assert!(super::release_retained(), "off: the other purges still run");
         assert_eq!(PURGES.load(Relaxed), 2);
@@ -1679,7 +1756,8 @@ pub fn release_retained_at_exit() -> bool {
 
 /// D4682 (Broker flip condition 4): the calling thread's retained heap: bytes its allocator keeps committed in the pages
 /// this thread owns beyond their live blocks. Set once at boot by the server binary (mimalloc's own-theap area visit).
-static THREAD_RETAINED: core::sync::atomic::AtomicPtr<()> = core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
+static THREAD_RETAINED: core::sync::atomic::AtomicPtr<()> =
+    core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
 
 pub fn set_thread_retained(f: fn() -> usize) {
     THREAD_RETAINED.store(f as *mut (), core::sync::atomic::Ordering::Release);
@@ -1715,7 +1793,8 @@ pub fn pressure_only() -> bool {
 
 /// Ladder pressure's purge (installed by the binary: `allocarena::purge_unused`): every free and committed run of
 /// every arena decommitted now. Its calls and bytes, `(calls, bytes)` (the accounts rows ladder_pressure_*).
-static PRESSURE_PURGE: core::sync::atomic::AtomicPtr<()> = core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
+static PRESSURE_PURGE: core::sync::atomic::AtomicPtr<()> =
+    core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
 static PRESSURE_CALLS: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(0);
 static PRESSURE_BYTES: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(0);
 
@@ -1739,15 +1818,20 @@ pub fn pressure_purge(by_purger: bool) -> u64 {
 
 /// `(ladder pressure purges, bytes they decommitted)` since the process started.
 pub fn pressure_counts() -> (u64, u64) {
-    (PRESSURE_CALLS.load(core::sync::atomic::Ordering::Relaxed), PRESSURE_BYTES.load(core::sync::atomic::Ordering::Relaxed))
+    (
+        PRESSURE_CALLS.load(core::sync::atomic::Ordering::Relaxed),
+        PRESSURE_BYTES.load(core::sync::atomic::Ordering::Relaxed),
+    )
 }
 
 /// IDLE TRIM UNDER PRESSURE ONLY (`PGRUST_IDLE_TRIM_PRESSURE_ONLY=1`, set by the binary; default off): the idle release
 /// keeps the parked regions and slot sets for the next statement (a large region dropped there is unmapped, and the next
 /// statement maps and faults it in again) unless ladder pressure holds (`ladder::pressed_now`: the whole reading over the
 /// ladder's line). Its answers counted, `(trims run, trims held)`.
-static IDLE_TRIM_PRESSURE_ONLY: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
-static IDLE_TRIMS: [core::sync::atomic::AtomicU64; 2] = [const { core::sync::atomic::AtomicU64::new(0) }; 2];
+static IDLE_TRIM_PRESSURE_ONLY: core::sync::atomic::AtomicBool =
+    core::sync::atomic::AtomicBool::new(false);
+static IDLE_TRIMS: [core::sync::atomic::AtomicU64; 2] =
+    [const { core::sync::atomic::AtomicU64::new(0) }; 2];
 
 pub fn set_idle_trim_pressure_only(on: bool) {
     IDLE_TRIM_PRESSURE_ONLY.store(on, core::sync::atomic::Ordering::Relaxed);
@@ -1764,14 +1848,18 @@ pub fn idle_trim_pressure_only() -> bool {
 pub fn idle_trim_now() -> bool {
     let trim = !purge_bg()
         && !ladder::parked_rung_on()
-        && (!IDLE_TRIM_PRESSURE_ONLY.load(core::sync::atomic::Ordering::Relaxed) || ladder::pressed_now());
+        && (!IDLE_TRIM_PRESSURE_ONLY.load(core::sync::atomic::Ordering::Relaxed)
+            || ladder::pressed_now());
     IDLE_TRIMS[usize::from(!trim)].fetch_add(1, core::sync::atomic::Ordering::Relaxed);
     trim
 }
 
 /// `(idle trims run, idle trims held for want of ladder pressure)` since the process started.
 pub fn idle_trim_counts() -> (u64, u64) {
-    (IDLE_TRIMS[0].load(core::sync::atomic::Ordering::Relaxed), IDLE_TRIMS[1].load(core::sync::atomic::Ordering::Relaxed))
+    (
+        IDLE_TRIMS[0].load(core::sync::atomic::Ordering::Relaxed),
+        IDLE_TRIMS[1].load(core::sync::atomic::Ordering::Relaxed),
+    )
 }
 
 /// THE PURGER PURGES UNDER PRESSURE (`PGRUST_PURGE_PRESSURE_BG=1`, set by the binary; default off; meant with pressure
@@ -1780,8 +1868,10 @@ pub fn idle_trim_counts() -> (u64, u64) {
 /// trims the parked regions and slot sets (`pressure_trim`) and then purges; the idle release never trims. Counted:
 /// `(wakes, inline past the cancel line, the purger's trims)`.
 static PURGE_BG: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
-static BG_COUNTS: [core::sync::atomic::AtomicU64; 3] = [const { core::sync::atomic::AtomicU64::new(0) }; 3];
-static PRESSURE_TRIM: core::sync::atomic::AtomicPtr<()> = core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
+static BG_COUNTS: [core::sync::atomic::AtomicU64; 3] =
+    [const { core::sync::atomic::AtomicU64::new(0) }; 3];
+static PRESSURE_TRIM: core::sync::atomic::AtomicPtr<()> =
+    core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
 
 pub fn set_purge_bg(on: bool) {
     PURGE_BG.store(on, core::sync::atomic::Ordering::Relaxed);
@@ -1817,8 +1907,10 @@ pub fn purge_bg_counts() -> (u64, u64, u64) {
 /// Purge timing (installed by the binary: `allocarena::set_purge_phase` / `allocarena::purge_times`): the session loop
 /// marks its thread inside a statement (1) or after its ReadyForQuery was sent (2), so each purge event's time lands on
 /// the client's latency or off it; an executor worker marks itself (3).
-static PURGE_PHASE: core::sync::atomic::AtomicPtr<()> = core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
-static PURGE_TIMES: core::sync::atomic::AtomicPtr<()> = core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
+static PURGE_PHASE: core::sync::atomic::AtomicPtr<()> =
+    core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
+static PURGE_TIMES: core::sync::atomic::AtomicPtr<()> =
+    core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
 
 pub fn set_purge_timing(phase: fn(u8), times: fn() -> [[u64; 4]; 5]) {
     PURGE_PHASE.store(phase as *mut (), core::sync::atomic::Ordering::Release);
@@ -1908,13 +2000,19 @@ impl SlowCalls {
 
 impl MemoryContext {
     pub fn new(name: &'static str) -> Self {
-        Self::with_backend(name, Backend::Aset(core::cell::UnsafeCell::new(aset::AllocSet::new())), None)
+        Self::with_backend(
+            name,
+            Backend::Aset(core::cell::UnsafeCell::new(aset::AllocSet::new())),
+            None,
+        )
     }
 
     pub fn new_start_small(name: &'static str) -> Self {
         Self::with_backend(
             name,
-            Backend::Aset(core::cell::UnsafeCell::new(aset::AllocSet::new_small(aset::MAX_BLOCK_SIZE))),
+            Backend::Aset(core::cell::UnsafeCell::new(aset::AllocSet::new_small(
+                aset::MAX_BLOCK_SIZE,
+            ))),
             None,
         )
     }
@@ -1938,7 +2036,12 @@ impl MemoryContext {
     }
 
     pub fn new_unobserved(name: &'static str) -> Self {
-        Self::with_backend_as(name, Backend::Aset(core::cell::UnsafeCell::new(aset::AllocSet::new())), None, false)
+        Self::with_backend_as(
+            name,
+            Backend::Aset(core::cell::UnsafeCell::new(aset::AllocSet::new())),
+            None,
+            false,
+        )
     }
 
     /// `new_unobserved` that takes nothing from the creating thread's pools (no recycled keeper: its first block is
@@ -1948,12 +2051,25 @@ impl MemoryContext {
     /// its own.
     pub fn new_unobserved_unpooled(name: &'static str) -> Self {
         let a = aset::AllocSet::new_sized(aset::INIT_BLOCK_SIZE, aset::MAX_BLOCK_SIZE);
-        Self::with_backend_full(name, Backend::Aset(core::cell::UnsafeCell::new(a)), None, false, true)
+        Self::with_backend_full(
+            name,
+            Backend::Aset(core::cell::UnsafeCell::new(a)),
+            None,
+            false,
+            true,
+        )
     }
 
     /// `new_unobserved` over `new_start_small`'s 1 KiB keeper: a root that holds a few small lists.
     pub fn new_unobserved_small(name: &'static str) -> Self {
-        Self::with_backend_as(name, Backend::Aset(core::cell::UnsafeCell::new(aset::AllocSet::new_small(aset::MAX_BLOCK_SIZE))), None, false)
+        Self::with_backend_as(
+            name,
+            Backend::Aset(core::cell::UnsafeCell::new(aset::AllocSet::new_small(
+                aset::MAX_BLOCK_SIZE,
+            ))),
+            None,
+            false,
+        )
     }
 
     /// `new` whose reset is wholesale like C's AllocSetReset (live chunks dropped, not reported as leaks): a per-row or
@@ -2029,7 +2145,10 @@ impl MemoryContext {
         {
             let a = memledger::current();
             if a.is_backend() {
-                self.set_owner(memledger::Owner::Portal { acct: a, portal: token });
+                self.set_owner(memledger::Owner::Portal {
+                    acct: a,
+                    portal: token,
+                });
             }
         }
         #[cfg(not(feature = "std"))]
@@ -2037,7 +2156,10 @@ impl MemoryContext {
     }
 
     pub fn is_child_of(&self, parent: &MemoryContext) -> bool {
-        self.acct.parent.as_ref().is_some_and(|p| p.ptr == parent.acct.ptr)
+        self.acct
+            .parent
+            .as_ref()
+            .is_some_and(|p| p.ptr == parent.acct.ptr)
     }
 
     pub fn new_child(&self, name: &'static str) -> MemoryContext {
@@ -2054,7 +2176,9 @@ impl MemoryContext {
     pub fn new_child_small(&self, name: &'static str) -> MemoryContext {
         Self::with_backend(
             name,
-            Backend::Aset(core::cell::UnsafeCell::new(aset::AllocSet::new_small(ALLOCSET_SMALL_MAXSIZE))),
+            Backend::Aset(core::cell::UnsafeCell::new(aset::AllocSet::new_small(
+                ALLOCSET_SMALL_MAXSIZE,
+            ))),
             Some(self.acct.clone()),
         )
     }
@@ -2083,12 +2207,22 @@ impl MemoryContext {
     /// 8 KiB..1 MiB, a power of two) so a normal window never leaves it, and up to `retain_cap` bytes of extra blocks kept
     /// across reset and reused in order, so a steady-state window allocates nothing. Every other bump context keeps
     /// bump.c's reset (extra blocks freed).
-    pub fn new_child_bump_window(&self, name: &'static str, keeper_bytes: usize, retain_cap: usize) -> MemoryContext {
-        let keeper = keeper_bytes.clamp(WINDOW_KEEPER_MIN, WINDOW_KEEPER_MAX).next_power_of_two();
+    pub fn new_child_bump_window(
+        &self,
+        name: &'static str,
+        keeper_bytes: usize,
+        retain_cap: usize,
+    ) -> MemoryContext {
+        let keeper = keeper_bytes
+            .clamp(WINDOW_KEEPER_MIN, WINDOW_KEEPER_MAX)
+            .next_power_of_two();
         let cap = retain_cap.min(u32::MAX as usize) as u32;
         Self::with_backend(
             name,
-            Backend::Bump(core::cell::UnsafeCell::new(bump::BumpArena::window(keeper as u32, cap))),
+            Backend::Bump(core::cell::UnsafeCell::new(bump::BumpArena::window(
+                keeper as u32,
+                cap,
+            ))),
             Some(self.acct.clone()),
         )
     }
@@ -2098,7 +2232,9 @@ impl MemoryContext {
     pub fn new_small_wholesale(name: &'static str) -> Self {
         let ctx = Self::with_backend(
             name,
-            Backend::Aset(core::cell::UnsafeCell::new(aset::AllocSet::new_small(ALLOCSET_SMALL_MAXSIZE))),
+            Backend::Aset(core::cell::UnsafeCell::new(aset::AllocSet::new_small(
+                ALLOCSET_SMALL_MAXSIZE,
+            ))),
             None,
         );
         ctx.acct.wholesale_reset.set(true);
@@ -2116,7 +2252,9 @@ impl MemoryContext {
     ) -> MemoryContext {
         Self::with_backend(
             name,
-            Backend::Bump(core::cell::UnsafeCell::new(bump::BumpArena::with_max_block_size(max_block_size))),
+            Backend::Bump(core::cell::UnsafeCell::new(
+                bump::BumpArena::with_max_block_size(max_block_size),
+            )),
             Some(self.acct.clone()),
         )
     }
@@ -2142,7 +2280,11 @@ impl MemoryContext {
     }
 
     pub fn new_child_bumpforget(&self, name: &'static str) -> MemoryContext {
-        Self::with_backend(name, Backend::BumpForget(new_arena()), Some(self.acct.clone()))
+        Self::with_backend(
+            name,
+            Backend::BumpForget(new_arena()),
+            Some(self.acct.clone()),
+        )
     }
 
     pub fn new_generation(name: &'static str) -> Self {
@@ -2191,11 +2333,22 @@ impl MemoryContext {
         Self::with_backend_as(name, backend, parent, true)
     }
 
-    fn with_backend_as(name: &'static str, backend: Backend, parent: Option<AcctRc>, observed: bool) -> Self {
+    fn with_backend_as(
+        name: &'static str,
+        backend: Backend,
+        parent: Option<AcctRc>,
+        observed: bool,
+    ) -> Self {
         Self::with_backend_full(name, backend, parent, observed, false)
     }
 
-    fn with_backend_full(name: &'static str, backend: Backend, parent: Option<AcctRc>, observed: bool, unpooled: bool) -> Self {
+    fn with_backend_full(
+        name: &'static str,
+        backend: Backend,
+        parent: Option<AcctRc>,
+        observed: bool,
+        unpooled: bool,
+    ) -> Self {
         let (is_bump, kind, init_footprint, init_nblocks) = match &backend {
             Backend::Aset(a) => {
                 // SAFETY: exclusive during construction.
@@ -2226,9 +2379,9 @@ impl MemoryContext {
         } else {
             reserve_oom_errors();
         }
-        let limited_path = parent.as_ref().is_some_and(|p| {
-            p.limited_path.get() || p.limit.get() != usize::MAX
-        });
+        let limited_path = parent
+            .as_ref()
+            .is_some_and(|p| p.limited_path.get() || p.limit.get() != usize::MAX);
         let val = Acct {
             name: Cell::new(name),
             ident: RefCell::new(None),
@@ -2248,14 +2401,28 @@ impl MemoryContext {
             is_bump,
             kind,
             parent,
-            children: RefCell::new(if unpooled { alloc::vec::Vec::new() } else { child_vec_take() }),
+            children: RefCell::new(if unpooled {
+                alloc::vec::Vec::new()
+            } else {
+                child_vec_take()
+            }),
             led: crate::owner::Led::NEW,
         };
-        let acct = if unpooled { AcctRc::new_fresh(val) } else { AcctRc::new(val) };
+        let acct = if unpooled {
+            AcctRc::new_fresh(val)
+        } else {
+            AcctRc::new(val)
+        };
         // LEDGER2 step 2: a child takes its parent's owner; an unnamed root the creating
         // thread's owner, once, here; a named root is re-owned by its constructor (`set_owner`)
         #[cfg(feature = "std")]
-        acct.led.attach(acct.parent.as_ref().map_or_else(|| memledger::charge::CtxOwner::inferred(name), |p| p.led.owner()), init_footprint);
+        acct.led.attach(
+            acct.parent.as_ref().map_or_else(
+                || memledger::charge::CtxOwner::inferred(name),
+                |p| p.led.owner(),
+            ),
+            init_footprint,
+        );
         if let Some(p) = &acct.parent {
             let mut children = p.children.borrow_mut();
             if children.len() == children.capacity() {
@@ -2276,6 +2443,8 @@ impl MemoryContext {
             poisoned: Cell::new(false),
             #[cfg(debug_assertions)]
             home: Cell::new(0),
+            // SlowCalls is a unit struct only without debug_assertions; `default()` is right for both shapes.
+            #[allow(clippy::default_constructed_unit_structs)]
             slow_calls: SlowCalls::default(),
         }
     }
@@ -2338,9 +2507,10 @@ impl MemoryContext {
                 Backend::Aset(set) => (*set.get()).is_freed(ptr, layout),
                 Backend::Generation(a) => (*a.get()).is_freed(ptr),
                 Backend::Slab(a) => !realloc && (*a.get()).is_freed(ptr),
-                Backend::Malloc | Backend::Bump(_) | Backend::BumpDrop(..) | Backend::BumpForget(_) => {
-                    false
-                }
+                Backend::Malloc
+                | Backend::Bump(_)
+                | Backend::BumpDrop(..)
+                | Backend::BumpForget(_) => false,
             }
         };
         if freed {
@@ -2351,7 +2521,11 @@ impl MemoryContext {
     /// Contract: set the limit before creating children (limited_path cache).
     pub fn with_limit(self, limit: usize) -> Self {
         debug_assert!(
-            self.acct.children.borrow().iter().all(|w| w.strong_count() == 0),
+            self.acct
+                .children
+                .borrow()
+                .iter()
+                .all(|w| w.strong_count() == 0),
             "with_limit must be set before creating children (limited_path cache would go stale)",
         );
         if limit != usize::MAX {
@@ -2433,7 +2607,12 @@ impl MemoryContext {
     /// C `MemoryContextIsEmpty` (mcxt.c:749): a child or a reset callback (mcxt.c:583) makes it non-empty.
     pub fn is_empty_like_c(&self) -> bool {
         self.reset_cbs.borrow().is_empty()
-            && !self.acct.children.borrow().iter().any(|w| w.strong_count() > 0)
+            && !self
+                .acct
+                .children
+                .borrow()
+                .iter()
+                .any(|w| w.strong_count() > 0)
             && self.subtree_used() == 0
     }
 
@@ -2583,7 +2762,9 @@ impl MemoryContext {
             // SAFETY: single-statement borrow, never re-entered (as stats).
             Backend::Aset(a) => unsafe { &*a.get() }.dedicated_served(p),
             // SAFETY: as above.
-            Backend::Bump(a) | Backend::BumpDrop(a, _) | Backend::BumpForget(a) => unsafe { &*a.get() }.oversize_served(p),
+            Backend::Bump(a) | Backend::BumpDrop(a, _) | Backend::BumpForget(a) => {
+                unsafe { &*a.get() }.oversize_served(p)
+            }
             _ => None,
         }
     }
@@ -2743,7 +2924,12 @@ pub fn reserve_oom_errors() {
             .with_detail(alloc::string::String::with_capacity(OOM_RESERVE_DETAIL_CAP));
         let p = alloc::boxed::Box::into_raw(alloc::boxed::Box::new(e));
         if slot
-            .compare_exchange(core::ptr::null_mut(), p, Ordering::AcqRel, Ordering::Relaxed)
+            .compare_exchange(
+                core::ptr::null_mut(),
+                p,
+                Ordering::AcqRel,
+                Ordering::Relaxed,
+            )
             .is_err()
         {
             // SAFETY: `p` came from Box::into_raw above and was never published.
@@ -2788,7 +2974,9 @@ pub fn oom_boxed_named(context_name: &str, request: usize) -> alloc::boxed::Box<
         detail.clear();
         let wrote = fmt::write(
             &mut NoGrow(detail),
-            format_args!("Failed on request of size {request} in memory context \"{context_name}\"."),
+            format_args!(
+                "Failed on request of size {request} in memory context \"{context_name}\"."
+            ),
         );
         if wrote.is_err() {
             e.detail = None;
@@ -2825,7 +3013,10 @@ pub fn std_vec_reserve<T>(
     additional: usize,
 ) -> PgResult<()> {
     v.try_reserve_exact(additional).map_err(|_| {
-        oom_named(context_name, additional.saturating_mul(core::mem::size_of::<T>()))
+        oom_named(
+            context_name,
+            additional.saturating_mul(core::mem::size_of::<T>()),
+        )
     })?;
     Ok(())
 }
@@ -2846,7 +3037,11 @@ pub fn std_vec_resize<T: Clone>(
 }
 
 #[inline]
-pub fn std_vec_from_elem<T: Clone>(context_name: &str, value: T, n: usize) -> PgResult<alloc::vec::Vec<T>> {
+pub fn std_vec_from_elem<T: Clone>(
+    context_name: &str,
+    value: T,
+    n: usize,
+) -> PgResult<alloc::vec::Vec<T>> {
     let mut v = std_vec_with_capacity(context_name, n)?;
     v.resize(n, value);
     Ok(v)
@@ -2861,7 +3056,11 @@ pub fn pgvec_reserve<'mcx, T>(v: &mut PgVec<'mcx, T>, additional: usize) -> PgRe
 }
 
 #[inline]
-pub fn pgvec_resize<'mcx, T: Clone>(v: &mut PgVec<'mcx, T>, new_len: usize, value: T) -> PgResult<()> {
+pub fn pgvec_resize<'mcx, T: Clone>(
+    v: &mut PgVec<'mcx, T>,
+    new_len: usize,
+    value: T,
+) -> PgResult<()> {
     if new_len > v.len() {
         pgvec_reserve(v, new_len - v.len())?;
     }
@@ -2879,7 +3078,9 @@ pub fn std_vec_from_slice<T: Clone>(context_name: &str, src: &[T]) -> PgResult<a
 #[cold]
 #[inline(never)]
 fn send_root_refuses(what: &str, name: &str) -> ! {
-    panic!("mcx: SendRoot {name:?} takes no {what} (it would tie the root to the thread that made it)");
+    panic!(
+        "mcx: SendRoot {name:?} takes no {what} (it would tie the root to the thread that made it)"
+    );
 }
 
 /// Debug builds: an Mcx used after its context moved (`MemoryContext::check_home`); `name` when the stale bytes still
@@ -2888,7 +3089,10 @@ fn send_root_refuses(what: &str, name: &str) -> ! {
 #[cold]
 #[inline(never)]
 fn moved_context(name: Option<&str>) -> ! {
-    let ctx = name.map_or_else(|| alloc::string::String::from("(its old address now holds other bytes)"), |n| alloc::format!("{n:?}"));
+    let ctx = name.map_or_else(
+        || alloc::string::String::from("(its old address now holds other bytes)"),
+        |n| alloc::format!("{n:?}"),
+    );
     panic!(
         "mcx: a memory context moved after a handle to it was taken: an Mcx still points at its old address (context \
          {ctx}); a lifetime-extended handle must come from an address-stable owner (PinnedContext, McxOwned, SendRoot)"
@@ -3020,7 +3224,8 @@ fn push_live_children(acct: &Acct, parent: usize, work: &mut alloc::vec::Vec<(us
 }
 
 fn tree_stats_node(acct: &Acct) -> TreeStats {
-    let mut nodes: alloc::vec::Vec<(usize, TreeStats)> = alloc::vec![(usize::MAX, tree_stats_leaf(acct))];
+    let mut nodes: alloc::vec::Vec<(usize, TreeStats)> =
+        alloc::vec![(usize::MAX, tree_stats_leaf(acct))];
     let mut work = alloc::vec::Vec::new();
     push_live_children(acct, 0, &mut work);
     while let Some((parent, c)) = work.pop() {
@@ -3087,7 +3292,9 @@ impl<'mcx> Mcx<'mcx> {
     #[inline(never)]
     fn alloc_bytes_slow(self, n: usize) -> Result<NonNull<u8>, PgError> {
         let layout = Layout::from_size_align(n.max(1), 8).map_err(|_| self.oom(n))?;
-        Allocator::allocate(&self, layout).map(|p| p.cast::<u8>()).map_err(|_| self.oom(n))
+        Allocator::allocate(&self, layout)
+            .map(|p| p.cast::<u8>())
+            .map_err(|_| self.oom(n))
     }
 
     #[cold]
@@ -3191,9 +3398,7 @@ unsafe impl Allocator for Mcx<'_> {
             // No BumpFree: bytes and charge release wholesale at reset.
             Backend::Bump(_) | Backend::BumpDrop(..) | Backend::BumpForget(_) => {}
             // SAFETY: single-statement borrow (as bump_mut); ptr/layout per trait contract.
-            Backend::Generation(a) => unsafe {
-                (*a.get()).dealloc(ptr, layout, &self.0.acct)
-            },
+            Backend::Generation(a) => unsafe { (*a.get()).dealloc(ptr, layout, &self.0.acct) },
             // SAFETY: as above.
             Backend::Slab(a) => unsafe { (*a.get()).dealloc(ptr, layout, &self.0.acct) },
         }
@@ -3381,7 +3586,8 @@ impl Mcx<'_> {
             }
             return None;
         }
-        if let Backend::Bump(a) | Backend::BumpDrop(a, _) | Backend::BumpForget(a) = &self.0.backend {
+        if let Backend::Bump(a) | Backend::BumpDrop(a, _) | Backend::BumpForget(a) = &self.0.backend
+        {
             // Keeps the AllocSet hit's path as it was (one discriminant test, no taken branch): without the hint LLVM
             // tests the bump range first and every AllocSet hit pays 3 more instructions and a taken branch.
             core::hint::cold_path();
@@ -3467,7 +3673,10 @@ pub const MAX_ALLOC_HUGE_SIZE: usize = usize::MAX / 2;
 
 #[cold]
 fn invalid_alloc_size(request: usize) -> alloc::boxed::Box<PgError> {
-    PgError::error(alloc::format!("invalid memory alloc request size {request}")).into()
+    PgError::error(alloc::format!(
+        "invalid memory alloc request size {request}"
+    ))
+    .into()
 }
 
 #[inline]
@@ -3488,9 +3697,11 @@ pub fn add_size(s1: usize, s2: usize) -> PgResult<usize> {
 
 #[cold]
 fn add_size_error(s1: usize, s2: usize) -> alloc::boxed::Box<PgError> {
-    PgError::error(alloc::format!("invalid memory allocation request size {s1} + {s2}"))
-        .with_sqlstate(ERRCODE_PROGRAM_LIMIT_EXCEEDED)
-        .into()
+    PgError::error(alloc::format!(
+        "invalid memory allocation request size {s1} + {s2}"
+    ))
+    .with_sqlstate(ERRCODE_PROGRAM_LIMIT_EXCEEDED)
+    .into()
 }
 
 #[inline]
@@ -3503,16 +3714,17 @@ pub fn mul_size(s1: usize, s2: usize) -> PgResult<usize> {
 
 #[cold]
 fn mul_size_error(s1: usize, s2: usize) -> alloc::boxed::Box<PgError> {
-    PgError::error(alloc::format!("invalid memory allocation request size {s1} * {s2}"))
-        .with_sqlstate(ERRCODE_PROGRAM_LIMIT_EXCEEDED)
-        .into()
+    PgError::error(alloc::format!(
+        "invalid memory allocation request size {s1} * {s2}"
+    ))
+    .with_sqlstate(ERRCODE_PROGRAM_LIMIT_EXCEEDED)
+    .into()
 }
 
 #[inline]
 pub fn alloc_in<'mcx, T>(mcx: Mcx<'mcx>, value: T) -> PgResult<PgBox<'mcx, T>> {
     check_alloc_size(core::mem::size_of::<T>())?;
-    PgBox::try_new_in(value, mcx)
-        .map_err(|_| mcx.oom_boxed(core::mem::size_of::<T>()))
+    PgBox::try_new_in(value, mcx).map_err(|_| mcx.oom_boxed(core::mem::size_of::<T>()))
 }
 
 pub fn alloc_leak_in<'mcx, T>(mcx: Mcx<'mcx>, value: T) -> PgResult<&'mcx T> {
@@ -3528,11 +3740,8 @@ pub fn leak_in<'mcx, T>(b: PgBox<'mcx, T>) -> &'mcx mut T {
 
 pub fn arena_leak<'mcx, T>(b: PgBox<'mcx, T>) -> &'mcx mut T {
     // Return a child retag (a sibling would be invalidated under stacked borrows).
-    let (raw, alloc): (*mut T, Mcx<'mcx>) =
-        allocator_api2::boxed::Box::into_raw_with_allocator(b);
-    let addr = core::ptr::with_exposed_provenance_mut::<u8>(
-        (raw as *mut u8).expose_provenance(),
-    );
+    let (raw, alloc): (*mut T, Mcx<'mcx>) = allocator_api2::boxed::Box::into_raw_with_allocator(b);
+    let addr = core::ptr::with_exposed_provenance_mut::<u8>((raw as *mut u8).expose_provenance());
     // SAFETY: live T unboxed into `alloc`'s arena, Drop suppressed; glue is the unique destructor.
     let registered = unsafe { alloc.context().register_drop(addr, drop_glue::<T>) };
     debug_assert!(
@@ -3546,8 +3755,7 @@ pub fn arena_leak<'mcx, T>(b: PgBox<'mcx, T>) -> &'mcx mut T {
 
 pub fn arena_box_in<'mcx, T>(mcx: Mcx<'mcx>, value: T) -> PgResult<&'mcx mut T> {
     check_alloc_size(core::mem::size_of::<T>())?;
-    let b = PgBox::try_new_in(value, mcx)
-        .map_err(|_| mcx.oom_boxed(core::mem::size_of::<T>()))?;
+    let b = PgBox::try_new_in(value, mcx).map_err(|_| mcx.oom_boxed(core::mem::size_of::<T>()))?;
     Ok(arena_leak(b))
 }
 
@@ -3560,10 +3768,13 @@ pub fn arena_vec_in<'mcx, T>(
         .map_err(|_| mcx.oom_boxed(core::mem::size_of::<PgVec<'mcx, T>>()))?;
     let (raw, alloc): (*mut PgVec<'mcx, T>, Mcx<'mcx>) =
         allocator_api2::boxed::Box::into_raw_with_allocator(b);
-    let addr =
-        core::ptr::with_exposed_provenance_mut::<u8>((raw as *mut u8).expose_provenance());
+    let addr = core::ptr::with_exposed_provenance_mut::<u8>((raw as *mut u8).expose_provenance());
     // SAFETY: live header leaked into `alloc`'s arena; element-only glue is the unique destructor.
-    let registered = unsafe { alloc.context().register_drop(addr, drop_glue_vec_elems::<T>) };
+    let registered = unsafe {
+        alloc
+            .context()
+            .register_drop(addr, drop_glue_vec_elems::<T>)
+    };
     debug_assert!(
         registered || !core::mem::needs_drop::<T>(),
         "arena_vec_in: Vec of a Drop element type leaked into a non-BumpDrop \
@@ -3578,10 +3789,8 @@ pub fn arena_string_in<'mcx>(
     s: PgString<'mcx>,
 ) -> PgResult<&'mcx mut PgString<'mcx>> {
     let b = alloc_in(mcx, s)?;
-    let raw: *mut PgString<'mcx> =
-        allocator_api2::boxed::Box::into_raw_with_allocator(b).0;
-    let addr =
-        core::ptr::with_exposed_provenance_mut::<u8>((raw as *mut u8).expose_provenance());
+    let raw: *mut PgString<'mcx> = allocator_api2::boxed::Box::into_raw_with_allocator(b).0;
+    let addr = core::ptr::with_exposed_provenance_mut::<u8>((raw as *mut u8).expose_provenance());
     // SAFETY: PgString's only Drop is its POD-element Vec<u8>'s.
     let registered = unsafe { mcx.context().register_drop(addr, drop_glue_noop) };
     debug_assert!(registered, "arena_string_in: use a BumpDrop context");
@@ -3608,10 +3817,7 @@ pub fn forget_box_in<'mcx, T: ForgetSafe>(mcx: Mcx<'mcx>, value: T) -> PgResult<
     Ok(PgBox::leak(alloc_in(mcx, value)?))
 }
 
-pub fn arena_box_in_forget<'mcx, T: ArenaSafe>(
-    mcx: Mcx<'mcx>,
-    value: T,
-) -> PgResult<&'mcx mut T> {
+pub fn arena_box_in_forget<'mcx, T: ArenaSafe>(mcx: Mcx<'mcx>, value: T) -> PgResult<&'mcx mut T> {
     const { assert!(!core::mem::needs_drop::<T>()) };
     debug_assert!(
         mcx.context().is_bumpforget(),
@@ -3676,6 +3882,7 @@ where
 
 /// Move payload `P` out of an unsized `PgBox` without dropping `P`.
 /// # Safety: `data` — the payload's data pointer inside `sized`; runtime type `P` (tag-checked).
+#[allow(clippy::missing_safety_doc)]
 pub unsafe fn box_read_payload<'mcx, P, U>(sized: PgBox<'mcx, U>, data: *const P) -> P
 where
     P: 'mcx,
@@ -3704,7 +3911,8 @@ pub fn vec_append_bytes(v: &mut PgVec<'_, u8>, bytes: &[u8]) -> PgResult<()> {
     if v.capacity() - old < n {
         let target = grow_target(v.capacity(), old.saturating_add(n));
         check_alloc_size(target)?;
-        v.try_reserve_exact(target - old).map_err(|_| mcx.oom_boxed(n))?;
+        v.try_reserve_exact(target - old)
+            .map_err(|_| mcx.oom_boxed(n))?;
     }
     // SAFETY: capacity >= old + n after the reserve; dst disjoint; set_len covers the n bytes.
     unsafe {
@@ -3742,7 +3950,9 @@ pub fn vec_with_capacity_in<'mcx, T>(mcx: Mcx<'mcx>, cap: usize) -> PgResult<PgV
     }
     // Alloc via non-generic alloc_uninit_bytes (no per-T grow machinery).
     let layout = core::alloc::Layout::array::<T>(cap).map_err(|_| mcx.oom_boxed(request))?;
-    let p = mcx.alloc_uninit_bytes(layout).map_err(|_| mcx.oom_boxed(request))?;
+    let p = mcx
+        .alloc_uninit_bytes(layout)
+        .map_err(|_| mcx.oom_boxed(request))?;
     // SAFETY: `p` is a fresh arena allocation of exactly `Layout::array::<T>(cap)`
     // bytes from `mcx`; len 0 with capacity `cap` (the same layout Vec recomputes
     // on grow/drop), matching this allocator.
@@ -3750,10 +3960,7 @@ pub fn vec_with_capacity_in<'mcx, T>(mcx: Mcx<'mcx>, cap: usize) -> PgResult<PgV
 }
 
 #[inline]
-pub fn vec_with_capacity_huge_in<'mcx, T>(
-    mcx: Mcx<'mcx>,
-    cap: usize,
-) -> PgResult<PgVec<'mcx, T>> {
+pub fn vec_with_capacity_huge_in<'mcx, T>(mcx: Mcx<'mcx>, cap: usize) -> PgResult<PgVec<'mcx, T>> {
     const { assert!(!core::mem::needs_drop::<T>()) };
     let request = cap.saturating_mul(core::mem::size_of::<T>());
     if request > MAX_ALLOC_HUGE_SIZE {
@@ -3764,7 +3971,9 @@ pub fn vec_with_capacity_huge_in<'mcx, T>(
     }
     // Never funnels through the ceiling-checked Allocator::allocate.
     let layout = core::alloc::Layout::array::<T>(cap).map_err(|_| mcx.oom_boxed(request))?;
-    let p = mcx.alloc_uninit_bytes_huge(layout).map_err(|_| mcx.oom_boxed(request))?;
+    let p = mcx
+        .alloc_uninit_bytes_huge(layout)
+        .map_err(|_| mcx.oom_boxed(request))?;
     // SAFETY: `p` is a fresh allocation of exactly `Layout::array::<T>(cap)`
     // bytes from `mcx`; len 0 with capacity `cap` (the same layout Vec
     // recomputes on grow/drop), matching this allocator.
@@ -3786,7 +3995,10 @@ pub fn vec_reserve_huge<'mcx, T>(v: &mut PgVec<'mcx, T>, additional: usize) -> P
     if request > MAX_ALLOC_HUGE_SIZE {
         return Err(invalid_alloc_size(request));
     }
-    debug_assert!(core::mem::size_of::<T>() != 0, "huge reserve of a ZST cannot fail");
+    debug_assert!(
+        core::mem::size_of::<T>() != 0,
+        "huge reserve of a ZST cannot fail"
+    );
     let new_layout = core::alloc::Layout::array::<T>(need).map_err(|_| mcx.oom_boxed(request))?;
     let old_cap = v.capacity();
     if old_cap != 0 {
@@ -3795,9 +4007,9 @@ pub fn vec_reserve_huge<'mcx, T>(v: &mut PgVec<'mcx, T>, additional: usize) -> P
             core::alloc::Layout::array::<T>(old_cap).expect("existing capacity has a valid layout");
         let old_ptr = v.as_mut_ptr() as *mut u8;
         // SAFETY: the buffer is live in `mcx` with `old_layout`; on success it moved to `p`.
-        if let Ok(p) = unsafe {
-            mcx.grow_unchecked(NonNull::new_unchecked(old_ptr), old_layout, new_layout)
-        } {
+        if let Ok(p) =
+            unsafe { mcx.grow_unchecked(NonNull::new_unchecked(old_ptr), old_layout, new_layout) }
+        {
             let old_vec = core::mem::replace(v, PgVec::new_in(mcx));
             let _ = split_vec_raw_parts(old_vec);
             // SAFETY: `p` holds `len` initialized elements and room for `need`.
@@ -3805,7 +4017,9 @@ pub fn vec_reserve_huge<'mcx, T>(v: &mut PgVec<'mcx, T>, additional: usize) -> P
             return Ok(());
         }
     }
-    let p = mcx.alloc_uninit_bytes_huge(new_layout).map_err(|_| mcx.oom_boxed(request))?;
+    let p = mcx
+        .alloc_uninit_bytes_huge(new_layout)
+        .map_err(|_| mcx.oom_boxed(request))?;
     let old_vec = core::mem::replace(v, PgVec::new_in(mcx));
     let (old_ptr, old_len, _old_cap, _mcx) = split_vec_raw_parts(old_vec);
     debug_assert_eq!(old_len, len);
@@ -3917,7 +4131,8 @@ pub fn vec_borrow_in<'mcx, T>(_mcx: Mcx<'mcx>, v: PgVec<'mcx, T>) -> PgResult<&'
 #[inline]
 pub fn pgvec_exact_in<'mcx, T>(mcx: Mcx<'mcx>, n: usize) -> PgResult<PgVec<'mcx, T>> {
     let mut v = PgVec::new_in(mcx);
-    v.try_reserve_exact(n).map_err(|_| mcx.oom_boxed(n.saturating_mul(core::mem::size_of::<T>())))?;
+    v.try_reserve_exact(n)
+        .map_err(|_| mcx.oom_boxed(n.saturating_mul(core::mem::size_of::<T>())))?;
     Ok(v)
 }
 
@@ -3927,7 +4142,11 @@ pub fn pgvec_exact_in<'mcx, T>(mcx: Mcx<'mcx>, n: usize) -> PgResult<PgVec<'mcx,
 /// no Drop, so only bytes are left behind.
 #[inline]
 pub fn freeze<'mcx, T: Copy>(v: PgVec<'mcx, T>) -> &'mcx [T] {
-    debug_assert_eq!(v.len(), v.capacity(), "mcx::freeze: build the array with pgvec_exact_in at its final length");
+    debug_assert_eq!(
+        v.len(),
+        v.capacity(),
+        "mcx::freeze: build the array with pgvec_exact_in at its final length"
+    );
     v.leak()
 }
 
@@ -4000,7 +4219,9 @@ mod bump_policy_wrapper_tests {
                     p.as_ptr().write_bytes(0xa7, 32);
                     let q = Allocator::grow(&mcx, p, small, large).unwrap().cast::<u8>();
                     assert_eq!(core::slice::from_raw_parts(q.as_ptr(), 32), &[0xa7; 32]);
-                    let r = Allocator::shrink(&mcx, q, large, aligned).unwrap().cast::<u8>();
+                    let r = Allocator::shrink(&mcx, q, large, aligned)
+                        .unwrap()
+                        .cast::<u8>();
                     assert_eq!(r.as_ptr() as usize % 256, 0);
                     assert_eq!(core::slice::from_raw_parts(r.as_ptr(), 16), &[0xa7; 16]);
                 }

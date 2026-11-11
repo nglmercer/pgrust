@@ -43,9 +43,19 @@ fn rows(path: &str, sub: bool, mut each: impl FnMut(usize, &Row)) {
         let num = |s: &str| s.parse::<u64>().unwrap_or(0);
         let mut key = num(p[1]);
         if sub {
-            key = key.rotate_left(17) ^ num(p.get(5).copied().unwrap_or("0")).wrapping_mul(0x9e37_79b9_7f4a_7c15);
+            key = key.rotate_left(17)
+                ^ num(p.get(5).copied().unwrap_or("0")).wrapping_mul(0x9e37_79b9_7f4a_7c15);
         }
-        each(i, &Row { time: num(p[0]), key, size: num(p[2]), ev: p[3].bytes().next().unwrap_or(b'?'), refill: num(p[4]) });
+        each(
+            i,
+            &Row {
+                time: num(p[0]),
+                key,
+                size: num(p[2]),
+                ev: p[3].bytes().next().unwrap_or(b'?'),
+                refill: num(p[4]),
+            },
+        );
     }
 }
 
@@ -63,12 +73,20 @@ impl Replay {
         t.set_size(size);
         if count() {
             t.seed_price(1);
-        } else if let Some(ns) = std::env::var("CACHETRACK_SEED").ok().and_then(|v| v.parse().ok()) {
+        } else if let Some(ns) = std::env::var("CACHETRACK_SEED")
+            .ok()
+            .and_then(|v| v.parse().ok())
+        {
             // CACHETRACK_SEED=<ns>: the cache's price until a re-fill (track::measured_ns)
             t.seed_price(ns);
         }
         t.set_outcomes(std::env::var("CACHETRACK_OUTCOMES").is_ok_and(|v| v == "1"));
-        Replay { t, limit, since: None, got: 0 }
+        Replay {
+            t,
+            limit,
+            since: None,
+            got: 0,
+        }
     }
 
     fn feed(&mut self, r: &Row, no_size: bool) {
@@ -87,7 +105,11 @@ impl Replay {
                         self.got = 0;
                         self.since = Some(r.time);
                     }
-                    if door_pass(hash24(r.key), if bytes == 0 { UNIFORM } else { bytes }, self.t.door()) {
+                    if door_pass(
+                        hash24(r.key),
+                        if bytes == 0 { UNIFORM } else { bytes },
+                        self.t.door(),
+                    ) {
                         self.got += 1;
                     }
                 }
@@ -96,7 +118,9 @@ impl Replay {
                     self.t.fill(r.key, r.size, r.refill, 0);
                 }
             }
-            b'F' => self.t.fill(r.key, r.size, if count() { 0 } else { r.refill }, 0),
+            b'F' => self
+                .t
+                .fill(r.key, r.size, if count() { 0 } else { r.refill }, 0),
             _ => {}
         }
     }
@@ -129,10 +153,14 @@ impl Replay {
 #[ignore = "by hand: needs CACHETRACK_TRACE and CACHETRACK_SIZE"]
 fn replay_a_cachemeasure_trace() {
     let path = std::env::var("CACHETRACK_TRACE").expect("CACHETRACK_TRACE=<csv>");
-    let size: u64 = std::env::var("CACHETRACK_SIZE").expect("CACHETRACK_SIZE=<bytes>").parse().expect("bytes");
+    let size: u64 = std::env::var("CACHETRACK_SIZE")
+        .expect("CACHETRACK_SIZE=<bytes>")
+        .parse()
+        .expect("bytes");
     let flag = |k: &str| std::env::var(k).is_ok_and(|v| v == "1");
     let (no_size, sub) = (flag("CACHETRACK_UNSIZED"), flag("CACHETRACK_SUB"));
-    let (mut keys, mut n, mut ev, mut refill, mut t0, mut t1) = (HashSet::new(), 0u64, [0u64; 3], 0u64, u64::MAX, 0u64);
+    let (mut keys, mut n, mut ev, mut refill, mut t0, mut t1) =
+        (HashSet::new(), 0u64, [0u64; 3], 0u64, u64::MAX, 0u64);
     rows(&path, sub, |_, r| {
         n += 1;
         match r.ev {
@@ -163,7 +191,9 @@ fn replay_a_cachemeasure_trace() {
     let mut fixed = Replay::new(SAMPLES, size, false);
     let mut exact = Replay::new(keys.len() + 16, size, false);
     // CACHETRACK_FRAC=f: every key kept, but the door cut to a share f of the keys (an unsized door's uniform sample)
-    let frac: Option<f64> = std::env::var("CACHETRACK_FRAC").ok().and_then(|v| v.parse().ok());
+    let frac: Option<f64> = std::env::var("CACHETRACK_FRAC")
+        .ok()
+        .and_then(|v| v.parse().ok());
     let mut cut = frac.map(|f| {
         let mut r = Replay::new(keys.len() + 16, size, false);
         r.t.lower_door((f * (1u64 << 24) as f64) as u64);

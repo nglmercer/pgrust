@@ -19,12 +19,14 @@ use super::ExecSlot;
 /// admission.rs `bind`: the cached plan's first statement, held for the bind.
 pub(super) fn pinned_stmt(pstmt: &PlannedStmt<'_>) -> &'static PlannedStmt<'static> {
     // SAFETY: the cplan refcount pins the plan and its stmts past this bind.
+    #[allow(clippy::unnecessary_cast)]
     unsafe { &*(pstmt as *const PlannedStmt<'_> as *const PlannedStmt<'static>) }
 }
 
 /// execute.rs's simple protocol: the current statement's plan, held for the call.
 pub(super) fn current_stmt(pstmt: &PlannedStmt<'_>) -> &'static PlannedStmt<'static> {
     // SAFETY: pstmt outlives this call (it is the current statement's plan).
+    #[allow(clippy::unnecessary_cast)]
     unsafe { &*(pstmt as *const PlannedStmt<'_> as *const PlannedStmt<'static>) }
 }
 

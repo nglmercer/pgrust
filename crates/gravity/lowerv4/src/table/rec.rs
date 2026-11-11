@@ -271,7 +271,7 @@ impl<'g, 'p> GroupRec<'g, 'p> {
         let mcx = px.mcx();
         let mut aggs: PgVec<'g, Agg<'p>> = i.map(|i| r.aggs.swap_remove(i)).into_iter().collect_in(mcx);
         aggs.iter_mut().for_each(|a| a.d.slot = 0);
-        let keys: PgVec<'_, KeyKind> = mcx::to_vec_in(&r.layout.key_kinds()[..], mcx);
+        let keys: PgVec<'_, KeyKind> = mcx::to_vec_in(r.layout.key_kinds(), mcx);
         r.layout = RecordLayout::with_sentinel(&keys[..], &[SlotKind::Count], false, Some(0));
         r.reps.iter_mut().for_each(|x| *x = None);
         (r.aggs, r.home, r.dep) = (aggs, g.producer, None);
@@ -299,7 +299,7 @@ impl<'g, 'p> GroupRec<'g, 'p> {
             c
         }).collect_in(mcx);
         aggs.push_in(b);
-        let keys: PgVec<'_, KeyKind> = mcx::to_vec_in(&r.layout.key_kinds()[..], mcx);
+        let keys: PgVec<'_, KeyKind> = mcx::to_vec_in(r.layout.key_kinds(), mcx);
         let slots: &[SlotKind] = if at == 1 { &[SlotKind::Count, kind] } else { &[kind] };
         r.layout = RecordLayout::with_sentinel(&keys[..], slots, r.layout.has_validity(), (at == 1).then_some(0));
         r.reps.iter_mut().for_each(|x| *x = None);
@@ -340,7 +340,7 @@ impl<'g, 'p> GroupRec<'g, 'p> {
             aggs.push_in(c);
             slots.len() - 1
         });
-        let keys: PgVec<'_, KeyKind> = mcx::to_vec_in(&r.layout.key_kinds()[..], mcx);
+        let keys: PgVec<'_, KeyKind> = mcx::to_vec_in(r.layout.key_kinds(), mcx);
         r.layout = RecordLayout::with_sentinel(&keys[..], &slots[..], true, sentinel);
         r.reps.iter_mut().for_each(|x| *x = None);
         (r.aggs, r.home, r.dep) = (aggs, g.producer, None);

@@ -693,6 +693,7 @@ pub(super) fn bind_text_list(w: u64) -> Option<Vec<Vec<u8>>> {
 }
 
 #[cfg(test)]
+#[allow(clippy::items_after_test_module)]
 mod table_mask_tests {
     /// H06: the table mask clears exactly the kept rows whose code the table rejects (a code past `ncodes` is no answer,
     /// so its row stays), whatever the words held.
@@ -708,7 +709,7 @@ mod table_mask_tests {
         let t = Bits::of_codes(&dict, &[2, 5, 64, 69], false, &mut region).unwrap();
         for &(from, to) in &[(0usize, 64usize), (0, 200), (64, 320), (3, 3), (128, 128 + 64 * 5 + 17)] {
             let codes: Vec<u32> = (0..to.max(1)).map(|_| (next() % 75) as u32).collect();
-            let words = (to - from + 63) / 64;
+            let words = (to - from).div_ceil(64);
             let init: Vec<u64> = (0..words).map(|j| next() & if to - from - 64 * j < 64 { (1u64 << (to - from - 64 * j)) - 1 } else { !0 }).collect();
             let (mut got, mut want) = (init.clone(), init.clone());
             super::mask_table_u32(&mut got, from, to, &codes, &t);
@@ -726,7 +727,7 @@ mod table_mask_tests {
 
 /// D3156 (`kept.rs` `SiteKept`): a site's kept-mode dictionary cell owns its entry (`Box::into_raw`); readers borrow it
 /// for as long as the source reads the part, and `dict_cell_take` frees it only once every claim of the pass left the part.
-pub(super) fn dict_cell_get<'a>(c: &'a pgsync::atomic::AtomicPtr<DictEntry>) -> Option<&'a DictEntry> {
+pub(super) fn dict_cell_get(c: &pgsync::atomic::AtomicPtr<DictEntry>) -> Option<&DictEntry> {
     let e = c.load(Ordering::Acquire);
     // SAFETY: a non-null cell holds a live entry until `dict_cell_take`, which runs only once every claim left its part
     (!e.is_null()).then(|| unsafe { &*e })

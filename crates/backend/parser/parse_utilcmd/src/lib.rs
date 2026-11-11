@@ -14,12 +14,12 @@ use types_error::{
     ERRCODE_INVALID_TABLE_DEFINITION, ERRCODE_QUERY_CANCELED, ERRCODE_SYNTAX_ERROR,
     ERRCODE_UNDEFINED_OBJECT, ERROR,
 };
-use types_nodes::rawnodes::{
-    ColumnDef, Constraint, ConstrType, CreateSeqStmt, CreateStmt, IndexElem, IndexStmt, SortByDir,
-    SortByNulls, TypeName,
-};
 use types_nodes::equal::{equal_opt, NodeEqual};
 use types_nodes::parsenodes::{DefElem, DefElemAction};
+use types_nodes::rawnodes::{
+    ColumnDef, ConstrType, Constraint, CreateSeqStmt, CreateStmt, IndexElem, IndexStmt, SortByDir,
+    SortByNulls, TypeName,
+};
 use types_nodes::{
     AlterSeqStmt, CoercionForm, FuncCall, Node, NodeList, NodeTag, RangeVar, TypeCast, ValUnion,
 };
@@ -59,7 +59,9 @@ fn table_constraint_dispatch_error(contype: ConstrType) -> Box<PgError> {
 #[cold]
 #[inline(never)]
 pub(crate) fn cache_lookup_failed(kind: &str, oid: Oid) -> Box<PgError> {
-    Box::new(PgError::error(format!("cache lookup failed for {kind} {oid}")))
+    Box::new(PgError::error(format!(
+        "cache lookup failed for {kind} {oid}"
+    )))
 }
 
 // parse_relation.c:3446 shape: "cache lookup failed for attribute %d of
@@ -108,8 +110,7 @@ fn unported_feature_at(
             .with_sqlstate(ERRCODE_FEATURE_NOT_SUPPORTED),
     );
     if let Some(ps) = pstate {
-        let pos =
-            parser_small1::parser_errposition(ps, location, mbutils::GetDatabaseEncoding());
+        let pos = parser_small1::parser_errposition(ps, location, mbutils::GetDatabaseEncoding());
         if pos > 0 {
             e.cursor_position = Some(pos);
         }
@@ -157,7 +158,10 @@ fn typename_type_id_and_mod<'mcx>(
     };
     if tn.names.is_nil() {
         // LookupTypeName pre-resolved arm (makeTypeNameFromOid; LIKE / OF type).
-        assert!(tn.typeOid != InvalidOid, "TypeName without names or typeOid");
+        assert!(
+            tn.typeOid != InvalidOid,
+            "TypeName without names or typeOid"
+        );
         let isdefined = match syscache_seams::pg_type_isdefined::call(tn.typeOid)? {
             Some(d) => d,
             // C LookupTypeNameExtended elogs on a vanished TYPEOID row.
@@ -247,11 +251,7 @@ fn improper_pct_type_reference(which: &str, names: &str) -> Box<PgError> {
 // column's type and emit C's conversion NOTICE. InvalidOid comes back only
 // under missing_ok or when the column's pg_attribute row vanishes between
 // lookups (C returns NULL from LookupTypeName for both).
-fn lookup_pct_type(
-    src: Option<&[u8]>,
-    tn: &TypeName<'_>,
-    missing_ok: bool,
-) -> PgResult<Oid> {
+fn lookup_pct_type(src: Option<&[u8]>, tn: &TypeName<'_>, missing_ok: bool) -> PgResult<Oid> {
     let at_tn = |mut e: Box<PgError>| {
         let pos = parser_small1::parser_errposition_source(
             src,
@@ -273,11 +273,21 @@ fn lookup_pct_type(
     // C's list_length switch; the messages quote NameListToString (no
     // decorations), not TypeNameToString.
     let (catalogname, schemaname, relname, field) = match nnames {
-        1 => return Err(at_tn(improper_pct_type_reference("few", &typename_to_string(tn)))),
+        1 => {
+            return Err(at_tn(improper_pct_type_reference(
+                "few",
+                &typename_to_string(tn),
+            )))
+        }
         2 => (None, None, names[0], names[1]),
         3 => (None, Some(names[0]), names[1], names[2]),
         4 => (Some(names[0]), Some(names[1]), names[2], names[3]),
-        _ => return Err(at_tn(improper_pct_type_reference("many", &typename_to_string(tn)))),
+        _ => {
+            return Err(at_tn(improper_pct_type_reference(
+                "many",
+                &typename_to_string(tn),
+            )))
+        }
     };
     // makeRangeVar defaults: inh = true, permanent.
     let rv = rel_vocab::RangeVar {
@@ -338,7 +348,10 @@ pub fn typenameTypeId<'mcx>(
     };
     if tn.names.is_nil() {
         // LookupTypeName pre-resolved arm (makeTypeNameFromOid consumers).
-        assert!(tn.typeOid != InvalidOid, "TypeName without names or typeOid");
+        assert!(
+            tn.typeOid != InvalidOid,
+            "TypeName without names or typeOid"
+        );
         let isdefined = match syscache_seams::pg_type_isdefined::call(tn.typeOid)? {
             Some(d) => d,
             // C LookupTypeNameExtended elogs on a vanished TYPEOID row.
@@ -455,7 +468,10 @@ fn lookup_type_name_oid_internal<'mcx>(
 ) -> PgResult<Oid> {
     if tn.names.is_nil() {
         // LookupTypeName pre-resolved arm (makeTypeNameFromOid consumers).
-        assert!(tn.typeOid != InvalidOid, "TypeName without names or typeOid");
+        assert!(
+            tn.typeOid != InvalidOid,
+            "TypeName without names or typeOid"
+        );
         // C LookupTypeNameExtended validates typmod decoration even though
         // LookupTypeNameOid discards the value, and does so BEFORE any
         // shell-type decision.
@@ -639,7 +655,9 @@ pub fn typeStringToTypeNameEsc<'mcx>(
     s: &str,
     esc: Option<&mut SoftErrorContext>,
 ) -> PgResult<Option<&'mcx TypeName<'mcx>>> {
-    if s.bytes().all(|c| matches!(c, b' ' | b'\t' | b'\n' | b'\r' | 0x0c | 0x0b)) {
+    if s.bytes()
+        .all(|c| matches!(c, b' ' | b'\t' | b'\n' | b'\r' | 0x0c | 0x0b))
+    {
         return ereturn(esc, None, *invalid_type_name(s));
     }
     let context = format!("invalid type name \"{s}\"");
@@ -654,7 +672,9 @@ pub fn typeStringToTypeNameEsc<'mcx>(
     let list = parsed.map_err(|e| Box::new((*e).with_context(context)))?;
     debug_assert_eq!(list.len(), 1);
     let node = list.first().expect("TYPE_NAME parse yields one node");
-    let tn = node.as_type_name().expect("TYPE_NAME parse yields TypeName");
+    let tn = node
+        .as_type_name()
+        .expect("TYPE_NAME parse yields TypeName");
     if tn.setof {
         return ereturn(esc, None, *invalid_type_name(s));
     }
@@ -682,7 +702,10 @@ pub fn parseTypeStringEsc<'mcx>(
     if tn.names.is_nil() {
         // LookupTypeName pre-resolved arm; a parsed type-name string never
         // produces it (the grammar always emits names) but C handles it.
-        assert!(tn.typeOid != InvalidOid, "TypeName without names or typeOid");
+        assert!(
+            tn.typeOid != InvalidOid,
+            "TypeName without names or typeOid"
+        );
         let isdefined = match syscache_seams::pg_type_isdefined::call(tn.typeOid)? {
             Some(d) => d,
             None => return ereturn(esc, None, *type_does_not_exist(&typeNameToString(tn)?)),
@@ -804,7 +827,10 @@ fn typename_type_mod_src<'mcx>(
             Box::new(
                 PgError::new(
                     ERROR,
-                    format!("type modifier is not allowed for type \"{}\"", typeNameToString(tn)?),
+                    format!(
+                        "type modifier is not allowed for type \"{}\"",
+                        typeNameToString(tn)?
+                    ),
                 )
                 .with_sqlstate(ERRCODE_SYNTAX_ERROR),
             ),
@@ -818,8 +844,11 @@ fn typename_type_mod_src<'mcx>(
     fn bad_typmod_expr(src: Option<&[u8]>, location: i32) -> Box<PgError> {
         cursor_at(
             Box::new(
-                PgError::new(ERROR, "type modifiers must be simple constants or identifiers")
-                    .with_sqlstate(ERRCODE_SYNTAX_ERROR),
+                PgError::new(
+                    ERROR,
+                    "type modifiers must be simple constants or identifiers",
+                )
+                .with_sqlstate(ERRCODE_SYNTAX_ERROR),
             ),
             src,
             location,
@@ -837,7 +866,10 @@ fn typename_type_mod_src<'mcx>(
                 _ => None,
             }
         } else if let Some(cr) = tm.as_variant::<ColumnRef>() {
-            match (cr.fields.len(), cr.fields.first().and_then(|f| f.as_string())) {
+            match (
+                cr.fields.len(),
+                cr.fields.first().and_then(|f| f.as_string()),
+            ) {
                 (1, Some(s)) => Some(s.sval.to_string()),
                 _ => None,
             }
@@ -856,7 +888,14 @@ fn typename_type_mod_src<'mcx>(
         .iter()
         .map(|v| datum::Datum::from_usize(v.as_ptr() as usize))
         .collect();
-    let img = datum::array_build::construct_array_image(mcx, &datums, types_core::CSTRINGOID, -2, false, b'c')?;
+    let img = datum::array_build::construct_array_image(
+        mcx,
+        &datums,
+        types_core::CSTRINGOID,
+        -2,
+        false,
+        b'c',
+    )?;
 
     let mut flinfo = types_fmgr::FmgrInfo::unresolved();
     fmgr_core::fmgr_info_into(io.typmodin, &mut flinfo)?;
@@ -984,7 +1023,9 @@ pub fn transformCreateSchemaStmtElements<'mcx>(
         // refs live across the write.
         match element.node_tag() {
             NodeTag::T_CreateSeqStmt => {
-                let s = element.as_variant::<CreateSeqStmt>().expect("CreateSeqStmt");
+                let s = element
+                    .as_variant::<CreateSeqStmt>()
+                    .expect("CreateSeqStmt");
                 if let Some(rv) = set_schema_name(mcx, schema_name, s.sequence)? {
                     unsafe {
                         element
@@ -1028,7 +1069,9 @@ pub fn transformCreateSchemaStmtElements<'mcx>(
                 indexes.lappend(mcx, element)?;
             }
             NodeTag::T_CreateTrigStmt => {
-                let s = element.as_variant::<CreateTrigStmt>().expect("CreateTrigStmt");
+                let s = element
+                    .as_variant::<CreateTrigStmt>()
+                    .expect("CreateTrigStmt");
                 if let Some(rv) = set_schema_name(mcx, schema_name, s.relation)? {
                     unsafe {
                         element
@@ -1054,10 +1097,7 @@ pub fn transformCreateSchemaStmtElements<'mcx>(
 // transformConstraintAttrs (parse_utilcmd.c): fold CONSTR_ATTR_* markers onto
 // the preceding constraint. Deferrable UNIQUE/PK louds downstream in the
 // transformIndexConstraint lanes (deferred-unique lane owns them).
-fn transformConstraintAttrs<'mcx>(
-    constraints: &NodeList<'mcx>,
-    src: Option<&str>,
-) -> PgResult<()> {
+fn transformConstraintAttrs<'mcx>(constraints: &NodeList<'mcx>, src: Option<&str>) -> PgResult<()> {
     let supports_attrs = |c: Option<&Constraint<'_>>| {
         matches!(
             c.map(|c| c.contype),
@@ -1092,8 +1132,7 @@ fn transformConstraintAttrs<'mcx>(
     let mut saw_enforced = false;
     for cnode in constraints.iter() {
         let con = cnode.as_variant::<Constraint>().expect("column constraint");
-        let last = lastprimarycon
-            .map(|n| n.as_variant::<Constraint>().expect("Constraint"));
+        let last = lastprimarycon.map(|n| n.as_variant::<Constraint>().expect("Constraint"));
         // SAFETY (each with_mut): parse tree is analyze-owned; `last` is not
         // read again after the write.
         match con.contype {
@@ -1127,7 +1166,10 @@ fn transformConstraintAttrs<'mcx>(
                         .expect("Constraint");
                 }
                 if saw_initially
-                    && last_node.as_variant::<Constraint>().expect("Constraint").initdeferred
+                    && last_node
+                        .as_variant::<Constraint>()
+                        .expect("Constraint")
+                        .initdeferred
                 {
                     return Err(initially_deferred_not_deferrable(con.location));
                 }
@@ -1153,7 +1195,10 @@ fn transformConstraintAttrs<'mcx>(
                         .expect("Constraint");
                 }
                 if saw_deferrability
-                    && !last_node.as_variant::<Constraint>().expect("Constraint").deferrable
+                    && !last_node
+                        .as_variant::<Constraint>()
+                        .expect("Constraint")
+                        .deferrable
                 {
                     return Err(initially_deferred_not_deferrable(con.location));
                 }
@@ -1307,7 +1352,9 @@ fn transformColumnDefinition<'mcx>(
         // C typenameType(cxt->pstate, ...) attaches errposition at tn.location.
         let (type_oid, _typmod) = typename_type_id_and_mod(mcx, src.map(str::as_bytes), tn)?;
         if let Some(cc) = col!().collClause {
-            let cc = cc.as_variant::<types_nodes::CollateClause>().expect("CollateClause");
+            let cc = cc
+                .as_variant::<types_nodes::CollateClause>()
+                .expect("CollateClause");
             catalog_namespace::get_collation_oid_list(&cc.collname, false)
                 .map_err(|e| position_on_src(e, src, cc.location))?;
             let typcollation = syscache_seams::lookup_pg_type_shape::call(type_oid)?
@@ -1359,7 +1406,11 @@ fn transformColumnDefinition<'mcx>(
         regclass_tn.location = -1;
         let castnode = Node::mk(
             mcx,
-            TypeCast { arg: Some(snamenode), typeName: Some(regclass_tn.seal()), location: -1 },
+            TypeCast {
+                arg: Some(snamenode),
+                typeName: Some(regclass_tn.seal()),
+                location: -1,
+            },
         )?;
         let mut funcname = NodeList::make1(mcx, Node::mk_string(mcx, "pg_catalog")?)?;
         funcname.lappend(mcx, Node::mk_string(mcx, "nextval")?)?;
@@ -1390,8 +1441,15 @@ fn transformColumnDefinition<'mcx>(
 
     if !disallow_noinherit_notnull {
         for i in 0..col!().constraints.len() {
-            let c = col!().constraints.nth(i).as_variant::<Constraint>().expect("column constraint");
-            if matches!(c.contype, ConstrType::CONSTR_IDENTITY | ConstrType::CONSTR_PRIMARY) {
+            let c = col!()
+                .constraints
+                .nth(i)
+                .as_variant::<Constraint>()
+                .expect("column constraint");
+            if matches!(
+                c.contype,
+                ConstrType::CONSTR_IDENTITY | ConstrType::CONSTR_PRIMARY
+            ) {
                 disallow_noinherit_notnull = true;
             }
         }
@@ -1589,8 +1647,7 @@ fn transformColumnDefinition<'mcx>(
                     nnconstraints.lappend(mcx, cnode)?;
                 } else if let Some(first_node) = notnull_constraint {
                     // Redundant specification: merge onto the first one.
-                    let first =
-                        first_node.as_variant::<Constraint>().expect("Constraint");
+                    let first = first_node.as_variant::<Constraint>().expect("Constraint");
                     if let (Some(a), Some(b)) = (first.conname, constraint.conname) {
                         if a != b {
                             return Err(Box::new(PgError::new(
@@ -1678,7 +1735,9 @@ fn transformColumnDefinition<'mcx>(
                     let keys = NodeList::make1(mcx, Node::mk_string(mcx, colname)?)?;
                     // SAFETY: parse tree is analyze-owned; no derived refs.
                     unsafe {
-                        cnode.with_mut::<Constraint, _>(|c| c.keys = keys).expect("Constraint");
+                        cnode
+                            .with_mut::<Constraint, _>(|c| c.keys = keys)
+                            .expect("Constraint");
                     }
                 }
                 ixconstraints.lappend(mcx, cnode)?;
@@ -1815,11 +1874,13 @@ fn position_on_src(
     if e.cursor_position().is_some() {
         return e;
     }
-    Box::new((*e).with_cursor_position(parser_small1::parser_errposition_source(
-        src.map(str::as_bytes),
-        location,
-        mbutils::GetDatabaseEncoding(),
-    )))
+    Box::new(
+        (*e).with_cursor_position(parser_small1::parser_errposition_source(
+            src.map(str::as_bytes),
+            location,
+            mbutils::GetDatabaseEncoding(),
+        )),
+    )
 }
 
 // transformOfType (parse_utilcmd.c:1638): derive is_from_type ColumnDefs from
@@ -1835,7 +1896,9 @@ fn transformOfType<'mcx>(
     tablecmds_seams::check_of_type::call(mcx, of_type_id)?;
     // SAFETY: parse tree is analyze-owned; no derived refs live.
     unsafe {
-        of_tn_node.with_mut::<TypeName, _>(|t| t.typeOid = of_type_id).expect("TypeName");
+        of_tn_node
+            .with_mut::<TypeName, _>(|t| t.typeOid = of_type_id)
+            .expect("TypeName");
     }
     let tupdesc = typcache_seams::lookup_rowtype_tupdesc_copy::call(mcx, of_type_id, -1)?;
     for i in 0..tupdesc.natts as usize {
@@ -1881,7 +1944,9 @@ pub fn transformCreateStmt<'mcx>(
             .expect("transformCreateStmt on non-CreateStmt")
             .base
     } else {
-        stmt_node.as_variant::<CreateStmt>().expect("transformCreateStmt on non-CreateStmt")
+        stmt_node
+            .as_variant::<CreateStmt>()
+            .expect("transformCreateStmt on non-CreateStmt")
     };
 
     debug_assert!(stmt.constraints.is_nil() && stmt.nnconstraints.is_nil());
@@ -1915,7 +1980,8 @@ pub fn transformCreateStmt<'mcx>(
     let mut adjusted_persistence = relation.relpersistence;
     if probe {
         let (n, e, p) =
-            RangeVarGetAndCheckCreationNamespace(mcx, relation, types_rel::NoLock, true).map_err(at_rel)?;
+            RangeVarGetAndCheckCreationNamespace(mcx, relation, types_rel::NoLock, true)
+                .map_err(at_rel)?;
         nspid = n;
         existing_relid = e;
         adjusted_persistence = p;
@@ -1931,7 +1997,8 @@ pub fn transformCreateStmt<'mcx>(
             existing_relid
         } else {
             RangeVarGetAndCheckCreationNamespace(mcx, relation, types_rel::NoLock, true)
-                .map_err(at_rel)?.1
+                .map_err(at_rel)?
+                .1
         };
         if existing_relid != InvalidOid {
             // C: inside an extension script, insist the pre-existing object
@@ -1958,8 +2025,8 @@ pub fn transformCreateStmt<'mcx>(
     // added-on commands (LIKE expansion) can't latch onto a same-named
     // relation earlier in the search path; the persistence adjustment above
     // is stamped alongside (C mutates stmt->relation in place).
-    let qualify = relation.schemaname.is_none()
-        && adjusted_persistence != types_core::RELPERSISTENCE_TEMP;
+    let qualify =
+        relation.schemaname.is_none() && adjusted_persistence != types_core::RELPERSISTENCE_TEMP;
     let relation = if qualify || adjusted_persistence != relation.relpersistence {
         let schemaname = if qualify {
             // C parse_utilcmd.c:224 takes get_namespace_name's NULL silently;
@@ -2010,7 +2077,9 @@ pub fn transformCreateStmt<'mcx>(
             .expect("transformCreateStmt on non-CreateStmt")
             .base
     } else {
-        stmt_node.as_variant::<CreateStmt>().expect("transformCreateStmt on non-CreateStmt")
+        stmt_node
+            .as_variant::<CreateStmt>()
+            .expect("transformCreateStmt on non-CreateStmt")
     };
     let mut columns = NodeList::nil();
     if let Some(of_tn) = stmt.ofTypename {
@@ -2020,8 +2089,11 @@ pub fn transformCreateStmt<'mcx>(
     // lookup can report a missing inheritance parent instead.
     if stmt.partspec.is_some() && !stmt.inhRelations.is_nil() && stmt.partbound.is_none() {
         return Err(Box::new(
-            PgError::new(ERROR, "cannot create partitioned table as inheritance child".to_string())
-                .with_sqlstate(types_error::ERRCODE_INVALID_OBJECT_DEFINITION),
+            PgError::new(
+                ERROR,
+                "cannot create partitioned table as inheritance child".to_string(),
+            )
+            .with_sqlstate(types_error::ERRCODE_INVALID_OBJECT_DEFINITION),
         ));
     }
     let mut cxt = CreateStmtCxt::new(if is_foreign {
@@ -2128,7 +2200,8 @@ pub fn transformCreateStmt<'mcx>(
             if !cd.is_not_null {
                 // SAFETY: parse tree is analyze-owned; no derived refs.
                 unsafe {
-                    cn.with_mut::<ColumnDef, _>(|c| c.is_not_null = true).expect("ColumnDef");
+                    cn.with_mut::<ColumnDef, _>(|c| c.is_not_null = true)
+                        .expect("ColumnDef");
                 }
             }
             break;
@@ -2243,7 +2316,9 @@ fn key_found_in_inh_relations<'mcx>(
     nnconstraints: &mut NodeList<'mcx>,
 ) -> PgResult<Option<Oid>> {
     for inode in inh_relations.iter() {
-        let prv = inode.as_variant::<RangeVar>().expect("inhRelations RangeVar");
+        let prv = inode
+            .as_variant::<RangeVar>()
+            .expect("inhRelations RangeVar");
         let relname = prv.relname.expect("RangeVar.relname");
         let rv = rel_vocab::RangeVar {
             catalogname: prv.catalogname,
@@ -2334,14 +2409,8 @@ fn build_including_params<'mcx>(
             if catalog_heap::SystemAttributeByName(key).is_some() {
                 found = true;
             } else if !inh_relations.is_nil() {
-                found = key_found_in_inh_relations(
-                    mcx,
-                    key,
-                    false,
-                    inh_relations,
-                    nnconstraints,
-                )?
-                .is_some();
+                found = key_found_in_inh_relations(mcx, key, false, inh_relations, nnconstraints)?
+                    .is_some();
             }
         }
         if !found && !isalter {
@@ -2378,9 +2447,7 @@ fn transform_index_constraints<'mcx>(
         let constraint = cnode.as_variant::<Constraint>().expect("Constraint");
         debug_assert!(matches!(
             constraint.contype,
-            ConstrType::CONSTR_PRIMARY
-                | ConstrType::CONSTR_UNIQUE
-                | ConstrType::CONSTR_EXCLUSION
+            ConstrType::CONSTR_PRIMARY | ConstrType::CONSTR_UNIQUE | ConstrType::CONSTR_EXCLUSION
         ));
         let is_exclusion = constraint.contype == ConstrType::CONSTR_EXCLUSION;
         // transformIndexConstraint checks the duplicate primary key at the
@@ -2531,26 +2598,24 @@ fn transform_index_constraints<'mcx>(
             }
             // C: the WITHOUT OVERLAPS part must be a range or multirange type,
             // or a domain over such a type.
-            if constraint.without_overlaps && keyidx == nkeys - 1
-                && found {
-                    if typid == InvalidOid {
-                        if let Some(cn) = found_column {
-                            let cd = cn.as_variant::<ColumnDef>().expect("ColumnDef");
-                            if let Some(tn_node) = cd.typeName {
-                                let tn = tn_node.as_variant::<TypeName>().expect("TypeName");
-                                typid = typenameTypeIdAndMod(mcx, None, tn)?.0;
-                            }
+            if constraint.without_overlaps && keyidx == nkeys - 1 && found {
+                if typid == InvalidOid {
+                    if let Some(cn) = found_column {
+                        let cd = cn.as_variant::<ColumnDef>().expect("ColumnDef");
+                        if let Some(tn_node) = cd.typeName {
+                            let tn = tn_node.as_variant::<TypeName>().expect("TypeName");
+                            typid = typenameTypeIdAndMod(mcx, None, tn)?.0;
                         }
                     }
-                    // upstream 49f3cb453b9b (18.4): Fix WITHOUT OVERLAPS' interaction with domains.
-                    if typid != InvalidOid {
-                        typid = lsyscache::getBaseType(typid)?;
-                    }
-                    if typid == InvalidOid
-                        || !(lsyscache::type_is_range(typid)?
-                            || lsyscache::type_is_multirange(typid)?)
-                    {
-                        return Err(cursor_at(
+                }
+                // upstream 49f3cb453b9b (18.4): Fix WITHOUT OVERLAPS' interaction with domains.
+                if typid != InvalidOid {
+                    typid = lsyscache::getBaseType(typid)?;
+                }
+                if typid == InvalidOid
+                    || !(lsyscache::type_is_range(typid)? || lsyscache::type_is_multirange(typid)?)
+                {
+                    return Err(cursor_at(
                             Box::new(
                                 PgError::new(
                                     ERROR,
@@ -2563,8 +2628,8 @@ fn transform_index_constraints<'mcx>(
                             Some(src.as_bytes()),
                             constraint.location,
                         ));
-                    }
                 }
+            }
             let mut iparam = Node::build::<IndexElem>(mcx)?;
             iparam.name = Some(key);
             iparam.ordering = SortByDir::SORTBY_DEFAULT;
@@ -2578,8 +2643,7 @@ fn transform_index_constraints<'mcx>(
                 return Err(Box::new(
                     PgError::new(
                         ERROR,
-                        "constraint using WITHOUT OVERLAPS needs at least two columns"
-                            .to_string(),
+                        "constraint using WITHOUT OVERLAPS needs at least two columns".to_string(),
                     )
                     .with_sqlstate(types_error::ERRCODE_SYNTAX_ERROR),
                 ));
@@ -2631,7 +2695,9 @@ fn transform_index_constraints<'mcx>(
             // indexIncludingParams, whereClause and excludeOpNames, then
             // strcmp on accessMethod and the three flags.
             if index.indexParams.node_equal(&prior.indexParams)
-                && index.indexIncludingParams.node_equal(&prior.indexIncludingParams)
+                && index
+                    .indexIncludingParams
+                    .node_equal(&prior.indexIncludingParams)
                 && equal_opt(index.whereClause, prior.whereClause)
                 && index.excludeOpNames.node_equal(&prior.excludeOpNames)
                 && index.accessMethod == prior.accessMethod
@@ -2678,9 +2744,7 @@ pub fn transformIndexConstraintForAlter<'mcx>(
     let constraint = cnode.as_variant::<Constraint>().expect("Constraint");
     debug_assert!(matches!(
         constraint.contype,
-        ConstrType::CONSTR_PRIMARY
-            | ConstrType::CONSTR_UNIQUE
-            | ConstrType::CONSTR_EXCLUSION
+        ConstrType::CONSTR_PRIMARY | ConstrType::CONSTR_UNIQUE | ConstrType::CONSTR_EXCLUSION
     ));
     let is_exclusion = constraint.contype == ConstrType::CONSTR_EXCLUSION;
     // transformTableConstraint isforeign guards (parse_utilcmd.c:1043-1066).
@@ -2712,9 +2776,8 @@ pub fn transformIndexConstraintForAlter<'mcx>(
     index.whereClause = constraint.where_clause;
     // SAFETY: parse tree is statement-owned; the constraint node's options
     // list moves onto the IndexStmt (C shares the pointer).
-    index.options =
-        unsafe { cnode.with_mut::<Constraint, _>(|c| core::mem::take(&mut c.options)) }
-            .expect("Constraint");
+    index.options = unsafe { cnode.with_mut::<Constraint, _>(|c| core::mem::take(&mut c.options)) }
+        .expect("Constraint");
     index.tableSpace = constraint.indexspace;
     index.reset_default_tblspc = constraint.reset_default_tblspc;
 
@@ -2876,18 +2939,15 @@ fn transform_existing_index_constraint<'mcx>(
     }
     let index_rel = indexam::index_open(mcx, index_oid, types_rel::AccessShareLock)?;
     let existing_err = |msg: String| -> Box<PgError> {
-        at(Box::new(
-            PgError::new(ERROR, msg)
-                .with_sqlstate(types_error::ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
-        ))
+        at(Box::new(PgError::new(ERROR, msg).with_sqlstate(
+            types_error::ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE,
+        )))
     };
     let wrong_type = |msg: String, detail: bool| -> Box<PgError> {
-        let mut e = PgError::new(ERROR, msg)
-            .with_sqlstate(types_error::ERRCODE_WRONG_OBJECT_TYPE);
+        let mut e = PgError::new(ERROR, msg).with_sqlstate(types_error::ERRCODE_WRONG_OBJECT_TYPE);
         if detail {
             e = e.with_detail(
-                "Cannot create a primary key or unique constraint using such an index."
-                    .to_string(),
+                "Cannot create a primary key or unique constraint using such an index.".to_string(),
             );
         }
         at(Box::new(e))
@@ -2908,13 +2968,22 @@ fn transform_existing_index_constraint<'mcx>(
         return Err(existing_err(format!("index \"{index_name}\" is not valid")));
     }
     if !index_form.indisunique {
-        return Err(wrong_type(format!("\"{index_name}\" is not a unique index"), true));
+        return Err(wrong_type(
+            format!("\"{index_name}\" is not a unique index"),
+            true,
+        ));
     }
     if index_form.indexprs_src.is_some() {
-        return Err(wrong_type(format!("index \"{index_name}\" contains expressions"), true));
+        return Err(wrong_type(
+            format!("index \"{index_name}\" contains expressions"),
+            true,
+        ));
     }
     if !execindexing::RelationGetIndexPredicate(mcx, &index_rel)?.is_nil() {
-        return Err(wrong_type(format!("\"{index_name}\" is a partial index"), true));
+        return Err(wrong_type(
+            format!("\"{index_name}\" is a partial index"),
+            true,
+        ));
     }
     if !index_form.indimmediate && !constraint.deferrable {
         let mut e = PgError::new(ERROR, format!("\"{index_name}\" is a deferrable index"))
@@ -2925,7 +2994,10 @@ fn transform_existing_index_constraint<'mcx>(
         return Err(at(Box::new(e)));
     }
     if index_rel.rd_rel.relam != types_core::BTREE_AM_OID {
-        return Err(wrong_type(format!("index \"{index_name}\" is not a btree"), false));
+        return Err(wrong_type(
+            format!("index \"{index_name}\" is not a btree"),
+            false,
+        ));
     }
 
     let (indcollation, indclass, indoption) = pg_index_vectors(mcx, index_oid)?;
@@ -2984,7 +3056,11 @@ fn transform_existing_index_constraint<'mcx>(
     // common key loop, which rejects a column named twice.
     for (i, keynode) in keys.iter().enumerate() {
         let key = keynode.as_string().expect("constraint keys").sval;
-        if keys.iter().take(i).any(|k| k.as_string().expect("constraint keys").sval == key) {
+        if keys
+            .iter()
+            .take(i)
+            .any(|k| k.as_string().expect("constraint keys").sval == key)
+        {
             return Err(duplicate_key_column(
                 key,
                 index.primary,
@@ -3034,9 +3110,16 @@ fn catalog_oid_key(attno: usize, oid: Oid) -> types_scan::scankey::ScanKeyData {
 fn pg_index_vectors<'mcx>(
     mcx: Mcx<'mcx>,
     indexoid: Oid,
-) -> PgResult<(mcx::PgVec<'mcx, Oid>, mcx::PgVec<'mcx, Oid>, mcx::PgVec<'mcx, i16>)> {
-    let pg_index =
-        table::table_open(mcx, types_core::INDEX_RELATION_ID, types_rel::AccessShareLock)?;
+) -> PgResult<(
+    mcx::PgVec<'mcx, Oid>,
+    mcx::PgVec<'mcx, Oid>,
+    mcx::PgVec<'mcx, i16>,
+)> {
+    let pg_index = table::table_open(
+        mcx,
+        types_core::INDEX_RELATION_ID,
+        types_rel::AccessShareLock,
+    )?;
     let key = catalog_oid_key(1, indexoid);
     let mut scan =
         genam::systable_beginscan(mcx, &pg_index, IndexRelidIndexId, true, None, &[key])?;
@@ -3056,12 +3139,27 @@ fn pg_index_vectors<'mcx>(
         // SAFETY: NOT NULL varlena, live through the scan.
         unsafe { core::slice::from_raw_parts(p, types_tuple::varatt::varsize_any(p)) }
     };
-    let coll_elems =
-        datum::array_build::deconstruct_array_image(mcx, vector_image(Anum_pg_index_indcollation), 4, true, b'i')?;
-    let class_elems =
-        datum::array_build::deconstruct_array_image(mcx, vector_image(Anum_pg_index_indclass), 4, true, b'i')?;
-    let opt_elems =
-        datum::array_build::deconstruct_array_image(mcx, vector_image(Anum_pg_index_indoption), 2, true, b's')?;
+    let coll_elems = datum::array_build::deconstruct_array_image(
+        mcx,
+        vector_image(Anum_pg_index_indcollation),
+        4,
+        true,
+        b'i',
+    )?;
+    let class_elems = datum::array_build::deconstruct_array_image(
+        mcx,
+        vector_image(Anum_pg_index_indclass),
+        4,
+        true,
+        b'i',
+    )?;
+    let opt_elems = datum::array_build::deconstruct_array_image(
+        mcx,
+        vector_image(Anum_pg_index_indoption),
+        2,
+        true,
+        b's',
+    )?;
     let mut indcollation: mcx::PgVec<'mcx, Oid> = mcx::vec_with_capacity_in(mcx, coll_elems.len())?;
     indcollation.extend(coll_elems.iter().map(|d| d.as_oid()));
     let mut indclass: mcx::PgVec<'mcx, Oid> = mcx::vec_with_capacity_in(mcx, class_elems.len())?;
@@ -3075,8 +3173,11 @@ fn pg_index_vectors<'mcx>(
 
 // get_attoptions(relid, attnum) != (Datum) 0 — only the null test is needed.
 fn index_attoptions_set(mcx: Mcx<'_>, relid: Oid, attnum: i16) -> PgResult<bool> {
-    let pg_attribute =
-        table::table_open(mcx, types_core::ATTRIBUTE_RELATION_ID, types_rel::AccessShareLock)?;
+    let pg_attribute = table::table_open(
+        mcx,
+        types_core::ATTRIBUTE_RELATION_ID,
+        types_rel::AccessShareLock,
+    )?;
     let key1 = catalog_oid_key(1, relid);
     let mut key2 = types_scan::scankey::ScanKeyData::empty();
     key2.sk_attno = 5;
@@ -3200,7 +3301,11 @@ pub(crate) fn generateSerialExtraStmts<'mcx>(
             .expect("SEQUENCE NAME is a name list");
         let parts: Vec<&str> = names
             .iter()
-            .map(|n| n.as_string().expect("qualified name component is a String node").sval)
+            .map(|n| {
+                n.as_string()
+                    .expect("qualified name component is a String node")
+                    .sval
+            })
             .collect();
         let (nschema, nname) = match parts.as_slice() {
             [r] => (None, *r),
@@ -3223,7 +3328,8 @@ pub(crate) fn generateSerialExtraStmts<'mcx>(
     } else {
         // A sequence name rides a RangeVar (&str): a byte-clipped non-UTF-8
         // name is a typed refusal, never a panic (pg_constraint::generated_name_utf8).
-        let sname_bytes = ChooseRelationName(mcx, relname, Some(colname.as_bytes()), "seq", snamespaceid)?;
+        let sname_bytes =
+            ChooseRelationName(mcx, relname, Some(colname.as_bytes()), "seq", snamespaceid)?;
         let sname = leak_str(PgString::from_str_in(
             pg_constraint::generated_name_utf8(&sname_bytes, "sequence")?,
             mcx,
@@ -3246,8 +3352,7 @@ pub(crate) fn generateSerialExtraStmts<'mcx>(
 
     // C: the sequence copies the table's persistence, LOGGED/UNLOGGED
     // override it (rejected on TEMP tables).
-    let mut seqpersistence =
-        rel.map_or(relation.relpersistence, |r| r.rd_rel.relpersistence);
+    let mut seqpersistence = rel.map_or(relation.relpersistence, |r| r.rd_rel.relpersistence);
     if let Some(logged) = logged_el {
         if seqpersistence == types_core::RELPERSISTENCE_TEMP {
             // parse_utilcmd.c:502-505: 42P16 with parser_errposition(pstate,
@@ -3346,10 +3451,7 @@ pub(crate) fn generateSerialExtraStmts<'mcx>(
     Ok((snamespace, sname))
 }
 
-fn RangeVarGetCreationNamespace<'mcx>(
-    mcx: Mcx<'mcx>,
-    relation: &RangeVar<'_>,
-) -> PgResult<Oid> {
+fn RangeVarGetCreationNamespace<'mcx>(mcx: Mcx<'mcx>, relation: &RangeVar<'_>) -> PgResult<Oid> {
     let rv = rel_vocab::RangeVar {
         catalogname: relation.catalogname,
         schemaname: relation.schemaname,
@@ -3406,7 +3508,8 @@ fn ident_needs_quotes(ident: &str) -> bool {
     }
     let safe_first = b[0].is_ascii_lowercase() || b[0] == b'_';
     let safe = safe_first
-        && b.iter().all(|&c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'_');
+        && b.iter()
+            .all(|&c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'_');
     if !safe {
         return true;
     }
@@ -3461,6 +3564,7 @@ pub fn quote_qualified_identifier<'mcx>(
 // back in cxt for the caller to schedule as AT_AddIndex[Constraint]/
 // AT_AddConstraint subcommands; blist/alist carry the serial/identity
 // sequence statements (C beforeStmts/afterStmts).
+#[allow(clippy::field_reassign_with_default)]
 pub fn transformAlterTableCmd<'mcx>(
     mcx: Mcx<'mcx>,
     rel: &types_rel::Relation<'_>,
@@ -3472,14 +3576,12 @@ pub fn transformAlterTableCmd<'mcx>(
     let cmd = cnode.as_variant::<AlterTableCmd>().expect("AlterTableCmd");
     let mut ckconstraints = NodeList::nil();
     let mut nnconstraints = NodeList::nil();
-    let mut cxt = CreateStmtCxt::new(
-        if rel.rd_rel.relkind == types_rel::RELKIND_FOREIGN_TABLE {
-            "ALTER FOREIGN TABLE"
-        } else {
-            "ALTER TABLE"
-        },
-    );
-    let arena_relname =|| -> PgResult<&'mcx str> {
+    let mut cxt = CreateStmtCxt::new(if rel.rd_rel.relkind == types_rel::RELKIND_FOREIGN_TABLE {
+        "ALTER FOREIGN TABLE"
+    } else {
+        "ALTER TABLE"
+    });
+    let arena_relname = || -> PgResult<&'mcx str> {
         let mut s = PgString::new_in(mcx);
         s.try_push_str(relname)?;
         Ok(leak_str(s))
@@ -3606,7 +3708,12 @@ pub fn transformAlterTableCmd<'mcx>(
         AlterTableType::AT_SetIdentity => {
             let mut newseqopts = NodeList::nil();
             let mut newdef = NodeList::nil();
-            for opt in cmd.def.expect("AT_SetIdentity options").as_list().expect("DefElem list").iter()
+            for opt in cmd
+                .def
+                .expect("AT_SetIdentity options")
+                .as_list()
+                .expect("DefElem list")
+                .iter()
             {
                 let defel = opt.as_variant::<DefElem>().expect("DefElem");
                 if defel.defname == Some("generated") {
@@ -3645,8 +3752,11 @@ pub fn transformAlterTableCmd<'mcx>(
                 cxt.blist.lappend(mcx, seqstmt.seal())?;
             }
             // A non-identity column errors in ATExecSetIdentity, per C.
-            let newdef_node =
-                if newdef.is_nil() { None } else { Some(Node::mk_list(mcx, newdef)?) };
+            let newdef_node = if newdef.is_nil() {
+                None
+            } else {
+                Some(Node::mk_list(mcx, newdef)?)
+            };
             // SAFETY: parse tree is statement-owned; no derived refs live.
             unsafe {
                 cnode
@@ -3679,8 +3789,7 @@ pub fn transformAlterTableCmd<'mcx>(
                     let (type_oid, _) =
                         typename_type_id_and_mod(mcx, Some(query_string.as_bytes()), tn)?;
                     let snamespaceid = lsyscache::get_rel_namespace(seq_relid)?;
-                    let Some(snamespace) = lsyscache::get_namespace_name(mcx, snamespaceid)?
-                    else {
+                    let Some(snamespace) = lsyscache::get_namespace_name(mcx, snamespaceid)? else {
                         return Err(cache_lookup_failed("namespace", snamespaceid));
                     };
                     let snamespace = leak_str(snamespace);
@@ -3870,13 +3979,16 @@ fn duplicate_key_column(
 #[inline(never)]
 fn not_supported_on_foreign_tables(what: &str, src: Option<&str>, location: i32) -> Box<PgError> {
     Box::new(
-        PgError::new(ERROR, format!("{what} constraints are not supported on foreign tables"))
-            .with_sqlstate(ERRCODE_FEATURE_NOT_SUPPORTED)
-            .with_cursor_position(parser_small1::parser_errposition_source(
-                src.map(str::as_bytes),
-                location,
-                mbutils::GetDatabaseEncoding(),
-            )),
+        PgError::new(
+            ERROR,
+            format!("{what} constraints are not supported on foreign tables"),
+        )
+        .with_sqlstate(ERRCODE_FEATURE_NOT_SUPPORTED)
+        .with_cursor_position(parser_small1::parser_errposition_source(
+            src.map(str::as_bytes),
+            location,
+            mbutils::GetDatabaseEncoding(),
+        )),
     )
 }
 
@@ -3937,12 +4049,32 @@ mod tests {
     fn cache_lookup_failures_are_catchable_xx000() {
         for (kind, oid, want) in [
             ("type", 0u32, "cache lookup failed for type 0"),
-            ("namespace", 2200u32, "cache lookup failed for namespace 2200"),
-            ("relation", 16384u32, "cache lookup failed for relation 16384"),
+            (
+                "namespace",
+                2200u32,
+                "cache lookup failed for namespace 2200",
+            ),
+            (
+                "relation",
+                16384u32,
+                "cache lookup failed for relation 16384",
+            ),
             ("index", 16385u32, "cache lookup failed for index 16385"),
-            ("sequence", 16386u32, "cache lookup failed for sequence 16386"),
-            ("access method", 403u32, "cache lookup failed for access method 403"),
-            ("tablespace", 1663u32, "cache lookup failed for tablespace 1663"),
+            (
+                "sequence",
+                16386u32,
+                "cache lookup failed for sequence 16386",
+            ),
+            (
+                "access method",
+                403u32,
+                "cache lookup failed for access method 403",
+            ),
+            (
+                "tablespace",
+                1663u32,
+                "cache lookup failed for tablespace 1663",
+            ),
             ("operator", 96u32, "cache lookup failed for operator 96"),
             ("collation", 100u32, "cache lookup failed for collation 100"),
             ("opclass", 1978u32, "cache lookup failed for opclass 1978"),
@@ -3959,7 +4091,10 @@ mod tests {
         }
 
         let e = cache_lookup_failed_attribute(3, 16384);
-        assert_eq!(e.message(), "cache lookup failed for attribute 3 of relation 16384");
+        assert_eq!(
+            e.message(),
+            "cache lookup failed for attribute 3 of relation 16384"
+        );
         assert_eq!(e.sqlstate(), types_error::ERRCODE_INTERNAL_ERROR);
         assert_eq!(e.level(), ERROR);
     }
@@ -3973,8 +4108,13 @@ mod tests {
         let mcx = ctx().mcx();
         // Whitespace-only input: typeStringToTypeName's own arm is soft.
         let mut soft = SoftErrorContext::new(true);
-        assert!(typeStringToTypeNameEsc(mcx, " \t ", Some(&mut soft)).unwrap().is_none());
-        assert_eq!(soft.error().unwrap().message(), "invalid type name \" \t \"");
+        assert!(typeStringToTypeNameEsc(mcx, " \t ", Some(&mut soft))
+            .unwrap()
+            .is_none());
+        assert_eq!(
+            soft.error().unwrap().message(),
+            "invalid type name \" \t \""
+        );
         // >3 dotted names stay hard even with a soft context
         // (DeconstructQualifiedName's default arm, namespace.c).
         let mut soft = SoftErrorContext::new(true);
@@ -3989,21 +4129,41 @@ mod tests {
         let err =
             parseTypeStringEsc(mcx, "incorrect type name syntax", Some(&mut soft)).unwrap_err();
         assert_eq!(err.message(), "syntax error at or near \"type\"");
-        assert_eq!(err.context(), Some("invalid type name \"incorrect type name syntax\""));
+        assert_eq!(
+            err.context(),
+            Some("invalid type name \"incorrect type name syntax\"")
+        );
     }
 
     #[test]
     fn quote_identifier_matches_c() {
         let mcx = ctx().mcx();
-        assert_eq!(quote_identifier(mcx, "st_id_seq").unwrap().as_str(), "st_id_seq");
-        assert_eq!(quote_identifier(mcx, "MiXed").unwrap().as_str(), "\"MiXed\"");
-        assert_eq!(quote_identifier(mcx, "se\"q").unwrap().as_str(), "\"se\"\"q\"");
+        assert_eq!(
+            quote_identifier(mcx, "st_id_seq").unwrap().as_str(),
+            "st_id_seq"
+        );
+        assert_eq!(
+            quote_identifier(mcx, "MiXed").unwrap().as_str(),
+            "\"MiXed\""
+        );
+        assert_eq!(
+            quote_identifier(mcx, "se\"q").unwrap().as_str(),
+            "\"se\"\"q\""
+        );
         // reserved keyword quoted; unreserved keyword bare.
-        assert_eq!(quote_identifier(mcx, "select").unwrap().as_str(), "\"select\"");
-        assert_eq!(quote_identifier(mcx, "between").unwrap().as_str(), "\"between\"");
+        assert_eq!(
+            quote_identifier(mcx, "select").unwrap().as_str(),
+            "\"select\""
+        );
+        assert_eq!(
+            quote_identifier(mcx, "between").unwrap().as_str(),
+            "\"between\""
+        );
         assert_eq!(quote_identifier(mcx, "cache").unwrap().as_str(), "cache");
         assert_eq!(
-            quote_qualified_identifier(mcx, Some("public"), "t_id_seq").unwrap().as_str(),
+            quote_qualified_identifier(mcx, Some("public"), "t_id_seq")
+                .unwrap()
+                .as_str(),
             "public.t_id_seq"
         );
     }
@@ -4029,12 +4189,16 @@ mod tests {
         con.location = -1;
         let mut keylist = NodeList::nil();
         for k in keys {
-            keylist.lappend(mcx, Node::mk_string(mcx, k).unwrap()).unwrap();
+            keylist
+                .lappend(mcx, Node::mk_string(mcx, k).unwrap())
+                .unwrap();
         }
         con.keys = keylist;
         let mut inclist = NodeList::nil();
         for k in including {
-            inclist.lappend(mcx, Node::mk_string(mcx, k).unwrap()).unwrap();
+            inclist
+                .lappend(mcx, Node::mk_string(mcx, k).unwrap())
+                .unwrap();
         }
         con.including = inclist;
         con.seal()
@@ -4044,7 +4208,11 @@ mod tests {
         params
             .iter()
             .map(|n| {
-                n.as_variant::<IndexElem>().expect("IndexElem").name.expect("named").to_string()
+                n.as_variant::<IndexElem>()
+                    .expect("IndexElem")
+                    .name
+                    .expect("named")
+                    .to_string()
             })
             .collect()
     }
@@ -4089,8 +4257,7 @@ mod tests {
     fn transform_index_constraint_include_lowering() {
         let mcx = ctx().mcx();
         let columns = mk_columns(mcx, &["a", "b", "c"]);
-        let con =
-            mk_unique_constraint(mcx, ConstrType::CONSTR_UNIQUE, &["a"], &["b", "c"]);
+        let con = mk_unique_constraint(mcx, ConstrType::CONSTR_UNIQUE, &["a"], &["b", "c"]);
         let ix = NodeList::make1(mcx, con).unwrap();
         let alist = run_transform(mcx, &columns, &ix).unwrap();
         assert_eq!(alist.len(), 1);
@@ -4121,7 +4288,8 @@ mod tests {
         let columns = mk_columns(mcx, &["a", "r"]);
         let con = mk_unique_constraint(mcx, ConstrType::CONSTR_UNIQUE, &["a", "r"], &["z"]);
         unsafe {
-            con.with_mut::<Constraint, _>(|c| c.without_overlaps = true).unwrap();
+            con.with_mut::<Constraint, _>(|c| c.without_overlaps = true)
+                .unwrap();
         }
         let ix = NodeList::make1(mcx, con).unwrap();
         let e = run_transform(mcx, &columns, &ix).unwrap_err();
@@ -4138,8 +4306,11 @@ mod tests {
         let mcx = ctx().mcx();
         let columns = mk_columns(mcx, &["a", "b"]);
         let mut ix = NodeList::nil();
-        ix.lappend(mcx, mk_unique_constraint(mcx, ConstrType::CONSTR_PRIMARY, &["a"], &[]))
-            .unwrap();
+        ix.lappend(
+            mcx,
+            mk_unique_constraint(mcx, ConstrType::CONSTR_PRIMARY, &["a"], &[]),
+        )
+        .unwrap();
         ix.lappend(
             mcx,
             mk_unique_constraint(mcx, ConstrType::CONSTR_UNIQUE, &["a"], &["b"]),
@@ -4158,7 +4329,8 @@ mod tests {
         let con = mk_unique_constraint(mcx, ConstrType::CONSTR_PRIMARY, &[], &[]);
         // SAFETY: parse tree is test-owned; no derived refs.
         unsafe {
-            con.with_mut::<Constraint, _>(|c| c.indexname = Some("gw_b")).unwrap();
+            con.with_mut::<Constraint, _>(|c| c.indexname = Some("gw_b"))
+                .unwrap();
         }
         let ix = NodeList::make1(mcx, con).unwrap();
         let e = run_transform(mcx, &columns, &ix).unwrap_err();
@@ -4176,16 +4348,23 @@ mod tests {
         let mcx = ctx().mcx();
         let columns = mk_columns(mcx, &["a"]);
         let mut ix = NodeList::nil();
-        ix.lappend(mcx, mk_unique_constraint(mcx, ConstrType::CONSTR_PRIMARY, &["a"], &[]))
-            .unwrap();
+        ix.lappend(
+            mcx,
+            mk_unique_constraint(mcx, ConstrType::CONSTR_PRIMARY, &["a"], &[]),
+        )
+        .unwrap();
         let con2 = mk_unique_constraint(mcx, ConstrType::CONSTR_PRIMARY, &[], &[]);
         // SAFETY: parse tree is test-owned; no derived refs.
         unsafe {
-            con2.with_mut::<Constraint, _>(|c| c.indexname = Some("gw_b")).unwrap();
+            con2.with_mut::<Constraint, _>(|c| c.indexname = Some("gw_b"))
+                .unwrap();
         }
         ix.lappend(mcx, con2).unwrap();
         let e = run_transform(mcx, &columns, &ix).unwrap_err();
-        assert_eq!(e.message(), "multiple primary keys for table \"t\" are not allowed");
+        assert_eq!(
+            e.message(),
+            "multiple primary keys for table \"t\" are not allowed"
+        );
         assert_eq!(e.sqlstate(), types_error::ERRCODE_INVALID_TABLE_DEFINITION);
     }
 
@@ -4200,7 +4379,8 @@ mod tests {
             let con = mk_unique_constraint(mcx, ConstrType::CONSTR_PRIMARY, &[], &[]);
             // SAFETY: parse tree is test-owned; no derived refs.
             unsafe {
-                con.with_mut::<Constraint, _>(|c| c.indexname = Some(name)).unwrap();
+                con.with_mut::<Constraint, _>(|c| c.indexname = Some(name))
+                    .unwrap();
             }
             ix.lappend(mcx, con).unwrap();
         }
@@ -4244,10 +4424,15 @@ mod tests {
         let mcx = ctx().mcx();
         let check = mk_con(mcx, ConstrType::CONSTR_CHECK);
         let mut list = NodeList::make1(mcx, check).unwrap();
-        list.lappend(mcx, mk_con(mcx, ConstrType::CONSTR_ATTR_NOT_ENFORCED)).unwrap();
-        list.lappend(mcx, mk_con(mcx, ConstrType::CONSTR_ATTR_ENFORCED)).unwrap();
+        list.lappend(mcx, mk_con(mcx, ConstrType::CONSTR_ATTR_NOT_ENFORCED))
+            .unwrap();
+        list.lappend(mcx, mk_con(mcx, ConstrType::CONSTR_ATTR_ENFORCED))
+            .unwrap();
         let err = transformConstraintAttrs(&list, None).unwrap_err();
-        assert_eq!(err.message(), "multiple ENFORCED/NOT ENFORCED clauses not allowed");
+        assert_eq!(
+            err.message(),
+            "multiple ENFORCED/NOT ENFORCED clauses not allowed"
+        );
     }
 
     fn mk_type_name<'mcx>(
@@ -4323,7 +4508,10 @@ mod tests {
         let mcx = ctx().mcx();
         let tn = mk_type_name(mcx, &["a"], true, false, InvalidOid);
         let err = typenameTypeId(mcx, None, tn).unwrap_err();
-        assert_eq!(err.message(), "improper %TYPE reference (too few dotted names): a");
+        assert_eq!(
+            err.message(),
+            "improper %TYPE reference (too few dotted names): a"
+        );
         assert_eq!(err.sqlstate(), ERRCODE_SYNTAX_ERROR);
 
         let tn = mk_type_name(mcx, &["a", "b", "c", "d", "e"], true, false, InvalidOid);
@@ -4337,9 +4525,15 @@ mod tests {
         // Same arm through typenameTypeIdAndMod and LookupTypeNameOid.
         let tn = mk_type_name(mcx, &["a"], true, false, InvalidOid);
         let err = typenameTypeIdAndMod(mcx, None, tn).unwrap_err();
-        assert_eq!(err.message(), "improper %TYPE reference (too few dotted names): a");
+        assert_eq!(
+            err.message(),
+            "improper %TYPE reference (too few dotted names): a"
+        );
         let err = LookupTypeNameOid(mcx, tn).unwrap_err();
-        assert_eq!(err.message(), "improper %TYPE reference (too few dotted names): a");
+        assert_eq!(
+            err.message(),
+            "improper %TYPE reference (too few dotted names): a"
+        );
     }
 
     #[test]
@@ -4380,8 +4574,14 @@ mod tests {
         let mcx = ctx().mcx();
         let tn = mk_type_name(mcx, &[], false, false, INT2OID);
         assert_eq!(LookupTypeNameOidAllowShell(mcx, tn).unwrap(), INT2OID);
-        assert_eq!(LookupTypeNameOidExtendedAllowShell(mcx, tn, false).unwrap(), INT2OID);
-        assert_eq!(LookupTypeNameOidExtendedAllowShell(mcx, tn, true).unwrap(), INT2OID);
+        assert_eq!(
+            LookupTypeNameOidExtendedAllowShell(mcx, tn, false).unwrap(),
+            INT2OID
+        );
+        assert_eq!(
+            LookupTypeNameOidExtendedAllowShell(mcx, tn, true).unwrap(),
+            INT2OID
+        );
     }
 
     #[test]
@@ -4395,7 +4595,9 @@ mod tests {
         let mcx = ctx().mcx();
         let mut tn = Node::build::<TypeName>(mcx).unwrap();
         let mut typmods = NodeList::nil();
-        typmods.lappend(mcx, Node::mk_string(mcx, "1").unwrap()).unwrap();
+        typmods
+            .lappend(mcx, Node::mk_string(mcx, "1").unwrap())
+            .unwrap();
         tn.names = NodeList::nil();
         tn.typmods = typmods;
         tn.typeOid = INT2OID;
@@ -4419,7 +4621,9 @@ mod tests {
         let mcx = ctx().mcx();
         let mut tn = Node::build::<TypeName>(mcx).unwrap();
         let mut typmods = NodeList::nil();
-        typmods.lappend(mcx, Node::mk_string(mcx, "5").unwrap()).unwrap();
+        typmods
+            .lappend(mcx, Node::mk_string(mcx, "5").unwrap())
+            .unwrap();
         tn.names = NodeList::nil();
         tn.typmods = typmods;
         tn.typeOid = INT4OID;
@@ -4428,7 +4632,10 @@ mod tests {
         let tn = tn.seal().as_variant::<TypeName>().unwrap();
 
         let err = LookupTypeNameOid(mcx, tn).unwrap_err();
-        assert_eq!(err.message(), "type modifier is not allowed for type \"integer\"");
+        assert_eq!(
+            err.message(),
+            "type modifier is not allowed for type \"integer\""
+        );
         assert_eq!(err.sqlstate(), ERRCODE_SYNTAX_ERROR);
     }
 
@@ -4438,8 +4645,13 @@ mod tests {
         // in the lookup lanes.
         let mcx = ctx().mcx();
         let mut soft = SoftErrorContext::new(true);
-        assert!(parseTypeStringEsc(mcx, "setof int4", Some(&mut soft)).unwrap().is_none());
-        assert_eq!(soft.error().unwrap().message(), "invalid type name \"setof int4\"");
+        assert!(parseTypeStringEsc(mcx, "setof int4", Some(&mut soft))
+            .unwrap()
+            .is_none());
+        assert_eq!(
+            soft.error().unwrap().message(),
+            "invalid type name \"setof int4\""
+        );
     }
 
     #[test]
@@ -4458,20 +4670,32 @@ mod tests {
 
     // Panic-hygiene pins (2026-08-18): unported/grammar-unreachable lanes in
     // transformColumnDefinition raise clean SQLSTATE errors, never panics.
-    fn transform_column<'mcx>(
-        mcx: Mcx<'mcx>,
-        column_node: Node<'mcx>,
-    ) -> PgResult<()> {
-        let relation =
-            RangeVar { relname: Some("t"), location: -1, ..RangeVar::default() };
+    fn transform_column<'mcx>(mcx: Mcx<'mcx>, column_node: Node<'mcx>) -> PgResult<()> {
+        let relation = RangeVar {
+            relname: Some("t"),
+            location: -1,
+            ..RangeVar::default()
+        };
         let mut cxt = CreateStmtCxt::new("CREATE TABLE");
         let mut ck = NodeList::nil();
         let mut nn = NodeList::nil();
         let mut ix = NodeList::nil();
         let mut fk = NodeList::nil();
         transformColumnDefinition(
-            mcx, column_node, &relation, None, None, &mut cxt, &mut ck, &mut nn, &mut ix,
-            &mut fk, false, false, false, false,
+            mcx,
+            column_node,
+            &relation,
+            None,
+            None,
+            &mut cxt,
+            &mut ck,
+            &mut nn,
+            &mut ix,
+            &mut fk,
+            false,
+            false,
+            false,
+            false,
         )
     }
 
@@ -4483,7 +4707,10 @@ mod tests {
         cd.raw_default = Some(Node::mk_string(mcx, "x").unwrap());
         let e = transform_column(mcx, cd.seal()).unwrap_err();
         assert_eq!(e.sqlstate(), ERRCODE_FEATURE_NOT_SUPPORTED);
-        assert_eq!(e.message(), "pre-split column defaults is not supported yet");
+        assert_eq!(
+            e.message(),
+            "pre-split column defaults is not supported yet"
+        );
     }
 
     #[test]
@@ -4499,7 +4726,10 @@ mod tests {
         cd.constraints = NodeList::make1(mcx, con.seal()).unwrap();
         let e = transform_column(mcx, cd.seal()).unwrap_err();
         assert_eq!(e.sqlstate(), ::types_error::ERRCODE_INTERNAL_ERROR);
-        assert_eq!(e.message(), "column exclusion constraints are not supported");
+        assert_eq!(
+            e.message(),
+            "column exclusion constraints are not supported"
+        );
     }
 
     #[test]
@@ -4543,8 +4773,12 @@ mod tests {
         let mcx = ctx().mcx();
         let mut tn = Node::build::<TypeName>(mcx).unwrap();
         let mut names = NodeList::nil();
-        names.lappend(mcx, Node::mk_string(mcx, "fz_priv").unwrap()).unwrap();
-        names.lappend(mcx, Node::mk_string(mcx, "hidden_ty").unwrap()).unwrap();
+        names
+            .lappend(mcx, Node::mk_string(mcx, "fz_priv").unwrap())
+            .unwrap();
+        names
+            .lappend(mcx, Node::mk_string(mcx, "hidden_ty").unwrap())
+            .unwrap();
         tn.names = names;
         tn.location = -1;
         let node = tn.seal();

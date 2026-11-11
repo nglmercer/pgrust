@@ -127,6 +127,7 @@ impl Derived {
     }
 
     /// # Safety — `hdr` is a `Derived` table header.
+    #[allow(clippy::missing_safety_doc)]
     pub unsafe fn at(hdr: *const Header) -> Derived {
         debug_assert_eq!((*hdr).elem, crate::lane::ELEM_DERIVED);
         Derived { hdr, ents: (*hdr).data.ptr() as *const u32, base: (*hdr).base.ptr(), canon: (*hdr).canon.ptr(), hashes: (*hdr).hashes.ptr(), faults: (*hdr).faults.ptr(), ncodes: (*hdr).ncodes, ndistinct: (*hdr).ndistinct }
@@ -151,6 +152,7 @@ impl Derived {
 
     /// # Safety — `code < ncodes()`.
     #[inline(always)]
+    #[allow(clippy::missing_safety_doc)]
     pub unsafe fn view(&self, code: u32) -> View {
         view_at(self.ents, self.base, code)
     }
@@ -158,24 +160,28 @@ impl Derived {
     /// The canonical index of `code`'s derived value in this part (`u32::MAX` for a faulting or null code).
     /// # Safety — `code < ncodes()`.
     #[inline(always)]
+    #[allow(clippy::missing_safety_doc)]
     pub unsafe fn canonical(&self, code: u32) -> u32 {
         *self.canon.add(code as usize)
     }
 
     /// # Safety — `code < ncodes()`.
     #[inline(always)]
+    #[allow(clippy::missing_safety_doc)]
     pub unsafe fn hash(&self, code: u32) -> u64 {
         *self.hashes.add(code as usize)
     }
 
     /// # Safety — `code < ncodes()`.
     #[inline(always)]
+    #[allow(clippy::missing_safety_doc)]
     pub unsafe fn faulted(&self, code: u32) -> bool {
         !self.faults.is_null() && bit(self.faults, code)
     }
 
     /// `out[i]` ← canonical(codes[i]) for the valid rows; the first valid faulting row is returned.
     /// # Safety — as `I64::gather`, `out` holds `rows` cells.
+    #[allow(clippy::missing_safety_doc)]
     pub unsafe fn gather_canonical<C: CodeCell>(&self, codes: *const C, valid: *const u64, rows: usize, out: *mut u32) -> Result<(), Deferred> {
         for i in 0..rows {
             if valid.is_null() || bit(valid, i as u32) {

@@ -10,7 +10,7 @@ use ::types_error::{PgError, PgResult};
 use ::types_rel::Relation;
 
 use gin::build::{
-    check_for_interrupts, gin_build_init_pages, ginExtractEntries, ginUpdateStats, initGinState,
+    check_for_interrupts, ginExtractEntries, ginUpdateStats, gin_build_init_pages, initGinState,
     relation_needs_wal, BuildAccumulator, GinInitBuffer, GinInitMetabuffer, GinNewBuffer,
 };
 use gin::ginEntryInsert;
@@ -112,17 +112,18 @@ pub fn ginbuild<'mcx>(
                     let attnum = (i + 1) as ::types_core::OffsetNumber;
                     let (entries, categories) =
                         ginExtractEntries(fmcx, &state, attnum, values[i], isnull[i])?;
-                    accum.as_mut().expect("gin build accumulator").insert_entries(
-                        tid,
-                        attnum,
-                        entries.as_slice(),
-                        categories.as_slice(),
-                    )?;
+                    accum
+                        .as_mut()
+                        .expect("gin build accumulator")
+                        .insert_entries(tid, attnum, entries.as_slice(), categories.as_slice())?;
                     indtuples += entries.len() as f64;
                 }
             }
 
-            if accum.as_ref().expect("gin build accumulator").allocated_memory
+            if accum
+                .as_ref()
+                .expect("gin build accumulator")
+                .allocated_memory
                 >= init_small::globals::maintenance_work_mem() as usize * 1024
             {
                 // gininsert.c:474-494 ginBuildCallback: dump the accumulated
@@ -130,6 +131,7 @@ pub fn ginbuild<'mcx>(
                 // build's memory is bounded by maintenance_work_mem per round.
                 let mut round = accum.take().expect("gin build accumulator");
                 round.begin_scan()?;
+                #[allow(clippy::while_let_loop)]
                 loop {
                     let Some((attnum, key, category, list)) = round.next_entry() else {
                         break;
@@ -159,6 +161,7 @@ pub fn ginbuild<'mcx>(
 
     let mut accum = accum.take().expect("gin build accumulator");
     accum.begin_scan()?;
+    #[allow(clippy::while_let_loop)]
     loop {
         let Some((attnum, key, category, list)) = accum.next_entry() else {
             break;
@@ -199,5 +202,3 @@ pub fn ginbuild<'mcx>(
         index_tuples: indtuples,
     })
 }
-
-

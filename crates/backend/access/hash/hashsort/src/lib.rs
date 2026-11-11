@@ -50,7 +50,8 @@ pub fn hashbuild<'mcx>(
     let mut sort_threshold =
         (init_small::globals::maintenance_work_mem() as u64 * 1024) / ::types_core::BLCKSZ as u64;
     if index.rd_rel.relpersistence != ::types_core::RELPERSISTENCE_TEMP {
-        sort_threshold = sort_threshold.min(bufmgr_seams::active_buffers_or(init_small::globals::NBuffers()).max(0) as u64);
+        sort_threshold = sort_threshold
+            .min(bufmgr_seams::active_buffers_or(init_small::globals::NBuffers()).max(0) as u64);
     } else {
         sort_threshold = sort_threshold.min(bufmgr::n_loc_buffer().max(0) as u64);
     }
@@ -75,7 +76,10 @@ pub fn hashbuild<'mcx>(
         }
     };
 
-    Ok(IndexBuildResult { heap_tuples: reltuples, index_tuples: indtuples })
+    Ok(IndexBuildResult {
+        heap_tuples: reltuples,
+        index_tuples: indtuples,
+    })
 }
 
 fn build_scan<'mcx>(
@@ -98,7 +102,9 @@ fn build_scan<'mcx>(
                 return Ok(());
             };
             match spool.as_mut() {
-                Some(sp) => sp.sortstate.putindextuplevalues(*tid, &[hash_datum], &[false])?,
+                Some(sp) => sp
+                    .sortstate
+                    .putindextuplevalues(*tid, &[hash_datum], &[false])?,
                 None => {
                     // hash.c:258/280: the tuple image is pfree'd after the
                     // insert; the caller's context may be a bump arena.
@@ -111,11 +117,12 @@ fn build_scan<'mcx>(
                     )?;
                     // SAFETY: t_tid = first 6 bytes of the owned image.
                     unsafe {
-                        itup.as_mut_ptr().cast::<ItemPointerData>().write_unaligned(*tid);
+                        itup.as_mut_ptr()
+                            .cast::<ItemPointerData>()
+                            .write_unaligned(*tid);
                     }
                     // SAFETY: itup.size() bytes of the live owned image.
-                    let image =
-                        unsafe { core::slice::from_raw_parts(itup.as_ptr(), itup.size()) };
+                    let image = unsafe { core::slice::from_raw_parts(itup.as_ptr(), itup.size()) };
                     hash::_hash_doinsert(index_rel, image, heap, false)?;
                 }
             }
@@ -183,15 +190,13 @@ fn _h_indexbuild(
 
     while let Some(itup) = hspool.sortstate.getindextuple(true)? {
         // SAFETY: sorted-run image stays live until the next getindextuple.
-        let image = unsafe {
-            core::slice::from_raw_parts(itup, nbtree::itup::index_tuple_size(itup))
-        };
+        let image =
+            unsafe { core::slice::from_raw_parts(itup, nbtree::itup::index_tuple_size(itup)) };
         #[cfg(debug_assertions)]
         {
             // SAFETY: as above; single non-null uint32 key at the data offset.
             let hashkey = unsafe {
-                let off =
-                    nbtree::itup::index_info_find_data_offset(nbtree::itup::t_info(itup));
+                let off = nbtree::itup::index_info_find_data_offset(nbtree::itup::t_info(itup));
                 itup.add(off).cast::<u32>().read_unaligned()
             };
             let bucket = ::types_hash::_hash_hashkey2bucket(
@@ -290,7 +295,10 @@ mod tests {
         static INIT: Once = Once::new();
         INIT.call_once(|| {
             bufmgr_seams::read_buffer::set(|rel, blkno| {
-                assert_eq!(rel.rd_id, INDEX_OID, "only the index is read through the fake pool");
+                assert_eq!(
+                    rel.rd_id, INDEX_OID,
+                    "only the index is read through the fake pool"
+                );
                 let _ = page_bytes(blkno as Buffer + 1);
                 Ok(blkno as Buffer + 1)
             });
@@ -324,8 +332,10 @@ mod tests {
     // A bound PgBackendStatus entry with track_activities on, so the
     // progress params written by the build can be read back (the lmgr
     // tests' shape: one fixed slot, serialized by the returned guard).
-    fn progress_beentry(
-    ) -> (&'static backend_status::PgBackendStatus, std::sync::MutexGuard<'static, ()>) {
+    fn progress_beentry() -> (
+        &'static backend_status::PgBackendStatus,
+        std::sync::MutexGuard<'static, ()>,
+    ) {
         static ONCE: Once = Once::new();
         ONCE.call_once(|| {
             init_small::globals::SetMaxBackends(8);
@@ -339,7 +349,10 @@ mod tests {
         init_small::globals::SetMyProcNumber(3);
         backend_status::pgstat_beinit().unwrap();
         backend_status::set_pgstat_track_activities_backing(true);
-        (backend_status::MyBEEntry().expect("pgstat_beinit bound a beentry"), guard)
+        (
+            backend_status::MyBEEntry().expect("pgstat_beinit bound a beentry"),
+            guard,
+        )
     }
 
     fn int4_tupdesc(mcx: Mcx<'_>) -> TupleDescData<'_> {
@@ -377,7 +390,13 @@ mod tests {
         Ok(Datum::from_i32(fcinfo.arg(0).as_i32()))
     }
 
-    fn pg_class(relname: &str, relam: Oid, relkind: u8, oid: Oid, persistence: u8) -> FormData_pg_class {
+    fn pg_class(
+        relname: &str,
+        relam: Oid,
+        relkind: u8,
+        oid: Oid,
+        persistence: u8,
+    ) -> FormData_pg_class {
         let mut name = ::types_tuple::NameData::default();
         name.namestrcpy(relname);
         FormData_pg_class {
@@ -451,7 +470,12 @@ mod tests {
             rd_newRelfilelocatorSubid: Cell::new(0),
             rd_firstRelfilelocatorSubid: Cell::new(0),
             rd_droppedSubid: Cell::new(0),
-            rd_lockInfo: LockInfoData { lockRelId: LockRelId { relId: oid, dbId: 5 } },
+            rd_lockInfo: LockInfoData {
+                lockRelId: LockRelId {
+                    relId: oid,
+                    dbId: 5,
+                },
+            },
             rd_rel: if index {
                 pg_class("t_hidx", HASH_AM_OID, RELKIND_INDEX, oid, persistence)
             } else {
@@ -484,9 +508,13 @@ mod tests {
         if index {
             // index_getprocid(HASHSTANDARD_PROC) at _hash_init reads the
             // primed support info (no syscache behind the fake pool).
-            rel.rd_supportinfo
-                .borrow_mut()
-                .push(Some(FmgrInfo::new(stub_hashint4, 425, 1, true, false)));
+            rel.rd_supportinfo.borrow_mut().push(Some(FmgrInfo::new(
+                stub_hashint4,
+                425,
+                1,
+                true,
+                false,
+            )));
         }
         rel
     }

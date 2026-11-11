@@ -61,14 +61,23 @@ pub struct Refine {
 }
 
 impl Refine {
-    pub const V1: Refine = Refine { absorb: false, handoff: false, chain: false, quiet: false };
+    pub const V1: Refine = Refine {
+        absorb: false,
+        handoff: false,
+        chain: false,
+        quiet: false,
+    };
 }
 
 /// What an unset / `on` knob means. `absorb+handoff`: with it the pipeline
 /// matches or beats backend-led flush (`off`) at 1 to 64 clients, where `v1`
 /// lost up to a fifth of the commit rate at 64 (D4574).
-pub const DEFAULT_REFINE: Refine =
-    Refine { absorb: true, handoff: true, chain: false, quiet: false };
+pub const DEFAULT_REFINE: Refine = Refine {
+    absorb: true,
+    handoff: true,
+    chain: false,
+    quiet: false,
+};
 
 /// `None` = pipeline off. Unknown tokens are ignored (the pipeline stays on).
 pub fn parse_knob(raw: Option<&str>) -> Option<Refine> {
@@ -113,7 +122,10 @@ pub(crate) fn trace_enabled() -> bool {
     static ON: OnceLock<bool> = OnceLock::new();
     *ON.get_or_init(|| {
         matches!(
-            std::env::var("PGRUST_FLUSH_PIPELINE_TRACE").ok().as_deref().map(str::trim),
+            std::env::var("PGRUST_FLUSH_PIPELINE_TRACE")
+                .ok()
+                .as_deref()
+                .map(str::trim),
             Some("1") | Some("on")
         )
     })
@@ -241,7 +253,10 @@ unsafe impl Sync for Pipe {}
 
 static PIPE: Pipe = Pipe {
     lck: SpinLock::new(),
-    list: UnsafeCell::new(PipeList { head: ptr::null_mut(), tail: ptr::null_mut() }),
+    list: UnsafeCell::new(PipeList {
+        head: ptr::null_mut(),
+        tail: ptr::null_mut(),
+    }),
     min_pending: AtomicU64::new(u64::MAX),
     max_pending: AtomicU64::new(0),
 };
@@ -344,7 +359,11 @@ pub(crate) fn complete_up_to(flushed: XLogRecPtr) {
             while !at.is_null() && (*at).lsn <= flushed {
                 let next = *(*at).next.get();
                 PIPE.unlink(at);
-                covered.push(Covered { node: at, procno: (*at).procno, lsn: (*at).lsn });
+                covered.push(Covered {
+                    node: at,
+                    procno: (*at).procno,
+                    lsn: (*at).lsn,
+                });
                 at = next;
             }
             // `handoff`: the lowest waiter this flush did not cover leads the
@@ -352,13 +371,23 @@ pub(crate) fn complete_up_to(flushed: XLogRecPtr) {
             // so its flush of every finished insert covers the rest.
             if handoff && !at.is_null() {
                 PIPE.unlink(at);
-                lead = Some(Covered { node: at, procno: (*at).procno, lsn: (*at).lsn });
+                lead = Some(Covered {
+                    node: at,
+                    procno: (*at).procno,
+                    lsn: (*at).lsn,
+                });
             }
         }
     });
     if let Some(c) = lead {
         STATS.handoff_leads.fetch_add(1, Relaxed);
-        trace(|| format!("lead verdict at {:X}/{:X}", c.lsn >> 32, c.lsn & 0xFFFF_FFFF));
+        trace(|| {
+            format!(
+                "lead verdict at {:X}/{:X}",
+                c.lsn >> 32,
+                c.lsn & 0xFFFF_FFFF
+            )
+        });
         // SAFETY: as for the covered nodes below; `lead` is written before
         // the Release store of `completed`, which is the LAST touch.
         unsafe {
@@ -616,16 +645,16 @@ impl DeferredRegistry {
     }
 }
 
-pub fn register_deferred(
-    lsn: XLogRecPtr,
-    wake_procno: ProcNumber,
-) -> Option<DeferredFlushTicket> {
+pub fn register_deferred(lsn: XLogRecPtr, wake_procno: ProcNumber) -> Option<DeferredFlushTicket> {
     if !pipeline_available() {
         return None;
     }
     let ctl = XLogCtl();
-    let ticket =
-        Arc::new(TicketInner { lsn, wake_procno, state: AtomicU8::new(TICKET_PENDING) });
+    let ticket = Arc::new(TicketInner {
+        lsn,
+        wake_procno,
+        state: AtomicU8::new(TICKET_PENDING),
+    });
     DEFERRED.lck.with(|| unsafe {
         let t = &mut *DEFERRED.tickets.get();
         t.push(Arc::clone(&ticket));
@@ -639,12 +668,24 @@ pub fn register_deferred(
             let prev = ticket.state.swap(TICKET_COMPLETED, AcqRel);
             debug_assert_eq!(prev, TICKET_PENDING, "claimed ticket must be PENDING (T2)");
             STATS.ticket_self_served.fetch_add(1, Relaxed);
-            trace(|| format!("ticket self-served at {:X}/{:X}", lsn >> 32, lsn & 0xFFFF_FFFF));
+            trace(|| {
+                format!(
+                    "ticket self-served at {:X}/{:X}",
+                    lsn >> 32,
+                    lsn & 0xFFFF_FFFF
+                )
+            });
         }
     } else {
         wake_walwriter();
     }
-    trace(|| format!("ticket registered at {:X}/{:X}", lsn >> 32, lsn & 0xFFFF_FFFF));
+    trace(|| {
+        format!(
+            "ticket registered at {:X}/{:X}",
+            lsn >> 32,
+            lsn & 0xFFFF_FFFF
+        )
+    });
     Some(DeferredFlushTicket { inner: ticket })
 }
 
@@ -669,7 +710,9 @@ fn complete_deferred_up_to(flushed: XLogRecPtr) {
     if claimed.is_empty() {
         return;
     }
-    STATS.ticket_completed.fetch_add(claimed.len() as u64, Relaxed);
+    STATS
+        .ticket_completed
+        .fetch_add(claimed.len() as u64, Relaxed);
     trace(|| format!("completed {} ticket(s)", claimed.len()));
     for t in claimed {
         let prev = t.state.swap(TICKET_COMPLETED, AcqRel);
@@ -772,7 +815,12 @@ mod tests {
         let _g = GATE.lock().unwrap();
 
         drain_all();
-        let (a, b, c, d) = (mknode(300, 3), mknode(100, 1), mknode(200, 2), mknode(150, 4));
+        let (a, b, c, d) = (
+            mknode(300, 3),
+            mknode(100, 1),
+            mknode(200, 2),
+            mknode(150, 4),
+        );
         let (pa, pb, pc, pd) = (
             &*a as *const _ as *mut FlushWaitNode,
             &*b as *const _ as *mut FlushWaitNode,
@@ -819,7 +867,9 @@ mod tests {
     }
 
     fn deferred_len() -> usize {
-        DEFERRED.lck.with(|| unsafe { (*DEFERRED.tickets.get()).len() })
+        DEFERRED
+            .lck
+            .with(|| unsafe { (*DEFERRED.tickets.get()).len() })
     }
 
     #[test]
@@ -854,7 +904,10 @@ mod tests {
     #[test]
     fn ticket_register_refuses_without_pipeline() {
         if matches!(
-            std::env::var("PGRUST_FLUSH_PIPELINE").ok().as_deref().map(str::trim),
+            std::env::var("PGRUST_FLUSH_PIPELINE")
+                .ok()
+                .as_deref()
+                .map(str::trim),
             Some("0") | Some("off")
         ) {
             assert!(register_deferred(42, INVALID_PROC_NUMBER).is_none());
@@ -871,15 +924,30 @@ mod tests {
         assert_eq!(parse_knob(Some("v1")), Some(Refine::V1));
         assert_eq!(
             parse_knob(Some("absorb+handoff")),
-            Some(Refine { absorb: true, handoff: true, chain: false, quiet: false })
+            Some(Refine {
+                absorb: true,
+                handoff: true,
+                chain: false,
+                quiet: false
+            })
         );
         assert_eq!(
             parse_knob(Some("chain + absorb + bogus")),
-            Some(Refine { absorb: true, handoff: false, chain: true, quiet: false })
+            Some(Refine {
+                absorb: true,
+                handoff: false,
+                chain: true,
+                quiet: false
+            })
         );
         assert_eq!(
             parse_knob(Some("absorb+quiet")),
-            Some(Refine { absorb: true, handoff: true, chain: false, quiet: true })
+            Some(Refine {
+                absorb: true,
+                handoff: true,
+                chain: false,
+                quiet: true
+            })
         );
     }
 

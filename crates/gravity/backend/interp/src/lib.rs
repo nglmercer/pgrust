@@ -759,6 +759,7 @@ fn to_f64(ty: Type, bits: u64) -> f64 {
     }
 }
 #[inline]
+#[allow(dead_code)]
 fn from_f64(ty: Type, v: f64) -> u64 {
     match ty {
         Type::F32 => (v as f32).to_bits() as u64,

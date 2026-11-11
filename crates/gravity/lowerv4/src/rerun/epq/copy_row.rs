@@ -376,5 +376,5 @@ impl SourceMech for Copied<'_> {
     fn passed_block(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, win: &Win, base: Value, m: Mask) { self.inner.passed_block(b, env, win, base, m) }
     fn locator(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, row: &RowVals) -> Option<Locator> { self.inner.locator(b, env, row) }
     fn write_back(&self, b: &mut FunctionBuilder<'_>, env: &mut Env, cur: Value, out: Value) { self.inner.write_back(b, env, cur, out) }
-    fn copy_entry(&self) -> Option<&CopyEntry> { Some(&self.entry) }
+    fn copy_entry(&self) -> Option<&CopyEntry<'_>> { Some(&self.entry) }
 }

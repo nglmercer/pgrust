@@ -49,8 +49,8 @@
 //!   3. the conformance test in that consumer's crate (see
 //!      `execexpr`/`lanefold` tests) now binds the live table to the registry —
 //!      it fails if they disagree, so drift cannot re-open.
-//! Adding a brand-new OID a branch introduces = add a [`BatchFn`] row here in
-//! the same edit that adds the consumer arm.
+//!      Adding a brand-new OID a branch introduces = add a [`BatchFn`] row here in
+//!      the same edit that adds the consumer arm.
 
 #![allow(clippy::manual_range_contains)]
 
@@ -99,12 +99,16 @@ impl Tier {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Avail {
     InTree,
-    Pending { branch: &'static str },
+    Pending {
+        branch: &'static str,
+    },
     /// Coverage was evaluated and deliberately REFUSED: the tier cannot
     /// execute this OID with byte-identical C semantics under its current
     /// framework. `why` documents the blocking reason so the refusal is a
     /// recorded decision, not silent drift (censusgaps methodology).
-    Refused { why: &'static str },
+    Refused {
+        why: &'static str,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -137,11 +141,26 @@ pub struct TierCov {
 
 impl TierCov {
     const fn intree(tier: Tier, guard: GuardTier, coll: CollGate) -> TierCov {
-        TierCov { tier, avail: Avail::InTree, guard, coll }
+        TierCov {
+            tier,
+            avail: Avail::InTree,
+            guard,
+            coll,
+        }
     }
     #[allow(dead_code)]
-    const fn pending(tier: Tier, branch: &'static str, guard: GuardTier, coll: CollGate) -> TierCov {
-        TierCov { tier, avail: Avail::Pending { branch }, guard, coll }
+    const fn pending(
+        tier: Tier,
+        branch: &'static str,
+        guard: GuardTier,
+        coll: CollGate,
+    ) -> TierCov {
+        TierCov {
+            tier,
+            avail: Avail::Pending { branch },
+            guard,
+            coll,
+        }
     }
     const fn refused(tier: Tier, why: &'static str) -> TierCov {
         TierCov {
@@ -255,25 +274,56 @@ impl BatchFn {
     }
 }
 
-
 use CmpPred::*;
 use CmpWidth::*;
 
 // The distinct coverage patterns, as named 'static slices (const promotion of
 // an inline `&[..]` inside a const fn is not allowed, and naming them dedups).
 const COV_AOT_CMP: &[TierCov] = &[
-    TierCov::intree(Tier::AotQualCmp, GuardTier::NonErroring, CollGate::NotApplicable),
-    TierCov::intree(Tier::StitchCmp, GuardTier::NonErroring, CollGate::NotApplicable),
+    TierCov::intree(
+        Tier::AotQualCmp,
+        GuardTier::NonErroring,
+        CollGate::NotApplicable,
+    ),
+    TierCov::intree(
+        Tier::StitchCmp,
+        GuardTier::NonErroring,
+        CollGate::NotApplicable,
+    ),
 ];
 const COV_AOT_CMP_SAOP: &[TierCov] = &[
-    TierCov::intree(Tier::AotQualCmp, GuardTier::NonErroring, CollGate::NotApplicable),
-    TierCov::intree(Tier::StitchCmp, GuardTier::NonErroring, CollGate::NotApplicable),
-    TierCov::intree(Tier::StitchSaop, GuardTier::NonErroring, CollGate::NotApplicable),
+    TierCov::intree(
+        Tier::AotQualCmp,
+        GuardTier::NonErroring,
+        CollGate::NotApplicable,
+    ),
+    TierCov::intree(
+        Tier::StitchCmp,
+        GuardTier::NonErroring,
+        CollGate::NotApplicable,
+    ),
+    TierCov::intree(
+        Tier::StitchSaop,
+        GuardTier::NonErroring,
+        CollGate::NotApplicable,
+    ),
 ];
 const COV_ARITH_INT4: &[TierCov] = &[
-    TierCov::intree(Tier::JitArith, GuardTier::ReplayOnErr, CollGate::NotApplicable),
-    TierCov::intree(Tier::FoldAffine, GuardTier::DataGuard, CollGate::NotApplicable),
-    TierCov::intree(Tier::StitchArith, GuardTier::ReplayOnErr, CollGate::NotApplicable),
+    TierCov::intree(
+        Tier::JitArith,
+        GuardTier::ReplayOnErr,
+        CollGate::NotApplicable,
+    ),
+    TierCov::intree(
+        Tier::FoldAffine,
+        GuardTier::DataGuard,
+        CollGate::NotApplicable,
+    ),
+    TierCov::intree(
+        Tier::StitchArith,
+        GuardTier::ReplayOnErr,
+        CollGate::NotApplicable,
+    ),
 ];
 // int8 pl/mi/mul: JIT inlines them (adds/subs/mul+smulh overflow checks with
 // per-call replay), but the fold's affine admission is REFUSED (censusgaps):
@@ -289,24 +339,48 @@ const FOLDAFFINE_INT8_REFUSAL: &str =
     "int8 affine needs i128 interval proofs (safe_interval/guards are i64, coefficients i32); \
      without an exact interval the fold cannot reproduce C's int8 overflow ereport";
 const COV_ARITH_INT8_JIT: &[TierCov] = &[
-    TierCov::intree(Tier::JitArith, GuardTier::ReplayOnErr, CollGate::NotApplicable),
+    TierCov::intree(
+        Tier::JitArith,
+        GuardTier::ReplayOnErr,
+        CollGate::NotApplicable,
+    ),
     TierCov::refused(Tier::FoldAffine, FOLDAFFINE_INT8_REFUSAL),
 ];
 const COV_ARITH_MIX24: &[TierCov] = &[
-    TierCov::intree(Tier::JitArith, GuardTier::ReplayOnErr, CollGate::NotApplicable),
-    TierCov::intree(Tier::FoldAffine, GuardTier::DataGuard, CollGate::NotApplicable),
+    TierCov::intree(
+        Tier::JitArith,
+        GuardTier::ReplayOnErr,
+        CollGate::NotApplicable,
+    ),
+    TierCov::intree(
+        Tier::FoldAffine,
+        GuardTier::DataGuard,
+        CollGate::NotApplicable,
+    ),
 ];
-const COV_FOLD_IT: &[TierCov] =
-    &[TierCov::intree(Tier::Fold, GuardTier::TypeProof, CollGate::NotApplicable)];
+const COV_FOLD_IT: &[TierCov] = &[TierCov::intree(
+    Tier::Fold,
+    GuardTier::TypeProof,
+    CollGate::NotApplicable,
+)];
 
 const fn cmp_aot(oid: Oid, name: &'static str, width: CmpWidth, pred: CmpPred) -> BatchFn {
-    BatchFn { oid, name, shape: Shape::Cmp(CmpShape { width, pred }), cov: COV_AOT_CMP }
+    BatchFn {
+        oid,
+        name,
+        shape: Shape::Cmp(CmpShape { width, pred }),
+        cov: COV_AOT_CMP,
+    }
 }
 
 const fn cmp_aot_saop(oid: Oid, name: &'static str, width: CmpWidth, pred: CmpPred) -> BatchFn {
-    BatchFn { oid, name, shape: Shape::Cmp(CmpShape { width, pred }), cov: COV_AOT_CMP_SAOP }
+    BatchFn {
+        oid,
+        name,
+        shape: Shape::Cmp(CmpShape { width, pred }),
+        cov: COV_AOT_CMP_SAOP,
+    }
 }
-
 
 pub static ENTRIES: &[BatchFn] = &[
     cmp_aot_saop(65, "int4eq", I4, Eq),
@@ -399,12 +473,48 @@ pub static ENTRIES: &[BatchFn] = &[
     cmp_aot_saop(1155, "timestamptz_le", I8, Le),
     cmp_aot_saop(1157, "timestamptz_gt", I8, Gt),
     cmp_aot_saop(1156, "timestamptz_ge", I8, Ge),
-    arith(177, "int4pl", ArithWidth::W4, ArithKind::Add, COV_ARITH_INT4),
-    arith(181, "int4mi", ArithWidth::W4, ArithKind::Sub, COV_ARITH_INT4),
-    arith(141, "int4mul", ArithWidth::W4, ArithKind::Mul, COV_ARITH_INT4),
-    arith(463, "int8pl", ArithWidth::W8, ArithKind::Add, COV_ARITH_INT8_JIT),
-    arith(464, "int8mi", ArithWidth::W8, ArithKind::Sub, COV_ARITH_INT8_JIT),
-    arith(465, "int8mul", ArithWidth::W8, ArithKind::Mul, COV_ARITH_INT8_JIT),
+    arith(
+        177,
+        "int4pl",
+        ArithWidth::W4,
+        ArithKind::Add,
+        COV_ARITH_INT4,
+    ),
+    arith(
+        181,
+        "int4mi",
+        ArithWidth::W4,
+        ArithKind::Sub,
+        COV_ARITH_INT4,
+    ),
+    arith(
+        141,
+        "int4mul",
+        ArithWidth::W4,
+        ArithKind::Mul,
+        COV_ARITH_INT4,
+    ),
+    arith(
+        463,
+        "int8pl",
+        ArithWidth::W8,
+        ArithKind::Add,
+        COV_ARITH_INT8_JIT,
+    ),
+    arith(
+        464,
+        "int8mi",
+        ArithWidth::W8,
+        ArithKind::Sub,
+        COV_ARITH_INT8_JIT,
+    ),
+    arith(
+        465,
+        "int8mul",
+        ArithWidth::W8,
+        ArithKind::Mul,
+        COV_ARITH_INT8_JIT,
+    ),
     fold_affine(178, "int24pl", ArithKind::Add),
     fold_affine(179, "int42pl", ArithKind::Add),
     fold_affine(182, "int24mi", ArithKind::Sub),
@@ -456,40 +566,88 @@ pub static ENTRIES: &[BatchFn] = &[
     fold_trans(2805, "int8inc_float8_float8", FoldKind::Count2),
 ];
 
-const fn arith(oid: Oid, name: &'static str, width: ArithWidth, op: ArithKind, cov: &'static [TierCov]) -> BatchFn {
-    BatchFn { oid, name, shape: Shape::Arith(ArithShape { width, op }), cov }
+const fn arith(
+    oid: Oid,
+    name: &'static str,
+    width: ArithWidth,
+    op: ArithKind,
+    cov: &'static [TierCov],
+) -> BatchFn {
+    BatchFn {
+        oid,
+        name,
+        shape: Shape::Arith(ArithShape { width, op }),
+        cov,
+    }
 }
 
 const fn fold_affine(oid: Oid, name: &'static str, op: ArithKind) -> BatchFn {
-    BatchFn { oid, name, shape: Shape::Arith(ArithShape { width: ArithWidth::W24, op }), cov: COV_ARITH_MIX24 }
+    BatchFn {
+        oid,
+        name,
+        shape: Shape::Arith(ArithShape {
+            width: ArithWidth::W24,
+            op,
+        }),
+        cov: COV_ARITH_MIX24,
+    }
 }
 
 const fn fold_it(oid: Oid, name: &'static str, kind: FoldKind) -> BatchFn {
-    BatchFn { oid, name, shape: Shape::Fold(kind), cov: COV_FOLD_IT }
+    BatchFn {
+        oid,
+        name,
+        shape: Shape::Fold(kind),
+        cov: COV_FOLD_IT,
+    }
 }
 
-const COV_FOLD_FOLDCOV: &[TierCov] =
-    &[TierCov::intree(Tier::Fold, GuardTier::TypeProof, CollGate::NotApplicable)];
-const COV_FOLD_TEXTFOLD: &[TierCov] =
-    &[TierCov::intree(Tier::Fold, GuardTier::NonErroring, CollGate::Deterministic)];
+const COV_FOLD_FOLDCOV: &[TierCov] = &[TierCov::intree(
+    Tier::Fold,
+    GuardTier::TypeProof,
+    CollGate::NotApplicable,
+)];
+const COV_FOLD_TEXTFOLD: &[TierCov] = &[TierCov::intree(
+    Tier::Fold,
+    GuardTier::NonErroring,
+    CollGate::Deterministic,
+)];
 
 const fn fold_cov2(oid: Oid, name: &'static str, kind: FoldKind) -> BatchFn {
-    BatchFn { oid, name, shape: Shape::Fold(kind), cov: COV_FOLD_FOLDCOV }
+    BatchFn {
+        oid,
+        name,
+        shape: Shape::Fold(kind),
+        cov: COV_FOLD_FOLDCOV,
+    }
 }
 
 const fn fold_str(oid: Oid, name: &'static str, kind: FoldKind) -> BatchFn {
-    BatchFn { oid, name, shape: Shape::Fold(kind), cov: COV_FOLD_TEXTFOLD }
+    BatchFn {
+        oid,
+        name,
+        shape: Shape::Fold(kind),
+        cov: COV_FOLD_TEXTFOLD,
+    }
 }
 
 // fold-trans tier (lane-v2-lanefold-trans, knob-gated default OFF):
 // ORDER-PRESERVING float folds. The kernel applies C's exact checked per-row
 // op in row order (no reassociation), so overflow ereports fire inline on
 // C's row — no guard interval, no demote, no replay.
-const COV_FOLD_TRANS: &[TierCov] =
-    &[TierCov::intree(Tier::Fold, GuardTier::ExactOp, CollGate::NotApplicable)];
+const COV_FOLD_TRANS: &[TierCov] = &[TierCov::intree(
+    Tier::Fold,
+    GuardTier::ExactOp,
+    CollGate::NotApplicable,
+)];
 
 const fn fold_trans(oid: Oid, name: &'static str, kind: FoldKind) -> BatchFn {
-    BatchFn { oid, name, shape: Shape::Fold(kind), cov: COV_FOLD_TRANS }
+    BatchFn {
+        oid,
+        name,
+        shape: Shape::Fold(kind),
+        cov: COV_FOLD_TRANS,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -501,11 +659,15 @@ pub fn entry(oid: Oid) -> Option<&'static BatchFn> {
 }
 
 pub fn covers(oid: Oid, tier: Tier) -> bool {
-    entry(oid).and_then(|e| e.tier(tier)).is_some_and(|c| c.is_intree())
+    entry(oid)
+        .and_then(|e| e.tier(tier))
+        .is_some_and(|c| c.is_intree())
 }
 
 pub fn covers_pending(oid: Oid, tier: Tier) -> bool {
-    entry(oid).and_then(|e| e.tier(tier)).is_some_and(|c| !c.is_refused())
+    entry(oid)
+        .and_then(|e| e.tier(tier))
+        .is_some_and(|c| !c.is_refused())
 }
 
 pub fn aot_qual_cmp(oid: Oid) -> Option<CmpShape> {
@@ -534,7 +696,6 @@ pub fn fold_desc(oid: Oid) -> Option<FoldKind> {
         _ => None,
     }
 }
-
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Drift {
@@ -654,7 +815,13 @@ pub fn coverage_report() -> String {
              reproduce byte-identical C semantics under its current framework.\n\n",
         );
         for (e, t, why) in refusals {
-            s.push_str(&format!("- {} `{}` × {}: {}\n", e.oid, e.name, t.short(), why));
+            s.push_str(&format!(
+                "- {} `{}` × {}: {}\n",
+                e.oid,
+                e.name,
+                t.short(),
+                why
+            ));
         }
     }
     s

@@ -56,7 +56,7 @@ pub fn refused(c: &Compiled<'_>) -> Option<(&'static str, HostCall)> {
         let h = hostcall::of(s);
         if let How::Fmgr(ix) = s.how {
             let f = &c.state.call_facts[ix as usize];
-            if f.node_arg && f.argtypes.iter().any(|&t| t == INTERNALOID) {
+            if f.node_arg && f.argtypes.contains(&INTERNALOID) {
                 return Some(("an internal-typed argument to a polymorphic call", h));
             }
         }
@@ -132,6 +132,7 @@ struct Hold {
     states: PgVec<'static, EmitState<'static>>,
     programs: Progs,
     region: PgVec<'static, core::mem::MaybeUninit<u8>>,
+    #[allow(dead_code)]
     argtypes: PgVec<'static, Box<[Oid]>>,
     cells: PgVec<'static, Word<*mut Cell>>,
     keep: Option<Box<dyn Any>>,
@@ -197,6 +198,7 @@ struct Lane {
 
 impl Lane {
     /// A lane no worker has entered: `h_enter` arms it at its first entry (`arm_lane`).
+    #[allow(dead_code)]
     fn idle() -> Lane {
         Lane { cells: word(core::ptr::null_mut()), region: word(core::ptr::null_mut()), region_end: word(core::ptr::null_mut()), states: word(core::ptr::null_mut()), n: 0, hold: None, ctx: word(core::ptr::null_mut()), spills: NO_SPILLS, gen: 0, cat: gravity_deps::Opaque::NONE, track: NO_TRACK, big_slot: 0, big_cur: 0, big_end: 0 }
     }
@@ -229,7 +231,9 @@ const NO_SPILLS: Spills = Spills { epoch: 0, last: 0, chunks: Vec::new() };
 struct LaneHold {
     states: PgVec<'static, EmitState<'static>>,
     cells: PgVec<'static, Word<*mut Cell>>,
+    #[allow(dead_code)]
     region: PgVec<'static, core::mem::MaybeUninit<u8>>,
+    #[allow(clippy::vec_box)]
     calls: Vec<Box<gravity_fn::FmgrCall>>, // M8 (D1036): a nested lane's own function-manager calls (`arm_lane`)
     /// Last: the lists above drop first.
     root: mcx::SendRoot,
@@ -485,7 +489,7 @@ fn owned_why(owned: &[Box<dyn Any>]) -> &'static str {
 /// does, `kind` for an owner of another kind.
 pub fn private_why(owner: &dyn Any) -> &'static str {
     match owner.downcast_ref::<Owner>().map(|o| &o.hold.programs) {
-        Some(Progs::Own(_, why)) => *why,
+        Some(Progs::Own(_, why)) => why,
         Some(Progs::Tpl(..)) => "",
         None => "kind",
     }

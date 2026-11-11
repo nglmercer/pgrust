@@ -127,7 +127,10 @@ fn ffor_corruption_teeth() {
     };
     let gd = roundtrip_int_corpus(0, 4096, &mut seed);
     let inputs = [gd.input(class)];
-    let mut enc = FforEncoder { signed: true, carry: None };
+    let mut enc = FforEncoder {
+        signed: true,
+        carry: None,
+    };
     let built = build_stream(&mut enc, &inputs, 0, true);
     corruption_sweep(&built, "ffor", 0xC2FE);
     // Seeded defect: bit_width > 64 refuses.
@@ -366,10 +369,16 @@ fn wrapped_section_corruption_teeth() {
     // arm refuses the LZ4 bytes as corruption.
     let mut fc = wrapped.clone();
     fc[7] = 3;
-    assert!(matches!(crate::wrapper::unwrap_section(&fc, &mut scratch), Err(FormatError::Corrupt { .. })));
+    assert!(matches!(
+        crate::wrapper::unwrap_section(&fc, &mut scratch),
+        Err(FormatError::Corrupt { .. })
+    ));
     let mut pk = wrapped.clone();
     pk[7] = 4;
-    assert!(matches!(crate::wrapper::unwrap_section(&pk, &mut scratch), Err(FormatError::Corrupt { .. })));
+    assert!(matches!(
+        crate::wrapper::unwrap_section(&pk, &mut scratch),
+        Err(FormatError::Corrupt { .. })
+    ));
 }
 
 #[test]

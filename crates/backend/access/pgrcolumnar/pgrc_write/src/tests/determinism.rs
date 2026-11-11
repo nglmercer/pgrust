@@ -43,7 +43,8 @@ fn run_once() -> (Vec<Vec<u8>>, Vec<u8>) {
         } else {
             RawDatum::Bytes(&img)
         };
-        w.append_row(&[d1, d2], &mut kit.ext, &mut env).expect("append");
+        w.append_row(&[d1, d2], &mut kit.ext, &mut env)
+            .expect("append");
     }
     let probe = Probe::new(TxnVerdict::InProgress).set(42, TxnVerdict::Committed);
     let out = finish_and_publish(&mut w, &mut vfs, &mut kit, &probe);

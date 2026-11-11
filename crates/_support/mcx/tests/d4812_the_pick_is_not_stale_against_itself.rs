@@ -19,14 +19,25 @@ const LO: usize = 0x7000_0000_0000 + ((PROCNO as usize) << 32);
 static RESIDENT_BELOW: AtomicUsize = AtomicUsize::new(0);
 
 fn read(lo: usize, hi: usize, _scratch: &mut [u8]) -> Option<usize> {
-    Some(RESIDENT_BELOW.load(Ordering::Relaxed).saturating_sub(lo).min(hi - lo))
+    Some(
+        RESIDENT_BELOW
+            .load(Ordering::Relaxed)
+            .saturating_sub(lo)
+            .min(hi - lo),
+    )
 }
 
 /// `n` bytes of door-2 pages committed on the calling thread's running statement: an owned charge, whose drop gives them
 /// back.
 fn mapped(n: usize) -> memledger::Charge {
     let (owner, release) = memledger::charge::context();
-    memledger::Charge::open(owner, release, memledger::Kind::Mapped, memledger::charge::Door::Mapped, n as u64)
+    memledger::Charge::open(
+        owner,
+        release,
+        memledger::Kind::Mapped,
+        memledger::charge::Door::Mapped,
+        n as u64,
+    )
 }
 
 /// A running statement on backend `PROCNO` with `HELD` bytes on its ledger account, one Gravity region on the residency
@@ -40,7 +51,14 @@ fn statement(ready: mpsc::Sender<()>, done: Arc<Barrier>) -> std::thread::JoinHa
         memledger::statement_begin();
         let charge = governor::Charge::new("held", HELD);
         let pages = mapped(HELD);
-        let id = memledger::resident::register(LO, HELD, HELD, memledger::Acct::backend(PROCNO), true, true);
+        let id = memledger::resident::register(
+            LO,
+            HELD,
+            HELD,
+            memledger::Acct::backend(PROCNO),
+            true,
+            true,
+        );
         memledger::fold();
         ready.send(()).unwrap();
         done.wait();
@@ -62,7 +80,8 @@ fn a_pick_whose_own_region_filled_is_not_counted_stale_or_handed_over() {
     ready.recv().unwrap();
     // the pass reads the region half written: 400 MiB not resident
     RESIDENT_BELOW.store(LO + HELD / 2, Ordering::Relaxed);
-    let passed = memledger::resident::pass(read, mempolicy::watchdog::RESIDENCY_READ_BYTES).is_some();
+    let passed =
+        memledger::resident::pass(read, mempolicy::watchdog::RESIDENCY_READ_BYTES).is_some();
     let nr = memledger::account_row(memledger::Acct::backend(PROCNO)).not_resident_bytes;
     // then the rest is written, with no event of ours: read again, the statement would only rank higher
     RESIDENT_BELOW.store(usize::MAX, Ordering::Relaxed);
@@ -74,9 +93,29 @@ fn a_pick_whose_own_region_filled_is_not_counted_stale_or_handed_over() {
     done.wait();
     hog.join().unwrap();
     assert!(passed, "the residency pass ran");
-    assert_eq!(nr, (HELD / 2) as i64, "the last read found half the region resident");
-    assert_eq!(sampled, Ok(0), "the episode's sample handed the pick itself to the residency thread");
-    assert_eq!(v.as_ref().map(|v| (v.backend, v.bytes)), Some((Some((97, 7097)), HELD / 2)), "the pick, ranked by the last read: {v:?}");
-    assert_eq!((p.picks, p.stale_picks), (1, 0), "a pick is not stale against itself: {p:?}");
-    assert_eq!((hinted, read_again), (0, 0), "nothing went to the residency thread");
+    assert_eq!(
+        nr,
+        (HELD / 2) as i64,
+        "the last read found half the region resident"
+    );
+    assert_eq!(
+        sampled,
+        Ok(0),
+        "the episode's sample handed the pick itself to the residency thread"
+    );
+    assert_eq!(
+        v.as_ref().map(|v| (v.backend, v.bytes)),
+        Some((Some((97, 7097)), HELD / 2)),
+        "the pick, ranked by the last read: {v:?}"
+    );
+    assert_eq!(
+        (p.picks, p.stale_picks),
+        (1, 0),
+        "a pick is not stale against itself: {p:?}"
+    );
+    assert_eq!(
+        (hinted, read_again),
+        (0, 0),
+        "nothing went to the residency thread"
+    );
 }

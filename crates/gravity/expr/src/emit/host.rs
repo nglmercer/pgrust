@@ -244,6 +244,7 @@ impl OnceCache {
             }
             let p = args[i] as usize as *const u8;
             let len = Self::plain(p)?;
+            #[allow(clippy::question_mark)]
             let Some(l) = key.get(at..at + 4) else { return None };
             if u32::from_le_bytes([l[0], l[1], l[2], l[3]]) as usize != len || key.get(at + 4..at + 4 + len) != Some(core::slice::from_raw_parts(p, len)) {
                 return None;

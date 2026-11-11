@@ -34,6 +34,7 @@ use crate::face::kinds::{Face, KindId};
 use crate::frame::env::Env;
 use crate::frame::px::{Px, WordKey};
 use crate::frame::row::RowVals;
+#[allow(unused_imports)]
 use crate::graph::Gx;
 use crate::admit::refusal::{Reason, ShapeWhy};
 

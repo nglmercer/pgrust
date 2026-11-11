@@ -264,6 +264,7 @@ struct Path {
     empty: bool,
 }
 
+#[allow(unused_assignments)]
 fn eval_expr(p: &Prog<'_, '_>, st: &mut St<'_>, n: &JsonExprNode, cx: &mut Cx<'_, '_>) -> PgResult<NullableDatum> {
     let doc = eval(p, st, n.formatted, cx)?;
     if doc.isnull {
@@ -277,6 +278,7 @@ fn eval_expr(p: &Prog<'_, '_>, st: &mut St<'_>, n: &JsonExprNode, cx: &mut Cx<'_
     let vars = cx.region.reserve(nvars * core::mem::size_of::<JsonPathVariable<'_>>()).ok_or_else(no_space)?;
     // SAFETY: `nvars` variables' worth of 8-aligned bytes reserved; every entry is written below.
     let vars: &mut [JsonPathVariable<'_>] = unsafe { core::slice::from_raw_parts_mut(vars.cast(), nvars) };
+    #[allow(clippy::needless_range_loop)]
     for i in 0..nvars {
         let v = eval(p, st, p.kids[n.passing.start as usize + i], cx)?;
         let jv = &p.json_vars[n.vars as usize + i];
@@ -289,6 +291,7 @@ fn eval_expr(p: &Prog<'_, '_>, st: &mut St<'_>, n: &JsonExprNode, cx: &mut Cx<'_
     let column_name = n.column_name.map(|i| p.names[i as usize]);
     let region: &mut Region = cx.region;
     let mut out = with_scratch(|mcx| path_eval(st, n, mcx, &doc_img.bytes()[4..], path_img.bytes(), vars, soft, column_name, &mut esc, region))?;
+    #[allow(unused_assignments)]
     if out.empty {
         out.value = NullableDatum::null();
         if let Some(e) = n.on_empty {

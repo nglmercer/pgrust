@@ -193,7 +193,7 @@ pub(super) fn equated<'p>(b: &Builder<'p, '_>, child: &Open<'p>, x: Stripped<'p>
     let clauses = match ops.next() {
         Some(Op::Join(crate::join::JoinDesc::Probe { jointype: types_nodes::jointype::JoinType::JOIN_INNER, clauses, .. })) => clauses,
         Some(Op::Join(crate::join::JoinDesc::Nest { jointype: types_nodes::jointype::JoinType::JOIN_INNER, params, inner, .. })) => {
-            return nest_equated(b, *params, inner, kx, ky) || nest_equated(b, *params, inner, ky, kx);
+            return nest_equated(b, params, inner, kx, ky) || nest_equated(b, params, inner, ky, kx);
         }
         _ => return false,
     };

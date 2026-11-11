@@ -14,9 +14,9 @@
 //! - it pins IR (`ir_pins`), which depends on which seams the process has installed;
 //! - it counts the process-wide refusal intern set (`interned()`), which the other modules grow at the same time;
 //! - it switches lowerv4's gate stamps (`frame::program::set_gate_stamps`), which every lowering in the process reads.
-//! The rig's own Once-guarded installs (RigCatalog::install_seams and the abort-check seam) are the same in every module
-//! and stay shared. tests/registered.rs checks that every lowerv4 test file is in exactly one of the two places, by these
-//! rules.
+//!   The rig's own Once-guarded installs (RigCatalog::install_seams and the abort-check seam) are the same in every module
+//!   and stay shared. tests/registered.rs checks that every lowerv4 test file is in exactly one of the two places, by these
+//!   rules.
 #[path = "../../lowerv4/tests/agg_d1391_emit_numkey.rs"]
 mod t_agg_d1391_emit_numkey;
 #[path = "../../lowerv4/tests/agg_d1417_merge_counts.rs"]

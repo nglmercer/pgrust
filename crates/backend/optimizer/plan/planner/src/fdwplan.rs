@@ -82,7 +82,12 @@ pub enum UpperPathExtra<'mcx> {
     /// planner.c:5614 passes NULL.
     Ordered,
     /// FinalPathExtraData (planner.c:2282-2285).
-    Final { limit_needed: bool, limit_tuples: f64, count_est: i64, offset_est: i64 },
+    Final {
+        limit_needed: bool,
+        limit_tuples: f64,
+        count_est: i64,
+        offset_est: i64,
+    },
 }
 
 /// GetForeignUpperPaths: (stage, input_rel, output_rel, extra) — offered at
@@ -108,8 +113,7 @@ pub struct FdwPlanRoutine {
     pub plan_direct_modify: Option<PlanDirectModify>,
     pub plan_foreign_modify: Option<PlanForeignModify>,
     /// IsForeignPathAsyncCapable; None = never async (C's NULL slot).
-    pub is_foreign_path_async_capable:
-        Option<for<'mcx> fn(&PlannerRun<'mcx>, PathId) -> bool>,
+    pub is_foreign_path_async_capable: Option<for<'mcx> fn(&PlannerRun<'mcx>, PathId) -> bool>,
 }
 
 static ROUTINES: [OnceLock<&'static FdwPlanRoutine>; NUM_FDW_KINDS] =

@@ -21,7 +21,8 @@ const RADIUS_BUFFER_SIZE: usize = 1024;
 // C's radius_packet spans header + pad[RADIUS_BUFFER_SIZE - RADIUS_VECTOR_LENGTH];
 // radius_add_attribute's check (auth.c:2823) omits the 2-byte attr header on
 // purpose, so buf must carry that slack or a passing attribute overruns it.
-const RADIUS_PACKET_LENGTH: usize = RADIUS_HEADER_LENGTH + (RADIUS_BUFFER_SIZE - RADIUS_VECTOR_LENGTH);
+const RADIUS_PACKET_LENGTH: usize =
+    RADIUS_HEADER_LENGTH + (RADIUS_BUFFER_SIZE - RADIUS_VECTOR_LENGTH);
 
 const RADIUS_ACCESS_ACCEPT: u8 = 2;
 const RADIUS_ACCESS_REJECT: u8 = 3;
@@ -162,9 +163,8 @@ pub(crate) fn CheckRADIUSAuth(port: &Port) -> PgResult<i32> {
 // (auth.c:2977): skip leading C-locale whitespace, take an optional sign and
 // the digit prefix; 0 without digits; clamped where strtol would saturate.
 fn c_atoi(s: &str) -> i32 {
-    let t = s.trim_start_matches(|c: char| {
-        matches!(c, ' ' | '\t' | '\n' | '\u{0b}' | '\u{0c}' | '\r')
-    });
+    let t =
+        s.trim_start_matches(|c: char| matches!(c, ' ' | '\t' | '\n' | '\u{0b}' | '\u{0c}' | '\r'));
     let (sign, digits) = match t.as_bytes().first() {
         Some(b'-') => (-1i64, &t[1..]),
         Some(b'+') => (1, &t[1..]),
@@ -235,7 +235,8 @@ fn PerformRadiusTransaction(
     let mut md5trailer = vector;
     let mut i = 0;
     while i < encryptedpasswordlen {
-        let mut cryptvector = ::mcx::std_vec_with_capacity("libpq", secret.len() + RADIUS_VECTOR_LENGTH)?;
+        let mut cryptvector =
+            ::mcx::std_vec_with_capacity("libpq", secret.len() + RADIUS_VECTOR_LENGTH)?;
         cryptvector.extend_from_slice(secret.as_bytes());
         cryptvector.extend_from_slice(&md5trailer);
         let digest = pg_md5::pg_md5_binary(&cryptvector);
@@ -270,6 +271,7 @@ fn PerformRadiusTransaction(
     // Bind the matching-family wildcard address (C zero-fills a
     // sockaddr_in6 and stamps the server's family on it).
     let mut localaddr: libc::sockaddr_in6 = unsafe { std::mem::zeroed() };
+    #[allow(clippy::needless_late_init)]
     let addrsize;
     #[cfg(any(target_os = "macos", target_os = "freebsd", target_os = "openbsd"))]
     {
@@ -331,9 +333,8 @@ fn PerformRadiusTransaction(
     let deadline_ns = pg_clock::mono_ns() + (RADIUS_TIMEOUT as u64) * 1_000_000_000;
 
     loop {
-        let remaining = std::time::Duration::from_nanos(
-            deadline_ns.saturating_sub(pg_clock::mono_ns()),
-        );
+        let remaining =
+            std::time::Duration::from_nanos(deadline_ns.saturating_sub(pg_clock::mono_ns()));
         if remaining.is_zero() {
             ereport(LOG)
                 .errmsg(format!("timeout waiting for RADIUS response from {server}"))
@@ -482,7 +483,10 @@ mod radius_tests {
             let location = error.location().unwrap();
             assert_eq!(location.filename.as_deref(), Some("auth.c"));
             assert_eq!(location.lineno, 3146);
-            assert_eq!(location.funcname.as_deref(), Some("PerformRadiusTransaction"));
+            assert_eq!(
+                location.funcname.as_deref(),
+                Some("PerformRadiusTransaction")
+            );
             SEEN.store(true, std::sync::atomic::Ordering::Relaxed);
         }
         let socket = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
@@ -511,7 +515,10 @@ mod radius_tests {
         assert_eq!(p.length, RADIUS_HEADER_LENGTH + 7);
         assert_eq!(p.buf[RADIUS_HEADER_LENGTH], RADIUS_USER_NAME);
         assert_eq!(p.buf[RADIUS_HEADER_LENGTH + 1], 7);
-        assert_eq!(&p.buf[RADIUS_HEADER_LENGTH + 2..RADIUS_HEADER_LENGTH + 7], b"alice");
+        assert_eq!(
+            &p.buf[RADIUS_HEADER_LENGTH + 2..RADIUS_HEADER_LENGTH + 7],
+            b"alice"
+        );
     }
 
     #[test]
@@ -575,7 +582,10 @@ mod radius_tests {
         )
         .unwrap();
         responder.join().unwrap();
-        assert_eq!(r, STATUS_OK, "reply from port {port} must be accepted for radiusports=\"+{port}\"");
+        assert_eq!(
+            r, STATUS_OK,
+            "reply from port {port} must be accepted for radiusports=\"+{port}\""
+        );
     }
 
     // RFC 2865 §5.2 hide operation round-trip: XOR with the same digest

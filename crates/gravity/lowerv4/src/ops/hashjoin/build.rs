@@ -561,7 +561,7 @@ impl EndMech for BuildEnd<'_> {
         let pay: PgVec<'_, _> = self.sh.payload.iter().map(|&a| if self.hoist.is_some_and(|h| h.0 == a) { tf(16) } else { row.col(a).and_then(|c| tf(c.cell.typid)) }).collect_in(env.mcx);
         let one = !self.marks && words == 1 && cells.len() == 1 && matches!(cells[0].0.rep, Rep::Word { .. });
         let vbits = one.then(|| crate::ops::hashjoin::strategies::dense_bits::eligible(&self.sh, &cells[0].3, &pay[..])).flatten();
-        (self.compact.set(vbits.is_some()), self.sh.vbits.set(vbits.unwrap_or(1)));
+        self.compact.set(vbits.is_some()); self.sh.vbits.set(vbits.unwrap_or(1));
         // join.payload_fp (strategies/payload_fp.rs): the code payload columns a group past the probe keys by carry their
         // Fp128 words after the payload, in a plain record of a lone build (no compact record, Arms or pair run, hoist); a
         // plain text value (a merged scan's datum lane, a heap column) carries its bytes' Fp128 where the statement images
@@ -576,7 +576,7 @@ impl EndMech for BuildEnd<'_> {
                 Rep::VarlenaPtr => plain && !c.cell.image_only() && gravity_fn::typesem::text_payload(c.cell.typid),
                 _ => false,
             };
-            bp.is_some_and(|bp| code && !self.hoist.is_some_and(|h| h.0 == a) && (crate::dict::coderep::sk_bpchar_of(tf(c.cell.typid).as_ref()) != 0) == bp)
+            bp.is_some_and(|bp| code && self.hoist.is_none_or(|h| h.0 != a) && (crate::dict::coderep::sk_bpchar_of(tf(c.cell.typid).as_ref()) != 0) == bp)
         };
         let live = match vbits.is_some() || self.arms || self.foreign {
             true => 0,
@@ -587,7 +587,7 @@ impl EndMech for BuildEnd<'_> {
         }
         let full = 8 * (words + 1 + self.sh.payload.len() + crate::ops::hashjoin::layout::null_words(self.sh.payload.len()) + 2 * live.count_ones() as usize);
         self.sh.fp_live.set(live);
-        (self.sh.words.set(words as u8), self.sh.rec.set(full as u32), self.sh.range.set(words == 1));
+        self.sh.words.set(words as u8); self.sh.rec.set(full as u32); self.sh.range.set(words == 1);
         if self.arms {
             self.sh.arm_form(self.node, (words as u8, full as u32, self.compact.get(), self.sh.vbits.get()));
         }
@@ -836,7 +836,7 @@ impl BuildEnd<'_> {
         }
         st8(b, r, FLAGS, if self.sh.range.get() { F_RANGE } else { 0 } | if self.range0.get() { F_RANGE0 } else { 0 } | if self.compact.get() { F_COMPACT } else { 0 } | if self.fp128 { F_FP128 } else { 0 } | if self.dedup() { F_DEDUP } else { 0 } | if self.keys() { F_KEYS } else { 0 });
         let (rec, full) = (b.iconst(Type::I32, if self.compact.get() { 8 } else { self.sh.rec.get() as i64 }), b.iconst(Type::I32, self.sh.rec.get() as i64));
-        (b.store(r, REC as i32, rec), b.store(r, FULL as i32, full));
+        b.store(r, REC as i32, rec); b.store(r, FULL as i32, full);
         for (i, c) in self.sh.kept.borrow().iter().enumerate() {
             let d = match c.rep {
                 _ if !self.sh.is_rel(i) => 0,

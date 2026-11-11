@@ -269,7 +269,7 @@ fn fp_walk(node: Node<'_>, varno: i32, a: &mut DefaultHasher, b: &mut DefaultHas
         }};
     }
     let tag = node.node_tag();
-    h!((tag as u32));
+    h!(tag as u32);
     match tag {
         NodeTag::T_Var => {
             let v = node.as_var()?;
@@ -317,7 +317,7 @@ fn fp_walk(node: Node<'_>, varno: i32, a: &mut DefaultHasher, b: &mut DefaultHas
             let f = node.as_func_expr()?;
             h!((f.funcid, f.funcresulttype, f.funcvariadic));
         }
-        NodeTag::T_BoolExpr => h!((node.as_bool_expr()?.boolop as u32)),
+        NodeTag::T_BoolExpr => h!(node.as_bool_expr()?.boolop as u32),
         NodeTag::T_ScalarArrayOpExpr => {
             let s = node.as_scalar_array_op_expr()?;
             h!((s.opno, s.useOr));
@@ -354,7 +354,7 @@ fn fp_walk(node: Node<'_>, varno: i32, a: &mut DefaultHasher, b: &mut DefaultHas
             let t = node.as_null_test()?;
             h!((t.nulltesttype as u32, t.argisrow));
         }
-        NodeTag::T_BooleanTest => h!((node.as_boolean_test()?.booltesttype as u32)),
+        NodeTag::T_BooleanTest => h!(node.as_boolean_test()?.booltesttype as u32),
         NodeTag::T_CaseExpr => h!(node.as_case_expr()?.casetype),
         NodeTag::T_CaseWhen => {}
         NodeTag::T_CaseTestExpr => {

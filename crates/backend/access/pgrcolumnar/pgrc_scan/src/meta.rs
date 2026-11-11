@@ -59,7 +59,11 @@ fn section_body(
         return Ok(None);
     };
     let flags = part.sections()[idx].flags;
-    let raw = if private { part.section_bytes_uncached(idx)? } else { part.section_bytes(idx)? };
+    let raw = if private {
+        part.section_bytes_uncached(idx)?
+    } else {
+        part.section_bytes(idx)?
+    };
     if flags & SECTIONF_META_ZSTD != 0 {
         // SB-6: the self-describing zstd meta envelope — unwrap before any
         // consult (handing a wrapped body to the block walkers is the
@@ -75,18 +79,12 @@ impl ColumnMeta {
     /// Load the meta plane for (attno, path_ord 0) of one part. Absent
     /// sections are first-class (`None` bodies — consult degrades to
     /// no-verdict, never errors).
-    pub fn load(
-        part: &Arc<OpenPart>,
-        profile: MetaProfile,
-        attno: u32,
-    ) -> ReadResult<ColumnMeta> {
+    pub fn load(part: &Arc<OpenPart>, profile: MetaProfile, attno: u32) -> ReadResult<ColumnMeta> {
         // OD-10/OD-11 consult kill switches (the M3.psma-ab / M3.bloom-ab
         // A/B apparatus — the house PGRUST_SCAN_PART_RELEASE idiom): an OFF
         // arm loads the section as ABSENT, so consult degrades exactly as
         // it would on a section-less part (no second code path). Default ON.
-        let off = |name: &str| {
-            matches!(std::env::var(name).as_deref(), Ok("0") | Ok("off"))
-        };
+        let off = |name: &str| matches!(std::env::var(name).as_deref(), Ok("0") | Ok("off"));
         Ok(ColumnMeta {
             profile,
             stats_body: section_body(part, SectionKind::Stats, attno, 0, false)?,
@@ -118,7 +116,9 @@ impl ColumnMeta {
 /// once per part and shared by every scan of it (F2: `OpenPart::zone_records`; the raw section is read privately, so
 /// the part keeps only the decoded records, counted in its resident bytes). `None`: no Stats section.
 pub fn zone_records(part: &OpenPart, attno: u32) -> ReadResult<Option<&[Option<StatsRecord>]>> {
-    part.zone_records(attno, || section_body(part, SectionKind::Stats, attno, 0, true))
+    part.zone_records(attno, || {
+        section_body(part, SectionKind::Stats, attno, 0, true)
+    })
 }
 
 /// Per-granule verdict of the composed probe: `None` = scan the granule,
@@ -177,7 +177,9 @@ pub fn consult_granule(
             pgrc_meta::key::TypedKeys::Exact { min, max } => (min.raw(), max.raw()),
             _ => return None,
         };
-        let block = psma::psma_block_for(body, granule_count, g).ok().flatten()?;
+        let block = psma::psma_block_for(body, granule_count, g)
+            .ok()
+            .flatten()?;
         psma_candidates_eq_censused(block, min_key, max_key, key, rows_in_granule, census)
             .map(|(lo, hi)| (lo as u32, hi as u32))
     })();

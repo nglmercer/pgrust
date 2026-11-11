@@ -147,6 +147,7 @@ pub(super) fn drive(program: &std::sync::Arc<gravity_program::Program>, params: 
             r
         }
     };
+    #[allow(clippy::drop_non_drop)]
     drop(b);
     // a host's stashed error behind a raise, taken once (none is left for the next fixture): a cancel inside a nested run
     // is PG's 57014; any other stays the bare raise below, which the server-only rows pin (no live arena or store here)

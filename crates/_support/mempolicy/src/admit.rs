@@ -2,7 +2,8 @@
 
 use crate::consts::{get, get_ms, K, KNOBS};
 
-pub const BYTES_WAIT: core::time::Duration = core::time::Duration::from_millis(KNOBS[K::BytesWaitMs as usize].default);
+pub const BYTES_WAIT: core::time::Duration =
+    core::time::Duration::from_millis(KNOBS[K::BytesWaitMs as usize].default);
 
 #[inline]
 pub fn bytes_wait() -> core::time::Duration {
@@ -40,12 +41,14 @@ pub fn small_draw(bytes: u64) -> bool {
     bytes <= get(K::SmallDrawMax)
 }
 
-pub const QUEUE_STALL: core::time::Duration = core::time::Duration::from_millis(KNOBS[K::QueueStallMs as usize].default);
+pub const QUEUE_STALL: core::time::Duration =
+    core::time::Duration::from_millis(KNOBS[K::QueueStallMs as usize].default);
 
 /// A room high by at least this much restarts a queued waiter's `QUEUE_STALL` clock.
 pub const STALL_PROGRESS: u64 = KNOBS[K::StallProgress as usize].default;
 
-pub const TURN_CAP: core::time::Duration = core::time::Duration::from_millis(KNOBS[K::TurnCapMs as usize].default);
+pub const TURN_CAP: core::time::Duration =
+    core::time::Duration::from_millis(KNOBS[K::TurnCapMs as usize].default);
 
 #[derive(Clone, Copy, Debug)]
 pub struct StallBounds {
@@ -54,10 +57,16 @@ pub struct StallBounds {
 }
 
 impl StallBounds {
-    pub const DEFAULT: StallBounds = StallBounds { stall: QUEUE_STALL, cap: TURN_CAP };
+    pub const DEFAULT: StallBounds = StallBounds {
+        stall: QUEUE_STALL,
+        cap: TURN_CAP,
+    };
 
     pub fn current() -> StallBounds {
-        StallBounds { stall: get_ms(K::QueueStallMs), cap: get_ms(K::TurnCapMs) }
+        StallBounds {
+            stall: get_ms(K::QueueStallMs),
+            cap: get_ms(K::TurnCapMs),
+        }
     }
 }
 
@@ -70,7 +79,11 @@ pub struct StallClock {
 
 impl StallClock {
     pub fn new(room: u64, now: u64) -> StallClock {
-        StallClock { began: now, since: now, high: room }
+        StallClock {
+            began: now,
+            since: now,
+            high: room,
+        }
     }
 
     /// `Some` halves the waiter: at the cap, or after `stall` without a new high.
@@ -89,7 +102,8 @@ impl StallClock {
     }
 }
 
-pub const GOVERNOR_SETTLE: core::time::Duration = core::time::Duration::from_millis(KNOBS[K::GovernorSettleMs as usize].default);
+pub const GOVERNOR_SETTLE: core::time::Duration =
+    core::time::Duration::from_millis(KNOBS[K::GovernorSettleMs as usize].default);
 
 #[inline]
 pub fn governor_settle() -> core::time::Duration {
@@ -139,7 +153,11 @@ pub const TAKE_FAIL_NAMES: [&str; TAKE_FAILS] = ["bar", "stuck", "limit", "broke
 /// D4923 diag: a take of `bytes` beside `cur` held past `limit` (the caches' `stuck` bytes already off it) is the stuck
 /// bytes' when it fits once they are back, the limit's otherwise.
 pub fn past_limit_why(cur: u64, bytes: u64, limit: u64, stuck: u64) -> usize {
-    if stuck != 0 && cur.saturating_add(bytes) <= limit.saturating_add(stuck) { TAKE_FAIL_STUCK } else { TAKE_FAIL_LIMIT }
+    if stuck != 0 && cur.saturating_add(bytes) <= limit.saturating_add(stuck) {
+        TAKE_FAIL_STUCK
+    } else {
+        TAKE_FAIL_LIMIT
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -153,9 +171,18 @@ pub struct Floor {
 pub fn floor(need: u64, kept: u64, limit: u64, nested: bool, bar: u64, on: bool) -> Floor {
     let past = past_lane(need, kept, limit);
     let fits_bar = !nested && (bar == 0 || need <= bar);
-    let f = Floor { past, alone: past && fits_bar, idle_start: on && fits_bar };
+    let f = Floor {
+        past,
+        alone: past && fits_bar,
+        idle_start: on && fits_bar,
+    };
     if crate::trace::on() {
-        crate::trace::note("admit.floor", &format!("need {need} kept {kept} lane {limit} nested {nested} bar {bar} on {on}: {f:?}")); // alloc: Cold
+        crate::trace::note(
+            "admit.floor",
+            &format!(
+                "need {need} kept {kept} lane {limit} nested {nested} bar {bar} on {on}: {f:?}"
+            ),
+        ); // alloc: Cold
     }
     f
 }
@@ -216,7 +243,13 @@ pub const fn decide_start_in(others: u64, forced: Option<StartSize>, grow: bool)
 pub fn start(others: u64, running: u64, forced: Option<StartSize>, grow: bool) -> StartSize {
     let s = decide_start_in(others, forced, grow);
     if crate::trace::on() {
-        crate::trace::note("admit.start", &format!("others {others} running {running} forced {forced:?}{}: {s:?}", if grow { " grow" } else { "" })); // alloc: Cold
+        crate::trace::note(
+            "admit.start",
+            &format!(
+                "others {others} running {running} forced {forced:?}{}: {s:?}",
+                if grow { " grow" } else { "" }
+            ),
+        ); // alloc: Cold
     }
     s
 }
@@ -285,7 +318,10 @@ pub fn owner_wall(pool_follows: bool, row_cap: u64, armed_lane: u64, format: u64
     if pool == 0 {
         return format;
     }
-    ((pool as u128 * OWNER_WALL_POOL_PPM as u128 / POOL_FRACTION_WHOLE as u128) as u64).max(OWNER_WALL_MIN).min(format) & !7
+    ((pool as u128 * OWNER_WALL_POOL_PPM as u128 / POOL_FRACTION_WHOLE as u128) as u64)
+        .max(OWNER_WALL_MIN)
+        .min(format)
+        & !7
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -405,7 +441,11 @@ pub enum DrawWait {
 
 /// A draw past its grant waits, at most `bytes_wait`, only while a holder could give bytes back or a reclaim is due.
 #[inline]
-pub fn draw_wait(others_could_give: bool, reclaim_due: bool, waited: core::time::Duration) -> DrawWait {
+pub fn draw_wait(
+    others_could_give: bool,
+    reclaim_due: bool,
+    waited: core::time::Duration,
+) -> DrawWait {
     if !others_could_give && !reclaim_due {
         DrawWait::LastTry
     } else if waited >= bytes_wait() {
@@ -458,7 +498,12 @@ pub fn gate_refuse() -> core::time::Duration {
 /// room, then 53200; never a crawl). Another holder that gives nothing back is no reason to wait. `coming` is a bool: a
 /// small pending ask holds a large waiter for the budget (bytes-sized relief is step 1.2).
 #[inline]
-pub fn gate_wait(asker: Asker, coming: bool, since_free: core::time::Duration, total: core::time::Duration) -> DrawWait {
+pub fn gate_wait(
+    asker: Asker,
+    coming: bool,
+    since_free: core::time::Duration,
+    total: core::time::Duration,
+) -> DrawWait {
     if coming && !crate::ladder::wait_spent(since_free, total, bytes_wait()) {
         return DrawWait::Wait;
     }
@@ -480,19 +525,45 @@ mod gate {
         let _one = pgsync::lock(&crate::consts::TEST_LOCK);
         let (ms, b, r) = (Duration::from_millis, bytes_wait(), gate_refuse());
         assert_eq!(r, ms(200));
-        assert_eq!(gate_wait(Asker::Spills, false, Duration::ZERO, Duration::ZERO), DrawWait::Refuse, "nothing coming: the road now");
-        assert_eq!(gate_wait(Asker::Refuses, false, Duration::ZERO, r - ms(1)), DrawWait::Wait);
-        assert_eq!(gate_wait(Asker::Refuses, false, Duration::ZERO, r), DrawWait::Refuse, "200 ms, then the refusal");
-        assert_eq!(gate_wait(Asker::Spills, true, b - ms(1), b * 3), DrawWait::Wait, "bytes coming: the budget from the last free");
-        assert_eq!(gate_wait(Asker::Spills, true, b, b), DrawWait::Refuse, "no free for a whole budget");
-        assert_eq!(gate_wait(Asker::Refuses, true, ms(10), b * 4), DrawWait::Refuse, "4 budgets in all");
+        assert_eq!(
+            gate_wait(Asker::Spills, false, Duration::ZERO, Duration::ZERO),
+            DrawWait::Refuse,
+            "nothing coming: the road now"
+        );
+        assert_eq!(
+            gate_wait(Asker::Refuses, false, Duration::ZERO, r - ms(1)),
+            DrawWait::Wait
+        );
+        assert_eq!(
+            gate_wait(Asker::Refuses, false, Duration::ZERO, r),
+            DrawWait::Refuse,
+            "200 ms, then the refusal"
+        );
+        assert_eq!(
+            gate_wait(Asker::Spills, true, b - ms(1), b * 3),
+            DrawWait::Wait,
+            "bytes coming: the budget from the last free"
+        );
+        assert_eq!(
+            gate_wait(Asker::Spills, true, b, b),
+            DrawWait::Refuse,
+            "no free for a whole budget"
+        );
+        assert_eq!(
+            gate_wait(Asker::Refuses, true, ms(10), b * 4),
+            DrawWait::Refuse,
+            "4 budgets in all"
+        );
         assert_eq!(gate_wait(Asker::Refuses, true, b, b), DrawWait::Refuse);
     }
 }
 
 #[cfg(test)]
 mod draw {
-    use super::{bytes_wait, draw_wait, others_hold, parked_road, road, statement_cap, DrawWait, Road, POOL_FRACTION_WHOLE};
+    use super::{
+        bytes_wait, draw_wait, others_hold, parked_road, road, statement_cap, DrawWait, Road,
+        POOL_FRACTION_WHOLE,
+    };
     use core::time::Duration;
 
     #[test]
@@ -500,13 +571,25 @@ mod draw {
         assert_eq!(road(true, true, false), Road::W);
         assert_eq!(road(true, false, true), Road::G);
         assert_eq!(road(true, false, false), Road::PastG);
-        assert_eq!(road(false, false, false), Road::G, "not admitted: G's road, the pool's room refuses");
+        assert_eq!(
+            road(false, false, false),
+            Road::G,
+            "not admitted: G's road, the pool's room refuses"
+        );
         assert_eq!(parked_road(true, true, false, false), Road::W);
-        assert_eq!(parked_road(true, false, false, true), Road::G, "D3107: the ask fits G: never a bigger region past it");
+        assert_eq!(
+            parked_road(true, false, false, true),
+            Road::G,
+            "D3107: the ask fits G: never a bigger region past it"
+        );
         assert_eq!(parked_road(true, false, false, false), Road::PastG);
         assert_eq!(parked_road(false, false, false, false), Road::G);
         assert!(others_hold(2, 1) && !others_hold(1, 1));
-        assert_eq!(statement_cap(1 << 30, POOL_FRACTION_WHOLE), 0, "the whole lane: no cap");
+        assert_eq!(
+            statement_cap(1 << 30, POOL_FRACTION_WHOLE),
+            0,
+            "the whole lane: no cap"
+        );
         assert_eq!(statement_cap(1 << 30, POOL_FRACTION_WHOLE / 2), 1 << 29);
     }
 
@@ -515,7 +598,10 @@ mod draw {
         use super::{small_session_grace, under_bar, SMALL_SESSION};
         assert!(under_bar(usize::MAX, 1, 0) && under_bar(60, 40, 100) && !under_bar(60, 41, 100));
         assert!(small_session_grace(105, 100, 0) && !small_session_grace(106, 100, 0));
-        assert!(!small_session_grace(101, 100, SMALL_SESSION as isize), "a large session: no grace");
+        assert!(
+            !small_session_grace(101, 100, SMALL_SESSION as isize),
+            "a large session: no grace"
+        );
     }
 
     /// D4291: an open's draw with its statement's own finished sorts to put takes them before any wait; a worker's draw
@@ -525,7 +611,11 @@ mod draw {
         use super::{past_ladder, PastLadder};
         assert_eq!(past_ladder(true, false), PastLadder::DepotsThenOwnSpill);
         assert_eq!(past_ladder(false, false), PastLadder::DepotsThenWait);
-        assert_eq!(past_ladder(true, true), PastLadder::DepotsThenWait, "a worker's draw: its leader's sorts are not its own");
+        assert_eq!(
+            past_ladder(true, true),
+            PastLadder::DepotsThenWait,
+            "a worker's draw: its leader's sorts are not its own"
+        );
         assert_eq!(past_ladder(false, true), PastLadder::DepotsThenWait);
     }
 
@@ -535,7 +625,10 @@ mod draw {
         let w = bytes_wait();
         assert_eq!(draw_wait(false, false, Duration::ZERO), DrawWait::LastTry);
         assert_eq!(draw_wait(true, false, Duration::ZERO), DrawWait::Wait);
-        assert_eq!(draw_wait(false, true, w - Duration::from_millis(1)), DrawWait::Wait);
+        assert_eq!(
+            draw_wait(false, true, w - Duration::from_millis(1)),
+            DrawWait::Wait
+        );
         assert_eq!(draw_wait(true, false, w), DrawWait::Refuse);
         assert_eq!(w, Duration::from_millis(2_000));
     }
@@ -566,28 +659,46 @@ mod d3214 {
     use core::time::Duration;
 
     const MS: u64 = 1_000_000;
-    const B: StallBounds = StallBounds { stall: Duration::from_millis(300), cap: Duration::from_millis(600) };
+    const B: StallBounds = StallBounds {
+        stall: Duration::from_millis(300),
+        cap: Duration::from_millis(600),
+    };
 
     #[test]
     fn only_a_new_high_by_the_progress_grain_restarts_the_stall_clock() {
         let mut c = StallClock::new(500 << 20, 0);
         for t in 1..300 {
-            assert_eq!(c.observe((500 << 20) + (t % 2) * (STALL_PROGRESS - 1), t * MS, B), None, "{t} ms");
+            assert_eq!(
+                c.observe((500 << 20) + (t % 2) * (STALL_PROGRESS - 1), t * MS, B),
+                None,
+                "{t} ms"
+            );
         }
         assert_eq!(c.observe(500 << 20, 300 * MS, B), Some(Admitted::Stall));
         let mut c = StallClock::new(4 * STALL_PROGRESS, 0);
         assert_eq!(c.observe(0, 100 * MS, B), None);
         assert_eq!(c.observe(4 * STALL_PROGRESS, 200 * MS, B), None);
-        assert_eq!(c.observe(4 * STALL_PROGRESS, 300 * MS, B), Some(Admitted::Stall), "back to its high is no new high");
+        assert_eq!(
+            c.observe(4 * STALL_PROGRESS, 300 * MS, B),
+            Some(Admitted::Stall),
+            "back to its high is no new high"
+        );
     }
 
     #[test]
     fn the_cap_halves_a_waiter_that_keeps_making_progress() {
         let mut c = StallClock::new(0, 0);
         for t in 1..600 {
-            assert_eq!(c.observe(t / 100 * STALL_PROGRESS, t * MS, B), None, "{t} ms");
+            assert_eq!(
+                c.observe(t / 100 * STALL_PROGRESS, t * MS, B),
+                None,
+                "{t} ms"
+            );
         }
-        assert_eq!(c.observe(7 * STALL_PROGRESS, 600 * MS, B), Some(Admitted::Capped));
+        assert_eq!(
+            c.observe(7 * STALL_PROGRESS, 600 * MS, B),
+            Some(Admitted::Capped)
+        );
     }
 }
 
@@ -599,22 +710,75 @@ mod d3380 {
 
     #[test]
     fn a_floor_past_the_lane_runs_alone_unless_nested_or_past_the_bar() {
-        let f = |past, alone| Floor { past, alone, idle_start: false };
-        assert_eq!(floor(48 * MIB, 0, 64 * MIB, false, 0, false), f(false, false));
+        let f = |past, alone| Floor {
+            past,
+            alone,
+            idle_start: false,
+        };
+        assert_eq!(
+            floor(48 * MIB, 0, 64 * MIB, false, 0, false),
+            f(false, false)
+        );
         assert_eq!(floor(96 * MIB, 0, 64 * MIB, false, 0, false), f(true, true));
-        assert_eq!(floor(96 * MIB, 0, 64 * MIB, true, 0, false), f(true, false), "nested: refused at once");
-        assert_eq!(floor(96 * MIB, 0, 64 * MIB, false, 80 * MIB, false), f(true, false), "past the bar: refused at once");
-        assert_eq!(floor(96 * MIB, 0, 64 * MIB, false, 96 * MIB, false), f(true, true));
-        assert!(whole_fits(32 * MIB, 0, 32 * MIB, 64 * MIB) && !whole_fits(32 * MIB, MIB, 32 * MIB, 64 * MIB));
+        assert_eq!(
+            floor(96 * MIB, 0, 64 * MIB, true, 0, false),
+            f(true, false),
+            "nested: refused at once"
+        );
+        assert_eq!(
+            floor(96 * MIB, 0, 64 * MIB, false, 80 * MIB, false),
+            f(true, false),
+            "past the bar: refused at once"
+        );
+        assert_eq!(
+            floor(96 * MIB, 0, 64 * MIB, false, 96 * MIB, false),
+            f(true, true)
+        );
+        assert!(
+            whole_fits(32 * MIB, 0, 32 * MIB, 64 * MIB)
+                && !whole_fits(32 * MIB, MIB, 32 * MIB, 64 * MIB)
+        );
     }
 
     #[test]
     fn a_floor_inside_the_kept_holds_is_past_the_lane_and_on_starts_when_idle() {
-        assert!(!past_lane(48 * MIB, 16 * MIB, 64 * MIB) && past_lane(48 * MIB, 17 * MIB, 64 * MIB));
-        assert_eq!(floor(48 * MIB, 32 * MIB, 64 * MIB, false, 0, false), Floor { past: true, alone: true, idle_start: false });
-        assert_eq!(floor(48 * MIB, 0, 64 * MIB, false, 0, true), Floor { past: false, alone: false, idle_start: true });
-        assert_eq!(floor(48 * MIB, 0, 64 * MIB, true, 0, true), Floor { past: false, alone: false, idle_start: false }, "nested");
-        assert_eq!(floor(48 * MIB, 0, 64 * MIB, false, 32 * MIB, true), Floor { past: false, alone: false, idle_start: false }, "past the bar");
+        assert!(
+            !past_lane(48 * MIB, 16 * MIB, 64 * MIB) && past_lane(48 * MIB, 17 * MIB, 64 * MIB)
+        );
+        assert_eq!(
+            floor(48 * MIB, 32 * MIB, 64 * MIB, false, 0, false),
+            Floor {
+                past: true,
+                alone: true,
+                idle_start: false
+            }
+        );
+        assert_eq!(
+            floor(48 * MIB, 0, 64 * MIB, false, 0, true),
+            Floor {
+                past: false,
+                alone: false,
+                idle_start: true
+            }
+        );
+        assert_eq!(
+            floor(48 * MIB, 0, 64 * MIB, true, 0, true),
+            Floor {
+                past: false,
+                alone: false,
+                idle_start: false
+            },
+            "nested"
+        );
+        assert_eq!(
+            floor(48 * MIB, 0, 64 * MIB, false, 32 * MIB, true),
+            Floor {
+                past: false,
+                alone: false,
+                idle_start: false
+            },
+            "past the bar"
+        );
     }
 }
 
@@ -628,22 +792,66 @@ mod d4078 {
 
     #[test]
     fn under_advise_the_owner_wall_is_half_the_armed_big_lane() {
-        assert_eq!(owner_wall(false, 0, 2080 * MIB, FORMAT), 1040 * MIB, "a 3 GB memory.max's pool: half its lane");
-        assert_eq!(owner_wall(false, 0, 13 * GIB, FORMAT), FORMAT, "a measurement box's pool: the format's wall, as before");
-        assert_eq!(owner_wall(false, 40 * GIB, 2080 * MIB, FORMAT), 1040 * MIB, "advise never reads the row cap");
-        assert_eq!(owner_wall(false, 0, 0, FORMAT), FORMAT, "unarmed: the format's wall");
-        assert_eq!(owner_wall(false, 0, 64 * MIB, FORMAT), OWNER_WALL_MIN, "a small pool: the least wall");
-        assert_eq!(owner_wall(false, 0, 2080 * MIB + 15, FORMAT) % 8, 0, "8-byte aligned");
-        assert_eq!(owner_wall(false, 0, 2080 * MIB, OWNER_WALL_MIN), OWNER_WALL_MIN, "a lowered format wall still bounds it");
+        assert_eq!(
+            owner_wall(false, 0, 2080 * MIB, FORMAT),
+            1040 * MIB,
+            "a 3 GB memory.max's pool: half its lane"
+        );
+        assert_eq!(
+            owner_wall(false, 0, 13 * GIB, FORMAT),
+            FORMAT,
+            "a measurement box's pool: the format's wall, as before"
+        );
+        assert_eq!(
+            owner_wall(false, 40 * GIB, 2080 * MIB, FORMAT),
+            1040 * MIB,
+            "advise never reads the row cap"
+        );
+        assert_eq!(
+            owner_wall(false, 0, 0, FORMAT),
+            FORMAT,
+            "unarmed: the format's wall"
+        );
+        assert_eq!(
+            owner_wall(false, 0, 64 * MIB, FORMAT),
+            OWNER_WALL_MIN,
+            "a small pool: the least wall"
+        );
+        assert_eq!(
+            owner_wall(false, 0, 2080 * MIB + 15, FORMAT) % 8,
+            0,
+            "8-byte aligned"
+        );
+        assert_eq!(
+            owner_wall(false, 0, 2080 * MIB, OWNER_WALL_MIN),
+            OWNER_WALL_MIN,
+            "a lowered format wall still bounds it"
+        );
     }
 
     #[test]
     fn under_the_broker_the_owner_wall_is_half_the_row_cap_never_the_ticks_armed_pool() {
         let row_cap = 5590 * MIB;
-        assert_eq!(owner_wall(true, row_cap, 1165 * MIB, FORMAT), row_cap / 2, "cbsub-limit: ~2.7 GiB, not half the idle 1,165 MiB");
-        assert_eq!(owner_wall(true, row_cap, 5 * GIB, FORMAT), row_cap / 2, "the tick's armed capacity moves, the wall does not");
-        assert_eq!(owner_wall(true, 11 * GIB, 1165 * MIB, FORMAT), FORMAT, "a row cap past twice the format's: the format's");
-        assert_eq!(owner_wall(true, 0, 1165 * MIB, FORMAT), FORMAT, "no row cap: the format's");
+        assert_eq!(
+            owner_wall(true, row_cap, 1165 * MIB, FORMAT),
+            row_cap / 2,
+            "cbsub-limit: ~2.7 GiB, not half the idle 1,165 MiB"
+        );
+        assert_eq!(
+            owner_wall(true, row_cap, 5 * GIB, FORMAT),
+            row_cap / 2,
+            "the tick's armed capacity moves, the wall does not"
+        );
+        assert_eq!(
+            owner_wall(true, 11 * GIB, 1165 * MIB, FORMAT),
+            FORMAT,
+            "a row cap past twice the format's: the format's"
+        );
+        assert_eq!(
+            owner_wall(true, 0, 1165 * MIB, FORMAT),
+            FORMAT,
+            "no row cap: the format's"
+        );
     }
 }
 
@@ -653,11 +861,27 @@ mod d3798_s2 {
 
     #[test]
     fn a_statement_starts_at_its_shares_only_beside_others() {
-        assert_eq!(decide_start(0, None), StartSize::Small, "alone: E1's small start");
-        assert_eq!(decide_start(1, None), StartSize::Share, "beside one other: at its shares, the admission seats it");
+        assert_eq!(
+            decide_start(0, None),
+            StartSize::Small,
+            "alone: E1's small start"
+        );
+        assert_eq!(
+            decide_start(1, None),
+            StartSize::Share,
+            "beside one other: at its shares, the admission seats it"
+        );
         assert_eq!(decide_start(9, None), StartSize::Share);
-        assert_eq!(decide_start(0, Some(StartSize::Share)), StartSize::Share, "PGRUST_GRAVITY_START=share");
-        assert_eq!(decide_start(9, Some(StartSize::Small)), StartSize::Small, "PGRUST_GRAVITY_START=small");
+        assert_eq!(
+            decide_start(0, Some(StartSize::Share)),
+            StartSize::Share,
+            "PGRUST_GRAVITY_START=share"
+        );
+        assert_eq!(
+            decide_start(9, Some(StartSize::Small)),
+            StartSize::Small,
+            "PGRUST_GRAVITY_START=small"
+        );
     }
 
     /// Grow mode: beside others a statement still starts small (its admission claims the start, its breakers grow on
@@ -665,17 +889,35 @@ mod d3798_s2 {
     #[test]
     fn grow_mode_starts_small_beside_others_too() {
         use super::decide_start_in;
-        assert_eq!(decide_start_in(9, None, true), StartSize::Small, "grow: small beside others");
+        assert_eq!(
+            decide_start_in(9, None, true),
+            StartSize::Small,
+            "grow: small beside others"
+        );
         assert_eq!(decide_start_in(0, None, true), StartSize::Small);
-        assert_eq!(decide_start_in(9, None, false), StartSize::Share, "off: as today");
-        assert_eq!(decide_start_in(0, None, false), StartSize::Small, "off: as today");
-        assert_eq!(decide_start_in(9, Some(StartSize::Share), true), StartSize::Share, "PGRUST_GRAVITY_START=share wins");
+        assert_eq!(
+            decide_start_in(9, None, false),
+            StartSize::Share,
+            "off: as today"
+        );
+        assert_eq!(
+            decide_start_in(0, None, false),
+            StartSize::Small,
+            "off: as today"
+        );
+        assert_eq!(
+            decide_start_in(9, Some(StartSize::Share), true),
+            StartSize::Share,
+            "PGRUST_GRAVITY_START=share wins"
+        );
     }
 }
 
 #[cfg(test)]
 mod d4812_block_gate {
-    use super::{block_gated, cancel_line_footprint, past_cancel_line, past_footprint, BLOCK_GATE_BYTES};
+    use super::{
+        block_gated, cancel_line_footprint, past_cancel_line, past_footprint, BLOCK_GATE_BYTES,
+    };
 
     const MIB: usize = 1 << 20;
 
@@ -683,14 +925,37 @@ mod d4812_block_gate {
     /// the line; its test and its least block.
     #[test]
     fn the_block_gates_limit_saturates_at_0_past_the_line() {
-        assert_eq!(cancel_line_footprint(600 * MIB, 100 * MIB, 50 * MIB), 550 * MIB, "500 MiB of room past the sample's footprint");
-        assert_eq!(cancel_line_footprint(600 * MIB, 700 * MIB, 50 * MIB), 0, "the sample past the line: 0, every block meets the gate");
-        assert_eq!(cancel_line_footprint(600 * MIB, 650 * MIB, 80 * MIB), 30 * MIB, "under the sample's footprint");
-        assert_eq!(cancel_line_footprint(0, 700 * MIB, 50 * MIB), usize::MAX, "no line: none");
-        assert!(!past_cancel_line(599 * MIB, MIB, 600 * MIB) && past_cancel_line(599 * MIB, MIB + 1, 600 * MIB));
+        assert_eq!(
+            cancel_line_footprint(600 * MIB, 100 * MIB, 50 * MIB),
+            550 * MIB,
+            "500 MiB of room past the sample's footprint"
+        );
+        assert_eq!(
+            cancel_line_footprint(600 * MIB, 700 * MIB, 50 * MIB),
+            0,
+            "the sample past the line: 0, every block meets the gate"
+        );
+        assert_eq!(
+            cancel_line_footprint(600 * MIB, 650 * MIB, 80 * MIB),
+            30 * MIB,
+            "under the sample's footprint"
+        );
+        assert_eq!(
+            cancel_line_footprint(0, 700 * MIB, 50 * MIB),
+            usize::MAX,
+            "no line: none"
+        );
+        assert!(
+            !past_cancel_line(599 * MIB, MIB, 600 * MIB)
+                && past_cancel_line(599 * MIB, MIB + 1, 600 * MIB)
+        );
         assert!(!past_cancel_line(usize::MAX, MIB, 0), "no line: never");
         assert!(block_gated(BLOCK_GATE_BYTES) && !block_gated(BLOCK_GATE_BYTES - 1));
-        assert!(!past_footprint(10, 5, 15) && past_footprint(10, 6, 15) && past_footprint(usize::MAX, 1, usize::MAX - 1));
+        assert!(
+            !past_footprint(10, 5, 15)
+                && past_footprint(10, 6, 15)
+                && past_footprint(usize::MAX, 1, usize::MAX - 1)
+        );
     }
 }
 
@@ -702,8 +967,20 @@ mod d4923_take_fails {
     #[test]
     fn a_take_past_the_limit_names_the_stuck_bytes_only_when_they_made_it_miss() {
         const MIB: u64 = 1 << 20;
-        assert_eq!(past_limit_why(760 * MIB, 2 * MIB, 700 * MIB, 900 * MIB), TAKE_FAIL_STUCK, "fits once the stuck bytes are back");
-        assert_eq!(past_limit_why(760 * MIB, 2 * MIB, 700 * MIB, 50 * MIB), TAKE_FAIL_LIMIT, "past the limit even without them");
-        assert_eq!(past_limit_why(760 * MIB, 2 * MIB, 700 * MIB, 0), TAKE_FAIL_LIMIT, "no stuck bytes: the limit");
+        assert_eq!(
+            past_limit_why(760 * MIB, 2 * MIB, 700 * MIB, 900 * MIB),
+            TAKE_FAIL_STUCK,
+            "fits once the stuck bytes are back"
+        );
+        assert_eq!(
+            past_limit_why(760 * MIB, 2 * MIB, 700 * MIB, 50 * MIB),
+            TAKE_FAIL_LIMIT,
+            "past the limit even without them"
+        );
+        assert_eq!(
+            past_limit_why(760 * MIB, 2 * MIB, 700 * MIB, 0),
+            TAKE_FAIL_LIMIT,
+            "no stuck bytes: the limit"
+        );
     }
 }

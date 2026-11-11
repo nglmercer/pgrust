@@ -35,6 +35,7 @@ pub(crate) fn insert_fast() -> bool {
 
 impl OrderProcFrame {
     #[inline]
+    #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         OrderProcFrame {
             fcinfo: LocalFcinfo::<2>::new(0),

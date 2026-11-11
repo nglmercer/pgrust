@@ -35,6 +35,7 @@ pub fn reset_for_thread_reuse() {
 // InvalidateAttoptCacheCallback (attoptcache.c:53-77): C flushes every entry
 // regardless of the hash value (the callback is keyed on the cache, not the
 // tuple), so a flush is a clear.
+#[allow(non_snake_case)]
 pub fn InvalidateAttoptCacheCallback(_arg: Datum, _cacheid: i32, _hashvalue: u32) {
     ATTOPT_CACHE.with(|c| c.borrow_mut().clear());
 }
